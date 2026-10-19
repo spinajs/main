@@ -59,9 +59,9 @@ File and form arguments (`@File`, `@Files`, `@CsvFile`, `@JsonFile`, `@Form`, `@
 | `@PKey(type = ParameterType.FromParams)` | parameter | the parameter source | Number with schema `{ type: 'number', minimum: 0 }`. |
 | `@Uuid(type = ParameterType.FromParams, version = UuidVersion.v4)` | parameter | the parameter source; version (recorded, not checked) | 36-character UUID string, hex pattern. |
 | `@Type(type)` | parameter | a class or `Array.ofType(X)` | Overrides the runtime type, which TypeScript erases for arrays. Combine with another parameter decorator. |
-| `@HeadersField()` | parameter | none | Intended: all headers. **No handler is registered for it** (see below). |
-| `@QueryField()` | parameter | none | Intended: the whole `req.query`. **No handler is registered for it.** |
-| `@ParamField()` | parameter | none | Intended: the whole `req.params`. **No handler is registered for it.** |
+| `@HeadersField()` | parameter | none | All headers, `req.headers`. |
+| `@QueryField()` | parameter | none | The whole `req.query`. |
+| `@ParamField()` | parameter | none | The whole `req.params`. |
 | `@Model(type)` | parameter | model class | Records `ParameterType.FromModel`. **No package registers a `FromModel` handler**; use `@FromModel()` or `@AsModel()` from [`@spinajs/orm-http`](../orm-http/README.md). |
 
 `@PKey` and `@Uuid` take the source as a `ParameterType`: `@PKey(ParameterType.FromQuery)` reads the query string.
@@ -84,8 +84,8 @@ File and form arguments (`@File`, `@Files`, `@CsvFile`, `@JsonFile`, `@Form`, `@
 | `FromDi` | `FromDi` | `FromDi` |
 | `Req`, `Res` | `ArgAsRequest`, `ArgAsResponse` | same names |
 | `FromFile`, `FromCSV`, `FormField`, `FromForm` | `FromFile`, `FromCSV`, `FromFormField`, `FromForm` | same names |
-| `QueryField`, `Headers`, `ParamField` | `QueryFieldRouteArgs`, `HeadersFieldRouteArgs`, `ParamFieldRouteArgs` | `QueryFieldRouteArg`, `HeadersFieldRouteArg`, `ParamFieldRouteArg`: names differ, so nothing resolves |
-| `FromJSONFile` | `FromJSONFile` | `FromJsonFile`: name differs, so nothing resolves |
+| `QueryField`, `Headers`, `ParamField` | `QueryFieldRouteArgs`, `HeadersFieldRouteArgs`, `ParamFieldRouteArgs` | same names (the old `QueryFieldRouteArg`, `HeadersFieldRouteArg`, `ParamFieldRouteArg` exports are deprecated aliases) |
+| `FromJSONFile` | `FromJSONFile` | `FromJSONFile` (the old `FromJsonFile` export is a deprecated alias) |
 | `FromModel`, `FromSession`, `Other` | `FromModel`, `FromSession`, `Other` | none in this package |
 
 ## Configuration
@@ -103,19 +103,6 @@ File and form arguments (`@File`, `@Files`, `@CsvFile`, `@JsonFile`, `@Form`, `@
 | `DataValidator` | `@spinajs/validation`, autoinjected into every `RouteArgs` | `DataValidator` | | See [`@spinajs/validation`](../validation/README.md). |
 | `ArgHydrator` | metadata on the type | `DateTimeHydrator` | | See [Argument hydrators](06-argument-hydrators.md). |
 | `ArgInputFilter` | `ArgInputFilter` list | none | `AuthzInputFieldFilter` (`@spinajs/authz-http`) | See [Argument input filters](07-argument-input-filters.md). |
-
-### Making `@QueryField`, `@HeadersField` and `@ParamField` resolve
-
-Their handlers are registered under their class names, which lack the trailing `s` of the `ParameterType` value. Register the classes under the expected names, once, before the first request:
-
-```ts sample
-import { DI } from '@spinajs/di';
-import { HeadersFieldRouteArg, ParamFieldRouteArg, QueryFieldRouteArg } from '@spinajs/http';
-
-DI.register(QueryFieldRouteArg).as('QueryFieldRouteArgs');
-DI.register(HeadersFieldRouteArg).as('HeadersFieldRouteArgs');
-DI.register(ParamFieldRouteArg).as('ParamFieldRouteArgs');
-```
 
 ## Important behaviour
 

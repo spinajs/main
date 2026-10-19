@@ -7,8 +7,8 @@
 1. `@Lang(allowedLanguages?)` calls `Route(Parameter('LangArgument', null, { allowedLanguages }))`. The route parameter gets `Type = 'LangArgument'` and `Options = { allowedLanguages }`.
 2. On each call `extractRouteArgs()` in `@spinajs/http` resolves the handler with `DI.resolve('LangArgument')`, by name. Handlers run by `Priority`, higher first; `LangArgument` has none, so it counts as `0`.
 3. `LangArgument.extract()` reads the request again, with the same rules as the middleware: query `?<name>=`, then cookie `<name>`, then header `x-<name>`, where `<name>` is `intl.queryParameter`. It does **not** read `req.storage.language`.
-4. No value: the parameter receives `intl.defaultLocale`. The allow-list is not checked.
-5. A value: it must be a string of 2 to 5 characters, else `InvalidArgument`. With an allow-list, a value outside it throws `InvalidArgument('Language not supported, allowed languages are en,pl')`. `@spinajs/http` maps both to `400`.
+4. No value: the parameter receives `intl.defaultLocale`.
+5. A value must be a string of 2 to 5 characters, else `InvalidArgument`. With an allow-list, a value (or the default) outside it throws `InvalidArgument('Language not supported, allowed languages are en,pl')`. `@spinajs/http` maps both to `400`.
 6. The value is passed to the action parameter.
 
 ## Decorators
@@ -23,7 +23,7 @@
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `intl.queryParameter` | `string` | `'lang'` | lower-case name | Query parameter, cookie and `x-<name>` header read by `LangArgument`. |
+| `intl.queryParameter` | `string` | `'lang'` | any name | Query parameter, cookie and `x-<name>` header read by `LangArgument`. |
 | `intl.defaultLocale` | `string` | `'en'` | a locale code | Value injected when the request names no language. |
 
 ## Services and extension points
@@ -87,7 +87,7 @@ export class TermsController extends BaseController {
 
 ## Important behaviour
 
-- **Default ignores the allow-list:** with `intl.defaultLocale = 'pl'` and `@Lang(['en', 'de'])`, a request with no language injects `'pl'`. Check the value in the action, or use a custom handler as above.
+- **Default is checked against the allow-list:** with `intl.defaultLocale = 'pl'` and `@Lang(['en', 'de'])`, a request with no language answers `400`. Include the default locale in the list, or use a custom handler as above.
 - **Independent of the middleware:** `LangArgument` re-reads the request. A language written to `req.storage.language` by another middleware does not reach `@Lang()`; see [Custom language resolution](03-custom-language-resolution.md#inject-the-stored-language).
 - **Case-sensitive allow-list:** `?lang=EN` fails `@Lang(['en'])` with `400`.
 - **Same input limits as the middleware:** 2 to 5 characters, one value, plain cookie only. See [Request language](01-request-language.md#important-behaviour).

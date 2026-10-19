@@ -6,7 +6,6 @@ import { expect } from 'chai';
 import 'mocha';
 
 import { DbAuthnThrottle } from '../src/index.js';
-import { driverDialect } from '../src/support/sql.js';
 import { FakeMsSql, FakeMySql, fake, sql } from './support/fake-drivers.js';
 
 const NOW = new Date('2026-06-01T10:00:00.000Z');
@@ -45,10 +44,6 @@ const DIALECTS = [
 for (const d of DIALECTS) {
   describe(`DbAuthnThrottle SQL on ${d.name} (compiled, no server)`, function () {
     this.timeout(30000);
-
-    it(`detects the ${d.name} dialect`, async () => {
-      expect(driverDialect(await fake(d.type, `n4-${d.name}`))).to.eq(d.name);
-    });
 
     it('reads datetimes as text and claims a live row with a compare-and-set', async () => {
       const driver = await fake(d.type, `n4-${d.name}`);

@@ -30,45 +30,13 @@ The `ConfigVarProtocol` contract:
 
 ### `ConfigurationFsPathProtocol`: custom implementation
 
-Replace it when the default parsing or failure mode does not fit:
+Replace it when the default failure mode does not fit:
 
-- The default splits at the last `/`, so `fs-path://fs-data/invoices/2026` fails. A subclass can split at the first `/`.
 - The default turns every failure into `null`. A subclass can report a misspelled provider name at boot instead.
 
 Override `getVar()` only. Keep returning a `ConfigVar`: `fsService` registers the providers after `Configuration` is resolved, so a resolver that runs inside `getVar()` always fails.
 
 Register the replacement before `Configuration` is resolved. Call `DI.unregister(ConfigurationFsPathProtocol)` after the package is imported and before your class is declared, so the default is not collected at all.
-
-```ts sample
-import { ConfigVar, ConfigVarProtocol } from '@spinajs/configuration';
-import { ConfigurationFsPathProtocol } from '@spinajs/configuration-fs-protocol';
-import { DI, Injectable, Singleton } from '@spinajs/di';
-import { getFs } from '@spinajs/fs';
-
-// the import above already registered the default protocol
-DI.unregister(ConfigurationFsPathProtocol);
-
-// fs-path://fs-data/invoices/2026 -> provider fs-data, path invoices/2026
-@Singleton()
-@Injectable(ConfigVarProtocol)
-export class NestedFsPathProtocol extends ConfigurationFsPathProtocol {
-  public async getVar(path: string): Promise<ConfigVar> {
-    return new ConfigVar(() => {
-      const slash = path.indexOf('/');
-      if (slash <= 0) {
-        return null;
-      }
-
-      try {
-        return getFs(path.substring(0, slash)).resolvePath(path.substring(slash + 1));
-      } catch {
-        // providers are not registered yet: null is not cached, the next read retries
-        return null;
-      }
-    });
-  }
-}
-```
 
 ### Sibling protocol: reuse the resolver under another prefix
 
@@ -158,7 +126,7 @@ DI.unregister(ConfigurationFsPathProtocol);
 @Injectable(ConfigVarProtocol)
 export class CheckedFsPathProtocol extends ConfigurationFsPathProtocol {
   public async getVar(path: string, configuration?: FsProvidersSection): Promise<ConfigVar> {
-    const name = path.substring(0, path.lastIndexOf('/'));
+    const name = path.substring(0, path.indexOf('/'));
     const known = (configuration?.fs?.providers ?? []).map((p) => p.name);
 
     if (!known.includes(name)) {

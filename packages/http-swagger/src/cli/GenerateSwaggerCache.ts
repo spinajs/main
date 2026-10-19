@@ -3,7 +3,7 @@ import { Logger, Log } from '@spinajs/log-common';
 import { ClassInfo, DI } from '@spinajs/di';
 import { fsService } from '@spinajs/fs';
 import { ListFromFiles } from '@spinajs/reflection';
-import { BaseController } from '@spinajs/http';
+import { BaseController, CONTROLLED_DESCRIPTOR_SYMBOL } from '@spinajs/http';
 import { SwaggerDocCache } from '../swagger-cache.js';
 
 @Command('http:swagger:cache', 'generate swagger documentation cache from controller JSDoc comments')
@@ -25,6 +25,11 @@ export class SwaggerCacheCommand extends CliCommand {
 
     const controllers = await this.Controllers;
     for (const controller of controllers) {
+      // the scan lists every exported class, DTOs next to a controller included
+      if (!(controller.type.prototype instanceof BaseController) && Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, controller.type.prototype) === undefined) {
+        continue;
+      }
+
       this.Log.info({ controller: controller.name }, 'Processing controller: ${controller}');
       await cache.getCache(controller);
     }

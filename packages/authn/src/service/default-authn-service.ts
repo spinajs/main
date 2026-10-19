@@ -180,9 +180,6 @@ export class DefaultAuthnService extends AuthnService {
   @Logger('authn-boot')
   protected Log: Log;
 
-  // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
-  private static readonly warned = new Set<string>();
-
   @Config('authn.linking')
   protected Linking!: Linking;
 
@@ -202,10 +199,9 @@ export class DefaultAuthnService extends AuthnService {
     await super.resolve();
   }
 
+  // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
   private warnOnce(message: string): void {
-    if (DefaultAuthnService.warned.has(message)) return;
-    DefaultAuthnService.warned.add(message);
-    this.Log.warn(message);
+    this.Log.warnOnce(message, message);
   }
 
   public strategies(): readonly AuthenticationStrategy[] {
@@ -459,8 +455,7 @@ export class DefaultAuthnService extends AuthnService {
   private async runLoginHooks(id: IdentityRef, external: ExternalSubject): Promise<string | null> {
     try {
       const chain = (await this.Container.resolve(Array.chainOf(ExternalLoginHook))) as readonly ExternalLoginHook[];
-      // A resolve of the abstract base itself leaves an instance of it in the chain; it is no hook.
-      for (const hook of chain.filter((h) => h?.constructor !== ExternalLoginHook)) await hook.afterLogin(id, external);
+      for (const hook of chain) await hook.afterLogin(id, external);
       return null;
     } catch (err) {
       return errorClass(err);

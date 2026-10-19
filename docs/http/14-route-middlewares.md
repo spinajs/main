@@ -26,22 +26,23 @@ A rejected `onBefore` or `onAfter` skips the rest and goes to the error handler.
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
 | `@Middleware(type, ...options)` | class or method | `type`: a `RouteMiddleware` class; `options`: constructor arguments | Adds the middleware to the controller (class) or the route (method). |
-| `@Accepts(types)` | class or method | `HttpAcceptHeaders` flags, eg. `HttpAcceptHeaders.JSON \| HttpAcceptHeaders.HTML` | Adds a middleware that refuses the request with `BadRequest` (400) when the `Accept` header does not map to one of `types`. |
+| `@Accepts(types)` | class or method | `HttpAcceptHeaders` flags, eg. `HttpAcceptHeaders.JSON \| HttpAcceptHeaders.HTML` | Adds a middleware that refuses the request with `ExpectedResponseUnacceptable`, answered as `NotAcceptable` (406), when the `Accept` header allows none of `types`. |
 
 ### `@Accepts`
 
-The `Accept` header is mapped as a whole string, case-insensitively:
+The `Accept` header is matched with Express's `req.accepts()`, which honours lists, wildcards and `q` values. The value is the OR of the flag of every type the header allows:
 
-| `Accept` | `HttpAcceptHeaders` |
+| Type allowed by `Accept` | `HttpAcceptHeaders` |
 | --- | --- |
-| `text/html`, `text/*` | `HTML` (2) |
-| `text/plain` | `TEXT` (8) |
-| `image/png`, `image/jpeg`, `image/*` | `IMAGE` (16) |
-| `application/pdf` | `PDF` (32) |
 | `application/json` | `JSON` (1) |
-| anything else, including `*/*`, a list such as `application/json, text/plain`, or no header | `OTHER` (64) |
+| `text/html` | `HTML` (2) |
+| `application/xml`, `text/xml` | `XML` (4) |
+| `text/plain` | `TEXT` (8) |
+| `image/png`, `image/jpeg` | `IMAGE` (16) |
+| `application/pdf` | `PDF` (32) |
+| none of the above | `OTHER` (64) |
 
-`@AcceptType()` gives an action the same value as an argument.
+`*/*` or a missing header allows every type, so it sets every flag except `OTHER`. `@AcceptType()` gives an action the same value as an argument.
 
 ## Services and extension points
 
@@ -108,11 +109,10 @@ export class CatalogController extends BaseController {
 ## Important behaviour
 
 - `isEnabled()` runs once per route at startup; a middleware cannot switch itself on or off per request. Decide in `onBefore()` instead.
-- `onResponse()` calls are not awaited: the answer can be sent before an async `onResponse()` finishes, and its rejection is not handled. Keep `onResponse()` synchronous in effect.
+- `onResponse()` calls are awaited one after another, before the response is sent. A rejection goes to the error handler instead of the response.
 - `onAfter()` runs before the response handler. It cannot see the status or body that will be sent, but it can still set headers.
 - An error in the action skips `onResponse()` and `onAfter()`.
 - A singleton middleware resolved with different options keeps the first ones; use `@NewInstance()` for configurable middlewares.
-- `@Accepts(HttpAcceptHeaders.JSON)` refuses clients that send `*/*` or a list of types (most HTTP libraries and browsers): only an exact `application/json` header passes.
 ## Best practices
 
 - Prefer [policies](13-policies.md) for allow/deny decisions; a policy failure is reported consistently and policies combine with AND/OR.

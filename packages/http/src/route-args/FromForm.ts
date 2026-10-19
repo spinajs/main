@@ -131,6 +131,7 @@ export abstract class FromFormBase extends RouteArgs {
       CallData: {
         ...callData,
         Payload: {
+          ...callData?.Payload,
           Form: this.FormData,
         },
       },
@@ -215,7 +216,8 @@ export class FromFile extends FromFormBase {
         Type: f.mimetype ?? '',
         LastModifiedDate: f.mtime ?? undefined,
         Hash: f.hash ?? undefined,
-        Provider: uploadFs,
+        // middlewares work on the temp file, the copy step below moves it to the target fs
+        Provider: this.DefaultUploadFs,
         OriginalFile: f,
       };
 
@@ -250,6 +252,7 @@ export class FromFile extends FromFormBase {
 
       // copy to target fs if different than default temp fs
       if (uploadFs && this.DefaultUploadFs.Name !== uploadFs.Name) {
+        uplFiles.forEach((f) => (f.Provider = uploadFs));
         const fu = DI.resolve<FormFileUploader>(ImmediateFileUploader, [{ sourceFs: this.DefaultUploadFs, deleteSource: true }]);
         const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
         uFiles = collectUploads(pResults);
@@ -284,7 +287,7 @@ export class FromFile extends FromFormBase {
 
 @Injectable()
 @NewInstance()
-export class FromJsonFile extends FromFile {
+export class FromJSONFile extends FromFile {
   public get SupportedType(): ParameterType {
     return ParameterType.FromJSONFile;
   }
@@ -325,6 +328,10 @@ export class FromJsonFile extends FromFile {
     };
   }
 }
+
+/** @deprecated use `FromJSONFile` */
+export const FromJsonFile = FromJSONFile;
+export type FromJsonFile = FromJSONFile;
 
 /**
  * Options for CSV file parsing and validation

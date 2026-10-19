@@ -181,8 +181,8 @@ export class ThrottleMiddleware extends ServerMiddleware {
 
           next();
         })
-        // a broken counter store must not take the whole route down - let the
-        // request through and let the error handler log the fault
+        // fail closed: without a working counter the limit cannot be enforced,
+        // so the error handler answers the request instead of the route
         .catch((err) => next(err));
     };
   }

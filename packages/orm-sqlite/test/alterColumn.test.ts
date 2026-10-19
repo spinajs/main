@@ -5,14 +5,13 @@
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-floating-promises */
 import { Configuration } from '@spinajs/configuration';
-import { SqliteOrmDriver, SqliteColumnCompiler, SqliteAlterColumnQueryCompiler } from './../src/index.js';
+import { SqliteOrmDriver, SqliteColumnCompiler } from './../src/index.js';
+import { NotSupported, ResourceDuplicated } from '@spinajs/exceptions';
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Orm, ICompilerOutput, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterColumnQueryBuilder, OrmDriver, ColumnType } from '@spinajs/orm';
+import { Orm, ICompilerOutput, ColumnQueryCompiler, AlterColumnQueryBuilder, OrmDriver, ColumnType, QueryContext } from '@spinajs/orm';
 import * as chai from 'chai';
-import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import '@spinajs/log';
-import { renderTemplate } from '@spinajs/log-common';
 import { ConnectionConf, db } from './common.js';
 
 const expect = chai.expect;
@@ -82,59 +81,64 @@ describe('Sqlite alter column', function () {
     expect(result[0].expression).to.not.match(/ENUM/i);
   });
 
-  it('modify column should be a no-op on sqlite', () => {
-    // sqlite renders enum as unconstrained TEXT and cannot MODIFY a column type;
-    // the alter must emit nothing rather than invalid SQL
-    const result = schqb()
-      .alterTable('alter_test', (table) => {
-        // note: `.default().value()` returns the column builder, so `.modify()`
-        // cannot be chained off it - it must be called on the column itself
-        const c = table.enum('Status', ['a', 'b', 'c']).notNull();
-        c.default().value('a');
-        c.modify();
-      })
-      .toDB() as ICompilerOutput[];
-
-    expect(result.filter((r) => /MODIFY/i.test(r.expression as string))).to.be.empty;
-    // returning null from _modify must drop the statement entirely - emitting it
-    // would leave a dangling `ALTER TABLE \`alter_test\``
-    expect(result).to.be.empty;
+  it('modify compiled on its own throws NotSupported: only the connection can rebuild the table', () => {
+    expect(() =>
+      schqb()
+        .alterTable('alter_test', (table) => {
+          table.string('Status', 64).modify();
+        })
+        .toDB(),
+    ).to.throw(NotSupported, /Status/);
   });
 
-  it('widening the queue Status enum is a no-op on sqlite (queue migration)', () => {
-    // Mirrors @spinajs/queue's Queue_2026_07_17_00_00_00 migration exactly - it
-    // replicates the SAME alterTable(...) builder call the migration emits and
-    // compiles THAT (not the migration's up(), which needs a live DB). sqlite
-    // renders enum as unconstrained TEXT and cannot MODIFY, so widening to the six
-    // states must emit nothing rather than invalid SQL.
-    const result = schqb()
-      .alterTable('queue_jobs', (table) => {
-        const c = table.enum('Status', ['error', 'success', 'created', 'executing', 'retrying', 'dead']).notNull();
-        c.default().value('created');
-        c.modify();
-      })
-      .toDB() as ICompilerOutput[];
+  it('modify rebuilds the table with the new definition, keeping rows, keys and indexes', async () => {
+    await connection().insert().into('alter_test').values({ Status: 'a' });
+    await connection().index().table('alter_test').name('alter_test_status').columns(['Status']);
 
-    expect(result).to.be.empty;
+    await connection().schema().alterTable('alter_test', (table) => {
+      const c = table.string('Status', 64);
+      c.default().value('z');
+      c.modify();
+    });
+
+    // nullable and defaulted now
+    await connection().insert().into('alter_test').values({ Status: null });
+    await connection().schema().raw('INSERT INTO alter_test DEFAULT VALUES');
+    const rows = (await connection().select().from('alter_test').orderBy('Id')) as any[];
+    expect(rows.map((r) => [r.Id, r.Status])).to.deep.equal([
+      [1, 'a'],
+      [2, null],
+      [3, 'z'],
+    ]);
+
+    const master = (await (connection() as SqliteOrmDriver).executeOnDb(`SELECT type, name FROM sqlite_master WHERE tbl_name LIKE 'alter_test%'`, [], QueryContext.Select)) as any[];
+    expect(master.filter((m) => m.type === 'index').map((m) => m.name)).to.include('alter_test_status');
+    expect(master.map((m) => m.name)).to.not.include('alter_test__rebuild');
   });
 
-  it('modify column warns, naming the column and what was skipped', () => {
-    // the no-op is only defensible if it is loud: a silently skipped NOT NULL /
-    // DEFAULT change would be a data-integrity surprise
-    const builder = new AlterColumnQueryBuilder(connection().Container as any, 'Status', ColumnType.ENUM, ['a', 'b', 'c']);
-    builder.modify();
+  it('modify keeps a primary key the builder does not restate', async () => {
+    await connection().schema().createTable('alter_pk', (table) => {
+      table.string('Key', 36).primaryKey().notNull();
+      table.int('UserId').notNull();
+    });
+    await connection().insert().into('alter_pk').values({ Key: 'k', UserId: 1 });
 
-    const compiler = connection().Container.resolve(AlterColumnQueryCompiler, [builder]) as unknown as SqliteAlterColumnQueryCompiler;
-    const spy = sinon.spy((compiler as any).Log, 'warn');
+    await connection().schema().alterTable('alter_pk', (table) => {
+      table.string('Key', 64).notNull().modify();
+      table.int('UserId').modify();
+    });
 
-    const output = compiler.compile();
+    await connection().insert().into('alter_pk').values({ Key: 'other', UserId: null });
+    await expect(connection().insert().into('alter_pk').values({ Key: 'k', UserId: 2 })).to.be.rejectedWith(ResourceDuplicated);
+  });
 
-    expect(output.expression).to.eq('');
-    expect(spy.calledOnce).to.be.true;
-    expect(spy.firstCall.args[0]).to.deep.equal({ column: 'Status' });
-    const message = renderTemplate(spy.firstCall.args[1], spy.firstCall.args[0]);
-    expect(message).to.match(/Status/);
-    expect(message).to.match(/NOT NULL/i);
+  it('modify refuses a builder that also adds, drops or renames', async () => {
+    await expect(
+      connection().schema().alterTable('alter_test', (table) => {
+        table.string('Status', 64).modify();
+        table.int('Counter');
+      }),
+    ).to.be.rejectedWith(NotSupported);
   });
 
   it('add column should not emit MySQL AFTER clause on sqlite', () => {
@@ -147,18 +151,17 @@ describe('Sqlite alter column', function () {
     expect(result.every((r) => !/AFTER/i.test(r.expression as string))).to.be.true;
   });
 
-  it('modify column should not throw against real sqlite', async () => {
-    // exercise the real driver end-to-end, not just the compiler
-    await expect(
-      connection().schema().alterTable('alter_test', (table) => {
-        const c = table.enum('Status', ['a', 'b', 'c']).notNull();
-        c.default().value('a');
-        c.modify();
-      }),
-    ).to.be.fulfilled;
+  it('widening an enum column rebuilds the table (queue migration)', async () => {
+    // the same alteration as @spinajs/queue's Queue_2026_07_17_00_00_00
+    await connection().schema().alterTable('alter_test', (table) => {
+      const c = table.enum('Status', ['error', 'success', 'created', 'executing', 'retrying', 'dead']).notNull();
+      c.default().value('created');
+      c.modify();
+    });
 
-    // the table must still be usable afterwards
-    await connection().insert().into('alter_test').values({ Status: 'a' });
+    await connection().schema().raw('INSERT INTO alter_test DEFAULT VALUES');
+    const rows = (await connection().select().from('alter_test')) as any[];
+    expect(rows.map((r) => r.Status)).to.deep.equal(['created']);
   });
 
   it('add int column should work against real sqlite (production migration case)', async () => {

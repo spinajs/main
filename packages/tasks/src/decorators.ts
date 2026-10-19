@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mutex_acquire, mutex_release } from '@spinajs/threading';
 import { _check_arg, _non_empty, _trim } from '@spinajs/util';
 import { DI } from '@spinajs/di';
@@ -10,7 +11,7 @@ import { TaskFailed } from './events/TaskFailed.js';
 
 export const TASK_COMMAND = 'task:command';
 
-interface TaskOptions {
+export interface TaskOptions {
   // allow for multiple task running in same time22
   // eg. long running task that overlaps beginning of another same task
   // by default is set to false.
@@ -40,21 +41,39 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
       log.info({ taskName: _name }, 'Executing task ${taskName} ...');
 
       try {
-        const task = await __task.getOrCreate(null, {
-          Name: _name,
-          Description: _description,
-          State: 'stopped',
-        });
+        const task = await __task
+          .getOrCreate(null, {
+            Name: _name,
+            Description: _description,
+            State: 'stopped',
+          })
+          .catch(async (err) => {
+            // another process may have inserted the row between getOrCreate's select and insert
+            const existing = await __task
+              .where({ Name: _name })
+              .first()
+              .catch((): undefined => undefined);
+            if (!existing) {
+              throw err;
+            }
+            return existing;
+          });
 
-        if (!opts!.taskStacking) {
+        // per-run tenant: with the backend's default tenant every caller would re-acquire a held lock
+        let lockTenant: string | undefined;
+        if (!opts?.taskStacking) {
+          const tenant = randomUUID().replace(/-/g, '');
           const lock = await mutex_acquire({
             Name: `task-${_name}`,
+            Tenant: tenant,
           });
 
           if (!lock.Locked) {
             log.warn({ taskName: _name }, 'Cannot acquire mutex for task ${taskName}, already locked !');
             return;
           }
+
+          lockTenant = tenant;
         }
 
         task.State = 'running';
@@ -66,26 +85,29 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
         try {
           taskResult = await oldFunction.apply(this, args);
           await TaskSuccess.emit({
-            TaskName: taskName,
+            TaskName: _name,
           });
 
-          log.success({ taskName }, 'Task ${taskName} executed !');
+          log.success({ taskName: _name }, 'Task ${taskName} executed !');
         } catch (err) {
-          log.error({ error: err, taskName }, 'Cannot execute task ${taskName}');
+          log.error({ error: err, taskName: _name }, 'Cannot execute task ${taskName}');
           taskResult = {
             error: true,
-            message: err.Message,
+            message: err.message,
           };
 
           await TaskFailed.emit({
-            TaskName: taskName,
-            Reason: err.Message,
+            TaskName: _name,
+            Reason: err.message,
           });
         } finally {
           try {
-            await mutex_release({
-              Name: `task-${name}`,
-            });
+            if (lockTenant) {
+              await mutex_release({
+                Name: `task-${_name}`,
+                Tenant: lockTenant,
+              });
+            }
 
             await task.update({
               State: 'stopped',
@@ -99,11 +121,11 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
           } catch (err) {
             log.error(err, `Cannot finalize task`);
           }
-
-          return taskResult;
         }
+
+        return taskResult;
       } catch (err) {
-        log.error({ error: err, taskName }, 'Cannot start task ${taskName}');
+        log.error({ error: err, taskName: _name }, 'Cannot start task ${taskName}');
         throw err;
       }
     };

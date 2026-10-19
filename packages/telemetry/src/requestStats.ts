@@ -101,7 +101,7 @@ export class RequestStats {
     // response-time aggregates
     this.totalTime += durationMs;
     if (durationMs > this.maxTime) this.maxTime = durationMs;
-    if (this.minTime === 0 || durationMs < this.minTime) this.minTime = durationMs;
+    if (this.responses === 1 || durationMs < this.minTime) this.minTime = durationMs;
     this.avgTime = this.responses > 0 ? this.totalTime / this.responses : 0;
 
     // Apdex — a "satisfactory" response is a non-error ( < 500 and not a

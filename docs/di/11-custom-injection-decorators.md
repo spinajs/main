@@ -167,7 +167,7 @@ console.log(DI.RootContainer.extractDescriptor(RequestContext).resolver === Reso
 
 ## Important behaviour
 
-- The callback edits the class's **own** descriptor, created with the `Singleton` default. A subclass that gets its first own entry this way stops inheriting the base class's lifetime; see [Lifetimes](04-lifetimes.md#important-behaviour).
+- The callback edits the class's **own** descriptor. A new one starts with the lifetime of the nearest decorated base class (`Singleton` when there is none), so a subclass keeps its base's lifetime until a callback sets `descriptor.resolver`; see [Lifetimes](04-lifetimes.md#important-behaviour).
 - Property entries are unique per `autoinjectKey`: when a subclass and its base both decorate one property, the subclass's entry wins.
 - `@Inject` skips a type already in the descriptor; your own `AddDependency` callback does not, unless you check `descriptor.inject` yourself.
 - A `resolveFunc` that throws synchronously while another dependency is pending can leave that one's rejection unhandled. Return `Promise.reject(err)` instead, as `@Autoinject` with `check` does.

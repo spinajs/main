@@ -13,7 +13,7 @@ import { RbacService, TokenRolePolicy } from '@spinajs/authz-rbac';
 import type { User } from '@spinajs/users';
 
 import { UserController } from '../../src/controllers/UserController.js';
-import { offeredTokenProfiles, offeredTokenRoles } from '../../src/services/token-offer.js';
+import { offeredTokenRoles } from '../../src/services/token-offer.js';
 import { rootAdmin } from '../support/authz-host.js';
 import { startUsersHttpApp, stopUsersHttpApp } from '../support/http-app.js';
 import type { RoleDefs, UsersHttpApp } from '../support/http-app.js';
@@ -253,18 +253,6 @@ describe('users-http v3: GET /user/tokens/roles and /user/tokens/profiles', func
     });
 
     // A resolve of an unregistered abstract class leaves the class itself under its own name; a string key carries only the name.
-    it('treats the bare abstract TokenProfilePolicy class as no policy: offers no profile', async () => {
-      abstract class TokenProfilePolicy {}
-      const registry = DI.RootContainer;
-      const original = registry.getRegisteredTypes.bind(registry);
-      const stub = sinon.stub(registry, 'getRegisteredTypes').callsFake(((key: unknown, parent?: boolean) => (key === 'TokenProfilePolicy' ? [TokenProfilePolicy] : original(key as string, parent))) as any);
-      try {
-        expect(await offeredTokenProfiles({ type: 'user', id: me.Uuid })).to.deep.eq([]);
-      } finally {
-        stub.restore();
-      }
-    });
-
     it('offers no role while no RoleSource is registered', async () => {
       const registry = DI.RootContainer;
       const original = registry.getRegisteredTypes.bind(registry);

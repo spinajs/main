@@ -3,13 +3,13 @@
 `spinajs render-image` turns an HTML file, or a template, into a PNG or JPEG screenshot. Use it in CI to produce images for visual comparison, or to preview a template without writing code.
 
 ```sh
-spinajs render-image <input> -o <file> [-t] [-m <model.json>] [-l <lang>] [--width <px>] [--height <px>] [--scale <n>] [--type png|jpeg]
+spinajs render-image <input> -o <file> [-t] [-m <model.json>] [-l <lang>] [--width <px>] [--height <px>] [--scale <n>] [--type png|jpeg|jpg|webp]
 ```
 
 ## How it works
 
 1. `@spinajs/cli` finds `RenderImageCommand` in this package's `cli` directory, listed under `system.dirs.cli` ([Command discovery](../cli/05-command-discovery.md)).
-2. `RenderImageCommand.execute(input, options)` sets the type: `jpeg` when `--type jpeg`, otherwise `png`.
+2. `RenderImageCommand.execute(input, options)` sets the type from `--type` (`jpg` is `jpeg`), or from the `--output` extension when `--type` is absent, defaulting to `png`. Any type other than `png`, `jpeg` or `webp` throws `InvalidArgument`.
 3. It resolves `DI.resolve(ImageRenderer, [{ type }])`.
 4. `resolveInputHtml(input, options)` from `@spinajs/templates` builds the HTML:
    - with `--template`, `Templates.render(input, model, lang)` compiles `input` with the text engine its extension selects (`.pug`, `.handlebars`), and `--model` is read as JSON (a missing file gives `{}`);
@@ -34,7 +34,7 @@ spinajs render-image <input> -o <file> [-t] [-m <model.json>] [-l <lang>] [--wid
 | `--width [width]` | no | `800` when another viewport option is set | Viewport width in px |
 | `--height [height]` | no | `600` when another viewport option is set | Viewport height in px |
 | `--scale [scale]` | no | `1` when another viewport option is set | Device scale factor |
-| `--type [type]` | no | `png` | `png` or `jpeg` |
+| `--type [type]` | no | from `--output`, else `png` | `png`, `jpeg`, `jpg` or `webp` |
 
 ## Configuration
 
@@ -53,7 +53,7 @@ spinajs render-image <input> -o <file> [-t] [-m <model.json>] [-l <lang>] [--wid
 
 ### Custom command: a social-card renderer for CI
 
-The shipped command takes only `type` and the viewport. Write a command in your app's `cli` directory when you need other screenshot options, such as WebP output or a clip.
+The shipped command takes only `type` and the viewport. Write a command in your app's `cli` directory when you need other screenshot options, such as a clip or quality.
 
 ```ts sample
 import * as path from 'path';
@@ -100,8 +100,8 @@ Add your `cli` directory to `system.dirs.cli` in your config so `Cli` finds it (
 
 ## Important behaviour
 
-- **`--type` accepts only `jpeg`.** Any other value, including `jpg` and `webp`, produces PNG without a warning.
-- **The type does not follow `--output`.** `--type jpeg -o shot.png` writes JPEG bytes to `shot.png`. Keep the two in line.
+- **An unknown type fails.** `--type gif` throws `InvalidArgument` before rendering.
+- **An explicit `--type` is not checked against `--output`.** `--type jpeg -o shot.png` writes JPEG bytes to `shot.png`. Keep the two in line.
 - **The viewport is all or nothing.** Give any of `--width`, `--height`, `--scale` and the missing ones default to `800`, `600` and `1`. Give none and Puppeteer's default viewport is used.
 - **Template mode needs a text template.** `--template` passes `input` to `Templates.render()`, so `card.pug` works and `card.png` throws `NotSupported`.
 - **Template mode serves the template's directory.** Relative URLs resolve through the injected `<base href>`; the template model has no `__http_template_port__` key in this mode.

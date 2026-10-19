@@ -439,8 +439,7 @@ export class IndexInvoicesByCustomer_2026_10_08_09_00_00 extends OrmMigration {
   }
 
   public async down(connection: OrmDriver): Promise<void> {
-    // MySQL / MSSQL syntax; the schema builder has no drop-index statement
-    await connection.schema().raw('DROP INDEX invoices_customer_idx ON invoices');
+    await connection.index().name('invoices_customer_idx').table('invoices').drop();
   }
 }
 ```

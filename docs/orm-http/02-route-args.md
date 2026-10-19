@@ -37,10 +37,10 @@ sequenceDiagram
 ### `@AsModel(field?, type?)`
 
 1. `@AsModel()` records a route parameter of type `'AsDbModel'`, resolved as `DI.resolve('AsDbModel')`.
-2. `AsDbModel.extract()` throws `BadRequest` when `req.body` is empty.
-3. It takes `req.body[<argument name>]` when that value is truthy; otherwise the whole body when the route has exactly one `AsDbModel` argument; otherwise `null`.
+2. `AsDbModel.extract()` reads `field` (the argument name by default) from the source `type` names: `ParameterType.FromQuery`, `FromParams` or `FromHeader` (key lowercased), else the body. A string from query, url or header is parsed with `JSON.parse`; invalid JSON throws `BadRequest`.
+3. For the body it throws `BadRequest` when `req.body` is empty. When the body has no such key, no `field` was given and the route has exactly one `AsDbModel` argument, it takes the whole body. A missing value is `null`.
 4. `RouteArgs.tryHydrateParam()` runs input filters, validates against the model's schema, and calls the model's hydrator: `DbModelHydrator` after bootstrapping.
-5. `DbModelHydrator.hydrate()` throws `OrmException('primary key cannot be null')` for `null` input, else returns `new Model()` with `hydrate(input)` applied. Nothing is read from or written to the database.
+5. `DbModelHydrator.hydrate()` throws `BadRequest` for `null` input, else returns `new Model()` with `hydrate(input)` applied. Nothing is read from or written to the database.
 
 A model typed `@Body()` takes steps 4 and 5 through `FromBody`.
 
@@ -49,7 +49,7 @@ A model typed `@Body()` takes steps 4 and 5 through `FromBody`.
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
 | `@FromModel<T>(options?)` | Route method parameter | `FromModelOptions<T>` | Loads one row of the model; `404` when absent. |
-| `@AsModel(field?, type?)` | Route method parameter | `field?: string`, `type?: ParameterType`; stored, not read by `AsDbModel` | Builds an unsaved model from the request body. |
+| `@AsModel(field?, type?)` | Route method parameter | `field?: string`, the request key; `type?: ParameterType`, where to read it (body by default) | Builds an unsaved model from the request. |
 
 ### `FromModelOptions`
 
@@ -79,8 +79,8 @@ Complete replacement samples are in [Custom route arguments and hydrators](08-cu
 - A parent `@Param()` declared before `@FromModel()` is extracted after it, and the lookup is **not** scoped to the parent.
 - A missing url parameter throws `InvalidArgument` (`400`) naming the argument, the url parameter it reads and the parameters the request has. It is checked against `req.params`, so a placeholder from `@BasePath` counts.
 - Header keys are lowercased before lookup.
-- `AsDbModel` ignores `field` and `type`: it reads `req.body[<argument name>]`. A falsy value there (`0`, `''`) falls back to the whole-body rule.
-- Two `@AsModel()` arguments with no matching body keys get `null`, and `DbModelHydrator` throws `OrmException('primary key cannot be null')`, which answers `500`.
+- Only a key that is absent from the body falls back to the whole-body rule; a present falsy value (`0`, `''`, `null`) is used as is.
+- Two `@AsModel()` arguments with no matching body keys get `null`, and `DbModelHydrator` throws `BadRequest` (`400`).
 
 | Failure | Thrown | Status |
 | --- | --- | --- |
@@ -90,7 +90,7 @@ Complete replacement samples are in [Custom route arguments and hydrators](08-cu
 | Parent relation key empty | `InvalidArgument` | `400` |
 | `@AsModel` with empty body | `BadRequest` | `400` |
 | `@AsModel` body fails the model schema | `ValidationFailed` | `400` |
-| `null` input to `DbModelHydrator` | `OrmException` | `500` |
+| `null` input to `DbModelHydrator` | `BadRequest` | `400` |
 
 ## Best practices
 

@@ -1,5 +1,7 @@
 import { ConditionCompiler, PermissionRegistry, resourceKey } from '@spinajs/authz';
 import type { Decision, DecisionRequest, EvaluationContext, ModelInitContext, NativeFilter, PermissionDef, RelationResolver, ResourceAdapter, ResourceRef, ResourceType, ScopeResolver, TraceStep } from '@spinajs/authz';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 
 import { FakePermissionRegistry, toPermissionDef } from './registry.js';
 import type { FakePermissionInput } from './registry.js';
@@ -126,6 +128,8 @@ export interface FakeModelInitContextOptions {
   readonly permissions?: PermissionRegistry | readonly FakePermissionInput[];
   /** Source of registered permissions: 'model:<model>'. */
   readonly model?: string;
+  /** What the model resolves its services in (the host passes the domain's container). Default: root DI. */
+  readonly container?: IContainer;
 }
 
 export interface FakeModelInitContext extends ModelInitContext {
@@ -145,6 +149,7 @@ export function fakeModelInitContext(opts: FakeModelInitContextOptions = {}): Fa
 
   return {
     domain: opts.domain ?? 'root',
+    container: opts.container ?? DI.RootContainer,
     permissions: registry,
     config: <T>(path: string, dflt?: T): T => {
       const v = readPath(opts.config ?? {}, path);

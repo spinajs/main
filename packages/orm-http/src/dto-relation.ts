@@ -39,7 +39,9 @@ export function Relation(target: () => typeof ModelBase, options?: IRelationOpti
     descriptor.Relations.set(field, { field, target, by: options?.by });
 
     // Register the resolver as the DTO's arg hydrator so a plain @Body() picks
-    // it up through the existing hydrator hook — unless one is already set.
+    // it up through the existing hydrator hook. A class-level @Hydrator() cannot
+    // replace it: class decorators run after this one, and @Hydrator() keeps a
+    // hydrator that is already set.
     const ctor = (proto as any).constructor;
     if (!Reflect.getOwnMetadata('custom:arg_hydrator', ctor)) {
       Reflect.defineMetadata('custom:arg_hydrator', { hydrator: RelationResolverHydrator }, ctor);

@@ -1,4 +1,4 @@
-export * from './dialect.js';
+export * from './quoter.js';
 export * from './terms.js';
 export * from './relation-sql.js';
 export * from './context.js';

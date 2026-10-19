@@ -19,7 +19,7 @@ The DI key of a class is its name. A proxy class named `Intl` or `Templates` the
 | Configuration | `Configuration` (from `@spinajs/configuration-common`) and `ElectronRendererConfiguration`; singleton; `@Injectable(Configuration)` | `ElectronRendererConfiguration`: `get()` over `callSync('get', 'Configuration', path, defaultValue)` | | Subclass and `DI.register(MyConfig).as(Configuration)` after importing the renderer entry. |
 | Intl | `Intl` (abstract class exported by this package) and `ElectronRendererIntl`; singleton; `@Injectable(Intl)` | `ElectronRendererIntl`: `__()` over `callSync('__', 'Intl', text, ...args)` | | Subclass `ElectronRendererIntl` to add `__n()`, `__l()`, `__h()`; register `.as(Intl)`. |
 | Templates | `Templates`; singleton; `@Injectable()` | `Templates`: `render()` and `renderToFile()` over `call(..., 'Templates', [], ...)` | | Subclass and `DI.register(MyTemplates).as(Templates)`. |
-| EmailService | `EmailService`; singleton; `@Injectable()` | `EmailService`: `send()` over `callSync('send', 'EmailService', email)` | | Subclass and `DI.register(MyEmail).as(EmailService)`. |
+| EmailService | `EmailService`; singleton; `@Injectable()` | `EmailService`: `send()` over `call('send', 'EmailService', [], email)` | | Subclass and `DI.register(MyEmail).as(EmailService)`. |
 | Your own proxy | Any token; any lifetime | | | Write a class that calls `window.ipc.__spinaJsIpcBridge`, register it. |
 
 ### `ElectronRendererConfiguration`
@@ -51,11 +51,9 @@ The main `Intl` in `@spinajs/intl` has `__n()`, `__l()` and `__h()` too; the ren
 
 | Member | Behaviour |
 | --- | --- |
-| `send(email: IEmail)` | `callSync('send', 'EmailService', email)`. |
+| `send(email: IEmail)` | `call('send', 'EmailService', [], email)`. Resolves when the main `send()` resolves, rejects when it rejects. |
 
 `IEmail` fields: `to`, `cc?`, `bcc?`, `from`, `connection`, `attachements?` (`IEmailAttachement[]`: `name`, `path`, `provider?`), `template?`, `templateId?`, `model?`, `text?`, `subject`, `lang?`, `priority?`, `replyTo?`, `tag?`, `emailId?`.
-
-The main `EmailService.send()` is async, and a promise cannot answer a sync IPC call. Replace the proxy with one that uses `call`, as shown below.
 
 ### Configuration: custom implementation
 
@@ -108,19 +106,19 @@ document.title = intl.__n('%s unread message', 3);
 
 ### EmailService: custom implementation
 
-Send email over the async channel, so the renderer awaits the real result and gets rejections.
+Subclass the proxy to fill fields the renderer should not choose, eg. a fixed sender and tag for every mail sent from a window.
 
 ```ts
 import { DI } from '@spinajs/di';
 import { EmailService, IEmail } from '@spinajs/electron';
 
-export class AsyncEmailService extends EmailService {
+export class WindowEmailService extends EmailService {
   public send(email: IEmail): Promise<void> {
-    return window.ipc.__spinaJsIpcBridge.call<void>('send', 'EmailService', [], email);
+    return super.send({ ...email, from: 'app@example.com', tag: 'renderer' });
   }
 }
 
-DI.register(AsyncEmailService).as(EmailService);
+DI.register(WindowEmailService).as(EmailService);
 
 const email = await DI.resolve(EmailService);
 await email.send({
@@ -184,9 +182,9 @@ await recent.add('C:/Invoices/2026-10.xlsx');
 
 ## Important behaviour
 
-- **Sync proxies block.** `Configuration.get()`, `Intl.__()` and `EmailService.send()` use `sendSync`; the renderer freezes until main answers.
+- **Sync proxies block.** `Configuration.get()` and `Intl.__()` use `sendSync`; the renderer freezes until main answers.
 - **Sync proxies run unattended in main.** A main `get()` or `__()` that runs an authz check is denied there, see [Main process IPC bridge](01-main-process-bridge.md#important-behaviour).
-- **Main must resolve the targets first.** `callSync` finds only already-resolved main services: resolve `Configuration`, `Intl` and `EmailService` in main before opening the window.
+- **Main must resolve the targets first.** `callSync` finds only already-resolved main services: resolve `Configuration` and `Intl` in main before opening the window.
 - **Resolve `Configuration` in the renderer.** `@Config()` properties read `DI.get(Configuration)` when no container is injected; it returns `null` until something calls `DI.resolve(Configuration)`.
 - **Values are copies.** Results are structured-cloned: class instances arrive as plain objects, and changing them does not change main.
 - **`renderToFile()` writes in main.** `filePath` is a main-process path.

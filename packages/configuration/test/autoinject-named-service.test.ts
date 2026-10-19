@@ -122,6 +122,26 @@ describe('config-named service', () => {
     expect(runs).to.equal(1);
   });
 
+  it('optional: gives undefined when no name applies, still refuses an unknown name', async () => {
+    expect(await named(child(root, ''), { optional: true })).to.equal(undefined);
+    expect(await named(child(root), { optional: true })).to.equal(undefined);
+    expect(await named(child(root), { optional: true, default: () => undefined })).to.equal(undefined);
+    expect((await named(child(root), { optional: true, default: 'SlowEngine' }))!.run()).to.equal('slow');
+    const e = await failure(named(child(root, 'Jet'), { optional: true }));
+    expect(e).to.be.instanceOf(InvalidOption);
+  });
+
+  it('optional: the decorator injects undefined for an unset path', async () => {
+    @PerChildInstance()
+    class Bike {
+      @AutoinjectNamedService('car.engine', Engine, { optional: true })
+      public Engine?: Engine;
+    }
+    const c = child(root);
+    c.register(Bike).asSelf();
+    expect((await (c.resolve(Bike) as unknown as Promise<Bike>)).Engine).to.equal(undefined);
+  });
+
   it('refuses a value that is set but not a string', async () => {
     for (const value of [3, true, {}, ['FastEngine']]) {
       const e = await failure(named(child(root, value)));
