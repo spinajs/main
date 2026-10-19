@@ -366,7 +366,8 @@ throws only for a fault. Rules:
 
 **CLI:** `authn:mfa-reset <login>` removes the enrolment and recovery codes of an account and prints no
 secret. It replaces `rbac:user-enable-2fa`, which handed a secret to the operator and is gone.
-`rbac:2fa-qr` (a QR code for a secret or an otpauth URL) is unchanged.
+`authn:mfa-qr` prints a QR code for a secret or an otpauth URL. It was `rbac:2fa-qr`, which still works as
+an alias.
 
 **Legacy keys.** `authn-totp` ships no `rbac.twoFactorAuth.*` and no `rbac.otpauth.*` key, so the
 legacy-key detector (on by default) passes on its config. The 2.x 2FA code and routes are gone; an

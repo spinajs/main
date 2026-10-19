@@ -44,9 +44,8 @@
 
 ### Expired-session sweep, `cleanupExpired()`
 
-1. `DbSession.where('Expiration', '<=', now)` reads the expired rows.
-2. `DbSession.destroy(ids)` deletes them by primary key.
-3. It returns the count. The timer logs it at `info` level; a thrown error is logged at `error` level and the next tick tries again.
+1. A single `DELETE ... WHERE Expiration <= now` removes the expired rows, so a row renewed meanwhile is not deleted.
+2. It returns the number of deleted rows. The timer logs a positive count at `info` level; a thrown error is logged at `error` level and the next tick tries again.
 
 ```mermaid
 sequenceDiagram
@@ -70,7 +69,7 @@ sequenceDiagram
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authn.session.service` | `string` | `MemorySessionStore` (from `@spinajs/authn-session`) | class name of a registered `SessionProvider` | Set to `DbSessionStore` to use this store. |
-| `authn.session.db.cleanupInterval` | `number` | `600000` (package config); `100000` when the key is absent | milliseconds | Period of the expired-session sweep. |
+| `authn.session.db.cleanupInterval` | `number` | `600000` | milliseconds | Period of the expired-session sweep. |
 | `authn.session.expiration.service` | `string` | `SlidingCappedExpiration` | `AbsoluteExpiration`, `SlidingExpiration`, `SlidingCappedExpiration`, or a custom class name | Strategy the store calls in `save()` and `touch()`. Owned by `@spinajs/authn-session`. |
 | `authn.session.expiration.ttl` | `number` | `30` | minutes | Idle lifetime for the shipped strategies. |
 | `authn.session.expiration.maxLifetime` | `number` | `480` | minutes | Absolute cap for `SlidingCappedExpiration`. |
@@ -133,10 +132,8 @@ this.Config = _.merge(this.Config, {
 - The store does not hash ids. It keys rows by whatever `SessionId` it gets; the issuer passes `sha256(rawId)`.
 - `save()` always writes `UserId = NULL`. The `ON DELETE CASCADE` of `UserId` therefore does not end 3.0 sessions; deleting a user must call `SessionIssuer.revokeAll()`.
 - A session with `Expiration` `NULL` never expires and the sweep never deletes it.
-- `cleanupExpired()` reads, then deletes. A row renewed between the two statements is still deleted.
-- Each `DbSessionStore` instance runs its own sweep. With several application instances, each sweeps the same table; the deletes are by key, so the overlap is harmless.
+- Each `DbSessionStore` instance runs its own sweep. With several application instances, each sweeps the same table; the deletes are conditional on `Expiration`, so the overlap is harmless.
 - `deleteBySubject()` and `listBySubject()` read and decode every row with `Subject IS NULL` on each call. After the upgrade migration backfills the table, only rows written by 2.x instances during a rolling upgrade and undecodable rows stay in that set.
-- The sweep logs one `info` line per tick, also when the count is `0`.
 
 ## Best practices
 

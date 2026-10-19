@@ -40,9 +40,10 @@ export function metricsHandler(metrics: Metrics): (req: MinimalRequest, res: IMi
  */
 export function statsHandler(store: TelemetryStore): (req: MinimalRequest, res: IMinimalResponse) => void {
   return (_req: MinimalRequest, res: IMinimalResponse): void => {
+    store.RequestStats.updateRates(Date.now() - store.StartedAt);
     const body = JSON.stringify({
       all: store.RequestStats.toJSON(),
-      timeline: store.Timeline.toJSON(),
+      timeline: store.Timeline.toJSON(Date.now()),
     });
     res.setHeader('Content-Type', 'application/json');
     res.end(body);

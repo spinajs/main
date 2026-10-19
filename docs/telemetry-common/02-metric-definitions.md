@@ -20,7 +20,7 @@ Errors stop the loop and throw:
 - an unknown `type` throws `Error("unknown metric type '<type>' for metric '<full name>'")`;
 - prom-client throws `Invalid metric name` for a name outside `[a-zA-Z_:][a-zA-Z0-9_:]*` (eg. a prefix `my-app`), an invalid label name, or `le is a reserved label keyword` for a histogram label `le`.
 
-Metrics built before the failing definition stay registered.
+The call is all-or-nothing: metrics built before the failing definition are removed again, and any metric it replaced is put back.
 
 ## Types
 

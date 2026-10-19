@@ -134,6 +134,14 @@ export class AccTestDomains extends AuthzDomains {
   public names(): readonly string[] {
     return ['root', 'tenant'];
   }
+
+  public describe(): undefined {
+    return unused('describe');
+  }
+
+  public lineage(): readonly string[] {
+    return unused('lineage');
+  }
 }
 
 export class AccDeny extends BasePolicy {

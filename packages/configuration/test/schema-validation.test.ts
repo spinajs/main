@@ -479,6 +479,14 @@ describe('configuration schema validation', () => {
       }
     });
 
+    it('keeps a ConfigVar that is not ready at boot under a key typed string', async () => {
+      let value: string | null = null;
+      const PATHS = { $id: 'test-paths', $configurationModule: 'paths', type: 'object', properties: { dir: { type: 'string' } } };
+      const { config } = await bootRaw(() => ({ paths: { dir: new ConfigVar(() => value) } }), PATHS);
+      value = '/data';
+      expect(config.get('paths.dir')).to.equal('/data');
+    });
+
     it('checks a class instance with private fields through its getters, keeping the instance', async () => {
       const key = new Secret('k');
       const { config } = await bootRaw(() => ({ holder: { key } }), HOLDER);

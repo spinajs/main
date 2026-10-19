@@ -1,6 +1,6 @@
 import type { Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { Unauthorized } from '@spinajs/http';
+import { BadRequestResponse, Unauthorized } from '@spinajs/http';
 import type { ICookie, IResponseHeader } from '@spinajs/http';
 import type { SessionHandle } from '@spinajs/authn/contracts';
 import { appEnvOf, clearSessionCookie, sessionCookie } from '@spinajs/authn-session';
@@ -16,6 +16,11 @@ export const AUTHN_FAILURE_BODY: Readonly<{ error: typeof AUTHN_FAILURE; message
 
 /** Authenticated answers and session cookies must not be cached. */
 export const NO_STORE: IResponseHeader = Object.freeze({ Name: 'Cache-Control', Value: 'no-store' });
+
+export const badRequest = (error: string, message: string): BadRequestResponse => new BadRequestResponse({ error, message }, { Headers: [NO_STORE] });
+
+/** An instant to the second, as the credential tables keep it; null for none. */
+export const instant = (d: Date | undefined): string | null => (d ? new Date(Math.floor(d.getTime() / 1000) * 1000).toISOString() : null);
 
 /**
  * The 401 answer with AUTHN_FAILURE_BODY. `retryAfterSeconds` (a throttled login, A06) becomes Retry-After; a

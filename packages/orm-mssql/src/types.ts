@@ -5,9 +5,10 @@ export interface ITableColumnInfo {
   COLUMN_NAME: string;
   ORDINAL_POSITION: number;
   COLUMN_DEFAULT: any | null;
-  IS_NULLABLE: boolean;
+  IS_NULLABLE: 'YES' | 'NO';
   DATA_TYPE: string;
-  CHARACTER_MAXIMUM_LENGTH: number;
+  CHARACTER_MAXIMUM_LENGTH: number | null;
+  IS_IDENTITY: number | null;
 }
 
 export interface IIndexInfo {

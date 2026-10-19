@@ -5,7 +5,7 @@
 ## How it works
 
 1. `@Access('users:read', { fields: 'filter' })` decides `users:read` on the type.
-2. `userRowFor(caller, 'users:read', lookup)` runs the lookup as `SYSTEM`: `userModel().query().whereAnything(login).populate('Metadata').first()`. `:login` may be a login, a uuid or an email address; an all-digit value is read as the numeric `Id`. A soft-deleted row counts as missing.
+2. `userRowFor(caller, 'users:read', lookup)` runs the lookup as `SYSTEM`: it queries `Uuid`, then `Login`, then `Email` for the value, with `Metadata` populated, and takes the first live row. `:login` may be a login, a uuid or an email address; it is never read as the numeric `Id`. A soft-deleted row counts as missing.
 3. A conditional grant is decided again on the row; a missing row answers `404` to an unconditional grant, `403` to a conditional one.
 4. The handler calls `ProfileService.retrieve(user)` with the **row** the decision was made on, never the identifier.
 5. It answers the provider's result.
@@ -67,7 +67,7 @@ Then set `users.user.profile` to `'OrdersProfileProvider'`.
 
 - The configured name must match a registered class name. An empty value only logs a warning and leaves the provider `undefined`, so every request fails with `500`.
 - The provider's result is answered as is; `fields: 'filter'` applies to the response. Do not put fields in `AdditionalData` that `users:read` holders must not see.
-- `whereAnything()` ORs `Uuid`, `Email` and `Login`: when one account's login equals another's email address, the first row the database returns wins. An all-digit login cannot be addressed by login: the value is read as an `Id`.
+- The lookup tries `Uuid`, `Login`, `Email` in that order: when one account's login equals another's email address, the login match wins.
 
 ## Best practices
 

@@ -5,11 +5,12 @@
 ## How it works
 
 1. A package calls a level method, eg. `InternalLogger.warn(fields, template, name)`. The call returns `void` at once.
-2. The private `_write()` picks the call form from the first argument (see [Call forms](#call-forms)) and calls `InternalLogger.write(err, message, level, name, vars, ...args)`.
-3. `InternalLogger.write()` calls `createLogMessageObject()` from `@spinajs/log-common`. It returns an `ILogEntry` with `Level` and `Variables`: ambient context fields, `error`, `level`, `logger`, `message`, then the call's own fields. Serializers run on the variables, so `error` becomes a plain record.
+2. The private `_write()` picks the call form from the first argument (see [Call forms](#call-forms)) and builds an entry with `createLogMessageObject()` from `@spinajs/log-common`.
+3. `createLogMessageObject()` returns an `ILogEntry` with `Level` and `Variables`: ambient context fields, `error`, `level`, `logger`, `message`, then the call's own fields. Serializers run on the variables, so `error` becomes a plain record.
 4. `InternalLogger.writeLogEntry(entry)` routes it:
    - `DI.has(Configuration)` is `false` (not resolved yet): the entry goes to the static buffer.
    - `Configuration` is resolved but `DI.resolve('__log__', [entry.Variables.logger])` returns nothing: the entry goes to the buffer.
+   - The buffer keeps at most `InternalLogger.LogBufferLimit` entries (default `1000`); past that the oldest are dropped.
    - A logger is returned: `logger.write(entry)` runs. A rejected target prints `Couldnt write to logger <name> message {...}, reason: ...` with `console.error`. A rejected `write()` prints `Couldnt write to logger <name>, reason: ...`.
 5. Buffered entries wait for the [buffer flush or the exit dump](02-buffer-flush-and-exit-dump.md).
 
@@ -42,7 +43,7 @@ Every level method (`trace`, `debug`, `info`, `success`, `warn`, `error`, `fatal
 | --- | --- | --- | --- | --- |
 | Fields | `InternalLogger.info(fields, template, name, ...args)` | `name` | `template` with `${field}` replaced from `fields`, then printf-formatted with `args` | Every key of `fields` |
 | Error | `InternalLogger.error(err, message, name, ...args)` | `name` | `message` printf-formatted with `args`; `err.message` when `message` is `undefined` | `error`: the serialized error (`name`, `message`, `stack`, ...) |
-| String | `InternalLogger.info(format, arg, name, ...rest)` | The **third** argument | `format` printf-formatted with `arg` and `rest` | none |
+| String | `InternalLogger.info(message, name, ...args)` | `name` | `message` printf-formatted with `args` | none |
 
 - Fields form: a `${name}` missing from `fields` renders as empty. `${?name}...${/name}` keeps its body only when the field is set. `fields` is any non-array object.
 - Fields form with `args`: `%` inside field values is escaped, so a value cannot inject a printf specifier.
@@ -67,29 +68,18 @@ The static methods are not resolved from DI and cannot be overridden: callers na
 
 ## Important behaviour
 
-- The string form reads the logger name from the **third** argument, although its type signature is `(message, name, ...args)`. `InternalLogger.warn('No protocols registered', 'Configuration')` produces logger `null` and message `No protocols registered Configuration`.
 - There is no level filtering here. Every call is built and routed; the real logger's rules decide what reaches a target.
 - Calls never throw for a failed target and never return a promise. Write errors only reach `console.error`.
 - `DI.has(Configuration)` is true only after `Configuration` finished its async `resolve()`. Messages logged while configuration loads are buffered.
-- The buffer has no size limit. With `Configuration` resolved but no `__log__` registered, every call grows it until the process exits.
+- The buffer is capped at `InternalLogger.LogBufferLimit` entries (default `1000`). With `Configuration` resolved but no `__log__` registered, every call is buffered, and past the limit the oldest entries are dropped.
 
 ## Best practices
 
-- Use the fields form for every message. It is the only form where a two-part call (`fields`, template, name) sets the logger name correctly, and the fields stay searchable in structured targets.
-- Pass `{}` as fields for a message without variables: `InternalLogger.info({}, 'DB configuration loaded', 'Configuration')`.
+- Use the fields form for messages with values, so the fields stay searchable in structured targets.
 - Use the error form for caught errors, so the stack is kept in `error`.
 - Name the logger after the package or subsystem (`Configuration`, `PluginLoader`); log rules in `@spinajs/log` match on that name.
 
 ## Patterns and antipatterns
-
-```ts
-// Don't: the string form takes the name from the third argument.
-// This logs to logger `null` with the message "Table missing configuration-db-source".
-InternalLogger.warn('Table missing', 'configuration-db-source');
-
-// Do
-InternalLogger.warn({}, 'Table missing', 'configuration-db-source');
-```
 
 ```ts
 // Don't: interpolating values into the template loses them as fields

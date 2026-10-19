@@ -99,7 +99,7 @@ export function dateAdd(date: unknown, amount: number, unit: string): string {
     seconds: 'seconds',
   };
 
-  const normalizedUnit = units[unit.toLowerCase()] || 'days';
+  const normalizedUnit = units[typeof unit === 'string' ? unit.toLowerCase() : ''] || 'days';
   return dt.plus({ [normalizedUnit]: amount }).toISO()!;
 }
 
@@ -159,7 +159,7 @@ export function dateDiff(date1: unknown, date2: unknown, unit: string = 'days'):
     seconds: 'seconds',
   };
 
-  const normalizedUnit = units[unit.toLowerCase()] || 'days';
+  const normalizedUnit = units[typeof unit === 'string' ? unit.toLowerCase() : ''] || 'days';
   const diff = dt2.diff(dt1, normalizedUnit as any);
   return Math.floor(diff.as(normalizedUnit));
 }
@@ -169,7 +169,8 @@ export function dateDiff(date1: unknown, date2: unknown, unit: string = 'days'):
  * Usage: {{#if (dateBefore date1 date2)}}...{{/if}}
  */
 export function dateBefore(date1: unknown, date2: unknown): boolean {
-  return dateDiff(date1, date2) > 0;
+  const [dt1, dt2] = [toDateTime(date1), toDateTime(date2)];
+  return !!dt1 && !!dt2 && dt1 < dt2;
 }
 
 /**
@@ -177,7 +178,22 @@ export function dateBefore(date1: unknown, date2: unknown): boolean {
  * Usage: {{#if (dateAfter date1 date2)}}...{{/if}}
  */
 export function dateAfter(date1: unknown, date2: unknown): boolean {
-  return dateDiff(date1, date2) < 0;
+  const [dt1, dt2] = [toDateTime(date1), toDateTime(date2)];
+  return !!dt1 && !!dt2 && dt1 > dt2;
+}
+
+function toDateTime(date: unknown): DateTime | null {
+  let dt: DateTime;
+  if (date instanceof Date) {
+    dt = DateTime.fromJSDate(date);
+  } else if (date instanceof DateTime) {
+    dt = date;
+  } else if (typeof date === 'string') {
+    dt = DateTime.fromISO(date);
+  } else {
+    return null;
+  }
+  return dt.isValid ? dt : null;
 }
 
 /**
@@ -218,7 +234,7 @@ export function dateStartOf(date: unknown, unit: string): string {
     second: 'second',
   };
 
-  const normalizedUnit = units[unit.toLowerCase()] || 'day';
+  const normalizedUnit = units[typeof unit === 'string' ? unit.toLowerCase() : ''] || 'day';
   return dt.startOf(normalizedUnit as any).toISO()!;
 }
 
@@ -251,7 +267,7 @@ export function dateEndOf(date: unknown, unit: string): string {
     second: 'second',
   };
 
-  const normalizedUnit = units[unit.toLowerCase()] || 'day';
+  const normalizedUnit = units[typeof unit === 'string' ? unit.toLowerCase() : ''] || 'day';
   return dt.endOf(normalizedUnit as any).toISO()!;
 }
 

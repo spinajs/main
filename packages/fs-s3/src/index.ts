@@ -11,6 +11,7 @@ import {
   GetObjectCommand,
   HeadBucketCommand,
   CreateBucketCommand,
+  BucketLocationConstraint,
 } from '@aws-sdk/client-s3';
 
 import { Upload } from '@aws-sdk/lib-storage';
@@ -24,10 +25,36 @@ import { PassThrough, Readable } from 'stream';
 import iconv from 'iconv-lite';
 import { S3UrlSigner, IS3Config } from './interfaces.js';
 
+export * from './interfaces.js';
 export * from './s3BucketSigner.js';
 export * from './cloudFrontSigner.js';
 
 
+const toNumber = (v: string) => Number(v);
+const toText = (v: string) => v;
+const toDate = (v: string) => DateTime.fromISO(v);
+
+/**
+ * IFileInfo fields upload() stores as s3 metadata
+ */
+const FILE_INFO_FIELDS: [string, (v: string) => unknown][] = [
+  ['FileSize', toNumber],
+  ['MimeType', toText],
+  ['Encoding', toText],
+  ['Width', toNumber],
+  ['Height', toNumber],
+  ['Duration', toNumber],
+  ['FrameCount', toNumber],
+  ['FrameRate', toNumber],
+  ['AudioChannels', toNumber],
+  ['Bitrate', toNumber],
+  ['Codec', toText],
+  ['WordCount', toNumber],
+  ['LineCount', toNumber],
+  ['AccessDate', toDate],
+  ['CreationDate', toDate],
+  ['ModificationDate', toDate],
+];
 
 /**
  * Abstract layer for file operations.
@@ -90,7 +117,14 @@ export class fsS3 extends fs {
 
         this.Logger.warn({ bucket: this.Options.bucket }, 'Bucket ${bucket} does not exist, attempting to create it');
         try {
-          await this.S3.send(new CreateBucketCommand({ Bucket: this.Options.bucket }));
+          // AWS rejects a CreateBucket without LocationConstraint outside us-east-1
+          const region = await this.S3.config.region();
+          await this.S3.send(
+            new CreateBucketCommand({
+              Bucket: this.Options.bucket,
+              CreateBucketConfiguration: region && region !== 'us-east-1' ? { LocationConstraint: region as BucketLocationConstraint } : undefined,
+            }),
+          );
           this.Logger.info({ bucket: this.Options.bucket }, 'Successfully created bucket ${bucket}');
         } catch (createError) {
           this.Logger.error({ error: createError, bucket: this.Options.bucket }, 'Failed to create bucket ${bucket}');
@@ -159,10 +193,7 @@ export class fsS3 extends fs {
   public async dispose(): Promise<void> {
     this.Logger.trace({ provider: this.Options.name }, 'Disposing S3 provider ${provider}');
 
-    if (this.TempFs) {
-      this.Logger.trace({ provider: this.Options.name }, 'Disposing TempFs for provider ${provider}');
-      await this.TempFs.dispose();
-    }
+    // fs-temp-s3 is a separately registered provider shared by every fsS3 - do not dispose it here
 
     if (this.S3) {
       this.Logger.trace({ provider: this.Options.name }, 'Destroying S3 client for provider ${provider}');
@@ -258,8 +289,8 @@ export class fsS3 extends fs {
       params: {
         Bucket: this.Options.bucket,
         Key: path,
-        Body: data,
-        ContentEncoding: encoding,
+        // the SDK would send a string as utf8 regardless of `encoding`, so the stored bytes would not match the hashes
+        Body: typeof data === 'string' ? Buffer.from(data, encoding ?? 'utf8') : data,
         Metadata: {
           hash: shaHash.digest('hex'),
           md5: md5Hash.digest('hex'),
@@ -299,18 +330,26 @@ export class fsS3 extends fs {
       Key: path,
     });
     const result = await this.S3.send(command);
+    const info: Record<string, unknown> = { ...result.Metadata };
 
-    // NOTE:
-    // allow this cast, becouse s3 metadata is serialized IFileInfo struct 
-    return result.Metadata as any as IFileInfo;
+    // s3 returns metadata keys lowercased and values as strings - restore the IFileInfo fields upload() stores
+    for (const [key, parse] of FILE_INFO_FIELDS) {
+      const raw = info[key.toLowerCase()];
+      delete info[key.toLowerCase()];
+      if (typeof raw === 'string') {
+        info[key] = parse(raw);
+      }
+    }
+
+    return info as IFileInfo;
   }
 
   /**
    *
-   * Returns hash of file
+   * Returns the SHA-256 hash of file, read from the object's `hash` metadata entry
    *
    * @param srcPath file to calculate hash
-   * @param algo optional hash alghoritm, default is md5
+   * @param algo not supported, throws when given
    */
   public async hash(path: string, algo?: string): Promise<string> {
     if (algo) {
@@ -361,6 +400,7 @@ export class fsS3 extends fs {
         Bucket: this.Options.bucket,
         Key: dPath,
         Body: rStream,
+        ContentType: fInfo.MimeType,
 
         // IFileInfo now carries every raw exiftool tag; storing all of them would
         // exceed s3's 2KB user-metadata limit, so persist only a bounded, stable
@@ -424,7 +464,7 @@ export class fsS3 extends fs {
       new CopyObjectCommand({
         Bucket: this.Options.bucket,
         Key: path,
-        CopySource: `${this.Options.bucket}/${path.split('/').map(encodeURIComponent).join('/')}`,
+        CopySource: this.copySource(path),
         MetadataDirective: 'REPLACE',
         Metadata: metadata,
         // REPLACE drops every header not given again
@@ -455,7 +495,7 @@ export class fsS3 extends fs {
 
     // do not auto-emit close on end - we emit it manually when the s3 upload
     // is fully finalized, so callers waiting for 'close' see completed uploads
-    const pass = new PassThrough({ emitClose: false });
+    const pass = new PassThrough({ emitClose: false, defaultEncoding: enc });
 
     const upload = new Upload({
       client: this.S3,
@@ -463,7 +503,6 @@ export class fsS3 extends fs {
         Bucket: this.Options.bucket,
         Key: path,
         Body: pass,
-        ContentEncoding: enc,
       },
     });
 
@@ -532,7 +571,7 @@ export class fsS3 extends fs {
       // we copy file in s3 by copying it to another location
       const command = new CopyObjectCommand({
         Bucket: this.Options.bucket,
-        CopySource: this.Options.bucket + '/' + path,
+        CopySource: this.copySource(path),
         Key: dest,
       });
 
@@ -605,12 +644,10 @@ export class fsS3 extends fs {
       // only files can be stored in s3
       IsFile: true,
 
-      // no creation time
-      CreationTime: DateTime.min(),
-      ModifiedTime: result.LastModified ? DateTime.fromJSDate(result.LastModified) : DateTime.min(),
-
-      // no access time in s3s
-      AccessTime: DateTime.min(),
+      // no creation or access time in s3
+      CreationTime: undefined,
+      ModifiedTime: result.LastModified ? DateTime.fromJSDate(result.LastModified) : undefined,
+      AccessTime: undefined,
       Size: result.ContentLength,
 
       // ETag is an opaque change token. Note: for multipart uploads it is NOT the
@@ -647,14 +684,24 @@ export class fsS3 extends fs {
    * @param path - path to directory
    */
   public async list(path: string) {
-    const command = new ListObjectsV2Command({
-      Bucket: this.Options.bucket,
-      Delimiter: '/',
-      Prefix: path,
-    });
+    const keys: string[] = [];
+    let token: string | undefined;
 
-    const result = await this.S3.send(command);
-    return (result.Contents?.map((x) => x.Key) ?? []) as string[];
+    do {
+      const result = await this.S3.send(
+        new ListObjectsV2Command({
+          Bucket: this.Options.bucket,
+          Delimiter: '/',
+          Prefix: path,
+          ContinuationToken: token,
+        }),
+      );
+
+      keys.push(...((result.Contents?.map((x) => x.Key) ?? []) as string[]));
+      token = result.IsTruncated ? result.NextContinuationToken : undefined;
+    } while (token);
+
+    return keys;
   }
 
   /**
@@ -703,6 +750,13 @@ export class fsS3 extends fs {
         }
       }
     }
+  }
+
+  /**
+   * CopySource must be URL-encoded; the bucket name and the `/` separators stay as they are
+   */
+  protected copySource(path: string): string {
+    return `${this.Options.bucket}/${path.split('/').map(encodeURIComponent).join('/')}`;
   }
 
   public resolvePath(_path: string): string {

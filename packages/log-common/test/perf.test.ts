@@ -101,6 +101,13 @@ describe("Perf facade", () => {
     Perf.Enabled = true;
   });
 
+  it("Enabled=false makes start() emit nothing on end()", () => {
+    Perf.Enabled = false;
+    Perf.start("job").end();
+    expect(sink.metrics).to.have.length(0);
+    Perf.Enabled = true;
+  });
+
   it("a throwing sink never breaks measure", async () => {
     class BadSink extends PerfSink {
       public collect(): void {

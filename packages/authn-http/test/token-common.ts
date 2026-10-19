@@ -1,5 +1,6 @@
+import type { AddressInfo } from 'node:net';
 import { DI } from '@spinajs/di';
-import { Controllers } from '@spinajs/http';
+import { Controllers, HttpServer } from '@spinajs/http';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { MigrationTransactionMode } from '@spinajs/orm';
 import chai from 'chai';
@@ -17,11 +18,26 @@ chai.use(chaiAsPromised);
 
 export const COOKIE_SECRET = 'authn-http-token-test-secret';
 
+// http.port is 0, so every start binds a free port and parallel runs never collide; startHttpServer() reads it back.
+let port = 0;
+
+/** Resolves and starts the HttpServer, then points req(), appPort() and appOrigin() at the port it bound. */
+export async function startHttpServer(): Promise<void> {
+  const server = await DI.resolve(HttpServer);
+  await server.start();
+  port = (server.Server.address() as AddressInfo).port;
+}
+
+export function appPort(): number {
+  if (port === 0) throw new Error('no http server started: call startHttpServer() first');
+  return port;
+}
+
 /** The app's origin as a browser on it sends it; cookie requests with an unsafe method need it (A22). */
-export const APP_ORIGIN = 'http://localhost:8889';
+export const appOrigin = (): string => `http://localhost:${appPort()}`;
 
 export function req() {
-  return chai.request('http://localhost:8889/');
+  return chai.request(`${appOrigin()}/`);
 }
 
 export function dir(path: string) {
@@ -59,7 +75,7 @@ export function restoreHttpErrorMap() {
 }
 
 /**
- * Boots in-memory sqlite plus a real http server on 8889 with this package's
+ * Boots in-memory sqlite plus a real http server on a free port with this package's
  * controllers. Mirrors `db-common.ts` and adds the http/server wiring.
  */
 export class TestConfiguration extends FrameworkConfiguration {
@@ -94,7 +110,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         providers: [{ service: 'fsNative', name: 'fs-temp', basePath: dir('./files') }],
       },
       http: {
-        port: 8889,
+        port: 0,
         cookie: { secret: COOKIE_SECRET },
         middlewares: [express.json({ limit: '5mb' }), express.urlencoded({ extended: true }), cookieParser()],
         AcceptHeaders: 1,
@@ -149,7 +165,7 @@ export function ctr() {
  * is already in the list - and `resolve` takes the LAST entry. A db-only suite
  * registering `DbTestConfiguration` after an http suite therefore stays the
  * winner: the http suite then boots with no `http.port` at all and binds the
- * framework default 1337 while every request in it goes to 8889.
+ * framework default 1337 with none of its own settings.
  *
  * That failure mode is invisible in the default file order and appears the
  * moment mocha is given a file to run first, so the unregister is not

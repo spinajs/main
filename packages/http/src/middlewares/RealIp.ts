@@ -59,6 +59,21 @@ export function parseTrustProxy(value: unknown, key: string): ProxyTrust {
   return { list };
 }
 
+/**
+ * `override` when it is set (not null or undefined), else `shared` (`http.trustProxy`): for a package that keeps its own
+ * trust key on top of http's. Throws like {@link parseTrustProxy}, naming the key whose value is bad.
+ */
+export function parseTrustProxyOverride(override: unknown, overrideKey: string, shared: unknown): ProxyTrust {
+  return override === null || override === undefined ? parseTrustProxy(shared, 'http.trustProxy') : parseTrustProxy(override, overrideKey);
+}
+
+const NO_PROXY: ProxyTrust = Object.freeze({ hops: 0 });
+
+/** The trust {@link RealIp} resolved for this request (`req.storage.proxyTrust`); no proxy when RealIp did not run. */
+export function requestProxyTrust(req: { storage?: { proxyTrust?: ProxyTrust } }): ProxyTrust {
+  return req.storage?.proxyTrust ?? NO_PROXY;
+}
+
 /** Whether the immediate peer is a trusted proxy: any peer for a hop count >= 1, a listed peer for a list. */
 export function isTrustedPeer(trust: ProxyTrust, peer: string | undefined): boolean {
   const ip = ipOf(peer);
@@ -99,7 +114,10 @@ export function requestOrigin(req: { headers: express.Request['headers']; socket
   return `${proto === 'https' ? 'https' : 'http'}://${host}`;
 }
 
-/** Writes `req.storage.realIp`: the client address through `http.trustProxy` only; without it, the socket address. */
+/**
+ * Writes `req.storage.realIp`: the client address through `http.trustProxy` only; without it, the socket address. Also
+ * writes the trust it used to `req.storage.proxyTrust`, so later middlewares need not parse the setting again.
+ */
 @Injectable(ServerMiddleware)
 export class RealIp extends ServerMiddleware {
   @Config('http.trustProxy')
@@ -114,9 +132,15 @@ export class RealIp extends ServerMiddleware {
     return null;
   }
 
+  /** The effective trust, parsed once when the middleware is built; override it to honour another setting. */
+  protected proxyTrust(): ProxyTrust {
+    return parseTrustProxy(this.TrustProxy, 'http.trustProxy');
+  }
+
   public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
-    const trust = parseTrustProxy(this.TrustProxy, 'http.trustProxy');
+    const trust = this.proxyTrust();
     return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
+      req.storage.proxyTrust = trust;
       req.storage.realIp = trustedClientAddress(req.socket?.remoteAddress, req.headers['x-forwarded-for'], trust);
       next();
     };

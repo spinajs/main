@@ -48,6 +48,7 @@ sequenceDiagram
 | `container.resolveOptional(type, options?)` | Instance, or `undefined` when nothing is registered here or in an ancestor | Never builds an unregistered class |
 | `DI.get(key)` / `container.get(key, parent = true)` | The last cached instance under `key`, or `undefined` | Never builds. `get(Array.ofType(T))` returns every cached instance under `T`. Factory results and `@NewInstance()` objects are never cached |
 | `DI.has(key)` / `container.isResolved(key, parent = true)` | `true` when an instance is cached under `key` | Not the same as `DI.check(key)`, which asks the registry |
+| `container.isCached(instance, parent = false)` | `true` when `instance` itself sits in this container's cache (with `parent`, also in an ancestor's) | Tells whether DI owns an instance, eg. before disposing it yourself |
 | `_resolve(type, options?, check?)` | `() => DI.resolve(type, options, check)` | A thunk over the root container, for lazy defaults |
 
 `resolve`, `get`, `getRegisteredTypes` and `check` are also exported at the top level of `@spinajs/di`, next to the `DI` namespace.
@@ -81,7 +82,7 @@ They are used only when an instance is created. A cached singleton is returned a
 
 ## Important behaviour
 
-- Resolving an abstract base class with no registration creates an instance of the abstract class itself; JavaScript allows it. Use the strict check, `@Autoinject(Base, { check: true })` or `resolveOptional()` where that would be a mistake.
+- Resolving an abstract base class with no registration creates an instance of the abstract class itself; JavaScript allows it. Use the strict check, `@Autoinject(Base, { check: true })` or `resolveOptional()` where that would be a mistake. Such a resolve registers nothing: `DI.check(Base)` stays `false`, and the bare instance is cached under `Base` but left out of `Array.ofType(Base)` and `Array.chainOf(Base)`.
 - Concurrent async resolves of one singleton share one creation: the second caller gets the same promise, and `AsyncService.resolve()` runs once.
 - `get()` returns the **last** cached instance under a key; `get(Array.ofType(key))` returns all of them.
 - `DI.get()` and `DI.has()` look in ancestors by default (`parent = true`).

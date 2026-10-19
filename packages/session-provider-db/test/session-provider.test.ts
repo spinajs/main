@@ -6,7 +6,7 @@ import { UserSession as Session, encodeSessionData, decodeSessionData } from '@s
 import type { ISession } from '@spinajs/authn-session';
 import { DateTime } from 'luxon';
 import { Orm } from '@spinajs/orm';
-import { columnNativeType, isMySqlDialect } from '../src/migration-support.js';
+import { columnNativeType } from '../src/migration-support.js';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
 import { bootStore, disposeStore, seedLegacyRow, sessionConnection } from './support.js';
 
@@ -360,8 +360,8 @@ describe('db session provider', function () {
       const orm = (store as any).Container?.get?.(Orm) ?? (await DI.resolve(Orm));
       const connection = orm.Connections.get('session-provider-connection');
 
-      // guard 3, and on its own enough to skip both: `MODIFY` / `JSON` are MySQL's
-      expect(isMySqlDialect(connection), 'sqlite must never be treated as MySQL').to.equal(false);
+      // guard 3 of the JSON migration: sqlite stores json() as text
+      expect(connection.supportedFeatures().nativeJson).to.equal(false);
 
       // guard 2 of the JSON migration. sqlite's column compiler has no `json`
       // case at all, so `table.json('Data')` emits a column with NO type token

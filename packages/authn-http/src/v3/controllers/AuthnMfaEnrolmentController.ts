@@ -7,8 +7,9 @@ import type { Request } from '@spinajs/http';
 import type { Session } from '@spinajs/authn/contracts';
 
 import { TotpEnrolmentOn, codeField, reauthOf, totpRefusal, totpServiceOf } from '../../mfa/index.js';
-import { refused, unauthenticated } from '../../policies/v3/errors.js';
+import { unauthenticated } from '../../policies/v3/errors.js';
 import { mfaPolicyOf } from '../../policies/v3/mfa.js';
+import { activeSessionOf } from '../../policies/v3/principal.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, PendingMfaEnrolment } from '../index.js';
 import { NO_STORE, authnFailureResponse } from '../responses.js';
 import { contextOf } from '../routes.js';
@@ -50,7 +51,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Get('mfa')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async status(@Req() req: Request) {
-    const session = activeSession(req);
+    const session = activeSessionOf(req);
     const steps = [];
     for (const step of (await (await mfaPolicyOf(this.Container, this.MfaPolicyService)).steps()).values()) steps.push({ name: step.name, enrolled: await step.enrolled(session.identity) });
     return new Ok({ steps }, { Headers: [NO_STORE] });
@@ -100,7 +101,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Post('mfa/disable')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async disable(@Req() req: Request) {
-    const session = activeSession(req);
+    const session = activeSessionOf(req);
     const reauth = await reauthOf(this.Container, req, session);
     if ('answer' in reauth) return reauth.answer;
     const code = codeField(req);
@@ -118,7 +119,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Post('mfa/recovery-codes')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async recoveryCodes(@Req() req: Request) {
-    const session = activeSession(req);
+    const session = activeSessionOf(req);
     const reauth = await reauthOf(this.Container, req, session);
     if ('answer' in reauth) return reauth.answer;
     const result = await (await this.totp()).regenerateRecoveryCodes(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
@@ -135,11 +136,5 @@ export class AuthnMfaEnrolmentController extends BaseController {
 function ownSession(req: Request): Session {
   const session = req.storage.AuthnSession;
   if (!session) throw unauthenticated('this route needs a session');
-  return session;
-}
-
-function activeSession(req: Request): Session {
-  const session = ownSession(req);
-  if (session.handle.state !== 'active') throw refused('session_required', 'this route needs a session');
   return session;
 }

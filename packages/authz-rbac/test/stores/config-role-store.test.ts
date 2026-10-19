@@ -7,16 +7,10 @@ import type { Class } from '@spinajs/di';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { AUTHZ_TOKEN_CONFIGURATION_SCHEMA, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_GROUP_PRINCIPAL, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_MAX_PLAN_SUBJECTS, DEFAULT_MAX_SET_DEPTH, DEFAULT_ROLES_CHECK_SECONDS, RoleStore, compileGrants, compileImplies, compileLadders, compileRoles, ladderEdges } from '../../src/index.js';
 import type { RoleDef } from '../../src/index.js';
-import { AUTHZ_RBAC_CONFIGURATION_SCHEMA, ConfigRoleStore, RBAC_STORE_DEFAULTS, RbacConfigBootstrapper, rbacStoreNames } from '../../src/stores/index.js';
-import rbacStores from '../../src/config/rbac-stores.js';
-
-const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+import { AUTHZ_RBAC_CONFIGURATION_SCHEMA, AUTHZ_RBAC_GUARD_CONFIGURATION_SCHEMA, ConfigRoleStore, RBAC_STORE_DEFAULTS, RbacConfigBootstrapper, rbacStoreNames } from '../../src/stores/index.js';
 
 // The configuration package merges fragments with this customizer: arrays concatenate.
 const mergeArrays = (target: unknown, source: unknown) => (Array.isArray(target) ? target.concat(source) : undefined);
@@ -530,39 +524,26 @@ describe('authz-rbac stores: authz.rbac schema', function () {
   });
 });
 
-describe('authz-rbac stores: config fragment', function () {
-  this.timeout(30000);
-  it('ships only the cache default of §8.2 (store names and migration columns live in code)', () => {
-    expect(rbacStores).to.deep.equal({
-      authz: {
-        rbac: {
-          cache: { assignmentsTtlSeconds: 60 },
-        },
-      },
-    });
-  });
-
-  it('passes the schema', async () => {
-    expect((await configured(rbacStores.authz.rbac)).cache).to.deep.equal({ ...rbacStores.authz.rbac.cache, maxSubjects: DEFAULT_MAX_CACHED_SUBJECTS, rolesCheckSeconds: DEFAULT_ROLES_CHECK_SECONDS });
-  });
-
-  it('compiles to a file the configuration loads (lib/<mode>/config, no dot in the base name)', () => {
-    expect(existsSync(join(PKG_ROOT, 'lib', 'mjs', 'config', 'rbac-stores.js'))).to.equal(true);
-  });
-});
-
 describe('authz-rbac stores: schema registration', function () {
   this.timeout(30000);
-  it('the bootstrapper registers the rbac and token schemas as __configurationSchema__ values', () => {
+  it('the bootstrapper registers the rbac, guard and token schemas again after DI.clearCache dropped them', () => {
     const KEY = '__configurationSchema__';
     const had = DI.RootContainer.Cache.has(KEY);
+    const schemas = [AUTHZ_RBAC_CONFIGURATION_SCHEMA, AUTHZ_RBAC_GUARD_CONFIGURATION_SCHEMA, AUTHZ_TOKEN_CONFIGURATION_SCHEMA];
+    const list = () => (DI.RootContainer.Cache.get(KEY) ?? []) as unknown[];
+    const drop = () => {
+      for (const schema of schemas) if (list().includes(schema)) list().splice(list().indexOf(schema), 1);
+    };
+    // The import-time registrations stand in for what DI.clearCache() removes.
+    const imported = schemas.filter((schema) => list().includes(schema));
+    drop();
     new RbacConfigBootstrapper().bootstrap();
     try {
-      expect(DI.RootContainer.Cache.get(KEY)).to.include.members([AUTHZ_RBAC_CONFIGURATION_SCHEMA, AUTHZ_TOKEN_CONFIGURATION_SCHEMA]);
+      expect(list()).to.include.members(schemas);
     } finally {
-      const list = DI.RootContainer.Cache.get(KEY) as unknown[];
-      for (const schema of [AUTHZ_RBAC_CONFIGURATION_SCHEMA, AUTHZ_TOKEN_CONFIGURATION_SCHEMA]) list.splice(list.indexOf(schema), 1);
-      if (!had && list.length === 0) DI.uncache(KEY);
+      drop();
+      list().push(...imported);
+      if (!had && list().length === 0) DI.uncache(KEY);
     }
   });
 
@@ -570,7 +551,7 @@ describe('authz-rbac stores: schema registration', function () {
     const LOGGER = { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] };
 
     async function boot(authz: object): Promise<Configuration> {
-      const config = mergeFragments(rbacStores, { authz }, { logger: LOGGER });
+      const config = mergeFragments({ authz }, { logger: LOGGER });
       const child = DI.child();
       child.register(AUTHZ_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
       child.register(AUTHZ_RBAC_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
@@ -594,9 +575,9 @@ describe('authz-rbac stores: schema registration', function () {
       }
     }
 
-    it('validates authz.rbac next to authz and merges the fragment defaults', async () => {
+    it('validates authz.rbac next to authz and fills the schema defaults', async () => {
       const cfg = await boot({ combine: { default: { algorithm: 'deny-overrides', models: ['rbac'] } }, rbac: SAMPLE_8_5() });
-      expect(cfg.get('authz.rbac.cache.assignmentsTtlSeconds')).to.equal(60);
+      expect(cfg.get('authz.rbac.cache.assignmentsTtlSeconds')).to.equal(DEFAULT_ASSIGNMENTS_TTL_SECONDS);
       expect(cfg.get('authz.rbac.migration')).to.equal(undefined);
       // the app's list replaces the code default, so no store name appears twice
       expect(cfg.get('authz.rbac.stores.rules')).to.deep.equal(['ConfigRuleStore', 'DbRuleStore']);

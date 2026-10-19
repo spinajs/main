@@ -1,3 +1,5 @@
+import type { IContainer } from '@spinajs/di';
+
 import type { Principal, PrincipalType, ResourceRef, ResourceType } from './principal.js';
 import type { Permission, PermissionDef, PermissionRegistry } from './permission.js';
 import type { FilterOp, ResourceFilter } from './filter.js';
@@ -13,7 +15,7 @@ export abstract class NativeFilter {
 
 // Merged into the class so it emits no field: a subclass may declare it with a field initialiser or a getter.
 export interface NativeFilter {
-  /** True when `args` name every principal the op reads, so the op never reads `Decision.principal`: an intersect delegate's residual keeps it instead of stripping it (RFC E2-2). Such a filter must also key every `ctx.cache` memo by what its args name, because a kept leaf runs with the agent's evaluation context and cache. A compiler of the op (SQL) must not read the request principal either. */
+  /** True when `args` name every principal the op reads, so the op never reads `Decision.principal`: an intersect delegate's residual keeps it instead of stripping it. Such a filter must also key every `ctx.cache` memo by what its args name, because a kept leaf runs with the agent's evaluation context and cache. A compiler of the op (SQL) must not read the request principal either. */
   readonly principalInArgs?: boolean;
 }
 
@@ -29,6 +31,8 @@ export interface ModelCapabilities {
 
 export interface ModelInitContext {
   readonly domain: string;
+  /** The domain's container: resolve what the model needs (ConditionFunctions, Configuration, connections) here, not in root DI. */
+  readonly container: IContainer;
   readonly config: <T>(path: string, dflt?: T) => T; // reads authz.<model.name>.*
   readonly permissions: PermissionRegistry;
   registerPermissions(defs: readonly Omit<PermissionDef, 'source'>[]): void;
