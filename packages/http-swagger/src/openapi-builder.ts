@@ -1,4 +1,4 @@
-import { Autoinject, ClassInfo, TypedArray } from '@spinajs/di';
+import { Autoinject, ClassInfo, NewInstance, TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, ParameterType, RouteType } from '@spinajs/http';
 import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -57,6 +57,8 @@ const BODY_PARAMS = new Set<string>([
   'FromJSONFile',
   // orm-http: @AsModel — alias for FromBody (creates instance from request body)
   'AsDbModel',
+  ParameterType.RawBody,
+  ParameterType.FromXml,
 ]);
 
 /**
@@ -123,6 +125,8 @@ const PARAM_LOCATION_MAP: Record<string, 'query' | 'path' | 'header' | 'cookie'>
 
   FromHeader: 'header',
   HeadersFieldRouteArgs: 'header',
+  [ParameterType.UserAgent]: 'header',
+  [ParameterType.Referer]: 'header',
 
   FromCookie: 'cookie',
 };
@@ -185,6 +189,9 @@ function pathTemplatePlaceholders(template: string): string[] {
   return [...new Set(names)];
 }
 
+// Each build documents the current controllers with the current config; a cached builder
+// would carry the previous build's paths, tags and components into the next one.
+@NewInstance()
 export class OpenApiBuilder {
   private config: ISwaggerConfig;
   private document: IOpenApiDocument;
@@ -380,11 +387,13 @@ ${line}` : line;
   private buildPath(basePath: string, routePath: string | undefined, methodName: string): string {
     let path = '';
 
-    const prefix = this.config.basePath ? `/${this.config.basePath}` : '';
+    const configuredBase = this.config.basePath?.replace(/^\/+|\/+$/g, '');
+    const prefix = configuredBase ? `/${configuredBase}` : '';
 
+    // Mirrors buildRoutePath() in @spinajs/http, which mounts route '/' at '/<base>'.
     if (routePath) {
       if (routePath === '/') {
-        path = `/${basePath}/`;
+        path = `/${basePath}`;
       } else if (basePath === '/') {
         path = `/${routePath}`;
       } else {
@@ -546,7 +555,7 @@ ${line}` : line;
     if (methodDoc?.examples) {
       let content: { examples?: Record<string, IOpenApiExample> } | undefined;
       if (operation.requestBody) {
-        content = operation.requestBody.content['application/json'];
+        content = Object.values(operation.requestBody.content)[0];
       } else {
         const ok = operation.responses['200'];
         if (ok && !ok.$ref) {
@@ -734,12 +743,17 @@ ${line}` : line;
    *
    * orm-http's FromDbModel._extractValue reads `req.query[paramField ?? Name]` (same for
    * headers), so an explicit `paramField` IS the wire name and the TypeScript argument name
-   * is not what the runtime looks for. Path parameters do not go through here — their name
-   * is the placeholder, see resolvePathPlaceholder().
+   * is not what the runtime looks for. Likewise @Header(keyName) reads `req.headers[keyName]`,
+   * and @UserAgent() / @Referer() read fixed headers. Path parameters do not go through here —
+   * their name is the placeholder, see resolvePathPlaceholder().
    */
   private emittedParamName(param: IRouteParameter): string | undefined {
-    const paramField = (param.Options as { paramField?: string } | undefined)?.paramField;
-    return paramField || param.Name || undefined;
+    if (param.Type === ParameterType.UserAgent) return 'User-Agent';
+    if (param.Type === ParameterType.Referer) return 'Referer';
+
+    const options = param.Options as { paramField?: string; key?: string } | undefined;
+    const headerKey = param.Type === ParameterType.FromHeader ? options?.key : undefined;
+    return options?.paramField || headerKey || param.Name || undefined;
   }
 
   /**
@@ -919,7 +933,7 @@ ${line}` : line;
       name: resolvedName || param.Name || `param_${param.Index}`,
       in: location,
       description: doc?.description,
-      required: location === 'path',
+      required: location === 'path' || (param.Options as { required?: boolean } | undefined)?.required === true,
     };
 
     if (isObject && location === 'query') {
@@ -949,6 +963,11 @@ ${line}` : line;
 
     if (docType) {
       return this.inferSchemaFromString(docType);
+    }
+
+    // The argument is a Buffer of the received bytes; its type says nothing about the body.
+    if (param.Type === ParameterType.RawBody) {
+      return {};
     }
 
     // orm-http @Filter — describe the JSON filter envelope so API consumers know what to send.
@@ -1166,7 +1185,9 @@ ${line}` : line;
     // not JSON (covers FromFile, FromForm, FormField, FromCSV, FromJSONFile).
     const hasFile = bodyParams.some((bp) => MULTIPART_BODY_PARAMS.has(bp.param.Type as string));
 
-    const contentType = hasFile ? 'multipart/form-data' : 'application/json';
+    const hasXml = bodyParams.some((bp) => bp.param.Type === ParameterType.FromXml);
+
+    const contentType = hasFile ? 'multipart/form-data' : hasXml ? 'application/xml' : 'application/json';
 
     // If there's a single body param with a model type, use it directly
     if (bodyParams.length === 1 && !hasFile) {
@@ -1586,8 +1607,9 @@ ${line}` : line;
       case 'string':
         return { type: 'string' };
       case 'number':
-      case 'integer':
         return { type: 'number' };
+      case 'integer':
+        return { type: 'integer' };
       case 'boolean':
         return { type: 'boolean' };
       case 'object':

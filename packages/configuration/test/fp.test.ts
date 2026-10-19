@@ -80,6 +80,12 @@ describe('configuration fp', () => {
       expect(s.foo()).to.eq('impl');
     });
 
+    it('resolves a service configured as a plain name', async () => {
+      cfg.set('fp.service.plain', 'FpTestServiceImpl');
+
+      expect(await _service('fp.service.plain', FpTestServiceBase)()).to.be.instanceOf(FpTestServiceImpl);
+    });
+
     it('names the missing service in the error when not registered', async () => {
       cfg.set('fp.service.bad', { service: 'NoSuchService' });
 

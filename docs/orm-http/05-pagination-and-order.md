@@ -2,6 +2,8 @@
 
 `PaginationDTO` and `OrderDTO` are schema-validated DTOs for paging and sorting input. They carry and validate the values; applying them to a query is your code, because page size limits and sortable columns are application decisions.
 
+`readPage` and `readSort` are pure helpers that turn that input, or raw query-string values, into a defaulted, clamped page and a whitelisted sort. They do not touch the request or the query builder.
+
 ## How it works
 
 1. A route argument typed `PaginationDTO` or `OrderDTO`, read with `@Query()`, takes `req.query[<argument name>]`: one JSON-encoded object per argument, `?pagination={"page":2,"limit":25}`.
@@ -35,6 +37,60 @@
 | `order` | `SortOrder?` | Sort direction. |
 | `orderBy` | `string?` | Sort column. |
 | `model` | `Class<ModelBase>` | The model class. |
+
+## Helpers
+
+`readPage(input, options?)` returns `{ limit, offset }`.
+
+| Input | Result |
+| --- | --- |
+| `undefined`, `null`, `{}` | `{ limit: defaultLimit, offset: 0 }` |
+| `{ limit, offset }` | as given, `limit` clamped to `maxLimit` |
+| `{ limit, page }` (a `PaginationDTO`) | `offset = page * limit`, after the clamp |
+| digit strings (`'20'`) | read as numbers, so raw `req.query` values work |
+| `limit < 1`, a negative, fractional or non-numeric value, an array, `offset` and `page` together, a non-object | `invalid(field, message)` |
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `defaultLimit` | `DEFAULT_PAGE.limit` (50) | Limit when the input has none; itself clamped to `maxLimit`. |
+| `maxLimit` | `MAX_PAGE_LIMIT` (500) | A larger `limit` is clamped, not rejected. |
+| `invalid` | throws `InvalidArgument(message, field)` | Map a malformed value to your own error. Must throw. |
+
+`readSort(input, sortable, fallback, options?)` returns `{ column, order }`. A column outside `sortable` (case-sensitive) or an order other than `ASC` / `DESC` (any case) goes to `invalid`. A missing column is `fallback.column`; a missing order is `fallback.order`, else `SortOrder.ASC`. The order comes back upper case.
+
+`DEFAULT_PAGE` is the frozen `{ limit: 50, offset: 0 }`.
+
+```ts sample
+import { BaseController, BasePath, Get, Ok, Query } from '@spinajs/http';
+import { Connection, Model, ModelBase, Primary, SortOrder } from '@spinajs/orm';
+import { OrderDTO, PaginationDTO, readPage, readSort } from '@spinajs/orm-http';
+
+@Connection('default')
+@Model('invoices')
+export class Invoice extends ModelBase<Invoice> {
+  @Primary()
+  public Id: number;
+
+  public IssuedAt: string;
+
+  public Total: number;
+}
+
+const SORTABLE = ['Id', 'IssuedAt', 'Total'];
+
+@BasePath('invoices')
+export class InvoiceController extends BaseController {
+  /** GET /invoices?pagination={"page":2,"limit":25}&order={"column":"Total","order":"desc"} */
+  @Get()
+  public async list(@Query() pagination?: PaginationDTO, @Query() order?: OrderDTO) {
+    const { limit, offset } = readPage(pagination, { defaultLimit: 25, maxLimit: 100 });
+    const sort = readSort(order, SORTABLE, { column: 'IssuedAt', order: SortOrder.DESC });
+
+    const rows = await Invoice.select().order(sort.column, sort.order).take(limit).skip(offset);
+    return new Ok(rows.map((r) => r.dehydrate()));
+  }
+}
+```
 
 ## Services and extension points
 
@@ -110,14 +166,14 @@ export class InvoiceController extends BaseController {
 
 - Each DTO is one query-string argument named after the handler parameter, JSON-encoded. `?page=2&limit=25` does **not** fill a `PaginationDTO` argument.
 - Both fields of each DTO are optional. A client may send `{}`, `{ "page": 2 }`, or nothing.
-- `limit: 0` passes the schema. Guard it before `take()`.
+- `limit: 0` passes the schema. Guard it before `take()`, or read the page with `readPage`, which rejects it.
 - `OrderDTO.column` is not constrained. Without a whitelist a client can sort by any column of the table.
 - Pages are zero-based in every example here; nothing in the DTO enforces either base.
 
 ## Best practices
 
-- Default `limit` and cap it, in code or in a subclass schema.
-- Whitelist `column` with an `enum` in a subclass schema, so a bad column answers `400` before your handler runs.
+- Default `limit` and cap it, with `readPage` or in a subclass schema.
+- Whitelist `column` with `readSort`, or with an `enum` in a subclass schema so a bad column answers `400` before your handler runs.
 - Count on a `clone()` of the builder taken before `take()` / `skip()`, so the total covers the whole filtered set.
 
 ## Patterns and antipatterns

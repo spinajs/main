@@ -1,6 +1,7 @@
+import { isStrictPlainObject } from '@spinajs/util';
 export type Plain = Record<string, unknown>;
 
-export const isPlain = (v: unknown): v is Plain => v !== null && typeof v === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(v));
+export const isPlain = isStrictPlainObject;
 
 export const keyPath = (parent: string, key: string): string => (/^[A-Za-z_$][\w$]*$/.test(key) ? `${parent}.${key}` : `${parent}[${JSON.stringify(key)}]`);
 

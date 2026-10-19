@@ -55,11 +55,16 @@ export class RenderPdfCommand extends CliCommand {
   }
 
   private resolvePdfOptions(options: RenderPdfOptions) {
+    const scale = options.scale ? parseFloat(options.scale) : undefined;
+    if (scale !== undefined && !(scale >= 0.1 && scale <= 2)) {
+      throw new Error(`Invalid --scale value '${options.scale}', expected a number between 0.1 and 2`);
+    }
+
     return {
       format: (options.format ?? 'A4') as PaperFormat,
       landscape: !!options.landscape,
       printBackground: true,
-      ...(options.scale && { scale: parseFloat(options.scale) }),
+      ...(scale !== undefined && { scale }),
     };
   }
 }

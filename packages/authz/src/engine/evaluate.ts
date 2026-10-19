@@ -1,7 +1,9 @@
+import { compareCodePoints, getOwnPath } from '@spinajs/util';
 import type { ResourceFilter } from '../contracts/filter.js';
 import type { Principal, ResourceRef, ResourceType } from '../contracts/principal.js';
 import type { RelationResolver } from '../contracts/adapter.js';
 import type { EvaluationContext, NativeFilter } from '../contracts/model.js';
+import { isObject } from './internal/util.js';
 
 /** Kleene truth value: `undefined` is UNKNOWN. */
 export type Truth = boolean | undefined;
@@ -24,7 +26,6 @@ const MAX_MATCH_WORK = 4_000_000;
 // node visit costs about 64 of them. Leaves pay for their own work on top.
 const BUDGET = 8_000_000;
 const NODE_COST = 64;
-const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
 // The SQL compilation of a residual must reproduce these semantics exactly.
 export function evaluateResidual(f: ResourceFilter, subject: unknown, env: SubjectEnv): Promise<Truth> {
@@ -33,12 +34,7 @@ export function evaluateResidual(f: ResourceFilter, subject: unknown, env: Subje
 
 export function defaultAttribute(subject: unknown, field: string): unknown {
   try {
-    let v: unknown = subject;
-    for (const segment of field.split('.')) {
-      if (UNSAFE_SEGMENTS.has(segment) || v === null || typeof v !== 'object' || !Object.hasOwn(v, segment)) return undefined;
-      v = (v as Record<string, unknown>)[segment];
-    }
-    return v;
+    return getOwnPath(subject, field);
   } catch {
     return undefined;
   }
@@ -62,8 +58,6 @@ interface Run {
   readonly leaves: Map<object, Truth>;
   ancestors?: Promise<AncestorIndex | undefined>;
 }
-
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 
 // Once a charge fails the budget is zero, so every later node is UNKNOWN too.
 function charge(run: Run, cost: number): boolean {
@@ -320,19 +314,6 @@ function coerce(a: Scalar, b: Scalar): readonly [Scalar, Scalar] | undefined {
   if (typeof a === 'boolean' && typeof b === 'number') return b === 0 || b === 1 ? [a, b === 1] : undefined;
   if (typeof a === 'number' && typeof b === 'boolean') return a === 0 || a === 1 ? [a === 1, b] : undefined;
   return undefined;
-}
-
-// Surrogates (D800-DFFF) move above E000-FFFF, so UTF-16 units compare in code point order.
-const fixup = (c: number): number => (c >= 0xe000 ? c - 0x800 : c >= 0xd800 ? c + 0x2000 : c);
-
-function compareCodePoints(x: string, y: string): number {
-  const n = Math.min(x.length, y.length);
-  for (let i = 0; i < n; i++) {
-    const cx = x.charCodeAt(i);
-    const cy = y.charCodeAt(i);
-    if (cx !== cy) return fixup(cx) - fixup(cy);
-  }
-  return x.length - y.length;
 }
 
 // ---- relation, under, native ----

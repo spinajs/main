@@ -89,7 +89,7 @@ All logs go to the `email` logger. Recipient addresses appear only at trace leve
 
 ## Configuration
 
-The `email` section is validated by the schema `spinajs/email.configuration.schema.json`. The schema registers itself when the package is imported, and again from the `LogBotstrapper` bootstrapper.
+The `email` section is validated by the schema `spinajs/email.configuration.schema.json`. The schema registers itself when the package is imported, and again from the `EmailBootstrapper` bootstrapper.
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
@@ -107,7 +107,7 @@ The `email` section is validated by the schema `spinajs/email.configuration.sche
 | `email.retry.count` | `number` | `3` | `>= 0` | Queue retry count for deferred mails. |
 | `email.attachments.check` | `boolean` | `true` | `true`, `false` | Read attachments in the service as the caller, see [Attachments](05-attachments.md). |
 | `email.password.*` | object | see [Password mails](08-password-mailer.md) | | Reset and invite mails. |
-| `email.queue` | `string` | `'email-queue-black-hole'` | any | Shipped and validated, but read by no code. |
+| `email.queue` | `string` | not set | any | Accepted by the schema, but read by no code. Queue selection is `queue.routing`. |
 | `configuration.isProduction` | `boolean` | from the configuration package | | Turns off `redirectTo`. |
 | `fs.defaultProvider` | `string` | not set | fs provider name | Filesystem of attachments without `provider`. |
 
@@ -142,7 +142,7 @@ export default {
 | --- | --- | --- | --- | --- |
 | Email service | `EmailService`, singleton, resolved by type | `DefaultEmailService` | your subclass | [Replacing or extending `EmailService`](03-email-service.md) |
 | Transport | `EmailSender`, new instance per connection | none | `BlackHoleEmailSender`, `EmailSenderSmtp` | [Transports](02-transports.md) |
-| Config schema | `Bootstrapper` `LogBotstrapper` | registers the schema | none | not meant to be replaced |
+| Config schema | `Bootstrapper` `EmailBootstrapper` (`LogBotstrapper` is a deprecated alias) | registers the schema | none | not meant to be replaced |
 
 ## Important behaviour
 

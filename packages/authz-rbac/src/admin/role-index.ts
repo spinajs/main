@@ -1,0 +1,248 @@
+import { AuthzConfigError, PermissionRegistry, adminContainer, compilePermissionGlob, isPermission, isPermissionGlob } from '@spinajs/authz';
+import type { AdminContext, Permission, PermissionDef, ResourceRef } from '@spinajs/authz';
+import type { IContainer } from '@spinajs/di';
+
+import { RoleStore } from '../contracts.js';
+import type { Assignment, LadderDef, RoleDef } from '../contracts.js';
+import { RbacModel } from '../model/model.js';
+import { quote as q } from './common.js';
+
+export interface RoleIndex {
+  readonly roles: ReadonlyMap<string, RoleDef>;
+  readonly ladders: ReadonlyMap<string, LadderDef>;
+  /** The ladder a role is on: its own `ladder`, else the ladder that lists it. */
+  ladderOf(role: string): string | undefined;
+}
+
+// One AdminCallContext per batch: its commands share one load of the role stores.
+const batchRoles = new WeakMap<AdminContext, Promise<RoleIndex>>();
+
+export function roleIndex(ctx: AdminContext): Promise<RoleIndex> {
+  let p = batchRoles.get(ctx);
+  if (!p) {
+    p = loadRoles(ctx);
+    batchRoles.set(ctx, p);
+    // A failed load is not kept: the next command reports the same error itself.
+    p.catch(() => batchRoles.delete(ctx));
+  }
+  return p;
+}
+
+async function loadRoles(ctx: AdminContext): Promise<RoleIndex> {
+  return loadRoleIndex(adminContainer(ctx), `Authz domain ${q(ctx.domain)}`);
+}
+
+/** The role definitions of every RoleStore `container` registers; a role or ladder defined twice is refused. */
+export async function loadRoleIndex(container: IContainer, where: string): Promise<RoleIndex> {
+  if (!container.hasRegistered(RoleStore)) throw new AuthzConfigError(`${where}: no RoleStore is registered; the RBAC write handlers of AuthzAdmin read role definitions from it`);
+  const roles = new Map<string, RoleDef>();
+  const ladders = new Map<string, LadderDef>();
+  for (const s of await container.resolve(Array.chainOf(RoleStore))) {
+    const loaded = await (s as RoleStore).load();
+    for (const r of loaded.roles) {
+      if (roles.has(r.name)) throw new AuthzConfigError(`${where}: role ${q(r.name)} is defined twice (${roles.get(r.name)!.source}, ${r.source})`);
+      roles.set(r.name, r);
+    }
+    for (const l of loaded.ladders) {
+      if (ladders.has(l.name)) throw new AuthzConfigError(`${where}: ladder ${q(l.name)} is defined twice`);
+      ladders.set(l.name, l);
+    }
+  }
+  const listed = new Map<string, string>();
+  for (const l of ladders.values()) for (const r of l.roles) listed.set(r, l.name);
+  return { roles, ladders, ladderOf: (role) => roles.get(role)?.ladder ?? listed.get(role) };
+}
+
+/** Rank on its ladder (index, weakest first); -1 when the role is not listed there. */
+export function rankOf(roles: RoleIndex, ladder: string, role: string): number {
+  return roles.ladders.get(ladder)?.roles.indexOf(role) ?? -1;
+}
+
+/** The ladder's ranks apply at the scope's type (GLOBAL is $global); a ladder without resourceTypes applies everywhere. */
+export function ladderAppliesAt(roles: RoleIndex, ladder: string, scope: ResourceRef): boolean {
+  const types = roles.ladders.get(ladder)?.resourceTypes;
+  return types === undefined || types.includes(scope.type);
+}
+
+/** Which implied roles a closure follows: none, those also held at the role's own scope, all, or those the predicate accepts. */
+export type ImpliesMode = 'none' | 'same-scope' | 'all' | ((def: RoleDef) => boolean);
+
+export interface RoleClosure {
+  readonly defs: readonly RoleDef[];
+  readonly unknown: readonly string[];
+  readonly bypass: boolean;
+}
+
+/**
+ * What holding `role` gives: the role, the roles it extends, the lower roles of its ladder and, per
+ * `implies`, its implied roles, transitively. `unknown` names roles of the closure that are not defined;
+ * `bypass` is set when a followed implied role bypasses restrict or cap rules.
+ */
+export function roleClosure(roles: RoleIndex, role: string, implies: ImpliesMode = 'none'): RoleClosure {
+  const defs = new Map<string, RoleDef>();
+  const unknown = new Set<string>();
+  let bypass = false;
+  const visit = (name: string): void => {
+    if (defs.has(name) || unknown.has(name)) return;
+    const def = roles.roles.get(name);
+    if (!def) {
+      unknown.add(name);
+      return;
+    }
+    defs.set(name, def);
+    for (const e of def.extends) visit(e);
+    const ladder = roles.ladderOf(name);
+    const list = ladder === undefined ? undefined : roles.ladders.get(ladder)?.roles;
+    if (list) for (const lower of list.slice(0, Math.max(0, list.indexOf(name)))) visit(lower);
+    const follows = typeof implies === 'function' ? implies(def) : implies !== 'none';
+    for (const i of follows ? def.implies ?? [] : []) {
+      if (implies === 'same-scope' && i.at !== 'self-and-descendants') continue;
+      if ((i.bypass?.length ?? 0) > 0) bypass = true;
+      visit(i.role);
+    }
+  };
+  visit(role);
+  return { defs: [...defs.values()], unknown: [...unknown], bypass };
+}
+
+/**
+ * What granting `role` gives, as judged against the actor: the closure with every implied role, except the
+ * implied roles of a ladder role the actor already ranks at or above on that ladder (`holds`). Ladder roles
+ * inherit the grants and implies of lower ones, so such an actor already holds them; this is what lets an
+ * org owner grant org.admin, whose implied maintainer applies to project types only.
+ */
+export async function grantClosure(roles: RoleIndex, role: string, holds: (ladder: string, role: string) => Promise<boolean>): Promise<RoleClosure> {
+  const held = new Map<string, boolean>();
+  // Skipping only shrinks the closure, so asking about the roles it reaches until none is new terminates.
+  for (;;) {
+    const closure = roleClosure(roles, role, (def) => held.get(def.name) !== true);
+    const open = closure.defs.filter((d) => (d.implies?.length ?? 0) > 0 && roles.ladderOf(d.name) !== undefined && !held.has(d.name));
+    if (open.length === 0) return closure;
+    for (const d of open) held.set(d.name, await holds(roles.ladderOf(d.name)!, d.name));
+  }
+}
+
+/**
+ * The subject set roles whose sets a principal holding `role` at a scope is a member of there: the
+ * `subjectSet` roles of its closure without implies, as the model's set resolver counts them.
+ */
+export function setRolesOf(roles: RoleIndex, role: string): string[] {
+  return roleClosure(roles, role, 'none')
+    .defs.filter((d) => d.subjectSet === true)
+    .map((d) => d.name);
+}
+
+/**
+ * The model counts the row: its role is defined, assignable, and may be held at the row's scope type. A row
+ * it ignores gives nothing and makes no set member. Mirrors `assignmentProblem` in `model/roles.ts`, which
+ * needs a compiled RoleGraph the admin side does not have.
+ */
+export function honoured(roles: RoleIndex, a: Pick<Assignment, 'role' | 'scope'>): boolean {
+  const def = roles.roles.get(a.role);
+  return def !== undefined && def.assignable !== false && (def.scopeTypes === undefined || def.scopeTypes.includes(a.scope.type));
+}
+
+/**
+ * The permissions a grant may match to give `permission`: the permission and every one that implies it,
+ * transitively (PermissionRegistry.impliedBy), as the model's compileGrants follows PermissionDef.implies.
+ * @throws AuthzConfigError when there is no registry (permissionRegistry): without the implies a holder could go unseen
+ */
+export async function grantingPermissions(ctx: AdminContext, permission: Permission): Promise<readonly Permission[]> {
+  const registry = await permissionRegistry(ctx);
+  if (!registry) throw new AuthzConfigError(`Authz domain ${q(ctx.domain)}: DefaultAdminGuard needs the permission registry to find the permissions that imply ${q(permission)}; no model of the domain exposes one through permissions() and no PermissionRegistry is registered`);
+  return [permission, ...registry.impliedBy(permission)];
+}
+
+/**
+ * The registry the domain's RBAC grants were compiled with: an RbacModel's of ctx.authz.models() first (an
+ * RbacModel shared from another domain compiled its grants against that domain's registry, which another
+ * model here may not expose), then any model's permissions() that returns a PermissionRegistry, then a
+ * PermissionRegistry of the admin container. Undefined when none is there. AuthzService is never injected.
+ */
+export async function permissionRegistry(ctx: AdminContext): Promise<PermissionRegistry | undefined> {
+  const models = ctx.authz.models();
+  for (const model of [...models.filter((m) => m instanceof RbacModel), ...models.filter((m) => !(m instanceof RbacModel))]) {
+    const own: unknown = (model as { permissions?: unknown }).permissions;
+    if (typeof own !== 'function') continue;
+    const registry: unknown = own.call(model);
+    if (registry instanceof PermissionRegistry) return registry;
+  }
+  const container = adminContainer(ctx);
+  if (!container.hasRegistered(PermissionRegistry)) return undefined;
+  const registered: unknown = await container.resolve(PermissionRegistry);
+  return registered instanceof PermissionRegistry ? registered : undefined;
+}
+
+/**
+ * The registered permissions a grant gives, as the model's compileGrants compiles it: a literal names
+ * itself, a glob the permissions it matches, and each brings in what it implies, transitively. Undefined
+ * (not covered) for an invalid name or glob, an unregistered permission, and a glob that matches nothing,
+ * which compileGrants accepts as giving nothing.
+ */
+export function grantedPermissions(registry: PermissionRegistry, grant: string): readonly PermissionDef[] | undefined {
+  let direct: readonly PermissionDef[];
+  if (!grant.includes('*')) {
+    const def = isPermission(grant) ? registry.get(grant) : undefined;
+    if (!def) return undefined;
+    direct = [def];
+  } else {
+    if (!isPermissionGlob(grant)) return undefined;
+    direct = registry.match(grant);
+    if (direct.length === 0) return undefined;
+  }
+  const given = new Map(direct.map((d) => [d.name, d]));
+  const queue = [...given.values()];
+  for (let i = 0; i < queue.length; i++) {
+    for (const next of queue[i].implies ?? []) {
+      if (given.has(next)) continue;
+      const def = registry.get(next);
+      if (!def) return undefined;
+      given.set(next, def);
+      queue.push(def);
+    }
+  }
+  return [...given.values()];
+}
+
+const matchesAny = (glob: string, permissions: readonly Permission[]): boolean => {
+  const matches = compilePermissionGlob(glob);
+  return permissions.some((p) => matches(p));
+};
+
+/**
+ * A grant of the role's closure matches one of `permissions` (grantingPermissions) at the role's own scope:
+ * implied roles held `self-and-descendants` count, `descendants` ones do not. Grants are names or globs;
+ * conditions do not matter.
+ */
+export function grantsPermission(roles: RoleIndex, role: string, permissions: readonly Permission[]): boolean {
+  return roleClosure(roles, role, 'same-scope').defs.some((d) => d.grants.some((g) => matchesAny(g.permission, permissions)));
+}
+
+/**
+ * As grantsPermission, counting only grants the model gives on a request at `scope` to a row of `role` made
+ * there, whatever tags the principal's live assignment carries and whatever the resource: no `requiresTag`,
+ * `relation` or `on`; the declaring role's ladder applies at the scope type; a `grantedAt` lists the scope type
+ * and, for a ladder role's grant, the row's role ranks at or above it on that ladder (the model counts only
+ * rows on that ladder). A grant matched through an implying permission meets the same conditions, as the model
+ * compiles the implied grant from it. Cap and restrict rules are not judged.
+ */
+export function surelyGrantsPermission(roles: RoleIndex, role: string, permissions: readonly Permission[], scope: ResourceRef): boolean {
+  const rowLadder = roles.ladderOf(role);
+  return roleClosure(roles, role, 'same-scope').defs.some((d) => {
+    const ladder = roles.ladderOf(d.name);
+    if (ladder !== undefined && !ladderAppliesAt(roles, ladder, scope)) return false;
+    return d.grants.some((g) => {
+      if (g.requiresTag !== undefined || g.relation !== undefined || g.on !== undefined || !matchesAny(g.permission, permissions)) return false;
+      if (g.grantedAt === undefined) return true;
+      if (!g.grantedAt.includes(scope.type)) return false;
+      return ladder === undefined || (rowLadder === ladder && rankOf(roles, ladder, role) >= rankOf(roles, ladder, d.name));
+    });
+  });
+}
+
+export const isDenyRoleDef = (roles: RoleIndex, role: string): boolean => roles.roles.get(role)?.deny === true;
+
+/** A deny role whose grants, or those of the deny roles it extends, name `permission` (names or globs; a deny follows no `implies`). */
+export function deniesPermission(roles: RoleIndex, role: string, permission: Permission): boolean {
+  return isDenyRoleDef(roles, role) && roleClosure(roles, role).defs.some((d) => d.deny === true && d.grants.some((g) => matchesAny(g.permission, [permission])));
+}

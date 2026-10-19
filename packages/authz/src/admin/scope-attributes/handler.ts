@@ -13,6 +13,7 @@ import { WritableScopeAttributeStore } from '../ports.js';
 import type { ScopeAttributeLeaf } from '../ports.js';
 import { SCOPE_ATTRIBUTE_LIMITS, attributeKeyCount, flattenAttributes, underPath, unflattenAttributes } from './flatten.js';
 import { contributedSchemas, errorPath, schemaValidator } from './schemas.js';
+import { isObject } from '../../engine/internal/util.js';
 
 type AttributeCommand = Extract<AuthzCommand, { kind: 'scope.setAttributes' | 'scope.replaceAttributes' }>;
 type Rows = Record<string, ScopeAttributeLeaf>;
@@ -23,8 +24,6 @@ interface Plan {
   readonly set: Rows;
   readonly remove: string[];
 }
-
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 
 // One AdminCallContext per batch: its commands share the contributors' answer, in validate and in apply.
 const batchSchemas = new WeakMap<AdminContext, Promise<ReadonlyMap<ResourceType, ScopeAttributeSchema>>>();

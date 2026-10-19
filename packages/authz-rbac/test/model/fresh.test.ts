@@ -1,4 +1,4 @@
-import { FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
+import { Authorizer, FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, DecisionRequest, ResourceRef } from '@spinajs/authz';
 import { FakeScopeResolver, ManualClock, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 import * as chai from 'chai';
@@ -44,6 +44,24 @@ describe('authz-rbac model: fresh requests', () => {
     store.remove('v1');
     expect(await plan()).to.deep.equal(held);
     expect(await plan(true)).to.deep.equal({ kind: 'abstain' });
+  });
+
+  it('an access plan of a consistency fresh permission does not honour an assignment the cache still holds', async () => {
+    const registry = new PermissionRegistryImpl();
+    registry.register([{ name: 'doc:read', types: ['doc'], list: true }, { name: 'doc:audit', types: ['doc'], list: true, consistency: 'fresh' }], 'test');
+    registry.freeze();
+    const store = new MemoryAssignmentStore([assignment('v1')]);
+    const role: RoleDef = { ...VIEWER, grants: [{ permission: 'doc:read' }, { permission: 'doc:audit' }] };
+    const model = new RbacModel({ roles: new MemoryRoleStore([role]), assignments: store, clock: new ManualClock(NOW), log: { warn: () => undefined } });
+    await model.init(fakeModelInitContext({ model: 'rbac', permissions: registry }));
+    model.grantIndex();
+    const authz = new Authorizer({ domain: 'root', models: [model], registry, log: { error: () => undefined, warn: () => undefined, debug: () => undefined } });
+    const all = { kind: 'filter', permit: 'all', deny: [] };
+    expect(await authz.accessPlan(userPrincipal('alice'), 'doc:read', 'doc')).to.deep.equal(all);
+    expect(await authz.accessPlan(userPrincipal('alice'), 'doc:audit', 'doc')).to.deep.equal(all);
+    store.remove('v1');
+    expect(await authz.accessPlan(userPrincipal('alice'), 'doc:read', 'doc')).to.deep.equal(all);
+    expect((await authz.accessPlan(userPrincipal('alice'), 'doc:audit', 'doc')).kind).to.equal('none');
   });
 
   it('a fresh request needs IO even when the cache is warm, so the sync path cannot serve it', async () => {

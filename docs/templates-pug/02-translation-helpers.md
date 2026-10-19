@@ -38,7 +38,7 @@ The helpers read `@spinajs/intl` settings; this package adds none.
 ## Important behaviour
 
 - **The object form ignores the render language.** `__({ phrase: 'invoice.title', locale: 'de' })` translates to `de` whatever the render language is.
-- **`__h` keys are array indexes, not locale codes**, because `Intl.__h()` maps over the locale list with the index. See [`@spinajs/intl`](../intl/01-translating-text.md#important-behaviour).
+- **`__h` keys are locale codes**: `Intl.__h()` returns one `{ [locale]: value }` object per loaded locale. See [`@spinajs/intl`](../intl/01-translating-text.md#important-behaviour).
 - **A missing translation falls back** to the default locale, then to the text itself; see [`@spinajs/intl`](../intl/01-translating-text.md).
 - **Resolving `PugRenderer` on its own** without ever resolving `Intl` makes the first `__` call throw a `TypeError`: `DI.get(Intl)` returns `undefined`. Render through `Templates`.
 - **The helpers overwrite model keys** named `__`, `__n`, `__l` or `__h`.

@@ -98,7 +98,7 @@ describe('KeyChallengeStrategy', () => {
 
   it('cannot be built without an audience, and does the signature work for unknown keys only', async () => {
     const w = await world();
-    await assert.rejects(new KeyChallengeStrategy(w.p.registry, w.p.secrets, keysOptionsFor()).resolve(), /audience/);
+    await assert.rejects(new KeyChallengeStrategy({ registry: w.p.registry, secrets: w.p.secrets, options: keysOptionsFor() }).resolve(), /audience/);
     let work = 0;
     class Counting extends KeyChallengeStrategy {
       protected unknownKeyWork(alg: KeyAlgorithm, data: Uint8Array, signature: Uint8Array): void {
@@ -106,7 +106,7 @@ describe('KeyChallengeStrategy', () => {
         super.unknownKeyWork(alg, data, signature);
       }
     }
-    const s = new Counting(w.p.registry, w.p.secrets, w.p.options);
+    const s = new Counting({ registry: w.p.registry, secrets: w.p.secrets, options: w.p.options });
     const { kp, kid } = await w.add();
     await s.verify(w.login(kid, await w.challenge(kid), generateKeyPair('EdDSA')), w.ctx());
     assert.strictEqual(work, 0);

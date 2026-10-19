@@ -222,7 +222,6 @@ const PUBLIC_EXPORTS = [
   'isLegacySessionId',
   'peekingSessions',
   'sessionCookie',
-  'sessionCookieMaxAge',
   'sessionCookieName',
   'sessionCookieOptions',
   'sessionHandleOf',
@@ -350,7 +349,7 @@ describe('@spinajs/authn-session contracts', function () {
         { name: 'truncate', modifiers: ['public', 'abstract'], params: [], decorators: [] },
         { name: 'applyInitialExpiration', modifiers: ['protected'], params: ['s'], decorators: [] },
         { name: 'applyRenewedExpiration', modifiers: ['protected'], params: ['s'], decorators: [] },
-        { name: 'isExpired', modifiers: ['protected'], params: ['s'], decorators: [] },
+        { name: 'isExpired', modifiers: ['public'], params: ['s'], decorators: [] },
       ]);
     });
 

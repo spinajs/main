@@ -171,6 +171,7 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
       providers.add(issuer.provider);
     });
     this.issuers = issuers;
+    await super.resolve();
   }
 
   protected issuerOf(o: ConfiguredIssuer, at: string): Issuer {

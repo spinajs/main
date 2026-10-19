@@ -407,6 +407,41 @@ class ExpiryDefaultsConfiguration extends Configuration {
   public async load(): Promise<void> {}
 }
 
+/** LocalPasswordService injects a hasher that needs authn.local, which ExpiryDefaultsConfiguration does not hold. */
+class IdlePasswordService extends PasswordService {
+  public change(): never {
+    throw new Error('not called');
+  }
+
+  public requestReset(): never {
+    throw new Error('not called');
+  }
+
+  public redeemReset(): never {
+    throw new Error('not called');
+  }
+
+  public invite(): never {
+    throw new Error('not called');
+  }
+
+  public policy(): never {
+    throw new Error('not called');
+  }
+
+  public check(): never {
+    throw new Error('not called');
+  }
+
+  public set(): never {
+    throw new Error('not called');
+  }
+
+  public expire(): never {
+    throw new Error('not called');
+  }
+}
+
 describe('PasswordExpirationJob from the container', function () {
   this.timeout(60_000);
 
@@ -414,12 +449,17 @@ describe('PasswordExpirationJob from the container', function () {
     DI.setESMModuleSupport();
     DI.register(ExpiryDefaultsConfiguration).as(Configuration);
     DI.register(DefaultsAgeSource).as(PasswordAgeSource);
+    DI.register(IdlePasswordService).as(PasswordService);
+    DI.uncache(PasswordService);
     await DI.resolve(Configuration);
   });
 
   after(() => {
     DI.unregister(ExpiryDefaultsConfiguration);
     DI.unregister(DefaultsAgeSource);
+    DI.unregister(IdlePasswordService);
+    DI.uncache(IdlePasswordService);
+    DI.uncache(PasswordService);
     DI.uncache(Configuration);
     DI.uncache(PasswordAgeSource);
     DI.uncache(DefaultsAgeSource);

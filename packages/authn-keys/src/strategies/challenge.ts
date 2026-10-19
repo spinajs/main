@@ -1,16 +1,16 @@
-import { Inject, Injectable } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
-import { AuthenticationStrategy, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
-import type { AuthnContext, Credentials, KeyAlgorithm, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { AuthenticationStrategy, SecretStore } from '@spinajs/authn/contracts';
+import type { AuthnContext, Credentials, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { InvalidOption } from '@spinajs/exceptions';
 import { challengeSecretPurpose, challengeSigningInput, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { decodeB64url } from '../jwk/base64url.js';
-import { dummyVerify } from '../jwk/signature.js';
-import { keysOptionsOf } from '../options/options.js';
-import type { KeysConfig, KeysOptions } from '../options/options.js';
 import { loginChallengeIdentity } from '../registry/registry.js';
-import { MAX_CREDENTIAL_LENGTH, failure, keySuccess, keyThrottleKeys, usableKey } from './keys.js';
+import { KeyStrategy, MAX_CREDENTIAL_LENGTH, failure, keyThrottleKeys, usableKey } from './keys.js';
+import type { KeyStrategyDeps } from './keys.js';
+
+export interface KeyChallengeStrategyDeps extends KeyStrategyDeps {
+  readonly secrets?: SecretStore;
+}
 
 /**
  * Challenge-response login for CLIs that want a session (design §22.10): `POST /auth/keys/challenge` gives a
@@ -19,21 +19,20 @@ import { MAX_CREDENTIAL_LENGTH, failure, keySuccess, keyThrottleKeys, usableKey 
  * burns nothing (the throttle counts it).
  */
 @Injectable(AuthenticationStrategy)
-@Inject(KeyRegistry, SecretStore)
-export class KeyChallengeStrategy extends AuthenticationStrategy {
+export class KeyChallengeStrategy extends KeyStrategy<KeyChallengeStrategyDeps> {
   readonly name = 'keys-challenge';
   readonly kinds = ['key-challenge'];
   readonly interactive = true;
 
-  @Config('authn.keys')
-  protected KeysConfig: KeysConfig;
+  @Autoinject(SecretStore)
+  protected Secrets: SecretStore;
 
-  constructor(protected readonly registry: KeyRegistry, protected readonly secrets: SecretStore, protected readonly Options?: KeysOptions) {
-    super();
+  protected get secrets(): SecretStore {
+    return this.Deps?.secrets ?? this.Secrets;
   }
 
   protected get audience(): string {
-    const audience = keysOptionsOf(this.Options ?? this.KeysConfig).challenge.audience;
+    const audience = this.options.challenge.audience;
     if (audience === null) {
       throw new InvalidOption('authn.keys.challenge.audience (or authn.keys.assertion.audience) must be set for key challenge logins');
     }
@@ -43,11 +42,6 @@ export class KeyChallengeStrategy extends AuthenticationStrategy {
   public async resolve(): Promise<void> {
     void this.audience;
     await super.resolve();
-  }
-
-  /** The signature work an unknown, revoked or expired key costs, so it answers in the time a known key does (A02). */
-  protected unknownKeyWork(alg: KeyAlgorithm, data: Uint8Array, signature: Uint8Array): void {
-    dummyVerify(alg, data, signature);
   }
 
   throttleKeys(c: Credentials, ctx: AuthnContext): readonly ThrottleKey[] {
@@ -74,6 +68,6 @@ export class KeyChallengeStrategy extends AuthenticationStrategy {
     if (!(await this.secrets.redeem(loginChallengeIdentity(keyId), challengeSecretPurpose(parsed.rid), parsed.nonce))) {
       return failure('invalid_credentials');
     }
-    return keySuccess(this.registry, found.key, 'key-challenge', ctx);
+    return this.success(found.key, 'key-challenge', ctx);
   }
 }

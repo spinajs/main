@@ -1,15 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { createPublicKey } from 'node:crypto';
-import type { AuthnContext, IdentityRef, PrincipalRef } from '@spinajs/authn/contracts';
+import type { IdentityRef } from '@spinajs/authn/contracts';
 import { InvalidArgument } from '@spinajs/exceptions';
 
-export const CLI_ACTOR: PrincipalRef = Object.freeze({ type: 'system', id: 'cli' });
-
 export const OWNER_TYPES = ['user', 'service', 'agent'];
-
-export function cliContext(): AuthnContext {
-  return { now: new Date(), purpose: 'request', userAgent: 'spinajs-cli' };
-}
 
 export function ownerArg(type: string, id: string): IdentityRef {
   if (!OWNER_TYPES.includes(type)) {

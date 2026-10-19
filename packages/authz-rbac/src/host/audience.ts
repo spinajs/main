@@ -2,6 +2,7 @@ import { ChangeAudience, principalKey } from '@spinajs/authz';
 import type { AuthzChange, ResourceRef } from '@spinajs/authz';
 import { Container, Inject, Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { compareStrings } from '@spinajs/util';
 
 import { MembershipStore } from '../contracts.js';
 import { parsePrincipalSubjectKey, parseSetKey } from '../model/sets/keys.js';
@@ -14,7 +15,7 @@ const NOBODY: Answer = Object.freeze({ principals: Object.freeze([]), objects: O
 const isWildcardKey = (key: string): boolean => key.endsWith(':*') && parseSetKey(key) === undefined;
 
 /**
- * Who an RBAC change reaches (design §10.4, lane L8 decision 10). No `objects`: whether a changed scope has
+ * Who an RBAC change reaches. No `objects`: whether a changed scope has
  * descendants is in authz-orm's ancestor table, which this package does not read, so clients refetch.
  */
 @Singleton()
@@ -33,7 +34,7 @@ export class RbacChangeAudience extends ChangeAudience {
       if (keys === '*') return EVERYONE;
       for (const k of keys) out.add(k);
     }
-    return Object.freeze({ principals: Object.freeze([...out].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) });
+    return Object.freeze({ principals: Object.freeze([...out].sort(compareStrings)) });
   }
 
   private async principalsOf(tag: string, at: Date): Promise<readonly string[] | '*'> {

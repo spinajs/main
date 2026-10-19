@@ -1,6 +1,6 @@
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { DbMfaStore } from '@spinajs/authn-orm';
-import { Autoinject, Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { MfaSecretStore } from './store.js';
 import type { MfaRecord } from './store.js';
@@ -9,7 +9,7 @@ import type { MfaRecord } from './store.js';
  * `MfaSecretStore` on authn-orm's `authn_mfa` and `authn_recovery_code` tables. Only the `@spinajs/authn-totp/db`
  * entry loads it, since loading authn-orm registers its migrations and DB defaults.
  */
-@Singleton()
+@PerChildInstance()
 @Injectable(MfaSecretStore)
 export class DbMfaSecretStore extends MfaSecretStore {
   @Autoinject(DbMfaStore)

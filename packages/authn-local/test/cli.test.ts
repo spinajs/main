@@ -216,7 +216,7 @@ describe('authn-local cli commands', function () {
       expect(command.logged.join('\n')).to.not.contain('Typed-Password-9');
       const [e] = x.sink.ofType('password.change').slice(events);
       expect(e.identity).to.deep.equal(x.id);
-      expect(e.actor).to.deep.equal({ type: 'service', id: 'cli' });
+      expect(e.actor).to.deep.equal({ type: 'system', id: 'cli' });
       expect(e.data).to.deep.equal({ cause: 'set' });
     });
 
@@ -305,6 +305,22 @@ describe('authn-local cli commands', function () {
         DI.uncache(BootingIdentityStore);
         DI.uncache(BootBackend);
         DI.uncache(IdentityStore);
+      }
+    });
+
+    it('authn:password resolves its services in the container that builds it', async () => {
+      class ChildIdentityStore extends FakeIdentityStore {}
+      const passwords = DI.resolve(PasswordCredentialStore) as MemoryPasswordCredentialStore;
+      const hasher = (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher;
+      const child = DI.RootContainer.child();
+      try {
+        child.register(ChildIdentityStore).as(IdentityStore);
+        const id = (child.resolve(IdentityStore) as ChildIdentityStore).add({ login: 'lena@example.com' });
+        const command = await child.resolve(ScriptedSetUserPassword, [['Typed-Password-6\n'], false]);
+        await command.execute('lena@example.com', {});
+        expect(await hasher.verify(await passwords.get(id), 'Typed-Password-6')).to.equal(true);
+      } finally {
+        await child.dispose();
       }
     });
 

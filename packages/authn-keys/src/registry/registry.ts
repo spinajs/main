@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
-import { Inject, Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { AuthnEventSink, AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnEvent, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
+import { AuthnAudit } from '@spinajs/authn/audit';
+import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
+import { AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
+import type { AuthnContext, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
 import { _between, _contains, _is_string, _try_check_arg } from '@spinajs/util';
 import { InvalidArgument, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { challengeId, challengeSecretPurpose, isChallengeNonce, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
@@ -65,36 +67,62 @@ export const isUsableKey = (key: KeyRecord, now: Date): boolean => !key.revokedA
  */
 export const loginChallengeIdentity = (kid: string): IdentityRef => ({ type: 'key', id: isValidKid(kid) ? kid : createHash('sha256').update(kid, 'utf8').digest('hex') });
 
+/** A test seam for building the registry with `new`: each field replaces what DI injects. */
+export interface DefaultKeyRegistryDeps {
+  readonly store?: KeyStore;
+  readonly secrets?: SecretStore;
+  readonly throttle?: AuthnThrottle;
+  /** Published to instead of the container's AuthnAudit. */
+  readonly audit?: AuthnAuditor;
+  /** Complete options that bypass the configuration. */
+  readonly options?: KeysOptions;
+}
+
 /** KeyRegistry over a KeyStore, challenges in SecretStore (lane notes D7, D12). */
 @Injectable(KeyRegistry)
-@Inject(KeyStore, SecretStore, AuthnThrottle, Array.ofType(AuthnEventSink))
 export class DefaultKeyRegistry extends KeyRegistry {
   @Config('authn.keys')
   protected KeysConfig: KeysConfig;
 
+  @Autoinject(AuthnAudit)
+  protected Audit: AuthnAudit;
+
+  @Autoinject(KeyStore)
+  protected Store: KeyStore;
+
+  @Autoinject(SecretStore)
+  protected Secrets: SecretStore;
+
+  @Autoinject(AuthnThrottle)
+  protected Throttle: AuthnThrottle;
+
   private readonly stamped = new Map<string, number>();
 
-  constructor(
-    protected readonly store: KeyStore,
-    protected readonly secrets: SecretStore,
-    protected readonly throttle: AuthnThrottle,
-    /** Read at publish time, so a sink may be added after the registry is built. */
-    protected readonly sinks: readonly AuthnEventSink[],
-    /** A test seam: complete options that bypass the configuration. */
-    protected readonly Options?: KeysOptions,
-  ) {
+  /** Kids whose last stamp is remembered; past this the least recently stamped is forgotten and costs one extra write. */
+  protected readonly maxStamped: number = 10_000;
+
+  constructor(protected readonly Deps?: DefaultKeyRegistryDeps) {
     super();
   }
 
-  protected get options(): KeysOptions {
-    return keysOptionsOf(this.Options ?? this.KeysConfig);
+  protected get store(): KeyStore {
+    return this.Deps?.store ?? this.Store;
   }
 
-  protected async publish(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
-    const event: AuthnEvent = { at: ctx.now, ...(ctx.ip ? { ip: ctx.ip } : {}), ...(ctx.userAgent ? { userAgent: ctx.userAgent } : {}), ...e };
-    for (const sink of this.sinks) {
-      await sink.publish(event);
-    }
+  protected get secrets(): SecretStore {
+    return this.Deps?.secrets ?? this.Secrets;
+  }
+
+  protected get throttle(): AuthnThrottle {
+    return this.Deps?.throttle ?? this.Throttle;
+  }
+
+  protected get options(): KeysOptions {
+    return keysOptionsOf(this.Deps?.options ?? this.KeysConfig);
+  }
+
+  protected publish(ctx: AuthnContext, e: AuthnEventBody): Promise<void> {
+    return (this.Deps?.audit ?? this.Audit).publishIn(ctx, e);
   }
 
   /** The new key's signature over a 'register' challenge issued to this user; the challenge is redeemed only after the signature holds. */
@@ -187,6 +215,10 @@ export class DefaultKeyRegistry extends KeyRegistry {
     const last = this.stamped.get(kid);
     if (last !== undefined && at.getTime() - last < TOUCH_INTERVAL_MS && at.getTime() >= last) {
       return;
+    }
+    this.stamped.delete(kid);
+    if (this.stamped.size >= this.maxStamped) {
+      this.stamped.delete(this.stamped.keys().next().value!);
     }
     this.stamped.set(kid, at.getTime());
     await this.store.touch(kid, at);

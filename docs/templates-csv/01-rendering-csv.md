@@ -9,12 +9,12 @@ Render a list of rows to CSV through the `Templates` service, as a string or int
    - `compile(template, 'csv', model)` and `compileToFile(template, 'csv', model, filePath)` pick the renderer by its `Type`, `csv`. The template name is then free-form.
    - No renderer for the extension or type: `InvalidOperation` (`No renderer for file ... with extension ...` or `No renderer for csv`).
 2. `Templates` wraps the call in a `Perf.measure()` span, `template.render` or `template.compile`, labelled `engine: 'csv'`.
-3. `Csv.render()` checks the model: `fields` must be an array and `data` must not be `null` or `undefined`. Otherwise it throws `InvalidArgument('csv render model requires { fields: string[], data }')`.
-4. `Csv.render()` builds a json2csv `AsyncParser` with `{ fields: model.fields, ...templates.csv }` (see [CSV format options](02-csv-format-options.md)).
+3. `Csv.render()` checks the model: `fields` must be an array and `data` must not be `null` or `undefined`. Otherwise it throws `InvalidArgument('csv render model requires { fields: Array<string | ICsvField>, data }')`.
+4. `Csv.render()` builds a json2csv `AsyncParser` with `{ ...templates.csv, fields: model.fields }` (see [CSV format options](02-csv-format-options.md)).
 5. `parser.parse(model.data).promise()` converts the rows and resolves with the whole CSV as one string.
 6. For the file variants, `Csv.renderToFile()` then:
    1. creates missing parent directories of `filePath` (`ensureParentDir`);
-   2. writes the string with `fs.writeFileSync(filePath, csv, 'utf8')`, replacing an existing file;
+   2. writes the string with `fs.promises.writeFile(filePath, csv, 'utf8')`, replacing an existing file;
    3. logs `trace` before and after, and `error` with the template and path when any step fails, then rethrows.
 
 ```mermaid
@@ -28,9 +28,9 @@ sequenceDiagram
   Templates->>Templates: engineByExtension('.csv')
   Templates->>Csv: renderToFile(template, model, path)
   Csv->>Csv: render(): validate model
-  Csv->>json2csv: new AsyncParser({ fields, ...templates.csv })
+  Csv->>json2csv: new AsyncParser({ ...templates.csv, fields })
   json2csv-->>Csv: CSV string
-  Csv->>FS: ensureParentDir(path), writeFileSync(path, csv, 'utf8')
+  Csv->>FS: ensureParentDir(path), fs.promises.writeFile(path, csv, 'utf8')
   Csv-->>App: void
 ```
 
@@ -38,7 +38,7 @@ sequenceDiagram
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `fields` | `string[]` | yes | Columns in output order. Each entry is a property name or a lodash path (`customer.name`, `lines[0].sku`). The entry is also the header label |
+| `fields` | `Array<string \| ICsvField>` | yes | Columns in output order. A string entry is a property name or a lodash path (`customer.name`, `lines[0].sku`) and is also the header label. An `ICsvField` object (`{ label, value, default }`) sets the header label and value explicitly |
 | `data` | `unknown` | yes, not `null` | The rows; see the accepted shapes below |
 
 ### Accepted `data` shapes
@@ -73,12 +73,12 @@ Malformed JSON text rejects with `Data should be a JSON object or array`.
 
 - The template file is never opened. `'orders.csv'`, `'exports/2026/orders.csv'` and a name that does not exist all behave the same.
 - The `language` argument and the `IRenderOptions` argument (`onProgress`) are ignored by `Csv`. `options.redact` still works: `Templates` redacts the listed secrets from any render error.
-- Header labels are the `fields` entries as written, so a path field gives a header like `"customer.name"`. Rename columns by mapping the rows first.
+- Header labels are the `fields` entries as written, so a path field gives a header like `"customer.name"`. Use `{ label, value }` field objects to rename columns.
 - Strings are quoted with `"` and inner quotes are doubled; numbers and booleans are bare; `null` and `undefined` become an empty cell; nested objects are written as quoted JSON.
 - Lines end with `os.EOL` unless `templates.csv.eol` is set: `\r\n` on Windows, `\n` on Linux. The output has no trailing line break.
 - A row whose every cell is empty (all fields `null` or missing) is dropped unless `templates.csv.includeEmptyRows` is `true`.
 - `data: []` gives the header line only.
-- The whole CSV is held in memory, also for `renderToFile()` and for a stream as `data`. The file write is synchronous.
+- The whole CSV is held in memory, also for `renderToFile()` and for a stream as `data`.
 - `Csv` must be loaded at runtime. A type-only import (`import { IJsonToCsvOptions } from '@spinajs/templates-csv'`) is removed by TypeScript and registers nothing.
 
 ## Best practices

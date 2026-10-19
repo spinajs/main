@@ -120,7 +120,9 @@ function boot(c: Case): Promise<Boot> {
   const cacheDir = mkdtempSync(join(tmpdir(), 'authn-http-route-groups-'));
   cacheDirs.set(c, cacheDir);
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [CHILD, c.mode, c.packages.join(','), off.join(','), cacheDir], { cwd: PKG_ROOT, env, timeout: 150000, killSignal: 'SIGKILL' });
+    // The runner's cwd, not PKG_ROOT: @spinajs/configuration loads the shipped configs of every node_modules above the
+    // cwd, so the child has to find the same ones this process found.
+    const child = spawn(process.execPath, [CHILD, c.mode, c.packages.join(','), off.join(','), cacheDir], { cwd: process.cwd(), env, timeout: 150000, killSignal: 'SIGKILL' });
     children.push(child);
     let out = '';
     let err = '';

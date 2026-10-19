@@ -1,3 +1,4 @@
+import Handlebars from 'handlebars';
 import { capitalize as _capitalize, capitalizeWords as _capitalizeWords, truncateWords as _truncateWords } from '@spinajs/util';
 import { isHbOptions } from './options.js';
 
@@ -11,6 +12,7 @@ import { isHbOptions } from './options.js';
  * @returns Right-aligned text, truncated if longer than length
  */
 export function __textRight(context: string, length: number): string {
+  context = String(context ?? '');
   if (context.length > length) {
     return context.substring(0, length);
   }
@@ -27,6 +29,7 @@ export function __textRight(context: string, length: number): string {
  * @returns Center-aligned text, truncated if longer than length
  */
 export function __textCenter(context: string, length: number): string {
+  context = String(context ?? '');
   if (context.length > length) {
     return context.substring(0, length);
   } else if (context.length === length) {
@@ -204,7 +207,7 @@ export function stripHtml(str: string): string {
  * Escape HTML special characters
  * Usage: {{escapeHtml "<div>"}} → "&lt;div&gt;"
  */
-export function escapeHtml(str: string): string {
+export function escapeHtml(str: string): Handlebars.SafeString {
   const text = String(str || '');
   const map: { [key: string]: string } = {
     '&': '&amp;',
@@ -213,7 +216,7 @@ export function escapeHtml(str: string): string {
     '"': '&quot;',
     "'": '&#39;',
   };
-  return text.replace(/[&<>"']/g, char => map[char]);
+  return new Handlebars.SafeString(text.replace(/[&<>"']/g, char => map[char]));
 }
 
 /**

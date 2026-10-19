@@ -5,19 +5,21 @@ import type { Request } from '@spinajs/http';
 import { PrincipalFactory, RoleSource, SessionIssuer } from '@spinajs/authn/contracts';
 import type { Session } from '@spinajs/authn/contracts';
 
-import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, RoleSourceRegistered, assertFreshAuth } from '../index.js';
-import { isAuthnFailed, refused, unauthenticated } from '../../policies/v3/errors.js';
+import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, RoleSourceRegistered } from '../index.js';
+import { refused, unauthenticated } from '../../policies/v3/errors.js';
+import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
+import { activeSessionOf } from '../../policies/v3/principal.js';
 import { ACTIVE_ROLE_KEY } from '../../resolvers/session.js';
-import { NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
+import { NO_STORE, authnSessionCookie } from '../responses.js';
 import { answerFor, bodyField, boundedString, onLiveSession } from '../routes.js';
 
 const ROLE_CAP = 256;
 
 /**
  * The role switch (A26, D14): a session narrows its principal to one role it holds, as `ceiling.roles`. Off (404)
- * while no RoleSource is registered. A role the RoleSource marks `requirePassword` needs fresh authentication: a login
- * within authn.freshAuth.maxAgeSeconds, or the password in the body, verified through the throttled re-authentication
- * (A13, SR-20). The switch rotates the session id, then stores the role (N2).
+ * while no RoleSource or no PrincipalFactory is registered. A role the RoleSource marks `requirePassword` needs fresh
+ * authentication: a login within authn.freshAuth.maxAgeSeconds, or the password in the body, verified through the
+ * throttled re-authentication (A13, SR-20). The switch rotates the session id, then stores the role (N2).
  * @tags Authentication
  */
 @BasePath('auth')
@@ -43,7 +45,7 @@ export class AuthnActiveRoleController extends BaseController {
   @Get('active-role')
   @Policy([Authenticated, NoTokenAuthPolicy])
   public async state(@Req() req: Request) {
-    const session = this.own(req);
+    const session = activeSessionOf(req);
     return new Ok({ ActiveRole: session.activeRole ?? null, Roles: await this.held(session) }, { Headers: [NO_STORE] });
   }
 
@@ -58,17 +60,13 @@ export class AuthnActiveRoleController extends BaseController {
   public async switch(@Req() req: Request) {
     const role = boundedString(bodyField(req, 'role', 'Role'), ROLE_CAP);
     if (role === null) return new BadRequestResponse({ error: 'invalid_role', message: `role must be a non-empty string of at most ${ROLE_CAP} characters` });
-    const session = this.own(req);
+    const session = activeSessionOf(req);
     const entry = (await this.held(session)).find((r) => r.role === role);
     if (!entry) throw refused('role_not_held', 'the caller does not hold this role');
     // Anything but an explicit false asks for the password.
     if (entry.requirePassword !== false) {
-      try {
-        await assertFreshAuth(this.Container, req, undefined, bodyField(req, 'password', 'Password'));
-      } catch (err) {
-        if (isAuthnFailed(err)) return authnFailureResponse();
-        throw err;
-      }
+      const fresh = await freshAuthOrAnswer(this.Container, req, bodyField(req, 'password', 'Password'));
+      if ('answer' in fresh) return fresh.answer;
     }
 
     const sessions = this.Sessions;
@@ -79,12 +77,6 @@ export class AuthnActiveRoleController extends BaseController {
     const factory = this.Principals!;
     const principal = await factory.principalOf(now.identity, now.facts, { ceiling: { roles: [role] } });
     return new Ok(await answerFor(this.Container, 'role-switch', principal, { ActiveRole: role }), { Coockies: [authnSessionCookie(this._cfg, rotated)], Headers: [NO_STORE] });
-  }
-
-  protected own(req: Request): Session {
-    const session = req.storage.AuthnSession;
-    if (session?.handle.state !== 'active') throw refused('session_required', 'this route needs a session');
-    return session;
   }
 
   /** The roles of the session's identity without the current narrowing, so a narrowed session can switch back. */

@@ -123,7 +123,7 @@ function _attachSignalListeners() {
  * // ... later, to cancel: off();
  */
 export function onShutdown(handler: ShutdownHandler, opts?: { name?: string }): () => void {
-  const entry: IShutdownEntry = { handler, name: opts?.name ?? handler.name ?? 'anonymous' };
+  const entry: IShutdownEntry = { handler, name: opts?.name || handler.name || 'anonymous' };
   _handlers.push(entry);
   _attachSignalListeners();
 
@@ -213,13 +213,13 @@ export function envRequired(name: string): string {
  * Reads an integer environment variable.
  *
  * @param name - variable name
- * @param defaultValue - value returned when the variable is unset
+ * @param defaultValue - value returned when the variable is unset or empty
  * @returns the parsed integer, the default, or `undefined`
  * @throws InvalidArgument when the variable is set but not a valid integer
  */
 export function envInt(name: string, defaultValue?: number): number | undefined {
   const raw = process.env[name];
-  if (raw === undefined) {
+  if (raw === undefined || raw.trim() === '') {
     return defaultValue;
   }
 

@@ -1,13 +1,13 @@
+import { AUTHN_FAILURE_BODY, MemoryNonceStore } from '@spinajs/authn';
 import type { Credentials, ExternalSubject, Principal, SessionHandle } from '@spinajs/authn/contracts';
 import { FakeStrategy, MemoryPasswordCredentialStore, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HarnessContext, HttpRequest, HttpResponse, IdTokenTamper, ProbeBody } from '@spinajs/authn-testing';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
-import { MemoryNonceStore } from '@spinajs/authn-orm';
 
 import { readOidcOptions } from './oidc-config.js';
 import { OidcProvider } from '../../src/provider.js';
 import { OidcStrategy } from '../../src/strategy.js';
-import { OIDC_FAILURE_BODY, OidcLogin } from '../../src/login.js';
+import { OidcLogin } from '../../src/login.js';
 import type { OidcAnswer } from '../../src/login.js';
 import { encodeFlow } from '../../src/flow/cookie.js';
 import type { FlowCookie } from '../../src/flow/cookie.js';
@@ -114,7 +114,7 @@ export async function oidcHarness(ctx: HarnessContext): Promise<Harness> {
       const body = (req.body ?? {}) as { login?: unknown; password?: unknown };
       const c: Credentials = { kind: 'password', login: String(body.login ?? ''), password: String(body.password ?? '') };
       const r = await service.authenticate(c, { now: new Date(), purpose: 'login', ip: '192.0.2.10' });
-      if (r.status !== 'success' || !r.session) return json(401, OIDC_FAILURE_BODY);
+      if (r.status !== 'success' || !r.session) return json(401, AUTHN_FAILURE_BODY);
       return json(200, { ok: true }, [`${SESSION_COOKIE}=${r.session.id}; Path=/; HttpOnly; SameSite=Strict`]);
     }
     if (url.pathname === PROBE) {

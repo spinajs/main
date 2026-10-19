@@ -1,13 +1,16 @@
 import { Singleton } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { sortedUnique } from '@spinajs/util';
 
 import { AuthzConfigError } from '../contracts/errors.js';
 import type { ResourceRef } from '../contracts/principal.js';
 import { resourceKey } from '../contracts/resource.js';
 import { AccessPushTransport, ChangeAudience } from '../contracts/service.js';
 import type { AccessChangedEvent, AuthzChange, ChangeBus } from '../contracts/service.js';
+import { resolveChain } from './di.js';
 import { engineLog, thrownError } from './log.js';
-import type { HostLog } from './log.js';
+import type { AuthzLog } from './log.js';
+import { isObject } from '../engine/internal/util.js';
 
 /** The event name every push transport sends an AccessChangedEvent under (design §10.4). */
 export const AUTHZ_CHANGED_EVENT = 'authz.changed';
@@ -16,7 +19,6 @@ type Audience = { readonly principals: readonly string[] | '*'; readonly objects
 
 const EVERYONE: Audience = Object.freeze({ principals: '*' });
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 const nameOf = (v: unknown): string => {
   try {
     if (isObject(v) && typeof v.name === 'string') return v.name;
@@ -25,10 +27,6 @@ const nameOf = (v: unknown): string => {
     return '<unreadable>';
   }
 };
-
-async function chain<T>(container: IContainer, token: Class<T>): Promise<T[]> {
-  return container.hasRegistered(token) ? [...(await container.resolve(Array.chainOf(token)))] : [];
-}
 
 /** Throws on a malformed answer, which widens the push to every session. */
 function readAudience(raw: unknown): Audience {
@@ -49,7 +47,7 @@ function readAudience(raw: unknown): Audience {
  */
 @Singleton()
 export class AccessChangeRouter {
-  protected log: HostLog = engineLog('authz-push');
+  protected log: Pick<AuthzLog, 'error'> = engineLog('authz-push');
 
   start(bus: ChangeBus, container: IContainer): () => void {
     const off: unknown = bus.subscribe((change) => {
@@ -62,7 +60,7 @@ export class AccessChangeRouter {
   /** Never rejects: the change is committed, so a failure here is logged and that push dropped. */
   async route(change: AuthzChange, container: IContainer): Promise<void> {
     try {
-      const transports = await chain(container, AccessPushTransport);
+      const transports = await resolveChain(container, AccessPushTransport);
       if (transports.length === 0) return;
       const audience = await this.audienceOf(change, container);
       if (audience.principals !== '*' && audience.principals.length === 0) return;
@@ -84,7 +82,7 @@ export class AccessChangeRouter {
   private async audienceOf(change: AuthzChange, container: IContainer): Promise<Audience> {
     const tags: unknown = isObject(change) ? change.tags : undefined;
     if (!Array.isArray(tags) || tags.includes('*')) return EVERYONE;
-    const audiences = await chain(container, ChangeAudience);
+    const audiences = await resolveChain(container, ChangeAudience);
     if (audiences.length === 0) return EVERYONE;
     const answers = await Promise.all(
       audiences.map(async (a) => {
@@ -96,7 +94,7 @@ export class AccessChangeRouter {
         }
       }),
     );
-    const principals: readonly string[] | '*' = answers.some((a) => a.principals === '*') ? '*' : Object.freeze([...new Set(answers.flatMap((a) => a.principals as readonly string[]))].sort());
+    const principals: readonly string[] | '*' = answers.some((a) => a.principals === '*') ? '*' : Object.freeze(sortedUnique(answers.flatMap((a) => a.principals as readonly string[])));
     if (!answers.every((a) => a.objects !== undefined)) return { principals };
     const objects = new Map<string, ResourceRef>();
     for (const a of answers) for (const o of a.objects!) objects.set(resourceKey(o), o);

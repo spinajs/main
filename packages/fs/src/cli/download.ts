@@ -18,6 +18,7 @@ export class FsDownloadCommand extends CliCommand {
       this.Log.success({ path, fsName, local }, 'Downloaded ${path} ( fs: ${fsName} ) -> ${local}');
     } catch (err) {
       this.Log.error({ error: err, path, fsName }, 'Cannot download ${path} from ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

@@ -1,10 +1,10 @@
 import { Autoinject } from '@spinajs/di';
 import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
 import { Log, Logger } from '@spinajs/log';
-import { KeyRegistry } from '@spinajs/authn/contracts';
+import { CLI_ACTOR, KeyRegistry, cliContext } from '@spinajs/authn/contracts';
 import type { KeyRegistration } from '@spinajs/authn/contracts';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { CLI_ACTOR, cliContext, ownerArg, readPublicJwk } from './common.js';
+import { ownerArg, readPublicJwk } from './common.js';
 
 interface AddKeyOptions {
   jwk?: string;

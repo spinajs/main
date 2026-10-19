@@ -1,9 +1,9 @@
 import { AsyncService } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
+import { InvalidOperation } from '@spinajs/exceptions';
 import '@spinajs/authn/register-schema';
 import type { IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
-import { InvalidOperation } from '@spinajs/exceptions';
 
 export interface ISession {
   /**
@@ -96,7 +96,8 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
     s.Expiration = this.Expiration.renew(s);
   }
 
-  protected isExpired(s: ISession): boolean {
+  /** Public so SessionIssuer judges a row the way its store does. */
+  public isExpired(s: ISession): boolean {
     return !!s.Expiration && s.Expiration <= DateTime.now();
   }
 }

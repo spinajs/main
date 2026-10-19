@@ -1,4 +1,7 @@
 import { AuthzAdminFailure, AuthzConfigError } from '@spinajs/authz';
+import { Configuration } from '@spinajs/configuration';
+import type { IContainer } from '@spinajs/di';
+import { compareStrings } from '@spinajs/util';
 
 /** One live assignment that makes `memberKey` a direct member of `setKey`. */
 export interface MembershipEdge {
@@ -20,13 +23,23 @@ export interface MembershipRow {
 /** The live edges leaving each of `memberKeys`. */
 export type EdgeSource = (memberKeys: readonly string[]) => Promise<readonly MembershipEdge[]>;
 
+export const MAX_SET_DEPTH_KEY = 'authz.rbac.maxSetDepth';
 export const DEFAULT_MAX_SET_DEPTH = 8;
+export const MAX_SET_DEPTH_LIMIT = 64;
 
 /** `authz.rbac.maxSetDepth`; the schema is the gate, this holds for values that never went through it. */
 export function readMaxSetDepth(value: unknown): number {
   if (value === undefined) return DEFAULT_MAX_SET_DEPTH;
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) throw new AuthzConfigError(`authz.rbac.maxSetDepth must be an integer >= 1, got ${JSON.stringify(value)}`);
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > MAX_SET_DEPTH_LIMIT) {
+    throw new AuthzConfigError(`${MAX_SET_DEPTH_KEY} must be an integer from 1 to ${MAX_SET_DEPTH_LIMIT}, got ${JSON.stringify(value)}`);
+  }
   return value;
+}
+
+/** `authz.rbac.maxSetDepth` of the Configuration `container` resolves; the default without one. */
+export async function maxSetDepthOf(container: IContainer): Promise<number> {
+  const configuration = container.hasRegistered(Configuration) ? ((await container.resolve(Configuration)) as Configuration) : undefined;
+  return readMaxSetDepth(configuration?.get<unknown>(MAX_SET_DEPTH_KEY));
 }
 
 const NEVER = Number.POSITIVE_INFINITY;
@@ -39,7 +52,7 @@ export function latestPerSet(rows: readonly Pick<MembershipRow, 'setKey' | 'expi
     if (until > (latest.get(r.setKey) ?? Number.NEGATIVE_INFINITY)) latest.set(r.setKey, until);
   }
   return [...latest]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .sort(([a], [b]) => compareStrings(a, b))
     .map(([setKey, until]) => (until === NEVER ? { setKey } : { setKey, expiresAt: new Date(until) }));
 }
 
@@ -99,7 +112,7 @@ export async function computeClosures(memberKeys: readonly string[], edgesFrom: 
       }
     }
     const rows = [...depths.get(member)!]
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .sort(([a], [b]) => compareStrings(a, b))
       .map(([setKey, depth]): MembershipRow => {
         const until = best.get(setKey)!;
         return { memberKey: member, setKey, depth, expiresAt: until === NEVER ? null : new Date(until) };

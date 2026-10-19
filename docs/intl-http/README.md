@@ -16,7 +16,7 @@ Importing the package registers its services. There is no bootstrapper and no co
 
 | Feature | What it does |
 | --- | --- |
-| [Request language](01-request-language.md) | `IntHttpMiddleware`: detects the language of every request and stores it in `req.storage.language` for translations, templates and translated models |
+| [Request language](01-request-language.md) | `IntlHttpMiddleware`: detects the language of every request and stores it in `req.storage.language` for translations, templates and translated models |
 | [`@Lang()` route argument](02-lang-route-argument.md) | `@Lang()` and `LangArgument`: inject the request language into an action, optionally limited to a list of allowed languages |
 | [Custom language resolution](03-custom-language-resolution.md) | Refine the detected language with an extra middleware, add your own language-like route arguments, read the language in services |
 
@@ -24,9 +24,9 @@ Importing the package registers its services. There is no bootstrapper and no co
 
 | Service | DI token and lifetime | Default implementation | How to replace or extend |
 | --- | --- | --- | --- |
-| Language middleware | `ServerMiddleware` list and `IntHttpMiddleware`, singleton | `IntHttpMiddleware` | [Replace it](01-request-language.md#inthttpmiddleware-custom-implementation) or [add a refining middleware](03-custom-language-resolution.md#refine-the-language-with-a-second-middleware) |
+| Language middleware | `ServerMiddleware` list and `IntlHttpMiddleware`, singleton | `IntlHttpMiddleware` | [Replace it](01-request-language.md#intlhttpmiddleware-custom-implementation) or [add a refining middleware](03-custom-language-resolution.md#refine-the-language-with-a-second-middleware) |
 | `@Lang()` argument handler | `'LangArgument'` (the class name), singleton | `LangArgument` | [Subclass and register it as `LangArgument`](02-lang-route-argument.md#langargument-custom-implementation) |
-| Request storage field | `IActionLocalStoregeContext.language` in `@spinajs/http`, augmented by this package | set by `IntHttpMiddleware` | [Read or overwrite it](03-custom-language-resolution.md#read-the-request-language-in-a-service) |
+| Request storage field | `IActionLocalStoregeContext.language` in `@spinajs/http`, augmented by this package | set by `IntlHttpMiddleware` | [Read or overwrite it](03-custom-language-resolution.md#read-the-request-language-in-a-service) |
 
 ## Quick start
 

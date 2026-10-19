@@ -15,7 +15,7 @@ import { validateIdToken } from './token/id-token.js';
 import { fetchUserinfo } from './token/userinfo.js';
 import { hasRequiredClaims, mapClaims, rawClaims } from './claims.js';
 
-/** The single-use store the provider claims states in; NonceStore of @spinajs/authn-orm fits. */
+/** The single-use store the provider claims states in; NonceStore of @spinajs/authn fits. */
 export interface OidcStateStore {
   claim(key: string, expiresAt: Date, now: Date): Promise<boolean>;
 }

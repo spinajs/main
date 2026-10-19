@@ -165,7 +165,7 @@ const CLI_PROCESS = `
     const { DbMfaStore } = await import('@spinajs/authn-orm');
     const store = await DI.resolve(DbMfaStore);
     const carol = { type: 'user', id: 'carol' };
-    await store.put(carol, process.env.N8A_CHECK_CONFIG_CONFIRMED_STEP, 'v1.AAAA.BBBB.CCCC', 'kid-cli');
+    await store.putPending(carol, process.env.N8A_CHECK_CONFIG_CONFIRMED_STEP, 'v1.AAAA.BBBB.CCCC', 'kid-cli');
     await store.confirm(carol, process.env.N8A_CHECK_CONFIG_CONFIRMED_STEP);
   }
   const dirs = [join(process.cwd(), 'lib', 'mjs', 'cli'), join(process.cwd(), '..', '..', 'node_modules', '@spinajs', 'authn-local', 'lib', 'mjs', 'cli')];

@@ -1,14 +1,14 @@
 import { CliCommand, Command } from '@spinajs/cli';
 import { Logger, Log } from '@spinajs/log-common';
 import { DI } from '@spinajs/di';
-import { fs, fsService } from '../index.js';
+import { fs, fsService, FILE_PROVIDER_INSTANCES } from '../index.js';
 
 /**
  * Ensures fs providers are registered ( resolves fsService once if the app
  * has not bootstrapped it yet ).
  */
 export async function ensureProviders(): Promise<void> {
-  if (!DI.get('__file_provider_instance__')) {
+  if (!DI.get(FILE_PROVIDER_INSTANCES)) {
     await DI.resolve(fsService);
   }
 }
@@ -21,7 +21,7 @@ export class FsDescribeCommand extends CliCommand {
   public async execute(): Promise<void> {
     await ensureProviders();
 
-    const providers = DI.get<Map<string, fs>>('__file_provider_instance__');
+    const providers = DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
 
     if (!providers || providers.size === 0) {
       this.Log.warn('No filesystems registered, check your fs configuration');
