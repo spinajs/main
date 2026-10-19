@@ -153,7 +153,7 @@ export async function startTeamsApp(): Promise<number> {
   const config = (await DI.resolve(Configuration)) as Configuration;
   // Before anything resolves the root AuthzService, whose boot reads the models and stores registered here.
   const root = DI.RootContainer;
-  const attributes = new DbScopeAttributeStore({ container: root });
+  const attributes = new DbScopeAttributeStore();
   root.register(testHost.instance(attributes)).as(ScopeAttributeStore);
   root.register(testHost.instance(attributes)).as(WritableScopeAttributeStore);
   const abac = new AbacModel({ stores: [new ConfigPolicyStore(config.get<unknown[]>(['authz', 'abac', 'policies'], []))] });

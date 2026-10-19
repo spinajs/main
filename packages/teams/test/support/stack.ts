@@ -98,7 +98,7 @@ async function boot(): Promise<TeamsStack> {
   const mailer = new RecordingInvitationMailer();
   root.register(testHost.instance(mailer)).as(InvitationMailer);
   root.register(testHost.instance(new AttributesEmailSource())).as(VerifiedEmailSource);
-  const attributes = new DbScopeAttributeStore({ container: root });
+  const attributes = new DbScopeAttributeStore();
   root.register(testHost.instance(attributes)).as(ScopeAttributeStore);
   root.register(testHost.instance(attributes)).as(WritableScopeAttributeStore);
   const abac = new AbacModel({ stores: [new ConfigPolicyStore(config.get<unknown[]>(['authz', 'abac', 'policies'], []))] });
