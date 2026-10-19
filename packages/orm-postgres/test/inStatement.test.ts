@@ -40,6 +40,12 @@ describe('postgres whereIn', function () {
     expect(result.bindings).to.deep.eq([list(1001)]);
   });
 
+  it('keeps the single-parameter form when the query is cloned', () => {
+    const query = sqb().select('*').from('t').whereIn('id', list(1001));
+
+    expect(compiled(query.clone()).expression).to.contain('"id" = ANY(?)');
+  });
+
   it('uses <> ALL for whereNotIn', () => {
     expect(compiled(sqb().select('*').from('t').whereNotIn('id', list(1001))).expression).to.contain('"id" <> ALL(?)');
   });

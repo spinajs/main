@@ -480,7 +480,8 @@ export class SqlInStatement extends InStatement {
       };
     }
 
-    const values = this._val.map((v) => this.toDbValue(v));
+    const convert = this.valueConverter();
+    const values = this._val.map((v) => convert(v));
     const single = values.length > this.listThreshold && values.every(isListScalar) ? this.listExpression(column) : null;
 
     if (single !== null) {
@@ -508,25 +509,35 @@ export class SqlInStatement extends InStatement {
     return JSON.stringify(values);
   }
 
-  /** The value as `where()` binds it: through the model column's declared converter, else by its class. */
-  protected toDbValue(value: unknown): unknown {
+  /** Resolves the conversion `where()` applies once per column: the model's declared converter, else one chosen by the value's class. */
+  protected valueConverter(): (value: unknown) => unknown {
     const container = this._builder.Container;
     const descriptor = this._builder.Model ? extractModelDescriptor(this._builder.Model) : undefined;
     const declared = descriptor?.Converters.get(this._column);
 
     if (declared) {
       const columnDescriptor = descriptor!.Columns.find((c) => c.Name === this._column);
-      return container.resolve<ValueConverter>(declared.Class).toDB(value, null as any, columnDescriptor as any, null);
+      const converter = container.resolve<ValueConverter>(declared.Class);
+      return (value) => converter.toDB(value, null as any, columnDescriptor as any, null);
     }
 
     const converters = container.get<Map<string, any>>('__orm_db_value_converters__');
-    const type = value !== null && value !== undefined ? (value as object).constructor.name : undefined;
-
-    if (type && converters?.has(type)) {
-      return container.resolve<ValueConverter>(converters.get(type)).toDB(value, null as any, null as any, null);
+    if (!converters) {
+      return (value) => value;
     }
 
-    return value;
+    const byClass = new Map<string, ValueConverter>();
+    return (value) => {
+      const type = value !== null && value !== undefined ? (value as object).constructor.name : undefined;
+      if (!type || !converters.has(type)) {
+        return value;
+      }
+
+      if (!byClass.has(type)) {
+        byClass.set(type, container.resolve<ValueConverter>(converters.get(type)));
+      }
+      return byClass.get(type)!.toDB(value, null as any, null as any, null);
+    };
   }
 }
 

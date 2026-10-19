@@ -50,6 +50,12 @@ describe('sqlite whereIn with long lists', function () {
     expect(result.bindings).to.deep.eq([JSON.stringify(list(1001))]);
   });
 
+  it('keeps the single-parameter form when the query is cloned', () => {
+    const query = driver().select().from('gap_in').whereIn('Id', list(1001));
+
+    expect(compiled(query.clone()).expression).to.contain('`Id` IN (SELECT value FROM json_each(?))');
+  });
+
   it('keeps a list of 1000 expanded', () => {
     const result = compiled(driver().select().from('gap_in').whereIn('Id', list(1000)));
 
