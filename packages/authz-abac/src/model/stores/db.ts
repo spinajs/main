@@ -54,7 +54,7 @@ export class DbPolicyStore extends PolicyStore {
 
   async delete(id: string, tx: AuthzTx): Promise<{ readonly affected: number; readonly tags: readonly string[] }> {
     requirePolicyTransaction(tx, 'DbPolicyStore.delete');
-    // Only the id: a row whose JSON no longer parses can still be deleted.
+    // Only the id, so a row whose JSON no longer parses can still be deleted (load, version and policy reads refuse it).
     const [before] = await PolicyRecord.query().select('id').where('id', id);
     if (!before) return { affected: 0, tags: [] };
     await deleteFrom(PolicyRecord).where('id', id);
@@ -65,14 +65,18 @@ export class DbPolicyStore extends PolicyStore {
   private async records(): Promise<PolicyRecord[]> {
     // A model loads its policies at domain boot, possibly before anything resolved the Orm.
     await ormReady();
-    let rows: PolicyRecord[];
-    try {
-      rows = await PolicyRecord.query();
-    } catch (err) {
-      if (!(err instanceof SyntaxError)) throw err;
-      throw new AuthzConfigError(`${AUTHZ_POLICY_TABLE}: a row holds a JSON column that does not parse (${err.message})`, { cause: err });
-    }
+    const rows = await hydrateRecords(PolicyRecord.query());
     return rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+}
+
+/** Awaits a PolicyRecord query; a JSON column that does not parse becomes an AuthzConfigError naming the table. */
+export async function hydrateRecords(query: PromiseLike<PolicyRecord[]>): Promise<PolicyRecord[]> {
+  try {
+    return await query;
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) throw err;
+    throw new AuthzConfigError(`${AUTHZ_POLICY_TABLE}: a row holds a JSON column that does not parse (${err.message})`, { cause: err });
   }
 }
 

@@ -3,7 +3,7 @@ import type { AdminContext, AuthzEvent, AuthzTx, Policy, PrincipalRef, ResourceR
 
 import { PolicyStore } from '../contracts.js';
 import { AbacModel } from '../model/model.js';
-import { DbPolicyStore, recordToPolicy } from '../model/stores/db.js';
+import { DbPolicyStore, hydrateRecords, recordToPolicy } from '../model/stores/db.js';
 import { MemoryPolicyStore } from '../model/stores/memory.js';
 import { PolicyRecord, requirePolicyTransaction } from '../model/stores/policy-record.js';
 
@@ -72,7 +72,7 @@ export async function policiesInTx(store: WritablePolicyStore, tx: AuthzTx, wher
     const s = scopeOf({ scope: where.scope });
     query.where('scope_type', s.type).where('scope_id', s.id ?? '');
   }
-  return (await query).map(recordToPolicy);
+  return (await hydrateRecords(query)).map(recordToPolicy);
 }
 
 export function actorRef(ctx: AdminContext): PrincipalRef {

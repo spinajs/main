@@ -3,10 +3,11 @@ import 'mocha';
 import { AuthzAdminFailure, AuthzConfigError, DefaultConditionCompiler, FALSE, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
 import type { AdminCallContext, AuthzCommand, AuthzService, AuthzTx, Policy, Principal } from '@spinajs/authz';
 import { fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
+import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AUTHZ_POLICY_TABLE, AbacModel, AbacPolicyHandler, AbacPolicyReader, AbacScopeForgetter, DbPolicyStore, PolicyStore } from '../../src/index.js';
-import { DB_KINDS, bootDb } from '../support/db.js';
+import { DB_KINDS, bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 
 const expect = chai.expect;
@@ -165,6 +166,16 @@ for (const kind of DB_KINDS) {
       expect(out.affected).to.equal(2);
       expect([...out.tags].sort()).to.deep.equal(['policy', 'policy:f1', 'policy:f2']);
       expect(await ids()).to.deep.equal(['f3']);
+    });
+
+    it('a row whose JSON does not parse fails the forgetter with the AuthzConfigError naming the table', async () => {
+      await rawQuery(db.driver, `INSERT INTO ${AUTHZ_POLICY_TABLE} (id, effect, permissions, scope_type, scope_id, created_at) VALUES ('broken', 'permit', '[oops', 'project', 'p1', '2026-10-01 00:00:00')`, [], QueryContext.Insert);
+      const e = await write((tx) => new AbacScopeForgetter().forget(P1, context(), tx)).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+      expect(e).to.be.instanceOf(AuthzConfigError);
+      expect((e as Error).message).to.match(/^authz_policy: a row holds a JSON column that does not parse \(/);
     });
   });
 }

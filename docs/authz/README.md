@@ -378,15 +378,15 @@ authz: {
   Any migration run after the ORM booted that creates the authz tables (a test, or
   `Migration.OnStartup: false` with a later in-process migration) must be followed by
   `orm.reloadTableInfo()` before the stores read them.
+  `@spinajs/authz-abac`'s `DbPolicyStore` reads `PolicyRecord` under the same rules: import that package before the `Orm` resolves, and call `orm.reloadTableInfo()` after a migration run after boot.
 - **Share link tokens.** A token is 32 random bytes in base64url. The table keeps only `v1:` and an
   HMAC-SHA256 of the token under `authz.rbac.links.secret`, which needs at least 32 characters. The
   store checks the key at first use, not at boot, and throws `AuthzConfigError` when it is missing.
   Changing the secret kills every link.
 - **Connections.** The stores, `DbAuthzAdminBackend`, `DbScopeAttributeStore`, authz-abac's `DbPolicyStore`
   and their migrations use the ORM connection alias `authz`. The authz-rbac, authz-orm and authz-abac
-  config files map it to `default`; an app
-  points it elsewhere with `db: { Aliases: { authz: '<connection name>' } }`, which wins over the package
-  default. A write whose transaction runs on another connection is refused. `authz.rbac.connection` and
+  config files map it to `default`; an app points it elsewhere with
+  `db: { Aliases: { authz: '<connection name>' } }`, which wins over the package default. A write whose transaction runs on another connection is refused. `authz.rbac.connection` and
   `authz.admin.connection` are gone: setting either fails boot with an `AuthzConfigError` that names
   `db.Aliases.authz`; `authz.abac.connection` fails the ABAC model's init the same way. The `users.Role`
   copy and drop migrations still run on `default` and read the
