@@ -456,7 +456,7 @@ password, a token or a reset code never comes back in a response or lands in a l
   each action, so import order against `fsService` does not matter. A middleware sees the targets (normalised path,
   `file` or `dir`, access, role), the other arguments as `ctx.args`, and unchecked `ctx.exists()`, `ctx.isDir()` and
   `ctx.hasEntries()` probes. Calls a provider makes inside an action skip middlewares. `fs.middlewareTimeoutMs`
-  (default 30000) bounds the `after` hooks of a `writeStream`. `FsDecorator` and `fsService.decorate()` are gone.
+  (default 30000) bounds the `after` hooks of a `writeStream`.
 - `hasEntries(path)` (new) tells whether a directory holds anything; it is checked as `list`. On `fsS3` nested keys
   count.
 - `upload(src, dest?, { exclusive: true })` (new) throws `ResourceDuplicated` when `dest` exists: atomic on `fsNative`
@@ -466,8 +466,11 @@ password, a token or a reset code never comes back in a response or lands in a l
   way; a refused upload leaves a same-named file in place.
 - `signedUrl(path, { until, disposition })` and its alias `getSignedUrl(path, until)` exist on every provider; one
   without signed URLs throws `MethodNotImplemented`.
-- `zip()` without `dstFs` writes to `fs-temp` on `fsNative` and to the provider's temp fs on `fsS3` and `fsFTP`.
-  `unzip()` without `dstFs` extracts into the same provider on `fsNative` and `fsTemp`, into the temp fs on `fsS3`
+- `fsOneDrive` (`@spinajs/fs-onedrive`) implements no operation: its hooks are stubs that throw
+  `MethodNotImplemented`. On a filesystem with `authz.fs` enabled every create and `rm` is therefore refused before
+  the IO, because the `isDir` probe throws.
+- `zip()` without `dstFs` writes to `fs-temp` on `fsNative`, into itself on `fsTemp`, and to the provider's temp fs on
+  `fsS3` and `fsFTP`. `unzip() without `dstFs` extracts into the same provider on `fsNative` and `fsTemp`, into the temp fs on `fsS3`
   and `fsFTP`.
 - **authz-fs checks through `AuthzFsMiddleware`** (order 100): `fs:<access>` on every path an action touches, under
   the mode of that path's own filesystem. Per-file rights are rows of `fs_acl` (`fs`, `path`, subject, relation); a
@@ -541,8 +544,8 @@ The v2 API is gone; no package in the repository used it. The full notes are in
   together) throws when it loads.
 - Release gate 7 (speed) is open while the owner reviews its limits (plan §12 item 7). The full
   numbers are in `packages/authz-rbac/bench/RESULTS.md`; the other gates are tracked in the plan.
-- Release gate item 4 runs authz-fs's B28 on fsNative, fsTemp and fsS3: the gate job starts localstack and runs
-  `AUTHZ_FS_S3=required npm test` in `packages/authz-fs`, so an unreachable localstack fails the job instead of
+- Release gate item 4 is a manual release step: run `AUTHZ_FS_S3=required npm test` in `packages/authz-fs` against
+  localstack, so authz-fs's B28 runs on fsNative, fsTemp and fsS3 and an unreachable localstack fails instead of
   skipping the S3 suite.
 
 ---

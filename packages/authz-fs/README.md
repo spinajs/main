@@ -24,7 +24,8 @@ rights in the ORM table `fs_acl`.
 docker run --rm -d -p 4566:4566 -e SERVICES=s3 localstack/localstack
 ```
 
-Without it they are skipped with a message. Set `AUTHZ_FS_S3=required` (the release gate job does) to make an
+Without it they are skipped with a message. Set `AUTHZ_FS_S3=required` (release gate item 4: run
+`AUTHZ_FS_S3=required npm test` in `packages/authz-fs` against localstack, a manual release step) to make an
 unreachable localstack fail them instead. Cases that cannot hold on S3 for a provider reason are listed, with the
 reason, as pending tests (`test/support/on-s3.ts`). The ORM store suite runs on SQLite, and on Postgres and MySQL with
 `AUTHZ_FS_DB=postgres,mysql` and the orm packages' test containers.

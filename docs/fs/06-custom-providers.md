@@ -264,23 +264,17 @@ public get Name(): string {
 
 ## Migration
 
-Public overrides become protected `doX` hooks, and `FsDecorator` becomes `FsMiddleware`. `fsService.decorate()` is removed, and `getFs()` returns the provider itself.
+Public overrides become protected `doX` hooks. `getFs()` returns the provider itself; cross-cutting rules go into an [`FsMiddleware`](07-middlewares.md).
 
 ```ts
-// Before: the provider overrode the public method, and a decorator wrapped the provider
+// Before: the provider overrode the public method
 class MyFs extends fs {
   public async read(path: string, encoding?: BufferEncoding) { /* ... */ }
 }
-fsService.decorate(AuditDecorator);
 
-// After: the provider implements the protected hook, and a middleware replaces the decorator
+// After: the provider implements the protected hook
 class MyFs extends fs {
   protected async doRead(path: string, encoding?: BufferEncoding) { /* ... */ }
-}
-
-@Injectable(FsMiddleware)
-class AuditMiddleware extends FsMiddleware {
-  public async before(ctx: FsActionContext) { /* ... */ }
 }
 ```
 

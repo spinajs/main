@@ -26,9 +26,11 @@ Import the package before the first file action. The import registers `AuthzFsMi
 
 ## Quick start
 
-An `uploads` filesystem in `enforce` mode. Every user may create files in `uploads/avatars`; the first writer becomes the owner and is the only one who may read the file back.
+An `uploads` filesystem in `enforce` mode. Every user may create files in their own directory `uploads/avatars/<id>`; the first writer becomes the owner and is the only one who may read a file back.
 
-A relation grant covers existing paths only: a path has no owner row before its first write. So creation needs a plain `fs:write` grant, and the `owner` grant takes over once the file exists. `defaultRoles` gives the role to users created through `@spinajs/users`; grant it to existing users with `AuthzAdmin` or `spinajs users create --roles`.
+A relation grant covers existing paths only: a path has no owner row before its first write. So creation needs a plain `fs:write` grant, and the `owner` grant takes over once the file exists. `defaultRoles` gives the role to users created through `@spinajs/users`; grant it to existing users with `authz:assign user:<uuid> user` or `AuthzAdmin`. `rbac:user-create` creates new users.
+
+The grant is scoped with the `{principal.id}` template, so one user cannot create files in another's directory. The owner row alone does not stop another holder of a plain `fs:write` grant from overwriting a file: keep such grants per user.
 
 ```ts sample
 import { runWithPrincipal } from '@spinajs/authz';
@@ -43,7 +45,7 @@ export const config = {
       roles: {
         user: {
           grants: [
-            { permission: 'fs:write', on: [{ type: 'dir', id: 'uploads:avatars' }] },
+            { permission: 'fs:write', on: [{ type: 'dir', id: 'uploads:avatars/{principal.id}' }] },
             { permission: 'fs:read', relation: 'owner', on: [{ type: 'fs', id: 'uploads' }] },
           ],
         },
@@ -54,7 +56,7 @@ export const config = {
 
 export async function saveAvatar(userId: string, data: Buffer): Promise<void> {
   await runWithPrincipal({ type: 'user', id: userId, authenticated: true, source: 'session', attributes: {} }, async () => {
-    await getFs('uploads').write(`avatars/${userId}.png`, data);
+    await getFs('uploads').write(`avatars/${userId}/avatar.png`, data);
   });
 }
 ```
