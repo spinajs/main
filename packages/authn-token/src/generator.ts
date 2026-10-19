@@ -2,6 +2,7 @@ import { randomBytes, createHash } from 'crypto';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
+import { InvalidOption } from '@spinajs/exceptions';
 
 import { AccessTokenGenerationProvider, IGeneratedToken } from './generation.js';
 
@@ -12,10 +13,10 @@ export const MAX_TOKEN_LENGTH = 1024;
 export function checkTokenSize(prefix: string, length: number): void {
   // The schema is the gate; this floor holds for values that never went through it.
   if (!(Number.isInteger(length) && length >= 32)) {
-    throw new Error('authn.token.length must be an integer of at least 32 (bytes)');
+    throw new InvalidOption('authn.token.length must be an integer of at least 32 (bytes)');
   }
   if (prefix.length + Math.ceil((length * 4) / 3) > MAX_TOKEN_LENGTH) {
-    throw new Error(`authn.token.prefix and authn.token.length make tokens longer than ${MAX_TOKEN_LENGTH} characters`);
+    throw new InvalidOption(`authn.token.prefix and authn.token.length make tokens longer than ${MAX_TOKEN_LENGTH} characters`);
   }
 }
 

@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import { Configuration } from '@spinajs/configuration';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AuthnEventSink, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
 import type { AuthnContext, AuthnEvent, IdentityRef, IdentityStatus, Principal, TokenCreateOptions, TokenCreateResult } from '@spinajs/authn/contracts';
@@ -372,14 +372,14 @@ describe('DbTokenService', function () {
       expect(longest.record.name).to.have.length(128);
     });
 
-    it('throws a plain Error for an owner without a users row, or of another type', async () => {
+    it('throws InvalidOperation for an owner without a users row, or of another type', async () => {
       const ghost = identities.add({ login: 'ghost' });
       const service = identities.add({ login: 'svc', type: 'service' });
       const before = await count();
 
       for (const o of [ghost, service]) {
         const err = await create(o, { name: 'x', kind: 'pat', expiresAt: at(DAY) }).catch((e: unknown) => e);
-        expect(err).to.be.instanceOf(Error);
+        expect(err).to.be.instanceOf(InvalidOperation);
         expect(err).to.not.be.instanceOf(InvalidArgument);
       }
       expect(await count()).to.equal(before);
@@ -539,12 +539,12 @@ describe('DbTokenService', function () {
       }
     });
 
-    it('create throws a plain Error and stores nothing', async () => {
+    it('create throws InvalidOperation and stores nothing', async () => {
       const a = await owner();
       for (const [label, now] of bad) {
         const before = await count();
         const err = await create(a, { name: 'x', kind: 'pat', expiresAt: at(DAY) }, badCtx(now)).catch((e: unknown) => e);
-        expect(err, label).to.be.instanceOf(Error);
+        expect(err, label).to.be.instanceOf(InvalidOperation);
         expect(err, label).to.not.be.instanceOf(InvalidArgument);
         expect(await count(), `${label}: nothing stored`).to.equal(before);
       }

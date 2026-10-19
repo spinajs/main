@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { compactVerify, decodeProtectedHeader } from 'jose';
 import { isFiniteNumber } from '@spinajs/util';
+import { AuthenticationFailed } from '@spinajs/exceptions';
 
 import type { OidcSigningAlgorithm } from '../contracts.js';
 import type { OidcJwks } from '../jwks.js';
@@ -47,7 +48,7 @@ const sameText = (a: string, b: string): boolean => {
  */
 export async function validateIdToken(token: string, jwks: OidcJwks, r: IdTokenRules): Promise<IdTokenClaims> {
   const refuse = (what: string): never => {
-    throw new Error(`authn-oidc: ID token refused: ${what}`);
+    throw new AuthenticationFailed(`authn-oidc: ID token refused: ${what}`);
   };
   if (!COMPACT.test(token)) refuse('not a signed compact JWS');
 

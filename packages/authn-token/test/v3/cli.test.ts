@@ -6,6 +6,7 @@ import { DI } from '@spinajs/di';
 import { renderTemplate } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
 import { OrmException } from '@spinajs/orm';
+import { InvalidArgument, InvalidOperation, InvalidOption, ResourceDuplicated, UnexpectedServerError } from '@spinajs/exceptions';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import { AuthnEventSink, IdentityStore, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, TokenCreateResult } from '@spinajs/authn/contracts';
@@ -274,6 +275,41 @@ describe('token cli commands', function () {
         process.exitCode = undefined;
       }
       expect(await rows()).to.have.length(0);
+    });
+
+    it("prints the message of the service's own exceptions and only the class of any other error", async () => {
+      const a = await owner();
+      const own = [new InvalidArgument('own argument'), new InvalidOption('own option'), new InvalidOperation('own operation'), new UnexpectedServerError('own fault')];
+      const foreign = [new Error('plain secret'), new OrmException('orm secret'), new ResourceDuplicated('duplicate secret')];
+
+      for (const err of [...own, ...foreign]) {
+        const stub = sinon.stub(DbTokenService.prototype, 'create').rejects(err);
+        const { all } = await create(a.ref.id, { name: 'thrown' });
+        stub.restore();
+
+        const printed = all.some((m) => m.includes(err.message));
+        expect(printed, `${err.constructor.name}: ${JSON.stringify(all)}`).to.equal(own.includes(err));
+        expect(
+          all.some((m) => m.includes('Error while creating token') && m.includes(own.includes(err) ? err.message : err.constructor.name)),
+          `${err.constructor.name}: ${JSON.stringify(all)}`,
+        ).to.equal(true);
+        expect(process.exitCode).to.equal(1);
+        process.exitCode = undefined;
+      }
+    });
+
+    it('prints why an invalid authn.token.defaultTtlDays is refused', async () => {
+      const a = await owner();
+      config().set('authn.token.defaultTtlDays', -1);
+
+      const { all } = await create(a.ref.id, { name: 'bad default' });
+
+      expect(
+        all.some((m) => m.includes('authn.token.defaultTtlDays must be a positive number')),
+        JSON.stringify(all),
+      ).to.equal(true);
+      expect(await rows()).to.have.length(0);
+      expect(process.exitCode).to.equal(1);
     });
 
     // LEDGER cli row 2

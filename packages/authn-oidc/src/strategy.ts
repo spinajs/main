@@ -1,6 +1,7 @@
 import { AuthenticationStrategy } from '@spinajs/authn/contracts';
 import { asciiLower } from '@spinajs/util';
 import type { AuthnContext, Credentials, ExternalSubject, IdentityLinkStore, IdentityStore, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
+import { AuthenticationFailed } from '@spinajs/exceptions';
 
 import type { OidcExternalSubject, OidcStrategyName } from './contracts.js';
 import { decodeFlow } from './flow/cookie.js';
@@ -109,7 +110,7 @@ export class OidcStrategy extends AuthenticationStrategy {
   public async verifyLink(c: Credentials, sessionHash: string, ctx: AuthnContext): Promise<OidcExternalSubject> {
     const input = this.callbackOf(c);
     if (input === null || input.flow === null || input.flow.m !== 'link' || input.flow.h !== sessionHash) {
-      throw new Error('authn-oidc: not a link callback of this session');
+      throw new AuthenticationFailed('authn-oidc: not a link callback of this session');
     }
     return this.deps.provider.complete(input.flow, input.query, ctx.now);
   }

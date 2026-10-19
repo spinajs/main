@@ -3,6 +3,7 @@ import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 import { AccessToken } from '../models/AccessToken.js';
 
@@ -47,7 +48,7 @@ export class UsersTableTokenOwnerResolver extends TokenOwnerResolver {
     const name = AccessToken.getModelDescriptor().Connection ?? 'default';
     const driver = this.Orm.Connections.get(name);
     if (!driver) {
-      throw new Error(`No database connection ${name} for the users table`);
+      throw new InvalidOperation(`No database connection ${name} for the users table`);
     }
     return driver;
   }

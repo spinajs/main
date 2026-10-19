@@ -5,6 +5,7 @@ import '@spinajs/authn/register-schema';
 import { AuthenticationStrategy, IdentityLinkStore, IdentityStore, NonceStore } from '@spinajs/authn/contracts';
 import { Log, Logger } from '@spinajs/log';
 import { appEnvOf } from '@spinajs/authn-session';
+import { InvalidArgument } from '@spinajs/exceptions';
 
 import { buildOidcOptions } from './options/options.js';
 import type { ConfiguredOidc, OidcOptions } from './options/options.js';
@@ -75,7 +76,7 @@ export class OidcProviders extends AsyncService {
   /** The strategy of a provider name; throws for an unknown one. */
   public strategy(name: string): OidcStrategy {
     const s = this.byName.get(name);
-    if (!s) throw new Error(`authn-oidc: no provider named ${JSON.stringify(name)} in authn.oidc.providers`);
+    if (!s) throw new InvalidArgument(`authn-oidc: no provider named ${JSON.stringify(name)} in authn.oidc.providers`);
     return s;
   }
 }

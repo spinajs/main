@@ -9,6 +9,7 @@ import { DateTime } from 'luxon';
 import { AsyncService, DI_DESCRIPTION_SYMBOL } from '@spinajs/di';
 import type { IInjectDescriptor, IContainer } from '@spinajs/di';
 import type { IdentityRef } from '@spinajs/authn/contracts';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 import { SessionExpirationProvider, SessionProvider } from '../src/contracts.js';
 import type { ISession } from '../src/contracts.js';
@@ -311,7 +312,7 @@ describe('@spinajs/authn-session contracts', function () {
       expect(() => store.initial(session('p1', { State: 'pending' }))).to.throw(/pendingTtlSeconds/);
       let err: unknown;
       await store.save(session('p2', { State: 'pending' })).catch((e) => (err = e));
-      expect(err).to.be.instanceOf(Error);
+      expect(err).to.be.instanceOf(InvalidOperation);
       expect(await store.restore('p2')).to.eq(null);
     });
 
