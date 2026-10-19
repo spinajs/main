@@ -88,7 +88,7 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `when(condition, callback, elseCallback?)` | | Runs `callback` (or `elseCallback`) with `this` set to the builder. |
 | `whereNull(column)` / `whereNotNull(column)` | `IS NULL` / `IS NOT NULL` | |
 | `whereNot(column, value)` | `column != ?` | |
-| `whereIn(column, values \| subQuery)` / `whereNotIn(...)` | `IN (?, ...)` / `IN ( SELECT ... )` | An empty array emits `FALSE` (`whereIn`) or `1 = 1` (`whereNotIn`). A non-array, non-builder value throws `InvalidArgument`. |
+| `whereIn(column, values \| subQuery)` / `whereNotIn(...)` | `IN (?, ...)` / `IN ( SELECT ... )` | An empty array emits `FALSE` (`whereIn`) or `1 = 1` (`whereNotIn`). A non-array, non-builder value throws `InvalidArgument`. Values are converted like `where()` values. PostgreSQL, SQLite and MSSQL bind a long list as one parameter; see [`@spinajs/orm-sql` statements](../orm-sql/03-statements.md). |
 | `whereBetween(column, [from, to])` / `whereNotBetween(...)` | `BETWEEN ? AND ?` | |
 | `whereExist(subQuery \| relation, callback?)` / `whereNotExists(...)` | `EXISTS ( ... )` / `NOT EXISTS ( ... )` | A relation name dispatches to the `ExistsRelationHandler` of its type. See [Relations](06-relations.md). |
 | `whereInSet(column, values)` / `whereNotInSet(...)` | dialect membership test on a `@Set()` column | `null`, `undefined` or a value containing `SET_DELIMITER` (`,`) throws `InvalidArgument`. |

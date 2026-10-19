@@ -1,6 +1,6 @@
 import { Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { IdentifierQuoter } from '@spinajs/orm';
-import { SqlLiteralQuoter } from '@spinajs/orm-sql';
+import { SqlInStatement, SqlLiteralQuoter } from '@spinajs/orm-sql';
 import pg from 'pg';
 
 /**
@@ -38,5 +38,17 @@ export class PostgresLiteralQuoter extends SqlLiteralQuoter {
 
   protected quoteBoolean(value: boolean): string {
     return value ? 'TRUE' : 'FALSE';
+  }
+}
+
+/** A long list is bound as one array parameter; postgres infers the element type from the column. */
+@NewInstance()
+export class PostgresInStatement extends SqlInStatement {
+  protected listExpression(column: string): string {
+    return this._not ? `${column} <> ALL(?)` : `${column} = ANY(?)`;
+  }
+
+  protected listBinding(values: unknown[]): unknown {
+    return values;
   }
 }

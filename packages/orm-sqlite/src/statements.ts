@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { Autoinject, NewInstance } from '@spinajs/di';
 import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, JoinMethod, IJoinStatementOptions, SET_DELIMITER } from '@spinajs/orm';
-import { SqlJoinStatement, _columnWrap } from '@spinajs/orm-sql';
+import { SqlInStatement, SqlJoinStatement, _columnWrap } from '@spinajs/orm-sql';
 import { NotSupported } from '@spinajs/exceptions';
 
 @NewInstance()
@@ -53,5 +53,13 @@ export class SqliteInSetStatement extends InSetStatement {
     clone.Quoter = this.Quoter;
 
     return clone;
+  }
+}
+
+/** A long list travels as one JSON array, so it never meets SQLITE_MAX_VARIABLE_NUMBER. */
+@NewInstance()
+export class SqliteInStatement extends SqlInStatement {
+  protected listExpression(column: string): string {
+    return `${column} ${this._not ? 'NOT IN' : 'IN'} (SELECT value FROM json_each(?))`;
   }
 }

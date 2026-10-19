@@ -129,6 +129,7 @@ export class OdbcDatesMsSqlDriver extends MsSqlOrmDriver {
 - **Every backtick is removed** from the statement text before sending. `MsSqlLiteralQuoter` throws `InvalidArgument` for a value containing one, instead of letting it vanish.
 - **`whereInSet()` throws `InvalidArgument`** for a value containing the set delimiter `,`.
 - **The schema prefix applies to every table.** One connection has one `Options.Schema`; for a table in another schema, use a second connection or a `RawQuery`.
+- **Long `whereIn()` lists use `OPENJSON`.** More than 200 strings or numbers compile to `[col] IN (SELECT [value] FROM OPENJSON(?))` with the list as one JSON parameter, which needs database compatibility level 130 or later. `OPENJSON` returns `nvarchar`, so SQL Server converts per row instead of seeking an index.
 
 ## Best practices
 

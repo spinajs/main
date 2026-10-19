@@ -137,6 +137,7 @@ export class BigintKeysPostgresDriver extends PostgresOrmDriver {
 - `Wrapper.DateTime()` renders `DATETIME("col")`, which PostgreSQL does not have. `Wrapper.Date()` renders `DATE("col")`, which PostgreSQL accepts as a cast.
 - `IN SET` conditions (`whereInSet`) use the shared, portable `LIKE` statement, matching the comma-joined `TEXT` that `SET` columns are stored as.
 - A failed statement with SQLSTATE `23505` throws `UniqueViolation` (extends `ResourceDuplicated`) with the pg error's `table` and `constraint` and the key columns from its `detail`. Any other class `23` SQLSTATE throws `ConstraintViolation`: `23502` is `not_null`, `23503` `foreign_key`, `23514` `check`, the rest `other`. Every other error stays `OrmException`. The pg error is `inner` in all three.
+- `whereIn()` with more than 1000 strings or numbers emits `"col" = ANY(?)` (`"col" <> ALL(?)` for `whereNotIn()`) and binds the list as one array parameter; PostgreSQL infers its element type from the column.
 
 ## Best practices
 

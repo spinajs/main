@@ -460,12 +460,15 @@ export class SqlInStatement extends InStatement {
   @Autoinject(IdentifierQuoter)
   public Quoter: IdentifierQuoter;
 
+  /** Lists longer than this are bound as one parameter by a dialect that overrides {@link listExpression}. */
+  protected listThreshold = 1000;
+
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
-    return _carryQuoter(new SqlInStatement(this._column, this._val, this._not, (parent ?? this._builder) as SelectQueryBuilder), this);
+    const Statement = this.constructor as typeof SqlInStatement;
+    return _carryQuoter(new Statement(this._column, this._val, this._not, (parent ?? this._builder) as SelectQueryBuilder), this);
   }
 
   public build(): IQueryStatementResult {
-    const exprr = this._not ? 'NOT IN' : 'IN';
     const column = _columnWrap(this.Quoter, this._column, this._builder.TableAlias);
 
     // `IN ()` is a syntax error, so degenerate to a constant predicate with the same meaning:
@@ -477,11 +480,59 @@ export class SqlInStatement extends InStatement {
       };
     }
 
+    const values = this._val.map((v) => this.toDbValue(v));
+    const single = values.length > this.listThreshold && values.every(isListScalar) ? this.listExpression(column) : null;
+
+    if (single !== null) {
+      return {
+        Bindings: [this.listBinding(values)],
+        Statements: [single],
+      };
+    }
+
     return {
-      Bindings: this._val,
-      Statements: [`${column} ${exprr} (${this._val.map(() => '?').join(',')})`],
+      Bindings: values,
+      Statements: [`${column} ${this._not ? 'NOT IN' : 'IN'} (${values.map(() => '?').join(',')})`],
     };
   }
+
+  /**
+   * The predicate for a list bound as ONE parameter, or `null` to keep `IN (?, ...)`. There is no
+   * portable spelling, so only dialects override it.
+   */
+  protected listExpression(_column: string): string | null {
+    return null;
+  }
+
+  protected listBinding(values: unknown[]): unknown {
+    return JSON.stringify(values);
+  }
+
+  /** The value as `where()` binds it: through the model column's declared converter, else by its class. */
+  protected toDbValue(value: unknown): unknown {
+    const container = this._builder.Container;
+    const descriptor = this._builder.Model ? extractModelDescriptor(this._builder.Model) : undefined;
+    const declared = descriptor?.Converters.get(this._column);
+
+    if (declared) {
+      const columnDescriptor = descriptor!.Columns.find((c) => c.Name === this._column);
+      return container.resolve<ValueConverter>(declared.Class).toDB(value, null as any, columnDescriptor as any, null);
+    }
+
+    const converters = container.get<Map<string, any>>('__orm_db_value_converters__');
+    const type = value !== null && value !== undefined ? (value as object).constructor.name : undefined;
+
+    if (type && converters?.has(type)) {
+      return container.resolve<ValueConverter>(converters.get(type)).toDB(value, null as any, null as any, null);
+    }
+
+    return value;
+  }
+}
+
+/** What survives a JSON array round trip unchanged, so a dialect can read it back as a bound list. */
+function isListScalar(value: unknown): boolean {
+  return typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value));
 }
 
 /**

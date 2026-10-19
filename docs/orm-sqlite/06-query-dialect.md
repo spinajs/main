@@ -159,6 +159,7 @@ export class OffsetSqliteDriver extends SqliteOrmDriver {
 - Set membership never matches a `NULL` column, so `whereNotInSet` returns rows whose column is `NULL`.
 - `skip()` without `take()` fails with `SQLITE_MISMATCH` (see the limit sample above).
 - `like` comparisons follow SQLite: case-insensitive for ASCII letters only.
+- `whereIn()` / `whereNotIn()` with more than 1000 strings or numbers binds the list as one JSON parameter, `` `col` IN (SELECT value FROM json_each(?)) ``, so a key list is not capped by the 32766-parameter limit.
 
 ## Best practices
 

@@ -32,7 +32,7 @@ Every abstract token extends `QueryStatement`, which implements `TableAlias`, `B
 | `WhereQueryStatement` | `SqlWhereQueryStatement` | `where(function () { ... })` | `( <nested where> )` | clones the nested `WhereBuilder` onto the parent |
 | `LazyQueryStatement` | `SqlLazyQueryStatement` | `where(Lazy)`, correlated `EXISTS` | the callback's statements, built at compile time | rebinds `context` |
 | `RawQueryStatement` | `SqlRawStatement` | `where(RawQuery)` | the query verbatim | no builder |
-| `InStatement` | `SqlInStatement` | `whereIn`, `whereNotIn` with values | `` `col` [NOT] IN (?,?) `` | rebinds `_builder` |
+| `InStatement` | `SqlInStatement` | `whereIn`, `whereNotIn` with values | `` `col` [NOT] IN (?,?) ``; a dialect may bind a list longer than `listThreshold` as one parameter | rebinds `_builder`; `clone()` keeps the subclass |
 | `InQueryStatement` | `SqlInQueryStatement` | `whereIn`, `whereNotIn` with a sub-select | `` `col` [NOT] IN ( <sub-select> ) `` | clones the sub-select, re-correlates, rebinds the owner |
 | `ExistsQueryStatement` | `SqlExistsQueryStatement` | `whereExist`, `whereNotExists` | `[NOT] EXISTS ( <sub-select> )` | clones the sub-select, re-correlates |
 | `BetweenStatement` | `SqlBetweenStatement` | `whereBetween`, `whereNotBetween` | `` `col` [NOT] BETWEEN ? AND ? `` | no builder |
@@ -134,6 +134,7 @@ export class DatesPostgresDriver extends PostgresOrmDriver {
 - `SelectQueryBuilder.clone()` does not copy `Boolean` back onto cloned statements; `WhereBuilder.clone()` does. Set `Boolean` in your `clone()` when it matters.
 - Statements that hold no builder (`SqlBetweenStatement`, `SqlColumnStatement`, `SqlInSetStatement`, ...) carry the table alias as a value snapshotted at creation; `setAlias()` re-stamps it.
 - `SqlInStatement` with an empty array emits `1 = 0` (`1 = 1` for `NOT IN`), because `IN ()` is a syntax error.
+- `SqlInStatement` converts every value the way `SqlWhereStatement` does: through the model column's declared converter, else through the `__orm_db_value_converters__` entry named after the value's class, so a `Date` or `DateTime` becomes the dialect's datetime text. A list longer than `listThreshold` (1000) whose converted values are all strings and finite numbers is bound as ONE parameter when the dialect overrides `listExpression()` (and `listBinding()` for its shape): `= ANY(?)` / `<> ALL(?)` with an array on PostgreSQL, `IN (SELECT value FROM json_each(?))` with JSON text on SQLite, `IN (SELECT [value] FROM OPENJSON(?))` on MSSQL, where `listThreshold` is 200. MySQL and any list with another value type keep the expanded `IN (?, ...)`.
 - `SqlColumnMethodStatement` never alias-prefixes its column.
 - `SqlDateWrapper` and `SqlDateTimeWrapper` emit `DATE()` and `DATETIME()`. No shipped driver overrides them; check that your engine has these functions before using `Wrapper.Date()`.
 - Values in DML statements are always bound with `?`, never interpolated.

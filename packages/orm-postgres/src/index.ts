@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, NewInstance } from '@spinajs/di';
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
 import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import pg from 'pg';
 import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler } from './compilers.js';
-import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresLiteralQuoter } from './statements.js';
+import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresInStatement, PostgresLiteralQuoter } from './statements.js';
 import { mapPostgresError } from './errors.js';
 import { ITableColumnInfo, IConstraintInfo } from './types.js';
 
@@ -212,6 +212,7 @@ export class PostgresOrmDriver extends SqlDriver {
      * dialect-specific is inherited by accident.
      */
     this.Container.register(DoubleQuoteIdentifierQuoter).as(IdentifierQuoter);
+    this.Container.register(PostgresInStatement).as(InStatement);
     this.Container.register(PostgresOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
     this.Container.register(PostgresInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(PostgresColumnQueryCompiler).as(ColumnQueryCompiler);
