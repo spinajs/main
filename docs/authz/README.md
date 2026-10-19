@@ -6,8 +6,8 @@ It replaces the 2.x `rbac` authorization code (`accesscontrol`, `@Permission`, `
 - Moving a 2.x app: read [the migration guide](./migration-guide.md).
 - Authentication (who is calling) is a separate family: [docs/authn](../authn/README.md).
 - Tables, stores and the check flow step by step: [storage-and-check-flow.md](./storage-and-check-flow.md).
-- The package READMEs of `authz-orm`, `authz-queue`, `authz-fs` and `authz-http-admin` hold their
-  full detail. The READMEs of `authz-rbac` and `authz-abac` are stubs, so this page is their
+- The package READMEs of `authz-orm`, `authz-queue` and `authz-http-admin` hold their full detail;
+  `authz-fs` is documented in [docs/authz-fs](../authz-fs/README.md). The READMEs of `authz-rbac` and `authz-abac` are stubs, so this page is their
   reference. It describes `3.0.0-rc.1`. What is still open is listed in
   [the migration guide, section 11](./migration-guide.md#11-open-items-in-300-rc1).
 
@@ -34,7 +34,7 @@ It replaces the 2.x `rbac` authorization code (`accesscontrol`, `@Permission`, `
 | `@spinajs/authz-http-admin` | HTTP routes over `AuthzAdmin`. |
 | `@spinajs/authz-orm` | ORM adapter: resource declarations, the ancestor table, `.accessible()` lists, per-row `$access`, the audit and scope attribute stores. |
 | `@spinajs/authz-queue` | Queue adapter: who started a job. |
-| `@spinajs/authz-fs` | File system adapter. |
+| `@spinajs/authz-fs` | File checks (`AuthzFsMiddleware`) and the file ACL (`fs_acl`). |
 | `@spinajs/authz-testing` | Fakes, conformance suites and the behaviour fixtures B01-B46. |
 | `@spinajs/authz-convert` | The `spinajs-authz-convert` tool for 2.x configs. |
 
@@ -204,7 +204,7 @@ export default {
     audit: { denials: true, runAs: true, unscoped: true },
     config: { rejectLegacyKeys: true },            // false: an rbac.* key only warns
     domains: {
-      fs: { parent: 'root', combine: { default: { algorithm: 'deny-overrides', models: ['rbac', 'fs-inherit'] } } },
+      fs: { parent: 'root', combine: { default: { algorithm: 'deny-overrides', models: ['rbac'] } } },
     },
   },
 };
@@ -308,7 +308,8 @@ authz: {
   `authz.rbac.maxSetDepth` (default 8, at most 64) is refused (`set_too_deep`), and so is a cycle (`set_cycle`). A
   membership lives while any path to the set lives.
 
-`RbacService` offers `rolesOf(principal, at)` and `grantsOf(role)`. Whether an actor may hand out a
+`RbacService` offers `rolesOf(principal, at)`, `grantsOf(role)` and `subjectKeysOf(principal, at?)`, the
+subject keys a principal acts as (used by the ACL relations of authz-fs). Whether an actor may hand out a
 role is `RbacAdminFacts.covers` (default `CheckRbacAdminFacts`, which asks checks).
 
 **Ladders, tags, rules and links.** No 2.x app needs these; canvas does. Design §8.5 holds a full
@@ -719,16 +720,18 @@ Full reference: `packages/authz-orm/README.md`.
 
 ### File system (`@spinajs/authz-fs`)
 
-- A file system with no `authz.fs.<name>` entry, or with `mode: 'off'`, is the raw provider (H9, B28).
-  `mode: 'enforce'` checks `fs:read`, `fs:stat`, `fs:list`, `fs:write`, `fs:delete` or `fs:share` on
-  every path and throws `AccessDenied`; `mode: 'audit'` checks, warns and goes on.
+- A file system with no `authz.fs.<name>` entry, or with `mode: 'off'`, is never checked, and `getFs`
+  returns the provider itself (H9, B28). `mode: 'enforce'` checks `fs:read`, `fs:stat`, `fs:list`,
+  `fs:write`, `fs:delete` or `fs:share` on every path and throws `AccessDenied`; `mode: 'audit'`
+  checks, warns and goes on. Each target uses the mode of its own file system.
 - A path is the resource `{ type: 'file' | 'dir', id: '<fs name>:<path>' }`; its ancestors are the
   parent directories, then `{ type: 'fs', id: <fs name> }`.
-- Import the package before `fsService` resolves, and take providers after it resolved.
-- Owners (`metadata`, `stampOwner`), signed URLs, uploads, `fromFsPath`, the `fs` domain with
-  `fs-inherit` and `fs-abac`: `packages/authz-fs/README.md`. authz-fs builds the `fs-abac` model itself, in
-  the filesystem's own domain and only when that filesystem has `policies`; list it in that domain's
-  `combine`.
+- Import the package before the first file action; `AuthzFsMiddleware` is resolved on every action,
+  so the order against `fsService` does not matter.
+- Per-file rights are `fs_acl` rows that RBAC relation grants turn into permissions; `fs:manage`
+  guards `FsAcl`. No extra authz model is involved, and the keys `policies`, `metadata`,
+  `resolver`, `inherit` and `operations` do not exist. Owners, signed URLs, uploads and `fromFsPath`:
+  [docs/authz-fs](../authz-fs/README.md).
 
 ## AuthzAdmin
 
