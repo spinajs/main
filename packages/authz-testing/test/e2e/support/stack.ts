@@ -163,7 +163,7 @@ export function e2eHarness(kind: Dialect): E2eHarness {
         for (const a of world.rbac.assignments ?? []) await insertAssignment(test, kind, a);
       }
       if (world.abac) {
-        const written = new DbPolicyStore(() => test.driver(kind));
+        const written = new DbPolicyStore();
         const abac = new AbacModel({ stores: [new ConfigPolicyStore(world.abac.policies), written] });
         c.register(testHost.instance(abac)).as(AuthorizationModel);
         c.register(testHost.instance(new AbacContributor(abac))).as(AuthzContributor);

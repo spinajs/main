@@ -339,10 +339,17 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       expect((error as Error).message).to.match(/authz\.abac\.stores names "Nope"/);
     });
 
+    it('refuses authz.<name>.connection at init, naming db.Aliases.authz', async () => {
+      for (const name of ['abac', 'tenant-abac']) {
+        let error: unknown;
+        await new AbacModel({ name, stores: [] }).init(fakeModelInitContext({ permissions: registry(), config: { connection: 'reporting' } })).catch((e) => (error = e));
+        expect(error, name).to.be.instanceOf(AuthzConfigError);
+        expect((error as Error).message).to.equal(`authz.${name}.connection: removed; the authz tables use the ORM connection alias "authz", so set db.Aliases.authz to the connection name instead (default: "default")`);
+      }
+    });
+
     it('DbPolicyStore.put refuses a malformed policy or one that does not fit the columns (M6, M3)', async () => {
-      const store = new DbPolicyStore(() => {
-        throw new Error('never reached');
-      });
+      const store = new DbPolicyStore();
       const tx = { driver: {} };
       let error: unknown;
       await store.put({ id: 'p', effect: 'permit', permissions: [] }, undefined, tx).catch((e) => (error = e));

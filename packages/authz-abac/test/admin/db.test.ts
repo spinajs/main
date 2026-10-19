@@ -1,8 +1,9 @@
 import * as chai from 'chai';
 import 'mocha';
-import { AuthzAdminFailure, DefaultConditionCompiler, FALSE, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, DefaultConditionCompiler, FALSE, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
 import type { AdminCallContext, AuthzCommand, AuthzService, AuthzTx, Policy, Principal } from '@spinajs/authz';
 import { fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
+import type { OrmDriver } from '@spinajs/orm';
 
 import { AUTHZ_POLICY_TABLE, AbacModel, AbacPolicyHandler, AbacPolicyReader, AbacScopeForgetter, DbPolicyStore, PolicyStore } from '../../src/index.js';
 import { DB_KINDS, bootDb } from '../support/db.js';
@@ -30,7 +31,7 @@ for (const kind of DB_KINDS) {
 
     before(async function () {
       db = await bootDb(this, kind, 'abac_admin');
-      store = new DbPolicyStore(db.driver);
+      store = new DbPolicyStore();
       db.container.register(() => store).as(PolicyStore);
       reg = new PermissionRegistryImpl();
       reg.register([{ name: 'file:read', types: ['file', 'project'] }], 'test');
@@ -120,6 +121,27 @@ for (const kind of DB_KINDS) {
         throw new Error('roll back');
       }).catch(() => undefined);
       expect(await ids()).to.not.include('rolled');
+    });
+
+    it('a batch reads its own earlier writes', async () => {
+      const c = put({ id: 'same-batch', effect: 'permit', permissions: ['file:read'] });
+      await handler.validate(c, context());
+      const out = await write(async (tx) => {
+        await handler.apply(c, context(), tx);
+        return handler.apply({ kind: 'policy.delete', id: 'same-batch' }, context(), tx);
+      });
+      expect(out).to.deep.include({ id: 'same-batch', affected: 1, tags: ['policy', 'policy:same-batch'] });
+      expect(await ids()).to.deep.equal([]);
+    });
+
+    it('refuses a transaction on another connection than authz_policy', async () => {
+      const c = put({ id: 'elsewhere', effect: 'permit', permissions: ['file:read'] });
+      const e = await db.second.transaction((driver: OrmDriver) => handler.apply(c, context(), { driver })).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+      expect(e).to.be.instanceOf(AuthzConfigError);
+      expect((e as Error).message).to.equal('policiesInTx: the AuthzTx runs on connection "abac-abac_admin-second", but authz_policy is on connection "abac-abac_admin" (db.Aliases.authz)');
     });
 
     it('refuses what does not fit the columns before the transaction', async () => {

@@ -1,11 +1,13 @@
 import * as chai from 'chai';
 import 'mocha';
-import { AuthzConfigError, DefaultConditionCompiler, FALSE, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
+import sinon from 'sinon';
+import { AUTHZ_CONNECTION, AuthzAdminFailure, AuthzConfigError, DefaultConditionCompiler, FALSE, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
 import type { AuthzTx, Policy } from '@spinajs/authz';
 import { fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
-import { QueryContext } from '@spinajs/orm';
+import { MIGRATION_DESCRIPTION_SYMBOL, QueryContext, UniqueViolation } from '@spinajs/orm';
+import type { OrmDriver } from '@spinajs/orm';
 
-import { AUTHZ_POLICY_TABLE, AbacModel, DbPolicyStore } from '../../src/index.js';
+import { AUTHZ_POLICY_TABLE, AbacModel, AuthzAbac_2026_10_01_00_00_00, DbPolicyStore, PolicyRecord } from '../../src/index.js';
 import { DB_KINDS, bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 
@@ -20,7 +22,16 @@ const policies: Policy[] = [
   { id: 'typed-scope', effect: 'permit', permissions: ['file:read'], scope: { type: 'org' }, source: 'admin' },
 ];
 
+// version() once `policies` are written at NOW; one literal for every driver.
+const POLICIES_VERSION = 'edc4435615980e90';
+
 const input = ({ source: _source, ...p }: Policy): Omit<Policy, 'source'> => p;
+
+describe('authz-abac: AuthzAbac migration', () => {
+  it('runs on the connection alias authz', () => {
+    expect((AuthzAbac_2026_10_01_00_00_00 as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection).to.equal(AUTHZ_CONNECTION);
+  });
+});
 
 for (const kind of DB_KINDS) {
   describe(`authz-abac: AuthzAbac migration and DbPolicyStore (${kind})`, function () {
@@ -31,7 +42,7 @@ for (const kind of DB_KINDS) {
 
     before(async function () {
       db = await bootDb(this, kind, 'policy_store');
-      store = new DbPolicyStore(db.driver);
+      store = new DbPolicyStore();
     });
 
     after(async () => {
@@ -44,6 +55,9 @@ for (const kind of DB_KINDS) {
 
     const write = <T>(fn: (tx: AuthzTx) => Promise<T>): Promise<T> => db.driver.transaction(() => fn({ driver: db.driver })) as Promise<T>;
     const failure = (p: Promise<unknown>): Promise<unknown> => p.then(() => undefined, (err: unknown) => err);
+    const putAll = async (): Promise<void> => {
+      for (const p of policies) await write((tx) => store.put(input(p), alice, tx, NOW));
+    };
 
     it('creates authz_policy with the design columns, actor_types and priority, and its scope index', async () => {
       const columns = (await db.driver.tableInfo(AUTHZ_POLICY_TABLE)).map((c) => [c.Name, c.Nullable, c.PrimaryKey]);
@@ -79,8 +93,24 @@ for (const kind of DB_KINDS) {
       expect(await store.version()).to.not.equal(v0);
     });
 
+    it('stores what a policy lacks as SQL NULL', async () => {
+      await write((tx) => store.put({ id: 'plain', effect: 'permit', permissions: ['file:read'] }, undefined, tx, NOW));
+      const [row] = await rawQuery(db.driver, `SELECT resource_types, principal_types, actor_types, condition, fields, reason, priority, expires_at, created_by FROM ${AUTHZ_POLICY_TABLE} WHERE id = 'plain'`);
+      expect(row).to.deep.equal({ resource_types: null, principal_types: null, actor_types: null, condition: null, fields: null, reason: null, priority: null, expires_at: null, created_by: null });
+    });
+
+    it('version() hashes what the rows hold, the same on every driver', async () => {
+      await putAll();
+      expect(await store.version()).to.equal(POLICIES_VERSION);
+    });
+
+    it('loads in code-unit order of the ids, whatever the collation', async () => {
+      for (const id of ['a', 'B']) await write((tx) => store.put({ id, effect: 'permit', permissions: ['file:read'] }, undefined, tx, NOW));
+      expect((await store.load()).map((p) => p.id)).to.deep.equal(['B', 'a']);
+    });
+
     it('replaces on put, deletes by id, and changes its version each time', async () => {
-      for (const p of policies) await write((tx) => store.put(input(p), alice, tx, NOW));
+      await putAll();
       const v1 = await store.version();
       await write((tx) => store.put({ id: 'plain', effect: 'deny', permissions: ['file:read'] }, undefined, tx, NOW));
       expect((await store.load()).find((p) => p.id === 'plain')?.effect).to.equal('deny');
@@ -91,11 +121,25 @@ for (const kind of DB_KINDS) {
       expect(await store.version()).to.not.equal(v2);
     });
 
-    it('writes only inside an AuthzAdmin transaction', async () => {
-      const e = await failure(store.put({ id: 'x', effect: 'permit', permissions: ['file:read'] }, undefined, { driver: db.driver }));
+    it('writes only inside an AuthzAdmin transaction on the authz connection', async () => {
+      const p = { id: 'x', effect: 'permit' as const, permissions: ['file:read'] };
+      expect(((await failure(store.put(p, undefined, { driver: db.driver }))) as Error).message).to.equal('DbPolicyStore.put: stores write only inside an AuthzAdmin transaction, and none is in scope');
+      expect(((await failure(store.delete('x', { driver: {} }))) as Error).message).to.equal('DbPolicyStore.delete: AuthzTx.driver must be the OrmDriver of an AuthzAdmin transaction');
+      const e = await failure(db.second.transaction((driver: OrmDriver) => store.put(p, undefined, { driver }, NOW)));
       expect(e).to.be.instanceOf(AuthzConfigError);
-      expect((e as Error).message).to.match(/only inside an AuthzAdmin transaction/);
-      expect(((await failure(store.delete('x', { driver: {} }))) as Error).message).to.match(/must be the OrmDriver/);
+      expect((e as Error).message).to.equal('DbPolicyStore.put: the AuthzTx runs on connection "abac-policy_store-second", but authz_policy is on connection "abac-policy_store" (db.Aliases.authz)');
+    });
+
+    it('turns a duplicate id from a concurrent writer into a conflict', async () => {
+      const insert = sinon.stub(PolicyRecord, 'insert').rejects(new UniqueViolation('duplicate key', { table: AUTHZ_POLICY_TABLE, columns: ['id'] }));
+      try {
+        const e = await failure(write((tx) => store.put({ id: 'race', effect: 'permit', permissions: ['file:read'] }, undefined, tx, NOW)));
+        expect(e).to.be.instanceOf(AuthzAdminFailure);
+        expect((e as AuthzAdminFailure).code).to.equal('conflict');
+        expect((e as Error).message).to.equal('DbPolicyStore.put: another transaction wrote policy "race" meanwhile; retry');
+      } finally {
+        insert.restore();
+      }
     });
 
     it('feeds AbacModel, which reloads on the policy tags of a write', async () => {
@@ -120,10 +164,11 @@ for (const kind of DB_KINDS) {
       expect((await model.evaluate(req, ctx)).permitWhen).to.equal(TRUE);
     });
 
-    it('refuses a row whose JSON is broken, naming it', async () => {
+    it('refuses a row whose JSON does not parse, naming the table', async () => {
       await rawQuery(db.driver, `INSERT INTO ${AUTHZ_POLICY_TABLE} (id, effect, permissions, scope_type, scope_id, created_at) VALUES ('broken', 'permit', '[oops', '$global', '', '2026-10-01 00:00:00')`, [], QueryContext.Insert);
       const e = await failure(store.load());
-      expect((e as Error).message).to.match(/authz_policy "broken": column permissions is not JSON/);
+      expect(e).to.be.instanceOf(AuthzConfigError);
+      expect((e as Error).message).to.match(/^authz_policy: a row holds a JSON column that does not parse \(/);
     });
   });
 }
