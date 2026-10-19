@@ -113,6 +113,7 @@ export class MsSqlOrmDriver extends SqlDriver {
       // SCOPE_IDENTITY() reports the LAST identity generated in the scope, so a multi-row insert
       // cannot be walked forwards from it. MSSQL opts out of the batch key backfill.
       insertIdIsFirstOfBatch: false,
+      // SQL Server allows 2100 parameters per call and sp_executesql takes two of them
       maxBindParameters: 2098,
       // a table value constructor takes at most 1000 rows
       maxInsertRows: 1000,
