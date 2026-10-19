@@ -40,7 +40,8 @@ export function textColumn(dialect: Dialect, column: string, alias: string): Raw
     case 'mysql':
       return RawQuery.create(`CAST(${column} AS CHAR) AS ${alias}`);
     case 'mssql':
-      return RawQuery.create(`CONVERT(varchar(23), ${column}, 121) AS ${alias}`);
+      // style 127 keeps the offset of a DATETIMEOFFSET, so a value stamped in a non-UTC offset reads as its instant
+      return RawQuery.create(`CONVERT(varchar(33), ${column}, 127) AS ${alias}`);
     default:
       return undefined;
   }
