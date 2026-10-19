@@ -11,6 +11,7 @@ import { OrmDriver, QueryContext } from '@spinajs/orm';
 
 import { ASSIGNMENT_LIST_MAX_LIMIT, AdminAssignmentStore, AssignmentStore, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, readVersion, subjectFromColumns, subjectKeyOf } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
+import { statementsOf } from '../support/statements.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -168,16 +169,13 @@ for (const kind of DB_KINDS) {
       });
 
       it('answers an empty subject list with [] and no query', async () => {
-        class NoDb extends DbAssignmentStore {
-          protected override connection(): Promise<OrmDriver> {
-            throw new Error('no query expected');
-          }
-        }
+        const { result, selects } = await countSelects(() => store.forSubjects([], AT));
 
-        expect(await new NoDb(db.container).forSubjects([], AT)).to.deep.eq([]);
+        expect(result).to.deep.eq([]);
+        expect(selects).to.eq(0);
       });
 
-      it('answers 1,500 subjects (batched under the parameter limits)', async () => {
+      it('answers 1,500 subjects in one query', async () => {
         const many = Array.from({ length: 1500 }, (_, i) => ({ type: 'user', id: `u${i}` }));
         await seed(...many.map((p, i) => row({ id: `b${String(i).padStart(4, '0')}`, subject_id: p.id })), row({ id: 'zz', subject_id: 'other' }));
 
@@ -185,22 +183,19 @@ for (const kind of DB_KINDS) {
 
         expect(found).to.have.length(1500);
         expect(new Set(found.map((a) => a.id)).size).to.eq(1500);
-        expect(selects, 'one query per 250 subjects').to.eq(6);
+        expect(selects, 'one query').to.eq(1);
       });
 
-      it('loses and repeats nothing across batch boundaries', async () => {
-        class SmallBatches extends DbAssignmentStore {
-          protected override readonly subjectBatch = 3;
-        }
+      it('deduplicates subjects and reads them in one query', async () => {
         const users = Array.from({ length: 8 }, (_, i) => ({ type: 'user', id: `u${i}` }));
         const sets = Array.from({ length: 4 }, (_, i): AssignmentSubject => ({ set: { role: 'group.member', scope: { type: 'group', id: `g${i}` } } }));
         await seed(...users.map((p) => row({ id: `p-${p.id}`, subject_id: p.id })), ...sets.map((_, i) => row({ id: `s-g${i}`, subject_type: 'group', subject_id: `g${i}`, subject_role: 'group.member' })));
 
         const subjects = [...users.slice(0, 4), ...sets, ...users.slice(4), users[0], sets[1]];
-        const { result: found, selects } = await countSelects(() => new SmallBatches(db.container).forSubjects(subjects, AT));
+        const { result: found, selects } = await countSelects(() => store.forSubjects(subjects, AT));
 
         expect(found.map((a) => a.id).sort()).to.deep.eq([...users.map((p) => `p-${p.id}`), ...sets.map((_, i) => `s-g${i}`)].sort());
-        expect(selects, '12 distinct subjects in batches of 3').to.eq(4);
+        expect(selects, '12 distinct subjects').to.eq(1);
       });
     });
 
@@ -631,15 +626,14 @@ for (const kind of DB_KINDS) {
         expect(await version()).to.eq('1');
       });
 
-      it('revokeSubjects batches the subjects', async () => {
-        class Small extends DbAssignmentStore {
-          protected readonly subjectBatch = 1;
-        }
-        const small = new Small(db.container);
+      it('revokeSubjects deletes the rows of hundreds of subjects in one statement', async () => {
+        const many = Array.from({ length: 600 }, (_, i) => ({ type: 'user', id: `bulk${i}` }));
+        await seed(...many.map((p, i) => row({ id: `bulk-${i}`, subject_id: p.id })));
 
-        const gone = await inTx((tx) => small.revokeSubjects([alice, bob, g1Members], tx));
+        const { result: gone, statements } = await statementsOf(db.driver, () => inTx((tx) => store.revokeSubjects([...many, alice, bob, g1Members], tx)));
 
-        expect(gone.map((a) => a.id).sort()).to.deep.eq(['w1', 'w2', 'w3', 'w4', 'w5', 'w6', 'w7']);
+        expect(gone).to.have.length(607);
+        expect(statements.filter((s) => s.context === QueryContext.Delete)).to.have.length(1);
         expect(await rows()).to.deep.eq([]);
         expect(await version()).to.eq('1');
       });
