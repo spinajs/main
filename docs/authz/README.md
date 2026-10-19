@@ -545,7 +545,8 @@ export class Campaigns extends BaseController {
   authenticated) principal; it does not admit a missing one. A denial: 403 with
   `{ error: 'forbidden', permission, resource, reason }` (B23).
 - `@Unscoped(reason)` marks a route whose ORM selects run without `.accessible()`; the call is audited
-  once. A route with `@Unscoped` and no `@Access` fails registration.
+  once, with the `DecisionAudit` and `audit.unscoped` the route domain's service booted with (the first
+  such call boots that service). A route with `@Unscoped` and no `@Access` fails registration.
 - Body fields are limited to `decision.fields.write` minus `neverRead`: stripped, or a 400 in
   `reject` mode. `@UnfilteredInput(reason)` opts a route out. See `packages/authz-http/README.md`.
 - Principal sources run in order: `ServicePrincipalSource` (40), `AuthnPrincipalSource` (50, the

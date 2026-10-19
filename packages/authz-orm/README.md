@@ -105,7 +105,8 @@ Permission names are compared exactly: `@AccessResource('task')` registers `task
   narrows a list and authorizes nothing: a select still needs `.accessible()`, `.unscoped(reason)` or
   SYSTEM. It works on select, update and delete builders.
 - `.unscoped(reason)` runs without a filter and writes an `unscoped` audit entry
-  (`authz.audit.unscoped`).
+  (`authz.audit.unscoped`), with the audit and config the domain's service booted with. Before that boot
+  they are read from the configuration and picked the way the host picks them.
 
 ### Plan terms and `PlanTermSql`
 
