@@ -85,7 +85,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
   }
 
   async version(): Promise<string> {
-    return readVersion(await this.connection(), this.domain());
+    return readVersion(this.domain());
   }
 
   /** Expired rules too; null for an unknown id. */
@@ -120,7 +120,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
         .values(rows.subjects.slice(i, i + INSERT_BATCH));
     }
 
-    await bumpVersion(driver, this.domain());
+    await bumpVersion({ driver }, this.domain());
   }
 
   /** What the columns cannot hold, refused before the batch transaction ({@link toRuleRows}). */
@@ -142,7 +142,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
     const [rule] = await this.rulesOf(driver, [row]);
     await driver.del().from(AUTHZ_RULE_SUBJECT_TABLE).where('rule_id', id);
     await driver.del().from(AUTHZ_RULE_TABLE).where('id', id);
-    await bumpVersion(driver, this.domain());
+    await bumpVersion({ driver }, this.domain());
     return rule;
   }
 
@@ -175,7 +175,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
     const subjectRows = await subjectRowsOf(driver.select().from(AUTHZ_RULE_SUBJECT_TABLE).where(setAtScope).where('subject_role', '!=', ''));
     if (subjectRows.length > 0) await driver.del().from(AUTHZ_RULE_SUBJECT_TABLE).where(setAtScope).where('subject_role', '!=', '');
 
-    await bumpVersion(driver, this.domain());
+    await bumpVersion({ driver }, this.domain());
     return {
       rules,
       subjects: subjectRows.map((s) => ({ ruleId: s.rule_id, list: s.list, subject: subjectFromColumns(s.subject_type, s.subject_id, s.subject_role) })),

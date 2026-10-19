@@ -59,7 +59,7 @@ for (const kind of DB_KINDS) {
       if (ruleId !== undefined) q.where('rule_id', ruleId);
       return (await q) as Row[];
     };
-    const version = (domain = 'root') => readVersion(db.driver, domain);
+    const version = (domain = 'root') => readVersion(domain);
 
     /** Counts the SELECT statements `fn` sends on the default connection. */
     const countSelects = async <R>(fn: () => Promise<R>): Promise<{ result: R; selects: number }> => {

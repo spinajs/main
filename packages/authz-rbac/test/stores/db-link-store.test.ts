@@ -66,7 +66,7 @@ for (const kind of DB_KINDS) {
     const linkRows = async (): Promise<Row[]> => (await db.driver.select().from('authz_link').orderBy('id')) as Row[];
     const assignmentRows = async (): Promise<Row[]> => (await db.driver.select().from('authz_assignment').orderBy('id')) as Row[];
     const linkAssignments = async (id: string) => (await assignmentRows()).filter((r) => r.subject_type === 'link' && r.subject_id === id);
-    const version = () => readVersion(db.driver, 'root');
+    const version = () => readVersion('root');
     const resetVersion = () => rawQuery(db.driver, 'DELETE FROM authz_version', [], QueryContext.Delete);
     const setLink = (id: string, values: Row) => db.driver.update().in('authz_link').update(values).where('id', id);
 

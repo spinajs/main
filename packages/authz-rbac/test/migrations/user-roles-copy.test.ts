@@ -7,8 +7,9 @@ import { Configuration } from '@spinajs/configuration';
 import { renderTemplate } from '@spinajs/log-common';
 import { MigrationTransactionMode, OrmDriver } from '@spinajs/orm';
 
-import { AuthzRbacUserRoles_2026_10_01_00_01_00, USER_ROLES_DEFAULT_ID_COLUMN, USER_ROLES_DEFAULT_ROLE_COLUMN, readVersion, toDate, USER_ROLES_SOURCE } from '../../src/index.js';
+import { AuthzRbacUserRoles_2026_10_01_00_01_00, USER_ROLES_DEFAULT_ID_COLUMN, USER_ROLES_DEFAULT_ROLE_COLUMN, toDate, USER_ROLES_SOURCE } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
+import { versionOf } from '../support/version.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -150,7 +151,7 @@ for (const kind of DB_KINDS) {
         expect(created).to.be.within(before.getTime() - 1, after.getTime() + 1);
       }
 
-      expect(await readVersion(db.driver, 'root')).to.eq('1');
+      expect(await versionOf(db)).to.eq('1');
     });
 
     it('a second up() inserts nothing, fails nothing and does not bump the version', async function () {
@@ -163,7 +164,7 @@ for (const kind of DB_KINDS) {
       await new AuthzRbacUserRoles_2026_10_01_00_01_00().up(db.driver);
 
       expect(await assignments(db.driver)).to.deep.eq(first);
-      expect(await readVersion(db.driver, 'root')).to.eq('1');
+      expect(await versionOf(db)).to.eq('1');
     });
 
     it('keeps an identical assignment granted earlier and adds the rest', async function () {
@@ -182,7 +183,7 @@ for (const kind of DB_KINDS) {
       expect(pairs(rows)).to.deep.eq(EXPECTED);
       const kept = rows.find((r) => r.subject_id === UUIDS[1])!;
       expect(kept).to.deep.include({ id: 'granted-earlier', source: 'db', granted_by: 'user:9' });
-      expect(await readVersion(db.driver, 'root')).to.eq('1');
+      expect(await versionOf(db)).to.eq('1');
     });
 
     it('does not bump the version when every role is already granted', async function () {
@@ -198,7 +199,7 @@ for (const kind of DB_KINDS) {
       await db.orm.Migration.up();
 
       expect(pairs(await assignments(db.driver))).to.deep.eq([`user:${UUIDS[1]}=admin`]);
-      expect(await readVersion(db.driver, 'root')).to.eq('0');
+      expect(await versionOf(db)).to.eq('0');
     });
 
     it('reads authz.rbac.migration.idColumn and roleColumn (Id / Roles)', async function () {
@@ -238,7 +239,7 @@ for (const kind of DB_KINDS) {
       // 5 users in pages of 2; the short third page ends the walk
       expect(migration.pages).to.eq(3);
       expect(migration.seen).to.deep.eq([...UUIDS].sort());
-      expect(await readVersion(db.driver, 'root')).to.eq('1');
+      expect(await versionOf(db)).to.eq('1');
     });
 
     it('walks integer ids (Id) across pages', async function () {
@@ -282,7 +283,7 @@ for (const kind of DB_KINDS) {
 
       expect((await status(db)).pending).to.eq(false);
       expect(await assignments(db.driver)).to.deep.eq([]);
-      expect(await readVersion(db.driver, 'root')).to.eq('0');
+      expect(await versionOf(db)).to.eq('0');
 
       const migration = new RecordingMigration();
       await migration.up(db.driver);
@@ -350,7 +351,7 @@ for (const kind of DB_KINDS) {
 
       expect(inside).to.deep.eq(EXPECTED);
       expect(await assignments(db.driver)).to.deep.eq([]);
-      expect(await readVersion(db.driver, 'root')).to.eq('0');
+      expect(await versionOf(db)).to.eq('0');
     });
 
     it('copies under the service in PerRun transaction mode', async function () {
@@ -364,7 +365,7 @@ for (const kind of DB_KINDS) {
 
       expect((await status(db)).pending).to.eq(false);
       expect(pairs(await assignments(db.driver))).to.deep.eq(EXPECTED);
-      expect(await readVersion(db.driver, 'root')).to.eq('1');
+      expect(await versionOf(db)).to.eq('1');
     });
 
     it('down() through the migration service deletes only its own rows', async function () {
@@ -382,7 +383,7 @@ for (const kind of DB_KINDS) {
       expect(undone.map((m) => m.constructor)).to.deep.eq([AuthzRbacUserRoles_2026_10_01_00_01_00]);
       expect(pairs(await assignments(db.driver))).to.deep.eq([`user:${UUIDS[1]}=editor`]);
       expect((await status(db)).pending).to.eq(true);
-      expect(await readVersion(db.driver, 'root')).to.eq('2');
+      expect(await versionOf(db)).to.eq('2');
       expect(USER_ROLES_SOURCE).to.eq('users.Role');
     });
   });

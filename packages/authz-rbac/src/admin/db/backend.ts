@@ -6,6 +6,7 @@ import { AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError } from '@spinajs
 import type { AuthzTx, RememberedBatch } from '@spinajs/authz';
 
 import { authzConnection } from '../../stores/context.js';
+import { bumpVersion } from '../../stores/version.js';
 
 const VERSION_TABLE = 'authz_version';
 const VERSION_MIGRATION = 'AuthzRbac_2026_10_01_00_00_00';
@@ -148,15 +149,7 @@ export class DbAuthzAdminBackend extends AuthzAdminBackend {
 
   async bumpVersion(domain: string, tx: AuthzTx): Promise<void> {
     checkDomain(domain);
-    const d = await this.inTransaction(tx);
-    const rows = ((await d.select().from(VERSION_TABLE).columns(['version']).where({ domain })) ?? []) as { version: number | string }[];
-    if (rows.length === 0) await d.insert().into(VERSION_TABLE).values({ domain, version: 1 });
-    else
-      await d
-        .update()
-        .in(VERSION_TABLE)
-        .update({ version: Number(rows[0].version) + 1 })
-        .where({ domain });
+    await bumpVersion(tx, domain, 'DbAuthzAdminBackend.bumpVersion');
   }
 
   async recall(domain: string, actorKey: string, key: string, now: Date): Promise<RememberedBatch | undefined> {

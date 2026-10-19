@@ -107,7 +107,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
       }
     }
 
-    await bumpVersion(driver, this.domain());
+    await bumpVersion({ driver }, this.domain());
     return rowToAssignment(row);
   }
 
@@ -116,7 +116,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     const driver = await this.writeDriver(tx, `${this.name}.revoke`);
     await requireRow(driver, id);
     await driver.del().from(AUTHZ_ASSIGNMENT_TABLE).where('id', id);
-    await bumpVersion(driver, this.domain());
+    await bumpVersion({ driver }, this.domain());
   }
 
   /** Replaces the tags (`assignment.setTags`); returns the updated assignment. */
@@ -125,7 +125,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     const text = normaliseTags(tags);
     const row = await requireRow(driver, id);
     await driver.update().in(AUTHZ_ASSIGNMENT_TABLE).update({ tags: text }).where('id', id);
-    await bumpVersion(driver, this.domain());
+    await bumpVersion({ driver }, this.domain());
     return rowToAssignment({ ...row, tags: text });
   }
 
@@ -151,7 +151,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
     const row = await requireRow(driver, id);
     if (Object.keys(change).length > 0) await driver.update().in(AUTHZ_ASSIGNMENT_TABLE).update(change).where('id', id);
-    await bumpVersion(driver, this.domain());
+    await bumpVersion({ driver }, this.domain());
     return rowToAssignment({ ...row, ...change });
   }
 
@@ -164,7 +164,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
       .in(AUTHZ_ASSIGNMENT_TABLE)
       .update({ expires_at: expiresAt ?? null })
       .where('id', id);
-    await bumpVersion(driver, this.domain());
+    await bumpVersion({ driver }, this.domain());
     return rowToAssignment({ ...row, expires_at: expiresAt ?? null });
   }
 
@@ -272,7 +272,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
       const result = await driver.update().in(AUTHZ_ASSIGNMENT_TABLE).update({ tags }).where('id', id).where('tags', row.tags);
 
       if (rowsAffected(result) > 0) {
-        await bumpVersion(driver, this.domain());
+        await bumpVersion({ driver }, this.domain());
         return rowToAssignment({ ...row, tags });
       }
 
@@ -299,7 +299,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
         );
     }
 
-    await bumpVersion(driver, this.domain());
+    await bumpVersion({ driver }, this.domain());
     return rows.map(rowToAssignment);
   }
 }

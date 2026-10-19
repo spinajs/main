@@ -179,7 +179,7 @@ export function dbHarness(db: () => TestDb | undefined, opts: DbHarnessOptions =
         ...(model ? { list: (principal: Principal, permission: Permission, type: ResourceType) => list(host, session, model, principal, permission, type) } : {}),
         ...(admin ? { admin: (session.authz as unknown as AuthzService).admin() } : {}),
         lane: {
-          store: { version: (domain: string) => readVersion(test.driver, domain) },
+          store: { version: (domain: string) => readVersion(domain) },
           rbacStore: {
             insertAssignment: (a: Assignment) => insertAssignment(test, a),
             linkRows: async () => (await test.driver.select().from(AUTHZ_LINK_TABLE)) as Record<string, unknown>[],

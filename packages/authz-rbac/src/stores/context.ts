@@ -1,7 +1,10 @@
 import { AUTHZ_CONNECTION, AuthzConfigError, AuthzDomains, DefaultAuthzDomains } from '@spinajs/authz';
 import type { AuthzTx } from '@spinajs/authz';
 import type { IContainer } from '@spinajs/di';
-import { Orm, OrmDriver } from '@spinajs/orm';
+import { Orm, OrmDriver, extractModelDescriptor } from '@spinajs/orm';
+import type { ModelBase } from '@spinajs/orm';
+
+import { recordDriver } from './records.js';
 
 const ROOT_DOMAIN = 'root';
 
@@ -28,6 +31,26 @@ export function storeTransactionDriver(tx: AuthzTx, store: OrmDriver, where: str
   const driver = transactionDriver(tx, where);
   if (driver !== store) {
     throw new AuthzConfigError(`${where}: the AuthzTx runs on connection ${JSON.stringify(driver.Options.Name)}, but the store uses ${JSON.stringify(store.Options.Name)} (db.Aliases.${AUTHZ_CONNECTION})`);
+  }
+  return driver;
+}
+
+/**
+ * The driver of `tx`, an `AuthzAdmin` transaction on the connection `record` lives on (D-L2-1, D-L2-2).
+ * Stores write only inside one (design §9.2); a write on another connection would land where the reads
+ * never look.
+ */
+export function requireTransaction(record: typeof ModelBase, tx: AuthzTx, where: string): OrmDriver {
+  const driver = tx?.driver;
+  if (!(driver instanceof OrmDriver)) {
+    throw new AuthzConfigError(`${where}: AuthzTx.driver must be the OrmDriver of an AuthzAdmin transaction`);
+  }
+  if (driver.CurrentTransaction === undefined) {
+    throw new AuthzConfigError(`${where}: stores write only inside an AuthzAdmin transaction, and none is in scope`);
+  }
+  const own = recordDriver(record);
+  if (driver !== own) {
+    throw new AuthzConfigError(`${where}: the AuthzTx runs on connection ${JSON.stringify(driver.Options.Name)}, but ${extractModelDescriptor(record)?.TableName} is on connection ${JSON.stringify(own.Options.Name)} (db.Aliases.${AUTHZ_CONNECTION})`);
   }
   return driver;
 }

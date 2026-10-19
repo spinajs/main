@@ -7,8 +7,9 @@ import { Configuration } from '@spinajs/configuration';
 import { renderTemplate } from '@spinajs/log-common';
 import { MigrationTransactionMode, OrmDriver } from '@spinajs/orm';
 
-import { AuthzRbacDropUserRole_2026_10_01_00_02_00, AuthzRbacUserRoles_2026_10_01_00_01_00, readVersion, subjectFromColumns, subjectKeyOf } from '../../src/index.js';
+import { AuthzRbacDropUserRole_2026_10_01_00_02_00, AuthzRbacUserRoles_2026_10_01_00_01_00, subjectFromColumns, subjectKeyOf } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
+import { versionOf } from '../support/version.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -204,7 +205,7 @@ for (const kind of DB_KINDS) {
       expect(await indexNames(db)).to.deep.eq(indexes);
       expect(await db.driver.select().columns(['Key', 'Value', 'user_id']).from('users_metadata')).to.deep.eq([{ Key: 'theme', Value: 'dark', user_id: 2 }]);
       // the drop touches no assignment, so only the copy bumped the version
-      expect(await readVersion(db.driver, 'root')).to.eq('1');
+      expect(await versionOf(db)).to.eq('1');
     });
 
     it('copies and drops in the run transaction (PerRun)', async function () {

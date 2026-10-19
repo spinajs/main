@@ -13,7 +13,7 @@ import { DbAssignmentStore, DbAuthzAdminBackend, readVersion } from '../../src/i
 import { capture } from '../cli/fixture.js';
 import { bootDb, DB_KINDS } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
-import { activeDb, dbHarness } from './db-harness.js';
+import { dbHarness } from './db-harness.js';
 import type { DbHarnessStores } from './db-harness.js';
 
 chai.use(chaiAsPromised);
@@ -127,7 +127,7 @@ const cliFixture = extension('B43', [
                 expect(run.out).to.have.length(1);
                 return run.out[0];
               };
-              const version = () => readVersion(activeDb().driver, 'test');
+              const version = () => readVersion('test');
               const before = Number(await version());
 
               const id = await assign();
@@ -211,7 +211,7 @@ describe('authz-rbac DB stores and DbAuthzAdminBackend on the connection db.Alia
 
     expect(db.orm.Connections.get('authz')).to.equal(db.second);
     expect(((await db.second!.select().from('authz_assignment')) as { id: string }[]).map((r) => r.id)).to.deep.eq([a.id]);
-    expect(await readVersion(db.second!, 'root')).to.eq('1');
+    expect(await readVersion('root')).to.eq('1');
     expect(await store.byId(a.id)).to.deep.include({ id: a.id, role: 'editor' });
     expect(await db.driver.schema().tableExists('authz_assignment')).to.eq(false);
   });

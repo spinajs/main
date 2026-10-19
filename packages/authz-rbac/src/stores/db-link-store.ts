@@ -153,7 +153,7 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
       for (const a of items) await assignments.setExpiry(a.id, patch.expiresAt, tx);
       assignmentWrites = items.length;
     }
-    if (assignmentWrites === 0) await bumpVersion(driver, this.domain());
+    if (assignmentWrites === 0) await bumpVersion({ driver }, this.domain());
 
     return rowToLink({ ...row, ...change });
   }

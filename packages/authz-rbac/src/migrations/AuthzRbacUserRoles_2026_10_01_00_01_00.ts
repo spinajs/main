@@ -65,7 +65,7 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
         this.log.warn({ migration: NAME, skipped, table: USERS_TABLE, idColumn }, '${migration}: skipped ${skipped} ${table} row(s) whose ${idColumn} is null or empty; their roles were not copied');
       }
 
-      if (inserted > 0) await bumpVersion(connection, ROOT_DOMAIN);
+      if (inserted > 0) await bumpVersion({ driver: connection }, ROOT_DOMAIN, NAME);
     });
   }
 
@@ -76,7 +76,7 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
   public async down(connection: OrmDriver): Promise<void> {
     await inTransaction(connection, async () => {
       const result = await connection.del().from(AUTHZ_ASSIGNMENT_TABLE).where('source', USER_ROLES_SOURCE);
-      if (rowsAffected(result) > 0) await bumpVersion(connection, ROOT_DOMAIN);
+      if (rowsAffected(result) > 0) await bumpVersion({ driver: connection }, ROOT_DOMAIN, NAME);
     });
   }
 
