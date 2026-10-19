@@ -1376,7 +1376,10 @@ export interface IBuilder<T> extends PromiseLike<T> {
   execute(): Promise<T>;
 }
 
-export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }
+export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {
+  /** Adds `column = column + by` to the SET list; calls on one column add up. */
+  increment(column: string, by?: number): this;
+}
 
 export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
 

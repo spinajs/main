@@ -472,6 +472,16 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
       bindings = bindings.concat(this.tryConvertValue(v));
     }
 
+    for (const [column, by] of this._builder.Increments) {
+      if (Object.prototype.hasOwnProperty.call(this._builder.Value, column)) {
+        throw new InvalidArgument(`column ${column} is both set and incremented in one update`);
+      }
+
+      const quoted = this.Quoter.quote(column);
+      exprr.push(`${quoted} = ${quoted} + ?`);
+      bindings.push(by);
+    }
+
     return {
       bindings,
       expression: exprr.join(','),

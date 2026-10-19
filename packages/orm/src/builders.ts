@@ -1822,11 +1822,19 @@ export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
     return this._value;
   }
 
+  protected _increments: Map<string, number>;
+
+  /** Columns to increment and by how much, compiled after {@link Value}. */
+  public get Increments(): ReadonlyMap<string, number> {
+    return this._increments;
+  }
+
   @use(WhereBuilder) this: this;
 
   constructor(container: Container, driver: OrmDriver, model: Constructor<any>) {
     super(container, driver, model);
     this._value = {};
+    this._increments = new Map();
     this._method = QueryMethod.UPDATE;
     this._boolean = WhereBoolean.AND;
     this._statements = [];
@@ -1846,6 +1854,19 @@ export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
 
   public update(value: {}) {
     this._value = value;
+    return this;
+  }
+
+  public increment(column: string, by = 1): this {
+    if (isNullOrWhitespace(column)) {
+      throw new InvalidArgument('increment column is empty');
+    }
+
+    if (typeof by !== 'number' || !Number.isFinite(by)) {
+      throw new InvalidArgument(`increment of ${column} must be a finite number, got ${String(by)}`);
+    }
+
+    this._increments.set(column, (this._increments.get(column) ?? 0) + by);
     return this;
   }
 

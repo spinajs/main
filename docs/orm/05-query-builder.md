@@ -222,7 +222,7 @@ Joined columns are not selected unless a `queryCallback` or a `select(RawQuery)`
 | `OnDuplicateQueryBuilder` | `update(columns \| RawQuery[])` | Columns to update on conflict. |
 | | `then()` / `execute()` / `toDB()` | Delegate to the insert builder. |
 | | `getColumn()`, `getColumnsToUpdate()`, `getReturning()`, `getParent()` | Read by compilers. |
-| `UpdateQueryBuilder` | `update(values)` / `in(table)` / `Value` | Values to set; table; current values. Plus every filtering method. |
+| `UpdateQueryBuilder` | `update(values)` / `increment(column, by = 1)` / `in(table)` / `Value` / `Increments` | Values to set; `column = column + ?` after them (calls on one column add up, `by` may be negative, a non-finite `by` or an empty column throws `InvalidArgument`); table; the set values; the increments. A column both set and incremented throws `InvalidArgument` when the query compiles. Plus every filtering method. |
 | `DeleteQueryBuilder` | filtering methods, `take(n)` | `take` limits the rows deleted where the dialect supports it. |
 
 ### Enums
