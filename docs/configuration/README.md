@@ -2,7 +2,7 @@
 
 The configuration service of SpinaJS. `FrameworkConfiguration` loads JS and JSON config files and every other registered `ConfigurationSource`, merges them into one tree, resolves protocol values (`fs-path://`, `aws-secrets://`), validates each module against its JSON schema and serves it through `get()`, `@Config` and the config-selected service decorators.
 
-It does **not** watch config files for changes: `ConfigurationOptions.watchFileChanges` exists in the contract but nothing reads it. It does **not** re-validate values you `set()` or `merge()` at runtime.
+It does **not** watch config files for changes: `ConfigurationOptions.watchFileChanges` exists in the contract but nothing reads it. Values you `set()` or `merge()` at runtime are validated against the same schemas, and a refused value is not applied.
 
 The package re-exports everything from `@spinajs/configuration-common` (`Configuration`, `ConfigurationSource`, `ConfigVarProtocol`, `ConfigVar`, `StaticConfigurationSource`, `format`, ...), so you import both from `@spinajs/configuration`.
 
