@@ -113,7 +113,8 @@ export async function dropPgDatabase(name: string): Promise<void> {
  */
 export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, options: BootOptions = {}): Promise<TestDb> {
   DI.setESMModuleSupport();
-  // Resolved for the first time from inside an Orm child container, the hydrator list comes back empty and records hydrate nothing.
+  // A checkout nested in another one loads a second @spinajs/di through the outer node_modules configs, which re-patches
+  // Array.ofType; a list first resolved after that comes back empty, so the hydrators are resolved before the boot.
   DI.resolve(Array.ofType(ModelHydrator));
 
   const migration = { OnStartup: options.migrate ?? true };
