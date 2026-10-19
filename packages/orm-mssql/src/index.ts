@@ -1,4 +1,4 @@
-import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
+import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
@@ -7,7 +7,7 @@ import mssql from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
 import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler } from './compilers.js';
 import { MssqlModelDehydrator } from './dehydrator.js';
-import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlInStatement, MsSqlLiteralQuoter } from './statements.js';
+import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlInStatement, MsSqlLiteralQuoter, MsSqlStartsWithStatement } from './statements.js';
 import { MsSqlDatetimeValueConverter } from './converters.js';
 import { mapMsSqlError } from './errors.js';
 
@@ -182,6 +182,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MsSqlOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
     this.Container.register(MsSqlInSetStatement).as(InSetStatement);
     this.Container.register(MsSqlInStatement).as(InStatement);
+    this.Container.register(MsSqlStartsWithStatement).as(StartsWithStatement);
 
     // T-SQL spells database DDL its own way - no CHARACTER SET, no IF NOT EXISTS.
     this.Container.register(MsSqlCreateDatabaseQueryCompiler).as(CreateDatabaseCompiler);

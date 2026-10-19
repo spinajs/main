@@ -15,11 +15,11 @@ export * from './errors.js';
 // orm-foundation; ConnectionState / IPoolMetrics are the connection-resilience additions from
 // orm-infra. QueryBuilder / TransactionCallback / ITransaction went with the old
 // `{ commit, rollback }` shape.
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
 import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlLimitQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, SqlLiteralQuoter, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { SqlLiteJoinStatement, SqliteInSetStatement, SqliteInStatement } from './statements.js';
+import { SqlLiteJoinStatement, SqliteInSetStatement, SqliteInStatement, SqliteStartsWithStatement } from './statements.js';
 import { mapSqliteError } from './errors.js';
 import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
 import { format } from '@spinajs/configuration';
@@ -363,6 +363,7 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqliteServerResponseMapper).as(ServerResponseMapper);
     this.Container.register(SqliteInSetStatement).as(InSetStatement);
     this.Container.register(SqliteInStatement).as(InStatement);
+    this.Container.register(SqliteStartsWithStatement).as(StartsWithStatement);
 
     // Overrides the shared SQL compilers inherited from SqlDriver.resolve() - sqlite has no
     // server side database to create or drop, so these refuse instead of emitting MySQL DDL.

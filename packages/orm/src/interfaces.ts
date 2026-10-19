@@ -1285,6 +1285,7 @@ export interface IWhereBuilder<T> {
   whereNotBetween(column: string, val: unknown[]): this;
   whereInSet(column: string, val: unknown[]): this;
   whereNotInSet(column: string, val: unknown[]): this;
+  whereStartsWith(column: string, prefix: string): this;
 
   // join-scoped conditions - land in relation JOIN ON clause instead of parent WHERE
   whereOnJoin(callback: WhereFunction<T>): this;

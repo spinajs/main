@@ -8,9 +8,10 @@ How `SELECT`s and `WHERE` clauses come out on SQLite: one-column `ORDER BY`, no 
 2. **`ORDER BY`**: `OrderByQueryCompiler` is `SqliteOrderByCompiler`. It reads `getSort()`, the **first** sort entry, and renders `` ORDER BY [`alias`.]`column` ASC|DESC ``. Later `order()` / `orderBy()` / `orderByDescending()` calls are dropped.
 3. **Joins**: `JoinStatement` is `SqlLiteJoinStatement`. Its constructor throws `NotSupported('join method RIGHT JOIN is not supported by sqlite driver')` for `JoinMethod.RIGHT` and `RIGHT_OUTER`; every other method builds like `SqlJoinStatement`.
 4. **Set membership**: `whereInSet(col, values)` / `whereNotInSet(...)` resolve `InSetStatement`: `SqliteInSetStatement`. Each value becomes `(instr(',' || IFNULL(col, '') || ',', ?) > 0)` with the binding `,value,`; several values are joined with `OR`; `whereNotInSet` negates each and joins with `AND`. An empty value list gives `(1 = 0)`, or `(1 = 1)` when negated. A value containing `,` throws `InvalidArgument`.
-5. **Limit**: `LimitQueryCompiler` is the shared `SqlLimitQueryCompiler`: ` LIMIT ?` for `take(n)`, ` OFFSET ?` for `skip(n)`, and ` LIMIT 18446744073709551615` for `skip()` without `take()`.
-6. **Recursive CTEs**: `RecursiveQueryCompiler` is the shared `SqlWithRecursiveCompiler` (`WITH RECURSIVE recursive_cte(...) AS ( ... )`).
-7. **Quoting**: `IdentifierQuoter` is `BacktickIdentifierQuoter` (`` `name` ``, embedded backticks doubled; `quoteQualified('db.t')` gives `` `db`.`t` ``). `LiteralQuoter` is `SqlLiteralQuoter`: strings with doubled `'`, booleans as `1` / `0`, dates through the datetime converter. Literals are used where bindings cannot go, eg. view bodies.
+5. **Prefix**: `whereStartsWith(col, prefix)` resolves `StartsWithStatement`: `SqliteStartsWithStatement`, `` `col` GLOB ? `` bound with each `*`, `?` and `[` of the prefix wrapped in brackets and `*` appended. `GLOB` is used because SQLite's `LIKE` ignores ASCII case whatever the column's collation; `GLOB` never does.
+6. **Limit**: `LimitQueryCompiler` is the shared `SqlLimitQueryCompiler`: ` LIMIT ?` for `take(n)`, ` OFFSET ?` for `skip(n)`, and ` LIMIT 18446744073709551615` for `skip()` without `take()`.
+7. **Recursive CTEs**: `RecursiveQueryCompiler` is the shared `SqlWithRecursiveCompiler` (`WITH RECURSIVE recursive_cte(...) AS ( ... )`).
+8. **Quoting**: `IdentifierQuoter` is `BacktickIdentifierQuoter` (`` `name` ``, embedded backticks doubled; `quoteQualified('db.t')` gives `` `db`.`t` ``). `LiteralQuoter` is `SqlLiteralQuoter`: strings with doubled `'`, booleans as `1` / `0`, dates through the datetime converter. Literals are used where bindings cannot go, eg. view bodies.
 
 ```ts
 // whereInSet('Roles', ['admin', 'editor']) on SQLite

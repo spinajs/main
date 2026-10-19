@@ -1,7 +1,7 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, SET_DELIMITER } from '@spinajs/orm';
-import { _columnWrap, SqlInStatement, SqlLiteralQuoter } from '@spinajs/orm-sql';
+import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
+import { _columnWrap, SqlInStatement, SqlLiteralQuoter, SqlStartsWithStatement } from '@spinajs/orm-sql';
 
 /**
  * Membership test against a delimited `@Set()` column, MSSQL dialect.
@@ -87,5 +87,13 @@ export class MsSqlInStatement extends SqlInStatement {
 
   protected listExpression(column: string): string {
     return `${column} ${this._not ? 'NOT IN' : 'IN'} (SELECT ${this.Quoter.quote('value')} FROM OPENJSON(?))`;
+  }
+}
+
+/** T-SQL's LIKE also reads `[` as the start of a character class. */
+@NewInstance()
+export class MsSqlStartsWithStatement extends SqlStartsWithStatement {
+  protected pattern(): string {
+    return super.pattern().replace(/\[/g, `${LIKE_ESCAPE_CHARACTER}[`);
   }
 }

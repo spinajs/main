@@ -1,8 +1,8 @@
 import { SqlTableAliasCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlOrderByQueryCompiler, SqlIndexQueryCompiler, SqlForeignKeyQueryCompiler, SqlGroupByCompiler, SqlDropTableQueryCompiler, SqlRawSchemaQueryCompiler, SqlDropViewQueryCompiler, SqlCreateDatabaseQueryCompiler, SqlDropDatabaseQueryCompiler } from './compilers.js';
 /* eslint-disable prettier/prettier */
 import { SqlDatetimeValueConverter, SqlSetConverter, SqlBooleanValueConverter, SqlTimeValueConverter } from './converters.js';
-import { SetValueConverter, GroupByStatement, DateTimeWrapper, DateWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from '@spinajs/orm';
-import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlInQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper, SqlLazyQueryStatement, SqlInSetStatement } from './statements.js';
+import { SetValueConverter, GroupByStatement, DateTimeWrapper, DateWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, StartsWithStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from '@spinajs/orm';
+import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlInQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper, SqlLazyQueryStatement, SqlInSetStatement, SqlStartsWithStatement } from './statements.js';
 import { Perf } from '@spinajs/log-common';
 
 export * from './compilers.js';
@@ -100,6 +100,7 @@ export abstract class SqlDriver extends OrmDriver {
     this.Container.register(SqlTimeValueConverter).as(TimeValueConverter);
     this.Container.register(SqlBooleanValueConverter).as(BooleanValueConverter);
     this.Container.register(SqlInSetStatement).as(InSetStatement);
+    this.Container.register(SqlStartsWithStatement).as(StartsWithStatement);
 
 
     this.Container.register(SqlRawSchemaQueryCompiler).as(RawSchemaQueryCompiler);

@@ -6,7 +6,7 @@ import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
 import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from './interfaces.js';
-import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
+import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
 import { ModelBase } from './model.js';
@@ -1211,6 +1211,11 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
   public whereNotInSet(column: string, val: any[]): this {
     this.pushStatement(this._container.resolve<InSetStatement>(InSetStatement, [column, val, true, this.TableAlias]));
+    return this;
+  }
+
+  public whereStartsWith(column: string, prefix: string): this {
+    this.pushStatement(this._container.resolve<StartsWithStatement>(StartsWithStatement, [column, prefix, this.TableAlias]));
     return this;
   }
 

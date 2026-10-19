@@ -27,6 +27,7 @@ SELECT ... FROM [shop].[dbo].[orders] as [#orders#] WHERE ... = @p0 ORDER BY [Pa
 | `whereInSet('Roles', ['admin'])` | `MsSqlInSetStatement` | `(CHARINDEX(?, ',' + ISNULL([Roles], '') + ',') > 0)`, bound `',admin,'` |
 | `whereNotInSet('Roles', ['admin', 'editor'])` | `MsSqlInSetStatement` | `(NOT (...) AND NOT (...))` |
 | `whereInSet('Roles', [])` / negated | `MsSqlInSetStatement` | `(1 = 0)` / `(1 = 1)` |
+| `whereStartsWith('Path', 'docs[1]/')` | `MsSqlStartsWithStatement` | `[Path] LIKE ? ESCAPE '~'`, bound `'docs~[1]/%'`; whether case variants match follows the column's collation |
 | `whereExist('Owner', ...)` | shared `SqlExistsQueryStatement` | `EXISTS (...)` with bracket-quoted correlation `[account].[id] = [#items#].[user_id]` |
 | inlined value (views, `LiteralQuoter.quote()`) | `MsSqlLiteralQuoter` | `N'it''s'`, `1` / `0` for booleans |
 | `withRecursive(...)` | none registered | fails: no `RecursiveQueryCompiler` |
