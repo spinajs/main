@@ -1,6 +1,7 @@
 import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IDehydrateOptions, IValueConverter, ModelBase, TimeValueConverter } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { TimeSpan } from '@spinajs/util';
+import { InvalidArgument } from '@spinajs/exceptions';
 
 const DATE_NUMERICAL_TYPES = ['int', 'integer', 'float', 'double', 'decimal', 'bigint', 'smallint', 'tinyint', 'mediumint'];
 
@@ -197,6 +198,9 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
     let dt: DateTime | null = null;
     if (typeof value === 'string') {
       dt = DateTime.fromISO(value);
+      if (value !== '' && !dt.isValid) {
+        throw new InvalidArgument(`column ${column?.Name}: "${value}" is not an ISO 8601 date`);
+      }
     } else {
       dt = DateTime.isDateTime(value) ? value : DateTime.fromJSDate(value as Date);
     }

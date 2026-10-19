@@ -50,7 +50,7 @@ Every method below is bound by `Orm`. Before `Orm` resolves, or on a class witho
 | `count(callback?)` | `Promise<number>` | `COUNT(*)`; `0` when nothing matches. |
 | `exists(pk)` | `Promise<boolean>` | Selects only the key columns of the row with this key. With `pk === null` it checks whether the table has any row. |
 | `insert(data, behaviour?)` | `Promise<IInsertResult>` | Inserts one model, one plain object or an array. See [Insert](#insert). |
-| `update(data)` | update builder | `UPDATE ... SET data`. Chain a `where()`. Throws `OrmException` when `data` is a `ModelBase`. |
+| `update(data)` | update builder | `UPDATE ... SET data`. Every value whose column has a converter (`@Json`, `@DateTime`, `@Set`, `@Uuid`, ...) is converted the way `insert()` converts it; `null`, `undefined` and keys without a column are bound as they are. A string that is not an ISO 8601 date given to a `@DateTime` column throws `InvalidArgument`. Chain a `where()`: compiling an update without one throws `InvalidArgument`. Throws `OrmException` when `data` is a `ModelBase`. |
 | `destroy(pk \| pk[])` | delete builder | `DELETE` by key, or `UPDATE ... SET DeletedAt = now` on a `@SoftDelete` model. Throws `OrmException` for `undefined`, `null` or `[]`. |
 | `truncate()` | truncate builder | Clears the table. |
 | `create(data)` | `Promise<model>` | `new Model(data)`, then `insert()`. |

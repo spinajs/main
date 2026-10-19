@@ -1106,6 +1106,18 @@ export abstract class HistoricalModel implements IHistoricalModel {
 }
 
 
+/** `data` with every value whose column has a converter in its database form, as an insert converts it. */
+function _toColumnValues(data: Record<string, unknown>, descriptor: IModelDescriptor): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    const column = descriptor.Columns.find((c) => c.Name === key);
+    values[key] = column?.Converter && value !== null && value !== undefined ? column.Converter.toDB(value, undefined as unknown as ModelBase, column, descriptor.Converters.get(key)?.Options) : value;
+  }
+
+  return values;
+}
+
 export const MODEL_STATIC_MIXINS = {
   getModelDescriptor(): IModelDescriptor {
     const dsc = _descriptor(this);
@@ -1272,8 +1284,8 @@ export const MODEL_STATIC_MIXINS = {
       throw new OrmException(`use model::update() function to update model`);
     }
 
-    const { query } = createQuery(this, UpdateQueryBuilder);
-    return query.update(data);
+    const { query, description } = createQuery(this, UpdateQueryBuilder);
+    return query.update(_toColumnValues(data as Record<string, unknown>, description));
   },
 
   all(page?: number, perPage?: number) {

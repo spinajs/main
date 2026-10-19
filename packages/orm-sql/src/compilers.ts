@@ -450,6 +450,10 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
     const set = this.set();
     const where = this.where(this._builder);
 
+    if (!where.expression) {
+      throw new InvalidArgument(`update of ${this._builder.Table} has no where clause; add .where(true) to update every row`);
+    }
+
     const bindings = [];
     bindings.push(...(set.bindings ?? []));
     bindings.push(...(where.bindings ?? []));

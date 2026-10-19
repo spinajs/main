@@ -313,7 +313,7 @@ export class TenantMiddleware extends QueryMiddleware {
 - Query middlewares are resolved from the root DI container, so they apply to every connection.
 - `orWhere()` sets the connector of the next statement only. `where(a).where(b).orWhere(c).where(d)` compiles to `a AND b OR c AND d`, which SQL reads as `(a AND b) OR (c AND d)`.
 - `whereIn(column, [])` matches nothing, never everything. `whereObject()` maps an empty array the same way.
-- `Model.update(data)` adds no condition: without a `where()` it updates every row of the table.
+- An update without a `where()` throws `InvalidArgument` when it compiles, for `Model.update()` and `driver.update()` alike. Add `.where(true)` to update every row on purpose.
 - `Model.destroy()` with no keys throws `OrmException`. On a `@SoftDelete` model it builds an `UPDATE` that sets `DeletedAt`.
 - The soft-delete and archive filters are added to selects only. Updates and deletes built by `createQuery()` see deleted and archived rows.
 - `insert().into(table, x)` treats `x` as the table alias. Use `database()` for a schema.
