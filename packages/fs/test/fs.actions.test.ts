@@ -155,6 +155,25 @@ describe('fs actions: engine', () => {
     DI.unregister(ProbeDir);
   });
 
+  it('memoises ctx.hasEntries per target, lists inside the frame and answers false when the list throws', async () => {
+    let probes = 0;
+    const inside: boolean[] = [];
+    const listing = (answer: () => string[]) => ({ ...fakeFs('on'), list: async () => (probes++, inside.push(inFsAction()), answer()) }) as unknown as fs;
+    const seen: boolean[] = [];
+    class ProbeEntries extends FsMiddleware {
+      async before(ctx: FsActionContext) {
+        seen.push(await ctx.hasEntries(ctx.targets[0]), await ctx.hasEntries(ctx.targets[0]));
+      }
+    }
+    DI.register(ProbeEntries).as(FsMiddleware);
+    DI.uncache(Array.ofType(FsMiddleware));
+    for (const answer of [() => ['x'], () => [], () => { throw new Error('no such dir'); }]) await run(listing(answer), async () => 'io');
+    expect(seen).to.deep.equal([true, true, false, false, false, false]);
+    expect(probes).to.equal(3);
+    expect(inside).to.deep.equal([true, true, true]);
+    DI.unregister(ProbeEntries);
+  });
+
   it('runs after hooks of a stream action at close and delivers close after they settle', async () => {
     const order: string[] = [];
     class Slow extends FsMiddleware {
