@@ -1,14 +1,15 @@
 import { AsyncService, Autoinject, Container, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { TimeSpan, _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
+import { TimeSpan, isNonEmptyString, isPlainObject } from '@spinajs/util';
 
-import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
+import type { AuthnEventType } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, IdentityRef } from '../contracts/credentials.js';
 import { errorClass, isRef } from '../support/guards.js';
+import { restoreHandle, statusRefusal } from '../support/identity.js';
 import { IdentityStore } from '../contracts/identity.js';
-import type { IdentityStatus } from '../contracts/identity.js';
 import { ImpersonationGuard } from '../contracts/impersonation.js';
+import { sameRef } from '../contracts/principal.js';
 import type { AuthnFacts, Ceiling, Principal, PrincipalRef } from '../contracts/principal.js';
 import { PrincipalFactory } from '../contracts/service.js';
 import { SessionIssuer } from '../contracts/session.js';
@@ -35,8 +36,6 @@ export interface ImpersonationConfig {
 
 type About = { readonly identity?: IdentityRef; readonly actor?: PrincipalRef; readonly session?: string };
 
-type EventBody = Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>;
-
 type Denial = { readonly reason: string; readonly data?: Readonly<Record<string, unknown>> };
 
 type Ending = { readonly type: AuthnEventType; readonly reason: string };
@@ -47,24 +46,11 @@ type Live = { readonly block: Block } | { readonly ending: Ending };
 
 const refOf = (r: PrincipalRef): IdentityRef => ({ type: r.type, id: r.id });
 
-const sameRef = (a: PrincipalRef, b: PrincipalRef): boolean => a.type === b.type && a.id === b.id;
-
 const validDate = (v: unknown): v is Date => v instanceof Date && !Number.isNaN(v.getTime());
 
 // The schema is the gate; the checks below hold for values set at runtime that never went through it: a switch is off
 // only when false, and a limit that is not a finite positive number ends the session instead of never ending it.
 const positive = (v: unknown): v is number => Number.isFinite(v) && (v as number) > 0;
-
-/** Strategies vouch for these through their own record checks; every other type is asked (D4b). */
-const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
-
-function refusal(st: IdentityStatus): string | null {
-  if (!st.exists) return 'unknown_identity';
-  if (st.deleted) return 'deleted';
-  if (st.banned) return 'banned';
-  if (!st.active) return 'inactive';
-  return null;
-}
 
 /** The facts of the impersonator's own session, rebuilt from those of an impersonation session. */
 function ownFacts(f: AuthnFacts): AuthnFacts {
@@ -120,17 +106,17 @@ export class AuthnImpersonationService extends AsyncService {
       // The session stop hands back is a new row whose store lifetime starts again; the login bounds it.
       if (this.beyondLifetime(stored.facts, ctx)) {
         await this.Sessions.revoke(stored.handle);
-        await this.audit(ctx, { type: 'session.expire', outcome: 'success', reason: 'session_lifetime', identity: refOf(stored.identity), ...this.handleOf(stored) });
+        await this.Auditor.publishIn(ctx, { type: 'session.expire', outcome: 'success', reason: 'session_lifetime', identity: refOf(stored.identity), ...this.handleOf(stored) });
         return null;
       }
-      if (await this.statusRefusal(stored.identity)) return null;
+      if (await statusRefusal(this.Identities, stored.identity)) return null;
       return this.Principals.principalOf(stored.identity, stored.facts, {});
     }
     const live = this.live(stored, ctx);
     if ('ending' in live) return this.end(ctx, stored, live.ending.type, live.ending.reason);
-    const actorRefused = await this.statusRefusal(refOf(impersonator));
+    const actorRefused = await statusRefusal(this.Identities, refOf(impersonator));
     if (actorRefused) return this.end(ctx, stored, 'impersonation.end', `impersonator_${actorRefused}`);
-    const targetRefused = await this.statusRefusal(stored.identity);
+    const targetRefused = await statusRefusal(this.Identities, stored.identity);
     if (targetRefused) return this.end(ctx, stored, 'impersonation.end', `target_${targetRefused}`);
     const denied = await this.denial(refOf(impersonator), actingFacts(stored.facts), stored.identity, live.block.actorCeiling);
     if (denied) return this.end(ctx, stored, 'impersonation.end', denied.reason, denied.data);
@@ -166,7 +152,7 @@ export class AuthnImpersonationService extends AsyncService {
         await this.Sessions.revoke(issued);
         return await this.refuseStart(ctx, 'revoked', about);
       }
-      await this.audit(ctx, { type: 'impersonation.start', outcome: 'success', identity: refOf(target), actor, ...(now ? this.handleOf(now) : {}) });
+      await this.Auditor.publishIn(ctx, { type: 'impersonation.start', outcome: 'success', identity: refOf(target), actor, ...(now ? this.handleOf(now) : {}) });
       return { ok: true, session: issued };
     } catch (err) {
       if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
@@ -186,7 +172,7 @@ export class AuthnImpersonationService extends AsyncService {
       if (!impersonator) return await this.refuseStop(ctx, 'not_impersonating', about);
       const live = this.live(stored, ctx);
       if ('ending' in live) return await this.end(ctx, stored, live.ending.type, live.ending.reason);
-      const refused = await this.statusRefusal(refOf(impersonator));
+      const refused = await statusRefusal(this.Identities, refOf(impersonator));
       if (refused) return await this.end(ctx, stored, 'impersonation.end', `impersonator_${refused}`);
 
       issued = await this.Sessions.issue(refOf(impersonator), ownFacts(stored.facts));
@@ -198,7 +184,7 @@ export class AuthnImpersonationService extends AsyncService {
         await this.Sessions.revoke(issued);
         return await this.refuseStop(ctx, 'revoked', about);
       }
-      await this.audit(ctx, { type: 'impersonation.end', outcome: 'success', identity: refOf(stored.identity), actor: refOf(impersonator), ...(now ? this.handleOf(now) : {}) });
+      await this.Auditor.publishIn(ctx, { type: 'impersonation.end', outcome: 'success', identity: refOf(stored.identity), actor: refOf(impersonator), ...(now ? this.handleOf(now) : {}) });
       return issued;
     } catch (err) {
       if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
@@ -215,20 +201,18 @@ export class AuthnImpersonationService extends AsyncService {
     // Sessions are for users only (D12).
     if (target.type !== 'user') return { reason: 'non_user_target' };
     if (this.Settings.requireMfa !== false && stored.facts.assurance !== 'aal2') return { reason: 'mfa_required' };
-    const actorRefused = await this.statusRefusal(stored.identity);
+    const actorRefused = await statusRefusal(this.Identities, stored.identity);
     if (actorRefused) return { reason: actorRefused };
     if (this.Settings.requirePassword !== false && !(await this.Fresh.check(stored.handle, { ...ctx, session: stored.handle, purpose: 'reauth' }, reauth))) {
       return { reason: 'not_fresh' };
     }
-    const targetRefused = await this.statusRefusal(target);
+    const targetRefused = await statusRefusal(this.Identities, target);
     if (targetRefused) return { reason: `target_${targetRefused}` };
     return this.denial(stored.identity, actingFacts(stored.facts), target, actorCeiling);
   }
 
   private async restore(h: SessionHandle): Promise<Session | null> {
-    const [ok, id] = _try_check_arg(_is_object(), (s: SessionHandle) => s.id, _is_string(_non_empty()))(h, 'session');
-    if (!ok) return null;
-    const stored = await this.Sessions.restore(id);
+    const stored = await restoreHandle(this.Sessions, h);
     if (!stored) return null;
     const session = resolveSession(this.Container, stored);
     return session.handle.state === 'active' ? session : null;
@@ -287,12 +271,8 @@ export class AuthnImpersonationService extends AsyncService {
   private async end(ctx: AuthnContext, stored: Session, type: AuthnEventType, reason: string, data?: Readonly<Record<string, unknown>>): Promise<null> {
     await this.Sessions.revoke(stored.handle);
     const impersonator = stored.facts.impersonator;
-    await this.audit(ctx, { type, outcome: 'success', reason, identity: refOf(stored.identity), ...(impersonator ? { actor: refOf(impersonator) } : {}), ...this.handleOf(stored), ...(data ? { data } : {}) });
+    await this.Auditor.publishIn(ctx, { type, outcome: 'success', reason, identity: refOf(stored.identity), ...(impersonator ? { actor: refOf(impersonator) } : {}), ...this.handleOf(stored), ...(data ? { data } : {}) });
     return null;
-  }
-
-  private async statusRefusal(subject: IdentityRef): Promise<string | null> {
-    return VOUCHED_TYPES.has(subject.type) ? null : refusal(await this.Identities.status(subject));
   }
 
   private handleOf(stored: Session): { session?: string } {
@@ -300,16 +280,12 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   private async refuseStart(ctx: AuthnContext, reason: string, about: About, data?: Readonly<Record<string, unknown>>): Promise<{ ok: false }> {
-    await this.audit(ctx, { type: 'impersonation.start', outcome: 'failure', reason, ...about, ...(data ? { data } : {}) });
+    await this.Auditor.publishIn(ctx, { type: 'impersonation.start', outcome: 'failure', reason, ...about, ...(data ? { data } : {}) });
     return { ok: false };
   }
 
   private async refuseStop(ctx: AuthnContext, reason: string, about: About, data?: Readonly<Record<string, unknown>>): Promise<null> {
-    await this.audit(ctx, { type: 'impersonation.end', outcome: 'failure', reason, ...about, ...(data ? { data } : {}) });
+    await this.Auditor.publishIn(ctx, { type: 'impersonation.end', outcome: 'failure', reason, ...about, ...(data ? { data } : {}) });
     return null;
-  }
-
-  private audit(ctx: AuthnContext, e: EventBody): Promise<void> {
-    return this.Auditor.publish({ ...e, at: ctx.now, ...(isNonEmptyString(ctx.ip) ? { ip: ctx.ip } : {}), ...(isNonEmptyString(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
   }
 }

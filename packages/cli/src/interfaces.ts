@@ -64,7 +64,7 @@ export interface IOption {
   description?: string;
   defaultValue?: string | boolean | string[];
   required?: boolean;
-  parser?: <T>(value: string, previous: T) => T;
+  parser?: (value: string, previous: any) => unknown;
 
   /**
    * Restrict the option value to one of the given choices.
@@ -104,7 +104,7 @@ export interface IArgument {
   description?: string;
   defaultValue?: unknown;
   required?: boolean;
-  parser?: <T>(value: string, previous: T) => T;
+  parser?: (value: string, previous: any) => unknown;
 
   /**
    * Restrict the argument value to one of the given choices.
@@ -143,7 +143,7 @@ export abstract class CliCommand extends AsyncService {
    * @param c - commander command object
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-function
-  public onCreation(_command: Command): void {}
+  public onCreation(_command: Command): void | Promise<void> {}
 
   /**
    * Commander `preAction` hook — runs before this command's action.

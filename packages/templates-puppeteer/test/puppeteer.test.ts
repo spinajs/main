@@ -1,6 +1,6 @@
 import { Templates, TemplateRenderer, IRenderProgress, RenderPhase } from '@spinajs/templates';
 import { Configuration, FrameworkConfiguration, Config } from '@spinajs/configuration';
-import { Injectable } from '@spinajs/di';
+import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Page } from 'puppeteer';
 import { join, normalize, resolve } from 'path';
 import * as fs from 'fs';
@@ -36,6 +36,30 @@ class TestPuppeteerRenderer extends PuppeteerRenderer {
   protected async performRender(page: Page, filePath: string): Promise<void> {
     await page.screenshot({ path: filePath });
   }
+}
+
+@PerInstanceCheck()
+class OptionsPuppeteerRenderer extends PuppeteerRenderer {
+  @Config('templates.puppeteerTest')
+  protected Options: IPuppeteerRendererOptions;
+
+  constructor(protected renderOptions: { scale: number }) {
+    super();
+  }
+
+  public get Type() {
+    return 'puppeteer-options-test';
+  }
+
+  public get Extension() {
+    return '.options-test';
+  }
+
+  protected get instanceOptions() {
+    return this.renderOptions;
+  }
+
+  protected async performRender(): Promise<void> {}
 }
 
 export class ConnectionConf extends FrameworkConfiguration {
@@ -110,6 +134,25 @@ describe('PuppeteerRenderer engine', function () {
     await r.renderToFile(dir('templates/template.png'), { hello: 'world' }, out);
 
     expect(fs.existsSync(out)).to.eq(true);
+  });
+
+  it('should compile a template path ending in .pug as is', async () => {
+    const r = await renderer();
+    const out = dir('templates/render-pug-path.png');
+    outputs.push(out);
+
+    await r.renderToFile(dir('templates/template.pug'), { hello: 'world' }, out);
+
+    expect(fs.existsSync(out)).to.eq(true);
+  });
+
+  it('should reuse the cached renderer when resolved again with the same options', async () => {
+    const first = await DI.resolve(OptionsPuppeteerRenderer, [{ scale: 2 }]);
+    const same = await DI.resolve(OptionsPuppeteerRenderer, [{ scale: 2 }]);
+    const other = await DI.resolve(OptionsPuppeteerRenderer, [{ scale: 3 }]);
+
+    expect(same).to.eq(first);
+    expect(other).to.not.eq(first);
   });
 
   it('should reuse the pooled browser across renders', async () => {

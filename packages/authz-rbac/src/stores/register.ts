@@ -18,8 +18,8 @@ const PORTS: Readonly<Record<RbacStoreKind, { readonly token: Class<unknown>; re
 
 /**
  * Registers in `container` (a domain's) the store classes `authz.rbac.stores.*` names
- * ({@link rbacStoreNames}, design §8.2): each under its port (`RoleStore`, `AssignmentStore`,
- * `RuleStore`, `LinkStore`) and, when it implements L9's port, under `AdminAssignmentStore`,
+ * ({@link rbacStoreNames}): each under its port (`RoleStore`, `AssignmentStore`,
+ * `RuleStore`, `LinkStore`) and, when it implements the admin port, under `AdminAssignmentStore`,
  * `AdminRuleStore` or `AdminLinkStore` too. A name must be a class registered in DI under that name
  * (`@Injectable()` registers a store by its class name) that extends the port; otherwise
  * `AuthzConfigError` names the key, and nothing is registered.

@@ -19,6 +19,7 @@ export class FsLsCommand extends CliCommand {
       entries.forEach((e) => this.Log.info(`  ${e}`));
     } catch (err) {
       this.Log.error({ error: err, path: path ?? '/', fsName }, 'Cannot list ${path} on ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

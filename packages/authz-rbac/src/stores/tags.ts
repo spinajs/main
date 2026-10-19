@@ -3,7 +3,7 @@ import { AuthzAdminFailure } from '@spinajs/authz';
 const SEPARATOR = ',';
 
 /**
- * Tags as stored (D-L2-6): sorted, deduplicated, wrapped in commas (`,a,b,`) so SQL can match one
+ * Tags as stored: sorted, deduplicated, wrapped in commas (`,a,b,`) so SQL can match one
  * with `LIKE '%,a,%'`; no tags is `''`. Throws `AuthzAdminFailure('invalid_tags')` naming the first
  * tag that is not a non-empty string free of the separator.
  */

@@ -93,9 +93,9 @@ Register the subclass before `fsService` resolves: importing the module runs `@I
 - `list()` returns entry names from `readdir`, not full paths.
 - `read()` without `encoding` returns a `Buffer`.
 - `readStream()` throws `IOFail` for a missing file before it opens the stream. Later read errors arrive as stream `error` events.
-- `rm()` deletes recursively, ignores a missing path, and retries 3 times, 1 second apart. Its errors are **not** wrapped in `IOFail`.
+- `rm()` deletes recursively, ignores a missing path, and retries 3 times, 1 second apart. Other failures are wrapped in `IOFail`.
 - `download()` returns the resolved local path and copies nothing.
-- `tmppath()` returns an absolute path under `basePath`. Without `basePath` it throws a `TypeError` from `path.join()`.
+- `tmppath()` returns an absolute path under `basePath`. Without `basePath` it is under the current working directory, where relative paths resolve too.
 - `unzip()` reports a source read error as `IOFail` instead of crashing the process.
 
 ## Best practices

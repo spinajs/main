@@ -1,13 +1,13 @@
-import { Autoinject, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Autoinject, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, IStat, IZipResult, FileSystem, FileInfoService } from '@spinajs/fs';
+import { fs, IStat, IZipResult, FileSystem, FileInfoService, FileHasher, IFileInfo } from '@spinajs/fs';
 import { Client } from 'basic-ftp';
 import path from 'path';
 import { IOFail, MethodNotImplemented } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 import { PassThrough, Readable } from 'stream';
 
-interface IFtpConfig {
+export interface IFtpConfig {
   host: string;
   port: number;
   user: string;
@@ -63,7 +63,7 @@ export class fsFTP extends fs {
 
   protected async _setWorkingDir(dir: string) {
     const dstDir = path.dirname(dir);
-    await this.FtpClient.cd(dstDir === '.' ? dstDir : `/${dstDir}`);
+    await this.FtpClient.cd(dstDir === '.' || dstDir.startsWith('/') ? dstDir : `/${dstDir}`);
   }
 
   protected async _restoreRootDir() {
@@ -83,8 +83,11 @@ export class fsFTP extends fs {
     this.FtpClient = new Client();
     this.FtpClient.ftp.verbose = this.Options.logVerbose;
 
+    // replacing log() drops basic-ftp's own verbose check, so it is repeated here
     this.FtpClient.ftp.log = (msg) => {
-      this.Logger.debug(msg);
+      if (this.FtpClient.ftp.verbose) {
+        this.Logger.debug(msg);
+      }
     };
 
     try {
@@ -109,6 +112,11 @@ export class fsFTP extends fs {
     }
   }
 
+  public async dispose(): Promise<void> {
+    this.FtpClient?.close();
+    await super.dispose();
+  }
+
   /**
    *
    * Tries to download file to local filesystem, then returns local filesystem path.
@@ -117,7 +125,7 @@ export class fsFTP extends fs {
    * @param path - file to download
    */
   public async download(p: string): Promise<string> {
-    const tmpName = this.TempFs.tmppath();
+    const tmpName = this.TempFs.tmppath(path.extname(p));
     const wStream = await this.TempFs.writeStream(tmpName);
 
     await this._restoreRootDir();
@@ -134,11 +142,12 @@ export class fsFTP extends fs {
    */
   public async read(path: string, encoding: BufferEncoding) {
     const tmpName = await this.download(path);
-    const data = await this.TempFs.read(tmpName, encoding);
 
-    await this.TempFs.rm(tmpName);
-
-    return data;
+    try {
+      return await this.TempFs.read(tmpName, encoding);
+    } finally {
+      await this.TempFs.rm(tmpName);
+    }
   }
 
   /**
@@ -220,14 +229,8 @@ export class fsFTP extends fs {
    */
   public async exists(p: string) {
     try {
-      await this._restoreRootDir();
-      await this._setWorkingDir(p);
-
-      const result = await this.stat(path.basename(p));
-      if (!result) {
-        return false;
-      }
-      return result.IsFile ?? false;
+      const result = await this.stat(p);
+      return result?.IsFile ?? false;
     } catch (e) {
       return false;
     }
@@ -235,10 +238,7 @@ export class fsFTP extends fs {
 
   public async dirExists(p: string): Promise<boolean> {
     try {
-      await this._restoreRootDir();
-      await this._setWorkingDir(p);
-
-      const result = await this.stat(path.basename(p));
+      const result = await this.stat(p);
       return !!(result && result.IsDirectory);
     } catch {
       return false;
@@ -262,7 +262,7 @@ export class fsFTP extends fs {
       if (dstFs) {
         await dstFs.upload(tmpFile, dest);
       } else {
-        await this.FtpClient.uploadFrom(tmpFile, dest);
+        await this.upload(tmpFile, dest);
       }
     } finally {
       if (tmpFile) {
@@ -280,7 +280,7 @@ export class fsFTP extends fs {
       try {
         tmpFile = await this.download(oldPath);
         await dstFs.upload(tmpFile, newPath);
-        await this.FtpClient.remove(oldPath);
+        await this.rm(oldPath);
       } finally {
         if (tmpFile) {
           await this.TempFs.rm(tmpFile);
@@ -288,7 +288,7 @@ export class fsFTP extends fs {
       }
     } else {
       // rename also can move file betwen directories
-      await this.FtpClient.rename(oldPath, newPath);
+      await this.rename(oldPath, newPath);
     }
   }
 
@@ -296,19 +296,25 @@ export class fsFTP extends fs {
    * Change name of a file
    */
   public async rename(oldPath: string, newPath: string) {
+    await this._restoreRootDir();
     await this.FtpClient.rename(oldPath, newPath);
   }
 
   /**
    *
-   * Deletes dir recursively & all contents inside
+   * Deletes file, or dir recursively & all contents inside
    *
-   * @param path - dir to remove
+   * @param path - file or dir to remove
    */
   public async rm(p: string) {
-    await this._restoreRootDir();
-    await this._setWorkingDir(p);
-    await this.FtpClient.remove(path.basename(p));
+    // stat() leaves the working dir at p's parent
+    const stat = await this.stat(p);
+
+    if (stat?.IsDirectory) {
+      await this.FtpClient.removeDir(path.basename(p));
+    } else {
+      await this.FtpClient.remove(path.basename(p));
+    }
   }
 
   /**
@@ -317,20 +323,24 @@ export class fsFTP extends fs {
    *
    */
   public async mkdir(path: string) {
+    await this._restoreRootDir();
     await this.FtpClient.ensureDir(path);
   }
 
   public async isDir(dir: string): Promise<boolean> {
     const stat = await this.stat(dir);
-    return stat.IsDirectory ?? false;
+    return stat?.IsDirectory ?? false;
   }
 
   /**
    * Returns file statistics, not all fields may be accesible
    */
   public async stat(file: string): Promise<IStat> {
-    await this.FtpClient.cd(path.dirname(file));
-    const files = await this.FtpClient.list(path.basename(file));
+    await this._restoreRootDir();
+    await this._setWorkingDir(file);
+
+    // LIST <dir> returns the directory's content, not its own entry, so list the parent
+    const files = await this.FtpClient.list();
     const found = files.find((f) => f.name === path.basename(file));
     if (found) {
       return {
@@ -357,6 +367,7 @@ export class fsFTP extends fs {
    * @param path - path to directory
    */
   public async list(dir: string) {
+    await this._restoreRootDir();
     await this.FtpClient.cd(path.dirname(dir));
     const files = await this.FtpClient.list(path.basename(dir));
     return files.map((f) => f.name);
@@ -410,13 +421,27 @@ export class fsFTP extends fs {
     }
   }
 
-  public resolvePath(_path: string): string {
-    // we checek if path is absolute
-    // for hash function
-    if (path.isAbsolute(_path)) {
-      return _path;
-    }
+  public async hash(p: string, algo?: string): Promise<string> {
+    const local = await this.download(p);
 
+    try {
+      return await DI.resolve<FileHasher>(FileHasher, [algo]).hash(local);
+    } finally {
+      await this.TempFs.rm(local);
+    }
+  }
+
+  public async metadata(p: string): Promise<IFileInfo> {
+    const local = await this.download(p);
+
+    try {
+      return await this.FileInfo.getInfo(local);
+    } finally {
+      await this.TempFs.rm(local);
+    }
+  }
+
+  public resolvePath(_path: string): string {
     throw new MethodNotImplemented('fs ftp does not support path resolving');
   }
 }

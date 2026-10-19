@@ -9,7 +9,7 @@ import type { RoleGraph } from './roles.js';
 /**
  * Feeds the RBAC model's refs, and those of its extensions, to the boot checks. The host calls it
  * after the permission registry is frozen, so it is also where the grants and the extensions'
- * compile hooks run and a bad grant fails the boot (B02).
+ * compile hooks run and a bad grant fails the boot.
  */
 export class RbacContributor extends AuthzContributor {
   constructor(private readonly model: RbacModel) {
@@ -39,7 +39,7 @@ export class RbacContributor extends AuthzContributor {
 
 /**
  * One ref per relation of each compiled grant and per type of its permission: the engine resolves a
- * relation through the resolver of the checked resource's type (B05 rule 8). `$global` is left out,
+ * relation through the resolver of the checked resource's type. `$global` is left out,
  * it is no type a resolver serves. A grant limited by `on` needs refs only for the types its patterns
  * can admit: elsewhere AND(relation, FALSE) never evaluates the relation.
  */

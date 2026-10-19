@@ -1,4 +1,5 @@
 import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
 import { expect } from 'chai';
 import { DateTime } from 'luxon';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
@@ -117,10 +118,13 @@ describe('Session expiration strategy defaults', () => {
     uncacheOwned();
   });
 
-  it('the schema defaults ttl and maxLifetime to the shipped config: 30 and 480 minutes', () => {
+  it('the schema defaults ttl and maxLifetime to 30 and 480 minutes, and the shipped config does not repeat them', async () => {
     const expiration = (AUTHN_CONFIGURATION_SCHEMA as unknown as { properties: { session: { properties: { expiration: { properties: Record<string, { default?: unknown }> } } } } }).properties.session.properties.expiration.properties;
     expect({ ttl: expiration.ttl.default, maxLifetime: expiration.maxLifetime.default }).to.deep.equal({ ttl: 30, maxLifetime: 480 });
-    expect(shipped.authn.session.expiration).to.deep.include({ ttl: 30, maxLifetime: 480 });
+    expect(shipped.authn.session.expiration).to.deep.equal({ service: 'SlidingCappedExpiration' });
+
+    await withSessionConfig({});
+    expect(DI.get(Configuration)!.get('authn.session.expiration')).to.deep.include({ ttl: 30, maxLifetime: 480 });
   });
 
   it('without a ttl and maxLifetime the schema filled, a session expires at once instead of living on', async () => {

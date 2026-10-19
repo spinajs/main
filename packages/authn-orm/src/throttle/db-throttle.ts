@@ -67,7 +67,6 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   private hmacKey: Buffer | undefined;
   private loading: Promise<void> | undefined;
   private rows: DbThrottleStore | undefined;
-  private warned = false;
 
   /**
    * DI passes nothing: `authn.throttle` and `authn.audit.hashKey.secret` come from the configuration of the resolving
@@ -189,7 +188,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
       const secret = this.hashSecret();
       this.hmacKey = hashKeyOf(secret);
       if (!isSecret(secret)) {
-        this.warnOnce('DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle rows are keyed with a random key of this process: their counts end with the process and are not shared with other instances');
+        this.Log.warnOnce('random-hash-key','DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle rows are keyed with a random key of this process: their counts end with the process and are not shared with other instances');
       }
     }
     if (!this.driver) {
@@ -197,18 +196,6 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
       if (!driver) throw new InvalidOption("DbAuthnThrottle: the Orm has no 'default' connection");
       this.driver = driver;
     }
-  }
-
-  private warnOnce(message: string): void {
-    if (this.warned) return;
-    this.warned = true;
-    try {
-      this.Log.warn(message);
-      return;
-    } catch {
-      // the logger getter resolves lazily and can fail without a registered Log: fall back to the console
-    }
-    console.warn(message);
   }
 }
 

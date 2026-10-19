@@ -87,5 +87,7 @@ DI.register(ElectronRendererLogger).as("__logImplementation__");
 DI.register(RendererOrmDriverBridge).as('orm-driver-sqlite');
 DI.register(RendererOrmDriverBridge).as('orm-driver-mysql');
 DI.register(RendererOrmDriverBridge).as('orm-driver-mssql');
+DI.register(RendererOrmDriverBridge).as('orm-driver-postgres');
+DI.register(RendererOrmDriverBridge).as('orm-driver-mysql-ssh');
 
 

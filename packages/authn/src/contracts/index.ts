@@ -18,3 +18,6 @@ export * from './jws.js';
 export * from './extractor.js';
 export * from './hooks.js';
 export * from './fresh.js';
+export * from './cli.js';
+export * from './failure.js';
+export * from './nonce.js';

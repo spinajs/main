@@ -11,7 +11,7 @@ import { TestWildcard } from "./targets/TestWildcard.js";
 import { TestLevel } from "./targets/TestLevel.js";
 import { BlackHoleTarget } from "./../src/targets/BlackHoleTarget.js";
 import { TestTarget } from "./targets/TestTarget.js";
-import { LogLevel, Log } from "../src/index.js";
+import { LogLevel, Log, ColoredConsoleTarget } from "../src/index.js";
 import { FrameworkLogger } from "../src/log.js";
 import { InvalidOption } from "@spinajs/exceptions";
 
@@ -326,4 +326,17 @@ describe("logger tests", function () {
       .to.be.a("string")
       .and.satisfy((msg: string) => msg.includes("Hello world"));
   })
+
+  it("ConsoleTarget applies a configured theme", async () => {
+    const stub = sinon.stub(console, "log");
+    try {
+      const target = new ColoredConsoleTarget({ name: "Themed", type: "ConsoleTarget", layout: "${message}", theme: { info: "green" } } as any);
+      await target.resolve();
+      await target.write({ Level: LogLevel.Info, Variables: { message: "hi" } as any });
+
+      expect(stub.args[0][0]).to.eq("\x1b[32mhi\x1b[0m");
+    } finally {
+      stub.restore();
+    }
+  });
 });

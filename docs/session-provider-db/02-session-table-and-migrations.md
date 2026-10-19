@@ -1,6 +1,6 @@
 # Session table and migrations
 
-The store keeps every session in one table, `user_sessions`, mapped by the `DbSession` model on the connection named `session-provider-connection`. Four migrations create the table and bring older databases to the current shape; they run on MySQL / MariaDB, PostgreSQL and SQLite.
+The store keeps every session in one table, `user_sessions`, mapped by the `DbSession` model on the connection named `session-provider-connection`. Four migrations create the table and bring older databases to the current shape through the schema builder; they run on MySQL / MariaDB, PostgreSQL and SQLite.
 
 ## How it works
 
@@ -18,28 +18,24 @@ When no connection or alias has the name, `Orm` logs `Cannot find connection ses
 | Migration | Dialects | What it does |
 | --- | --- | --- |
 | `UserSessionDBSqlMigration_2022_06_28_01_20_00` | all | Creates `user_sessions` when it does not exist, with a unique index `session_id_user_session_idx` on `SessionId`. Returns early when the table exists. `down()` does nothing. |
-| `UserSessionDataJson_2026_07_31_00_00_00` | MySQL | Converts a text-family `Data` column (`text`, `tinytext`, `mediumtext`, `longtext`, `varchar`, `nvarchar`) to `JSON NOT NULL`. **Deletes every session first.** `down()` turns a `json` column back into `TEXT NOT NULL`. |
-| `UserSessionTimestamps_2026_07_31_00_00_01` | MySQL | Widens `CreatedAt` and `Expiration` from `date` to `DATETIME` when `CreatedAt` is `date`. `down()` does nothing. |
-| `UserSessionIdHash_2026_10_02_00_00_00` | MySQL, PostgreSQL, SQLite | Adds `Subject`, `ImpersonatorId` and `State`, widens `SessionId` to 64 characters, makes `UserId` nullable, indexes `Subject` and `ImpersonatorId`, and backfills the new columns of existing rows. `down()` drops the three columns. |
+| `UserSessionDataJson_2026_07_31_00_00_00` | drivers with `supportedFeatures().nativeJson`: MySQL, PostgreSQL | Converts a text-family `Data` column (`text`, `tinytext`, `mediumtext`, `longtext`, `varchar`, `nvarchar`) to the driver's JSON type, `NOT NULL`. **Deletes every session first.** `down()` turns a non-text `Data` back into `TEXT NOT NULL`. |
+| `UserSessionTimestamps_2026_07_31_00_00_01` | all; acts only where `CreatedAt` reads as `date` (never on SQLite, which reports `TEXT`) | Widens `CreatedAt` and `Expiration` from `date` to the driver's datetime type (`DATETIME` on MySQL, `TIMESTAMP` on PostgreSQL). `down()` does nothing. |
+| `UserSessionIdHash_2026_10_02_00_00_00` | all | Adds `Subject`, `ImpersonatorId` and `State`, widens `SessionId` to 64 characters, makes `UserId` nullable, indexes `Subject` and `ImpersonatorId`, and backfills the new columns of existing rows. `down()` drops the three columns. |
 
 ### `UserSessionDataJson_2026_07_31_00_00_00`, step by step
 
 1. Returns when `user_sessions` does not exist.
 2. Reads the native type of `Data` from `connection.tableInfo()`. Returns when it cannot be read (the driver throws, the column is missing) or when it is not text-family, for example already `json`.
-3. Returns when `connection.Options.Driver` is not `orm-driver-mysql` or `orm-driver-mysql-ssh`.
-4. Runs `DELETE FROM user_sessions`. MySQL validates every row during a `text` to `json` conversion, and one malformed payload would fail it.
-5. Runs one `ALTER TABLE user_sessions MODIFY Data JSON NOT NULL`.
+3. Returns when `connection.supportedFeatures().nativeJson` is not `true`. A driver without a JSON type (SQLite, MSSQL) stores `json()` as text, so a text `Data` is already the target shape there.
+4. Runs `DELETE FROM user_sessions`. The server validates every row during a `text` to `json` conversion, and one malformed payload would fail it.
+5. Runs `alterTable()` with `table.json('Data').notNull().modify()`: `MODIFY Data JSON NOT NULL` on MySQL, `ALTER COLUMN "Data" TYPE JSONB USING "Data"::JSONB` plus `SET NOT NULL` on PostgreSQL.
 
 ### `UserSessionIdHash_2026_10_02_00_00_00`, step by step
 
 1. Returns when `user_sessions` does not exist.
 2. Adds each missing column, one `ALTER TABLE` per column: `Subject` `VARCHAR(100)`, `ImpersonatorId` `VARCHAR(100)`, `State` `VARCHAR(16)`. `State` has no default.
-3. When `UserId` is `NOT NULL`:
-   - SQLite: rebuilds the table as `user_sessions_v3` with `SessionId` `VARCHAR(64)` and a nullable `UserId`, copies the rows, drops the old table, renames the new one and recreates `session_id_user_session_idx`.
-   - MySQL: one statement, `MODIFY SessionId VARCHAR(64) NOT NULL, MODIFY UserId INT NULL`.
-   - PostgreSQL (`orm-driver-postgres`): two `ALTER COLUMN` statements.
-   - Any other driver name: nothing.
-4. Creates `user_sessions_subject_idx` and `user_sessions_impersonator_idx` for the columns it added (both after a SQLite rebuild).
+3. When `UserId` is `NOT NULL`, two `alterTable()` calls, one after the other: `SessionId` to `VARCHAR(64) NOT NULL`, then `UserId` to a nullable `INT`. Each driver spells the modify its own way; SQLite rebuilds the table and keeps its rows, the primary key, `session_id_user_session_idx` and the foreign key to `users`. See [Modifying a column](../orm/09-schema-builder.md#modifying-a-column).
+4. Creates `user_sessions_subject_idx` and `user_sessions_impersonator_idx` for the columns it added.
 5. Backfills every row with `Subject IS NULL`: decodes `Data` and writes `Subject`, `ImpersonatorId` and `State` the way `adaptLegacySession()` reads them. Undecodable rows and rows without a `User` entry are skipped.
 
 Existing rows keep their raw 2.x keys. `DefaultSessionIssuer` re-saves each under `sha256(rawId)` on its first use.
@@ -112,14 +108,14 @@ this.Config = _.merge(this.Config, {
 
 ## Important behaviour
 
-- **MSSQL is not supported.** `orm-mssql` registers no `AlterTableQueryCompiler`, so the column adds of `UserSessionIdHash_2026_10_02_00_00_00` throw. The migration is recorded as failed, and the ORM then refuses every later migration on that connection.
-- Dialects are recognised by `db.Connections[].Driver`, by exact name. A driver registered under another name, even a subclass of the MySQL driver, gets no `SessionId` widening and keeps `UserId` `NOT NULL`, so every `save()` of a 64-character key or a `NULL` `UserId` fails.
+- On MSSQL the modifies compile to `ALTER COLUMN`. SQL Server accepts widening `SessionId` to `VARCHAR(64)` while the primary key and `session_id_user_session_idx` depend on it.
+- No migration checks the driver name. They branch on `supportedFeatures().nativeJson` and leave each modify to the driver, so a driver subclass registered under its own name runs the same steps as its parent.
 - On a fresh database the table is created with `SessionId` `VARCHAR(36)` and `UserId` `NOT NULL`; `UserSessionIdHash_2026_10_02_00_00_00` then reshapes it in the same boot pass.
 - The create migration needs the `users` table on the same connection for its foreign key. Its timestamp is later than `@spinajs/users`'s `RBACInitial_2022_06_28_01_13_00`, so on one connection the parent table exists first.
-- `UserSessionDataJson_2026_07_31_00_00_00` logs every user out once on the MySQL deployments it converts. A database already on `json`, and every other dialect, loses nothing.
+- `UserSessionDataJson_2026_07_31_00_00_00` logs every user out once on the MySQL and PostgreSQL deployments it converts. A database already on `json`, and SQLite or MSSQL, loses nothing.
 - Every guard that cannot read the current column type skips the migration instead of failing it, so a boot never stops on a conversion nobody needs.
-- `UserSessionIdHash_2026_10_02_00_00_00.down()` drops `Subject`, `ImpersonatorId` and `State`; it does **not** narrow `SessionId` or make `UserId` `NOT NULL` again. `UserSessionTimestamps_2026_07_31_00_00_01.down()` deliberately does nothing: narrowing to `date` would drop the time of day.
-- `UserSessionDBSqlMigration_2022_06_28_01_20_00` returns early on an existing table, so the type it declares for `Data` never reaches an old database; the JSON migration does that on MySQL.
+- `UserSessionIdHash_2026_10_02_00_00_00.down()` drops `Subject`, `ImpersonatorId` and `State`, each in its own `alterTable()`, dropping the column's index first with `index().drop()` (SQLite refuses to drop an indexed column). It does **not** narrow `SessionId` or make `UserId` `NOT NULL` again. `UserSessionTimestamps_2026_07_31_00_00_01.down()` deliberately does nothing: narrowing to `date` would drop the time of day.
+- `UserSessionDBSqlMigration_2022_06_28_01_20_00` returns early on an existing table, so the type it declares for `Data` never reaches an old database; the JSON migration does that on MySQL and PostgreSQL.
 
 ## Best practices
 

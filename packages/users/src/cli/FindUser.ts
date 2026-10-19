@@ -19,6 +19,7 @@ export class FindUser extends RbacCliCommand {
     } catch (e) {
       if (e instanceof ResourceNotFound) this.Log.error({ identifier: options.identifier }, 'User ${identifier} not found');
       else this.Log.error({ error: e, identifier: options.identifier }, 'Error while finding user ${identifier}');
+      process.exitCode = 1;
     }
   }
 }

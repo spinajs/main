@@ -1,10 +1,10 @@
 import { HTTP_STATUS_CODE, IResponseOptions, Response } from '../interfaces.js';
 import _ from 'lodash';
-import { ExpectedResponseUnacceptable, InvalidArgument, BadRequest } from '@spinajs/exceptions';
+import { InvalidArgument, BadRequest, JsonValidationFailed } from '@spinajs/exceptions';
 import { HandleException } from '../decorators.js';
 import { Injectable } from '@spinajs/di';
 
-@HandleException([InvalidArgument, BadRequest, ExpectedResponseUnacceptable])
+@HandleException([InvalidArgument, BadRequest, JsonValidationFailed])
 @Injectable(Response)
 export class BadRequestResponse<T = any> extends Response<T> {
   protected _errorCode = HTTP_STATUS_CODE.BAD_REQUEST;

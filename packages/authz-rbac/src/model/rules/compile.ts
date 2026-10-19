@@ -24,11 +24,11 @@ const RULE = 'design §6.5 rule 9';
 
 /**
  * @throws AuthzConfigError for a condition that does not parse, an expiry that is not a date, a
- *   ladder or role the role graph does not hold (rule 9), a condition over `resource.*` that no
+ *   ladder or role the role graph does not hold (boot rule 9), a condition over `resource.*` that no
  *   vote can follow per row (`subjects.when`; a restrict or cap `when`), a restrict or cap
  *   with `resource`, a threshold without `minRole` or a cap with `maxRole` and no `ladder` (as
  *   the config schema, for every store); permission names are checked by the boot refs
- *   (`ruleRefs`), so an unregistered one fails like any other ref (B02)
+ *   (`ruleRefs`), so an unregistered one fails like any other ref
  */
 export function compileRule(def: RuleDef, graph: RoleGraph, ladders: LadderIndex | undefined, registry: PermissionRegistry, parse: ConditionParser): CompiledRule {
   const where = `rbac rule '${def.id}' (source: ${def.source})`;
@@ -117,7 +117,7 @@ function checkNames(def: RuleDef, where: string, graph: RoleGraph, ladders: Ladd
 
 const REF = /^(scope\.[^.]+|principal|actor|env)\.[^.]+(\.[^.]+)*$/;
 
-/** Boot refs (design §6.5 rules 7 and 10): literal permissions, `at` types, and scope types the rule reads. */
+/** Boot refs (boot rules 7 and 10): literal permissions, `at` types, and scope types the rule reads. */
 export function ruleRefs(rule: CompiledRule): { permissionRefs: PermissionRefDecl[]; scopeRefs: ScopeRefDecl[] } {
   const source = `rbac rule '${rule.def.id}'`;
   const permissionRefs = (rule.def.kind === 'threshold' ? rule.def.permissions ?? [] : []).filter((p) => !p.includes('*')).map((permission) => ({ permission, source }));

@@ -1,4 +1,4 @@
-import { AccessDenied, AuthzClock, AuthzDomains, DEFAULT_DENY_PRIORITY, FALSE, principalKey, resourceKey } from '@spinajs/authz';
+import { AccessDenied, AuthzDomains, DEFAULT_DENY_PRIORITY, DefaultAuthzDomains, FALSE, definite, principalKey, resourceKey } from '@spinajs/authz';
 import type { CheckInput, Decision, HostLog, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import type { IContainer } from '@spinajs/di';
 import type { fs } from '@spinajs/fs';
@@ -30,9 +30,6 @@ export interface FsCheck {
   readonly subject: FsRow;
 }
 
-// A permit with a residual left (a relation or a resource.* condition the subject did not settle) is no permit here.
-export const definite = (decision: Decision): boolean => decision.allowed && decision.residual?.op === 'true';
-
 export async function decideFs({ fsName, mode, service, log, principal, permission, ref, subject }: FsCheck): Promise<Decision> {
   if (mode === 'enforce') {
     const decision = await service.assert(principal, permission, ref, subject);
@@ -62,14 +59,13 @@ export async function domainService(container: IContainer, domain: string): Prom
 /** `now` when it is a valid Date, else the system time. */
 export const validNow = (now: unknown): Date => (now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date());
 
-/** The AuthzClock of the domain, else the system time. */
+/** The AuthzClock the domain's service booted with, else the system time. */
 export async function domainNow(container: IContainer, domain: string): Promise<Date> {
   try {
-    const domains = (await container.resolve(AuthzDomains)) as AuthzDomains;
-    const clock = (await domains.container(domain).resolve(AuthzClock)) as AuthzClock | undefined;
-    return validNow(clock?.now());
+    const domains = await container.resolve(AuthzDomains);
+    if (domains instanceof DefaultAuthzDomains) return validNow(domains.clock(domain).now());
   } catch {
-    // no authz host or no such domain: the system time
+    // no authz host, no such domain or its service has not booted: the system time
   }
   return new Date();
 }

@@ -2,12 +2,17 @@ import { expect } from 'chai';
 import { DateTime } from 'luxon';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { appEnvOf, assertSessionCookieSecret, clearSessionCookie, ISessionCookieConfig, PUBLIC_DEFAULT_COOKIE_SECRET, sessionCookie, sessionCookieMaxAge, sessionCookieName, sessionCookieOptions, UserSession } from '../src/index.js';
-import shipped from '../src/config/session.js';
+import { appEnvOf, assertSessionCookieSecret, clearSessionCookie, ISessionCookieConfig, PUBLIC_DEFAULT_COOKIE_SECRET, cookieMaxAge, sessionCookie, sessionCookieName, sessionCookieOptions, UserSession } from '../src/index.js';
 import { uncacheOwned, withSessionConfig } from './support.js';
 
 const RAW_ID = 'kQ7c1d0yYcH1m3S2bA9x_w';
 const in30 = () => DateTime.now().plus({ minutes: 30 });
+
+/** `authn.session.cookie` as the shipped config and the schema defaults resolve it. */
+async function resolvedCookieConfig(): Promise<ISessionCookieConfig> {
+  await withSessionConfig({});
+  return DI.get(Configuration)!.get<ISessionCookieConfig>('authn.session.cookie');
+}
 
 /** Runs `fn` with NODE_ENV set to `value` (deleted when undefined), restoring it afterwards. */
 function withNodeEnv<T>(value: string | undefined, fn: () => T): T {
@@ -36,12 +41,12 @@ const ENVS: [string | undefined, boolean][] = [
   [undefined, true],
 ];
 
-describe('sessionCookieMaxAge', () => {
+describe('cookieMaxAge', () => {
   it('derives cookie maxAge (ms) from the session Expiration relative to now (B1)', () => {
     const session = new UserSession();
     session.Expiration = DateTime.now().plus({ minutes: 120 });
 
-    const maxAge = sessionCookieMaxAge(session);
+    const maxAge = cookieMaxAge(session.Expiration);
 
     // ~120 minutes in ms, allow a little slack for execution time
     expect(maxAge).to.be.a('number');
@@ -53,14 +58,14 @@ describe('sessionCookieMaxAge', () => {
     const session = new UserSession();
     session.Expiration = undefined;
 
-    expect(sessionCookieMaxAge(session)).to.be.undefined;
+    expect(cookieMaxAge(session.Expiration)).to.be.undefined;
   });
 
   it('clamps to 0 for an already-expired session (never negative)', () => {
     const session = new UserSession();
     session.Expiration = DateTime.now().minus({ minutes: 5 });
 
-    expect(sessionCookieMaxAge(session)).to.equal(0);
+    expect(cookieMaxAge(session.Expiration)).to.equal(0);
   });
 });
 
@@ -190,8 +195,10 @@ describe('session cookie by app env', () => {
     });
   });
 
-  it('SR-16 a deployment without NODE_ENV=production still sends a Secure __Host- cookie', () => {
-    const cookie = withNodeEnv(undefined, () => sessionCookie(RAW_ID, shipped.authn.session.cookie as ISessionCookieConfig, in30(), 'staging'));
+  it('SR-16 a deployment without NODE_ENV=production still sends a Secure __Host- cookie', async () => {
+    const config = await resolvedCookieConfig();
+    uncacheOwned();
+    const cookie = withNodeEnv(undefined, () => sessionCookie(RAW_ID, config, in30(), 'staging'));
 
     expect(cookie.Name).to.equal('__Host-ssid');
     expect(cookie.Options.secure).to.equal(true);
@@ -200,10 +207,16 @@ describe('session cookie by app env', () => {
   });
 });
 
-describe('shipped session cookie configuration', () => {
-  const cookieConfig = () => shipped.authn.session.cookie as ISessionCookieConfig;
+describe('resolved session cookie configuration', () => {
+  let config: ISessionCookieConfig;
+  const cookieConfig = () => config;
 
-  it('ships the cookie block with the auto settings', () => {
+  before(async () => {
+    config = await resolvedCookieConfig();
+  });
+  after(() => uncacheOwned());
+
+  it('resolves the cookie block with the auto settings', () => {
     expect(cookieConfig()).to.deep.equal({ name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' });
   });
 
@@ -224,8 +237,9 @@ describe('appEnvOf', () => {
 
   it('SR-16 the env the deployment resolved, not NODE_ENV, reaches the cookie builder', async () => {
     await withNodeEnv(undefined, () => withSessionConfig({ process: { env: { APP_ENV: 'staging' } } }));
-    const env = appEnvOf(DI.get(Configuration)!);
-    const cookie = withNodeEnv(undefined, () => sessionCookie(RAW_ID, shipped.authn.session.cookie as ISessionCookieConfig, DateTime.now().plus({ minutes: 30 }), env));
+    const config = DI.get(Configuration)!;
+    const env = appEnvOf(config);
+    const cookie = withNodeEnv(undefined, () => sessionCookie(RAW_ID, config.get<ISessionCookieConfig>('authn.session.cookie'), DateTime.now().plus({ minutes: 30 }), env));
 
     expect(cookie.Name).to.equal('__Host-ssid');
     expect(cookie.Options.secure).to.equal(true);
@@ -271,7 +285,7 @@ describe('appEnvOf', () => {
 
       const env = appEnvOf(config);
       expect(env).to.equal(undefined);
-      const cookie = sessionCookie(RAW_ID, { ...(shipped.authn.session.cookie as ISessionCookieConfig), domain: 'example.com' }, in30(), env);
+      const cookie = sessionCookie(RAW_ID, { ...config.get<ISessionCookieConfig>('authn.session.cookie'), domain: 'example.com' }, in30(), env);
       expect(cookie.Name).to.equal('__Host-ssid');
       expect(cookie.Options.secure).to.equal(true);
       expect(cookie.Options.path).to.equal('/');
@@ -294,10 +308,11 @@ describe('appEnvOf', () => {
     it('an explicit development env still relaxes the cookie', async () => {
       process.env.APP_ENV = 'development';
       await withSessionConfig({});
-      const env = appEnvOf(DI.get(Configuration)!);
+      const config = DI.get(Configuration)!;
+      const env = appEnvOf(config);
       expect(env).to.equal('development');
 
-      const cookie = sessionCookie(RAW_ID, shipped.authn.session.cookie as ISessionCookieConfig, in30(), env);
+      const cookie = sessionCookie(RAW_ID, config.get<ISessionCookieConfig>('authn.session.cookie'), in30(), env);
       expect(cookie.Name).to.equal('ssid');
       expect(cookie.Options.secure).to.equal(false);
     });

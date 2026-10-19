@@ -5,9 +5,9 @@
 ## How it works
 
 1. `__n()` resolves the locale and phrase table like `__()`: a string `text` uses `CurrentLocale`; an `IPhraseWithOptions` uses its `locale`, and its table falls back to `CurrentLocale`.
-2. When the phrase has no `%` or the locale has no table, `__n()` returns `__(text, count)`.
-3. Otherwise it reads `table[phrase]` and computes the category: `MakePlural[locale](count)` gives `zero`, `one`, `two`, `few`, `many` or `other`.
-4. When the phrase object has that category, it returns `util.format(phrase[category], count)`.
+2. When the phrase has no `%`, the locale has no table or the table lacks the phrase, `__n()` returns `__(text, count)`.
+3. Otherwise it reads `table[phrase]` and computes the category with the `make-plural` rule of the locale: `zero`, `one`, `two`, `few`, `many` or `other`. A region locale such as `en-US` uses `en_US` when `make-plural` has it, else its language (`en`); a locale with no rule at all gets `other`.
+4. When the category is not `other` and the phrase object has it, it formats `phrase[category]` with `count`.
 5. Otherwise, when it has `other`, it parses `other` with the [interval syntax](#interval-syntax) and formats the chosen segment with `count`.
 6. Otherwise it returns `__(text, count)`.
 
@@ -39,7 +39,7 @@ A key the locale never produces is ignored (for example `two` in a `pl` phrase).
 
 ### Interval syntax
 
-`other` can hold several segments separated by `|`, each with an optional interval prefix. `__n()` uses it only when the category of `count` is **missing** from the phrase (step 5).
+`other` can hold several segments separated by `|`, each with an optional interval prefix. `__n()` uses it when the category of `count` is `other` or is missing from the phrase (step 5).
 
 | Prefix | Matches |
 | --- | --- |
@@ -61,7 +61,7 @@ A key the locale never produces is ignored (for example `two` in a `pl` phrase).
 }
 ```
 
-In `pl`, `few` is missing here, so `3` gives `'3 nowe wiadomości'`; `0` and `5` (`many`, missing) take the last segment: `'5 nowych wiadomości'`. A segment without `%d` still gets `count` appended (see [Important behaviour](#important-behaviour)), so a `[0] brak wiadomości` segment would render as `'brak wiadomości 0'`.
+In `pl`, `few` is missing here, so `3` gives `'3 nowe wiadomości'`; `0` and `5` (`many`, missing) take the last segment: `'5 nowych wiadomości'`. A segment without a placeholder is returned as written, so a `[0] brak wiadomości` segment renders as `'brak wiadomości'`.
 
 ## Configuration
 
@@ -69,33 +69,30 @@ In `pl`, `few` is missing here, so `3` gives `'3 nowe wiadomości'`; `0` and `5`
 
 ## Services and extension points
 
-`__n()` is a method of the `Intl` service. To change plural selection (for example to support region codes or to parse intervals for every category), subclass `SpineJsInternationalizationFromJson` and override `__n()`; see [Custom `Intl` service](05-custom-intl-service.md).
+`__n()` is a method of the `Intl` service. To change plural selection, subclass `SpineJsInternationalizationFromJson` and override `__n()`; see [Custom `Intl` service](05-custom-intl-service.md).
 
 ## Important behaviour
 
-- **A missing plural phrase throws.** When the locale has a table, the phrase contains `%` and the table lacks it, `__n()` reads a category of `undefined` and throws `TypeError: Cannot read properties of undefined`. `__()` returns the original phrase in the same case.
-- **Region locales throw.** `make-plural` exports language codes (`en`, `pl`), not `en-US`. A loaded table named `en-US` makes `__n()` throw `TypeError: MakePlural[locale] is not a function`.
-- **Intervals in `other` are skipped for `other` counts.** When `count` falls in the `other` category, `__n()` returns `phrase.other` as written, `|` and prefixes included. In `en` this is every count except `1`.
-- **Upper bound inclusion follows the lower bound.** A `count` equal to the upper bound matches when the **lower** bound is inclusive: `[1,3[` matches `3`, `]1,3]` does not.
-- **`count` is the only format argument.** A segment without `%d` gets `count` appended by `util.format`: `"[1] one dir"` formats to `'one dir 1'`.
+- **A missing plural phrase falls back to `__()`.** When the table lacks the phrase, `__n('%d dogs', 2)` is `__('%d dogs', 2)`: `'2 dogs'`.
+- **Region locales use the language rule.** `make-plural` exports language codes (`en`, `pl`) and a few regions (`pt_PT`), not `en-US`. A table named `en-US` uses the `en` rule.
+- **`count` is the only format argument.** A form or segment with a placeholder (`%d`, `%s`, ...) is formatted with `count`; one without is returned as written: `"[1] one dir"` gives `'one dir'`.
 - A phrase without `%` is never treated as plural: `__n('cats', 2)` is `__('cats', 2)`.
 
 ## Best practices
 
 - Write every category the locale has (`one`, `few`, `many` for `pl`) instead of relying on `other` intervals; the categories always apply.
-- Keep `%d` in every plural form, including `one`, so the count is placed and not appended.
-- Name locale files by language code (`pl.json`, not `pl-PL.json`) when the phrases use `__n()`.
+- Keep `%d` in every plural form that shows the number, including `one`; a form without a placeholder drops the count.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: in `en`, every count except 1 is `other`, so the interval text is returned raw
-// en.json: { "%d files": { "one": "%d file", "other": "[0] no files|%d files" } }
-intl.__n('%d files', 0); // "[0] no files|0 files"
+// Don't: end `other` with a prefixed segment; when nothing matches it is returned with its prefix
+// en.json: { "%d files": { "one": "%d file", "other": "[0] no files|[2,] %d files" } }
+intl.__n('%d files', 1.5); // "[2,] 1.5 files"
 
-// Do: handle zero in code, keep `other` plain
-// en.json: { "%d files": { "one": "%d file", "other": "%d files" }, "no files": "no files" }
-const label = count === 0 ? intl.__('no files') : intl.__n('%d files', count);
+// Do: end with a segment without a prefix
+// en.json: { "%d files": { "one": "%d file", "other": "[0] no files|%d files" } }
+intl.__n('%d files', 0); // "no files"
 ```
 
 ## Examples

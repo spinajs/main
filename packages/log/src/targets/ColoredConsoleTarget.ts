@@ -12,21 +12,30 @@ import { format } from "@spinajs/configuration";
  * Console target is Node-only, so raw escape codes are fine.
  */
 const ANSI_RESET = "\x1b[0m";
-const ansi = (open: string) => (text: string) => `${open}${text}${ANSI_RESET}`;
-const gray = ansi("\x1b[90m");
-const white = ansi("\x1b[37m");
-const whiteBgGreen = ansi("\x1b[37m\x1b[42m");
-const yellow = ansi("\x1b[33m");
-const red = ansi("\x1b[31m");
-const whiteBgRed = ansi("\x1b[37m\x1b[41m");
-const yellowBgRed = ansi("\x1b[33m\x1b[41m");
+const BASE_COLORS = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
+const ANSI_CODES: Record<string, number> = { gray: 90, grey: 90, bgGray: 100, bgGrey: 100, bold: 1, dim: 2, italic: 3, underline: 4, inverse: 7 };
+BASE_COLORS.forEach((c, i) => {
+  const cap = c[0].toUpperCase() + c.slice(1);
+  ANSI_CODES[c] = 30 + i;
+  ANSI_CODES[`bright${cap}`] = 90 + i;
+  ANSI_CODES[`bg${cap}`] = 40 + i;
+  ANSI_CODES[`bgBright${cap}`] = 100 + i;
+});
 
-export const DEFAULT_THEME = {
-  security: ["red", "bgBrightWhite"],
-  fatal: "red",
-  error: "brightRed",
+const style = (spec: string | string[]) => {
+  const open = (Array.isArray(spec) ? spec : [spec])
+    .filter((name) => ANSI_CODES[name] !== undefined)
+    .map((name) => `\x1b[${ANSI_CODES[name]}m`)
+    .join("");
+  return (text: string) => `${open}${text}${ANSI_RESET}`;
+};
+
+export const DEFAULT_THEME: IColoredConsoleTargetOptions["theme"] = {
+  security: ["yellow", "bgRed"],
+  fatal: ["white", "bgRed"],
+  error: "red",
   warn: "yellow",
-  success: "green",
+  success: ["white", "bgGreen"],
   info: "white",
   debug: "gray",
   trace: "gray",
@@ -52,14 +61,16 @@ export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions
   };
 
   public async resolve() {
-    this.theme[LogLevel.Trace] = gray;
-    this.theme[LogLevel.Debug] = gray;
-    this.theme[LogLevel.Info] = white;
-    this.theme[LogLevel.Success] = whiteBgGreen;
-    this.theme[LogLevel.Warn] = yellow;
-    this.theme[LogLevel.Error] = red;
-    this.theme[LogLevel.Fatal] = whiteBgRed;
-    this.theme[LogLevel.Security] = yellowBgRed;
+    const theme = { ...DEFAULT_THEME, ...this.Options.theme };
+
+    this.theme[LogLevel.Trace] = style(theme.trace);
+    this.theme[LogLevel.Debug] = style(theme.debug);
+    this.theme[LogLevel.Info] = style(theme.info);
+    this.theme[LogLevel.Success] = style(theme.success);
+    this.theme[LogLevel.Warn] = style(theme.warn);
+    this.theme[LogLevel.Error] = style(theme.error);
+    this.theme[LogLevel.Fatal] = style(theme.fatal);
+    this.theme[LogLevel.Security] = style(theme.security);
 
     super.resolve();
   }

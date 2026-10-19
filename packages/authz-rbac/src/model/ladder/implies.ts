@@ -9,7 +9,7 @@ import { isTypeLevel } from '../patterns.js';
 import type { RoleGraph } from '../roles.js';
 
 /*
- * Implied roles (design §6.1.1, §6.1.2 step 1): holding a role gives each role its `implies` names,
+ * Implied roles (step 1): holding a role gives each role its `implies` names,
  * at the assignment's scope and below ('self-and-descendants') or below only ('descendants'), with
  * the declared tags and bypass marks. `extends` and ladder edges pass `implies` on: a role implies
  * what every role of its closure implies. Implied roles do not chain: a role that is implied must
@@ -36,7 +36,7 @@ const NONE: readonly never[] = Object.freeze([]);
 /**
  * What each role implies through its closure.
  * @throws AuthzConfigError for a malformed `implies` list or entry, one naming an unknown role, or a role
- *   that is implied while it implies roles itself (design §6.5 rule 9)
+ *   that is implied while it implies roles itself (boot rule 9)
  */
 export function compileImplies(graph: RoleGraph): ImpliesIndex {
   const defs = new Map(graph.names.map((name) => [name, graph.get(name)!.def]));
@@ -83,7 +83,7 @@ function ownImplies(name: string, def: RoleDef, defs: ReadonlyMap<string, RoleDe
 /**
  * Step 1, after the assignments are collected: each live and scoped assignment adds the roles its
  * role implies, with the same scope and expiry, the declared tags and bypass marks. Every implied
- * role must pass `ceiling.roles` on its own (D19). On a concrete request (`$global` included) an
+ * role must pass `ceiling.roles` on its own. On a concrete request (`$global` included) an
  * implied role with at: 'descendants' is left out where the assignment's scope is the resource
  * itself; on a type-level request the rows lie below the path's scopes, and a scoped holder carries
  * `onlyBelow` into its row term.

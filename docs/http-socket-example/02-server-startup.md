@@ -102,10 +102,10 @@ void main();
 ## Important behaviour
 
 - One notes server per process. DI and the module-level options are process-wide, so a second `startNotesServer` replaces the first one's options and its cached services.
-- Call `close()` before starting again. `DI.clearCache()` forgets the old `SocketServer` without disposing it, so a server that was not closed keeps its socket.io and its port.
+- A second `startNotesServer` first calls `close()` on the server still running, because `DI.clearCache()` alone would forget the old `SocketServer` without disposing it.
 - The server listens on `127.0.0.1` only. It is **not** reachable from other hosts.
 - Every call adds another `NotesConfiguration` registration under `Configuration`. The last one wins, so this is harmless.
-- `close()` calls `http.Server.closeAllConnections()`, which needs Node 18.2 or later, although `package.json` declares `"node": ">=16.11"`.
+- `close()` calls `http.Server.closeAllConnections()`, which needs Node 18.2 or later, which is why `package.json` declares `"node": ">=18.2"`.
 - `path` comes from configuration: pass `socket: { path: '/notes' }` and the result's `path` follows.
 
 ## Best practices

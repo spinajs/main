@@ -10,7 +10,7 @@ The `spinajs` bin boots the framework, builds the command tree from every discov
 4. **Configuration.** `await DI.resolve(Configuration)` loads every config file, including each `@spinajs/*` package's `system.dirs.cli` entry, and reads `--app`, `--env` and `--apppath` from `process.argv`.
 5. **Logger.** `resolveCliLog()` returns the framework `Log` named `CLI` when an implementation is registered, else `InternalLoggerProxy`. It logs `Welcome to spinajs cli...` at `success` level.
 6. **Run.** `await DI.resolve(Cli)` runs [`Cli.resolve()`](07-cli-service.md): it lists the command files, builds the commander tree and parses argv. The chosen command's `execute()` runs inside this call.
-7. **Exit.** On success the bin calls `process.exit(process.exitCode ?? 0)`. On an error it logs the message (unless it is a `CommanderError`, which commander already logged) and calls `process.exit(-1)`.
+7. **Exit.** On success the bin calls `process.exit(process.exitCode ?? 0)`. On an error in any of steps 3 to 6 it logs the message (unless it is a `CommanderError`, which commander already logged) and calls `process.exit(-1)`. Before step 5 there is no logger yet, so the error goes to `console.error`.
 
 ```mermaid
 sequenceDiagram
@@ -63,7 +63,7 @@ These options belong to `@spinajs/configuration`. The default argv provider remo
 | Unknown command or option, missing required argument or option, value outside `choices`, conflicting options | `-1` (255 on POSIX) | Commander's message through `Log.error`, with a "did you mean" suggestion where one fits |
 | `execute()` or a hook throws | `-1` | The error message through the `CLI` logger |
 | The invoked command cannot be resolved from DI | `-1` | `Cannot resolve command ...` plus the error message |
-| A bootstrapper or the configuration throws | Node's unhandled rejection exit code | Node's unhandled rejection report; steps 3 and 4 run outside the bin's `try` |
+| A bootstrapper or the configuration throws | `-1` | The error through `console.error`; no logger exists yet |
 
 ## Built-in command: `configuration:dump`
 

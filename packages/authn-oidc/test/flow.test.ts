@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { MemoryNonceStore } from '@spinajs/authn-orm';
+import { MemoryNonceStore } from '@spinajs/authn';
 
 import { OIDC_FLOW_COOKIE_MAX_LENGTH, OIDC_FLOW_TTL_SECONDS, appPathOrNull, clearFlowCookie, codeChallengeOf, decodeFlow, encodeFlow, flowCookie, flowCookieName, flowIsLive, flowSecrets, newFlow, sha256hex, stateClaim } from '../src/flow/cookie.js';
 import type { OidcFlow } from '../src/flow/cookie.js';

@@ -1,4 +1,4 @@
-import { ConditionalCheckFailedException, CreateTableCommand, DeleteItemCommand, DeleteTableCommand, DescribeTableCommand, GetItemCommand, PutItemCommand, ResourceInUseException, ResourceNotFoundException, ScanCommand, UpdateItemCommand, UpdateTimeToLiveCommand } from '@aws-sdk/client-dynamodb';
+import { ConditionalCheckFailedException, CreateTableCommand, DeleteItemCommand, DeleteTableCommand, DescribeTableCommand, DescribeTimeToLiveCommand, GetItemCommand, PutItemCommand, ResourceInUseException, ResourceNotFoundException, ScanCommand, UpdateItemCommand, UpdateTimeToLiveCommand } from '@aws-sdk/client-dynamodb';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 
 export type Item = Record<string, AttributeValue>;
@@ -333,6 +333,10 @@ export class FakeDynamo {
       const spec = input.TimeToLiveSpecification as { AttributeName: string; Enabled: boolean };
       this.ttlAttribute = spec.Enabled ? spec.AttributeName : undefined;
       return { TimeToLiveSpecification: spec };
+    }
+    if (command instanceof DescribeTimeToLiveCommand) {
+      this.requireTable();
+      return { TimeToLiveDescription: { TimeToLiveStatus: this.ttlAttribute ? 'ENABLED' : 'DISABLED', AttributeName: this.ttlAttribute } };
     }
     if (command instanceof DeleteTableCommand) {
       this.requireTable();

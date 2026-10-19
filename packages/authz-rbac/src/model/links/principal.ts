@@ -16,7 +16,7 @@ export const UNRESOLVED_LINK_ID = 'unresolved';
  * Only the companion's subjects join: its attributes and authn facts do not reach conditions inside
  * the link scope, so a deny keyed on them (an ABAC `principal.attributes.*` deny, a rule
  * `subjects.when`, a `principal.authn.*` threshold) does not see the companion. A token user
- * always carries `ceiling.roles` (B24), so it opens a link with the link's access only.
+ * always carries `ceiling.roles`, so it opens a link with the link's access only.
  */
 export function linkCompanion(companion: Principal | undefined): PrincipalRef | undefined {
   if (!companion || companion.ceiling !== undefined || companion.onBehalfOf !== undefined || companion.type === 'link') return undefined;
@@ -24,10 +24,10 @@ export function linkCompanion(companion: Principal | undefined): PrincipalRef | 
 }
 
 /**
- * The principal of a share link (design §6.1.6): the link's own subject (its assignments are to
+ * The principal of a share link: the link's own subject (its assignments are to
  * `link:<id>`), with the companion's subjects joined, inside the ceiling of the link's scope and
  * expiry. `link` null (unknown, revoked) gives `ceiling.resources: []`: every check denies
- * `link_invalid`, whoever carries it (B42). An expired link keeps its `expiresAt`, which the engine
+ * `link_invalid`, whoever carries it. An expired link keeps its `expiresAt`, which the engine
  * judges at its own clock.
  */
 export function linkPrincipalOf(link: LinkDef | null, id: string, companion?: Principal): Principal {

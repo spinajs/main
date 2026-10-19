@@ -77,7 +77,7 @@ describe('HttpSignatureStrategy', () => {
     const w = await world();
     const ed = await w.add();
     const options = { ...w.p.options, httpSignature: { ...w.p.options.httpSignature, maxAgeSeconds: Number.NaN } };
-    const strategy = new HttpSignatureStrategy(w.p.registry, w.p.nonces, options);
+    const strategy = new HttpSignatureStrategy({ registry: w.p.registry, nonces: w.p.nonces, options });
     const outcome = await strategy.verify(w.cred(w.signed(ed.kp, ed.kid, { expires: w.nowS() + 3600 })), w.ctx()).catch((e: unknown) => e);
     assert.ok(outcome instanceof Error && outcome.message.includes('authn.keys.httpSignature.maxAgeSeconds'), JSON.stringify(outcome));
   });
@@ -134,14 +134,14 @@ describe('HttpSignatureStrategy', () => {
     const lying = { ...covered, headers: { ...covered.headers, 'content-digest': contentDigest(BODY) } };
     assert.strictEqual((await w.strategy.verify(w.cred(lying), w.ctx())).ok, false);
 
-    const strict = new HttpSignatureStrategy(w.p.registry, w.p.nonces, keysOptionsFor({ httpSignature: { requiredComponents: ['@method', '@target-uri', 'content-digest', '@authority'] } }));
+    const strict = new HttpSignatureStrategy({ registry: w.p.registry, nonces: w.p.nonces, options: keysOptionsFor({ httpSignature: { requiredComponents: ['@method', '@target-uri', 'content-digest', '@authority'] } }) });
     assert.strictEqual((await strict.verify(w.cred(w.signed(kp, kid)), w.ctx())).ok, false, '@authority not covered');
   });
 
   it('requires content-digest with a body even when the config does not list it; the method and window edges hold', async () => {
     const w = await world();
     const { kp, kid } = await w.add();
-    const lax = new HttpSignatureStrategy(w.p.registry, w.p.nonces, keysOptionsFor({ httpSignature: { requiredComponents: ['@method', '@target-uri'] } }));
+    const lax = new HttpSignatureStrategy({ registry: w.p.registry, nonces: w.p.nonces, options: keysOptionsFor({ httpSignature: { requiredComponents: ['@method', '@target-uri'] } }) });
     assert.strictEqual((await lax.verify(w.cred(w.signed(kp, kid, { components: ['@method', '@target-uri'] })), w.ctx())).ok, false, 'a body without a covered digest');
     assert.ok((await lax.verify(w.cred(w.signed(kp, kid)), w.ctx())).ok);
     const post = w.signed(kp, kid);

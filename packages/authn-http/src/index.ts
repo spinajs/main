@@ -1,7 +1,6 @@
-export * from './api.js';
-// api.ts declares these five names; the explicit export picks the 3.0 implementations over `export * from './api.js'`.
+export { AuthnPrincipalResolver } from './api.js';
+export type { AuthnIdentity } from './api.js';
 export { FromSession, SessionId, NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy } from './v3/index.js';
-// N8a lane implementations of api.ts declarations; an explicit export wins over `export * from './api.js'`.
 export { ClientIp, proxyTrustOf } from './middleware/client-ip.js';
 export { CsrfOriginGuard } from './middleware/csrf.js';
 export { AuthnMiddleware } from './middleware/authn.js';

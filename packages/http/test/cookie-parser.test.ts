@@ -4,6 +4,8 @@ import { DI } from "@spinajs/di";
 import { Configuration } from "@spinajs/configuration";
 import { TestConfiguration } from "./common.js";
 import { configuredCookieParser, resetCookieParser } from "../src/cookie.js";
+import { _setCoockies } from "../src/responses.js";
+import { FromCookie } from "../src/route-args/FromCookie.js";
 
 /**
  * `res.cookie(..., { signed: true })` throws
@@ -39,6 +41,21 @@ describe("configured cookie parser", () => {
   it("picks up an app-provided secret rather than freezing the shipped default", () => {
     DI.get(Configuration)!.set("http.cookie.secret", "app-override");
     expect(run().secret).to.equal("app-override");
+  });
+
+  it("puts a cookie a response signed into req.signedCookies, where @Cookie(true) reads it", async () => {
+    DI.get(Configuration)!.set("http.cookie.secret", "a-configured-secret");
+    const set: Record<string, string> = {};
+    _setCoockies({ cookie: (name: string, value: string) => (set[name] = value) } as any, { Coockies: [{ Name: "theme", Value: "dark", Options: { signed: true } }] });
+
+    const req: Record<string, any> = { headers: { cookie: `theme=${encodeURIComponent(set.theme)}` } };
+    configuredCookieParser(req as any, {} as any, () => undefined);
+    expect(req.signedCookies.theme).to.equal("dark");
+
+    const fromCookie: any = new FromCookie(DI.get(Configuration)!);
+    fromCookie.tryHydrateParam = async (v: unknown) => v;
+    const { Args } = await fromCookie.extract({}, [], { Name: "theme", Options: { secure: true } }, req, {}, {});
+    expect(Args).to.equal("dark");
   });
 
   it("falls back to an unsigned parser instead of throwing when no secret is configured", () => {

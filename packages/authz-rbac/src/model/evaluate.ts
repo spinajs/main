@@ -31,29 +31,22 @@ import { sameFilter } from './same-filter.js';
 import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
 
 /*
- * The RBAC evaluation of design §6.1.2. An async gathering phase does all the IO and yields an
- * RbacInput; nine named steps then run synchronously over one RbacState, in RBAC_STEP_NAMES order,
- * and the state becomes the Vote. Hook contract:
- * - RBAC_STEPS maps every step name to `(state) => void`, plus `noGrantReason` (the step 5 reason
- *   when no grant of the permission is reachable, `no_access` by default). Replacing an entry
- *   fills that step. Steps never do IO and write only their own part of the state.
- * - Everything outside the steps goes through an RbacExtension (model init, role edges, compile at
- *   boot, gathering, boot refs, native ops). DEFAULT_RBAC_EXTENSIONS lists their factories; a model
- *   creates its own instances, so an extension may keep per-model state.
- * - A grant that fails a check sets `candidate.failed` and pushes a reason (steps 5–7): a failed
- *   grant permits nothing. `state.reasons` alone feeds Vote.reason ("why it does not permit"), and
- *   only while nothing permits; it never denies, so another model's permit still wins under
- *   permit-overrides. A deny entry (step 8) goes to `state.denies`, which feeds Vote.denies and
- *   denyWhen only: the engine reads each entry's reason where its `when` holds.
+ * RBAC evaluation: an async gathering phase does all the IO and yields an RbacInput; the steps then
+ * run synchronously over one RbacState, which becomes the Vote. Comments number the steps 1–9 in
+ * RBAC_STEP_NAMES order (1 collect … 9 residual). Hook contract:
+ * - Replacing an RBAC_STEPS entry fills that step. Steps never do IO and write only their own part of
+ *   the state; everything else (init, role edges, boot compile, gathering, native ops) is an
+ *   RbacExtension, built per model so it may keep per-model state.
+ * - A grant that fails a check (steps 5–7) sets `candidate.failed` and permits nothing. Its reason
+ *   feeds Vote.reason only while nothing permits and never denies, so another model's permit still
+ *   wins. A deny (step 8) goes to `state.denies`, which the engine reads only where its `when` holds.
  * - On a type-level request `collect` puts live assignments off the path `[type, GLOBAL]` in
- *   `state.scoped`; `residual` turns each grant they reach into a row filter (`under` their
- *   scopes) ANDed with the grant's own residual. A request on `$global` is not type-level
- *   (isTypeLevel): its path is `[GLOBAL]` and it has no rows. Scoped grants never become
- *   `candidates`, so steps 5–8 do not see them. Steps that drop or clamp assignments (restrict,
- *   cap, implies) must treat `state.scoped` as they treat `state.live`.
- * - `state.fields` set by a step before `residual` is a cap: `residual` intersects the grants'
- *   fields with it, and keeps it as it is when no contributing grant carries fields.
- * - Lists do not use type-level votes: RbacModel.listPlan builds its terms from the state after `cap`.
+ *   `state.scoped`, and `residual` turns their grants into row filters; they never become
+ *   `candidates`, so steps 5–8 do not see them. Steps that drop or clamp assignments (restrict, cap,
+ *   implies) must treat `state.scoped` as they treat `state.live`. `$global` is not type-level.
+ * - `state.fields` set before `residual` caps the grants' fields, and stays as it is when no
+ *   contributing grant carries fields.
+ * - List plans read the state after `cap`, not type-level votes.
  */
 
 export const RBAC_STEP_NAMES = Object.freeze(['collect', 'restrict', 'cap', 'aggregate', 'grant', 'tag', 'provenance', 'threshold', 'residual'] as const);
@@ -99,7 +92,7 @@ export interface RbacInput {
   readonly rowDependentRules?: readonly string[];
   /** False when a rule condition gave an uncacheable answer. */
   readonly rulesCacheable?: boolean;
-  /** Called by `collect` for an assignment whose role the graph does not hold (B12: ignored). */
+  /** Called by `collect` for an assignment whose role the graph does not hold: ignored. */
   readonly onUnknownRole?: (assignment: Assignment) => void;
   /** Called by `collect` for an assignment its role's definition refuses (`assignable`, `scopeTypes`): ignored. */
   readonly onRefusedAssignment?: (assignment: Assignment, problem: Exclude<AssignmentProblem, 'unknown_role'>) => void;
@@ -145,7 +138,7 @@ export interface RbacState {
   live: LiveAssignment[];
   /** collect, type-level requests only (`$global` is not one): live assignments off the path, which permit the rows below their scopes. */
   scoped: LiveAssignment[];
-  /** collect: assignments of deny roles, on the path and (type-level) below it; ceilings and rules never drop them (design §4.2). */
+  /** collect: assignments of deny roles, on the path and (type-level) below it; ceilings and rules never drop them. */
   denied: LiveAssignment[];
   /** aggregate: the effective role per ladder (Vote.roles). */
   readonly roles: Record<string, string>;
@@ -205,11 +198,11 @@ const grant: RbacStep = (s) => {
 };
 
 /** The rows a passing grant permits: the AND of its conditions; a grant with none permits every row. */
-export function grantResidual(grant: CompiledGrant, at: PatternContext): ResourceFilter {
+function grantResidual(grant: CompiledGrant, at: PatternContext): ResourceFilter {
   return and(relationResidual(grant), grant.patterns ? patternsFilter(grant.patterns, at) : TRUE);
 }
 
-/** Several relations of one grant OR (B15). */
+/** Several relations of one grant OR. */
 function relationResidual(grant: CompiledGrant): ResourceFilter {
   if (!grant.relations) return TRUE;
   return or(...grant.relations.map((relation): ResourceFilter => ({ op: 'relation', relation })));
@@ -223,8 +216,8 @@ function relationResidual(grant: CompiledGrant): ResourceFilter {
  *
  * Fields (voteFieldGlobs): grants whose residual is TRUE for this request decide them; only when
  * none is TRUE do the conditional grants. Those whose residuals are the same filter (sameFilter)
- * hold on the same rows, so each such group counts once, with the union of its grants' fields
- * (RFC C3-1); the groups then intersect. A grant whose residual is FALSE adds none.
+ * hold on the same rows, so each such group counts once, with the union of its grants' fields;
+ * the groups then intersect. A grant whose residual is FALSE adds none.
  * RBAC_SUMMARY_STEPS passes summaryFieldGlobs instead.
  */
 function residualWith(s: RbacState, fieldGlobs: FieldRule): void {
@@ -409,7 +402,7 @@ function after<T, U>(value: Maybe<T>, next: (value: T) => Maybe<U>): Maybe<U> {
 /**
  * The IO phase: subjects, their assignments, the path, then what the extensions gather. Answered
  * synchronously when no source needs IO: the subjects and assignments come back as values (a
- * type-level request after preload, B22), and so do the extensions' gathers.
+ * type-level request after preload), and so do the extensions' gathers.
  */
 export function readRbacInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources): RbacInput | Promise<RbacInput> {
   const subjects = sources.subjects ? sources.subjects.subjects(request.principal) : defaultSubjects(request.principal);
@@ -435,12 +428,6 @@ export function readRbacInput(request: DecisionRequest, ctx: EvaluationContext, 
 
 const withConfig = (stored: readonly Assignment[], config: readonly Assignment[]) => ({ assignments: [...stored, ...config], ...(config.length > 0 ? { config } : {}) });
 
-/** Merges the extensions' `gather` results into `input`, in list order; synchronous while each gather is. */
-export function extendRbacInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources, input: RbacInput): RbacInput | Promise<RbacInput> {
-  const out = extendInput(request, ctx, sources, 0, input);
-  return isThenable(out) ? Promise.resolve(out) : out;
-}
-
 function extendInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources, from: number, input: RbacInput): Maybe<RbacInput> {
   const extensions = sources.extensions ?? [];
   if (from === 0) input = { ...input, ...rbacTables(extensions, input.roles, input.grants) };
@@ -452,7 +439,7 @@ function extendInput(request: DecisionRequest, ctx: EvaluationContext, sources: 
   return input;
 }
 
-/** Tables compiled from the role graph, which RbacService reads too; one source each. */
+/** Tables compiled from the role graph, which RbacModel reads too; one source each. */
 export interface RbacTables {
   readonly ladders?: LadderIndex;
   readonly implies?: ImpliesIndex;
@@ -476,7 +463,7 @@ export function rbacTables(extensions: readonly RbacExtension[], graph: RoleGrap
   return out as RbacTables;
 }
 
-// A table set by a gather would reach the votes but not RbacService.covers, which reads rbacTables.
+// A table set by a gather would reach the votes but not RbacModel's summaries and list plans, which read rbacTables.
 function tableFree(part: Partial<RbacInput> | undefined): Partial<RbacInput> | undefined {
   const key = part ? TABLE_KEYS.find((k) => k in part) : undefined;
   if (key) throw new Error(`rbac: an extension's gather set '${key}'; give it through RbacExtension.tables`);
@@ -484,8 +471,8 @@ function tableFree(part: Partial<RbacInput> | undefined): Partial<RbacInput> | u
 }
 
 /**
- * The scopes whose assignments apply to `resource` (B13), nearest first: the resource, its
- * ancestors in order, GLOBAL last, each once. A type-level request gets `[type, GLOBAL]` (§6.1.2),
+ * The scopes whose assignments apply to `resource`, nearest first: the resource, its
+ * ancestors in order, GLOBAL last, each once. A type-level request gets `[type, GLOBAL]`,
  * without IO: an assignment at the bare type ref permits every row of the type; any other scoped
  * assignment needs a row filter, which `residual` builds from `state.scoped`. A request on `$global`
  * gets `[GLOBAL]`.
@@ -503,7 +490,7 @@ export function resourcePath(resource: ResourceRef, ctx: EvaluationContext): rea
 }
 
 /** The principal and its companions, each once. */
-export function defaultSubjects(principal: Principal): readonly AssignmentSubject[] {
+function defaultSubjects(principal: Principal): readonly AssignmentSubject[] {
   const out = new Map<string, PrincipalRef>();
   for (const p of [principal, ...(principal.companions ?? [])]) {
     const ref = { type: p.type, id: p.id };

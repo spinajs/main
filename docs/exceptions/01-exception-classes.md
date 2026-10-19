@@ -5,28 +5,29 @@
 ## How it works
 
 1. Code throws one of the classes, for example `new ResourceNotFound('invoice 42 does not exist')`.
-2. `Exception`'s constructor calls `super(message)` on `Error` and stores the second argument in the public `inner` field.
+2. `Exception`'s constructor calls `super(message)` on `Error` and sets `name` to the class name and stores the second argument in the public `inner` field and in `cause`.
 3. A caller catches the error and tests it with `instanceof`. Every class extends `Exception`, so `err instanceof Exception` holds for all of them.
 4. In an HTTP request, the error reaches the `@spinajs/http` error handler. It walks the class chain, finds the response registered for the nearest mapped class, and answers with that status. See [HTTP error mapping](03-http-error-mapping.md).
 
 ## Class reference
 
-All classes extend `Exception`, which extends `Error`. No class sets `name`, so `err.name` is `'Error'` for all of them.
+All classes extend `Exception`, which extends `Error`. `Exception` sets `name` to the name of the constructed class, so `err.name` is `'Forbidden'`, `'ResourceNotFound'` and so on.
 
 ### `Exception`
 
 ```ts
 class Exception extends Error {
-  constructor(message?: string, public inner?: Error | unknown);
+  inner?: Error | unknown;
+  constructor(message?: string, inner?: Error | unknown);
 }
 ```
 
 | Member | Type | Meaning |
 | --- | --- | --- |
 | `message` | `string` | The message passed to the constructor. |
-| `inner` | `Error \| unknown` | The original cause, for example a driver error. Public and enumerable. |
+| `inner` | `Error \| unknown` | The original cause, for example a driver error. Public, not enumerable. |
 
-`inner` is a separate field. The standard `Error.cause` stays `undefined`.
+The same value is also set as the standard `Error.cause` (not enumerable) when `inner` is given.
 
 ### `InvalidArgument`
 
@@ -63,7 +64,7 @@ The status column applies when `@spinajs/http` handles the error. "Unmapped" cla
 | `MethodNotImplemented` | A method is declared but not implemented. | 500 | `ServerError` |
 | `UnexpectedServerError` | A generic server failure. | 500 | `ServerError` |
 | `ResourceDuplicated` | A unique resource already exists, for example a unique constraint failed. | 409 | `Conflict` |
-| `JsonValidationFailed` | A JSON entity does not match its schema. | 500 | unmapped, `ServerError` |
+| `JsonValidationFailed` | A JSON entity does not match its schema. | 400 | `BadRequestResponse` |
 | `ExpectedResponseUnacceptable` | The client's `Accept` header asks for a format the server cannot produce. | 400 | `BadRequestResponse` |
 
 `@spinajs/http` also maps `ValidationFailed` from `@spinajs/validation` to 400 and its own `EntityTooLargeException` to 413. Those classes extend `Exception` but live in their packages.
@@ -79,23 +80,23 @@ The package registers nothing in DI and has no abstract classes or factories. It
 
 ## Important behaviour
 
-- `err.name` is `'Error'` for every class, because `Exception` does not set it. Stack traces and logs print `Error: <message>`. Set `this.name = new.target.name` in your own subclasses.
-- `inner`, `fieldName` and `errorCode` are own enumerable properties. The `@spinajs/http` error handler spreads them into the JSON response body, in production too. An `inner` driver error can carry SQL text or connection details to the client.
+- `name` and `inner` are non-enumerable own properties, so the HTTP error handler's spread does not copy them into the response body. Stack traces and logs print `<ClassName>: <message>`.
+- `fieldName` and `errorCode` are own enumerable properties. The `@spinajs/http` error handler spreads them into the JSON response body, in production too.
 - `stack` is added to the response body only when `configuration.isProduction` is not `true`.
 - `instanceof` checks need a single installed copy of `@spinajs/exceptions`. Two copies give two `Forbidden` classes; the HTTP mapping still works, because it matches by class name.
-- `InvalidOperation`, `InvalidOption`, `NotSupported`, `ConnectionNotFound` and `JsonValidationFailed` answer HTTP 500 unless you map them. Thrown from a controller for a client mistake, they read as a server fault.
+- `InvalidOperation`, `InvalidOption`, `NotSupported` and `ConnectionNotFound` answer HTTP 500 unless you map them. Thrown from a controller for a client mistake, they read as a server fault.
 
 ## Best practices
 
 - Throw the most specific class: `ResourceNotFound` for a missing row, `ResourceDuplicated` for a unique-key clash. The status code follows for free.
 - Pass `fieldName` and `errorCode` to `InvalidArgument`; clients read them from the 400 body to highlight the field.
-- Wrap a low-level error in `inner` only when the caller needs it, and never in an exception that can reach an HTTP client (see the antipattern below).
+- Wrap a low-level error in `inner` only when the caller needs it, and and still log it on the server rather than rely on the response (see the pattern below).
 - Throw `InvalidOption` from bootstrap and config checks, not from request handlers: it answers 500.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: the mysql error in `inner` is spread into the 500 body, with its SQL text and message
+// Don't: custom enumerable fields that copy the mysql error (SQL text, message) are spread into the 500 body
 try {
   await db.query('SELECT * FROM invoices WHERE id = ?', [id]);
 } catch (err) {

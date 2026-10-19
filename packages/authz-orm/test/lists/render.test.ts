@@ -5,7 +5,7 @@ import { AuthzConfigError, GLOBAL, PlanTermSql } from '@spinajs/authz';
 import type { AccessPlan, PlanTerm } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
-import { RawQuery } from '@spinajs/orm';
+import { RawQuery, SqlExpressions } from '@spinajs/orm';
 import type { ModelBase, QueryBuilder } from '@spinajs/orm';
 
 import { AccessResource, Owner, Parent } from '../../src/index.js';
@@ -153,7 +153,7 @@ describe('renderPlan', function () {
         // orm-sqlite quotes with backticks, orm-postgres with double quotes.
         const q = (name: string) => (dialect === 'sqlite' ? `\`${name}\`` : `"${name}"`);
         expect(row.type).to.equal('task');
-        expect(row.dialect).to.equal(dialect);
+        expect(row.expressions).to.equal(db.driver(dialect).Container.resolve(SqlExpressions));
         expect(row.ancestorTable).to.equal(q('authz_resource_ancestor'));
         expect(row.rowId).to.equal(`CAST(${q(db.table(Task))}.${q('id')} AS TEXT)`);
         expect(row.now.getTime()).to.equal(5);

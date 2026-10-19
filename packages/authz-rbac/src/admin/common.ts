@@ -6,7 +6,7 @@ import { RoleStore } from '../contracts.js';
 import { RbacModel } from '../model/model.js';
 import type { Assignment, AssignmentSubject, LadderDef, RoleDef } from '../contracts.js';
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore } from './ports.js';
-import { copyPrincipalRef, copyRef, isSetSubject, normaliseTags } from './rows.js';
+import { copyPrincipalRef, copyRef, isSetSubject, sortedTags } from './rows.js';
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const q = (v: unknown): string => JSON.stringify(v) ?? String(v);
@@ -181,8 +181,7 @@ export async function grantingPermissions(ctx: AdminContext, permission: Permiss
  * The registry the domain's RBAC grants were compiled with: an RbacModel's of ctx.authz.models() first (an
  * RbacModel shared from another domain compiled its grants against that domain's registry, which another
  * model here may not expose), then any model's permissions() that returns a PermissionRegistry, then a
- * PermissionRegistry of the admin container. Undefined when none is there. AuthzService is never injected
- * (design §6.6.2).
+ * PermissionRegistry of the admin container. Undefined when none is there. AuthzService is never injected.
  */
 export async function permissionRegistry(ctx: AdminContext): Promise<PermissionRegistry | undefined> {
   const models = ctx.authz.models();
@@ -332,7 +331,7 @@ export function refuseLinkSubject(s: AssignmentSubject, field: string): void {
 
 export function readTags(v: unknown, field = 'tags'): string[] {
   if (!Array.isArray(v) || !v.every((t) => typeof t === 'string' && t !== '' && !t.includes(','))) throw invalid(field, `${field} must be non-empty strings without ','`);
-  return normaliseTags(v as string[]);
+  return sortedTags(v as string[]);
 }
 
 export function readOptionalTags(v: unknown, field = 'tags'): string[] | undefined {
@@ -493,7 +492,7 @@ export function event(ctx: AdminContext, type: string, data: Record<string, unkn
   return { type, domain: ctx.domain, actor: actorRef(ctx), at: ctx.now, data };
 }
 
-/** Cache tags of an assignment's subject (design §10.3): members of a set are unknown, so a set flushes by role. */
+/** Cache tags of an assignment's subject: members of a set are unknown, so a set flushes by role. */
 export function subjectTag(s: AssignmentSubject): string {
   return isSetSubject(s) ? `role:${s.set.role}` : `subject:${principalKey(s)}`;
 }

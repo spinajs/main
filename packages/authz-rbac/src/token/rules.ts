@@ -35,7 +35,7 @@ export function isTokenPrincipal(p: Principal | undefined): boolean {
   }
 }
 
-/** The `authz.token` role rules (design §8.2, §18.3(g), B24, B07), built by {@link loadTokenRoleRules}. */
+/** The `authz.token` role rules, built by {@link loadTokenRoleRules}. */
 export class TokenRoleRules {
   readonly excludedRoles: readonly string[];
 

@@ -2,15 +2,14 @@ import { randomUUID } from 'node:crypto';
 
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
-import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { Orm, OrmDriver, RawQuery } from '@spinajs/orm';
+import { InvalidArgument, ResourceDuplicated, UnexpectedServerError } from '@spinajs/exceptions';
+import { IdentifierQuoter, Orm, OrmDriver, SqlExpressions, sql, toRawQuery } from '@spinajs/orm';
 import { _between, _check_arg, _integer, _is_array, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import type { WhereBuilder } from '@spinajs/orm';
 
 import { identityKey } from '../identity.js';
 import { StoreConnection } from '../support/connection.js';
-import type { Dialect } from '../support/sql.js';
-import { checkedMs, checkedText, columnText, isDuplicate, rowsAffected, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
+import { checkedMs, checkedText, columnText, rowsAffected, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
 
 const MFA = 'authn_mfa';
 const CODES = 'authn_recovery_code';
@@ -37,21 +36,6 @@ function lastStepOf(value: unknown): number | null {
   const n = typeof value === 'number' ? value : Number(String(value));
   if (!Number.isSafeInteger(n)) throw new UnexpectedServerError(`DbMfaStore: last_step ${String(value)} is not a safe integer`);
   return n;
-}
-
-/**
- * `secret_enc = ?` where the plain comparison is wrong: `secret_enc` is TEXT, which SQL Server cannot compare with
- * `=`, and MySQL compares under a case-blind collation by default. Undefined: the plain comparison is exact.
- */
-function exactSecretEnc(dialect: Dialect, value: string): RawQuery | undefined {
-  switch (dialect) {
-    case 'mssql':
-      return RawQuery.create('CAST([secret_enc] AS NVARCHAR(MAX)) = ?', [value]);
-    case 'mysql':
-      return RawQuery.create('CAST(`secret_enc` AS BINARY) = ?', [value]);
-    default:
-      return undefined;
-  }
 }
 
 const confirmed = (r: Record<string, unknown>): boolean => r.confirmed_at !== null && r.confirmed_at !== undefined;
@@ -84,17 +68,17 @@ export class DbMfaStore {
   public async get(id: IdentityRef, step: string): Promise<MfaRecord | null> {
     const identity = identityKey(id);
     const name = stepName(step);
-    const { driver, dialect } = await this.connection.get();
+    const { driver } = await this.connection.get();
     const q = driver.select().from(MFA).select('identity').select('step').select('secret_enc').select('key_id').select('last_step');
-    const rows = (await selectTime(dialect, selectTime(dialect, q, 'confirmed_at', 'confirmed_text'), 'created_at', 'created_text').where('identity', identity).where('step', name)) as Record<string, unknown>[];
+    const rows = (await selectTime(driver, selectTime(driver, q, 'confirmed_at', 'confirmed_text'), 'created_at', 'created_text').where('identity', identity).where('step', name)) as Record<string, unknown>[];
     const r = rows.find((x) => x.identity === identity && x.step === name);
     if (!r) return null;
     return {
       secretEnc: String(r.secret_enc),
       keyId: String(r.key_id),
-      confirmedAt: timeOf(columnText(dialect, r, 'confirmed_at', 'confirmed_text')),
+      confirmedAt: timeOf(columnText(r, 'confirmed_text')),
       lastStep: lastStepOf(r.last_step),
-      createdAt: timeOf(columnText(dialect, r, 'created_at', 'created_text')) ?? new Date(NaN),
+      createdAt: timeOf(columnText(r, 'created_text')) ?? new Date(NaN),
     };
   }
 
@@ -120,7 +104,7 @@ export class DbMfaStore {
           .values({ identity, step: name, ...fields });
         return true;
       } catch (err) {
-        if (!isDuplicate(err)) throw err;
+        if (!(err instanceof ResourceDuplicated)) throw err;
       }
       if (rowsAffected(await driver.update().in(MFA).update(fields).where('identity', identity).where('step', name).whereNull('confirmed_at')) === 1) return true;
       // No row updated: either it is confirmed, or a parallel remove deleted it and the insert is worth retrying.
@@ -138,13 +122,11 @@ export class DbMfaStore {
     const name = stepName(step);
     const t = sqlTime(checkedMs(at, 'DbMfaStore.confirm: at'));
     if (expectedSecretEnc !== undefined) checkedText(expectedSecretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: expectedSecretEnc');
-    const { driver, dialect } = await this.connection.get();
+    const { driver } = await this.connection.get();
     const q = driver.update().in(MFA).update({ confirmed_at: t }).where('identity', identity).where('step', name);
     if (expectedSecretEnc !== undefined) {
-      const exact = exactSecretEnc(dialect, expectedSecretEnc);
-      q.whereNull('confirmed_at');
-      if (exact) q.where(exact);
-      else q.where('secret_enc', expectedSecretEnc);
+      const column = driver.Container.resolve(IdentifierQuoter).quote('secret_enc');
+      q.whereNull('confirmed_at').where(toRawQuery(driver.Container.resolve(SqlExpressions).equalsExactly(column, sql`${expectedSecretEnc}`)));
     }
     return rowsAffected(await q) === 1;
   }

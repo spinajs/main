@@ -1,19 +1,18 @@
 import { adminContainer, principalKey } from '@spinajs/authz';
 import type { AdminContext, AuthzTx } from '@spinajs/authz';
-import { Configuration } from '@spinajs/configuration';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
-import { computeClosures, readMaxSetDepth } from '../membership/closure.js';
+import { computeClosures, maxSetDepthOf } from '../membership/closure.js';
 import { parsePrincipalSubjectKey } from '../model/sets/keys.js';
 import type { MembershipEdge, MembershipRow } from '../membership/closure.js';
 import { subjectKeyOf } from '../stores/columns.js';
 import { assignmentStore, honoured, optionalStore, roleIndex, setRolesOf, subjectTag } from './common.js';
 import type { RoleIndex } from './common.js';
 import { AdminMembershipStore } from './ports.js';
-import { isLive, isSetSubject } from './rows.js';
+import { isLiveAt, isSetSubject } from './rows.js';
 
 /** Above this many changed members a write tags `*`: a member's cached decisions carry only its own subject tag. */
-export const MEMBERSHIP_TAG_LIMIT = 1000;
+const MEMBERSHIP_TAG_LIMIT = 1000;
 
 // Closure keys escape ids; a principal's tag (rooms, caches) carries its raw principalKey. Set keys stay escaped.
 const keyTag = (key: string): string => {
@@ -40,13 +39,7 @@ export async function memberSubjects(ctx: AdminContext, rows: readonly Pick<Assi
   return rows.filter((r) => setRolesOf(roles, r.role).length > 0).map((r) => r.subject);
 }
 
-async function maxSetDepth(ctx: AdminContext): Promise<number> {
-  const container = adminContainer(ctx);
-  const configuration = container.hasRegistered(Configuration) ? ((await container.resolve(Configuration)) as Configuration) : undefined;
-  return readMaxSetDepth(configuration?.get<unknown>(['authz', 'rbac', 'maxSetDepth']));
-}
-
-const liveEntries = (rows: readonly MembershipRow[], now: Date): Map<string, string> => new Map(rows.filter((r) => isLive(r.expiresAt, now)).map((r) => [`${r.setKey}\u0000${r.expiresAt?.getTime() ?? ''}`, r.setKey]));
+const liveEntries = (rows: readonly MembershipRow[], now: Date): Map<string, string> => new Map(rows.filter((r) => isLiveAt(r.expiresAt, now)).map((r) => [`${r.setKey}\u0000${r.expiresAt?.getTime() ?? ''}`, r.setKey]));
 
 /**
  * Recomputes, inside the batch transaction, the closure rows of `touched` and of every member below them (a
@@ -66,7 +59,7 @@ export async function refreshMemberships(ctx: AdminContext, tx: AuthzTx, touched
   const keys = [...new Set(touched.map(subjectKeyOf))];
   const affected = [...new Set([...keys, ...(await memberships.allMembersOf(keys))])].sort();
   const before = await memberships.rowsOf(affected);
-  const after = await computeClosures(affected, async (k) => membershipEdges(roles, await assignments.forSubjectKeys(k, ctx.now)), await maxSetDepth(ctx));
+  const after = await computeClosures(affected, async (k) => membershipEdges(roles, await assignments.forSubjectKeys(k, ctx.now)), await maxSetDepthOf(adminContainer(ctx)));
   for (const k of affected) await memberships.replace(k, after.get(k) ?? [], tx);
 
   const changed: string[] = [];

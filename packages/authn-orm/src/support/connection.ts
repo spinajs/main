@@ -1,13 +1,10 @@
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Orm, OrmDriver } from '@spinajs/orm';
 
-import { driverDialect } from './sql.js';
-import type { Dialect } from './sql.js';
 
 /** @internal */
 export interface StoreDb {
   readonly driver: OrmDriver;
-  readonly dialect: Dialect;
 }
 
 /** @internal The given driver, or the `'default'` connection of the Orm injected into the store. */
@@ -30,6 +27,6 @@ export class StoreConnection {
       driver = orm.Connections.get('default');
       if (!driver) throw new InvalidOption(`${this.owner}: the Orm has no 'default' connection`);
     }
-    return { driver, dialect: driverDialect(driver) };
+    return { driver };
   }
 }

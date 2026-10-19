@@ -1,5 +1,5 @@
 import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
-import { columnNativeType, isMySqlDialect } from '../migration-support.js';
+import { columnNativeType } from '../migration-support.js';
 
 /**
  * Widens `user_sessions.CreatedAt` / `Expiration` from `date` to `datetime`.
@@ -34,17 +34,14 @@ import { columnNativeType, isMySqlDialect } from '../migration-support.js';
  * deleted here.
  *
  * Guards mirror the JSON migration: skip when the table is absent, skip unless
- * `CreatedAt` is currently exactly `date`, skip on any non-MySQL dialect
- * (`MODIFY` is MySQL syntax; a failed migration at boot bricks every later
- * migration on the connection through `assertNoFailed()`). `CreatedAt` alone is
+ * `CreatedAt` is currently exactly `date`. `CreatedAt` alone is
  * probed - the two columns were created by the same statement in every database
  * that has the old shape, and a `date`/`datetime` split between them has never
  * existed.
  *
- * ONE statement with two `MODIFY` clauses, via the raw escape hatch, rather than
- * `alterTable()`: the builder compiles one statement per column and
- * `SqlDriver.execute` runs them through `Promise.all`, i.e. two concurrent
- * `ALTER TABLE`s on the same table from two pooled connections.
+ * One `alterTable()` per column: the builder runs the statements of one call
+ * through `Promise.all`, i.e. concurrent `ALTER TABLE`s on the same table from
+ * two pooled connections.
  *
  * Nullability is restated verbatim from the create path - `MODIFY` replaces the
  * whole column definition, and `CreatedAt` is `notNull()` there while
@@ -62,11 +59,16 @@ export class UserSessionTimestamps_2026_07_31_00_00_01 extends OrmMigration {
     // Only the one known-bad state is converted. `datetime` is the target,
     // `timestamp` needs no help, `null` means the probe could not read the
     // table, and anything else is a shape this migration was not written for.
-    if (createdAtType !== 'date' || !isMySqlDialect(connection)) {
+    if (createdAtType !== 'date') {
       return;
     }
 
-    await connection.schema().raw('ALTER TABLE `user_sessions` MODIFY `CreatedAt` DATETIME NOT NULL, MODIFY `Expiration` DATETIME');
+    await connection.schema().alterTable('user_sessions', (table) => {
+      table.dateTime('CreatedAt').notNull().modify();
+    });
+    await connection.schema().alterTable('user_sessions', (table) => {
+      table.dateTime('Expiration').modify();
+    });
   }
 
   /**
