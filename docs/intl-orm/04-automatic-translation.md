@@ -14,8 +14,9 @@
    2. On Node (`AsyncLocalStorage` exists), `DI.get(AsyncLocalStorage)` is read and its `noTranslate` compared with `false`. See the bug note below.
    3. `builder.AllowTranslate === false`: skip.
    4. `builder.Model` is unset (raw builder): skip.
-   5. The builder is not a `SelectQueryBuilder`, or `builder.translated` is set: skip.
-   6. `guessLanguage()` reads the `language` of the current `AsyncLocalStorage` store, else `intl.defaultLocale`. When it differs from `defaultLanguage()`, the middleware calls `builder.translate(lang)`.
+   5. The model has no `@Translate()` column and no relation: skip, as there is nothing to translate.
+   6. The builder is not a `SelectQueryBuilder`, or `builder.translated` is set: skip.
+   7. `guessLanguage()` reads the `language` of the current `AsyncLocalStorage` store, else `intl.defaultLocale`. When it differs from `defaultLanguage()`, the middleware calls `builder.translate(lang)`.
 5. The query then compiles and runs; [`IntlModelRelation`](03-translation-relation.md) loads the translations after hydration.
 
 ```mermaid
@@ -104,7 +105,7 @@ export function useTranslatableOnlyMiddleware(): void {
 
 - **Throws under a non-default language in the current source.** The middleware calls `translate()`, which fails as described in [Query translation](02-query-translation.md#important-behaviour). With `@spinajs/intl-http`, any request whose language differs from `intl.defaultLocale` fails on its first model select.
 - **`noTranslate` is never honoured.** Step 4.2 reads `noTranslate` from the `AsyncLocalStorage` instance returned by `DI.get()`, not from its store, so the value is always `undefined`. The comparison is also `=== false`, the opposite of the flag's meaning in `IIntlAsyncStorage`.
-- **Every model select is translated**, not only models with `@Translate` columns. `IntlModelMiddleware` calls `setLanguage()` on each result, which models that do not extend `Translatable` lack.
+- **Every select of a model with a `@Translate` column or a relation is translated.** `IntlModelMiddleware` calls `setLanguage()` on each result, which models that do not extend `Translatable` lack; a model with neither is skipped (step 4.5).
 - Inserts, updates and deletes are never translated. Saving in a language is [`Translatable.update()`](01-translatable-models.md)'s job.
 - `guessLanguage()` reads `DI.get(AsyncLocalStorage)`, which returns only an instance that something already resolved. `@spinajs/http` controllers resolve it; standalone code calls `DI.resolve(AsyncLocalStorage)` before `store.run()`.
 - On a runtime without `AsyncLocalStorage` (browser, Electron renderer), the store check is skipped and `guessLanguage()` returns `intl.defaultLocale`, so nothing is translated.

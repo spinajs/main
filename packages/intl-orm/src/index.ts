@@ -200,6 +200,11 @@ export class IntlQueryMiddleware extends QueryMiddleware {
       return;
     }
 
+    const descriptor = extractModelDescriptor(builder.Model);
+    if (!(descriptor as { Translatable?: boolean } | undefined)?.Translatable && !descriptor?.Relations.size) {
+      return;
+    }
+
     // and translate only selects
     if (builder instanceof SQB && !(builder as any).translated) {
       const lang = guessLanguage();
