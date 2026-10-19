@@ -1,19 +1,17 @@
-import { AuthzConfigError, AuthzDomains, DefaultAuthzDomains } from '@spinajs/authz';
+import { AuthzConfigError, AuthzDomains, ROOT_DOMAIN } from '@spinajs/authz';
 import type { AuthzTx } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import type { IContainer } from '@spinajs/di';
 import { Orm, OrmDriver } from '@spinajs/orm';
 
-/** Config key naming the ORM connection of the authz-rbac tables (D-L2-2); absent means {@link ADMIN_CONNECTION_KEY}. */
-export const RBAC_CONNECTION_KEY = 'authz.rbac.connection';
+/** Config key naming the ORM connection of the authz-rbac tables; absent means {@link ADMIN_CONNECTION_KEY}. */
+const RBAC_CONNECTION_KEY = 'authz.rbac.connection';
 
 /** The connection DbAuthzAdminBackend opens its transactions on; absent means the default connection. */
 export const ADMIN_CONNECTION_KEY = 'authz.admin.connection';
 
-const ROOT_DOMAIN = 'root';
-
 /**
- * The driver of an `AuthzAdmin` transaction (D-L2-1). Stores write only inside one (design §9.2),
+ * The driver of an `AuthzAdmin` transaction. Stores write only inside one,
  * so anything else is a programming error.
  */
 export function transactionDriver(tx: AuthzTx, where: string): OrmDriver {
@@ -29,7 +27,7 @@ export function transactionDriver(tx: AuthzTx, where: string): OrmDriver {
 
 /**
  * Like {@link transactionDriver}, and the transaction must run on `store`, the connection the store
- * reads (D-L2-2): a write on another connection would land where the model never looks.
+ * reads: a write on another connection would land where the model never looks.
  */
 export function storeTransactionDriver(tx: AuthzTx, store: OrmDriver, where: string): OrmDriver {
   const driver = transactionDriver(tx, where);
@@ -41,21 +39,19 @@ export function storeTransactionDriver(tx: AuthzTx, store: OrmDriver, where: str
 
 /**
  * The authz domain a store resolved in `container` serves: the nearest domain container on the
- * way to the root, else `'root'`. Reads the domain registry only when the host already created it,
- * so a store never instantiates it.
+ * way to the root; root before the host created the domain registry, so a store never instantiates it.
+ * A container outside every domain is an AuthzConfigError: a guess would bump the wrong domain's version.
  */
 export function storeDomain(container: IContainer): string {
   if (!container.isResolved(AuthzDomains)) return ROOT_DOMAIN;
 
-  const domains = container.get(AuthzDomains);
-  if (!(domains instanceof DefaultAuthzDomains)) return ROOT_DOMAIN;
-
+  const domains = container.get(AuthzDomains) as AuthzDomains;
   for (let c: IContainer | undefined = container; c; c = c.Parent) {
     const id = domains.describe(c);
     if (id) return id.name;
   }
 
-  return ROOT_DOMAIN;
+  throw new AuthzConfigError('a store container is not inside any authz domain (AuthzDomains.describe() places none of its ancestors)');
 }
 
 /**
@@ -67,13 +63,16 @@ export async function storeConnection(container: IContainer): Promise<OrmDriver>
   const rbac = configuration?.get<string>(RBAC_CONNECTION_KEY);
   const admin = rbac === undefined ? configuration?.get<string>(ADMIN_CONNECTION_KEY) : undefined;
   const key = rbac !== undefined ? RBAC_CONNECTION_KEY : admin !== undefined ? ADMIN_CONNECTION_KEY : 'the ORM default connection';
-  const name = rbac ?? admin ?? 'default';
-  const orm = await container.resolve(Orm);
+  return rbacConnection(container, rbac ?? admin ?? 'default', key);
+}
+
+/**
+ * The ORM connection `name` of the Orm `container` resolves; `source` (the config key that named it) leads the error.
+ * @throws AuthzConfigError when the ORM has no such connection
+ */
+export async function rbacConnection(container: IContainer, name: string, source: string): Promise<OrmDriver> {
+  const orm = (await container.resolve(Orm)) as Orm;
   const driver = orm.Connections.get(name);
-
-  if (!driver) {
-    throw new AuthzConfigError(`${key}: no ORM connection named ${JSON.stringify(name)} (connections: ${[...orm.Connections.keys()].join(', ')})`);
-  }
-
+  if (!driver) throw new AuthzConfigError(`${source}: no ORM connection named ${JSON.stringify(name)} (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
   return driver;
 }

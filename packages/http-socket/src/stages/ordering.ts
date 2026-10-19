@@ -6,6 +6,7 @@ import { SocketException } from '@spinajs/http-socket-common';
 import { ISocketCommandContext, ISocketServerConfig, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
 import { SocketIdempotency } from '../idempotency.js';
 import { SerialQueue } from '../queue.js';
+import { isStreamResult } from '../stream.js';
 
 /**
  * `ordered: 'connection'` serialises a connection's commands; `ordered: 'client'` serialises the
@@ -82,6 +83,15 @@ export class OrderingStage extends SocketCommandStage {
       if (!(await settled)) {
         // the key stays running until the handler settles, so a resend joins it instead of running it twice
         ctx.idempotency?.detach(running);
+        // a stream the handler returns later will never be sent; close it so its resources are released
+        void running.then(
+          async (late) => {
+            if (isStreamResult(late)) {
+              await late[Symbol.asyncIterator]().return?.(undefined);
+            }
+          },
+          () => undefined,
+        ).catch(() => undefined);
         throw ctx.signal.reason;
       }
 

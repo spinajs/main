@@ -29,7 +29,7 @@ spinajs render-pdf <input> -o <file> [-t] [-m <model.json>] [-l <lang>] [--forma
 | `-l, --lang [lang]` | no | none | Language for translations, template mode only |
 | `--format [format]` | no | `A4` | Puppeteer paper format: `A4`, `Letter`, `Legal`, `A3`, ... |
 | `--landscape` | no | off | Landscape orientation |
-| `--scale [scale]` | no | `1` | Rendering scale, `0.1` to `2`, parsed with `parseFloat` |
+| `--scale [scale]` | no | `1` | Rendering scale, `0.1` to `2`, parsed with `parseFloat` and validated |
 
 ## Configuration
 
@@ -99,7 +99,7 @@ export class ContractPreviewCommand extends CliCommand {
 - Template mode renders to HTML first and then uses `renderHtmlToFile()`, so relative asset URLs resolve against the input's directory through the injected `<base href>`. The `.pdf`-named path of [Rendering PDFs](01-rendering-pdfs.md) is not used here: pass the `.pug` (or `.handlebars`, ...) file itself.
 - Template mode does not pass `__http_template_address__` to the template; relative URLs are the way to reference assets.
 - A model path that does not exist is not an error: the template renders with `{}`.
-- `--scale` is not validated: a non-number becomes `NaN` and goes to Puppeteer unchecked.
+- `--scale` outside `0.1` to `2`, or a non-number, aborts the command with an error before rendering.
 
 ## Best practices
 

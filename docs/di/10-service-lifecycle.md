@@ -99,14 +99,14 @@ void start();
 - `@Autoinject` properties are available in `resolve()` but not in the constructor.
 - A `SyncService.resolve()` that throws fails the `resolve()` call synchronously; an `AsyncService.resolve()` that rejects rejects the returned promise and nothing is cached.
 - Dispose order is cache insertion order, not reverse dependency order. A service can be disposed before another service that still uses it; make `dispose()` safe to run in any order.
-- A singleton reached through `Array.ofType(T)` is cached under `T` and under its own name, so `dispose()` calls its `dispose()` twice. Make `dispose()` idempotent.
+- A singleton reached through `Array.ofType(T)` is cached under `T` and under its own name; `dispose()` still calls its `dispose()` once.
 - `@NewInstance()` services and factory results are never cached, so `dispose()` never reaches them.
 - After `DI.dispose()` the root registry is intact; the next resolve builds fresh instances.
 
 ## Best practices
 
 - Do I/O in `AsyncService.resolve()`, not in the constructor: errors reach the caller as a rejected resolve, and concurrent callers share one initialization.
-- Guard `dispose()` with a flag so the double call and any order are harmless.
+- Guard `dispose()` with a flag so any order is harmless.
 - Keep `bootstrap()` short and side-effect focused (register schemas, overrides, handlers); resolve heavy services after all bootstrappers ran.
 
 ## Patterns and antipatterns

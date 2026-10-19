@@ -9,9 +9,9 @@ The `InternalLogger` class is also a `Bootstrapper`. Its `bootstrap()` hands buf
 3. `InternalLogger.bootstrap()` checks `DI.has(Configuration)`:
    - resolved: it flushes the buffer now;
    - not resolved: it subscribes with `DI.once('di.resolved.Configuration', ...)` and flushes when the event fires.
-4. The flush takes every buffered entry in order, resolves `DI.resolve('__log__', [entry.Variables.logger])` and calls `write(entry)` on the result. Then it empties the buffer.
-5. When `process.on` exists (Node), `bootstrap()` registers a `process.on('beforeExit', ...)` listener.
-6. On `beforeExit` the listener prints each remaining entry with `console.error`, `console.warn`, `console.log` or `console.debug`, coloured by level, and empties the buffer. The line layout is `${datetime} ${level} ${message} ${error:message} (<logger>)`, rendered by `format()` from `@spinajs/configuration-common`.
+4. The flush takes every buffered entry in order, resolves `DI.resolve('__log__', [entry.Variables.logger])` and calls `write(entry)` on the result. Entries for which `__log__` resolves to nothing stay in the buffer.
+5. When `process.on` exists (Node), the first `bootstrap()` call on an instance registers a `process.on('beforeExit', ...)` listener.
+6. On `beforeExit` the listener prints each remaining entry with `console.error`, `console.warn`, `console.log` or `console.debug`, coloured by level, and empties the buffer. The line layout is `${datetime} ${level} ${message} ${error:message} (<logger>)`, rendered by `format()` from `@spinajs/configuration-common`; `${datetime}` is the time the entry was buffered.
 
 ```mermaid
 sequenceDiagram
@@ -60,8 +60,9 @@ Members meant for a subclass:
 | --- | --- | --- |
 | `bootstrap()` | public method | Override to change when the buffer flushes or what runs on exit. Call `super.bootstrap()` to keep the default behaviour |
 | `StdConsoleCallbackMap` | protected field, `LogLevel` to console function | Override to send a level to another console method |
-| `theme` | protected field, `LogLevel` to colour function | Filled inside the `beforeExit` listener, so a subclass value is overwritten. Override `bootstrap()` to change colours |
+| `theme` | protected field, `LogLevel` to colour function | Override to change the exit dump colours |
 | `InternalLogger.LogBuffer` | protected static array of `ILogEntry` | The shared buffer. Read and reset it through `InternalLogger`, not through the subclass name |
+| `InternalLogger.LogBufferLimit` | public static number, default `1000` | Max buffered entries; the oldest are dropped past it |
 | `InternalLogger.writeInternal(entry)` | protected static method | Pushes to the buffer. Static, so a subclass cannot intercept it for callers of `InternalLogger.*` |
 
 The static logging methods stay on `InternalLogger`: callers name the class, so a subclass changes only the bootstrap side.
@@ -131,11 +132,11 @@ DI.unregister(InternalLogger);
 ## Important behaviour
 
 - The flush runs only if something calls `bootstrap()`. Without it, buffered entries are never forwarded and never printed.
-- The flush drops entries it cannot deliver. When `__log__` resolves to nothing at flush time, those entries are removed from the buffer without output.
-- Entries logged after the flush, while `__log__` is still unregistered, are buffered again and only appear in the exit dump.
+- The flush keeps entries it cannot deliver. When `__log__` resolves to nothing at flush time, those entries stay buffered and appear in the exit dump.
+- Entries logged after the flush, while `__log__` is still unregistered, are buffered too and only appear in the exit dump.
 - `beforeExit` fires when the event loop empties. It does **not** fire on `process.exit()`, an uncaught exception or a signal, so the exit dump is skipped in those cases.
-- `${datetime}` in the exit dump is the time of printing, not the time the entry was logged.
-- Each `bootstrap()` call adds another `beforeExit` listener. The first one empties the buffer, so later ones print nothing.
+- `${datetime}` in the exit dump is the time the entry was buffered, not the time of printing.
+- Calling `bootstrap()` again on the same instance does not add another `beforeExit` listener.
 - In a browser (`process` undefined) no exit dump is registered; buffered entries are kept until the flush.
 
 ## Best practices

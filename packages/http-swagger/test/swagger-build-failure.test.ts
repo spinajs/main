@@ -3,6 +3,8 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { renderTemplate } from '@spinajs/log-common';
 import { Configuration } from '@spinajs/configuration';
+import { UnexpectedServerError } from '@spinajs/exceptions';
+import { RouteType } from '@spinajs/http';
 import { TestConfiguration } from './common.js';
 import { SwaggerService } from '../src/swagger-service.js';
 
@@ -75,6 +77,7 @@ describe('Swagger spec build failure', function () {
     }
 
     expect(thrown, 'an undocumentable controller was swallowed instead of failing the build').to.not.be.undefined;
+    expect(thrown, 'a server-side defect must not map to 400').to.be.instanceOf(UnexpectedServerError);
     expect(thrown!.message).to.contain('GoodOne');
     // the underlying reason has to survive, or the developer only learns THAT it broke
     expect(thrown!.message, 'the resolver message was lost').to.contain('matches no placeholder');
@@ -108,6 +111,30 @@ describe('Swagger spec build failure', function () {
     await service.buildSpec().catch(() => undefined);
 
     expect(errors.join('\n'), 'an unbuildable spec must not be reported as a warning').to.contain('BadOne');
+  });
+
+  it('rebuilds from scratch after invalidate()', async () => {
+    const withRoute = (name: string) => {
+      const c = controller(name);
+      c.instance.Descriptor.Routes.set('list', { Path: 'x', Type: RouteType.GET, Method: 'list', Parameters: new Map() } as any);
+      return c;
+    };
+    const { service } = serviceWith([withRoute('first')], {});
+
+    expect(Object.keys((await service.getSpec())!.paths)).to.deep.equal(['/first/x']);
+
+    (service as any).ControllersService.Controllers = Promise.resolve([withRoute('second')]);
+    service.invalidate();
+
+    expect(Object.keys((await service.getSpec())!.paths)).to.deep.equal(['/second/x']);
+  });
+
+  it('serves the document buildSpec() returns', async () => {
+    const { service } = serviceWith([], {});
+    const replaced = { openapi: '3.0.3', info: { title: 'replaced', version: '1' }, paths: {} };
+    service.buildSpec = async () => replaced as any;
+
+    expect(await service.getSpec()).to.equal(replaced);
   });
 
   it('builds normally when every controller is readable', async () => {

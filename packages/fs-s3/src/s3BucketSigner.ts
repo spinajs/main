@@ -1,10 +1,12 @@
 import { DateTime } from "luxon";
 import { S3UrlSigner } from "./interfaces.js";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { Injectable } from "@spinajs/di";
+import { Injectable, NewInstance } from "@spinajs/di";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 
 @Injectable(S3UrlSigner)
+// built with per-provider options ( bucket, s3Client ), so it must not be shared
+@NewInstance()
 export class S3BucketSigner extends S3UrlSigner {
 
     public async sign(path: string, until?: DateTime) {

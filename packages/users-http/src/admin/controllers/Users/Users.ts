@@ -273,7 +273,7 @@ export class Users extends BaseController {
    * Filterable fields: Uuid (eq), Email (eq, like), Login (eq, like), CreatedAt (eq, gte, lte, lt, gt),
    * LastLoginAt and DeletedAt (eq, gte, lte, lt, gt, isnull, notnull), IsActive (eq),
    * Role (eq, neq, in-set: holds any of the listed roles at GLOBAL, nin-set: holds none of them),
-   * user:niceName metadata (eq, neq, like). Soft-deleted accounts are listed only when the
+   * user:niceName metadata (eq, neq, like, b-like, e-like). Soft-deleted accounts are listed only when the
    * filter has a DeletedAt condition.
    * @security cookieAuth
    * @param pagination.page Page number (zero-based)
@@ -556,11 +556,20 @@ export class Users extends BaseController {
       await this.asDuplicateResponse(() => assertUserUnique(data.Login !== target.Login ? data.Login : undefined, data.Email !== target.Email ? data.Email : undefined, target.Id));
     }
 
+    const previous = { Login: target.Login, Email: target.Email };
     target.Login = data.Login ?? target.Login;
     target.Email = data.Email ?? target.Email;
 
     await target.update();
-    await executeAsActor(by, commands, { reason: 'users-http:update' });
+    try {
+      await executeAsActor(by, commands, { reason: 'users-http:update' });
+    } catch (err) {
+      // The identity row and the role batch share no transaction: put the row back when the batch fails.
+      target.Login = previous.Login;
+      target.Email = previous.Email;
+      await target.update();
+      throw err;
+    }
 
     return new Ok();
   }

@@ -58,6 +58,7 @@ export class RenderTemplateCommand extends CliCommand {
       console.log(result);
     } catch (err) {
       this.Log.error({ error: err, template }, 'Cannot render template ${template}');
+      process.exitCode = 1;
     }
   }
 }

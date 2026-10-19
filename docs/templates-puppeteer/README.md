@@ -2,7 +2,7 @@
 
 The shared Puppeteer engine behind the PDF and image template renderers. `PuppeteerRenderer` compiles a Pug template or takes raw HTML, loads it in a pooled headless Chromium with a local asset server, reports progress, and hands the page to a subclass that writes the file.
 
-It does **not** register a renderer: install [`@spinajs/templates-pdf`](../templates-pdf/README.md) or [`@spinajs/templates-image`](../templates-image/README.md), or write a subclass. It does **not** render to a string: `render()` throws `NotSupported`. `renderToFile()` compiles only `.pug` sources.
+It does **not** register a renderer: install [`@spinajs/templates-pdf`](../templates-pdf/README.md) or [`@spinajs/templates-image`](../templates-image/README.md), or write a subclass. It does **not** render to a string: `render()` throws `NotSupported`. `renderToFile()` maps an output path such as `invoice.pdf` to its `.pug` source.
 
 ## Install
 

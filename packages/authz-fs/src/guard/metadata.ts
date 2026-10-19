@@ -2,6 +2,7 @@ import type { EventEmitter } from 'node:events';
 
 import { thrownError } from '@spinajs/authz';
 import type { PrincipalRef } from '@spinajs/authz';
+import { IOFail } from '@spinajs/exceptions';
 import type { fs } from '@spinajs/fs';
 
 import type { FileMeta, FileMetadataStore } from '../api.js';
@@ -243,11 +244,11 @@ function stampOnClose(stream: WritableLike, task: () => Promise<void>, failed: (
       }
       Reflect.apply(emit, this, [event, ...args]);
     };
-    const timer = setTimeout(() => settle(new Error(`the metadata store did not answer within ${timeoutMs} ms`)), timeoutMs);
+    const timer = setTimeout(() => settle(new IOFail(`the metadata store did not answer within ${timeoutMs} ms`)), timeoutMs);
     timer.unref();
     task().then(
       () => settle(),
-      (e: unknown) => settle(e ?? new Error('the metadata update failed')),
+      (e: unknown) => settle(e ?? new IOFail('the metadata update failed')),
     );
     return listened;
   };

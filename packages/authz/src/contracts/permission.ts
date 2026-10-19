@@ -1,3 +1,4 @@
+import { quote } from '@spinajs/util';
 import { AuthzConfigError } from './errors.js';
 import type { ResourceType } from './principal.js';
 
@@ -107,5 +108,3 @@ const matchPart = (glob: string, text: string, from: number, to: number): boolea
 
   return g === glob.length;
 };
-
-const quote = (value: unknown) => (typeof value === 'string' ? JSON.stringify(value) : String(value));

@@ -1,3 +1,5 @@
+import { isThenable } from '@spinajs/util';
+
 /**
  * One pipeline for async and sync callers: steps are generators that `yield`
  * values which may be promises and get the settled value back.
@@ -7,9 +9,7 @@ export type Pipeline<T> = Generator<unknown, T, unknown>;
 /** Yielded in sync mode when a step would need IO before it starts it. */
 export const NEEDS_ASYNC: unique symbol = Symbol('authz.needsAsync');
 
-export function isThenable(v: unknown): v is PromiseLike<unknown> {
-  return v !== null && (typeof v === 'object' || typeof v === 'function') && typeof (v as { then?: unknown }).then === 'function';
-}
+export { isThenable };
 
 export async function runAsync<T>(pipeline: Pipeline<T>): Promise<T> {
   let step = pipeline.next();

@@ -115,7 +115,7 @@ void main();
 
 ### The `__configuration__` value
 
-A module that has config but no files (a bundled build, a plugin) registers an object as a `__configuration__` value. `load()` merges each of its top-level keys after `onLoad()`.
+A module that has config but no files (a bundled build, a plugin) registers an object as a `__configuration__` value. `load()` deep-merges it at the root after `onLoad()`.
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -139,8 +139,7 @@ void main();
 - Two sources with the same `Order` keep their registration order.
 - A source is a singleton unless decorated otherwise; it receives the constructor arguments once. `Load()` runs on every `load()`, so a source that caches must refresh itself there.
 - A source must not `await DI.resolve(Configuration)` or use the config-selected service helpers: the configuration is still resolving, and the resolve would wait on itself. Use the `configuration` argument.
-- In `FrameworkConfiguration`, a `__configuration__` key that no source defines is dropped (it is merged with `merge()`, which writes nothing at a missing path). Use a `StaticConfigurationSource` for new top-level keys. `BrowserFrameworkConfiguration` keeps them.
-- `Configuration.mergeSource(SourceClass)` adds a source after boot but does not merge it into the current tree; call `load()` after it.
+- `Configuration.mergeSource(SourceClass)` adds a source after boot and merges what it loads into the current tree. It is not validated, and its protocol strings resolve on the next `load()`.
 
 ## Best practices
 

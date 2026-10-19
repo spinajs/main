@@ -1,3 +1,4 @@
+import { InvalidArgument } from '@spinajs/exceptions';
 import type { OidcClaimsMapping, OidcEndpoints, OidcPreset, OidcPresetId, OidcProviderSource } from './contracts.js';
 import { deepFreeze } from './support.js';
 
@@ -88,14 +89,14 @@ export function resolveIssuer(source: OidcProviderSource): string {
     case 'okta':
       return source.authorizationServer === null ? `https://${source.domain}` : fill(OIDC_PRESETS.okta.issuer!, { domain: source.domain, authorizationServer: source.authorizationServer ?? 'default' });
     case 'github':
-      throw new Error('authn-oidc: the github preset has no issuer');
+      throw new InvalidArgument('authn-oidc: the github preset has no issuer');
   }
 }
 
 /** The fixed endpoints of a plain OAuth2 source (GitHub); throws for the others, which use discovery. */
 export function resolveEndpoints(source: OidcProviderSource): OidcEndpoints {
   if (source.preset !== 'github') {
-    throw new Error(`authn-oidc: the ${source.preset ?? 'generic'} source finds its endpoints by discovery`);
+    throw new InvalidArgument(`authn-oidc: the ${source.preset ?? 'generic'} source finds its endpoints by discovery`);
   }
   return githubEndpoints(source.host ?? GITHUB_HOST);
 }

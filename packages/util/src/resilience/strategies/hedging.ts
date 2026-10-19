@@ -1,5 +1,5 @@
 import { TimeSpan, TimeSpanLike } from '../../timespan.js';
-import { Outcome, ResilienceContext, ResilienceStrategy, ShouldHandle, _linkSignal, _resolveShouldHandle, _toTimeSpan } from '../core.js';
+import { Outcome, ResilienceContext, ResilienceStrategy, ShouldHandle, _capture, _linkSignal, _resolveShouldHandle, _toTimeSpan } from '../core.js';
 import { HedgingException } from '../exceptions.js';
 
 export interface HedgingStrategyOptions<T> {
@@ -53,9 +53,7 @@ export function hedgingStrategy<T>(options: HedgingStrategyOptions<T> = {}): Res
 
       const p = (async (): Promise<AttemptResult<T>> => {
         try {
-          return { index, outcome: { Result: await exec() } };
-        } catch (error) {
-          return { index, outcome: { Error: error } };
+          return { index, outcome: await _capture(exec, childCtx) };
         } finally {
           dispose();
         }

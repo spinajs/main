@@ -131,9 +131,11 @@ export class Container extends EventEmitter implements IContainer {
       await this.disposePlainOwners(disposalErrors);
     }
 
-    // Dispose services in this container
+    // One instance can sit under several keys ( its own and an Array.ofType base ).
+    const disposed = new Set<Service>();
     for (const entry of this.cache) {
-      if (entry.value instanceof Service) {
+      if (entry.value instanceof Service && !disposed.has(entry.value)) {
+        disposed.add(entry.value);
         try {
           await entry.value.dispose();
         } catch (err: any) {
@@ -236,7 +238,7 @@ export class Container extends EventEmitter implements IContainer {
    *
    */
   public child(): IContainer {
-    const child = new Container(this);
+    const child = new (this.constructor as new (parent?: IContainer) => Container)(this);
     this.children.add(child);
 
     // Remove from parent when child is disposed

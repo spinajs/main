@@ -1,3 +1,4 @@
+import { UNSAFE_KEYS } from '@spinajs/util';
 import type { Principal, ResourceRef } from './principal.js';
 
 export type FilterOp = 'true' | 'false' | 'and' | 'or' | 'not' | 'cmp' | 'relation' | 'under' | `native:${string}`;
@@ -263,7 +264,6 @@ export function bindRefs(f: ResourceFilter, scope: { principal: Principal; env: 
 }
 
 const MISSING = Symbol('missing');
-const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
 const isRef = (v: object): v is { ref: string } => isPlain(v) && Object.keys(v).length === 1 && Object.hasOwn(v, 'ref') && typeof (v as { ref?: unknown }).ref === 'string';
 
@@ -299,7 +299,7 @@ const isLiteralList = (v: readonly unknown[]): boolean => v.filter((x) => typeof
 function resolve(from: unknown, path: readonly string[]): Value | typeof MISSING {
   let v = from;
   for (const segment of path) {
-    if (UNSAFE_SEGMENTS.has(segment) || v === null || typeof v !== 'object' || !Object.hasOwn(v, segment)) return MISSING;
+    if (UNSAFE_KEYS.has(segment) || v === null || typeof v !== 'object' || !Object.hasOwn(v, segment)) return MISSING;
     v = (v as Record<string, unknown>)[segment];
   }
 

@@ -1,13 +1,13 @@
 import { expect } from 'chai';
 import { randomUUID } from 'node:crypto';
-import { Container } from '@spinajs/di';
+import { Container, DI } from '@spinajs/di';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import { CredentialAdminGuard, SessionIssuer } from '@spinajs/authn/contracts';
+import { CredentialAdminGuard, MfaEnrolmentService, SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { FakeClock, parseOtpauth, totpFromProvisioning } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HttpRequest, HttpResponse } from '@spinajs/authn-testing';
 
-import { AdminMfaResetOn, CredentialAdminGuardRegistered, SessionIssuerRegistered, adminTotpServiceOf } from '../../../src/admin/gate.js';
+import { AdminMfaResetOn, CredentialAdminGuardRegistered, SessionIssuerRegistered } from '../../../src/admin/gate.js';
 import { PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
 import { readingFrom } from '../../support/config-boot.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
@@ -91,15 +91,18 @@ export function credentialAdminGateSuite(): void {
     }
   });
 
-  it('the MFA reset gate is closed without the TOTP service or the key, and names its own route', async () => {
+  it('the MFA reset gate is closed without an MfaEnrolmentService or while it is not enabled, and names its own route', async () => {
     const route = {} as IRoute;
     const ctrl = {} as IController;
     const req = { storage: {} } as unknown as Request;
-    for (const key of [undefined, 'ab'.repeat(32)]) {
-      const empty = new Container();
-      const gate = readingFrom(new AdminMfaResetOn(), empty);
-      (gate as unknown as { Container: unknown; MfaEncryptionKey: unknown }).Container = empty;
-      Object.defineProperty(gate, 'MfaEncryptionKey', { value: key });
+    let on = false;
+    const registering = DI.RootContainer.child();
+    registering.register(class SpecEnrolment {
+      enabled = () => on;
+    }).as(MfaEnrolmentService);
+    for (const container of [new Container(), registering]) {
+      const gate = readingFrom(new AdminMfaResetOn(), container);
+      (gate as unknown as { Container: unknown }).Container = container;
       await gate.execute(req, route, ctrl).then(
         () => expect.fail('the MFA reset gate passed'),
         (e: { constructor: { name: string }; error?: unknown; message?: string }) => {
@@ -108,11 +111,11 @@ export function credentialAdminGateSuite(): void {
           expect(e.message).to.eq('the admin MFA reset route is off');
         },
       );
-      await adminTotpServiceOf(empty, key, 'DefaultMfaPolicy').then(
-        () => expect.fail('adminTotpServiceOf found a service'),
-        (e: { error?: unknown }) => expect(e.error).to.eq('not_found'),
-      );
     }
+    on = true;
+    const gate = readingFrom(new AdminMfaResetOn(), registering);
+    (gate as unknown as { Container: unknown }).Container = registering;
+    await gate.execute(req, route, ctrl);
   });
 }
 

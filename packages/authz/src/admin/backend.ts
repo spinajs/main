@@ -88,20 +88,17 @@ export class MemoryAuthzAdminBackend extends AuthzAdminBackend {
   }
 
   async recall(domain: string, actorKey: string, key: string, now: Date): Promise<RememberedBatch | undefined> {
-    const id = entryKey(domain, actorKey, key);
-    const entry = this.remembered.get(id);
-    if (!entry) return undefined;
-    if (entry.expiresAt <= now.getTime()) {
-      this.remembered.delete(id);
-      return undefined;
-    }
-    return copy(entry.batch);
+    // The sweep runs here because remember() has no clock; AuthzAdmin recalls before every remember().
+    const t = now.getTime();
+    for (const [id, e] of this.remembered) if (e.expiresAt <= t) this.remembered.delete(id);
+    const entry = this.remembered.get(entryKey(domain, actorKey, key));
+    return entry ? copy(entry.batch) : undefined;
   }
 
   async remember(domain: string, actorKey: string, key: string, batch: RememberedBatch, expiresAt: Date, tx: AuthzTx): Promise<'stored' | 'exists'> {
     const undo = memoryTx(tx);
     const id = entryKey(domain, actorKey, key);
-    // remember() has no clock: recall() drops an entry once it expires, and AuthzAdmin recalls before it remembers.
+    // An expired entry is gone here: recall() sweeps them, and AuthzAdmin recalls before it remembers.
     if (this.remembered.has(id)) return 'exists';
     this.remembered.set(id, { batch: copy(batch), expiresAt: expiresAt.getTime() });
     undo.onRollback(() => this.remembered.delete(id));

@@ -56,3 +56,25 @@ export function isFunction(value: unknown): value is (...args: any[]) => unknown
 export function isNonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v !== '';
 }
+
+/**
+ * Type guard for arrays whose every element is a string.
+ *
+ * @param v - value to test
+ * @param options - `nonEmpty: true` also rejects an empty-string element ( an empty array still matches )
+ */
+export function isStringArray(v: unknown, options?: { nonEmpty?: boolean }): v is string[] {
+  if (!Array.isArray(v)) return false;
+  const nonEmpty = options?.nonEmpty === true;
+  return v.every((x) => typeof x === 'string' && (!nonEmpty || x !== ''));
+}
+
+/** Type guard for numbers other than `NaN` and `±Infinity`. */
+export function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+/** Type guard for safe integers `>= 0`. */
+export function isNonNegativeInt(v: unknown): v is number {
+  return Number.isSafeInteger(v) && (v as number) >= 0;
+}

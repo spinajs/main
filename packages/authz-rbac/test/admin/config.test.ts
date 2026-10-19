@@ -22,7 +22,7 @@ describe('authz-rbac config fragment', () => {
   it('exports the authz.admin.guard defaults as a plain mutable object and nothing else', async () => {
     const mod = (await import(pathToFileURL(compiled).href)) as Record<string, unknown>;
     expect(Object.keys(mod)).to.deep.equal(['default']);
-    expect(mod.default).to.deep.equal({ authz: { admin: { guard: { service: 'DefaultAdminGuard', privilegedPermission: 'users:update', protectSystemRole: true, preventEscalation: true, preventSelfLockout: true, preventLastPrivilegedRemoval: true } } } });
+    expect(mod.default).to.deep.equal({ authz: { admin: { guard: { service: 'DefaultAdminGuard', privilegedPermission: 'users:update' } } } });
     const cfg = mod.default as { authz: { admin: { guard: object } } };
     expect(Object.isFrozen(cfg) || Object.isFrozen(cfg.authz) || Object.isFrozen(cfg.authz.admin) || Object.isFrozen(cfg.authz.admin.guard)).to.equal(false);
   });

@@ -129,7 +129,7 @@ For every role of authz-rbac's `RoleStore` whose `assignable` is not `false`, it
 - A conditional `users:<action>` grant (for example `self`) works on `GET /users/:uuid`, `GET /users/byLogin/:login`, `PATCH /users/:uuid` and `DELETE /users/:uuid`, decided on the row. The list, create and restore refuse it.
 - Every row is read as `SYSTEM`; the list runs its query and count as `SYSTEM` after `requireEveryUser()`.
 - `Role` **replaces** the GLOBAL roles. Roles at other scopes are not touched. A list with the current roles plus one adds that one.
-- The update is not one transaction: the row is written first, then the role batch. The dry run before them catches every refusal `AuthzAdmin` can give in advance.
+- The update is not one transaction: the row is written first, then the role batch. The dry run before them catches every refusal `AuthzAdmin` can give in advance; if the batch still fails, the login and email are written back to their previous values and the error is returned.
 - A role-only change, and an `Email` or `Login` sent unchanged, need only `users:update`.
 - An `Email` or `Login` change of the caller's own account needs fresh authentication but not the credential admin guard (users' guard refuses one's own account).
 - `Metadata` is not accepted on `PATCH`; use the [metadata routes](04-user-metadata-routes.md).

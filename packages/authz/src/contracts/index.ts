@@ -1,4 +1,5 @@
 export * from './principal.js';
+export * from './link.js';
 export * from './resource.js';
 export * from './errors.js';
 export * from './permission.js';

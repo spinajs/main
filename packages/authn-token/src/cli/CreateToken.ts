@@ -1,14 +1,12 @@
 import { Log, Logger } from '@spinajs/log';
-import { Argument, Command, Option } from '@spinajs/cli';
+import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject } from '@spinajs/di';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { TokenService } from '@spinajs/authn/contracts';
 import type { TokenCreateOptions, TokenKind } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
-
-import { TokenCliCommand } from './TokenCliCommand.js';
 
 interface ICreateTokenOptions {
   name: string;
@@ -24,11 +22,13 @@ const CLI_KINDS: readonly string[] = ['pat', 'service'] satisfies readonly Token
 
 /**
  * A database error's message can quote the query's bindings, among them the new token's hash, or a duplicate value;
- * only the service's own validation errors are printed as they are.
+ * only the exceptions the service itself throws are printed as they are.
  */
+const PRINTABLE_ERRORS = [InvalidArgument, InvalidOption, InvalidOperation, UnexpectedServerError];
+
 function reasonOf(e: unknown): string {
-  if (e instanceof InvalidArgument || (e instanceof Error && e.constructor === Error && !('code' in e))) {
-    return e.message;
+  if (PRINTABLE_ERRORS.some((c) => e instanceof c)) {
+    return (e as Error).message;
   }
   const code = (e as { code?: unknown } | null)?.code;
   const name = e instanceof Error ? e.constructor.name : typeof e;
@@ -42,7 +42,7 @@ function reasonOf(e: unknown): string {
 @Option('-k, --kind <kind>', false, 'pat or service', 'pat')
 @Option('-p, --profile <profile>', false, 'profile to pin the token to')
 @Option('-e, --expires <expires>', false, "ISO expiry instant, in this machine's local time when it has no offset; omit for authn.token.defaultTtlDays from now")
-export class CreateToken extends TokenCliCommand {
+export class CreateToken extends CliCommand {
   @Logger('authn-token')
   protected Log: Log;
 
@@ -114,7 +114,7 @@ export class CreateToken extends TokenCliCommand {
     if (expires === undefined || expires === null) {
       const days = this.DefaultTtlDays;
       if (typeof days !== 'number' || !Number.isFinite(days) || days <= 0) {
-        throw new Error('authn.token.defaultTtlDays must be a positive number');
+        throw new InvalidOption('authn.token.defaultTtlDays must be a positive number');
       }
       return new Date(now.getTime() + days * DAY_MS);
     }

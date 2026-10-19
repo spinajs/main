@@ -19,7 +19,7 @@ const NAME = 'AuthzRbacUserRoles_2026_10_01_00_01_00';
 
 /**
  * Copies the 2.x `users.<roleColumn>` comma set into `$global` assignments of `user:<idColumn>`
- * (design §9.1, H8). The id column defaults to `Uuid`, the key of 3.0 user principals (§22).
+ * (docs/authz/migration-guide.md, section 7). The id column defaults to `Uuid`, the key of 3.0 user principals.
  * Idempotent through `authz_assignment_uq`. Without a `users` table it is a no-op, so apps without
  * the users package migrate cleanly.
  */

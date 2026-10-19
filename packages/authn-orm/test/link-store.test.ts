@@ -169,7 +169,7 @@ for (const kind of DB_KINDS) {
     });
 
     it("resolves the Orm's default connection from its container when given no driver", async () => {
-      const store = new DbIdentityLinkStore(undefined, { container: db.container });
+      const store = await db.container.resolve(DbIdentityLinkStore);
       const link = await store.link(ALICE, { provider: 'p', subject: 's' });
       expect(await new DbIdentityLinkStore(db.driver).find('p', 's')).to.deep.eq(link);
     });

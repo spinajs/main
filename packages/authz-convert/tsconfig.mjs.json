@@ -18,6 +18,9 @@
     },
     {
       "path": "../configuration/tsconfig.mjs.json"
+    },
+    {
+      "path": "../util/tsconfig.mjs.json"
     }
   ]
 }

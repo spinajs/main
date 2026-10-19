@@ -5,12 +5,13 @@ import { Configuration } from '@spinajs/configuration';
 import type { ConfigurationSource, IConfigLike } from '@spinajs/configuration';
 
 import { AuthzDomains, DefaultAuthzDomains, DefaultAuthzService, InProcessChangeBus, LogDecisionAudit, SystemClock } from '@spinajs/authz';
+import { isPlainObject as isRecord } from '@spinajs/util';
+
+import { TestLog, installTestLog } from './log.js';
 
 type Path = string | readonly string[];
 
 const segments = (path: Path): string[] => (Array.isArray(path) ? [...path] : (path as string).split('.').filter((s) => s !== ''));
-
-const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /** In-memory Configuration over a plain object; paths are dotted strings or segment arrays. */
 export class TestConfiguration extends Configuration {
@@ -77,10 +78,9 @@ const ROOT_CREATED: readonly Class<unknown>[] = [DefaultAuthzService, DefaultAut
 interface RootRegistration {
   readonly token: Class<unknown>;
   readonly factory: Factory<unknown> | Class<unknown>;
-  readonly createdKey: boolean;
 }
 
-let installed: { cachedBefore: Set<Class<unknown>>; config: TestConfiguration } | undefined;
+let installed: { cachedBefore: Set<Class<unknown>>; config: TestConfiguration; uninstallLog: () => void } | undefined;
 const rootRegistrations: RootRegistration[] = [];
 
 /** The installed TestConfiguration; throws before `installHost()`. */
@@ -89,15 +89,16 @@ export function config(): TestConfiguration {
   return installed.config;
 }
 
-/** Registers TestConfiguration in root (last, so it wins) and resolves it. */
+/** Registers TestConfiguration in root (last, so it wins) and resolves it, and {@link TestLog} when no Log is registered. */
 export async function installHost(): Promise<TestConfiguration> {
   if (installed) return installed.config;
   const root = DI.RootContainer;
   const cachedBefore = new Set(ROOT_CREATED.filter((t) => root.Cache.has(t)));
+  const uninstallLog = installTestLog();
   DI.register(TestConfiguration).as(Configuration);
   const cfg = (await DI.resolve(Configuration)) as unknown;
   if (!(cfg instanceof TestConfiguration)) throw new Error('container.resolve(Configuration) did not return the TestConfiguration');
-  installed = { cachedBefore, config: cfg };
+  installed = { cachedBefore, config: cfg, uninstallLog };
   return cfg;
 }
 
@@ -106,10 +107,11 @@ export async function uninstallHost(): Promise<void> {
   if (!installed) return;
   await disposeDomains();
   await resetRoot();
-  for (const r of rootRegistrations.splice(0)) unregisterFromRoot(r);
+  for (const r of rootRegistrations.splice(0)) DI.unregister(r.token, r.factory);
   const root = DI.RootContainer;
   for (const t of ROOT_CREATED) if (!installed.cachedBefore.has(t)) root.uncache(t);
   DI.unregister(TestConfiguration);
+  installed.uninstallLog();
   installed = undefined;
 }
 
@@ -117,8 +119,9 @@ export async function uninstallHost(): Promise<void> {
 export async function resetHost(): Promise<void> {
   await disposeDomains();
   await resetRoot();
-  for (const r of rootRegistrations.splice(0)) unregisterFromRoot(r);
+  for (const r of rootRegistrations.splice(0)) DI.unregister(r.token, r.factory);
   config().reset();
+  TestLog.clear();
 }
 
 /** The root AuthzDomains if root has created it, without creating it. */
@@ -153,31 +156,16 @@ export async function resetRoot(): Promise<void> {
   }
 }
 
-/**
- * Registers a factory or class in root; uninstallHost, resetHost or the returned function removes exactly that registration.
- * The undo reaches into the DI registry's internals; lanes should prefer the harness's `register` hook.
- */
+/** Registers a factory or class in root; uninstallHost, resetHost or the returned function removes exactly that registration. */
 export function registerInRoot<T>(token: Class<T>, factory: Factory<T> | Class<T>): () => void {
-  const root = DI.RootContainer;
-  const createdKey = !root.Registry.ownsRegistration(token);
-  root.register(factory).as(token);
-  const entry: RootRegistration = { token: token as Class<unknown>, factory: factory as Factory<unknown> | Class<unknown>, createdKey };
+  DI.register(factory).as(token);
+  const entry: RootRegistration = { token: token as Class<unknown>, factory: factory as Factory<unknown> | Class<unknown> };
   rootRegistrations.push(entry);
   return () => {
     const i = rootRegistrations.indexOf(entry);
     if (i >= 0) rootRegistrations.splice(i, 1);
-    unregisterFromRoot(entry);
+    DI.unregister(entry.token, entry.factory);
   };
-}
-
-function unregisterFromRoot(entry: RootRegistration): void {
-  const root = DI.RootContainer;
-  const list = root.Registry.getTypes(entry.token, false);
-  if (!list) return;
-  const i = list.indexOf(entry.factory);
-  if (i >= 0) list.splice(i, 1);
-  // Registry.unregister matches by name, which every arrow factory shares; drop the key we created.
-  if (entry.createdKey && list.length === 0) (root.Registry as unknown as { registry: Map<string, unknown[]> }).registry.delete(entry.token.name);
 }
 
 /** A factory registration for one instance: `c.register(instance(x)).as(Token)`. */

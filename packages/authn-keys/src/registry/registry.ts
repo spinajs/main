@@ -1,10 +1,13 @@
 import { createHash } from 'node:crypto';
-import { Inject, Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { AuthnEventSink, AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnEvent, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
+import { AuthnAudit } from '@spinajs/authn/audit';
+import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
+import { AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
+import type { AuthnContext, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
 import { _between, _contains, _is_string, _try_check_arg } from '@spinajs/util';
+import { InvalidArgument, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { challengeId, challengeSecretPurpose, isChallengeNonce, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { checkPublicJwk, isValidKid, thumbprint } from '../jwk/keys.js';
 import { keysOptionsOf } from '../options/options.js';
@@ -27,7 +30,7 @@ function ownerOf(v: unknown): KeyOwner {
   const [typeOk, type] = _try_check_arg(_is_string(_contains(OWNER_TYPES)))(o.type, 'owner.type');
   const [idOk, id] = _try_check_arg(_is_string(_between(1, MAX_OWNER_ID)))(o.id, 'owner.id');
   if (!typeOk || !idOk) {
-    throw new TypeError('a key owner is a user, a service or an agent with an id of 1-64 characters');
+    throw new InvalidArgument('a key owner is a user, a service or an agent with an id of 1-64 characters');
   }
   return Object.freeze({ type: type as KeyOwner['type'], id: id as string });
 }
@@ -64,36 +67,62 @@ export const isUsableKey = (key: KeyRecord, now: Date): boolean => !key.revokedA
  */
 export const loginChallengeIdentity = (kid: string): IdentityRef => ({ type: 'key', id: isValidKid(kid) ? kid : createHash('sha256').update(kid, 'utf8').digest('hex') });
 
+/** A test seam for building the registry with `new`: each field replaces what DI injects. */
+export interface DefaultKeyRegistryDeps {
+  readonly store?: KeyStore;
+  readonly secrets?: SecretStore;
+  readonly throttle?: AuthnThrottle;
+  /** Published to instead of the container's AuthnAudit. */
+  readonly audit?: AuthnAuditor;
+  /** Complete options that bypass the configuration. */
+  readonly options?: KeysOptions;
+}
+
 /** KeyRegistry over a KeyStore, challenges in SecretStore (lane notes D7, D12). */
 @Injectable(KeyRegistry)
-@Inject(KeyStore, SecretStore, AuthnThrottle, Array.ofType(AuthnEventSink))
 export class DefaultKeyRegistry extends KeyRegistry {
   @Config('authn.keys')
   protected KeysConfig: KeysConfig;
 
+  @Autoinject(AuthnAudit)
+  protected Audit: AuthnAudit;
+
+  @Autoinject(KeyStore)
+  protected Store: KeyStore;
+
+  @Autoinject(SecretStore)
+  protected Secrets: SecretStore;
+
+  @Autoinject(AuthnThrottle)
+  protected Throttle: AuthnThrottle;
+
   private readonly stamped = new Map<string, number>();
 
-  constructor(
-    protected readonly store: KeyStore,
-    protected readonly secrets: SecretStore,
-    protected readonly throttle: AuthnThrottle,
-    /** Read at publish time, so a sink may be added after the registry is built. */
-    protected readonly sinks: readonly AuthnEventSink[],
-    /** A test seam: complete options that bypass the configuration. */
-    protected readonly Options?: KeysOptions,
-  ) {
+  /** Kids whose last stamp is remembered; past this the least recently stamped is forgotten and costs one extra write. */
+  protected readonly maxStamped: number = 10_000;
+
+  constructor(protected readonly Deps?: DefaultKeyRegistryDeps) {
     super();
   }
 
-  protected get options(): KeysOptions {
-    return keysOptionsOf(this.Options ?? this.KeysConfig);
+  protected get store(): KeyStore {
+    return this.Deps?.store ?? this.Store;
   }
 
-  protected async publish(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
-    const event: AuthnEvent = { at: ctx.now, ...(ctx.ip ? { ip: ctx.ip } : {}), ...(ctx.userAgent ? { userAgent: ctx.userAgent } : {}), ...e };
-    for (const sink of this.sinks) {
-      await sink.publish(event);
-    }
+  protected get secrets(): SecretStore {
+    return this.Deps?.secrets ?? this.Secrets;
+  }
+
+  protected get throttle(): AuthnThrottle {
+    return this.Deps?.throttle ?? this.Throttle;
+  }
+
+  protected get options(): KeysOptions {
+    return keysOptionsOf(this.Deps?.options ?? this.KeysConfig);
+  }
+
+  protected publish(ctx: AuthnContext, e: AuthnEventBody): Promise<void> {
+    return (this.Deps?.audit ?? this.Audit).publishIn(ctx, e);
   }
 
   /** The new key's signature over a 'register' challenge issued to this user; the challenge is redeemed only after the signature holds. */
@@ -136,7 +165,7 @@ export class DefaultKeyRegistry extends KeyRegistry {
     } else {
       const actor = principalRefOf(r.actor);
       if (!actor) {
-        throw new TypeError('a service or agent key is registered by an actor (admin route or CLI)');
+        throw new InvalidArgument('a service or agent key is registered by an actor (admin route or CLI)');
       }
       createdBy = actor;
     }
@@ -187,6 +216,10 @@ export class DefaultKeyRegistry extends KeyRegistry {
     if (last !== undefined && at.getTime() - last < TOUCH_INTERVAL_MS && at.getTime() >= last) {
       return;
     }
+    this.stamped.delete(kid);
+    if (this.stamped.size >= this.maxStamped) {
+      this.stamped.delete(this.stamped.keys().next().value!);
+    }
     this.stamped.set(kid, at.getTime());
     await this.store.touch(kid, at);
   }
@@ -197,7 +230,7 @@ export class DefaultKeyRegistry extends KeyRegistry {
     if (r.purpose === 'register') {
       const owner = ownerOf(r.owner);
       if (owner.type !== 'user') {
-        throw new TypeError('register challenges are issued to users; services and agents register without a proof');
+        throw new InvalidArgument('register challenges are issued to users; services and agents register without a proof');
       }
       identity = owner;
     } else if (r.purpose === 'login' && typeof r.kid === 'string') {
@@ -209,16 +242,16 @@ export class DefaultKeyRegistry extends KeyRegistry {
       }
       identity = loginChallengeIdentity(r.kid);
     } else {
-      throw new TypeError('a key challenge is { purpose: register, owner } or { purpose: login, kid }');
+      throw new InvalidArgument('a key challenge is { purpose: register, owner } or { purpose: login, kid }');
     }
     const { ttlSeconds: ttl, audience } = this.options.challenge;
     if (audience === null) {
-      throw new Error('authn.keys.challenge.audience (or authn.keys.assertion.audience) must be set to issue key challenges');
+      throw new InvalidOption('authn.keys.challenge.audience (or authn.keys.assertion.audience) must be set to issue key challenges');
     }
     const rid = newChallengeRid();
     const nonce = await this.secrets.issue(identity, challengeSecretPurpose(rid), ttl);
     if (!isChallengeNonce(nonce)) {
-      throw new Error('the SecretStore must issue base64url secrets of at least 128 bits for key challenges');
+      throw new UnexpectedServerError('the SecretStore must issue base64url secrets of at least 128 bits for key challenges');
     }
     return { ok: true, challenge: Object.freeze({ id: challengeId(rid, nonce), nonce, expiresAt: new Date(ctx.now.getTime() + ttl * 1000) }) };
   }
