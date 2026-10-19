@@ -447,8 +447,9 @@ password, a token or a reset code never comes back in a response or lands in a l
   ```
 
 - **Paths are normalised on every provider** (`normalizeFsPath` from `@spinajs/fs`, against `fs.BasePath`). A path that
-  climbs above the root, holds a NUL byte or is a drive or UNC path outside the base path throws `InvalidArgument`
-  (400) before any IO, with or without middlewares. `fsNative` takes `BasePath` from `Options.basePath`, the working
+  climbs above the root, holds a NUL byte, is a drive or UNC path outside the base path, or has a segment holding `:`
+  or ending in `.` or a space (Win32 aliases) throws `InvalidArgument` (400) before any IO, with or without
+  middlewares. `fsNative` takes `BasePath` from `Options.basePath`, the working
   directory without one.
 - `FsMiddleware` (new) runs `before` and `after` every public file method of every provider, in ascending `order`.
   Register it by class (`@Injectable(FsMiddleware)`): a factory or an instance is not run. Middlewares are resolved on
