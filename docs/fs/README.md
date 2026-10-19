@@ -36,7 +36,7 @@ npm install @spinajs/fs
 | File hasher | `FileHasher`, `PerInstanceCheck` per algorithm | `DefaultFileHasher` | [File hashing](09-file-hashing.md) |
 | File metadata | `FileInfoService`, singleton | `DefaultFileInfo` | [File metadata](10-file-metadata.md) |
 | Boot service | `fsService`, singleton | `fsService` | [Boot service and provider lookup](08-boot-service-and-provider-lookup.md) |
-| Provider lookup | `'__file_provider__'` factory, registered by `FsBootsrapper` | name lookup in `'__file_provider_instance__'` | [Boot service and provider lookup](08-boot-service-and-provider-lookup.md#provider-lookup-factory) |
+| Provider lookup | `'__file_provider__'` factory, registered by `FsBootstrapper` | name lookup in `'__file_provider_instance__'` | [Boot service and provider lookup](08-boot-service-and-provider-lookup.md#provider-lookup-factory) |
 
 ## Quick start
 

@@ -2,7 +2,8 @@ import { DI } from '@spinajs/di';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { UnexpectedServerError } from '@spinajs/exceptions';
-import { OrmDriver, RawQuery } from '@spinajs/orm';
+import { OrmDriver, RawQuery, SqlExpressions } from '@spinajs/orm';
+import { MySqlSqlExpressions } from '@spinajs/orm-mysql';
 import { PasswordCredentialStore } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
@@ -27,7 +28,7 @@ async function storeRaw(ref: IdentityRef, value: string): Promise<void> {
  */
 class ChangedRowsMysqlDriver {
   public readonly Options = { Driver: 'orm-driver-mysql' };
-  public readonly Container = { resolve: () => ({ quote: (n: string) => `\`${n}\`` }) };
+  public readonly Container = { resolve: (type: unknown) => (type === SqlExpressions ? new MySqlSqlExpressions() : { quote: (n: string) => `\`${n}\`` }) };
   public readonly conditions: string[] = [];
   public updates = 0;
 

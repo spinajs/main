@@ -1,11 +1,11 @@
-import { AuthzConfigError, GLOBAL, ResourceAdapter, parsePermission, requestScope } from '@spinajs/authz';
+import { AuthzConfigError, GLOBAL, ResourceAdapter, parsePermission, requestScope, resourceKey } from '@spinajs/authz';
 import type { PermissionDef, RelationResolver, ResourceRef, ResourceType } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 import { ModelBase } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { readAncestors } from './ancestors/read.js';
-import { driverOf, idText, refKey } from './ids.js';
+import { driverOf, idText } from './ids.js';
 import { classesOf, entryOf, registeredTypes } from './registry.js';
 import { ormRelations } from './relations.js';
 import { findRows } from './rows.js';
@@ -62,20 +62,20 @@ export class OrmResourceAdapter extends ResourceAdapter<ModelBase> {
 
   ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null> {
     if (ref.id === undefined || ref.id === null) return Promise.resolve(typeLevel(ref));
-    return memo(`${MEMO}ancestors:${refKey(ref)}`, async () => (await this.ancestorsMany([ref])).get(refKey(ref)) ?? null);
+    return memo(`${MEMO}ancestors:${resourceKey(ref)}`, async () => (await this.ancestorsMany([ref])).get(resourceKey(ref)) ?? null);
   }
 
   async ancestorsMany(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, readonly ResourceRef[] | null>> {
     const out = new Map<string, readonly ResourceRef[] | null>();
     const nodes: ResourceRef[] = [];
     for (const r of refs) {
-      if (r.id === undefined || r.id === null) out.set(refKey(r), typeLevel(r));
+      if (r.id === undefined || r.id === null) out.set(resourceKey(r), typeLevel(r));
       else nodes.push({ type: r.type, id: String(r.id) });
     }
     const found = await findRows(nodes);
     const byDriver = new Map<OrmDriver, ResourceRef[]>();
     for (const n of nodes) {
-      const f = found.get(refKey(n));
+      const f = found.get(resourceKey(n));
       if (!f) continue;
       const d = driverOf(f.model);
       byDriver.set(d, [...(byDriver.get(d) ?? []), n]);
@@ -83,7 +83,7 @@ export class OrmResourceAdapter extends ResourceAdapter<ModelBase> {
     const rows = new Map<string, readonly { ancestor_type: string; ancestor_id: string }[]>();
     for (const [driver, list] of byDriver) for (const [k, v] of await readAncestors(driver, list)) rows.set(k, v);
     for (const n of nodes) {
-      const key = refKey(n);
+      const key = resourceKey(n);
       if (!found.has(key)) {
         out.set(key, null);
         continue;
@@ -96,7 +96,7 @@ export class OrmResourceAdapter extends ResourceAdapter<ModelBase> {
 
   load(ref: ResourceRef): Promise<unknown | null> {
     if (ref.id === undefined || ref.id === null) return Promise.resolve(null);
-    return memo(`${MEMO}row:${refKey(ref)}`, async () => (await findRows([ref])).get(refKey(ref))?.row ?? null);
+    return memo(`${MEMO}row:${resourceKey(ref)}`, async () => (await findRows([ref])).get(resourceKey(ref))?.row ?? null);
   }
 
   async loadMany(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, unknown>> {

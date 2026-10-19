@@ -209,7 +209,7 @@ Cuts **tail latency** by racing several attempts, staggered by `Delay`; the firs
 })
 ```
 
-If **every** attempt fails, the last underlying error is rethrown (or `HedgingException` when there is no error to surface).
+If **every** attempt is handled, the last outcome wins: its error is rethrown, or its handled result is returned. `HedgingException` is thrown only when there is no outcome at all, which does not happen in practice.
 
 ### Concurrency limiter — `addConcurrencyLimiter(options | number)`
 
@@ -266,7 +266,7 @@ new ResiliencePipelineBuilder().addStrategy(logStrategy).addRetry().build();
 | `BrokenCircuitException` | breaker is open |
 | `IsolatedCircuitException` | breaker manually isolated (subtype of `BrokenCircuitException`) |
 | `RateLimiterRejectedException` | concurrency limit + queue full |
-| `HedgingException` | all hedged attempts failed with no error to surface |
+| `HedgingException` | hedging ended with no outcome to surface (not reached in practice) |
 | `CanceledException` | an operation/delay was aborted via its signal |
 
 All extend `@spinajs/exceptions`' `Exception` (an `Error`).

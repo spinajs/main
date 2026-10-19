@@ -250,31 +250,27 @@ export function createActionHandler(
       await storage.run(req.storage, async () => {
         const args = (await extractRouteArgs(route, req, res, controller.constructor.name)).concat([req, res, next]);
 
+        let result: unknown;
+
         try {
-          const result = controller[route.Method as string].call(controller, ...args);
+          result = controller[route.Method as string].call(controller, ...args);
 
           if (isPromise(result)) {
-            result
-              .then((r: unknown) => {
-                if (r instanceof Response) {
-                  enabledMiddlewares.forEach((x) => x.onResponse(r, route, controller));
-                }
-                res.locals.response = r;
-                next();
-              })
-              .catch((err: unknown) => {
-                next(err);
-              });
-          } else {
-            if (result instanceof Response) {
-              enabledMiddlewares.forEach((x) => x.onResponse(result, route, controller));
+            result = await result;
+          }
+
+          if (result instanceof Response) {
+            for (const x of enabledMiddlewares) {
+              await x.onResponse(result, route, controller);
             }
-            res.locals.response = result;
-            next();
           }
         } catch (err) {
           next(err);
+          return;
         }
+
+        res.locals.response = result;
+        next();
       });
     } catch (err) {
       next(err);

@@ -22,10 +22,11 @@ Use it for user-facing text stored in your own tables: product names, category t
 
 1. `guessLanguage(this.Language)` picks the language: the one set by `translate()` or `setLanguage()`, else the async-storage language, else `intl.defaultLocale`.
 2. When it equals `intl.defaultLocale`, `ModelBase.update(data)` runs unchanged and writes the base table.
-3. Otherwise the model's columns are split:
-   - Columns without `Translate`: `toSql()` minus the translated columns go into one `UPDATE <table> ... WHERE <pk>`. When the descriptor has `@UpdatedAt`, that column is set to `new Date()` first.
-   - Columns with `Translate`: one `IntlResource` per column is written with `insert(InsertBehaviour.InsertOrUpdate)`, one statement per column, in sequence.
-4. It returns `{ RowsAffected: 0, LastInsertId: 0 }` in the non-default branch, whatever was written.
+3. Otherwise `data`, when given, is hydrated into the model and `changeSet()` lists the changed columns, primary key excluded. With no change it returns `{ RowsAffected: 0, LastInsertId: 0 }` and writes nothing.
+4. The changed columns are split:
+   - Columns without `Translate`: one `UPDATE <table> ... WHERE <pk>` with only those columns. When the descriptor has `@UpdatedAt`, that column is set to `DateTime.now()` and always written.
+   - Columns with `Translate`: one `IntlResource` per changed column is written with `insert(InsertBehaviour.InsertOrUpdate)`, one statement per column, in sequence.
+5. The model takes a new snapshot. It returns the `UPDATE` result, or `{ RowsAffected: 1, LastInsertId: 0 }` when only translated columns changed.
 
 ```mermaid
 sequenceDiagram
@@ -39,8 +40,8 @@ sequenceDiagram
   alt language is intl.defaultLocale
     M->>DB: ModelBase.update(data)
   else other language
-    M->>DB: UPDATE non-translated columns WHERE pk
-    loop each @Translate column
+    M->>DB: UPDATE changed non-translated columns WHERE pk
+    loop each changed @Translate column
       M->>R: INSERT ... ON DUPLICATE UPDATE (ResourceId, Resource, Column, Lang, Value)
     end
   end
@@ -138,15 +139,14 @@ export async function deleteCategory(id: number): Promise<void> {
 
 - The `Resource` value is the class name (`this.constructor.name`). Renaming a model class, or a bundler that mangles class names, orphans its translations.
 - `ResourceId` is an `int` column and only the first primary key column is used. Models with string, UUID or composite keys cannot be translated.
-- `update(data)` ignores `data` in the non-default branch. Assign properties before calling `update()`.
-- In the non-default branch `update()` writes every non-translated column and every translated column, changed or not. A translated column you did not touch is saved with its current value, which is the default-language text when the entity was not translated first.
+- In the non-default branch `update()` writes only changed columns, judged against the snapshot taken when the entity was loaded or last saved. A model loaded by a translated query has its snapshot from before the translation was applied, so its translated columns count as changed and are written back with the values they already have.
 - The non-default branch issues one `UPDATE` plus one upsert per translated column, with no transaction. Wrap the call in `Model.transaction()` when a partial write matters.
 - `insert()` is not overridden: a new entity always writes its translated columns to the base table, whatever the current language.
 - `destroy()` is not overridden: the entity's `intl_resources` rows stay behind.
 - `translate()` assigns only the columns that have a row. A column without a row in that language keeps its current value; there is no fallback language.
 - `translate(defaultLocale)` loads no rows, so it does not restore base values on an entity translated earlier. Reload the entity instead.
 - `update()` reads `intl.defaultLocale` through `DI.get(Configuration)`, so the configuration must be resolved before the first save.
-- Inside an async-storage store whose `language` is not the default, every model select, including the `IntlResource` select of `translate()`, passes through [`IntlQueryMiddleware`](04-automatic-translation.md). In the current source that path throws; load entities outside such a store, or see [Automatic translation](04-automatic-translation.md#important-behaviour).
+- Inside an async-storage store whose `language` is not the default, every model select passes through [`IntlQueryMiddleware`](04-automatic-translation.md). The `IntlResource` select of `translate()` has no `@Translate` columns, so no translation is attached to it.
 
 ## Best practices
 
@@ -158,28 +158,12 @@ export async function deleteCategory(id: number): Promise<void> {
 ## Patterns and antipatterns
 
 ```ts
-// Don't: `data` is dropped for a non-default language, so the English name is never saved
-product.setLanguage('en_GB');
+// Don't: with no language set and no store language, the English name overwrites the base-table value
 await product.update({ Name: 'Desk lamp' });
 
 // Do
 product.setLanguage('en_GB');
-product.Name = 'Desk lamp';
-await product.update();
-```
-
-```ts
-// Don't: Description was never translated, so its Polish text is saved as the English translation too
-const product = await Product.getOrFail(id);
-product.setLanguage('en_GB');
-product.Name = 'Desk lamp';
-await product.update();
-
-// Do: load the English values first, then edit
-const product = await Product.getOrFail(id);
-await product.translate('en_GB');
-product.Name = 'Desk lamp';
-await product.update();
+await product.update({ Name: 'Desk lamp' });
 ```
 
 ## Examples

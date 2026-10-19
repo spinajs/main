@@ -125,4 +125,12 @@ export class ScriptedSocketDomains extends AuthzDomains {
   public names(): readonly string[] {
     return ['root', 'tenant'];
   }
+
+  public describe(): undefined {
+    return unused('ScriptedSocketDomains.describe');
+  }
+
+  public lineage(): readonly string[] {
+    return unused('ScriptedSocketDomains.lineage');
+  }
 }

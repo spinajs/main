@@ -397,12 +397,9 @@ describe('LocalPasswordStrategy', function () {
   });
 
   describe('throttle keys (D7)', () => {
-    it('account is the normalised login, account-ip adds ctx.ip', async () => {
+    it('only the account key, the normalised login: the core builds account-ip itself', async () => {
       const { strategy } = await setup();
-      expect(strategy.throttleKeys(pw('  Alice@Example.COM ', PASSWORD), CTX)).to.deep.equal([
-        { kind: 'account', value: 'alice@example.com' },
-        { kind: 'account-ip', value: 'alice@example.com|203.0.113.7' },
-      ]);
+      expect(strategy.throttleKeys(pw('  Alice@Example.COM ', PASSWORD), CTX)).to.deep.equal([{ kind: 'account', value: 'alice@example.com' }]);
     });
 
     it('NFKC-normalises the login', async () => {
@@ -411,13 +408,10 @@ describe('LocalPasswordStrategy', function () {
       expect(account).to.deep.equal({ kind: 'account', value: 'alice' });
     });
 
-    it('without an ip the account-ip key ends with an empty ip', async () => {
+    it('the keys do not depend on the ip', async () => {
       const { strategy } = await setup();
       const { ip: _ip, ...noIp } = CTX;
-      expect(strategy.throttleKeys(pw(LOGIN, PASSWORD), noIp)).to.deep.equal([
-        { kind: 'account', value: LOGIN },
-        { kind: 'account-ip', value: `${LOGIN}|` },
-      ]);
+      expect(strategy.throttleKeys(pw(LOGIN, PASSWORD), noIp)).to.deep.equal(strategy.throttleKeys(pw(LOGIN, PASSWORD), CTX));
     });
 
     it('no key contains the password', async () => {

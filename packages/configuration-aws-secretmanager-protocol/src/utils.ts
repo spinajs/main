@@ -22,6 +22,7 @@ interface CacheEntry {
 export class TtlCache {
   private readonly entries = new Map<string, CacheEntry>();
   private readonly inFlight = new Map<string, Promise<unknown>>();
+  private generation = 0;
 
   constructor(private readonly now: () => number = () => Date.now()) {}
 
@@ -46,15 +47,20 @@ export class TtlCache {
       return pending;
     }
 
-    const promise = (async () => {
+    const generation = this.generation;
+    let promise!: Promise<unknown>;
+    promise = (async () => {
       try {
         const value = await factory();
-        if (ttl > 0) {
+        // a clear() during the fetch must not be undone by the stale result
+        if (ttl > 0 && generation === this.generation) {
           this.entries.set(key, { value, expiresAt: this.now() + ttl });
         }
         return value;
       } finally {
-        this.inFlight.delete(key);
+        if (this.inFlight.get(key) === promise) {
+          this.inFlight.delete(key);
+        }
       }
     })();
 
@@ -66,6 +72,7 @@ export class TtlCache {
    * Drops all cached values and in-flight references.
    */
   public clear(): void {
+    this.generation++;
     this.entries.clear();
     this.inFlight.clear();
   }
@@ -236,7 +243,12 @@ export function assignNested(target: Record<string, unknown>, keys: string[], va
     }
     node = node[key] as Record<string, unknown>;
   }
-  node[keys[keys.length - 1]] = value;
+  const last = keys[keys.length - 1];
+  // leaf/branch collision (/a/b and /a/b/c): the branch always wins, regardless of arrival order
+  if (typeof node[last] === 'object' && node[last] !== null && !Array.isArray(node[last])) {
+    return;
+  }
+  node[last] = value;
 }
 
 /**
@@ -264,6 +276,22 @@ export function extractValue(value: string | Buffer | undefined, jsonPath?: stri
     throw new Error(`Cannot extract '${jsonPath}': value is not valid JSON (${err instanceof Error ? err.message : String(err)})`);
   }
   return getByPath(parsed, jsonPath);
+}
+
+/**
+ * Extracts `jsonPath` from a fetched value, routing extraction failures (eg. invalid JSON) through
+ * the `?default=` / `?optional=true` fallback. A missing key resolves to an empty string.
+ */
+export function extractWithFallback(value: string | Buffer | undefined, jsonPath: string, params: URLSearchParams, source: string, id: string): unknown {
+  try {
+    return extractValue(value, jsonPath) ?? '';
+  } catch (err) {
+    const fallback = resolveFallback(params, source, id, err);
+    if (fallback.handled) {
+      return fallback.value;
+    }
+    throw err;
+  }
 }
 
 /**

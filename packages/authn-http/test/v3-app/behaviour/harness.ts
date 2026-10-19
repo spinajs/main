@@ -32,7 +32,7 @@ import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, Harn
 
 import { AuthnPrincipalResolver } from '../../../src/api.js';
 import { AUTHN_PROBE_PATH, resetAuthnProbeHits } from '../../v3/probe.js';
-import { PORT, bind, bootApp, releaseHttpServer, startServer, stopApp, switchHooksOn, useFakes } from '../app.js';
+import { appPort, bind, bootApp, releaseHttpServer, startServer, stopApp, switchHooksOn, useFakes } from '../app.js';
 import type { AppFakes } from '../app.js';
 
 /**
@@ -58,8 +58,6 @@ export const SUPPORTED_CONFIG: readonly string[] = [
   'authn.token.agentMaxTtlMinutes',
   'http.cors',
 ];
-
-const ORIGIN = `http://127.0.0.1:${PORT}`;
 
 // Only the modules the harness needs, loaded from the authn-token build rather than through its root.
 const TOKEN_LIB = new URL('../../../../authn-token/lib/mjs/', import.meta.url);
@@ -372,7 +370,7 @@ function send(req: HttpRequest): Promise<HttpResponse> {
     headers['content-length'] = String(payload.length);
   }
   return new Promise((resolve, reject) => {
-    const r = request({ host: '127.0.0.1', port: PORT, method: req.method, path: req.path, headers, agent: false }, (res) => {
+    const r = request({ host: '127.0.0.1', port: appPort(), method: req.method, path: req.path, headers, agent: false }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (chunk: Buffer) => chunks.push(chunk));
       res.on('error', reject);
@@ -533,7 +531,7 @@ async function buildHarness(ctx: HarnessContext, lane?: HarnessLane): Promise<Ha
     const endFor = async (id: IdentityRef) => {
       await (await impersonation()).endFor(id);
     };
-    const http: HttpPort = { send, origin: ORIGIN, sessionCookie: sessionCookie(), socketAddress: '127.0.0.1', probePath: `/${AUTHN_PROBE_PATH}`, routes: lane ? { ...ROUTES, ...lane.routes } : ROUTES, volatileBodyFields: [] };
+    const http: HttpPort = { send, origin: `http://127.0.0.1:${appPort()}`, sessionCookie: sessionCookie(), socketAddress: '127.0.0.1', probePath: `/${AUTHN_PROBE_PATH}`, routes: lane ? { ...ROUTES, ...lane.routes } : ROUTES, volatileBodyFields: [] };
 
     const h: Harness = {
       service,

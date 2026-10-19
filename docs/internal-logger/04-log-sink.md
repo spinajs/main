@@ -8,7 +8,7 @@
 2. After `Configuration` is resolved, `InternalLogger` calls `DI.resolve('__log__', [loggerName])` for each entry: in [`writeLogEntry()`](01-logging-api.md#how-it-works) and in the [buffer flush](02-buffer-flush-and-exit-dump.md#how-it-works).
 3. The container calls the last registered factory with the container and `loggerName`. A factory runs on every resolve; caching is the factory's job.
 4. `InternalLogger` calls `logger.write(entry)` on the returned object and reports rejected results with `console.error`.
-5. When nothing is registered, `DI.resolve('__log__', ...)` returns `null`. `writeLogEntry()` buffers the entry; the flush drops it.
+5. When nothing is registered, `DI.resolve('__log__', ...)` returns `null`. `writeLogEntry()` and the flush keep the entry in the buffer.
 
 `InternalLogger` does not resolve `__log__` before `Configuration` is resolved, so a factory may assume configuration is loaded.
 
@@ -68,7 +68,7 @@ InternalLogger.info({ port: 8080 }, 'Listening on ${port}', 'Http');
 
 - A factory runs on every `DI.resolve('__log__', ...)`, and `InternalLogger.writeLogEntry()` resolves it twice per forwarded entry. Keep the factory cheap.
 - Registration order matters: importing `@spinajs/log` after your registration makes the `@spinajs/log` factory the last one, and it wins.
-- `InternalLogger` passes the logger name as the only constructor option. An entry from the [string call form](01-logging-api.md#call-forms) with two arguments has the name `null`.
+- `InternalLogger` passes the logger name as the only constructor option.
 - A sink's rejected `write()` is reported with `console.error` and the entry is gone; it is not buffered again.
 
 ## Best practices

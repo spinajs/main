@@ -79,4 +79,11 @@ describe('templates', () => {
     expect(result).to.include('world');
     expect(result).to.include('<!doctype html>');
   });
+
+  it('should resolve relative mj-include against the template folder', async () => {
+    const t = await tp();
+    const result = await t.render(dir('templates/inc/main.mjml'), {});
+
+    expect(result).to.include('included-part');
+  });
 });

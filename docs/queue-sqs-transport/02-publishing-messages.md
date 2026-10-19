@@ -97,7 +97,7 @@ The body is the message object as JSON. A job emitted with `ResizeImageJob.emit(
 - Route every message type explicitly in `queue.routing`. The default-channel fallback logs a warning on every emit.
 - Keep message fields JSON-safe. Class instances, `Map`, `Set` and `BigInt` do not survive `JSON.stringify`; only `CreatedAt` is turned back into a `DateTime` on receive.
 - Keep payloads small and pass ids. The body counts against the SQS message size limit; store large data in S3 or the database.
-- Give each job type its own queue. The consumer side allows one subscription per queue URL; see [Consuming messages](03-consuming-messages.md#important-behaviour).
+- Give each job type its own queue. Types that share a URL share one poll loop and are handled one at a time; see [Consuming messages](03-consuming-messages.md#important-behaviour).
 
 ## Patterns and antipatterns
 

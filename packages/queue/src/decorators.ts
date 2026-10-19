@@ -1,3 +1,4 @@
+import { NewInstance } from '@spinajs/di';
 import type { JobOptions } from './hooks.js';
 
 export interface IEventOption {
@@ -26,6 +27,9 @@ export function Job(opts?: JobOptions) {
         target,
       );
     }
+
+    // consume() builds every delivery with DI.resolve(); a singleton would carry one message's fields into the next.
+    NewInstance()(target);
   };
 }
 
@@ -55,5 +59,7 @@ export function Event(options?: IEventOption) {
         target,
       );
     }
+
+    NewInstance()(target);
   };
 }

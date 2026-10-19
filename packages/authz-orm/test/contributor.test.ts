@@ -1,10 +1,12 @@
 import * as chai from 'chai';
 import 'mocha';
+import sinon from 'sinon';
 
 import { AuthzConfigError, AuthzContributor } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
-import type { Orm, OrmDriver } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
+import type { OrmDriver } from '@spinajs/orm';
 
 import { AuthzOrmContributor, checkResourceConnections, storesConnection } from '../src/contributor.js';
 import { AccessResource, Parent } from '../src/index.js';
@@ -27,6 +29,7 @@ describe('authz-orm resource connection check', function () {
   });
 
   afterEach(async () => {
+    sinon.restore();
     await db.clear();
   });
 
@@ -55,5 +58,20 @@ describe('authz-orm resource connection check', function () {
     expect(out.listTypes).to.include('task');
     await (await testHost.domains()).service('root');
     await testHost.resetRoot();
+  });
+
+  it('gives listTypes even when the ORM is not resolved at domain boot, skipping only the connection check', async () => {
+    await db.define({ name: 'Task', columns: { project_id: 'TEXT' }, decorate: (c) => AccessResource('task')(c) });
+    const isResolved = DI.RootContainer.isResolved.bind(DI.RootContainer);
+    sinon.stub(DI.RootContainer, 'isResolved').callsFake(((t: unknown) => (t === Orm ? false : isResolved(t as never))) as never);
+    // A connection the check would refuse: it must not run without the ORM.
+    const cfg = testHost.config();
+    cfg.set('authz.rbac.connection', 'nope');
+    try {
+      const out = await new AuthzOrmContributor().contribute('root');
+      expect(out.listTypes).to.include('task');
+    } finally {
+      cfg.unset('authz.rbac.connection');
+    }
   });
 });

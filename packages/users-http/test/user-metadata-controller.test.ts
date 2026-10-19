@@ -106,6 +106,25 @@ describe('UserMetadataController', function () {
       expect((await client.get('/user/metadata/user:niceName')).body.Value).to.eq('Owner');
     });
 
+    it('returns an own entry whose key is "metadata"', async () => {
+      expect((await client.post('/user/metadata', dto('metadata', 'mine'))).status).to.eq(200);
+
+      const res = await client.get('/user/metadata/metadata');
+
+      expect(res.status, res.text).to.eq(200);
+      expect(res.body.Value).to.eq('mine');
+    });
+
+    it('caps the page size', async () => {
+      for (let i = 0; i < 101; i++) {
+        await UserMetadataBase.insert({ user_id: owner.Id, Key: `bulk-${i}`, Value: 'x', Type: 'STRING' } as any);
+      }
+
+      const res = await client.get(`/user/metadata${q({ pagination: { page: 0, limit: 1000 } })}`);
+
+      expect(res.body).to.have.lengthOf(100);
+    });
+
     it('does not return another user entry by key', async () => {
       expect((await client.get('/user/metadata/secret')).status).to.eq(404);
     });

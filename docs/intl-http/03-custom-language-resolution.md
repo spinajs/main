@@ -1,10 +1,10 @@
 # Custom language resolution
 
-Change how the request language is chosen without replacing the shipped services: add a middleware that refines `req.storage.language`, add your own argument decorator that injects it, or read it from any service. To replace the shipped services instead, see [`IntHttpMiddleware`](01-request-language.md#inthttpmiddleware-custom-implementation) and [`LangArgument`](02-lang-route-argument.md#langargument-custom-implementation).
+Change how the request language is chosen without replacing the shipped services: add a middleware that refines `req.storage.language`, add your own argument decorator that injects it, or read it from any service. To replace the shipped services instead, see [`IntlHttpMiddleware`](01-request-language.md#intlhttpmiddleware-custom-implementation) and [`LangArgument`](02-lang-route-argument.md#langargument-custom-implementation).
 
 ## How it works
 
-1. `IntHttpMiddleware` (`Order = 1`) writes `req.storage.language`: the explicit choice from query, cookie or `x-<name>` header, else `intl.defaultLocale`.
+1. `IntlHttpMiddleware` (`Order = 1`) writes `req.storage.language`: the explicit choice from query, cookie or `x-<name>` header, else `intl.defaultLocale`.
 2. Every `ServerMiddleware` with a higher `Order` runs after it and can overwrite `req.storage.language`. `HttpServer` sorts the list once, when it resolves.
 3. The action runs inside `AsyncLocalStorage.run(req.storage, ...)`, so the last value written is what `guessLanguage()`, templates and `@spinajs/intl-orm` see.
 4. `@Lang()` does **not** see the overwrite: `LangArgument` re-reads the request. Use a custom argument (below) to inject the stored value.
@@ -12,7 +12,7 @@ Change how the request language is chosen without replacing the shipped services
 | Order | Middleware | Effect on `req.storage` |
 | --- | --- | --- |
 | `-2` | `RequestStorage` (`@spinajs/http`) | creates `req.storage = {}` |
-| `1` | `IntHttpMiddleware` | sets `language` |
+| `1` | `IntlHttpMiddleware` | sets `language` |
 | `2` or higher | your refining middleware | overwrites `language` |
 
 ## Services and extension points
@@ -21,7 +21,7 @@ Change how the request language is chosen without replacing the shipped services
 | --- | --- | --- | --- | --- |
 | Refining middleware | `@Injectable(ServerMiddleware)`, singleton, collected as a list by `HttpServer` | none | any number, ordered by `Order` | Extend `ServerMiddleware`, set `Order` above `1`, write `req.storage.language` in `before()`. Import the module before `HttpServer` resolves. |
 | Custom language argument | Your `RouteArgs` subclass registered with `@Injectable()` under its class name; singleton; resolved by name from the route parameter `Type` | `LangArgument` for `@Lang()` | any | Pair a `RouteArgs` subclass whose `SupportedType` returns its name with a decorator built from `Route(Parameter('<name>'))`. |
-| `IActionLocalStoregeContext.language` | interface field, added to `@spinajs/http` by `declare module` in this package | written by `IntHttpMiddleware` | none | Import `@spinajs/intl-http` (or `import type`) to get the typed field on `req.storage`. |
+| `IActionLocalStoregeContext.language` | interface field, added to `@spinajs/http` by `declare module` in this package | written by `IntlHttpMiddleware` | none | Import `@spinajs/intl-http` (or `import type`) to get the typed field on `req.storage`. |
 
 ### Refine the language with a second middleware
 
@@ -47,7 +47,7 @@ export class DomainLanguageMiddleware extends ServerMiddleware {
   constructor() {
     super();
 
-    // After IntHttpMiddleware (1), so this value overwrites its default.
+    // After IntlHttpMiddleware (1), so this value overwrites its default.
     this.Order = 2;
   }
 
@@ -138,28 +138,28 @@ export class InvoicesController extends BaseController {
 
 ## Important behaviour
 
-- **Equal `Order` values:** `RealIp` and `RequestId` in `@spinajs/http` also use `Order = 1`. Use `2` or higher to run reliably after `IntHttpMiddleware`.
-- **Validation happens once:** only `IntHttpMiddleware` checks the 2 to 5 character rule. A value your middleware writes is not validated; keep it to locales you have translations for.
+- **Equal `Order` values:** `RealIp` and `RequestId` in `@spinajs/http` also use `Order = 1`. Use `2` or higher to run reliably after `IntlHttpMiddleware`.
+- **Validation happens once:** only `IntlHttpMiddleware` checks the 2 to 5 character rule. A value your middleware writes is not validated; keep it to locales you have translations for.
 - **Sorted once:** `HttpServer` sorts middlewares when it resolves. Changing `Order` later has no effect.
 - **No storage outside requests:** `req.storage` exists only for HTTP requests. `guessLanguage()` falls back to `intl.defaultLocale` elsewhere.
 - **Background work:** a promise started in the action and awaited later keeps the async context, so `guessLanguage()` still sees the request language. A job queued and run by a worker does not; pass the language with the job.
 
 ## Best practices
 
-- Refine with a second middleware rather than replacing `IntHttpMiddleware`; the explicit-choice rules and validation stay in one place.
+- Refine with a second middleware rather than replacing `IntlHttpMiddleware`; the explicit-choice rules and validation stay in one place.
 - Re-check the explicit sources (`query`, `cookies`, `x-<name>`) before overwriting, so a user's choice always beats a derived default.
 - Store the language in queued job payloads and pass it to `guessLanguage(language)` in the worker.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: Order 0 runs before IntHttpMiddleware, which then overwrites the value.
+// Don't: Order 0 runs before IntlHttpMiddleware, which then overwrites the value.
 constructor() {
   super();
   this.Order = 0;
 }
 
-// Do: run after IntHttpMiddleware.
+// Do: run after IntlHttpMiddleware.
 constructor() {
   super();
   this.Order = 2;

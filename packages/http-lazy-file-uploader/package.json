@@ -57,6 +57,7 @@
     "@types/node": "^18.11.18"
   },
   "dependencies": {
+    "@spinajs/cli": "2.0.549",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
