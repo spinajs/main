@@ -242,7 +242,7 @@ export function deleteFrom<R extends typeof ModelBase>(record: R): DeleteQueryBu
 export function toDateTime(date: Date): DateTime;
 export function toDateTime(date: Date | null | undefined): DateTime | null;
 export function toDateTime(date: Date | null | undefined): DateTime | null {
-  return date ? DateTime.fromJSDate(date) : null;
+  return date ? DateTime.fromJSDate(date, { zone: 'utc' }) : null;
 }
 
 export function fromDateTime(value: DateTime): Date;

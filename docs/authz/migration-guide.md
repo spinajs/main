@@ -640,9 +640,8 @@ check and the drop, which stops a 2.x node that still writes users. Then it runs
 had no default) and fills it from each user's live `$global` roles, sorted and joined with `,`. The
 copy's `down()` deletes the rows with `source = 'users.Role'`. **Roll back batch by batch, the drop
 first**, or with `{ all: true }`: `Migration.down(name)` acts only on the last applied batch. The copy's
-`down()` also deletes a copied row that someone granted again after the copy. Dates on SQLite are
-stored as local wall time (a repo-wide ORM issue), so run the process with a fixed time zone. MySQL
-and MSSQL are not tested.
+`down()` also deletes a copied row that someone granted again after the copy. MySQL and MSSQL are not
+tested.
 
 *Authz on another connection.* The copy and the drop read `users` and write or read
 `authz_assignment` through one connection, `default`. When `db.Aliases.authz` names another
@@ -1073,7 +1072,6 @@ and in [section 7](#7-data-migration). What changes for an app:
   over 512 give a raw database error on PostgreSQL, while SQLite stores them.
 - `ConfigRoleStore` reads `authz.rbac` only. MySQL and MSSQL are untested for the authz tables, and
   their default collations ignore case, so give the role and subject columns a binary collation.
-- Dates on SQLite are stored as local wall time. Run the process with a fixed time zone.
 - The share link secret (`authz.rbac.links.secret`) has no default and is checked at first use.
 - The default `rules` store is `ConfigRuleStore` (L1b).
 

@@ -111,7 +111,9 @@ Indexes: unique `authz_assignment_uq` on
 The stores and `DbAuthzAdminBackend` reach these tables only through the records in
 `authz-rbac/src/stores/records.ts` (`AssignmentRecord`, `MembershipRecord`, `RuleRecord`,
 `RuleSubjectRecord`, `LinkRecord`, `VersionRecord`) and `admin/db/record.ts` (`AdminIdempotencyRecord`).
-Datetimes are luxon `DateTime` on a record and `Date` in the store API; `definition` and `attributes`
+Datetimes are luxon `DateTime` on a record and `Date` in the store API; the columns are the ORM's
+`dateTime()` type and hold UTC instants (`TIMESTAMPTZ(3)` on PostgreSQL, ISO-8601 text on SQLite), and
+the expiry filters compare them with the `AuthzClock` instant bound as a parameter; `definition` and `attributes`
 are `@Json` columns; `authz_version.version` is `@Int64('string')`, the same text on every driver.
 
 Other authz-rbac migrations:
