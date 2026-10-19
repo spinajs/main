@@ -5,6 +5,60 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter, IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
 
+/**
+ * Normalises a value a datetime converter accepts into a valid DateTime in UTC, or null for no value or
+ * an invalid date. Text without an offset is read as UTC, a number as unix seconds.
+ */
+export function toInstant(value: unknown, column?: string): DateTime | null {
+  if (!value) {
+    return null;
+  }
+
+  let dt: DateTime;
+  if (DateTime.isDateTime(value)) {
+    dt = value;
+  } else if (value instanceof Date) {
+    dt = DateTime.fromJSDate(value);
+  } else if (typeof value === 'number') {
+    dt = DateTime.fromSeconds(value);
+  } else if (typeof value === 'string') {
+    dt = DateTime.fromISO(value, { zone: 'utc' });
+    if (!dt.isValid) {
+      dt = DateTime.fromSQL(value, { zone: 'utc' });
+    }
+    if (!dt.isValid) {
+      throw new InvalidArgument(`column ${column}: "${value}" is not an ISO 8601 or SQL datetime`);
+    }
+  } else {
+    throw new InvalidArgument(`column ${column}: a ${(value as object).constructor?.name ?? typeof value} is not a datetime`);
+  }
+
+  return dt.isValid ? dt.toUTC() : null;
+}
+
+/** Reads a driver's datetime value (Date, DateTime, ISO or SQL text, unix seconds) as a DateTime in UTC. */
+export function instantFromDb(value: unknown): DateTime | null {
+  if (!value) {
+    return null;
+  }
+
+  if (DateTime.isDateTime(value)) {
+    return value.toUTC();
+  }
+
+  if (value instanceof Date) {
+    return DateTime.fromJSDate(value, { zone: 'utc' });
+  }
+
+  if (typeof value === 'number') {
+    return DateTime.fromSeconds(value, { zone: 'utc' });
+  }
+
+  const text = String(value);
+  const iso = DateTime.fromISO(text, { zone: 'utc' });
+  return iso.isValid ? iso : DateTime.fromSQL(text, { zone: 'utc' });
+}
+
 export class JsonValueConverter extends ValueConverter {
   /** `null` and `undefined` stay as they are, so a nullable column holds SQL NULL rather than the text `null`. */
   public toDB(value: any): any {

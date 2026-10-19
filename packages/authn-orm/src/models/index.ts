@@ -4,4 +4,4 @@ export * from './AuthnMfa.js';
 export * from './AuthnRecoveryCode.js';
 export * from './AuthnSecret.js';
 export * from './AuthnThrottle.js';
-export * from './utc.js';
+export * from './time.js';

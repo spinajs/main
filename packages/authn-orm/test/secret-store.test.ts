@@ -7,7 +7,7 @@ import 'mocha';
 
 import { createHash } from 'node:crypto';
 
-import { DbSecretStore, fromUtcColumn, parseIdentityKey } from '../src/index.js';
+import { DbSecretStore, readInstant, parseIdentityKey } from '../src/index.js';
 import { DB_KINDS, TestDb, bootDb, rawQuery } from './support/db.js';
 
 const T0 = new Date('2026-06-01T10:00:00.000Z');
@@ -75,8 +75,8 @@ for (const kind of DB_KINDS) {
                 identity: parseIdentityKey(r.identity),
                 purpose: r.purpose,
                 hash: r.secret_hash,
-                expiresAt: fromUtcColumn(r.expires_text)!,
-                usedAt: fromUtcColumn(r.used_text) ?? null,
+                expiresAt: readInstant(r.expires_text)!,
+                usedAt: readInstant(r.used_text) ?? null,
               })),
           },
           seed: fakeSeedPort(new FakeIdentityStore(), new MemoryPasswordCredentialStore()),
@@ -128,8 +128,8 @@ for (const kind of DB_KINDS) {
     it('writes UTC wall-clock times', async () => {
       await new DbSecretStore(db.driver).issue(ALICE, 'reset', 90);
       const [row] = await secretRows(db);
-      expect(fromUtcColumn(row.created_text)?.toISOString()).to.eq(T0.toISOString());
-      expect(fromUtcColumn(row.expires_text)?.toISOString()).to.eq(new Date(T0.getTime() + 90_000).toISOString());
+      expect(readInstant(row.created_text)?.toISOString()).to.eq(T0.toISOString());
+      expect(readInstant(row.expires_text)?.toISOString()).to.eq(new Date(T0.getTime() + 90_000).toISOString());
       expect(row.used_text).to.eq(null);
     });
 

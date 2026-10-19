@@ -10,6 +10,7 @@ import { createHmac } from 'node:crypto';
 import { DbAuthnThrottle, ThrottleParams } from '../src/index.js';
 import { DbThrottleStore } from '../src/throttle/db-throttle-store.js';
 import type { ClaimState, Claimed, DbThrottleStoreOptions, StoreTimes } from '../src/throttle/db-throttle-store.js';
+import { sqlTime, textMs } from '../src/support/sql.js';
 import { DB_KINDS, TestDb, bootDb, rawQuery } from './support/db.js';
 
 const IP = '192.0.2.10';
@@ -36,7 +37,8 @@ async function row(db: TestDb, k: string): Promise<Row | undefined> {
 }
 
 async function plant(db: TestDb, k: string, attempts: number, last: string, next: string): Promise<void> {
-  await rawQuery(db.driver, 'INSERT INTO authn_throttle (k, attempts, last_attempt_at, next_allowed_at, updated_at) VALUES (?, ?, ?, ?, ?)', [k, attempts, last, next, last], QueryContext.Insert);
+  const text = (iso: string) => sqlTime(Date.parse(iso), db.kind);
+  await rawQuery(db.driver, 'INSERT INTO authn_throttle (k, attempts, last_attempt_at, next_allowed_at, updated_at) VALUES (?, ?, ?, ?, ?)', [k, attempts, text(last), text(next), text(last)], QueryContext.Insert);
 }
 
 async function rejectsWith(p: Promise<unknown>, message: RegExp): Promise<void> {
@@ -255,7 +257,7 @@ for (const kind of DB_KINDS) {
       const throttle = new DbAuthnThrottle(db.driver, params);
       const key: ThrottleKey = { kind: 'account', value: 'stale-race@example.test' };
       const k = throttle.rowKey('login', key);
-      await plant(db, k, 7, '2026-05-30 09:00:00.000', '2026-05-30 09:00:30.000');
+      await plant(db, k, 7, '2026-05-30T09:00:00.000Z', '2026-05-30T09:00:30.000Z');
 
       const results = await Promise.all(Array.from({ length: 20 }, () => throttle.attempt([key], 'login', ctxAt(T0))));
 
@@ -280,7 +282,7 @@ for (const kind of DB_KINDS) {
       expect(before?.attempts).to.eq(2);
 
       // 90 s after the attempt below: the second key now delays it.
-      throttle.between = () => rawQuery(db.driver, 'UPDATE authn_throttle SET next_allowed_at = ? WHERE k = ?', ['2026-06-01 10:01:31.000', second], QueryContext.Update);
+      throttle.between = () => rawQuery(db.driver, 'UPDATE authn_throttle SET next_allowed_at = ? WHERE k = ?', [sqlTime(Date.parse('2026-06-01T10:01:31.000Z'), db.kind), second], QueryContext.Update);
       const later = new Date(T0.getTime() + 1000);
       expect(await throttle.attempt(keys, 'login', ctxAt(later))).to.deep.eq({ allowed: false, retryAfterSeconds: 90 });
       expect(throttle.between).to.eq(undefined);
@@ -296,7 +298,7 @@ for (const kind of DB_KINDS) {
         { kind: 'ip', value: OTHER_IP },
       ];
       const [first, second] = keys.map((key) => throttle.rowKey('login', key)).sort();
-      throttle.between = () => plant(db, second, 30, '2026-06-01 10:00:00.000', '2026-06-01 10:00:05.000');
+      throttle.between = () => plant(db, second, 30, '2026-06-01T10:00:00.000Z', '2026-06-01T10:00:05.000Z');
       expect(await throttle.attempt(keys, 'login', ctxAt(T0))).to.deep.eq({ allowed: false, retryAfterSeconds: 5 });
       expect(await row(db, first)).to.eq(undefined);
       expect((await row(db, second))?.attempts).to.eq(30);
@@ -340,7 +342,7 @@ for (const kind of DB_KINDS) {
       const r = await row(db, ipK);
       expect(r?.attempts).to.eq(1);
       // attempt 1 after free 1 waits 4 s from the last attempt (T0 + 8 s)
-      expect(new Date(r!.next_text.replace(' ', 'T') + 'Z').getTime()).to.eq(T0.getTime() + 12000);
+      expect(textMs(r!.next_text)).to.eq(T0.getTime() + 12000);
     });
 
     it('purge throws InvalidArgument on an invalid date', async () => {
@@ -357,10 +359,10 @@ for (const kind of DB_KINDS) {
     it('purges stale rows only', async () => {
       const throttle = new DbAuthnThrottle(db.driver, DEFAULT_THROTTLE);
       const now = new Date('2026-06-03T10:00:00.000Z');
-      await plant(db, 'stale', 3, '2026-06-01 09:00:00.000', '2026-06-01 09:00:01.000');
-      await plant(db, 'live', 3, '2026-06-02 11:00:00.000', '2026-06-02 11:00:01.000');
-      await plant(db, 'idle-but-delaying', 30, '2026-06-01 09:00:00.000', '2026-06-04 09:00:00.000');
-      await plant(db, 'blocked', 9, '2026-06-03 09:59:59.000', '2026-06-03 10:05:00.000');
+      await plant(db, 'stale', 3, '2026-06-01T09:00:00.000Z', '2026-06-01T09:00:01.000Z');
+      await plant(db, 'live', 3, '2026-06-02T11:00:00.000Z', '2026-06-02T11:00:01.000Z');
+      await plant(db, 'idle-but-delaying', 30, '2026-06-01T09:00:00.000Z', '2026-06-04T09:00:00.000Z');
+      await plant(db, 'blocked', 9, '2026-06-03T09:59:59.000Z', '2026-06-03T10:05:00.000Z');
 
       expect(await throttle.purge(now)).to.eq(1);
 

@@ -10,7 +10,7 @@ import { DateTime } from 'luxon';
 
 import { decryptMfaSecret, encryptMfaSecret, mfaKeyFrom } from '../mfa/cipher.js';
 import type { MfaKey } from '../mfa/cipher.js';
-import { checkedMs, MAX_MS, MIN_MS, sha256hex, sqlTime } from '../support/sql.js';
+import { checkedMs, driverDialect, MAX_MS, MIN_MS, sha256hex, sqlTime } from '../support/sql.js';
 
 const NAME = 'AuthnFromUserMetadata_2026_10_02_00_01_00';
 const USERS = 'users';
@@ -145,8 +145,9 @@ export class AuthnFromUserMetadata_2026_10_02_00_01_00 extends OrmMigration {
 
   public async up(connection: OrmDriver): Promise<void> {
     if (!(await this.hasLegacyTables(connection))) return;
+    const dialect = driverDialect(connection);
     const nowMs = checkedMs(new Date(), `${NAME}: the clock`);
-    const now = sqlTime(nowMs);
+    const now = sqlTime(nowMs, dialect);
     const secret = await this.configuredKey(connection);
 
     await connection.transaction(async () => {
@@ -186,7 +187,7 @@ export class AuthnFromUserMetadata_2026_10_02_00_01_00 extends OrmMigration {
         await this.insertRow(connection, MFA, { identity: t.identity, step: STEP, secret_enc: encryptMfaSecret(key!, t.identity, STEP, t.plain), key_id: key!.keyId, confirmed_at: t.confirmed ? now : null, last_step: null, created_at: now });
       }
       for (const r of resets) {
-        await this.insertRow(connection, SECRETS, { id: randomUUID(), identity: r.identity, purpose: r.purpose, secret_hash: r.hash, expires_at: sqlTime(r.expiresMs), used_at: null, created_at: sqlTime(r.startMs) });
+        await this.insertRow(connection, SECRETS, { id: randomUUID(), identity: r.identity, purpose: r.purpose, secret_hash: r.hash, expires_at: sqlTime(r.expiresMs, dialect), used_at: null, created_at: sqlTime(r.startMs, dialect) });
       }
 
       await this.verifyMfa(connection, census.totp);
@@ -213,7 +214,8 @@ export class AuthnFromUserMetadata_2026_10_02_00_01_00 extends OrmMigration {
    */
   public async down(connection: OrmDriver): Promise<void> {
     if (!(await this.hasLegacyTables(connection))) return;
-    const now = sqlTime(checkedMs(new Date(), `${NAME}: the clock`));
+    const dialect = driverDialect(connection);
+    const now = sqlTime(checkedMs(new Date(), `${NAME}: the clock`), dialect);
     const secret = await this.configuredKey(connection);
 
     await connection.transaction(async () => {

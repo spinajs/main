@@ -74,7 +74,7 @@ function bindings(query: { toDB(): unknown }) {
 describe('mssql datetime strings', function () {
   this.timeout(15000);
 
-  const expected = DateTime.local(2024, 1, 1, 10, 0, 0).toISO({ includeOffset: false });
+  const expected = '2024-01-01T10:00:00.000Z';
 
   beforeEach(async () => {
     DI.clearCache();
@@ -100,6 +100,11 @@ describe('mssql datetime strings', function () {
   });
 
   it('binds converted ISO strings in whereIn', () => {
-    expect(bindings(GapDoc.query().whereIn('At', ['2024-01-01T10:00:00', '2024-01-01T10:00:00Z']))).to.deep.eq([expected, DateTime.fromISO('2024-01-01T10:00:00Z').toISO({ includeOffset: false })]);
+    expect(bindings(GapDoc.query().whereIn('At', ['2024-01-01T10:00:00', '2024-01-01T10:00:00Z']))).to.deep.eq([expected, expected]);
+  });
+
+  it('binds a Date and a DateTime of one instant as the same UTC text', () => {
+    const at = new Date('2024-01-01T10:00:00.000Z');
+    expect(bindings(GapDoc.query().whereIn('At', [at, DateTime.fromJSDate(at).setZone('Asia/Kolkata')]))).to.deep.eq([expected, expected]);
   });
 });

@@ -2,13 +2,12 @@ import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAlia
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
-import { SqlDriver, SqlTruncateTableQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
+import { IsoDatetimeValueConverter, SqlDriver, SqlTruncateTableQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import mssql from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
 import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler } from './compilers.js';
 import { MssqlModelDehydrator } from './dehydrator.js';
 import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlInStatement, MsSqlLiteralQuoter } from './statements.js';
-import { MsSqlDatetimeValueConverter } from './converters.js';
 import { mapMsSqlError } from './errors.js';
 
 export * from './errors.js';
@@ -130,24 +129,30 @@ export class MsSqlOrmDriver extends SqlDriver {
     }
   }
 
+  protected connectionConfig(): mssql.config {
+    return {
+      user: this.Options.User,
+      password: this.Options.Password,
+      database: this.Options.Database,
+      server: this.Options.Host!,
+      options: {
+        trustServerCertificate: (this.Options.Options?.TrustServerCertificate as boolean) ?? true,
+        cryptoCredentialsDetails: this.Options.Options?.CryptoCredentialsDetails ? this.Options.Options?.CryptoCredentialsDetails : {},
+        // tedious's default, stated so that no config override brings local-zone Date bindings back
+        useUTC: true,
+      },
+      pool: {
+        max: this.resolvedPoolOptions().Max,
+        min: this.resolvedPoolOptions().Min,
+        idleTimeoutMillis: this.resolvedPoolOptions().IdleTimeout,
+        acquireTimeoutMillis: this.resolvedPoolOptions().AcquireTimeout,
+      },
+    };
+  }
+
   public async connect(): Promise<OrmDriver> {
     try {
-      this._connectionPool = await mssql.connect({
-        user: this.Options.User,
-        password: this.Options.Password,
-        database: this.Options.Database,
-        server: this.Options.Host!,
-        options: {
-          trustServerCertificate: (this.Options.Options?.TrustServerCertificate as boolean) ?? true,
-          cryptoCredentialsDetails: this.Options.Options?.CryptoCredentialsDetails ? this.Options.Options?.CryptoCredentialsDetails : {},
-        },
-        pool: {
-          max: this.resolvedPoolOptions().Max,
-          min: this.resolvedPoolOptions().Min,
-          idleTimeoutMillis: this.resolvedPoolOptions().IdleTimeout,
-          acquireTimeoutMillis: this.resolvedPoolOptions().AcquireTimeout,
-        },
-      });
+      this._connectionPool = await mssql.connect(this.connectionConfig());
 
       await this.executeOnDb(`USE ${this.Options.Database}`, [], QueryContext.Schema);
 
@@ -178,7 +183,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MsSqlDeleteQueryCompiler).as(DeleteQueryCompiler);
     this.Container.register(MssqlModelDehydrator).as(ModelDehydrator);
     this.Container.register(MsSqlTableAliasCompiler).as(TableAliasCompiler);
-    this.Container.register(MsSqlDatetimeValueConverter).as(DatetimeValueConverter);
+    this.Container.register(IsoDatetimeValueConverter).as(DatetimeValueConverter);
     this.Container.register(MsSqlOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
     this.Container.register(MsSqlInSetStatement).as(InSetStatement);
     this.Container.register(MsSqlInStatement).as(InStatement);

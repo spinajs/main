@@ -225,10 +225,7 @@ widths. A failed write is logged (`authz-audit`) and the record dropped; it neve
 The import does not register it as the `DecisionAudit`: without `authz.audit.service` the host takes
 the last one registered, so loading the module would silently replace the log audit.
 
-`at` holds UTC time without an offset, whatever the server's time zone, so rows from hosts in other
-zones compare and the hour repeated when daylight saving ends sorts right. Through the model it reads
-back as a luxon `DateTime` in the local zone; `at.setZone('utc', { keepLocalTime: true })` gives the
-instant.
+`at` is the instant of the decision, stored in UTC; through the model it reads back as a luxon `DateTime` in UTC.
 
 ## Scope attributes
 

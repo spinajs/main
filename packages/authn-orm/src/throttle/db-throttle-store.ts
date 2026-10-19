@@ -153,7 +153,7 @@ export class DbThrottleStore implements ThrottleStore {
   protected async claimKey(db: OrmDriver, k: string, delay: (n: number) => number, state: ClaimState | undefined, t: StoreTimes, rest: readonly string[] = []): Promise<Claimed> {
     for (let i = 0; i < MAX_TRIES; i++) {
       const attempts = (state?.attempts ?? 0) + 1;
-      const write: ClaimWrite = { k, attempts, last: t.now, next: sqlTime(t.nowMs + delay(attempts)), prev: state };
+      const write: ClaimWrite = { k, attempts, last: t.now, next: sqlTime(t.nowMs + delay(attempts), this.dialect), prev: state };
       if (state ? await this.writeLive(db, write, state.attempts, t) : await this.insertOrTakeStale(db, write, t)) {
         return { ok: true, write };
       }
@@ -224,7 +224,7 @@ export class DbThrottleStore implements ThrottleStore {
       } else {
         // The schedule runs from the row's last counted attempt, read as text, so it is exact.
         const lastMs = textMs(state.last);
-        const next = Number.isFinite(lastMs) ? sqlTime(lastMs + backoffDelayMs(p, attempts)) : state.next;
+        const next = Number.isFinite(lastMs) ? sqlTime(lastMs + backoffDelayMs(p, attempts), this.dialect) : state.next;
         r = await db.update().in(TABLE).update({ attempts, next_allowed_at: next, updated_at: t.now }).where('k', k).where('attempts', state.attempts).where(this.isLive(t));
       }
       if (rowsAffected(r) === 1) return;
@@ -278,6 +278,6 @@ export class DbThrottleStore implements ThrottleStore {
   }
 
   private times(nowMs: number): StoreTimes {
-    return { nowMs, now: sqlTime(nowMs), cutoff: sqlTime(nowMs - this.resetAfterMs) };
+    return { nowMs, now: sqlTime(nowMs, this.dialect), cutoff: sqlTime(nowMs - this.resetAfterMs, this.dialect) };
   }
 }

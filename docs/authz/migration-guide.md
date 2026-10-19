@@ -599,11 +599,6 @@ Details you may need:
 - **Store limits.** `session-provider-db` supports MySQL, PostgreSQL and SQLite. `session-provider-redis`
   assumes a single Redis, not Cluster. DynamoDB never expires items by its TTL (it reads seconds, the
   rows store milliseconds, as in 2.x).
-- **Run the server with `TZ=UTC`** when you use `authn-keys` on a database whose driver reads date
-  columns in the local zone (`authn_key`, `authn_nonce`). Elsewhere an expiry inside a spring-forward
-  hour can read back an hour late.
-- **PostgreSQL** (`node-postgres`) reads `timestamp` as local time, so a value inside a local
-  spring-forward gap reads back an hour late. No `authn-orm` decision depends on such a read.
 - **MySQL and MSSQL**: default collations ignore case. Give identity, subject and hash columns a binary
   collation. A sub-second `authn.throttle` delay is not supported there.
 

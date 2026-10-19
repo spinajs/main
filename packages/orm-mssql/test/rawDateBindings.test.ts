@@ -40,5 +40,6 @@ describe('mssql raw statement parameters', function () {
     await driver.executeOnDb('SELECT ?, ?, ?, ?', [at, DateTime.fromJSDate(at), 'text', 7], QueryContext.Select);
 
     expect(driver.inputs).to.deep.eq([converter.toDB(at, null as any, null as any), converter.toDB(DateTime.fromJSDate(at), null as any, null as any), 'text', 7]);
+    expect(driver.inputs[0]).to.eq(driver.inputs[1]);
   });
 });

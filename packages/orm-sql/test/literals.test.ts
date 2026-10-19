@@ -57,8 +57,8 @@ describe('literal quoting', () => {
   });
 
   it('writes dates through the datetime converter of the driver', () => {
-    expect(quoter().quote(DateTime.fromSQL('2025-11-21 05:27:43'))).to.eq(`'2025-11-21 05:27:43.000'`);
-    expect(quoter().quote(new Date(2025, 10, 21, 5, 27, 43))).to.eq(`'2025-11-21 05:27:43.000'`);
+    expect(quoter().quote(DateTime.fromSQL('2025-11-21 05:27:43', { zone: 'utc' }))).to.eq(`'2025-11-21 05:27:43.000'`);
+    expect(quoter().quote(new Date(Date.UTC(2025, 10, 21, 5, 27, 43)))).to.eq(`'2025-11-21 05:27:43.000'`);
   });
 
   it('refuses a value it has no literal for', () => {

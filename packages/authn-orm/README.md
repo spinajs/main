@@ -53,7 +53,7 @@ instead.
 
 - **Time comes from Node.** "Now" is `ctx.now`, or `Date` at call time; SQL `now()` is
   never used. Every claim, expiry or compare-and-set is decided in SQL against bound
-  values. Datetime columns hold UTC wall-clock text.
+  values. Datetimes are written as UTC (ISO-8601 text on SQLite).
 - **Secrets are never stored in clear:**
   - single-use secrets and recovery codes are kept as SHA-256 only;
   - TOTP secrets are kept as cipher text only;

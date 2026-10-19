@@ -1,7 +1,6 @@
-import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IDehydrateOptions, IValueConverter, ModelBase, TimeValueConverter } from '@spinajs/orm';
+import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IDehydrateOptions, IValueConverter, ModelBase, TimeValueConverter, instantFromDb, toInstant } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { TimeSpan } from '@spinajs/util';
-import { InvalidArgument } from '@spinajs/exceptions';
 
 const DATE_NUMERICAL_TYPES = ['int', 'integer', 'float', 'double', 'decimal', 'bigint', 'smallint', 'tinyint', 'mediumint'];
 
@@ -189,71 +188,53 @@ export class SqlTimeValueConverter extends TimeValueConverter {
   }
 }
 
+const SQL_DATETIME = 'yyyy-MM-dd HH:mm:ss.SSS';
+
+/**
+ * Writes an instant as the UTC wall clock with milliseconds, the text MySQL's DATETIME(3) and
+ * TIMESTAMP(3) read in a UTC session. Reads any driver form back as a DateTime in UTC.
+ *
+ * Dehydrating (`toJSON()`, API payloads) writes `dateTimeFormat`, and ISO 8601 in UTC when none is
+ * asked for, whatever the dialect stores. Told apart from a statement value by the arity, as in
+ * {@link SqlBooleanValueConverter}.
+ */
 export class SqlDatetimeValueConverter extends DatetimeValueConverter {
-  public toDB(value: Date | DateTime, _model: ModelBase<unknown>, column: IColumnDescriptor, _options?: any, dehydrateOptions?: IDehydrateOptions): string | number | null {
-    if (value === null || value === undefined) {
+  public toDB(value: unknown, _model?: ModelBase<unknown>, column?: IColumnDescriptor, _options?: unknown, ...dehydrating: [IDehydrateOptions?]): string | number | null {
+    const dt = toInstant(value, column?.Name);
+    if (dt === null) {
       return null;
     }
 
-    let dt: DateTime | null = null;
-    if (typeof value === 'string') {
-      dt = DateTime.fromISO(value);
-      if (value !== '' && !dt.isValid) {
-        dt = DateTime.fromSQL(value);
-        if (!dt.isValid) {
-          throw new InvalidArgument(`column ${column?.Name}: "${value}" is not an ISO 8601 or SQL datetime`);
-        }
-      }
-    } else {
-      dt = DateTime.isDateTime(value) ? value : DateTime.fromJSDate(value as Date);
+    const format = dehydrating.length > 0 ? (dehydrating[0]?.dateTimeFormat ?? 'iso') : undefined;
+    switch (format) {
+      case 'iso':
+        return dt.toISO();
+      case 'sql':
+        return dt.toFormat(SQL_DATETIME);
+      case 'unix':
+        return dt.toUnixInteger();
     }
 
-
-    if (dehydrateOptions && dehydrateOptions.dateTimeFormat) {
-      switch (dehydrateOptions.dateTimeFormat) {
-        case 'iso':
-          return dt.toISO();
-        case 'sql':
-          return dt.toSQL({ includeOffset: false });
-        case 'unix':
-          return dt.toUnixInteger() ?? 0;
-      }
+    if (column && DATE_NUMERICAL_TYPES.includes(column.Type)) {
+      return dt.toUnixInteger();
     }
 
-
-    if (column) {
-      if (DATE_NUMERICAL_TYPES.includes(column.Type)) {
-        return dt.toUnixInteger() ?? 0;
-      }
-    }
-
-    return dt.toSQL({ includeOffset: false });
+    return this.write(dt);
   }
 
-  public fromDB(value: string | DateTime | Date | number) {
-    if (!value) {
-      return null;
-    }
+  public fromDB(value: unknown): DateTime | null {
+    return instantFromDb(value);
+  }
 
-    if (DateTime.isDateTime(value)) {
-      return value;
-    }
+  /** The column text of `dt`, a valid DateTime in UTC. */
+  protected write(dt: DateTime): string {
+    return dt.toFormat(SQL_DATETIME);
+  }
+}
 
-    // we do this checks, becose at creating models from data
-    // we call hydrators, and hydrators checks for converters.
-    if (value instanceof DateTime) {
-      return value;
-    }
-
-    if (value instanceof Date) {
-      return DateTime.fromJSDate(value);
-    }
-
-    // assume that we have unix timestamp
-    if (Number.isInteger(value)) {
-      return DateTime.fromSeconds(value as number);
-    }
-
-    return DateTime.fromSQL(value as string);
+/** ISO-8601 in UTC with `Z`: Postgres and MSSQL read it exactly, and its fixed width keeps SQLite text order time order. */
+export class IsoDatetimeValueConverter extends SqlDatetimeValueConverter {
+  protected write(dt: DateTime): string {
+    return dt.toISO()!;
   }
 }

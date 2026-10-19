@@ -743,7 +743,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public async archive() {
     if (this.ModelDescriptor!.Archived) {
-      (this as any)[this.ModelDescriptor!.Archived.ArchivedAt] = DateTime.now();
+      (this as any)[this.ModelDescriptor!.Archived.ArchivedAt] = DateTime.utc();
     } else {
       throw new OrmException('archived at column not exists in model');
     }
@@ -796,7 +796,7 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     const updatedAt = this.ModelDescriptor!.Timestamps.UpdatedAt;
     if (updatedAt) {
-      (this as any)[updatedAt] = DateTime.now();
+      (this as any)[updatedAt] = DateTime.utc();
       if (!changed.includes(updatedAt)) {
         changed.push(updatedAt);
       }
@@ -973,7 +973,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     generateClientSideKeys(this, this.ModelDescriptor!);
 
     if (this.ModelDescriptor!.Timestamps.CreatedAt) {
-      (this as any)[this.ModelDescriptor!.Timestamps.CreatedAt] = DateTime.now();
+      (this as any)[this.ModelDescriptor!.Timestamps.CreatedAt] = DateTime.utc();
     }
 
     for (const [, rel] of this.ModelDescriptor!.Relations) {
@@ -1488,7 +1488,7 @@ export const MODEL_STATIC_MIXINS = {
 
     if (description.SoftDelete?.DeletedAt) {
       (query as UpdateQueryBuilder<never>).update({
-        [description.SoftDelete.DeletedAt]: DateTime.now(),
+        [description.SoftDelete.DeletedAt]: DateTime.utc(),
       });
     }
 

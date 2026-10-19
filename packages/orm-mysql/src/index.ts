@@ -309,33 +309,50 @@ export class MySqlOrmDriver extends SqlDriver {
     }
   }
 
+  /** The options both connect paths share; `timezone: 'Z'` makes mysql2 write and read DATETIME and TIMESTAMP as UTC. */
+  protected poolOptions(): PoolOptions {
+    const pool = this.resolvedPoolOptions();
+
+    return {
+      user: this.Options.User,
+      password: this.Options.Password,
+      port: this.Options.Port,
+      database: this.Options.Database,
+      waitForConnections: true,
+      connectionLimit: pool.Max,
+      // mysql2's `maxIdle` is a CEILING on idle connections, not a floor, and it never
+      // pre-warms the pool — so there is no direct equivalent of `Pool.Min`. Passing Min
+      // straight through would set maxIdle to 0 by default and make mysql2 destroy every
+      // released connection, i.e. disable pooling. Instead: an explicit Min becomes the
+      // number of connections we let sit idle; Min = 0 keeps mysql2's own default (Max).
+      maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
+      idleTimeout: pool.IdleTimeout,
+      queueLimit: 0,
+      timezone: 'Z',
+      // `decimalNumbers` stays OFF (mysql2's default): DECIMAL/NEWDECIMAL comes back as
+      // a string, because above 2^53 a float loses exactly the precision DECIMAL is
+      // there to keep. Whoever turns it on must also change `ResponseSchemaTypes` at the
+      // top of this class - otherwise OpenAPI starts lying about the type and client-side
+      // response validation fails on every row.
+    };
+  }
+
+  /** NOW(), CURRENT_TIMESTAMP and TIMESTAMP columns follow the session zone, so every pooled connection runs in UTC. */
+  protected pinSessionZone(pool: mysql.Pool): void {
+    pool.on('connection', (connection) => {
+      connection.query("SET time_zone = '+00:00'", (err) => {
+        if (err) {
+          this.Log?.warn({ error: err, connection: this.Options.Name }, 'could not set the session time zone of ${connection} to UTC');
+        }
+      });
+    });
+  }
+
   public connect(): Promise<OrmDriver> {
     return new Promise((resolve, reject) => {
       try {
-        const pool = this.resolvedPoolOptions();
-
-        this.Pool = mysql.createPool({
-          host: this.Options.Host,
-          user: this.Options.User,
-          password: this.Options.Password,
-          port: this.Options.Port,
-          database: this.Options.Database,
-          waitForConnections: true,
-          connectionLimit: pool.Max,
-          // mysql2's `maxIdle` is a CEILING on idle connections, not a floor, and it never
-          // pre-warms the pool — so there is no direct equivalent of `Pool.Min`. Passing Min
-          // straight through would set maxIdle to 0 by default and make mysql2 destroy every
-          // released connection, i.e. disable pooling. Instead: an explicit Min becomes the
-          // number of connections we let sit idle; Min = 0 keeps mysql2's own default (Max).
-          maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
-          idleTimeout: pool.IdleTimeout,
-          queueLimit: 0,
-          // `decimalNumbers` stays OFF (mysql2's default): DECIMAL/NEWDECIMAL comes back as
-          // a string, because above 2^53 a float loses exactly the precision DECIMAL is
-          // there to keep. Whoever turns it on must also change `ResponseSchemaTypes` at the
-          // top of this class - otherwise OpenAPI starts lying about the type and client-side
-          // response validation fails on every row.
-        });
+        this.Pool = mysql.createPool({ host: this.Options.Host, ...this.poolOptions() });
+        this.pinSessionZone(this.Pool);
 
         // Test the pool connection
         this.Pool.getConnection((err, connection) => {
@@ -568,22 +585,9 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
             return;
           }
 
-          const pool = this.resolvedPoolOptions();
-
-          this.Pool = mysql.createPool({
-            host: 'localhost', // we tunnel via ssh so we use localhost
-            user: this.Options.User,
-            password: this.Options.Password,
-            port: this.Options.Port,
-            database: this.Options.Database,
-            waitForConnections: true,
-            connectionLimit: pool.Max,
-            // see MySqlOrmDriver.connect — `maxIdle` is a ceiling, so Min = 0 must not reach it
-            maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
-            idleTimeout: pool.IdleTimeout,
-            queueLimit: 0,
-            stream: stream,
-          } as PoolOptions);
+          // we tunnel via ssh so we use localhost
+          this.Pool = mysql.createPool({ ...this.poolOptions(), host: 'localhost', stream } as PoolOptions);
+          this.pinSessionZone(this.Pool);
 
           resolve(this);
         });
