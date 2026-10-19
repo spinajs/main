@@ -1631,7 +1631,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     // postgres returns COUNT(*) as a bigint string
     return this.count(column, as).takeFirst()
       .asRaw<{ [key: string]: number | string }>()
-      .then((x) => (x ? Number(x[a]) : 0));
+      .then((x) => Number(x?.[a] ?? 0));
   }
 
   public sum(column: string, as?: string): this {

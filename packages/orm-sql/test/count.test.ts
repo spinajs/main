@@ -47,6 +47,12 @@ describe('count results', () => {
     expect(await sqb().from('users').selectCount()).to.equal(0);
   });
 
+  it('selectCount resolves 0 when the row lacks the alias column', async () => {
+    sinon.stub(connection(), 'executeOnDb').resolves([{ other: '5' }]);
+
+    expect(await sqb().from('users').selectCount('*', 'total')).to.equal(0);
+  });
+
   it('Model.count turns a bigint count string into a number', async () => {
     sinon.stub(connection(), 'executeOnDb').resolves([{ count: '12' }]);
 
