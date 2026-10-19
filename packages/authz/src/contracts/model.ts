@@ -5,7 +5,7 @@ import type { Permission, PermissionDef, PermissionRegistry } from './permission
 import type { FilterOp, ResourceFilter } from './filter.js';
 import type { DecisionRequest, Decision, FieldSet, TraceStep, Vote } from './decision.js';
 import type { RelationResolver } from './adapter.js';
-import type { ListPlanRequest, ListSupport, ListSupportContext, ModelListPlan } from './plan.js';
+import type { ListPlanRequest, ListSupport, ModelListPlan } from './plan.js';
 import type { ConditionCompiler } from '../conditions/contracts.js';
 
 export abstract class NativeFilter {
@@ -48,13 +48,13 @@ export interface EvaluationContext {
   attributes(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null>; // scope attributes, memoised per request
   readonly conditions: ConditionCompiler;
   relation(type: ResourceType, name: string): RelationResolver | undefined;
-  check(req: Omit<DecisionRequest, 'explain'>): Promise<Decision>; // for models that delegate
+  check(req: Omit<DecisionRequest, 'explain'>): Promise<Decision>; // for models that delegate (fs-inherit)
   readonly cache: Map<string, unknown>; // per-request scratch, per model namespace
   trace(step: Omit<TraceStep, 'by'>): void;
 }
 
 export abstract class AuthorizationModel {
-  abstract readonly name: string; // unique per domain: 'rbac' | 'abac'
+  abstract readonly name: string; // unique per domain: 'rbac' | 'abac' | 'fs-inherit' | 'fs-abac'
   abstract readonly capabilities: ModelCapabilities;
   abstract init(ctx: ModelInitContext): Promise<void> | void;
   /** Static routing: may this model have an opinion on (permission, type)? Called at boot and on version change. */
@@ -63,7 +63,7 @@ export abstract class AuthorizationModel {
   preload?(principal: Principal, ctx: EvaluationContext): Promise<void>;
   summarize?(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary>;
   /** List support for `permission` on `type`; absent means the model cannot plan lists. */
-  listSupport?(permission: PermissionDef, type: ResourceType, ctx?: ListSupportContext): ListSupport;
+  listSupport?(permission: PermissionDef, type: ResourceType): ListSupport;
   /** The list plan; called only when listSupport answered true. */
   listPlan?(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan>;
   invalidate?(tags: readonly string[]): void;

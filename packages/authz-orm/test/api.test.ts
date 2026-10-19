@@ -7,7 +7,7 @@ import type { ModelBase } from '@spinajs/orm';
 
 import * as root from '../src/index.js';
 import * as api from '../src/api.js';
-import type { AccessResourceOptions, OwnerOptions, ParentOptions, RelationOptions } from '../src/index.js';
+import type { AccessResourceOptions, OwnerOptions, ParentOptions } from '../src/index.js';
 
 const expect = chai.expect;
 
@@ -16,7 +16,7 @@ const same = <A, B>(ok: Same<A, B>) => ok;
 
 describe('authz-orm api', () => {
   it('api.ts holds only contracts; the root exports the implementations', () => {
-    for (const k of ['AccessResource', 'Parent', 'Owner', 'Self', 'Relation', 'registerAccessResource', 'reparent']) {
+    for (const k of ['AccessResource', 'Parent', 'Owner', 'Self', 'registerAccessResource', 'reparent']) {
       expect((root as Record<string, unknown>)[k], k).to.be.a('function');
       expect(api, k).to.not.have.property(k);
     }
@@ -29,7 +29,6 @@ describe('authz-orm api', () => {
     same<typeof root.Parent, (type: ResourceType, opts?: ParentOptions) => PropertyDecorator>(true);
     same<typeof root.Owner, (opts?: OwnerOptions) => PropertyDecorator>(true);
     same<typeof root.Self, () => PropertyDecorator>(true);
-    same<typeof root.Relation, (name: string, opts?: RelationOptions) => PropertyDecorator>(true);
     same<typeof root.registerAccessResource, (model: Class<ModelBase>, type: ResourceType, opts?: AccessResourceOptions) => void>(true);
     same<typeof root.reparent, (model: Class<ModelBase>, ids: readonly (string | number)[], newParentId: string | number | null, column?: string) => Promise<number>>(true);
   });

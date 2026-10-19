@@ -7,7 +7,6 @@ interface RouteDoc {
   readonly path: string;
   readonly body?: string;
   readonly query?: readonly string[];
-  readonly requiredQuery?: readonly string[];
 }
 
 const WRITE_OPTIONS = ['reason', 'idempotencyKey', 'dryRun'] as const;
@@ -16,8 +15,6 @@ const QUERY: Readonly<Record<string, Json>> = {
   scope: { schema: { type: 'string' }, description: '`<type>` or `<type>:<id>`, split at the first `:`; `$global` is the global scope' },
   subject: { schema: { type: 'string' }, description: '`<type>:<id>` (a principal) or `set:<role>@<type>:<id>` (a subject set)' },
   role: { schema: { type: 'string' }, description: 'only assignments of this role' },
-  permission: { schema: { type: 'string' }, description: 'the permission whose holders are listed (required)' },
-  expandSets: { schema: { type: 'boolean' }, description: '`true` also lists the members of each subject set, next to the set itself' },
   includeExpired: { schema: { type: 'boolean' }, description: '`true` or `false`' },
   limit: { schema: { type: 'integer', minimum: 0 }, description: 'page size; the server sets the default' },
   offset: { schema: { type: 'integer', minimum: 0 }, description: 'rows to skip' },
@@ -35,7 +32,6 @@ const PATH_PARAMS: Readonly<Record<string, string>> = {
 export const AUTHZ_ADMIN_ROUTES: readonly RouteDoc[] = [
   { method: 'post', path: '/authz/commands', body: 'AuthzAdminBatch' },
   { method: 'get', path: '/authz/assignments', query: ['scope', 'subject', 'role', 'includeExpired', 'limit', 'offset'] },
-  { method: 'get', path: '/authz/holders', query: ['scope', 'permission', 'expandSets', 'limit', 'offset'], requiredQuery: ['scope', 'permission'] },
   { method: 'post', path: '/authz/assignments', body: 'AuthzAssignmentGrant', query: WRITE_OPTIONS },
   { method: 'patch', path: '/authz/assignments/{id}', body: 'AuthzAssignmentPatch', query: WRITE_OPTIONS },
   { method: 'delete', path: '/authz/assignments/{id}', query: WRITE_OPTIONS },
@@ -76,7 +72,7 @@ export function describeAuthzAdminDocument<T extends object>(doc: T): T {
     const parameters: Json[] = (operation.parameters ??= []);
     for (const p of parameters) if (p.in === 'path' && !p.description) p.description = PATH_PARAMS[p.name];
     for (const name of route.query ?? []) {
-      if (!parameters.some((p) => p.in === 'query' && p.name === name)) parameters.push({ name, in: 'query', required: route.requiredQuery?.includes(name) === true, ...QUERY[name] });
+      if (!parameters.some((p) => p.in === 'query' && p.name === name)) parameters.push({ name, in: 'query', required: false, ...QUERY[name] });
     }
   }
   return doc;

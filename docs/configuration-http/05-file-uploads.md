@@ -22,8 +22,8 @@ The package has **no** upload route. The project writes the route, composes `acc
 5. `storedFileName(file.Name, DateTime.utc())` builds the stored name ([Naming](#stored-file-name)).
 6. The stored name is validated like a `PATCH` `Value`: `Type`, `Meta` and the [slug schema](03-value-schemas.md). A failure throws `ConfigFileRejected`; an uncompilable schema throws a plain `Error` after logging.
 7. `getFs(meta.file.fs)` resolves the provider. An unregistered provider throws a plain `Error` naming the slug and the provider.
-8. A file with the same name on the provider throws `ConfigFileRejected` (`uploaded a moment ago, try again`). Steps 7-9 call the provider in the request's async context, so on a filesystem whose `authz.fs.<name>.mode` is `enforce` or `audit`, `AuthzFsMiddleware` checks this `exists()` as `fs:stat`.
-9. `_fileHash(localPath)` computes the sha256; `provider.upload(localPath, fileName, { exclusive: true })` stores the file. A same-named upload that landed after step 8 makes the provider throw `ResourceDuplicated`, which becomes the same `ConfigFileRejected` and leaves that file in place. A `Forbidden` (including the `AccessDenied` of `AuthzFsMiddleware`, checked as `fs:write` on `fileName` before the provider tests the destination, so never a `ConfigFileRejected`) is rethrown at once: nothing was written and a same-named file stays. Any other failed upload removes the partial file and rethrows. A provider that ignores `exclusive` overwrites in that race; see [fs file operations](../fs/02-file-operations.md#important-behaviour).
+8. A file with the same name on the provider throws `ConfigFileRejected` (`uploaded a moment ago, try again`).
+9. `_fileHash(localPath)` computes the sha256; `provider.upload(localPath, fileName, { exclusive: true })` stores the file. A same-named upload that landed after step 8 makes the provider throw `ResourceDuplicated`, which becomes the same `ConfigFileRejected` and leaves that file in place. Any other failed upload removes the partial file and rethrows. A provider that ignores `exclusive` overwrites in that race; see [fs file operations](../fs/02-file-operations.md#important-behaviour).
 10. In every case, success or failure, the multipart temp file at `file.OriginalFile.filepath` is removed.
 11. The result is an `IAcceptedConfigFile`. `Value` is **not** changed yet.
 
@@ -135,7 +135,6 @@ protected CalculatorTemplate!: string;
 - `accept` never changes `Value`; `commit` is the only way a file entry's `Value` should change outside a `PATCH`. A "restore an earlier version" action goes through `commit` too.
 - `PATCH /configuration/:slug` never moves or deletes files.
 - `commit` does no authz check of its own. The route guards it.
-- With `authz.fs.<name>.mode` `enforce` or `audit` on the entry's filesystem, `AuthzFsMiddleware` checks `exists()` as `fs:stat`, the exclusive `upload(localPath, fileName, { exclusive: true })` as `fs:write` on `fileName` (the options reach every middleware as `ctx.args[1]`, unchanged) and the cleanup `rm()` as `fs:delete`. A caller without `fs:write` gets `AccessDenied` (403); see [Checks on file actions](../authz-fs/02-checks-on-file-actions.md).
 - The stored name has one-second resolution. Two uploads of the same name within one second: the second is refused.
 - `discard` never throws.
 
@@ -250,6 +249,4 @@ export class ConfigurationFilesController extends BaseController {
 - [Value schemas](03-value-schemas.md): the slug schema the stored name must pass.
 - [`@spinajs/configuration-db-source`](../configuration-db-source/README.md): `meta.file`, `ConfigFileValidator`, `CONFIG_FILE_DEFAULT_MAX_SIZE`.
 - [`@spinajs/fs`](../fs/README.md): providers, `getFs`, `FileInfoService`.
-- [Checks on file actions](../authz-fs/02-checks-on-file-actions.md): how `AuthzFsMiddleware` checks the upload.
-- [Middlewares](../fs/07-middlewares.md): the fs middleware chain.
 - [`@spinajs/http`](../http/README.md): `@File()` and `IUploadedFile`.

@@ -2,17 +2,25 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { GLOBAL, ResourceAdapter } from '@spinajs/authz';
-import { runAdapterConformance, testHost, userPrincipal } from '@spinajs/authz-testing';
+import type { ResourceRef } from '@spinajs/authz';
+import { testHost, userPrincipal, runAdapterConformance } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { FILE_PROVIDER_INSTANCES } from '@spinajs/fs';
 
-import { FS_PERMISSIONS, FileAclStore, FsResourceAdapter, fsRowOf } from '../src/index.js';
+import { FS_PERMISSIONS, FileMetadataStore, FsPathResolver, FsResourceAdapter, fsRowOf } from '../src/index.js';
 import { configuredChild } from './helpers.js';
-import { MemoryFileAclStore } from './support/memory-acl-store.js';
+import { MemoryFileMetadataStore } from './support/memory-store.js';
 
 const expect = chai.expect;
+
+class TaskAttachmentPathResolver extends FsPathResolver {
+  readonly fs = 'uploads';
+  async parents(_fsName: string, path: string): Promise<readonly ResourceRef[] | null> {
+    const m = /^tasks\/([^/]+)/.exec(path);
+    return m ? [{ type: 'task', id: m[1] }] : null;
+  }
+}
 
 describe('authz-fs FsResourceAdapter', () => {
   let child: IContainer | undefined;
@@ -26,13 +34,12 @@ describe('authz-fs FsResourceAdapter', () => {
     expect(DI.RootContainer.getRegisteredTypes(ResourceAdapter)).to.include(FsResourceAdapter);
   });
 
-  it('declares kind fs, the three types, the fs permissions, no compiles and no operation table', () => {
+  it('declares kind fs, the three types, the fs permissions and no compiles', () => {
     const a = new FsResourceAdapter();
     expect(a.kind).to.equal('fs');
     expect(a.types).to.deep.equal(['fs', 'dir', 'file']);
     expect(a.permissions()).to.equal(FS_PERMISSIONS);
     expect(a.compiles).to.equal(undefined);
-    expect((a as { operations?: unknown }).operations).to.equal(undefined);
   });
 
   describe('accepts', () => {
@@ -72,9 +79,9 @@ describe('authz-fs FsResourceAdapter', () => {
       expect(() => a.refOf({ fs: 'uploads', path: 'C:\\x' })).to.throw(InvalidArgument);
     });
 
-    it("makes an absolute path relative to the published provider's BasePath", () => {
+    it("makes an absolute path relative to the provider's Options.basePath", () => {
       child = DI.child();
-      child.register({ Name: 'uploads', BasePath: '/data/up' }).asMapValue(FILE_PROVIDER_INSTANCES, 'uploads');
+      child.register({ Name: 'uploads', Options: { name: 'uploads', basePath: '/data/up' } }).asMapValue('__file_provider_instance__', 'uploads');
       const a = new FsResourceAdapter(child);
       expect(a.refOf({ fs: 'uploads', path: '/data/up/a/b.txt' })).to.deep.equal({ type: 'file', id: 'uploads:a/b.txt' });
       expect(a.refOf({ fs: 'uploads', path: '/data/up' })).to.deep.equal({ type: 'fs', id: 'uploads' });
@@ -91,8 +98,10 @@ describe('authz-fs FsResourceAdapter', () => {
       }
     });
 
-    it('gives self, parent dirs, fs, GLOBAL', async () => {
-      const a = new FsResourceAdapter();
+    it('gives self, parent dirs, fs, GLOBAL and never asks a resolver (D4)', async () => {
+      child = await configuredChild({ uploads: { mode: 'enforce', resolver: 'MissingResolver' } });
+      child.register(TaskAttachmentPathResolver).as(FsPathResolver);
+      const a = new FsResourceAdapter(child);
       expect(await a.ancestors({ type: 'file', id: 'uploads:tasks/42/a.pdf' })).to.deep.equal([{ type: 'file', id: 'uploads:tasks/42/a.pdf' }, { type: 'dir', id: 'uploads:tasks/42' }, { type: 'dir', id: 'uploads:tasks' }, { type: 'fs', id: 'uploads' }, GLOBAL]);
       expect(await a.ancestors({ type: 'fs', id: 'uploads' })).to.deep.equal([{ type: 'fs', id: 'uploads' }, GLOBAL]);
     });
@@ -100,14 +109,14 @@ describe('authz-fs FsResourceAdapter', () => {
 });
 
 describe('authz-fs FsResourceAdapter conformance', () => {
-  // The relations read authz.fs, authz.fsAcl and the store; alice owns one target, so holds() answers both ways.
+  // The owner relation reads authz.fs and the store; alice owns one target, so holds() answers both ways.
   let conformance: IContainer;
-  const owners = new MemoryFileAclStore();
+  const owners = new MemoryFileMetadataStore();
 
   before(async () => {
-    conformance = await configuredChild({ uploads: { mode: 'enforce' } });
-    conformance.register(testHost.instance<FileAclStore>(owners)).as(FileAclStore);
-    await owners.setOwnerIfAbsent('uploads', 'tasks/42/a.pdf', { type: 'user', id: 'alice' });
+    conformance = await configuredChild({ uploads: { mode: 'enforce', metadata: 'MemoryFileMetadataStore' } });
+    conformance.register(testHost.instance(owners)).as(FileMetadataStore);
+    await owners.set('uploads', 'tasks/42/a.pdf', { owner: { type: 'user', id: 'alice' } });
   });
 
   after(async () => {
@@ -138,7 +147,7 @@ describe('authz-fs FsResourceAdapter conformance', () => {
 describe('authz-fs FsResourceAdapter subject rows', () => {
   const a = new FsResourceAdapter();
 
-  it('load gives the row the middleware passes as the subject, with attribute(row, "id") === ref.id', async () => {
+  it('load gives the row the guard passes as the subject, with attribute(row, "id") === ref.id', async () => {
     const file = { type: 'file', id: 'uploads:docs/a.txt' };
     const row = await a.load(file);
     expect(row).to.deep.equal({ id: 'uploads:docs/a.txt', type: 'file', fs: 'uploads', path: 'docs/a.txt' });

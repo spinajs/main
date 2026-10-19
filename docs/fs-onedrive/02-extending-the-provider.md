@@ -2,16 +2,16 @@
 
 `fsOneDrive` handles configuration, credentials and the Graph client; it implements no file operation. Subclass it to add the operations your app needs, or to point the client at another Graph cloud, and select the subclass with the `service` key of the provider entry.
 
-Use this when you need OneDrive or SharePoint files today. The `doX` hooks you do not override keep throwing `MethodNotImplemented`.
+Use this when you need OneDrive or SharePoint files today. Methods you do not override keep throwing `MethodNotImplemented`.
 
 ## How it works
 
 1. You declare `class MyDrive extends fsOneDrive` and decorate it with `@Injectable('fs')` and `@PerInstanceCheck()`. `@Injectable('fs')` adds the class to the `fs` list when its module is imported; without it the subclass is not registered.
 2. You set `service: 'MyDrive'` on the provider entry in `fs.providers`. `fsService` matches it against the class `name` of every type registered under `fs`.
 3. `fsService` resolves `MyDrive` with the entry as constructor argument. The inherited constructor stores it in `Options`.
-4. `MyDrive.resolve()` runs. When you do not override it, `fsOneDrive.resolve()` builds `OneDriveCredentials` and `Client`; `TempFs` is looked up lazily on first use. When you override it, call `super.resolve()` first.
-5. Your overridden `doX` hooks use `this.Client` (an authenticated Graph client) and `this.Options` (the entry, including your own keys).
-6. `fsService` publishes the instance under `name`. Callers reach it through `getFs()` or `@FileSystem()` without knowing the subclass; the registered [middlewares](../fs/07-middlewares.md) run around its public methods.
+4. `MyDrive.resolve()` runs. When you do not override it, `fsOneDrive.resolve()` builds `OneDriveCredentials`, `Client` and `TempFs`. When you override it, call `super.resolve()` first.
+5. Your overridden methods use `this.Client` (an authenticated Graph client) and `this.Options` (the entry, including your own keys).
+6. `fsService` publishes the instance under `name` and applies the registered `FsDecorator`s. Callers reach it through `getFs()` or `@FileSystem()` without knowing the subclass.
 
 `fsOneDrive` stays registered next to your subclass. Entries with `service: 'fsOneDrive'` keep getting the base class.
 
@@ -29,24 +29,24 @@ The subclass reads the same keys as `fsOneDrive` ([OneDrive provider: Configurat
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `fsOneDrive` subclass | `fs` key, registered by `@Injectable('fs')` at import; `@PerInstanceCheck()` keyed on `name` | `fsOneDrive` | Any `fs` provider | Override the protected `doX` hooks you need; select with `service: '<ClassName>'` |
+| `fsOneDrive` subclass | `fs` key, registered by `@Injectable('fs')` at import; `@PerInstanceCheck()` keyed on `name` | `fsOneDrive` | Any `fs` provider | Override the `fs` methods you need; select with `service: '<ClassName>'` |
 | Graph connection in `resolve()` | Protected fields `Client`, `OneDriveCredentials`, `TempFs` | `ClientSecretCredential` + `Client.initWithMiddleware()` against `https://graph.microsoft.com/` | none shipped | Override `resolve()`, call `super.resolve()`, reassign `this.Client` |
 
 What a subclass can override:
 
 | Member | Override to |
 | --- | --- |
-| `doRead`, `doReadStream`, `doWrite`, `doWriteStream`, `doAppend` | Read and write file content through `/drives/{drive}/root:/{path}:/content` |
-| `doExists`, `doDirExists`, `doIsDir`, `doStat`, `doList` | Query item metadata and folder children |
-| `doMkdir`, `doRm`, `doRename`, `doCopy`, `doMove` | Manage items |
-| `doDownload`, `doUpload` | Move files between the local disk and the drive; `TempFs` is the staging area for `doDownload`. `doUpload` receives `options.exclusive` |
-| `resolvePath`, `tmppath`, `doZip`, `doUnzip` | Required by `hash()`, `metadata()` and the zip helpers of `@spinajs/fs` |
-| `doSignedUrl` | Optional; return a sharing link. Without it `signedUrl()` throws `MethodNotImplemented` |
+| `read`, `readStream`, `write`, `writeStream`, `append` | Read and write file content through `/drives/{drive}/root:/{path}:/content` |
+| `exists`, `dirExists`, `isDir`, `stat`, `list` | Query item metadata and folder children |
+| `mkdir`, `rm`, `rename`, `copy`, `move` | Manage items |
+| `download`, `upload` | Move files between the local disk and the drive; `TempFs` is the staging area for `download` |
+| `resolvePath`, `tmppath`, `zip`, `unzip` | Required by `hash()`, `metadata()` and the zip helpers of `@spinajs/fs` |
+| `signedUrl` | Optional on `fs`; return a sharing link |
 | `resolve` | Change how the Graph client or credential is built |
 
 ### OneDrive provider: implement file operations
 
-Override the hooks of the operations you call; the public methods are final, and the base constructor throws `InvalidOperation` for a subclass that overrides one. The class below implements reading, writing, listing, folder creation, deletion and download for one drive. Import its module before `fsService` resolves, so `@Injectable('fs')` has run.
+Override the operations you call. The class below implements reading, writing, listing, folder creation, deletion and download for one drive. Import its module before `fsService` resolves, so `@Injectable('fs')` has run.
 
 ```ts sample
 import { basename, extname } from 'node:path';
@@ -63,19 +63,19 @@ export class fsOneDriveFiles extends fsOneDrive {
     return clean ? `${root}:/${encodeURI(clean)}:` : root;
   }
 
-  protected async doRead(path: string, encoding?: BufferEncoding): Promise<string | Buffer> {
+  public async read(path: string, encoding?: BufferEncoding): Promise<string | Buffer> {
     const body: ArrayBuffer = await this.Client.api(`${this.item(path)}/content`).responseType(ResponseType.ARRAYBUFFER).get();
     const data = Buffer.from(body);
     return encoding ? data.toString(encoding) : data;
   }
 
   // Graph accepts a single PUT up to 4 MB; larger files need an upload session.
-  protected async doWrite(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+  public async write(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     const body = typeof data === 'string' ? Buffer.from(data, encoding) : Buffer.from(data);
     await this.Client.api(`${this.item(path)}/content`).put(body);
   }
 
-  protected async doExists(path: string): Promise<boolean> {
+  public async exists(path: string): Promise<boolean> {
     try {
       await this.Client.api(this.item(path)).select('id').get();
       return true;
@@ -87,12 +87,12 @@ export class fsOneDriveFiles extends fsOneDrive {
     }
   }
 
-  protected async doList(path: string): Promise<string[]> {
+  public async list(path: string): Promise<string[]> {
     const page: { value: { name: string }[] } = await this.Client.api(`${this.item(path)}/children`).select('name').get();
     return page.value.map((x) => x.name);
   }
 
-  protected async doMkdir(path: string): Promise<void> {
+  public async mkdir(path: string): Promise<void> {
     const parent = path.replace(/\/+$/, '').split('/').slice(0, -1).join('/');
     await this.Client.api(`${this.item(parent)}/children`).post({
       name: basename(path),
@@ -101,13 +101,13 @@ export class fsOneDriveFiles extends fsOneDrive {
     });
   }
 
-  protected async doRm(path: string): Promise<void> {
+  public async rm(path: string): Promise<void> {
     await this.Client.api(this.item(path)).delete();
   }
 
-  protected async doDownload(path: string): Promise<string> {
+  public async download(path: string): Promise<string> {
     const local = this.tmpname(extname(path));
-    await this.TempFs.write(local, (await this.doRead(path)) as Buffer);
+    await this.TempFs.write(local, (await this.read(path)) as Buffer);
     return this.TempFs.resolvePath(local);
   }
 }
@@ -180,14 +180,14 @@ The entry sets `service: 'fsOneDriveGov'` and `graphUrl: 'https://graph.microsof
 - Each subclass needs its own `@Injectable('fs')`: it registers the class when the decorator runs, and is not inherited. Without it boot fails with `ResolveException: Type <service> not registered`.
 - Repeat `@PerInstanceCheck()` on the subclass. The container takes the lifetime from the nearest class with its own DI metadata, so a property decorator on the subclass (`@Logger()`, `@Autoinject()`, `@Config()`) resets it to singleton. Two entries with different `name`s then share one instance and one set of `Options`.
 - The inherited `hash()` and `metadata()` call `resolvePath()` and expect a local path. A subclass that leaves `resolvePath()` unimplemented keeps them throwing `MethodNotImplemented`.
-- `TempFs` is looked up lazily from `fs-temp`. An override of `resolve()` that skips `super.resolve()` leaves `Client` and `OneDriveCredentials` unset.
-- Middlewares apply to the subclass unchanged: access guards and auditing middlewares from `@spinajs/fs` run around its public methods. Calls your hooks make to other public methods of the same provider run inside the action frame and skip them.
+- `TempFs` is resolved inside `fsOneDrive.resolve()`. An override of `resolve()` that skips `super.resolve()` leaves `TempFs`, `Client` and `OneDriveCredentials` unset.
+- `FsDecorator`s wrap the subclass instance like any provider, so access guards and logging decorators from `@spinajs/fs` apply unchanged.
 
 ## Best practices
 
-- Implement the hooks your callers use and leave the rest to the base class: a call to a missing hook fails loudly with `MethodNotImplemented`.
+- Implement the operations your callers use and leave the rest to the base class: a call to a missing method fails loudly with `MethodNotImplemented`.
 - Build Graph paths from `Options.drive` (`/drives/{drive}/root:/{path}:`) so one class serves several drives, one provider entry per drive.
-- Map Graph `404` (`GraphError.statusCode`) to `false` in `doExists()`, `doDirExists()` and `doIsDir()`, and rethrow every other error.
+- Map Graph `404` (`GraphError.statusCode`) to `false` in `exists()`, `dirExists()` and `isDir()`, and rethrow every other error.
 - Stage downloads in `TempFs`, so the temp cleanup strategy of `@spinajs/fs` removes them.
 
 ## Patterns and antipatterns
@@ -195,14 +195,14 @@ The entry sets `service: 'fsOneDriveGov'` and `graphUrl: 'https://graph.microsof
 ```ts
 // Don't: the subclass is never registered, fsService cannot find 'fsOneDriveFiles'
 export class fsOneDriveFiles extends fsOneDrive {
-  protected async doRead(path: string) { /* ... */ }
+  public async read(path: string) { /* ... */ }
 }
 
 // Do: register the subclass under the fs key
 @Injectable('fs')
 @PerInstanceCheck()
 export class fsOneDriveFiles extends fsOneDrive {
-  protected async doRead(path: string) { /* ... */ }
+  public async read(path: string) { /* ... */ }
 }
 ```
 
@@ -235,7 +235,7 @@ export class fsOneDriveArchive extends fsOneDrive {
     return `/drives/${this.Options.drive}/root:/${encodeURI(path.replace(/^\/+/, ''))}:`;
   }
 
-  protected async doWrite(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+  public async write(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     const body = typeof data === 'string' ? Buffer.from(data, encoding) : Buffer.from(data);
     await this.Client.api(`${this.item(path)}/content`).put(body);
   }
@@ -261,5 +261,5 @@ export class InvoiceArchiver {
 ## Related
 
 - [OneDrive provider](01-onedrive-provider.md): configuration keys and the boot flow the subclass inherits.
-- [`@spinajs/fs`](../fs/README.md): the full `fs` contract, `fsService`, [`FsMiddleware`](../fs/07-middlewares.md) and the temp provider.
+- [`@spinajs/fs`](../fs/README.md): the full `fs` contract, `fsService`, `FsDecorator` and the temp provider.
 - [`@spinajs/fs-s3`](../fs-s3/README.md): a complete remote provider to model the remaining operations on.

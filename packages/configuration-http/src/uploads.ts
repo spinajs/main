@@ -4,7 +4,7 @@ import { Autoinject, Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { _fileHash, FileInfoService, getFs } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
-import { Forbidden, ResourceDuplicated } from '@spinajs/exceptions';
+import { ResourceDuplicated } from '@spinajs/exceptions';
 import { DataValidator, ValidationFailed } from '@spinajs/validation';
 import { configFileValidatorName, DbConfig, resolveConfigFileValidator } from '@spinajs/configuration-db-source';
 import type { IConfigFileCandidate, IConfigurationFileOptions } from '@spinajs/configuration-db-source';
@@ -135,11 +135,6 @@ export class ConfigFileUploads {
       // the file belongs to the upload that won the race - do not remove it
       if (err instanceof ResourceDuplicated) {
         throw duplicated();
-      }
-
-      // refused before any IO (fs middleware): nothing of ours was written
-      if (err instanceof Forbidden) {
-        throw err;
       }
 
       // a partial write must not survive as a file the caller cannot discard

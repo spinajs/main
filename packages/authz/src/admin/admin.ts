@@ -7,7 +7,6 @@ import { AdminGuard, AuthzAdmin, AuthzAdminFailure, AuthzCommandValidator, Authz
 import type { AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzTx } from '../contracts/admin.js';
 import type { Assignment, LinkDef, Policy, RuleDef } from '../contracts/data.js';
 import { AuthzConfigError } from '../contracts/errors.js';
-import { isPermission } from '../contracts/permission.js';
 import type { Permission } from '../contracts/permission.js';
 import { SYSTEM, principalKey } from '../contracts/principal.js';
 import type { Principal, PrincipalRef, ResourceRef } from '../contracts/principal.js';
@@ -446,7 +445,7 @@ function assertActor(actor: unknown, where: string, what: string): asserts actor
   if (!isObject(actor) || typeof actor.type !== 'string' || typeof actor.id !== 'string') throw new AuthzConfigError(`${where}: AuthzAdmin.${what} needs a principal as the actor, got ${q(actor)}`);
 }
 
-const QUERY_KINDS: ReadonlySet<string> = new Set<AuthzAdminQuery['kind']>(['assignments', 'links', 'rules', 'policies', 'attributes', 'holders']);
+const QUERY_KINDS: ReadonlySet<string> = new Set<AuthzAdminQuery['kind']>(['assignments', 'links', 'rules', 'policies', 'attributes']);
 const DEFAULT_PAGE = Object.freeze({ limit: 50, offset: 0 });
 
 function copyOf(v: unknown): unknown {
@@ -471,11 +470,6 @@ function readQuery(query: unknown): AuthzAdminQuery {
   if (kind === 'attributes') {
     if (scope === undefined) bad('an attributes query needs a scope', 'scope');
     return { kind, scope: copyOf(scope) } as AuthzAdminQuery;
-  }
-  if (kind === 'holders') {
-    if (scope === undefined) bad('a holders query needs a scope', 'scope');
-    if (!isPermission(query.permission)) bad(`permission must be a permission name, got ${q(query.permission)}`, 'permission');
-    if (query.expandSets !== undefined && typeof query.expandSets !== 'boolean') bad(`expandSets must be a boolean, got ${q(query.expandSets)}`, 'expandSets');
   }
   let page: { limit: number; offset: number } = { ...DEFAULT_PAGE };
   if (query.page !== undefined) {

@@ -116,8 +116,6 @@ describe('authz-http-admin swagger', function () {
     expect(query('/authz/assignments', 'get').subject.description).to.match(/set:<role>@<type>:<id>/);
     expect(Object.keys(query('/authz/rules/{id}', 'put'))).to.have.members(['reason', 'idempotencyKey', 'dryRun']);
     expect(query('/authz/rules/{id}', 'put').dryRun.schema.type).to.eq('boolean');
-    const holders = query('/authz/holders', 'get');
-    expect([holders.scope.required, holders.permission.required, holders.expandSets.required]).to.deep.eq([true, true, false]);
   });
 
   it('lists every route of the controller in AUTHZ_ADMIN_ROUTES', () => {

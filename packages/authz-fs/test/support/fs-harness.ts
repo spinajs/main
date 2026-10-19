@@ -4,32 +4,33 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import type { S3Client } from '@aws-sdk/client-s3';
-import { AuthorizationModel, AuthzContributor, SYSTEM, runWithPrincipal } from '@spinajs/authz';
-import { MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel, RbacService } from '@spinajs/authz-rbac';
-import { hostHarness, testHost } from '@spinajs/authz-testing';
-import type { BehaviourHarness, FsArg, FsHandle, FsProviderSpec, HostSetup } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { FILE_PROVIDER_INSTANCES, FileHasher, FileInfoService, FsBootstrapper, FsMiddleware, fsNative, fsService, fsTemp, getFs, publishedFs } from '@spinajs/fs';
-import type { IProviderConfiguration, fs } from '@spinajs/fs';
-import { fsS3 } from '@spinajs/fs-s3';
+import { FileHasher, FileInfoService, FsBootsrapper, FsDecorator, fs, fsNative, fsService, fsTemp, getFs } from '@spinajs/fs';
+import type { IProviderConfiguration } from '@spinajs/fs';
+import { S3BucketSigner, fsS3 } from '@spinajs/fs-s3';
+import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
+import type { ResourceRef } from '@spinajs/authz';
+import { MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel } from '@spinajs/authz-rbac';
+import { hostHarness, testHost } from '@spinajs/authz-testing';
+import type { BehaviourHarness, FsArg, FsHandle, FsProviderSpec, FsResolverSpec, HostSetup } from '@spinajs/authz-testing';
 import type { DateTime } from 'luxon';
 
-import { AuthzFsMiddleware, FileAclStore } from '../../src/index.js';
+import { AuthzFsDecorator, FileMetadataStore, FsPathResolver } from '../../src/index.js';
 import { installQuietLog } from './log.js';
-import { MemoryFileAclStore } from './memory-acl-store.js';
+import { MemoryFileMetadataStore } from './memory-store.js';
 import { S3_CLIENT_CONFIG, dropBucket } from './s3.js';
 
 /**
- * How a world provider is built: 'local' is fsNative over a fresh directory; 'temp' is fsTemp over its own fsNative
- * backend (`<name>-backend`), so the checked name is the temp fs; 's3' is fsS3 on a fresh bucket in localstack,
- * downloading through the case's own `fs-temp-s3`.
+ * How a world provider is built: 'local' is fsNative over a fresh directory; 'temp' is fsTemp over its own
+ * fsNative backend (`<name>-backend`), so the guarded name is the temp fs; 's3' is fsS3 on a fresh bucket in
+ * localstack, downloading through the case's own `fs-temp-s3`.
  */
 export type FsProviderKind = 'local' | 'temp' | 's3';
 
 /**
- * The kit's FsProviderSpec plus `signedUrl`: local and temp providers get a fake doSignedUrl whose URL carries
- * `expires=<epoch ms>`; S3 providers get the real `S3UrlSigner`.
+ * The field RFC L7-1 proposes for the kit's FsProviderSpec: the provider signs URLs. Local and temp providers
+ * get a fake `signedUrl` whose URL carries `expires=<epoch ms>`; S3 providers get the real `S3UrlSigner`.
  */
 export type SignedFsProviderSpec = FsProviderSpec & { readonly signedUrl?: boolean };
 
@@ -37,23 +38,55 @@ export interface FsHarnessOptions {
   /** The test domain; default 'test'. */
   readonly domain?: string;
   readonly kind?: FsProviderKind;
-  /** Adds the rbac facet: the real RbacModel, its contributor and an RbacService in the test domain, loaded from `world.rbac`. */
+  /** Adds the rbac facet: the real RbacModel (and its contributor) in the test domain, loaded from `world.rbac`. */
   readonly rbac?: boolean;
+}
+
+interface CaseState {
+  /** Every provider the case creates: the world's and the backends its kind adds. */
+  readonly names: ReadonlySet<string>;
+  readonly extra: ReadonlyMap<string, readonly string[]>;
+  readonly fakeSigned: ReadonlySet<string>;
+  readonly raw: Map<string, fs>;
 }
 
 const KIND_CLASS: Readonly<Record<FsProviderKind, Class<fs>>> = { local: fsNative, temp: fsTemp, s3: fsS3 };
 
+let recording: CaseState | undefined;
+
+/** The one MemoryFileMetadataStore the suite registers in root (worlds name it in `authz.fs.<name>.metadata`), emptied per case. */
+export const caseStore = new MemoryFileMetadataStore();
+
+/** Runs before AuthzFsDecorator (100), so it sees the instance fsService created. */
+class RecordingFsDecorator extends FsDecorator {
+  readonly order = 10;
+
+  decorate(instance: fs, config: IProviderConfiguration): fs {
+    const state = recording;
+    if (!state?.names.has(config.name)) return instance;
+    state.raw.set(config.name, instance);
+    for (const method of state.extra.get(config.name) ?? []) {
+      Object.defineProperty(instance, method, { value: async () => method, configurable: true, writable: true });
+    }
+    if (state.fakeSigned.has(config.name)) {
+      // As fsS3: getSignedUrl(path, until) is signedUrl(path, { until }).
+      const signedUrl = async (path: string, opts?: { until?: DateTime }) => `fake-signed://${config.name}/${path}?expires=${opts?.until?.toMillis() ?? ''}`;
+      Object.defineProperty(instance, 'signedUrl', { value: signedUrl, configurable: true, writable: true });
+      Object.defineProperty(instance, 'getSignedUrl', { value: (path: string, until?: DateTime) => signedUrl(path, { until }), configurable: true, writable: true });
+    }
+    return instance;
+  }
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+const PROVIDER_MAP = '__file_provider_instance__';
 const PROVIDER_FACTORY = '__file_provider__';
 /** fsS3 downloads (read, append, zip, unzip) through the provider of this name (`@FileSystem('fs-temp-s3')`). */
 const S3_TEMP = 'fs-temp-s3';
 
-/** The one MemoryFileAclStore the suite registers in root, emptied per case. */
-export const caseAcl = new MemoryFileAclStore();
-
-const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
-
 function publishedProviders(): Map<string, fs> | undefined {
-  const map: unknown = DI.RootContainer.Cache.has(FILE_PROVIDER_INSTANCES) ? DI.get(FILE_PROVIDER_INSTANCES) : undefined;
+  const map: unknown = DI.RootContainer.Cache.has(PROVIDER_MAP) ? DI.get(PROVIDER_MAP) : undefined;
   return map instanceof Map ? (map as Map<string, fs>) : undefined;
 }
 
@@ -110,6 +143,9 @@ async function disposeS3(instances: Iterable<fs>): Promise<void> {
       client.destroy();
     }
   }
+  // S3BucketSigner is a singleton holding the first case's bucket and client.
+  const root = DI.RootContainer;
+  for (const key of [S3BucketSigner, 'S3UrlSigner'] as const) if (root.Cache.has(key)) root.uncache(key);
 }
 
 // PerInstanceCheck caches provider instances by name in root; a stale 'uploads' of an earlier case would keep its old base path.
@@ -147,11 +183,6 @@ async function settleStream(value: unknown): Promise<void> {
   await done;
 }
 
-function implementations(token: Class<unknown>): Class<unknown>[] {
-  const types = (DI.RootContainer.Registry.getTypes(token, false) ?? []) as unknown[];
-  return types.filter((t): t is Class<unknown> => typeof t === 'function' && t.prototype !== undefined);
-}
-
 /** What the suite adds to root (registrations and the cache entries they cause), undone in reverse order. */
 class RootChanges {
   private readonly undo: (() => void)[] = [];
@@ -161,24 +192,28 @@ class RootChanges {
     const cachedBefore = new Set([...root.Cache].map((e) => e.key));
 
     if (!root.hasRegistered(PROVIDER_FACTORY)) {
-      new FsBootstrapper().bootstrap();
+      new FsBootsrapper().bootstrap();
       this.undo.push(() => {
         // Registry.unregister matches by name, which every arrow factory shares; drop the key the bootstrapper created.
         (root.Registry as unknown as { registry: Map<string, unknown[]> }).registry.delete(PROVIDER_FACTORY);
       });
     }
 
-    // A store or a middleware chain an earlier suite resolved would bypass the case store.
-    root.uncache(FileAclStore.name);
-    root.uncache(Array.ofType(FsMiddleware));
-    this.undo.push(testHost.registerInRoot(FileAclStore, testHost.instance<FileAclStore>(caseAcl)));
+    // A cached FsDecorator list would not hold the recorder.
+    if (root.Cache.has(Array.ofType(FsDecorator))) root.uncache(Array.ofType(FsDecorator));
+    root.register(RecordingFsDecorator).as(FsDecorator);
+    this.undo.push(() => {
+      root.unregister(RecordingFsDecorator);
+      root.uncache(RecordingFsDecorator);
+      root.uncache(Array.ofType(FsDecorator));
+    });
 
-    const created = [AuthzFsMiddleware, ...implementations(FileHasher), ...implementations(FileInfoService)];
+    this.undo.push(testHost.registerInRoot(FileMetadataStore, testHost.instance(caseStore)));
+
+    const created = [AuthzFsDecorator, ...implementations(FileHasher), ...implementations(FileInfoService), ...implementations(FileMetadataStore)];
     this.undo.push(() => {
       for (const type of created) if (!cachedBefore.has(type.name)) root.uncache(type);
-      root.uncache(FileAclStore.name);
-      root.uncache(Array.ofType(FsMiddleware));
-      if (!cachedBefore.has(FILE_PROVIDER_INSTANCES)) root.uncache(FILE_PROVIDER_INSTANCES);
+      if (!cachedBefore.has(PROVIDER_MAP)) root.uncache(PROVIDER_MAP);
     });
   }
 
@@ -187,34 +222,88 @@ class RootChanges {
   }
 }
 
-/** World entries of `authz.fs` without a domain are checked in the test domain, where the world's models live. */
+function implementations(token: Class<unknown>): Class<unknown>[] {
+  const types = (DI.RootContainer.Registry.getTypes(token, false) ?? []) as unknown[];
+  return types.filter((t): t is Class<unknown> => typeof t === 'function' && t.prototype !== undefined);
+}
+
+/**
+ * World entries of `authz.fs` without a domain are checked in the test domain, where the world's models live. A
+ * domain the fs bootstrap creates (D11) becomes a child of the test domain, so the world's models are its parent's,
+ * unless the world names its parent.
+ */
 function pointAtTestDomain(host: HostSetup): void {
   const entries = host.world.config?.fs;
   if (!isRecord(entries)) return;
   for (const [name, entry] of Object.entries(entries)) {
-    if (isRecord(entry) && entry.domain === undefined) host.setConfig(['authz', 'fs', name, 'domain'], host.domain);
+    if (!isRecord(entry)) continue;
+    const domain = entry.domain;
+    if (domain === undefined) host.setConfig(['authz', 'fs', name, 'domain'], host.domain);
+    else if (typeof domain === 'string' && domain !== 'root' && domain !== host.domain && !host.containers.has(domain) && testHost.config().get(['authz', 'domains', domain, 'parent']) === undefined) {
+      host.setConfig(['authz', 'domains', domain, 'parent'], host.domain);
+    }
+  }
+}
+
+/** An FsPathResolver class with the spec's name (`authz.fs.<name>.resolver` matches by class name): `<prefix><id>[/…]` has the parent `{ type, id }`. */
+function resolverClass(spec: FsResolverSpec): Class<FsPathResolver> {
+  const cls = class extends FsPathResolver {
+    readonly fs = spec.fs;
+    async parents(_fsName: string, path: string): Promise<readonly ResourceRef[] | null> {
+      if (!path.startsWith(spec.prefix)) return null;
+      const id = path.slice(spec.prefix.length).split('/')[0];
+      return id === '' ? null : [{ type: spec.type, id }];
+    }
+  };
+  Object.defineProperty(cls, 'name', { value: spec.name });
+  return cls;
+}
+
+/** Registers the world's resolvers in root, where resolveFsParents looks them up; the returned function removes them. */
+function registerResolvers(specs: readonly FsResolverSpec[]): () => void {
+  const root = DI.RootContainer;
+  const classes = specs.map(resolverClass);
+  const uncache = () => {
+    root.uncache(Array.ofType(FsPathResolver));
+    for (const cls of classes) root.uncache(cls);
+  };
+  uncache();
+  const undo = classes.map((cls) => testHost.registerInRoot(FsPathResolver, cls));
+  return () => {
+    for (const fn of undo.reverse()) fn();
+    uncache();
+  };
+}
+
+/** Disposes the authz domains created since `before` (the fs bootstrap's), children first. */
+async function disposeNewDomains(before: ReadonlySet<string>): Promise<void> {
+  const ds = await testHost.domains();
+  for (const name of [...ds.names()].reverse()) {
+    if (!before.has(name) && ds.names().includes(name)) await ds.container(name).dispose();
   }
 }
 
 async function buildCase(kind: FsProviderKind, specs: readonly SignedFsProviderSpec[]): Promise<{ handle: FsHandle; dispose(): Promise<void> }> {
   const root = await mkdtemp(join(tmpdir(), 'authz-fs-b-'));
   const caseId = randomUUID().slice(0, 8);
-  caseAcl.clear();
+  caseStore.rows.clear();
+  caseStore.calls.length = 0;
+
   const providers: IProviderConfiguration[] = [];
   const seeds = new Map<string, Readonly<Record<string, string>>>();
-  const instances: fs[] = [];
-
   const dispose = async () => {
+    if (recording === state) recording = undefined;
     try {
-      await disposeS3(instances);
+      await disposeS3(state.raw.values());
     } finally {
       const published = publishedProviders();
-      for (const p of providers) published?.delete(p.name);
-      uncacheInstances(instances);
+      for (const name of state.names) published?.delete(name);
+      uncacheInstances(state.raw.values());
       await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   };
 
+  let state: CaseState = { names: new Set(), extra: new Map(), fakeSigned: new Set(), raw: new Map() };
   try {
     for (const spec of specs) {
       const { configs, seed } = await materialise(kind, spec, root, caseId);
@@ -222,39 +311,34 @@ async function buildCase(kind: FsProviderKind, specs: readonly SignedFsProviderS
       if (seed) seeds.set(spec.name, seed);
     }
     if (kind === 's3' && specs.length > 0) providers.push(...(await s3TempProviders(root)));
+    state = {
+      names: new Set(providers.map((p) => p.name)),
+      extra: new Map(specs.map((s) => [s.name, s.extraMethods ?? []])),
+      fakeSigned: new Set(kind === 's3' ? [] : specs.filter((s) => s.signedUrl).map((s) => s.name)),
+      raw: new Map(),
+    };
+
     if (providers.length > 0) {
       const service = new fsService();
       // The world's first provider is the default, as before the backends were added.
       Object.defineProperty(service, 'Config', { value: { defaultProvider: specs[0].name, providers }, configurable: true });
-      await service.resolve();
-    }
-    for (const p of providers) {
-      const instance = publishedFs(p.name);
-      if (instance) instances.push(instance);
+      recording = state;
+      try {
+        await service.resolve();
+      } finally {
+        recording = undefined;
+      }
     }
     for (const spec of specs) {
-      const instance = publishedFs(spec.name);
-      if (!(instance instanceof KIND_CLASS[kind])) throw new Error(`fs harness: ${spec.name} of kind ${kind} is not a ${KIND_CLASS[kind].name}`);
-      if (spec.signedUrl && kind !== 's3') {
-        const name = spec.name;
-        // The base class signs through doSignedUrl after the middleware narrowed `until`.
-        const doSignedUrl = async (path: string, opts?: { until?: DateTime }) => `fake-signed://${name}/${path}?expires=${opts?.until?.toMillis() ?? ''}`;
-        Object.defineProperty(instance, 'doSignedUrl', { value: doSignedUrl, configurable: true, writable: true });
-      }
-      const seed = seeds.get(spec.name);
-      // Setup files belong to nobody: written as SYSTEM, which the middleware neither checks nor stamps.
-      if (seed) {
-        await runWithPrincipal(SYSTEM, async () => {
-          for (const [path, content] of Object.entries(seed)) await instance.write(path, content);
-        });
-      }
+      const raw = state.raw.get(spec.name);
+      if (!(raw instanceof KIND_CLASS[kind])) throw new Error(`fs harness: ${spec.name} of kind ${kind} is not a ${KIND_CLASS[kind].name}`);
+      for (const [path, content] of Object.entries(seeds.get(spec.name) ?? {})) await raw.write(path, content);
     }
   } catch (e) {
     await dispose();
     throw e;
   }
 
-  // `{ fs }` and `{ localFile }` are mapped; every other argument, plain objects such as `{ exclusive: true }` included, passes unchanged.
   const toArg = async (arg: FsArg): Promise<unknown> => {
     if (Array.isArray(arg)) return Promise.all(arg.map(toArg));
     if (arg !== null && typeof arg === 'object' && 'fs' in arg) return getFs(arg.fs);
@@ -277,20 +361,22 @@ async function buildCase(kind: FsProviderKind, specs: readonly SignedFsProviderS
       await settleStream(result);
       return result;
     },
-    // No wrapper exists any more: getFs(name) is always the provider itself, checked or not.
-    isRaw: () => true,
+    isRaw(name) {
+      const raw = state.raw.get(name);
+      return raw !== undefined && getFs(name) === raw;
+    },
   };
 
   return { handle, dispose };
 }
 
 /**
- * hostHarness plus the fs facet: each case gets the world's filesystems (`World.lane.fs.providers`) through a fresh
- * fsService, checked by the AuthzFsMiddleware authz-fs registers in root, over one MemoryFileAclStore. The providers
- * are built in `extend`, after the domain booted, so a world the boot checks refuse leaves no provider behind.
+ * hostHarness plus the fs facet: each case gets the world's filesystems (`World.lane.fs.providers`)
+ * through a fresh fsService, so the real FsDecorator chain runs. The providers are built in `extend`,
+ * after the domain booted, so a world the boot checks refuse leaves no provider behind.
  *
- * Dispose deletes the case's provider names from the published map even when a provider of that name was published
- * before the case, and the suite undo reaches into the private `Registry.registry` map to drop the
+ * Dispose deletes the case's provider names from the published map even when a provider of that name was
+ * published before the case, and the suite undo reaches into the private `Registry.registry` map to drop the
  * `__file_provider__` key it added.
  */
 export function fsHarness(opts: FsHarnessOptions = {}): BehaviourHarness {
@@ -307,8 +393,30 @@ export function fsHarness(opts: FsHarnessOptions = {}): BehaviourHarness {
       if (opts.rbac) registerRbac(host);
     },
     async extend(host) {
-      const built = await buildCase(kind, host.world.lane?.fs?.providers ?? []);
-      return { lane: { fs: built.handle }, dispose: built.dispose };
+      const domainsBefore = new Set((await testHost.domains()).names());
+      const undoResolvers = registerResolvers(host.world.lane?.fs?.resolvers ?? []);
+      const cleanup = async () => {
+        try {
+          await disposeNewDomains(domainsBefore);
+        } finally {
+          undoResolvers();
+        }
+      };
+      let built: Awaited<ReturnType<typeof buildCase>>;
+      try {
+        built = await buildCase(kind, host.world.lane?.fs?.providers ?? []);
+      } catch (e) {
+        await cleanup();
+        throw e;
+      }
+      const dispose = async () => {
+        try {
+          await built.dispose();
+        } finally {
+          await cleanup();
+        }
+      };
+      return { lane: { fs: built.handle }, dispose };
     },
   });
 
@@ -337,6 +445,4 @@ function registerRbac(host: HostSetup): void {
   const model = new RbacModel({ roles: new MemoryRoleStore(rbac.roles ?? [], rbac.ladders ?? []), assignments: new MemoryAssignmentStore(rbac.assignments ?? []), clock: host.kit.clock });
   host.container.register(testHost.instance(model)).as(AuthorizationModel);
   host.container.register(testHost.instance(new RbacContributor(model))).as(AuthzContributor);
-  // FsAclRelation asks the domain's RbacService for the subject keys, as registerRbac wires it.
-  host.container.register(testHost.instance(new RbacService(model))).as(RbacService);
 }

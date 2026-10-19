@@ -6,11 +6,11 @@
 
 1. `fsService` creates the backend first: the temp entry's `provider` key makes it a dependency, whatever the config order.
 2. `fsTemp.resolve()` throws `ResolveException` when `provider` is not set, or names the temp provider itself.
-3. It takes the backend with `getFs(provider)`. This is the backend provider itself.
+3. It takes the backend with `getFs(provider)`. This is the **raw** backend: decorators run after all providers exist.
 4. It finds the class registered under `TempCleanupStrategy` whose name equals `cleanupStrategy` (default `MaxAgeTempCleanupStrategy`), or throws `ResolveException`.
 5. It resolves a new strategy instance. With `cleanup` not `true` it logs that cleanup is off and stops here.
 6. Otherwise it calls `strategy.start(backend, options)`. A strategy may throw here, eg. `CronTempCleanupStrategy` without `cleanupCronExpression`, which fails the boot.
-7. Every file call (`read`, `write`, `zip`, ...) runs the backend's public method from the temp provider's `doX` hook. That call happens inside the action frame, so [middlewares](07-middlewares.md#important-behaviour) check it once, as the temp fs; `upload` options are forwarded. `zip()` and `unzip()` default their destination to the temp provider, not the backend.
+7. Every file call (`read`, `write`, `zip`, ...) is forwarded to the backend. `zip()` and `unzip()` default their destination to the temp provider, not the backend.
 8. `dispose()` stops the strategy. It does **not** dispose the backend.
 
 ## Configuration
@@ -72,7 +72,7 @@ The `fsS3` keys (`bucket`, `createBucketIfNotExists`, `signer`) come from `@spin
 
 - `Name` and `ServiceName` return the temp provider name, not the backend name.
 - `tmppath(ext)` returns the backend's `tmppath(ext)`, so for `fsNative` it is an absolute path under the backend's `basePath`.
-- A middleware sees an action on `fs-temp` once, with `fs-temp` as the target. The backend call it forwards to runs inside the action frame, so no middleware sees it as a second action on the backend.
+- Decorators wrap the temp provider and the backend separately. The temp provider still calls the **raw** backend, so a decorator on the backend does not see calls made through `fs-temp`.
 - The shipped strategies sweep only the first level of the backend root; files in subdirectories stay.
 - Two temp providers on one backend sweep the same root: one may delete the other's files.
 

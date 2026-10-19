@@ -101,8 +101,7 @@ export class AppConfiguration extends FrameworkConfiguration {
 - **The backend must be local.** `download()` returns the temp path as a local path, and `upload()` reads it with `createReadStream`. An S3 or FTP backend breaks every flow on this page.
 - **`download()` leaves the file behind.** Delete it with `TempFs.rm()` when done, or rely on cleanup with a `maxFileAge` above your longest processing time.
 - **`append()` re-uploads the whole object.** It costs a full download and upload per call, and it replaces the object's metadata with freshly computed file info.
-- **`unzip()` and `zip()` without `dstFs` write to `this.TempFs` (`fs-temp-s3`).** The results are temp files and get cleaned up; pass a `dstFs` to keep them.
-- **Temp fs calls made during an action run unchecked.** They happen inside the action frame, so [middlewares](../fs/07-middlewares.md#important-behaviour) see the outer action once and never the `fs-temp-s3` calls.
+- **`unzip()` and `zip()` without `dstFs` write to `fs-temp-s3`.** The results are temp files and get cleaned up; pass a `dstFs` to keep them.
 - **Extracting straight into S3 is not supported.** `unzip()` needs a local-path destination filesystem.
 
 ## Best practices

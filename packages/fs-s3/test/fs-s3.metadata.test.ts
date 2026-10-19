@@ -67,15 +67,6 @@ describe('fs s3 setMetadata', function () {
     await s3.setMetadata('missing.txt', { a: 'b' }).catch((e: unknown) => (error = e));
     expect(error).to.be.an('error');
   });
-
-  it('reads and replaces metadata under the normalised key', async () => {
-    await client.send(new PutObjectCommand({ Bucket: bucket, Key: 'norm/b.txt', Body: 'b' }));
-
-    await s3.setMetadata('/norm//b.txt', { 'authz-meta': 'n' });
-
-    expect((await client.send(new HeadObjectCommand({ Bucket: bucket, Key: 'norm/b.txt' }))).Metadata).to.deep.equal({ 'authz-meta': 'n' });
-    expect(await s3.getMetadata('norm/b.txt')).to.deep.equal({ 'authz-meta': 'n' });
-  });
 });
 
 describe('fs s3 without a server', function () {

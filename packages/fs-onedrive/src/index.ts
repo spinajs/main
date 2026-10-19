@@ -3,10 +3,9 @@ import { Client } from '@microsoft/microsoft-graph-client';
 
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, FileSystem, IFsUploadOptions, IStat, IZipResult } from '@spinajs/fs';
+import { fs, FileSystem, IStat, IZipResult } from '@spinajs/fs';
 import { Config } from '@spinajs/configuration';
 import { MethodNotImplemented } from '@spinajs/exceptions';
-import { PassThrough } from 'stream';
 
 export interface IOnedriveConfig {
   tenantId: string;
@@ -89,71 +88,71 @@ export class fsOneDrive extends fs {
     throw new MethodNotImplemented(`fs onedrive provider does not implement '${method}' yet`);
   }
 
-  protected async doDownload(_path: string): Promise<string> {
+  public async download(_path: string): Promise<string> {
     return this.notImplemented('download');
   }
 
-  protected async doUpload(_srcPath: string, _destPath: string, _options?: IFsUploadOptions): Promise<void> {
+  public async upload(_srcPath: string, _destPath?: string): Promise<void> {
     return this.notImplemented('upload');
   }
 
-  protected async doRead(_path: string, _encoding?: BufferEncoding): Promise<string | Buffer> {
+  public async read(_path: string, _encoding?: BufferEncoding): Promise<string | Buffer> {
     return this.notImplemented('read');
   }
 
-  protected async doReadStream(_path: string, _encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
+  public async readStream(_path: string, _encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
     return this.notImplemented('readStream');
   }
 
-  protected async doWrite(_path: string, _data: string | Uint8Array, _encoding?: BufferEncoding): Promise<void> {
+  public async write(_path: string, _data: string | Uint8Array, _encoding?: BufferEncoding): Promise<void> {
     return this.notImplemented('write');
   }
 
-  protected async doWriteStream(_path: string, _readStream?: NodeJS.ReadableStream | BufferEncoding, _encoding?: BufferEncoding): Promise<PassThrough> {
+  public async writeStream(_path: string, _rStream?: BufferEncoding | NodeJS.ReadableStream, _encoding?: BufferEncoding): Promise<any> {
     return this.notImplemented('writeStream');
   }
 
-  protected async doAppend(_path: string, _data: string | Uint8Array, _encoding?: BufferEncoding): Promise<void> {
+  public async append(_path: string, _data: string | Uint8Array, _encoding?: BufferEncoding): Promise<void> {
     return this.notImplemented('append');
   }
 
-  protected async doExists(_path: string): Promise<boolean> {
+  public async exists(_path: string): Promise<boolean> {
     return this.notImplemented('exists');
   }
 
-  protected async doDirExists(_path: string): Promise<boolean> {
+  public async dirExists(_path: string): Promise<boolean> {
     return this.notImplemented('dirExists');
   }
 
-  protected async doCopy(_path: string, _dest: string, _dstFs?: fs): Promise<void> {
+  public async copy(_path: string, _dest: string, _dstFs?: fs): Promise<void> {
     return this.notImplemented('copy');
   }
 
-  protected async doMove(_oldPath: string, _newPath: string, _dstFs?: fs): Promise<void> {
+  public async move(_oldPath: string, _newPath: string, _dstFs?: fs): Promise<void> {
     return this.notImplemented('move');
   }
 
-  protected async doRename(_oldPath: string, _newPath: string): Promise<void> {
+  public async rename(_oldPath: string, _newPath: string): Promise<void> {
     return this.notImplemented('rename');
   }
 
-  protected async doRm(_path: string): Promise<void> {
+  public async rm(_path: string): Promise<void> {
     return this.notImplemented('rm');
   }
 
-  protected async doMkdir(_path: string): Promise<void> {
+  public async mkdir(_path: string): Promise<void> {
     return this.notImplemented('mkdir');
   }
 
-  protected async doStat(_path: string): Promise<IStat> {
+  public async stat(_path: string): Promise<IStat> {
     return this.notImplemented('stat');
   }
 
-  protected async doIsDir(_path: string): Promise<boolean> {
+  public async isDir(_path: string): Promise<boolean> {
     return this.notImplemented('isDir');
   }
 
-  protected async doList(_path: string): Promise<string[]> {
+  public async list(_path: string): Promise<string[]> {
     return this.notImplemented('list');
   }
 
@@ -161,11 +160,11 @@ export class fsOneDrive extends fs {
     return this.notImplemented('tmppath');
   }
 
-  protected async doZip(_sources: string | (string | string[])[], _dstFs: fs, _dstFile: string): Promise<IZipResult> {
+  public async zip(_path: string | (string | string[])[], _dstFs?: fs, _dstFile?: string): Promise<IZipResult> {
     return this.notImplemented('zip');
   }
 
-  protected async doUnzip(_srcPath: string, _destPath: string, _dstFs: fs): Promise<string> {
+  public async unzip(_srcPath: string, _destPath?: string, _dstFs?: fs): Promise<string> {
     return this.notImplemented('unzip');
   }
 

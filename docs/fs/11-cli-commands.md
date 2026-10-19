@@ -102,7 +102,7 @@ Compile it into a directory you add to `system.dirs.cli`, then run `spinajs fs-d
 - `fs-hash` without `--algo` labels the digest with `fs.hasher.defaultAlgorithm`, or `sha256` when it is not set.
 - `fs-write --from-file` writes the bytes unchanged; `--encoding` applies to `--content` only.
 - `fs-download` on a local provider prints the existing path and copies nothing.
-- The commands call the providers, so registered [middlewares](07-middlewares.md) (eg. `AuthzFsMiddleware`) apply to them.
+- The commands go through decorated providers, so [provider decorators](07-provider-decorators.md) such as access guards apply.
 
 ## Best practices
 

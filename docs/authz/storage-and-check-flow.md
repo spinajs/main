@@ -35,8 +35,7 @@ Roles, ladders and permission definitions have no table. They are read from conf
 | `authz.rbac.ladders.<name>` | `{ roles[], resourceTypes? }` |
 | `authz.rbac.*` | `rules[]`, `defaultRoles`, `anonymousRoles`, `serviceRoles`, `groupPrincipal`, `cache`, `maxSetDepth`, `stores` |
 | `authz.abac.policies[]` | `Policy` objects (`authz/src/contracts/data.ts:63`) |
-| `authz.fs.<filesystem>` | `{ mode: off/audit/enforce, domain, stampOwner, list, signedUrl }` |
-| `authz.fsAcl` | `{ connection, relations }` |
+| `authz.fs.<filesystem>` | `{ mode: off/audit/enforce, domain, metadata, stampOwner, resolver, inherit, signedUrl, policies, operations, list }` |
 
 The RBAC schema is in
 [authz-rbac/src/stores/schema.ts:139-181](../../packages/authz-rbac/src/stores/schema.ts#L139-L181);
@@ -64,7 +63,7 @@ config change changes cache keys.
 - A `PermissionDef` carries `types`, `implies`, `fields`, `list` and `source`. Definitions come from
   config, from adapters and from models. The ORM adapter registers
   `<type>:read|create|update|delete` per resource model; authz-fs registers
-  `fs:read|stat|list|write|delete|share|manage`.
+  `fs:read|stat|list|write|delete|share`.
 - 3.0 has no `own`/`any` possession. "Own" is a grant with `relation: 'owner'` (or `'self'`), an
   `on` pattern, `fields`, `requiresTag` or `grantedAt`. `authz-convert` maps 2.x `verb:any` to a
   plain grant and `verb:own` to `relation:'owner'` (`'self'` for `selfResources`).
@@ -136,11 +135,9 @@ Index on `(scope_type, scope_id)`.
 
 ### authz-fs
 
-`AuthzFsAcl_2026_10_17_00_00_00.ts` creates **`fs_acl`**: `id` (PK), `fs`, `path`, `path_hash` (SHA-256 hex of
-the path), `subject_key`, `relation`, `expires_at`, `granted_by`, `created_at`. `fs`, `path`, `path_hash`,
-`subject_key` and `relation` are `exact()` (the driver's binary collation, so case variants of a path are two
-rows). Unique key `(fs, path_hash, subject_key, relation)` and index `(fs, path_hash, relation)`; the hash
-keeps the key under every driver's limit. See [File ACL](../authz-fs/03-file-acl.md).
+`AuthzFsObject_2026_10_01_00_00_00.ts` creates **`fs_object`**: PK `(fs, path)`, both columns
+`exact()` (the driver's binary collation, so case variants of a path are two rows), `owner_type`, `owner_id`, `scope_type`, `scope_id`, `tags`,
+`created_at`, `updated_at`.
 
 ## Teams
 
@@ -185,7 +182,7 @@ RBAC read ports are in `authz-rbac/src/contracts.ts`, admin write ports in
 | `MembershipStore`, `AdminMembershipStore` | `DbMembershipStore` (default), `MemoryMembershipStore` |
 | `SubjectResolver` | `RbacSubjectResolver` |
 | `PolicyStore` (authz-abac) | `ConfigPolicyStore`, `DbPolicyStore`, `MemoryPolicyStore`; chosen by `authz.abac.stores` |
-| `FileAclStore` (authz-fs) | `OrmFileAclStore` |
+| `FileMetadataStore` (authz-fs) | `OrmFileMetadataStore`, `S3ObjectMetadataStore` |
 
 Defaults are in `authz-rbac/src/stores/defaults.ts`; override them with `authz.rbac.stores.*`.
 Core ports (`ResourceAdapter`, `ScopeResolver`, `RelationResolver`, `ScopeAttributeStore`,
@@ -205,7 +202,7 @@ flowchart TD
   G --> H{cache hit?}
   H -- yes --> R[Decision]
   H -- no --> I[ceiling]
-  I --> J[RBAC, ABAC models]
+  I --> J[RBAC, ABAC, fs-inherit models]
   J --> K[combine: deny-overrides]
   K --> L[AND ceiling, delegate decision, residual vs row, fields]
   L --> M[cache + audit]
@@ -343,13 +340,15 @@ vote permits every row and denies none.
 
 ## Resource-level access
 
-The only per-row ACL is the file ACL (`fs_acl`). Access to one resource comes from:
+There are no per-row ACL rows. Access to one resource comes from:
 
 - an `authz_assignment` at that resource or at one of its ancestors. The engine walks
   `authz_resource_ancestor` for ORM models (`authz-orm/src/adapter.ts:65-97`) and path ancestors
   for files;
 - a relation check on a grant: `@Owner` and `@Self` columns on ORM models
-  (`authz-orm/src/relations.ts`), or `fs_acl` rows through `FsAclRelation` (`authz-fs/src/acl/`);
+  (`authz-orm/src/relations.ts`), or the owner in `fs_object` (`authz-fs/src/metadata/owner.ts`);
+- `fs-inherit` (`authz-fs/src/inherit/index.ts`): permits `fs:<op>` when the principal holds
+  `<parent>:<action>` on the resolver's parent resource;
 - a share link: an assignment to `link:<id>` at the link's scope.
 
 ## ORM enforcement

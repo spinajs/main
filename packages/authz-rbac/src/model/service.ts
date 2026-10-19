@@ -1,12 +1,8 @@
 import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
 import type { EvaluationContext, Principal, ResourceRef } from '@spinajs/authz';
-import { unique } from '@spinajs/util';
 
-import type { LinkStore, SubjectKey } from '../contracts.js';
-import { subjectKeyOf } from '../stores/columns.js';
+import type { LinkStore } from '../contracts.js';
 
-import { subjectKey } from './assignments.js';
-import { ceilingRoles, withinCeiling } from './ceiling.js';
 import { liveAssignments, rbacTables } from './evaluate.js';
 import type { RbacTables } from './evaluate.js';
 import type { CompiledGrant } from './grants.js';
@@ -56,35 +52,6 @@ export class RbacService {
   }
 
   /**
-   * The subject keys (subjectKeyOf) `principal` acts as at `at` (default: the model clock's now), for
-   * stores that match rows by subject key (fs_acl): itself, its companions, their type wildcards, a
-   * group principal's member set, and the subject sets its live assignments make it a member of,
-   * directly and, with a MembershipStore, through other sets. Each key once. Under `ceiling.roles` a
-   * direct set needs a membership whose role passes it and nested sets are left out, as in decisions.
-   * @throws (rejects) when a store fails or `ceiling.roles` is not a list of role names
-   */
-  async subjectKeysOf(principal: Principal, at?: Date): Promise<readonly SubjectKey[]> {
-    const input = await this.model.subjectsInput(principal, this.context(at));
-    const roles = ceilingRoles(principal);
-    const limit = roles ? { ceilingRoles: roles } : {};
-    const now = input.now.getTime();
-    const live = (end: Date | undefined) => end === undefined || end.getTime() > now;
-    const keys: SubjectKey[] = [];
-    for (const subject of input.subjects ?? []) {
-      if ('set' in subject) {
-        const key = subjectKey(subject);
-        const direct = input.memberships?.get(key);
-        const nested = input.nestedSets?.get(key);
-        // As permits see sets (applyMemberships, list plan holders): a ceiling must pass the joining role, and keeps no nested set.
-        if (direct && !direct.via.some((m) => withinCeiling(limit, m.role) && live(m.expiresAt))) continue;
-        if (!direct && nested && (roles !== undefined || !live(nested.expiresAt))) continue;
-      }
-      keys.push(subjectKeyOf(subject));
-    }
-    return Object.freeze(unique(keys));
-  }
-
-  /**
    * The principal of share link `id`: type `link`, its ceiling the link's scope
    * and expiry (reason `link_invalid`), its attributes the link's, `companion` joined as a subject
    * when nothing it carries would be lost (see linkCompanion). An unknown or revoked id gives
@@ -116,11 +83,11 @@ export class RbacService {
     return Object.freeze(index.permissions(role).flatMap((p) => index.grants(role, p)));
   }
 
-  /** The context of rolesOf without one: `now` (default the model clock), a fresh request cache, the `ancestors` option. */
-  private context(now: Date = this.model.currentTime()): EvaluationContext {
+  /** The context of rolesOf without one: the model clock, a fresh request cache, the `ancestors` option. */
+  private context(): EvaluationContext {
     const ancestors = this.opts.ancestors;
     const own: Partial<EvaluationContext> = {
-      now,
+      now: this.model.currentTime(),
       cache: new Map(),
       permissions: this.model.permissions(),
       ancestors: (ref) => (ancestors ? ancestors(ref) : Promise.reject(new AuthzConfigError('RbacService.rolesOf at a resource needs a ctx or the ancestors option'))),

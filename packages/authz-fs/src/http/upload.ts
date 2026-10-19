@@ -3,13 +3,12 @@ import type { Principal } from '@spinajs/authz';
 import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { publishedFs } from '@spinajs/fs';
 import { FileUploadMiddleware } from '@spinajs/http';
 import type { IUploadOptions, IUploadedFile } from '@spinajs/http';
 
 import { fsAccessConfig } from '../access-config/index.js';
-import { decideFs, domainService, refOf } from '../middleware/decide.js';
-import type { FsDecideService, FsLog } from '../middleware/decide.js';
+import { basePathOf, decideFs, domainService, publishedFs, refOf } from '../guard/shared.js';
+import type { FsGuardLog, FsGuardService } from '../guard/shared.js';
 import { fsRowOf, normalizeFsPath } from '../refs/index.js';
 
 /** The filesystem `FromFile` uploads to when the route names none. */
@@ -18,19 +17,19 @@ export const DEFAULT_UPLOAD_FS = '__file_upload_default_provider__';
 export interface AuthzUploadMiddlewareOptions {
   /** Where the Configuration, the published providers and AuthzDomains are resolved; default the root. */
   readonly container?: IContainer;
-  /** The service that decides for a domain; default the root AuthzService, else `AuthzDomains.service(domain)`. */
-  readonly service?: (domain: string) => Promise<FsDecideService>;
+  /** The service that decides for a domain; default `AuthzDomains.service(domain)`. */
+  readonly service?: (domain: string) => Promise<FsGuardService>;
   /** Default: the ALS principal, else UNATTENDED (what AuthzService.current() returns). */
   readonly principal?: () => Principal;
-  readonly log?: FsLog;
+  readonly log?: FsGuardLog;
 }
 
 /**
  * Checks `fs:write` on the file an upload will be written to (`file.Provider`, else `options.fs`, else the default
- * upload filesystem, at `file.BaseName`) before the uploader copies it, with that filesystem's mode and domain:
- * enforce refuses with AccessDenied (403) so the formidable temp file is never copied, audit warns, off does
- * nothing. AuthzFsMiddleware checks the copy again, but the uploader turns its denial into an IOFail (500); this
- * gives the 403. Apps add it after middlewares that rename the file.
+ * upload filesystem, at `file.BaseName`) before the uploader copies it, with that filesystem's mode and domain
+ * (design §13): enforce refuses with AccessDenied (403) so the formidable temp file is never copied, audit warns,
+ * off does nothing. The guarded copy checks the destination again; this gives the early answer. Apps add it after
+ * middlewares that rename the file.
  */
 @Injectable(FileUploadMiddleware)
 export class AuthzUploadMiddleware extends FileUploadMiddleware {
@@ -47,8 +46,8 @@ export class AuthzUploadMiddleware extends FileUploadMiddleware {
     const config = fsAccessConfig(fsName, container);
     if (config.mode === 'off') return file;
 
-    const provider = publishedFs(fsName, container) ?? (file.Provider?.Name === fsName ? file.Provider : undefined);
-    const path = normalizeFsPath(file.BaseName, provider?.BasePath);
+    const provider = publishedFs(container, fsName) ?? (file.Provider?.Name === fsName ? file.Provider : undefined);
+    const path = normalizeFsPath(file.BaseName, basePathOf(provider));
     if (path === '') throw new InvalidArgument(`upload ${JSON.stringify(file.Name)} has no file name to write to`, 'BaseName');
 
     const service = await (this.options.service ?? ((domain: string) => domainService(container, domain)))(config.domain);

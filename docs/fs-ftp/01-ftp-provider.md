@@ -12,7 +12,7 @@
 6. `fsFTP.resolve()` creates a `basic-ftp` `Client`, routes its log to the `fs` logger, and calls `Client.access()` with `host`, `port` (default `21`), `user`, `password` and `secure` (default `false`).
 7. On success it logs `Connected to ftp server at <host>:<port>` at `info` and installs a `trackProgress()` handler that logs every transfer at `debug`.
 8. On failure it throws `IOFail('Cannot connect to ftp server: <reason>')`. `fsService.resolve()` fails with it, so the application does not boot.
-9. `fsService` publishes the instance itself in the `__file_provider_instance__` map under its `name`. Nothing wraps it; registered [middlewares](04-middlewares-on-the-ftp-provider.md) run inside its methods.
+9. `fsService` publishes the instance in the `__file_provider_instance__` map under its `name`, then replaces it with the result of every registered `FsDecorator` (see [Decorating the FTP provider](04-decorating-the-ftp-provider.md)).
 10. Your code gets the published instance with `getFs('<name>')`, `@FileSystem('<name>')`, the helper functions of `@spinajs/fs` with `'<name>'`, or an `fs://<name>/<path>` URI.
 
 ```mermaid
@@ -30,7 +30,7 @@ sequenceDiagram
   Srv-->>Ftp: logged in
   Ftp-->>Svc: instance
   Svc->>DI: asMapValue('__file_provider_instance__', name)
-  Svc-->>App: instance published as is
+  Svc->>Svc: run FsDecorators, publish result
 ```
 
 ## Configuration
@@ -49,7 +49,7 @@ Each FTP provider is one entry in `fs.providers`.
 | `fs.providers[].logVerbose` | `boolean` | none | `true`, `false` | `true` logs every FTP command and response to the `fs` logger at `debug`; see [Important behaviour](#important-behaviour) |
 | `fs.defaultProvider` | `string` | none | a provider `name` | Set it to the FTP provider's name to make the `@spinajs/fs` helpers use FTP when no provider is passed |
 
-`fsFTP` also needs a provider named **`fs-temp`**. Every download, `read()`, `copy()`, cross-provider `move()`, `zip()` and `unzip()` goes through a local temp file on it. `zip()` and `unzip()` without `dstFs` default to this `TempFs`. `@spinajs/fs` ships no default `fs-temp` entry; configure it yourself.
+`fsFTP` also needs a provider named **`fs-temp`**. Every download, `read()`, `copy()`, cross-provider `move()`, `zip()` and `unzip()` goes through a local temp file on it. `@spinajs/fs` ships no default `fs-temp` entry; configure it yourself.
 
 ```ts
 fs: {
@@ -78,7 +78,7 @@ Type a config object with the exported `IFtpConfig` interface when you build it 
 | --- | --- | --- | --- | --- |
 | FTP file provider | `fs` (registered as the string `'fs'`, which is the same key as the `fs` class), by `@Injectable('fs')` at import. `@PerInstanceCheck()`: one instance per `name` | `fsFTP` | `fsNative`, `fsTemp` (`@spinajs/fs`), `fsS3` (`@spinajs/fs-s3`), `fsOneDrive` (`@spinajs/fs-onedrive`) | Subclass it, register the subclass under `fs` and set `service` to its class name: [Extending the FTP provider](03-extending-the-ftp-provider.md) |
 | Temp file storage | Provider named `fs-temp`, looked up through `getFs('fs-temp')` by the `@FileSystem('fs-temp')` getter on every access | Whatever `fs-temp` entry you configure | `fsNative`, or `fsTemp` with a local backend for automatic cleanup | Configure another provider under the name `fs-temp`. It must return local absolute paths from `tmppath()` and support `writeStream()` |
-| Middlewares | `FsMiddleware` (`@spinajs/fs`), resolved as `Array.ofType(FsMiddleware)` on every top-level action | none | `AuthzFsMiddleware` (`@spinajs/authz-fs`, `order` `100`) | `@Injectable(FsMiddleware)`: [Middlewares on the FTP provider](04-middlewares-on-the-ftp-provider.md), [`FsMiddleware`](../fs/07-middlewares.md) |
+| Provider wrappers | `FsDecorator`, resolved as `Array.ofType(FsDecorator)` once by `fsService` | none | `AuthzFsDecorator` (`@spinajs/authz-fs`) | Register your own `FsDecorator`: [Decorating the FTP provider](04-decorating-the-ftp-provider.md) |
 | Logger | `@Logger('fs')`, shared with every other provider | `@spinajs/log` | | Route the `fs` logger with logger rules |
 | File info | `FileInfoService`, `@Autoinject()` into `fsFTP.FileInfo` | `DefaultFileInfo` | | `metadata()` downloads the file to `fs-temp` and passes the temp copy to `getInfo()` |
 
@@ -211,7 +211,7 @@ export async function partnerFtp(): Promise<fs> {
 }
 ```
 
-`instanceof fsFTP` always holds for a provider whose `service` is `fsFTP` or a subclass of it: nothing wraps the instance.
+`instanceof fsFTP` holds for a `Proxy` over the instance and for an `Object.create(instance)` wrapper. It is `false` when an `FsDecorator` returns an unrelated object.
 
 ## Related
 

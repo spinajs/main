@@ -10,7 +10,6 @@ import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
 import { expect } from 'chai';
 import { fsFTP } from '../src/index.js';
-import { ResourceDuplicated } from '@spinajs/exceptions';
 
 async function f() {
   return await DI.resolve<fs>('__file_provider__', ['ftp']);
@@ -125,25 +124,6 @@ describe('fs ftp basic tests', function () {
     const ftp = await f();
     await ftp.rm('copied');
     expect(await ftp.dirExists('copied')).to.be.false;
-  });
-
-  it("treats '/sub/x' and 'sub/x' as one file", async () => {
-    const ftp = await f();
-    const local = await fl();
-
-    await ftp.write('/sub/norm.txt', 'normalised');
-
-    expect(await ftp.exists('sub/norm.txt')).to.be.true;
-    expect(await ftp.read('sub//norm.txt', 'utf-8')).to.eq('normalised');
-    expect(await ftp.list('/sub')).to.include('norm.txt');
-    expect(await ftp.isDir('/sub/')).to.be.true;
-    await expect(ftp.upload(local.resolvePath('Big_Buck_Bunny_1080_10s_30MB.mp4'), '/sub/norm.txt', { exclusive: true })).to.be.rejectedWith(ResourceDuplicated);
-
-    await ftp.rename('sub/norm.txt', '/sub/renamed.txt');
-    expect(await ftp.exists('/sub/renamed.txt')).to.be.true;
-
-    await ftp.rm('sub/renamed.txt');
-    expect(await ftp.exists('/sub/renamed.txt')).to.be.false;
   });
 
   it('should remove files', async () => {

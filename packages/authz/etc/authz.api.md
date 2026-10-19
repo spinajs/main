@@ -76,10 +76,6 @@ export declare abstract class RelationResolver {
     abstract readonly relation: string;
     abstract holds(principal: Principal, ref: ResourceRef, subject?: unknown): boolean | Promise<boolean>;
 }
-export interface RelationResolver {
-    /** True when the resource adapter renders this relation in SQL (op `relation.column`), so list plans may use it. Only the ORM adapter's `relation.column` compiler renders it: a custom resolver must not set it unless an adapter renders its relation. */
-    readonly listable?: boolean;
-}
 /** Scope attributes as authz data: ctx.attributes(ref) = schema defaults ⊕ adapter/resolver attributes ⊕ store rows (store wins). */
 export interface ScopeAttributeSchema {
     readonly scopeType: ResourceType;
@@ -257,15 +253,6 @@ export type AuthzAdminQuery = {
 } | {
     readonly kind: "attributes";
     readonly scope: ResourceRef;
-} | {
-    readonly kind: "holders";
-    readonly scope: ResourceRef;
-    readonly permission: Permission;
-    readonly expandSets?: boolean;
-    readonly page?: {
-        limit: number;
-        offset: number;
-    };
 };
 /** One per command kind family; registered by the model that owns the data (RBAC: assignment, set, link, rule; ABAC: policy; core: scope). */
 export declare abstract class AuthzWriteHandler {
@@ -689,7 +676,7 @@ import type { Permission, PermissionDef, PermissionRegistry } from "./permission
 import type { FilterOp, ResourceFilter } from "./filter.js";
 import type { DecisionRequest, Decision, FieldSet, TraceStep, Vote } from "./decision.js";
 import type { RelationResolver } from "./adapter.js";
-import type { ListPlanRequest, ListSupport, ListSupportContext, ModelListPlan } from "./plan.js";
+import type { ListPlanRequest, ListSupport, ModelListPlan } from "./plan.js";
 import type { ConditionCompiler } from "../conditions/contracts.js";
 export declare abstract class NativeFilter {
     abstract readonly op: `native:${string}`;
@@ -740,7 +727,7 @@ export declare abstract class AuthorizationModel {
     preload?(principal: Principal, ctx: EvaluationContext): Promise<void>;
     summarize?(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary>;
     /** List support for `permission` on `type`; absent means the model cannot plan lists. */
-    listSupport?(permission: PermissionDef, type: ResourceType, ctx?: ListSupportContext): ListSupport;
+    listSupport?(permission: PermissionDef, type: ResourceType): ListSupport;
     /** The list plan; called only when listSupport answered true. */
     listPlan?(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan>;
     invalidate?(tags: readonly string[]): void;
@@ -823,7 +810,6 @@ const PERMISSION_GLOB_PATTERN = Object.freeze(new RegExp(GLOB.source));
 import type { Principal, ResourceRef, ResourceType } from "./principal.js";
 import type { PermissionDef } from "./permission.js";
 import type { DenyReason } from "./decision.js";
-import type { RelationResolver } from "./adapter.js";
 /** One condition on a row, rendered by the PlanTermSql compiler registered for `op`. */
 export interface PlanTerm {
     readonly op: string;
@@ -861,10 +847,6 @@ export type AccessPlan = {
 export type ListSupport = true | {
     readonly reason: string;
 };
-/** What listSupport may consult besides the permission and type. */
-export interface ListSupportContext {
-    relation(type: ResourceType, name: string): RelationResolver | undefined;
-}
 export interface ListPlanRequest {
     readonly principal: Principal;
     /** The acting principal under `inherit` delegation, as `DecisionRequest.actor`. */
@@ -889,8 +871,8 @@ export interface SqlRowContext {
     readonly rowId: string;
     readonly rowColumn: (column: string) => string;
     readonly ancestorTable: string;
-    /** Columns of the row's relation `name` (owner, self, or a named column relation), when the resource declares one. */
-    readonly relation: (name: string) => {
+    /** Columns of the row's `owner`/`self` relation, when the resource declares one. */
+    readonly relation: (name: "owner" | "self") => {
         readonly column: string;
         readonly typeColumn?: string;
     } | undefined;
@@ -947,8 +929,6 @@ export declare abstract class AuthzService extends AsyncService {
     abstract check(req: CheckInput): Promise<Decision>;
     abstract can(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<boolean>;
     abstract assert(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<Decision>;
-    /** A decision for introspection (admin tools), not an access attempt: never audited, reads and stores no decision cache, models read fresh. Never use it to guard an action: nothing it answers is audited or cached. */
-    inspect?(req: CheckInput): Promise<Decision>;
     abstract checkMany(principal: Principal, permissions: readonly Permission[], resource?: ResourceRef | object): Promise<ReadonlyMap<Permission, Decision>>;
     abstract checkAll(principal: Principal, requests: readonly {
         readonly permission: Permission;
@@ -959,8 +939,6 @@ export declare abstract class AuthzService extends AsyncService {
     abstract filterNow(principal: Principal, permission: Permission, type: ResourceType): ResourceFilter | undefined;
     abstract explain(req: CheckInput): Promise<Decision>;
     abstract summary(principal: Principal, at?: ResourceRef): Promise<AccessSummary>;
-    /** The path a check of `ref` walks: `[ref, ...ancestors, GLOBAL]`; null for an unknown resource. Optional: test doubles may leave it out. */
-    ancestors?(ref: ResourceRef): Promise<readonly ResourceRef[] | null>;
     /** Holder's combined permission set at `at` (all models, incl. ABAC) strictly contains target's; impersonation rule (B26). */
     abstract covers(holder: Principal, target: Principal, at?: ResourceRef): Promise<boolean>;
     abstract preload(principal: Principal): Promise<void>;

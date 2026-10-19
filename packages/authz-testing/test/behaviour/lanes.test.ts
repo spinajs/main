@@ -18,7 +18,7 @@ const { combine } = fixtureDsl;
 
 const merged = mergeFixtures(BEHAVIOUR_FIXTURES);
 const OWN_RULES = ['B10', 'B20', 'B21', 'B23', 'B24', 'B25', 'B28', 'B30', 'B41'] as const;
-const FILLED = ['B02.http', 'B07.token', 'B09.orm', 'B09.http', 'B09.queue', 'B09.configuration', 'B09.socket', 'B09.email', 'B17.http', 'B17.users', 'B27.store', 'B27.queue', 'B37.token'];
+const FILLED = ['B02.http', 'B07.token', 'B09.orm', 'B09.http', 'B09.queue', 'B09.configuration', 'B09.socket', 'B09.email', 'B17.http', 'B17.users', 'B27.store', 'B27.queue', 'B29.fs', 'B37.token'];
 const lanePart = (selector: string) => {
   const [id, name] = selector.split('.');
   return merged.get(id as never)?.parts.find((p) => p.name === name);

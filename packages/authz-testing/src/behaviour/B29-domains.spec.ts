@@ -38,4 +38,5 @@ export const B29 = fixture('B29', [
       },
     ],
   },
+  { name: 'fs', facets: ['fs'], lanes: ['L7'], note: "The fs domain with FsInheritModel and FsPathResolver; L7 proposes the cases. The DI part of B29 is F2's packages/di/test/child-chain.test.ts.", cases: [] },
 ]);

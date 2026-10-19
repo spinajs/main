@@ -1,2 +1,2 @@
-export { normalizeFsPath } from '@spinajs/fs';
+export * from './paths.js';
 export * from './refs.js';

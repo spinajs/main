@@ -76,19 +76,6 @@ describe('authz-rbac plan SQL (design §6.2)', () => {
       expect(rbacAssignmentSql(args({ subjects: [] }), row()).sql).to.equal('(1 = 0)');
     });
 
-    it('a column relation other than owner ANDs the role with its own column', () => {
-      const assigned = rbacPlanArgs(parseRbacPlanArgs({ subjects: ['user:*', 'user:alice'], membership: false, memberKeys: [], roles: [{ role: 'worker', relation: 'assignee' }], global: false }));
-      const sqlOf = rbacAssignmentSql(assigned, row(POSTGRES, (name) => (name === 'assignee' ? { column: 'assignee_id' } : undefined)));
-      expect(sqlOf.sql).to.contain('(authz_s.role = ? AND t.assignee_id IN (?))');
-      expect(sqlOf.bindings).to.include.members(['worker', 'alice']);
-      expect(rbacAssignmentSql(assigned, row()).sql).to.equal('(1 = 0)');
-    });
-
-    it('parses a role entry with any relation name and refuses a non-string one', () => {
-      expect(parseRbacPlanArgs({ subjects: ['user:alice'], membership: false, memberKeys: [], roles: [{ role: 'worker', relation: 'assignee' }], global: false }).roles).to.deep.equal([{ role: 'worker', relation: 'assignee' }]);
-      expect(() => parseRbacPlanArgs({ subjects: [], membership: false, memberKeys: [], roles: [{ role: 'worker', relation: 1 }], global: false })).to.throw(/roles\[0\]\.relation must be a relation name/);
-    });
-
     it('a relation ANDs the role with the relation column of the principals among the subjects', () => {
       const owned = args({ subjects: ['user:*', 'user:alice', 'team:t1#member'], roles: [{ role: 'member', relation: 'owner' }] });
       const plain = rbacAssignmentSql(owned, row());

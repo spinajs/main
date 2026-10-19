@@ -25,14 +25,13 @@ connection), with or without `@Parent`.
 ## Declaring resources
 
 ```ts
-import { AccessResource, Owner, Parent, Relation, Self, registerAccessResource } from '@spinajs/authz-orm';
+import { AccessResource, Owner, Parent, Self, registerAccessResource } from '@spinajs/authz-orm';
 
 @AccessResource('task')
 export class Task extends ModelBase {
   @Parent('project') public project_id: number;
   @Parent('sprint')  public sprint_id: number;    // a second parent: both chains are ancestors
   @Owner()           public owner_id: string;     // relation 'owner'
-  @Relation('assignee') public assignee_id: string; // relation 'assignee'
 }
 
 @AccessResource('folder')
@@ -44,11 +43,7 @@ export class Folder extends ModelBase {
 // a model your package does not own
 registerAccessResource(DbConfig, 'configuration');
 // the initiator can be any principal type: the owner holds when type and id both match
-// named column relations: a column name, or { column, typeColumn }; one call carries all options
-registerAccessResource(JobModel, 'job', {
-  owner: { column: 'InitiatorId', typeColumn: 'InitiatorType' },
-  relations: { reviewer: { column: 'ReviewerId', typeColumn: 'ReviewerType' } },
-});
+registerAccessResource(JobModel, 'job', { owner: { column: 'InitiatorId', typeColumn: 'InitiatorType' } });
 ```
 
 - `@Parent(type)` names the parent's resource type; the column holds the parent's id. Int and uuid
@@ -56,11 +51,6 @@ registerAccessResource(JobModel, 'job', {
 - `@Owner()` is read from the row whenever it is needed; it is never copied, so it cannot go stale.
   Without options it matches `user` principals only; `@Owner({ typeColumn: 'owner_type' })` compares
   the principal's type with that column too, for rows owned by any principal type.
-- `@Relation(name, { typeColumn? })` declares a column relation like `owner`, for example `Task.assignee_id`.
-  Grant it with `{ permission: 'task:read', relation: 'assignee' }`; it works for single checks and for
-  `list: true` permissions (`.accessible()` renders `relation.column`). Without `typeColumn` the column
-  holds `user` ids. `owner` and `self` cannot be declared with it. A relation that lives in no column is
-  a role assigned on the resource. See [column relations](../../docs/authz/02-column-relations.md).
 - `@Self()` marks the column that equals the principal id (`self`, for `user` principals);
   `@spinajs/users` uses its own resolver for `user`.
 - Each `@AccessResource` type gets the permissions `<type>:read`, `<type>:create`, `<type>:update` and
@@ -127,7 +117,6 @@ renders each term with the `PlanTermSql` registered for its `op` and combines th
 | op | Registered by | Renders |
 |---|---|---|
 | `relation.owner` | authz-orm | the `@Owner()` column (and its `typeColumn`) is one of `args.principals` |
-| `relation.column` | authz-orm | the column of the `@Relation` named in `args.relation` holds one of `args.principals` |
 | `relation.self` | authz-orm | the `@Self()` column is one of the `user` principals in `args.principals` |
 | `rbac.assignment` | authz-rbac (`RbacAssignmentSql`) | the `EXISTS` over `authz_assignment`, `authz_subject_membership` and `authz_resource_ancestor` |
 

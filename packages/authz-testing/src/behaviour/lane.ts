@@ -94,8 +94,6 @@ export interface OrmModelSpec {
   readonly owner?: string;
   /** `@Parent(type, { nullable })` columns. */
   readonly parents?: readonly { readonly column: string; readonly type: ResourceType; readonly nullable?: boolean }[];
-  /** `@Relation(name)` columns. */
-  readonly relations?: readonly { readonly name: string; readonly column: string }[];
   /** Columns besides `id`. */
   readonly columns: readonly string[];
   readonly rows?: readonly FakeRow[];
@@ -119,10 +117,22 @@ export interface FsProviderSpec {
   readonly name: string;
   /** Files present at setup: path → content. */
   readonly files?: Readonly<Record<string, string>>;
+  /** Methods the provider has beyond the abstract `fs`, which no operation table maps. */
+  readonly extraMethods?: readonly string[];
+}
+
+/** An `FsPathResolver`: a path `<prefix><id>/…` of `fs` has the domain parent `{ type, id }`. */
+export interface FsResolverSpec {
+  /** The class name `authz.fs.<name>.resolver` refers to. */
+  readonly name: string;
+  readonly fs: string;
+  readonly prefix: string;
+  readonly type: ResourceType;
 }
 
 export interface FsWorld {
   readonly providers: readonly FsProviderSpec[];
+  readonly resolvers?: readonly FsResolverSpec[];
 }
 
 /** A `@Job(opts)` handler: it records `authz().current()` and checks each entry of `checks` as that principal. */
@@ -221,13 +231,13 @@ export interface OrmHandle {
   rows(model: string): Promise<readonly Readonly<Record<string, unknown>>[]>;
 }
 
-/** `{ fs }`: that filesystem as `getFs` returns it; `{ localFile }`: a local file outside every fs holding this content; `{ exclusive }`: `upload` options, passed as they are. */
-export type FsArg = string | number | null | readonly FsArg[] | { readonly fs: string } | { readonly localFile: string } | { readonly exclusive: boolean };
+/** `{ fs }`: that filesystem as `getFs` returns it; `{ localFile }`: a local file outside every fs holding this content. */
+export type FsArg = string | number | null | readonly FsArg[] | { readonly fs: string } | { readonly localFile: string };
 
 /** fs facet: methods of `getFs(name)` called in the current ALS; a stream result is drained or ended by the handle. */
 export interface FsHandle {
   call(fs: string, method: string, args: readonly FsArg[]): Promise<unknown>;
-  /** `getFs(name)` is the provider instance fsService created, with no wrapper around it. */
+  /** `getFs(name)` is the provider instance fsService created, not a guard. */
   isRaw(fs: string): boolean;
 }
 

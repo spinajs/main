@@ -1382,15 +1382,14 @@ The decorators, the policy rules and what the middleware cannot see are in
 
 ### L7: authz-fs
 
-The config, permissions, file ACL, signed URLs and uploads are in [docs/authz-fs](../authz-fs/README.md).
+The config, permissions, owners, signed URLs and the `fs` domain are in `packages/authz-fs/README.md`.
 
-- A file system with no `authz.fs.<name>` entry, or `mode: 'off'`, is never checked. An entry must
+- A file system with no `authz.fs.<name>` entry, or `mode: 'off'`, is the raw provider. An entry must
   state `mode`; an unknown key fails boot through the `authz.fs` schema (`InvalidConfiguration`).
-- The import order against `fsService` does not matter: `AuthzFsMiddleware` is resolved on every action.
-- Per-file rights and owners live in the table `fs_acl` (`OrmFileAclStore`, migration
-  `AuthzFsAcl_2026_10_17_00_00_00`, connection `authz.fsAcl.connection`).
-- Custom file providers implement protected `doX` hooks (see [Middlewares](../fs/07-middlewares.md)).
-- Paths are normalised, and a path above the root is an `InvalidArgument`.
+- Import the package before `fsService` resolves, and take providers after it resolved: until then
+  `fsService` publishes the raw providers.
+- Owners live in the table `fs_object` (`OrmFileMetadataStore`, migration
+  `AuthzFsObject_2026_10_01_00_00_00`, connection `authz.fsMetadata.connection`).
 
 ### K1, K1b and A4: canvas conformance, ABAC scope leaves
 

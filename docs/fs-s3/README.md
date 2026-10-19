@@ -72,7 +72,7 @@ export class InvoiceArchive {
 
 ## Related packages
 
-- [`@spinajs/fs`](../fs/README.md): the `fs` abstraction, `fsService` that creates providers, `fsTemp`, `FileInfoService` and `FsMiddleware`.
+- [`@spinajs/fs`](../fs/README.md): the `fs` abstraction, `fsService` that creates providers, `fsTemp`, `FileInfoService` and `FsDecorator`.
 - [`@spinajs/configuration`](../configuration/README.md): supplies `fs.s3.config` and the provider list.
 - [`@spinajs/di`](../di/README.md): registers `fsS3` and resolves the signer named in configuration.
 - [`@spinajs/fs-ftp`](../fs-ftp/README.md) and [`@spinajs/fs-onedrive`](../fs-onedrive/README.md): other remote providers behind the same `fs` API.

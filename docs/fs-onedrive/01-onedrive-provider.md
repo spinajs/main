@@ -13,9 +13,9 @@ It is a work in progress: the connection is built at boot, but every file operat
    2. creates `Client` with `Client.initWithMiddleware()`, with `debugLogging` set from `debug`, the base URL taken from `fs.onedrive.graph_endpoint` (plus `v1.0`) and an auth provider that requests a token for `GRAPH_SCOPE` (`https://graph.microsoft.com/.default`, read from the instance's class, so a subclass can override it) on every Graph call.
 
    `TempFs` is not set in `resolve()`: it is looked up lazily from `fs-temp` when first used.
-4. `fsService` publishes the instance itself under its `name`. Nothing wraps it.
+4. `fsService` publishes the instance under its `name`, then wraps it with every registered `FsDecorator`.
 5. Callers get it through `getFs('<name>')`, `@FileSystem('<name>')` or `DI.resolve('__file_provider__', ['<name>'])`.
-6. Any file operation on the instance first runs the registered [middlewares](../fs/07-middlewares.md), then reaches a `doX` hook. Every `doX` hook is a stub that throws `MethodNotImplemented` with the message `fs onedrive provider does not implement '<method>' yet`. The probes that middlewares run (`ctx.exists()`, `ctx.isDir()`, `ctx.hasEntries()`) throw as well, so with `AuthzFsMiddleware` enabled on this filesystem every create and `rm` is refused.
+6. Any file operation on the instance throws `MethodNotImplemented` with the message `fs onedrive provider does not implement '<method>' yet`.
 
 Boot fails when:
 
@@ -34,8 +34,8 @@ sequenceDiagram
   DI->>O: resolve()
   O->>O: new ClientSecretCredential(tenantId, clientId, clientSecret)
   O->>G: Client.initWithMiddleware({ debugLogging, authProvider })
-  S->>S: register the instance under entry.name
-  Note over O,DI: TempFs is not resolved here: the first use of TempFs calls getFs('fs-temp')
+  O->>DI: getFs('fs-temp')
+  S->>S: register under entry.name, apply FsDecorators
 ```
 
 ## Configuration
@@ -85,7 +85,7 @@ The provider always requests the `https://graph.microsoft.com/.default` scope, s
 | --- | --- | --- | --- | --- |
 | `fsOneDrive` | Registered under the `fs` key (`@Injectable('fs')`) at import; `@PerInstanceCheck()`: one instance per `name` | `fsOneDrive` (connection only, no operations) | Other `fs` providers: `fsNative`, `fsTemp` (`@spinajs/fs`), `fsS3`, `fsFTP` | Subclass it, decorate the subclass with `@Injectable('fs')` and `@PerInstanceCheck()`, set `service` to the subclass name. See [Extending the provider](02-extending-the-provider.md) |
 | Graph client and credential | Protected fields `Client` and `OneDriveCredentials`, built in `fsOneDrive.resolve()`; not in DI | `Client.initWithMiddleware()` with a `ClientSecretCredential` | none shipped | Override `resolve()`, call `super.resolve()`, then replace `this.Client`. See [Change the Graph cloud or token](02-extending-the-provider.md#change-the-graph-cloud-or-token) |
-| `FsMiddleware` | `Array.ofType(FsMiddleware)`, resolved on every top-level action | none | `AuthzFsMiddleware` and any registered middleware | Defined in [`@spinajs/fs`](../fs/07-middlewares.md); applies to `fsOneDrive` like to any provider |
+| `FsDecorator` | `Array.ofType(FsDecorator)`, applied by `fsService` to every provider | none | any registered decorator | Defined in [`@spinajs/fs`](../fs/README.md); wraps `fsOneDrive` like any provider |
 
 Members a subclass can use:
 
@@ -146,5 +146,5 @@ export class QuarterlyReportPublisher {
 
 ## Related
 
-- [`@spinajs/fs`](../fs/README.md): provider contract, `fsService`, `getFs()`, `@FileSystem()`, temp provider and middlewares.
+- [`@spinajs/fs`](../fs/README.md): provider contract, `fsService`, `getFs()`, `@FileSystem()`, temp provider and decorators.
 - [Extending the provider](02-extending-the-provider.md): implement the operations and swap the Graph client.

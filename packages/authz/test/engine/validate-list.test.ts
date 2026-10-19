@@ -4,8 +4,8 @@ import 'mocha';
 import { validateBoot } from '../../src/engine/validate.js';
 import type { BootInput } from '../../src/engine/validate.js';
 import { PermissionRegistryImpl } from '../../src/engine/registry.js';
-import { AuthorizationModel, AuthzConfigError, FALSE, RelationResolver } from '../../src/contracts/index.js';
-import type { ListSupport, ListSupportContext, ModelCapabilities, ModelListPlan, PermissionDef, ResourceType, Vote } from '../../src/contracts/index.js';
+import { AuthorizationModel, AuthzConfigError } from '../../src/contracts/index.js';
+import type { ListSupport, ModelCapabilities, ModelListPlan, PermissionDef, ResourceType, Vote } from '../../src/contracts/index.js';
 
 const expect = chai.expect;
 
@@ -131,39 +131,6 @@ describe('validateBoot rule 12: list permissions', () => {
 
   it('does not check list types when none are given', () => {
     expect(validateBoot(input({ models: [new ListingModel('rbac')] })).warnings).to.deep.equal([]);
-  });
-
-  it('hands listSupport the relation resolvers of the domain', () => {
-    const seen: (boolean | undefined)[] = [];
-    class Probe extends AuthorizationModel {
-      readonly name = 'probe';
-      readonly capabilities: ModelCapabilities = { effects: ['permit'], residuals: [], sync: 'never', fields: false, needsSubject: false };
-      init(): void {}
-      applies(): boolean {
-        return true;
-      }
-      evaluate(): Vote {
-        return { model: 'probe', permitWhen: FALSE, denyWhen: FALSE, cacheable: true } as unknown as Vote;
-      }
-      listSupport(_p: PermissionDef, type: ResourceType, ctx?: ListSupportContext): ListSupport {
-        seen.push(ctx?.relation(type, 'assignee')?.listable);
-        return true;
-      }
-      async listPlan(): Promise<ModelListPlan> {
-        return { kind: 'abstain' } as unknown as ModelListPlan;
-      }
-    }
-    class Assignee extends RelationResolver {
-      readonly type = 'task';
-      readonly relation = 'assignee';
-      readonly listable = true;
-      holds(): boolean {
-        return false;
-      }
-    }
-    const reg = registry([{ name: 'task:read', types: ['task'], list: true }]);
-    validateBoot(input({ registry: reg, models: [new Probe()], relations: [new Assignee()], listTypes: ['task'] }));
-    expect(seen).to.deep.equal([true]);
   });
 
   it('sorts rule 12 after the other rules', () => {

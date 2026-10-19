@@ -2,7 +2,6 @@ import { compareCodePoints } from '@spinajs/util';
 import { AuthzConfigError } from '../contracts/errors.js';
 import { CORE_FILTER_OPS } from '../contracts/filter.js';
 import type { AuthorizationModel, NativeFilter } from '../contracts/model.js';
-import type { ListSupportContext } from '../contracts/plan.js';
 import type { PermissionDef, PermissionRegistry } from '../contracts/permission.js';
 import type { ResourceType } from '../contracts/principal.js';
 import type { RelationResolver, ResourceAdapter, ScopeResolver } from '../contracts/adapter.js';
@@ -165,7 +164,7 @@ export function validateBoot(input: BootInput): { readonly warnings: readonly st
     const joinTypes = new Set<unknown>(listOf(input.joinTypes));
     guard(4, () => checkRoutes(routes, caps, adaptersByType, natives, joinTypes, add));
     const listTypes = input.listTypes === undefined ? undefined : new Set<unknown>(listOf(input.listTypes));
-    guard(12, () => checkListPermissions(routes, registry, listTypes, relationLookup(listOf(input.relations), adapters), add));
+    guard(12, () => checkListPermissions(routes, registry, listTypes, add));
   }
 
   guard(7, () => checkPermissions(registry, listOf(input.permissionRefs), add));
@@ -227,7 +226,7 @@ function readAdapter(adapter: unknown, index: number, out: AdapterView[], add: A
   }
   const compiles: unknown = adapter.compiles;
   const relations: unknown = adapter.relations;
-  out.push({ kind, types, compiles: compiles === undefined ? undefined : listOf(compiles as unknown[]), relations: typeof relations === 'function' ? once(() => relations.call(adapter)) : undefined });
+  out.push({ kind, types, compiles: compiles === undefined ? undefined : listOf(compiles as unknown[]), relations: typeof relations === 'function' ? () => relations.call(adapter) : undefined });
 }
 
 /** Reports combine problems and returns a config compileRoutes accepts, or undefined when the shape is too broken to route. */
@@ -319,41 +318,8 @@ function checkRoutes(table: RouteTable, caps: ReadonlyMap<AuthorizationModel, Mo
   }
 }
 
-/** Calls `fn` once; later calls return or rethrow the first outcome, so each adapter's relations() runs once per validation. */
-function once(fn: () => unknown): () => unknown {
-  let outcome: { value: unknown } | { error: unknown } | undefined;
-  return () => {
-    if (outcome === undefined) {
-      try {
-        outcome = { value: fn() };
-      } catch (error) {
-        outcome = { error };
-      }
-    }
-    if ('error' in outcome) throw outcome.error;
-    return outcome.value;
-  };
-}
-
-/** The resolvers the relation check indexes, by type and name; an adapter that throws from relations() adds none (that check reports it). */
-function relationLookup(relations: readonly RelationResolver[], adapters: readonly AdapterView[]): ListSupportContext {
-  const byKey = new Map<string, RelationResolver>();
-  const index = (r: unknown) => {
-    if (isObject(r) && typeof r.type === 'string' && typeof r.relation === 'string') byKey.set(relationKey(r.type, r.relation), r as unknown as RelationResolver);
-  };
-  relations.forEach(index);
-  for (const adapter of adapters) {
-    try {
-      if (adapter.relations) listOf(adapter.relations() as unknown[]).forEach(index);
-    } catch {
-      // reported by the relation check
-    }
-  }
-  return { relation: (type, name) => byKey.get(relationKey(type, name)) };
-}
-
 /** Rule 12: every model routed for a `list: true` permission on one of its types plans it, under deny-overrides (the only algorithm plans combine with). */
-function checkListPermissions(table: RouteTable, registry: PermissionRegistry, listTypes: ReadonlySet<unknown> | undefined, relations: ListSupportContext, add: Add): void {
+function checkListPermissions(table: RouteTable, registry: PermissionRegistry, listTypes: ReadonlySet<unknown> | undefined, add: Add): void {
   for (const def of registry.all()) {
     if (def.list !== true) continue;
     for (const type of new Set(listOf(def.types))) {
@@ -362,19 +328,19 @@ function checkListPermissions(table: RouteTable, registry: PermissionRegistry, l
       if (!plan) continue;
       if (plan.algorithm !== 'deny-overrides') add({ rule: 12, type, permission: def.name, text: `list permissions combine with deny-overrides only, got ${q(plan.algorithm)}` });
       for (const model of plan.models) {
-        const text = listProblem(model, def, type, relations);
+        const text = listProblem(model, def, type);
         if (text !== undefined) add({ rule: 12, type, permission: def.name, model: model.name, text });
       }
     }
   }
 }
 
-function listProblem(model: AuthorizationModel, def: PermissionDef, type: ResourceType, ctx: ListSupportContext): string | undefined {
+function listProblem(model: AuthorizationModel, def: PermissionDef, type: ResourceType): string | undefined {
   const support: unknown = (model as { listSupport?: unknown }).listSupport;
   if (typeof support !== 'function') return 'cannot plan lists: it has no listSupport()';
   let answer: unknown;
   try {
-    answer = support.call(model, def, type, ctx);
+    answer = support.call(model, def, type);
   } catch (err) {
     return `listSupport() threw: ${message(err)}`;
   }

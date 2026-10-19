@@ -22,7 +22,7 @@ Every `fsFTP` instance owns one `basic-ftp` `Client` and one control connection.
 | `readStream(path, encoding?)` | Root, `cd` to parent, starts `RETR` into a `PassThrough` without waiting | The `PassThrough`. A transfer error destroys it with that error |
 | `write(path, data, encoding?)` | Root, `ensureDir` parent, `STOR` base name | Creates missing directories, overwrites an existing file |
 | `append(path, data, encoding?)` | Root, `ensureDir` parent, `APPE` base name | Appends to the remote file; FTP servers create it when missing |
-| `upload(localPath, destPath?, options?)` | Root, `ensureDir` parent, `STOR` from the local file | `destPath` defaults to the base name of `localPath`, in the root. With `{ exclusive: true }` an existing file throws `ResourceDuplicated`. The provider checks `exists()` inside the action frame (unchecked), after every middleware's `before`; the check is not atomic, so two clients can still race |
+| `upload(localPath, destPath?, options?)` | Root, `ensureDir` parent, `STOR` from the local file | `destPath` defaults to the base name of `localPath`, in the root. With `{ exclusive: true }` an existing file throws `ResourceDuplicated`; the `exists()` check before `STOR` is not atomic |
 | `writeStream(...)` | none | Throws `MethodNotImplemented('fs ftp does not support writing streams')` |
 | `exists(path)` | `stat(path)` | `true` only for a **file**. A directory or any error gives `false` |
 | `dirExists(path)` | `stat(path)` | `true` when the entry is a directory; any error gives `false` |
@@ -36,12 +36,12 @@ Every `fsFTP` instance owns one `basic-ftp` `Client` and one control connection.
 | `copy(path, dest)` | `download()`, `upload(temp, dest)`, `TempFs.rm(temp)` | Creates missing directories of `dest` |
 | `copy(path, dest, dstFs)` | `download()`, `dstFs.upload(temp, dest)`, `TempFs.rm(temp)` | Copies to another provider |
 | `rm(path)` | `stat(path)`, then `DELE` base name, or `Client.removeDir()` for a directory | Deletes a file, or a directory with all its content. A missing file fails with the server's `550` reply |
-| `zip(paths, dstFs?, dstFile?)` | `download()` each entry, `TempFs.zip()` | `IZipResult` on `dstFs`, default `fs-temp`. Entry names are the normalised remote paths; a `[remotePath, entryName]` pair renames an entry. Directories are not supported |
+| `zip(paths, dstFs?, dstFile?)` | `download()` each entry, `TempFs.zip()` | `IZipResult` on `dstFs`, default `fs-temp`. Entry names are base names; a `[remotePath, entryName]` pair renames an entry. Directories are not supported |
 | `unzip(path, destPath?, dstFs?)` | `download()`, `TempFs.unzip(temp, destPath, dstFs ?? TempFs)`, `TempFs.rm(temp)` | Path of the extracted content. `dstFs` must be a local provider; extracting onto FTP is not supported |
 | `tmppath()` | none | Throws `MethodNotImplemented` |
 | `resolvePath(path)` | none | Throws `MethodNotImplemented` |
 | `hash(path, algo?)`, `metadata(path)` | `download()`, `FileHasher.hash()` / `FileInfo.getInfo()` on the temp copy, `TempFs.rm(temp)` | Hash or `IFileInfo` of the remote file |
-| `signedUrl(path, opts?)`, `getSignedUrl(path, until?)` | none | Throw `MethodNotImplemented`: `fsFTP` has no `doSignedUrl` |
+| `signedUrl` | not implemented | `ftp.signedUrl` is `undefined` |
 
 The static `fs.*(uri)` methods and the `@spinajs/fs` helpers (`read()`, `copy()`, `zip()` ...) delegate to these instance methods, so the same rules apply to `fs://ftp/...` URIs.
 
@@ -55,12 +55,11 @@ The static `fs.*(uri)` methods and the `@spinajs/fs` helpers (`read()`, `copy()`
 
 ## Important behaviour
 
-- **One command at a time.** `basic-ftp` rejects a command started while another runs: `User launched a task while another one is still running`. `fsFTP` does not queue calls, so two concurrent requests on the same provider fail. Serialize them in a subclass: [Serialize concurrent calls](03-extending-the-ftp-provider.md#serialize-concurrent-calls).
+- **One command at a time.** `basic-ftp` rejects a command started while another runs: `User launched a task while another one is still running`. `fsFTP` does not queue calls, so two concurrent requests on the same provider fail. Serialize them, for example with the [queue decorator](04-decorating-the-ftp-provider.md#serialize-concurrent-calls).
 - **`readStream()` holds the connection.** The download keeps running after the promise resolves. Consume the stream to the end before the next call on that provider.
 - **Paths are relative to the root.** Every method resets the working directory first, so a relative path means the same thing whatever the previous call did.
 - **`stat()` lists the whole parent directory.** `LIST <name>` cannot be used, because for a directory servers return its content, not its own entry. In a directory with many entries every `stat()`, `exists()`, `dirExists()`, `isDir()` and `rm()` transfers the full listing.
 - **`ModifiedTime`** is built from `FileInfo.modifiedAt`. When the server's listing has no parseable date, it is an invalid Luxon `DateTime`, not `undefined`.
-- **Calls inside an action are unchecked.** `read()` calls `download()`, `exists()` calls `stat()`, `copy()` calls `dstFs.upload()` and `TempFs` calls run inside the action frame, so [middlewares](04-middlewares-on-the-ftp-provider.md) see only the outer call.
 - **No error mapping.** A missing file fails with the raw `FTPError` (`550 ...`), not `IOFail`.
 
 ## Best practices

@@ -38,15 +38,6 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     return this.Options.name;
   }
 
-  // resolvePath leaves relative paths to the cwd when no basePath is set; WORKSPACE_ROOT_PATH only names the dir resolve() creates.
-  public get BasePath(): string | undefined {
-    return pathResolve(this.Options.basePath ?? '');
-  }
-
-  protected zipDestination(): fs {
-    return getFs('fs-temp');
-  }
-
   constructor(public Options: T) {
     super();
 
@@ -90,7 +81,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    *
    * @param path - file to download
    */
-  protected async doDownload(path: string): Promise<string> {
+  public async download(path: string): Promise<string> {
     const p = this.resolvePath(path);
     const exists = await this.exists(path);
     if (!exists) {
@@ -99,12 +90,12 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     return p;
   }
 
-  protected async doUpload(srcPath: string, destPath: string, options?: IFsUploadOptions) {
+  public async upload(srcPath: string, destPath?: string, options?: IFsUploadOptions) {
     if (!existsSync(srcPath)) {
       throw new IOFail(`file ${srcPath} does not exists`);
     }
 
-    const dPath = this.resolvePath(destPath);
+    const dPath = this.resolvePath(destPath ?? basename(srcPath));
 
     try {
       if (options?.exclusive) {
@@ -126,7 +117,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   /**
    * read all content of file
    */
-  protected async doRead(path: string, encoding?: BufferEncoding) {
+  public async read(path: string, encoding?: BufferEncoding) {
     const p = this.resolvePath(path);
 
     try {
@@ -138,7 +129,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
   }
 
-  protected async doReadStream(path: string, encoding?: BufferEncoding) {
+  public async readStream(path: string, encoding?: BufferEncoding) {
     const p = this.resolvePath(path);
 
     // fail fast with a consistent error - otherwise the error surfaces asynchronously
@@ -153,7 +144,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   /**
    * Write to file string or buffer
    */
-  protected async doWrite(path: string, data: string | Uint8Array, encoding?: BufferEncoding) {
+  public async write(path: string, data: string | Uint8Array, encoding?: BufferEncoding) {
     const p = this.resolvePath(path);
 
     let fHandle: FileHandle;
@@ -176,7 +167,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
   }
 
-  protected async doAppend(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+  public async append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     const p = this.resolvePath(path);
 
     try {
@@ -186,7 +177,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
   }
 
-  protected doWriteStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding) {
+  public writeStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding) {
     const enc = typeof rStream === 'string' ? rStream : encoding;
     const stream = createWriteStream(this.resolvePath(path), enc ? { encoding: enc } : {});
 
@@ -207,7 +198,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    * Checks if file existst
    * @param path - path to check
    */
-  protected async doExists(path: string) {
+  public async exists(path: string) {
     try {
       await access(this.resolvePath(path), constants.F_OK);
       return true;
@@ -216,7 +207,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
   }
 
-  protected async doDirExists(path: string) {
+  public async dirExists(path: string) {
     return this.isDir(path);
   }
 
@@ -225,7 +216,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    * @param path - src path
    * @param dest - dest path
    */
-  protected async doCopy(path: string, dest: string, dstFs?: fs) {
+  public async copy(path: string, dest: string, dstFs?: fs) {
     const sPath = this.resolvePath(path);
     const exists = await this.exists(path);
     if (!exists) {
@@ -251,7 +242,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   /**
    * Copy file to another location and deletes src file
    */
-  protected async doMove(oldPath: string, newPath: string, dstFs?: fs) {
+  public async move(oldPath: string, newPath: string, dstFs?: fs) {
     const oPath = this.resolvePath(oldPath);
 
     if (dstFs) {
@@ -284,7 +275,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   /**
    * Change name of a file
    */
-  protected async doRename(oldPath: string, newPath: string) {
+  public async rename(oldPath: string, newPath: string) {
     const oPath = this.resolvePath(oldPath);
     const nPath = this.resolvePath(newPath);
 
@@ -310,7 +301,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    *
    * @param path - dir to remove
    */
-  protected async doRm(path: string) {
+  public async rm(path: string) {
     const p = this.resolvePath(path);
 
     try {
@@ -326,7 +317,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    *
    * @param path - directory to create
    */
-  protected async doMkdir(path: string) {
+  public async mkdir(path: string) {
     const p = this.resolvePath(path);
 
     try {
@@ -339,7 +330,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   /**
    * Returns file statistics, not all fields may be accesible
    */
-  protected async doStat(path: string): Promise<IStat> {
+  public async stat(path: string): Promise<IStat> {
     const p = this.resolvePath(path);
 
     try {
@@ -380,7 +371,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    *
    * @param path - path to directory
    */
-  protected async doList(path: string) {
+  public async list(path: string) {
     const p = this.resolvePath(path);
 
     try {
@@ -390,14 +381,15 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
   }
 
-  protected async doUnzip(path: string, destPath: string, dstFs: fs) {
+  public async unzip(path: string, destPath?: string, dstFs?: fs) {
     const srcPath = this.resolvePath(path);
 
     if (!(await this.exists(path))) {
       throw new IOFail(`Cannot unzip, file ${path} does not exists`);
     }
 
-    const dst = dstFs.resolvePath(destPath);
+    const dFs = dstFs ?? this;
+    const dst = dFs.resolvePath(destPath ?? dFs.tmpname());
 
     return new Promise<string>((resolve, reject) => {
       const rStream = createReadStream(srcPath);
@@ -417,7 +409,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     });
   }
 
-  protected async doIsDir(path: string): Promise<boolean> {
+  public async isDir(path: string): Promise<boolean> {
     try {
       const pStat = await this.stat(path);
       return pStat.IsDirectory ?? false;
@@ -426,13 +418,13 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
   }
 
-  protected async doZip(path: string | (string | string[])[], dstFs: fs, dstFile: string): Promise<IZipResult> {
+  public async zip(path: string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
     const paths = toArray(path as any) as (string | string[])[];
 
     await this.assertSourcesExist(paths);
 
-    const fs = dstFs;
-    const outFile = dstFile;
+    const fs = dstFs ?? (await getFs('fs-temp'));
+    const outFile = dstFile ?? `${fs.tmpname()}.zip`;
     const wStream = await fs.writeStream(outFile);
     const archive = archiver('zip');
 

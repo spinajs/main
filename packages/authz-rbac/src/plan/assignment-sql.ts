@@ -60,7 +60,7 @@ function principalsOf(args: RbacAssignmentPlanArgs): PrincipalRef[] {
 }
 
 /** The row's relation holds for one of `principals`; undefined (FALSE) when the type has no such relation or no principal fits it. */
-function relationSql(row: SqlRowContext, name: string, principals: readonly PrincipalRef[]): SqlFragment | undefined {
+function relationSql(row: SqlRowContext, name: 'owner' | 'self', principals: readonly PrincipalRef[]): SqlFragment | undefined {
   const columns = row.relation(name);
   if (!columns) return undefined;
   const column = raw(row.rowColumn(columns.column));

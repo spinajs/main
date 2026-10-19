@@ -9,15 +9,14 @@ import { RawQuery } from '@spinajs/orm';
 import type { ModelBase } from '@spinajs/orm';
 import { SqliteSqlExpressions } from '@spinajs/orm-sqlite';
 
-import { AccessResource, Owner, Relation, entryOf } from '../../src/index.js';
-import { rowContext } from '../../src/lists/context.js';
-import { RelationColumnSql, RelationOwnerSql, RelationSelfSql, planTermCompilers, quoterOf } from '../../src/lists/index.js';
+import { AccessResource, Owner } from '../../src/index.js';
+import { RelationOwnerSql, RelationSelfSql, planTermCompilers, quoterOf } from '../../src/lists/index.js';
 import { TestDb } from '../support/db.js';
 
 const expect = chai.expect;
 
 type Rel = { column: string; typeColumn?: string } | undefined;
-const row = (over: Partial<SqlRowContext> = {}, relations: Record<string, Rel> = { owner: { column: 'owner' }, self: { column: 'Uuid' } }): SqlRowContext => ({
+const row = (over: Partial<SqlRowContext> = {}, relations: { owner?: Rel; self?: Rel } = { owner: { column: 'owner' }, self: { column: 'Uuid' } }): SqlRowContext => ({
   type: 'task',
   rowId: 'CAST("t"."id" AS TEXT)',
   rowColumn: (c) => `"t"."${c}"`,
@@ -135,44 +134,5 @@ describe('PlanTermSql registry and relation.owner / relation.self', function () 
       .from(table)
       .where(RawQuery.create(f.sql, [...f.bindings]))) as { id: string }[];
     expect(rows.map((r) => r.id)).to.deep.equal(['a']);
-  });
-
-  it('relation.column renders the named relation like owner, with or without a type column', () => {
-    const c = new RelationColumnSql();
-    const r = row({}, { assignee: { column: 'assignee_id' }, reviewer: { column: 'reviewer_id', typeColumn: 'reviewer_type' } });
-    expect(c.toSql({ relation: 'assignee', principals: [p('user', 'alice'), p('agent', 'bot')] }, r)).to.deep.equal({ sql: 'CAST("t"."assignee_id" AS TEXT) IN (?)', bindings: ['alice'] });
-    expect(c.toSql({ relation: 'reviewer', principals: [p('agent', 'bot')] }, r)).to.deep.equal({ sql: '"t"."reviewer_type" = ? AND CAST("t"."reviewer_id" AS TEXT) IN (?)', bindings: ['agent', 'bot'] });
-    expect(() => c.toSql({ relation: 'missing', principals: [] }, r)).to.throw(AuthzConfigError, /no column relation 'missing'/);
-    expect(() => c.toSql({ principals: [] }, r)).to.throw(AuthzConfigError, /relation.column args/);
-  });
-
-  it('relation.column is a built-in compiler', () => {
-    expect(planTermCompilers().get('relation.column')).to.be.instanceOf(RelationColumnSql);
-  });
-
-  it('relation.column runs on SQLite', async () => {
-    const Task = (await db.define({
-      name: 'Task',
-      columns: { assignee_id: 'TEXT' },
-      rows: [
-        { id: 'a', assignee_id: 'alice' },
-        { id: 'b', assignee_id: 'bob' },
-      ],
-      decorate: (cls, proto) => {
-        AccessResource('task')(cls);
-        Relation('assignee')(proto, 'assignee_id');
-      },
-    })) as typeof ModelBase;
-    const table = db.table(Task);
-    const f = new RelationColumnSql().toSql({ relation: 'assignee', principals: [p('user', 'alice')] }, row({ rowColumn: (col) => `"${table}"."${col}"` }, { assignee: { column: 'assignee_id' } }));
-    const rows = (await db.driver().select().from(table).where(RawQuery.create(f.sql, [...f.bindings]))) as { id: string }[];
-    expect(rows.map((r) => r.id)).to.deep.equal(['a']);
-
-    const ctx = rowContext(db.driver().select().from(table), entryOf(Task)!, new Date(0));
-    expect(ctx.relation('assignee')).to.deep.equal({ column: 'assignee_id' });
-    for (const inherited of ['constructor', 'toString']) {
-      expect(ctx.relation(inherited)).to.equal(undefined);
-      expect(() => new RelationColumnSql().toSql({ relation: inherited, principals: [] }, ctx)).to.throw(AuthzConfigError, new RegExp(`no column relation '${inherited}'`));
-    }
   });
 });

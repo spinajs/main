@@ -1,5 +1,5 @@
 import { GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
-import type { ListSupportContext, RelationResolver, RuleDef } from '@spinajs/authz';
+import type { RuleDef } from '@spinajs/authz';
 import { fakeModelInitContext } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
@@ -18,17 +18,13 @@ function registry() {
   return r;
 }
 
-async function support(roles: readonly RoleDef[], rules: readonly Omit<RuleDef, 'source'>[] = [], ctx?: ListSupportContext) {
+async function support(roles: readonly RoleDef[], rules: readonly Omit<RuleDef, 'source'>[] = []) {
   const reg = registry();
   const m = new RbacModel({ roles: new MemoryRoleStore(roles), assignments: new MemoryAssignmentStore(), ...(rules.length > 0 ? { rules: new ConfigRuleStore(rules as RuleDef[]) } : {}), log: { warn: () => undefined } });
   await m.init(fakeModelInitContext({ model: 'rbac', permissions: reg }));
   m.grantIndex();
-  return m.listSupport(reg.require('doc:read'), 'doc', ctx);
+  return m.listSupport(reg.require('doc:read'), 'doc');
 }
-
-const resolvers = (listable: boolean): ListSupportContext => ({
-  relation: (type, name) => (type === 'doc' && name === 'assignee' ? ({ type, relation: name, listable, holds: () => false } as unknown as RelationResolver) : undefined),
-});
 
 describe('authz-rbac listSupport (design §7)', () => {
   it('is true for plain, owner, self, grantedAt, requiresTag, type-only patterns and deny roles', async () => {
@@ -46,17 +42,7 @@ describe('authz-rbac listSupport (design §7)', () => {
   });
 
   it('refuses another relation', async () => {
-    expect(await support([role('team', [{ permission: 'doc:read', relation: 'team' }])])).to.deep.equal({ reason: "rbac role 'team' grant 'doc:read' (source: test) has the relation 'team'; lists support owner, self and listable column relations (@Relation), so doc:read on \"doc\" is not list-filterable" });
-  });
-
-  it('accepts a relation whose resolver is listable', async () => {
-    expect(await support([role('worker', [{ permission: 'doc:read', relation: 'assignee' }])], [], resolvers(true))).to.equal(true);
-  });
-
-  it('refuses a relation whose resolver is not listable, or that has none', async () => {
-    const reason = "rbac role 'worker' grant 'doc:read' (source: test) has the relation 'assignee'; lists support owner, self and listable column relations (@Relation), so doc:read on \"doc\" is not list-filterable";
-    expect(await support([role('worker', [{ permission: 'doc:read', relation: 'assignee' }])], [], resolvers(false))).to.deep.equal({ reason });
-    expect(await support([role('worker', [{ permission: 'doc:read', relation: 'assignee' }])])).to.deep.equal({ reason });
+    expect(await support([role('team', [{ permission: 'doc:read', relation: 'team' }])])).to.deep.equal({ reason: "rbac role 'team' grant 'doc:read' (source: test) has the relation 'team'; lists support owner and self only (assign a role on the resource instead), so doc:read on \"doc\" is not list-filterable" });
   });
 
   it('refuses on patterns with an id', async () => {

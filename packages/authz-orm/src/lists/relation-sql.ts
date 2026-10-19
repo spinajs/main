@@ -36,20 +36,6 @@ function idIn(row: SqlRowContext, column: string, ids: readonly string[]): SqlFr
 
 const userIds = (principals: readonly PrincipalArg[]): string[] => principals.filter((p) => p.type === 'user').map((p) => p.id);
 
-function principalsMatch(row: SqlRowContext, columns: { column: string; typeColumn?: string }, principals: readonly PrincipalArg[]): SqlFragment {
-  const { column, typeColumn } = columns;
-  if (typeColumn === undefined) return idIn(row, column, userIds(principals));
-  const byType = new Map<string, string[]>();
-  for (const p of principals) byType.set(p.type, [...(byType.get(p.type) ?? []), p.id]);
-  const parts = [...byType].map(([type, ids]) => {
-    const match = idIn(row, column, ids);
-    return { sql: `${row.rowColumn(typeColumn)} = ? AND ${match.sql}`, bindings: [type, ...match.bindings] };
-  });
-  if (parts.length === 0) return NOTHING;
-  if (parts.length === 1) return parts[0];
-  return { sql: parts.map((x) => `(${x.sql})`).join(' OR '), bindings: parts.flatMap((x) => x.bindings) };
-}
-
 /** The row's owner is one of the principals (design §5): a user id, or a type and id with `typeColumn`. */
 @Singleton()
 @Injectable(PlanTermSql)
@@ -57,24 +43,18 @@ export class RelationOwnerSql extends PlanTermSql {
   readonly op = RELATION_OWNER_OP;
 
   toSql(args: unknown, row: SqlRowContext): SqlFragment {
-    return principalsMatch(row, columnsOf(row, 'owner'), principalsOf(args, this.op));
-  }
-}
-
-export const RELATION_COLUMN_OP = 'relation.column';
-
-/** The row's column relation `relation` (`@Relation`) holds one of the principals. */
-@Singleton()
-@Injectable(PlanTermSql)
-export class RelationColumnSql extends PlanTermSql {
-  readonly op = RELATION_COLUMN_OP;
-
-  toSql(args: unknown, row: SqlRowContext): SqlFragment {
-    const relation = (args as { relation?: unknown } | null)?.relation;
-    if (typeof relation !== 'string' || relation === '') throw new AuthzConfigError(`authz-orm: ${this.op} args must be { relation, principals: { type, id }[] }, got ${JSON.stringify(args)}`);
-    const columns = row.relation(relation);
-    if (columns === undefined || relation === 'owner' || relation === 'self') throw new AuthzConfigError(`authz-orm: ${this.op}: resource type '${row.type}' has no column relation '${relation}' (@Relation('${relation}'))`);
-    return principalsMatch(row, columns, principalsOf(args, this.op));
+    const principals = principalsOf(args, this.op);
+    const { column, typeColumn } = columnsOf(row, 'owner');
+    if (typeColumn === undefined) return idIn(row, column, userIds(principals));
+    const byType = new Map<string, string[]>();
+    for (const p of principals) byType.set(p.type, [...(byType.get(p.type) ?? []), p.id]);
+    const parts = [...byType].map(([type, ids]) => {
+      const match = idIn(row, column, ids);
+      return { sql: `${row.rowColumn(typeColumn)} = ? AND ${match.sql}`, bindings: [type, ...match.bindings] };
+    });
+    if (parts.length === 0) return NOTHING;
+    if (parts.length === 1) return parts[0];
+    return { sql: parts.map((x) => `(${x.sql})`).join(' OR '), bindings: parts.flatMap((x) => x.bindings) };
   }
 }
 

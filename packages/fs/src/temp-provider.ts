@@ -104,23 +104,19 @@ export class fsTemp extends fs {
     this.CleanupStrategy?.stop();
   }
 
-  public get BasePath(): string | undefined {
-    return this.Provider?.BasePath;
-  }
-
-  protected doDownload(path: string): Promise<string> {
+  public download(path: string): Promise<string> {
     return this.Provider.download(path);
   }
 
-  protected doUpload(srcPath: string, destPath: string, options?: IFsUploadOptions): Promise<void> {
+  public upload(srcPath: string, destPath?: string, options?: IFsUploadOptions): Promise<void> {
     return this.Provider.upload(srcPath, destPath, options);
   }
 
-  protected doHash(path: string, algo?: string): Promise<string> {
+  public async hash(path: string, algo?: string): Promise<string> {
     return this.Provider.hash(path, algo);
   }
 
-  protected doMetadata(path: string) {
+  public async metadata(path: string) {
     return this.Provider.metadata(path);
   }
 
@@ -128,60 +124,66 @@ export class fsTemp extends fs {
     return this.Provider.resolvePath(path);
   }
 
-  protected doRead(path: string, encoding?: BufferEncoding): Promise<string | Buffer> {
+  public read(path: string, encoding?: BufferEncoding): Promise<string | Buffer> {
     return this.Provider.read(path, encoding);
   }
 
-  protected doReadStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
+  public readStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
     return this.Provider.readStream(path, encoding);
   }
 
-  protected doWrite(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+  public write(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     return this.Provider.write(path, data, encoding);
   }
 
-  protected doWriteStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding): Promise<WriteStream | PassThrough> {
+  public writeStream(path: string, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
+  public writeStream(
+    path: string,
+    readStream: NodeJS.ReadableStream | BufferEncoding,
+    encoding?: BufferEncoding,
+  ): Promise<WriteStream | PassThrough>;
+  public writeStream(
+    path: string,
+    rStream?: BufferEncoding | NodeJS.ReadableStream,
+    encoding?: BufferEncoding,
+  ): Promise<WriteStream | PassThrough> {
     return this.Provider.writeStream(path, rStream as NodeJS.ReadableStream | BufferEncoding, encoding);
   }
 
-  protected doExists(path: string): Promise<boolean> {
+  public exists(path: string): Promise<boolean> {
     return this.Provider.exists(path);
   }
 
-  protected doDirExists(path: string): Promise<boolean> {
+  public dirExists(path: string): Promise<boolean> {
     return this.Provider.dirExists(path);
   }
 
-  protected doCopy(path: string, dest: string, dstFs?: fs): Promise<void> {
+  public copy(path: string, dest: string, dstFs?: fs): Promise<void> {
     return this.Provider.copy(path, dest, dstFs);
   }
 
-  protected doMove(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
+  public move(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
     return this.Provider.move(oldPath, newPath, dstFs);
   }
 
-  protected doRename(oldPath: string, newPath: string): Promise<void> {
+  public rename(oldPath: string, newPath: string): Promise<void> {
     return this.Provider.rename(oldPath, newPath);
   }
 
-  protected doRm(path: string): Promise<void> {
+  public rm(path: string): Promise<void> {
     return this.Provider.rm(path);
   }
 
-  protected doMkdir(path: string): Promise<void> {
+  public mkdir(path: string): Promise<void> {
     return this.Provider.mkdir(path);
   }
 
-  protected doStat(path: string): Promise<IStat> {
+  public stat(path: string): Promise<IStat> {
     return this.Provider.stat(path);
   }
 
-  protected doList(path: string): Promise<string[]> {
+  public list(path: string): Promise<string[]> {
     return this.Provider.list(path);
-  }
-
-  protected doHasEntries(path: string): Promise<boolean> {
-    return this.Provider.hasEntries(path);
   }
 
   // `ext` must be forwarded: callers such as fsS3.download() pass extname(path) so the
@@ -191,21 +193,21 @@ export class fsTemp extends fs {
     return this.Provider.tmppath(ext);
   }
 
-  protected doAppend(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+  public append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     return this.Provider.append(path, data, encoding);
   }
 
-  // The base class defaults the destination to this temp fs (zipDestination), not the backend, so
-  // IZipResult.fs names the temp fs.
-  protected doZip(path: string | (string | string[])[], dstFs: fs, dstFile: string): Promise<IZipResult> {
-    return this.Provider.zip(path, dstFs, dstFile);
+  public zip(path: string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
+    // default archive destination to this temp fs, not the backend - keeps
+    // IZipResult.fs pointing at temp fs name and avoids hardcoded 'fs-temp' fallback
+    return this.Provider.zip(path, dstFs ?? this, dstFile);
   }
 
-  protected doUnzip(srcPath: string, destPath: string, dstFs: fs): Promise<string> {
-    return this.Provider.unzip(srcPath, destPath, dstFs);
+  public unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string> {
+    return this.Provider.unzip(srcPath, destPath, dstFs ?? this);
   }
 
-  protected doIsDir(path: string): Promise<boolean> {
+  public isDir(path: string): Promise<boolean> {
     return this.Provider.isDir(path);
   }
 }

@@ -87,22 +87,6 @@ export function readAssignmentsQuery(q: QueryInput): AuthzAdminQuery {
   } as AuthzAdminQuery;
 }
 
-/** GET /authz/holders: `scope` and `permission` (both required), `expandSets`, `limit`, `offset`. */
-export function readHoldersQuery(q: QueryInput): AuthzAdminQuery {
-  const scope = text(q, 'scope');
-  const permission = text(q, 'permission');
-  if (scope === undefined) invalid('scope', 'scope is required');
-  if (permission === undefined || permission === '') invalid('permission', 'permission is required');
-  const expandSets = flag(q, 'expandSets');
-  return {
-    kind: 'holders',
-    scope: parseResourceRef(scope, 'scope'),
-    permission,
-    ...(expandSets === undefined ? {} : { expandSets }),
-    ...page(q),
-  } as AuthzAdminQuery;
-}
-
 /** GET /authz/links, /authz/rules and /authz/policies: `scope`, `limit`, `offset`. */
 export function readPageQuery(kind: 'links' | 'rules' | 'policies', q: QueryInput): AuthzAdminQuery {
   return { kind, ...scope(q), ...page(q) } as AuthzAdminQuery;

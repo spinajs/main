@@ -34,7 +34,7 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `FileUploadMiddleware` (abstract) | No list: each is resolved by the name or class in its descriptor; the class's own lifetime applies | `FileInfoMiddleware` (from `http.upload.middlewares`) | `FileValidationMiddleware`, `ZipFileTransformer`, `UnzipFileTransformer`, `AuthzUploadMiddleware` ([`@spinajs/authz-fs`](../authz-fs/06-uploads-and-routes.md)) | Extend it, implement `beforeUpload()`, register with `@Injectable()` (for string names) and list it in `options.middlewares` or `http.upload.middlewares`. Replace a shipped one with `DI.register(Mine).as(FileInfoMiddleware)`. |
+| `FileUploadMiddleware` (abstract) | No list: each is resolved by the name or class in its descriptor; the class's own lifetime applies | `FileInfoMiddleware` (from `http.upload.middlewares`) | `FileValidationMiddleware`, `ZipFileTransformer`, `UnzipFileTransformer`, `AuthzUploadMiddleware` (`@spinajs/authz-fs`) | Extend it, implement `beforeUpload()`, register with `@Injectable()` (for string names) and list it in `options.middlewares` or `http.upload.middlewares`. Replace a shipped one with `DI.register(Mine).as(FileInfoMiddleware)`. |
 | `FormFileUploader` (abstract) | No list: resolved from `options.uploader` | `ImmediateFileUploader` (used for `options.fs`) | `HttpLazyFileUploader` (`@spinajs/http-lazy-file-uploader`) | Extend it, implement `upload()`, name it in `options.uploader`. |
 
 ### Shipped middlewares
@@ -217,4 +217,4 @@ export class CoversController extends BaseController {
 - [File uploads](08-file-uploads.md): the full upload flow and `IUploadOptions`.
 - [`@spinajs/fs`](../fs/README.md): providers, `copy`, `zip`, `FileInfoService`.
 - [`@spinajs/http-lazy-file-uploader`](../http-lazy-file-uploader/README.md): an uploader that copies in a background job.
-- [`@spinajs/authz-fs`](../authz-fs/06-uploads-and-routes.md): `AuthzUploadMiddleware`, a write-permission check on uploads.
+- `@spinajs/authz-fs`: `AuthzUploadMiddleware`, a write-permission check on uploads.

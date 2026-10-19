@@ -68,7 +68,7 @@ fs: {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `fsS3` | `'fs'` and `fsS3`; `PerInstanceCheck`, one instance per provider `name`, created by `fsService` at boot | `fsS3` | other `fs` providers: `fsNative`, `fsTemp`, `@spinajs/fs-ftp`, `@spinajs/fs-onedrive` | Subclass it with `@Injectable('fs')` and `@PerInstanceCheck()` and set `service` to the subclass name. See [Custom S3 provider](05-custom-s3-provider.md). |
-| `FsMiddleware` (from `@spinajs/fs`) | `Array.ofType(FsMiddleware)`, resolved on every top-level action | none | `AuthzFsMiddleware` (`@spinajs/authz-fs`), auditing middlewares | Applies to `fsS3` like to any provider; `getFs()` returns the `fsS3` instance itself. See [Middlewares](../fs/07-middlewares.md). |
+| `FsDecorator` (from `@spinajs/fs`) | `Array.ofType(FsDecorator)`, applied by `fsService` after all providers exist | none | access guards, auditing wrappers | Applies to `fsS3` like to any provider; `getFs()` returns the decorated instance. |
 
 ## Operations
 
@@ -86,8 +86,7 @@ fs: {
 | `copy(path, dest, dstFs?)` | `CopyObject`, or download + `dstFs.upload()` | Without `dstFs`, a server-side copy in the same bucket; the key in `CopySource` is URL-encoded per segment. With `dstFs`, a download and an upload. |
 | `move(old, new, dstFs?)`, `rename(old, new)` | `copy()` then `rm()` | Two steps, not atomic. |
 | `rm(path)` | `DeleteObject` | Deletes one key. It does **not** delete a prefix. |
-| `list(path)` | `ListObjectsV2` with `Delimiter: '/'` | Full keys directly under the prefix `path`, from every result page. `doList` adds the trailing `/` to a non-empty `path` itself. |
-| `hasEntries(path)` | `ListObjectsV2`, `MaxKeys: 1`, no delimiter | `true` when any key lives under `path/`, nested keys included. |
+| `list(path)` | `ListObjectsV2` with `Delimiter: '/'` | Full keys directly under the prefix `path`, from every result page. |
 | `metadata`, `getMetadata`, `setMetadata`, `hash` | `HeadObject`, `CopyObject` | See [Object metadata](03-object-metadata.md). |
 | `signedUrl`, `getSignedUrl` | signer | See [Signed URLs](04-signed-urls.md). |
 | `zip`, `unzip` | `GetObject` | Work on local copies; see [Temporary files](02-temporary-files.md). |
@@ -103,12 +102,10 @@ fs: {
 - **One AWS client config for all buckets.** Every `fsS3` provider reads `fs.s3.config`. Buckets in other accounts or regions need a subclass; see [Custom S3 provider](05-custom-s3-provider.md).
 - **A missing bucket is created by default.** Set `createBucketIfNotExists: false` in production, where the bucket and its policies come from infrastructure code.
 - **No `Content-Type` is set** by `write` or `writeStream`. S3 stores its default, which browsers then receive from signed URLs. `upload()` sets the detected `MimeType` when file info found one.
-- **`isDir` is always `false` and `dirExists` always `true`.** A middleware's `ctx.isDir(target)` is `false` for every key, so `AuthzFsMiddleware` drops only that key's `fs_acl` rows on `rm` ([File ACL](../authz-fs/03-file-acl.md)).
-- **Calls inside an action are unchecked.** `read()` calls `download()`, `copy()` calls `dstFs.upload()` and the `fs-temp-s3` calls run inside the action frame, so middlewares see only the outer call.
 - **`list()` is shallow.** Keys under deeper prefixes and the sub-prefixes themselves are not returned.
 - **`stat()` has no creation or access time.** `CreationTime` and `AccessTime` are `undefined`.
 - **`stat().Version` is the ETag.** For multipart uploads it is not the content MD5; compare it only for equality.
-- **`upload(src, dest, { exclusive: true })` is a conditional write.** The check of every middleware runs first, before the conditional write. The provider then sends `IfNoneMatch: '*'`; the 412 or 409 that S3 returns for an existing key becomes `ResourceDuplicated`. An S3-compatible store without conditional writes may overwrite.
+- **`upload(src, dest, { exclusive: true })` is a conditional write.** It sends `IfNoneMatch: '*'`; the 412 or 409 that S3 returns for an existing key becomes `ResourceDuplicated`. An S3-compatible store without conditional writes may overwrite.
 - **Errors are AWS SDK errors.** A missing key on `read`, `stat` or `getMetadata` rejects with the SDK's `NotFound` or `NoSuchKey` error, not with an `@spinajs/exceptions` type.
 
 ## Best practices

@@ -1,5 +1,5 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, thrownError, unionFieldGlobs } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ListSupportContext, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, HostLog, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, RuleDef, Vote } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, HostLog, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, RuleDef, Vote } from '@spinajs/authz';
 
 import { AdminRuleStore } from '../admin/ports.js';
 import type { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
@@ -15,7 +15,6 @@ import { compileGrants } from './grants.js';
 import type { GrantIndex } from './grants.js';
 import { assignmentProblem, compileRoles } from './roles.js';
 import { RbacSubjectResolver, WILDCARD_ID, groupPrincipalConfig } from './sets/resolver.js';
-import { SetsExtension } from './sets/extension.js';
 import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
 import { isTokenRoleExtension, tokenRoleExtension } from '../token/extension.js';
 
@@ -151,19 +150,17 @@ export class RbacModel extends AuthorizationModel {
   }
 
   /** At boot (boot rule 12) and per call: whether lists of `permission` on `type` can be planned. */
-  listSupport(permission: PermissionDef, type: ResourceType, ctx?: ListSupportContext): ListSupport {
+  listSupport(permission: PermissionDef, type: ResourceType): ListSupport {
     const { graph } = this.state();
     const grants = this.grantIndex();
     const { ladders, implies } = rbacTables(this.extensions, graph, grants);
     const { config } = ruleStoreParts(this.opts.rules);
-    return rbacListSupport({ graph, grants, ...(ladders ? { ladders } : {}), ...(implies ? { implies } : {}), rules: config?.all() ?? [] }, permission.name, type, ctx?.relation);
+    return rbacListSupport({ graph, grants, ...(ladders ? { ladders } : {}), ...(implies ? { implies } : {}), rules: config?.all() ?? [] }, permission.name, type);
   }
 
   /** The gathered input of the type-level request `{ type }`, through `cap`, as a list plan (rbacListPlan). */
   async listPlan(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan> {
     await this.freshRoles();
-    const supported = this.listSupport(req.permission, req.type, { relation: ctx.relation.bind(ctx) });
-    if (supported !== true) throw new Error(supported.reason);
     const request: DecisionRequest = { principal: req.principal, ...(req.actor ? { actor: req.actor } : {}), permission: req.permission.name, resource: { type: req.type }, ...(req.env ? { env: req.env } : {}), ...(req.fresh === true ? { fresh: true } : {}) };
     await this.refuseListRules(req.permission.name, req.type, ctx.now);
     const read = await readRbacInput(request, ctx, this.sources());
@@ -272,17 +269,6 @@ export class RbacModel extends AuthorizationModel {
   async inputAt(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<RbacInput> {
     await this.freshRoles();
     return readRbacInput({ principal, permission: ROLES_PROBE, resource: at }, ctx, this.sources());
-  }
-
-  /**
-   * For RbacService.subjectKeysOf: the principal's subjects and assignments at ctx.now, with the sets
-   * SetsExtension adds from them (direct memberships, nested sets), the roles reloaded first when stale.
-   */
-  async subjectsInput(principal: Principal, ctx: EvaluationContext): Promise<RbacInput> {
-    await this.freshRoles();
-    // The other extensions add no subjects, and rules would ask the context for attributes the service cannot give.
-    const extensions = this.extensions.filter((e) => e instanceof SetsExtension);
-    return readRbacInput({ principal, permission: ROLES_PROBE, resource: GLOBAL }, ctx, { ...this.sources(), extensions });
   }
 
   /** The link store of the options (share links). */
