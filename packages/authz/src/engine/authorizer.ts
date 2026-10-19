@@ -1,4 +1,5 @@
 import type { Log } from '@spinajs/log-common';
+import { Deadline, settleWithin as settle } from '@spinajs/util';
 import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
@@ -629,7 +630,7 @@ export class Authorizer {
     let strict = false;
     try {
       const summarized = await limit.race(this.modelSummaries(target, ref, defs, { ...run, nested: newNested() }));
-      if (summarized === EXPIRED) {
+      if (summarized === Deadline.EXPIRED) {
         this.logAt('error', { deadlineMs: limit.ms }, 'Authz domain ${domain}: covers is false: it ran past its deadline of ${deadlineMs} ms');
         return false;
       }
@@ -645,7 +646,7 @@ export class Authorizer {
       for (let i = 0; i < defs.length; i += SUMMARY_BATCH) {
         const batch = defs.slice(i, i + SUMMARY_BATCH);
         const compared = await limit.race(Promise.all(batch.map((def) => Promise.all(comparedRefs(def, ref).map((r) => Promise.all([this.quietCheck(holder, def, r, run, true), this.quietCheck(target, def, r, run)]))))));
-        if (compared === EXPIRED) {
+        if (compared === Deadline.EXPIRED) {
           this.logAt('error', { deadlineMs: limit.ms }, 'Authz domain ${domain}: covers is false: it ran past its deadline of ${deadlineMs} ms');
           return false;
         }
@@ -2096,34 +2097,6 @@ const scopeMap = (scope: RequestScope | undefined): Map<string, unknown> => (sco
 const newNested = (): Nested => ({ uncacheable: false, untagged: false, faulted: false, tags: new Set() });
 
 const THREW: unique symbol = Symbol('threw');
-const EXPIRED: unique symbol = Symbol('expired');
-
-/** One time limit for a whole summary() or covers() call; clear() it when the call ends. */
-class Deadline {
-  expired = false;
-  private readonly reached: Promise<typeof EXPIRED>;
-  private timer: ReturnType<typeof setTimeout> | undefined;
-
-  constructor(readonly ms: number) {
-    this.reached = new Promise((resolve) => {
-      this.timer = setTimeout(() => {
-        this.expired = true;
-        resolve(EXPIRED);
-      }, ms);
-    });
-  }
-
-  /** EXPIRED when the limit comes first; `work` is left running. */
-  race<T>(work: Promise<T>): Promise<T | typeof EXPIRED> {
-    if (!this.expired) return Promise.race([work, this.reached]);
-    swallow(work);
-    return Promise.resolve(EXPIRED);
-  }
-
-  clear(): void {
-    clearTimeout(this.timer);
-  }
-}
 
 /** Only a top-level check outside summary/covers is an access attempt. */
 const audits = (run: Run): boolean => run.depth === 0 && run.quiet !== true;
@@ -2248,13 +2221,7 @@ type Bounded = { readonly kind: 'value'; readonly value: unknown } | { readonly 
 
 /** `settleWithin` that keeps a rejection (with its error) apart from a timeout. Never rejects. */
 function bounded(load: () => unknown, ms: number): Promise<Bounded> {
-  const outcome = Promise.resolve()
-    .then(load)
-    .then(
-      (value): Bounded => ({ kind: 'value', value }),
-      (error): Bounded => ({ kind: 'error', error }),
-    );
-  return settleWithin(outcome, ms, describeError, 'scope attribute load').then((s): Bounded => (s.ok ? (s.value as Bounded) : { kind: 'timeout' }));
+  return settle(Promise.resolve().then(load), ms).then((s): Bounded => (s.status === 'fulfilled' ? { kind: 'value', value: s.value } : s.status === 'rejected' ? { kind: 'error', error: s.reason } : { kind: 'timeout' }));
 }
 
 /**
