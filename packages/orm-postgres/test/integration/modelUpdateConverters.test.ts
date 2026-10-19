@@ -58,6 +58,13 @@ describe('postgres Model.update with column converters (integration)', function 
     expect(doc.At.toMillis()).to.eq(later.toMillis());
   });
 
+  it('writes a null @Json property as SQL NULL on insert', async () => {
+    await PgGapDoc.insert({ Id: 2, Data: null, At: DateTime.local(2026, 1, 2) });
+
+    const row = (await pgdb!.driver.select().from('pg_gap_doc').where('Id', 2).first()) as { Data: unknown };
+    expect(row.Data).to.eq(null);
+  });
+
   it('refuses an update without a where clause', async () => {
     await expect(PgGapDoc.update({ Data: {} })).to.be.rejectedWith(InvalidArgument, 'has no where clause');
   });

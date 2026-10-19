@@ -6,21 +6,20 @@ import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueCon
 import { ModelBase } from './model.js';
 
 export class JsonValueConverter extends ValueConverter {
-  /**
-   * Converts value to database type
-   *
-   * @param value - value to convert
-   */
+  /** `null` and `undefined` stay as they are, so a nullable column holds SQL NULL rather than the text `null`. */
   public toDB(value: any): any {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
     return JSON.stringify(value);
   }
 
-  /**
-   * Converts value from database type eg. mysql timestamp to DateTime
-   *
-   * @param value - value to convert
-   */
   public fromDB(value: any): any {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
     if (_.isObject(value) || _.isArray(value)) {
       return value;
     }
