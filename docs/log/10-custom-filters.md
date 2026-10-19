@@ -73,20 +73,24 @@ export class RedactFilter extends LogFilter {
 }
 ```
 
-### Extending a shipped filter: rate-limit per logger and level
+### Extending a shipped filter: rate-limit per host of a URL
 
-`RateLimitFilter.keyOf()` picks the bucket. Override it to bucket on two fields.
+`RateLimitFilter.keyOf()` picks the bucket, and `applies()` decides which entries are limited at all. The `key` option already buckets on a list of variables (`key: ['logger', 'level']`); override `keyOf()` when the bucket is computed from a variable.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
 import { ILogEntry, RateLimitFilter } from '@spinajs/log';
 
-// config: targets[].filters: [{ type: 'LoggerLevelRateLimitFilter', limit: 10, intervalSeconds: 60 }]
-@Injectable('LoggerLevelRateLimitFilter')
+// config: logger.filters: [{ type: 'HostRateLimitFilter', where: { event: 'webhook-failed' }, limit: 5, intervalSeconds: 60 }]
+@Injectable('HostRateLimitFilter')
 @NewInstance()
-export class LoggerLevelRateLimitFilter extends RateLimitFilter {
+export class HostRateLimitFilter extends RateLimitFilter {
   protected keyOf(entry: ILogEntry): string {
-    return `${entry.Variables.logger}|${entry.Level}`;
+    try {
+      return new URL(String(entry.Variables.url)).host;
+    } catch {
+      return 'invalid';
+    }
   }
 }
 ```

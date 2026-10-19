@@ -532,7 +532,7 @@ logger: {
 | `WhenRepeatedFilter` | `timeout` (s, default 10), `maxKeys` (default 1024) | collapses identical repeated entries within the window into one, appending `(xN)` when logging resumes |
 | `LevelFilter` | `min`, `max` (level names) | keeps only entries whose level is within `[min, max]` |
 | `MatchFilter` | `pattern`, `field` (default `message`), `mode` (`keep`/`drop`, default `keep`), `flags` | regex-match a variable; keep on match (or drop, in `drop` mode); an invalid pattern is a no-op |
-| `RateLimitFilter` | `limit`, `intervalSeconds`, `key` (optional variable) | fixed-window rate limit; drops overflow, per-key or global |
+| `RateLimitFilter` | `limit`, `intervalSeconds` (both required), `key` (variable or list), `logger` (name globs), `where` (variable values), `level` / `maxLevel`, `maxKeys`, `reportSuppressed` | fixed-window rate limit on the entries it is scoped to; drops overflow per bucket and notes ` (N suppressed)` on the next kept entry. See [docs/log/09-filters.md](../../docs/log/09-filters.md#ratelimitfilter) |
 
 Filters run **after** the near-zero-cost level gate, so disabled levels never
 reach them. The legacy `logger.whenRepeated` option still works (mapped to a
