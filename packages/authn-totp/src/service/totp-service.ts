@@ -5,16 +5,15 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
-import { AuthnService, AuthnThrottle, MfaStep, SessionIssuer, isFresh } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
+import { AuthnService, AuthnThrottle, MfaEnrolmentService, MfaStep, SessionIssuer, isFresh } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, Credentials, IdentityRef, MfaBeginResult, MfaConfirmResult, MfaDisableResult, MfaRegenerateResult, PrincipalRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from '../step/errors.js';
 import { TotpMfaStep } from '../step/totp-step.js';
 
-export type TotpBeginResult = { readonly ok: true; readonly provisioning: string } | { readonly ok: false; readonly code: 'no_session' | 'not_fresh' | 'enrolled' };
-/** `enrolled`: already enrolled, another confirmation won, or the codes could not be issued; the owner regenerates the codes. */
-export type TotpConfirmResult = { readonly ok: true; readonly recoveryCodes: readonly string[] } | { readonly ok: false; readonly code: 'no_session' | 'not_begun' | 'invalid_code' | 'enrolled' | 'throttled'; readonly retryAfterSeconds?: number };
-export type TotpDisableResult = { readonly ok: true } | { readonly ok: false; readonly code: 'no_session' | 'not_fresh' | 'not_enrolled' | 'invalid_code' | 'throttled'; readonly retryAfterSeconds?: number };
-export type TotpRegenerateResult = { readonly ok: true; readonly recoveryCodes: readonly string[] } | { readonly ok: false; readonly code: 'no_session' | 'not_fresh' | 'not_enrolled' };
+export type TotpBeginResult = MfaBeginResult;
+export type TotpConfirmResult = MfaConfirmResult;
+export type TotpDisableResult = MfaDisableResult;
+export type TotpRegenerateResult = MfaRegenerateResult;
 
 /** Left out, a dependency is resolved from DI on first use. */
 export interface TotpServiceDeps {
@@ -56,17 +55,27 @@ interface Current {
  * `adminReset` does not check who may reset whom: the caller applies the target guard (A25, `users:credentials`) first.
  * It never returns a secret (SR-10). No result or event carries a secret, a code or a recovery code (SR-01, A21).
  */
-@Injectable()
-export class TotpService {
+@Injectable(MfaEnrolmentService)
+export class TotpService extends MfaEnrolmentService {
   private readonly cache: { -readonly [K in keyof Resolved]?: Resolved[K] } = {};
 
   @Config('authn.freshAuth.maxAgeSeconds')
   protected MaxAgeSeconds: number;
 
+  @Config('authn.mfa.encryptionKey.secret')
+  protected EncryptionKey: string | null | undefined;
+
   @Autoinject(AuthnAudit)
   protected Audit: AuthnAudit;
 
-  constructor(private readonly deps: TotpServiceDeps = {}) {}
+  constructor(private readonly deps: TotpServiceDeps = {}) {
+    super();
+  }
+
+  /** "Turning TOTP on": the steps list TotpMfaStep itself, not a subclass, and authn.mfa.encryptionKey.secret is set. */
+  enabled(steps: Iterable<MfaStep>): boolean {
+    return !!this.EncryptionKey && [...steps].some((s) => s.constructor === TotpMfaStep);
+  }
 
   async begin(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<TotpBeginResult> {
     const step = await this.need('step');

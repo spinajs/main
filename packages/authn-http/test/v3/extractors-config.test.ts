@@ -67,7 +67,7 @@ describe('credential extractors through @Config', () => {
       configuration.set('authn.token.prefix', '');
       const credentials = readingFrom(new AuthorizationBearerExtractor(), child).extract(sreq({ authorization: 'Bearer opaque' }));
       expect(credentials).to.deep.eq({ kind: 'bearer', token: 'opaque' });
-      expect(readingFrom(new TokenStrategy({} as never), child).accepts(credentials!)).to.eq(false);
+      expect(readingFrom(new TokenStrategy(), child).accepts(credentials!)).to.eq(false);
     });
 
     it('reads the prefix at call time', async () => {

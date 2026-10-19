@@ -1,4 +1,4 @@
-import { Container, Inject, Injectable, PerChildInstance, ResolveType, Service, isFactory } from '@spinajs/di';
+import { Container, Inject, Injectable, PerChildInstance, Service } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 
@@ -28,7 +28,7 @@ import { AUTHZ_AUDIT_SERVICE_KEY, AUTHZ_BUS_SERVICE_KEY } from './config/default
 import type { DomainConfig } from './config/domain-config.js';
 import { collectContributions } from './contributor.js';
 import type { AuthzContribution } from './contributor.js';
-import { resolveChain } from './di.js';
+import { pickNamed, resolveChain } from './di.js';
 import { DefaultAuthzDomains } from './domains.js';
 import { AuthzClock } from './clock.js';
 import { engineLog, thrownError } from './log.js';
@@ -87,7 +87,6 @@ const q = (v: unknown): string => {
 };
 const describeError = (e: unknown): string => (e instanceof Error ? e.message : q(e));
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
-const typeName = (t: unknown): string => (typeof t === 'function' && typeof t.name === 'string' ? t.name : '');
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
     Object.freeze(value);
@@ -354,8 +353,8 @@ export class DefaultAuthzService extends AuthzService {
     const disables = [...(parent?.disables ?? []), cfg.disable];
     const levels = lineage.map((n) => domains.container(n));
 
-    const audit = await this.pick(container, DecisionAudit, cfg.audit.service, AUTHZ_AUDIT_SERVICE_KEY, where);
-    const bus = await this.pick(container, ChangeBus, cfg.bus.service, AUTHZ_BUS_SERVICE_KEY, where);
+    const audit = await pickNamed(container, DecisionAudit, cfg.audit.service, AUTHZ_AUDIT_SERVICE_KEY, where);
+    const bus = await pickNamed(container, ChangeBus, cfg.bus.service, AUTHZ_BUS_SERVICE_KEY, where);
     // Subscribed before the models init, so a change published meanwhile is applied once the boot ends.
     if (bus) {
       this.buffered = [];
@@ -503,7 +502,7 @@ export class DefaultAuthzService extends AuthzService {
     });
 
     if (this.disposed) throw new AuthzConfigError(`${where}: the service was disposed while it booted`);
-    if (domains.describe(container)?.name !== name || !domains.attach(name, this)) throw new AuthzConfigError(`${where}: the domain was disposed while it booted`);
+    if (domains.describe(container)?.name !== name || !domains.attach(name, this, { config: cfg, audit, bus, clock: clock as unknown as AuthzClock })) throw new AuthzConfigError(`${where}: the domain was disposed while it booted`);
     if (cache) usedCaches.add(cache);
     // Every domain's admin publishes to the bus root subscribes to, so one router at root pushes each change once.
     const stopPush = parent === undefined && bus ? ((await container.resolve(AccessChangeRouter)) as AccessChangeRouter).start(bus, container) : undefined;
@@ -587,23 +586,6 @@ export class DefaultAuthzService extends AuthzService {
       if (inits.get(model) === run) inits.delete(model);
       throw new AuthzConfigError(`${where}: model ${q(model.name)} failed to init: ${describeError(e)}`, { cause: e });
     }
-  }
-
-  /** The registration named by `service` (a class name), else the last registration; undefined when none. */
-  private async pick<T>(container: IContainer, token: Class<T>, service: string | undefined, key: string, where: string): Promise<T | undefined> {
-    if (service === undefined) {
-      if (!container.hasRegistered(token)) return undefined;
-      return (await container.resolve(token)) as T;
-    }
-    // Factories have no usable name: they can only be the unnamed default.
-    const entry = container.Registry.getTypesChain(token)
-      .filter((e) => !isFactory(e.type) && typeName(e.type) === service)
-      .pop();
-    if (!entry) throw new AuthzConfigError(`${where}: ${key} names ${q(service)}, but no ${token.name} class of that name is registered`);
-    const type = entry.type as Class<T>;
-    // Resolved where Array.chainOf would: per-child classes here, the rest in the registering container.
-    const at = container.extractDescriptor(type).resolver === ResolveType.PerChildContainer ? container : entry.container;
-    return (await at.resolve(type)) as T;
   }
 
   private onChange(change: AuthzChange): void {

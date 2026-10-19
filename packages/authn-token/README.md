@@ -66,6 +66,11 @@ another format gets `unsupported_credentials` from `verify` and `[]` from
   one, roles are stored as given. It is injected once, so a `RoleSource`
   registered after the service was built is not asked.
 
+`DbTokenService` takes these hooks, the `IdentityStore`, the `Orm` and the
+generation provider by property injection when it is built, so register them
+before `TokenService` is first resolved. Resolving it without a registered
+`IdentityStore`, `TokenOwnerResolver` or `TokenProfilePolicy` fails.
+
 ## Token roles (B24, B07)
 
 A token's roles only narrow its owner's rights; they never add to them. The

@@ -345,14 +345,13 @@ export interface FsCheck {
     readonly ref: ResourceRef;
     readonly subject: FsRow;
 }
-export declare const definite: (decision: Decision) => boolean;
 export declare function decideFs({ fsName, mode, service, log, principal, permission, ref, subject }: FsCheck): Promise<Decision>;
 export declare function warnDenied(fsName: string, log: FsGuardLog, principal: Principal, permission: Permission, ref: ResourceRef, decision: Decision): void;
 /** The service of an fs domain, created with its fs models first when it is missing (D11). */
 export declare function domainService(container: IContainer, domain: string): Promise<FsGuardService>;
 /** `now` when it is a valid Date, else the system time. */
 export declare const validNow: (now: unknown) => Date;
-/** The AuthzClock of the domain, else the system time. */
+/** The AuthzClock the domain's service booted with, else the system time. */
 export declare function domainNow(container: IContainer, domain: string): Promise<Date>;
 export declare const refOf: (fsName: string, normalised: string, kind: FsPathKind) => ResourceRef;
 export declare function basePathOf(raw: unknown): string | undefined;
@@ -648,7 +647,7 @@ export interface IZipResult {
     asFilePath(): string;
     asStream(encoding?: BufferEncoding): ReadStream;
     asBase64(): string;
-    unlink(): void;
+    unlink(): Promise<void>;
 }
 
 // URI (@spinajs/fs, not re-exported, used by FsDecorator)
@@ -687,7 +686,7 @@ export declare abstract class fs extends AsyncService implements IMappableServic
      * Returns hash of file
      *
      * @param srcPath file to calculate hash
-     * @param algo optional hash alghoritm, default is md5
+     * @param algo optional hash alghoritm, default is `fs.hasher.defaultAlgorithm`, then sha256
      */
     hash(path: string, algo?: string): Promise<string>;
     metadata(path: string): Promise<IFileInfo>;
@@ -779,7 +778,7 @@ export declare abstract class fs extends AsyncService implements IMappableServic
      * Returns hash of file
      *
      * @param srcPath file to calculate hash
-     * @param algo optional hash alghoritm, default is md5
+     * @param algo optional hash alghoritm, default is `fs.hasher.defaultAlgorithm`, then sha256
      */
     static hash(path: URI, algo?: string): Promise<string>;
     /**

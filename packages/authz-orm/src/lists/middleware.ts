@@ -1,10 +1,10 @@
-import { AccessDenied, AuthzClock, FALSE, authz, currentPrincipal } from '@spinajs/authz';
+import { AccessDenied, FALSE, authz, currentPrincipal } from '@spinajs/authz';
 import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceType, SqlFragment } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
 import { QueryMiddleware, RawQuery, SelectQueryBuilder } from '@spinajs/orm';
 import type { IQueryStatement, IWhereBuilder, QueryBuilder } from '@spinajs/orm';
 
-import { auditUnscoped, domainContainer, ormDomain } from '../host.js';
+import { auditUnscoped, domainNow, ormDomain } from '../host.js';
 import { marksOf } from '../marker.js';
 import type { AccessMarks } from '../marker.js';
 import { entryOf } from '../registry.js';
@@ -19,11 +19,6 @@ type Where = IWhereBuilder<unknown>;
 type Statements = { _statements: IQueryStatement[] };
 
 const NO_ROW: SqlFragment = Object.freeze({ sql: '1 = 0', bindings: [] });
-
-async function nowOf(domain: string): Promise<Date> {
-  const c = domainContainer(domain);
-  return c.hasRegistered(AuthzClock) ? ((await c.resolve(AuthzClock)) as AuthzClock).now() : new Date();
-}
 
 function denied(domain: string, principal: Principal, permission: Permission, type: ResourceType, reason: DenyReason): Decision {
   return Object.freeze({ allowed: false, permission, resource: Object.freeze({ type }), principal: Object.freeze({ type: principal.type, id: principal.id }), residual: FALSE, fields: Object.freeze({ read: Object.freeze([]), write: Object.freeze([]) }), roles: Object.freeze({}), reason, domain });
@@ -74,7 +69,7 @@ export class AccessListMiddleware extends QueryMiddleware {
     const principal = currentPrincipal();
     if (marks.unscoped !== undefined) auditUnscoped(domain, principal, marks.unscoped, entry.type);
     if (marks.accessible === undefined && marks.withAccess === undefined && marks.within === undefined) return;
-    const run: ListRun = { domain, principal, service: authz(domain), entry, marks, now: await nowOf(domain) };
+    const run: ListRun = { domain, principal, service: authz(domain), entry, marks, now: domainNow(domain) };
     const row = rowContext(query, entry, run.now);
     const filters: SqlFragment[] = [];
     if (marks.accessible !== undefined) {

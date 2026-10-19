@@ -184,7 +184,7 @@ describe('AuthnTokenScope migration', function () {
     // CreatedAt + 90 days lies in the past, so the token is simply expired
     const staleRow = await AccessToken.where('Uuid', stale).firstOrFail();
     expect(staleRow.ExpiresAt!.toMillis()).to.equal(old.plus({ days: 90 }).toMillis());
-    expect(staleRow.IsExpired).to.be.true;
+    expect(staleRow.ExpiresAt!.toMillis()).to.be.below(Date.now());
   });
 
   it('honours a configured authn.token.maxTtlDays', async () => {
