@@ -150,6 +150,7 @@ DI.register(TenantDispatcher).as(SocketDispatcher);
 - Stages with the same `Order` run in registration order.
 - Every `cmd` frame costs a rate token when it arrives, including frames without an ack, malformed frames and duplicate ids.
 - An abort answers the client at once; the in-flight slot is held until the handler settles, so cancel-and-resend cannot run unbounded handlers.
+- A client `deadline` of `0` or below aborts the call as `deadline_exceeded` before the handler runs; a `timeoutMs` of `0` or below is ignored.
 - The deadline is the earliest of the client's `deadline` and the command's `timeoutMs`, both counted from `receivedAt`. Deadlines above 2^31-1 ms are reached in several timer steps.
 - A handler reached without `ctx.handler` or `ctx.args` answers `internal` ("a built-in stage is missing"): keep `LookupStage` and `ArgumentsStage`, or set those fields yourself.
 - `socket.io` encodes the ack synchronously. A result it cannot encode is answered `internal` instead of leaving the client to time out.

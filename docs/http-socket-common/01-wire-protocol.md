@@ -90,7 +90,7 @@ The protocol has no DI services. Its extension points are the [handshake app fie
 
 - One request id identifies a command, its stream frames and its cancel. Reuse an id only after its reply or `end`/`fail` arrived.
 - `deadline` is relative. The server applies the earlier of its own deadline and the client's, and answers `deadline_exceeded` when it passes.
-- The server ignores a `deadline` of `0` or below: the command then runs without a client deadline, though `isCommandRequest()` accepts it.
+- A `deadline` of `0` or below is already expired: `isCommandRequest()` accepts it and the server answers `deadline_exceeded` without running the handler.
 - A huge integer `credits` passes the guard. The server bounds it with its `maxCredits` limit and refuses more with `invalid_argument`.
 - `PROTOCOL_VERSION` changes only with a breaking wire change. Client and server packages must come from the same protocol version.
 
