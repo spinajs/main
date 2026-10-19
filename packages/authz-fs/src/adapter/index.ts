@@ -1,16 +1,14 @@
 import { ResourceAdapter } from '@spinajs/authz';
-import type { Permission, PermissionDef, RelationResolver, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { PermissionDef, ResourceRef, ResourceType } from '@spinajs/authz';
 import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { publishedFs } from '@spinajs/fs';
 
-import { basePathOf as providerBasePath, publishedFs } from '../guard/shared.js';
-import { FsOwnerRelation } from '../metadata/owner.js';
-import { FS_OPERATIONS, fsOperationPermissions } from '../operations/index.js';
 import { FS_PERMISSIONS } from '../permissions/index.js';
 import { FS_RESOURCE_TYPES, fsAncestors, fsRef, fsRow, normalizeFsPath } from '../refs/index.js';
 import type { FsPathKind, FsRow } from '../refs/index.js';
 
-export interface FsTarget {
+export interface FsResourceTarget {
   readonly fs: string;
   readonly path: string;
   /** Default: 'dir' for a row (load) of type 'dir', else 'file'. */
@@ -19,21 +17,18 @@ export interface FsTarget {
 
 const isKind = (v: unknown): v is FsPathKind => v === 'file' || v === 'dir';
 
-const OPERATION_PERMISSIONS = fsOperationPermissions(FS_OPERATIONS);
-
-/** Refs, ancestors and permissions of the filesystems (design §13); registered in the root container. */
+/** Refs, ancestors, rows and permissions of the filesystems; registered in the root container. */
 @Injectable(ResourceAdapter)
-export class FsResourceAdapter extends ResourceAdapter<FsTarget> {
+export class FsResourceAdapter extends ResourceAdapter<FsResourceTarget> {
   readonly kind = 'fs';
   readonly types: readonly ResourceType[] = FS_RESOURCE_TYPES;
-  private owners?: readonly RelationResolver[];
 
-  /** Where the published fs providers, the Configuration and the metadata stores are looked up. */
+  /** Where the published fs providers and the Configuration are looked up. */
   constructor(protected readonly container: IContainer = DI.RootContainer) {
     super();
   }
 
-  accepts(target: unknown): target is FsTarget {
+  accepts(target: unknown): target is FsResourceTarget {
     if (target === null || typeof target !== 'object') return false;
     const proto: unknown = Object.getPrototypeOf(target);
     if (proto !== Object.prototype && proto !== null) return false;
@@ -41,7 +36,7 @@ export class FsResourceAdapter extends ResourceAdapter<FsTarget> {
     return typeof t.fs === 'string' && typeof t.path === 'string' && (t.kind === undefined || isKind(t.kind));
   }
 
-  refOf(target: FsTarget): ResourceRef {
+  refOf(target: FsResourceTarget): ResourceRef {
     const type: unknown = (target as { type?: unknown }).type;
     return fsRef(target.fs, normalizeFsPath(target.path, this.basePathOf(target.fs)), target.kind ?? (type === 'dir' ? 'dir' : 'file'));
   }
@@ -51,7 +46,7 @@ export class FsResourceAdapter extends ResourceAdapter<FsTarget> {
     return fsAncestors(ref);
   }
 
-  /** The row the guard passes as the subject of every check, built without IO. */
+  /** The row AuthzFsMiddleware passes as the subject of every check, built without IO. */
   async load(ref: ResourceRef): Promise<FsRow | null> {
     return fsRow(ref);
   }
@@ -60,22 +55,13 @@ export class FsResourceAdapter extends ResourceAdapter<FsTarget> {
     return subject !== null && typeof subject === 'object' && Object.hasOwn(subject, field) ? (subject as Record<string, unknown>)[field] : undefined;
   }
 
-  /** `owner` on every fs type (boot rule 8 asks for each type of a permission a relation grant names); it reads the FileMetadataStore. */
-  relations(): readonly RelationResolver[] {
-    return (this.owners ??= Object.freeze(FS_RESOURCE_TYPES.map((type) => new FsOwnerRelation(type, this.container))));
-  }
-
   permissions(): readonly Omit<PermissionDef, 'source'>[] {
     return FS_PERMISSIONS;
   }
 
-  /** The operation table without per-filesystem `authz.fs.<name>.operations`. */
-  operations(): Readonly<Record<string, Permission | readonly Permission[]>> {
-    return OPERATION_PERMISSIONS;
-  }
-
-  // Read from the published provider instance, so refOf does no IO; a guard proxy passes Options through.
+  // Read from the published provider, so refOf does no IO.
   protected basePathOf(fsName: string): string | undefined {
-    return providerBasePath(publishedFs(this.container, fsName));
+    const basePath = publishedFs(fsName, this.container)?.BasePath;
+    return typeof basePath === 'string' && basePath !== '' ? basePath : undefined;
   }
 }

@@ -1,29 +1,27 @@
-import { AccessDenied, AuthzDomains, DEFAULT_DENY_PRIORITY, DefaultAuthzDomains, FALSE, definite, principalKey, resourceKey } from '@spinajs/authz';
-import type { CheckInput, Decision, HostLog, Permission, Principal, ResourceRef } from '@spinajs/authz';
+import { AccessDenied, AuthzDomains, AuthzService, DEFAULT_DENY_PRIORITY, DefaultAuthzDomains, FALSE, definite, principalKey, resourceKey } from '@spinajs/authz';
+import type { AuthzLog, CheckInput, Decision, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import type { IContainer } from '@spinajs/di';
-import type { fs } from '@spinajs/fs';
 
 import type { FsAccessMode } from '../access-config/index.js';
-import { ensureFsDomain } from '../domain/index.js';
 import type { FsPathKind, FsRow } from '../refs/index.js';
 
-// Internal to the guard and the upload middleware: the barrel does not export this module.
+// Internal to the middleware, the facade and the upload middleware: the barrel does not export this module.
 
-/** The part of AuthzService the guard calls. */
-export interface FsGuardService {
+/** The part of AuthzService the fs checks call. */
+export interface FsDecideService {
   check(req: CheckInput): Promise<Decision>;
   assert(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<Decision>;
 }
 
-/** `error` is for a metadata update that failed after the IO; default `warn`. */
-export type FsGuardLog = Pick<HostLog, 'warn'> & Partial<Pick<HostLog, 'error'>>;
+/** `error` is for a file ACL update that failed after the IO; default `warn`. */
+export type FsLog = Pick<AuthzLog, 'warn'> & Partial<Pick<AuthzLog, 'error'>>;
 
 /** One check of one path: enforce asserts, audit checks and warns. */
 export interface FsCheck {
   readonly fsName: string;
   readonly mode: Exclude<FsAccessMode, 'off'>;
-  readonly service: FsGuardService;
-  readonly log: FsGuardLog;
+  readonly service: FsDecideService;
+  readonly log: FsLog;
   readonly principal: Principal;
   readonly permission: Permission;
   readonly ref: ResourceRef;
@@ -45,14 +43,14 @@ function conditional(decision: Decision): Decision {
   return { ...decision, allowed: false, residual: FALSE, reason: { code: 'needs_subject', priority: DEFAULT_DENY_PRIORITY.needs_subject } };
 }
 
-export function warnDenied(fsName: string, log: FsGuardLog, principal: Principal, permission: Permission, ref: ResourceRef, decision: Decision): void {
+export function warnDenied(fsName: string, log: FsLog, principal: Principal, permission: Permission, ref: ResourceRef, decision: Decision): void {
   const why = decision.allowed ? 'conditional' : decision.reason?.code;
   log.warn({ fsName, principal: principalKey(principal), permission, resource: resourceKey(ref), why }, 'authz.fs.${fsName}: ${principal} lacks ${permission} on ${resource}${?why} (${why})${/why}; allowed in audit mode');
 }
 
-/** The service of an fs domain, created with its fs models first when it is missing (D11). */
-export async function domainService(container: IContainer, domain: string): Promise<FsGuardService> {
-  ensureFsDomain(domain, container);
+/** 'root' is the root AuthzService; any other domain must exist already (`authz.domains`): it is never created here. */
+export async function domainService(container: IContainer, domain: string): Promise<FsDecideService> {
+  if (domain === 'root') return (await container.resolve(AuthzService)) as AuthzService;
   return ((await container.resolve(AuthzDomains)) as AuthzDomains).service(domain);
 }
 
@@ -71,15 +69,3 @@ export async function domainNow(container: IContainer, domain: string): Promise<
 }
 
 export const refOf = (fsName: string, normalised: string, kind: FsPathKind): ResourceRef => (normalised === '' ? { type: 'fs', id: fsName } : { type: kind, id: `${fsName}:${normalised}` });
-
-export function basePathOf(raw: unknown): string | undefined {
-  const basePath: unknown = (raw as { Options?: { basePath?: unknown } } | null | undefined)?.Options?.basePath;
-  return typeof basePath === 'string' && basePath !== '' ? basePath : undefined;
-}
-
-/** The provider fsService published under `name` in `container`, guarded or raw. */
-export function publishedFs(container: IContainer, name: string): fs | undefined {
-  const published: unknown = container.get('__file_provider_instance__');
-  const provider: unknown = published instanceof Map ? published.get(name) : undefined;
-  return provider !== null && typeof provider === 'object' ? (provider as fs) : undefined;
-}
