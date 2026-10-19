@@ -190,4 +190,31 @@ describe('fsS3 – provider hooks', () => {
       ['', '/'],
     ]);
   });
+
+  it('reads object metadata as a stat action on the normalised key', async () => {
+    const { p, internals, send } = provider();
+    const runAction = sinon.spy(internals, 'runAction');
+
+    expect(await p.getMetadata('/dir/a.txt')).to.deep.equal({ hash: 'h' });
+
+    expect(runAction.firstCall.args.slice(0, 3)).to.deep.equal(['getMetadata', [{ path: '/dir/a.txt', kind: 'file', access: ['stat'] }], []]);
+    expect(sent(send, HeadObjectCommand).map((c) => c.input.Key)).to.deep.equal(['dir/a.txt']);
+  });
+
+  it('replaces object metadata as a write action on the normalised key', async () => {
+    const { p, internals, send } = provider();
+    const runAction = sinon.spy(internals, 'runAction');
+
+    await p.setMetadata('/dir/a b.txt', { a: 'b' });
+
+    expect(runAction.firstCall.args.slice(0, 3)).to.deep.equal([
+      'setMetadata',
+      [{ path: '/dir/a b.txt', kind: 'file', access: ['write'] }],
+      [{ a: 'b' }],
+    ]);
+    expect(sent(send, HeadObjectCommand).map((c) => c.input.Key)).to.deep.equal(['dir/a b.txt']);
+    const [copy] = sent(send, CopyObjectCommand);
+    expect(copy.input).to.include({ Key: 'dir/a b.txt', CopySource: 'unit-bucket/dir/a%20b.txt', MetadataDirective: 'REPLACE', ContentType: 'text/plain' });
+    expect(copy.input.Metadata).to.deep.equal({ a: 'b' });
+  });
 });

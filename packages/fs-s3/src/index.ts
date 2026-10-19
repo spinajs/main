@@ -449,15 +449,11 @@ export class fsS3 extends fs {
    * @param path path to file
    * @returns
    */
-  public async getMetadata(path: string) {
-    const command = new HeadObjectCommand({
-      Bucket: this.Options.bucket,
-      Key: path,
+  public async getMetadata(path: string): Promise<Record<string, string> | undefined> {
+    return this.runAction('getMetadata', [{ path, kind: 'file', access: ['stat'] }], [], async ([target]) => {
+      const result = await this.S3.send(new HeadObjectCommand({ Bucket: this.Options.bucket, Key: target.path }));
+      return result.Metadata;
     });
-
-    const result = await this.S3.send(command);
-
-    return result.Metadata;
   }
 
   /**
@@ -465,24 +461,27 @@ export class fsS3 extends fs {
    * S3 cannot edit metadata in place: the object is copied onto itself, so this is limited to objects of up to 5 GB.
    */
   public async setMetadata(path: string, metadata: Record<string, string>): Promise<void> {
-    const head = await this.S3.send(new HeadObjectCommand({ Bucket: this.Options.bucket, Key: path }));
+    return this.runAction('setMetadata', [{ path, kind: 'file', access: ['write'] }], [metadata], async ([target], [replacement]) => {
+      const key = target.path;
+      const head = await this.S3.send(new HeadObjectCommand({ Bucket: this.Options.bucket, Key: key }));
 
-    await this.S3.send(
-      new CopyObjectCommand({
-        Bucket: this.Options.bucket,
-        Key: path,
-        CopySource: this.copySource(path),
-        MetadataDirective: 'REPLACE',
-        Metadata: metadata,
-        // REPLACE drops every header not given again
-        ContentType: head.ContentType,
-        ContentEncoding: head.ContentEncoding,
-        ContentDisposition: head.ContentDisposition,
-        ContentLanguage: head.ContentLanguage,
-        CacheControl: head.CacheControl,
-        Expires: head.Expires,
-      }),
-    );
+      await this.S3.send(
+        new CopyObjectCommand({
+          Bucket: this.Options.bucket,
+          Key: key,
+          CopySource: this.copySource(key),
+          MetadataDirective: 'REPLACE',
+          Metadata: replacement as Record<string, string>,
+          // REPLACE drops every header not given again
+          ContentType: head.ContentType,
+          ContentEncoding: head.ContentEncoding,
+          ContentDisposition: head.ContentDisposition,
+          ContentLanguage: head.ContentLanguage,
+          CacheControl: head.CacheControl,
+          Expires: head.Expires,
+        }),
+      );
+    });
   }
 
   /**
