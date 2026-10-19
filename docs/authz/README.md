@@ -436,12 +436,10 @@ import { Configuration } from '@spinajs/configuration';
 import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
 import { registerRbac } from '@spinajs/authz-rbac';
 import { AbacModel, AbacContributor, ConfigPolicyStore, DbPolicyStore, PolicyStore } from '@spinajs/authz-abac';
-import { LinkResolver } from '@spinajs/authz-http';
 import { Orm } from '@spinajs/orm';
 
 const configuration = await DI.resolve(Configuration);
-const rbac = await registerRbac(DI.RootContainer, configuration);   // stores, RbacModel, contributor, RbacService
-DI.register(() => rbac.linkResolver).as(LinkResolver);              // share links; without it a link opens nothing
+await registerRbac(DI.RootContainer, configuration);   // stores, RbacModel, contributor, RbacService, LinkResolver
 
 // ABAC. Policies written through AuthzAdmin need one writable store, registered as PolicyStore too.
 const written = new DbPolicyStore(async () => (await DI.resolve(Orm)).Connections.get('default')!);
@@ -457,8 +455,10 @@ them as `PolicyStore`, so `policy.put` and `policy.delete` then fail with `Authz
 keeps policies in config only may use it that way.
 
 `registerRbac(container, configuration)` registers the stores that `authz.rbac.stores` names (through
-`registerRbacStores`), an `RbacModel` over them as an `AuthorizationModel`, its `RbacContributor` and an
-`RbacService` (also under the name `RbacService`, which the CLI's `--explain-role` resolves). It needs
+`registerRbacStores`), an `RbacModel` over them as an `AuthorizationModel`, its `RbacContributor`, an
+`RbacService` (the CLI's `--explain-role` resolves it from the root container) and an `RbacLinkResolver` over
+that service as the `LinkResolver` (`@spinajs/authz`; authz-http re-exports it). authz-http resolves the
+`LinkResolver` from the root container, so share links open only when RBAC is registered there. It needs
 one roles store and one assignments store, at most one links store, and at most one in-memory and one
 other rules store; anything else throws `AuthzConfigError` before it registers anything.
 
@@ -600,8 +600,8 @@ authz: {
 }
 ```
 
-A share link token opens a dead link (`link_invalid`) until the app registers a `LinkResolver`
-([Wiring the models](#wiring-the-models)).
+A share link token opens a dead link (`link_invalid`) until a `LinkResolver` is registered in the root
+container; `registerRbac(DI.RootContainer, …)` registers one ([Wiring the models](#wiring-the-models)).
 
 ### ORM (`@spinajs/authz-orm`)
 
