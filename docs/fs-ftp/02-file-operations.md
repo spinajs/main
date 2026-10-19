@@ -22,7 +22,7 @@ Every `fsFTP` instance owns one `basic-ftp` `Client` and one control connection.
 | `readStream(path, encoding?)` | Root, `cd` to parent, starts `RETR` into a `PassThrough` without waiting | The `PassThrough`. A transfer error destroys it with that error |
 | `write(path, data, encoding?)` | Root, `ensureDir` parent, `STOR` base name | Creates missing directories, overwrites an existing file |
 | `append(path, data, encoding?)` | Root, `ensureDir` parent, `APPE` base name | Appends to the remote file; FTP servers create it when missing |
-| `upload(localPath, destPath?)` | Root, `ensureDir` parent, `STOR` from the local file | `destPath` defaults to the base name of `localPath`, in the root |
+| `upload(localPath, destPath?, options?)` | Root, `ensureDir` parent, `STOR` from the local file | `destPath` defaults to the base name of `localPath`, in the root. With `{ exclusive: true }` an existing file throws `ResourceDuplicated`; the `exists()` check before `STOR` is not atomic |
 | `writeStream(...)` | none | Throws `MethodNotImplemented('fs ftp does not support writing streams')` |
 | `exists(path)` | `stat(path)` | `true` only for a **file**. A directory or any error gives `false` |
 | `dirExists(path)` | `stat(path)` | `true` when the entry is a directory; any error gives `false` |
