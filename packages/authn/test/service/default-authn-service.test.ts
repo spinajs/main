@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import 'mocha';
 import { FakeClock, FakeStrategy, fakeHash } from '@spinajs/authn-testing';
+import { InvalidConfiguration } from '@spinajs/configuration';
 import type { Configuration } from '@spinajs/configuration';
 import type { Class, IContainer } from '@spinajs/di';
 
@@ -761,14 +762,17 @@ describe('DefaultAuthnService', function () {
       assert.strictEqual((await p.service.authenticate(external, ctx())).status, 'success');
     });
 
-    it('takes only true as on for a switch set past the schema', async () => {
+    it('keeps a switch off when a value that is not a boolean is set at runtime: Configuration.set refuses it or coerces it to false', async () => {
       let p: CoreParts | undefined;
-      for (const on of ['false', 1, 'true']) {
+      for (const [on, coerced] of [['false', true], [0, true], [null, true], ['yes', false], [2, false]] as const) {
         await p?.dispose();
         p = await bootLinking({}, subject({ email: 'new@example.test' }));
         await seedAlice(p);
         p.externalSubjects.set('sub-2', subject({ subject: 'sub-2' }));
-        p.configuration.set('authn.linking', { jit: on, byVerifiedEmail: on });
+        const set = () => p!.configuration.set('authn.linking', { jit: on, byVerifiedEmail: on });
+        if (coerced) set();
+        else assert.throws(set, (e: Error) => e instanceof InvalidConfiguration && e.violations.some((v) => v.path === 'authn.linking.jit'), String(on));
+        assert.deepStrictEqual(p.configuration.get('authn.linking'), { jit: false, byVerifiedEmail: false }, String(on));
         failure(await p.service.authenticate(external, ctx()), 'not_linked');
         failure(await p.service.authenticate({ ...external, payload: { subject: 'sub-2' } } as Credentials, ctx()), 'not_linked');
         assert.strictEqual(p.identities.calls.provision.length, 0, String(on));

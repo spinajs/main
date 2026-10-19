@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import 'mocha';
 import { AsyncService, Autoinject, DI, NewInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
+import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { ALICE, BOB, CAROL, DAVE, DEFAULT_THROTTLE, FakeClock, IP_A, IP_B, attackerIp, backoffSchedule, burst, expectAllowed, expectRefused, pwKeys, runThrottleConformance, throttleParams, walkBackoff } from '@spinajs/authn-testing';
 import type { ThrottleParams as KitParams } from '@spinajs/authn-testing';
 
@@ -79,9 +79,11 @@ class ReadModifyWrite extends MemoryAuthnThrottle {
 
 /** 2.x shape (SR-03): only the account is limited. */
 class AccountOnly extends MemoryAuthnThrottle {
-  constructor(p: ThrottleParams) {
+  // Stripped after the constructor's schema check, which fills a missing ip with its default.
+  public override get params(): ThrottleParams {
+    const p = super.params;
     const strip = (f: ThrottleParams['login']) => ({ account: f.account });
-    super({ ...p, login: strip(p.login), mfa: strip(p.mfa), reset: strip(p.reset), reauth: strip(p.reauth) });
+    return { ...p, login: strip(p.login), mfa: strip(p.mfa), reset: strip(p.reset), reauth: strip(p.reauth) };
   }
 }
 
@@ -698,7 +700,7 @@ describe('MemoryAuthnThrottle', function () {
       const free = t.params.login.account!.free;
       child.get(Configuration)!.set('authn.throttle.login.account.free', 0);
       assert.strictEqual(t.params.login.account!.free, free);
-      assert.ok(Object.isFrozen(t.params.login.account));
+      assert.ok(Object.isFrozen(t.params.login.account!));
       assert.ok(Object.isFrozen(t.params));
       assert.strictEqual(child.get(Configuration)!.get<number>('authn.throttle.login.account.free'), 0);
     });
@@ -714,8 +716,15 @@ describe('MemoryAuthnThrottle', function () {
 
     it('takes explicit params without any Configuration', () => {
       const t = new MemoryAuthnThrottle(DEFAULT_THROTTLE);
-      assert.strictEqual(t.params, DEFAULT_THROTTLE);
+      assert.deepStrictEqual(t.params, DEFAULT_THROTTLE);
+      assert.ok(Object.isFrozen(t.params.login.account!));
       assert.strictEqual(t.maxRows, DEFAULT_THROTTLE_MAX_ROWS);
+    });
+
+    it('fills explicit params the schema defaults, as authn.throttle gets them', () => {
+      const { login, ...rest } = structuredClone(DEFAULT_THROTTLE_PARAMS) as unknown as Record<string, unknown> & { login: Record<string, unknown> };
+      const t = new MemoryAuthnThrottle({ ...rest, login: { ip: login.ip } } as unknown as ThrottleParams);
+      assert.deepStrictEqual(t.params, DEFAULT_THROTTLE_PARAMS);
     });
 
     it('refuses explicit params outside the schema ranges, in every flow, naming the key', () => {
@@ -728,10 +737,10 @@ describe('MemoryAuthnThrottle', function () {
       const flowOf = (p: Loose, flow: string) => p[flow] as Record<string, Record<string, unknown> | undefined>;
       const cases: [string, ThrottleParams][] = [];
       for (const flow of FLOWS) {
-        for (const [key, bad] of [['free', -1], ['free', Number.NaN], ['baseDelayMs', Infinity], ['maxDelayMs', 0], ['maxDelayMs', '60000']] as const) {
+        for (const [key, bad] of [['free', -1], ['free', Number.NaN], ['baseDelayMs', Infinity], ['maxDelayMs', 0], ['maxDelayMs', 'soon']] as const) {
           cases.push([`${flow}.account.${key}`, variant((p) => (flowOf(p, flow).account![key] = bad))]);
         }
-        cases.push([`${flow}.account`, variant((p) => delete flowOf(p, flow).account)]);
+        cases.push([`${flow}.account.free`, variant((p) => delete flowOf(p, flow).account!.free)]);
         cases.push([`${flow}.ip`, variant((p) => (flowOf(p, flow).ip = { free: 1, baseDelayMs: Number.NaN, maxDelayMs: 1 }))]);
         cases.push([flow, variant((p) => (p[flow] = null))]);
       }
@@ -739,23 +748,26 @@ describe('MemoryAuthnThrottle', function () {
       cases.push(['resetAfterSeconds', variant((p) => (p.resetAfterSeconds = 0))]);
       cases.push(['resetAfterSeconds', variant((p) => (p.resetAfterSeconds = Number.NaN))]);
       for (const [path, params] of cases) {
-        assert.throws(() => new MemoryAuthnThrottle(params), (e: Error) => e instanceof InvalidOption && e.message.includes(`authn.throttle.${path}`), path);
+        assert.throws(() => new MemoryAuthnThrottle(params), (e: Error) => e instanceof InvalidConfiguration && e.violations.some((v) => v.path.startsWith(`authn.throttle.${path}`)), path);
       }
     });
 
-    it('refuses an explicit maxRows that is not a positive integer', () => {
-      for (const maxRows of [Number.NaN, Infinity, 0, 1.5, '10' as unknown as number]) {
-        assert.throws(() => new MemoryAuthnThrottle(DEFAULT_THROTTLE, { maxRows }), (e: Error) => e instanceof InvalidOption && e.message.includes('maxRows'), String(maxRows));
+    it('refuses an explicit maxRows outside the schema range', () => {
+      for (const maxRows of [Number.NaN, Infinity, 0, 3, 1.5, 'many' as unknown as number]) {
+        assert.throws(() => new MemoryAuthnThrottle(DEFAULT_THROTTLE, { maxRows }), (e: Error) => e instanceof InvalidConfiguration && e.message.includes('authn.throttle.maxRows'), String(maxRows));
       }
+      assert.strictEqual(new MemoryAuthnThrottle(DEFAULT_THROTTLE, { maxRows: '10' as unknown as number }).maxRows, 10, 'coerced as the configuration would');
     });
 
-    it('refuses limits set past the schema before the first use', async () => {
+    it('cannot get limits outside the schema set at runtime: Configuration.set refuses them and the throttle keeps the stored ones', async () => {
       for (const [path, bad] of [['authn.throttle.mfa.account.maxDelayMs', 0], ['authn.throttle.maxRows', Infinity]] as const) {
         const child = await configuredChild({ authn: { throttle: {} } });
         kids.push(child);
-        child.get(Configuration)!.set(path, bad);
+        assert.throws(() => child.get(Configuration)!.set(path, bad), (e: Error) => e instanceof InvalidConfiguration && e.violations.some((v) => v.path === path), path);
         const t = pinConfiguration(new MemoryAuthnThrottle(), child);
-        await assert.rejects(t.attempt(pwKeys(ALICE.login, IP_A), 'mfa', ctx()), (e: Error) => e instanceof InvalidOption && e.message.includes(path.slice('authn.throttle.'.length)), path);
+        expectAllowed(await t.attempt(pwKeys(ALICE.login, IP_A), 'mfa', ctx()));
+        assert.strictEqual(t.params.mfa.account!.maxDelayMs, DEFAULT_THROTTLE_PARAMS.mfa.account!.maxDelayMs, path);
+        assert.strictEqual(t.maxRows, DEFAULT_THROTTLE_MAX_ROWS, path);
       }
     });
 

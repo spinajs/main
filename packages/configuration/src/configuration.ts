@@ -101,11 +101,92 @@ function toViolations(module: string, schema: string, errors: ErrorObject[]): Co
   return violations;
 }
 
+function failureOf(s: IConfigurationSchema, errors: ErrorObject[]): { errors: ErrorObject[]; violations: ConfigurationViolation[] } {
+  const schema = schemaNameOf(s);
+  let violations = toViolations(s.$configurationModule, schema, errors);
+  if (violations.length === 0) {
+    // An invalid configuration must never pass, whatever shape Ajv reported.
+    violations = errors.map((e) => ({ path: [s.$configurationModule, ...e.instancePath.split('/').filter((p) => p !== '').map(decodePointer)].join('.'), schema, message: e.message ?? e.keyword }));
+  }
+  return { errors, violations };
+}
+
+const invalidConfiguration = (errors: ErrorObject[], violations: ConfigurationViolation[]) =>
+  new InvalidConfiguration(`Invalid configuration: ${violations.map((v) => `${v.path} ${v.message} ( schema ${v.schema} )`).join('; ')}`, errors, violations);
+
 /**
  * HACK:
  * Becouse of ajv not supporting esm default exports we need to
  * check for default export module property and if not provided use module itself
  */
+function createValidator(): any {
+  const options = {
+    logger: {
+      log: (msg: string) => InternalLogger.info(msg, 'Configuration'),
+      warn: (msg: string) => InternalLogger.warn(msg, 'Configuration'),
+      error: (msg: string) => InternalLogger.error(msg, 'Configuration'),
+    },
+
+    // enable all errors on  validation, not only first one that occurred
+    allErrors: true,
+
+    // remove properties that are not defined in schema
+    removeAdditional: true,
+
+    // set default values if possible
+    useDefaults: true,
+
+    // The option coerceTypes allows you to have your data types coerced to the types specified in your schema type keywords
+    coerceTypes: true,
+
+    // allow rules across fields, eg. minimum: { $data: '1/min' }
+    $data: true,
+  };
+
+  let validator: any;
+  // @ts-ignore
+  if (Ajv.default) {
+    // @ts-ignore
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    validator = new Ajv.default(options);
+  } else {
+    // @ts-ignore
+    validator = new Ajv(options);
+  }
+
+  // add $merge & $patch for json schema
+  ajvMergePath(validator);
+
+  // add common formats validation eg: date time
+  ajvFormats.default(validator);
+
+  // add keywords
+  ajvKeywords.default(validator);
+
+  // in strict mode ajv will throw when
+  // unknown keyword in schema is met
+  // we use $configurationModule keyword to identify
+  // to match config module with config schema
+  validator.addKeyword('$configurationModule');
+  return validator;
+}
+
+let standaloneValidator: any;
+
+/**
+ * Checks `value` as a Configuration checks the module of `schema`, for values that reach code without passing through
+ * one (e.g. options given to a constructor). Returns a checked copy with the schema defaults and coercion applied;
+ * throws InvalidConfiguration naming each bad path. `value` must be an object: Ajv cannot coerce a root primitive in place.
+ */
+export function checkConfigurationValue<T extends object>(schema: IConfigurationSchema, value: T): T {
+  standaloneValidator ??= createValidator();
+  const copy = _.cloneDeep(value);
+  if (!standaloneValidator.validate(schema, copy)) {
+    const { errors, violations } = failureOf(schema, standaloneValidator.errors ?? []);
+    throw invalidConfiguration(errors, violations);
+  }
+  return copy;
+}
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {
@@ -566,7 +647,7 @@ export class FrameworkConfiguration extends Configuration {
   private throwIfInvalid(errors: ErrorObject[], violations: ConfigurationViolation[]) {
     if (violations.length === 0) return;
     violations.forEach((v) => InternalLogger.error({ path: v.path, schema: v.schema, violation: v.message }, 'Invalid configuration at ${path} ( schema ${schema} ): ${violation}', 'Configuration'));
-    throw new InvalidConfiguration(`Invalid configuration: ${violations.map((v) => `${v.path} ${v.message} ( schema ${v.schema} )`).join('; ')}`, errors, violations);
+    throw invalidConfiguration(errors, violations);
   }
 
   private checkModule(s: IConfigurationSchema): { errors: ErrorObject[]; violations: ConfigurationViolation[] } {
@@ -596,14 +677,7 @@ export class FrameworkConfiguration extends Configuration {
 
   // The violations of the last failed this.Validator.validate(s, ...) call.
   private failureOf(s: IConfigurationSchema): { errors: ErrorObject[]; violations: ConfigurationViolation[] } {
-    const errors: ErrorObject[] = this.Validator.errors ?? [];
-    const schema = schemaNameOf(s);
-    let violations = toViolations(s.$configurationModule, schema, errors);
-    if (violations.length === 0) {
-      // An invalid configuration must never pass, whatever shape Ajv reported.
-      violations = errors.map((e) => ({ path: [s.$configurationModule, ...e.instancePath.split('/').filter((p) => p !== '').map(decodePointer)].join('.'), schema, message: e.message ?? e.keyword }));
-    }
-    return { errors, violations };
+    return failureOf(s, this.Validator.errors ?? []);
   }
 
   private validateInPlace(s: IConfigurationSchema, config: unknown): boolean {
@@ -616,53 +690,7 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   protected initValidator() {
-    const options = {
-      logger: {
-        log: (msg: string) => InternalLogger.info(msg, 'Configuration'),
-        warn: (msg: string) => InternalLogger.warn(msg, 'Configuration'),
-        error: (msg: string) => InternalLogger.error(msg, 'Configuration'),
-      },
-
-      // enable all errors on  validation, not only first one that occurred
-      allErrors: true,
-
-      // remove properties that are not defined in schema
-      removeAdditional: true,
-
-      // set default values if possible
-      useDefaults: true,
-
-      // The option coerceTypes allows you to have your data types coerced to the types specified in your schema type keywords
-      coerceTypes: true,
-
-      // allow rules across fields, eg. minimum: { $data: '1/min' }
-      $data: true,
-    };
-
-    // @ts-ignore
-    if (Ajv.default) {
-      // @ts-ignore
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      this.Validator = new Ajv.default(options);
-    } else {
-      // @ts-ignore
-      this.Validator = new Ajv(options);
-    }
-
-    // add $merge & $patch for json schema
-    ajvMergePath(this.Validator);
-
-    // add common formats validation eg: date time
-    ajvFormats.default(this.Validator);
-
-    // add keywords
-    ajvKeywords.default(this.Validator);
-
-    // in strict mode ajv will throw when
-    // unknown keyword in schema is met
-    // we use $configurationModule keyword to identify
-    // to match config module with config schema
-    this.Validator.addKeyword('$configurationModule');
+    this.Validator = createValidator();
   }
 
   // A child that registers a schema of its own must not hide the schemas of its ancestors.
