@@ -48,6 +48,10 @@ describe('datetime instants', () => {
       expect(toInstant(1_000)!.toMillis()).to.eq(1_000_000);
     });
 
+    it('keeps the epoch, unix seconds 0', () => {
+      expect(toInstant(0)!.toMillis()).to.eq(0);
+    });
+
     it('gives null for no value and for an invalid date', () => {
       for (const value of [null, undefined, '', new Date(NaN), DateTime.invalid('test')]) {
         expect(toInstant(value), String(value)).to.eq(null);
@@ -72,8 +76,12 @@ describe('datetime instants', () => {
       });
     });
 
-    it('gives null for no value', () => {
-      for (const value of [null, undefined, '']) {
+    it('keeps the epoch, unix seconds 0', () => {
+      expect(instantFromDb(0)!.toMillis()).to.eq(0);
+    });
+
+    it('gives null for no value and for what does not parse as a datetime', () => {
+      for (const value of [null, undefined, '', 'soon', new Date(NaN), DateTime.invalid('test')]) {
         expect(instantFromDb(value), String(value)).to.eq(null);
       }
     });

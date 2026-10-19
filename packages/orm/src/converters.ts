@@ -10,7 +10,7 @@ import { ModelBase } from './model.js';
  * an invalid date. Text without an offset is read as UTC, a number as unix seconds.
  */
 export function toInstant(value: unknown, column?: string): DateTime | null {
-  if (!value) {
+  if (value === null || value === undefined || value === '') {
     return null;
   }
 
@@ -36,27 +36,31 @@ export function toInstant(value: unknown, column?: string): DateTime | null {
   return dt.isValid ? dt.toUTC() : null;
 }
 
-/** Reads a driver's datetime value (Date, DateTime, ISO or SQL text, unix seconds) as a DateTime in UTC. */
+/**
+ * Reads a driver's datetime value (Date, DateTime, ISO or SQL text, unix seconds) as a DateTime in UTC; null for no
+ * value and for one that is not a valid datetime.
+ */
 export function instantFromDb(value: unknown): DateTime | null {
-  if (!value) {
+  if (value === null || value === undefined || value === '') {
     return null;
   }
 
+  let dt: DateTime;
   if (DateTime.isDateTime(value)) {
-    return value.toUTC();
+    dt = value.toUTC();
+  } else if (value instanceof Date) {
+    dt = DateTime.fromJSDate(value, { zone: 'utc' });
+  } else if (typeof value === 'number') {
+    dt = DateTime.fromSeconds(value, { zone: 'utc' });
+  } else {
+    const text = String(value);
+    dt = DateTime.fromISO(text, { zone: 'utc' });
+    if (!dt.isValid) {
+      dt = DateTime.fromSQL(text, { zone: 'utc' });
+    }
   }
 
-  if (value instanceof Date) {
-    return DateTime.fromJSDate(value, { zone: 'utc' });
-  }
-
-  if (typeof value === 'number') {
-    return DateTime.fromSeconds(value, { zone: 'utc' });
-  }
-
-  const text = String(value);
-  const iso = DateTime.fromISO(text, { zone: 'utc' });
-  return iso.isValid ? iso : DateTime.fromSQL(text, { zone: 'utc' });
+  return dt.isValid ? dt : null;
 }
 
 export class JsonValueConverter extends ValueConverter {
