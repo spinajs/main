@@ -22,7 +22,7 @@
 
 ### Reading a datetime
 
-1. `mssql` returns `DATE`, `DATETIME` and `DATETIME2` columns as JavaScript `Date`.
+1. `mssql` returns `DATE`, `DATETIME`, `DATETIME2` and `DATETIMEOFFSET` columns as JavaScript `Date`.
 2. `fromDB(value)` returns `null` for an empty value, otherwise the instant as a `DateTime` in UTC.
 3. The driver connects with `useUTC: true`, so `DATETIME`/`DATETIME2` values are read as UTC and `DATETIMEOFFSET` values exactly.
 
@@ -74,7 +74,7 @@ export class ApiMsSqlDriver extends MsSqlOrmDriver {
 
 ## Best practices
 
-- Use `DATETIME2` columns (see the column compiler in [Schema dialect](06-schema-dialect.md#column-definition-custom-implementation)) for sub-millisecond precision; `DATETIME` rounds to 1/300 s.
+- Create datetime columns with the schema builder: `dateTime()` and `timestamp()` are `DATETIMEOFFSET(3)`, which keeps the instant whatever offset stamped it. A hand-written `DATETIME` or `DATETIME2` column holds no offset and is read as UTC.
 
 ## Examples
 

@@ -34,12 +34,12 @@ The converter classes are exported from `@spinajs/orm-sql`. To change one, exten
 | Call | Result |
 | --- | --- |
 | `toDB(null | undefined | '')`, an invalid `Date` or `DateTime` | `null` |
-| `toDB(Date | DateTime | string | number)` | `toInstant()` from `@spinajs/orm`: a `DateTime` in UTC; text without an offset is UTC, a number is unix seconds; unparsable text throws `InvalidArgument` naming the column |
+| `toDB(Date | DateTime | string | number)` | `toInstant()` from `@spinajs/orm`: a `DateTime` in UTC; text without an offset is UTC, a number is unix seconds (`0` is the epoch); unparsable text throws `InvalidArgument` naming the column |
 | with `dateTimeFormat` | `iso` `2026-10-17T09:30:00.000Z`, `sql` `2026-10-17 09:30:00.000`, `unix` seconds, all UTC |
 | from `dehydrate()` (a fifth argument) without `dateTimeFormat`, so `toJSON()` | `iso`, `2026-10-17T09:30:00.000Z` |
 | for a numeric column (`int`, `integer`, `float`, `double`, `decimal`, `bigint`, `smallint`, `tinyint`, `mediumint`) | Unix seconds |
 | otherwise | `SqlDatetimeValueConverter`: `2026-10-17 09:30:00.000` (UTC); `IsoDatetimeValueConverter`: `2026-10-17T09:30:00.000Z` |
-| `fromDB(value)` | `instantFromDb()`: `null` for a falsy value; `Date`, `DateTime`, ISO or SQL text, unix seconds to a `DateTime` in UTC |
+| `fromDB(value)` | `instantFromDb()`: `null` for `null`, `undefined`, `''` and a value that is not a valid datetime (unparsable text, an invalid `Date`); `Date`, `DateTime`, ISO or SQL text, unix seconds (`0` is the epoch) to a `DateTime` in UTC |
 
 ### `SqlTimeValueConverter`
 
