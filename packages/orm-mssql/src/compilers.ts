@@ -269,11 +269,14 @@ export class MsSqlColumnQueryCompiler extends SqlColumnQueryCompiler {
   }
 }
 
-/** `CURRENT_TIMESTAMP` and `GETDATE()` are the server's local time without an offset; a DATETIMEOFFSET default needs the offset. */
+/**
+ * `CURRENT_TIMESTAMP` and `GETDATE()` are the server's local time without an offset; a DATETIMEOFFSET default needs the
+ * offset, and a DATE default is the UTC date as on the other dialects.
+ */
 @NewInstance()
 export class MsSqlDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
   public date(): T {
-    this.Query = RawQuery.create('CAST(SYSDATETIMEOFFSET() AS DATE)');
+    this.Query = RawQuery.create('CAST(SYSUTCDATETIME() AS DATE)');
     return this.Owner;
   }
 

@@ -63,7 +63,7 @@ describe('mssql dialect', function () {
 
     expect(ddl).to.contain('[At] DATETIMEOFFSET(3) NOT NULL DEFAULT SYSDATETIMEOFFSET()');
     expect(ddl).to.contain('[Seen] DATETIMEOFFSET(3)');
-    expect(ddl).to.contain('[Day] DATE DEFAULT CAST(SYSDATETIMEOFFSET() AS DATE)');
+    expect(ddl).to.contain('[Day] DATE DEFAULT CAST(SYSUTCDATETIME() AS DATE)');
   });
 
   it('refuses scheduled events, SQL Server Agent is not implemented', () => {

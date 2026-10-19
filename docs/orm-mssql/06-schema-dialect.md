@@ -43,7 +43,7 @@ What each `TableQueryBuilder` method writes, and whether SQL Server accepts it:
 | `unique()` | `UNIQUE` on the column **and** in the table-level `UNIQUE(...)` | yes; creates two unique constraints |
 | `unsigned()`, `charset()`, `comment()` | `UNSIGNED`, `CHARACTER SET '...'`, `COMMENT '...'` | no |
 | `collation(name)` | `COLLATE '...'` | no: T-SQL takes the name unquoted |
-| `default()` | `DEFAULT <value or expression>`; `date()` is `CAST(SYSDATETIMEOFFSET() AS DATE)`, `dateTime()` is `SYSDATETIMEOFFSET()` | yes |
+| `default()` | `DEFAULT <value or expression>`; `date()` is `CAST(SYSUTCDATETIME() AS DATE)` (the UTC date), `dateTime()` is `SYSDATETIMEOFFSET()` | yes |
 
 ### Other schema statements
 
@@ -120,7 +120,7 @@ export class UnicodeMsSqlDriver extends MsSqlOrmDriver {
 
 ### Column defaults: custom implementation
 
-`MsSqlDefaultValueBuilder` already writes `SYSDATETIMEOFFSET()` for `dateTime()`. Register your own to change a default; `SqlColumnQueryCompiler` turns its `Value` into `DEFAULT '...'` or `DEFAULT n`, and its `Query` into `DEFAULT <sql>`. This one takes `date()` from the server's local clock:
+`MsSqlDefaultValueBuilder` already writes `CAST(SYSUTCDATETIME() AS DATE)` for `date()` and `SYSDATETIMEOFFSET()` for `dateTime()`. Register your own to change a default; `SqlColumnQueryCompiler` turns its `Value` into `DEFAULT '...'` or `DEFAULT n`, and its `Query` into `DEFAULT <sql>`. This one takes `date()` from the server's local clock instead of UTC, so near midnight it is a day off the date the other dialects write:
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -132,11 +132,6 @@ import { MsSqlOrmDriver } from '@spinajs/orm-mssql';
 export class TsqlDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
   public date(): T {
     this.Query = RawQuery.create('CAST(GETDATE() AS DATE)');
-    return this.Owner;
-  }
-
-  public dateTime(): T {
-    this.Query = RawQuery.create('SYSDATETIMEOFFSET()');
     return this.Owner;
   }
 }
