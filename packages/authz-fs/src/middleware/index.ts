@@ -45,6 +45,11 @@ interface Checked {
   readonly existed?: boolean;
   /** Deleted targets of rm, move and rename only: whether the path was a directory before the IO. */
   readonly dir?: boolean;
+  /**
+   * Deleted targets that are no directory: whether keys sat under the path as a prefix before the IO. On a key store
+   * the key and the prefix share the ACL path, so its rows belong to the prefix as well and stay.
+   */
+  readonly shared?: boolean;
 }
 
 interface Plan {
@@ -105,7 +110,7 @@ export class AuthzFsMiddleware extends FsMiddleware {
     const planned: Checked[] = [];
     for (const c of checked) {
       // Probed before the IO: once rm, move or rename ran, the path is gone and no provider calls it a directory.
-      const probed = deletes(c.target) ? { ...c, dir: await ctx.isDir(c.target) } : c;
+      const probed = deletes(c.target) ? await this.probeDeleted(ctx, c) : c;
       if (!writes(c.target)) {
         planned.push(probed);
         continue;
@@ -181,11 +186,18 @@ export class AuthzFsMiddleware extends FsMiddleware {
     ctx.args[0] = { ...opts, until };
   }
 
+  private async probeDeleted(ctx: FsActionContext, c: Checked): Promise<Checked> {
+    const dir = await ctx.isDir(c.target);
+    return dir ? { ...c, dir } : { ...c, dir, shared: await ctx.hasEntries(c.target) };
+  }
+
   private async applyRows(action: string, plan: Plan): Promise<void> {
     if (action === 'rm') {
       const store = await this.store();
-      // On a key store (S3) a key is never a directory: the keys under its prefix stay, and so do their rows.
-      for (const c of plan.checked) await (c.dir ? store.deleteTree(c.target.fs.Name, c.target.path) : store.deletePath(c.target.fs.Name, c.target.path));
+      for (const c of plan.checked) {
+        if (c.dir) await store.deleteTree(c.target.fs.Name, c.target.path);
+        else if (!c.shared) await store.deletePath(c.target.fs.Name, c.target.path);
+      }
       return;
     }
     if (MOVES.has(action)) return this.moveRows(plan);
@@ -201,13 +213,13 @@ export class AuthzFsMiddleware extends FsMiddleware {
   /**
    * A destination that existed keeps its rows (first writer) and the source rows go; otherwise the source rows move
    * there, onto another filesystem too (one table): a directory's whole tree, anything else only its own rows. No
-   * owner is stamped: the rows travel with the file.
+   * owner is stamped: the rows travel with the file. A key whose prefix holds keys leaves its rows to the prefix.
    */
   private async moveRows(plan: Plan): Promise<void> {
     const checked = plan.checked.find((c) => c.target.role === 'source');
     const source = checked?.target;
     const destination = plan.destination;
-    if (!source || !destination) return;
+    if (!source || !destination || checked?.shared === true) return;
     if (source.fs.Name === destination.fs.Name && source.path === destination.path) return;
     const store = await this.store();
     const tree = checked?.dir === true;

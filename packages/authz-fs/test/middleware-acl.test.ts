@@ -71,16 +71,29 @@ class KeyStoreFs extends fsNative<IFsLocalOptions> {
     return nested || [...this.shadowKeys].some((k) => path === '' || k.startsWith(`${path}/`));
   }
 
+  /** Deletes the key only: the keys under its prefix stay, as DeleteObject leaves them. */
+  protected async doRm(path: string): Promise<void> {
+    if (this.onDiskDir(path)) this.shadowKeys.delete(path);
+    else await super.doRm(path);
+  }
+
   protected async doMove(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
+    if (this.shadowKeys.has(oldPath)) return this.moveShadowKey(oldPath, newPath);
     if (!this.onDiskDir(newPath)) return super.doMove(oldPath, newPath, dstFs);
     await super.doRm(oldPath);
     this.shadowKeys.add(newPath);
   }
 
   protected async doRename(oldPath: string, newPath: string): Promise<void> {
+    if (this.shadowKeys.has(oldPath)) return this.moveShadowKey(oldPath, newPath);
     if (!this.onDiskDir(newPath)) return super.doRename(oldPath, newPath);
     await super.doRm(oldPath);
     this.shadowKeys.add(newPath);
+  }
+
+  private async moveShadowKey(oldPath: string, newPath: string): Promise<void> {
+    this.shadowKeys.delete(oldPath);
+    await this.doWrite(newPath, 'key');
   }
 
   private onDiskDir(path: string): boolean {
@@ -287,12 +300,25 @@ describe('authz-fs AuthzFsMiddleware: rm, move and rename', function () {
     expect(s.acl.rows.map((r) => r.path)).to.deep.equal(['f.txt/stale']);
   });
 
-  it('on a key store (isDir never true) rm and move take only the rows of the key, never of the keys under its prefix', async () => {
-    const keys = new KeyStoreFs({ name: 'mw-own', basePath: s.base('mw-own', { 'd/a.txt': 'A', 'k/b.txt': 'B' }) });
-    for (const path of ['d', 'd/a.txt', 'k', 'k/b.txt']) await grant('mw-own', path);
+  it('on a key store (isDir never true) rm, move and rename of a key whose prefix holds keys keep the rows the prefix shares', async () => {
+    const keys = new KeyStoreFs({ name: 'mw-own', basePath: s.base('mw-own', { 'd/a.txt': 'A', 'k/b.txt': 'B', 'r/sub/c.txt': 'C' }) });
+    for (const key of ['d', 'k', 'r']) keys.shadowKeys.add(key);
+    for (const path of ['d', 'd/a.txt', 'k', 'k/b.txt', 'r', 'r/sub/c.txt']) await grant('mw-own', path, BOB, 'owner');
     await keys.rm('d');
     await keys.move('k', 'm');
-    expect(s.acl.rows.map((r) => r.path).sort()).to.deep.equal(['d/a.txt', 'k/b.txt', 'm']);
+    await keys.rename('r', 'n');
+    expect([...keys.shadowKeys]).to.deep.equal([]);
+    expect(existsSync(join(s.dir, 'mw-own', 'm'))).to.equal(true);
+    expect(s.acl.rows.map((r) => `${r.path} ${r.subjectKey}`).sort()).to.deep.equal(['d user:bob', 'd/a.txt user:bob', 'k user:bob', 'k/b.txt user:bob', 'r user:bob', 'r/sub/c.txt user:bob']);
+  });
+
+  it('on a key store rm, move and rename of a key with nothing under its prefix take its own rows', async () => {
+    const keys = new KeyStoreFs({ name: 'mw-own', basePath: s.base('mw-own', { 'a.txt': 'A', 'b.txt': 'B', 'c.txt': 'C', 'b.txt.d/x.txt': 'X' }) });
+    for (const path of ['a.txt', 'b.txt', 'c.txt', 'b.txt.d/x.txt']) await grant('mw-own', path, BOB, 'owner');
+    await keys.rm('a.txt');
+    await keys.move('b.txt', 'b2.txt');
+    await keys.rename('c.txt', 'c2.txt');
+    expect(s.acl.rows.map((r) => r.path).sort()).to.deep.equal(['b.txt.d/x.txt', 'b2.txt', 'c2.txt']);
   });
 
   it('a key moved or renamed onto a prefix holding only nested keys does not carry its rows there', async () => {
