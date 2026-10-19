@@ -1,100 +1,100 @@
 # Graph Report - rv-refactor-auth-log-helpers  (2026-10-19)
 
 ## Corpus Check
-- 4620 files · ~3,102,651 words
+- 4635 files · ~3,105,136 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 438 file(s) not represented in the graph (top: (none) 293, .map 78, .pug 43)
 
 ## Summary
-- 50807 nodes · 134569 edges · 1692 communities (1211 shown, 481 thin omitted)
-- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 17388 edges (avg confidence: 0.94)
+- 50877 nodes · 135365 edges · 1613 communities (1156 shown, 457 thin omitted)
+- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 17602 edges (avg confidence: 0.94)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `bd06e18f`
+- Built from commit: `a6af4e89`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - e2e/client-access.test.ts
-- lanes.test.ts
+- conformance/model.ts
 - fakes.ts
 - Policy
-- Config
-- default-authn-service.ts
-- combine
-- authz-rbac/src/model/model.ts
+- ref_spinajs_http
+- contracts/keys.test.ts
+- dsl.ts
+- authz-rbac/src/contracts.ts
 - Ok
 - packages_authz_lib_mjs_index
 - ref_node_assert
-- Running the CLI
+- `@spinajs/cli`
 - Access
 - MySqlOrmDriver
 - Features
 - AuthzConfigError
 - misc.ts
-- Features
-- .schema
+- lane.ts
+- authz-testing/src/behaviour/types.ts
 - packages_authz_lib_mjs_index
-- ColumnType
+- config-role-store.test.ts
 - root.ts
-- AuthzAdmin
+- Param
 - Singleton
 - contracts/plan.test.ts
-- packages_authz_lib_mjs_index_authzconfigerror
-- util/test/fp.test.ts
+- model-steps.ts
+- authz-orm/src/registry.ts
 - cli/test/cli.test.ts
 - authorizer.ts
 - SpineJsInternationalizationFromJson
-- BasePolicy
+- BasePath
 - onProgress
 - Extending an existing dialect
-- 8. Steps for an app
+- MemoryMfaSecretStore
 - dsl.ts
-- arbitraries.test.ts
+- users/src/actions.ts
 - suites/credential-admin.ts
 - default-authn-service.ts
 - HttpServer
 - message
-- ref_spinajs_di
+- ref_spinajs_authz
 - templates-pdf/package.json
 - v3-app/app.ts
 - Injectable
 - authz-testing/src/behaviour/types.ts
 - .compileToFile
-- contracts/keys.test.ts
+- Principal
 - compiler.ts
 - fs-harness.ts
 - email/src/index.ts
 - teams-http/package.json
-- RbacModel
+- packages_authz_lib_mjs_index_resourceref
 - registry/registry.ts
-- neighbours.test.ts
-- ref_spinajs_authn_contracts
-- push.ts
+- ref_spinajs_di
+- AuthzAdmin
+- ModelBase
 - package.json
 - log-common/src/index.ts
 - JwsAssertionStrategy
 - configuration-aws-secretmanager-protocol/package.json
-- src/durable.ts
+- SocketConnection
 - packages_orm_lib_mjs_index_modelbase
 - access/decorators.js
-- EmailSender
+- Injectable
 - A17-keys-jws.spec.ts
-- orm/src/interfaces.ts
-- allowAnonymous
-- PerChildInstance
+- src/principals.ts
+- admin/rules.ts
+- guard.ts
 - internal-logger/package.json
 - email/package.json
-- email/test/password-mailer.test.ts
+- SocketServer
 - model-steps.ts
-- EmailSend
+- UserPrincipalFactory
 - contracts/model.test.ts
 - http-swagger/package.json
-- check-config-cli.test.ts
+- http-socket/src/index.ts
 - validation/package.json
 - http-socket/package.json
-- contracts/token.test.ts
+- uploads.test.ts
 - http/package.json
 - test/support/world.ts
 - SocketDispatcher
@@ -118,31 +118,31 @@
 - `@spinajs/log`
 - tasks/package.json
 - util.test.ts
-- src/login.ts
+- assertion.ts
 - util/package.json
 - lane.ts
-- Patch
+- authz-abac/src/model/model.ts
 - IdentityRef
-- InvalidArgument
-- authz/test/admin/support.ts
+- .default
+- Configuration
 - dependencies
 - contracts/filter.ts
-- conformance/model.ts
-- Test ledger: @spinajs/users
+- identity/sql.ts
+- n8b-harness.ts
 - users/package.json
 - .consume
 - authn-token/test/v3/cli.test.ts
-- engine/evaluate.ts
+- SessionIssuer
 - users-http/test/support/http-app.ts
-- reference/harness.ts
+- authn-testing/src/behaviour/index.ts
 - async.test.ts
 - memory-throttle.test.ts
 - storage.js
-- model/evaluate.ts
-- stream.test.ts
+- authz-rbac/src/model/model.ts
+- AuthnFromUserMetadata_2026_10_02_00_01_00.ts
 - Orm
 - http/client.ts
-- interfaces.js
+- Queue
 - exported-flow.test.ts
 - contracts/fields.ts
 - src/provider.ts
@@ -152,23 +152,23 @@
 - authz-rbac
 - PdfRenderer
 - teams-http/test/support/client.ts
-- DefaultAccountGuard
+- lists/middleware.ts
 - util/test/helpers.test.ts
 - BaseSocketController
-- behaviour/oracle.ts
+- DbHandle
 - packages_exceptions_lib_mjs_index
 - route-builder.ts
 - TimeSpanLike
 - ref_spinajs_validation
 - users-http/package.json
-- authn-oidc/test/acceptance.test.ts
-- Logger
-- stores.db.test.ts
+- uowFixture.ts
+- MaxAgeTempCleanupStrategy
+- redact
 - fs/src/fp.ts
 - fsOneDrive
 - fs/package.json
 - uploads.test.ts
-- engine/ceiling.ts
+- guessLanguage
 - DefaultEmailService
 - log/package.json
 - RenderPdfJob
@@ -179,33 +179,33 @@
 - ArgHydrator
 - authn-oidc/package.json
 - dependencies
-- guard/index.ts
+- acl-orm-store.test.ts
 - authz-orm/package.json
 - http-socket/test/config-schema.test.ts
 - backoff.test.ts
 - fs-onedrive/package.json
 - authz-testing/package.json
-- http-harness.ts
-- src/decorators.js
-- SocketServer
+- Translatable
+- admin.test.ts
+- DbAuthnThrottle
 - devDependencies
 - broken.test.ts
-- StompQueueClient
+- ref_node_path
 - authn-orm/package.json
 - ConfigVariable
 - load.ts
-- functions.test.ts
-- boolean
+- Own account routes
+- Subject lookup
 - RenderPdfCommand
-- AuthzAdmin
-- users-controller.test.ts
+- contracts/plan.test.ts
+- timing.ts
 - comparison.ts
-- HttpAcceptHeaders
-- Users.ts
-- PugRenderer
+- Commands
+- stores/schema.ts
+- QueryMiddleware
 - api-snapshot.mjs
 - cache-key.ts
-- Registering services
+- FileAclStore
 - orm/src/fp.ts
 - teams/package.json
 - template-mjml/package.json
@@ -213,27 +213,27 @@
 - authn-token/package.json
 - session-provider-dynamodb/package.json
 - src/grants.ts
-- conformance/adapter.ts
+- ref_node_url
 - session-provider-redis/package.json
 - email-smtp-transport/package.json
 - orm-sqlite/package.json
-- object.ts
+- suites/impersonation.ts
 - templates-handlebars/package.json
 - templates-pug/package.json
 - session-provider-db/package.json
 - orm-http/package.json
 - authn-http/package.json
-- Argument validation (`args`)
+- InvalidArgument
 - queue-stomp-transport/package.json
 - templates/package.json
 - authz-rbac/package.json
-- csrf-origin-guard.test.ts
-- 9. Behaviour changes, lane by lane
-- BREAKING CHANGES
+- packages_log_lib_mjs_index_d_logger
+- default-authn-service.ts
+- arbitraries.test.ts
 - queue/package.json
 - S3UrlSigner
 - src/streams.ts
-- team-service.ts
+- DefaultTeamService
 - B09-lanes.spec.ts
 - fs-ftp/package.json
 - invitations/service.ts
@@ -247,16 +247,16 @@
 - authz-convert/package.json
 - reflection/package.json
 - authz-fs/src/index.ts
-- dto-relation-resolve.test.ts
-- AuthzAdminController.ts
-- AuthnContext
-- DynamoDbSessionProvider
+- v3-app/behaviour/harness.ts
+- Req
+- orm-sql/test/model.test.ts
+- TelemetryMiddleware
 - docs/http-socket/README.md
 - queue-templates-pdf/package.json
 - log-source-graphana-loki/package.json
 - orm-sql/package.json
-- extractor.test.ts
-- packages_configuration_lib_mjs_index_d_config
+- mw-setup.ts
+- Test ledger: @spinajs/users
 - ValidationException
 - orm-cli/tsconfig.cjs.json
 - PerInstanceCheck
@@ -264,64 +264,65 @@
 - di/package.json
 - configuration-http/package.json
 - authn-testing/package.json
-- client-access.ts
+- openapi-builder.ts
 - queue-http-progress/package.json
-- eslint.config.mjs
+- log-common/test/perf.test.ts
 - threading/package.json
-- authz-testing/src/behaviour/types.ts
+- DefaultKeyRegistry
 - authz-fs/package.json
-- B35-rules.spec.ts
+- Documenting routes
 - users-controller.test.ts
 - http-lazy-file-uploader/package.json
 - configuration-common/package.json
 - templates-puppeteer/package.json
-- awsParameterStoreProtocol.ts
+- decision.test.ts
 - orm/package.json
-- FallbackGroupTarget
+- test/behaviour/harness.ts
 - telemetry-common/package.json
 - contracts/mfa.test.ts
-- .browser
+- FileInfoService
 - authz-http-admin/src/schemas/bodies.ts
 - InvalidOperation
 - log-common/package.json
-- PostgresOrmDriver
+- paging.ts
 - authn-session/test/contracts.test.ts
 - OidcController
 - Targets (sinks)
 - email/test/authz/behaviour.test.ts
-- authn-keys/test/cli.test.ts
+- access-config/index.ts
 - FileTarget
 - PerfImpl
 - AuthzAdmin
-- Configuration
+- RenderProgressReporter
 - http-socket-common/package.json
-- PdfRenderer
-- packages_authz_lib_mjs_index_global
+- MemoryQueueClient
+- packages_authz_lib_mjs_index_principal
 - SqlCreateViewQueryCompiler
 - RendererOrmDriverBridge
 - exceptions/package.json
+- DbAssignmentStore
 - providers.ts
 - telemetry/package.json
-- job-scope.test.ts
-- conformance/model.ts
-- AuthnCredentialSource
+- tasks/src/decorators.ts
+- jwk/keys.ts
+- adapter/index.ts
 - HandlebarsRenderer
 - configuration/package.json
-- DateTime
+- boolean
 - access-config/index.ts
 - templates-xlsx/package.json
-- authn-oidc/test/core.test.ts
-- FakeAuthnService
+- ColumnType
+- LocalPasswordService
 - fsS3
-- test/support/world.ts
+- PerChildInstance
 - Orm
 - authn/package.json
 - ref_luxon
-- UserSession
+- SocketClient
 - configuration-db-source/package.json
 - eslint-plugin-authz/package.json
-- Plural forms
-- Cli
+- lib.ts
+- Features
 - HTTP_STATUS_CODE
 - FileTypeEnum
 - templates-csv/package.json
@@ -329,9 +330,9 @@
 - <Feature>
 - authz-http-admin/package.json
 - intl-http/package.json
-- Test ledger: @spinajs/users
+- exported-flow.test.ts
 - Model
-- src/keys.ts
+- contracts/audit.test.ts
 - Log
 - B06-check-filter.spec.ts
 - UserMetadataService
@@ -349,36 +350,36 @@
 - templates-image/package.json
 - authz-abac/package.json
 - electron/package.json
-- syncCheck
+- registry/registry.ts
 - authz/package.json
 - issuer.ts
 - Bootstrapper
-- metadata/orm-store.ts
+- src/models/User.ts
 - orm-mysql/package.json
 - process.test.ts
 - Translatable
-- test/support/world.ts
+- v3-socket/session.test.ts
 - orm-threading/package.json
-- SessionIssuer
+- contracts/identity.test.ts
 - queue-sqs-transport/package.json
-- Request statistics
+- AuthnEventSink
 - golden.test.ts
 - orm-postgres/package.json
 - OpenApiBuilder
 - authn-oidc/test/config.test.ts
 - http-socket-common/test/common.test.ts
 - AncestorMiddleware
-- ConfigVarProtocol
+- http/src/cookie.ts
 - .timeout
 - log-otlp/package.json
 - OutboxStore
-- packages_authz_testing_lib_mjs_index
+- QueueEvent
 - scripts
 - http-socket/test/config-schema.test.ts
-- AsyncService
+- ResolveException
 - schemas/responses.ts
 - scripts
-- scripts
+- conformance-support.ts
 - compilerOptions
 - http-socket/src/index.ts
 - @spinajs/authz API snapshot
@@ -387,8 +388,8 @@
 - `@spinajs/orm-sqlite`
 - SchemaSource
 - http-socket-client/package.json
-- agreementCheck
-- SocketHub
+- primaryKeys.test.ts
+- DbLinkStore
 - PugRenderer
 - ScriptedSocketAuthz
 - HttpServer
@@ -401,36 +402,35 @@
 - AccTestAuthz
 - extractors.ts
 - inherit.test.ts
-- devDependencies
+- Engine
 - telemetry-otel/package.json
-- authz-fs/src/index.ts
+- DefaultSessionIssuer
 - math.ts
 - A31-cors.spec.ts
-- packages_authz_lib_mjs_index_system
+- Endpoints and OpenAPI
 - scripts
-- uploads.test.ts
+- ContractShape
 - dependencies
 - swagger-schema-generation.test.ts
 - HttpAcceptHeaders
-- src/configuration.ts
+- ref_spinajs_log
 - scripts
-- Test
-- ref_node_crypto
-- scripts
-- emit.ts
-- SseAccessPushTransport
+- LongSpanRegistry
+- db-mfa-store.ts
+- AssignmentStore
+- EmailPasswordMailer
+- src/dto/index.ts
 - scripts
 - src/extension.ts
-- ref_node_path
+- v3-app/app.ts
 - FakePoolConnection
 - Result
-- DbMfaSecretStore
+- authn-keys/test/harness.ts
 - date.ts
 - devDependencies
 - UserController.ts
-- MemoryTarget
-- dependencies
-- SocketConnection
+- B26-covers-guard.spec.ts
+- Features
 - FrameworkLogger
 - dependencies
 - Lifecycle hooks and commander access
@@ -444,7 +444,7 @@
 - dependencies
 - intl/package.json
 - dependencies
-- Events
+- DbRuleStore
 - scripts
 - scripts
 - AuthnAudit
@@ -459,65 +459,65 @@
 - dependencies
 - scripts
 - packages_authn_lib_mjs_contracts_index
-- Customizing the tracing service
+- getUser
 - AsyncService
 - scripts
-- IPuppeteerRendererOptions
+- audit/model.ts
 - scripts
-- dependencies
+- UserResourceAdapter
 - orm/src/builders.ts
 - scripts
-- flow/cookie.ts
+- ref_typescript
 - scripts
 - scripts
 - Endpoints and OpenAPI
 - RecordingExpiryService
-- AccessPolicy
+- PasswordService
 - Mutex
 - scripts
 - message
 - scripts
 - scripts
-- Container
+- invitations/mailer.ts
 - db-store.ts
 - IRelation
 - docs/authn/README.md
 - SwaggerRoutes
 - .flushAll
 - scripts
-- DefaultControllerCache
+- teams/test/support/db.ts
 - scripts
 - scripts
 - scripts
 - fs
-- Multiple implementations
-- explain/controller.ts
+- http/src/cache.ts
+- status-harness.ts
 - Get
 - scripts
-- email.test.ts
+- DataTransformer
 - FrameworkConfiguration
 - policy.js
-- longSpanRegistry.test.ts
+- RouteMiddleware
 - dependencies
 - AuthzRbacUserRoles_2026_10_01_00_01_00.ts
-- local
-- authz-convert/src/legacy.ts
-- Arguments and options
-- interfaces.d.ts
+- RealIp.ts
+- TotpService
+- JobRetentionService
+- http-socket/test/config-schema.test.ts
 - scripts
 - authz-http/src/index.js
-- dependencies
+- c8.test.ts
 - scripts
 - scripts
 - same-filter.test.ts
 - scripts
 - scripts
-- DbAssignmentStore
+- http-socket/src/interfaces.ts
 - scripts
 - scripts
 - scripts
 - scripts
-- conditions.ts
+- authn-orm/test/migration.test.ts
 - IdentityRef
 - UsersHttpMfaStep
 - scripts
@@ -534,28 +534,27 @@
 - email-smtp-transport/test/redact.test.ts
 - scripts
 - SwaggerDocCache
-- ConfigFileValidator
-- DefaultAccountGuard
+- authn/test/contracts/boundary.test.ts
+- autoinject-options.test.ts
 - status-harness.ts
-- queue/test/core.test.ts
+- QueueChangeBus
 - devDependencies
-- Built-in helpers
-- ExpiryDefaultsConfiguration
+- c8.ts
+- KeyChallengeStrategy
 - scripts
 - Base
-- SessionExpirationProvider
+- FakeAuthnService
 - scripts
 - scripts
 - compilerOptions
 - compilerOptions
 - compilerOptions
 - CLI command and helpers
-- FakeStore
 - compilerOptions
 - compilerOptions
 - orm-threading/tsconfig.json
-- RenderImageCommand
-- HarnessTokenService
+- model/cache.test.ts
+- authz-testing/test/di.test.ts
 - scripts
 - scripts
 - templates-csv/tsconfig.json
@@ -567,10 +566,10 @@
 - fs/tsconfig.json
 - fs/tsconfig.mjs.json
 - paging.ts
-- db-rule-store.test.ts
+- sqs-transport.test.ts
 - devDependencies
 - scripts
-- authz-abac/test/admin/support.ts
+- admin/handler.ts
 - dependencies
 - authn-http/tsconfig.json
 - authn-http/tsconfig.mjs.json
@@ -656,10 +655,10 @@
 - internal-logger/tsconfig.mjs.json
 - intl-http/tsconfig.json
 - intl-http/tsconfig.mjs.json
-- check-packages.mjs
+- OtelTracing
 - intl-orm/tsconfig.json
 - intl-orm/tsconfig.mjs.json
-- csrf-origin-guard.test.ts
+- knip.json
 - contracts/config-schema.test.ts
 - intl/tsconfig.json
 - intl/tsconfig.mjs.json
@@ -679,8 +678,8 @@
 - orm-http/tsconfig.mjs.json
 - orm-mssql/tsconfig.json
 - orm-mssql/tsconfig.mjs.json
-- AuthzCliBase
-- CLI commands
+- MemorySecretStore
+- extractors.ts
 - orm-mysql/tsconfig.json
 - orm-mysql/tsconfig.mjs.json
 - orm-postgres/tsconfig.json
@@ -745,7 +744,7 @@
 - templates-xlsx/tsconfig.mjs.json
 - threading/tsconfig.json
 - threading/tsconfig.mjs.json
-- tree.ts
+- fields.d.ts
 - scripts
 - users-http/tsconfig.json
 - users-http/tsconfig.mjs.json
@@ -758,7 +757,7 @@
 - validation/tsconfig.mjs.json
 - authn-http/tsconfig.cjs.json
 - authn-keys/tsconfig.cjs.json
-- http-config.d.ts
+- ConcurrencyLimiter
 - Long-lived spans
 - authn-local/tsconfig.cjs.json
 - authn-oidc/tsconfig.cjs.json
@@ -858,7 +857,7 @@
 - scripts
 - src/host/support.ts
 - user-roles.ts
-- bump-all.mjs
+- ref_spinajs_log_common
 - scripts
 - exports
 - dependencies
@@ -874,29 +873,29 @@
 - scripts
 - scripts
 - scripts
-- ref_spinajs_configuration
+- email.deferred.test.ts
 - ConfigurationSource
-- SessionProvider
-- ref_node_path
+- Parser
+- Policies and access
 - RedisSessionStore
 - dependencies
-- BrowserFrameworkConfiguration
-- devDependencies
+- Location
+- CurrentUserArg
 - scripts
 - Loading classes from directories
-- OidcController
+- email-smtp-transport/src/index.ts
 - scripts
 - ported/descriptor-inheritance.test.ts
 - dependencies
 - devDependencies
 - scripts
 - scripts
-- Main process IPC bridge
-- XlsxRenderer
-- jwt-strategy.test.ts
+- Events
+- Span processors
+- fake-dynamo.ts
 - scripts
 - scripts
-- RecordingTokenService
+- authn.configuration.ts
 - test.js
 - scripts
 - scripts
@@ -906,15 +905,15 @@
 - dependencies
 - devDependencies
 - dependencies
-- DefaultFileHasher
+- Customizing the long-span registry
 - repository
 - dependencies
-- ServiceBootingIdentityStore
+- dependencies
 - metadata-stores.test.ts
 - arbitraries/principals.ts
 - cli/src/decorators.ts
 - dependencies
-- ref_mocha
+- packages_orm_lib_mjs_index
 - ElectronRendererLogger
 - dependencies
 - devDependencies
@@ -924,7 +923,6 @@
 - meta.ts
 - Csv
 - devDependencies
-- DbSessionStore
 - dependencies
 - dependencies
 - devDependencies
@@ -941,10 +939,10 @@
 - Customizing the tracing service
 - ResolveException
 - dependencies
-- SchemaSource
+- `Cli` service
 - ListOnlySessions
-- JobRetentionService
-- c8.test.ts
+- Initiator
+- TestConfiguration
 - Metrics.ts
 - dependencies
 - dependencies
@@ -955,7 +953,7 @@
 - bugs
 - engines
 - dependencies
-- guard/metadata.ts
+- longSpanRegistry.test.ts
 - devDependencies
 - publishConfig
 - authn-audit.test.ts
@@ -968,39 +966,39 @@
 - probe-vars/config/rbac.js
 - fields.js
 - ModelAllow
-- DbRuleStore
+- AuthzFsMiddleware
 - repository
 - exiftool.d.ts
 - dependencies
-- repository
+- Flat config setup
 - devDependencies
-- telemetry/test/access-policy.test.ts
+- Long-lived spans
 - FenceDocExists
 - graphify-refresh.sh
-- B06-check-filter.spec.ts
-- Factories
+- Customizing the tracing service
+- The RBAC model
 - dependencies
-- RepositoryMiddleware
+- RecordingExpiryService
 - argv.ts
 - FilterController.ts
 - repository
 - Running integration tests
 - db-rule-store.ts
-- jwks.ts
-- terms.test.ts
+- StrategyBadPolicyConfiguration
+- swagger-schema-generation.test.ts
 - ref_chai
-- BenchDoc
-- repository
+- `require-accessible` rule
+- authn-keys/src/options/options.ts
 - PolDisabled
 - Replacing and extending the AWS protocols
 - devDependencies
 - ModelWithRelations.ts
-- Test ledger: @spinajs/users
+- authz/test/contracts/boundary.test.ts
 - configuration-http/test/configuration.test.ts
 - dependencies
 - dependencies
-- repository
-- bugs
+- __
+- DbKeyNonceStore
 - HarnessConfiguration
 - invitations/mailer.ts
 - child-chain.test.ts
@@ -1013,9 +1011,9 @@
 - email-smtp-transport/test/locales/en.cjs
 - email/test/locales/en.cjs
 - fs-onedrive.ts
-- devDependencies
+- ExpiryDefaultsConfiguration
 - repository
-- engines
+- Store ports
 - controller-model.test.ts
 - locales.ts
 - de.cjs
@@ -1023,8 +1021,8 @@
 - repository
 - dependencies
 - ./audit
-- probe.access-snapshot.ts
-- `@spinajs/authz-fs`
+- HarnessTokenService
+- neighbours.test.ts
 - config/orm.ts
 - queueOrmTransport.ts
 - config/queue.ts
@@ -1037,96 +1035,71 @@
 - templates-puppeteer/src/config/pdf.ts
 - no_default_export.mjs
 - build.sh
-- engines
-- publishConfig
-- bugs
-- engines
-- publishConfig
-- bugs
-- engines
-- exports
-- publishConfig
-- bugs
-- engines
+- ExistsItem
+- check-packages.mjs
+- Error handling
+- Examples
+- Events and jobs
+- WorldAttributeStore
+- AuthzFsAcl_2026_10_17_00_00_00
+- .push
+- AuthnTestService
+- FakeMsSqlDriver
+- User
 - { config, installHost, uninstallHost, resetHost, domains, instance }
-- publishConfig
-- RbacCliCommand
-- authn-oidc/test/config-schema.test.ts
-- admin-http.ts
-- electron.test.ts
-- convert.ts
-- implementation-checks.test.ts
+- CompositeChild
+- SdItem
+- TagAudit
+- Examples
+- MutatingAdapter
+- RelationController.ts
+- RbacMigration_2022_06_28_01_13_00
+- ServiceBootingIdentityStore
+- AuthnIdentity
 - { config, installHost, uninstallHost, resetHost, domains, instance }
 - { config, installHost, uninstallHost, resetHost, domains, instance }
 - { config, installHost, uninstallHost, resetHost, rootDomains, domains, disposeDomains, resetRoot, registerInRoot, instance }
-- route-groups-boot.test.ts
-- MemoryQueueClient
-- B13-scoped-assignments.spec.ts
-- authz-fs/test/api.test.ts
-- DataTransformer
-- authz-http-admin/test/swagger.test.ts
-- isHbOptions
-- legacy-roles.test.ts
-- TelemetryAccess
-- config-role-store.ts
-- intl-http/test/common.ts
-- RelationModel3
-- orm/test/schema.test.ts
-- Parser
-- How it works
-- authz-testing/test/di.test.ts
-- Authorization internals: storage and check flow
-- 2.x sessions and the boot sweep
-- CurrentUserArg
-- CreateToken.ts
-- `@spinajs/cli`
-- scripts
-- fake-dynamo.ts
-- teams-http/test/swagger.test.ts
-- Injection decorators
-- Lang
-- fields.d.ts
-- Owner
-- log-common.test.ts
-- Functional / promise helpers (`fp`)
-- Policies and access
-- .other
-- Queue
-- domain-config.test.ts
-- FromModelController
-- AMQP connection
-- Replacing the `Templates` service
-- swagger-schema-generation.test.ts
-- PetController
-- context.browser.ts
-- Flat config setup
-- Progress reporting
-- ObjectConfiguration
-- LateConfiguration
+- authz-http/src/api.ts
+- checks.d.ts
+- src/domains.ts
+- storage.d.ts
+- PolicyRuleHandler
+- CyclicEvents
+- EchoHandler
+- RowlessGrant
+- TokenlessLink
+- FakeLog
+- ModelShout
+- FenceDoc
+- CoreConnectionConf
 - Examples
-- StubConfiguration
-- access/descriptor.ts
-- @spinajs/queue-templates-pdf
-- Identities
-- principal-policies.d.ts
-- contributions.test.ts
-- email-smtp-transport/test/redact.test.ts
-- TestCommandExtraExports.ts
-- dependencies
-- devDependencies
-- `@spinajs/orm-mssql`
-- Model
-- Model
-- CompositeChild
-- SdItem
-- AuthnNonce
-- `@spinajs/users-http`
-- spinajs-authz-convert warnings
-- api.d.ts
-- TestCommandChoices
-- TestFailingResolveCommand.ts
-- DbHandle
-- NapiCanvasFactory
+- Examples
+- Examples
+- contributor.d.ts
+- LogsCommand
+- electron
+- AcpAllow
+- AcpMarkSpy
+- AccAllow
+- AccDeny
+- CipCapture
+- ModelAllow
+- FenceDocExists
+- EvtDeny
+- IdemNeedsLogin
+- log-common.test.ts
+- InfNeedsCaller
+- InfNeedsSession
+- PolAllow
+- PolDeny
+- PolDisabled
+- PolInspect
+- PolRequireUser
+- RegAllow
+- TestTarget
+- TestWildcard
+- asset-server.test.ts
+- Model1QueryScope
 - dependencies
 - ./browser
 - dependencies
@@ -1139,14 +1112,12 @@
 - dependencies
 - dependencies
 - dependencies
-- ThrowingRenderer
 - ref_spinajs_orm
 - dependencies
 - devDependencies
 - dependencies
 - dependencies
 - dependencies
-- Examples
 - Logger
 - eslint-plugin-authz/tsconfig.cjs.json
 - exceptions/tsconfig.cjs.json
@@ -1160,8 +1131,6 @@
 - dependencies
 - dependencies
 - dependencies
-- fresh-auth-export.test.ts
-- AuthnMfa
 - dependencies
 - exports
 - dependencies
@@ -1199,7 +1168,6 @@
 - engines
 - publishConfig
 - filters.ts
-- optional.test.ts
 - ./socket
 - ./cipher
 - NeverEnrolledStep
@@ -1222,10 +1190,9 @@
 - devDependencies
 - ./queue
 - DocAdapter
-- teams/src/api.ts
+- teamRef
 - Examples
 - FakeStore
-- FenceDoc
 - @spinajs/authz-abac API snapshot
 - devDependencies
 - @spinajs/authz-queue API snapshot
@@ -1240,7 +1207,7 @@
 - devDependencies
 - devDependencies
 - Test ledger: @spinajs/http-swagger
-- Examples
+- model/evaluate.ts
 - ./browser
 - devDependencies
 - authn-oidc.ts
@@ -1301,17 +1268,13 @@
 - bugs
 - repository
 - repository
-- Hung
-- config/cli.ts
 - repository
 - dependencies
 - devDependencies
 - repository
 - repository
-- repository
 - Examples
 - repository
-- electron
 - repository
 - publishConfig
 - repository
@@ -1323,21 +1286,19 @@
 - docs/log/README.md
 - repository
 - repository
-- email.ts
 - agent-tokens.test.ts
 - repository
 - scripts
 - repository
 - repository
 - repository
-- config/fs.ts
+- holders.ts
 - repository
 - repository
 - devDependencies
 - repository
 - ./contracts
 - repository
-- AcpAllow
 - devDependencies
 - repository
 - repository
@@ -1347,11 +1308,7 @@
 - devDependencies
 - repository
 - ./env
-- AcpMarkSpy
-- BurstResult
-- AccDeny
-- MysqlAutoKey
-- CipCapture
+- Connection
 - @spinajs/teams API snapshot
 - repository
 - repository
@@ -1360,27 +1317,21 @@
 - repository
 - FenceDoc
 - repository
-- EvtDeny
-- IdemNeedsLogin
-- InfNeedsCaller
+- BasePolicy
 - devDependencies
 - repository
 - repository
 - repository
-- InfNeedsSession
 - repository
 - queue-http-progress.ts
 - repository
-- PolAllow
 - repository
-- PolDeny
-- PolInspect
+- authn-testing/src/behaviour/types.ts
 - repository
 - peerDependenciesMeta
 - repository
 - repository
 - CLAUDE.md
-- RecordingSink
 - bugs
 - engines
 - peerDependencies
@@ -1389,8 +1340,6 @@
 - engines
 - publishConfig
 - NoSource
-- TestTarget
-- TestWildcard
 - Translation sources
 - authn-local/README.md
 - bugs
@@ -1399,7 +1348,6 @@
 - bugs
 - engines
 - publishConfig
-- orm-cli.ts
 - publishConfig
 - bugs
 - devDependencies
@@ -1411,8 +1359,6 @@
 - engines
 - publishConfig
 - FooServiceAsync.ts
-- IntegrationUser
-- MysqlCompositeKey
 - bugs
 - engines
 - publishConfig
@@ -1477,11 +1423,7 @@
 - publishConfig
 - Examples
 - Examples
-- MysqlUuidKey
-- extractModelDescriptor
-- CompositeKeyModel
-- IntegrationUser
-- publishConfig
+- orm/src/interfaces.ts
 - bugs
 - engines
 - publishConfig
@@ -1568,12 +1510,7 @@
 - bugs
 - engines
 - publishConfig
-- AutoKeyModel
-- UuidKeyModel
 - teams-http.ts
-- image.ts
-- templates-pdf/src/config/pdf.ts
-- templates.ts
 - bugs
 - engines
 - publishConfig
@@ -1589,8 +1526,6 @@
 - bugs
 - engines
 - publishConfig
-- generate-packages-for-modules.mjs
-- overrides
 - repository
 - bugs
 - engines
@@ -1622,44 +1557,30 @@
 - devDependencies
 - engines
 - publishConfig
-- bugs
-- engines
 - publishConfig
-- http-socket/src/interfaces.ts
 - repository
 - durable-e2e.test.ts
+- Examples
 - bugs
 - devDependencies
 - engines
 - publishConfig
-- signed-url.test.ts
-- dependencies
-- packages_cli_src_interfaces_clicommand
+- `@spinajs/orm`
 - bugs
 - engines
-- publishConfig
-- repository
-- AccAllow
-- FenceDocExists
-- PolDisabled
-- PolRequireUser
-- bugs
-- engines
-- exports
-- peerDependencies
 - publishConfig
 
 ## God Nodes (most connected - your core abstractions)
-1. `Injectable()` - 453 edges
+1. `Injectable()` - 452 edges
 2. `NewInstance` - 289 edges
 3. `OrmDriver` - 288 edges
-4. `Get()` - 262 edges
+4. `Get()` - 263 edges
 5. `ModelBase` - 259 edges
 6. `Autoinject()` - 246 edges
-7. `Connection` - 240 edges
-8. `Orm` - 194 edges
-9. `AuthzConfigError` - 191 edges
-10. `fs` - 174 edges
+7. `Command` - 244 edges
+8. `Connection` - 240 edges
+9. `fs` - 213 edges
+10. `AuthzConfigError` - 196 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `How it works` --references--> `SessionId()`  [INFERRED]
@@ -1695,279 +1616,275 @@
 - 3-file cycle: `packages/orm/src/exceptions.ts -> packages/orm/src/interfaces.ts -> packages/orm/src/model.ts -> packages/orm/src/exceptions.ts`
 - 3-file cycle: `packages/orm/src/interfaces.ts -> packages/orm/src/model.ts -> packages/orm/src/primary-keys.ts -> packages/orm/src/interfaces.ts`
 
-## Communities (1692 total, 481 thin omitted)
+## Communities (1613 total, 457 thin omitted)
 
 ### Community 0 - "e2e/client-access.test.ts"
-Cohesion: 0.16
-Nodes (5): Dialect, TestDb, E2eOrm, insertAssignment(), pk()
+Cohesion: 0.09
+Nodes (7): SwaggerRoutes, Dialect, TestDb, unique(), E2eOrm, insertAssignment(), pk()
 
-### Community 1 - "lanes.test.ts"
+### Community 1 - "conformance/model.ts"
 Cohesion: 0.02
-Nodes (142): Testing kit, Adding fixtures, Client access conformance, Decisions, `@spinajs/authz-testing`, ACCESS_PERMISSIONS, ACCESS_ROLES, accessWorld (+134 more)
+Nodes (151): Behaviour fixtures, Client access conformance, Decisions, `@spinajs/authz-testing`, adapterConformanceChecks(), AdapterConformanceOptions, AdapterQuery, AdapterSetup (+143 more)
 
 ### Community 2 - "fakes.ts"
 Cohesion: 0.01
-Nodes (278): 5. Combining, Graphs, CONDITION_UNKNOWN, DefaultConditionCompiler, CombiningAlgorithm, DecisionRequest, Vote, and() (+270 more)
+Nodes (236): Graphs, CONDITION_UNKNOWN, DecisionRequest, Vote, CORE_FILTER_OPS, FALSE, ResourceFilter, TRUE (+228 more)
 
 ### Community 3 - "Policy"
-Cohesion: 0.04
-Nodes (104): guardRefusal, invalidSendReset(), REFUSALS, sendResetOf(), targetNotFound(), targetOf(), AdminMfaResetOn, CredentialAdminGuardRegistered (+96 more)
-
-### Community 4 - "Config"
 Cohesion: 0.02
-Nodes (160): Authenticating later requests, Request middleware, 5.1 Decorators and APIs, N8a, N8b and N8c: authn-http, Important behaviour, Deactivate and ban, How it works, List and end sessions (+152 more)
+Nodes (130): Testing kit, Adding fixtures, DI rules for harness writers, Writing a harness, BEHAVIOUR_FIXTURES, assertDecision(), assertProbe(), assertReason() (+122 more)
 
-### Community 5 - "default-authn-service.ts"
-Cohesion: 0.03
-Nodes (77): `@spinajs/authn-session`, Your own session class, AuthnEventType, RFC-9421, isFresh(), CredentialAdminAction, IAuthnPrincipalStorage, RoleSource (+69 more)
+### Community 4 - "ref_spinajs_http"
+Cohesion: 0.02
+Nodes (228): Authenticating later requests, Important behaviour, List and end sessions, guardRefusal, invalidSendReset(), REFUSALS, sendResetOf(), targetNotFound() (+220 more)
 
-### Community 6 - "combine"
+### Community 5 - "contracts/keys.test.ts"
+Cohesion: 0.04
+Nodes (50): Challenges, JWS, JwsClaims, JwsErrorCode, JwsHeader, JwsKey, JwsSigner, JwsSignOptions (+42 more)
+
+### Community 6 - "dsl.ts"
 Cohesion: 0.01
-Nodes (254): B06Rules, alice, ALLOWED, B07, bob, CEILING, core, f1 (+246 more)
+Nodes (323): TestGrantDef, alice, B01, bob, core, f1, NO_ACCESS, permissions (+315 more)
 
-### Community 7 - "authz-rbac/src/model/model.ts"
-Cohesion: 0.01
-Nodes (112): L1b: ladders, rules, tags, links, L2: RBAC stores, migrations and CLI, The RBAC model, Wiring the models, Store ports, The RBAC model, What lives in config, Configuration (+104 more)
+### Community 7 - "authz-rbac/src/contracts.ts"
+Cohesion: 0.04
+Nodes (35): copy(), identity(), MemoryAdminAssignmentStore, MemoryAdminAssignmentStoreOptions, copy(), hashOf(), MemoryLinkStore, Row (+27 more)
 
 ### Community 8 - "Ok"
-Cohesion: 0.01
-Nodes (104): EpochProbeController, RootRoutes, ExtractRoutes, LinkRoutes, ProbeController, WhoAmI, Form, DocsController (+96 more)
+Cohesion: 0.03
+Nodes (31): FieldRoutes, Form, Body(), CsvFile(), Head(), Header(), JsonFile(), Patch() (+23 more)
 
 ### Community 9 - "packages_authz_lib_mjs_index"
-Cohesion: 0.01
-Nodes (215): test/actions-crud.test.ts, PermissivePolicyGuard, Active, classes, MIGRATION, queueHarness(), RunningPeer, isTokenRoleExtension() (+207 more)
+Cohesion: 0.04
+Nodes (68): Reading a row, Services and extension points, Related, Important behaviour, DbPropertyHydrator, JunctionModelPropertyHydrator, ModelHydrator, NonDbPropertyHydrator (+60 more)
 
 ### Community 10 - "ref_node_assert"
 Cohesion: 0.02
-Nodes (216): A01, A02, CORE_ROWS, HTTP_ROWS, LOGIN_ACCOUNT_1S, loginAs(), LoginRow, StatusFlags (+208 more)
+Nodes (196): A02, CORE_ROWS, HTTP_ROWS, LOGIN_ACCOUNT_1S, loginAs(), LoginRow, StatusFlags, A03 (+188 more)
 
-### Community 11 - "Running the CLI"
-Cohesion: 0.15
-Nodes (12): Best practices, Built-in command: `configuration:dump`, Command line, Examples, Exit codes, Fail a CI step when a backup is older than a day, Framework options, Important behaviour (+4 more)
+### Community 11 - "`@spinajs/cli`"
+Cohesion: 0.13
+Nodes (14): Exit codes, Built-in commands, Decorators, Documentation, Examples, Framework integration, Installation, Lifecycle hooks (+6 more)
 
 ### Community 12 - "Access"
-Cohesion: 0.13
-Nodes (10): AccessRoutes, answer(), BothScopes, ChildRoutes, ClassAccess, ClassAccessChild, GhostRoutes, Narrowed (+2 more)
+Cohesion: 0.02
+Nodes (67): Categories per locale, How it works, Interval syntax, `intl_resources`, `intl_translations`, Schema, V3AppTokenE2eController, EpochProbeController (+59 more)
 
 ### Community 13 - "MySqlOrmDriver"
-Cohesion: 0.03
-Nodes (76): Best practices, Boot the ORM on MySQL, Connection setup: custom implementation, Examples, MySQL driver, Patterns and antipatterns, Related, Report the pool state of the shop connection (+68 more)
+Cohesion: 0.02
+Nodes (68): Configuration, Examples, Important behaviour, Patterns and antipatterns, Pay an invoice, award optional loyalty points, notify after commit, Related, Services and extension points, Transactions (+60 more)
 
 ### Community 14 - "Features"
-Cohesion: 0.05
-Nodes (62): Best practices, Bucket and total limits together, Configuration, Examples, Filters, Important behaviour, Keep a pager file to 20 errors a minute per logger, Limit one noisy logger, never its errors (+54 more)
+Cohesion: 0.03
+Nodes (110): Important behaviour, Attach the last 50 log lines to a crash report, Best practices, Configuration, Console, JSON and memory targets, Examples, How it works, Important behaviour (+102 more)
 
 ### Community 15 - "AuthzConfigError"
 Cohesion: 0.02
-Nodes (222): 11. Open items in 3.0.0-rc.1, L9: AuthzAdmin, AuthzAdmin, HTTP (`@spinajs/authz-http`), Admin writes, Caching and invalidation, Access change push, Best practices (+214 more)
+Nodes (215): Permission and disclosure, AuthzAdmin, HTTP (`@spinajs/authz-http`), Wiring the models, Admin writes, Caching and invalidation, Related, Custom boot check: require a support role for help-desk accounts (+207 more)
 
 ### Community 16 - "misc.ts"
-Cohesion: 0.03
-Nodes (76): AuthProvider: custom implementation, Backoff, Configuration, IoOptions: custom transport settings, Services and extension points, Configuration, Configuration, Configuration (+68 more)
+Cohesion: 0.04
+Nodes (65): AuthProvider: custom implementation, Backoff, Configuration, IoOptions: custom transport settings, Services and extension points, Configuration, Configuration, Configuration (+57 more)
 
-### Community 17 - "Features"
-Cohesion: 0.03
-Nodes (96): Important behaviour, Configuration schema and file providers, How it works, Best practices, Client IP and trusted proxies, Configuration, Examples, How it works (+88 more)
+### Community 17 - "lane.ts"
+Cohesion: 0.01
+Nodes (200): Lane data and handles, ACCESSIBLE, ALL, AUDIT, configurationPart, emailPart, f1, httpPart (+192 more)
 
-### Community 18 - ".schema"
-Cohesion: 0.02
-Nodes (112): Insert, Best practices, Configuration, Count paid orders and report revenue per customer, Examples, Fail with a domain error when an invoice is missing, Insert, update and delete, List a customer's overdue or large unpaid orders, newest first (+104 more)
+### Community 18 - "authz-testing/src/behaviour/types.ts"
+Cohesion: 0.01
+Nodes (189): B06Rules, cases(), alice, ALLOWED, B11, bob, carol, cases (+181 more)
 
 ### Community 19 - "packages_authz_lib_mjs_index"
-Cohesion: 0.02
-Nodes (169): Applied, changed(), Cmd, RbacAssignmentHandler, revoked(), setOf(), actorRef(), assignmentStore() (+161 more)
+Cohesion: 0.01
+Nodes (356): AbacListSupportGuard, AbacPolicyReader, AbacContributor, storesFromConfig(), AbacConfigBootstrapper, AUTHZ_ABAC_CONFIGURATION_SCHEMA, MemoryPolicyStore, PermissivePolicyGuard (+348 more)
 
-### Community 20 - "ColumnType"
-Cohesion: 0.03
-Nodes (54): AssignmentCache, AssignmentCacheOptions, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS, Entry, frozenData(), IGNORED_PREFIXES (+46 more)
+### Community 20 - "config-role-store.test.ts"
+Cohesion: 0.02
+Nodes (79): AuthzAdminIdempotency_2026_10_02_00_01_00, CliUsageError, parseExpiry(), parsePrincipalRef(), parseResourceRef(), parseSubject(), parseTagList(), requireText() (+71 more)
 
 ### Community 21 - "root.ts"
-Cohesion: 0.04
-Nodes (19): Adding an entry to a value map, `asMapValue(key, hashKey)`, `asValue(key, override = false)`, Best practices, Examples, How it works, Important behaviour, Patterns and antipatterns (+11 more)
+Cohesion: 0.05
+Nodes (34): Types, ChainArray, DI_DESCRIPTION_SYMBOL, listName(), ResolveType, PerChildContainer, Listener, WrappedListener (+26 more)
 
-### Community 22 - "AuthzAdmin"
-Cohesion: 0.04
-Nodes (59): ModelCreateDoc, Param(), RelDto, PaginationDto, TypedPetDto, StrictInput, ConfirmDto, SecretDto (+51 more)
+### Community 22 - "Param"
+Cohesion: 0.03
+Nodes (68): `payments` (the example below), Schema, ModelCreateDoc, Param(), PetController, PaginationDto, TypedPetDto, StrictInput (+60 more)
 
 ### Community 23 - "Singleton"
-Cohesion: 0.05
-Nodes (33): SharedSession, NoDomains, Singleton, SyncService, DebugService, Bar, Foo, FooBar (+25 more)
+Cohesion: 0.07
+Nodes (31): Singleton, SyncService, DebugService, Bar, Foo, FooBar, TestModule, ChildService (+23 more)
 
 ### Community 24 - "contracts/plan.test.ts"
-Cohesion: 0.03
-Nodes (56): 12.1 What changed, 12.2 Steps, 12.3 A 2.x app, 12. From query scoping (2.x and 3.0.0-rc.1), Adapters, ORM (`@spinajs/authz-orm`), Configuration, Examples (+48 more)
+Cohesion: 0.06
+Nodes (38): compilePermissionGlob(), isPermissionGlob(), matchesPermission(), matchPart(), PERMISSION_GLOB_PATTERN, summaryCeiling(), underCeilings(), ancestorNodes() (+30 more)
 
-### Community 25 - "packages_authz_lib_mjs_index_authzconfigerror"
+### Community 25 - "model-steps.ts"
 Cohesion: 0.01
-Nodes (152): rbacLinks(), guardSwitches(), readKeepHolders(), MemoryLinkStoreOptions, copy(), MemoryRuleStore, MembershipCliContext, AUTHZ_LINK_TABLE (+144 more)
+Nodes (177): send(), alice, B12, base, bob, carol, CONFIG, f1 (+169 more)
 
-### Community 26 - "util/test/fp.test.ts"
-Cohesion: 0.05
-Nodes (52): Async combinators, Best practices, Branching, Combinators, Composition and collections, Custom step: run a step through a resilience pipeline, Error handling, Examples (+44 more)
+### Community 26 - "authz-orm/src/registry.ts"
+Cohesion: 0.03
+Nodes (120): KINDS, memo(), OrmResourceAdapter, typeLevel(), byDepthThenKey(), closeOver(), Link, actualRows() (+112 more)
 
 ### Community 27 - "cli/test/cli.test.ts"
-Cohesion: 0.09
-Nodes (6): ConnectionConf, TestChildCommand, TestCommandAlias, TestCommandInlineArgs, TestHookCommand, TestSideEffectCommand
+Cohesion: 0.04
+Nodes (44): SPINAJS_ARGV_OPTIONS, stripFrameworkOptions(), DumpConfiguration, DumpConfiguration, Argument(), Command(), META_ARGUMENT, META_COMMAND (+36 more)
 
 ### Community 28 - "authorizer.ts"
 Cohesion: 0.02
-Nodes (140): 4. Engine pipeline, ConditionCompiler, TraceStep, bindRefs(), PermissionDef, PlanTerm, resourceKey(), admits() (+132 more)
+Nodes (140): 4. Engine pipeline, ConditionCompiler, TraceStep, PermissionDef, AccessPlan, PlanTerm, resourceKey(), admits() (+132 more)
 
 ### Community 29 - "SpineJsInternationalizationFromJson"
-Cohesion: 0.03
-Nodes (55): PENDING_TRANSCRIPTION, bddOf(), CaseResult, CaseStatus, cleanUp(), CLEANUP_TIMEOUT_MS, DEFAULT_CASE_TIMEOUT_MS, errorMessage() (+47 more)
+Cohesion: 0.05
+Nodes (48): Async combinators, Best practices, Branching, Combinators, Composition and collections, Custom step: run a step through a resilience pipeline, Error handling, Examples (+40 more)
 
-### Community 30 - "BasePolicy"
+### Community 30 - "BasePath"
 Cohesion: 0.02
-Nodes (86): `BasePolicy`: custom implementation, Best practices, Choose the metrics guard per environment, Configuration, Decorators, Examples, Patterns and antipatterns, Policies (+78 more)
+Nodes (72): BaseController, Accepts(), BasePath(), CONTROLLED_DESCRIPTOR_SYMBOL, Hydrator(), Middleware(), Policy(), Query() (+64 more)
 
 ### Community 31 - "onProgress"
-Cohesion: 0.04
-Nodes (69): API, Best practices, Examples, How it works, Important behaviour, `IRenderProgress`, Page-reported tasks, Patterns and antipatterns (+61 more)
+Cohesion: 0.03
+Nodes (87): Report progress from the page, API, API, Best practices, Examples, How it works, Important behaviour, `IRenderProgress` (+79 more)
 
 ### Community 32 - "Extending an existing dialect"
-Cohesion: 0.22
-Nodes (9): Allow `RIGHT JOIN` on SQLite 3.39 and later, Best practices, Configuration, Examples, Extending an existing dialect, Match e-mail addresses case-insensitively in `whereIn()` on every SQLite connection, Order by several columns on a SQLite reporting connection, Patterns and antipatterns (+1 more)
+Cohesion: 0.04
+Nodes (51): Configuration, `FsActionContext`, `FsMiddleware`: custom implementation, `FsTarget`, How it works, Members, Services and extension points, Best practices (+43 more)
 
-### Community 33 - "8. Steps for an app"
-Cohesion: 0.25
-Nodes (8): 8. Steps for an app, Step 10: run the suite and the config checks, Step 3: decorators, Step 5: list the users who gain access, Step 6: secrets, proxy and env settings, Step 7: back up, then migrate, Step 8: CORS, Step 9: clients
+### Community 33 - "MemoryMfaSecretStore"
+Cohesion: 0.08
+Nodes (11): `@spinajs/authn-totp`, Turning TOTP on, DbMfaSecretStore, copy(), MemoryMfaSecretStore, rowKey(), sha256hex(), text() (+3 more)
 
 ### Community 34 - "dsl.ts"
-Cohesion: 0.02
-Nodes (188): TestGrantDef, alice, B01, bob, core, f1, NO_ACCESS, permissions (+180 more)
+Cohesion: 0.09
+Nodes (51): Functional wrappers, File type checks, `IUploadedFile`, _append(), _copy(), _dirExists(), _download(), _exists() (+43 more)
 
-### Community 35 - "arbitraries.test.ts"
+### Community 35 - "users/src/actions.ts"
 Cohesion: 0.04
-Nodes (81): assertFieldPaths(), dateInRange(), DEFAULT_FIELDS, DEFAULT_IDS, DEFAULT_PERMISSIONS, DEFAULT_ROLES, DEFAULT_TYPES, DEFAULT_VALUES (+73 more)
+Nodes (101): Audit and events, C1, C2, C2b, C3 and C3b: users and users-http, Best practices, Exceptions, Helper API, Important behaviour, The other actions, Types (+93 more)
 
 ### Community 36 - "suites/credential-admin.ts"
-Cohesion: 0.02
-Nodes (137): KeyRoutesOn, TotpEnrolmentOn, test/two-factor-policy.test.ts, boot(), Booted, configurationOf(), disposeBooted(), open (+129 more)
+Cohesion: 0.05
+Nodes (77): readingFrom(), clearLog(), logLines(), ROUTES, ADMIN_ROUTES, KEY_ROUTES, laneEvents, laneKeysConfig() (+69 more)
 
 ### Community 37 - "default-authn-service.ts"
-Cohesion: 0.04
-Nodes (60): NativeFilter, AncestorIndex, Attr, charge(), codePoints(), coerce(), comparison(), copyRef() (+52 more)
+Cohesion: 0.05
+Nodes (56): NativeFilter, AncestorIndex, Attr, charge(), codePoints(), coerce(), comparison(), copyRef() (+48 more)
 
 ### Community 38 - "HttpServer"
 Cohesion: 0.06
-Nodes (72): Published metrics, API, Best practices, Examples, How it works, Important behaviour, Metrics reference, `Metrics`: share the process-wide default registry (+64 more)
+Nodes (71): Published metrics, Bootstrapper: publish build information at startup, How it works, Services and extension points, API, Best practices, How it works, Important behaviour (+63 more)
 
 ### Community 39 - "message"
-Cohesion: 0.02
-Nodes (75): Related, RelationResolver, ResourceAdapter, ScopeResolver, FilterOp, AuthorizationModel, ModelCapabilities, PermissionRegistry (+67 more)
+Cohesion: 0.01
+Nodes (120): A model you do not own, with a typed column, Assignee of a task, Column relations, Decorators, Examples, How it works, Important behaviour, Patterns and antipatterns (+112 more)
 
-### Community 40 - "ref_spinajs_di"
-Cohesion: 0.03
-Nodes (147): ACCESS_DESCRIPTOR, PrincipalSource, AuditEntry, ExplainNode, t(), bootedWith, bootSocketAccess(), CLASS_PLACE (+139 more)
+### Community 40 - "ref_spinajs_authz"
+Cohesion: 0.02
+Nodes (178): Decorators, Services and extension points, AuditEntry, ExplainNode, t(), bootedWith, bootSocketAccess(), CLASS_PLACE (+170 more)
 
 ### Community 41 - "templates-pdf/package.json"
 Cohesion: 0.06
 Nodes (30): author, description, exports, files, gitHead, homepage, puppeteer, @spinajs/configuration (+22 more)
 
 ### Community 42 - "v3-app/app.ts"
-Cohesion: 0.03
-Nodes (143): AppFakes, appOrigin(), appPort(), bind(), bootApp(), Client, config(), COOKIE_SECRET (+135 more)
-
-### Community 43 - "Injectable"
-Cohesion: 0.02
-Nodes (127): A search endpoint with validated input, Best practices, Configuration, Decorators, Examples, How it works, Important behaviour, Parameter types (+119 more)
+Cohesion: 0.12
+Nodes (21): Members of the abstract `EmailService`, Who resolves `EmailService`, How it works, _emailDeferred(), _emailSend(), emailDeferred(), emailSend(), EmailConfiguration (+13 more)
 
 ### Community 44 - "authz-testing/src/behaviour/types.ts"
 Cohesion: 0.01
-Nodes (83): Members, contributorOn(), alice, EnvModel, PlanningModel, admin(), booted(), FakeLog (+75 more)
+Nodes (120): adminBackendName(), cleanupDeleted(), DELETED, publishAndAudit(), RESOURCE_DELETED, SYSTEM_REF, afterCommit(), AuditRecord (+112 more)
 
 ### Community 45 - ".compileToFile"
-Cohesion: 0.09
-Nodes (26): API, Best practices, Examples, Export orders to a CSV file by renderer type, How it works, Important behaviour, Patterns and antipatterns, Related (+18 more)
+Cohesion: 0.05
+Nodes (58): Related, Best practices, Examples, Export orders to a CSV file by renderer type, How it works, Important behaviour, Patterns and antipatterns, Related (+50 more)
 
-### Community 46 - "contracts/keys.test.ts"
-Cohesion: 0.04
-Nodes (50): Challenges, JWS, JwsClaims, JwsErrorCode, JwsHeader, JwsKey, JwsSigner, JwsSignOptions (+42 more)
+### Community 46 - "Principal"
+Cohesion: 0.03
+Nodes (86): Authentication internals: storage and login flow, Contents, Known gaps, Logout, Password hashing, Related, `SocketPrincipalSource`: a source of your own, test/session-context.test.ts (+78 more)
 
 ### Community 47 - "compiler.ts"
 Cohesion: 0.04
-Nodes (78): Related, Best practices, Connections and routing, Examples, How it works, Important behaviour, Patterns and antipatterns, Related (+70 more)
+Nodes (91): Important behaviour, Best practices, Configuration, Connections and routing, Examples, How it works, Important behaviour, Patterns and antipatterns (+83 more)
 
 ### Community 48 - "fs-harness.ts"
-Cohesion: 0.03
-Nodes (68): alice, B16Owner, bob, cases, DENIED, ownerWorld, alice, B16OwnerS3 (+60 more)
+Cohesion: 0.06
+Nodes (24): Abac, AsyncModel, AsyncRbac, FsAbac, Model, Rbac, Unknown, Abac (+16 more)
 
 ### Community 49 - "email/src/index.ts"
-Cohesion: 0.10
-Nodes (24): Members of the abstract `EmailService`, Who resolves `EmailService`, How it works, _emailDeferred(), _emailSend(), emailDeferred(), emailSend(), EmailConfiguration (+16 more)
+Cohesion: 0.06
+Nodes (49): Custom transport: HTTP mail API, Custom transport: local outbox for development, Extending the SMTP transport, Services and extension points, Shipped senders, Transport contract, What `EmailSender` gives a subclass, Best practices (+41 more)
 
 ### Community 50 - "teams-http/package.json"
 Cohesion: 0.06
 Nodes (30): author, description, exports, files, homepage, @spinajs/authz, @spinajs/authz-abac, @spinajs/authz-http (+22 more)
 
-### Community 51 - "RbacModel"
-Cohesion: 0.01
-Nodes (374): del(), agent, alice, bob, O1, O2, POLICIES, svc (+366 more)
+### Community 51 - "packages_authz_lib_mjs_index_resourceref"
+Cohesion: 0.00
+Nodes (676): Important behaviour, L1b: ladders, rules, tags, links, test/actions-crud.test.ts, DEFAULT_POLICY_PRIORITY, agent, alice, bob, O1 (+668 more)
 
 ### Community 52 - "registry/registry.ts"
-Cohesion: 0.02
-Nodes (142): RFC-8032, RFC-8941, Key strategies, Keys, OIDC, Strategies, Token and JWT, Keys (`authn-keys`) (+134 more)
-
-### Community 53 - "neighbours.test.ts"
 Cohesion: 0.06
-Nodes (12): test/active-role.test.ts, DenyCode, FakeImpersonationGuard, FakeRoleSource, keyOf(), RecordingExternalLoginHook, RecordingThrottle, GuardPort (+4 more)
+Nodes (20): EmailServer, EmailOptions, SendEmailCommand, EmailService, AccessDeniedLike, blackHole(), events, FakeFs (+12 more)
 
-### Community 54 - "ref_spinajs_authn_contracts"
-Cohesion: 0.03
-Nodes (58): 3.4 Keys that other config files own, F0b: package moves, Objects, AuthnAudit, AuthnAuditor, SinkDelivery, stamped(), hasId() (+50 more)
+### Community 53 - "ref_spinajs_di"
+Cohesion: 0.02
+Nodes (112): Configuration schema, `/telemetry/perf` shape, AccessOptions, PrincipalSource, ResourceExtractor, AuthzHttpConfig, AuthzHttpConfigBootstrapper, LinksConfig (+104 more)
 
-### Community 55 - "push.ts"
-Cohesion: 0.01
-Nodes (176): Descriptor inheritance, Services and extension points, The model descriptor, `IDehydrateOptions`, Serializing a model, Decorators, Default key names, Relation option interfaces (+168 more)
+### Community 54 - "AuthzAdmin"
+Cohesion: 0.02
+Nodes (120): authn-orm tables, Tables, `users`, `users_metadata`, 10. Security fixes an app sees, 11. Open items in 3.0.0-rc.1, 12.1 What changed, 12.2 Steps (+112 more)
+
+### Community 55 - "ModelBase"
+Cohesion: 0.02
+Nodes (132): How it works, API tokens keyed by a client-generated UUID, Best practices, Column descriptor, Decorators, Descriptor inheritance, Examples, Invoice with timestamps, soft delete and a hidden column (+124 more)
 
 ### Community 56 - "package.json"
-Cohesion: 0.02
-Nodes (131): chai, chai-as-promised, chai-http, cpx, eslint, fast-check, mocha, rimraf (+123 more)
+Cohesion: 0.01
+Nodes (133): chai, chai-as-promised, chai-http, cpx, eslint, fast-check, mocha, rimraf (+125 more)
 
 ### Community 57 - "log-common/src/index.ts"
-Cohesion: 0.03
-Nodes (102): Call forms, Low-level methods, Call shapes, Field templates, printf specifiers, API, Best practices, Custom serializers (+94 more)
+Cohesion: 0.02
+Nodes (172): Error messages, Call forms, Low-level methods, Call shapes, Field templates, printf specifiers, Best practices, Bucket and total limits together (+164 more)
 
 ### Community 58 - "JwsAssertionStrategy"
-Cohesion: 0.08
-Nodes (48): Sessions and the cookie, JSDoc tags, Best practices, Routes, AcceptType(), BodyField(), captureControllerSourceFile(), Controller() (+40 more)
+Cohesion: 0.07
+Nodes (50): Sessions and the cookie, JSDoc tags, Best practices, Routes, AcceptType(), BodyField(), captureControllerSourceFile(), Controller() (+42 more)
 
 ### Community 59 - "configuration-aws-secretmanager-protocol/package.json"
-Cohesion: 0.08
-Nodes (23): author, description, exports, files, gitHead, homepage, @aws-sdk/client-secrets-manager, sinon (+15 more)
-
-### Community 60 - "src/durable.ts"
 Cohesion: 0.03
-Nodes (37): Account, usersHostHarness(), leafValue(), usersAuthnHarness(), PROBE_PATH, resetProbeHits(), AccountSpec, APP_VALUES (+29 more)
+Nodes (57): author, bugs, url, dependencies, @aws-sdk/client-secrets-manager, @aws-sdk/client-ssm, @spinajs/configuration-common, @spinajs/di (+49 more)
+
+### Community 60 - "SocketConnection"
+Cohesion: 0.03
+Nodes (63): `BaseSocketController`: a shared base for your controllers, Decorators, Examples, Patterns and antipatterns, Presence: announce who joins and leaves a document, Related, Services and extension points, Socket controllers (+55 more)
 
 ### Community 61 - "packages_orm_lib_mjs_index_modelbase"
-Cohesion: 0.05
-Nodes (14): Translate(), Column(), Column(), JoinModel, Model1, Model1QueryScope, Model2, Model3 (+6 more)
+Cohesion: 0.09
+Nodes (4): TestMany, TestModel, TestModelOwner, JOB_ACTIVE_STATUSES
 
 ### Community 62 - "access/decorators.js"
-Cohesion: 0.05
-Nodes (61): AccessContributor, contribute(), isEnabled(), declared, declareOnce(), UnfilteredInput(), onBefore(), Access() (+53 more)
+Cohesion: 0.02
+Nodes (156): AccessContributor, contribute(), isEnabled(), Access(), AllowAnonymous(), declared, declareOnce(), UnfilteredInput() (+148 more)
 
-### Community 63 - "EmailSender"
-Cohesion: 0.05
-Nodes (60): Configuration, Custom transport: HTTP mail API, Custom transport: local outbox for development, Extending the SMTP transport, Services and extension points, Shipped senders, Transport contract, What `EmailSender` gives a subclass (+52 more)
+### Community 63 - "Injectable"
+Cohesion: 0.02
+Nodes (128): Parameter types, A new route argument: custom implementation, Best practices, Custom route arguments, Decorators, Examples, How it works, Patterns and antipatterns (+120 more)
 
 ### Community 64 - "A17-keys-jws.spec.ts"
 Cohesion: 0.02
-Nodes (91): enrolWithTotp(), claimsAt(), jwt(), JwtWorld, nowSeconds(), prepareJwt(), ADMIN, ASSERTION_NEEDS (+83 more)
+Nodes (94): A10, DISABLE_ROWS, enrolWithTotp(), FRESH_300, FRESH_ROWS, Pending, WithMfa, WithStep (+86 more)
 
-### Community 65 - "orm/src/interfaces.ts"
-Cohesion: 0.03
-Nodes (87): Reading a row, Services and extension points, The `IValueConverter` contract, Related, Important behaviour, UuidConverter, DbPropertyHydrator, JunctionModelPropertyHydrator (+79 more)
+### Community 65 - "src/principals.ts"
+Cohesion: 0.02
+Nodes (86): alice, ALLOWED, B32, base, bob, CAP_ALL, carol, dave (+78 more)
 
-### Community 66 - "allowAnonymous"
-Cohesion: 0.27
-Nodes (7): AccessController, access(), ACCESS_CLASS, ACCESS_DESCRIPTOR, allowAnonymous(), Descriptor, own()
+### Community 66 - "admin/rules.ts"
+Cohesion: 0.07
+Nodes (53): Applied, changed(), Cmd, RbacAssignmentHandler, revoked(), setOf(), actorRef(), assignmentStore() (+45 more)
 
-### Community 67 - "PerChildInstance"
-Cohesion: 0.05
-Nodes (35): FirstSink, LocalSink, NeedySink, SecondSink, SharedSink, Sink, PerChild, LazyInject() (+27 more)
+### Community 67 - "guard.ts"
+Cohesion: 0.06
+Nodes (45): POLICY_KEYS, CheckRbacAdminFacts, given(), RbacAdminFacts, unconditional(), adds(), AdminGuardConfig, Call (+37 more)
 
 ### Community 68 - "internal-logger/package.json"
 Cohesion: 0.10
@@ -1977,29 +1894,29 @@ Nodes (19): description, exports, files, gitHead, homepage, chai, lodash, luxon 
 Cohesion: 0.05
 Nodes (38): author, description, exports, files, gitHead, homepage, @aws-sdk/client-s3, luxon (+30 more)
 
-### Community 70 - "email/test/password-mailer.test.ts"
-Cohesion: 0.07
-Nodes (25): PasswordMailConfiguration, DEFAULT_SUBJECTS, EmailPasswordMailer, EmailPasswordMailerDeps, IPasswordMail, plainText(), resetUrl(), AccessDeniedLike (+17 more)
+### Community 70 - "SocketServer"
+Cohesion: 0.04
+Nodes (58): Best practices, Examples, How it works, Important behaviour, Patterns and antipatterns, Related, Services and extension points, Socket server and HTTP host (+50 more)
 
 ### Community 71 - "model-steps.ts"
-Cohesion: 0.02
-Nodes (156): send(), alice, B12, base, bob, carol, CONFIG, f1 (+148 more)
+Cohesion: 0.05
+Nodes (46): alice, B28Residual, cases, DENIED, alice, B28SignedUrl, cases, DENIED (+38 more)
 
-### Community 72 - "EmailSend"
+### Community 72 - "UserPrincipalFactory"
 Cohesion: 0.04
-Nodes (67): Best practices, Examples, Helpers, How it works, Important behaviour, Metrics and logs, Patterns and antipatterns, Related (+59 more)
+Nodes (52): Principal shape, 6.10 Example (i): pools, F6: authn contracts, Best practices, Custom user model, How it works, Important behaviour, Patterns and antipatterns (+44 more)
 
 ### Community 73 - "contracts/model.test.ts"
-Cohesion: 0.02
-Nodes (52): F4: host, Config: `authz.*`, Field filters, `@spinajs/authz-http`, Decision, FieldSet, ModelSummary, Permission (+44 more)
+Cohesion: 0.01
+Nodes (71): Configuration, Cost, Examples, Holders, How it works, HTTP, inspect, Patterns and antipatterns (+63 more)
 
 ### Community 74 - "http-swagger/package.json"
 Cohesion: 0.06
 Nodes (31): author, description, exports, files, homepage, cpx, @spinajs/authz-http, @spinajs/cli (+23 more)
 
-### Community 75 - "check-config-cli.test.ts"
+### Community 75 - "http-socket/src/index.ts"
 Cohesion: 0.05
-Nodes (30): Search directories, Configuration, AuthnCheckConfig, PROVIDER_PACKAGES, importIfInstalled(), cliProcess(), configurationOf(), InProcessCheckConfig (+22 more)
+Nodes (59): Answer a rate-limited upstream with a retry hint, Best practices, Decorators, Error mapping, Examples, How it works, Patterns and antipatterns, Related (+51 more)
 
 ### Community 76 - "validation/package.json"
 Cohesion: 0.07
@@ -2009,45 +1926,45 @@ Nodes (26): author, description, exports, files, gitHead, homepage, ajv, ajv-for
 Cohesion: 0.05
 Nodes (36): author, description, exports, files, homepage, lodash, socket.io, socket.io-client (+28 more)
 
-### Community 78 - "contracts/token.test.ts"
-Cohesion: 0.04
-Nodes (63): Related, test/password-reset.test.ts, test/session-context.test.ts, test/z-account-session-context.test.ts, AuthnFailure, AuthnResponseExtension, PasswordChangeResult, PasswordExpiry (+55 more)
+### Community 78 - "uploads.test.ts"
+Cohesion: 0.02
+Nodes (142): `configuration`, `DbConfig` model, Schema, Best practices, Configuration, Decorators, Examples, Exposing options (+134 more)
 
 ### Community 79 - "http/package.json"
 Cohesion: 0.04
-Nodes (47): author, description, files, gitHead, homepage, cookie-signature, cors, cpx (+39 more)
+Nodes (48): author, description, files, gitHead, homepage, cookie-signature, cors, cpx (+40 more)
 
 ### Community 80 - "test/support/world.ts"
-Cohesion: 0.07
-Nodes (50): OidcClaimsMapping, OidcClientConfig, OidcConfig, OidcEndpoints, OidcEntraTenantId, OidcMappedClaims, OidcPreset, OidcPresetId (+42 more)
+Cohesion: 0.01
+Nodes (275): Not in this package, OidcBootstrapper, groupsOf(), hasRequiredClaims(), mapClaims(), MAX_EMAIL_LENGTH, MAX_SUBJECT_LENGTH, rawClaims() (+267 more)
 
 ### Community 81 - "SocketDispatcher"
-Cohesion: 0.04
-Nodes (51): Field mapping, Replace a built-in stage, Services and extension points, `SocketCommandStage`: a stage of your own, `SocketDispatcher`: add fields to every call store, How it works, `TokenBucket`: a stricter rate for one expensive command, Best practices (+43 more)
+Cohesion: 0.03
+Nodes (64): The `IEmail` shape, Audit every command that passed the policies, Best practices, Command pipeline and custom stages, Examples, Important behaviour, Patterns and antipatterns, Related (+56 more)
 
 ### Community 82 - "KeyedBackoff"
-Cohesion: 0.03
-Nodes (82): API, Best practices, Configuration, Custom delay curve and an audited subclass, Expiry and capacity, How it works, Important behaviour, Keyed backoff (+74 more)
+Cohesion: 0.02
+Nodes (112): Authentication in SpinaJS 3.0, Config `authn.*`, Contents, Package set per app type, Throttling, 3.2 Authentication keys, API, Best practices (+104 more)
 
 ### Community 83 - "SchemaProvider"
-Cohesion: 0.03
-Nodes (91): Best practices, Named schemas and schema providers, Patterns and antipatterns, Related, `SchemaProvider`: custom implementation, Services and extension points, Shipped providers, Ask every schema provider for a model's response contract (+83 more)
+Cohesion: 0.05
+Nodes (53): Best practices, Named schemas and schema providers, Patterns and antipatterns, Related, `SchemaProvider`: custom implementation, Services and extension points, Shipped providers, Features (+45 more)
 
 ### Community 84 - "compiler.ts"
-Cohesion: 0.03
-Nodes (81): CompiledCondition, constantTruth(), deepFrozen(), MISSING, NEEDS_SUBJECT, NO_RELATIONS(), operandFits(), READ_ONLY() (+73 more)
+Cohesion: 0.02
+Nodes (130): Access modes and configuration, Best practices, Configuration, How it works, Important behaviour, Related, CompiledCondition, constantTruth() (+122 more)
 
 ### Community 85 - "stub-server.ts"
-Cohesion: 0.08
-Nodes (46): Docs, DocsContract, DurableContract, durableTypeChecks(), UNAUTHENTICATED, drained(), Tx, closeAll() (+38 more)
+Cohesion: 0.07
+Nodes (54): CANCELLED, CLOSED, CommandDispatcher, CONNECTION_LOST, MALFORMED_REPLY, NO_REPLY, OFFLINE, STAYED_OFFLINE (+46 more)
 
 ### Community 86 - "di/test/di.test.ts"
 Cohesion: 0.03
 Nodes (68): PerInstance, A, _AA, AutoinjectBar, AutoinjectClass, AutoinjectService(), AutoinjectServiceArray(), B (+60 more)
 
 ### Community 87 - "DbConfigValueConverter"
-Cohesion: 0.04
-Nodes (74): Best practices, Configuration, Examples, Exposing options, How it works, Important behaviour, Let support staff tune the order export batch size, Option registry: expose options without a decorator (+66 more)
+Cohesion: 0.03
+Nodes (106): Best practices, Config entry registry: custom listener, Configuration, Container key: read another container, Decorators, Examples, How it works, Injecting config values (+98 more)
 
 ### Community 88 - "http-socket-example/package.json"
 Cohesion: 0.06
@@ -2066,8 +1983,8 @@ Cohesion: 0.08
 Nodes (24): author, description, exports, files, gitHead, homepage, @spinajs/configuration, @spinajs/di (+16 more)
 
 ### Community 92 - "ref_spinajs_authz_testing"
-Cohesion: 0.03
-Nodes (43): odd(), PERMISSIONS, votes(), OpenStream, Doc, fromParamForTests(), LOCKED, permissions (+35 more)
+Cohesion: 0.02
+Nodes (77): PrincipalMiddleware, odd(), PERMISSIONS, votes(), authn(), EpochHeaderSource, OpenStream, Doc (+69 more)
 
 ### Community 93 - "authn-session/package.json"
 Cohesion: 0.09
@@ -2078,24 +1995,24 @@ Cohesion: 0.08
 Nodes (24): author, description, files, homepage, @spinajs/authz, @spinajs/authz-orm, @spinajs/authz-rbac, @spinajs/authz-testing (+16 more)
 
 ### Community 95 - "PerfSink"
-Cohesion: 0.04
-Nodes (68): Best practices, Configuration, Examples, Find slow report builds, Important behaviour, Patterns and antipatterns, Performance measurement, Related (+60 more)
+Cohesion: 0.05
+Nodes (67): Best practices, Configuration, Examples, Find slow report builds, How it works, Important behaviour, Patterns and antipatterns, Perf scope backend (+59 more)
 
 ### Community 96 - "default-authn-service.test.ts"
 Cohesion: 0.02
-Nodes (106): parts(), authn, AuthnThrottle, RECOVERY_STEP, IMPERSONATION_BLOCK, useTestLog(), attributedId(), attributedStrategy() (+98 more)
+Nodes (66): parts(), readingFrom(), isFresh(), RECOVERY_STEP, IMPERSONATION_BLOCK, buildCore(), CoreParts, KIT_MFA_STEP (+58 more)
 
 ### Community 97 - "Payload"
-Cohesion: 0.04
-Nodes (20): SocketAuthnProbe, Payload, Signal(), SocketPolicy(), ModelSocket, FenceSocket, IdemMoney, IdempotencySocket (+12 more)
+Cohesion: 0.07
+Nodes (24): Best practices, Client and table provisioning, Client factory: custom implementation, Configuration, Examples, How it works, Important behaviour, Load client settings from a mounted secrets file (+16 more)
 
 ### Community 98 - "authz-http-admin/test/routes.test.ts"
-Cohesion: 0.07
-Nodes (23): alice, bob, captureLogs(), carol, F1, G1, LOG_LEVELS, logText() (+15 more)
+Cohesion: 0.04
+Nodes (54): carol, dave, del(), erin, grantBody(), lead, MANAGE, P1 (+46 more)
 
 ### Community 99 - "`@spinajs/log`"
-Cohesion: 0.08
-Nodes (34): Schema validation, API, Async context and tracing, Best practices, Correlate a queue job with the request that queued it, Examples, How it works, Important behaviour (+26 more)
+Cohesion: 0.06
+Nodes (44): Additive rules and `final`, Best practices, Configuration, Configuration and rules, Examples, Level windows, Patterns and antipatterns, Related (+36 more)
 
 ### Community 100 - "tasks/package.json"
 Cohesion: 0.09
@@ -2103,199 +2020,191 @@ Nodes (22): author, description, exports, files, gitHead, homepage, luxon, @spin
 
 ### Community 101 - "util.test.ts"
 Cohesion: 0.03
-Nodes (73): Argument validation, Best practices, Checks, Choice and pattern, Examples, How it works, Important behaviour, Parse query parameters with defaults (+65 more)
+Nodes (72): Argument validation, Best practices, Checks, Choice and pattern, Examples, How it works, Important behaviour, Parse query parameters with defaults (+64 more)
 
-### Community 102 - "src/login.ts"
-Cohesion: 0.18
-Nodes (16): clearFlowCookie(), decodeFlow(), flowCookie, options(), sessionBindingOf(), callbackQueryOf(), errorName(), NOT_FOUND (+8 more)
+### Community 102 - "assertion.ts"
+Cohesion: 0.06
+Nodes (47): RFC-8941, K4 and K5: test kit fixes and per-request throttling, componentValue(), DERIVED, digestMatches(), DIGESTS, lowerCaseHeaders(), NOT_COVERABLE (+39 more)
 
 ### Community 103 - "util/package.json"
 Cohesion: 0.04
 Nodes (48): author, bugs, url, import, require, types, dependencies, glob-to-regexp (+40 more)
 
 ### Community 104 - "lane.ts"
-Cohesion: 0.02
-Nodes (128): DI rules for harness writers, Lane data and handles, Writing a harness, f1, f2, P1, APP, byPrincipal() (+120 more)
+Cohesion: 0.05
+Nodes (22): Async helpers, Async helpers, caches and graphs, `BoundedMap<K, V>`, Caches, `Clock`, `ListenerSet<T>`, `LruTtlCache<K, V>`, `RefreshingCache<T>` (+14 more)
 
-### Community 105 - "Patch"
-Cohesion: 0.22
-Nodes (3): FieldRoutes, Patch(), BodyField
+### Community 105 - "authz-abac/src/model/model.ts"
+Cohesion: 0.06
+Nodes (30): L3: ABAC model and conditions, notListFilterable(), rowDependence(), AbacModel, AbacModelOptions, Entry, fieldsOf(), intersectFieldGlobs() (+22 more)
 
 ### Community 106 - "IdentityRef"
-Cohesion: 0.02
-Nodes (110): `ExternalLoginHook`, Authentication internals: storage and login flow, Contents, Known gaps, Local password login, Logout, Password hashing, Principal shape (+102 more)
+Cohesion: 0.03
+Nodes (66): Local password login, MFA step, 3.4 Keys that other config files own, N1: authn core, N5: authn-totp, Best practices, Examples, Export a user's invoices as that user (+58 more)
 
-### Community 107 - "InvalidArgument"
+### Community 107 - ".default"
 Cohesion: 0.01
-Nodes (181): authn-orm tables, Tables, Token, key and session tables, `users`, `users_metadata`, Install, Quick start, Related packages (+173 more)
+Nodes (144): ORM (`@spinajs/authz-orm`), Install, Quick start, Related packages, `@spinajs/configuration-db-source`, Best practices, Best practices, Configuration (+136 more)
 
-### Community 108 - "authz/test/admin/support.ts"
+### Community 108 - "Configuration"
 Cohesion: 0.02
-Nodes (75): alice, OtherHandler, alice, CountingGuard, NamedAudit, NamedBus, register(), adminAudit() (+67 more)
+Nodes (159): Best practices, Boot an app with its own config directory, Configuration, Configuration: extend the default service, Configuration service, Configure hooks, Examples, Important behaviour (+151 more)
 
 ### Community 109 - "dependencies"
 Cohesion: 0.02
 Nodes (83): dependencies, degenerator, ip, mkdirp-classic, pac-proxy-agent, pac-resolver, proxy-agent, @spinajs/authn (+75 more)
 
 ### Community 110 - "contracts/filter.ts"
-Cohesion: 0.03
-Nodes (84): basis(), bind(), built(), Comparison, definedKeys(), filterHashTesting, HASHES, isLiteralList() (+76 more)
+Cohesion: 0.02
+Nodes (143): 5. Combining, CombiningAlgorithm, and(), basis(), bind(), bindRefs(), built(), Comparison (+135 more)
 
-### Community 111 - "conformance/model.ts"
-Cohesion: 0.06
-Nodes (44): Best practices, Examples, How it works, Important behaviour, `IUserMetadataEntry`: document a decoded value in the API spec, Patterns and antipatterns, Related, Request body (+36 more)
+### Community 111 - "identity/sql.ts"
+Cohesion: 0.07
+Nodes (43): Account status: treat accounts on leave as out of service, Best practices, How it works, Identity and password stores, Identity store: sign in with the login name only, Important behaviour, In service (`UserAccountStatusSource`), Login (`UserIdentityStore` and `UserPasswordStore`) (+35 more)
 
-### Community 112 - "Test ledger: @spinajs/users"
-Cohesion: 0.03
-Nodes (79): adminBackendName(), cleanupDeleted(), DELETED, publishAndAudit(), RESOURCE_DELETED, SYSTEM_REF, afterCommit(), appEnv() (+71 more)
+### Community 112 - "n8b-harness.ts"
+Cohesion: 0.04
+Nodes (47): insertUserRow(), STRATEGIES, StrategyEntry, tokenDb(), adminNow(), adminPart, AdminState, bootN8bApp() (+39 more)
 
 ### Community 113 - "users/package.json"
 Cohesion: 0.04
 Nodes (44): author, description, files, gitHead, homepage, cpx, lodash, luxon (+36 more)
 
 ### Community 114 - ".consume"
-Cohesion: 0.04
-Nodes (47): RFC-7517, MFA_POLICY_SERVICE, CredentialSelector, isCredentialSelector(), check(), StrategyEntry, AUTHN_CONFIGURATION_SCHEMA, backoff() (+39 more)
+Cohesion: 0.09
+Nodes (30): CredentialSelector, isCredentialSelector(), accepts(), check(), Checked, isInvalidConfiguration(), StrategyEntry, checkAuthnConfig() (+22 more)
 
 ### Community 115 - "authn-token/test/v3/cli.test.ts"
 Cohesion: 0.01
-Nodes (168): Tokens, API tokens (`authn-token`), External JWT, OIDC (`authn-oidc`), Other credential types, N6: tokens (`authn-token`), Important behaviour, Services and extension points (+160 more)
+Nodes (197): Tokens, API tokens (`authn-token`), External JWT, OIDC (`authn-oidc`), Other credential types, Token, key and session tables, N6: tokens (`authn-token`), Services and extension points (+189 more)
 
-### Community 116 - "engine/evaluate.ts"
+### Community 116 - "SessionIssuer"
 Cohesion: 0.06
-Nodes (27): Best practices, Configuration, Examples, Important behaviour, Inject the OneDrive provider into a report service, OneDrive provider, Related, Services and extension points (+19 more)
+Nodes (38): Boot checks, `ExternalLoginHook`, Flow cookie, Limits in 3.0, OIDC single sign-on (`@spinajs/authn-oidc`), Presets, Providers, Routes (+30 more)
 
 ### Community 117 - "users-http/test/support/http-app.ts"
-Cohesion: 0.05
-Nodes (44): attempt(), dto(), IdentityRef, plant(), refused(), TWO_FA_KEYS, typeOf(), unbannedOwner() (+36 more)
-
-### Community 118 - "reference/harness.ts"
 Cohesion: 0.02
-Nodes (123): Testing, Fakes for the `service` port, strategy(), AUTHN_RULES, planCases(), runAuthnBehaviour(), settleCase(), Facet (+115 more)
+Nodes (163): How it works, `GET /user/tokens/roles` and `GET /user/tokens/profiles`, Best practices, Examples, How it works, Important behaviour, `IUserMetadataEntry`: document a decoded value in the API spec, Patterns and antipatterns (+155 more)
+
+### Community 118 - "authn-testing/src/behaviour/index.ts"
+Cohesion: 0.03
+Nodes (111): Testing, Store and strategy conformance, A01, strategy(), ALL, AUTHN_RULES, planCases(), runAuthnBehaviour() (+103 more)
 
 ### Community 119 - "async.test.ts"
-Cohesion: 0.05
-Nodes (15): Async helpers, attempt(), Deadline, KeyedMutex, laterTurn(), memoizeAsync(), onceAsync(), PromiseMap (+7 more)
+Cohesion: 0.03
+Nodes (134): Best practices, Config var protocols, Configuration, ConfigVar: lazy values, ConfigVarProtocol: custom implementation, Examples, Expand a path from an environment variable, How it works (+126 more)
 
 ### Community 120 - "memory-throttle.test.ts"
 Cohesion: 0.02
-Nodes (78): Related, checkKey(), DbAuthnThrottle, hashKeyOf(), checkError(), DEFAULT_THROTTLE_PARAMS, THROTTLE_FLOWS, ThrottleFlow (+70 more)
+Nodes (63): AuthnThrottle, DEFAULT_THROTTLE_PARAMS, THROTTLE_FLOWS, ThrottleFlow, ThrottleFlowParams, ThrottleKey, ThrottleParams, BackoffParams (+55 more)
 
 ### Community 121 - "storage.js"
+Cohesion: 0.08
+Nodes (34): hasInternalSlots(), Budget, charge(), cloneTree(), copyData(), copyFrozen(), copyPlainData(), CopyPlainDataOptions (+26 more)
+
+### Community 122 - "authz-rbac/src/model/model.ts"
 Cohesion: 0.03
-Nodes (47): UnscopedMiddleware, AccessKey, IAccessDescriptor, IAccessRule, RouteAccess, AccessOptions, PrincipalSource, AccessEpochMiddleware (+39 more)
+Nodes (97): Important behaviour, L1: RBAC model, The RBAC model, What lives in config, ImpliedRole, RuleStore, relationRefs(), FieldRule (+89 more)
 
-### Community 122 - "model/evaluate.ts"
-Cohesion: 0.01
-Nodes (255): L1: RBAC model, ImpliedRole, ResourcePattern, ceilingRoles(), withinCeiling(), relationRefs(), applyDenyRoles(), isDenyRole() (+247 more)
-
-### Community 123 - "stream.test.ts"
-Cohesion: 0.14
-Nodes (13): API, `Perf`, How it works, le(), counter(), ICountedSource, IFrame, ISourceLog (+5 more)
+### Community 123 - "AuthnFromUserMetadata_2026_10_02_00_01_00.ts"
+Cohesion: 0.06
+Nodes (31): N4: authn-orm, Migrations, aad(), decryptMfaSecret(), encryptMfaSecret(), MfaKey, mfaKeyFrom(), AuthnFromUserMetadata_2026_10_02_00_01_00 (+23 more)
 
 ### Community 124 - "Orm"
 Cohesion: 0.01
-Nodes (183): Related, Best practices, Configuration, Examples, How it works, Important behaviour, Patterns and antipatterns, Pay an invoice, award optional loyalty points, notify after commit (+175 more)
+Nodes (302): Services and extension points, ORM connection call (`callOnOrmConnection`), Renderer ORM: custom implementation, Best practices, Configuration, Connections, Decorators, Examples (+294 more)
 
 ### Community 125 - "http/client.ts"
-Cohesion: 0.08
-Nodes (17): DISCOVERY_MAX_AGE_MS, DISCOVERY_RETRY_MS, discoveryUrlOf(), OidcDiscovery, OidcProviderMetadata, RFC-9207, FetchOidcHttpClient, OIDC_HTTP_MAX_BODY_BYTES (+9 more)
+Cohesion: 0.10
+Nodes (17): AnonymousOnlyController, AppUserController, BareController, BaseWithoutClassRuleController, ChildOfRouteOnlyController, descriptorOf(), LevelOneController, LevelThreeController (+9 more)
 
-### Community 126 - "interfaces.js"
-Cohesion: 0.08
-Nodes (13): Argument(), Command(), Option(), CliCommand, TestOptions, TestCommand3, TestOptions, AdvOptions (+5 more)
+### Community 126 - "Queue"
+Cohesion: 0.12
+Nodes (16): Best practices, Configuration, Event transport schema, How it works, Important behaviour, Models, `orm_event_transport__event`, `orm_event_transport__queue` (+8 more)
 
 ### Community 127 - "exported-flow.test.ts"
 Cohesion: 0.07
-Nodes (7): KIT_ATTRIBUTES, FakeMfaStep, keyOf(), sixDigits(), attributed(), attributedId(), FACETS
+Nodes (39): Best practices, Configuration, Examples, Helpers, How it works, Important behaviour, Metrics and logs, Patterns and antipatterns (+31 more)
 
 ### Community 128 - "contracts/fields.ts"
 Cohesion: 0.05
-Nodes (59): allowed(), Budget, Canon, combine(), compareGlobs(), compile(), compileFieldGlobs(), coverCheck() (+51 more)
+Nodes (63): allowed(), Budget, Canon, combine(), compareGlobs(), compile(), compileFieldGlobs(), coverCheck() (+55 more)
 
 ### Community 129 - "src/provider.ts"
-Cohesion: 0.05
-Nodes (41): Best practices, Configuration, Examples, FTP provider, Important behaviour, Patterns and antipatterns, Related, Resolve the provider directly from the container (+33 more)
+Cohesion: 0.04
+Nodes (31): Best practices, Configuration, Examples, FTP provider, How it works, Important behaviour, Patterns and antipatterns, Related (+23 more)
 
 ### Community 130 - "ensureProviders"
-Cohesion: 0.03
-Nodes (25): Best practices, CLI commands, Commands, Configuration, Custom command: disk usage of a directory, Important behaviour, Related, Services and extension points (+17 more)
+Cohesion: 0.07
+Nodes (32): Best practices, Configuration, Environment override: custom implementation, Environments, Examples, How it works, Important behaviour, Patterns and antipatterns (+24 more)
 
 ### Community 131 - "test/support/stack.ts"
-Cohesion: 0.06
-Nodes (28): teamsConfig, ownedTeam(), slug(), ownedTeam(), refusal(), slug(), ownedTeam(), slug() (+20 more)
+Cohesion: 0.08
+Nodes (25): teamsConfig, ownedTeam(), slug(), ownedTeam(), refusal(), slug(), NoEmailSource, ownedTeam() (+17 more)
 
 ### Community 132 - "fsService"
-Cohesion: 0.04
-Nodes (81): Important behaviour, Best practices, Configuration, Examples, `fs-path://` values, Important behaviour, Patterns and antipatterns, Read a path that sits inside an array (+73 more)
+Cohesion: 0.03
+Nodes (93): Best practices, Configuration, Examples, `fs-path://` values, Patterns and antipatterns, Read a path that sits inside an array, Related, Services and extension points (+85 more)
 
 ### Community 133 - "authz-rbac"
-Cohesion: 0.40
-Nodes (5): authz-abac, authz-fs, authz-orm, authz-rbac, Tables
+Cohesion: 0.02
+Nodes (92): Affected rows, Batches, Composite keys, Duplicate keys, How it works, SQL fragments, Version rows, Insert response mapper: custom implementation (+84 more)
 
 ### Community 134 - "PdfRenderer"
 Cohesion: 0.04
-Nodes (22): Async helpers, caches and graphs, `BoundedMap<K, V>`, Caches, `Clock`, `ListenerSet<T>`, `LruTtlCache<K, V>`, `RefreshingCache<T>`, invalidated() (+14 more)
+Nodes (16): Keys are names, BoundedMap, Entry, LruTtlCache, LruTtlCacheOptions, LruTtlEvictReason, LruTtlSetOptions, Clock (+8 more)
 
 ### Community 135 - "teams-http/test/support/client.ts"
-Cohesion: 0.12
-Nodes (23): invite(), appPort(), AttributesEmailSource, EMAIL_HEADER, HeaderPrincipalSource, RecordingInvitationMailer, startTeamsApp(), stopTeamsApp() (+15 more)
+Cohesion: 0.18
+Nodes (18): invite(), appPort(), EMAIL_HEADER, RecordingInvitationMailer, USER_HEADER, as(), Client, createGroup() (+10 more)
 
-### Community 136 - "DefaultAccountGuard"
-Cohesion: 0.03
-Nodes (84): AuthzResourceAncestor_2026_10_14_00_00_00, AccessResourceOptions, OwnerOptions, ParentOptions, AuthzOrmContributor, checkResourceConnections(), ConfigSource, storesConnection() (+76 more)
+### Community 136 - "lists/middleware.ts"
+Cohesion: 0.02
+Nodes (105): AuthzResourceAncestor_2026_10_14_00_00_00, ACCESS_FIELD, accessColumn(), accessField(), AccessFieldMiddleware, attach(), truthy(), accessible() (+97 more)
 
 ### Community 137 - "util/test/helpers.test.ts"
 Cohesion: 0.02
-Nodes (75): Install, Quick start, Related packages, `@spinajs/di`, Best practices, Arrays, Best practices, Collections, objects and JSON (+67 more)
+Nodes (79): RFC-2822, Arrays, Best practices, Collections, objects and JSON, Custom JSON types: add `BigInt` next to `Map` and `Set`, Examples, Group, de-duplicate and batch records for an import, How it works (+71 more)
 
 ### Community 138 - "BaseSocketController"
-Cohesion: 0.03
-Nodes (49): `BaseSocketController`: a shared base for your controllers, Services and extension points, `SocketHandlerRegistry`: add a registration rule, ISocketAccessRule, AccessPushSocket, SocketAccess(), BaseSocketController, SocketController() (+41 more)
-
-### Community 139 - "behaviour/oracle.ts"
-Cohesion: 0.01
-Nodes (131): scopeTree, ScopeTreeOptions, Shape, Member, TUPLE_GRAPH_PERMISSIONS, TUPLE_GRAPH_SCHEMA, tupleGraph, TupleGraphOptions (+123 more)
+Cohesion: 0.02
+Nodes (36): SocketAuthnProbe, SocketSessionProbe, Payload, Command, SocketAccess(), SocketPolicy(), AccessFieldsExtraSocket, AccessFieldsOverrideSocket (+28 more)
 
 ### Community 140 - "packages_exceptions_lib_mjs_index"
-Cohesion: 0.02
-Nodes (67): Work, insertedRefs(), InsertResult, refsOf(), targetRefs(), ResourceEntry, IColumnDescriptor, ISelectQueryBuilder (+59 more)
+Cohesion: 0.08
+Nodes (26): Best practices, Extend: archive copy of every billing mail, Extend: refuse oversized attachments, How it works, Important behaviour, Overridable steps of `DefaultEmailService`, Patterns and antipatterns, Related (+18 more)
 
 ### Community 141 - "route-builder.ts"
-Cohesion: 0.02
-Nodes (123): A versioned orders API, Best practices, Configuration, Controllers and routing, `Controllers`: custom implementation, Examples, How it works, Important behaviour (+115 more)
+Cohesion: 0.08
+Nodes (16): Best practices, Configuration, Controller cache and CLI, `DefaultControllerCache`: custom implementation, Document a route for OpenAPI, Examples, How it works, Important behaviour (+8 more)
 
 ### Community 142 - "TimeSpanLike"
 Cohesion: 0.04
-Nodes (100): Best practices, Circuit breaker, Concurrency limiter, Configuration, Context and cancellation, Cut tail latency with hedged reads from two replicas, Deciding what a strategy handles, Examples (+92 more)
-
-### Community 143 - "ref_spinajs_validation"
-Cohesion: 0.05
-Nodes (45): Best practices, Configuration, Configuration API, Examples, Expose an option with bounds the API enforces, `GET /configuration`, `GET /configuration/:slug`, How it works (+37 more)
+Nodes (100): How it works, Best practices, Circuit breaker, Concurrency limiter, Configuration, Context and cancellation, Deciding what a strategy handles, Exceptions (+92 more)
 
 ### Community 144 - "users-http/package.json"
 Cohesion: 0.05
 Nodes (37): author, description, exports, files, homepage, cookie-signature, luxon, @spinajs/authn (+29 more)
 
-### Community 145 - "authn-oidc/test/acceptance.test.ts"
-Cohesion: 0.14
-Nodes (6): COOKIE_SECRET, current, DbKind, HookLog, PG_SERVER, raw()
+### Community 145 - "uowFixture.ts"
+Cohesion: 0.08
+Nodes (15): UowOrderItem, UowAltOwner, UowAltTarget, UowClient, UowNode, UowOrder, UowOrderItem, UowOrderTag (+7 more)
 
-### Community 146 - "Logger"
-Cohesion: 0.04
-Nodes (39): Best practices, Configuration, Examples, How it works, Important behaviour, Patterns and antipatterns, Related, Render a report into a temp file and move it to permanent storage (+31 more)
+### Community 146 - "MaxAgeTempCleanupStrategy"
+Cohesion: 0.31
+Nodes (9): Configuration, How it works, How it works, Important behaviour, Shipped strategies, CronTempCleanupStrategy, MaxAgeTempCleanupStrategy, TempCleanupStrategy (+1 more)
 
-### Community 147 - "stores.db.test.ts"
-Cohesion: 0.03
-Nodes (50): AuthzAdminIdempotency_2026_10_02_00_01_00, CliUsageError, parseExpiry(), parsePrincipalRef(), parseResourceRef(), parseSubject(), parseTagList(), requireText() (+42 more)
+### Community 147 - "redact"
+Cohesion: 0.12
+Nodes (22): Best practices, Examples, Functions, How it works, Important behaviour, Patterns and antipatterns, Related, Secret redaction (+14 more)
 
 ### Community 148 - "fs/src/fp.ts"
-Cohesion: 0.09
-Nodes (52): Functional wrappers, Helper functions, File type checks, _append(), _copy(), _dirExists(), _download(), _exists() (+44 more)
+Cohesion: 0.06
+Nodes (29): IGenerate2FaQrOptions, GreetOptions, BuildOptions, DbCommand, ServeOptions, LogsOptions, CatOptions, CpOptions (+21 more)
 
 ### Community 149 - "fsOneDrive"
-Cohesion: 0.04
-Nodes (77): How it works, Important behaviour, Members meant for overriding, Best practices, Configuration, Examples, How it works, Important behaviour (+69 more)
+Cohesion: 0.03
+Nodes (119): Related, How it works, Important behaviour, Members meant for overriding, Best practices, Configuration, Examples, How it works (+111 more)
 
 ### Community 150 - "fs/package.json"
 Cohesion: 0.06
@@ -2303,15 +2212,15 @@ Nodes (32): author, description, exports, files, gitHead, homepage, archiver, cr
 
 ### Community 151 - "uploads.test.ts"
 Cohesion: 0.05
-Nodes (60): Important behaviour, Access control, Check a principal before reading a secret entry in a job, Configuration, Examples, How it works, Important behaviour, Patterns and antipatterns (+52 more)
+Nodes (45): Best practices, Check a validator's name before deployment, Configuration, Examples, File entries and validators, File validator: custom implementation, How it works, Important behaviour (+37 more)
 
-### Community 152 - "engine/ceiling.ts"
+### Community 152 - "guessLanguage"
 Cohesion: 0.05
-Nodes (52): compilePermissionGlob(), isPermissionGlob(), matchesPermission(), matchPart(), PERMISSION_GLOB_PATTERN, summaryCeiling(), underCeilings(), ancestorNodes() (+44 more)
+Nodes (53): API, Best practices, Configuration, Examples, Expose translation helpers to a custom template engine, How it works, Important behaviour, Language store: set the language outside HTTP (+45 more)
 
 ### Community 153 - "DefaultEmailService"
-Cohesion: 0.06
-Nodes (31): Services and extension points, How it works, Best practices, Extend: archive copy of every billing mail, Extend: refuse oversized attachments, How it works, Important behaviour, Overridable steps of `DefaultEmailService` (+23 more)
+Cohesion: 0.02
+Nodes (102): `@AutoinjectNamedService` and `resolveNamedService`, Which one to use, appAjv(), bindConfiguration(), bootConfiguration(), BootedConfiguration, configurationOf(), violationPaths() (+94 more)
 
 ### Community 154 - "log/package.json"
 Cohesion: 0.07
@@ -2319,27 +2228,27 @@ Nodes (29): author, description, files, gitHead, homepage, ajv, cron, glob-to-re
 
 ### Community 155 - "RenderPdfJob"
 Cohesion: 0.03
-Nodes (93): Best practices, Configuration, Important behaviour, Patterns and antipatterns, Payload: `IRenderPdfJobPayload`, Related, Schedule options: `IScheduleRenderPdfOptions`, Scheduling render jobs (+85 more)
+Nodes (93): Errors the client produces, Best practices, Configuration, Examples, How it works, Important behaviour, Patterns and antipatterns, Payload: `IRenderPdfJobPayload` (+85 more)
 
 ### Community 156 - "authn-totp/package.json"
 Cohesion: 0.07
-Nodes (26): author, description, files, homepage, @spinajs/authn, @spinajs/authn-orm, @spinajs/authn-testing, @spinajs/cli (+18 more)
+Nodes (27): author, description, files, homepage, @spinajs/authn, @spinajs/authn-orm, @spinajs/authn-testing, @spinajs/cli (+19 more)
 
 ### Community 157 - "fs/README.md"
-Cohesion: 0.06
-Nodes (41): Best practices, Examples, Important behaviour, Patterns and antipatterns, Related, Run against LocalStack in development, Services and extension points, SQS connection (+33 more)
+Cohesion: 0.04
+Nodes (58): Queue transport: custom implementation, Best practices, Configuration, Examples, Important behaviour, Patterns and antipatterns, Related, Run against LocalStack in development (+50 more)
 
 ### Community 158 - "TimeSpan"
 Cohesion: 0.04
-Nodes (34): `SqlTimeValueConverter`, Important behaviour, Important behaviour, Accept `TimeSpanLike` in your own API, API, Arithmetic and comparison, Best practices, Construction (+26 more)
+Nodes (31): Related, `SqlTimeValueConverter`, Accept `TimeSpanLike` in your own API, API, Arithmetic and comparison, Best practices, Construction, Conversion (+23 more)
 
 ### Community 159 - "ref_mocha"
-Cohesion: 0.08
-Nodes (36): F2: DI changes, Best practices, Decorators, Examples, How it works, Important behaviour, Lifetimes, One query context per request, one connection pool per app (+28 more)
+Cohesion: 0.04
+Nodes (61): Best practices, Decorators, Examples, Fail at startup when no payment gateway is installed, How it works, `IAutoinjectOptions`, Important behaviour, Inject the store, the hasher and every password rule (+53 more)
 
 ### Community 160 - "ArgHydrator"
 Cohesion: 0.02
-Nodes (119): Services and extension points, Accept a date range as "2026-01-01..2026-01-31", `ArgHydrator`: custom implementation, Argument hydrators, Best practices, `DateTimeHydrator`, `DateTimeHydrator`: custom implementation, Decorators (+111 more)
+Nodes (114): Services and extension points, Accept a date range as "2026-01-01..2026-01-31", `ArgHydrator`: custom implementation, Argument hydrators, `DateTimeHydrator`, `DateTimeHydrator`: custom implementation, Decorators, Examples (+106 more)
 
 ### Community 161 - "authn-oidc/package.json"
 Cohesion: 0.06
@@ -2349,21 +2258,21 @@ Nodes (32): author, description, exports, files, homepage, ajv, cookie-signature
 Cohesion: 0.12
 Nodes (17): dependencies, lodash, luxon, @spinajs/authz, @spinajs/authz-http, @spinajs/authz-orm, @spinajs/configuration, @spinajs/configuration-common (+9 more)
 
-### Community 163 - "guard/index.ts"
-Cohesion: 0.06
-Nodes (52): FsAccessMode, decide(), defaultName(), Env, Frame, FsGuardOptions, Guard, guardFs() (+44 more)
+### Community 163 - "acl-orm-store.test.ts"
+Cohesion: 0.04
+Nodes (19): DbKind, externalDb(), MYSQL, PG, rawSql(), alice, Equal, Shape (+11 more)
 
 ### Community 164 - "authz-orm/package.json"
 Cohesion: 0.08
 Nodes (25): author, description, files, homepage, luxon, @spinajs/authz, @spinajs/authz-testing, @spinajs/cli (+17 more)
 
 ### Community 165 - "http-socket/test/config-schema.test.ts"
-Cohesion: 0.07
-Nodes (26): ALL, BadKinds, boot(), bootFails(), ChildMixedConfiguration, ChildOnly, ChildTestConfiguration, JWT (+18 more)
+Cohesion: 0.06
+Nodes (27): ALL, BadKinds, boot(), bootChild(), bootFails(), ChildMixedConfiguration, ChildOnly, ChildTestConfiguration (+19 more)
 
 ### Community 166 - "backoff.test.ts"
-Cohesion: 0.07
-Nodes (20): BackoffRow, FakeBackoffThrottle, BackoffParams, backoffDelayMs(), backoffSchedule(), retryAfterSeconds(), walkBackoff(), WalkOptions (+12 more)
+Cohesion: 0.06
+Nodes (22): BackoffRow, FakeBackoffThrottle, DEFAULT_THROTTLE, BackoffParams, backoffDelayMs(), backoffSchedule(), retryAfterSeconds(), walkBackoff() (+14 more)
 
 ### Community 167 - "fs-onedrive/package.json"
 Cohesion: 0.06
@@ -2373,29 +2282,29 @@ Nodes (30): author, description, exports, files, gitHead, homepage, archiver, lo
 Cohesion: 0.06
 Nodes (31): author, description, exports, files, homepage, ajv, chai-http, fast-check (+23 more)
 
-### Community 169 - "http-harness.ts"
-Cohesion: 0.03
-Nodes (38): AuthnPrincipalSource, AuthnPrincipalSource, LinkPrincipalSource, PrincipalMiddleware, ServicePrincipalSource, authn(), EpochHeaderSource, Equal (+30 more)
+### Community 169 - "Translatable"
+Cohesion: 0.05
+Nodes (39): Best practices, Configuration, Declaring, Decorators, Edit the English title of a CMS page, Examples, How it works, Important behaviour (+31 more)
 
-### Community 170 - "src/decorators.js"
-Cohesion: 0.16
-Nodes (12): SPINAJS_ARGV_OPTIONS, stripFrameworkOptions(), META_ARGUMENT, META_COMMAND, META_OPTION, Cli, parseWithChoices(), resolveCliVersion() (+4 more)
-
-### Community 171 - "SocketServer"
+### Community 170 - "admin.test.ts"
 Cohesion: 0.04
-Nodes (66): Best practices, Examples, How it works, Important behaviour, Patterns and antipatterns, Services and extension points, Socket server and HTTP host, `SocketHttpHost`: serve sockets on another http server (+58 more)
+Nodes (23): Condition, AuthzAdminError, SubjectSelector, AsyncH, DAssignment, DCommand, DLink, DPolicy (+15 more)
+
+### Community 171 - "DbAuthnThrottle"
+Cohesion: 0.08
+Nodes (11): Rules the stores keep, `@spinajs/authn-orm`, Supported drivers and known gaps, Throttle store, checkKey(), DbAuthnThrottle, hashKeyOf(), DbThrottleStore (+3 more)
 
 ### Community 172 - "devDependencies"
 Cohesion: 0.03
 Nodes (58): devDependencies, @arethetypeswrong/cli, chai, chai-as-promised, chai-dom, chai-http, chai-like, chai-subset (+50 more)
 
 ### Community 173 - "broken.test.ts"
-Cohesion: 0.02
-Nodes (76): test/rbac-policy-unknown-role.test.ts, AdapterCheckId, AdapterFactory, ModelCheckId, modelConformanceChecks(), ModelFactory, worldRows(), FakeAdapter (+68 more)
+Cohesion: 0.01
+Nodes (121): test/rbac-policy-unknown-role.test.ts, Member, TUPLE_GRAPH_PERMISSIONS, TUPLE_GRAPH_SCHEMA, tupleGraph, TupleGraphOptions, FakeTupleSpec, RebacWorld (+113 more)
 
-### Community 174 - "StompQueueClient"
-Cohesion: 0.08
-Nodes (18): L4 and L4b: ORM adapter, rules in SQL, Step 4: runtime checks and unattended entry points, Database audit, AuthzAudit_2026_10_01_00_00_00, AuditRecord, DbDecisionAudit, fit(), optional() (+10 more)
+### Community 174 - "ref_node_path"
+Cohesion: 0.04
+Nodes (32): PACKAGES, reachesRegistration(), READS, relativeImports(), sources(), LIB, PKG, root (+24 more)
 
 ### Community 175 - "authn-orm/package.json"
 Cohesion: 0.07
@@ -2407,43 +2316,43 @@ Nodes (97): Best practices, Compute a value per call with a function, Custom var
 
 ### Community 177 - "load.ts"
 Cohesion: 0.11
-Nodes (21): computedLeaves(), envOf(), isData(), Layered, LayerSource, leafValues(), leaves(), loadLayers() (+13 more)
+Nodes (22): computedLeaves(), envOf(), isData(), Layered, LayerSource, leafValues(), leaves(), loadLayers() (+14 more)
 
-### Community 178 - "functions.test.ts"
-Cohesion: 0.03
-Nodes (49): typesOf(), ConditionFunction, argsOf(), blockList(), Bounded, BUILTIN, BUILTIN_CONDITION_FUNCTIONS, bySpelling (+41 more)
+### Community 178 - "Own account routes"
+Cohesion: 0.15
+Nodes (11): Best practices, Configuration, Examples, `GET /user`, How it works, Important behaviour, Own account routes, Read the own record and the token offer from a client (+3 more)
 
-### Community 179 - "boolean"
-Cohesion: 0.03
-Nodes (79): Arguments of `execute()`, Best practices, `CliCommand`: a shared base class for a command family, `CliCommand`: replace a shipped command's behaviour, `CliCommand`: what you implement, Commands, Decorators, Examples (+71 more)
+### Community 179 - "Subject lookup"
+Cohesion: 0.25
+Nodes (8): Best practices, Count scan pages for capacity monitoring, Examples, How it works, Important behaviour, Patterns and antipatterns, Related, Subject lookup
 
 ### Community 180 - "RenderPdfCommand"
-Cohesion: 0.15
-Nodes (12): Arguments and options, Best practices, Configuration, Examples, How it works, Important behaviour, Render a static HTML page in landscape, Render a template preview in CI (+4 more)
-
-### Community 181 - "AuthzAdmin"
-Cohesion: 0.05
-Nodes (20): Packages, Best practices, Custom boot check: require a support role for help-desk accounts, Default roles, How it works, Important behaviour, Patterns and antipatterns, Related (+12 more)
-
-### Community 182 - "users-controller.test.ts"
 Cohesion: 0.08
-Nodes (30): C8 golden tickets, Facets, claims, pending, Harness factory, Lane → facets, Running the behaviour rules in a lane, `@spinajs/authn-testing`, Store and strategy conformance, Time rules (+22 more)
+Nodes (12): META_ARGUMENT, META_COMMAND, META_OPTION, CliCommand, IArgument, ICommand, IOption, IArgument (+4 more)
+
+### Community 181 - "contracts/plan.test.ts"
+Cohesion: 0.04
+Nodes (27): Lists, Plan terms and `PlanTermSql`, ModelInitContext, ListPlanRequest, ListSupport, ListSupportContext, ModelListPlan, PlanTermSql (+19 more)
+
+### Community 182 - "timing.ts"
+Cohesion: 0.05
+Nodes (36): C8 golden tickets, Facets, claims, pending, Fakes for the `service` port, Harness factory, Lane → facets, Running the behaviour rules in a lane, `@spinajs/authn-testing`, Time rules (+28 more)
 
 ### Community 183 - "comparison.ts"
-Cohesion: 0.13
+Cohesion: 0.14
 Nodes (18): Operators, Comparison and logic, List: filtering, sorting, paging, endsWith(), gt(), gte(), includes(), isEmpty() (+10 more)
 
-### Community 184 - "HttpAcceptHeaders"
-Cohesion: 0.10
-Nodes (15): Best practices, Binary payloads, Cancel a search when the user types again, Commands, Examples, How it works, Important behaviour, Patterns and antipatterns (+7 more)
+### Community 184 - "Commands"
+Cohesion: 0.09
+Nodes (14): Best practices, Binary payloads, Cancel a search when the user types again, Commands, Examples, How it works, Important behaviour, Patterns and antipatterns (+6 more)
 
-### Community 185 - "Users.ts"
-Cohesion: 0.05
-Nodes (49): Request bodies, Best practices, Controller overrides, How it works, Important behaviour, Patterns and antipatterns, Related, Services and extension points (+41 more)
+### Community 185 - "stores/schema.ts"
+Cohesion: 0.04
+Nodes (41): expiryTime(), isLive(), subjectKey(), AssignmentCache, AssignmentCacheOptions, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS (+33 more)
 
-### Community 186 - "PugRenderer"
-Cohesion: 0.05
-Nodes (13): Configuration, Important behaviour, Known gaps for lanes, RouteRow, A31, cors(), HttpRequest, HttpResponse (+5 more)
+### Community 186 - "QueryMiddleware"
+Cohesion: 0.04
+Nodes (36): Best practices, Configuration, Count paid orders and report revenue per customer, Examples, Fail with a domain error when an invoice is missing, List a customer's overdue or large unpaid orders, newest first, Patterns and antipatterns, Query builder (+28 more)
 
 ### Community 187 - "api-snapshot.mjs"
 Cohesion: 0.09
@@ -2453,13 +2362,13 @@ Nodes (52): analyzePackage(), byCodePoint(), canonical(), canonicalVisitor(), ch
 Cohesion: 0.11
 Nodes (44): arrayOf(), AUTHN_FIELDS, authnState(), Budget, canonical(), capped(), CEILING_FIELDS, CEILING_SETS (+36 more)
 
-### Community 189 - "Registering services"
-Cohesion: 0.07
-Nodes (15): OidcHttpHeaders, OidcHttpResponse, T0, T0, atHash(), b64url(), FAKE_ISSUER, FakeAnswer (+7 more)
+### Community 189 - "FileAclStore"
+Cohesion: 0.06
+Nodes (29): Best practices, File ACL, Related, Services and extension points, Best practices, Configuration, How it works, Related (+21 more)
 
 ### Community 190 - "orm/src/fp.ts"
-Cohesion: 0.09
-Nodes (36): Best practices, Docs controller: custom implementation, How it works, HTTP surface, Important behaviour, Patterns and antipatterns, Related, Services and extension points (+28 more)
+Cohesion: 0.07
+Nodes (42): Best practices, Configuration, Docs controller: custom implementation, How it works, HTTP surface, Important behaviour, Patterns and antipatterns, Related (+34 more)
 
 ### Community 191 - "teams/package.json"
 Cohesion: 0.07
@@ -2482,16 +2391,16 @@ Cohesion: 0.05
 Nodes (36): author, bugs, url, description, engines, node, exports, files (+28 more)
 
 ### Community 196 - "src/grants.ts"
-Cohesion: 0.13
-Nodes (23): allFields(), convertGrants(), fieldsFor(), GrantFields, GrantObject, GrantsContext, IMPERSONATE_RESOURCE, impersonation() (+15 more)
+Cohesion: 0.06
+Nodes (28): allFields(), DEFAULT_SELF_RESOURCES, Grant, GrantFields, GrantObject, GrantsContext, GrantsResult, IMPERSONATE_RESOURCE (+20 more)
 
-### Community 197 - "conformance/adapter.ts"
-Cohesion: 0.16
-Nodes (26): adapterConformanceChecks(), AdapterConformanceOptions, AdapterQuery, AdapterSetup, compilesCheck(), contextOf(), dataCheck(), declarationsCheck() (+18 more)
+### Community 197 - "ref_node_url"
+Cohesion: 0.05
+Nodes (25): AuthnCheckConfig, PROVIDER_PACKAGES, importIfInstalled(), cliProcess(), configurationOf(), InProcessCheckConfig, PKG_ROOT, run() (+17 more)
 
 ### Community 198 - "session-provider-redis/package.json"
-Cohesion: 0.07
-Nodes (26): author, description, exports, files, gitHead, homepage, luxon, @spinajs/authn (+18 more)
+Cohesion: 0.04
+Nodes (51): author, bugs, url, dependencies, ioredis, luxon, @spinajs/authn, @spinajs/authn-session (+43 more)
 
 ### Community 199 - "email-smtp-transport/package.json"
 Cohesion: 0.07
@@ -2501,17 +2410,17 @@ Nodes (26): author, description, exports, files, gitHead, homepage, luxon, @spin
 Cohesion: 0.08
 Nodes (25): author, description, exports, files, gitHead, homepage, lodash, luxon (+17 more)
 
-### Community 201 - "object.ts"
-Cohesion: 0.07
-Nodes (40): RFC-2822, dateTimeOf(), hasInternalSlots(), SLOT_PROBES, isValidDate(), parseIsoInstant(), ParseIsoInstantOptions, toEpochMs() (+32 more)
+### Community 201 - "suites/impersonation.ts"
+Cohesion: 0.13
+Nodes (39): Client, config(), cookieName(), events, KitUser, loggedIn(), loggedInAal2(), resetRecorders() (+31 more)
 
 ### Community 202 - "templates-handlebars/package.json"
 Cohesion: 0.05
-Nodes (38): author, bugs, url, description, engines, node, exports, files (+30 more)
+Nodes (40): author, bugs, url, description, engines, node, exports, files (+32 more)
 
 ### Community 203 - "templates-pug/package.json"
 Cohesion: 0.07
-Nodes (26): author, description, exports, files, gitHead, homepage, @spinajs/configuration, @spinajs/di (+18 more)
+Nodes (27): author, description, exports, files, gitHead, homepage, @spinajs/configuration, @spinajs/di (+19 more)
 
 ### Community 204 - "session-provider-db/package.json"
 Cohesion: 0.07
@@ -2525,9 +2434,9 @@ Nodes (26): author, description, exports, files, gitHead, homepage, lodash, luxo
 Cohesion: 0.05
 Nodes (36): author, description, files, homepage, cookie-signature, express, luxon, socket.io-client (+28 more)
 
-### Community 207 - "Argument validation (`args`)"
-Cohesion: 0.12
-Nodes (15): Argument validation (`args`), Choice & pattern, Combinator: `_or`, Custom error messages, Presence & nullability, Putting it together, Ranges & comparison (numbers, string/array length), The core: `_check_arg` (+7 more)
+### Community 207 - "InvalidArgument"
+Cohesion: 0.03
+Nodes (144): Errors, Checks on file actions, Errors, How it works, Important behaviour, Related, `AuthzUploadMiddleware`, Using the service (+136 more)
 
 ### Community 208 - "queue-stomp-transport/package.json"
 Cohesion: 0.08
@@ -2541,49 +2450,49 @@ Nodes (27): author, description, exports, files, gitHead, homepage, rimraf, @spi
 Cohesion: 0.07
 Nodes (26): author, description, exports, files, homepage, @spinajs/authz, @spinajs/authz-abac, @spinajs/authz-orm (+18 more)
 
-### Community 211 - "csrf-origin-guard.test.ts"
-Cohesion: 0.09
-Nodes (31): Best practices, Configuration, Examples, Health and readiness, `HealthCheck`: check the database, `HealthCheckRunner`: ignore optional dependencies, How it works, Important behaviour (+23 more)
+### Community 211 - "packages_log_lib_mjs_index_d_logger"
+Cohesion: 0.05
+Nodes (27): Best practices, CLI commands, Custom command: resend an invite, How it works, Important behaviour, Related, Services and extension points, AddKey (+19 more)
 
-### Community 212 - "9. Behaviour changes, lane by lane"
-Cohesion: 0.04
-Nodes (42): 10. Security fixes an app sees, 1. Who must read this, and what changes, 2.2 The package set of an app, 2. Packages, 3.1 Authorization keys, 3.3 Where the 2.x package defaults went, 3. Config, 5.2 What the HTTP layer adds (+34 more)
+### Community 212 - "default-authn-service.ts"
+Cohesion: 0.02
+Nodes (98): Linking, How a login runs, AuthnEventBody, AuthenticationResult, AuthnFailure, Credentials, ExternalSubject, SignedRequest (+90 more)
 
-### Community 213 - "BREAKING CHANGES"
-Cohesion: 0.10
-Nodes (22): Best practices, Configuration, Important behaviour, Patterns and antipatterns, Related, Transports (`EmailSender`), Attachments, Best practices (+14 more)
+### Community 213 - "arbitraries.test.ts"
+Cohesion: 0.03
+Nodes (98): ACCESS_PERMISSIONS, ACCESS_ROLES, accessWorld, AccessWorldOptions, MODELS, USERS, assertFieldPaths(), dateInRange() (+90 more)
 
 ### Community 214 - "queue/package.json"
 Cohesion: 0.08
 Nodes (24): author, description, exports, files, gitHead, homepage, luxon, @spinajs/configuration (+16 more)
 
 ### Community 215 - "S3UrlSigner"
-Cohesion: 0.15
-Nodes (9): Best practices, Shipped signers, CloudFrontSigner, CloudFrontUrlSigner, ICloudfrontUrlSignerOptions, IS3Config, IS3UrlSigner, S3UrlSigner (+1 more)
+Cohesion: 0.48
+Nodes (6): ExplainNode, explainTree(), stepNodes(), verdict(), voteVerdict(), why()
 
 ### Community 216 - "src/streams.ts"
-Cohesion: 0.06
-Nodes (27): Best practices, How it works, Important behaviour, Patterns and antipatterns, Related, Services and extension points, Streams, assertCredits() (+19 more)
+Cohesion: 0.05
+Nodes (34): Services and extension points, Wrap every chunk of a stream in a stage, Best practices, Download a snapshot and resume after a drop, Examples, How it works, Important behaviour, Patterns and antipatterns (+26 more)
 
-### Community 217 - "team-service.ts"
-Cohesion: 0.09
-Nodes (58): CreateGroupInput, CreateTeamInput, GroupView, MemberEntry, MoveGroupInput, Page, Paged, TeamSubject (+50 more)
+### Community 217 - "DefaultTeamService"
+Cohesion: 0.12
+Nodes (15): Teams, PurgeReport, TeamView, Team, DefaultTeamService, bad(), isRecord(), readDescription() (+7 more)
 
 ### Community 218 - "B09-lanes.spec.ts"
-Cohesion: 0.03
-Nodes (72): adapterCases, adapterWorld(), alice, B02, CONFIG, coreWorld, f1, UNKNOWN (+64 more)
+Cohesion: 0.15
+Nodes (22): CreateGroupInput, GroupView, MoveGroupInput, UpdateGroupInput, assertAllowed(), asSystem(), deleteInvitations(), anyTeam() (+14 more)
 
 ### Community 219 - "fs-ftp/package.json"
 Cohesion: 0.08
 Nodes (24): author, description, exports, files, gitHead, homepage, lodash, luxon (+16 more)
 
 ### Community 220 - "invitations/service.ts"
-Cohesion: 0.07
-Nodes (29): CreateInvitationInput, InvitationRefused, InvitationView, PurgeReport, domainContainer(), teamsDomain(), teamsDriver(), INVITATION_USES_TABLE (+21 more)
+Cohesion: 0.10
+Nodes (23): CreateInvitationInput, InvitationRefused, InvitationView, teamsDriver(), INVITATION_USES_TABLE, toInvitationView(), acceptCommand(), DefaultInvitationService (+15 more)
 
 ### Community 221 - "PuppeteerRenderer"
-Cohesion: 0.04
-Nodes (79): Rendering a template to a file, Services and extension points, How it works, Add a renderer for a new extension, Best practices, Custom image renderers, Give a renderer its own config section, How it works (+71 more)
+Cohesion: 0.02
+Nodes (161): Configuration, Document an invoice controller, A worker entry that wires all of the above, Best practices, Examples, How it works, Important behaviour, Patterns and antipatterns (+153 more)
 
 ### Community 222 - "authn-keys/package.json"
 Cohesion: 0.08
@@ -2598,16 +2507,16 @@ Cohesion: 0.09
 Nodes (22): author, description, exports, files, homepage, ajv, @spinajs/authn, @spinajs/authn-testing (+14 more)
 
 ### Community 225 - "cli/package.json"
-Cohesion: 0.06
-Nodes (34): author, bin, spinajs, bugs, url, description, devDependencies, @types/node (+26 more)
+Cohesion: 0.09
+Nodes (22): author, description, files, gitHead, homepage, reflect-metadata, @spinajs/configuration, @spinajs/configuration-common (+14 more)
 
 ### Community 226 - "orm-cli/package.json"
 Cohesion: 0.08
 Nodes (24): author, description, exports, files, homepage, luxon, @spinajs/cli, @spinajs/configuration (+16 more)
 
 ### Community 227 - "MsSqlOrmDriver"
-Cohesion: 0.03
-Nodes (61): Configuration, Connection states, Driver support, Examples, How it works, Important behaviour, List unhealthy connections for a readiness endpoint, Observability and resilience (+53 more)
+Cohesion: 0.10
+Nodes (23): Best practices, Configuration, Important behaviour, Patterns and antipatterns, Related, Transports (`EmailSender`), Attachments, Best practices (+15 more)
 
 ### Community 228 - "authz-convert/package.json"
 Cohesion: 0.10
@@ -2618,28 +2527,28 @@ Cohesion: 0.08
 Nodes (25): author, description, files, gitHead, homepage, glob, lodash, @spinajs/configuration (+17 more)
 
 ### Community 230 - "authz-fs/src/index.ts"
-Cohesion: 0.08
-Nodes (31): Exports, baseOf(), classDeclarations(), decoratorName(), decoratorsOf(), isAccessResourceClass(), primaryKeyOf(), resolve() (+23 more)
+Cohesion: 0.10
+Nodes (18): Chain, chainOf(), createRule, EXECUTING_MEMBERS, insideRunAs(), isRunAsCallback(), KEY_LIST_READS, memberName() (+10 more)
 
-### Community 231 - "dto-relation-resolve.test.ts"
+### Community 231 - "v3-app/behaviour/harness.ts"
 Cohesion: 0.07
-Nodes (33): Best practices, Create a campaign for an author identified by uuid, Decorators, DTO relations, Examples, How it works, Important behaviour, Patterns and antipatterns (+25 more)
+Nodes (45): AppFakes, appPort(), bind(), switchHooksOn(), useFakes(), CLAIM, EXPECTED_PENDING, FACETS (+37 more)
 
-### Community 232 - "AuthzAdminController.ts"
-Cohesion: 0.04
-Nodes (53): AuthnSessionsController, test/sessions-controller.test.ts, AuthnProbeController, OidcLinkProbeController, V3AppEnrolmentStubController, probeBody(), probePrincipal(), actorOf() (+45 more)
-
-### Community 233 - "AuthnContext"
+### Community 232 - "Req"
 Cohesion: 0.03
-Nodes (69): Config `authn.*`, How a login runs, MFA step, N10: OIDC (`authn-oidc`), N1: authn core, AuthnEventBody, AuthenticationResult, AuthnContext (+61 more)
+Nodes (88): Best practices, Best practices, Important behaviour, Patterns and antipatterns, Permissions per route family, Related, Setup and access, Important behaviour (+80 more)
 
-### Community 234 - "DynamoDbSessionProvider"
+### Community 233 - "orm-sql/test/model.test.ts"
+Cohesion: 0.06
+Nodes (12): JoinModel, Model2, Model3, Model4, QueryRelationModel, RelationModel2, RelationModel3, RelationModel4 (+4 more)
+
+### Community 234 - "TelemetryMiddleware"
 Cohesion: 0.07
-Nodes (26): `DynamoDbSessionProvider`: custom implementation, Selecting the store, Services and extension points, Best practices, Client and table provisioning, Client factory: custom implementation, Configuration, Examples (+18 more)
+Nodes (40): Alert on the error ratio of one route, Best practices, Configuration, Count requests in a test without the HTTP endpoint, Examples, How it works, HTTP request metrics, Important behaviour (+32 more)
 
 ### Community 235 - "docs/http-socket/README.md"
-Cohesion: 0.14
-Nodes (4): Documentation, Run, @spinajs/http-socket-example, Test
+Cohesion: 0.09
+Nodes (20): Best practices, Close every socket of a banned user at the next check, Configuration, Examples, Important behaviour, Patterns and antipatterns, Principal revalidation, Related (+12 more)
 
 ### Community 236 - "queue-templates-pdf/package.json"
 Cohesion: 0.09
@@ -2653,13 +2562,13 @@ Nodes (19): author, description, exports, files, gitHead, homepage, axios, lodas
 Cohesion: 0.09
 Nodes (21): author, description, exports, files, gitHead, homepage, luxon, @spinajs/di (+13 more)
 
-### Community 239 - "extractor.test.ts"
-Cohesion: 0.15
-Nodes (13): SignedRequest, CredentialExtractor, ApiKeyHeaderExtractor, ApiTokenExtractor, AssertionExtractor, AsyncExtractor, bearer(), extractors (+5 more)
+### Community 239 - "mw-setup.ts"
+Cohesion: 0.06
+Nodes (21): AuthzUploadMiddlewareOptions, AuthzFsMiddlewareOptions, CAROL, configuredChild(), ENTRIES, FILES, FsMwHostService, NOW (+13 more)
 
-### Community 240 - "packages_configuration_lib_mjs_index_d_config"
-Cohesion: 0.03
-Nodes (58): Agents: `principalOf({ type: 'agent', id }, facts, extra)`, For a record in hand: `principalOf(user, opts?)`, For judging an account: `rightsPrincipalOf(identity, facts?)`, How it works, Best practices, Configuration, Impersonation and credential admin guards, Important behaviour (+50 more)
+### Community 240 - "Test ledger: @spinajs/users"
+Cohesion: 0.06
+Nodes (31): E1: `covers` and `summary` read model summaries, `AccessResponseExtension.extend(kind, principal, body)`, Best practices, AccessResponseExtension, buildUserWithAccess(), AuthzImpersonationGuard, C1 status (task 13), T1 status (task 7) (+23 more)
 
 ### Community 241 - "ValidationException"
 Cohesion: 0.31
@@ -2670,8 +2579,8 @@ Cohesion: 0.22
 Nodes (8): compilerOptions, module, outDir, rootDir, extends, include, ../../tsconfig.json, references
 
 ### Community 243 - "PerInstanceCheck"
-Cohesion: 0.02
-Nodes (119): `IPasswordMail`, Download a snapshot and resume after a drop, Examples, Stop a live log tail from a button, The contract, Best practices, Configuration, Examples (+111 more)
+Cohesion: 0.03
+Nodes (115): The contract, Best practices, Configuration, Examples, How it works, Important behaviour, Patterns and antipatterns, Server startup (+107 more)
 
 ### Community 244 - "queue-orm-transport/package.json"
 Cohesion: 0.08
@@ -2686,40 +2595,40 @@ Cohesion: 0.06
 Nodes (34): author, description, exports, files, gitHead, homepage, lodash, luxon (+26 more)
 
 ### Community 247 - "authn-testing/package.json"
-Cohesion: 0.11
-Nodes (17): author, description, files, homepage, mocha, @spinajs/authn, @spinajs/exceptions, @spinajs/util (+9 more)
+Cohesion: 0.04
+Nodes (48): author, bugs, url, dependencies, @sinonjs/fake-timers, @spinajs/authn, @spinajs/exceptions, @spinajs/util (+40 more)
 
-### Community 248 - "client-access.ts"
-Cohesion: 0.12
-Nodes (17): Answer, booleans(), checks(), CLIENT_ACCESS_FIXTURE, ClientAccessApp, ClientAccessCheckId, clientAccessConformanceChecks(), ClientAccessHarness (+9 more)
+### Community 248 - "openapi-builder.ts"
+Cohesion: 0.05
+Nodes (44): Related, `ISwaggerCacheEntry`, ACCESS_CLASS, ACCESS_DESCRIPTOR, AccessDescriptor, AccessKey, accessLine(), AccessRule (+36 more)
 
 ### Community 249 - "queue-http-progress/package.json"
 Cohesion: 0.06
 Nodes (30): author, description, exports, files, homepage, luxon, @spinajs/authz, @spinajs/authz-http (+22 more)
 
-### Community 250 - "eslint.config.mjs"
-Cohesion: 0.25
-Nodes (5): @eslint/js, eslint-plugin-promise, eslint-plugin-security, eslint-plugin-tsdoc, typescript-eslint
+### Community 250 - "log-common/test/perf.test.ts"
+Cohesion: 0.06
+Nodes (24): API, How it works, Important behaviour, `Perf`, Types, Related, How it works, le() (+16 more)
 
 ### Community 251 - "threading/package.json"
 Cohesion: 0.04
 Nodes (48): author, bugs, url, dependencies, luxon, @spinajs/di, @spinajs/exceptions, @spinajs/log-common (+40 more)
 
-### Community 252 - "authz-testing/src/behaviour/types.ts"
-Cohesion: 0.03
-Nodes (67): TestLadderDef, TestRoleDef, cases(), alice, ASSIGNMENTS, bob, carol, dave (+59 more)
+### Community 252 - "DefaultKeyRegistry"
+Cohesion: 0.07
+Nodes (16): Keys, AuthnKeys_2026_10_02_00_00_00, AuthnKey, fromUtcColumn(), toUtcColumn(), OrmKeyStore, toRecord(), DefaultKeyRegistry (+8 more)
 
 ### Community 253 - "authz-fs/package.json"
 Cohesion: 0.06
-Nodes (32): author, description, exports, files, homepage, @aws-sdk/client-s3, luxon, @spinajs/authz (+24 more)
+Nodes (31): author, description, exports, files, homepage, @aws-sdk/client-s3, luxon, @spinajs/authz (+23 more)
 
-### Community 254 - "B35-rules.spec.ts"
-Cohesion: 0.06
-Nodes (33): Best practices, Examples, Export orders as a zip archive, File operations, How it works, Important behaviour, Patterns and antipatterns, Related (+25 more)
+### Community 254 - "Documenting routes"
+Cohesion: 0.22
+Nodes (9): Best practices, Documenting routes, Examples, Examples, Important behaviour, Paths and methods, Patterns and antipatterns, Related (+1 more)
 
 ### Community 255 - "users-controller.test.ts"
-Cohesion: 0.06
-Nodes (36): Profile, TestConfiguration, ADMIN2_UUID, ADMIN_UUID, AdminWorld, bootAdminWorld(), byUuid(), INACTIVE_UUID (+28 more)
+Cohesion: 0.10
+Nodes (19): Touch, `touch(session)`, Best practices, Configuration, Delete, `delete(sessionId)`, Examples, How it works, Important behaviour, List a user's devices with their last expiry (+11 more)
 
 ### Community 256 - "http-lazy-file-uploader/package.json"
 Cohesion: 0.06
@@ -2733,17 +2642,17 @@ Nodes (43): author, import, require, bugs, url, dependencies, luxon, @spinajs/di
 Cohesion: 0.07
 Nodes (27): author, description, exports, files, gitHead, homepage, cors, express (+19 more)
 
-### Community 259 - "awsParameterStoreProtocol.ts"
-Cohesion: 0.06
-Nodes (58): Best practices, Configuration, Examples, How it works, Important behaviour, Patterns and antipatterns, Read database credentials from one JSON secret, Related (+50 more)
+### Community 259 - "decision.test.ts"
+Cohesion: 0.07
+Nodes (37): reported(), cmp(), compareDenyReasons(), DEFAULT_DENY_PRIORITY, denyPriority(), DenyReason, payloadKey(), sortedKeys() (+29 more)
 
 ### Community 260 - "orm/package.json"
 Cohesion: 0.07
 Nodes (29): author, description, exports, files, gitHead, homepage, glob, glob-to-regexp (+21 more)
 
-### Community 261 - "FallbackGroupTarget"
-Cohesion: 0.04
-Nodes (55): Related, Best practices, Configuration, Console in development, console plus durable OTLP in production, Custom target inside wrappers: retried webhook alerts with a file fallback, Examples, How it works, Important behaviour (+47 more)
+### Community 261 - "test/behaviour/harness.ts"
+Cohesion: 0.02
+Nodes (87): Booted, open, bad(), boot(), Booted, configurationOf(), disposeBooted(), open (+79 more)
 
 ### Community 262 - "telemetry-common/package.json"
 Cohesion: 0.05
@@ -2753,69 +2662,73 @@ Nodes (42): author, bugs, url, dependencies, prom-client, @spinajs/di, descripti
 Cohesion: 0.07
 Nodes (28): dependencies, compression, cookie-parser, cookie-signature, cors, csv, express, fast-xml-parser (+20 more)
 
-### Community 264 - ".browser"
-Cohesion: 0.08
-Nodes (33): `FileInfoService`: custom mime detection, Related, Services and extension points, What a subclass can change, Accept only PNG avatars up to 1024 px, Best practices, Configuration, Examples (+25 more)
+### Community 264 - "FileInfoService"
+Cohesion: 0.05
+Nodes (53): Best practices, `ConfigFileUploads`: custom implementation, Customizing the upload service, `FileInfoService`: custom mime detection, How it works, Important behaviour, Patterns and antipatterns, Related (+45 more)
 
 ### Community 265 - "authz-http-admin/src/schemas/bodies.ts"
-Cohesion: 0.09
-Nodes (34): AuthzAdminAttributes, AuthzAdminBatch, AuthzAdminError, AuthzAdminPage, AuthzAdminResults, AuthzAssignmentGrant, AuthzAssignmentPatch, AuthzAttributesBody (+26 more)
+Cohesion: 0.06
+Nodes (46): AuthzAdminAttributes, AuthzAdminBatch, AuthzAdminError, AuthzAdminPage, AuthzAdminResults, AuthzAssignmentGrant, AuthzAssignmentPatch, AuthzAttributesBody (+38 more)
 
 ### Community 266 - "InvalidOperation"
-Cohesion: 0.04
-Nodes (95): Errors, Using the service, `@AutoinjectNamedService` and `resolveNamedService`, `@AutoinjectNamedServices` and `resolveNamedServices`, `@AutoinjectService`, Best practices, Config-selected services, Configuration (+87 more)
+Cohesion: 0.15
+Nodes (15): Error helpers, Important behaviour, Patterns and antipatterns, Reference, Features, describeError(), DescribeErrorOptions, errorClassOf() (+7 more)
 
 ### Community 267 - "log-common/package.json"
 Cohesion: 0.05
 Nodes (41): author, bugs, url, dependencies, @spinajs/di, description, directories, lib (+33 more)
 
-### Community 268 - "PostgresOrmDriver"
-Cohesion: 0.04
-Nodes (46): Configuration, Connection and pooling, Detect a unique violation on insert, Examples, Important behaviour, Patterns and antipatterns, Pool metrics, Related (+38 more)
+### Community 268 - "paging.ts"
+Cohesion: 0.08
+Nodes (32): Configuration, Best practices, Decorators, Examples, Helpers, How it works, Important behaviour, Page and sort a listing (+24 more)
 
 ### Community 269 - "authn-session/test/contracts.test.ts"
-Cohesion: 0.03
-Nodes (38): PKG_ROOT, PKG_ROOT, ./lib/mjs/cli/AddKey.js, ./lib/mjs/index.js, ./lib/mjs/registry/registry.js, alice, bob, classMembers() (+30 more)
+Cohesion: 0.06
+Nodes (23): ISession, alice, bob, classMembers(), docOf(), Entries, Equals, EXPECTED_META (+15 more)
 
 ### Community 270 - "OidcController"
 Cohesion: 0.01
-Nodes (356): Important behaviour, Writing a model, Services and extension points, Architecture, Best practices, Compiler tokens, Examples, How it works (+348 more)
+Nodes (342): Writing a model, Services and extension points, Views, Architecture, Best practices, Compiler tokens, Examples, How it works (+334 more)
 
 ### Community 271 - "Targets (sinks)"
-Cohesion: 0.09
-Nodes (21): Related, How it works, `RequestStats`, `RouteStats`, Services and extension points, `TelemetryStore`: a finer timeline for one deployment, `TelemetryStore`: keep the last slow requests, `Timeline` (+13 more)
+Cohesion: 0.12
+Nodes (12): Related, How it works, `RequestStats`, `RouteStats`, `Timeline`, IRequestStatsSnapshot, RequestStats, IRouteStatsEntry (+4 more)
 
 ### Community 272 - "email/test/authz/behaviour.test.ts"
 Cohesion: 0.10
-Nodes (15): consume(), deferred(), deferredPart, email(), FILES, mail(), modesPart, NOT_CALLED (+7 more)
+Nodes (16): consume(), deferred(), deferredPart, email(), FILES, mail(), modesPart, NOT_CALLED (+8 more)
 
-### Community 273 - "authn-keys/test/cli.test.ts"
-Cohesion: 0.10
-Nodes (7): AddKey, ListKeys, RevokeKey, authnKeys, command(), Lines, text()
+### Community 273 - "access-config/index.ts"
+Cohesion: 0.06
+Nodes (23): FS_ACL_CONNECTION_KEY, FS_ACL_DEFAULT_CONNECTION, FS_ACL_DEFAULT_RELATIONS, FS_ACL_RELATION_MAX_LENGTH, fsAclConfig, fsAccessConfig, fsSection(), FsSignedUrlConfig (+15 more)
 
 ### Community 274 - "FileTarget"
-Cohesion: 0.07
-Nodes (41): Configuration, Best practices, Configuration, Drain the file buffer before a deploy hook exits, Examples, File target, How it works, Important behaviour (+33 more)
+Cohesion: 0.09
+Nodes (34): Configuration, Best practices, Configuration, Contracts, Custom retention strategy: move old archives to cold storage, Custom rotation strategy: rotate at midnight or when too big, Examples, Extending a shipped strategy: also rotate at startup (+26 more)
+
+### Community 275 - "PerfImpl"
+Cohesion: 0.04
+Nodes (16): buildOtpAuthUrl(), Generate2FaQrCode, GreetCommand, BuildCommand, DbMigrateCommand, DbSeedCommand, DeployCommand, ServeCommand (+8 more)
 
 ### Community 276 - "AuthzAdmin"
 Cohesion: 0.13
 Nodes (30): Compare a presented token with configured ones, Crypto helpers, Encodings, Hashing and comparison, How it works, Important behaviour, Random values and keys, Related (+22 more)
 
-### Community 277 - "Configuration"
-Cohesion: 0.04
-Nodes (53): Best practices, `Cli`: custom implementation, `Cli` service, How it works, Members, Related, Run the CLI from your own entry point, Services and extension points (+45 more)
+### Community 277 - "RenderProgressReporter"
+Cohesion: 0.12
+Nodes (11): Best practices, Configuration, Examples, How it works, Important behaviour, Patterns and antipatterns, Phases and percent bands, Poll a render from the browser (+3 more)
 
 ### Community 278 - "http-socket-common/package.json"
 Cohesion: 0.05
 Nodes (37): author, bugs, url, dependencies, description, engines, node, exports (+29 more)
 
-### Community 279 - "PdfRenderer"
-Cohesion: 0.04
-Nodes (57): `IInstanceCheck`: one instance per option set, Services and extension points, A worker entry that wires all of the above, Best practices, Examples, How it works, Important behaviour, Patterns and antipatterns (+49 more)
+### Community 279 - "MemoryQueueClient"
+Cohesion: 0.16
+Nodes (5): node(), MemoryQueueClient, NodeBus, PeerQueueService, startPeer()
 
-### Community 280 - "packages_authz_lib_mjs_index_global"
+### Community 280 - "packages_authz_lib_mjs_index_principal"
 Cohesion: 0.01
-Nodes (440): Audit and events, 6.10 Example (i): pools, C1, C2, C2b, C3 and C3b: users and users-http, R1: removal of the 2.x code, Step 2: config, Best practices, Examples, Hidden metadata keys: hide your own keys (+432 more)
+Nodes (231): Important behaviour, Custom initiator factory: refuse users under a compliance hold, Services and extension points, DenyCode, agent, AuthzQueueHook, isPlain(), isStrictCeiling() (+223 more)
 
 ### Community 281 - "SqlCreateViewQueryCompiler"
 Cohesion: 0.16
@@ -2823,103 +2736,107 @@ Nodes (9): Best practices, Configuration, Create the orders table and a paid-ord
 
 ### Community 282 - "RendererOrmDriverBridge"
 Cohesion: 0.09
-Nodes (24): Best practices, Critical section and rate limit, Examples, How it works, Important behaviour, Logger: optional, Patterns and antipatterns, Refresh an access token once for queued callers (+16 more)
+Nodes (25): Best practices, Critical section and rate limit, Examples, How it works, Important behaviour, Logger: optional, Patterns and antipatterns, Refresh an access token once for queued callers (+17 more)
 
 ### Community 283 - "exceptions/package.json"
 Cohesion: 0.05
 Nodes (36): author, bugs, url, description, engines, node, exports, files (+28 more)
 
+### Community 284 - "DbAssignmentStore"
+Cohesion: 0.12
+Nodes (16): AssignmentRow, rowToAssignment(), DbAssignmentStore, requireRow(), rowById(), rowsAffected(), rowsOf(), whereLive() (+8 more)
+
 ### Community 285 - "providers.ts"
-Cohesion: 0.10
-Nodes (17): OidcBootstrapper, OidcAppPath, OidcStrategyName, OidcLoginDeps, ConfiguredOidc, OidcOptions, OidcProvider, OidcProviders (+9 more)
+Cohesion: 0.03
+Nodes (86): Request middleware, N8a, N8b and N8c: authn-http, Shipped middlewares, AuthnIdentityArg, AuthnSessionArg, AuthnSessionDataArg, AuthnSessionIdArg, authnHttp (+78 more)
 
 ### Community 286 - "telemetry/package.json"
 Cohesion: 0.07
 Nodes (28): author, description, exports, files, homepage, lodash, prom-client, @spinajs/authz (+20 more)
 
-### Community 287 - "job-scope.test.ts"
-Cohesion: 0.02
-Nodes (50): L6: queue (`authz-queue`), Queue (`@spinajs/authz-queue`), Best practices, Examples, Important behaviour, Message hook: custom implementation, Message hooks, Patterns and antipatterns (+42 more)
+### Community 287 - "tasks/src/decorators.ts"
+Cohesion: 0.17
+Nodes (5): Task(), TASK_COMMAND, TestTask2, TestTask3, TestTask
 
-### Community 288 - "conformance/model.ts"
-Cohesion: 0.10
-Nodes (26): shuffler(), agree(), allows(), Asker, denied(), disagreement(), lowest(), ModelConformanceOptions (+18 more)
+### Community 288 - "jwk/keys.ts"
+Cohesion: 0.08
+Nodes (24): RFC-8032, D, isCanonicalPoint(), isSmallOrder(), mod(), pow(), SMALL_ORDER, cacheKey() (+16 more)
 
-### Community 289 - "AuthnCredentialSource"
-Cohesion: 0.10
-Nodes (25): `AuthnCredentialSource`: accept a token from another header, Best practices, Check the client address of every handshake, Configuration, Examples, Important behaviour, Patterns and antipatterns, Principal sources and handshake security (+17 more)
+### Community 289 - "adapter/index.ts"
+Cohesion: 0.08
+Nodes (17): Permissions and refs, FsResourceAdapter, FsResourceTarget, isKind(), checkFsName(), FS_PERMISSIONS, FS_RESOURCE_TYPES, fsAncestors() (+9 more)
 
 ### Community 290 - "HandlebarsRenderer"
 Cohesion: 0.04
-Nodes (59): Best practices, Configuration, Examples, Important behaviour, Patterns and antipatterns, Pre-render a newsletter to a file, Related, Render an order confirmation in the customer's language (+51 more)
+Nodes (63): Best practices, Configuration, Examples, Important behaviour, Patterns and antipatterns, Pre-render a newsletter to a file, Render an order confirmation in the customer's language, Rendering MJML templates (+55 more)
 
 ### Community 291 - "configuration/package.json"
 Cohesion: 0.08
 Nodes (25): author, description, files, gitHead, homepage, ajv, ajv-formats, ajv-keywords (+17 more)
 
-### Community 292 - "DateTime"
-Cohesion: 0.03
-Nodes (80): `configuration`, `DbConfig` model, Schema, Decorators, Row written per option, Errors, Response entry, Important behaviour (+72 more)
+### Community 292 - "boolean"
+Cohesion: 0.02
+Nodes (152): Entry types, How it works, Important behaviour, Base schema per `Type`: `VALUE_SCHEMAS`, Important behaviour, Configuration, `@FromModel()`, Best practices (+144 more)
 
 ### Community 293 - "access-config/index.ts"
-Cohesion: 0.06
-Nodes (41): 3.2 Authentication keys, Best practices, Best practices, Domain and fs-inherit, fsAccessConfig, fsAccessConfigs(), fsOnly(), fsSection() (+33 more)
+Cohesion: 0.12
+Nodes (16): scripts, build, build-docs, clean, compile, compile:cjs, copy, coverage (+8 more)
 
 ### Community 294 - "templates-xlsx/package.json"
 Cohesion: 0.08
 Nodes (25): author, description, exports, files, gitHead, homepage, @spinajs/configuration, @spinajs/di (+17 more)
 
-### Community 295 - "authn-oidc/test/core.test.ts"
-Cohesion: 0.12
-Nodes (12): Linking, Not in this package, Setup, `@spinajs/authn-oidc`, CoreOidcAccountLinks, OidcAccountLinks, bind(), configurationOf() (+4 more)
+### Community 295 - "ColumnType"
+Cohesion: 0.06
+Nodes (40): ColumnType, BIG_INTEGER, BINARY, BIT, BOOLEAN, DATE, DATE_TIME, DECIMAL (+32 more)
 
-### Community 296 - "FakeAuthnService"
-Cohesion: 0.18
-Nodes (5): FakeAuthnService, throttled(), CountAfterVerify, NoRetryAfter, OneAuditReason
+### Community 296 - "LocalPasswordService"
+Cohesion: 0.12
+Nodes (6): DeferredWork, eligible(), LocalPasswordService, resetIpKey(), throwaway(), Probe
 
 ### Community 297 - "fsS3"
-Cohesion: 0.04
-Nodes (40): Best practices, Check a file before serving it, Configuration, Examples, How it works, Move processed reports to another bucket, Patterns and antipatterns, Related (+32 more)
+Cohesion: 0.03
+Nodes (56): Signed URLs, Targets per action, Writing a provider, Best practices, Check a file before serving it, Configuration, Examples, How it works (+48 more)
 
-### Community 298 - "test/support/world.ts"
-Cohesion: 0.13
-Nodes (12): AsyncChecked, Bad, Checked, CheckedMissing, ChildStore, Failing, Holder, MemoryStore (+4 more)
+### Community 298 - "PerChildInstance"
+Cohesion: 0.04
+Nodes (43): OptionalRoom, PerChild, Room, LazyInject(), LazyInjectBinding, PerChildInstance(), DI, Named (+35 more)
 
 ### Community 299 - "Orm"
-Cohesion: 0.01
-Nodes (324): Renderer ORM: custom implementation, Best practices, Configuration, Connections, Decorators, Examples, How it works, Important behaviour (+316 more)
+Cohesion: 0.03
+Nodes (61): Allow `RIGHT JOIN` on SQLite 3.39 and later, Best practices, Configuration, Examples, Extending an existing dialect, How it works, Match e-mail addresses case-insensitively in `whereIn()` on every SQLite connection, Order by several columns on a SQLite reporting connection (+53 more)
 
 ### Community 300 - "authn/package.json"
 Cohesion: 0.07
 Nodes (26): author, bugs, url, description, devDependencies, @spinajs/authn-testing, engines, node (+18 more)
 
 ### Community 301 - "ref_luxon"
-Cohesion: 0.02
-Nodes (108): Connection, How it works, Important behaviour, Migrations, in order, `UserSessionDataJson_2026_07_31_00_00_00`, step by step, `UserSessionIdHash_2026_10_02_00_00_00`, step by step, Restore, `restore(sessionId)`, decodeSessionData() (+100 more)
-
-### Community 302 - "UserSession"
 Cohesion: 0.04
-Nodes (43): Best practices, Connection and reconnect, Control methods, Examples, How it works, Important behaviour, Patterns and antipatterns, Related (+35 more)
+Nodes (64): IConformanceExpiration, SessionProviderFactory, SessionBackend, sessionKitHarness(), UserSessionDBSqlMigration_2022_06_28_01_20_00, columns(), upgradeA2xTable(), conformanceFactory (+56 more)
+
+### Community 302 - "SocketClient"
+Cohesion: 0.04
+Nodes (43): Related, Best practices, Connection and reconnect, Control methods, Examples, How it works, Important behaviour, Patterns and antipatterns (+35 more)
 
 ### Community 303 - "configuration-db-source/package.json"
 Cohesion: 0.08
 Nodes (24): author, description, exports, files, gitHead, homepage, lodash, luxon (+16 more)
 
 ### Community 304 - "eslint-plugin-authz/package.json"
-Cohesion: 0.04
-Nodes (45): author, bugs, url, dependencies, @typescript-eslint/utils, description, engines, node (+37 more)
-
-### Community 305 - "Plural forms"
 Cohesion: 0.06
-Nodes (35): DEFAULT_ITERATIONS, DEFAULT_WARMUP, environment(), fmtUs(), formatTable(), isThenable(), measure(), median() (+27 more)
+Nodes (31): author, bugs, url, dependencies, @typescript-eslint/utils, description, engines, node (+23 more)
 
-### Community 306 - "Cli"
-Cohesion: 0.13
-Nodes (19): Related, How it works, HTTP surface, `PrometheusResponse`: expose the registry on an internal path, Services and extension points, HealthResponse, PerfResponse, ReadyResponse (+11 more)
+### Community 305 - "lib.ts"
+Cohesion: 0.06
+Nodes (37): DEFAULT_ITERATIONS, DEFAULT_WARMUP, environment(), fmtUs(), formatTable(), isThenable(), measure(), median() (+29 more)
+
+### Community 306 - "Features"
+Cohesion: 0.08
+Nodes (32): Best practices, Configuration, Examples, Health and readiness, `HealthCheck`: check the database, `HealthCheckRunner`: ignore optional dependencies, How it works, Important behaviour (+24 more)
 
 ### Community 307 - "HTTP_STATUS_CODE"
 Cohesion: 0.03
-Nodes (110): RFC-7617, How it works, Error response: custom implementation, How it works, Override a shipped mapping, Services and extension points, Configuration, Download an invoice PDF and delete the generated copy (+102 more)
+Nodes (124): How it works, Answer 503 while a dependency is down, Best practices, Configuration, Decorators, Error response: custom implementation, Examples, How it works (+116 more)
 
 ### Community 309 - "FileTypeEnum"
 Cohesion: 0.06
@@ -2930,8 +2847,8 @@ Cohesion: 0.08
 Nodes (24): author, description, exports, files, gitHead, homepage, @spinajs/configuration, @spinajs/di (+16 more)
 
 ### Community 311 - "AmqpQueueClient"
-Cohesion: 0.07
-Nodes (21): Dispose, How it works, Reconnect, Subscribe, Emit pipeline, How it works, Backoff, How it works (+13 more)
+Cohesion: 0.06
+Nodes (27): Dispose, How it works, Reconnect, Subscribe, Emit pipeline, How it works, Backoff, How it works (+19 more)
 
 ### Community 312 - "<Feature>"
 Cohesion: 0.05
@@ -2945,57 +2862,57 @@ Nodes (24): author, description, exports, files, homepage, @spinajs/authz, @spin
 Cohesion: 0.08
 Nodes (23): author, description, exports, files, gitHead, homepage, @spinajs/configuration, @spinajs/di (+15 more)
 
-### Community 315 - "Test ledger: @spinajs/users"
-Cohesion: 0.08
-Nodes (36): Services and extension points, Best practices, Configuration, Examples, How it works, Important behaviour, JsonTranslationSource: extending a shipped source, `JsonTranslationSource.load()` (+28 more)
+### Community 315 - "exported-flow.test.ts"
+Cohesion: 0.06
+Nodes (9): EnrolledMfaPolicy, FakeMfaStep, keyOf(), sixDigits(), attributed(), attributedId(), FACETS, A (+1 more)
 
 ### Community 316 - "Model"
 Cohesion: 0.09
 Nodes (9): AccessResource(), Model, models, Note, Primary(), Query, SubTask, SYSTEM (+1 more)
 
-### Community 317 - "src/keys.ts"
-Cohesion: 0.34
-Nodes (13): asBoolean(), asSeconds(), asString(), asStrings(), convertAdmin(), convertKeys(), convertMfa(), convertPassword() (+5 more)
+### Community 317 - "contracts/audit.test.ts"
+Cohesion: 0.07
+Nodes (26): F0b: package moves, Objects, AuthnAudit, AuthnAuditor, SinkDelivery, stamped(), AuthnEvent, AuthnEventType (+18 more)
 
 ### Community 318 - "Log"
-Cohesion: 0.03
-Nodes (84): Best practices, Configuration, `ElectronRendererLogger` members, Important behaviour, Log factory: custom implementation, Logger implementation: custom implementation, Patterns and antipatterns, Related (+76 more)
+Cohesion: 0.02
+Nodes (120): Best practices, Configuration, `ElectronRendererLogger` members, How it works, Important behaviour, Log factory: custom implementation, Logger implementation: custom implementation, Patterns and antipatterns (+112 more)
 
 ### Community 319 - "B06-check-filter.spec.ts"
 Cohesion: 0.05
-Nodes (50): API, Best practices, Configuration, Examples, Global functions, How it works, Important behaviour, List a phrase in every language for a language picker (+42 more)
+Nodes (49): API, Best practices, Configuration, Examples, Global functions, How it works, Important behaviour, List a phrase in every language for a language picker (+41 more)
 
 ### Community 320 - "UserMetadataService"
-Cohesion: 0.10
-Nodes (19): Perf scope backend, Services and extension points, `PerfSink` contract, Types, Related, IMeasureOpts, IPerfMetric, IPerfRollup (+11 more)
+Cohesion: 0.23
+Nodes (9): API, Best practices, How it works, Important behaviour, Related, Services and extension points, TypeScript source inspection, `TypescriptCompiler`: extend it (+1 more)
 
 ### Community 321 - "@spinajs/authn API snapshot"
 Cohesion: 0.07
 Nodes (26): Re-exported from other packages, @spinajs/authn API snapshot, src/contracts/audit.ts, src/contracts/cli.ts, src/contracts/credentials.ts, src/contracts/extractor.ts, src/contracts/failure.ts, src/contracts/fresh.ts (+18 more)
 
 ### Community 322 - "contracts/session.test.ts"
-Cohesion: 0.10
-Nodes (11): alice, bob, Equals, facts, Listed, MemberShape, NoRevokeAll, Row (+3 more)
+Cohesion: 0.03
+Nodes (62): Impersonation, `@spinajs/authn-session`, Your own session class, AuthnContext, ImpersonationGuard, MfaEnrolmentService, SessionHandle, describe() (+54 more)
 
 ### Community 323 - "orm-mssql/package.json"
 Cohesion: 0.09
-Nodes (21): author, description, exports, files, gitHead, homepage, chai, chai-as-promised (+13 more)
+Nodes (22): author, description, exports, files, gitHead, homepage, chai, chai-as-promised (+14 more)
 
 ### Community 324 - "http/src/cookie.ts"
-Cohesion: 0.08
-Nodes (24): Configuration, Best practices, Configuration, Cookies, Decorators, Examples, `FromCookie`: custom implementation, How it works (+16 more)
+Cohesion: 0.14
+Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
 
 ### Community 325 - "FallbackGroupTarget"
-Cohesion: 0.04
-Nodes (70): Best practices, API, Batch queue, `BatchQueue<T>`, How it works, `IBatchQueueOptions<T>`, Important behaviour, Patterns and antipatterns (+62 more)
+Cohesion: 0.03
+Nodes (93): Assert on log output in a test, Best practices, Configuration, Custom targets, Examples, Important behaviour, Patterns and antipatterns, Related (+85 more)
 
 ### Community 326 - "knip.json"
-Cohesion: 0.11
-Nodes (17): ignore, include, entry, entry, project, project, rules, binaries (+9 more)
+Cohesion: 0.10
+Nodes (21): Extending the session store, How it works, Important behaviour, Patterns and antipatterns, Related, SessionProvider, ABSOLUTE, CAPPED (+13 more)
 
 ### Community 327 - "email.deferred.test.ts"
 Cohesion: 0.14
-Nodes (4): BASE_EMAIL, EmailDeferredConf, FakeEmailSender, TestQueueClient
+Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
 
 ### Community 329 - "configuration-fs-protocol/package.json"
 Cohesion: 0.09
@@ -3003,11 +2920,11 @@ Nodes (21): author, description, exports, files, gitHead, homepage, @aws-sdk/cli
 
 ### Community 330 - "di/test/descriptor-inheritance.test.ts"
 Cohesion: 0.06
-Nodes (41): A decorator whose data subclasses inherit, API, Best practices, Descriptor inheritance, How it works, Important behaviour, Merge rules, Related (+33 more)
+Nodes (42): A decorator whose data subclasses inherit, API, Best practices, Descriptor inheritance, How it works, Important behaviour, Merge rules, Related (+34 more)
 
 ### Community 331 - "OpenApiBuilder"
-Cohesion: 0.04
-Nodes (56): How it works, Path parameters, How it works, Configuration, Important behaviour, Related, Related, ACCESS_CLASS (+48 more)
+Cohesion: 0.09
+Nodes (12): How it works, How it works, Configuration, `OpenApiBuilder`: custom implementation, Services and extension points, IMethodDocumentation, IOpenApiOperation, IOpenApiResponse (+4 more)
 
 ### Community 332 - "templates-image/package.json"
 Cohesion: 0.09
@@ -3021,25 +2938,25 @@ Nodes (21): author, description, exports, files, homepage, @spinajs/authz, @spin
 Cohesion: 0.10
 Nodes (19): author, description, files, gitHead, homepage, @spinajs/authz, @spinajs/configuration-common, @spinajs/di (+11 more)
 
-### Community 335 - "syncCheck"
-Cohesion: 0.16
-Nodes (19): describeRequest(), Answer, ask(), askerOf(), ChangedWorld, invalidateCheck(), ModelMutation, oracle() (+11 more)
+### Community 335 - "registry/registry.ts"
+Cohesion: 0.10
+Nodes (21): challengeId(), ChallengePurpose, challengeSecretPurpose(), challengeSigningInput(), isChallengeNonce(), newChallengeRid(), parseChallengeId(), verifyChallengeSignature() (+13 more)
 
 ### Community 336 - "authz/package.json"
 Cohesion: 0.09
 Nodes (21): author, description, files, homepage, ajv, @spinajs/authn, @spinajs/authz-testing, @spinajs/cli (+13 more)
 
 ### Community 337 - "issuer.ts"
-Cohesion: 0.03
-Nodes (83): 2.1 Where each 2.x package went, F6: authn contracts, Services and extension points, sessionConfig, ISession, appEnvOf(), assertSessionCookieSecret(), clearSessionCookie() (+75 more)
+Cohesion: 0.07
+Nodes (40): Selection and connection, at boot, Truncate, `truncate()`, 2.x sessions and the boot sweep, Best practices, Configuration, Examples, How it works, Important behaviour (+32 more)
 
 ### Community 338 - "Bootstrapper"
-Cohesion: 0.04
-Nodes (64): How it works, A custom bootstrapper and an async service, API, Close a connection pool on shutdown, once, Examples, Patterns and antipatterns, Related, Service lifecycle (+56 more)
+Cohesion: 0.03
+Nodes (72): Best practices, Built-in command: `configuration:dump`, Command line, Examples, Fail a CI step when a backup is older than a day, Framework options, How it works, Important behaviour (+64 more)
 
-### Community 339 - "metadata/orm-store.ts"
-Cohesion: 0.08
-Nodes (33): L7: authz-fs, Owners and metadata, FileMeta, rawFsOf(), raws, rememberRaw(), FS_METADATA_CONNECTION_KEY, FS_METADATA_DEFAULT_CONNECTION (+25 more)
+### Community 339 - "src/models/User.ts"
+Cohesion: 0.03
+Nodes (57): R1: removal of the 2.x code, Best practices, Columns (`UserBase`), Examples, Hidden metadata keys: hide your own keys, How it works, Important behaviour, List active users subscribed to the newsletter (+49 more)
 
 ### Community 340 - "orm-mysql/package.json"
 Cohesion: 0.07
@@ -3047,55 +2964,59 @@ Nodes (26): author, description, exports, files, gitHead, homepage, chai, chai-a
 
 ### Community 341 - "process.test.ts"
 Cohesion: 0.05
-Nodes (38): Related, Best practices, Examples, Graceful shutdown, How it works, Important behaviour, Keep the event loop responsive during a long loop, Process helpers (+30 more)
+Nodes (38): Important behaviour, Related, Best practices, Environment variables, Examples, Graceful shutdown, How it works, Important behaviour (+30 more)
 
 ### Community 342 - "Translatable"
-Cohesion: 0.03
-Nodes (65): Best practices, Configuration, Declaring, Decorators, Edit the English title of a CMS page, Examples, How it works, Important behaviour (+57 more)
+Cohesion: 0.15
+Nodes (8): alice, archive, B16Owner, bob, cases, DENIED, ownerWorld, UPLOADS
 
-### Community 343 - "test/support/world.ts"
-Cohesion: 0.06
-Nodes (38): encodeFlow(), flowCookieName(), OidcLinkResult, OIDC_PRESETS, FACETS, oidcSubject(), FLOW, World (+30 more)
+### Community 343 - "v3-socket/session.test.ts"
+Cohesion: 0.10
+Nodes (32): appOrigin(), dir(), identities, signed(), bearerFor(), opened(), activeCalls(), activeRevalidation() (+24 more)
 
 ### Community 344 - "orm-threading/package.json"
 Cohesion: 0.09
 Nodes (22): author, description, exports, files, gitHead, homepage, luxon, @spinajs/configuration (+14 more)
 
-### Community 345 - "SessionIssuer"
+### Community 345 - "contracts/identity.test.ts"
 Cohesion: 0.05
-Nodes (50): G2 and G2b: admin and account guards, Features, Install, Quick start, Related packages, `@spinajs/session-provider-dynamodb`, Compose your own action, Services and extension points (+42 more)
+Nodes (28): Step 1: dependencies and imports, Related, Install, IdentityStatus, IdentityStore, PasswordCredentialStore, IdentityLink, DI registration (+20 more)
 
 ### Community 346 - "queue-sqs-transport/package.json"
-Cohesion: 0.09
-Nodes (21): author, description, exports, files, homepage, @spinajs/configuration, @spinajs/di, @spinajs/exceptions (+13 more)
-
-### Community 347 - "Request statistics"
 Cohesion: 0.10
-Nodes (24): Best practices, Compute Apdex for a batch of recorded timings, Configuration, Examples, Important behaviour, Patterns and antipatterns, Read the last five timeline buckets, Related (+16 more)
+Nodes (20): author, description, exports, files, homepage, @spinajs/configuration, @spinajs/di, @spinajs/exceptions (+12 more)
+
+### Community 347 - "AuthnEventSink"
+Cohesion: 0.05
+Nodes (26): 5.1 Decorators and APIs, Best practices, Close support tickets of deleted accounts, Configuration, Examples, Patterns and antipatterns, Related, Services and extension points (+18 more)
 
 ### Community 348 - "golden.test.ts"
-Cohesion: 0.07
-Nodes (10): DEFAULT_SELF_RESOURCES, Grant, GrantsResult, findings(), SAFE_HTTP, SAFE_SESSION, CASES, grantsOf() (+2 more)
+Cohesion: 0.14
+Nodes (13): BACKSLASH, configModule(), ESCAPES, inline(), isLoneSurrogate(), key(), literal(), quote() (+5 more)
 
 ### Community 349 - "orm-postgres/package.json"
-Cohesion: 0.08
-Nodes (25): author, description, exports, files, homepage, chai, chai-as-promised, lodash (+17 more)
+Cohesion: 0.07
+Nodes (26): author, description, exports, files, homepage, chai, chai-as-promised, lodash (+18 more)
 
 ### Community 350 - "OpenApiBuilder"
 Cohesion: 0.15
 Nodes (13): import, require, types, import, require, types, exports, browser (+5 more)
 
 ### Community 351 - "authn-oidc/test/config.test.ts"
-Cohesion: 0.09
-Nodes (23): OIDC_PRESET_IDS, OidcReservedParam, AUTHN_OIDC_CONFIGURATION_SCHEMA, AUTHN_OIDC_PROVIDER_SCHEMA, claimPath, OIDC_APP_PATH_PATTERN, OIDC_ENTRA_TENANT_PATTERN, OIDC_HOST_PATTERN (+15 more)
+Cohesion: 0.15
+Nodes (13): devDependencies, cpx, @types/compression, @types/cookie-parser, @types/cookie-signature, @types/cors, @types/express, @types/formidable (+5 more)
 
 ### Community 352 - "http-socket-common/test/common.test.ts"
 Cohesion: 0.02
-Nodes (180): Decorators, `IArgument`, `IOption`, Where an option value comes from, Answer a rate-limited upstream with a retry hint, Best practices, Error mapping, Examples (+172 more)
+Nodes (134): Decorators, `IArgument`, `IOption`, Where an option value comes from, Related, Best practices, Errors and retries, Examples (+126 more)
 
-### Community 354 - "ConfigVarProtocol"
-Cohesion: 0.05
-Nodes (68): Best practices, Config var protocols, Configuration, ConfigVar: lazy values, ConfigVarProtocol: custom implementation, Examples, Expand a path from an environment variable, How it works (+60 more)
+### Community 353 - "AncestorMiddleware"
+Cohesion: 0.15
+Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+5 more)
+
+### Community 354 - "http/src/cookie.ts"
+Cohesion: 0.08
+Nodes (28): Best practices, Configuration, Cookies, Decorators, Examples, `FromCookie`: custom implementation, How it works, Important behaviour (+20 more)
 
 ### Community 355 - ".timeout"
 Cohesion: 0.15
@@ -3107,11 +3028,11 @@ Nodes (19): author, description, exports, files, homepage, axios, lodash, @spina
 
 ### Community 357 - "OutboxStore"
 Cohesion: 0.04
-Nodes (52): Best practices, Examples, File written by `FileOutboxStore`, How it works, Important behaviour, IndexedDB database `spinajs-outbox:<name>`, version 1, Outbox stores, OutboxStore: custom implementation (+44 more)
+Nodes (51): Best practices, Configuration, Examples, File written by `FileOutboxStore`, How it works, Important behaviour, IndexedDB database `spinajs-outbox:<name>`, version 1, Outbox stores (+43 more)
 
-### Community 358 - "packages_authz_testing_lib_mjs_index"
-Cohesion: 0.10
-Nodes (34): Message class: custom implementation, Services and extension points, Install, Quick start, `@spinajs/queue`, Configuration, Examples, How it works (+26 more)
+### Community 358 - "QueueEvent"
+Cohesion: 0.05
+Nodes (51): Best practices, Configuration, Decorators, Examples, Important behaviour, Patterns and antipatterns, Related, Run the `fs-lazy:process` command (+43 more)
 
 ### Community 359 - "scripts"
 Cohesion: 0.15
@@ -3119,11 +3040,11 @@ Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, f
 
 ### Community 360 - "http-socket/test/config-schema.test.ts"
 Cohesion: 0.06
-Nodes (36): Readiness and shutdown, How it works, Message to frame: custom headers, Publish pipeline: custom implementation, Services and extension points, How it works, Important behaviour, Retry backoff (+28 more)
+Nodes (33): Readiness and shutdown, How it works, Message to frame: custom headers, Publish pipeline: custom implementation, Services and extension points, Important behaviour, Best practices, Client factory and client id (+25 more)
 
-### Community 361 - "AsyncService"
-Cohesion: 0.05
-Nodes (44): API, Best practices, Constructor options, Examples, Important behaviour, Patterns and antipatterns, Purge old audit rows from a scheduled job, Related (+36 more)
+### Community 361 - "ResolveException"
+Cohesion: 0.07
+Nodes (32): Errors, `IInstanceCheck`: one instance per option set, Services and extension points, Adding a selectable implementation, API, Best practices, Examples, How it works (+24 more)
 
 ### Community 362 - "schemas/responses.ts"
 Cohesion: 0.08
@@ -3133,17 +3054,17 @@ Nodes (25): GROUP_PROPERTIES, INVITATION_PROPERTIES, JsonSchema, nullableStamp, 
 Cohesion: 0.15
 Nodes (9): Important behaviour, assert(), assertArray(), assertNonEmptyString(), assertNonNil(), assertNonNull(), assertNumber(), assertObject() (+1 more)
 
-### Community 364 - "scripts"
-Cohesion: 0.12
-Nodes (16): scripts, build, build-docs, clean, compile, compile:cjs, copy, coverage (+8 more)
+### Community 364 - "conformance-support.ts"
+Cohesion: 0.09
+Nodes (20): StrategySubjectFactory, RecordingEventSink, run(), TITLES, INVALID, run(), bearerSubject(), CASE (+12 more)
 
 ### Community 365 - "compilerOptions"
 Cohesion: 0.08
 Nodes (25): compilerOptions, allowSyntheticDefaultImports, composite, declaration, declarationMap, emitDecoratorMetadata, esModuleInterop, experimentalDecorators (+17 more)
 
 ### Community 366 - "http-socket/src/index.ts"
-Cohesion: 0.07
-Nodes (40): Decorators, How it works, `SocketErrorMapping`: map your own exception, `BasePolicy`: a socket-aware policy, Best practices, Boot checks, Decorators, Examples (+32 more)
+Cohesion: 0.10
+Nodes (22): Arguments of `execute()`, Best practices, `CliCommand`: a shared base class for a command family, `CliCommand`: replace a shipped command's behaviour, `CliCommand`: what you implement, Commands, Decorators, Examples (+14 more)
 
 ### Community 367 - "@spinajs/authz API snapshot"
 Cohesion: 0.11
@@ -3151,7 +3072,7 @@ Nodes (18): Re-exported from other packages, @spinajs/authz API snapshot, src/co
 
 ### Community 368 - "QueueChangeBus"
 Cohesion: 0.02
-Nodes (40): RehashRow, ACCEPTED, CHECK_ROWS, REFUSED_IN_PRODUCTION, Secrets, PrincipalOfCall, AppEnv, HttpPort (+32 more)
+Nodes (36): Known gaps for lanes, RehashRow, PrincipalOfCall, AppEnv, HttpRoutes, ProbeBody, AccountLinkPort, ActorsPort (+28 more)
 
 ### Community 369 - "exports"
 Cohesion: 0.15
@@ -3162,24 +3083,24 @@ Cohesion: 0.33
 Nodes (6): Development, Documentation, Install, `@spinajs/orm-sqlite`, Usage, What is distinctive
 
 ### Community 371 - "SchemaSource"
-Cohesion: 0.18
-Nodes (14): A `migrate-create:table` command with a filled-in template, Best practices, Examples, Exported building blocks, Generated file, How it works, Important behaviour, Options (+6 more)
+Cohesion: 0.10
+Nodes (24): A `migrate-create:table` command with a filled-in template, Best practices, Examples, Exported building blocks, Generated file, How it works, Important behaviour, `MigrateCreateCommand`: open the new file in the editor (+16 more)
 
 ### Community 372 - "http-socket-client/package.json"
 Cohesion: 0.11
 Nodes (17): author, description, files, homepage, socket.io, socket.io-client, @spinajs/http-socket-common, keywords (+9 more)
 
-### Community 373 - "agreementCheck"
-Cohesion: 0.27
-Nodes (16): identityOrder(), property(), agreementCheck(), capabilitiesCheck(), checksOf(), determinismCheck(), fewRuns(), initCheck() (+8 more)
-
-### Community 374 - "SocketHub"
+### Community 373 - "primaryKeys.test.ts"
 Cohesion: 0.06
-Nodes (39): Best practices, Broadcast a saved comment from a domain service, Examples, How it works, Important behaviour, Patterns and antipatterns, Related, Rooms and server push (+31 more)
+Nodes (5): FakeSqliteDriver, CompositeKeyModel, Model1, col(), describeCompositeTable()
+
+### Community 374 - "DbLinkStore"
+Cohesion: 0.13
+Nodes (14): attributesText(), DbLinkStore, isLookupToken(), linkSubject(), linkTokenHash(), notFound(), requireScopeNode(), rowsAffected() (+6 more)
 
 ### Community 375 - "PugRenderer"
-Cohesion: 0.05
-Nodes (51): Configuration, Best practices, Caching, Configuration, Examples, Patterns and antipatterns, Related, Render a plain-text mail body from a `.txt` file (+43 more)
+Cohesion: 0.18
+Nodes (11): Best practices, Custom filter columns, Decorators, Examples, Filter articles by tag name through a relation, How it works, IColumnFilter.query: search two name columns as one, OR a custom SQL column with a plain one (+3 more)
 
 ### Community 376 - "ScriptedSocketAuthz"
 Cohesion: 0.12
@@ -3187,75 +3108,67 @@ Nodes (4): ScriptedDecision, ScriptedSocketAuthz, ScriptedSocketDomains, unused(
 
 ### Community 377 - "HttpServer"
 Cohesion: 0.02
-Nodes (180): Best practices, Events, Examples, How it works, HTTP server, `HttpServer`: custom implementation, Important behaviour, Lifecycle (+172 more)
+Nodes (117): Best practices, Configuration, Events, Examples, How it works, HTTP server, `HttpServer`: custom implementation, Important behaviour (+109 more)
 
 ### Community 378 - "text.ts"
-Cohesion: 0.13
-Nodes (20): Text, camelCase(), escapeHtml(), join(), kebabCase(), lowercase(), padRight(), repeat() (+12 more)
-
-### Community 379 - "admin.test.ts"
-Cohesion: 0.03
-Nodes (61): reported(), Condition, AuthzAdminError, RuleDef, SubjectSelector, cmp(), compareDenyReasons(), DEFAULT_DENY_PRIORITY (+53 more)
+Cohesion: 0.11
+Nodes (29): Best practices, Text, now(), formatNumber(), toInt(), isHbOptions(), camelCase(), escapeHtml() (+21 more)
 
 ### Community 380 - "convert.test.ts"
-Cohesion: 0.17
-Nodes (12): Args, main(), parse(), convert(), WARNINGS_FILE, readDbFacts(), roleList(), scanSources() (+4 more)
-
-### Community 381 - "scripts"
-Cohesion: 0.14
-Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
+Cohesion: 0.06
+Nodes (24): AnalyzeOptions, Args, main(), parse(), convert(), ConvertOptions, ConvertResult, WARNINGS_FILE (+16 more)
 
 ### Community 382 - "convert.ts"
-Cohesion: 0.24
-Nodes (22): absorbedScopes(), analyze(), closure(), dbFacts(), granted(), Grants2, grantsOf(), httpAndSecrets() (+14 more)
+Cohesion: 0.10
+Nodes (56): absorbedScopes(), analyze(), closure(), dbFacts(), granted(), Grants2, grantsOf(), httpAndSecrets() (+48 more)
 
 ### Community 383 - "DefaultAccountGuard"
-Cohesion: 0.09
-Nodes (13): handleOf(), MemorySessionIssuer, sameRef(), seal(), sha256hex(), SessionStoragePort, A, AppSession (+5 more)
+Cohesion: 0.11
+Nodes (11): handleOf(), MemorySessionIssuer, MemorySessionOptions, sameRef(), seal(), sha256hex(), SessionStoragePort, AcceptsHash (+3 more)
 
 ### Community 384 - "AccTestAuthz"
 Cohesion: 0.14
 Nodes (3): AccTestAuthz, AccTestDomains, unused()
 
 ### Community 385 - "extractors.ts"
-Cohesion: 0.19
-Nodes (13): ExtractorInfo, described(), EXTRACTOR, extractorInfo, fromBody(), fromModel(), fromParam(), fromQuery() (+5 more)
+Cohesion: 0.05
+Nodes (55): Sessions, N2: sessions, Best practices, Configuration, Database session store, `DbSessionStore` members, Examples, Expired-session sweep, `cleanupExpired()` (+47 more)
 
 ### Community 386 - "inherit.test.ts"
-Cohesion: 0.06
-Nodes (26): Configuration, FsPathResolver, FS_PERMISSIONS, Target, TaskAttachmentPathResolver, TaskResolver, configuredChild(), alice (+18 more)
+Cohesion: 0.18
+Nodes (8): `_chain(...fns)`, `_either(cond, onTrue, onFalse)`, Error handling, Functional / promise helpers (`fp`), Misc, `_tap(fn)`, `_use(factory, name)`, `_zip(...fns)` and `_map(cb)`
 
-### Community 387 - "devDependencies"
-Cohesion: 0.15
-Nodes (13): devDependencies, cpx, @types/compression, @types/cookie-parser, @types/cookie-signature, @types/cors, @types/express, @types/formidable (+5 more)
+### Community 387 - "Engine"
+Cohesion: 0.11
+Nodes (10): CombineConfig, CombineRoute, combineVotes(), contributions(), Engine, indeterminate(), isFalse(), missingScopeRef() (+2 more)
 
 ### Community 388 - "telemetry-otel/package.json"
 Cohesion: 0.06
 Nodes (32): author, bugs, url, description, directories, lib, test, engines (+24 more)
 
-### Community 389 - "authz-fs/src/index.ts"
-Cohesion: 0.06
-Nodes (21): AUTHZ_FS_CONFIGURATION_SCHEMA, AUTHZ_FS_METADATA_CONFIGURATION_SCHEMA, AuthzFsConfigBootstrapper, entry, name, permission, policy, FsTarget (+13 more)
+### Community 389 - "DefaultSessionIssuer"
+Cohesion: 0.13
+Nodes (13): DefaultSessionIssuer, keyOf(), pendingStepsOf(), readStored(), ref(), sessionHandleOf(), sha256hex(), storageKeyOf() (+5 more)
 
 ### Community 390 - "math.ts"
-Cohesion: 0.10
-Nodes (11): ReconnectPolicy: reuse for your own retries, Services and extension points, Math, ceil(), modulo(), percentage(), random(), randomInt() (+3 more)
+Cohesion: 0.08
+Nodes (16): ReconnectPolicy: reuse for your own retries, Services and extension points, Math, Examples, Format dates in the render language, Make `currency` follow the render language, Share a header and footer between mail templates, ceil() (+8 more)
 
 ### Community 391 - "A31-cors.spec.ts"
 Cohesion: 0.22
-Nodes (3): missing(), TotpService, SpecService
+Nodes (9): Best practices, CLI commands, Configuration, `email-send`, `email-server`, How it works, Important behaviour, Related (+1 more)
 
-### Community 392 - "packages_authz_lib_mjs_index_system"
-Cohesion: 0.06
-Nodes (31): alice, B09, f1, NOT_CALLED, world, alice, B30, bob (+23 more)
+### Community 392 - "Endpoints and OpenAPI"
+Cohesion: 0.08
+Nodes (24): Best practices, Compute Apdex for a batch of recorded timings, Configuration, Examples, Important behaviour, Patterns and antipatterns, Read the last five timeline buckets, Related (+16 more)
 
 ### Community 393 - "scripts"
 Cohesion: 0.14
 Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
 
-### Community 394 - "uploads.test.ts"
-Cohesion: 0.10
-Nodes (21): Contract helper types, Helper types, How it works, Important behaviour, Patterns and antipatterns, Related, Server handlers typed by the contract, Services and extension points (+13 more)
+### Community 394 - "ContractShape"
+Cohesion: 0.05
+Nodes (45): Best practices, Contract shape, Examples, How it works, Important behaviour, Patterns and antipatterns, Related, Services and extension points (+37 more)
 
 ### Community 395 - "dependencies"
 Cohesion: 0.12
@@ -3266,96 +3179,96 @@ Cohesion: 0.14
 Nodes (3): EvtTestAuthz, EvtTestDomains, unused()
 
 ### Community 397 - "HttpAcceptHeaders"
-Cohesion: 0.04
-Nodes (35): Answer 503 while a dependency is down, Best practices, Configuration, Decorators, Examples, HTTP error mapping, Patterns and antipatterns, Related (+27 more)
+Cohesion: 0.17
+Nodes (12): All registrations of a type: `Array.ofType` and `Array.chainOf`, Basics, Explicit configuration, How SpinaJS uses containers, Manual resolving, Object factories, Object lifetime, Overriding objects (+4 more)
 
-### Community 398 - "src/configuration.ts"
+### Community 398 - "ref_spinajs_log"
 Cohesion: 0.02
-Nodes (114): Configuration, Best practices, Which one to use, Important behaviour, How it works, Important behaviour, Configuration, Important behaviour (+106 more)
+Nodes (66): UnscopedMiddleware, AccessKey, IAccessDescriptor, IAccessRule, RouteAccess, ACCESS_CLASS, accessDescriptorOf(), empty() (+58 more)
 
 ### Community 399 - "scripts"
 Cohesion: 0.08
 Nodes (24): scripts, build, build:sh, check:packages, clean, copy-static, deps, deps:baseline (+16 more)
 
-### Community 400 - "Test"
-Cohesion: 0.11
-Nodes (15): `LongSpanRegistry`: custom implementation, Services and extension points, Register the replacement in time, Services and extension points, Assert a flow opens and closes its span, without OpenTelemetry, Best practices, Customizing the long-span registry, Examples (+7 more)
-
-### Community 401 - "ref_node_crypto"
-Cohesion: 0.01
-Nodes (228): Store ports, N4: authn-orm, CEILING_KEYS, isCeiling(), OWNER_TYPES, strings(), Migrations, Rules the stores keep (+220 more)
-
-### Community 402 - "scripts"
+### Community 400 - "LongSpanRegistry"
 Cohesion: 0.15
-Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+5 more)
+Nodes (11): Configuration, `LongSpanRegistry`: custom implementation, Services and extension points, Register the replacement in time, Services and extension points, Extension points at a glance, Install, Quick start (+3 more)
 
-### Community 403 - "emit.ts"
-Cohesion: 0.14
-Nodes (13): BACKSLASH, configModule(), ESCAPES, inline(), isLoneSurrogate(), key(), literal(), quote() (+5 more)
+### Community 401 - "db-mfa-store.ts"
+Cohesion: 0.05
+Nodes (37): Boundaries and packages, Store ports, Services, json(), keyOrNull(), identityKey(), DbIdentityLinkStore, identityParts() (+29 more)
+
+### Community 402 - "AssignmentStore"
+Cohesion: 0.04
+Nodes (67): Local password, G2 and G2b: admin and account guards, Compose your own action, Services and extension points, Custom credential admin guard: no MFA resets through the API, Custom target rule: never act across tenants, Services and extension points, Configuration (+59 more)
+
+### Community 403 - "EmailPasswordMailer"
+Cohesion: 0.09
+Nodes (26): Best practices, Configuration, Construction modes, Extend: add support details to every password mail, How it works, Important behaviour, `IPasswordMail`, Password mails (+18 more)
+
+### Community 404 - "src/dto/index.ts"
+Cohesion: 0.13
+Nodes (19): Related, How it works, HTTP surface, `PrometheusResponse`: expose the registry on an internal path, Services and extension points, HealthResponse, PerfResponse, ReadyResponse (+11 more)
 
 ### Community 405 - "scripts"
 Cohesion: 0.13
 Nodes (15): scripts, bench, build, build-docs, clean, compile, compile:cjs, coverage (+7 more)
 
 ### Community 406 - "src/extension.ts"
-Cohesion: 0.05
-Nodes (61): KINDS, memo(), OrmResourceAdapter, typeLevel(), byDepthThenKey(), closeOver(), Link, actualRows() (+53 more)
+Cohesion: 0.18
+Nodes (11): dependencies, commander, reflect-metadata, @spinajs/configuration, @spinajs/configuration-common, @spinajs/di, @spinajs/exceptions, @spinajs/internal-logger (+3 more)
 
-### Community 407 - "ref_node_path"
-Cohesion: 0.02
-Nodes (70): Mounted, RETIRED_2X, SCANNED_2X_CONTROLLERS, SCANNED_2X_DIRS, sourceFiles(), SRC, PACKAGES, reachesRegistration() (+62 more)
+### Community 407 - "v3-app/app.ts"
+Cohesion: 0.10
+Nodes (24): bootApp(), COOKIE_SECRET, ENV_KEYS, guard, passwords, passwordStrategy, principals, rebuildServer() (+16 more)
 
 ### Community 408 - "FakePoolConnection"
-Cohesion: 0.05
-Nodes (28): Important behaviour, Best practices, Channel topology, Configuration, Examples, Honour message priority, Important behaviour, Keep billing events while the billing service is down (+20 more)
+Cohesion: 0.04
+Nodes (28): AMQP connection, Best practices, Connect target, Examples, Important behaviour, Log in with a client certificate, Patterns and antipatterns, Related (+20 more)
 
 ### Community 409 - "Result"
-Cohesion: 0.05
-Nodes (31): API, Best practices, Configuration, Examples, Find jobs stuck for more than an hour, Important behaviour, Job tracking, Migrations (+23 more)
+Cohesion: 0.08
+Nodes (11): How it works, `JsonApiIncomingObject`, The hooks, Development, Documentation, Install, Known issues, `@spinajs/orm-http` (+3 more)
 
-### Community 410 - "DbMfaSecretStore"
-Cohesion: 0.10
-Nodes (18): Boot checks, Flow cookie, Limits in 3.0, OIDC single sign-on (`@spinajs/authn-oidc`), Presets, Providers, Routes, Testing (+10 more)
+### Community 410 - "authn-keys/test/harness.ts"
+Cohesion: 0.04
+Nodes (49): signChallenge(), signRaw(), MemoryKeyNonceStore, KeysConfig, assertionIssuer(), ADMIN, SVC, world() (+41 more)
 
 ### Community 411 - "date.ts"
-Cohesion: 0.14
-Nodes (26): `@FromModel()`, Column mapping, Reflection: `tableInfo(name, schema?)`, Dates, Important behaviour, dateAdd(), dateAfter(), dateBefore() (+18 more)
+Cohesion: 0.18
+Nodes (22): Dates, Important behaviour, dateAdd(), dateAfter(), dateBefore(), dateBetween(), dateDiff(), dateEndOf() (+14 more)
 
 ### Community 412 - "devDependencies"
 Cohesion: 0.13
 Nodes (15): devDependencies, @aws-sdk/client-s3, @spinajs/authn, @spinajs/authn-local, @spinajs/authn-testing, @spinajs/authz, @spinajs/authz-fs, @spinajs/authz-queue (+7 more)
 
 ### Community 413 - "UserController.ts"
-Cohesion: 0.06
-Nodes (31): Best practices, Configuration, Examples, `GET /user`, `GET /user/tokens/roles` and `GET /user/tokens/profiles`, How it works, Own account routes, Read the own record and the token offer from a client (+23 more)
+Cohesion: 0.33
+Nodes (6): Built-in helpers, Examples, Patterns and antipatterns, Related, Render an order summary mail, Translation
 
-### Community 414 - "MemoryTarget"
+### Community 415 - "B26-covers-guard.spec.ts"
 Cohesion: 0.07
-Nodes (36): Important behaviour, Attach the last 50 log lines to a crash report, Best practices, Console, JSON and memory targets, Examples, How it works, Important behaviour, Patterns and antipatterns (+28 more)
+Nodes (29): abacCases, abacWorld(), ADMIN_PERMISSIONS, B26, coreCases, coreWorld(), DOC, f1 (+21 more)
 
-### Community 415 - "dependencies"
-Cohesion: 0.18
-Nodes (11): dependencies, commander, reflect-metadata, @spinajs/configuration, @spinajs/configuration-common, @spinajs/di, @spinajs/exceptions, @spinajs/internal-logger (+3 more)
-
-### Community 416 - "SocketConnection"
-Cohesion: 0.03
-Nodes (52): F1 and F1a: contracts and principal types, Concepts, `SocketPrincipalSource`: a source of your own, Best practices, Close every socket of a banned user at the next check, Configuration, Examples, How it works (+44 more)
+### Community 416 - "Features"
+Cohesion: 0.07
+Nodes (28): RFC-7617, Best practices, Client IP and trusted proxies, Configuration, Examples, How it works, Important behaviour, Patterns and antipatterns (+20 more)
 
 ### Community 417 - "FrameworkLogger"
-Cohesion: 0.04
-Nodes (46): How it works, Additive rules and `final`, Best practices, Configuration and rules, Examples, How it works, Level windows, Patterns and antipatterns (+38 more)
+Cohesion: 0.20
+Nodes (10): Best practices, How it works, Important behaviour, Lifecycle hooks and commander access, `onCreation`: add what the decorators cannot express, `onPreAction` / `onPostAction`: wrap every subcommand from the parent, Patterns and antipatterns, Re-exported commander API (+2 more)
 
 ### Community 418 - "dependencies"
 Cohesion: 0.12
 Nodes (16): dependencies, formidable, lodash, luxon, @spinajs/cli, @spinajs/configuration, @spinajs/di, @spinajs/exceptions (+8 more)
 
 ### Community 419 - "Lifecycle hooks and commander access"
-Cohesion: 0.20
-Nodes (10): Best practices, How it works, Important behaviour, Lifecycle hooks and commander access, `onCreation`: add what the decorators cannot express, `onPreAction` / `onPostAction`: wrap every subcommand from the parent, Patterns and antipatterns, Re-exported commander API (+2 more)
+Cohesion: 0.40
+Nodes (5): Examples, Inject the backend into a service, Run the nightly invoice export on one instance only, Show who holds a lock, Wait for a running import, then take the lock
 
 ### Community 420 - "TeamService"
 Cohesion: 0.04
-Nodes (18): Access, Errors, Invitations, Routes, Setup, `@spinajs/teams-http`, Archive, delete, purge, Config (`teams.*`) (+10 more)
+Nodes (17): Access, Errors, Invitations, Routes, Setup, `@spinajs/teams-http`, Swagger, App permissions on team roles (+9 more)
 
 ### Community 421 - "publish-all.mjs"
 Cohesion: 0.14
@@ -3366,12 +3279,12 @@ Cohesion: 0.13
 Nodes (15): dependencies, ajv, @colors/colors, cron, glob-to-regexp, lodash, luxon, node-schedule (+7 more)
 
 ### Community 423 - ".expose"
-Cohesion: 0.05
-Nodes (42): Best practices, Config entry registry: custom listener, Configuration, Container key: read another container, Decorators, Examples, How it works, Important behaviour (+34 more)
+Cohesion: 0.20
+Nodes (10): dependencies, ajv, argon2, @spinajs/authn, @spinajs/cli, @spinajs/configuration, @spinajs/di, @spinajs/exceptions (+2 more)
 
 ### Community 424 - "IBind"
-Cohesion: 0.06
-Nodes (28): Best practices, Checking and removing registrations, Decorators, Examples, How it works, `IBind` methods, Important behaviour, Keys are names (+20 more)
+Cohesion: 0.07
+Nodes (25): Best practices, Checking and removing registrations, Decorators, Examples, How it works, `IBind` methods, Important behaviour, Patterns and antipatterns (+17 more)
 
 ### Community 425 - "JobRetentionService"
 Cohesion: 0.18
@@ -3393,9 +3306,9 @@ Nodes (21): author, description, files, gitHead, homepage, glob, lodash, @spinaj
 Cohesion: 0.13
 Nodes (15): dependencies, @spinajs/authn, @spinajs/authn-http, @spinajs/authz, @spinajs/authz-http, @spinajs/authz-rbac, @spinajs/configuration, @spinajs/di (+7 more)
 
-### Community 430 - "Events"
+### Community 430 - "DbRuleStore"
 Cohesion: 0.15
-Nodes (13): Best practices, Events, Examples, How it works, Important behaviour, Lifecycle events, onListenerError: custom implementation, Patterns and antipatterns (+5 more)
+Nodes (8): DbRuleStore, ruleById(), rulesOf(), subjectRowsOf(), whereScopes(), Blind, InDomain, Small
 
 ### Community 431 - "scripts"
 Cohesion: 0.14
@@ -3405,21 +3318,25 @@ Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, f
 Cohesion: 0.14
 Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
 
+### Community 433 - "AuthnAudit"
+Cohesion: 0.20
+Nodes (10): Best practices, Examples, How it works, Important behaviour, Patterns and antipatterns, Related, Replacing the `Templates` service, Serve per-tenant template overrides (+2 more)
+
 ### Community 434 - "Translatable"
 Cohesion: 0.10
-Nodes (26): ARG_KEYS, parseRbacPlanArgs(), RBAC_ASSIGNMENT_PLAN_OP, RbacAssignmentPlanArgs, rbacPlanArgs(), RbacPlanRole, ROLE_KEYS, denyShape() (+18 more)
+Nodes (33): admits(), everywhere(), intersect(), rbacListPlan(), RELATION_COLUMN_OP, RELATION_OWNER_OP, RELATION_SELF_OP, relationArgs() (+25 more)
 
 ### Community 435 - "EventEmitter"
-Cohesion: 0.08
-Nodes (15): Best practices, Configure a service once it is built, Container events, `EventEmitter`, Examples, How it works, Important behaviour, Log every plugin as it registers (+7 more)
+Cohesion: 0.10
+Nodes (11): Best practices, Configure a service once it is built, Container events, `EventEmitter`, Examples, How it works, Important behaviour, Log every plugin as it registers (+3 more)
 
 ### Community 436 - "socket-harness.ts"
-Cohesion: 0.04
-Nodes (48): Important behaviour, config, ISocketConfigFile, nonNegative, positive, positiveInteger, SOCKET_CONFIGURATION_SCHEMA, SocketConfigBootstrapper (+40 more)
+Cohesion: 0.07
+Nodes (25): Important behaviour, ACCESSIBLE, AUDIT, DomainQueueHook, FORGED_SYSTEM, FORGED_UNATTENDED, NOT_CALLED, queuePart (+17 more)
 
 ### Community 437 - "Password mails"
-Cohesion: 0.20
-Nodes (10): Best practices, Configuration, Construction modes, Extend: add support details to every password mail, Important behaviour, Password mails, Register without `@spinajs/users`, Related (+2 more)
+Cohesion: 0.03
+Nodes (79): Other select members, Connection states, Driver support, How it works, Retry on transport failure, Best practices, Boot the ORM on MySQL, Connection setup: custom implementation (+71 more)
 
 ### Community 438 - "scripts"
 Cohesion: 0.14
@@ -3447,43 +3364,43 @@ Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, f
 
 ### Community 444 - "packages_authn_lib_mjs_contracts_index"
 Cohesion: 0.01
-Nodes (335): Local password, N3: password (`authn-local`), PrivateJwk, StrictJwsVerifier, checkRanges(), derived, KeysConfig, KeysOptions (+327 more)
+Nodes (429): N3: password (`authn-local`), ADMIN, SVC, AuditLog, ExpirePasswords, authnLocal, AUTHN_LOCAL_DEFAULTS, PasswordAgeSource (+421 more)
 
-### Community 445 - "Customizing the tracing service"
-Cohesion: 0.20
-Nodes (10): Best practices, Customizing the tracing service, Examples, How it works, Patterns and antipatterns, Register the provider globally and sample 10% of traces, Related, Send traces with an auth header from config (+2 more)
+### Community 445 - "getUser"
+Cohesion: 0.13
+Nodes (22): Best practices, Configuration, Custom provider: profile with order statistics, How it works, Important behaviour, Related, Services and extension points, User profile (+14 more)
 
 ### Community 446 - "AsyncService"
-Cohesion: 0.07
-Nodes (28): A, B, C, ChildDep, ChildStore, Counted, CountedImpl, Dep (+20 more)
+Cohesion: 0.06
+Nodes (29): A, B, C, ChildDep, ChildStore, Consumer, Counted, CountedImpl (+21 more)
 
 ### Community 447 - "scripts"
 Cohesion: 0.14
 Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
 
-### Community 448 - "IPuppeteerRendererOptions"
-Cohesion: 0.07
-Nodes (24): Best practices, Change the timeout from code before rendering, Configuration, Configuration, Examples, Important behaviour, Inspect a broken template in a visible browser, Patterns and antipatterns (+16 more)
+### Community 448 - "audit/model.ts"
+Cohesion: 0.13
+Nodes (10): L4 and L4b: ORM adapter, rules in SQL, AuthzAudit_2026_10_01_00_00_00, DbDecisionAudit, fit(), optional(), AuthzAuditEntry, AUDIT_CONNECTION, AUDIT_TABLE (+2 more)
 
 ### Community 449 - "scripts"
 Cohesion: 0.14
 Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
 
-### Community 450 - "dependencies"
-Cohesion: 0.20
-Nodes (10): dependencies, ajv, argon2, @spinajs/authn, @spinajs/cli, @spinajs/configuration, @spinajs/di, @spinajs/exceptions (+2 more)
+### Community 450 - "UserResourceAdapter"
+Cohesion: 0.10
+Nodes (16): Authz resources and relations, Best practices, Configuration, Custom relation: a manager reads their reports, How it works, Important behaviour, Patterns and antipatterns, Related (+8 more)
 
 ### Community 451 - "orm/src/builders.ts"
 Cohesion: 0.01
-Nodes (121): How it works, Related, Column descriptor, Important behaviour, Joins, Services and extension points, Add behaviour to a relation list, Attach each customer's open orders with a custom query (+113 more)
+Nodes (132): Joins, Raw statements, Statement classes, Important behaviour, How it works, `SqlWhereStatement`, builder(), assertOneOf() (+124 more)
 
 ### Community 452 - "scripts"
 Cohesion: 0.14
 Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
 
-### Community 453 - "flow/cookie.ts"
-Cohesion: 0.08
-Nodes (41): groupsOf(), hasRequiredClaims(), mapClaims(), MAX_EMAIL_LENGTH, MAX_SUBJECT_LENGTH, rawClaims(), readClaim(), subjectOf() (+33 more)
+### Community 453 - "ref_typescript"
+Cohesion: 0.14
+Nodes (18): Exports, baseOf(), classDeclarations(), decoratorName(), decoratorsOf(), isAccessResourceClass(), primaryKeyOf(), resolve() (+10 more)
 
 ### Community 454 - "scripts"
 Cohesion: 0.14
@@ -3497,17 +3414,25 @@ Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, f
 Cohesion: 0.07
 Nodes (27): author, description, exports, files, gitHead, homepage, @aws-sdk/client-s3, lodash (+19 more)
 
+### Community 457 - "RecordingExpiryService"
+Cohesion: 0.20
+Nodes (10): Best practices, Configuration, Emit pipeline: custom implementation, Enqueue a job and track it, Examples, Message publish: delayed delivery with the RabbitMQ plugin, Patterns and antipatterns, Publishing (+2 more)
+
+### Community 458 - "PasswordService"
+Cohesion: 0.06
+Nodes (34): Configuration, `create(data, roles?, actor = SYSTEM)`, Examples, How it works, Invite a new employee, Patterns and antipatterns, Related, Rename a user with the same uniqueness rule as `create()` (+26 more)
+
 ### Community 459 - "Mutex"
-Cohesion: 0.04
-Nodes (104): `acquire(options)`, Best practices, Configuration, `create`, `delete`, `get`, Database mutex, Examples, How it works, Important behaviour (+96 more)
+Cohesion: 0.03
+Nodes (111): Best practices, Configuration, Examples, Fail fast on an interactive connection, How it works, Important behaviour, Patterns and antipatterns, Related (+103 more)
 
 ### Community 460 - "scripts"
 Cohesion: 0.14
 Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
 
 ### Community 461 - "message"
-Cohesion: 0.04
-Nodes (72): Domain exception: custom implementation, Validation and conversion, Best practices, How it works, Combine fields and printf arguments, Examples, Log a failed config source with its error, Log at an explicit level (+64 more)
+Cohesion: 0.03
+Nodes (112): Best practices, Configuration, How it works, Important behaviour, Patterns and antipatterns, Related, Runtime schema: add or replace one, Schema source: custom implementation (+104 more)
 
 ### Community 462 - "scripts"
 Cohesion: 0.14
@@ -3517,29 +3442,29 @@ Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, f
 Cohesion: 0.14
 Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
 
-### Community 464 - "Container"
-Cohesion: 0.10
-Nodes (12): How it works, How it works, How it works, How it works, Events, Container, geAllTypes(), registrationName() (+4 more)
+### Community 464 - "invitations/mailer.ts"
+Cohesion: 0.11
+Nodes (13): Invitations, InvitationMail, InvitationMailer, acceptUrl(), EmailInvitationMailer, EmailInvitationMailerDeps, InvitationMailOptions, INVITATION_SECRET_MIN_LENGTH (+5 more)
 
 ### Community 465 - "db-store.ts"
-Cohesion: 0.14
-Nodes (9): chunks(), DbScopeAttributeStore, DbScopeAttributeStoreOptions, fits(), isLeaf(), Key, keyOf(), Row (+1 more)
+Cohesion: 0.37
+Nodes (3): DbScopeAttributeStore, fits(), keyOf()
+
+### Community 466 - "IRelation"
+Cohesion: 0.03
+Nodes (70): API, Best practices, Constructor options, Examples, Important behaviour, Patterns and antipatterns, Purge old audit rows from a scheduled job, Related (+62 more)
 
 ### Community 467 - "docs/authn/README.md"
 Cohesion: 0.08
-Nodes (14): Features, Install, Quick start, Related packages, `@spinajs/eslint-plugin-authz`, Module guides, `@spinajs/authn`, Documentation (+6 more)
-
-### Community 469 - ".flushAll"
-Cohesion: 0.06
-Nodes (39): Assert on log output in a test, Configuration, Custom targets, Examples, How it works, Important behaviour, Patterns and antipatterns, Related (+31 more)
+Nodes (10): Features, Install, Quick start, Related packages, `@spinajs/eslint-plugin-authz`, Module guides, `@spinajs/authn`, Documentation (+2 more)
 
 ### Community 470 - "scripts"
 Cohesion: 0.14
 Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
 
-### Community 471 - "DefaultControllerCache"
-Cohesion: 0.04
-Nodes (51): Best practices, Configuration, Controller cache and CLI, `DefaultControllerCache`: custom implementation, Document a route for OpenAPI, Examples, How it works, Important behaviour (+43 more)
+### Community 471 - "teams/test/support/db.ts"
+Cohesion: 0.09
+Nodes (7): Setup, Teams_2026_10_14_00_00_00, TeamsInvitations_2026_10_14_00_01_00, closers, MIGRATIONS, SILENT_LOGGER, TestProject
 
 ### Community 472 - "scripts"
 Cohesion: 0.14
@@ -3554,40 +3479,36 @@ Cohesion: 0.14
 Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
 
 ### Community 475 - "fs"
-Cohesion: 0.05
-Nodes (22): Static API on `fs`, Best practices, Contract, Custom provider: in-memory files for tests, Custom providers, How it works, Important behaviour, Patterns and antipatterns (+14 more)
+Cohesion: 0.02
+Nodes (93): Best practices, Examples, Export orders as a zip archive, File operations, Helper functions, How it works, Patterns and antipatterns, Related (+85 more)
 
-### Community 476 - "Multiple implementations"
-Cohesion: 0.22
-Nodes (9): Add a tenant-only audit sink on top of the global ones, Adding a plugin, Best practices, Examples, Important behaviour, Multiple implementations, Patterns and antipatterns, Related (+1 more)
+### Community 476 - "http/src/cache.ts"
+Cohesion: 0.09
+Nodes (18): IControllerDocumentation, IExampleDoc, IMethodDoc, IParamDoc, IPolicyDoc, IResponseDoc, IReturnDoc, isOnDiskSource() (+10 more)
 
-### Community 477 - "explain/controller.ts"
-Cohesion: 0.16
-Nodes (12): Custom store over a shared key-value service, checkDomain(), DbAuthzAdminBackend, decode(), describe(), encode(), EntryKey, length() (+4 more)
+### Community 477 - "status-harness.ts"
+Cohesion: 0.12
+Nodes (14): alice, bob, carol, world, DefaultsConfiguration, isRecord(), plain(), startApp() (+6 more)
 
 ### Community 478 - "Get"
-Cohesion: 0.05
-Nodes (27): Configuration: custom implementation, `ElectronRendererConfiguration`, `EmailService` and `IEmail`, EmailService: custom implementation, `Intl` and `ElectronRendererIntl`, Intl: custom implementation, Services and extension points, `Templates` (+19 more)
+Cohesion: 0.03
+Nodes (59): Async service call (`call`), Best practices, Configuration, Examples, Expose invoice rendering to the renderer, Exposed service: custom implementation, How it works, Important behaviour (+51 more)
 
 ### Community 479 - "scripts"
 Cohesion: 0.14
 Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
 
-### Community 480 - "email.test.ts"
-Cohesion: 0.07
-Nodes (16): Best practices, CLI commands, Configuration, `email-send`, `email-server`, How it works, Important behaviour, Related (+8 more)
+### Community 480 - "DataTransformer"
+Cohesion: 0.11
+Nodes (14): Best practices, Data transformers, `DataTransformer`: custom implementation, Default error transform: custom implementation, Examples, Hide internal ids from a partner integration, Important behaviour, Patterns and antipatterns (+6 more)
 
 ### Community 481 - "FrameworkConfiguration"
-Cohesion: 0.04
-Nodes (55): Best practices, Boot an app with its own config directory, Configuration: extend the default service, Configuration service, Configure hooks, Examples, How it works, Patterns and antipatterns (+47 more)
+Cohesion: 0.42
+Nodes (8): checkAttr(), checkCondition(), checkValue(), isRef(), isScalar(), OPS, refuse(), ROOTS
 
-### Community 482 - "policy.js"
-Cohesion: 0.09
-Nodes (24): decide(), domains(), execute(), inStore(), forbidden(), holdsExplain(), isRef(), publicReason() (+16 more)
-
-### Community 483 - "longSpanRegistry.test.ts"
-Cohesion: 0.20
-Nodes (17): API, Best practices, Configuration, How it works, Important behaviour, `OtelTracing`: custom implementation, Patterns and antipatterns, Related (+9 more)
+### Community 483 - "RouteMiddleware"
+Cohesion: 0.08
+Nodes (14): Audit every write to an admin controller, Best practices, Examples, How it works, Important behaviour, Patterns and antipatterns, Related, Route middlewares (+6 more)
 
 ### Community 484 - "dependencies"
 Cohesion: 0.13
@@ -3595,35 +3516,31 @@ Nodes (10): EventStream, SseAccessPushTransport, SseSessionEndSink, AccessEventS
 
 ### Community 485 - "AuthzRbacUserRoles_2026_10_01_00_01_00.ts"
 Cohesion: 0.11
-Nodes (23): 7. Data migration, AuthzRbacDropUserRole_2026_10_01_00_02_00, AuthzRbacUserRoles_2026_10_01_00_01_00, configuredUsersColumns(), countNullIds(), countUsers(), hasUsers(), inTransaction() (+15 more)
+Nodes (32): FS_ACL_OWNER, deleteIds(), exactRows(), live(), oldestFirst(), OrmFileAclStore, OrmFileAclStoreOptions, Row (+24 more)
 
-### Community 486 - "local"
+### Community 486 - "RealIp.ts"
+Cohesion: 0.03
+Nodes (90): Important behaviour, Configuration schema and file providers, Best practices, Configuration, CORS, `CorsMiddleware`: custom implementation, Examples, How it works (+82 more)
+
+### Community 487 - "TotpService"
+Cohesion: 0.22
+Nodes (3): missing(), TotpService, SpecService
+
+### Community 488 - "JobRetentionService"
 Cohesion: 0.07
-Nodes (36): 4.1 Output, 4.2 Export the database rows first (`--db`), 4.3 Read `authz-warnings.md`, 4.4 What it refuses, 4.5 Why four grants and never `X:*`, 4. Running `spinajs-authz-convert`, Best practices, Configuration (+28 more)
+Nodes (31): Arguments and options, Best practices, Configuration, Examples, Export orders with a closed set of formats and an env-backed token, How it works, Important behaviour, Optional-value, negatable and conflicting flags (+23 more)
 
-### Community 487 - "authz-convert/src/legacy.ts"
-Cohesion: 0.22
-Nodes (7): CRUD, HTTP_2X_COOKIE_SECRET, RBAC_2X_ARRAYS, RBAC_2X_DEFAULTS, RBAC_2X_PACKAGE_EXTENDS, RBAC_2X_PACKAGE_GRANTS, RBAC_2X_PACKAGE_ROLES
-
-### Community 488 - "Arguments and options"
-Cohesion: 0.14
-Nodes (13): Arguments and options, Best practices, Configuration, Examples, Export orders with a closed set of formats and an env-backed token, How it works, Important behaviour, Optional-value, negatable and conflicting flags (+5 more)
-
-### Community 489 - "interfaces.d.ts"
-Cohesion: 0.22
-Nodes (4): CliCommand, IArgument, ICommand, IOption
+### Community 489 - "http-socket/test/config-schema.test.ts"
+Cohesion: 0.12
+Nodes (13): config, ISocketConfigFile, nonNegative, positive, positiveInteger, SOCKET_CONFIGURATION_SCHEMA, SocketConfigBootstrapper, timerMs (+5 more)
 
 ### Community 490 - "scripts"
 Cohesion: 0.14
 Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
 
-### Community 491 - "authz-http/src/index.js"
-Cohesion: 0.10
-Nodes (23): Access(), AllowAnonymous(), Unscoped(), described(), fromBody(), fromModel(), fromParam(), fromQuery() (+15 more)
-
-### Community 492 - "dependencies"
-Cohesion: 0.22
-Nodes (9): dependencies, ioredis, luxon, @spinajs/authn, @spinajs/authn-session, @spinajs/configuration, @spinajs/di, @spinajs/exceptions (+1 more)
+### Community 492 - "c8.test.ts"
+Cohesion: 0.06
+Nodes (30): Keys, encodeB64url(), decoder, isJsonObject, parseStrictJson(), RFC-7515, LocalJwsSigner, PrivateJwk (+22 more)
 
 ### Community 493 - "scripts"
 Cohesion: 0.14
@@ -3641,9 +3558,9 @@ Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, f
 Cohesion: 0.14
 Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, copy, coverage (+6 more)
 
-### Community 498 - "DbAssignmentStore"
-Cohesion: 0.14
-Nodes (12): AssignmentRow, rowToAssignment(), DbAssignmentStore, requireRow(), rowById(), rowsAffected(), rowsOf(), normaliseTags() (+4 more)
+### Community 498 - "http-socket/src/interfaces.ts"
+Cohesion: 0.02
+Nodes (124): How it works, `AuthnCredentialSource`: accept a token from another header, Best practices, Check the client address of every handshake, Examples, Important behaviour, Patterns and antipatterns, Principal sources and handshake security (+116 more)
 
 ### Community 499 - "scripts"
 Cohesion: 0.14
@@ -3661,13 +3578,9 @@ Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, f
 Cohesion: 0.15
 Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+5 more)
 
-### Community 503 - "conditions.ts"
-Cohesion: 0.42
-Nodes (8): checkAttr(), checkCondition(), checkValue(), isRef(), isScalar(), OPS, refuse(), ROOTS
-
-### Community 504 - "IdentityRef"
-Cohesion: 0.15
-Nodes (13): Assert spans in a unit test, Best practices, Drop health-check spans before export, Examples, How it works, Important behaviour, Patterns and antipatterns, Related (+5 more)
+### Community 503 - "authn-orm/test/migration.test.ts"
+Cohesion: 0.12
+Nodes (19): toUtcColumn(), ColumnKind, ColumnSpec, identity(), indexes(), IndexInfo, insert(), mfa() (+11 more)
 
 ### Community 505 - "UsersHttpMfaStep"
 Cohesion: 0.16
@@ -3706,12 +3619,12 @@ Cohesion: 0.13
 Nodes (15): devDependencies, cpx, @spinajs/authn-session, @spinajs/authn-testing, @spinajs/authz-abac, @spinajs/authz-http, @spinajs/authz-orm, @spinajs/authz-queue (+7 more)
 
 ### Community 515 - "Publishing"
-Cohesion: 0.20
-Nodes (10): Best practices, Configuration, Emit pipeline: custom implementation, Enqueue a job and track it, Examples, Message publish: delayed delivery with the RabbitMQ plugin, Patterns and antipatterns, Publishing (+2 more)
+Cohesion: 0.17
+Nodes (11): Configuration, Emit a job and return its id for progress tracking, Examples, Fan an order event out to billing and shipping, How it works, Message body, Patterns and antipatterns, Publishing messages (+3 more)
 
 ### Community 516 - ".array"
-Cohesion: 0.25
-Nodes (7): `array`, Core utilities (`array`, `hash`, `json`, `string`, `func`, `types`), `func`, `hash` (Map get-or-compute), `json` (Map/Set-aware JSON), `string`, `types` (guards)
+Cohesion: 0.24
+Nodes (5): LogContext, LogContextImpl, noControl(), principalLabel(), scalarContext()
 
 ### Community 518 - "scripts"
 Cohesion: 0.13
@@ -3721,29 +3634,33 @@ Nodes (15): scripts, build, build-docs, clean, compile, compile:cjs, copy, cover
 Cohesion: 0.17
 Nodes (12): Best practices, Capture one region of a dashboard, Configuration, Examples, Generate an Open Graph image for a blog post, How it works, Image renderer, Important behaviour (+4 more)
 
-### Community 520 - "ConfigFileValidator"
-Cohesion: 0.06
-Nodes (36): Best practices, Check a validator's name before deployment, Examples, File entries and validators, File validator: custom implementation, How it works, Important behaviour, Patterns and antipatterns (+28 more)
-
-### Community 521 - "DefaultAccountGuard"
+### Community 520 - "authn/test/contracts/boundary.test.ts"
 Cohesion: 0.09
-Nodes (26): Best practices, Best practices, Configuration, How it works, Important behaviour, Patterns and antipatterns, Permissions per route family, Related (+18 more)
+Nodes (16): PKG_ROOT, PKG_ROOT, ./lib/mjs/cli/AddKey.js, ./lib/mjs/index.js, ./lib/mjs/registry/registry.js, ALLOWED_PACKAGES, CJS_DIR, isInside() (+8 more)
+
+### Community 521 - "autoinject-options.test.ts"
+Cohesion: 0.11
+Nodes (13): AsyncChecked, AsyncDep, Bad, Checked, CheckedMissing, ChildStore, Failing, Holder (+5 more)
 
 ### Community 522 - "status-harness.ts"
-Cohesion: 0.06
-Nodes (18): AccessController, ExplainController, ExplainPolicy, CurrentPrincipalArg, alice, bob, carol, world (+10 more)
+Cohesion: 0.11
+Nodes (18): `@AutoinjectNamedServices` and `resolveNamedServices`, `@AutoinjectService`, Best practices, Config name: register under another name, Config-selected services, Configuration, Decorators, Different gateway per tenant container (+10 more)
 
-### Community 523 - "queue/test/core.test.ts"
-Cohesion: 0.02
-Nodes (91): Important behaviour, API, Best practices, Decorators, Events and jobs, Examples, Notify other services when a user registers, Patterns and antipatterns (+83 more)
+### Community 523 - "QueueChangeBus"
+Cohesion: 0.11
+Nodes (15): API, Best practices, Examples, Important behaviour, Related, Retry job-row writes on a database deadlock, Services and extension points, Tracking hook: custom implementation (+7 more)
 
 ### Community 524 - "devDependencies"
 Cohesion: 0.15
 Nodes (13): devDependencies, ajv, chai-http, @spinajs/authz-abac, @spinajs/authz-http, @spinajs/authz-orm, @spinajs/authz-rbac, @spinajs/fs (+5 more)
 
-### Community 525 - "Built-in helpers"
-Cohesion: 0.33
-Nodes (6): Built-in helpers, Examples, Patterns and antipatterns, Related, Render an order summary mail, Translation
+### Community 525 - "c8.ts"
+Cohesion: 0.12
+Nodes (14): C8_ERROR_CODES, C8_SOURCE, C8ErrorCode, C8InvalidTicket, C8Jwk, C8KeysFile, C8TicketsFile, C8ValidTicket (+6 more)
+
+### Community 526 - "KeyChallengeStrategy"
+Cohesion: 0.11
+Nodes (12): Key strategies, OIDC, Strategies, Token and JWT, Keys (`authn-keys`), Configuration (`authn.keys`), HTTP signatures (`keys-httpsig`), JWS client assertions (`keys-jws`) (+4 more)
 
 ### Community 527 - "scripts"
 Cohesion: 0.15
@@ -3753,9 +3670,9 @@ Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, f
 Cohesion: 0.67
 Nodes (3): repository, type, url
 
-### Community 529 - "SessionExpirationProvider"
-Cohesion: 0.08
-Nodes (31): Sessions, N2: sessions, `DbSessionStore` members, Services and extension points, Expiration strategy, Extra migrations, Log output, Services and extension points (+23 more)
+### Community 529 - "FakeAuthnService"
+Cohesion: 0.18
+Nodes (5): FakeAuthnService, throttled(), CountAfterVerify, NoRetryAfter, OneAuditReason
 
 ### Community 530 - "scripts"
 Cohesion: 0.15
@@ -3789,13 +3706,13 @@ Nodes (11): compilerOptions, module, moduleResolution, outDir, paths, rootDir, e
 Cohesion: 0.17
 Nodes (11): compilerOptions, module, moduleResolution, outDir, rootDir, extends, include, ../../tsconfig.json (+3 more)
 
-### Community 541 - "RenderImageCommand"
-Cohesion: 0.16
-Nodes (12): API, Best practices, Configuration, Examples, Export the spans still open at shutdown, How it works, Important behaviour, Long-lived spans (+4 more)
+### Community 541 - "model/cache.test.ts"
+Cohesion: 0.13
+Nodes (9): alice, bob, Call, carol, isThenable(), members, NOW, Rows (+1 more)
 
-### Community 542 - "HarnessTokenService"
-Cohesion: 0.36
-Nodes (3): HarnessTokenService, sameRef(), sha256hex()
+### Community 542 - "authz-testing/test/di.test.ts"
+Cohesion: 0.13
+Nodes (10): ChildRegistration, disposeScope(), OwnedType, scopedContainer, ScopedContainerOptions, uncacheOwned(), ChildModel, ChildService (+2 more)
 
 ### Community 543 - "scripts"
 Cohesion: 0.15
@@ -3814,8 +3731,8 @@ Cohesion: 0.14
 Nodes (14): dependencies, archiver, @azure/identity, @azure/msal-node, lodash, luxon, @microsoft/microsoft-graph-client, @spinajs/configuration (+6 more)
 
 ### Community 547 - "authz-testing/test/di.test.ts"
-Cohesion: 0.20
-Nodes (10): Best practices, Examples, Important behaviour, Parameters, Parameters and request bodies, Patterns and antipatterns, Related, Request bodies (+2 more)
+Cohesion: 0.18
+Nodes (11): Best practices, Examples, Important behaviour, Parameters, Parameters and request bodies, Path parameters, Patterns and antipatterns, Related (+3 more)
 
 ### Community 549 - "Endpoints and OpenAPI"
 Cohesion: 0.15
@@ -3834,12 +3751,12 @@ Cohesion: 0.18
 Nodes (10): compilerOptions, module, moduleResolution, outDir, rootDir, extends, include, ../../tsconfig.json (+2 more)
 
 ### Community 553 - "paging.ts"
-Cohesion: 0.08
-Nodes (31): Best practices, Decorators, Examples, Helpers, How it works, Important behaviour, Page and sort a listing, Page with `Model.all()` when there are no conditions (+23 more)
+Cohesion: 0.14
+Nodes (28): AcceptedInvitation, CreateTeamInput, GROUP_MEMBER_ROLE, GROUP_TYPE, INVITATION_REFUSALS, InvitationRefusal, MemberEntry, Page (+20 more)
 
-### Community 554 - "db-rule-store.test.ts"
-Cohesion: 0.02
-Nodes (113): AuthzRbac_2026_10_01_00_00_00, USER_ROLES_SOURCE, ASSIGNMENT_LIST_MAX_LIMIT, LINK_LIST_MAX_LIMIT, LINK_SECRET_KEY, LINK_TOKEN_MAX_LENGTH, DbMembershipStore, toRow() (+105 more)
+### Community 554 - "sqs-transport.test.ts"
+Cohesion: 0.14
+Nodes (11): SQS_CREDENTIALS, SQS_ENDPOINT, SQS_REGION, TestConfiguration, NoRouteEvent, raw, SharedUrlA, SharedUrlB (+3 more)
 
 ### Community 555 - "devDependencies"
 Cohesion: 0.33
@@ -3849,9 +3766,9 @@ Nodes (6): devDependencies, @types/archiver, @types/cron, @types/luxon, @types/u
 Cohesion: 0.15
 Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+5 more)
 
-### Community 557 - "authz-abac/test/admin/support.ts"
-Cohesion: 0.02
-Nodes (150): Authorization in SpinaJS 3.0, Contents, The ABAC model, abacModels(), actorRef(), byId(), deepFreeze(), ormDriver() (+142 more)
+### Community 557 - "admin/handler.ts"
+Cohesion: 0.06
+Nodes (41): abacModels(), actorRef(), byId(), deepFreeze(), ormDriver(), policiesInTx(), policyChanged(), quote() (+33 more)
 
 ### Community 558 - "dependencies"
 Cohesion: 0.15
@@ -3976,10 +3893,6 @@ Nodes (9): compilerOptions, module, moduleResolution, outDir, rootDir, extends, 
 ### Community 588 - "authz-http/tsconfig.mjs.json"
 Cohesion: 0.20
 Nodes (9): compilerOptions, module, moduleResolution, outDir, rootDir, extends, include, ../../tsconfig.json (+1 more)
-
-### Community 589 - "guard-metadata.test.ts"
-Cohesion: 0.09
-Nodes (18): AbsolutePath, canonical(), isInside(), normalizeFsPath(), parseAbsolute(), walk(), alice, ArchiveMetadataStore (+10 more)
 
 ### Community 590 - "authz-orm/tsconfig.json"
 Cohesion: 0.20
@@ -4185,9 +4098,9 @@ Nodes (9): compilerOptions, module, moduleResolution, outDir, rootDir, extends, 
 Cohesion: 0.20
 Nodes (9): compilerOptions, module, moduleResolution, outDir, rootDir, extends, include, ../../tsconfig.json (+1 more)
 
-### Community 643 - "check-packages.mjs"
-Cohesion: 0.25
-Nodes (7): publint, ARGS, ATTW_IGNORE, ATTW_IGNORE_PER_PACKAGE, ONLY, packages, PACKAGES_DIR
+### Community 643 - "OtelTracing"
+Cohesion: 0.24
+Nodes (13): API, Best practices, How it works, Important behaviour, `OtelTracing`: custom implementation, Patterns and antipatterns, Related, Services and extension points (+5 more)
 
 ### Community 644 - "intl-orm/tsconfig.json"
 Cohesion: 0.20
@@ -4197,9 +4110,9 @@ Nodes (9): compilerOptions, module, moduleResolution, outDir, rootDir, extends, 
 Cohesion: 0.20
 Nodes (9): compilerOptions, module, moduleResolution, outDir, rootDir, extends, include, ../../tsconfig.json (+1 more)
 
-### Community 646 - "csrf-origin-guard.test.ts"
-Cohesion: 0.09
-Nodes (26): authnHttp, proxyTrustOf(), carriesCookie(), clip(), CSRF_REFUSAL_LOG_FILTERS, CSRF_REFUSED_EVENT, normalisedOrigins(), ownOrigin() (+18 more)
+### Community 646 - "knip.json"
+Cohesion: 0.11
+Nodes (17): ignore, include, entry, entry, project, project, rules, binaries (+9 more)
 
 ### Community 647 - "contracts/config-schema.test.ts"
 Cohesion: 0.09
@@ -4243,7 +4156,7 @@ Nodes (9): compilerOptions, module, moduleResolution, outDir, rootDir, extends, 
 
 ### Community 657 - "root.ts"
 Cohesion: 0.06
-Nodes (40): Types, ArrayConstructor, ChainArray, TypedArray, ContainerCache, rejectChain(), DI_DESCRIPTION_SYMBOL, LazyInjectBinding (+32 more)
+Nodes (22): How it works, Container API, How it works, ArrayConstructor, TypedArray, ContainerCache, Container, geAllTypes() (+14 more)
 
 ### Community 658 - "log/tsconfig.json"
 Cohesion: 0.20
@@ -4277,9 +4190,13 @@ Nodes (9): compilerOptions, module, moduleResolution, outDir, rootDir, extends, 
 Cohesion: 0.20
 Nodes (9): compilerOptions, module, moduleResolution, outDir, rootDir, extends, include, ../../tsconfig.json (+1 more)
 
-### Community 667 - "CLI commands"
-Cohesion: 0.27
-Nodes (11): COMMON_KEYS, expiry(), floor(), isId(), isNames(), isPlain(), NO_RULES, Raw (+3 more)
+### Community 666 - "MemorySecretStore"
+Cohesion: 0.18
+Nodes (8): MemorySecretStore, samePair(), SecretRow, sha256hex(), migrationFactory(), flawed(), FlawedSecretStore, sha256hex()
+
+### Community 667 - "extractors.ts"
+Cohesion: 0.19
+Nodes (13): ExtractorInfo, described(), EXTRACTOR, extractorInfo, fromBody(), fromModel(), fromParam(), fromQuery() (+5 more)
 
 ### Community 668 - "orm-mysql/tsconfig.json"
 Cohesion: 0.20
@@ -4537,9 +4454,9 @@ Nodes (9): compilerOptions, module, moduleResolution, outDir, rootDir, extends, 
 Cohesion: 0.20
 Nodes (9): compilerOptions, module, moduleResolution, outDir, rootDir, extends, include, ../../tsconfig.json (+1 more)
 
-### Community 732 - "tree.ts"
-Cohesion: 0.48
-Nodes (6): ExplainNode, explainTree(), stepNodes(), verdict(), voteVerdict(), why()
+### Community 732 - "fields.d.ts"
+Cohesion: 0.17
+Nodes (4): AuthzFieldsMiddleware, AuthzFieldTransformer, AuthzInputFieldFilter, DecisionFields
 
 ### Community 733 - "scripts"
 Cohesion: 0.15
@@ -4558,8 +4475,8 @@ Cohesion: 0.15
 Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+5 more)
 
 ### Community 737 - "FakeStompClient"
-Cohesion: 0.04
-Nodes (49): Configuration, API, Best practices, Configuration, Credential providers, Credentials provider: custom implementation, How it works, Important behaviour (+41 more)
+Cohesion: 0.05
+Nodes (37): API, Best practices, Configuration, Credential providers, Credentials provider: custom implementation, How it works, Important behaviour, Related (+29 more)
 
 ### Community 738 - "users/tsconfig.json"
 Cohesion: 0.20
@@ -4589,9 +4506,9 @@ Nodes (8): compilerOptions, module, outDir, rootDir, extends, include, ../../tsc
 Cohesion: 0.22
 Nodes (8): compilerOptions, module, outDir, rootDir, extends, include, ../../tsconfig.json, references
 
-### Community 745 - "http-config.d.ts"
-Cohesion: 0.29
-Nodes (5): AuthzHttpConfig, AuthzHttpConfigBootstrapper, LinksConfig, ServiceEntry, ServicePrincipalConfig
+### Community 745 - "ConcurrencyLimiter"
+Cohesion: 0.13
+Nodes (5): C5 to C9: consumers, ConcurrencyLimiter, C8 outcome, test/JobsController.test.ts, Test ledger: @spinajs/queue-http-progress
 
 ### Community 746 - "Long-lived spans"
 Cohesion: 0.18
@@ -4985,9 +4902,9 @@ Nodes (13): ARGS, BUMP, DEP_SECTIONS, DRY_RUN, fail(), internalNames, lock, next
 Cohesion: 0.50
 Nodes (4): devDependencies, @types/luxon, @types/node, @types/nodemailer
 
-### Community 845 - "bump-all.mjs"
-Cohesion: 0.02
-Nodes (95): Best practices, Configuration, Decorators, Examples, File uploads, Import contacts from a CSV file, Important behaviour, `IUploadedFile` (+87 more)
+### Community 845 - "ref_spinajs_log_common"
+Cohesion: 0.04
+Nodes (61): Best practices, Configuration, Examples, File uploads, Import contacts from a CSV file, Important behaviour, Patterns and antipatterns, Related (+53 more)
 
 ### Community 846 - "scripts"
 Cohesion: 0.15
@@ -5041,37 +4958,29 @@ Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, f
 Cohesion: 0.15
 Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+5 more)
 
-### Community 861 - "ref_spinajs_configuration"
-Cohesion: 0.06
-Nodes (19): ExplainController, ExplainControllerSource, PrincipalMiddleware, ANONYMOUS, PRINCIPAL_MIDDLEWARE_ORDER, makeSender(), noopLog, templateSender() (+11 more)
+### Community 861 - "email.deferred.test.ts"
+Cohesion: 0.14
+Nodes (4): BASE_EMAIL, EmailDeferredConf, FakeEmailSender, TestQueueClient
 
 ### Community 862 - "ConfigurationSource"
 Cohesion: 0.04
-Nodes (72): Important behaviour, BaseFileSource: custom file format, Best practices, Config files, Examples, How it works, Load configs from a deployment directory in tests, Patterns and antipatterns (+64 more)
+Nodes (60): How it works, Reading and writing, Best practices, Configuration, Examples, Fail fast with a readable report, How it works, Important behaviour (+52 more)
 
-### Community 863 - "SessionProvider"
-Cohesion: 0.08
-Nodes (26): Extending the session store, How it works, Important behaviour, Patterns and antipatterns, Related, Best practices, Configuration, Count deleted sessions in a metrics registry (+18 more)
-
-### Community 864 - "ref_node_path"
-Cohesion: 0.29
-Nodes (7): makeRegistry(), noopLog, makeTracing(), setField(), @opentelemetry/api, @opentelemetry/sdk-trace-base, @opentelemetry/sdk-trace-node
-
-### Community 865 - "RedisSessionStore"
-Cohesion: 0.15
-Nodes (12): Selection and connection, at boot, Truncate, `truncate()`, The sweep, `sweepLegacy()`, How it works, Key layout: `sessionKey()` and `indexKey()`, Session store: subclass `RedisSessionStore`, Features, Documentation (+4 more)
+### Community 864 - "Policies and access"
+Cohesion: 0.13
+Nodes (12): L2: RBAC stores, migrations and CLI, How it works, Access, Best practices, Examples, Extensions, How it works, Important behaviour (+4 more)
 
 ### Community 866 - "dependencies"
 Cohesion: 0.15
 Nodes (13): dependencies, lodash, prom-client, @spinajs/authz, @spinajs/authz-http, @spinajs/configuration, @spinajs/configuration-common, @spinajs/di (+5 more)
 
-### Community 867 - "BrowserFrameworkConfiguration"
-Cohesion: 0.17
-Nodes (7): Best practices, Browser configuration, BrowserFrameworkConfiguration: configure a single-page app, Patterns and antipatterns, Related, Services and extension points, BrowserFrameworkConfiguration
+### Community 867 - "Location"
+Cohesion: 0.13
+Nodes (5): Location, LocationMetadata, LocationNetwork, LocationNetworkMetadata, OfferLocation
 
-### Community 868 - "devDependencies"
-Cohesion: 0.29
-Nodes (7): devDependencies, ioredis-mock, @spinajs/authn-testing, @types/luxon, @types/node, @types/nodemailer, @types/pug
+### Community 868 - "CurrentUserArg"
+Cohesion: 0.19
+Nodes (12): Answer the signed-in user's account summary, Best practices, Current user argument, `CurrentUserArg`: refuse banned accounts everywhere, Decorators, Examples, How it works, Important behaviour (+4 more)
 
 ### Community 869 - "scripts"
 Cohesion: 0.15
@@ -5079,19 +4988,19 @@ Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, f
 
 ### Community 870 - "Loading classes from directories"
 Cohesion: 0.08
-Nodes (30): Related, Best practices, Configuration, Decorators, Examples, How it works, Important behaviour, List command-like classes without building them (+22 more)
+Nodes (37): Services and extension points, Best practices, Configuration, Examples, How it works, Important behaviour, JsonTranslationSource: extending a shipped source, `JsonTranslationSource.load()` (+29 more)
 
-### Community 871 - "OidcController"
-Cohesion: 0.24
-Nodes (3): isNavigation(), OidcController, OidcResponse
+### Community 871 - "email-smtp-transport/src/index.ts"
+Cohesion: 0.18
+Nodes (7): makeSender(), noopLog, templateSender(), FakeTransporter, makeSender(), noopLog, nodemailer
 
 ### Community 872 - "scripts"
 Cohesion: 0.15
 Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+5 more)
 
 ### Community 873 - "ported/descriptor-inheritance.test.ts"
-Cohesion: 0.10
-Nodes (17): AnonymousOnlyController, AppUserController, BareController, BaseWithoutClassRuleController, ChildOfRouteOnlyController, descriptorOf(), LevelOneController, LevelThreeController (+9 more)
+Cohesion: 0.50
+Nodes (4): devDependencies, @spinajs/authn-testing, @spinajs/orm-sqlite, @types/qrcode
 
 ### Community 874 - "dependencies"
 Cohesion: 0.22
@@ -5109,17 +5018,17 @@ Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, f
 Cohesion: 0.15
 Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+5 more)
 
-### Community 878 - "Main process IPC bridge"
-Cohesion: 0.07
-Nodes (31): Best practices, Configuration, Examples, Expose invoice rendering to the renderer, Exposed service: custom implementation, How it works, Important behaviour, Main process IPC bridge (+23 more)
+### Community 878 - "Events"
+Cohesion: 0.15
+Nodes (13): Best practices, Events, Examples, How it works, Important behaviour, Lifecycle events, onListenerError: custom implementation, Patterns and antipatterns (+5 more)
 
-### Community 879 - "XlsxRenderer"
-Cohesion: 0.09
-Nodes (30): API, Best practices, Examples, Export an invoice list as an Excel attachment, Important behaviour, Patterns and antipatterns, Pick the engine by type for a template stored under another name, Related (+22 more)
+### Community 879 - "Span processors"
+Cohesion: 0.17
+Nodes (12): Assert spans in a unit test, Best practices, Drop health-check spans before export, Examples, How it works, Important behaviour, Patterns and antipatterns, Related (+4 more)
 
-### Community 880 - "jwt-strategy.test.ts"
-Cohesion: 0.09
-Nodes (22): authnToken, boot(), Booted, configurationOf(), disposeBooted(), open, readingFrom(), violationsOf() (+14 more)
+### Community 880 - "fake-dynamo.ts"
+Cohesion: 0.19
+Nodes (11): Comparator, compare(), Condition, evaluate(), ExpressionInput, Item, metadata, Operand (+3 more)
 
 ### Community 881 - "scripts"
 Cohesion: 0.15
@@ -5128,6 +5037,10 @@ Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, f
 ### Community 882 - "scripts"
 Cohesion: 0.15
 Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+5 more)
+
+### Community 883 - "authn.configuration.ts"
+Cohesion: 0.18
+Nodes (9): RFC-7517, backoff(), flow(), JWT_ALGORITHMS, JWT_ISSUER_MEMBERS, named, PRIVATE_JWK_MEMBERS, PUBLIC_JWK (+1 more)
 
 ### Community 884 - "test.js"
 Cohesion: 0.33
@@ -5146,12 +5059,12 @@ Cohesion: 0.15
 Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+5 more)
 
 ### Community 888 - "orm-sql/test/fixture.ts"
-Cohesion: 0.01
-Nodes (139): Enums, Sorting, grouping and limits, Statement classes, Important behaviour, Add `whereStartsWith()` to every select builder, Compare only the date part of a timestamp, Examples, How it works (+131 more)
+Cohesion: 0.02
+Nodes (73): Add `whereStartsWith()` to every select builder, Compare only the date part of a timestamp, Examples, Important behaviour, Joins, Patterns and antipatterns, Related, Services and extension points (+65 more)
 
 ### Community 889 - "LogBotstrapper"
-Cohesion: 0.10
-Nodes (18): Replacing the context provider, Services and extension points, Configuration, Startup, API, How it works, LogBotstrapper, uncaughtExceptionHandler() (+10 more)
+Cohesion: 0.67
+Nodes (3): Examples, Find invoices whose net total exceeds a threshold, on any connection, Write booleans as `TRUE` / `FALSE` in view bodies
 
 ### Community 890 - "dependencies"
 Cohesion: 0.17
@@ -5165,9 +5078,9 @@ Nodes (13): devDependencies, luxon, socket.io-client, @spinajs/authn-keys, @spin
 Cohesion: 0.17
 Nodes (12): dependencies, jose, @spinajs/authn, @spinajs/authn-http, @spinajs/authn-session, @spinajs/configuration, @spinajs/configuration-common, @spinajs/di (+4 more)
 
-### Community 893 - "DefaultFileHasher"
-Cohesion: 0.10
-Nodes (22): Instance API, Best practices, Configuration, Examples, Extending `DefaultFileHasher`: forbid weak algorithms, File hashing, `FileHasher` API, `FileHasher`: custom implementation (+14 more)
+### Community 893 - "Customizing the long-span registry"
+Cohesion: 0.17
+Nodes (11): Assert a flow opens and closes its span, without OpenTelemetry, Best practices, Customizing the long-span registry, Examples, How it works, Important behaviour, Patterns and antipatterns, Related (+3 more)
 
 ### Community 894 - "repository"
 Cohesion: 0.67
@@ -5177,25 +5090,33 @@ Nodes (3): repository, type, url
 Cohesion: 0.17
 Nodes (12): dependencies, jose, luxon, @spinajs/authn, @spinajs/cli, @spinajs/configuration, @spinajs/di, @spinajs/exceptions (+4 more)
 
+### Community 896 - "dependencies"
+Cohesion: 0.17
+Nodes (12): dependencies, @opentelemetry/api, @opentelemetry/exporter-trace-otlp-http, @opentelemetry/resources, @opentelemetry/sdk-trace-base, @opentelemetry/sdk-trace-node, @opentelemetry/semantic-conventions, @spinajs/configuration (+4 more)
+
 ### Community 897 - "metadata-stores.test.ts"
-Cohesion: 0.07
-Nodes (13): FakeConfiguration, ALICE, BOB, ContractSetup, DbKind, externalDb(), FakeS3Provider, FULL (+5 more)
+Cohesion: 0.27
+Nodes (7): AccessController, access(), ACCESS_CLASS, ACCESS_DESCRIPTOR, allowAnonymous(), Descriptor, own()
 
 ### Community 898 - "arbitraries/principals.ts"
 Cohesion: 0.09
-Nodes (30): Best practices, Bootstrapper: publish build information at startup, Examples, How it works, Important behaviour, Patterns and antipatterns, Related, Services and extension points (+22 more)
+Nodes (23): Best practices, Configuration, Examples, Important behaviour, Patterns and antipatterns, Related, Setup and configuration, Shorter timeline buckets and a release tag (+15 more)
 
 ### Community 899 - "cli/src/decorators.ts"
-Cohesion: 0.13
-Nodes (8): META_ARGUMENT, META_COMMAND, META_OPTION, IArgument, ICommand, IOption, CliCommand, commander
+Cohesion: 0.67
+Nodes (3): Cut tail latency with hedged reads from two replicas, Examples, Protect a pricing service with a breaker, retries and a cached fallback
 
 ### Community 900 - "dependencies"
 Cohesion: 0.17
 Nodes (12): dependencies, ajv, ajv-formats, ajv-keywords, ajv-merge-patch, glob, lodash, @spinajs/configuration-common (+4 more)
 
-### Community 901 - "ref_mocha"
+### Community 901 - "packages_orm_lib_mjs_index"
 Cohesion: 0.01
-Nodes (124): Services and extension points, Transaction primitives: custom implementation, lost, TABLES, FixtureExtra_2026_10_02_00_00_01, Executed, FakeMsSql, FakeMySql (+116 more)
+Nodes (113): API, Decorators, Message fields, API, TABLES, StoreDb, Executed, FakeMsSql (+105 more)
+
+### Community 902 - "ElectronRendererLogger"
+Cohesion: 0.67
+Nodes (3): repository, type, url
 
 ### Community 903 - "dependencies"
 Cohesion: 0.33
@@ -5210,28 +5131,20 @@ Cohesion: 0.33
 Nodes (6): devDependencies, chai, chai-as-promised, @spinajs/log, @spinajs/telemetry-common, @types/ssh2
 
 ### Community 906 - "eslint-plugin-authz/src/index.ts"
-Cohesion: 0.16
+Cohesion: 0.18
 Nodes (3): readPasswordLine(), SetUserPassword, ScriptedSetUserPassword
 
 ### Community 907 - "dependencies"
 Cohesion: 0.17
 Nodes (12): dependencies, lodash, luxon, @spinajs/configuration, @spinajs/di, @spinajs/exceptions, @spinajs/http, @spinajs/intl-orm (+4 more)
 
-### Community 908 - "meta.ts"
-Cohesion: 0.09
-Nodes (19): canonical(), FS_NO_OWNER_TYPES, sameFileMeta(), text(), FsOwnerRelation, fileMetadataStore(), found, fsAncestors() (+11 more)
-
 ### Community 909 - "Csv"
-Cohesion: 0.06
-Nodes (44): Document an invoice controller, Examples, API, Shipped renderers, Accepted `data` shapes, Best practices, Configuration, Examples (+36 more)
+Cohesion: 0.05
+Nodes (51): Configuration, Shipped renderers, Accepted `data` shapes, Best practices, Configuration, Examples, Export rows produced by a stream, How it works (+43 more)
 
 ### Community 910 - "devDependencies"
-Cohesion: 0.50
-Nodes (4): devDependencies, @spinajs/authn-testing, @spinajs/orm-sqlite, @types/qrcode
-
-### Community 911 - "DbSessionStore"
-Cohesion: 0.10
-Nodes (19): Best practices, Configuration, Database session store, Examples, Important behaviour, List the sessions an operator opened while impersonating customers, Patterns and antipatterns, Principal keys (+11 more)
+Cohesion: 0.67
+Nodes (3): repository, type, url
 
 ### Community 912 - "dependencies"
 Cohesion: 0.17
@@ -5261,57 +5174,33 @@ Nodes (12): dependencies, ajv, ajv-formats, ajv-keywords, ajv-merge-patch, glob,
 Cohesion: 0.17
 Nodes (11): Best practices, Decorators, `@delegate(fn)`, How it works, Important behaviour, Mixin: custom implementation, Mixins, Patterns and antipatterns (+3 more)
 
-### Community 919 - "sse.js"
-Cohesion: 0.11
-Nodes (23): before(), ACCESS_EPOCH_HEADER, ACCESS_EPOCH_MIDDLEWARE_ORDER, accessEpoch(), closeAll(), constructor(), count(), dispose() (+15 more)
-
 ### Community 920 - "XlsxRenderer"
 Cohesion: 0.24
 Nodes (3): AuthorizedTestPolicy, OffHoursTestPolicy, UndocumentedTestPolicy
 
-### Community 921 - "DbLinkStore"
-Cohesion: 0.16
-Nodes (11): attributesText(), DbLinkStore, isLookupToken(), linkSubject(), linkTokenHash(), notFound(), requireScopeNode(), rowsAffected() (+3 more)
-
-### Community 922 - "host/service.test.ts"
-Cohesion: 0.17
-Nodes (12): dependencies, @opentelemetry/api, @opentelemetry/exporter-trace-otlp-http, @opentelemetry/resources, @opentelemetry/sdk-trace-base, @opentelemetry/sdk-trace-node, @opentelemetry/semantic-conventions, @spinajs/configuration (+4 more)
-
 ### Community 923 - "dependencies"
 Cohesion: 0.17
 Nodes (12): dependencies, otpauth, qrcode, @spinajs/authn, @spinajs/authn-orm, @spinajs/cli, @spinajs/configuration, @spinajs/di (+4 more)
-
-### Community 924 - "B26-covers-guard.spec.ts"
-Cohesion: 0.08
-Nodes (28): abacCases, abacWorld(), ADMIN_PERMISSIONS, coreCases, coreWorld(), DOC, f1, fakeRbac() (+20 more)
 
 ### Community 925 - "Customizing the tracing service"
 Cohesion: 0.17
 Nodes (12): scripts, build, clean, compile, compile:cjs, coverage, format, lint (+4 more)
 
 ### Community 926 - "ResolveException"
-Cohesion: 0.08
-Nodes (25): Errors, Adding a selectable implementation, API, Best practices, Examples, How it works, Important behaviour, Let a tenant use a different storage under the same name (+17 more)
+Cohesion: 0.09
+Nodes (17): appEnvOf(), assertSessionCookieSecret(), clearSessionCookie(), COOKIE_CONTROL_KEYS, cookieMaxAge(), DEFAULT_SAME_SITE, flagOn(), ISessionCookieConfig (+9 more)
 
 ### Community 927 - "dependencies"
 Cohesion: 0.18
 Nodes (11): dependencies, luxon, @spinajs/cli, @spinajs/configuration, @spinajs/di, @spinajs/exceptions, @spinajs/fs, @spinajs/intl (+3 more)
 
-### Community 928 - "SchemaSource"
-Cohesion: 0.11
-Nodes (30): Best practices, Configuration, Important behaviour, Patterns and antipatterns, Related, Runtime schema: add or replace one, Schema source: custom implementation, Services and extension points (+22 more)
-
-### Community 930 - "JobRetentionService"
-Cohesion: 0.12
-Nodes (21): How it works, Services and extension points, How it works, How it works, API, Archive jobs to a file before deleting them, Best practices, Configuration (+13 more)
-
-### Community 931 - "c8.test.ts"
+### Community 928 - "`Cli` service"
 Cohesion: 0.20
-Nodes (14): Claims, isCount(), isObj(), isStr(), isUuid(), jwks(), KINDS, options() (+6 more)
+Nodes (10): Best practices, `Cli`: custom implementation, `Cli` service, How it works, Important behaviour, Members, Related, Run the CLI from your own entry point (+2 more)
 
-### Community 932 - "Metrics.ts"
-Cohesion: 0.11
-Nodes (14): Configuration, Configuration schema, PERF_DURATION_BUCKETS_MS, name, permission, TELEMETRY_CONFIGURATION_SCHEMA, auth(), SLOTS (+6 more)
+### Community 930 - "Initiator"
+Cohesion: 0.24
+Nodes (10): Best practices, Examples, Important behaviour, Message hook: custom implementation, Message hooks, Patterns and antipatterns, Related, Services and extension points (+2 more)
 
 ### Community 933 - "dependencies"
 Cohesion: 0.18
@@ -5322,8 +5211,8 @@ Cohesion: 0.18
 Nodes (11): dependencies, luxon, @spinajs/authn, @spinajs/authn-session, @spinajs/configuration, @spinajs/di, @spinajs/exceptions, @spinajs/log (+3 more)
 
 ### Community 935 - "QueueChangeBus"
-Cohesion: 0.10
-Nodes (16): API, Best practices, Examples, Important behaviour, Related, Retry job-row writes on a database deadlock, Services and extension points, Tracking hook: custom implementation (+8 more)
+Cohesion: 0.03
+Nodes (58): Best practices, Check a connection from a readiness probe, Configuration, Connect to two databases on a custom port, Connection and configuration, Connection setup: custom implementation, Examples, Important behaviour (+50 more)
 
 ### Community 936 - "dependencies"
 Cohesion: 0.18
@@ -5339,18 +5228,18 @@ Nodes (10): dependencies, @aws-sdk/client-dynamodb, luxon, @spinajs/authn, @spin
 
 ### Community 941 - "dependencies"
 Cohesion: 0.18
-Nodes (11): dependencies, luxon, @spinajs/authz, @spinajs/authz-abac, @spinajs/configuration, @spinajs/di, @spinajs/exceptions, @spinajs/fs (+3 more)
+Nodes (11): dependencies, luxon, @spinajs/authz, @spinajs/authz-rbac, @spinajs/configuration, @spinajs/di, @spinajs/exceptions, @spinajs/fs (+3 more)
 
-### Community 942 - "guard/metadata.ts"
-Cohesion: 0.15
-Nodes (21): FileMetadataStore, AfterIo, CheckedStore, checkMeta(), clearStale(), deleteTree(), Effect, EFFECTS (+13 more)
+### Community 942 - "longSpanRegistry.test.ts"
+Cohesion: 0.29
+Nodes (7): makeRegistry(), noopLog, makeTracing(), setField(), @opentelemetry/api, @opentelemetry/sdk-trace-base, @opentelemetry/sdk-trace-node
 
 ### Community 943 - "devDependencies"
-Cohesion: 0.20
-Nodes (10): devDependencies, @aws-sdk/client-s3, @spinajs/authz-rbac, @spinajs/authz-testing, @spinajs/fs-s3, @spinajs/log-common, @spinajs/orm-mysql, @spinajs/orm-postgres (+2 more)
+Cohesion: 0.22
+Nodes (9): devDependencies, @aws-sdk/client-s3, @spinajs/authz-testing, @spinajs/fs-s3, @spinajs/log-common, @spinajs/orm-mysql, @spinajs/orm-postgres, @spinajs/orm-sqlite (+1 more)
 
 ### Community 945 - "authn-audit.test.ts"
-Cohesion: 0.13
+Cohesion: 0.14
 Nodes (12): Best practices, CLI command and helpers, Configuration, Examples, How it works, Important behaviour, Patterns and antipatterns, Related (+4 more)
 
 ### Community 948 - "Secrets Manager protocol"
@@ -5358,52 +5247,52 @@ Cohesion: 0.22
 Nodes (9): Best practices, Client factory, Client factory: custom implementation, Configuration, How it works, Important behaviour, Patterns and antipatterns, Related (+1 more)
 
 ### Community 953 - "fields.js"
-Cohesion: 0.11
-Nodes (22): ClientCheck, ClientCheckOptions, ClientChecksAnswer, verdict(), answerClientChecks(), CLIENT_CHECK_REASONS, isCaller(), MAX_ACCESS_CHECKS (+14 more)
+Cohesion: 0.33
+Nodes (6): Development, Documentation, Install, `@spinajs/orm-mssql`, Usage, What is distinctive
 
 ### Community 955 - "ModelAllow"
 Cohesion: 0.15
 Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+5 more)
 
-### Community 956 - "DbRuleStore"
-Cohesion: 0.16
-Nodes (7): DbRuleStore, ruleById(), rulesOf(), subjectRowsOf(), whereScopes(), Blind, InDomain
-
-### Community 957 - "repository"
-Cohesion: 0.67
-Nodes (3): repository, type, url
+### Community 956 - "AuthzFsMiddleware"
+Cohesion: 0.05
+Nodes (55): How it works, Check a download route by path, Examples, `fromFsPath`, How it works, Important behaviour, Related, Uploads and routes (+47 more)
 
 ### Community 959 - "dependencies"
 Cohesion: 0.20
 Nodes (10): dependencies, luxon, @spinajs/configuration, @spinajs/di, @spinajs/exceptions, @spinajs/intl, @spinajs/log-common, @spinajs/orm (+2 more)
 
-### Community 960 - "repository"
-Cohesion: 0.67
-Nodes (3): repository, type, url
+### Community 960 - "Flat config setup"
+Cohesion: 0.20
+Nodes (10): Best practices, Configuration, Examples, Flag queries of `User` and `JobModel` from compiled packages, Flat config setup, How it works, Important behaviour, Lint an app with the recommended config (+2 more)
 
 ### Community 961 - "devDependencies"
 Cohesion: 0.50
 Nodes (4): devDependencies, chai, chai-as-promised, @types/mssql
 
-### Community 962 - "telemetry/test/access-policy.test.ts"
-Cohesion: 0.05
-Nodes (35): config, DURATION_BUCKETS_MS, DisabledTestPolicy, RefusingTestPolicy, SLOTS, TEST_POLICIES, dir(), req() (+27 more)
+### Community 962 - "Long-lived spans"
+Cohesion: 0.20
+Nodes (10): API, Best practices, Configuration, Examples, Export the spans still open at shutdown, How it works, Long-lived spans, Patterns and antipatterns (+2 more)
 
 ### Community 963 - "FenceDocExists"
 Cohesion: 0.15
 Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+5 more)
 
-### Community 965 - "B06-check-filter.spec.ts"
-Cohesion: 0.09
-Nodes (27): accessWorldFixed, agreeCases(), alice, asNumber(), asString(), bob, carol, fakeRbacWorld (+19 more)
+### Community 965 - "Customizing the tracing service"
+Cohesion: 0.20
+Nodes (10): Best practices, Customizing the tracing service, Examples, How it works, Patterns and antipatterns, Register the provider globally and sample 10% of traces, Related, Send traces with an auth header from config (+2 more)
 
-### Community 966 - "Factories"
-Cohesion: 0.07
-Nodes (29): Signed URLs, Caches, Capabilities, Host, Lifecycle, Missing or failed data, Registration, `@spinajs/authz` (+21 more)
+### Community 966 - "The RBAC model"
+Cohesion: 0.05
+Nodes (35): L6: queue (`authz-queue`), Adapters, Authorization in SpinaJS 3.0, Concepts, Contents, Queue (`@spinajs/authz-queue`), The ABAC model, The RBAC model (+27 more)
 
-### Community 968 - "RepositoryMiddleware"
-Cohesion: 0.08
-Nodes (11): How it works, `JsonApiIncomingObject`, The hooks, Development, Documentation, Install, Known issues, `@spinajs/orm-http` (+3 more)
+### Community 967 - "dependencies"
+Cohesion: 0.06
+Nodes (40): Configuration, Search directories, Best practices, Configuration, Decorators, Examples, How it works, Important behaviour (+32 more)
+
+### Community 969 - "argv.ts"
+Cohesion: 0.67
+Nodes (3): repository, type, url
 
 ### Community 971 - "repository"
 Cohesion: 0.22
@@ -5414,28 +5303,28 @@ Cohesion: 0.33
 Nodes (6): Environment, MySQL, Running integration tests, SpinaJS, SQLite, Static analysis
 
 ### Community 973 - "db-rule-store.ts"
-Cohesion: 0.05
-Nodes (60): DbAuthzAdminBackendOptions, queues, toDate(), versionRows, parsePrincipalKey(), scopeFromColumns(), ScopeRefColumns, scopeToColumns() (+52 more)
+Cohesion: 0.01
+Nodes (235): authz-abac, authz-fs, authz-orm, authz-rbac, Tables, Custom store over a shared key-value service, checkDomain(), DbAuthzAdminBackend (+227 more)
 
-### Community 974 - "jwks.ts"
-Cohesion: 0.10
-Nodes (23): OIDC_SIGNING_ALGORITHMS, OidcSigningAlgorithm, CURVES, Entry, fits(), isAlgorithm(), JWKS_MAX_AGE_MS, JWKS_REFRESH_MS (+15 more)
-
-### Community 975 - "terms.test.ts"
-Cohesion: 0.10
-Nodes (15): ROW_ID_LENGTH, columnsOf(), idIn(), NOTHING, PrincipalArg, principalsOf(), RELATION_OWNER_OP, RELATION_SELF_OP (+7 more)
+### Community 975 - "swagger-schema-generation.test.ts"
+Cohesion: 0.20
+Nodes (5): FakeModelSchemaProvider, FakeSchemaProvider, RESPONSE_SCHEMAS, SCHEMAS, TestUser
 
 ### Community 976 - "ref_chai"
-Cohesion: 0.01
-Nodes (322): AddKeyOptions, OWNER_TYPES, ownerArg(), readPublicJwk(), iso(), keyLine(), SetUserPasswordOptions, Booted (+314 more)
+Cohesion: 0.00
+Nodes (403): Best practices, Shipped signers, Replacing the context provider, Services and extension points, Configuration, Startup, API, lost (+395 more)
 
-### Community 978 - "repository"
-Cohesion: 0.67
-Nodes (3): repository, type, url
+### Community 977 - "`require-accessible` rule"
+Cohesion: 0.22
+Nodes (9): Configuration, Examples, Export every archived task in a backup job, Important behaviour, Messages, Paginate the caller's tasks, Patterns and antipatterns, Related (+1 more)
+
+### Community 978 - "authn-keys/src/options/options.ts"
+Cohesion: 0.31
+Nodes (6): checkRanges(), derived, KeysOptions, keysOptionsOf(), RANGES, DefaultKeyRegistryDeps
 
 ### Community 979 - "PolDisabled"
-Cohesion: 0.11
-Nodes (15): ALLOWED, DATA_RULES, DISCRIMINATOR_SCHEMA, ERROR_KEYS, expectNoValue(), FORM_DATA, FORM_PROPERTIES, FORM_SCHEMA (+7 more)
+Cohesion: 0.07
+Nodes (23): ALLOWED, DATA_RULES, DISCRIMINATOR_SCHEMA, ERROR_KEYS, expectNoValue(), FORM_DATA, FORM_PROPERTIES, FORM_SCHEMA (+15 more)
 
 ### Community 980 - "Replacing and extending the AWS protocols"
 Cohesion: 0.40
@@ -5449,13 +5338,9 @@ Nodes (10): devDependencies, @spinajs/authz-abac, @spinajs/authz-orm, @spinajs/a
 Cohesion: 0.50
 Nodes (3): Model1, Model2, VERSION
 
-### Community 983 - "Test ledger: @spinajs/users"
-Cohesion: 0.03
-Nodes (68): Authentication in SpinaJS 3.0, Boundaries and packages, Contents, Impersonation, Package set per app type, Throttling, 6.9 Example (h): the frontend, E1: `covers` and `summary` read model summaries (+60 more)
-
-### Community 984 - "configuration-http/test/configuration.test.ts"
-Cohesion: 0.11
-Nodes (14): ConfigurationHttpBootstrapper, configurationHttp, register(), seed(), JSON_HEADERS, MASKED_READ, permitted, DefaultsConfiguration (+6 more)
+### Community 983 - "authz/test/contracts/boundary.test.ts"
+Cohesion: 0.25
+Nodes (6): ALLOWED_PACKAGES, CONDITIONS_CONTRACTS, CONTRACTS_DIR, files(), listTs(), PKG_ROOT
 
 ### Community 985 - "dependencies"
 Cohesion: 0.17
@@ -5465,21 +5350,17 @@ Nodes (12): dependencies, handlebars, lodash, luxon, @spinajs/configuration, @sp
 Cohesion: 0.18
 Nodes (11): dependencies, cors, express, lodash, puppeteer, @spinajs/configuration, @spinajs/di, @spinajs/exceptions (+3 more)
 
-### Community 987 - "repository"
-Cohesion: 0.67
-Nodes (3): repository, type, url
+### Community 988 - "DbKeyNonceStore"
+Cohesion: 0.29
+Nodes (3): Z1 to Z7: fixes found late, AuthnNonce, DbKeyNonceStore
 
 ### Community 989 - "HarnessConfiguration"
 Cohesion: 0.18
 Nodes (4): HarnessConfiguration, schemaDefaultAt(), schemaDefaults(), withDefaults()
 
-### Community 990 - "invitations/mailer.ts"
-Cohesion: 0.11
-Nodes (13): Invitations, InvitationMail, InvitationMailer, acceptUrl(), EmailInvitationMailer, EmailInvitationMailerDeps, InvitationMailOptions, INVITATION_SECRET_MIN_LENGTH (+5 more)
-
 ### Community 991 - "child-chain.test.ts"
-Cohesion: 0.11
-Nodes (15): Abac, AbacModel, AsyncAbac, AuthzService, DomainModel, FailingAsync, FakeModel, FsAbac (+7 more)
+Cohesion: 0.10
+Nodes (20): ADMIN_ROUTE_PACKAGE, ALL, Answer, Boot, cacheDirs, Case, CASES, CHILD (+12 more)
 
 ### Community 993 - "dependencies"
 Cohesion: 0.22
@@ -5493,13 +5374,17 @@ Nodes (5): Behaviour changes and actions (23), Convert by hand (5), Notes (10), 
 Cohesion: 0.67
 Nodes (3): repository, type, url
 
+### Community 1003 - "Store ports"
+Cohesion: 0.04
+Nodes (22): 1. Principal, 2. Route guard, 3. Service, Authorization internals: storage and check flow, Check flow, Contents, ORM enforcement, Other packages (+14 more)
+
 ### Community 1004 - "controller-model.test.ts"
-Cohesion: 0.07
-Nodes (32): Best practices, Decorators, Examples, Handler arguments, Important behaviour, Patterns and antipatterns, `PayloadArg`: change how every payload is prepared, Related (+24 more)
+Cohesion: 0.10
+Nodes (14): Examples, Handler arguments, How it works, Important behaviour, Patterns and antipatterns, `PayloadArg`: change how every payload is prepared, Related, `SocketArg`: a custom argument decorator (+6 more)
 
 ### Community 1007 - "lifetime-inheritance.test.ts"
-Cohesion: 0.08
-Nodes (21): How it works, Abac, AsyncModel, AsyncRbac, FsAbac, Model, Rbac, Unknown (+13 more)
+Cohesion: 0.11
+Nodes (14): Service, hasImplementation(), Failing, Fresh, Hook, HookA, Model, ModelBase (+6 more)
 
 ### Community 1008 - "repository"
 Cohesion: 0.67
@@ -5513,237 +5398,65 @@ Nodes (10): dependencies, @spinajs/authn, @spinajs/authz, @spinajs/configuration
 Cohesion: 0.22
 Nodes (9): import, require, types, exports, ./audit, ./scope-attributes, import, require (+1 more)
 
-### Community 1011 - "probe.access-snapshot.ts"
-Cohesion: 0.10
-Nodes (9): builder, controllers, doc, InheritingController, out, OwnAccessController, PlainController, SnapshotController (+1 more)
-
-### Community 1012 - "`@spinajs/authz-fs`"
-Cohesion: 0.09
-Nodes (15): File system (`@spinajs/authz-fs`), `ISwaggerCacheEntry`, Configuration, `fromFsPath`, fs-abac, Guard, Nested calls, Paths (+7 more)
-
-### Community 1067 - "RbacCliCommand"
-Cohesion: 0.09
-Nodes (12): Best practices, CLI commands, Custom command: resend an invite, How it works, Related, Services and extension points, ActivateUser, BanUser (+4 more)
-
-### Community 1068 - "authn-oidc/test/config-schema.test.ts"
-Cohesion: 0.13
-Nodes (17): firstOf(), OriginFacts, requestOrigin(), bad(), client(), generic(), oidc(), SCHEMAS (+9 more)
-
-### Community 1069 - "admin-http.ts"
-Cohesion: 0.13
-Nodes (16): adminHttp, adminHttpHarness(), DOMAIN, HeaderPrincipalSource, listPath(), principals, RawRequest, RawResponse (+8 more)
-
-### Community 1070 - "electron.test.ts"
-Cohesion: 0.15
-Nodes (12): Async service call (`call`), How it works, asSystem(), callOnOrmConnection(), callService(), callServiceSync(), log(), exposeIpcBridge() (+4 more)
-
-### Community 1071 - "convert.ts"
-Cohesion: 0.12
-Nodes (21): AnalyzeOptions, ConvertOptions, ConvertResult, LayerOutput, OutputFile, outputName(), roleLiteral(), Root (+13 more)
-
-### Community 1072 - "implementation-checks.test.ts"
-Cohesion: 0.11
-Nodes (14): Service, hasImplementation(), Failing, Fresh, Hook, HookA, Model, ModelBase (+6 more)
-
-### Community 1076 - "route-groups-boot.test.ts"
-Cohesion: 0.10
-Nodes (20): ADMIN_ROUTE_PACKAGE, ALL, Answer, Boot, cacheDirs, Case, CASES, CHILD (+12 more)
-
-### Community 1077 - "MemoryQueueClient"
-Cohesion: 0.14
-Nodes (6): node(), MemoryBroker, MemoryQueueClient, NodeBus, PeerQueueService, startPeer()
-
-### Community 1078 - "B13-scoped-assignments.spec.ts"
-Cohesion: 0.10
-Nodes (21): alice, ALLOWED, B13, bob, carol, f1, f2, f3 (+13 more)
-
-### Community 1079 - "authz-fs/test/api.test.ts"
-Cohesion: 0.10
-Nodes (5): Equal, LooseExtractor, MemoryStore, Shape, TaskResolver
-
-### Community 1080 - "DataTransformer"
-Cohesion: 0.12
-Nodes (14): Best practices, Data transformers, `DataTransformer`: custom implementation, Default error transform: custom implementation, Examples, Hide internal ids from a partner integration, How it works, Important behaviour (+6 more)
-
-### Community 1081 - "authz-http-admin/test/swagger.test.ts"
-Cohesion: 0.11
-Nodes (12): COMMAND_KINDS, commandSchemas, AUTHZ_ADMIN_ROUTES, describeAuthzAdminDocument(), Json, PATH_PARAMS, QUERY, RouteDoc (+4 more)
-
-### Community 1082 - "isHbOptions"
-Cohesion: 0.14
-Nodes (16): Best practices, Examples, Format dates in the render language, Make `currency` follow the render language, Share a header and footer between mail templates, now(), currency(), formatNumber() (+8 more)
-
-### Community 1083 - "legacy-roles.test.ts"
-Cohesion: 0.13
-Nodes (15): carol, dave, del(), erin, grantBody(), lead, MANAGE, P1 (+7 more)
-
-### Community 1093 - "TelemetryAccess"
-Cohesion: 0.18
-Nodes (6): TelemetryAccess(), AccessRoutes, BrokenRoutes, decision(), DevelopmentRoutes, caseController()
-
-### Community 1094 - "config-role-store.ts"
-Cohesion: 0.21
-Nodes (12): closed(), copy(), entries(), grant(), GRANT_KEYS, ladder(), LADDER_KEYS, LadderEntry (+4 more)
-
-### Community 1095 - "intl-http/test/common.ts"
-Cohesion: 0.18
-Nodes (12): cwd(), dir(), http, lib(), appOrigin(), appPort(), dir(), req() (+4 more)
-
-### Community 1096 - "RelationModel3"
-Cohesion: 0.13
-Nodes (5): QueryRelationModel, RelationModel2, RelationModel3, RelationModel4, RelationModel
-
-### Community 1097 - "orm/test/schema.test.ts"
-Cohesion: 0.20
-Nodes (13): buildModelJsonSchema(), columnToSchema(), driverResponseTypes(), isConverterNamed(), ModelSchemaKind, SQL_TYPE_TO_SCHEMA, BooleanValueConverter, build() (+5 more)
-
-### Community 1100 - "How it works"
-Cohesion: 0.15
-Nodes (13): Expired-session sweep, `cleanupExpired()`, How it works, Restore, `restore(sessionId)`, Revocation, `deleteBySubject(subject, opts)`, Save, `save(session)`, Touch, `touch(session)`, How it works, Delete, `delete(sessionId)` (+5 more)
-
-### Community 1101 - "authz-testing/test/di.test.ts"
-Cohesion: 0.18
-Nodes (9): ChildRegistration, disposeScope(), OwnedType, scopedContainer, ScopedContainerOptions, uncacheOwned(), ChildService, Marker (+1 more)
-
-### Community 1102 - "Authorization internals: storage and check flow"
-Cohesion: 0.14
-Nodes (12): 1. Principal, 2. Route guard, 3. Service, Authorization internals: storage and check flow, Check flow, Contents, ORM enforcement, Other packages (+4 more)
-
-### Community 1103 - "2.x sessions and the boot sweep"
-Cohesion: 0.14
-Nodes (14): 2.x sessions and the boot sweep, Best practices, Configuration, Examples, How it works, Important behaviour, Index late 2.x sessions after a rolling upgrade, Patterns and antipatterns (+6 more)
-
-### Community 1104 - "CurrentUserArg"
-Cohesion: 0.19
-Nodes (12): Answer the signed-in user's account summary, Best practices, Current user argument, `CurrentUserArg`: refuse banned accounts everywhere, Decorators, Examples, How it works, Important behaviour (+4 more)
-
-### Community 1105 - "CreateToken.ts"
-Cohesion: 0.21
-Nodes (5): CLI_KINDS, CreateToken, ICreateTokenOptions, PRINTABLE_ERRORS, reasonOf()
-
-### Community 1106 - "`@spinajs/cli`"
-Cohesion: 0.15
-Nodes (13): Built-in commands, Decorators, Documentation, Examples, Framework integration, Installation, Lifecycle hooks, Registering commands (+5 more)
-
-### Community 1107 - "scripts"
-Cohesion: 0.15
-Nodes (13): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+5 more)
-
-### Community 1108 - "fake-dynamo.ts"
-Cohesion: 0.19
-Nodes (11): Comparator, compare(), Condition, evaluate(), ExpressionInput, Item, metadata, Operand (+3 more)
-
-### Community 1111 - "teams-http/test/swagger.test.ts"
-Cohesion: 0.17
-Nodes (6): TEAMS_HTTP_CONTROLLERS, TEAMS_HTTP_ROUTES, TEAMS_HTTP_SCHEMAS, AUTHENTICATED_ONLY, AUTHENTICATED_ONLY, refs()
-
-### Community 1112 - "Injection decorators"
-Cohesion: 0.18
-Nodes (12): Best practices, Decorators, Examples, Fail at startup when no payment gateway is installed, `IAutoinjectOptions`, Important behaviour, Inject the store, the hasher and every password rule, Injection decorators (+4 more)
-
-### Community 1113 - "Lang"
-Cohesion: 0.23
-Nodes (7): Schema, Schema, `intl_resources`, `intl_translations`, Schema, Lang(), TestResponses
-
-### Community 1114 - "fields.d.ts"
-Cohesion: 0.17
-Nodes (4): AuthzFieldsMiddleware, AuthzFieldTransformer, AuthzInputFieldFilter, DecisionFields
-
-### Community 1115 - "Owner"
-Cohesion: 0.17
-Nodes (3): Owner2, Owner, Test2
-
-### Community 1119 - "Functional / promise helpers (`fp`)"
-Cohesion: 0.18
-Nodes (8): `_chain(...fns)`, `_either(cond, onTrue, onFalse)`, Error handling, Functional / promise helpers (`fp`), Misc, `_tap(fn)`, `_use(factory, name)`, `_zip(...fns)` and `_map(cb)`
-
-### Community 1120 - "Policies and access"
-Cohesion: 0.18
-Nodes (10): Access, Best practices, Examples, Extensions, How it works, Important behaviour, Policies, Policies and access (+2 more)
-
-### Community 1121 - ".other"
+### Community 1011 - "HarnessTokenService"
 Cohesion: 0.36
-Nodes (5): Categories per locale, How it works, Interval syntax, ok(), PolicyRoutes
+Nodes (3): HarnessTokenService, sameRef(), sha256hex()
 
-### Community 1123 - "Queue"
+### Community 1012 - "neighbours.test.ts"
+Cohesion: 0.06
+Nodes (12): test/active-role.test.ts, test/impersonation.test.ts, FakeImpersonationGuard, FakeRoleSource, keyOf(), RecordingExternalLoginHook, RecordingThrottle, GuardPort (+4 more)
+
+### Community 1026 - "ExistsItem"
+Cohesion: 0.39
+Nodes (6): Column(), ExistsAccount, ExistsItem, ExistsItemTag, ExistsNote, ExistsTag
+
+### Community 1027 - "check-packages.mjs"
 Cohesion: 0.25
-Nodes (6): How it works, Models, Status, Event, Queue, Subscriber
+Nodes (7): publint, ARGS, ATTW_IGNORE, ATTW_IGNORE_PER_PACKAGE, ONLY, packages, PACKAGES_DIR
 
-### Community 1125 - "FromModelController"
-Cohesion: 0.27
-Nodes (5): FromModel(), FromModelController, FromModelSlide, FromModelTicket, MODEL_DESCRIPTOR_SYMBOL
-
-### Community 1126 - "AMQP connection"
-Cohesion: 0.20
-Nodes (10): AMQP connection, Best practices, Connect target, Examples, Log in with a client certificate, Patterns and antipatterns, Related, Services and extension points (+2 more)
-
-### Community 1128 - "Replacing the `Templates` service"
-Cohesion: 0.20
-Nodes (10): Best practices, Examples, How it works, Important behaviour, Patterns and antipatterns, Related, Replacing the `Templates` service, Serve per-tenant template overrides (+2 more)
-
-### Community 1130 - "swagger-schema-generation.test.ts"
-Cohesion: 0.20
-Nodes (5): FakeModelSchemaProvider, FakeSchemaProvider, RESPONSE_SCHEMAS, SCHEMAS, TestUser
-
-### Community 1132 - "context.browser.ts"
-Cohesion: 0.24
-Nodes (5): LogContext, LogContextImpl, noControl(), principalLabel(), scalarContext()
-
-### Community 1133 - "Flat config setup"
-Cohesion: 0.22
-Nodes (9): Best practices, Examples, Flag queries of `User` and `JobModel` from compiled packages, Flat config setup, How it works, Important behaviour, Lint an app with the recommended config, Migration (+1 more)
-
-### Community 1134 - "Progress reporting"
-Cohesion: 0.22
-Nodes (9): Best practices, Configuration, Examples, Important behaviour, Patterns and antipatterns, Phases and percent bands, Poll a render from the browser, Progress reporting (+1 more)
-
-### Community 1139 - "Examples"
+### Community 1028 - "Error handling"
 Cohesion: 0.29
-Nodes (8): API tokens keyed by a client-generated UUID, Examples, History of a model, Invoice with timestamps, soft delete and a hidden column, Order lines with a composite, caller-assigned key, Shared audit columns through inheritance, IHistoricalModel, HistoricalModel
+Nodes (7): Configuration, Decorators, Error handling, Examples, Important behaviour, Map several infrastructure errors to 503, Patterns and antipatterns
 
-### Community 1141 - "access/descriptor.ts"
-Cohesion: 0.32
-Nodes (6): ACCESS_CLASS, accessDescriptorOf(), empty(), ownAccessDescriptor(), routeAccess, ACCESS_DESCRIPTOR
+### Community 1029 - "Examples"
+Cohesion: 0.29
+Nodes (7): Block a deploy when the schema is not current, Build an index outside the migration transaction, Create the invoices table, Examples, Roll back the last deploy on one connection, Seed demo customers on developer machines only, Ship migrations from a plugin package
 
-### Community 1142 - "@spinajs/queue-templates-pdf"
-Cohesion: 0.25
-Nodes (8): Documentation, How it works, Installation, Output, Progress, @spinajs/queue-templates-pdf, Usage, Worker configuration
+### Community 1030 - "Events and jobs"
+Cohesion: 0.29
+Nodes (7): Best practices, Events and jobs, Examples, Notify other services when a user registers, Patterns and antipatterns, Related, Send a reminder in one hour, in a function pipeline
 
-### Community 1148 - "TestCommandExtraExports.ts"
+### Community 1032 - "AuthzFsAcl_2026_10_17_00_00_00"
 Cohesion: 0.33
-Nodes (3): EXTRA_EXPORTS_VERSION, ExtraExportsHelper, TestCommandExtraExports
+Nodes (4): `fs_acl`, Schema, L7: authz-fs, AuthzFsAcl_2026_10_17_00_00_00
 
-### Community 1149 - "dependencies"
-Cohesion: 0.33
-Nodes (6): dependencies, @aws-sdk/client-secrets-manager, @aws-sdk/client-ssm, @spinajs/configuration-common, @spinajs/di, @spinajs/internal-logger
-
-### Community 1150 - "devDependencies"
-Cohesion: 0.33
-Nodes (6): devDependencies, sinon, @spinajs/configuration, @types/lodash, @types/luxon, @types/sinon
-
-### Community 1151 - "`@spinajs/orm-mssql`"
-Cohesion: 0.33
-Nodes (6): Development, Documentation, Install, `@spinajs/orm-mssql`, Usage, What is distinctive
-
-### Community 1152 - "Model"
-Cohesion: 0.53
-Nodes (4): ExistsAccount, ExistsItemTag, ExistsNote, ExistsTag
-
-### Community 1153 - "Model"
-Cohesion: 0.53
-Nodes (4): ExistsAccount, ExistsItemTag, ExistsNote, ExistsTag
-
-### Community 1157 - "`@spinajs/users-http`"
+### Community 1067 - "Examples"
 Cohesion: 0.40
-Nodes (5): Install, Migration to 3.0, Quick start, `@spinajs/users-http`, IAdminSessionEntry
+Nodes (5): Examples, Label every metric with the region, Merge prom-client's global registry, Read metrics as JSON for an admin page, Report queue depth at scrape time
 
-### Community 1158 - "spinajs-authz-convert warnings"
+### Community 1069 - "RelationController.ts"
 Cohesion: 0.40
-Nodes (4): Behaviour changes and actions (14), Convert by hand (1), Notes (23), spinajs-authz-convert warnings
+Nodes (3): RefTarget, RelationController, RelDto
 
-### Community 1159 - "api.d.ts"
-Cohesion: 0.40
-Nodes (3): AccessOptions, PrincipalSource, ResourceExtractor
+### Community 1077 - "checks.d.ts"
+Cohesion: 0.50
+Nodes (3): ClientCheck, ClientCheckOptions, ClientChecksAnswer
+
+### Community 1079 - "storage.d.ts"
+Cohesion: 0.50
+Nodes (3): AuthzHttpRouteMark, IActionLocalStoregeContext, @spinajs/http
+
+### Community 1099 - "Examples"
+Cohesion: 0.67
+Nodes (3): Examples, Read one series without the HTTP endpoint, Track order volume and value
+
+### Community 1100 - "Examples"
+Cohesion: 0.67
+Nodes (3): Assert a metric in a test, Examples, Serve `/metrics` from a worker with no HTTP framework
+
+### Community 1101 - "Examples"
+Cohesion: 0.67
+Nodes (3): Examples, Trace a nightly export job and flush before exit, Use the full OTel tracer API in a service
 
 ### Community 1167 - "dependencies"
 Cohesion: 0.22
@@ -5786,8 +5499,8 @@ Cohesion: 0.22
 Nodes (9): dependencies, pug, @spinajs/configuration, @spinajs/di, @spinajs/exceptions, @spinajs/intl, @spinajs/log, @spinajs/templates (+1 more)
 
 ### Community 1180 - "ref_spinajs_orm"
-Cohesion: 0.04
-Nodes (44): RbacHttpTokenInitial_2026_08_11_01_00_00, FromModel, applyFilterEntries(), isAggregateColumn(), OPERATOR_MAP, ValidationHelpers, Filter(), Filterable() (+36 more)
+Cohesion: 0.03
+Nodes (66): Important behaviour, RbacHttpTokenInitial_2026_08_11_01_00_00, ConnectionConf, FromModel, applyFilterEntries(), isAggregateColumn(), OPERATOR_MAP, ValidationHelpers (+58 more)
 
 ### Community 1181 - "dependencies"
 Cohesion: 0.20
@@ -5808,14 +5521,6 @@ Nodes (8): dependencies, luxon, @spinajs/authz, @spinajs/cli, @spinajs/configura
 ### Community 1185 - "dependencies"
 Cohesion: 0.25
 Nodes (8): dependencies, @spinajs/authz, @spinajs/configuration, @spinajs/di, @spinajs/exceptions, @spinajs/orm, @spinajs/queue, @spinajs/util
-
-### Community 1186 - "Examples"
-Cohesion: 0.50
-Nodes (4): Examples, Render a monthly statement for every customer at 06:00 on the 1st, Retry a render twice and give it five minutes, Send a reminder PDF in 15 minutes
-
-### Community 1187 - "Logger"
-Cohesion: 0.25
-Nodes (8): Best practices, Count scan pages for capacity monitoring, Examples, How it works, Important behaviour, Patterns and antipatterns, Related, Subject lookup
 
 ### Community 1188 - "eslint-plugin-authz/tsconfig.cjs.json"
 Cohesion: 0.25
@@ -5929,6 +5634,10 @@ Nodes (6): devDependencies, @spinajs/authz-testing, @spinajs/log, @spinajs/orm-p
 Cohesion: 0.33
 Nodes (6): dependencies, @aws-sdk/client-secrets-manager, @spinajs/configuration-common, @spinajs/di, @spinajs/fs, @spinajs/internal-logger
 
+### Community 1224 - "AuthnThrottle"
+Cohesion: 0.10
+Nodes (20): A32, migrate(), HarnessWith, A32Case, A32CaseName, a32Fixtures, isoWithOffset(), pad() (+12 more)
+
 ### Community 1227 - "devDependencies"
 Cohesion: 0.33
 Nodes (6): devDependencies, @spinajs/configuration, @spinajs/log, @spinajs/orm-sqlite, @types/luxon, @types/node
@@ -5946,8 +5655,8 @@ Cohesion: 0.29
 Nodes (7): dependencies, puppeteer, @spinajs/configuration, @spinajs/di, @spinajs/exceptions, @spinajs/templates, @spinajs/templates-puppeteer
 
 ### Community 1233 - "docs/templates/README.md"
-Cohesion: 0.10
-Nodes (14): Documentation, `@spinajs/templates-csv`, Configuration, Documentation, Installation, License, @spinajs/templates-image, Usage (+6 more)
+Cohesion: 0.11
+Nodes (10): Documentation, `@spinajs/templates-csv`, Configuration, Documentation, Installation, License, @spinajs/templates-image, Usage (+2 more)
 
 ### Community 1234 - "devDependencies"
 Cohesion: 0.33
@@ -5972,10 +5681,6 @@ Nodes (5): exports, ./socket, import, require, types
 ### Community 1243 - "./cipher"
 Cohesion: 0.22
 Nodes (9): import, require, types, exports, ./cipher, ./identity, import, require (+1 more)
-
-### Community 1244 - "NeverEnrolledStep"
-Cohesion: 0.40
-Nodes (5): Examples, Label every metric with the region, Merge prom-client's global registry, Read metrics as JSON for an admin page, Report queue depth at scrape time
 
 ### Community 1245 - "dependencies"
 Cohesion: 0.33
@@ -6002,8 +5707,8 @@ Cohesion: 0.40
 Nodes (5): devDependencies, @types/express, @types/formidable, @types/luxon, @types/node
 
 ### Community 1251 - "DbSession"
-Cohesion: 0.12
-Nodes (16): Best practices, Check that the session migrations are applied before a deploy, Configuration, Decorators, Examples, Patterns and antipatterns, Related, Report sessions still written by 2.x instances during a rolling upgrade (+8 more)
+Cohesion: 0.06
+Nodes (32): Best practices, Check that the session migrations are applied before a deploy, Configuration, Decorators, Examples, How it works, Important behaviour, Migrations, in order (+24 more)
 
 ### Community 1252 - "devDependencies"
 Cohesion: 0.40
@@ -6012,10 +5717,6 @@ Nodes (5): devDependencies, @types/lodash, @types/luxon, @types/node, @types/uui
 ### Community 1253 - "@spinajs/orm-postgres"
 Cohesion: 0.40
 Nodes (5): exports, ./jobs, import, require, types
-
-### Community 1254 - "checks.d.ts"
-Cohesion: 0.50
-Nodes (3): ClientCheck, ClientCheckOptions, ClientChecksAnswer
 
 ### Community 1256 - "devDependencies"
 Cohesion: 0.40
@@ -6033,10 +5734,6 @@ Nodes (6): devDependencies, @spinajs/authn-testing, @types/luxon, @types/node, @
 Cohesion: 0.40
 Nodes (5): devDependencies, @types/luxon, @types/mocha, @types/node, @types/pug
 
-### Community 1260 - "storage.d.ts"
-Cohesion: 0.50
-Nodes (3): AuthzHttpRouteMark, IActionLocalStoregeContext, @spinajs/http
-
 ### Community 1261 - "devDependencies"
 Cohesion: 0.40
 Nodes (5): devDependencies, @types/luxon, @types/mocha, @types/node, @types/pug
@@ -6045,9 +5742,9 @@ Nodes (5): devDependencies, @types/luxon, @types/mocha, @types/node, @types/pug
 Cohesion: 0.40
 Nodes (5): exports, ./queue, import, require, types
 
-### Community 1264 - "teams/src/api.ts"
-Cohesion: 0.12
-Nodes (26): Teams, AcceptedInvitation, GROUP_MEMBER_ROLE, GROUP_TYPE, INVITATION_REFUSALS, InvitationRefusal, PrincipalTeams, TEAM_ADMIN_ROLE (+18 more)
+### Community 1264 - "teamRef"
+Cohesion: 0.17
+Nodes (24): TeamSubject, execute(), teamRef(), reasonOf(), archivedAttribute(), groupLinkTarget(), link(), linkGroup() (+16 more)
 
 ### Community 1268 - "@spinajs/authz-abac API snapshot"
 Cohesion: 0.50
@@ -6097,9 +5794,9 @@ Nodes (4): devDependencies, cpx, @spinajs/authz-http, @spinajs/orm
 Cohesion: 0.50
 Nodes (3): Test ledger: @spinajs/http-swagger, test/swagger-policies.test.ts, test/swagger-rbac.test.ts
 
-### Community 1282 - "Examples"
-Cohesion: 0.67
-Nodes (3): Examples, Trace a nightly export job and flush before exit, Use the full OTel tracer API in a service
+### Community 1282 - "model/evaluate.ts"
+Cohesion: 0.03
+Nodes (120): rbacLinks(), ResourcePattern, SubjectKey, ceilingRoles(), withinCeiling(), applyDenyRoles(), isDenyRole(), roleDenied() (+112 more)
 
 ### Community 1283 - "./browser"
 Cohesion: 0.50
@@ -6141,9 +5838,9 @@ Nodes (3): devDependencies, @spinajs/authn-testing, @spinajs/orm-sqlite
 Cohesion: 0.67
 Nodes (3): repository, type, url
 
-### Community 1297 - "A32-upgrade-secrets.spec.ts"
-Cohesion: 0.12
-Nodes (18): migrate(), A32Case, A32CaseName, a32Fixtures, isoWithOffset(), pad(), sha256hex(), LegacyMetadataRow (+10 more)
+### Community 1298 - "contributor.d.ts"
+Cohesion: 0.67
+Nodes (3): Examples, Grant read access to a reporting role on a configurable schema, See exactly what is sent to the server
 
 ### Community 1300 - "repository"
 Cohesion: 0.67
@@ -6180,10 +5877,6 @@ Nodes (3): devDependencies, ajv, @spinajs/authz-rbac
 ### Community 1310 - "repository"
 Cohesion: 0.67
 Nodes (3): repository, type, url
-
-### Community 1311 - "@spinajs/authz-fs API snapshot"
-Cohesion: 0.12
-Nodes (15): Re-exported from other packages, @spinajs/authz-fs API snapshot, src/access-config/index.ts, src/access-config/schema.ts, src/api.ts, src/domain/index.ts, src/guard/shared.ts, src/http/from-fs-path.ts (+7 more)
 
 ### Community 1312 - "repository"
 Cohesion: 0.67
@@ -6281,10 +5974,6 @@ Nodes (3): repository, type, url
 Cohesion: 0.67
 Nodes (3): repository, type, url
 
-### Community 1350 - "repository"
-Cohesion: 0.67
-Nodes (3): repository, type, url
-
 ### Community 1351 - "Examples"
 Cohesion: 0.50
 Nodes (4): ./nonces, import, require, types
@@ -6302,8 +5991,8 @@ Cohesion: 0.67
 Nodes (3): repository, type, url
 
 ### Community 1357 - "docs/di/README.md"
-Cohesion: 0.08
-Nodes (15): Documentation, `@spinajs/di`, Documentation, `@spinajs/internal-logger`, `@spinajs/intl-http`, Documentation, `@spinajs/intl`, Usage (+7 more)
+Cohesion: 0.09
+Nodes (10): Documentation, `@spinajs/di`, `@spinajs/intl-http`, Documentation, `@spinajs/intl`, Usage, Documentation, `@spinajs/templates-handlebars` (+2 more)
 
 ### Community 1358 - "directories"
 Cohesion: 0.67
@@ -6352,6 +6041,10 @@ Nodes (3): repository, type, url
 ### Community 1371 - "repository"
 Cohesion: 0.67
 Nodes (3): repository, type, url
+
+### Community 1372 - "holders.ts"
+Cohesion: 0.04
+Nodes (62): linkTags(), subjectTag(), RbacScopeForgetter, decisionOf(), grantingRoles(), Holder, HoldersQuery, HolderVia (+54 more)
 
 ### Community 1373 - "repository"
 Cohesion: 0.67
@@ -6413,9 +6106,9 @@ Nodes (3): repository, type, url
 Cohesion: 0.50
 Nodes (4): import, require, types, ./env
 
-### Community 1390 - "BurstResult"
-Cohesion: 0.14
-Nodes (14): scripts, build, build-docs, clean, compile, compile:cjs, coverage, format (+6 more)
+### Community 1392 - "Connection"
+Cohesion: 0.02
+Nodes (47): AuthnAudit, AuthnRecoveryCode, AuthnSecret, AuthnThrottle, Connection, Column(), ExistsAccount, ExistsItem (+39 more)
 
 ### Community 1395 - "repository"
 Cohesion: 0.67
@@ -6444,6 +6137,10 @@ Nodes (10): Before the first 3.0 start, BREAKING CHANGES, BREAKING CHANGES, Note
 ### Community 1401 - "repository"
 Cohesion: 0.67
 Nodes (3): repository, type, url
+
+### Community 1402 - "BasePolicy"
+Cohesion: 0.02
+Nodes (136): A versioned orders API, Best practices, Configuration, Controllers and routing, `Controllers`: custom implementation, Examples, How it works, Important behaviour (+128 more)
 
 ### Community 1405 - "devDependencies"
 Cohesion: 0.67
@@ -6477,6 +6174,10 @@ Nodes (3): repository, type, url
 Cohesion: 0.67
 Nodes (3): repository, type, url
 
+### Community 1415 - "authn-testing/src/behaviour/types.ts"
+Cohesion: 0.03
+Nodes (59): PENDING_TRANSCRIPTION, bddOf(), CaseResult, CaseStatus, cleanUp(), CLEANUP_TIMEOUT_MS, DEFAULT_CASE_TIMEOUT_MS, errorMessage() (+51 more)
+
 ### Community 1417 - "repository"
 Cohesion: 0.67
 Nodes (3): repository, type, url
@@ -6493,6 +6194,10 @@ Nodes (3): repository, type, url
 Cohesion: 0.67
 Nodes (3): repository, type, url
 
+### Community 1430 - "NoSource"
+Cohesion: 0.20
+Nodes (11): byFile, collect(), extract(), markdownFiles(), only, OUT, PACKAGES, result (+3 more)
+
 ### Community 1433 - "Translation sources"
 Cohesion: 0.67
 Nodes (3): devDependencies, chai, sinon
@@ -6501,21 +6206,25 @@ Nodes (3): devDependencies, chai, sinon
 Cohesion: 0.67
 Nodes (3): repository, type, url
 
-### Community 1520 - "extractModelDescriptor"
-Cohesion: 0.02
-Nodes (127): Best practices, Decorators, Important behaviour, Models, Patterns and antipatterns, Primary key strategies, Exceptions, Helpers and fp wrappers (+119 more)
+### Community 1520 - "orm/src/interfaces.ts"
+Cohesion: 0.01
+Nodes (258): Related, History of a model, Important behaviour, Primary key strategies, Services and extension points, Best practices, Compose writes with the fp wrappers, Examples (+250 more)
 
-### Community 1523 - "publishConfig"
-Cohesion: 0.17
-Nodes (11): A custom container, A per-tenant override, Best practices, Child containers, Container API, Examples, Important behaviour, Isolate a test from the app's registrations (+3 more)
+### Community 1544 - "AssignedKeyModel"
+Cohesion: 0.20
+Nodes (10): Best practices, Examples, Exit codes, Important behaviour, Options, Patterns and antipatterns, Recover from a failed index migration, Related (+2 more)
+
+### Community 1613 - "teams-http.ts"
+Cohesion: 0.22
+Nodes (9): Add behaviour to a relation list, Attach each customer's open orders with a custom query, Declare an order with its customer, lines and tags, Examples, Find customers with open orders, Load a category tree, Load an order for an invoice, Mark a relation as virtual (+1 more)
 
 ### Community 1634 - "repository"
 Cohesion: 0.67
 Nodes (3): repository, type, url
 
-### Community 1669 - "http-socket/src/interfaces.ts"
-Cohesion: 0.03
-Nodes (67): Related, Decorators, Audit every command that passed the policies, Best practices, Command pipeline and custom stages, Examples, How it works, Important behaviour (+59 more)
+### Community 1668 - "publishConfig"
+Cohesion: 0.25
+Nodes (8): A custom module loader, API, Best practices, How it works, Important behaviour, Module loading, Related, Services and extension points
 
 ### Community 1677 - "repository"
 Cohesion: 0.67
@@ -6523,43 +6232,35 @@ Nodes (3): repository, type, url
 
 ### Community 1678 - "durable-e2e.test.ts"
 Cohesion: 0.02
-Nodes (70): Best practices, Configuration, Examples, Important behaviour, Patterns and antipatterns, Resumable document snapshot, Stream replies, An offline-safe note editor command (+62 more)
+Nodes (63): Best practices, An offline-safe note editor command, Best practices, Configuration, Decorators, Durable commands: idempotency and ordering, Examples, How it works (+55 more)
 
-### Community 1687 - "signed-url.test.ts"
-Cohesion: 0.04
-Nodes (22): isGuardedFs(), admin, alice, AppInheritModel, bob, carol, FS_ALL, GrantModel (+14 more)
+### Community 1681 - "Examples"
+Cohesion: 0.33
+Nodes (6): Examples, Keep product attributes as JSON and tags as a set, Normalize e-mail addresses on every hydrate, Read typed values from a key-value settings table, Serialize datetimes as ISO 8601 in every response, Store money as integer cents
 
-### Community 1690 - "dependencies"
-Cohesion: 0.40
-Nodes (5): dependencies, @sinonjs/fake-timers, @spinajs/authn, @spinajs/exceptions, @spinajs/util
-
-### Community 1696 - "packages_cli_src_interfaces_clicommand"
-Cohesion: 0.10
-Nodes (6): DumpConfigOptions, DumpConfiguration, DumpConfigOptions, DumpConfiguration, TestCommand2, TestCommandAdvOpts
-
-### Community 1704 - "repository"
-Cohesion: 0.67
-Nodes (3): repository, type, url
+### Community 1689 - "`@spinajs/orm`"
+Cohesion: 0.33
+Nodes (6): Development, Documentation, Install, Related packages, `@spinajs/orm`, Usage
 
 ## Knowledge Gaps
-- **1726 isolated node(s):** `@arethetypeswrong/cli`, `@types/bunyan`, `@types/chai`, `@types/chai-as-promised`, `@types/chai-like` (+1721 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 21591 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **481 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **1725 isolated node(s):** `@arethetypeswrong/cli`, `@types/bunyan`, `@types/chai`, `@types/chai-as-promised`, `@types/chai-like` (+1720 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 21552 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **457 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Injectable()` connect `Injectable` to `Config`, `authz-rbac/src/model/model.ts`, `ConfigFileValidator`, `packages_authz_lib_mjs_index`, `DefaultAccountGuard`, `queue/test/core.test.ts`, `MySqlOrmDriver`, `Features`, `AuthzConfigError`, `SessionExpirationProvider`, `Features`, `packages_authz_lib_mjs_index`, `.schema`, `Singleton`, `BasePolicy`, `HttpServer`, `db-rule-store.test.ts`, `authz-abac/test/admin/support.ts`, `compiler.ts`, `RbacModel`, `registry/registry.ts`, `MemoryQueueClient`, `ref_spinajs_authn_contracts`, `DataTransformer`, `access/decorators.js`, `EmailSender`, `orm/src/interfaces.ts`, `contracts/model.test.ts`, `CurrentUserArg`, `SocketDispatcher`, `SchemaProvider`, `di/test/di.test.ts`, `DbConfigValueConverter`, `queue/src/index.ts`, `PerfSink`, `IdentityRef`, `conformance/model.ts`, `Test ledger: @spinajs/users`, `authn-token/test/v3/cli.test.ts`, `engine/evaluate.ts`, `users-http/test/support/http-app.ts`, `memory-throttle.test.ts`, `storage.js`, `http/client.ts`, `src/provider.ts`, `fsService`, `http-socket/src/interfaces.ts`, `DefaultAccountGuard`, `route-builder.ts`, `durable-e2e.test.ts`, `root.ts`, `Logger`, `uploads.test.ts`, `DefaultEmailService`, `ThrowingRenderer`, `fs/README.md`, `ArgHydrator`, `http-harness.ts`, `SocketServer`, `ConfigVariable`, `AuthzAdmin`, `csrf-origin-guard.test.ts`, `S3UrlSigner`, `team-service.ts`, `invitations/service.ts`, `PuppeteerRenderer`, `MsSqlOrmDriver`, `AuthnContext`, `DynamoDbSessionProvider`, `packages_configuration_lib_mjs_index_d_config`, `PerInstanceCheck`, `BufferTarget`, `B35-rules.spec.ts`, `awsParameterStoreProtocol.ts`, `FallbackGroupTarget`, `.browser`, `PostgresOrmDriver`, `OidcController`, `FileTarget`, `PdfRenderer`, `packages_authz_lib_mjs_index_global`, `providers.ts`, `job-scope.test.ts`, `AuthnCredentialSource`, `HandlebarsRenderer`, `access-config/index.ts`, `authn-oidc/test/core.test.ts`, `fsS3`, `test/support/world.ts`, `Orm`, `HTTP_STATUS_CODE`, `CurrentPrincipalArg`, `AmqpQueueClient`, `Test ledger: @spinajs/users`, `B06-check-filter.spec.ts`, `FallbackGroupTarget`, `email.deferred.test.ts`, `bump-all.mjs`, `issuer.ts`, `Bootstrapper`, `metadata/orm-store.ts`, `Translatable`, `SessionIssuer`, `ref_spinajs_configuration`, `ConfigurationSource`, `http-socket-common/test/common.test.ts`, `AncestorMiddleware`, `ConfigVarProtocol`, `BrowserFrameworkConfiguration`, `RedisSessionStore`, `packages_authz_testing_lib_mjs_index`, `http-socket/test/config-schema.test.ts`, `http-socket/src/index.ts`, `XlsxRenderer`, `SocketHub`, `PugRenderer`, `orm-sql/test/fixture.ts`, `HttpServer`, `LogBotstrapper`, `DefaultFileHasher`, `arbitraries/principals.ts`, `authz-fs/src/index.ts`, `ref_mocha`, `A31-cors.spec.ts`, `Csv`, `src/configuration.ts`, `DbSessionStore`, `Test`, `ref_node_crypto`, `src/extension.ts`, `TestTarget`, `TestWildcard`, `DbLinkStore`, `DbMfaSecretStore`, `MemoryTarget`, `SocketConnection`, `SchemaSource`, `JobRetentionService`, `QueueChangeBus`, `Translatable`, `socket-harness.ts`, `packages_authn_lib_mjs_contracts_index`, `DbRuleStore`, `IPuppeteerRendererOptions`, `orm/src/builders.ts`, `FilterController.ts`, `terms.test.ts`, `ref_chai`, `Test ledger: @spinajs/users`, `configuration-http/test/configuration.test.ts`, `explain/controller.ts`, `Get`, `invitations/mailer.ts`, `FrameworkConfiguration`, `longSpanRegistry.test.ts`, `dependencies`, `controller-model.test.ts`, `lifetime-inheritance.test.ts`, `DbAssignmentStore`, ``@spinajs/authz-fs``?**
-  _High betweenness centrality (0.044) - this node is a cross-community bridge._
+- **Why does `Injectable()` connect `Injectable` to `ref_spinajs_http`, `authz-rbac/src/contracts.ts`, `autoinject-options.test.ts`, `packages_authz_lib_mjs_index`, `QueueChangeBus`, `KeyChallengeStrategy`, `AuthzConfigError`, `Features`, `packages_authz_lib_mjs_index`, `config-role-store.test.ts`, `root.ts`, `Singleton`, `authz-orm/src/registry.ts`, `BasePath`, `MemoryMfaSecretStore`, `users/src/actions.ts`, `HttpServer`, `ref_spinajs_authz`, `Injectable`, `authz-testing/src/behaviour/types.ts`, `admin/handler.ts`, `.compileToFile`, `compiler.ts`, `fs-harness.ts`, `email/src/index.ts`, `packages_authz_lib_mjs_index_resourceref`, `ref_spinajs_di`, `AuthzAdmin`, `log-common/src/index.ts`, `SocketConnection`, `access/decorators.js`, `admin/rules.ts`, `guard.ts`, `SocketServer`, `UserPrincipalFactory`, `contracts/model.test.ts`, `http-socket/src/index.ts`, `uploads.test.ts`, `test/support/world.ts`, `SocketDispatcher`, `KeyedBackoff`, `SchemaProvider`, `di/test/di.test.ts`, `DbConfigValueConverter`, `queue/src/index.ts`, `PerfSink`, `Payload`, `assertion.ts`, `TestTarget`, `IdentityRef`, `TestWildcard`, `Configuration`, `identity/sql.ts`, `authn-token/test/v3/cli.test.ts`, `users-http/test/support/http-app.ts`, `async.test.ts`, `memory-throttle.test.ts`, `Orm`, `exported-flow.test.ts`, `src/provider.ts`, `OtelTracing`, `fsService`, `authz-rbac`, `lists/middleware.ts`, `packages_exceptions_lib_mjs_index`, `durable-e2e.test.ts`, `MaxAgeTempCleanupStrategy`, `fsOneDrive`, `uploads.test.ts`, `guessLanguage`, `DefaultEmailService`, `fs/README.md`, `ArgHydrator`, `DbAuthnThrottle`, `ConfigVariable`, `QueryMiddleware`, `default-authn-service.ts`, `DefaultTeamService`, `B09-lanes.spec.ts`, `invitations/service.ts`, `PuppeteerRenderer`, `TelemetryMiddleware`, `Test ledger: @spinajs/users`, `PerInstanceCheck`, `DefaultKeyRegistry`, `test/behaviour/harness.ts`, `FileInfoService`, `access-config/index.ts`, `FileTarget`, `MemoryQueueClient`, `packages_authz_lib_mjs_index_principal`, `DbAssignmentStore`, `providers.ts`, `adapter/index.ts`, `HandlebarsRenderer`, `LocalPasswordService`, `fsS3`, `PerChildInstance`, `Orm`, `Features`, `HTTP_STATUS_CODE`, `AmqpQueueClient`, `B06-check-filter.spec.ts`, `FallbackGroupTarget`, `ref_spinajs_log_common`, `issuer.ts`, `Bootstrapper`, `src/models/User.ts`, `TestCommand`, `holders.ts`, `email.deferred.test.ts`, `ConfigurationSource`, `CurrentUserArg`, `Loading classes from directories`, `http-socket/test/config-schema.test.ts`, `DbLinkStore`, `HttpServer`, `BasePolicy`, `extractors.ts`, `arbitraries/principals.ts`, `DefaultSessionIssuer`, `packages_orm_lib_mjs_index`, `Csv`, `ref_spinajs_log`, `LongSpanRegistry`, `db-mfa-store.ts`, `AssignmentStore`, `QueueChangeBus`, `DbRuleStore`, `Translatable`, `Password mails`, `packages_authn_lib_mjs_contracts_index`, `AuthzFsMiddleware`, `getUser`, `UserResourceAdapter`, `orm/src/builders.ts`, `FilterController.ts`, `db-rule-store.ts`, `message`, `ref_chai`, `invitations/mailer.ts`, `fs`, `DbKeyNonceStore`, `Get`, `DataTransformer`, `dependencies`, `AuthzRbacUserRoles_2026_10_01_00_01_00.ts`, `RealIp.ts`, `TotpService`, `JobRetentionService`, `http-socket/test/config-schema.test.ts`, `c8.test.ts`, `controller-model.test.ts`, `http-socket/src/interfaces.ts`?**
+  _High betweenness centrality (0.050) - this node is a cross-community bridge._
 - **What connects `@arethetypeswrong/cli`, `@types/bunyan`, `@types/chai` to the rest of the system?**
-  _1726 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `lanes.test.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.01569612305760477 - nodes in this community are weakly interconnected._
-- **Why does `Autoinject()` connect `OidcController` to `Policy`, `Config`, `ConfigFileValidator`, `Ok`, `DefaultAccountGuard`, `Features`, `AuthzAdmin`, `suites/credential-admin.ts`, `HttpServer`, `Injectable`, `RbacCliCommand`, `.compileToFile`, `registry/registry.ts`, `ref_spinajs_authn_contracts`, `access/decorators.js`, `EmailSender`, `check-config-cli.test.ts`, `CreateToken.ts`, `SocketDispatcher`, `SchemaProvider`, `di/test/di.test.ts`, `DbConfigValueConverter`, `IdentityRef`, `conformance/model.ts`, `authn-token/test/v3/cli.test.ts`, `memory-throttle.test.ts`, `Orm`, `http/client.ts`, `src/provider.ts`, `http-socket/src/interfaces.ts`, `route-builder.ts`, `ref_spinajs_validation`, `root.ts`, `stores.db.test.ts`, `uploads.test.ts`, `AuthzCliBase`, `ref_mocha`, `packages_cli_src_interfaces_clicommand`, `ArgHydrator`, `src/decorators.js`, `SocketServer`, `Users.ts`, `orm/src/fp.ts`, `csrf-origin-guard.test.ts`, `AuthzAdminController.ts`, `AuthnContext`, `PerInstanceCheck`, `authn-keys/test/cli.test.ts`, `packages_authz_lib_mjs_index_global`, `SqlCreateViewQueryCompiler`, `providers.ts`, `job-scope.test.ts`, `authn-oidc/test/core.test.ts`, `fsS3`, `test/support/world.ts`, `Orm`, `Test ledger: @spinajs/users`, `Log`, `B06-check-filter.spec.ts`, `OpenApiBuilder`, `bump-all.mjs`, `issuer.ts`, `ref_spinajs_configuration`, `ConfigurationSource`, `BrowserFrameworkConfiguration`, `OidcController`, `SocketHub`, `orm-sql/test/fixture.ts`, `HttpServer`, `ServiceBootingIdentityStore`, `A31-cors.spec.ts`, `eslint-plugin-authz/src/index.ts`, `Test`, `ref_node_crypto`, `DbMfaSecretStore`, `SocketConnection`, `QueueChangeBus`, `packages_authn_lib_mjs_contracts_index`, `AsyncService`, `DefaultControllerCache`, `Test ledger: @spinajs/users`, `child-chain.test.ts`, `email.test.ts`, `FrameworkConfiguration`, `policy.js`, `longSpanRegistry.test.ts`, `dependencies`, `controller-model.test.ts`, `lifetime-inheritance.test.ts`?**
-  _High betweenness centrality (0.017) - this node is a cross-community bridge._
-- **Should `fakes.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.010816733847297774 - nodes in this community are weakly interconnected._
-- **Why does `SocketDispatcher` connect `SocketDispatcher` to `SocketConnection`, `http-socket-common/test/common.test.ts`, `Config`, `http-socket/src/interfaces.ts`, `ref_spinajs_di`, `Injectable`, `controller-model.test.ts`, `bump-all.mjs`, `OidcController`, `http-socket/src/index.ts`, `SocketServer`, `socket-harness.ts`, `SocketHub`?**
+  _1725 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `e2e/client-access.test.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.09411764705882353 - nodes in this community are weakly interconnected._
+- **Why does `Logger()` connect `PerfImpl` to `ref_spinajs_http`, `Features`, `cli/test/cli.test.ts`, `BasePath`, `onProgress`, `Extending an existing dialect`, `.compileToFile`, `compiler.ts`, `email/src/index.ts`, `registry/registry.ts`, `ref_spinajs_di`, `AuthzAdmin`, `log-common/src/index.ts`, `access/decorators.js`, `Injectable`, `SocketServer`, `http-socket/src/index.ts`, `uploads.test.ts`, `test/support/world.ts`, `SocketDispatcher`, `KeyedBackoff`, `queue/src/index.ts`, `PerfSink`, `Payload`, `assertion.ts`, `identity/sql.ts`, `authn-token/test/v3/cli.test.ts`, `AuthnFromUserMetadata_2026_10_02_00_01_00.ts`, `Orm`, `src/provider.ts`, `OtelTracing`, `fsService`, `route-builder.ts`, `durable-e2e.test.ts`, `MaxAgeTempCleanupStrategy`, `fs/src/fp.ts`, `fsOneDrive`, `RenderPdfJob`, `ArgHydrator`, `DbAuthnThrottle`, `orm/src/fp.ts`, `packages_log_lib_mjs_index_d_logger`, `default-authn-service.ts`, `DefaultTeamService`, `PuppeteerRenderer`, `TelemetryMiddleware`, `FileInfoService`, `OidcController`, `FileTarget`, `providers.ts`, `LocalPasswordService`, `fsS3`, `contracts/audit.test.ts`, `B06-check-filter.spec.ts`, `FallbackGroupTarget`, `ref_spinajs_log_common`, `issuer.ts`, `QueueEvent`, `Loading classes from directories`, `SchemaSource`, `HttpServer`, `BasePolicy`, `extractors.ts`, `arbitraries/principals.ts`, `eslint-plugin-authz/src/index.ts`, `Csv`, `ref_spinajs_log`, `LongSpanRegistry`, `AssignmentStore`, `authn-audit.test.ts`, `packages_authn_lib_mjs_contracts_index`, `message`, `fs`, `http/src/cache.ts`, `RealIp.ts`, `JobRetentionService`, `http-socket/src/interfaces.ts`?**
+  _High betweenness centrality (0.023) - this node is a cross-community bridge._
+- **Should `conformance/model.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.01988188254282675 - nodes in this community are weakly interconnected._
+- **Why does `Autoinject()` connect `ref_spinajs_http` to `autoinject-options.test.ts`, `QueueChangeBus`, `Access`, `KeyChallengeStrategy`, `config-role-store.test.ts`, `root.ts`, `Param`, `cli/test/cli.test.ts`, `BasePath`, `MemoryMfaSecretStore`, `HttpServer`, `.compileToFile`, `ServiceBootingIdentityStore`, `fs-harness.ts`, `email/src/index.ts`, `registry/registry.ts`, `SocketConnection`, `access/decorators.js`, `Injectable`, `SocketServer`, `UserPrincipalFactory`, `uploads.test.ts`, `test/support/world.ts`, `SocketDispatcher`, `SchemaProvider`, `di/test/di.test.ts`, `DbConfigValueConverter`, `assertion.ts`, `IdentityRef`, `Configuration`, `authn-token/test/v3/cli.test.ts`, `SessionIssuer`, `users-http/test/support/http-app.ts`, `memory-throttle.test.ts`, `Orm`, `src/provider.ts`, `OtelTracing`, `route-builder.ts`, `durable-e2e.test.ts`, `root.ts`, `uploads.test.ts`, `ref_mocha`, `ArgHydrator`, `DbAuthnThrottle`, `orm/src/fp.ts`, `ref_node_url`, `packages_log_lib_mjs_index_d_logger`, `default-authn-service.ts`, `Req`, `TelemetryMiddleware`, `Test ledger: @spinajs/users`, `PerInstanceCheck`, `DefaultKeyRegistry`, `OidcController`, `packages_authz_lib_mjs_index_principal`, `SqlCreateViewQueryCompiler`, `LocalPasswordService`, `fsS3`, `PerChildInstance`, `Features`, `contracts/audit.test.ts`, `Log`, `B06-check-filter.spec.ts`, `contracts/session.test.ts`, `OpenApiBuilder`, `ref_spinajs_log_common`, `ConfigurationSource`, `QueueEvent`, `Loading classes from directories`, `orm-sql/test/fixture.ts`, `HttpServer`, `BasePolicy`, `DefaultSessionIssuer`, `eslint-plugin-authz/src/index.ts`, `ref_spinajs_log`, `LongSpanRegistry`, `db-mfa-store.ts`, `AssignmentStore`, `packages_authn_lib_mjs_contracts_index`, `AsyncService`, `The RBAC model`, `message`, `StrategyBadPolicyConfiguration`, `DbKeyNonceStore`, `dependencies`, `RealIp.ts`, `TotpService`, `controller-model.test.ts`, `http-socket/src/interfaces.ts`?**
   _High betweenness centrality (0.016) - this node is a cross-community bridge._
-- **Should `Policy` be split into smaller, more focused modules?**
-  _Cohesion score 0.04 - nodes in this community are weakly interconnected._
+- **Should `fakes.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.012728796081464294 - nodes in this community are weakly interconnected._

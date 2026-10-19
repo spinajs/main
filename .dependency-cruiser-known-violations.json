@@ -1,64 +1,6 @@
 [
   {
     "type": "cycle",
-    "from": "packages/authz-fs/src/resolvers/index.ts",
-    "to": "packages/authz-fs/src/api.ts",
-    "unresolvedTo": "../api.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "no-circular"
-    },
-    "cycle": [
-      {
-        "name": "packages/authz-fs/src/api.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "packages/authz-fs/src/http/from-fs-path.ts",
-        "dependencyTypes": [
-          "local",
-          "export"
-        ]
-      },
-      {
-        "name": "packages/authz-fs/src/guard/shared.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "packages/authz-fs/src/domain/index.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "packages/authz-fs/src/inherit/index.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "packages/authz-fs/src/resolvers/index.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      }
-    ]
-  },
-  {
-    "type": "cycle",
     "from": "packages/di/src/binder.ts",
     "to": "packages/di/src/decorators.ts",
     "unresolvedTo": "./decorators.js",

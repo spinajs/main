@@ -43,7 +43,7 @@ export const FACETS: Readonly<Record<Facet, string>> = Object.freeze({
   sql: '`session.list` runs on a SQL database holding the world rows, and lane handle `sqlPages` reads one page of a list (L4, L4b, K1).',
   orm: "ORM queries on the models of `world.lane.orm` (lane handle `orm`): `@AccessResource(type)`, `@Owner()` and `@Parent` as each spec says, rows inserted through the ORM as SYSTEM in model order, so `authz_resource_ancestor` is right. Queries run in the current ALS. The app env is `test`: a multi-row select on an `@AccessResource` model without `.accessible()`, `.unscoped(reason)` or `runAs(SYSTEM)` throws `AuthzConfigError` (design 2026-10-14 §8).",
   http: 'HTTP requests against the app built from `world.lane.http` (lane handle `http`; L5, C2–C7). Parts of L5 also use lane handle `linkSource`, parts of C4 `adminHttp`.',
-  fs: 'the filesystems of `world.lane.fs` behind authz-fs, with `authz.fs.*` from `world.config.fs` (lane handle `fs`; L7).',
+  fs: 'the filesystems of `world.lane.fs` with the `AuthzFsMiddleware` of authz-fs, `authz.fs.*` from `world.config.fs` (lane handle `fs`; L7).',
   queue: 'queue emit and handle with initiators over the jobs of `world.lane.queue` (lane handle `queue`; L6, C8).',
   socket: 'the socket handlers of `world.lane.socket` (lane handle `socket`; C9).',
   email: 'mail sending with attachments read from guarded filesystems (lane handle `email`; C9).',

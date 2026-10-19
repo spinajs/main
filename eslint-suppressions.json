@@ -1306,42 +1306,33 @@
   },
   "packages/authz-fs/src/access-config/index.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
-    }
-  },
-  "packages/authz-fs/src/contributor/index.ts": {
-    "max-depth": {
-      "count": 1
-    }
-  },
-  "packages/authz-fs/src/guard/index.ts": {
-    "@typescript-eslint/no-unsafe-return": {
       "count": 1
     },
     "complexity": {
       "count": 1
     }
   },
-  "packages/authz-fs/src/guard/metadata.ts": {
+  "packages/authz-fs/src/acl/orm-store.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    },
-    "@typescript-eslint/unbound-method": {
-      "count": 3
-    },
-    "complexity": {
-      "count": 2
-    },
-    "promise/catch-or-return": {
       "count": 1
     }
   },
-  "packages/authz-fs/src/guard/shared.ts": {
+  "packages/authz-fs/src/acl/relation.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/authz-fs/src/acl/shared.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
+    }
+  },
+  "packages/authz-fs/src/checks.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 2
     }
   },
   "packages/authz-fs/src/http/from-fs-path.ts": {
@@ -1349,74 +1340,34 @@
       "count": 1
     }
   },
-  "packages/authz-fs/src/inherit/index.ts": {
+  "packages/authz-fs/src/http/upload.ts": {
     "complexity": {
       "count": 1
     }
   },
-  "packages/authz-fs/src/metadata/connection.ts": {
+  "packages/authz-fs/src/middleware/decide.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
-  "packages/authz-fs/src/metadata/meta.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-return": {
       "count": 2
     }
   },
-  "packages/authz-fs/src/metadata/orm-store.ts": {
+  "packages/authz-fs/src/middleware/index.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 2
+    },
+    "complexity": {
+      "count": 1
+    }
+  },
+  "packages/authz-fs/test/acl-config.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
-  "packages/authz-fs/src/resolvers/index.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
-  "packages/authz-fs/test/api.test.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    }
-  },
-  "packages/authz-fs/test/config.test.ts": {
-    "@typescript-eslint/unbound-method": {
-      "count": 1
-    }
-  },
-  "packages/authz-fs/test/fs-domain.test.ts": {
+  "packages/authz-fs/test/acl-orm-store.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 3
-    }
-  },
-  "packages/authz-fs/test/guard-metadata.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
-    }
-  },
-  "packages/authz-fs/test/guard.test.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
     },
     "@typescript-eslint/unbound-method": {
-      "count": 3
-    },
-    "no-prototype-builtins": {
-      "count": 2
-    },
-    "promise/catch-or-return": {
       "count": 1
     }
   },
@@ -1425,19 +1376,13 @@
       "count": 2
     }
   },
-  "packages/authz-fs/test/metadata-stores.test.ts": {
+  "packages/authz-fs/test/proposed/B28-residual.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 4
-    },
-    "@typescript-eslint/unbound-method": {
-      "count": 1
-    },
-    "promise/param-names": {
       "count": 1
     }
   },
-  "packages/authz-fs/test/proposed/B28-residual.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
+  "packages/authz-fs/test/support/fs-harness.ts": {
+    "@typescript-eslint/unbound-method": {
       "count": 1
     }
   },
@@ -1481,16 +1426,22 @@
   },
   "packages/authz-http-admin/test/routes.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 100
+      "count": 101
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 11
+      "count": 12
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 1
+    },
+    "prefer-rest-params": {
+      "count": 1
     }
   },
   "packages/authz-http-admin/test/support/admin-http.ts": {
@@ -1511,7 +1462,7 @@
       "count": 9
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 58
+      "count": 61
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 8
@@ -1876,7 +1827,7 @@
   },
   "packages/authz-orm/test/lists/terms.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
+      "count": 2
     }
   },
   "packages/authz-orm/test/lists/with-access.test.ts": {
@@ -1894,6 +1845,11 @@
       "count": 10
     },
     "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    }
+  },
+  "packages/authz-orm/test/relations.test.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
   },
@@ -2005,6 +1961,11 @@
     },
     "complexity": {
       "count": 2
+    }
+  },
+  "packages/authz-rbac/src/admin/holders.ts": {
+    "complexity": {
+      "count": 1
     }
   },
   "packages/authz-rbac/src/admin/links.ts": {
@@ -2164,7 +2125,7 @@
       "count": 2
     },
     "max-depth": {
-      "count": 2
+      "count": 1
     }
   },
   "packages/authz-rbac/src/model/list/support.ts": {
@@ -2174,6 +2135,9 @@
   },
   "packages/authz-rbac/src/model/model.ts": {
     "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/unbound-method": {
       "count": 1
     }
   },
@@ -2431,6 +2395,11 @@
     }
   },
   "packages/authz-rbac/test/model/intersect.test.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/authz-rbac/test/model/list-support.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     }
@@ -2877,6 +2846,17 @@
       "count": 2
     }
   },
+  "packages/authz-testing/test/e2e/column-relation.test.ts": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
   "packages/authz-testing/test/e2e/property.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
@@ -3026,6 +3006,9 @@
   "packages/authz/src/contracts/adapter.ts": {
     "@typescript-eslint/no-redundant-type-constituents": {
       "count": 1
+    },
+    "@typescript-eslint/no-unsafe-declaration-merging": {
+      "count": 2
     }
   },
   "packages/authz/src/contracts/decision.ts": {
@@ -3165,7 +3148,7 @@
   },
   "packages/authz/src/engine/validate.ts": {
     "@typescript-eslint/no-unsafe-return": {
-      "count": 3
+      "count": 2
     },
     "complexity": {
       "count": 1
@@ -3462,6 +3445,11 @@
       "count": 1
     }
   },
+  "packages/authz/test/engine/inspect.test.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
   "packages/authz/test/engine/plan.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
@@ -3488,6 +3476,11 @@
   "packages/authz/test/engine/summary.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 7
+    }
+  },
+  "packages/authz/test/engine/validate-list.test.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
     }
   },
   "packages/authz/test/engine/validate.test.ts": {
@@ -4149,9 +4142,6 @@
     }
   },
   "packages/fs-ftp/src/index.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
-    },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 1
     },
@@ -4162,12 +4152,22 @@
       "count": 1
     }
   },
+  "packages/fs-ftp/test/fsFTP.actions.test.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
   "packages/fs-s3/src/index.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 4
     },
     "promise/always-return": {
       "count": 1
+    }
+  },
+  "packages/fs-s3/test/fs-s3.actions.test.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 2
     }
   },
   "packages/fs-s3/test/fs-s3.metadata.test.ts": {
@@ -4195,6 +4195,17 @@
   "packages/fs-s3/test/signers.test.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 3
+    }
+  },
+  "packages/fs/src/actions.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 3
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 1
+    },
+    "promise/catch-or-return": {
+      "count": 1
     }
   },
   "packages/fs/src/file-hasher.ts": {
@@ -4231,6 +4242,17 @@
   "packages/fs/src/interfaces.ts": {
     "@typescript-eslint/no-empty-object-type": {
       "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 2
+    },
+    "@typescript-eslint/prefer-promise-reject-errors": {
+      "count": 2
+    }
+  },
+  "packages/fs/test/fs.actions.test.ts": {
+    "promise/param-names": {
+      "count": 1
     }
   },
   "packages/fs/test/fs.cli.test.ts": {
@@ -4242,11 +4264,6 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 2
-    }
-  },
-  "packages/fs/test/fs.decorator.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
     }
   },
   "packages/fs/test/fs.fileinfo.test.ts": {

@@ -1,415 +1,130 @@
 import * as chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
+
+import { AccessDenied } from '@spinajs/authz';
+import { InvalidArgument, MethodNotImplemented } from '@spinajs/exceptions';
+import { fsNative } from '@spinajs/fs';
+import type { IFsLocalOptions } from '@spinajs/fs';
 import { DateTime } from 'luxon';
 
-import { AccessDenied, AuthorizationModel, AuthzClock, FALSE, TRUE } from '@spinajs/authz';
-import type { AuthzService, DecisionRequest, ModelCapabilities, ModelSummary, Principal, Vote } from '@spinajs/authz';
-import { testHost, userPrincipal } from '@spinajs/authz-testing';
-import { DI } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
-import { InvalidArgument } from '@spinajs/exceptions';
-import { fs } from '@spinajs/fs';
+import { useMiddleware } from './support/mw-setup.js';
 
-import { domainNow } from '../src/guard/shared.js';
-import { guardFs, parseFsAccessConfig } from '../src/index.js';
-import type { FsGuardOptions } from '../src/index.js';
-import { configuredChild } from './helpers.js';
-import { FakeAuthz } from './support/fake-authz.js';
-import { installQuietLog } from './support/log.js';
-import { renderTemplate } from '@spinajs/log-common';
-
-const logLine = (fields: unknown, template?: unknown): string => (typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>));
-
+chai.use(chaiAsPromised);
 const expect = chai.expect;
 
-const NOW = new Date('2026-10-04T12:00:00.000Z');
-const MINUTE = 60_000;
-const at = (minutes: number): Date => new Date(NOW.getTime() + minutes * MINUTE);
+const NOW = new Date('2030-01-01T00:00:00.000Z');
+const at = (seconds: number) => DateTime.fromJSDate(NOW).plus({ seconds });
 
-type Call = [method: string, ...args: unknown[]];
-
-/** A key-store provider with the signing methods asked for; records what they get. */
-function signer(name: string, calls: Call[], methods: { signedUrl?: boolean; getSignedUrl?: boolean } = { signedUrl: true, getSignedUrl: true }): fs {
-  const provider = Object.create(fs.prototype) as fs & Record<string, unknown>;
-  Object.assign(provider, { Options: { name } });
-  Object.defineProperty(provider, 'Name', { value: name });
-  if (methods.signedUrl) provider.signedUrl = async (...args: unknown[]) => (calls.push(['signedUrl', ...args]), 'https://signed/url');
-  if (methods.getSignedUrl) provider.getSignedUrl = async (...args: unknown[]) => (calls.push(['getSignedUrl', ...args]), 'https://signed/get');
-  return provider;
+interface Signed {
+  readonly path: string;
+  readonly until?: DateTime;
+  readonly disposition?: string;
 }
 
-const untilOf = (call: Call | undefined): number | undefined => {
-  const opts = call?.[2] as { until?: DateTime } | undefined;
-  return opts?.until?.toMillis();
-};
+class SigningFs extends fsNative<IFsLocalOptions> {
+  readonly signed: Signed[] = [];
 
-const alice = userPrincipal('alice');
+  protected async doSignedUrl(path: string, opts: { until?: DateTime; disposition?: string }): Promise<string> {
+    this.signed.push({ path, ...opts });
+    return `signed://${this.Name}/${path}?expires=${opts.until?.toMillis() ?? ''}`;
+  }
+}
 
-describe('authz-fs signed URLs (D9)', function () {
+const lifetimes = (f: SigningFs): number[] => f.signed.map((x) => x.until!.toMillis() - NOW.getTime());
+
+describe('authz-fs AuthzFsMiddleware: signed URLs (D9)', function () {
   this.timeout(20000);
-
-  let child: IContainer;
-  let warnings: string[];
-  let undoLog: () => void;
-
-  const guard = (raw: fs, entry: Record<string, unknown>, authz: FakeAuthz, extra: Partial<FsGuardOptions> = {}): fs =>
-    guardFs(raw, 'uploads', {
-      config: parseFsAccessConfig('uploads', entry),
-      container: child,
-      service: async () => authz,
-      principal: () => alice,
-      log: { warn: (fields: unknown, template?: unknown) => void warnings.push(logLine(fields, template)) },
-      now: () => NOW,
-      ...extra,
-    });
-
-  before(() => {
-    undoLog = installQuietLog();
-  });
-
-  after(() => {
-    undoLog();
-  });
-
-  beforeEach(async () => {
-    child = await configuredChild(undefined);
-    warnings = [];
-  });
-
-  afterEach(async () => {
-    await child.dispose();
-  });
+  const s = useMiddleware(
+    {
+      'mw-sign': { mode: 'enforce' },
+      'mw-def': { mode: 'enforce', signedUrl: { defaultTtlSeconds: 300 } },
+      'mw-ttl': { mode: 'enforce', signedUrl: { maxTtlSeconds: 60, defaultTtlSeconds: 300 } },
+      'mw-sign-audit': { mode: 'audit', signedUrl: { maxTtlSeconds: 60 } },
+    },
+    () => ({ now: () => NOW }),
+  );
+  const signing = (name: string): SigningFs => new SigningFs({ name, basePath: s.base(name, { 'docs/a.txt': 'A' }) });
 
   it('checks fs:share on the normalised file with its row and signs that path', async () => {
-    const calls: Call[] = [];
-    const authz = new FakeAuthz();
-    const g = guard(signer('uploads', calls), { mode: 'enforce' }, authz);
-
-    expect(await g.signedUrl!('./docs//a.txt')).to.equal('https://signed/url');
-    expect(authz.calls.map((c) => [c.kind, c.permission, c.resource, c.subject])).to.deep.equal([['assert', 'fs:share', 'file:uploads:docs/a.txt', { id: 'uploads:docs/a.txt', type: 'file', fs: 'uploads', path: 'docs/a.txt' }]]);
-    expect(calls.map((c) => [c[0], c[1]])).to.deep.equal([['signedUrl', 'docs/a.txt']]);
+    const f = signing('mw-sign');
+    expect(await f.signedUrl('./docs/../docs/a.txt')).to.match(/^signed:\/\/mw-sign\/docs\/a\.txt\?expires=\d+$/);
+    expect(s.authz.calls.map((c) => [c.kind, c.permission, c.resource, c.subject])).to.deep.equal([['assert', 'fs:share', 'file:mw-sign:docs/a.txt', { id: 'mw-sign:docs/a.txt', type: 'file', fs: 'mw-sign', path: 'docs/a.txt' }]]);
+    expect(f.signed.map((x) => x.path)).to.deep.equal(['docs/a.txt']);
   });
 
-  it('enforce: a denial is AccessDenied and nothing is signed', async () => {
-    const calls: Call[] = [];
-    const g = guard(signer('uploads', calls), { mode: 'enforce' }, new FakeAuthz(() => false));
-    let error: unknown;
-    await g.signedUrl!('a.txt').catch((e: unknown) => (error = e));
-    expect(error).to.be.instanceOf(AccessDenied);
-    expect(calls).to.deep.equal([]);
-  });
-
-  it('enforce: a conditional fs:share is AccessDenied too (D13)', async () => {
-    const calls: Call[] = [];
-    const g = guard(signer('uploads', calls), { mode: 'enforce' }, new FakeAuthz(() => 'conditional'));
-    let error: unknown;
-    await g.signedUrl!('a.txt').catch((e: unknown) => (error = e));
-    expect(error).to.be.instanceOf(AccessDenied);
-    expect(calls).to.deep.equal([]);
-  });
-
-  describe('until = min(asked or now + defaultTtlSeconds, now + maxTtlSeconds, decision.validUntil)', () => {
-    type Term = 'asked' | 'ttl' | 'validUntil';
-    const TERMS: readonly Term[] = ['asked', 'ttl', 'validUntil'];
-    const subsets = [1, 2, 3, 4, 5, 6, 7].map((mask) => TERMS.filter((_, i) => mask & (1 << i)));
-
-    for (const present of subsets) {
-      for (const smallest of present) {
-        it(`${present.join(' + ')}: ${smallest} is the minimum`, async () => {
-          // The smallest term ends in 5 minutes, the others in 10 and 15; an absent asked term is the 15-minute default.
-          const minutes = new Map<Term, number>();
-          let next = 10;
-          for (const t of present) minutes.set(t, t === smallest ? 5 : (next += 5) - 5);
-          const calls: Call[] = [];
-          const authz = new FakeAuthz();
-          if (minutes.has('validUntil')) authz.validUntil = () => at(minutes.get('validUntil')!);
-          const entry = minutes.has('ttl') ? { mode: 'enforce', signedUrl: { maxTtlSeconds: minutes.get('ttl')! * 60 } } : { mode: 'enforce' };
-          const g = guard(signer('uploads', calls), entry, authz);
-          const asked = minutes.has('asked') ? { until: DateTime.fromJSDate(at(minutes.get('asked')!)), disposition: 'attachment' } : { disposition: 'attachment' };
-
-          await g.signedUrl!('a.txt', asked);
-          expect(untilOf(calls[0])).to.equal(at(5).getTime());
-          expect((calls[0][2] as { disposition?: string }).disposition).to.equal('attachment');
-        });
-      }
+  it('enforce: a denial or a conditional fs:share is AccessDenied and nothing is signed', async () => {
+    const f = signing('mw-sign');
+    for (const answer of [false, 'conditional'] as const) {
+      s.authz.allow = () => answer;
+      await expect(f.signedUrl('docs/a.txt'), String(answer)).to.be.rejectedWith(AccessDenied);
     }
+    expect(f.signed).to.deep.equal([]);
+  });
 
-    it('nothing asked: the URL lives signedUrl.defaultTtlSeconds, 900 s unless configured (D9 rev.)', async () => {
-      const calls: Call[] = [];
-      const g = guard(signer('uploads', calls), { mode: 'enforce' }, new FakeAuthz());
-      const opts = { disposition: 'inline' };
-      await g.signedUrl!('a.txt', opts);
-      expect(calls.map((c) => [c[0], c[1], (c[2] as { disposition?: string }).disposition])).to.deep.equal([['signedUrl', 'a.txt', 'inline']]);
-      expect(untilOf(calls[0])).to.equal(at(15).getTime());
-      expect(opts).to.deep.equal({ disposition: 'inline' });
+  it('nothing asked: the URL lives 900 s, or signedUrl.defaultTtlSeconds', async () => {
+    const plain = signing('mw-sign');
+    const def = signing('mw-def');
+    await plain.signedUrl('docs/a.txt');
+    await def.signedUrl('docs/a.txt');
+    expect([...lifetimes(plain), ...lifetimes(def)]).to.deep.equal([900_000, 300_000]);
+  });
 
-      const configured = guard(signer('uploads', calls), { mode: 'enforce', signedUrl: { defaultTtlSeconds: 120 } }, new FakeAuthz());
-      await configured.signedUrl!('a.txt');
-      expect(untilOf(calls[1])).to.equal(at(2).getTime());
-    });
+  it('until = min(asked or now + defaultTtlSeconds, now + maxTtlSeconds, decision.validUntil)', async () => {
+    const f = signing('mw-ttl');
+    await f.signedUrl('docs/a.txt', { until: at(30) });
+    await f.signedUrl('docs/a.txt', { until: at(3600) });
+    await f.signedUrl('docs/a.txt');
+    s.authz.validUntil = () => new Date(NOW.getTime() + 10_000);
+    await f.signedUrl('docs/a.txt', { until: at(3600) });
+    expect(lifetimes(f)).to.deep.equal([30_000, 60_000, 60_000, 10_000]);
+  });
 
-    it('nothing asked: a longer cap or a far validUntil never lengthens the URL beyond the default', async () => {
-      const calls: Call[] = [];
-      const authz = new FakeAuthz();
-      authz.validUntil = () => at(60 * 24 * 30);
-      const g = guard(signer('uploads', calls), { mode: 'enforce', signedUrl: { maxTtlSeconds: 86400 } }, authz);
-      await g.signedUrl!('a.txt');
-      expect(untilOf(calls[0])).to.equal(at(15).getTime());
-    });
+  it('an asked until beyond the default stands when no cap applies', async () => {
+    const f = signing('mw-def');
+    await f.signedUrl('docs/a.txt', { until: at(3600) });
+    expect(lifetimes(f)).to.deep.equal([3_600_000]);
+  });
 
-    it('nothing asked: a default above maxTtlSeconds is capped by it', async () => {
-      const calls: Call[] = [];
-      const g = guard(signer('uploads', calls), { mode: 'enforce', signedUrl: { maxTtlSeconds: 60, defaultTtlSeconds: 3600 } }, new FakeAuthz());
-      await g.signedUrl!('a.txt');
-      expect(untilOf(calls[0])).to.equal(at(1).getTime());
-    });
+  it('signs a copy of the asked DateTime in its zone and leaves the caller options alone', async () => {
+    const f = signing('mw-sign');
+    const asked = DateTime.fromJSDate(NOW, { zone: 'Europe/Warsaw' }).plus({ seconds: 30 });
+    const opts = { until: asked, disposition: 'attachment' };
+    await f.signedUrl('docs/a.txt', opts);
+    expect(opts.until).to.equal(asked);
+    expect(f.signed[0].until).to.not.equal(asked);
+    expect(f.signed[0].until!.toMillis()).to.equal(asked.toMillis());
+    expect(f.signed[0].until!.zoneName).to.equal('Europe/Warsaw');
+    expect(f.signed[0].disposition).to.equal('attachment');
+  });
 
-    it('an asked until beyond the default stands when no cap applies: the default only fills an absent term', async () => {
-      const calls: Call[] = [];
-      const g = guard(signer('uploads', calls), { mode: 'enforce' }, new FakeAuthz());
-      await g.signedUrl!('a.txt', { until: DateTime.fromJSDate(at(60)) });
-      expect(untilOf(calls[0])).to.equal(at(60).getTime());
-    });
-
-    it('passes a copy of the asked DateTime in its zone, never the caller object, and never changes the caller options', async () => {
-      const calls: Call[] = [];
-      const g = guard(signer('uploads', calls), { mode: 'enforce', signedUrl: { maxTtlSeconds: 3600 } }, new FakeAuthz());
-      const until = DateTime.fromJSDate(at(5), { zone: 'Europe/Warsaw' });
-      const opts = { until };
-      await g.signedUrl!('a.txt', opts);
-      const passed = (calls[0][2] as { until: DateTime }).until;
-      expect(passed).to.not.equal(until);
-      expect(passed).to.be.instanceOf(DateTime);
-      expect(passed.toMillis()).to.equal(at(5).getTime());
-      expect(passed.zoneName).to.equal('Europe/Warsaw');
-      expect(opts).to.deep.equal({ until });
-
-      const later = { until: DateTime.fromJSDate(at(120)) };
-      await g.signedUrl!('a.txt', later);
-      expect(untilOf(calls[1])).to.equal(at(60).getTime());
-      expect(later.until.toMillis()).to.equal(at(120).getTime());
-    });
-
-    it('reads now from the now option, so a maxTtlSeconds counts from the authz clock', async () => {
-      const calls: Call[] = [];
-      const g = guard(signer('uploads', calls), { mode: 'enforce', signedUrl: { maxTtlSeconds: 90 } }, new FakeAuthz(), { now: () => at(30) });
-      await g.signedUrl!('a.txt');
-      expect(untilOf(calls[0])).to.equal(at(31.5).getTime());
-    });
-
-    for (const [label, now] of [
-      ['an invalid Date', () => new Date(Number.NaN)],
-      ['a value that is not a Date', () => '2026-10-04' as unknown as Date],
-    ] as const) {
-      it(`a now option that gives ${label} falls back to the system time, as the domain clock does`, async () => {
-        const calls: Call[] = [];
-        const g = guard(signer('uploads', calls), { mode: 'enforce' }, new FakeAuthz(), { now });
-        const before = Date.now();
-        await g.signedUrl!('a.txt');
-        const until = untilOf(calls[0]);
-        expect(until)
-          .to.be.a('number')
-          .within(before + 900_000, Date.now() + 900_000);
-      });
+  it('refuses an asked until that is not a valid luxon DateTime, before any check', async () => {
+    const f = signing('mw-sign');
+    for (const until of [new Date(), 'tomorrow', DateTime.invalid('bad')]) {
+      await expect(f.signedUrl('docs/a.txt', { until } as never), String(until)).to.be.rejectedWith(InvalidArgument);
     }
-
-    it('audit: a denied fs:share warns, signs, and the TTL still narrows', async () => {
-      const calls: Call[] = [];
-      const g = guard(signer('uploads', calls), { mode: 'audit', signedUrl: { maxTtlSeconds: 60 } }, new FakeAuthz(() => false));
-      await g.signedUrl!('a.txt', { until: DateTime.fromJSDate(at(60)) });
-      expect(untilOf(calls[0])).to.equal(at(1).getTime());
-      expect(warnings).to.have.length(1);
-      expect(warnings[0]).to.match(/lacks fs:share on file:uploads:a\.txt/);
-    });
-
-    it('reads an asked until once: a value that changes between reads is signed as first read', async () => {
-      const calls: Call[] = [];
-      const g = guard(signer('uploads', calls), { mode: 'enforce' }, new FakeAuthz());
-      let reads = 0;
-      const shifty = { isLuxonDateTime: true, isValid: true, zone: undefined, toMillis: () => at(5 + 1000 * reads++).getTime() };
-      await g.signedUrl!('a.txt', { until: shifty as unknown as DateTime });
-      const passed = (calls[0][2] as { until: DateTime }).until;
-      expect(passed).to.be.instanceOf(DateTime);
-      expect(passed.toMillis()).to.equal(at(5).getTime());
-      expect(reads).to.equal(1);
-    });
-
-    it('refuses an asked until that is not a valid luxon DateTime, before any check or signing', async () => {
-      for (const until of [NOW, DateTime.invalid('broken'), '2026-10-04']) {
-        const calls: Call[] = [];
-        const authz = new FakeAuthz();
-        const g = guard(signer('uploads', calls), { mode: 'enforce' }, authz);
-        let error: unknown;
-        await g.signedUrl!('a.txt', { until: until as DateTime }).catch((e: unknown) => (error = e));
-        expect(error, String(until)).to.be.instanceOf(InvalidArgument);
-        expect(calls).to.deep.equal([]);
-        expect(authz.calls).to.deep.equal([]);
-      }
-    });
+    expect(s.authz.calls).to.deep.equal([]);
+    expect(f.signed).to.deep.equal([]);
   });
 
-  describe('getSignedUrl', () => {
-    it('is served through the raw signedUrl when the provider has one', async () => {
-      const calls: Call[] = [];
-      const authz = new FakeAuthz();
-      authz.validUntil = () => at(7);
-      const g = guard(signer('uploads', calls), { mode: 'enforce', signedUrl: { maxTtlSeconds: 600 } }, authz);
-      expect(await (g as unknown as { getSignedUrl(p: string, u?: DateTime): Promise<string> }).getSignedUrl('/docs/a.txt', DateTime.fromJSDate(at(60)))).to.equal('https://signed/url');
-      expect(authz.keys()).to.deep.equal(['fs:share file:uploads:docs/a.txt']);
-      expect(calls.map((c) => c[0])).to.deep.equal(['signedUrl']);
-      expect(calls[0][1]).to.equal('docs/a.txt');
-      expect(untilOf(calls[0])).to.equal(at(7).getTime());
-    });
-
-    it('without an asked until it signs for the default lifetime', async () => {
-      const calls: Call[] = [];
-      const g = guard(signer('uploads', calls), { mode: 'enforce' }, new FakeAuthz());
-      await (g as unknown as { getSignedUrl(p: string): Promise<string> }).getSignedUrl('a.txt');
-      expect(calls.map((c) => [c[0], c[1]])).to.deep.equal([['signedUrl', 'a.txt']]);
-      expect(untilOf(calls[0])).to.equal(at(15).getTime());
-    });
-
-    it('a provider with getSignedUrl only gets the narrowed until as its second argument', async () => {
-      const calls: Call[] = [];
-      const g = guard(signer('uploads', calls, { getSignedUrl: true }), { mode: 'enforce', signedUrl: { maxTtlSeconds: 120 } }, new FakeAuthz());
-      await (g as unknown as { getSignedUrl(p: string, u?: DateTime): Promise<string> }).getSignedUrl('a.txt', DateTime.fromJSDate(at(60)));
-      expect(calls.map((c) => [c[0], c[1]])).to.deep.equal([['getSignedUrl', 'a.txt']]);
-      expect((calls[0][2] as DateTime).toMillis()).to.equal(at(2).getTime());
-    });
-
-    it('a provider without either method behaves as the raw one: there is nothing to call', async () => {
-      const authz = new FakeAuthz();
-      const g = guard(signer('uploads', [], {}), { mode: 'enforce' }, authz) as unknown as Record<string, unknown>;
-      expect(g.signedUrl).to.equal(undefined);
-      expect(g.getSignedUrl).to.equal(undefined);
-      expect(() => (g.signedUrl as () => unknown)()).to.throw(TypeError);
-      expect(authz.calls).to.deep.equal([]);
-    });
-  });
-});
-
-const FS_ALL = ['fs:read', 'fs:stat', 'fs:list', 'fs:write', 'fs:delete', 'fs:share'];
-
-/** Permits every fs permission for alice; its permits expire at `expires` when set. */
-class ExpiringModel extends AuthorizationModel {
-  readonly name = 'expiring';
-  readonly capabilities: ModelCapabilities = { effects: ['permit'], residuals: [], sync: 'always', fields: false, needsSubject: false };
-
-  constructor(private readonly expires?: Date) {
-    super();
-  }
-
-  init(): void {}
-
-  applies(): boolean {
-    return true;
-  }
-
-  evaluate(req: DecisionRequest): Vote {
-    const permits = req.principal.id === 'alice';
-    return { model: this.name, permitWhen: permits ? TRUE : FALSE, denyWhen: FALSE, cacheable: true, ...(permits && this.expires ? { validUntil: this.expires } : {}) };
-  }
-
-  async summarize(principal: Principal): Promise<ModelSummary> {
-    return { model: this.name, permissions: principal.id === 'alice' ? FS_ALL.map((name) => ({ name, conditional: false })) : [] };
-  }
-}
-
-let seq = 0;
-
-describe('authz-fs signed URLs through the engine', function () {
-  this.timeout(20000);
-
-  let owns = false;
-  let undoLog: () => void;
-  let domains: Awaited<ReturnType<typeof testHost.domains>>;
-  let scope: IContainer;
-  let name: string;
-  const keys: string[][] = [];
-
-  const set = (path: string[], value: unknown): void => {
-    testHost.config().set(path, value);
-    keys.push(path);
-  };
-
-  before(async () => {
-    try {
-      testHost.config();
-    } catch {
-      owns = true;
-      await testHost.installHost();
-    }
-    undoLog = installQuietLog();
-    domains = await testHost.domains();
+  it('audit: a denied fs:share warns, signs, and the TTL still narrows', async () => {
+    const f = signing('mw-sign-audit');
+    s.authz.allow = () => false;
+    await f.signedUrl('docs/a.txt', { until: at(3600) });
+    expect(lifetimes(f)).to.deep.equal([60_000]);
+    expect(s.warnings.some((w) => w.includes('lacks fs:share'))).to.equal(true);
   });
 
-  after(async () => {
-    undoLog();
-    if (owns) await testHost.uninstallHost();
+  it('getSignedUrl is checked and narrowed the same way', async () => {
+    const f = signing('mw-ttl');
+    await f.getSignedUrl('docs/a.txt', at(3600));
+    await f.getSignedUrl('docs/a.txt');
+    expect(s.authz.keys()).to.deep.equal(['fs:share file:mw-ttl:docs/a.txt', 'fs:share file:mw-ttl:docs/a.txt']);
+    expect(lifetimes(f)).to.deep.equal([60_000, 60_000]);
   });
 
-  beforeEach(() => {
-    scope = DI.child();
-  });
-
-  afterEach(async () => {
-    if (domains.names().includes(name)) await domains.container(name).dispose();
-    for (const path of keys.splice(0).reverse()) testHost.config().unset(path);
-    await scope.dispose();
-  });
-
-  const setup = async (model: ExpiringModel, entry: Record<string, unknown>): Promise<{ g: fs; calls: Call[] }> => {
-    name = `signed-${++seq}`;
-    set(['authz', 'domains', name], { combine: { default: { algorithm: 'deny-overrides', models: ['expiring'] } }, cache: { maxEntries: 0 } });
-    const child = domains.create(name);
-    child.register(testHost.instance(model)).as(AuthorizationModel);
-    child.register(testHost.instance({ now: () => NOW })).as(AuthzClock);
-    const svc: AuthzService = await domains.service(name);
-    const calls: Call[] = [];
-    // `now` is left out: the guard reads the clock of the filesystem's domain.
-    const g = guardFs(signer('uploads', calls), 'uploads', { config: parseFsAccessConfig('uploads', { mode: 'enforce', domain: name, ...entry }), container: scope, service: async () => svc, principal: () => alice });
-    return { g, calls };
-  };
-
-  it("an expiring permit's validUntil caps the URL below the asked until and the TTL", async () => {
-    const { g, calls } = await setup(new ExpiringModel(at(2)), { signedUrl: { maxTtlSeconds: 600 } });
-    await g.signedUrl!('a.txt', { until: DateTime.fromJSDate(at(60)) });
-    expect(untilOf(calls[0])).to.equal(at(2).getTime());
-  });
-
-  it('without a TTL config an expiring permit shorter than the default sets until', async () => {
-    const { g, calls } = await setup(new ExpiringModel(at(3)), {});
-    await g.signedUrl!('a.txt');
-    expect(untilOf(calls[0])).to.equal(at(3).getTime());
-  });
-
-  it('a permit that expires in 30 days and nothing asked: the default 900 s, not 30 days', async () => {
-    const { g, calls } = await setup(new ExpiringModel(at(60 * 24 * 30)), {});
-    await g.signedUrl!('a.txt');
-    expect(untilOf(calls[0])).to.equal(at(15).getTime());
-  });
-
-  it('the TTL counts from the domain clock', async () => {
-    const { g, calls } = await setup(new ExpiringModel(), { signedUrl: { maxTtlSeconds: 240 } });
-    await g.signedUrl!('a.txt');
-    expect(untilOf(calls[0])).to.equal(at(4).getTime());
-  });
-
-  it('a permit that never expires, no TTL and nothing asked: the default, from the domain clock', async () => {
-    const { g, calls } = await setup(new ExpiringModel(), {});
-    await g.signedUrl!('a.txt');
-    expect(untilOf(calls[0])).to.equal(at(15).getTime());
-  });
-
-  it('the domain clock is the one its service booted with; before that boot, the system time', async () => {
-    name = `signed-${++seq}`;
-    set(['authz', 'domains', name], { combine: { default: { algorithm: 'deny-overrides', models: ['expiring'] } }, cache: { maxEntries: 0 } });
-    const child = domains.create(name);
-    child.register(testHost.instance(new ExpiringModel())).as(AuthorizationModel);
-    child.register(testHost.instance({ now: () => NOW })).as(AuthzClock);
-    const before = Date.now();
-    expect((await domainNow(scope, name)).getTime()).to.be.within(before, Date.now());
-    await domains.service(name);
-    expect(await domainNow(scope, name)).to.equal(NOW);
+  it('a provider without doSignedUrl answers MethodNotImplemented after the check', async () => {
+    await expect(s.local('mw-sign', { 'docs/a.txt': 'A' }).signedUrl('docs/a.txt')).to.be.rejectedWith(MethodNotImplemented);
+    expect(s.authz.keys()).to.deep.equal(['fs:share file:mw-sign:docs/a.txt']);
   });
 });

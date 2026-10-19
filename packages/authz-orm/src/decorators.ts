@@ -3,8 +3,8 @@ import type { ResourceType } from '@spinajs/authz';
 import type { Class } from '@spinajs/di';
 import type { ModelBase } from '@spinajs/orm';
 
-import type { AccessResourceOptions, OwnerOptions, ParentOptions } from './api.js';
-import { addParent, checkType, ownerColumns, register, setOwner, setSelf } from './registry.js';
+import type { AccessResourceOptions, OwnerOptions, ParentOptions, RelationOptions } from './api.js';
+import { addParent, checkRelationName, checkType, ownerColumns, register, setOwner, setRelation, setSelf } from './registry.js';
 import type { ModelClass } from './registry.js';
 
 const ctorOf = (target: object): ModelClass => (typeof target === 'function' ? target : (target as { constructor: ModelClass }).constructor);
@@ -45,6 +45,16 @@ export function Owner(opts?: OwnerOptions): PropertyDecorator {
 export function Self(): PropertyDecorator {
   return (target, key) => {
     setSelf(ctorOf(target), propertyName('@Self()', target, key));
+  };
+}
+
+export function Relation(name: string, opts?: RelationOptions): PropertyDecorator {
+  checkRelationName(name, '@Relation');
+  if (opts !== undefined && (opts === null || typeof opts !== 'object')) throw new AuthzConfigError(`@Relation('${name}'): options must be an object`);
+  return (target, key) => {
+    const column = propertyName(`@Relation('${name}')`, target, key);
+    const where = `${ctorOf(target).name || '<anonymous class>'}: @Relation('${name}')`;
+    setRelation(ctorOf(target), name, ownerColumns(opts?.typeColumn === undefined ? column : { column, typeColumn: opts.typeColumn }, where, `relation '${name}'`));
   };
 }
 
