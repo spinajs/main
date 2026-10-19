@@ -70,10 +70,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # dependency-cruiser needs node ^22 || ^24.
+      # dependency-cruiser needs node ^22 || ^24. Not 24: its npm 11 `npm ci` refuses this lock file.
       - uses: actions/setup-node@v4
         with:
-          node-version: 24.x
+          node-version: 22.x
           cache: npm
 
       - name: install
