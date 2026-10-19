@@ -14,7 +14,7 @@ MySQL has no `RETURNING`, so `MySqlOrmDriver` hands back generated keys through 
 3. **Send.** `executeOnDb()` runs it with `QueryContext.Insert` (or `Upsert` after `onDuplicate()`) and resolves `{ RowsAffected, LastInsertId, Returning: [] }` from `mysql2`'s `OkPacket`.
 4. **Map.** The model layer resolves `ServerResponseMapper` from the connection container: `MysqlServerResponseMapper.read(data)` returns `{ LastInsertId: data.LastInsertId ?? 0, RowsAffected: data.RowsAffected ?? 0, Returning: [] }`.
 5. **Key one row.** For a model with an `auto` primary key and no key set, `PrimaryKeyValue = LastInsertId`.
-6. **Key a batch.** For `Model.insert([a, b, c])`, every row gets `LastInsertId + index` when all six guards hold (next section). Otherwise no key is assigned.
+6. **Key a batch.** For `Model.insert([a, b, c])`, every row gets `LastInsertId + index` when all seven guards hold (next section). Otherwise no key is assigned.
 
 Errors: `returning(columns)` throws `NotSupported('driver orm-driver-mysql does not support RETURNING on INSERT')`. `Model.insert([...], behaviour)` with any behaviour other than `InsertBehaviour.None` throws `OrmException('insert behaviour is not supported with arrays')`.
 
@@ -31,9 +31,10 @@ Errors: `returning(columns)` throws `NotSupported('driver orm-driver-mysql does 
 1. The driver reports `insertIdIsFirstOfBatch: true` (MySQL only).
 2. The model has exactly one primary key column, with `auto` generation.
 3. `InsertBehaviour` is `None`: `INSERT IGNORE`, `REPLACE` and `ON DUPLICATE KEY UPDATE` can skip or reuse rows.
-4. `LastInsertId` is a finite number above `0`.
-5. `RowsAffected` equals the number of rows sent.
-6. No row carried an explicit key. With some keys supplied, InnoDB allocates values only for the others.
+4. The batch ran as one statement. A driver subclass that sets `maxBindParameters` or `maxInsertRows` can split it, and the blocks of separate statements are not contiguous.
+5. `LastInsertId` is a finite number above `0`.
+6. `RowsAffected` equals the number of rows sent.
+7. No row carried an explicit key. With some keys supplied, InnoDB allocates values only for the others.
 
 If any guard fails, no key is assigned. Re-select, or insert rows one at a time.
 

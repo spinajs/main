@@ -25,6 +25,8 @@ let RESPONSE: any = { RowsAffected: 0, LastInsertId: 0, Returning: [] };
  */
 let FIRST_ID = true;
 
+let MAX_INSERT_ROWS: number | undefined;
+
 /**
  * Returns whatever the driver resolved with, so a test can express "the server said it inserted
  * 3 rows starting at id 10" without going near a real database.
@@ -41,12 +43,12 @@ class PassthroughResponseMapper extends ServerResponseMapper {
 
 class BatchInsertDriver extends FakeSqliteDriver {
   public supportedFeatures() {
-    return { ...super.supportedFeatures(), insertReturning: false, insertIdIsFirstOfBatch: FIRST_ID };
+    return { ...super.supportedFeatures(), insertReturning: false, insertIdIsFirstOfBatch: FIRST_ID, maxInsertRows: MAX_INSERT_ROWS };
   }
 
   public async execute(builder: any): Promise<any> {
     builder.toDB();
-    return RESPONSE;
+    return typeof RESPONSE === 'function' ? RESPONSE(builder) : RESPONSE;
   }
 }
 
@@ -54,6 +56,7 @@ describe('batch insert key backfill', () => {
   beforeEach(async () => {
     RESPONSE = { RowsAffected: 0, LastInsertId: 0, Returning: [] };
     FIRST_ID = true;
+    MAX_INSERT_ROWS = undefined;
 
     DI.register(ConnectionConf).as(Configuration);
     DI.register(BatchInsertDriver).as('sqlite');
@@ -128,6 +131,32 @@ describe('batch insert key backfill', () => {
     await Model1.insert(models);
 
     expect(models.map((m) => m.Id)).to.deep.equal([null, null, null]);
+  });
+
+  it('does not backfill a batch split into several statements', async () => {
+    MAX_INSERT_ROWS = 2;
+    let firstId = 10;
+    RESPONSE = (builder: any) => {
+      const response = { RowsAffected: builder.Values.length, LastInsertId: firstId, Returning: [] };
+      firstId += 100;
+      return response;
+    };
+
+    const models = [new Model1(), new Model1(), new Model1()];
+    await Model1.insert(models);
+
+    expect(models.map((m) => m.Id)).to.deep.equal([null, null, null]);
+  });
+
+  it('RETURNING still backfills a batch split into several statements', async () => {
+    MAX_INSERT_ROWS = 2;
+    let nextId = 7;
+    RESPONSE = (builder: any) => ({ RowsAffected: builder.Values.length, LastInsertId: 0, Returning: builder.Values.map(() => ({ Id: nextId++ })) });
+
+    const models = [new Model1(), new Model1(), new Model1()];
+    await Model1.insert(models);
+
+    expect(models.map((m) => m.Id)).to.deep.equal([7, 8, 9]);
   });
 
   it('RETURNING still wins when the dialect supplies it', async () => {

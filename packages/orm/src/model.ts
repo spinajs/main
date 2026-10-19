@@ -1024,7 +1024,7 @@ export class ModelBase<M = unknown> implements IModelBase {
  *
  * The guards below rule out every case where the mapping stops being positional.
  */
-function _canBackfillContiguousKeys(description: IModelDescriptor, rows: any[], response: DbServerResponse, features: ISupportedFeature, insertBehaviour: InsertBehaviour): boolean {
+function _canBackfillContiguousKeys(description: IModelDescriptor, rows: any[], response: DbServerResponse, features: ISupportedFeature, insertBehaviour: InsertBehaviour, statements: number): boolean {
   // Only a dialect whose reported id is the FIRST of the block can be walked forwards. MSSQL's
   // SCOPE_IDENTITY() and SQLite's last_insert_rowid() report the LAST one.
   if (!features.insertIdIsFirstOfBatch) {
@@ -1043,6 +1043,12 @@ function _canBackfillContiguousKeys(description: IModelDescriptor, rows: any[], 
   // k-th input row. ( The array path rejects these outright today; this keeps the invariant
   // local to the decision rather than depending on a check three hundred lines away. )
   if (insertBehaviour !== InsertBehaviour.None) {
+    return false;
+  }
+
+  // The block is contiguous within one statement only, and a split insert reports the last
+  // statement's identity value, not the first row's.
+  if (statements > 1) {
     return false;
   }
 
@@ -1380,7 +1386,7 @@ export const MODEL_STATIC_MIXINS = {
           if (v instanceof ModelBase && !v.PrimaryKeyValue) {
             v.PrimaryKeyValue = response.LastInsertId;
           }
-        } else if (_canBackfillContiguousKeys(description, rows, response, query.Driver.supportedFeatures(), insertBehaviour)) {
+        } else if (_canBackfillContiguousKeys(description, rows, response, query.Driver.supportedFeatures(), insertBehaviour, query.splitByDriverLimits().length)) {
           // Multi-row `INSERT ... VALUES` on a dialect with no RETURNING whose identity value is
           // the first of the statement's contiguous block. See _canBackfillContiguousKeys.
           rows.forEach((v, idx) => {
