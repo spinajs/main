@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { DbAuthzAdminBackend, readVersion } from '../../../src/index.js';
-import { bootDb } from '../../support/db.js';
+import { bootDb, PG_ACQUIRE_TIMEOUT } from '../../support/db.js';
 import type { TestDb } from '../../support/db.js';
 
 const expect = chai.expect;
@@ -34,12 +34,41 @@ describe('DbAuthzAdminBackend on Postgres', function () {
       return 'done';
     });
 
-    const winner = await Promise.race([fast, new Promise((r) => setTimeout(() => r('queued behind pg_d1'), 5000))]);
+    const winner = await Promise.race([fast, new Promise((r) => setTimeout(() => r('queued behind pg_d1'), PG_ACQUIRE_TIMEOUT))]);
     release();
     await Promise.all([slow, fast]);
 
     expect(winner).to.eq('done');
     expect(await readVersion('pg_d1')).to.eq('1');
     expect(await readVersion('pg_d2')).to.eq('1');
+  });
+
+  it('orders two concurrent batches of one domain on the version row, without a deadlock', async () => {
+    const backend = new DbAuthzAdminBackend();
+    const before = BigInt(await readVersion('pg_same'));
+    const events: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+
+    const first = backend.transaction('pg_same', async (tx) => {
+      events.push('first:start');
+      await gate;
+      await backend.bumpVersion('pg_same', tx);
+      events.push('first:end');
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    const second = backend.transaction('pg_same', async (tx) => {
+      events.push('second:start');
+      await backend.bumpVersion('pg_same', tx);
+      events.push('second:end');
+    });
+
+    await new Promise((r) => setTimeout(r, 500));
+    expect(events).to.deep.eq(['first:start']);
+    release();
+    await Promise.all([first, second]);
+
+    expect(events).to.deep.eq(['first:start', 'first:end', 'second:start', 'second:end']);
+    expect(await readVersion('pg_same')).to.eq(String(before + 2n));
   });
 });

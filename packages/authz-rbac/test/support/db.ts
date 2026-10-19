@@ -18,7 +18,7 @@ export const DB_KINDS: DbKind[] = ['sqlite', 'postgres'];
 export const PG_SERVER = { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres', Database: 'test' };
 
 /** The shared server can be slow to answer while other lanes load it. */
-const PG_ACQUIRE_TIMEOUT = 15000;
+export const PG_ACQUIRE_TIMEOUT = 15000;
 
 export interface TestDb {
   kind: DbKind;
@@ -145,7 +145,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
 
   try {
     await container.resolve(Configuration);
-    // Undoes the outer checkout's Array.ofType patch (see above), so later lists in this process resolve too.
+    // Restores Array.ofType/chainOf if loading the configuration pulled in a second copy of @spinajs/di.
     Object.assign(Array, { ofType, chainOf });
     orm = await container.resolve(Orm);
   } catch (err) {
