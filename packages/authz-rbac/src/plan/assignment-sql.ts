@@ -35,13 +35,6 @@ function sql(strings: TemplateStringsArray, ...values: unknown[]): SqlFragment {
 
 const join = (separator: string, list: readonly SqlFragment[]): SqlFragment => ({ sql: list.map((f) => f.sql).join(separator), bindings: list.flatMap((f) => f.bindings) });
 
-/** As SqlDatetimeValueConverter writes a datetime on SQLite (local wall clock, no zone): text order is time order. */
-export function sqliteDateTime(d: Date): string {
-  const p = (n: number, w = 2) => String(n).padStart(w, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
-}
-
-const nowOf = (row: SqlRowContext): unknown => (row.dialect === 'sqlite' ? sqliteDateTime(row.now) : row.now);
 const live = (alias: string, now: unknown): SqlFragment => sql`(${raw(alias)}.expires_at IS NULL OR ${raw(alias)}.expires_at > ${now})`;
 
 function contains(dialect: SqlRowContext['dialect'], haystack: SqlFragment, needle: string): SqlFragment {
@@ -125,7 +118,7 @@ function denyShape(args: RbacAssignmentPlanArgs, row: SqlRowContext, now: unknow
 /** The row matches args (lane L8 decision 6): a live assignment of one of the roles, held by the holders, at the row, an ancestor or (global) $global. */
 export function rbacAssignmentSql(args: RbacAssignmentPlanArgs, row: SqlRowContext): SqlFragment {
   if (args.roles.length === 0 || (args.subjects.length === 0 && !(args.membership && args.memberKeys.length > 0))) return FALSE_SQL;
-  const now = nowOf(row);
+  const now = row.now;
   if (args.global && args.roles.every((r) => !qualified(r) && !r.descendantsOnly)) return denyShape(args, row, now);
   const table = raw(AUTHZ_ASSIGNMENT_TABLE);
   const id = raw(row.rowId);

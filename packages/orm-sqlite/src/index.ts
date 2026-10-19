@@ -146,7 +146,7 @@ export class SqliteOrmDriver extends SqlDriver {
 
   /** Runs a statement on its handle, never held: the driver's own transaction statements use it directly. */
   protected runStatement(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
-    const queryParams = params ?? [];
+    const queryParams = this.toDriverParams(params);
 
     if (!this.Db) {
       throw new Error('cannot execute sqlite statement, no db connection avaible');

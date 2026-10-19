@@ -5,7 +5,7 @@ import { QueryContext } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 
-import { RbacAssignmentSql, parsePrincipalSubjectKey, parseRbacPlanArgs, rbacAssignmentSql, rbacPlanArgs, sqliteDateTime } from '../../src/index.js';
+import { RbacAssignmentSql, parsePrincipalSubjectKey, parseRbacPlanArgs, rbacAssignmentSql, rbacPlanArgs } from '../../src/index.js';
 import type { RbacAssignmentPlanArgs } from '../../src/index.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
@@ -52,12 +52,12 @@ describe('authz-rbac plan SQL (design §6.2)', () => {
       expect(out.sql.split('EXISTS (SELECT 1 FROM authz_assignment authz_s WHERE')[1]).to.not.contain("'lead'");
     });
 
-    it('dialects differ only in the tag test and the now binding', () => {
+    it('dialects differ only in the tag test', () => {
       const tagged = (dialect: SqlRowContext['dialect']) => rbacAssignmentSql(args({ roles: [{ role: 'paid', tag: 'gold' }] }), row(dialect)).sql;
       expect(tagged('postgres')).to.contain('strpos(authz_s.tags, ?) > 0');
       expect(tagged('mysql')).to.contain('LOCATE(?, authz_s.tags) > 0');
       expect(tagged('mssql')).to.contain('CHARINDEX(?, authz_s.tags) > 0');
-      expect(rbacAssignmentSql(args(), row('sqlite')).bindings[2]).to.equal(sqliteDateTime(NOW));
+      expect(rbacAssignmentSql(args(), row('sqlite')).bindings[2]).to.equal(NOW);
     });
 
     it('deny: the single EXISTS shape of design §6.2 with the membership sub-query', () => {
@@ -98,7 +98,7 @@ describe('authz-rbac plan SQL (design §6.2)', () => {
     let db: TestDb;
     const run = (sql: string, bindings: readonly unknown[] = []) => rawQuery(db.driver, sql, [...bindings], QueryContext.Schema);
     const ids = async (where: SqlFragment): Promise<number[]> => ((await rawQuery(db.driver, `SELECT t.id FROM task t WHERE ${where.sql} ORDER BY t.id`, [...where.bindings])) as { id: number }[]).map((r) => r.id);
-    const past = sqliteDateTime(new Date(NOW.getTime() - 3_600_000));
+    const past = new Date(NOW.getTime() - 3_600_000);
     const sqlite = row('sqlite');
     const permit = (over: Partial<RbacAssignmentPlanArgs>) => rbacAssignmentSql(args(over), sqlite);
 

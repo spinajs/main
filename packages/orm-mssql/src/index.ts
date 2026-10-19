@@ -70,7 +70,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     const req = txContext?.request ?? this._connectionPool.request();
 
     finalQuery = toNamedParameters(finalQuery, params?.length ?? 0);
-    params?.forEach((value, index) => req.input(`p${index}`, value));
+    this.toDriverParams(params).forEach((value, index) => req.input(`p${index}`, value));
 
     const result = await req.query(finalQuery).catch((err: unknown) => {
       throw mapMsSqlError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params);

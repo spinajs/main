@@ -4,7 +4,7 @@ import { PasswordAgeSource } from '@spinajs/authn-local';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
 import { runAsSystem } from '../system.js';
-import { USERS_TABLE, holdsPassword, quoted, raw, sqlDateTime, usersDriver, usersOrmUp } from './sql.js';
+import { USERS_TABLE, holdsPassword, quoted, raw, usersDriver, usersOrmUp } from './sql.js';
 
 /**
  * Ages from `users.PasswordSetAt`, which `UserAccountSink` writes on the authn events of a real password set.
@@ -27,7 +27,7 @@ export class UserPasswordAgeSource extends PasswordAgeSource {
         .select()
         .from(USERS_TABLE)
         .columns(['Uuid'])
-        .where(raw({ sql: `(${setAt} IS NULL OR ${setAt} < ?)`, bindings: [sqlDateTime(cutoff)] }))
+        .where(raw({ sql: `(${setAt} IS NULL OR ${setAt} < ?)`, bindings: [cutoff] }))
         .whereNull('DeletedAt')
         .where(raw(holdsPassword(driver, 'Password')));
     })) as { Uuid: unknown }[];

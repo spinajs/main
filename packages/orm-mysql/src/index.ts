@@ -108,7 +108,8 @@ export class MySqlOrmDriver extends SqlDriver {
   public executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
     // Reads and writes are both retried: `withReconnect` only re-runs on transport failures,
     // where the statement provably never reached the server.
-    return this.withReconnect(() => this._executeOnDbOnce(stmt, params, context));
+    const bound = this.toDriverParams(params);
+    return this.withReconnect(() => this._executeOnDbOnce(stmt, bound, context));
   }
 
   /**

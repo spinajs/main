@@ -4,6 +4,7 @@ import { SqlDatetimeValueConverter, SqlSetConverter, SqlBooleanValueConverter, S
 import { SetValueConverter, GroupByStatement, DateTimeWrapper, DateWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from '@spinajs/orm';
 import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlInQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper, SqlLazyQueryStatement, SqlInSetStatement } from './statements.js';
 import { Perf } from '@spinajs/log-common';
+import { DateTime } from 'luxon';
 
 export * from './compilers.js';
 export * from './builders.js';
@@ -31,6 +32,21 @@ export abstract class SqlDriver extends OrmDriver {
     // resolved has none. Logging must never be the thing that breaks a query.
     // The SQL is a printf arg: as the template its `${...}` would be read as placeholders, as a field it prints quoted.
     this.Log?.trace({ sql: expression, bindings, context: String(builder.QueryContext), model: builder.Model?.name }, '%s', expression);
+  }
+
+  /**
+   * Raw fragments and direct `executeOnDb` calls bind what they are given; a Date or DateTime among
+   * those parameters is written the way the dialect stores a datetime column, so raw SQL compares with
+   * model-written values.
+   */
+  protected toDriverParams(params: unknown[] | undefined): unknown[] {
+    const isDate = (p: unknown) => p instanceof Date || DateTime.isDateTime(p);
+    if (!params || !params.some(isDate)) {
+      return params ?? [];
+    }
+
+    const converter = this.Container.resolve<DatetimeValueConverter>(DatetimeValueConverter);
+    return params.map((p) => (isDate(p) ? converter.toDB(p, null as any, null as any) : p));
   }
 
   public execute(builder: Builder<any>) {

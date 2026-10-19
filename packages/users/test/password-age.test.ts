@@ -1,7 +1,6 @@
 import { DI } from '@spinajs/di';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
-import { DateTime } from 'luxon';
 import { PasswordAgeSource } from '@spinajs/authn-local';
 
 import { User, UserPasswordAgeSource, UsersPasswordSetAt_2026_10_04_00_00_00 } from '../src/index.js';
@@ -9,13 +8,11 @@ import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './supp
 
 const HASH = '$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$aGFzaA';
 
-const sqlText = (at: Date) => DateTime.fromJSDate(at).toSQL({ includeOffset: false })!;
-
 async function setPasswordSetAt(uuid: string, at: Date | null): Promise<void> {
   await User.query()
     .Driver.update()
     .in('users')
-    .update({ PasswordSetAt: at ? sqlText(at) : null })
+    .update({ PasswordSetAt: at })
     .where('Uuid', uuid);
 }
 
