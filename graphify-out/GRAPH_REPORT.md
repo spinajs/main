@@ -1,7 +1,7 @@
 # Graph Report - rv-refactor-authz-rbac-db-store-base  (2026-10-19)
 
 ## Corpus Check
-- 4558 files · ~3,011,859 words
+- 4558 files · ~3,011,851 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 439 file(s) not represented in the graph (top: (none) 376, .pug 41, .handlebars 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `d344c12c`
+- Built from commit: `30d354d4`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -6213,7 +6213,7 @@ Nodes (3): repository, type, url
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Injectable()` connect `Injectable` to `configuration-db-source/src/bootstrap.ts`, `OrmDriver`, `authz-rbac/test/contracts.test.ts`, `RbacModel`, `JsonTarget`, `JobModel`, `guessLanguage`, `UserMetadataController`, `host/service.ts`, `db-secret-store.ts`, `authz-orm/src/index.ts`, `ModelBase`, `packages_authz_lib_mjs_index`, `TelemetryController`, `credential-admin-guard.test.ts`, `MySqlOrmDriver`, `SocketServer`, `ref_spinajs_configuration`, `telemetry/test/access-policy.test.ts`, `normalizeFsPath`, `ConfigurationSource`, `DataTransformer`, `IdentityRef`, `IOFail`, `log-common/src/index.ts`, `BasePath`, `MemoryAuthnThrottle`, `packages_orm_lib_mjs_index`, `AmqpQueueClient`, `durable-e2e.test.ts`, `guessLanguage`, `FrameworkConfiguration`, `RequestStats`, `TotpService`, `FileInfoService`, `adapter/index.ts`, `ElectronRendererConfiguration`, `fs`, `di/test/di.test.ts`, `ILogArchiveContext`, `packages_di_lib_mjs_index`, `ref_spinajs_authz_testing`, `metadata-stores.test.ts`, `db-mfa-store.ts`, `fsService`, `QueryMiddleware`, `packages_di_lib_mjs_index_icontainer`, `queue-harness.ts`, `Features`, `users-http/test/support/http-app.ts`, `AuthnContext`, `PdfRenderer`, `SocketConnection`, `AuthnContext`, `PerfSink`, `fsNative`, `fsFTP`, `SqsQueueClient`, `Principal`, `UserController.ts`, `DataValidator`, `HandlebarsRenderer`, `group-service.ts`, `DbTranslationSource`, `authz-orm/src/registry.ts`, `DbConfigValueConverter`, `assignment-sql.ts`, `Initiator`, `message`, `ConfigFileValidator`, `config-role-store.test.ts`, `.compileToFile`, `TelemetryMiddleware`, `Argon2PasswordHasher`, `IdentityRef`, `IQueueMessage`, `HttpAcceptHeaders`, `root.ts`, `packages_authn_lib_mjs_contracts_index`, `EmailSend`, `ConfigVarProtocol`, `host/service.ts`, `PuppeteerRenderer`, `fsOneDrive`, `Orm`, `ref_spinajs_validation`, `authz-abac/src/model/model.ts`, `invitations/service.ts`, `SchemaProvider`, `ConfigVar`, `controller-model.test.ts`, `ref_node_crypto`, `db/backend.ts`, `authn-oidc/test/acceptance.test.ts`, `Singleton`, `Profile`, `OtlpLogTarget`, `PugRenderer`, `GraphanaLokiLogTarget`, `EmailSender`, `LocalPasswordService`, `fsS3`, `src/policy.ts`, `StompQueueClient`, `orm/src/builders.ts`, `FileTarget`, `FromDbModel`, `authn-oidc/test/core.test.ts`, `Autoinject`, `Metrics`, `Configuration`, `http-socket-common/test/common.test.ts`, `ref_chai`, `FromCookie`, `totp-step.test.ts`, `DefaultAccountGuard`, `PerfSink`, `ArgHydrator`, `http-socket/test/config-schema.test.ts`, `DbMfaSecretStore`, `DefaultEmailService`, `QueueClient`, `authn-oidc/test/hardening.test.ts`, `Csv`, `LongSpanRegistry`, `StubRenderer`, `ElectronRendererConfiguration`, `host/service.test.ts`, `jwt-strategy.test.ts`, `invitations/mailer.ts`, `email.deferred.test.ts`, `ref_mocha`, `SessionProvider`, `links/db-link-store.ts`, `normalizeFsPath`, `BufferTarget`, `http-socket/src/index.ts`, `authn-local/test/config-schema.test.ts`, `chain-of.test.ts`, `OtelTracing`, `authn-token/test/v3/cli.test.ts`, `users/test/acceptance.test.ts`, `RedisSessionStore`, `nonce-store.ts`, `IPuppeteerRendererOptions`, `QueueChangeBus`, `notes.socket.ts`, `CurrentUserArg`, `sse.ts`, `FilterModelRouteArg`, `http-socket/src/interfaces.ts`, `IntlQueryMiddleware`, `TestTarget`, `TestWildcard`?**
-  _High betweenness centrality (0.053) - this node is a cross-community bridge._
+  _High betweenness centrality (0.052) - this node is a cross-community bridge._
 - **What connects `@types/bunyan`, `@types/chai`, `@types/chai-as-promised` to the rest of the system?**
   _1698 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `configuration-db-source/src/bootstrap.ts` be split into smaller, more focused modules?**
