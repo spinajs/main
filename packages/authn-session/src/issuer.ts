@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
-import { _check_arg, _custom, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
+import { _check_arg, _custom, _is_string, _max_length, _non_empty, _try_check_arg, singleFlight } from '@spinajs/util';
 import { Autoinject, Container, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
@@ -291,12 +291,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
    */
   protected migrate(rawId: string): Promise<ISession | null> {
     // Parallel first uses in this process share one migration; see migrateOnce for other processes.
-    let running = this.Migrations.get(rawId);
-    if (!running) {
-      running = this.migrateOnce(rawId).finally(() => this.Migrations.delete(rawId));
-      this.Migrations.set(rawId, running);
-    }
-    return running;
+    return singleFlight(this.Migrations, rawId, () => this.migrateOnce(rawId));
   }
 
   protected readonly Migrations = new Map<string, Promise<ISession | null>>();

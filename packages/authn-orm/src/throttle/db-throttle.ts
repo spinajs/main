@@ -11,6 +11,7 @@ import { DI, IContainer, Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Orm, OrmDriver } from '@spinajs/orm';
+import { onceAsync } from '@spinajs/util';
 import type { ThrottleStore } from '@spinajs/util';
 
 import { checkedMs } from '../support/sql.js';
@@ -61,7 +62,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   private loadedParams: ThrottleParams | undefined;
   private readonly fromConfiguration: boolean;
   private hmacKey: Buffer | undefined;
-  private loading: Promise<void> | undefined;
+  private readonly loading = onceAsync(() => this.load());
   private rows: DbThrottleStore | undefined;
 
   /**
@@ -111,11 +112,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
 
   /** Resolves the connection and the configuration; the first `attempt`, `peek` or `succeed` and every `purge` call it. */
   public async init(): Promise<void> {
-    this.loading ??= this.load().catch((err: unknown) => {
-      this.loading = undefined;
-      throw err;
-    });
-    await this.loading;
+    await this.loading();
   }
 
   /** The row key: base64url(HMAC-SHA256(hash key, `flow|kind|value`)); logins and addresses are personal data (SR-19). */

@@ -1,6 +1,7 @@
 import { DI, IContainer } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Orm, OrmDriver } from '@spinajs/orm';
+import { onceAsync } from '@spinajs/util';
 
 import { driverDialect } from './sql.js';
 import type { Dialect } from './sql.js';
@@ -18,16 +19,12 @@ export interface StoreDb {
 
 /** @internal The given driver, or the Orm's `'default'` connection resolved once on first use; a failed resolve is retried. */
 export class StoreConnection {
-  private loading: Promise<StoreDb> | undefined;
+  private readonly loading = onceAsync(() => this.load());
 
   constructor(private readonly owner: string, private readonly driver?: OrmDriver, private readonly container?: IContainer) {}
 
   public get(): Promise<StoreDb> {
-    this.loading ??= this.load().catch((err: unknown) => {
-      this.loading = undefined;
-      throw err;
-    });
-    return this.loading;
+    return this.loading();
   }
 
   private async load(): Promise<StoreDb> {

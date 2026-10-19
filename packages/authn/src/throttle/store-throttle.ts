@@ -1,5 +1,5 @@
 import { InvalidArgument } from '@spinajs/exceptions';
-import { Throttle } from '@spinajs/util';
+import { onceAsync, Throttle } from '@spinajs/util';
 import type { ThrottleFlowRules, ThrottleStore } from '@spinajs/util';
 
 import { AuthnThrottle, THROTTLE_FLOWS } from '../contracts/throttle.js';
@@ -20,7 +20,8 @@ export abstract class StoreAuthnThrottle extends AuthnThrottle implements Peekab
   /** Read once by the first attempt, peek or succeed, after `store()`. */
   protected abstract readonly params: ThrottleParams;
 
-  private throttle: Promise<Throttle> | undefined;
+  // A failed build is not kept: a store that could not start now may start on the next call.
+  private readonly throttle = onceAsync(() => this.build());
 
   /** Built lazily, once. */
   protected abstract store(): Promise<ThrottleStore>;
@@ -79,14 +80,9 @@ export abstract class StoreAuthnThrottle extends AuthnThrottle implements Peekab
     return nowMs;
   }
 
-  // A failed build is not kept: a store that could not start now may start on the next call.
   private throttled(flow: ThrottleFlow): Promise<Throttle> {
     if (!THROTTLE_FLOWS.includes(flow)) return Promise.reject(new InvalidArgument(`${this.throttleName}: unknown flow ${JSON.stringify(String(flow))}`));
-    this.throttle ??= this.build().catch((e: unknown) => {
-      this.throttle = undefined;
-      throw e;
-    });
-    return this.throttle;
+    return this.throttle();
   }
 
   // The store first: a subclass may load its params while it builds the store.
