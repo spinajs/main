@@ -1,9 +1,11 @@
 import { ResourceAdapter } from '@spinajs/authz';
-import type { PermissionDef, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { PermissionDef, RelationResolver, ResourceRef, ResourceType } from '@spinajs/authz';
 import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { publishedFs } from '@spinajs/fs';
 
+import { fsAclConfig } from '../access-config/index.js';
+import { FsAclRelation } from '../acl/relation.js';
 import { FS_PERMISSIONS } from '../permissions/index.js';
 import { FS_RESOURCE_TYPES, fsAncestors, fsRef, fsRow, normalizeFsPath } from '../refs/index.js';
 import type { FsPathKind, FsRow } from '../refs/index.js';
@@ -53,6 +55,15 @@ export class FsResourceAdapter extends ResourceAdapter<FsResourceTarget> {
 
   attribute(subject: unknown, field: string): unknown {
     return subject !== null && typeof subject === 'object' && Object.hasOwn(subject, field) ? (subject as Record<string, unknown>)[field] : undefined;
+  }
+
+  /**
+   * One FsAclRelation per fs type and `authz.fsAcl` relation: boot rule 8 needs a resolver for every relation a grant
+   * names, on every type of the permission, known at boot.
+   */
+  relations(): readonly RelationResolver[] {
+    const { relations } = fsAclConfig(this.container);
+    return Object.freeze(FS_RESOURCE_TYPES.flatMap((type) => relations.map((relation) => new FsAclRelation(type, relation, this.container))));
   }
 
   permissions(): readonly Omit<PermissionDef, 'source'>[] {

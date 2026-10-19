@@ -2,13 +2,15 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { GLOBAL, ResourceAdapter } from '@spinajs/authz';
-import { runAdapterConformance, userPrincipal } from '@spinajs/authz-testing';
+import { runAdapterConformance, testHost, userPrincipal } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { FILE_PROVIDER_INSTANCES } from '@spinajs/fs';
 
-import { FS_PERMISSIONS, FsResourceAdapter, fsRowOf } from '../src/index.js';
+import { FS_PERMISSIONS, FileAclStore, FsResourceAdapter, fsRowOf } from '../src/index.js';
+import { configuredChild } from './helpers.js';
+import { MemoryFileAclStore } from './support/memory-acl-store.js';
 
 const expect = chai.expect;
 
@@ -98,8 +100,22 @@ describe('authz-fs FsResourceAdapter', () => {
 });
 
 describe('authz-fs FsResourceAdapter conformance', () => {
+  // The relations read authz.fs, authz.fsAcl and the store; alice owns one target, so holds() answers both ways.
+  let conformance: IContainer;
+  const owners = new MemoryFileAclStore();
+
+  before(async () => {
+    conformance = await configuredChild({ uploads: { mode: 'enforce' } });
+    conformance.register(testHost.instance<FileAclStore>(owners)).as(FileAclStore);
+    await owners.setOwnerIfAbsent('uploads', 'tasks/42/a.pdf', { type: 'user', id: 'alice' });
+  });
+
+  after(async () => {
+    await conformance.dispose();
+  });
+
   runAdapterConformance('FsResourceAdapter', () => ({
-    adapter: new FsResourceAdapter(),
+    adapter: new FsResourceAdapter(conformance),
     targets: [
       { fs: 'uploads', path: 'tasks/42/a.pdf' },
       { fs: 'uploads', path: 'tasks/42', kind: 'dir' },
