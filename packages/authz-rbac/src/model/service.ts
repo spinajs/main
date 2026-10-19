@@ -5,6 +5,8 @@ import { unique } from '@spinajs/util';
 import type { LinkStore, SubjectKey } from '../contracts.js';
 import { subjectKeyOf } from '../stores/columns.js';
 
+import { subjectKey } from './assignments.js';
+import { ceilingRoles, withinCeiling } from './ceiling.js';
 import { liveAssignments, rbacTables } from './evaluate.js';
 import type { RbacTables } from './evaluate.js';
 import type { CompiledGrant } from './grants.js';
@@ -57,12 +59,29 @@ export class RbacService {
    * The subject keys (subjectKeyOf) `principal` acts as at `at` (default: the model clock's now), for
    * stores that match rows by subject key (fs_acl): itself, its companions, their type wildcards, a
    * group principal's member set, and the subject sets its live assignments make it a member of,
-   * directly and, with a MembershipStore, through other sets. Each key once.
-   * @throws (rejects) when a store fails
+   * directly and, with a MembershipStore, through other sets. Each key once. Under `ceiling.roles` a
+   * direct set needs a membership whose role passes it and nested sets are left out, as in decisions.
+   * @throws (rejects) when a store fails or `ceiling.roles` is not a list of role names
    */
   async subjectKeysOf(principal: Principal, at?: Date): Promise<readonly SubjectKey[]> {
     const input = await this.model.subjectsInput(principal, this.context(at));
-    return Object.freeze(unique((input.subjects ?? []).map(subjectKeyOf)));
+    const roles = ceilingRoles(principal);
+    const limit = roles ? { ceilingRoles: roles } : {};
+    const now = input.now.getTime();
+    const live = (end: Date | undefined) => end === undefined || end.getTime() > now;
+    const keys: SubjectKey[] = [];
+    for (const subject of input.subjects ?? []) {
+      if ('set' in subject) {
+        const key = subjectKey(subject);
+        const direct = input.memberships?.get(key);
+        const nested = input.nestedSets?.get(key);
+        // As permits see sets (applyMemberships, list plan holders): a ceiling must pass the joining role, and keeps no nested set.
+        if (direct && !direct.via.some((m) => withinCeiling(limit, m.role) && live(m.expiresAt))) continue;
+        if (!direct && nested && (roles !== undefined || !live(nested.expiresAt))) continue;
+      }
+      keys.push(subjectKeyOf(subject));
+    }
+    return Object.freeze(unique(keys));
   }
 
   /**

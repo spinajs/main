@@ -1,6 +1,6 @@
 import { GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, ResourceRef } from '@spinajs/authz';
-import { ManualClock, fakeModelInitContext, groupPrincipal, userPrincipal, withCompanions } from '@spinajs/authz-testing';
+import { ManualClock, fakeModelInitContext, groupPrincipal, userPrincipal, withCeiling, withCompanions } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
 
@@ -90,6 +90,39 @@ describe('authz-rbac model: RbacService.subjectKeysOf', () => {
 
   it('without a MembershipStore sets stay one level deep', async () => {
     const service = await setup([row('m1', ALICE, 'team.member', T1), row('n1', { set: { role: 'team.member', scope: T1 } }, 'team.member', T2)]);
+    expect(await service.subjectKeysOf(alice)).to.have.members(['user:alice', 'user:*', 'team:t1#team.member']);
+  });
+});
+
+describe('authz-rbac model: RbacService.subjectKeysOf under a ceiling and expiry', () => {
+  const CLOSURE = { 'user:alice': ['team:t1#team.member', 'team:t2#team.member'] };
+
+  it('keeps a direct set only through a membership whose role passes ceiling.roles, and no nested set', async () => {
+    const service = await setup([row('m1', ALICE, 'team.member', T1)], new FakeMembershipStore(CLOSURE));
+    expect(await service.subjectKeysOf(withCeiling(alice, { roles: ['team.member'] }))).to.have.members(['user:alice', 'user:*', 'team:t1#team.member']);
+    expect(await service.subjectKeysOf(withCeiling(alice, { roles: ['viewer'] }))).to.have.members(['user:alice', 'user:*']);
+  });
+
+  it('keeps a direct set when any of its memberships passes the ceiling', async () => {
+    const service = await setup([row('m1', ALICE, 'team.member', T1), row('m2', ALICE, 'team.lead', T1)]);
+    expect(await service.subjectKeysOf(withCeiling(alice, { roles: ['team.lead'] }))).to.have.members(['user:alice', 'user:*', 'team:t1#team.member']);
+  });
+
+  it("keeps a group principal's member set under a ceiling", async () => {
+    const service = await setup();
+    expect(await service.subjectKeysOf(withCeiling(groupPrincipal('g1'), { roles: [] }))).to.have.members(['group:g1', 'group:g1#group.member', 'group:*']);
+  });
+
+  it('leaves out a nested set whose membership ended at `at`', async () => {
+    const store = new FakeMembershipStore(CLOSURE, { 'team:t2#team.member': new Date(NOW.getTime() + HOUR) });
+    const service = await setup([row('m1', ALICE, 'team.member', T1)], store);
+    expect(await service.subjectKeysOf(alice)).to.have.members(['user:alice', 'user:*', 'team:t1#team.member', 'team:t2#team.member']);
+    expect(await service.subjectKeysOf(alice, new Date(NOW.getTime() + 2 * HOUR))).to.have.members(['user:alice', 'user:*', 'team:t1#team.member']);
+  });
+
+  it('leaves out an expired nested set a MembershipStore still returns', async () => {
+    const store = new FakeMembershipStore(CLOSURE, { 'team:t2#team.member': new Date(NOW.getTime() - HOUR) });
+    const service = await setup([row('m1', ALICE, 'team.member', T1)], store);
     expect(await service.subjectKeysOf(alice)).to.have.members(['user:alice', 'user:*', 'team:t1#team.member']);
   });
 });
