@@ -1,4 +1,4 @@
-import { resourceKey } from '@spinajs/authz';
+import { definite, resourceKey } from '@spinajs/authz';
 import type { Decision, TraceStep, Vote } from '@spinajs/authz';
 
 /** A generic explanation tree; the shape of ckit's `ExplainNode` (design §10.6). */
@@ -7,8 +7,6 @@ export interface ExplainNode {
   readonly allowed: boolean;
   readonly children: readonly ExplainNode[];
 }
-
-const definite = (d: Decision): boolean => d.allowed && d.residual.op === 'true';
 
 function verdict(d: Decision): string {
   if (definite(d)) return 'allow';

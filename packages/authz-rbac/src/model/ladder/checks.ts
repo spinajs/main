@@ -8,7 +8,7 @@ import { underTerm } from '../rows.js';
 import { reachableGrants } from './steps.js';
 
 /*
- * Steps 6 and 7 of design §6.1.2 (B34): a grant's `requiresTag` and `grantedAt`. Each check gives
+ * Steps 6 and 7: a grant's `requiresTag` and `grantedAt`. Each check gives
  * the rows where it holds: TRUE when a live assignment meets it (every row), else the rows below the
  * scoped assignments that meet it (type-level requests only), else FALSE. FALSE refuses the
  * candidate; a row term narrows it (`candidate.rows`). Either way the check's reason is pushed, so
@@ -25,7 +25,7 @@ export interface RowCheck {
 }
 
 /** `requiresTag` (step 6): the tag union of `live` holds it on every row, else the scoped carriers on theirs. */
-export function tagCheck(s: RbacState, tag: string): RowCheck {
+function tagCheck(s: RbacState, tag: string): RowCheck {
   const live = s.live.filter((l) => l.tags.includes(tag));
   if (live.length > 0) return { rows: TRUE, read: live };
   const scoped = s.scoped.filter((l) => l.tags.includes(tag));
@@ -39,7 +39,7 @@ export function tagCheck(s: RbacState, tag: string): RowCheck {
  * gives provenance with the types as `needed` (430), a rank below gives role_too_low (ladder, role,
  * needed: the declaring role) on that rank (440).
  */
-export function provenanceCheck(s: RbacState, grant: CompiledGrant): RowCheck {
+function provenanceCheck(s: RbacState, grant: CompiledGrant): RowCheck {
   const types = grant.grantedAt!;
   const ladders = s.input.ladders;
   const ladder = ladders?.ladderOf(grant.role);
@@ -56,7 +56,7 @@ export function provenanceCheck(s: RbacState, grant: CompiledGrant): RowCheck {
   return { rows, read: [...read, ...scoped], reason: { code: 'role_too_low', ladder: ladder!.name, role: ladder!.roles[at], needed: grant.role, priority: PROVENANCE_RANK_PRIORITY } };
 }
 
-/** role_too_low on the provenance rank (design §6.1.2 step 7); DEFAULT_DENY_PRIORITY keys its 410 by code. */
+/** role_too_low on the provenance rank (step 7); DEFAULT_DENY_PRIORITY keys its 410 by code. */
 export const PROVENANCE_RANK_PRIORITY = 440;
 
 /**

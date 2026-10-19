@@ -5,7 +5,7 @@ import { sortedUnique } from '@spinajs/util';
 import { latestPerSet } from '../../membership/closure.js';
 import type { MembershipRow } from '../../membership/closure.js';
 import { AdminMembershipStore } from '../ports.js';
-import { isLive } from '../rows.js';
+import { isLiveAt } from '../rows.js';
 
 const copy = (r: MembershipRow): MembershipRow => Object.freeze({ ...r, expiresAt: r.expiresAt === null ? null : new Date(r.expiresAt.getTime()) });
 
@@ -23,13 +23,13 @@ export class MemoryMembershipStore extends AdminMembershipStore {
   }
 
   async setsOf(memberKeys: readonly string[], at: Date): Promise<readonly { setKey: string; expiresAt?: Date }[]> {
-    return latestPerSet([...new Set(memberKeys)].flatMap((k) => (this.rows.get(k) ?? []).filter((r) => isLive(r.expiresAt, at))));
+    return latestPerSet([...new Set(memberKeys)].flatMap((k) => (this.rows.get(k) ?? []).filter((r) => isLiveAt(r.expiresAt, at))));
   }
 
   async membersOf(setKey: string, at: Date): Promise<readonly string[]> {
     return sortedUnique(
       this.all()
-        .filter((r) => r.setKey === setKey && isLive(r.expiresAt, at))
+        .filter((r) => r.setKey === setKey && isLiveAt(r.expiresAt, at))
         .map((r) => r.memberKey),
     );
   }

@@ -1,4 +1,4 @@
-import { MemoryNonceStore } from '@spinajs/authn-orm';
+import { MemoryNonceStore } from '@spinajs/authn';
 import { ExternalLoginHook } from '@spinajs/authn/contracts';
 import type { AuthnContext, ExternalSubject, IdentityLinkStore, IdentityRef, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';

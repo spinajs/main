@@ -3,8 +3,9 @@ import type { Permission, Policy, ResourceRef } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { isPlainObject as isRecord } from '@spinajs/util';
+import { isPlainObject } from '@spinajs/util';
 
+import { show } from '../metadata/meta.js';
 import { FS_RESOURCE_TYPES, parseFsRef } from '../refs/index.js';
 
 export * from './schema.js';
@@ -66,7 +67,7 @@ function fsSection(container: IContainer, at: string): Readonly<Record<string, u
   const all = configuration.get<unknown>(['authz', 'fs']);
   if (all === undefined || all === null) return undefined;
   // Fail-closed floor for a section no schema checked (Configuration.set, test configurations): it would read as every filesystem off.
-  if (!isRecord(all)) throw new AuthzConfigError(`authz.fs must be an object keyed by filesystem name, got ${show(all)}`);
+  if (!isPlainObject(all)) throw new AuthzConfigError(`authz.fs must be an object keyed by filesystem name, got ${show(all)}`);
   return all;
 }
 
@@ -83,8 +84,8 @@ function fsSection(container: IContainer, at: string): Readonly<Record<string, u
 export function parseFsAccessConfig(fsName: string, entry: unknown): FsAccessConfig {
   if (entry === undefined) return OFF;
   const at = `authz.fs.${fsName}`;
-  const mode = isRecord(entry) ? entry.mode : undefined;
-  if (!MODES.includes(mode)) throw new AuthzConfigError(`${at}.mode must be one of ${MODES.join(', ')}, got ${show(isRecord(entry) ? mode : entry)}`);
+  const mode = isPlainObject(entry) ? entry.mode : undefined;
+  if (!MODES.includes(mode)) throw new AuthzConfigError(`${at}.mode must be one of ${MODES.join(', ')}, got ${show(isPlainObject(entry) ? mode : entry)}`);
   const e = entry as Record<string, unknown>;
   const out: Record<string, unknown> = { ...e, domain: e.domain ?? 'root' };
   if (e.inherit !== undefined) out.inherit = Object.freeze(Object.assign(Object.create(null) as Record<string, string>, e.inherit));
@@ -96,7 +97,7 @@ export function parseFsAccessConfig(fsName: string, entry: unknown): FsAccessCon
 }
 
 function signedUrlOf(value: unknown, at: string): FsSignedUrlConfig {
-  if (!isRecord(value)) throw new AuthzConfigError(`${at} must be an object, got ${show(value)}`);
+  if (!isPlainObject(value)) throw new AuthzConfigError(`${at} must be an object, got ${show(value)}`);
   for (const [key, ttl] of Object.entries(value)) {
     if (key !== 'maxTtlSeconds' && key !== 'defaultTtlSeconds') throw new AuthzConfigError(`${at}.${key} is not a signedUrl option`);
     if (typeof ttl !== 'number' || !Number.isFinite(ttl) || ttl <= 0) throw new AuthzConfigError(`${at}.${key} must be a positive finite number, got ${show(ttl)}`);
@@ -122,13 +123,13 @@ function operationsOf(value: Readonly<Record<string, Permission | readonly Permi
 function scopedPolicies(policies: readonly unknown[], fsName: string): readonly Policy[] {
   return Object.freeze(
     policies.map((value, i) => {
-      const policy = isRecord(value) ? value : {};
+      const policy = isPlainObject(value) ? value : {};
       const fail = (text: string): never => {
         throw new AuthzConfigError(`authz.fs.${fsName}.policies: policy ${show(policy.id ?? `#${i}`)}: ${text}`);
       };
       if (!fsOnly(policy)) fail('permissions must be a non-empty list of fs permissions or globs (fs:<op>), resourceTypes only fs types');
       const scope = policy.scope ?? { type: 'fs', id: fsName };
-      const ref = isRecord(scope) && typeof scope.id === 'string' ? parseFsRef(scope as unknown as ResourceRef) : undefined;
+      const ref = isPlainObject(scope) && typeof scope.id === 'string' ? parseFsRef(scope as unknown as ResourceRef) : undefined;
       if (ref?.fs !== fsName) fail(`scope ${show(scope)} is not this filesystem or a path of it`);
       return Object.freeze({ ...policy, scope });
     }),
@@ -140,11 +141,3 @@ const fsOnly = ({ permissions, resourceTypes }: Record<string, unknown>): boolea
   permissions.length > 0 &&
   permissions.every((p) => typeof p === 'string' && p.startsWith('fs:')) &&
   (resourceTypes === undefined || (Array.isArray(resourceTypes) && resourceTypes.every((t) => FS_TYPES.includes(t))));
-
-const show = (value: unknown): string => {
-  try {
-    return JSON.stringify(value) ?? String(value);
-  } catch {
-    return Object.prototype.toString.call(value);
-  }
-};

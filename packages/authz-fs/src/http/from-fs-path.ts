@@ -1,9 +1,11 @@
 import type { ResourceRef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { _check_arg, _is_string, _non_empty, _reg_match, isStringArray } from '@spinajs/util';
+import { _check_arg, _is_string, _non_empty, isStringArray } from '@spinajs/util';
 
 import { basePathOf, publishedFs, refOf } from '../guard/shared.js';
+import { checkFsName } from '../metadata/meta.js';
 import { normalizeFsPath } from '../refs/index.js';
 
 /**
@@ -13,17 +15,18 @@ import { normalizeFsPath } from '../refs/index.js';
  * read, as authz-http's `fromParam` does. An Express 5 wildcard (`*path`) gives an array of segments: they are
  * joined with '/', each segment refused on its own when the normaliser refuses it (`..` included).
  *
+ * @param container - where the published provider is looked up; default the root container
  * @throws InvalidArgument (400) when the parameter is missing, not a string or a non-empty string array, or the
  * path is refused
  */
-export function fromFsPath(fsName: string, param: string): (req: unknown) => ResourceRef | Promise<ResourceRef> {
-  _check_arg(_is_string(_non_empty(), _reg_match(/^[^:]*$/)))(fsName, 'fsName');
+export function fromFsPath(fsName: string, param: string, container?: IContainer): (req: unknown) => ResourceRef | Promise<ResourceRef> {
+  checkFsName(fsName);
   _check_arg(_is_string(_non_empty()))(param, 'param');
 
   return (req: unknown): ResourceRef => {
     const params: unknown = req !== null && typeof req === 'object' ? (req as { params?: unknown }).params : undefined;
     const value: unknown = params !== null && typeof params === 'object' && Object.hasOwn(params, param) ? (params as Record<string, unknown>)[param] : undefined;
-    return refOf(fsName, normalizeFsPath(pathOf(value, param, fsName), basePathOf(publishedFs(DI.RootContainer, fsName))), 'file');
+    return refOf(fsName, normalizeFsPath(pathOf(value, param, fsName), basePathOf(publishedFs(container ?? DI.RootContainer, fsName))), 'file');
   };
 }
 

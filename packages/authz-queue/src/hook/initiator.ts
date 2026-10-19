@@ -1,8 +1,7 @@
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { InvalidOperation } from '@spinajs/exceptions';
-import { SYSTEM, UNATTENDED } from '@spinajs/authz';
-import type { Ceiling, Principal } from '@spinajs/authz';
+import { SYSTEM, UNATTENDED, engineLog } from '@spinajs/authz';
+import type { Ceiling, HostLog, Principal } from '@spinajs/authz';
 import { isStringArray } from '@spinajs/util';
 import type { Initiator } from '../api.js';
 
@@ -60,32 +59,29 @@ export function reviveCeiling(raw: unknown): Ceiling | undefined {
 /** Trusts the stamp: type, id and ceiling are all the principal has. A malformed stamp yields `UNATTENDED`. */
 @Injectable(InitiatorPrincipalFactory)
 export class StampedInitiatorPrincipalFactory extends InitiatorPrincipalFactory {
-  private warned: boolean;
+  private warned = false;
+  private readonly warn: boolean | undefined;
+
+  protected Log: HostLog = engineLog('authz-queue');
 
   @Config('authz.queue.stampedInitiatorWarning')
   protected WarningSwitch: boolean;
 
-  /** `warn: false` silences the one-time warning without reading the config, for a wrapper built with `new` that does reload the user. */
+  /**
+   * `warn` decides the one-time warning without reading the config, for a wrapper built with `new` that does reload the user.
+   * Without it, `authz.queue.stampedInitiatorWarning` decides, so a `new` instance needs a resolved Configuration.
+   */
   constructor(options: { readonly warn?: boolean } = {}) {
     super();
-    this.warned = options.warn === false;
-  }
-
-  // The schema default keeps the warning; so does a value the schema never saw, and a `new` instance with no Configuration to read.
-  private silenced(): boolean {
-    try {
-      return this.WarningSwitch === false;
-    } catch (e) {
-      if (e instanceof InvalidOperation) return false;
-      throw e;
-    }
+    this.warn = options.warn;
   }
 
   async principalOf(initiator: Initiator): Promise<Principal> {
     if (!this.warned) {
-      const silenced = this.silenced();
+      // The schema default keeps the warning; so does a value the schema never saw.
+      const warn = this.warn ?? this.WarningSwitch !== false;
       this.warned = true;
-      if (!silenced) console.warn('authz-queue: jobs run as their initiator from the stamp alone; register an InitiatorPrincipalFactory that reloads the user so deactivated users stop acting');
+      if (warn) this.Log.warn('authz-queue: jobs run as their initiator from the stamp alone; register an InitiatorPrincipalFactory that reloads the user so deactivated users stop acting');
     }
     if (initiator === null || typeof initiator !== 'object') return UNATTENDED;
     const { type, id, ceiling } = initiator as { type?: unknown; id?: unknown; ceiling?: unknown };

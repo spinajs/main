@@ -5,23 +5,23 @@ type ArrayItemType<T> = T extends (infer U)[] ? U : T;
  * return value
  *
  * @param val val to convert
- * @returns val if array, or [val]
+ * @returns val if array, [] for null / undefined, or [val]
  */
 export const toArray = <T>(val: ArrayItemType<T> | ArrayItemType<T>[]): ArrayItemType<T>[] => {
-  return global.Array.isArray(val) ? val : val ? [val] : [];
+  return global.Array.isArray(val) ? val : val === null || val === undefined ? [] : [val];
 };
 
 /**
  * Splits an array into consecutive chunks of at most `size` elements.
  *
  * @param arr - source array ( not mutated )
- * @param size - max chunk length ( must be >= 1 )
+ * @param size - max chunk length ( an integer >= 1 )
  * @returns array of chunks; empty when `arr` is empty
  * @example
  * chunk([1, 2, 3, 4, 5], 2); // [[1, 2], [3, 4], [5]]
  */
 export const chunk = <T>(arr: readonly T[], size: number): T[][] => {
-  if (size < 1) {
+  if (!Number.isInteger(size) || size < 1) {
     throw new Error('chunk size must be >= 1');
   }
 

@@ -6,7 +6,7 @@ import type { ImpliesIndex } from '../ladder/implies.js';
 import type { LadderIndex } from '../ladder/ladders.js';
 import type { RoleGraph } from '../roles.js';
 
-export const LIST_RELATIONS: ReadonlySet<string> = new Set(['owner', 'self']);
+const LIST_RELATIONS: ReadonlySet<string> = new Set(['owner', 'self']);
 
 export interface ListSupportSources {
   readonly graph: RoleGraph;
@@ -24,7 +24,7 @@ export function ruleCanMatch(rule: Pick<RuleDef, 'kind' | 'resourceTypes' | 'per
   return (rule.permissions ?? []).some((glob) => compilePermissionGlob(glob)(permission));
 }
 
-/** Design §7 for RBAC: why `permission` on `type` cannot be planned (lane L8 decisions 7 and 9), or true. */
+/** Why lists of `permission` on `type` cannot be planned, or true. */
 export function rbacListSupport(src: ListSupportSources, permission: Permission, type: ResourceType): ListSupport {
   const refuse = (text: string): ListSupport => Object.freeze({ reason: `${text}, so ${permission} on ${JSON.stringify(type)} is not list-filterable` });
   for (const rule of src.rules) {

@@ -15,7 +15,7 @@ const NOBODY: Answer = Object.freeze({ principals: Object.freeze([]), objects: O
 const isWildcardKey = (key: string): boolean => key.endsWith(':*') && parseSetKey(key) === undefined;
 
 /**
- * Who an RBAC change reaches (design §10.4, lane L8 decision 10). No `objects`: whether a changed scope has
+ * Who an RBAC change reaches. No `objects`: whether a changed scope has
  * descendants is in authz-orm's ancestor table, which this package does not read, so clients refetch.
  */
 @Singleton()

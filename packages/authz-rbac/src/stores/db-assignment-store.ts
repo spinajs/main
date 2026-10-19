@@ -2,6 +2,7 @@ import { AuthzAdminFailure, AuthzClock, GLOBAL, principalKey } from '@spinajs/au
 import type { Assignment, AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { ResourceDuplicated } from '@spinajs/exceptions';
 import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
 import { randomUUID } from 'node:crypto';
 
@@ -11,7 +12,7 @@ import { AUTHZ_ASSIGNMENT_TABLE, rowToAssignment } from './assignment-row.js';
 import type { AssignmentRow } from './assignment-row.js';
 import { SUBJECT_KEY_MAX_LENGTH, scopeToColumns, subjectKeyOf, subjectToColumns } from './columns.js';
 import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
-import { isUniqueViolation, pageWindow, whereLive } from './queries.js';
+import { pageWindow, whereLive } from './queries.js';
 import { normaliseTags, parseTags } from './tags.js';
 import { bumpVersion } from './version.js';
 
@@ -40,9 +41,9 @@ const ID_BATCH = 500;
 const TAG_RETRIES = 5;
 
 /**
- * `AssignmentStore` over `authz_assignment` (design §9.1). Reads use the `authz.rbac.connection`
+ * `AssignmentStore` over `authz_assignment`. Reads use the `authz.rbac.connection`
  * connection; writes run on the `AuthzTx` of `AuthzAdmin` and bump `authz_version` of the
- * store's domain in that transaction (B27). Registered by class name only; a domain uses it by
+ * store's domain in that transaction. Registered by class name only; a domain uses it by
  * registering it as `AdminAssignmentStore` and `AssignmentStore`.
  */
 @PerChildInstance()
@@ -101,7 +102,7 @@ export class DbAssignmentStore extends AdminAssignmentStore {
       try {
         await driver.insert().into(AUTHZ_ASSIGNMENT_TABLE).values(row);
       } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
+        if (!(err instanceof ResourceDuplicated)) throw err;
         throw new AuthzAdminFailure('conflict', `${this.name}.assign: another transaction granted ${a.role} to the same subject at the same scope; retry`, undefined, { cause: err });
       }
     }

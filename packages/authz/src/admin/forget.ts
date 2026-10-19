@@ -9,6 +9,7 @@ import type { Principal, ResourceRef } from '../contracts/principal.js';
 import { GLOBAL, resourceKey } from '../contracts/resource.js';
 import { AuthzService } from '../contracts/service.js';
 import { AuthzClock } from '../host/clock.js';
+import { resolveChain } from '../host/di.js';
 import { adminActor, adminContainer } from './context.js';
 import type { AdminCallContext } from './context.js';
 import { ScopeForgetter, WritableScopeAttributeStore } from './ports.js';
@@ -31,7 +32,7 @@ async function forgetNode(container: IContainer, scope: ResourceRef, ctx: AdminC
   const tags = new Set<string>();
   const events: AuthzEvent[] = [];
 
-  const forgetters = container.hasRegistered(ScopeForgetter) ? [...(await container.resolve(Array.chainOf(ScopeForgetter)))] : [];
+  const forgetters = await resolveChain(container, ScopeForgetter);
   for (const f of forgetters) {
     if (!isObject(f) || typeof f.forget !== 'function') throw new AuthzConfigError(`${where}: ${name(f)} is not a ScopeForgetter`);
     const out: unknown = await f.forget(scope, ctx, tx);

@@ -1,16 +1,15 @@
 # Extending the SQS client
 
-`SqsQueueClient` is a plain `QueueClient` subclass with protected hooks for every step: building the AWS client, sending, the poll loop, handling one message, sleeping after errors and stopping. Subclass it to change one step, replace the connection factory to change how clients are built, or write your own `QueueClient` for a different broker.
+`SqsQueueClient` is a plain `QueueClient` subclass with protected hooks for every step: building the AWS client, sending, the poll loop, handling one message, sleeping after errors and stopping. Subclass it to change one step, register a connection factory to change how clients are built, or write your own `QueueClient` for a different broker.
 
 ## How it works
 
-Three registrations decide which object a `queue.connections` entry becomes:
+Two registrations decide which object a `queue.connections` entry becomes:
 
 | Registration | Made by | Token | Effect |
 | --- | --- | --- | --- |
 | `@Injectable(QueueClient)` on `SqsQueueClient` | `connection.ts`, on import | `QueueClient` and `SqsQueueClient` | Makes `service: 'SqsQueueClient'` selectable. |
-| `@PerInstanceCheck()` on `SqsQueueClient` | `connection.ts` | lifetime | One cached instance per connection `name` (`__checkInstance__` compares `options.name`), when DI builds the class itself. |
-| `DI.register(async (container, options) => ...).as(SqsQueueClient)` | `connection-factory.ts`, on import | `SqsQueueClient` | Last registration under `SqsQueueClient`, so it wins: DI calls the factory instead of the class, as a new instance on every resolve. |
+| `@PerInstanceCheck()` on `SqsQueueClient` | `connection.ts` | lifetime | One cached instance per connection `name` (`__checkInstance__` compares `options.name`), when DI builds the class itself. The package registers no factory, so that is the default. |
 
 Resolution, step by step:
 
@@ -75,16 +74,16 @@ export default {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Queue transport | `QueueClient`, selected by class name from `queue.connections[].service`; one per entry | `SqsQueueClient` | `BlackHoleQueueClient`, AMQP and STOMP transports, your subclass | `@Injectable(QueueClient)` on a subclass, name it in `service` |
-| SQS client class | `SqsQueueClient` token; `@PerInstanceCheck()` keyed by `options.name` | `SqsQueueClient` (behind the factory) | your subclass | `DI.register(Sub).as(SqsQueueClient)` after importing the package; replaces it for every `service: 'SqsQueueClient'` entry |
-| Connection factory | async factory `.as(SqsQueueClient)`, new instance per resolve | sets `clientId`, `new SqsQueueClient(...)`, `await resolve()` | | `DI.register(myFactory).as(SqsQueueClient)`; see [Replace the connection factory](#replace-the-connection-factory) |
+| SQS client class | `SqsQueueClient` token; `@PerInstanceCheck()` keyed by `options.name` | `SqsQueueClient` | your subclass | `DI.register(Sub).as(SqsQueueClient)` after importing the package; replaces it for every `service: 'SqsQueueClient'` entry |
+| Connection factory | none by default; a factory registered `.as(SqsQueueClient)` runs as a new instance on every resolve | DI builds the class | | `DI.register(myFactory).as(SqsQueueClient)`; see [Register a connection factory](#register-a-connection-factory) |
 | AWS client setup | `public async resolve()`, sets `protected Sqs: SQSClient` | `new SQSClient({ region, endpoint, credentials })` | | Override; assign `this.Sqs` yourself or call `super.resolve()` and keep it |
 | Send | `public async emit(message)` | `SendMessage` per routed URL | FIFO send below | Override; use `this.getChannelForMessage()` and `this.Sqs` |
 | Destination lookup | `public getChannelForMessage(message)` (from `QueueClient`) | `queue.routing`, then connection defaults | | Override to compute URLs |
-| Subscribe | `public async subscribe(channelOrMessage, callback)` | one `pollLoop()` per URL | | Override, call `super.subscribe()` |
+| Subscribe | `public async subscribe(channelOrMessage, callback)` | one `pollLoop()` per URL, shared by every callback on it | | Override, call `super.subscribe()` |
 | Poll loop | `protected async pollLoop(desc)` | sequential receive and handle with backoff | | Override; must never reject, it runs detached |
 | Message handler | `protected async handleMessage(desc, m)` | parse, `CreatedAt` to `DateTime`, callback, delete | SNS unwrap below | Override, call `super.handleMessage(desc, m)` |
 | Error sleep | `protected backoffSleep(ms, signal)` | abortable `setTimeout` | | Override to add jitter |
-| Stop | `protected stop(desc)`, `unsubscribe()`, `dispose()` | clear `running`, abort, destroy `SQSClient` | graceful drain below | Override `dispose()`, call `super.dispose()` last |
+| Stop | `protected stop(desc)`, `unsubscribe()`, `dispose()` | clear `running`, abort; `dispose()` waits for the loops, then destroys `SQSClient` | | Override `dispose()`, call `super.dispose()` last |
 
 Protected state a subclass can use:
 
@@ -96,7 +95,7 @@ Protected state a subclass can use:
 | `Log` | `QueueClient` | The `queue` logger |
 | `Routing` | `QueueClient` | `queue.routing`, read live |
 
-The descriptor type `desc` (`url`, `callback`, `running`, `controller`, `exited`) is not exported. In an override, take it from the parent signature: `...args: Parameters<SqsQueueClient['handleMessage']>`.
+The descriptor type `desc` (`url`, `callback`, `handlers`, `running`, `controller`, `exited`) is not exported. In an override, take it from the parent signature: `...args: Parameters<SqsQueueClient['handleMessage']>`.
 
 ### Queue transport: custom implementation
 
@@ -253,38 +252,9 @@ export const config = {
 };
 ```
 
-#### Drain in-flight messages on shutdown
+### Register a connection factory
 
-The default `dispose()` aborts and returns at once; a handler still running can lose its delete. This subclass stops the loops, waits up to a grace period for each to finish its current message, then disposes.
-
-```ts sample
-import { Injectable, PerInstanceCheck } from '@spinajs/di';
-import { QueueClient } from '@spinajs/queue';
-import { SqsQueueClient } from '@spinajs/queue-sqs-transport';
-
-@PerInstanceCheck()
-@Injectable(QueueClient)
-export class DrainingSqsQueueClient extends SqsQueueClient {
-  public async dispose(): Promise<void> {
-    const graceMs = (this.Options.options?.drainTimeoutMs as number | undefined) ?? 30_000;
-    const loops = [...this.Subscriptions.values()];
-
-    // stops further receives; a loop sets `exited` after its current message
-    loops.forEach((desc) => this.stop(desc));
-
-    const deadline = Date.now() + graceMs;
-    while (loops.some((desc) => !desc.exited) && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-
-    await super.dispose();
-  }
-}
-```
-
-### Replace the connection factory
-
-Replace the factory to change how every `SqsQueueClient` is built without subclassing: fill defaults from app config, wrap the client, or add logging. The new factory must return a resolved client. Register it after importing the package.
+Register a factory to change how every `SqsQueueClient` is built without subclassing: fill defaults from app config, wrap the client, or add logging. The factory must return a resolved client. Register it after importing the package.
 
 ```ts sample
 import '@spinajs/queue-sqs-transport';
@@ -311,9 +281,9 @@ DI.register(async (container: IContainer, options: IQueueConnectionOptions) => {
 
 ## Important behaviour
 
-- **Last registration wins.** Importing `@spinajs/queue-sqs-transport` registers the default factory. A replacement (`DI.register(...).as(SqsQueueClient)`) must run after that import, or the default factory wins.
-- **A subclass selected by `service` bypasses the factory.** DI builds it directly with `@PerInstanceCheck()`: one instance per connection `name`, `resolve()` awaited, `@Autoinject` and `@Config` properties filled. Its `clientId` stays unset (unused by SQS).
-- **The default factory bypasses the cache.** Factories always produce a new instance, so `SqsQueueClient` resolved through the factory is not cached per name despite `@PerInstanceCheck()`. `QueueService` resolves each connection once, so this only bites direct `DI.resolve(SqsQueueClient, ...)` calls.
+- **Last registration wins.** A factory or class registered `.as(SqsQueueClient)` replaces the class for every `service: 'SqsQueueClient'` entry. Register it after importing `@spinajs/queue-sqs-transport`.
+- **DI builds the class by default.** With no factory registered, `SqsQueueClient` and a subclass selected by `service` are built with `@PerInstanceCheck()`: one instance per connection `name`, `resolve()` awaited, `@Autoinject` and `@Config` properties filled.
+- **A factory bypasses the cache.** Factories always produce a new instance, so a client built by your factory is not cached per name despite `@PerInstanceCheck()`. `QueueService` resolves each connection once, so this only bites direct `DI.resolve(SqsQueueClient, ...)` calls.
 - **`resolve()` must set `this.Sqs`.** Every other method uses it; an override that skips both the assignment and `super.resolve()` fails on the first send or receive.
 - **Hooks run on detached loops.** `pollLoop()` and `handleMessage()` have no caller to catch errors. The default implementations catch everything; overrides must too.
 - **Replacing a class registered under `SqsQueueClient` does not register it under `QueueClient`.** `service: 'SqsQueueClient'` still matches the original class name, then DI follows the registration to your subclass.

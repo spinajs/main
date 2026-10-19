@@ -1,5 +1,5 @@
-import { Container, Inject, Injectable, PerChildInstance, ResolveType, isFactory } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { deepFreeze, quote as q } from '@spinajs/util';
 
@@ -11,9 +11,10 @@ import type { Permission } from '../contracts/permission.js';
 import { SYSTEM, principalKey } from '../contracts/principal.js';
 import type { Principal, PrincipalRef, ResourceRef } from '../contracts/principal.js';
 import { GLOBAL } from '../contracts/resource.js';
-import { AuthzDomains, AuthzService, ChangeBus, DecisionAudit } from '../contracts/service.js';
-import { readDomainConfig } from '../host/config/domain-config.js';
-import { AuthzClock } from '../host/clock.js';
+import { AuthzDomains, AuthzService } from '../contracts/service.js';
+import type { ChangeBus, DecisionAudit } from '../contracts/service.js';
+import type { AuthzClock } from '../host/clock.js';
+import { pickNamed, resolveChain } from '../host/di.js';
 import { DefaultAuthzDomains } from '../host/domains.js';
 import { engineLog, thrownError } from '../host/log.js';
 import { AuthzAdminBackend } from './backend.js';
@@ -76,7 +77,7 @@ function redact<T>(value: T, seen: WeakSet<object> = new WeakSet()): T {
 class Rollback extends Error {}
 
 /**
- * The command bus of design §6.6.2 for one domain container. Everything it needs it resolves per call,
+ * The command bus of design §6.6.2 for one domain container. Everything it needs it resolves on first use,
  * never in the constructor: the domain's AuthzService resolves this class during its own boot.
  */
 @PerChildInstance()
@@ -84,10 +85,7 @@ class Rollback extends Error {}
 @Inject(Container)
 export class DefaultAuthzAdmin extends AuthzAdmin {
   private readonly log = engineLog('authz-admin');
-
-  /** The authz tree, for the bus and audit the domain's lineage configures. */
-  @Config('authz')
-  protected Config: unknown;
+  private envOnce: Promise<Env> | undefined;
 
   @Config('authz.admin.maxBatch', { defaultValue: ADMIN_DEFAULTS.maxBatch })
   protected MaxBatch: number;
@@ -172,7 +170,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     await this.permit(env, actor, permission, resource);
 
     const readers = new Map<string, AuthzAdminReader>();
-    for (const r of await this.chain(AuthzAdminReader)) {
+    for (const r of await resolveChain(this.container, AuthzAdminReader)) {
       if (!isObject(r) || !Array.isArray(r.kinds) || typeof r.list !== 'function') throw new AuthzConfigError(`${env.where}: ${className(r)} is not an AuthzAdminReader (kinds, list)`);
       for (const kind of r.kinds) {
         const other = readers.get(kind);
@@ -241,7 +239,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
 
     // Phase A, outside the transaction: validate, app validators, permission check.
     const handlers = await this.handlers(env.where);
-    const validators = await this.chain(AuthzCommandValidator);
+    const validators = await resolveChain(this.container, AuthzCommandValidator);
     const checked: Checked[] = [];
     for (const [i, c] of list.entries()) {
       try {
@@ -343,7 +341,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     if (events.length > 0) {
       let sinks: AuthzEventSink[] = [];
       try {
-        sinks = await this.chain(AuthzEventSink);
+        sinks = await resolveChain(this.container, AuthzEventSink);
       } catch (e) {
         fail('resolving the AuthzEventSinks')(e);
       }
@@ -367,7 +365,19 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     }
   }
 
-  private async env(): Promise<Env> {
+  /** Built on first use and kept, so a later guard, backend or `authz.admin` change is not picked up; a failed build is retried. */
+  private env(): Promise<Env> {
+    if (this.envOnce === undefined) {
+      const once = this.buildEnv();
+      this.envOnce = once;
+      once.catch(() => {
+        if (this.envOnce === once) this.envOnce = undefined;
+      });
+    }
+    return this.envOnce;
+  }
+
+  private async buildEnv(): Promise<Env> {
     const c = this.container;
     if (!isObject(c) || typeof c.resolve !== 'function') throw new AuthzConfigError('DefaultAuthzAdmin needs the container it is resolved in');
     const service = (await c.resolve(AuthzService)) as AuthzService;
@@ -376,26 +386,20 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     const cfg: AdminConfig = Object.freeze({ maxBatch: this.MaxBatch, backend: this.Backend, permissions: this.Permissions, ...(this.GuardService === undefined ? {} : { guard: this.GuardService }) });
 
     if (cfg.guard === undefined) throw new AuthzConfigError(`${where}: authz.admin.guard.service is not set; AuthzAdmin refuses every call until it names a registered AdminGuard class`);
-    const guard = await this.named(AdminGuard, cfg.guard, 'authz.admin.guard.service', where);
+    const guard = await pickNamed(c, AdminGuard, cfg.guard, 'authz.admin.guard.service', where);
     if (!isObject(guard) || typeof guard.check !== 'function') throw new AuthzConfigError(`${where}: authz.admin.guard.service resolved to ${q(guard)}, which has no check()`);
-    const backend = await this.named(AuthzAdminBackend, cfg.backend, 'authz.admin.backend', where);
+    const backend = await pickNamed(c, AuthzAdminBackend, cfg.backend, 'authz.admin.backend', where);
     if (!isObject(backend) || typeof backend.transaction !== 'function') throw new AuthzConfigError(`${where}: authz.admin.backend resolved to ${q(backend)}, which has no transaction()`);
-    const clock = (await c.resolve(AuthzClock)) as AuthzClock;
-    if (!isObject(clock) || typeof clock.now !== 'function') throw new AuthzConfigError(`${where}: the resolved AuthzClock has no now()`);
 
-    // The bus and audit the domain's AuthzService picked at boot, chosen the same way.
     const domains: unknown = await c.resolve(AuthzDomains);
-    if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError(`${where}: AuthzAdmin needs DefaultAuthzDomains as the AuthzDomains singleton`);
-    const domainCfg = readDomainConfig(this.Config, domains.lineage(domain));
-    const bus = await this.pick(ChangeBus, domainCfg.bus.service, 'authz.bus.service', where);
-    const audit = await this.pick(DecisionAudit, domainCfg.audit.service, 'authz.audit.service', where);
-
-    return { where, domain, service, cfg, guard, backend, clock, bus, audit };
+    if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError(`${where}: DefaultAuthzAdmin needs DefaultAuthzDomains as the AuthzDomains singleton`);
+    // The clock, bus and audit the domain's AuthzService booted with.
+    return { where, domain, service, cfg, guard, backend, clock: domains.clock(domain), bus: domains.bus(domain), audit: domains.audit(domain) };
   }
 
   private async handlers(where: string): Promise<ReadonlyMap<string, AuthzWriteHandler>> {
     const map = new Map<string, AuthzWriteHandler>();
-    for (const h of await this.chain(AuthzWriteHandler)) {
+    for (const h of await resolveChain(this.container, AuthzWriteHandler)) {
       if (!isObject(h) || !Array.isArray(h.kinds) || typeof h.validate !== 'function' || typeof h.permission !== 'function' || typeof h.apply !== 'function') {
         throw new AuthzConfigError(`${where}: ${className(h)} is not an AuthzWriteHandler (kinds, validate, permission, apply)`);
       }
@@ -406,31 +410,6 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
       }
     }
     return map;
-  }
-
-  private async chain<T>(token: Class<T>): Promise<T[]> {
-    if (!this.container.hasRegistered(token)) return [];
-    return [...(await this.container.resolve(Array.chainOf(token)))];
-  }
-
-  /** The class named `service` among the registrations of `token`; a missing one is an AuthzConfigError naming `key`. */
-  private async named<T>(token: Class<T>, service: string, key: string, where: string): Promise<T> {
-    // Factories have no usable name.
-    const entry = this.container.Registry.getTypesChain(token)
-      .filter((e) => !isFactory(e.type) && typeName(e.type) === service)
-      .pop();
-    if (!entry) throw new AuthzConfigError(`${where}: ${key} names ${q(service)}, but no ${token.name} class of that name is registered`);
-    const type = entry.type as Class<T>;
-    // Resolved where Array.chainOf would: per-child classes here, the rest in the registering container.
-    const at = this.container.extractDescriptor(type).resolver === ResolveType.PerChildContainer ? this.container : entry.container;
-    return (await at.resolve(type)) as T;
-  }
-
-  /** DefaultAuthzService.pick: the class named by `service`, else the last registration; undefined when none. */
-  private async pick<T>(token: Class<T>, service: string | undefined, key: string, where: string): Promise<T | undefined> {
-    if (service !== undefined) return this.named(token, service, key, where);
-    if (!this.container.hasRegistered(token)) return undefined;
-    return (await this.container.resolve(token)) as T;
   }
 }
 

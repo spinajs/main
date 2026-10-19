@@ -44,11 +44,11 @@ export function compileFieldSet(fields: FieldSet, where: string): FieldGlobs {
 }
 
 /**
- * The vote's fields from the grants that permit some row (§6.1.2 step 9, narrowed): the union over
+ * The vote's fields from the grants that permit some row (step 9, narrowed): the union over
  * the unconditional grants when there is one, else the intersection over the conditional ones. A
  * union over grants that may not hold on the row would give a row the fields of another grant, and
- * the vote has one field set for all its rows (§7). A grant without fields stands for every field;
- * `undefined` (every field, D-F5-2) when no grant in the chosen group carries fields.
+ * the vote has one field set for all its rows. A grant without fields stands for every field;
+ * `undefined` (every field) when no grant in the chosen group carries fields.
  * @throws AuthzConfigError over the field-glob work budget; the engine makes it model_error
  */
 export function voteFieldGlobs(unconditional: readonly (FieldGlobs | undefined)[], conditional: readonly (FieldGlobs | undefined)[]): FieldGlobs | undefined {

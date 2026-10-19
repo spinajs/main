@@ -1,5 +1,4 @@
 import { NewInstance } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
 import type { Constructor } from '@spinajs/di';
 import { AuthzConfigError, parsePermission } from '@spinajs/authz';
 import type { Permission } from '@spinajs/authz';
@@ -23,7 +22,7 @@ function declareOnce(target: object, key: AccessKey): void {
   const keys = declared.get(proto) ?? new Set<AccessKey>();
   if (keys.has(key)) {
     const owner = (proto as { constructor: { name: string } }).constructor.name;
-    throw new Error(`@Access is declared twice on ${owner}${key === ACCESS_CLASS ? '' : `.${String(key)}`}`);
+    throw new AuthzConfigError(`@Access is declared twice on ${owner}${key === ACCESS_CLASS ? '' : `.${String(key)}`}`);
   }
   declared.set(proto, keys.add(key));
 }
@@ -38,7 +37,7 @@ function declareOnce(target: object, key: AccessKey): void {
 export function Access(permission: Permission | readonly Permission[], opts?: AccessOptions): ClassDecorator & MethodDecorator {
   const permissions: Permission[] = typeof permission === 'string' ? [permission] : [...permission];
   if (permissions.length === 0) {
-    throw new Error('@Access needs at least one permission');
+    throw new AuthzConfigError('@Access needs at least one permission');
   }
   // A malformed name fails when the controller module loads, not on the first request.
   permissions.forEach((p) => parsePermission(p));
@@ -80,7 +79,7 @@ export function AllowAnonymous(): ClassDecorator & MethodDecorator {
  */
 export function UnfilteredInput(reason: string): ClassDecorator & MethodDecorator {
   if (typeof reason !== 'string' || reason.trim() === '') {
-    throw new Error('@UnfilteredInput needs a reason');
+    throw new AuthzConfigError('@UnfilteredInput needs a reason');
   }
   return ((target: object, propertyKey?: string | symbol) => {
     ownAccessDescriptor(target).UnfilteredInput.set(propertyKey ?? ACCESS_CLASS, reason);
@@ -94,9 +93,6 @@ export function UnfilteredInput(reason: string): ClassDecorator & MethodDecorato
  */
 @NewInstance()
 export class UnscopedMiddleware extends RouteMiddleware {
-  @Config('authz')
-  protected Authz: unknown;
-
   constructor(public readonly reason: string) {
     super();
   }
@@ -114,7 +110,7 @@ export class UnscopedMiddleware extends RouteMiddleware {
     const r = req as Request;
     r.storage.Unscoped = this.reason;
     const principal = r.storage.Principal;
-    await auditUnscoped(this.Authz, routeDomain(routeAccess(controller, route.Method)), {
+    await auditUnscoped(routeDomain(routeAccess(controller, route.Method)), {
       kind: 'unscoped',
       principal: principal ? { type: principal.type, id: principal.id } : { type: 'unattended', id: 'unattended' },
       reason: this.reason,
@@ -128,7 +124,7 @@ export class UnscopedMiddleware extends RouteMiddleware {
 
 export function Unscoped(reason: string): MethodDecorator {
   if (typeof reason !== 'string' || reason.trim() === '') {
-    throw new Error('@Unscoped needs a reason');
+    throw new AuthzConfigError('@Unscoped needs a reason');
   }
   const middleware = Middleware(UnscopedMiddleware, reason);
 

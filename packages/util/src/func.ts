@@ -28,6 +28,7 @@ export function identity<T>(value: T): T {
 
 /**
  * Wraps a function so it runs at most once; subsequent calls return the first result.
+ * A call that throws does not count, so the next call runs `fn` again.
  *
  * @param fn - function to guard
  * @returns a function returning the memoized first result
@@ -41,7 +42,12 @@ export function once<T>(fn: () => T): () => T {
   return () => {
     if (!called) {
       called = true;
-      result = fn();
+      try {
+        result = fn();
+      } catch (e) {
+        called = false;
+        throw e;
+      }
     }
     return result;
   };

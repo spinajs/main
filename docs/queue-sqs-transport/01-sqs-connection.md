@@ -4,14 +4,9 @@ A `queue.connections` entry with `service: 'SqsQueueClient'` becomes one `SqsQue
 
 ## How it works
 
-1. **Registration on import.** Importing `@spinajs/queue-sqs-transport` runs two registrations:
-   - `@Injectable(QueueClient)` on `SqsQueueClient` registers the class under `QueueClient` and under itself.
-   - `connection-factory.ts` registers an async factory with `DI.register(factory).as(SqsQueueClient)`.
+1. **Registration on import.** Importing `@spinajs/queue-sqs-transport` runs `@Injectable(QueueClient)` on `SqsQueueClient`, which registers the class under `QueueClient` and under itself.
 2. **Selection.** `DefaultQueueService` (from `@spinajs/queue`) has `@AutoinjectService('queue.connections', QueueClient)`. For each entry, DI finds the `QueueClient` registration whose class name equals `entry.service`.
-3. **Construction through the factory.** DI resolves `SqsQueueClient` with `[entry]`. The last registration under `SqsQueueClient` is the factory, so the factory runs:
-   - reads `app.name` (default `'no-app'`) and `process.env.APP_ENV` (default `'development'`) from `Configuration`;
-   - calls `new SqsQueueClient({ ...entry, clientId: '<app.name>-<APP_ENV>-<entry.name>' })`;
-   - awaits `client.resolve()`.
+3. **Construction.** DI resolves `SqsQueueClient` with `[entry]`. `@PerInstanceCheck()` caches one instance per `entry.name`; on a miss DI calls `new SqsQueueClient(entry)` and awaits `client.resolve()`.
 4. **`SqsQueueClient.resolve()`** builds `this.Sqs = new SQSClient({ region, endpoint, credentials })` from `entry.options` and logs `SQS queue client <name> resolved` on the `queue` logger. It makes no AWS call and validates no queue URL.
 5. **Registration in the service.** `DefaultQueueService` stores the client in its `Connections` map under `entry.name` (`QueueClient.ServiceName`).
 
@@ -25,15 +20,12 @@ sequenceDiagram
   participant App
   participant DI
   participant QS as DefaultQueueService
-  participant F as connection factory
   participant C as SqsQueueClient
   App->>App: import '@spinajs/queue-sqs-transport'
   App->>DI: resolve(QueueService)
   DI->>DI: queue.connections[i].service === 'SqsQueueClient'
-  DI->>F: factory(container, entry)
-  F->>C: new SqsQueueClient({ ...entry, clientId })
-  F->>C: resolve() -> new SQSClient({ region, endpoint, credentials })
-  F-->>DI: client
+  DI->>C: new SqsQueueClient(entry)
+  DI->>C: resolve() -> new SQSClient({ region, endpoint, credentials })
   DI-->>QS: Connections.set(entry.name, client)
 ```
 
@@ -56,7 +48,7 @@ The connection entry is the whole object in `queue.connections[]`. SQS settings 
 | `queue.connections[].options.receiveErrorBackoffMs` | `number` | `500` | `>= 0` (negative is clamped to `0`) | First sleep after a failed receive. |
 | `queue.connections[].options.receiveErrorBackoffMaxMs` | `number` | `10000` | `>= receiveErrorBackoffMs` (lower is raised to it) | Cap of the doubling receive-error sleep. |
 
-Keys of `IQueueConnectionOptions` the SQS transport reads **nowhere**: `login`, `password`, `host`, `port`, `queue`, `clientId` (set by the factory, unused by SQS), `credentialProvider`, `reconnectDelay`, `heartbeatIncoming`, `heartbeatOutgoing`, `connectionTimeout`, `receiptTimeout`, `debug`, `retryDelay` and `defaultQueueDeadLetterChannel`. `options.queueUrl` is declared on `ISqsConnectionOptions` but is not read either; use `defaultQueueChannel`, `defaultTopicChannel` or `queue.routing`.
+Keys of `IQueueConnectionOptions` the SQS transport reads **nowhere**: `login`, `password`, `host`, `port`, `queue`, `clientId`, `credentialProvider`, `reconnectDelay`, `heartbeatIncoming`, `heartbeatOutgoing`, `connectionTimeout`, `receiptTimeout`, `debug`, `retryDelay` and `defaultQueueDeadLetterChannel`. `options.queueUrl` is declared (deprecated) on `ISqsConnectionOptions` but is not read either; use `defaultQueueChannel`, `defaultTopicChannel` or `queue.routing`.
 
 ```ts
 // config/queue.ts
@@ -90,18 +82,16 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Queue transport | `QueueClient`, selected by class name from `queue.connections[].service`; one instance per connection entry, built once when `QueueService` resolves | `SqsQueueClient` | `BlackHoleQueueClient` (`@spinajs/queue`), AMQP and STOMP transports, your subclass | Register a class `@Injectable(QueueClient)` and name it in `service`; see [Extending the SQS client](04-extending-the-sqs-client.md) |
-| Connection factory | async factory registered `.as(SqsQueueClient)` on import; runs on every resolve of `SqsQueueClient` | builds the client, sets `clientId`, awaits `resolve()` | | `DI.register(myFactory).as(SqsQueueClient)` after importing the package |
+| Queue transport | `QueueClient`, selected by class name from `queue.connections[].service`; `@PerInstanceCheck()`, one instance per connection `name`, built when `QueueService` resolves | `SqsQueueClient` | `BlackHoleQueueClient` (`@spinajs/queue`), AMQP and STOMP transports, your subclass | Register a class `@Injectable(QueueClient)` and name it in `service`; see [Extending the SQS client](04-extending-the-sqs-client.md) |
 | AWS client | `protected Sqs: SQSClient`, built in `resolve()` | `new SQSClient({ region, endpoint, credentials })` | | Override `resolve()` in a subclass; see [rotating credentials](04-extending-the-sqs-client.md#rotate-credentials-from-a-secret-store) |
 | Logger | `protected Log`, `@Logger('queue')` (from `QueueClient`) | the `queue` logger | | Configure `logger.rules` for `queue` |
 | Routing table | `protected Routing`, `@Config('queue.routing')` (from `QueueClient`) | `queue.routing` | | Edit config; read live on every `emit()` and `subscribe()` |
 
 ## Important behaviour
 
-- **Resolve through `QueueService`, not `DI.resolve(SqsQueueClient)`.** `SqsQueueClient` is decorated `@PerInstanceCheck()`, but the factory is the last registration under `SqsQueueClient` and DI always runs a factory as a new instance. Each `DI.resolve(SqsQueueClient, [entry])` builds a fresh client with its own `SQSClient` and no shared subscriptions. Use `QueueService.get('sqs')` for the boot-time instance.
+- **One client per connection name.** `SqsQueueClient` is decorated `@PerInstanceCheck()`, so `DI.resolve(SqsQueueClient, [entry])` with the `name` of a connection `QueueService` already built returns that same client. Prefer `QueueService.get('sqs')`: it needs no entry.
 - **Boot does no network I/O.** A typo in a queue URL or region surfaces only on the first send or receive.
 - **The `SQSClient` is shared** by all sends and all poll loops of one connection. `dispose()` destroys it.
-- **`clientId` has no effect.** The factory builds `<app.name>-<APP_ENV>-<name>` for parity with the AMQP transport; SQS has no client id.
 - **Credentials resolve lazily.** With no `options.credentials`, the SDK default chain runs on the first request, not in `resolve()`.
 
 ## Best practices
@@ -114,7 +104,7 @@ export default {
 ## Patterns and antipatterns
 
 ```ts
-// Don't: builds a second SQSClient and a client QueueService does not know about.
+// Don't: repeats the connection entry; a different name builds a client QueueService does not know about.
 const client = await DI.resolve(SqsQueueClient, [{ service: 'SqsQueueClient', name: 'sqs' }]);
 
 // Do: use the instance QueueService built at boot.
@@ -203,5 +193,5 @@ export async function usClient() {
 
 - [Publishing messages](02-publishing-messages.md): how `defaultQueueChannel`, `defaultTopicChannel` and `queue.routing` become queue URLs.
 - [Consuming messages](03-consuming-messages.md): what `waitTimeSeconds`, `maxMessages`, `visibilityTimeout` and the backoff keys change.
-- [Extending the SQS client](04-extending-the-sqs-client.md): replacing the factory or the class.
+- [Extending the SQS client](04-extending-the-sqs-client.md): replacing the class or registering a factory.
 - [`@spinajs/queue`](../queue/README.md): the `queue` config block, `QueueService` and routing.

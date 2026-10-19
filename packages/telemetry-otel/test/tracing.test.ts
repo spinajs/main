@@ -1,7 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
 import { InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
-import { SpanStatusCode } from '@opentelemetry/api';
+import { SpanStatusCode, trace } from '@opentelemetry/api';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { OtelTracing } from '../src/tracing.js';
 
 /**
@@ -62,5 +63,18 @@ describe('OtelTracing', () => {
     expect(result).to.eq('ok');
     expect(exporter.getFinishedSpans()).to.have.length(0);
     await tracing.dispose();
+  });
+
+  it('stays a no-op when disabled even if another library registered a global provider', async () => {
+    const globalExporter = new InMemorySpanExporter();
+    const globalProvider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(globalExporter)] });
+    trace.setGlobalTracerProvider(globalProvider);
+    try {
+      const { tracing } = makeTracing(false);
+      await tracing.withSpan('unit.noop', {}, async () => 'ok');
+      expect(globalExporter.getFinishedSpans()).to.have.length(0);
+    } finally {
+      trace.disable();
+    }
   });
 });

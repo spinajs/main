@@ -51,8 +51,8 @@ export default {
 
 1. The key is `` `${Level}|${logger}|${message}` `` (`keyOf()`), using the formatted message.
 2. First occurrence of a key: emit and start tracking with count `0`.
-3. Same key within `timeout` of the window start and not a higher level: suppress, count `+1`.
-4. Window expired, or the same key at a higher level: emit, append ` (xN)` to `message` when `N > 0` suppressed, reset the window.
+3. Same key within `timeout` of the window start: suppress, count `+1`.
+4. Window expired: emit, append ` (xN)` to `message` when `N > 0` suppressed, reset the window. The level is part of the key, so an entry at another level is a separate key and never flushes this count. `apply()` also emits a higher-level entry of the same key, which happens only when a subclass's `keyOf()` leaves the level out.
 5. Above `maxKeys` tracked keys, `prune()` drops expired keys, then the oldest.
 
 ## Services and extension points

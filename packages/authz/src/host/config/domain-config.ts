@@ -1,6 +1,7 @@
 import { deepFreeze, isPlainObject } from '@spinajs/util';
 import { DEFAULT_COMBINE } from '../../engine/routes.js';
 import type { CombineConfig } from '../../engine/routes.js';
+import { ROOT_DOMAIN } from '../../contracts/service.js';
 import { AUTHZ_DEFAULTS } from './defaults.js';
 
 export interface PermissionConfig {
@@ -48,8 +49,8 @@ function clone<T>(value: T): T {
  * level, so this only merges: a key comes from the nearest level that sets it, over AUTHZ_DEFAULTS.
  */
 export function readDomainConfig(tree: unknown, lineage: readonly string[]): DomainConfig {
-  const domain = lineage[lineage.length - 1] ?? 'root';
-  const levels = [tree, ...lineage.filter((n) => n !== 'root').map((n) => configAt(tree, ['domains', n]))];
+  const domain = lineage[lineage.length - 1] ?? ROOT_DOMAIN;
+  const levels = [tree, ...lineage.filter((n) => n !== ROOT_DOMAIN).map((n) => configAt(tree, ['domains', n]))];
   const own = levels[levels.length - 1];
 
   const merged = (path: readonly string[], base: object, keys: readonly string[]): Record<string, unknown> => {

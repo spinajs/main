@@ -34,11 +34,13 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [Route middlewares](14-route-middlewares.md) | `RouteMiddleware`, `@Middleware`, `@Accepts`: code around one route or controller |
 | [Server middlewares](15-server-middlewares.md) | `ServerMiddleware` and `Order`: the global Express stack, the shipped middlewares, adding or replacing one |
 | [CORS](16-cors.md) | `CorsMiddleware`: allowed origins, credentials, preflight, header lists |
-| [Client IP and trusted proxies](17-client-ip-and-trust-proxy.md) | `RealIp`, `http.trustProxy`, `parseTrustProxy`, `trustedClientAddress`, `requestOrigin` |
+| [Client IP and trusted proxies](17-client-ip-and-trust-proxy.md) | `RealIp`, `http.trustProxy`, `parseTrustProxy`, `parseTrustProxyOverride`, `requestProxyTrust`, `trustedClientAddress`, `requestOrigin` |
 | [Throttling](18-throttling.md) | `ThrottleMiddleware` and the `ThrottleStore` seam: per-IP, per-path rate limits |
 | [Request storage and tracing](19-request-storage-and-tracing.md) | `req.storage`, `AsyncLocalStorage`, request id and `traceparent`, access log, timing headers, slow-request warnings, perf rollups |
 | [Cookies](20-cookies.md) | Signed cookies, `http.cookie.*`, `@Cookie`, setting cookies on a response |
 | [Controller cache and CLI](21-controller-cache-and-cli.md) | `DefaultControllerCache`, JSDoc tag extractors, `spinajs http:controllers:cache` |
+| [Same-origin guard](22-same-origin-guard.md) | `checkSameOrigin`, `SameOriginGuard`: refuse cross-origin state-changing requests by `Origin` and `Sec-Fetch-Site` |
+| [Header and cookie helpers](22-header-and-cookie-helpers.md) | `parseBearer`, `normalizeHeaders`, `parseCookieHeader`, `basicAuthHeader`, `retryAfterHeader`, `hostPrefixedCookie`, `clearCookie`, `isPublicCookieSecret`, `parseCidr`, `cidrMatcher` |
 
 ## Quick start
 

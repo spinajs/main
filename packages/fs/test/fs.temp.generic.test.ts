@@ -106,7 +106,7 @@ describe('fs temp generic ( any backend ) tests', function () {
 
     expect(result.fs.Name).to.eq('fs-temp');
 
-    result.unlink();
+    await result.unlink();
     await t.rm('tozip.txt');
   });
 

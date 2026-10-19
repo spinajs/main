@@ -6,7 +6,7 @@ import type { AuthzTx, MemoryTx, PrincipalRef, ResourceRef } from '@spinajs/auth
 import type { LinkDef } from '../../contracts.js';
 import { AdminLinkStore } from '../ports.js';
 import type { AdminAssignmentStore, Page } from '../ports.js';
-import { copyDate, copyPrincipalRef, copyRef, deepFreeze, normaliseTags, paged, sameRef } from '../rows.js';
+import { copyDate, copyPrincipalRef, copyRef, deepFreeze, paged, sameRef, sortedTags } from '../rows.js';
 import { MemoryAdminAssignmentStore } from './assignment-store.js';
 
 interface Row {
@@ -29,7 +29,7 @@ function copy(l: LinkDef): LinkDef {
 export interface MemoryLinkStoreOptions {
   readonly name?: string;
   /**
-   * Links to start with, under fixed tokens (K1 and test worlds); each gets its link:<id> assignment in the
+   * Links to start with, under fixed tokens (test kit and test worlds); each gets its link:<id> assignment in the
    * given store, which must then be a MemoryAdminAssignmentStore.
    */
   readonly links?: readonly { readonly link: LinkDef; readonly token: string; readonly role: string; readonly tags?: readonly string[] }[];
@@ -54,7 +54,7 @@ export class MemoryLinkStore extends AdminLinkStore {
       if (typeof token !== 'string' || token === '') throw new AuthzConfigError(`MemoryLinkStore: preloaded link ${JSON.stringify(link.id)} needs a non-empty token`);
       const row = copy(link);
       this.rows.set(row.id, { link: row, hash: hashOf(token) });
-      assignments.seed({ subject: { type: 'link', id: row.id }, role, scope: row.scope, tags: normaliseTags(tags), expiresAt: null }, row.createdBy ?? copyPrincipalRef(SYSTEM));
+      assignments.seed({ subject: { type: 'link', id: row.id }, role, scope: row.scope, tags: sortedTags(tags), expiresAt: null }, row.createdBy ?? copyPrincipalRef(SYSTEM));
     }
   }
 

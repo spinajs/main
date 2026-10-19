@@ -64,8 +64,8 @@ sequenceDiagram
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `UserController` | Class key `UserController`; singleton; mounted by the controller scan | `UserController` | none | Subclass and `DI.register(Mine).as(UserController)`; see [Controller overrides](10-controller-overrides.md). |
-| `TokenService` | `TokenService` of `@spinajs/authn/contracts`; checked with `getRegisteredTypes()`, never resolved here | authn-token's implementation | none | Register one to turn the token routes on; none answers `404`. |
-| `TokenProfilePolicy` | The **string** name `'TokenProfilePolicy'` (authn-token's abstract class); resolved per request | authn-token's `NoTokenProfilesPolicy` (offers none) | yours | `@Injectable(TokenProfilePolicy)` on a subclass of authn-token's `TokenProfilePolicy`. A class that is itself named `TokenProfilePolicy` counts as the bare abstract and is ignored. |
+| `TokenService` | `TokenService` of `@spinajs/authn/contracts`; checked with `hasImplementation()`, never resolved here | authn-token's implementation | none | Register one to turn the token routes on; none answers `404`. |
+| `TokenProfilePolicy` | The **string** name `'TokenProfilePolicy'` (authn-token's abstract class); resolved per request | authn-token's `NoTokenProfilesPolicy` (offers none) | yours | `@Injectable(TokenProfilePolicy)` on a subclass of authn-token's `TokenProfilePolicy`. |
 | `RoleSource` | `RoleSource` of `@spinajs/authn/contracts`; resolved per request | users' `RbacRoleSource` | yours | `DI.register(Mine).as(RoleSource)`; none offers `[]`. |
 | Token role rules | `loadTokenRoleRules()` of `@spinajs/authz-rbac`, from the access domain's container | authz-rbac's | | Configure `authz.token` in that domain. |
 
@@ -95,7 +95,6 @@ export class ReportsTokenProfilePolicy extends TokenProfilePolicy {
 - The offered roles never exceed what `POST /user/tokens` of `@spinajs/authn-http` accepts; a picker built on them offers nothing the create route refuses.
 - A `TokenProfilePolicy` that answers anything but a list of non-empty role names, a policy without `allowedProfiles()`, or a `RoleSource` without `rolesOf()` answers `500`. Nothing is offered. Entries of `rolesOf()` without a string `role` are skipped.
 - authz-rbac's `TokenRolePolicy.allowedProfiles` is **not** read: no create or check path reads it.
-- A bare abstract class recorded by an earlier resolve of an unregistered token does not count as an implementation.
 
 ## Best practices
 

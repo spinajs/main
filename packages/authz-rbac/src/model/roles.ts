@@ -39,7 +39,7 @@ type OutEdge = Omit<RoleEdge, 'from'>;
 
 const CYCLE_NAMES_SHOWN = 20;
 
-/** @throws AuthzConfigError on a malformed definition, a duplicate name, an edge to an unknown role or a cycle (B12). */
+/** @throws AuthzConfigError on a malformed definition, a duplicate name, an edge to an unknown role or a cycle. */
 export function compileRoles(roles: readonly RoleDef[], ladders: readonly LadderDef[] = [], opts: CompileRolesOptions = {}): RoleGraph {
   if (!Array.isArray(roles)) throw new AuthzConfigError('RBAC roles must be an array of role definitions');
   if (!Array.isArray(ladders)) throw new AuthzConfigError('RBAC ladders must be an array of ladder definitions');
@@ -146,7 +146,7 @@ function refuseCycles(defs: ReadonlyMap<string, RoleDef>, edges: ReadonlyMap<str
 
 const DENY_GRANT_KEYS = ['relation', 'on', 'fields', 'requiresTag', 'grantedAt'] as const;
 
-/** Design §4.2: a deny role subtracts plain permissions, and no edge passes grants between deny and permit roles. */
+/** A deny role subtracts plain permissions, and no edge passes grants between deny and permit roles. */
 function refuseDenyMixing(defs: ReadonlyMap<string, RoleDef>, edges: ReadonlyMap<string, readonly OutEdge[]>): void {
   const isDeny = (name: string) => defs.get(name)?.deny === true;
   for (const [name, def] of defs) {

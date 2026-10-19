@@ -23,9 +23,9 @@ So a subclass has two ways in:
 | `write(entry)` | Public method | Wraps the entry with a timestamp and enqueues it | none | Override to enrich, redact or skip entries, then call `super.write()` |
 | `resolve()` | Public method, called once by DI | Builds `AxiosInstance`, `RetryPipeline`, `Queue` | none | Override, call `super.resolve()` first, then replace or decorate those fields |
 | `AxiosInstance` | Protected field | `axios.create({ baseURL: endpoint, headers, timeout })` | any `AxiosInstance` | Add interceptors or assign a new instance after `super.resolve()` |
-| `RetryPipeline` | Protected field | 5 retries, exponential 1 s to 5 s, jitter, `Retry-After` | any `ResiliencePipeline<void>` | Assign a new pipeline after `super.resolve()` |
+| `RetryPipeline` | Protected field | 5 retries, exponential 1 s to 5 s, jitter, `Retry-After` capped at 5 s | any `ResiliencePipeline<void>` | Assign a new pipeline after `super.resolve()` |
 | `send(batch)` | Protected method, the queue's `onFlush` | Export, then requeue or drop | none | Override and call `super.send()`; an override must resolve, never reject |
-| `__checkInstance__(options)` | Public method, used by `@PerInstanceCheck()` | Same instance when `name` matches | none | Override to share instances by another key, for example `endpoint` |
+| `__checkInstance__(options)` | Public method, used by `@PerInstanceCheck()` | Same instance when `name` and `endpoint` match | none | Override to share instances by another key, for example `endpoint` alone |
 
 Protected members you can use from a subclass:
 

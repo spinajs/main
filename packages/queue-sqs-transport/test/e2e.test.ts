@@ -6,9 +6,9 @@ import { DateTime } from 'luxon';
 import { expect } from 'chai';
 import { CreateQueueCommand, DeleteQueueCommand, SQSClient } from '@aws-sdk/client-sqs';
 import '@spinajs/orm-sqlite';
-// side-effect import: registers SqsQueueClient with the DI container so the
-// `service: 'SqsQueueClient'` connection below resolves.
-import '../src/connection.js';
+// side-effect import of the package entry, as apps do: registers SqsQueueClient
+// so the `service: 'SqsQueueClient'` connection below resolves.
+import '../src/index.js';
 import { SQS_ENDPOINT, SQS_REGION, SQS_CREDENTIALS } from './common.js';
 
 // raw SDK client used only by the harness to create / delete the localstack queue.

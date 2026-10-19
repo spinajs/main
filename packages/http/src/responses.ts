@@ -34,14 +34,14 @@ export function _setCoockies(res: express.Response, options?: IResponseOptions) 
 
     if (c.Options.signed) {
       const secureKey = cfg.get<string>('http.cookie.secret');
-      cookieValue = cs.sign(cookieValue, secureKey);
+      cookieValue = 's:' + cs.sign(cookieValue, secureKey);
     }
 
     res.cookie(c.Name, cookieValue, {
       ...opt,
       ...c.Options,
 
-      // we manage signed coockies by ourself
+      // signed above in express's `s:` format: res.cookie's own signing throws without req.secret (a secretless parser)
       ...{
         signed: false,
       },

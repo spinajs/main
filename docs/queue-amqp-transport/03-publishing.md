@@ -189,7 +189,7 @@ With `service: 'DelayedAmqpQueueClient'` on the connection, `SendReminder.emit({
 - `emit()` resolves after the broker acks, so a persistent job that `emit()` returned for is on the broker.
 - A retry after a timeout can publish the same message twice: the first attempt may still be acked. `QueueService` skips a job whose tracking row is already finished (`queue.deduplicate`), so jobs stay idempotent. Events have no such check.
 - A message routed to several channels is published channel by channel. When a later channel fails, the earlier ones already have the message.
-- `PendingEmits` has no size limit and no timeout. An `emit()` during a long outage waits until the reconnect. When `dispose()` runs first, the promise never settles.
+- `PendingEmits` has no size limit and no timeout. An `emit()` during a long outage waits until the reconnect. `dispose()` rejects the emits still waiting with `UnexpectedServerError`, and an `emit()` after `dispose()` rejects at once.
 - `Persistent` decides whether the broker writes the message to disk. `QueueJob.emit()` sets it to `true` unless you pass `false`; `QueueEvent.emit()` leaves it unset, which publishes events as non-persistent.
 - `Priority` has no effect on queues declared without `x-max-priority`, which is the default; see [Channel topology](02-channel-topology.md#honour-message-priority).
 - The body is the JSON of the whole message object. Luxon `DateTime` fields such as `CreatedAt` become ISO strings.

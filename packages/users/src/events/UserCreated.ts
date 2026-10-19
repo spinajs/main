@@ -22,19 +22,22 @@ export class UserCreated extends UserEvent {
 
   public Metadata: {};
 
-  constructor(user: User, roles: readonly string[] = []) {
+  constructor(user?: User, roles: readonly string[] = []) {
     super(user);
 
-    this.Uuid = user.Uuid;
-    this.Email = user.Email;
-    this.Login = user.Login;
     this.Role = [...roles];
-    this.RegisteredAt = user.RegisteredAt;
-    this.IsBanned = user.IsBanned;
-    this.IsActive = user.IsActive;
 
     // deliberately empty: metadata may hold credentials ( reset token, 2fa
     // secret ) that must never ride a queue payload
     this.Metadata = {};
+
+    if (user) {
+      this.Uuid = user.Uuid;
+      this.Email = user.Email;
+      this.Login = user.Login;
+      this.RegisteredAt = user.RegisteredAt;
+      this.IsBanned = user.IsBanned;
+      this.IsActive = user.IsActive;
+    }
   }
 }

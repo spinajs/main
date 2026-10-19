@@ -1,9 +1,7 @@
 import { Log, Logger } from '@spinajs/log';
-import { Command } from '@spinajs/cli';
+import { CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
 import { TokenService } from '@spinajs/authn/contracts';
-
-import { TokenCliCommand } from './TokenCliCommand.js';
 
 interface ExpiredTokenSweeper {
   deleteExpired(now: Date): Promise<number>;
@@ -13,7 +11,7 @@ const sweepsExpired = (s: unknown): s is ExpiredTokenSweeper => typeof (s as Par
 
 /** Housekeeping for a scheduler (cron, worker); expired and revoked tokens are already refused on use. */
 @Command('authn:token-delete-expired', 'Deletes expired and revoked API tokens')
-export class DeleteExpiredTokens extends TokenCliCommand {
+export class DeleteExpiredTokens extends CliCommand {
   @Logger('authn-token')
   protected Log: Log;
 

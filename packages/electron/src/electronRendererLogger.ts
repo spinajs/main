@@ -1,11 +1,14 @@
 import { Log, ILogEntry } from '@spinajs/log-common'
+import { NewInstance } from '@spinajs/di';
 
+@NewInstance()
 export class ElectronRendererLogger extends Log {
 
     constructor(name: string) {
         super();
         
         this.Name = name;
+        Log.Loggers.set(name, this);
     }
 
     public trace(message: string, ...args: any[]): void;
