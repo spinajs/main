@@ -1,6 +1,6 @@
 import { AUTHZ_CONNECTION, AuthzConfigError } from '@spinajs/authz';
 import type { AuthzTx, Policy } from '@spinajs/authz';
-import { Connection, ConnectionMismatch, DateTime as DateTimeColumn, Json, Model, ModelBase, NotAnOrmDriver, OrmConnectionMissing, Primary, TransactionRequired, requireModelTransaction } from '@spinajs/orm';
+import { Connection, ConnectionMismatch, DateTime as DateTimeColumn, Json, Model, ModelBase, NotAnOrmDriver, OrmConnectionMissing, OrmNotResolved, Primary, TransactionRequired, requireModelTransaction } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 // A value import: @DateTime() reads the property's design type.
 import { DateTime } from 'luxon';
@@ -96,8 +96,11 @@ export function requirePolicyTransaction(tx: AuthzTx, where: string): OrmDriver 
     if (err instanceof ConnectionMismatch) {
       throw new AuthzConfigError(`${where}: the AuthzTx runs on connection ${JSON.stringify(err.actual)}, but ${err.table} is on connection ${JSON.stringify(err.expected)} (db.Aliases.${AUTHZ_CONNECTION})`, { cause: err });
     }
+    if (err instanceof OrmNotResolved) {
+      throw new AuthzConfigError(`${PolicyRecord.name}: the Orm is not resolved yet; resolve it (await DI.resolve(Orm)) before the authz tables are used`, { cause: err });
+    }
     if (err instanceof OrmConnectionMissing) {
-      throw new AuthzConfigError(`${where}: no ORM connection answers to "${AUTHZ_CONNECTION}"; set db.Aliases.${AUTHZ_CONNECTION}`, { cause: err });
+      throw new AuthzConfigError(`${PolicyRecord.name}: no ORM connection answers to "${AUTHZ_CONNECTION}"; set db.Aliases.${AUTHZ_CONNECTION}`, { cause: err });
     }
     throw err;
   }

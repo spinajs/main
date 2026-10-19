@@ -1,5 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { AUTHZ_CONNECTION, AuthzConfigError } from '@spinajs/authz';
 import type { AuthzTx } from '@spinajs/authz';
 import { ConnectionMismatch, NotAnOrmDriver, OrmConnectionMissing, TransactionRequired } from '@spinajs/orm';
@@ -99,7 +101,7 @@ for (const kind of DB_KINDS) {
         db.orm.Connections.delete(AUTHZ_CONNECTION);
         try {
           const missing = refusal(() => requirePolicyTransaction(tx, 'test'));
-          expect(missing.message).to.equal('test: no ORM connection answers to "authz"; set db.Aliases.authz');
+          expect(missing.message).to.equal('PolicyRecord: no ORM connection answers to "authz"; set db.Aliases.authz');
           expect(missing.cause).to.be.instanceOf(OrmConnectionMissing);
         } finally {
           db.orm.Connections.set(AUTHZ_CONNECTION, db.driver);
@@ -108,3 +110,39 @@ for (const kind of DB_KINDS) {
     });
   });
 }
+
+describe('authz-abac: requirePolicyTransaction in a process that has not resolved the Orm', function () {
+  this.timeout(120_000);
+
+  // Imports the built package (`npm run compile` first): a transaction on a driver no Orm created, as a cli might hold.
+  it('says the Orm is not resolved, with the ORM error as cause', async () => {
+    const script = [
+      "import { DI } from '@spinajs/di';",
+      "import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';",
+      "import '@spinajs/log';",
+      "import { SqliteOrmDriver } from '@spinajs/orm-sqlite';",
+      "import { AUTHZ_CONFIGURATION_SCHEMA } from '@spinajs/authz';",
+      "import { requirePolicyTransaction } from '@spinajs/authz-abac';",
+      'const { ofType, chainOf } = Array;',
+      "DI.register(AUTHZ_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');",
+      'DI.register(FrameworkConfiguration).as(Configuration);',
+      'await DI.resolve(Configuration);',
+      'Object.assign(Array, { ofType, chainOf });',
+      "const driver = await DI.resolve(SqliteOrmDriver, [{ Name: 'cli', Driver: 'orm-driver-sqlite', Filename: ':memory:' }]);",
+      'await driver.connect();',
+      'const result = {};',
+      "try { await driver.transaction(async () => requirePolicyTransaction({ driver }, 'test')); } catch (e) { Object.assign(result, { error: e.constructor.name, message: e.message, cause: e.cause?.constructor?.name }); }",
+      "console.log('RESULT ' + JSON.stringify(result));",
+      'process.exit(0);',
+    ].join('\n');
+
+    const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script], { cwd: process.cwd(), encoding: 'utf8', timeout: 60_000 });
+    const line = stdout.split(/\r?\n/).find((l) => l.startsWith('RESULT '));
+    expect(line, stdout).to.be.a('string');
+    expect(JSON.parse(line!.slice('RESULT '.length))).to.deep.equal({
+      error: 'AuthzConfigError',
+      message: 'PolicyRecord: the Orm is not resolved yet; resolve it (await DI.resolve(Orm)) before the authz tables are used',
+      cause: 'OrmNotResolved',
+    });
+  });
+});

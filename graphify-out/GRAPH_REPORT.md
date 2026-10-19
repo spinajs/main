@@ -1,17 +1,17 @@
 # Graph Report - rv-refactor-authz-rbac-db-store-base  (2026-10-20)
 
 ## Corpus Check
-- 4625 files · ~3,034,397 words
+- 4625 files · ~3,034,648 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 439 file(s) not represented in the graph (top: (none) 376, .pug 41, .handlebars 5)
 
 ## Summary
-- 49820 nodes · 133067 edges · 1647 communities (1123 shown, 524 thin omitted)
+- 49820 nodes · 133070 edges · 1647 communities (1123 shown, 524 thin omitted)
 - Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 17302 edges (avg confidence: 0.94)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `2c399c17`
+- Built from commit: `f0b3a0ef`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1570,7 +1570,7 @@
 
 ### Community 0 - "model/evaluate.ts"
 Cohesion: 0.01
-Nodes (359): L1: RBAC model, L1b: ladders, rules, tags, links, Wiring the models, Store ports, The RBAC model, What lives in config, Configuration, `AuthzTargetGuard.check(actor, target)` (+351 more)
+Nodes (358): L1: RBAC model, L1b: ladders, rules, tags, links, Wiring the models, Store ports, The RBAC model, What lives in config, Configuration, `AuthzTargetGuard.check(actor, target)` (+350 more)
 
 ### Community 1 - "ref_chai"
 Cohesion: 0.01
@@ -1602,11 +1602,11 @@ Nodes (71): rbacStores, DEFAULT_MAX_SET_DEPTH, AssignmentCache, AssignmentCacheO
 
 ### Community 8 - "packages_authz_lib_mjs_index_resourceref"
 Cohesion: 0.01
-Nodes (376): Testing kit, notListFilterable(), rowDependence(), fieldsOf(), intersectFieldGlobs(), readsSession(), RESIDUALS, sessionPath() (+368 more)
+Nodes (403): Testing kit, notListFilterable(), rowDependence(), fieldsOf(), intersectFieldGlobs(), readsSession(), RESIDUALS, sessionPath() (+395 more)
 
 ### Community 9 - "RbacModel"
 Cohesion: 0.01
-Nodes (567): 6.1 Before you convert yourscreen, PermissivePolicyGuard, del(), ABAC_PARTS, agent, alice, bob, O1 (+559 more)
+Nodes (568): 6.1 Before you convert yourscreen, PermissivePolicyGuard, del(), ABAC_PARTS, agent, alice, bob, O1 (+560 more)
 
 ### Community 10 - "ref_node_assert"
 Cohesion: 0.01
@@ -1614,7 +1614,7 @@ Nodes (336): RFC-4648, Harness factory, A01, A02, CORE_ROWS, HTTP_ROWS, LOGIN_AC
 
 ### Community 11 - "authz-testing/src/behaviour/types.ts"
 Cohesion: 0.00
-Nodes (958): rbacLinks(), Lane data and handles, TestLadderDef, alice, B01, bob, core, f1 (+950 more)
+Nodes (931): rbacLinks(), Lane data and handles, TestLadderDef, alice, B01, bob, core, f1 (+923 more)
 
 ### Community 12 - "boot/check-config.ts"
 Cohesion: 0.11
@@ -2030,7 +2030,7 @@ Nodes (52): Entry points, Install, Best practices, Configuration, Examples, Expo
 
 ### Community 115 - "authz/test/admin/support.ts"
 Cohesion: 0.01
-Nodes (131): M, RecordingForgetter, alice, OtherHandler, adminAudit(), alice, bob, carol (+123 more)
+Nodes (139): M, RecordingForgetter, isPlain(), isStrictCeiling(), isStrings(), reviveCeiling(), reviveDate(), authzFor() (+131 more)
 
 ### Community 116 - "ConfigVarProtocol"
 Cohesion: 0.04
@@ -2917,8 +2917,8 @@ Cohesion: 0.01
 Nodes (157): Testing, C8 golden tickets, Fakes for the `service` port, Running the behaviour rules in a lane, Store and strategy conformance, Time rules, strategy(), AUTHN_RULES (+149 more)
 
 ### Community 343 - "arbitraries.test.ts"
-Cohesion: 0.04
-Nodes (87): isPlain(), isStrictCeiling(), isStrings(), reviveCeiling(), reviveDate(), authzFor(), alice, bob (+79 more)
+Cohesion: 0.02
+Nodes (104): assertFieldPaths(), dateInRange(), DEFAULT_FIELDS, DEFAULT_IDS, DEFAULT_PERMISSIONS, DEFAULT_ROLES, DEFAULT_TYPES, DEFAULT_VALUES (+96 more)
 
 ### Community 344 - "orm-threading/package.json"
 Cohesion: 0.10
@@ -2973,8 +2973,8 @@ Cohesion: 0.03
 Nodes (53): Best practices, Configuration, Examples, File written by `FileOutboxStore`, How it works, Important behaviour, IndexedDB database `spinajs-outbox:<name>`, version 1, Outbox stores (+45 more)
 
 ### Community 358 - "e2e/support/stack.ts"
-Cohesion: 0.02
-Nodes (56): dropPgDatabase(), AuthnHandle, testHost, withAuthn(), withCeiling(), PROTECTED_ROLES, rbacHostHarness(), alice (+48 more)
+Cohesion: 0.04
+Nodes (31): dropPgDatabase(), alice, rootRegistrations(), RootRegistry, NUM_RUNS, alice, ALL, bob (+23 more)
 
 ### Community 359 - "scripts"
 Cohesion: 0.15
@@ -3653,7 +3653,7 @@ Cohesion: 0.17
 Nodes (11): compilerOptions, module, moduleResolution, outDir, rootDir, extends, include, ../../tsconfig.json (+3 more)
 
 ### Community 541 - "TestRbacModel"
-Cohesion: 0.16
+Cohesion: 0.17
 Nodes (4): sameRef(), subjectKey(), model(), TestRbacModel
 
 ### Community 542 - "boolean"
@@ -6073,7 +6073,7 @@ _Questions this graph is uniquely positioned to answer:_
 - **What connects `@types/bunyan`, `@types/chai`, `@types/chai-as-promised` to the rest of the system?**
   _1703 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `model/evaluate.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.008714704622582453 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.008705090273989961 - nodes in this community are weakly interconnected._
 - **Why does `Orm` connect `OrmDriver` to `ITransactionContext`, `db-harness.ts`, `Scaffolding migrations`, `orm/src/interfaces.ts`, `FormFileUploader`, `Cli`, `orm/src/interfaces.ts`, `.expose`, `QueryMiddleware`, `orm/src/builders.ts`, `DbSessionStore`, `Basics`, `SchemaProvider`, `orm/src/builders.ts`, `UserSessionIdHash_2026_10_02_00_00_00`, `Services and extension points`, `QueueClient`, `boolean`, `SqlDriver`, `.duration`, `.filterColumns`, `TaskFailed`, `DbTranslationSource`, `Mutex`, `DbTranslationSource`, `DbConfigValueConverter`, `Test ledger: @spinajs/authn-totp`, `packages_orm_lib_mjs_index`, `Commands`, `DbConfig`, `orm/src/interfaces.ts`, `ModelBase`, `ConfigFileUploads`, `ConfigurationSource`, `RendererOrmDriverBridge`, `MigrateUpCommand`, `Configuration`, `.default`?**
   _High betweenness centrality (0.023) - this node is a cross-community bridge._
 - **Should `ref_chai` be split into smaller, more focused modules?**
