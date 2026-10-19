@@ -111,9 +111,9 @@ export class AuthzFsMiddleware extends FsMiddleware {
         continue;
       }
       const existed = await occupied(ctx, c.target);
-      // Rows at a free path are stale (an rm outside the middleware, an update that failed): what is created there
-      // must not inherit them. Rows under it stay: they are cleared when their own path is created.
-      if (!existed) await (await this.store()).deletePath(c.target.fs.Name, c.target.path);
+      // Nothing lives at or under a free path, so its rows are stale (an rm outside the middleware, an update that
+      // failed): what is created there must not inherit them.
+      if (!existed) await (await this.store()).deleteTree(c.target.fs.Name, c.target.path);
       planned.push({ ...probed, existed });
     }
     const destination = MOVES.has(ctx.action) ? ctx.targets.find(writes) : undefined;

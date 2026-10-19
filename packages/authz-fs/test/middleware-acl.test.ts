@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { existsSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Writable } from 'node:stream';
 
@@ -31,8 +31,9 @@ const ENTRIES = {
 const closed = (stream: Writable): Promise<void> => new Promise((resolve, reject) => stream.once('close', resolve).once('error', reject));
 
 /**
- * A local provider that answers as fsS3 does: a key is never a directory, every prefix is one for dirExists, and a
- * key may share its name with a prefix (such a key is kept in `shadowKeys`, as the disk holds the directory there).
+ * A local provider that answers as fsS3 does: a key is never a directory, every prefix is one for dirExists, a list
+ * holds only the keys directly under the prefix, and a key may share its name with a prefix (such a key is kept in
+ * `shadowKeys`, as the disk holds the directory there).
  */
 class KeyStoreFs extends fsNative<IFsLocalOptions> {
   readonly shadowKeys = new Set<string>();
@@ -54,8 +55,30 @@ class KeyStoreFs extends fsNative<IFsLocalOptions> {
     else await super.doWrite(path, data, encoding);
   }
 
+  protected async doList(path: string): Promise<string[]> {
+    if (!this.onDiskDir(path)) return [];
+    return readdirSync(this.resolvePath(path), { withFileTypes: true })
+      .filter((e) => e.isFile())
+      .map((e) => (path ? `${path}/${e.name}` : e.name));
+  }
+
+  /** Throws when set, as a failed ListObjectsV2 would. */
+  entriesFailure?: Error;
+
+  protected async doHasEntries(path: string): Promise<boolean> {
+    if (this.entriesFailure) throw this.entriesFailure;
+    const nested = this.onDiskDir(path) && readdirSync(this.resolvePath(path), { recursive: true, withFileTypes: true }).some((e) => e.isFile());
+    return nested || [...this.shadowKeys].some((k) => path === '' || k.startsWith(`${path}/`));
+  }
+
   protected async doMove(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
     if (!this.onDiskDir(newPath)) return super.doMove(oldPath, newPath, dstFs);
+    await super.doRm(oldPath);
+    this.shadowKeys.add(newPath);
+  }
+
+  protected async doRename(oldPath: string, newPath: string): Promise<void> {
+    if (!this.onDiskDir(newPath)) return super.doRename(oldPath, newPath);
     await super.doRm(oldPath);
     this.shadowKeys.add(newPath);
   }
@@ -186,14 +209,21 @@ describe('authz-fs AuthzFsMiddleware: owner stamping', function () {
     expect(s.acl.owner('mw-own', 'broken.txt')).to.equal(undefined);
   });
 
-  it('a new path never inherits stale rows left at it; a row under it goes once its own path is created', async () => {
+  it('a new path never inherits stale rows left at it or under it', async () => {
     const own = s.local('mw-own');
     for (const path of ['gone.txt', 'gonedir', 'gonedir/x.txt']) await s.acl.grant({ fs: 'mw-own', path, subject: { type: 'user', id: 'mallory' }, relation: 'owner' });
     await own.write('gone.txt', 'x');
     await own.mkdir('gonedir');
-    expect(s.acl.rows.map((r) => `${r.path} ${r.subjectKey}`).sort()).to.deep.equal(['gone.txt user:alice', 'gonedir user:alice', 'gonedir/x.txt user:mallory']);
-    await own.write('gonedir/x.txt', 'x');
-    expect(s.acl.owner('mw-own', 'gonedir/x.txt')).to.equal('user:alice');
+    expect(s.acl.rows.map((r) => `${r.path} ${r.subjectKey}`).sort()).to.deep.equal(['gone.txt user:alice', 'gonedir user:alice']);
+  });
+
+  it('a failing hasEntries probe refuses the write: nothing is cleared, stamped or written', async () => {
+    const keys = new KeyStoreFs({ name: 'mw-own', basePath: s.base('mw-own') });
+    await s.acl.grant({ fs: 'mw-own', path: 'new.txt', subject: BOB, relation: 'owner' });
+    keys.entriesFailure = new Error('throttled');
+    await expect(keys.write('new.txt', 'x')).to.be.rejectedWith('throttled');
+    expect(s.acl.rows.map((r) => `${r.path} ${r.subjectKey} ${r.relation}`)).to.deep.equal(['new.txt user:bob owner']);
+    expect(existsSync(join(s.dir, 'mw-own', 'new.txt'))).to.equal(false);
   });
 
   it('a key written where keys sit under its prefix leaves the folder rows alone and claims nothing, with and without stampOwner', async () => {
@@ -205,6 +235,17 @@ describe('authz-fs AuthzFsMiddleware: owner stamping', function () {
       await keys.write('d', 'key');
       expect(keys.shadowKeys.has('d'), name).to.equal(true);
       expect(s.acl.rows.filter((r) => r.fs === name).map((r) => `${r.path} ${r.subjectKey} ${r.relation}`).sort(), name).to.deep.equal(['d user:bob owner', 'd user:carol viewer']);
+    }
+  });
+
+  it('a key written where only nested keys sit under its prefix leaves the folder rows alone and claims nothing, with and without stampOwner', async () => {
+    for (const name of ['mw-own', 'mw-up']) {
+      const keys = new KeyStoreFs({ name, basePath: s.base(name, { 'd/sub/a.txt': 'A' }) });
+      await s.acl.grant({ fs: name, path: 'd', subject: BOB, relation: 'owner' });
+      s.authz.allow = (permission, resource) => permission === 'fs:write' && resource === `file:${name}:d`;
+      await keys.write('d', 'key');
+      expect(keys.shadowKeys.has('d'), name).to.equal(true);
+      expect(s.acl.rows.filter((r) => r.fs === name).map((r) => `${r.path} ${r.subjectKey} ${r.relation}`), name).to.deep.equal(['d user:bob owner']);
     }
   });
 
@@ -252,6 +293,16 @@ describe('authz-fs AuthzFsMiddleware: rm, move and rename', function () {
     await keys.rm('d');
     await keys.move('k', 'm');
     expect(s.acl.rows.map((r) => r.path).sort()).to.deep.equal(['d/a.txt', 'k/b.txt', 'm']);
+  });
+
+  it('a key moved or renamed onto a prefix holding only nested keys does not carry its rows there', async () => {
+    const keys = new KeyStoreFs({ name: 'mw-own', basePath: s.base('mw-own', { 'd/sub/a.txt': 'A', 'm.txt': 'M', 'r.txt': 'R' }) });
+    await grant('mw-own', 'd', BOB, 'owner');
+    await grant('mw-own', 'm.txt', CAROL, 'owner');
+    await grant('mw-own', 'r.txt', CAROL, 'viewer');
+    await keys.move('m.txt', 'd');
+    await keys.rename('r.txt', 'd');
+    expect(s.acl.rows.map((r) => `${r.path} ${r.subjectKey} ${r.relation}`)).to.deep.equal(['d user:bob owner']);
   });
 
   it('a key moved onto a prefix that holds keys does not carry its rows there; its own rows go', async () => {
@@ -313,8 +364,8 @@ describe('authz-fs AuthzFsMiddleware: ACL failures', function () {
   });
 
   it('a store failing before the IO stops the write', async () => {
-    s.acl.failing.add('deletePath');
-    await expect(s.local('mw-own').write('g.txt', 'x')).to.be.rejectedWith('deletePath failed');
+    s.acl.failing.add('deleteTree');
+    await expect(s.local('mw-own').write('g.txt', 'x')).to.be.rejectedWith('deleteTree failed');
     expect(existsSync(join(s.dir, 'mw-own', 'g.txt'))).to.equal(false);
   });
 
