@@ -9,6 +9,18 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./jobs": {
+      "types": "./lib/mjs/job/index.d.ts",
+      "import": "./lib/mjs/job/index.js",
+      "require": "./lib/cjs/job/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "jobs": [
+        "lib/cjs/job/index.d.ts"
+      ]
     }
   },
   "type": "module",
@@ -53,7 +65,6 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/authz": "3.0.0-alpha.0",
-    "@spinajs/authz-orm": "3.0.0-alpha.0",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
@@ -61,7 +72,16 @@
     "@spinajs/queue": "2.0.549",
     "@spinajs/util": "2.0.549"
   },
+  "peerDependencies": {
+    "@spinajs/authz-orm": "3.0.0-alpha.0"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/authz-orm": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@spinajs/authz-orm": "3.0.0-alpha.0",
     "@spinajs/authz-rbac": "3.0.0-alpha.0",
     "@spinajs/authz-testing": "3.0.0-alpha.0",
     "@spinajs/orm-sqlite": "2.0.549"
