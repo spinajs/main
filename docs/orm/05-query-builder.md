@@ -79,6 +79,8 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `where(function () { ... })` | `( ... )` | Nested group. `this` inside the callback is a new `WhereBuilder` on the same model and alias. |
 | `where(true)` / `where(false)` | `TRUE` / `FALSE` | |
 | `where(RawQuery.create(sql, bindings))` | `sql` verbatim | Columns are not quoted or qualified. |
+| `where(column, operator?, RawQuery.create(sql, bindings))` | `column <OP> sql` | The raw SQL stands in for the value: no `?`, no converter; its bindings follow. |
+| `where('ExpiresAt', '>', driver.now())` | `ExpiresAt > <dialect now>` | `OrmDriver.now()` is the database's current instant: `CURRENT_TIMESTAMP` (PostgreSQL), `UTC_TIMESTAMP(3)` (MySQL), `SYSDATETIMEOFFSET()` (MSSQL), `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` (SQLite). In raw SQL use `driver.now().Query`. |
 | `where(new Lazy(fn))` | statements `fn` adds | `Lazy` from `@spinajs/util`. `fn` runs at compile time against a clone of the query, with columns, joins, group-by and where cleared. |
 | `where(Wrapper.Date(column), operator?, value)` | dialect date wrap, eg. `DATE(column) >= ?` | `Wrapper.Date` / `Wrapper.DateTime` build a `Wrap`. Pass a value: a `Wrap` alone throws `InvalidArgument`. |
 | `where('Customer.Country', 'PL')` | condition inside the populated relation | A dotted column populates the relation and filters inside it. See [Relations](06-relations.md). |
@@ -305,6 +307,7 @@ export class TenantMiddleware extends QueryMiddleware {
 
 ## Important behaviour
 
+- `driver.now()` is the database's clock, a bound `Date` is the application's. Compare one stored column with one of them consistently: on hosts whose clocks drift apart the two disagree near a boundary.
 - A builder executes at most once. Awaiting it again resolves with the memoized result and runs no hook. Call `clone()` on a select for a second round trip.
 - `afterQueryCreation` runs inside the constructor, before `createQuery()` sets the table and before the caller's `where()` / `values()`. `beforeQueryExecution` and `afterQueryExecution` run for every builder that executes, schema builders included.
 - `clone()` does not run `afterQueryCreation` again. It copies the statements, which already carry the middleware constraints.

@@ -1,4 +1,4 @@
-import { DatetimeValueConverter, DefaultValueBuilder, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
+import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
@@ -7,7 +7,7 @@ import mssql from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
 import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlDefaultValueBuilder, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler } from './compilers.js';
 import { MssqlModelDehydrator } from './dehydrator.js';
-import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlInStatement, MsSqlLiteralQuoter } from './statements.js';
+import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlInStatement, MsSqlLiteralQuoter, MsSqlNowExpression } from './statements.js';
 import { mapMsSqlError } from './errors.js';
 
 export * from './errors.js';
@@ -180,6 +180,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MsSqlTableQueryCompiler).as(TableQueryCompiler);
     this.Container.register(MsSqlColumnQueryCompiler).as(ColumnQueryCompiler);
     this.Container.register(MsSqlDefaultValueBuilder).as(DefaultValueBuilder);
+    this.Container.register(MsSqlNowExpression).as(NowExpression);
     this.Container.register(MsSqlInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(MsSqlDeleteQueryCompiler).as(DeleteQueryCompiler);
     this.Container.register(MssqlModelDehydrator).as(ModelDehydrator);

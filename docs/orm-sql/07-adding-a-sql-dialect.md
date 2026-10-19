@@ -110,6 +110,7 @@ On top of `SqlDriver.resolve()`. "shared" means the `@spinajs/orm-sql` class, cl
 | `DropDatabaseCompiler` | `SqliteDropDatabaseQueryCompiler` (throws) | (SqlDriver) | `MsSqlDropDatabaseQueryCompiler` | shared |
 | `DefaultValueBuilder` | `SqlLiteDefaultValueBuilder` | `SqlDefaultValueBuilder` | `MsSqlDefaultValueBuilder` | `PostgresDefaultValueBuilder` |
 | `DatetimeValueConverter` | `IsoDatetimeValueConverter` | (SqlDriver) | `IsoDatetimeValueConverter` | `IsoDatetimeValueConverter` |
+| `NowExpression` | `SqliteNowExpression` | `MySqlNowExpression` | `MsSqlNowExpression` | `PostgresNowExpression` |
 | `InSetStatement` | `SqliteInSetStatement` | `MySqlInSetStatement` | `MsSqlInSetStatement` | (SqlDriver, portable `LIKE`) |
 | `JoinStatement` | `SqlLiteJoinStatement` (no `RIGHT JOIN`) | (SqlDriver) | (SqlDriver) | (SqlDriver) |
 | Other | `SqliteModelToSqlConverter` as `ModelToSqlConverter` | | `MssqlModelDehydrator` | |

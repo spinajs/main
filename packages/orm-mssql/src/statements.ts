@@ -1,6 +1,6 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, SET_DELIMITER } from '@spinajs/orm';
+import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, NowExpression, SET_DELIMITER } from '@spinajs/orm';
 import { _columnWrap, SqlInStatement, SqlLiteralQuoter } from '@spinajs/orm-sql';
 
 /**
@@ -87,5 +87,11 @@ export class MsSqlInStatement extends SqlInStatement {
 
   protected listExpression(column: string): string {
     return `${column} ${this._not ? 'NOT IN' : 'IN'} (SELECT ${this.Quoter.quote('value')} FROM OPENJSON(?))`;
+  }
+}
+
+export class MsSqlNowExpression extends NowExpression {
+  public sql(): string {
+    return 'SYSDATETIMEOFFSET()';
   }
 }

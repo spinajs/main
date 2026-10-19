@@ -122,4 +122,20 @@ describe('sqlite datetimes', function () {
     expect(doc.created.zoneName).to.eq('UTC');
     expect(doc.created.toMillis()).to.be.within(Date.now() - 60_000, Date.now());
   });
+
+  it('compares stored instants with the database clock, and stamps with it', async () => {
+    await DtDoc.insert({ id: 1, at: DateTime.fromMillis(Date.now() - 3_600_000) });
+    await DtDoc.insert({ id: 2, at: DateTime.fromMillis(Date.now() + 3_600_000) });
+    expect(driver().now().Query).to.eq("strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
+
+    await inZone('Asia/Kolkata', async () => {
+      const past = (await DtDoc.where('at', '<=', driver().now())) as DtDoc[];
+      expect(past.map((d) => d.id)).to.deep.eq([1]);
+
+      const before = Date.now();
+      await driver().executeOnDb(`INSERT INTO dt_doc (id, at) VALUES (3, ${driver().now().Query})`, [], QueryContext.Insert);
+      const stamped = (await DtDoc.where('id', 3).first()) as DtDoc;
+      expect(stamped.at.toMillis()).to.be.within(before - 1000, Date.now() + 1000);
+    });
+  });
 });

@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Autoinject, NewInstance } from '@spinajs/di';
-import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, JoinMethod, IJoinStatementOptions, SET_DELIMITER } from '@spinajs/orm';
+import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, JoinMethod, IJoinStatementOptions, NowExpression, SET_DELIMITER } from '@spinajs/orm';
 import { SqlInStatement, SqlJoinStatement, _columnWrap } from '@spinajs/orm-sql';
 import { NotSupported } from '@spinajs/exceptions';
 
@@ -61,5 +61,12 @@ export class SqliteInSetStatement extends InSetStatement {
 export class SqliteInStatement extends SqlInStatement {
   protected listExpression(column: string): string {
     return `${column} ${this._not ? 'NOT IN' : 'IN'} (SELECT value FROM json_each(?))`;
+  }
+}
+
+/** The text the datetime converter writes, so stored values compare with it as text. */
+export class SqliteNowExpression extends NowExpression {
+  public sql(): string {
+    return "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
   }
 }

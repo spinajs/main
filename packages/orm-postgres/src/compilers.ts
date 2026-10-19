@@ -5,6 +5,7 @@ import { Logger, Log } from '@spinajs/log';
 import { ICompilerOutput, RawQuery, OnDuplicateQueryBuilder, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, LimitQueryCompiler, LimitBuilder, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, IdentifierQuoter, ColumnQueryCompiler, TableAliasCompiler, CreateViewQueryBuilder } from '@spinajs/orm';
 import { SqlInsertQueryCompiler, SqlColumnQueryCompiler, SqlAlterColumnQueryCompiler, SqlOnDuplicateQueryCompiler, SqlDefaultValueBuilder, escapeStringLiteral, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
+import { PostgresNowExpression } from './statements.js';
 
 @NewInstance()
 export class PostgresTableExistsCompiler implements TableExistsCompiler {
@@ -397,7 +398,7 @@ export class PostgresDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
   }
 
   public dateTime(): T {
-    this.Query = RawQuery.create('CURRENT_TIMESTAMP');
+    this.Query = RawQuery.create(new PostgresNowExpression().sql());
     return this.Owner;
   }
 }

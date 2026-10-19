@@ -120,4 +120,20 @@ describe('postgres datetimes (integration)', function () {
     const [row] = await query<{ text: string }>('SELECT CAST(at AS TEXT) AS text FROM pg_dt_doc WHERE id = 1');
     expect(row.text).to.eq('2026-10-19 12:00:00.123+00');
   });
+
+  it('compares stored instants with the database clock, and stamps with it', async () => {
+    await PgDtDoc.insert({ id: 1, at: DateTime.fromMillis(Date.now() - 3_600_000) });
+    await PgDtDoc.insert({ id: 2, at: DateTime.fromMillis(Date.now() + 3_600_000) });
+
+    await inZone('Asia/Kolkata', async () => {
+      const past = (await PgDtDoc.where('at', '<=', pgdb!.driver.now())) as PgDtDoc[];
+      expect(past.map((d) => d.id)).to.deep.eq([1]);
+
+      const before = Date.now();
+      await pgdb!.driver.executeOnDb(`INSERT INTO pg_dt_doc (id, at) VALUES (3, ${pgdb!.driver.now().Query})`, [], QueryContext.Insert);
+      const stamped = (await PgDtDoc.where('id', 3).first()) as PgDtDoc;
+      // the server's clock, not this process's: allow for drift of a container clock
+      expect(stamped.at.toMillis()).to.be.within(before - 60_000, Date.now() + 60_000);
+    });
+  });
 });

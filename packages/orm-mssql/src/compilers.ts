@@ -3,6 +3,7 @@ import { MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
 import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder } from '@spinajs/orm';
 import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler, SqlDefaultValueBuilder } from '@spinajs/orm-sql';
 import _ from 'lodash';
+import { MsSqlNowExpression } from './statements.js';
 
 /**
  * Escapes a T-SQL string literal by doubling embedded single quotes. Used for the dynamic
@@ -277,7 +278,7 @@ export class MsSqlDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
   }
 
   public dateTime(): T {
-    this.Query = RawQuery.create('SYSDATETIMEOFFSET()');
+    this.Query = RawQuery.create(new MsSqlNowExpression().sql());
     return this.Owner;
   }
 }

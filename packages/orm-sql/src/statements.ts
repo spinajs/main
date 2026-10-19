@@ -263,6 +263,14 @@ export class SqlWhereStatement extends WhereStatement {
       }
     }
 
+    if (this._value instanceof RawQuery) {
+      const target = column instanceof Wrap ? this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._builder.TableAlias]).wrap() : _columnWrap(this.Quoter, column as string, this._builder.TableAlias, this.IsAggregate);
+      return {
+        Bindings: [...this._value.Bindings],
+        Statements: [`${target} ${this._operator.toUpperCase()} ${this._value.Query}`],
+      };
+    }
+
     if (column instanceof Wrap) {
       const wrapper = this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._builder.TableAlias]);
       column = wrapper.wrap();

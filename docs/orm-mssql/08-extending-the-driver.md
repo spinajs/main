@@ -88,6 +88,7 @@ Methods a subclass overrides:
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `DatetimeValueConverter` | `IsoDatetimeValueConverter` (`@spinajs/orm-sql`) | `SqlDatetimeValueConverter` | [Value conversion](07-value-conversion.md) |
 | `DefaultValueBuilder` | `MsSqlDefaultValueBuilder` | nothing | [Schema dialect](06-schema-dialect.md#column-defaults-custom-implementation) |
+| `NowExpression` | `MsSqlNowExpression` (`SYSDATETIMEOFFSET()`) | nothing | [Value conversion](07-value-conversion.md) |
 | `ModelDehydrator` | `MssqlModelDehydrator` (never resolved by the core) | nothing | [Value conversion](07-value-conversion.md) |
 
 Tokens the driver leaves **unregistered**, each a place to add your own:

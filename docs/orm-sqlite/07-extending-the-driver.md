@@ -39,6 +39,7 @@ sequenceDiagram
 | `TableExistsCompiler` | `SqliteTableExistsCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `DefaultValueBuilder` | `SqlLiteDefaultValueBuilder` | **no** | [Schema and DDL](04-schema-and-ddl.md#default-values) |
 | `DatetimeValueConverter` | `IsoDatetimeValueConverter` (`@spinajs/orm-sql`): ISO 8601 UTC text | | [Converters](../orm-sql/05-value-converters-and-defaults.md) |
+| `NowExpression` | `SqliteNowExpression` | **no** | [Query dialect](06-query-dialect.md) |
 | `CreateDatabaseCompiler` | `SqliteCreateDatabaseQueryCompiler` (throws) | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `DropDatabaseCompiler` | `SqliteDropDatabaseQueryCompiler` (throws) | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `CreateViewCompiler` | `SqliteCreateViewCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
