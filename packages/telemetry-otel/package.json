@@ -24,7 +24,7 @@
     "test": "ts-mocha --exit -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
     "format": "prettier --write \"src/**/*.ts\"",
-    "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
+    "lint": "cd ../.. && npm run lint -- packages/telemetry-otel",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
   },

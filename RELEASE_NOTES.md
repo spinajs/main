@@ -51,6 +51,8 @@ what each fix changes for an app.
   `authz-http`, `authz-queue`, `authz-fs`, the test kits `authz-testing` and `authn-testing`, the
   converter `authz-convert`, and `http-socket-common`.
 - The five `rbac*` names get `npm deprecate` pointers at `3.0.0` final and nothing else (H25).
+- `@spinajs/eslint-plugin-authz` needs ESLint 9 or 10 and a flat config: add `authz.configs.recommended`
+  (a flat config object). `plugin:@spinajs/authz/recommended` and `.eslintrc` are gone.
 - Table names and migration class names do not change (`users`, `users_metadata`, `user_sessions`,
   `rbac_access_tokens`, `RBACInitial_2022_06_28_01_13_00`).
 - **Import these in the app entry**, before `Controllers` or `HttpServer` resolve; no other package
@@ -485,6 +487,11 @@ The v2 API is gone; no package in the repository used it. The full notes are in
 
 ## Notes for maintainers
 
+- Static analysis runs in the `analysis` job of `build.yml` after a build: `npm run lint` (one root
+  `eslint.config.mjs`, typed rules, `complexity` max 15), `npm run deps` (dependency-cruiser),
+  `npm run knip` (report only) and `npm run check:packages` (publint, attw). Lint and deps fail only on
+  new findings; old ones are in `eslint-suppressions.json` and `.dependency-cruiser-known-violations.json`.
+  Typed lint reads the built `lib/*.d.ts` of sibling packages, so build before linting locally.
 - authz-queue pins `@spinajs/queue`: the queue release must ship `hooks.js`, `hook-runner.js` and
   `jobOptions`.
 - authz-orm must load once per process; a second copy (another install, or its ESM and CJS builds
