@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { META_COMMAND } from '@spinajs/cli';
 import type { ICommand } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { Orm } from '@spinajs/orm';
 import { DbAuthnAuditSink, DbAuthnThrottle } from '@spinajs/authn-orm';
 import { AuthnEventSink, AuthnService, AuthnThrottle, IdentityStore, SessionIssuer } from '@spinajs/authn/contracts';
@@ -165,7 +167,7 @@ describe('v3 cli: authn:mfa-reset', () => {
     /** MfaReset autoinjects the Orm; the reset never touches it. */
     class KitOrm {}
 
-    before(() => {
+    before(async () => {
       DI.clearCache();
       // Other files in this run load @spinajs/authn-totp/db, which registers authn-orm's DB defaults; the reset needs none.
       DI.unregister(DbAuthnAuditSink);
@@ -174,6 +176,9 @@ describe('v3 cli: authn:mfa-reset', () => {
       DI.register(KitIdentities).as(IdentityStore);
       DI.register(KitTotp).as(TotpService);
       DI.register(KitOrm).as(Orm);
+      // DI.clearCache() dropped the schema registered at import; AuthnAudit reads authn.audit when MfaReset resolves.
+      DI.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+      await DI.resolve(Configuration);
     });
 
     after(() => {
@@ -192,7 +197,7 @@ describe('v3 cli: authn:mfa-reset', () => {
       }
       await enrol();
       seen.length = 0;
-      const svc = new TotpService({ step });
+      const svc = new TotpService({ step, sinks: [new KitSink()] });
       assert.deepStrictEqual(await svc.adminReset(CLI_ACTOR, alice, { now: clock.now(), purpose: 'request' }), { reset: true });
       assert.deepStrictEqual(
         seen.map((e) => e.type),

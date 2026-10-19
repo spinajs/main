@@ -1,11 +1,13 @@
-import { DI, Inject, Injectable } from '@spinajs/di';
+import { Autoinject, DI, Inject, Injectable } from '@spinajs/di';
 import { Config, service } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
+import { AuthnAudit } from '@spinajs/authn/audit';
+import type { AuthnAuditor } from '@spinajs/authn/audit';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { _between, _check_arg, _contains, _custom, _finite, _gte, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
-import { AuthnEventSink, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnEvent, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '@spinajs/authn/contracts';
+import { IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
 
 import { AccessTokenGenerationProvider } from '../generation.js';
@@ -152,7 +154,11 @@ export class DbTokenService extends TokenService {
   @Logger('authn-token')
   protected Log: Log;
 
-  constructor(protected readonly owners: TokenOwnerResolver, protected readonly profiles: TokenProfilePolicy, protected readonly identities: IdentityStore) {
+  @Autoinject(AuthnAudit)
+  protected Audit: AuthnAudit;
+
+  /** `Auditor`: a test seam, published to instead of the container's AuthnAudit. */
+  constructor(protected readonly owners: TokenOwnerResolver, protected readonly profiles: TokenProfilePolicy, protected readonly identities: IdentityStore, protected readonly Auditor?: AuthnAuditor) {
     super();
     // With nothing registered, DI injects the bare abstract class; fail at boot, not on the first valid token.
     if (typeof identities?.status !== 'function') {
@@ -522,37 +528,15 @@ export class DbTokenService extends TokenService {
     return roles.every((r) => held.has(r));
   }
 
-  protected async publish(ctx: AuthnContext, now: number, type: 'token.create' | 'token.revoke', owner: IdentityRef | null, data: Record<string, unknown>, actor?: PrincipalRef): Promise<void> {
-    const event: AuthnEvent = {
+  protected publish(ctx: AuthnContext, now: number, type: 'token.create' | 'token.revoke', owner: IdentityRef | null, data: Record<string, unknown>, actor?: PrincipalRef): Promise<void> {
+    return (this.Auditor ?? this.Audit).publishIn({ ...ctx, now: new Date(now) }, {
       type,
-      at: new Date(now),
       outcome: 'success',
       // null: revokeById could not resolve the owner (row gone or lookup failed).
       ...(owner ? { identity: { type: owner.type, id: owner.id } } : {}),
       ...(actor ? { actor } : {}),
-      ...(ctx.ip !== undefined ? { ip: ctx.ip } : {}),
-      ...(ctx.userAgent !== undefined ? { userAgent: ctx.userAgent } : {}),
       data,
-    };
-
-    // The token is stored or revoked by now; neither a sink that cannot be built nor one that fails may make the caller
-    // lose the plaintext or retry.
-    let sinks: readonly AuthnEventSink[];
-    try {
-      // Resolved per event, so a sink registered after this service still gets it.
-      sinks = (await DI.resolve(Array.ofType(AuthnEventSink))) ?? [];
-    } catch (err) {
-      this.Log.error({ error: err, eventType: type }, 'AuthnEventSink resolution failed; publishing ${eventType} to the sinks already built');
-      sinks = DI.get(Array.ofType(AuthnEventSink)) ?? [];
-    }
-
-    for (const sink of sinks) {
-      try {
-        await sink.publish(event);
-      } catch (err) {
-        this.Log.error({ error: err, sink: sink.constructor.name, eventType: type }, 'AuthnEventSink ${sink} failed to publish ${eventType}');
-      }
-    }
+    });
   }
 
   private nowOf(ctx: AuthnContext): number {

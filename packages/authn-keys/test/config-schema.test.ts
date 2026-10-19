@@ -19,7 +19,7 @@ const AUD = 'https://keys.example.test';
 
 async function parts(keys: Record<string, unknown>) {
   const { child, configuration } = await boot(SCHEMAS, { authn: { keys } });
-  const registry = readingFrom(new DefaultKeyRegistry(new MemoryKeyStore(), new MemorySecretStore(), new FakeBackoffThrottle(throttleParams()), []), child);
+  const registry = readingFrom(new DefaultKeyRegistry(new MemoryKeyStore(), new MemorySecretStore(), new FakeBackoffThrottle(throttleParams())), child);
   return { child, configuration, registry };
 }
 
