@@ -5,9 +5,9 @@ import { authnAppEnv, checkThrottleParams, isLenientAuthnEnv } from '@spinajs/au
 import type { AuthnConfigSource } from '@spinajs/authn/env';
 import { StoreAuthnThrottle } from '@spinajs/authn/store-throttle';
 import type { AuthnContext, ThrottleFlow, ThrottleKey, ThrottleParams } from '@spinajs/authn/contracts';
-import { CONFIGURATION_CONTAINER_KEY, Config, Configuration } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { DI, IContainer, Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, Container, IContainer, Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Orm, OrmDriver } from '@spinajs/orm';
@@ -23,8 +23,6 @@ let processKey: Buffer | undefined;
 export interface DbThrottleOptions {
   /** Overrides `authn.audit.hashKey.secret`; null: a random key of this process. */
   readonly hashKey?: string | null;
-  /** Where the Orm and the Configuration come from; default the root container. */
-  readonly container?: IContainer;
 }
 
 /**
@@ -44,7 +42,7 @@ export interface DbThrottleOptions {
  * The hash key check (`checkConfiguration`) runs when AuthnService resolves. A process that resolves this throttle
  * without it (a worker, a CLI command) keys rows with a random key of the process when the key is unset.
  */
-@Singleton()
+@PerChildInstance()
 @Injectable(AuthnThrottle)
 export class DbAuthnThrottle extends StoreAuthnThrottle {
   @Config('authn.throttle')
@@ -56,7 +54,13 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   @Logger('authn-orm')
   protected Log: Log;
 
-  /** Complete params given to the constructor, or the §22.5 defaults when there is a driver and no container to read them from. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
+  @Autoinject(Container)
+  protected Container: IContainer;
+
+  /** Complete params given to the constructor, or the §22.5 defaults when there is a driver. */
   private readonly fixedParams: ThrottleParams | undefined;
   private loadedParams: ThrottleParams | undefined;
   private readonly fromConfiguration: boolean;
@@ -65,19 +69,15 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   private rows: DbThrottleStore | undefined;
 
   /**
-   * DI passes nothing: the `'default'` connection, `authn.throttle` and `authn.audit.hashKey.secret` come from the
-   * container on first use (`init`). With a driver and no container nothing is read from the configuration:
-   * `params` default to §22.5 and the hash key to `options.hashKey`.
+   * DI passes nothing: `authn.throttle` and `authn.audit.hashKey.secret` come from the configuration of the resolving
+   * container on first use (`init`), and the rows go to the `'default'` connection of its Orm. With a driver nothing
+   * is read from the configuration: `params` default to §22.5 and the hash key to `options.hashKey`.
    */
   constructor(private driver?: OrmDriver, params?: ThrottleParams, private readonly options: DbThrottleOptions = {}) {
     super();
     if (params) checkThrottleParams(params);
-    if (options.container) {
-      // An instance built with `new` has no injected container, so @Config would read the root Configuration.
-      Object.defineProperty(this, CONFIGURATION_CONTAINER_KEY, { value: options.container, configurable: true, writable: true });
-    }
     // Fixed here: init() sets the driver later.
-    this.fromConfiguration = driver === undefined || options.container !== undefined;
+    this.fromConfiguration = driver === undefined;
     this.fixedParams = params ?? (this.fromConfiguration ? undefined : DEFAULT_THROTTLE_PARAMS);
     if (!this.fromConfiguration) {
       this.loadedParams = this.fixedParams;
@@ -101,7 +101,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
    */
   public async checkConfiguration(booting: AuthnConfigSource): Promise<void> {
     // A @Config read needs the container's Configuration resolved.
-    if (this.fromConfiguration) await (this.options.container ?? DI.RootContainer).resolve(Configuration);
+    if (this.fromConfiguration) await this.configurationContainer().resolve(Configuration);
     if (isSecret(this.hashSecret())) return;
     const env = authnAppEnv(booting);
     if (!isLenientAuthnEnv(env)) {
@@ -175,11 +175,15 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
     return this.options.hashKey !== undefined || !this.fromConfiguration ? this.options.hashKey : this.ConfiguredHashSecret;
   }
 
+  private configurationContainer(): IContainer {
+    if (!this.Container) throw new InvalidOperation('DbAuthnThrottle: built without a driver and not by DI, so it has no configuration');
+    return this.Container;
+  }
+
   private async load(): Promise<void> {
-    const container = this.options.container ?? DI.RootContainer;
     if (this.fromConfiguration) {
       // A @Config read needs the container's Configuration resolved.
-      await container.resolve(Configuration);
+      await this.configurationContainer().resolve(Configuration);
       this.loadedParams = this.fixedParams ?? this.snapshotConfigured();
       const secret = this.hashSecret();
       this.hmacKey = hashKeyOf(secret);
@@ -188,8 +192,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
       }
     }
     if (!this.driver) {
-      const orm = await container.resolve(Orm);
-      const driver = orm.Connections.get('default');
+      const driver = this.Orm.Connections.get('default');
       if (!driver) throw new InvalidOption("DbAuthnThrottle: the Orm has no 'default' connection");
       this.driver = driver;
     }

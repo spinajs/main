@@ -219,7 +219,7 @@ for (const kind of DB_KINDS) {
     });
 
     it("resolves the Orm's default connection from its container when given no driver", async () => {
-      const store = new DbSecretStore(undefined, { container: db.container });
+      const store = await db.container.resolve(DbSecretStore);
       const raw = await store.issue(ALICE, 'reset', 60);
       expect(await secretRows(db)).to.have.length(1);
       expect(await store.redeem(ALICE, 'reset', raw)).to.eq(true);

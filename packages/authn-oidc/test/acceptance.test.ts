@@ -152,8 +152,8 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       idp = await FakeIdp.create(FAKE_ISSUER, ['RS256']);
       identities = new FakeIdentityStore();
       sessions = new MemorySessionIssuer();
-      links = new DbIdentityLinkStore(undefined, { container: dbContainer });
-      const nonces = new DbNonceStore(undefined, { container: dbContainer });
+      links = await dbContainer.resolve(DbIdentityLinkStore);
+      const nonces = await dbContainer.resolve(DbNonceStore);
       alice = identities.add({ login: 'alice@example.test', email: 'alice@example.test' });
 
       current.idp = idp;
