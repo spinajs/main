@@ -12,14 +12,14 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { fsNative } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
 import { fsS3 } from '@spinajs/fs-s3';
-import { Orm, OrmConnectionMissing, QueryContext, extractMigrationDescriptor } from '@spinajs/orm';
+import { Orm, OrmConnectionMissing, QueryContext, extractMigrationDescriptor, extractModelDescriptor } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { AuthzFsObject_2026_10_01_00_00_00, FS_METADATA_CONNECTION, FileMetadataStore, OrmFileMetadataStore, S3ObjectMetadataStore, guardFs, parseFsAccessConfig } from '../src/index.js';
+import { AuthzFsObject_2026_10_01_00_00_00, FS_METADATA_CONNECTION, FS_OBJECT_TABLE, FileMetadataStore, FsObjectRecord, OrmFileMetadataStore, S3ObjectMetadataStore, guardFs, parseFsAccessConfig } from '../src/index.js';
 import type { FileMeta } from '../src/index.js';
 import { FakeConfiguration, configuredChild } from './helpers.js';
 import { installQuietLog } from './support/log.js';
@@ -164,16 +164,24 @@ async function externalDb(kind: 'postgres' | 'mysql'): Promise<{ connection: Rec
   const name = `authz_fs_${randomUUID().slice(0, 8)}`;
   const type = kind === 'postgres' ? (await import('@spinajs/orm-postgres')).PostgresOrmDriver : (await import('@spinajs/orm-mysql')).MySqlOrmDriver;
   const server = kind === 'postgres' ? { ...PG, Database: 'postgres' } : { ...MYSQL, Database: 'mysql' };
-  const admin = async (): Promise<OrmDriver> => {
-    const driver = (await DI.child().resolve(type as never, [{ Name: `authz-fs-${kind}-admin`, Driver: `orm-driver-${kind}`, ...server }])) as OrmDriver;
+  const open = async (database: string): Promise<OrmDriver> => {
+    const driver = (await DI.child().resolve(type as never, [{ Name: `authz-fs-${kind}-admin`, Driver: `orm-driver-${kind}`, ...server, Database: database }])) as OrmDriver;
     await driver.connect();
     return driver;
   };
+  const admin = (): Promise<OrmDriver> => open(server.Database);
   const a = await admin();
   try {
     await a.schema().createDatabase(name);
   } finally {
     await a.disconnect();
+  }
+  // The table exists before the Orm boots: it reads the table info of every record then, and MySQL refuses a missing table.
+  const created = await open(name);
+  try {
+    await new AuthzFsObject_2026_10_01_00_00_00().up(created);
+  } finally {
+    await created.disconnect();
   }
   const quoted = kind === 'postgres' ? `"${name}"` : `\`${name}\``;
   return {
@@ -220,7 +228,6 @@ function ormSuite(kind: DbKind): void {
       config.set(['db'], { DefaultConnection: main.Name, Connections: [main, sqlite('other'), sqlite('nocase')], Aliases: { [FS_METADATA_CONNECTION]: 'default' } });
       orm = (await DI.resolve(Orm)) as Orm;
       db = orm.Connections.get('default')!;
-      if (kind !== 'sqlite') await new AuthzFsObject_2026_10_01_00_00_00().up(db);
     });
 
     after(async () => {
@@ -259,6 +266,64 @@ function ormSuite(kind: DbKind): void {
     it('the migration and the store use the ORM connection alias authz-fs (review M3)', () => {
       expect(extractMigrationDescriptor(AuthzFsObject_2026_10_01_00_00_00)?.Connection).to.equal(FS_METADATA_CONNECTION);
       expect(orm!.Connections.get(FS_METADATA_CONNECTION)).to.equal(db);
+    });
+
+    it('FsObjectRecord is the fs_object table on the alias authz-fs, keyed by (fs, path)', async () => {
+      const descriptor = extractModelDescriptor(FsObjectRecord)!;
+      expect([descriptor.TableName, descriptor.Connection, descriptor.PrimaryKey]).to.deep.equal([FS_OBJECT_TABLE, FS_METADATA_CONNECTION, ['fs', 'path']]);
+      await store.set('uploads', 'record/a.txt', FULL);
+      const [row] = await FsObjectRecord.query().where({ fs: 'uploads', path: 'record/a.txt' });
+      expect(row.tags).to.deep.equal(['invoice', 'q3']);
+      expect(row.created_at.isValid).to.equal(true);
+    });
+
+    it('stores a FileMeta without tags as SQL NULL and reads tags back as the list it wrote', async () => {
+      await store.set('uploads', 'json/a.txt', { owner: ALICE });
+      await store.set('uploads', 'json/b.txt', { tags: ['x', 'y'] });
+      const rows = (await db.select().from('fs_object').whereIn('path', ['json/a.txt', 'json/b.txt'])) as Record<string, unknown>[];
+      expect(Object.fromEntries(rows.map((r) => [r.path, r.tags]))).to.deep.equal({ 'json/a.txt': null, 'json/b.txt': '["x","y"]' });
+      expect(await store.get('uploads', 'json/b.txt')).to.deep.equal({ tags: ['x', 'y'] });
+    });
+
+    it('refuses a row whose tags is not a JSON list of strings (fail closed)', async () => {
+      const now = new Date();
+      await db
+        .insert()
+        .into('fs_object')
+        .values([
+          { fs: 'json-bad', path: 'bad.txt', tags: '{nope', created_at: now, updated_at: now },
+          { fs: 'json-bad', path: 'odd.txt', tags: '"x"', created_at: now, updated_at: now },
+        ]);
+      try {
+        const bad = await rejection(store.get('json-bad', 'bad.txt'));
+        expect(bad).to.be.instanceOf(AuthzConfigError);
+        expect(bad.message).to.contain("fs_object: a row's tags is not JSON");
+        expect(await rejection(store.get('json-bad', 'odd.txt'))).to.be.instanceOf(AuthzConfigError);
+      } finally {
+        await db.del().from('fs_object').where({ fs: 'json-bad' });
+      }
+    });
+
+    it('deletes a directory of more rows than one IN list expands to', async () => {
+      const now = new Date();
+      await db
+        .insert()
+        .into('fs_object')
+        .values(Array.from({ length: 1500 }, (_, i) => ({ fs: 'uploads', path: `bulk/${i}.txt`, owner_type: 'user', owner_id: 'alice', created_at: now, updated_at: now })));
+      await store.set('uploads', 'bulk-x/keep.txt', { owner: ALICE });
+
+      await store.deleteTree('uploads', 'bulk');
+
+      expect(await db.select().from('fs_object').where({ fs: 'uploads' }).whereStartsWith('path', 'bulk/')).to.have.length(0);
+      expect(await store.get('uploads', 'bulk-x/keep.txt')).to.deep.equal({ owner: ALICE });
+    });
+
+    it('keeps a filesystem name with a trailing blank apart, where the key collation pads (F5)', async () => {
+      await store.set('pad', 'a.txt', { owner: ALICE });
+      expect(await store.get('pad ', 'a.txt')).to.equal(null);
+      await store.delete('pad ', 'a.txt');
+      await store.deleteTree('pad ', '');
+      expect(await store.get('pad', 'a.txt')).to.deep.equal({ owner: ALICE });
     });
 
     it('keeps case variants of a path apart: Report.pdf and report.pdf are two files (review C2)', async () => {

@@ -296,11 +296,12 @@ the subject, and does not hold for the filesystem root or a filesystem without a
 
 Stores:
 
-- `OrmFileMetadataStore`: table `fs_object` (migration `AuthzFsObject_2026_10_01_00_00_00`), one row per
+- `OrmFileMetadataStore`: table `fs_object` (migration `AuthzFsObject_2026_10_01_00_00_00`, record
+  `FsObjectRecord`, `tags` a JSON column, SQL NULL without tags), one row per
   filesystem and normalised path, on the ORM connection alias `authz-fs` (`db.Aliases['authz-fs']`, default
   `default`). `delete` removes one row;
-  `deleteTree` and `move` take the rows under a directory path along (`LIKE ... ESCAPE '~'` with `%`, `_`, `~`
-  and `[` escaped). Paths are matched exactly in code and rows changed by their stored key. The migration gives
+  `deleteTree` and `move` take the rows under a directory path along (`whereStartsWith`: no character of the path
+  is a wildcard). Keys are matched exactly in code and rows changed by their stored key. The migration gives
   the key columns `caseSensitive()` (`utf8mb4_bin` on MySQL, `"C"` on PostgreSQL, SQLite's default `BINARY`,
   `NVARCHAR` with `Latin1_General_100_BIN2` on MSSQL), which keep case variants apart. MySQL's `utf8mb4_bin` and
   MSSQL still ignore trailing blanks, so `uploads` and `uploads ` are one key there: paths never end in a blank
