@@ -78,7 +78,7 @@ export function fsTarget(owner: fs, spec: FsTargetSpec): FsTarget {
   const target = spec.fs ?? owner;
   return Object.freeze({
     fs: target,
-    path: normalizeFsPath(spec.path, (target as { BasePath?: string }).BasePath),
+    path: normalizeFsPath(spec.path, target.BasePath),
     kind: spec.kind,
     access: Object.freeze([...spec.access]),
     role: spec.role ?? 'source',

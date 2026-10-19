@@ -1,0 +1,153 @@
+import 'mocha';
+import * as chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { Configuration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
+import { InvalidArgument, InvalidOperation, ResourceDuplicated } from '@spinajs/exceptions';
+import '@spinajs/templates-pug';
+
+import { TestConfiguration, dir } from './common.js';
+import { FsBootstrapper, FsMiddleware, fs, fsNative, fsService, getFs } from '../src/index.js';
+import type { FsActionContext, IFsLocalOptions } from '../src/index.js';
+
+chai.use(chaiAsPromised);
+const expect = chai.expect;
+
+const seen: FsActionContext[] = [];
+
+class Recorder extends FsMiddleware {
+  public order = 1;
+  async before(ctx: FsActionContext) {
+    seen.push(ctx);
+  }
+}
+
+const describeTargets = (ctx: FsActionContext) => ctx.targets.map((t) => `${t.fs.Name}:${t.path}:${t.kind}:${t.access.join('+')}:${t.role}`);
+
+describe('fs middleware pipeline', function () {
+  this.timeout(15000);
+  let local: fs;
+  let temp: fs;
+
+  before(async () => {
+    DI.resolve(FsBootstrapper).bootstrap();
+    DI.register(TestConfiguration).as(Configuration);
+    await DI.resolve(Configuration);
+    await DI.resolve(fsService);
+    DI.register(Recorder).as(FsMiddleware);
+    DI.uncache(Array.ofType(FsMiddleware));
+    local = getFs('fs-temp-nc-local');
+    temp = getFs('fs-temp-nc');
+  });
+
+  after(() => {
+    DI.unregister(Recorder);
+    DI.uncache(Array.ofType(FsMiddleware));
+  });
+
+  beforeEach(() => {
+    seen.length = 0;
+  });
+
+  it('checks write on the normalised path and hands the provider that path', async () => {
+    await local.write('/docs/../a.txt', 'x');
+    expect(describeTargets(seen[0])).to.deep.equal(['fs-temp-nc-local:a.txt:file:write:source']);
+    expect(await local.read('a.txt', 'utf-8')).to.equal('x');
+  });
+
+  it('makes an absolute path inside the base path relative', async () => {
+    await local.exists(join(dir('./temp-nc'), 'a.txt'));
+    expect(seen[0].targets[0].path).to.equal('a.txt');
+  });
+
+  it('refuses a path above the root before any middleware runs', async () => {
+    await expect(local.read('../outside.txt')).to.be.rejectedWith(InvalidArgument);
+    expect(seen).to.have.length(0);
+  });
+
+  it('does not run middlewares for calls the provider makes inside an action', async () => {
+    await local.write('b.txt', 'x');
+    seen.length = 0;
+    await local.readStream('b.txt'); // fsNative.doReadStream calls this.exists() internally
+    expect(seen.map((c) => c.action)).to.deep.equal(['readStream']);
+  });
+
+  it('targets the destination fs of a copy', async () => {
+    await local.write('c.txt', 'x');
+    seen.length = 0;
+    await local.copy('c.txt', 'copied/c.txt', temp);
+    expect(describeTargets(seen[0])).to.deep.equal(['fs-temp-nc-local:c.txt:file:read:source', 'fs-temp-nc:copied/c.txt:file:write:destination']);
+  });
+
+  it('checks move as read+delete on the source', async () => {
+    await local.write('d.txt', 'x');
+    seen.length = 0;
+    await local.move('d.txt', 'e.txt');
+    expect(describeTargets(seen[0])).to.deep.equal(['fs-temp-nc-local:d.txt:file:read+delete:source', 'fs-temp-nc-local:e.txt:file:write:destination']);
+  });
+
+  it('names the upload destination after the source file when none is given', async () => {
+    await local.upload(join(dir('./sample-files'), readFirstSample()));
+    expect(seen[0].targets[0].path).to.equal(readFirstSample());
+    expect(seen[0].args).to.deep.equal([join(dir('./sample-files'), readFirstSample()), undefined]);
+  });
+
+  it('hands upload options to the middleware and refuses an exclusive upload onto an existing file', async () => {
+    const src = join(dir('./sample-files'), readFirstSample());
+    await local.upload(src, 'excl/sample.bin');
+    seen.length = 0;
+    await expect(local.upload(src, 'excl/sample.bin', { exclusive: true })).to.be.rejectedWith(ResourceDuplicated);
+    expect(seen.map((c) => c.action)).to.deep.equal(['upload']);
+    expect(describeTargets(seen[0])).to.deep.equal(['fs-temp-nc-local:excl/sample.bin:file:write:destination']);
+    expect(seen[0].args[1]).to.deep.equal({ exclusive: true });
+  });
+
+  it('forwards exclusive uploads from fsTemp to its backend', async () => {
+    await temp.write('t-excl.txt', 'x');
+    seen.length = 0;
+    await expect(temp.upload(join(dir('./sample-files'), readFirstSample()), 't-excl.txt', { exclusive: true })).to.be.rejectedWith(ResourceDuplicated);
+    expect(seen.map((c) => `${c.fs.Name}:${c.action}:${JSON.stringify(c.args[1])}`)).to.deep.equal(['fs-temp-nc:upload:{"exclusive":true}']);
+    expect(await temp.read('t-excl.txt', 'utf-8')).to.equal('x');
+  });
+
+  it('computes the zip destination and name before the IO, on fs-temp for fsNative', async () => {
+    await local.write('z.txt', 'x');
+    seen.length = 0;
+    const result = await local.zip('z.txt');
+    const ctx = seen.find((c) => c.action === 'zip')!;
+    const dst = ctx.targets[ctx.targets.length - 1];
+    expect(dst.fs.Name).to.equal('fs-temp');
+    expect(dst.path).to.match(/\.zip$/);
+    expect(result.fs.Name).to.equal('fs-temp');
+  });
+
+  it('checks list as a dir target', async () => {
+    await local.list('');
+    expect(describeTargets(seen[0])).to.deep.equal(['fs-temp-nc-local::dir:list:source']);
+  });
+
+  it('routes fsTemp actions through its own targets, its backend unchecked', async () => {
+    await temp.write('t.txt', 'x');
+    expect(seen.map((c) => `${c.fs.Name}:${c.action}`)).to.deep.equal(['fs-temp-nc:write']);
+  });
+
+  it('throws MethodNotImplemented for signedUrl on a provider without signed URLs', async () => {
+    await expect(local.signedUrl('a.txt')).to.be.rejectedWith(/signed URL/);
+  });
+
+  it('refuses a provider class that overrides a public action', () => {
+    class BadFs extends fsNative<IFsLocalOptions> {
+      public async read(): Promise<string> {
+        return 'bypass';
+      }
+    }
+    expect(() => new BadFs({ name: 'bad', service: 'fsNative', basePath: dir('./temp-nc') } as IFsLocalOptions)).to.throw(InvalidOperation, /BadFs overrides read; implement doRead instead/);
+  });
+});
+
+function readFirstSample(): string {
+  return readdirSync(dir('./sample-files')).find((f) => !f.startsWith('.'))!;
+}
