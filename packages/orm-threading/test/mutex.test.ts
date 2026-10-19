@@ -157,6 +157,38 @@ describe('orm-threading', function () {
 
   it('Should not acquire when already locked', async () => {});
 
+  it('Should grant a free lock to only one of two racing tenants', async () => {
+    await mutex_create({ Name: 'test', Tenant: 'test-1' });
+
+    const results = await Promise.all([mutex_acquire({ Name: 'test', Tenant: 'test-1' }), mutex_acquire({ Name: 'test', Tenant: 'test-2' })]);
+
+    expect(results.filter((r) => r.Locked)).to.have.length(1);
+  });
+
+  it('Should return the locked state and stamp Updated_at on acquire', async () => {
+    await mutex_create({ Name: 'test', Tenant: 'test-1' });
+    const before = await __mutex__.get('test');
+
+    const r = await mutex_acquire({ Name: 'test', Tenant: 'test-1' });
+    expect(r.Mutex.Locked).to.be.true;
+
+    await before.refresh();
+    expect(before.Updated_at.toMillis()).to.be.gt(before.Created_at.toMillis());
+  });
+
+  it('Should not delete a locked mutex', async () => {
+    await mutex_acquire({ Name: 'test', Tenant: 'test-1' });
+
+    const r = await mutex_delete({ Name: 'test', Tenant: 'test-1' });
+
+    expect(r).to.be.false;
+    expect(await __mutex__.get('test')).to.be.not.undefined;
+  });
+
+  it('Should resolve wait for a mutex that does not exist', async () => {
+    expect(await mutex_wait('missing', 1000)).to.be.true;
+  });
+
   it('should release', async () => {
     const r = await mutex_acquire({
       Name: 'test',

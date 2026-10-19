@@ -1,5 +1,6 @@
 import { DEFAULT_DENY_PRIORITY, TRUE } from '@spinajs/authz';
 import type { DenyReason } from '@spinajs/authz';
+import { compareStrings } from '@spinajs/util';
 
 import type { RbacStep } from './evaluate.js';
 import { scopeMatcher } from './scope.js';
@@ -9,11 +10,11 @@ import { underTerm } from './rows.js';
 export const isDenyRole = (roles: RoleGraph, role: string): boolean => roles.get(role)?.def.deny === true;
 
 export function roleDenied(roles: readonly string[]): DenyReason {
-  return { code: 'role_denied', role: [...roles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0], priority: DEFAULT_DENY_PRIORITY.role_denied };
+  return { code: 'role_denied', role: [...roles].sort(compareStrings)[0], priority: DEFAULT_DENY_PRIORITY.role_denied };
 }
 
 /**
- * Design §4.2: a live assignment of a deny role naming the permission denies it at its scope and below,
+ * A live assignment of a deny role naming the permission denies it at its scope and below,
  * over every permit. On the path it denies the request (every row of a type-level one); off the path of a
  * type-level request it denies the rows under its scope.
  */

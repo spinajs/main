@@ -1,4 +1,4 @@
-import { IColumnFilter, IFilter, IFilterRequest, FilterableLogicalOperators } from './interfaces.js';
+import { IColumnFilter, IFilterEntry, IFilterRequest, FilterableLogicalOperators } from './interfaces.js';
 
 declare module '@spinajs/orm' {
   export interface IModelDescriptor {
@@ -19,7 +19,7 @@ declare module '@spinajs/orm' {
      * @param filter
      * @param logicalOperator
      */
-    filter(filter?: IFilter[] | null, logicalOperator?: FilterableLogicalOperators, filters?: IColumnFilter<unknown>[]): this;
+    filter(filter?: IFilterEntry[] | null, logicalOperator?: FilterableLogicalOperators, filters?: IColumnFilter<unknown>[]): this;
   }
 
   namespace ModelBase {

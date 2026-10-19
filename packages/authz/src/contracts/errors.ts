@@ -1,12 +1,14 @@
-import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
+import { AuthenticationFailed, Forbidden, InvalidOption } from '@spinajs/exceptions';
 import type { Decision } from './decision.js';
 import { resourceKey } from './resource.js';
 
-export class AuthzConfigError extends Error {
+export class AuthzConfigError extends InvalidOption {
   // boot/programming errors
   constructor(message?: string, options?: ErrorOptions) {
-    super(message, options);
+    // not `inner`: @spinajs/http spreads an error's own enumerable props into the response body
+    super(message);
     this.name = new.target.name;
+    if (options && 'cause' in options) Object.defineProperty(this, 'cause', { value: options.cause, writable: true, configurable: true });
   }
 }
 
@@ -27,13 +29,6 @@ export class AccessDenied extends Forbidden {
 export class Unauthenticated extends AuthenticationFailed {
   constructor(message?: string, inner?: Error | unknown) {
     super(message, inner);
-    this.name = new.target.name;
-  }
-}
-
-export class NeedsAsync extends Error {
-  constructor(message?: string, options?: ErrorOptions) {
-    super(message, options);
     this.name = new.target.name;
   }
 }

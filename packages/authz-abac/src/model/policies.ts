@@ -1,5 +1,6 @@
 import { AuthzConfigError, FALSE, GLOBAL, TRUE, UnknownPermission, isFieldGlob, isPermission, isPermissionGlob, normalizeFieldGlobs } from '@spinajs/authz';
 import type { Condition, DecisionRequest, FieldSet, ParsedCondition, Permission, PermissionRegistry, Policy, PrincipalType, ResourceFilter, ResourceRef, ResourceType } from '@spinajs/authz';
+import { isPlainObject as isObject } from '@spinajs/util';
 
 export const DEFAULT_POLICY_PRIORITY = 500;
 
@@ -18,8 +19,6 @@ export interface LoadedPolicy {
 }
 
 const POLICY_KEYS = new Set(['id', 'effect', 'permissions', 'resourceTypes', 'principalTypes', 'actorTypes', 'scope', 'when', 'fields', 'reason', 'priority', 'expiresAt', 'source']);
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * Checks one policy as a store or config gives it and returns a frozen copy (an ISO `expiresAt`

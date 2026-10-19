@@ -13,6 +13,20 @@ export interface ConcurrencyLimiterStrategyOptions {
   QueueLimit?: number;
 }
 
+/** Live counters of one {@link concurrencyLimiterStrategy}. */
+export interface ConcurrencyLimiterStats {
+  /** Executions holding a permit. */
+  readonly active: number;
+  /** Executions waiting for a permit. */
+  readonly queued: number;
+  /** The highest `active` seen. */
+  readonly peak: number;
+  /** Executions started so far. */
+  readonly runs: number;
+}
+
+export type ConcurrencyLimiterStrategy<T> = ResilienceStrategy<T> & { readonly stats: ConcurrencyLimiterStats };
+
 interface Waiter {
   resolve: () => void;
   reject: (e: unknown) => void;
@@ -22,13 +36,16 @@ interface Waiter {
 
 /**
  * Bounds the number of concurrent executions ( bulkhead isolation ). Extra calls either queue
- * ( up to `QueueLimit` ) or are rejected with {@link RateLimiterRejectedException}.
+ * ( up to `QueueLimit` ) or are rejected with {@link RateLimiterRejectedException}. The returned strategy's
+ * `stats` reads its live counters.
  */
-export function concurrencyLimiterStrategy<T>(options: ConcurrencyLimiterStrategyOptions): ResilienceStrategy<T> {
+export function concurrencyLimiterStrategy<T>(options: ConcurrencyLimiterStrategyOptions): ConcurrencyLimiterStrategy<T> {
   const permitLimit = options.PermitLimit;
   const queueLimit = options.QueueLimit ?? 0;
 
   let active = 0;
+  let peak = 0;
+  let runs = 0;
   const queue: Waiter[] = [];
 
   const acquire = (signal: AbortSignal): Promise<void> => {
@@ -75,12 +92,30 @@ export function concurrencyLimiterStrategy<T>(options: ConcurrencyLimiterStrateg
     }
   };
 
-  return (next) => async (ctx) => {
+  const strategy: ResilienceStrategy<T> = (next) => async (ctx) => {
     await acquire(ctx.Signal);
+    peak = Math.max(peak, active);
+    runs++;
     try {
       return await next(ctx);
     } finally {
       release();
     }
   };
+
+  const stats: ConcurrencyLimiterStats = {
+    get active() {
+      return active;
+    },
+    get queued() {
+      return queue.length;
+    },
+    get peak() {
+      return peak;
+    },
+    get runs() {
+      return runs;
+    },
+  };
+  return Object.assign(strategy, { stats });
 }

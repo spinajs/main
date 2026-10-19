@@ -1,3 +1,4 @@
+import { compareCodePoints, quote } from '@spinajs/util';
 import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
 import { PermissionRegistry, compilePermissionGlob, isPermission, parsePermission } from '../contracts/permission.js';
 import type { Permission, PermissionDef } from '../contracts/permission.js';
@@ -251,29 +252,5 @@ const pushUnique = <T>(target: T[], values: readonly T[]): void => {
     if (!target.includes(value)) {
       target.push(value);
     }
-  }
-};
-
-const compareCodePoints = (a: string, b: string): number => {
-  const ia = a[Symbol.iterator]();
-  const ib = b[Symbol.iterator]();
-  for (;;) {
-    const ca = ia.next();
-    const cb = ib.next();
-    if (ca.done || cb.done) {
-      return ca.done ? (cb.done ? 0 : -1) : 1;
-    }
-    const diff = ca.value.codePointAt(0)! - cb.value.codePointAt(0)!;
-    if (diff !== 0) {
-      return diff;
-    }
-  }
-};
-
-const quote = (value: unknown): string => {
-  try {
-    return typeof value === 'string' ? JSON.stringify(value) : String(value);
-  } catch {
-    return Object.prototype.toString.call(value);
   }
 };

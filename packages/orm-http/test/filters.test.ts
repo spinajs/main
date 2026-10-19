@@ -20,7 +20,8 @@ import { expect } from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { Orm, ModelBase, Model, Connection, Primary, SelectQueryBuilder } from '@spinajs/orm';
+import { Orm, ModelBase, Model, Connection, Primary, SelectQueryBuilder, BelongsTo, SingleRelation } from '@spinajs/orm';
+import { InvalidArgument } from '@spinajs/exceptions';
 
 // Registers the `orm-driver-sqlite` driver in DI.
 import '@spinajs/orm-sqlite';
@@ -32,6 +33,16 @@ import { FilterableLogicalOperators, IFilter } from '../src/interfaces.js';
 // Installs the `filter()` extension onto SelectQueryBuilder.prototype.
 import '../src/builders.js';
 import { filterSchemaFor, MODEL_STATIC_MIXINS } from '../src/model.js';
+
+@Connection('sqlite')
+@Model('filter_regression_author')
+class FilterRegressionAuthor extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @Filterable(['eq'])
+  public Name: string;
+}
 
 @Connection('sqlite')
 @Model('filter_regression')
@@ -50,6 +61,18 @@ class FilterRegressionModel extends ModelBase {
 
   @Filterable(['isnull', 'notnull'])
   public ClosedAt: string;
+
+  @Filterable(['like'], (_operator, value) => function (this: any) {
+    this.where('Role', 'like', `%${value}%`);
+  })
+  public search: string;
+
+  @Filterable(['gt'], null, true)
+  public Total: number;
+
+  @BelongsTo(FilterRegressionAuthor)
+  @Filterable(FilterRegressionAuthor)
+  public Author: SingleRelation<FilterRegressionAuthor>;
 }
 
 export class FilterTestConfiguration extends FrameworkConfiguration {
@@ -289,6 +312,40 @@ describe('orm-http filter translation vs the per-statement connector (I1/B2)', (
     expect(() =>
       (q() as any).filter(filters, FilterableLogicalOperators.And).toDB(),
     ).to.throw(/not allowed for column/);
+  });
+
+  it('ORs a column with a custom query against its siblings when the level is OR', () => {
+    const out = (q() as any).filter([f('Age', 'eq', 18), f('search', 'like', 'adm')], FilterableLogicalOperators.Or).toDB();
+
+    expect(out.expression).to.match(/`Age` = \? OR \(\s*`Role` LIKE \?\s*\)/);
+    expect(out.bindings).to.deep.equal([18, '%adm%']);
+  });
+
+  it('filters by a column copied from a related model', () => {
+    const out = (q() as any).filter([f('Author.Name', 'eq', 'kowalski'), f('Age', 'gt', 18)], FilterableLogicalOperators.And).toDB();
+
+    expect(out.expression).to.contain('LEFT JOIN `filter_regression_author`');
+    expect(out.expression).to.match(/`Name` = \?/);
+    expect(out.expression).to.match(/`Age` > \?/);
+    expect(out.bindings).to.have.members(['kowalski', 18]);
+  });
+
+  it('puts an aggregate column into HAVING', () => {
+    const out = (q() as any).filter([f('Age', 'gt', 18), f('Total', 'gt', 3)], FilterableLogicalOperators.And).toDB();
+
+    expect(out.expression).to.contain('HAVING `Total` > ?');
+    expect(out.expression).to.contain('( `Age` > ? )');
+    expect(out.bindings).to.deep.equal([18, 3]);
+  });
+
+  it('rejects a relation or aggregate column ORed with other filters instead of dropping the OR', () => {
+    expect(() => (q() as any).filter([f('Age', 'gt', 18), f('Total', 'gt', 3)], FilterableLogicalOperators.Or)).to.throw(InvalidArgument);
+    expect(() => (q() as any).filter([f('Age', 'gt', 18), f('Author.Name', 'eq', 'x')], FilterableLogicalOperators.Or)).to.throw(InvalidArgument);
+  });
+
+  it('reports invalid filters as InvalidArgument, a client error', () => {
+    expect(() => (q() as any).filter([f('Secret', 'eq', 'x')])).to.throw(InvalidArgument);
+    expect(() => (q() as any).filter(Array.from({ length: 101 }, () => f('Age', 'eq', 1)))).to.throw(InvalidArgument);
   });
 
   it('applies a group nested inside another group', () => {

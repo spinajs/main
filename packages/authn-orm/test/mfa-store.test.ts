@@ -55,10 +55,10 @@ for (const kind of DB_KINDS) {
       clock.uninstall();
     });
 
-    it('round-trips put and get, storing the cipher text as given', async () => {
+    it('round-trips putPending and get, storing the cipher text as given', async () => {
       expect(await store.get(ALICE, 'totp')).to.eq(null);
 
-      await store.put(ALICE, 'totp', CIPHER, 'kid-0123456789ab');
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-0123456789ab');
 
       expect(await store.get(ALICE, 'totp')).to.deep.eq({ secretEnc: CIPHER, keyId: 'kid-0123456789ab', confirmedAt: null, lastStep: null, createdAt: T0 });
       expect(await store.get(BOB, 'totp')).to.eq(null);
@@ -67,22 +67,23 @@ for (const kind of DB_KINDS) {
       expect(rows).to.deep.eq([{ identity: `user:${ALICE.id}`, step: 'totp', secret_enc: CIPHER, key_id: 'kid-0123456789ab' }]);
     });
 
-    it('confirm sets confirmedAt; put replaces the row and clears confirmation and the last step', async () => {
-      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
+    it('confirm sets confirmedAt; after remove, putPending starts the step over', async () => {
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
       const confirmed = new Date(T0.getTime() + 30_250);
       expect(await store.confirm(ALICE, 'totp', confirmed)).to.eq(true);
       expect(await store.acceptStep(ALICE, 'totp', 1000)).to.eq(true);
       expect(await store.get(ALICE, 'totp')).to.deep.include({ confirmedAt: confirmed, lastStep: 1000 });
 
       clock.tick(60_000);
-      await store.put(ALICE, 'totp', 'v1.other', 'kid-b');
+      await store.remove(ALICE, 'totp');
+      expect(await store.putPending(ALICE, 'totp', 'v1.other', 'kid-b')).to.eq(true);
 
       expect(await store.get(ALICE, 'totp')).to.deep.eq({ secretEnc: 'v1.other', keyId: 'kid-b', confirmedAt: null, lastStep: null, createdAt: new Date(T0.getTime() + 60_000) });
       expect(await store.confirm(BOB, 'totp')).to.eq(false);
     });
 
     it('confirm without an expected cipher text still confirms a confirmed row again', async () => {
-      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
       expect(await store.confirm(ALICE, 'totp', T0)).to.eq(true);
       const later = new Date(T0.getTime() + 1000);
       expect(await store.confirm(ALICE, 'totp', later)).to.eq(true);
@@ -102,7 +103,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('putPending over a confirmed row is false and changes nothing', async () => {
-      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
       expect(await store.confirm(ALICE, 'totp', T0)).to.eq(true);
       expect(await store.acceptStep(ALICE, 'totp', 1000)).to.eq(true);
       const before = await store.get(ALICE, 'totp');
@@ -133,7 +134,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('lets no parallel putPending replace a confirmed row', async () => {
-      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
       await store.confirm(ALICE, 'totp', T0);
       const results = await Promise.all(Array.from({ length: 20 }, (_, i) => store.putPending(ALICE, 'totp', `v1.parallel-${i}`, 'kid-b')));
       expect(results.some((r) => r)).to.eq(false);
@@ -164,7 +165,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('SR-15 acceptStep is true once per time step and refuses older steps', async () => {
-      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
 
       expect(await store.acceptStep(ALICE, 'totp', 1000)).to.eq(true);
       expect(await store.acceptStep(ALICE, 'totp', 1000)).to.eq(false);
@@ -175,13 +176,13 @@ for (const kind of DB_KINDS) {
     });
 
     it('lets exactly one of 20 parallel acceptStep calls of one step win', async () => {
-      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
       const results = await Promise.all(Array.from({ length: 20 }, () => store.acceptStep(ALICE, 'totp', 58_000_000)));
       expect(results.filter((r) => r)).to.have.length(1);
     });
 
     it('keeps a large time step exact as a number', async () => {
-      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
       const big = 2 ** 40 + 7;
       expect(await store.acceptStep(ALICE, 'totp', big)).to.eq(true);
       const r = await store.get(ALICE, 'totp');
@@ -189,8 +190,8 @@ for (const kind of DB_KINDS) {
     });
 
     it('remove deletes that step only', async () => {
-      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
-      await store.put(ALICE, 'email', CIPHER, 'kid-a');
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
+      await store.putPending(ALICE, 'email', CIPHER, 'kid-a');
       await store.remove(ALICE, 'totp');
       expect(await store.get(ALICE, 'totp')).to.eq(null);
       expect(await store.get(ALICE, 'email')).to.not.eq(null);
@@ -198,7 +199,7 @@ for (const kind of DB_KINDS) {
 
     it('throws InvalidArgument on bad arguments, never cutting them', async () => {
       const longId: IdentityRef = { type: 'user', id: 'x'.repeat(96) };
-      const bad: (() => Promise<unknown>)[] = [() => store.put(ALICE, 's'.repeat(33), CIPHER, 'kid'), () => store.put(ALICE, '', CIPHER, 'kid'), () => store.put(longId, 'totp', CIPHER, 'kid'), () => store.put(ALICE, 'totp', '', 'kid'), () => store.put(ALICE, 'totp', CIPHER, 'k'.repeat(33)), () => store.get(longId, 'totp'), () => store.acceptStep(ALICE, 'totp', -1), () => store.acceptStep(ALICE, 'totp', 1.5), () => store.acceptStep(ALICE, 'totp', NaN), () => store.acceptStep(ALICE, 'totp', 2 ** 53), () => store.acceptStep(ALICE, 'totp', '7' as unknown as number), () => store.confirm(ALICE, 'totp', new Date(NaN)), () => store.replaceRecoveryCodes(ALICE, ['a', '']), () => store.replaceRecoveryCodes(ALICE, ['a', 'b', 'a']), () => store.replaceRecoveryCodes(longId, ['a'])];
+      const bad: (() => Promise<unknown>)[] = [() => store.putPending(ALICE, 's'.repeat(33), CIPHER, 'kid'), () => store.putPending(ALICE, '', CIPHER, 'kid'), () => store.putPending(longId, 'totp', CIPHER, 'kid'), () => store.putPending(ALICE, 'totp', '', 'kid'), () => store.putPending(ALICE, 'totp', CIPHER, 'k'.repeat(33)), () => store.get(longId, 'totp'), () => store.acceptStep(ALICE, 'totp', -1), () => store.acceptStep(ALICE, 'totp', 1.5), () => store.acceptStep(ALICE, 'totp', NaN), () => store.acceptStep(ALICE, 'totp', 2 ** 53), () => store.acceptStep(ALICE, 'totp', '7' as unknown as number), () => store.confirm(ALICE, 'totp', new Date(NaN)), () => store.replaceRecoveryCodes(ALICE, ['a', '']), () => store.replaceRecoveryCodes(ALICE, ['a', 'b', 'a']), () => store.replaceRecoveryCodes(longId, ['a'])];
       for (const [i, call] of bad.entries()) {
         expect(await rejection(call()), String(i)).to.be.instanceOf(InvalidArgument);
       }
@@ -253,10 +254,10 @@ for (const kind of DB_KINDS) {
     });
 
     it('confirmedSteps lists the confirmed steps of that identity only; unconfirmed rows do not count', async () => {
-      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
-      await store.put(ALICE, 'webauthn', CIPHER, 'kid-a');
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
+      await store.putPending(ALICE, 'webauthn', CIPHER, 'kid-a');
       await store.confirm(ALICE, 'webauthn');
-      await store.put(BOB, 'email', CIPHER, 'kid-a');
+      await store.putPending(BOB, 'email', CIPHER, 'kid-a');
       await store.confirm(BOB, 'email');
 
       expect(await store.confirmedSteps(ALICE)).to.deep.eq(['webauthn']);
@@ -270,11 +271,11 @@ for (const kind of DB_KINDS) {
 
     it('confirmedStepNames lists each confirmed step of the store once', async () => {
       expect(await store.confirmedStepNames()).to.deep.eq([]);
-      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
-      await store.put(BOB, 'email', CIPHER, 'kid-a');
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
+      await store.putPending(BOB, 'email', CIPHER, 'kid-a');
       expect(await store.confirmedStepNames(), 'unconfirmed rows only').to.deep.eq([]);
       await store.confirm(ALICE, 'totp');
-      await store.put(BOB, 'totp', CIPHER, 'kid-a');
+      await store.putPending(BOB, 'totp', CIPHER, 'kid-a');
       await store.confirm(BOB, 'totp');
       expect(await store.confirmedStepNames()).to.deep.eq(['totp']);
       await store.confirm(BOB, 'email');
@@ -282,8 +283,8 @@ for (const kind of DB_KINDS) {
     });
 
     it("resolves the Orm's default connection from its container when given no driver", async () => {
-      const viaContainer = new DbMfaStore(undefined, { container: db.container });
-      await viaContainer.put(ALICE, 'totp', CIPHER, 'kid-a');
+      const viaContainer = await db.container.resolve(DbMfaStore);
+      await viaContainer.putPending(ALICE, 'totp', CIPHER, 'kid-a');
       expect((await store.get(ALICE, 'totp'))?.secretEnc).to.eq(CIPHER);
     });
   });

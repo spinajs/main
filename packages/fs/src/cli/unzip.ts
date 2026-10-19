@@ -33,6 +33,7 @@ export class FsUnzipCommand extends CliCommand {
       this.Log.success({ src, out, dstFs: options.dstFs ?? fsName }, 'Extracted ${src} -> ${out} ( fs: ${dstFs} )');
     } catch (err) {
       this.Log.error({ error: err, src, fsName }, 'Cannot unzip ${src} on ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

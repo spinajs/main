@@ -5,7 +5,7 @@ import { transactionDriver } from './context.js';
 export const AUTHZ_VERSION_TABLE = 'authz_version';
 
 /**
- * `authz_version(domain) += 1` inside the caller's transaction, creating the row at 1 (D-L2-3).
+ * `authz_version(domain) += 1` inside the caller's transaction, creating the row at 1.
  * The increment is one statement, so concurrent writers never lose a bump; the update builder
  * cannot express `version = version + 1`, hence the raw statement.
  */

@@ -1,8 +1,10 @@
-import { Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 import type { IdentityRef, KeyOwner, KeyRecord } from '@spinajs/authn/contracts';
+import { sameRef } from '@spinajs/authn/contracts';
 import { AuthnKey } from '../models/AuthnKey.js';
 import { fromUtcColumn, toUtcColumn } from '../models/utc.js';
-import { decodeCeiling, decodePrincipalRef, encodeCeiling, encodePrincipalRef, KeyStore, sameOwner } from './store.js';
+import { decodeCeiling, decodePrincipalRef, encodeCeiling, encodePrincipalRef, KeyStore } from './store.js';
 
 function toRecord(row: AuthnKey): KeyRecord {
   const createdBy = row.created_by ? decodePrincipalRef(row.created_by) : undefined;
@@ -28,6 +30,10 @@ function toRecord(row: AuthnKey): KeyRecord {
 /** authn_key through the ORM (connection 'default', migration AuthnKeys_2026_10_02_00_00_00). */
 @Injectable(KeyStore)
 export class OrmKeyStore extends KeyStore {
+  /** The cli resolves only the command it runs, so without this the models are unbound and every query throws. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   private async taken(key: KeyRecord): Promise<boolean> {
     const byKid = await AuthnKey.where('kid', key.kid);
     const byThumb = await AuthnKey.where('thumbprint', key.thumbprint);
@@ -76,7 +82,7 @@ export class OrmKeyStore extends KeyStore {
 
   async revoke(owner: IdentityRef, kid: string, at: Date): Promise<'revoked' | 'already' | 'none'> {
     const row = await this.get(kid);
-    if (!row || !sameOwner(row.owner, owner)) {
+    if (!row || !sameRef(row.owner, owner)) {
       return 'none';
     }
     if (row.revokedAt) {

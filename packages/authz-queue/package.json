@@ -69,7 +69,8 @@
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
     "@spinajs/orm": "2.0.549",
-    "@spinajs/queue": "2.0.549"
+    "@spinajs/queue": "2.0.549",
+    "@spinajs/util": "2.0.549"
   },
   "peerDependencies": {
     "@spinajs/authz-orm": "3.0.0-alpha.0"

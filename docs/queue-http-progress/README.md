@@ -2,7 +2,7 @@
 
 An HTTP route that reports the status and progress of a queue job: `GET jobs/v1/:jobId/status`. A client emits a job, keeps the `JobId` that `QueueJob.emit()` returns, and polls this route until the job finishes.
 
-It does **not** track jobs itself: `@spinajs/queue` writes the `queue_jobs` row when a consumer picks the job up, and this route only reads it. It does **not** stream progress (no WebSocket, no server-sent events), and it does **not** track HTTP upload or download progress, whatever the `package.json` description says.
+It does **not** track jobs itself: `@spinajs/queue` writes the `queue_jobs` row when a consumer picks the job up, and this route only reads it. It does **not** stream progress (no WebSocket, no server-sent events), and it does **not** track HTTP upload or download progress.
 
 ## Install
 

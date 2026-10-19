@@ -42,8 +42,8 @@ export function checkResourceConnections(orm: Orm, config?: ConfigSource): void 
 @Injectable(AuthzContributor)
 export class AuthzOrmContributor extends AuthzContributor {
   contribute(_domain: string): AuthzContribution {
-    if (!DI.RootContainer.isResolved(Orm)) return {};
-    checkResourceConnections(DI.get(Orm) as Orm);
+    // listTypes come from the decorators and need no ORM; only the connection check does.
+    if (DI.RootContainer.isResolved(Orm)) checkResourceConnections(DI.get(Orm) as Orm);
     return { listTypes: registeredTypes() };
   }
 }

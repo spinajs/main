@@ -3,17 +3,21 @@ import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
+import * as sinon from 'sinon';
 
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
 
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { Mutex } from '@spinajs/threading';
+import { OrmMutex } from '@spinajs/orm-threading';
 import { QueueService } from '@spinajs/queue';
 import { TestTask } from './Tasks/TestTask.js';
 import { __task, __task_history } from '../src/index.js';
 import '@spinajs/orm-sqlite';
 import { TestTask2 } from './Tasks/TestTask2.js';
+import { TestTask3 } from './Tasks/TestTask3.js';
 
 //const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -100,9 +104,14 @@ describe('Commands', function () {
     DI.clearCache();
     DI.setESMModuleSupport();
     DI.register(ConnectionConf).as(Configuration);
+    DI.register(OrmMutex).as(Mutex);
     await DI.resolve(Configuration);
     await DI.resolve(Orm);
     await DI.resolve(QueueService);
+  });
+
+  afterEach(() => {
+    sinon.restore();
   });
 
   it('Should save task run data to db', async () => {
@@ -134,7 +143,21 @@ describe('Commands', function () {
     expect(tHistory.length).to.equal(1);
   });
 
-  it('Should save error when task function fails', async () => {});
+  it('Should save error when task function fails', async () => {
+    const result = await new TestTask3().execute();
+    const tHistory = await __task_history.all();
 
-  it('Should emit succeed event to queue', async () => {});
+    expect(result).to.deep.equal({ error: true, message: 'task failed' });
+    expect(tHistory.length).to.equal(1);
+    expect(tHistory[0].Result).to.deep.equal({ error: true, message: 'task failed' });
+  });
+
+  it('Should emit succeed event to queue', async () => {
+    const queue = await DI.resolve(QueueService);
+    const emit = sinon.spy(queue, 'emit');
+
+    await new TestTask().execute(1);
+
+    expect(emit.calledWithMatch({ Name: 'TaskSuccess', TaskName: 'TestTask' })).to.be.true;
+  });
 });

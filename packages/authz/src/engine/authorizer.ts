@@ -1,4 +1,4 @@
-import type { Log } from '@spinajs/log-common';
+import { quote, compareStrings } from '@spinajs/util';
 import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
@@ -24,6 +24,7 @@ import { ceilingOutcome, mergeCeilings, readCeiling, scopeCovers } from './ceili
 import type { CeilingOutcome } from './ceiling.js';
 import { resolveDelegation, stripPrincipalOps } from './delegation.js';
 import type { Delegation } from './delegation.js';
+import type { AuthzLog } from '../host/log.js';
 import type { VoteTruths } from './reasons.js';
 import { cacheSafeRef, decisionKey, entryTags, invalidationTags, principalState, versionVector } from './cache-key.js';
 import { mergeAttributes, schemaIndex } from './attributes.js';
@@ -36,6 +37,8 @@ import type { Pipeline, Settled } from './run.js';
 import { MAX_DATA_VALUES, MAX_FILTER_NODES, budget, copyData, copyRef, deepFreeze, describeError, faultVote, sanitizeFilter, sanitizeVote, thrownError, validDate } from './vote.js';
 import { ALL_PLAN, CEILING_DENIAL, combinePlans, nonePlan, readModelPlan, withinOf } from './plan.js';
 import type { PlanAnswer } from './plan.js';
+import { ENGINE_DEFAULTS } from './defaults.js';
+import { isObject } from './internal/util.js';
 
 /**
  * summary() and covers() check at most this many permissions (one check per
@@ -57,8 +60,6 @@ const MAX_PRELOADED = 10_000;
 let generations = 0;
 const nextGeneration = (): number => ++generations;
 
-export type EngineLog = Pick<Log, 'error' | 'warn' | 'debug'>;
-
 export interface AuthorizerOptions {
   readonly domain: string;
   readonly models: readonly AuthorizationModel[];
@@ -78,7 +79,7 @@ export interface AuthorizerOptions {
   readonly cache?: DecisionCache;
   readonly audit?: DecisionAudit;
   readonly clock?: () => Date;
-  readonly log?: EngineLog;
+  readonly log?: Pick<AuthzLog, 'error' | 'warn' | 'debug'>;
   readonly config?: {
     readonly modelTimeoutMs?: number;
     readonly maxDelegation?: number;
@@ -203,7 +204,7 @@ interface Checked {
    * Firm runs only: the fields the allow gives on every row it covers
    * (`FieldCombiner.combine` with `firm`), within `decision.fields`. covers
    * judges the holder by them: a conditional permit adds to the decision's
-   * fields though it may not hold on the target's rows (E1 final review I1).
+   * fields though it may not hold on the target's rows.
    */
   readonly firmFields?: Fields;
 }
@@ -271,11 +272,11 @@ const GLOBAL_TYPE: ResourceType = '$global';
 const CORE = 'core';
 const ENGINE_FAULT: DenyReason = Object.freeze({ code: 'model_error' });
 const DELEGATE_PRIORITY = 200;
-const NO_LOG: EngineLog = Object.freeze({ error() {}, warn() {}, debug() {} });
+const NO_LOG: Pick<AuthzLog, 'error' | 'warn' | 'debug'> = Object.freeze({ error() {}, warn() {}, debug() {} });
 const NO_FIELDS: Fields = Object.freeze({ read: Object.freeze([]), write: Object.freeze([]) });
 const NO_ROLES: Readonly<Record<string, string>> = Object.freeze({});
 const GLOBAL_ANCESTORS: readonly ResourceRef[] = Object.freeze([GLOBAL]);
-// covers relies on an allow needing some model's permit, which only the built-ins promise (E1 final review I2).
+// covers relies on an allow needing some model's permit, which only the built-ins promise.
 const BUILTIN_ALGORITHMS: ReadonlySet<string> = new Set(BUILTIN_COMBINATORS.map((c) => c.name));
 const SYSTEM_REF: PrincipalRef = Object.freeze({ type: SYSTEM.type, id: SYSTEM.id });
 const UNATTENDED_REF: PrincipalRef = Object.freeze({ type: UNATTENDED.type, id: UNATTENDED.id });
@@ -284,15 +285,7 @@ const INVALID_REQUEST: DenyReason = Object.freeze({ code: 'invalid_request' });
 const MISSING_ROW: RowLoad = Object.freeze({ kind: 'missing' });
 const FAILED_ROW: RowLoad = Object.freeze({ kind: 'failed' });
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
-const quote = (v: unknown): string => {
-  try {
-    return typeof v === 'string' ? JSON.stringify(v) : String(v);
-  } catch {
-    return Object.prototype.toString.call(v);
-  }
-};
-const byName = (a: Vote, b: Vote): number => (a.model < b.model ? -1 : a.model > b.model ? 1 : 0);
+const byName = (a: Vote, b: Vote): number => compareStrings(a.model, b.model);
 
 export class Authorizer {
   readonly domain: string;
@@ -315,13 +308,13 @@ export class Authorizer {
   private readonly resolverByType = new Map<ResourceType, ScopeResolver>();
   private readonly relationIndex = new Map<string, RelationResolver>();
   private readonly natives = new Map<string, NativeFilter>();
-  /** Native ops whose filter declares `principalInArgs`: an intersect delegate's residual keeps them (RFC E2-2). */
+  /** Native ops whose filter declares `principalInArgs`: an intersect delegate's residual keeps them. */
   private readonly argBoundNatives = new Set<string>();
   private readonly attributeDefaults: ReadonlyMap<ResourceType, Readonly<Record<string, unknown>>>;
   private readonly attributeStore: ScopeAttributeStore | undefined;
   private readonly conditions: ConditionCompiler;
   private readonly clock: () => Date;
-  private readonly log: EngineLog;
+  private readonly log: Pick<AuthzLog, 'error' | 'warn' | 'debug'>;
   private readonly auditSink: DecisionAudit | undefined;
   private readonly config: EngineConfig;
   private readonly allFields: Fields;
@@ -460,13 +453,14 @@ export class Authorizer {
     const gate = this.principalGate(principal);
     if (gate.kind === 'system') return ALL_PLAN;
     if (gate.kind === 'deny') return nonePlan(gate.reason);
-    const run = this.newRun(false, scope);
+    const fresh = def.consistency === 'fresh';
+    const run: Run = fresh ? { ...this.newRun(false, scope), fresh: true } : this.newRun(false, scope);
     const delegation = this.delegation(gate.principal, undefined, run.delegationBudget);
     if (delegation.denial) return nonePlan(delegation.denial);
     if (delegation.intersect !== undefined) return nonePlan({ code: 'delegate', priority: DELEGATE_PRIORITY, delegate: delegation.intersectKey });
-    // Env facts are not in the key, so a call with a caller env is never memoised.
-    const key = env === undefined ? this.planKey(gate.principal, def, type, run) : undefined;
-    const hit = key === undefined || def.consistency === 'fresh' ? undefined : this.cachedPlan(key, run);
+    // Env facts are not in the key, so a call with a caller env is never memoised; a fresh plan is never read back.
+    const key = env === undefined && !fresh ? this.planKey(gate.principal, def, type, run) : undefined;
+    const hit = key === undefined ? undefined : this.cachedPlan(key, run);
     if (hit) return hit;
     const built = await this.buildPlan(delegation, def, type, this.envOf(env, run.instant), run);
     if (key !== undefined && !built.faulted) run.scope.set(key, new CachedPlan(built.plan, run.generation));
@@ -533,16 +527,10 @@ export class Authorizer {
   }
 
   /**
-   * B25: a quiet check per candidate permission at `at`, sharing one scope.
-   * Candidates: the registered names the routed models' summaries list, or
-   * every permission checkable at `at` when some routed model gives no
-   * summary (none, a failure or a timeout). An allowed check gives the entry.
-   * A check that denies gives a conditional entry when a summary entry left
-   * by the principal's ceilings lists the name (RFC L1-3: a check at
-   * `$global` is concrete and misses grants below it), with the union of
-   * those entries' fields less neverRead. A check that throws or rests on an
-   * engine fault leaves its permission out, and so does every check left
-   * when the call's deadline (DEADLINE_FACTOR × modelTimeoutMs) passes.
+   * B25: a quiet check per candidate permission at `at`. Candidates are the names the routed models' summaries
+   * list, or every permission checkable at `at` when a routed model gives no summary. A denied check still gives a
+   * conditional entry when a summary entry left by the ceilings lists the name, since a check at `$global` misses
+   * grants below it. A check that throws, rests on an engine fault or misses the deadline leaves its permission out.
    */
   async summary(principal: Principal, at: ResourceRef = GLOBAL, scope?: RequestScope): Promise<AccessSummary> {
     const ref = this.requireRef(at);
@@ -590,24 +578,13 @@ export class Authorizer {
   }
 
   /**
-   * B26: the holder's combined set at `at` strictly contains the target's,
-   * over every permission checkable at `at`. At `$global` both are also
-   * checked on each type of the permission, since the `$global` node does not
-   * speak for the rows below it, and every comparison must hold on each of
-   * those refs (strictly above on any). RFC L1-3, asymmetric so that a
-   * summary can only shrink what the holder covers: the holder's set is its
-   * checks at `at`; the target's is its checks at `at` and the entries of
-   * every model routed for the permission (at `$global`, also for each of
-   * its types) after the target's ceilings. A summary entry needs an
-   * unconditional holder with its fields, and keeps an equal holder from being
-   * strictly above. The target's denies never drop an entry: a deny may rest
-   * on session facts (authn, actor) that change under impersonation. The
-   * holder's fields are those of its unconditional permits only (`firmFields`).
-   * False when a compared route plan uses a custom combinator, for a target
-   * (or a holder other than SYSTEM) that the principal gate or the
-   * onBehalfOf resolution refuses, when a model routed for the
-   * target gives no summary, when any check throws or rests on an engine
-   * fault, when a field comparison throws, and past the call's deadline.
+   * B26: the holder's combined set at `at` strictly contains the target's. At `$global` both are also checked on
+   * each type of the permission, since `$global` does not speak for the rows below it. Asymmetric, so a summary can
+   * only shrink what the holder covers: the target's set adds its routed models' summary entries (after its
+   * ceilings), which only an unconditional holder with those fields covers; the holder's fields are those of its
+   * unconditional permits (`firmFields`). The target's denies never drop an entry: a deny may rest on session facts
+   * that change under impersonation. Fails closed on a custom combinator, a refused principal, a routed model
+   * without a summary, a thrown or faulted check, and past the deadline.
    */
   async covers(holder: Principal, target: Principal, at: ResourceRef = GLOBAL, scope?: RequestScope): Promise<boolean> {
     const ref = this.requireRef(at);
@@ -784,7 +761,7 @@ export class Authorizer {
     const defs = this.registry
       .all()
       .filter((d) => ref.type === GLOBAL_TYPE || d.types.includes(ref.type))
-      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      .sort((a, b) => compareStrings(a.name, b.name));
     if (defs.length <= MAX_SUMMARY_PERMISSIONS) return { defs, truncated: false };
     this.logAt('warn', { operation: what, resource: resourceKey(ref), count: defs.length, limit: MAX_SUMMARY_PERMISSIONS }, 'Authz domain ${domain}: ${operation} at ${resource} has ${count} permissions to check, more than the limit of ${limit}');
     return { defs: defs.slice(0, MAX_SUMMARY_PERMISSIONS), truncated: true };
@@ -962,7 +939,7 @@ export class Authorizer {
     const route = this.table.get(def.name, type) ?? { algorithm: 'deny-overrides', models: [] };
     if (route.algorithm !== 'deny-overrides') throw new AuthzConfigError(`${this.where}: list permission ${quote(def.name)} is routed on type ${quote(type)} with ${quote(route.algorithm)}; access plans combine with deny-overrides only (boot rule 12)`);
     const runAs = d.principal;
-    const fresh = def.consistency === 'fresh' ? { fresh: true } : {};
+    const fresh = run.fresh === true ? { fresh: true } : {};
     const req: ListPlanRequest = Object.freeze(d.actor === undefined ? { principal: runAs, permission: def, type, env, ...fresh } : { principal: runAs, actor: d.actor, permission: def, type, env, ...fresh });
     const host = this.hostFor(run);
     const cacheId = principalCacheId(runAs);
@@ -2057,7 +2034,7 @@ export class Authorizer {
     return now;
   }
 
-  private logAt(level: keyof EngineLog, fields: Record<string, unknown>, template: string): void {
+  private logAt(level: 'error' | 'warn' | 'debug', fields: Record<string, unknown>, template: string): void {
     try {
       this.log[level]({ domain: this.domain, ...fields }, template);
     } catch {
@@ -2076,17 +2053,17 @@ export class Authorizer {
       if (typeof v !== 'boolean') throw new AuthzConfigError(`${this.where}: config.${name} must be a boolean`);
       return v;
     };
-    const neverRead = c.neverRead ?? ['Password'];
+    const neverRead = c.neverRead ?? ENGINE_DEFAULTS.neverRead;
     if (!Array.isArray(neverRead) || neverRead.some((x) => typeof x !== 'string')) throw new AuthzConfigError(`${this.where}: config.neverRead must be a list of field globs`);
-    const maxDelegation = c.maxDelegation ?? 2;
+    const maxDelegation = c.maxDelegation ?? ENGINE_DEFAULTS.maxDelegation;
     if (typeof maxDelegation !== 'number' || !Number.isInteger(maxDelegation) || maxDelegation < 0) throw new AuthzConfigError(`${this.where}: config.maxDelegation must be an integer >= 0`);
     return Object.freeze({
-      modelTimeoutMs: number('modelTimeoutMs', c.modelTimeoutMs, 2000, 'positive'),
+      modelTimeoutMs: number('modelTimeoutMs', c.modelTimeoutMs, ENGINE_DEFAULTS.modelTimeoutMs, 'positive'),
       maxDelegation,
       neverRead: Object.freeze([...neverRead]),
-      explain: flag('explain', c.explain, false),
-      cacheTtlSeconds: number('cacheTtlSeconds', c.cacheTtlSeconds, 60, 'non-negative'),
-      auditDenials: flag('auditDenials', c.auditDenials, true),
+      explain: flag('explain', c.explain, ENGINE_DEFAULTS.explain),
+      cacheTtlSeconds: number('cacheTtlSeconds', c.cacheTtlSeconds, ENGINE_DEFAULTS.cacheTtlSeconds, 'non-negative'),
+      auditDenials: flag('auditDenials', c.auditDenials, ENGINE_DEFAULTS.auditDenials),
     });
   }
 }

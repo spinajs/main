@@ -23,15 +23,6 @@ Install a dialect driver as well, eg. `@spinajs/orm-sqlite`.
 | [Database translation source](05-database-translation-source.md) | `DbTranslationSource`, a `TranslationSource` that loads `@spinajs/intl` phrases from `intl_translations` |
 | [Schema and migration](06-schema-and-migration.md) | The `intl_resources` and `intl_translations` tables, their models and the migration that creates them |
 
-## Known issues
-
-The package tests (`packages/intl-orm/test/intl-orm.test.ts`) fail for every query-level translation case:
-
-- `translate(lang)` on a select builder throws `TypeError: this._query.middleware is not a function`.
-- With a populated relation, or under a non-default request language, it throws `RangeError: Maximum call stack size exceeded`.
-
-Entity-level `Translatable.translate()`, `Translatable.update()` and `DbTranslationSource` work. See [Query translation](02-query-translation.md#important-behaviour) and [Automatic translation](04-automatic-translation.md#important-behaviour).
-
 ## Quick start
 
 ```ts sample

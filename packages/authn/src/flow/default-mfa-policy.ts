@@ -109,8 +109,7 @@ export class DefaultMfaPolicy extends ConfiguredMfaPolicy {
   private async storedSteps(id: IdentityRef): Promise<string[]> {
     const sources = await this.Container.resolve(Array.chainOf(MfaEnrolments));
     const out = new Set<string>();
-    // A resolve of the abstract base itself leaves an instance of it in the chain; it is no source.
-    for (const source of sources.filter((s) => s?.constructor !== MfaEnrolments)) {
+    for (const source of sources) {
       for (const name of await source.stepsOf(id)) out.add(name);
     }
     return [...out];

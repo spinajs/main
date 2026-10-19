@@ -1,8 +1,8 @@
 import { Autoinject } from '@spinajs/di';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Log, Logger } from '@spinajs/log';
-import { KeyRegistry } from '@spinajs/authn/contracts';
-import { CLI_ACTOR, OWNER_TYPES, cliContext, ownerArg } from './common.js';
+import { CLI_ACTOR, KeyRegistry, cliContext } from '@spinajs/authn/contracts';
+import { OWNER_TYPES, ownerArg } from './common.js';
 
 @Command('authn:key-revoke', 'Revokes a public key; it fails on the next request')
 @Argument({ name: 'ownerType', required: true, description: OWNER_TYPES.join(', '), choices: OWNER_TYPES })

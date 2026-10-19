@@ -45,9 +45,12 @@ The format is `v1.<iv>.<tag>.<ct>`, and the additional authenticated data is
 `<identity>|<step>`. Callers must build the identity from `users.Uuid` exactly as it is
 stored (`user:<Uuid>`), or the secret will not decrypt. Recovery codes are stored as
 unsalted SHA-256, so steps must generate codes of at least 80 bits.
+The cipher and `identityKey` are also exported from the side-effect-free subpaths
+`@spinajs/authn-orm/cipher` and `@spinajs/authn-orm/identity`, which register nothing.
 
-Every store resolves the Orm's `default` connection on first use. Tests pass a driver
-instead.
+The stores, `DbAuthnThrottle` and `DbMfaEnrolments` are `@PerChildInstance`: each container that
+resolves one gets its own instance, on the `default` connection of that container's Orm (the throttle
+also reads that container's configuration). Tests pass a driver instead.
 
 ## Rules the stores keep
 

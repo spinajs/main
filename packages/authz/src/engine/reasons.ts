@@ -4,6 +4,7 @@ import { compareDenyReasons } from '../contracts/decision.js';
 import type { DenyReason, Vote } from '../contracts/decision.js';
 import type { Truth } from './evaluate.js';
 import { MAX_DATA_VALUES, validDate } from './vote.js';
+import { isObject } from './internal/util.js';
 
 /** Aligned with `vote.denies`. */
 export interface VoteTruths {
@@ -26,8 +27,6 @@ export interface ReasonInput {
 
 const MAX_DEPTH = 32;
 const MODEL_ERROR = 'model_error';
-
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 
 const isPlain = (v: object): boolean => {
   const proto = Object.getPrototypeOf(v);

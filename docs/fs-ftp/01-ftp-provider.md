@@ -46,7 +46,7 @@ Each FTP provider is one entry in `fs.providers`.
 | `fs.providers[].user` | `string` | none | | Login user |
 | `fs.providers[].password` | `string` | none | | Login password; `basic-ftp` masks it as `PASS ###` in the command log |
 | `fs.providers[].secure` | `boolean` | `false` | `true`, `false` | `true` upgrades the control connection with `AUTH TLS` (explicit FTPS) |
-| `fs.providers[].logVerbose` | `boolean` | none | `true`, `false` | Sets `Client.ftp.verbose`; see [Important behaviour](#important-behaviour) |
+| `fs.providers[].logVerbose` | `boolean` | none | `true`, `false` | `true` logs every FTP command and response to the `fs` logger at `debug`; see [Important behaviour](#important-behaviour) |
 | `fs.defaultProvider` | `string` | none | a provider `name` | Set it to the FTP provider's name to make the `@spinajs/fs` helpers use FTP when no provider is passed |
 
 `fsFTP` also needs a provider named **`fs-temp`**. Every download, `read()`, `copy()`, cross-provider `move()`, `zip()` and `unzip()` goes through a local temp file on it. `@spinajs/fs` ships no default `fs-temp` entry; configure it yourself.
@@ -70,7 +70,7 @@ fs: {
 }
 ```
 
-The config interface (`IFtpConfig`) is not exported. Type a config object as `fsFTP['Options']` when you build it in code.
+Type a config object with the exported `IFtpConfig` interface when you build it in code.
 
 ## Services and extension points
 
@@ -80,7 +80,7 @@ The config interface (`IFtpConfig`) is not exported. Type a config object as `fs
 | Temp file storage | Provider named `fs-temp`, looked up through `getFs('fs-temp')` by the `@FileSystem('fs-temp')` getter on every access | Whatever `fs-temp` entry you configure | `fsNative`, or `fsTemp` with a local backend for automatic cleanup | Configure another provider under the name `fs-temp`. It must return local absolute paths from `tmppath()` and support `writeStream()` |
 | Provider wrappers | `FsDecorator`, resolved as `Array.ofType(FsDecorator)` once by `fsService` | none | `AuthzFsDecorator` (`@spinajs/authz-fs`) | Register your own `FsDecorator`: [Decorating the FTP provider](04-decorating-the-ftp-provider.md) |
 | Logger | `@Logger('fs')`, shared with every other provider | `@spinajs/log` | | Route the `fs` logger with logger rules |
-| File info | `FileInfoService`, `@Autoinject()` into `fsFTP.FileInfo` | `DefaultFileInfo` | | Injected but never called by `fsFTP`; `metadata()` does not work on FTP paths |
+| File info | `FileInfoService`, `@Autoinject()` into `fsFTP.FileInfo` | `DefaultFileInfo` | | `metadata()` downloads the file to `fs-temp` and passes the temp copy to `getInfo()` |
 
 ### Several FTP servers
 
@@ -109,8 +109,8 @@ export class ReportDistributor {
 
 - The connection opens in `resolve()`, at application boot. A server that is down at boot stops the application with `IOFail`.
 - There is no reconnect. If the server closes the idle control connection, later calls fail with the `basic-ftp` error `Client is closed because ...` until the process restarts.
-- `fsFTP` does not override `dispose()`. The connection stays open until the process exits.
-- `logVerbose` has no effect. `fsFTP` replaces `Client.ftp.log` with a function that always writes to the `fs` logger at `debug`, which bypasses the `verbose` check inside `basic-ftp`. Every FTP command and response reaches the logger; filter it with logger rules for `fs` at `debug`.
+- `dispose()` closes the FTP connection, so `DI.dispose()` releases it.
+- `logVerbose: true` routes every FTP command and response to the `fs` logger at `debug` instead of `console`. Without it, FTP commands are not logged.
 - Transfer progress is logged at `debug` for every chunk `basic-ftp` reports: file name, bytes of this transfer and bytes overall.
 - `secure` is typed `boolean`. `basic-ftp` also accepts `'implicit'` for implicit FTPS on port 990; the value passes through to `Client.access()` untouched.
 - `@FileSystem('fs-temp')` is a getter. `fsFTP` reads `fs-temp` on every operation, so `fs-temp` does not need to be resolved before the FTP provider.

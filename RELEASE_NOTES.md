@@ -60,7 +60,7 @@ what each fix changes for an app.
   `/user/mfa` routes (`authn-http` no longer loads it), and `@spinajs/authz-orm`, `authz-queue`,
   `authz-fs` and `authn-oidc` when used.
 - **The app wires the RBAC and ABAC models**: `registerRbac(DI.RootContainer, configuration)` from
-  `@spinajs/authz-rbac`, then bind its `linkResolver` as authz-http's `LinkResolver`; for ABAC, register
+  `@spinajs/authz-rbac` (it also registers the share-link `LinkResolver`); for ABAC, register
   `new AbacModel()` and its `AbacContributor`. See `docs/authz/README.md`, "Wiring the models".
 - Build from source: run `npm run clean` after pulling. An incremental build keeps old 2.x controllers
   and config modules in `lib/`, which the loader and the controller scan would pick up.

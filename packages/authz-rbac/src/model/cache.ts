@@ -47,7 +47,7 @@ const IGNORED_PREFIXES = ['policy:', 'rule:'];
 const SET_PREFIX = '%set:';
 
 /*
- * The assignments of a principal's subjects (design §6.1.2 preload, §10.3): per request in ctx.cache,
+ * The assignments of a principal's subjects: per request in ctx.cache,
  * and per subject key across requests (TTL and LRU bound). Rules that keep it correct:
  * - The store answers the rows live at `at`, and rows only ever expire (an Assignment has no start
  *   time; new rows arrive with an invalidate). So rows read for `at` serve any request whose now is
@@ -97,26 +97,6 @@ export class AssignmentCache {
       },
     );
     return rows;
-  }
-
-  /**
-   * The rows held for every subject at `at`, in subject order, without IO or waiting on a load in
-   * flight: first the settled snapshot of the request in `ctx` (it outlives the TTL, a TTL of 0
-   * included), else the entries across requests; undefined when any subject is missing there (not
-   * preloaded, expired or invalidated).
-   */
-  peek(subjects: readonly AssignmentSubject[], at: Date, ctx?: EvaluationContext): Rows | undefined {
-    const keys = [...new Set(subjects.map(subjectKey))];
-    const memo = ctx?.cache.get(MEMO_PREFIX + JSON.stringify(keys)) as Snapshot | undefined;
-    if (memo !== undefined && memo.generation === this.generation && memo.at <= at.getTime() && !(memo.rows instanceof Promise)) return memo.rows;
-    const clock = this.opts.clock.now().getTime();
-    const parts: Rows[] = [];
-    for (const key of keys) {
-      const entry = this.entries.get(key);
-      if (entry === undefined || clock >= entry.until || clock < entry.until - this.opts.ttlMs || entry.at > at.getTime()) return undefined;
-      parts.push(entry.rows);
-    }
-    return Object.freeze(parts.flat());
   }
 
   /**

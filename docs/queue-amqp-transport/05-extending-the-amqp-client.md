@@ -66,8 +66,8 @@ Protected state a subclass can read:
 | `IsConnected` (public getter) | `boolean` | `true` between a successful connect and a drop or dispose |
 | `Connection` | amqplib `ChannelModel` | The current connection |
 | `PublishChannel` | amqplib `ConfirmChannel` | Channel for publishing with confirms |
-| `ConsumeChannel` | amqplib `Channel` | Channel for consumers, acks, retries and dead-letters |
-| `Subscriptions` | `Map<string, descriptor>` | Subscriptions by channel, replayed on reconnect |
+| `ConsumeChannel` | amqplib `Channel` | Channel for consumers and acks |
+| `Subscriptions` | `Map<string, descriptor>` | Subscriptions by channel (by channel and `subscriptionId` for a topic with one), each with the callbacks of every message class on it; replayed on reconnect |
 | `AssertedQueues`, `AssertedExchanges`, `AssertedRetryQueues` | `Set<string>` | Names declared on the current connection |
 | `PendingEmits` | array | Emits waiting for a connection |
 | `EmitPipeline` | `ResiliencePipeline<void>` | The publish pipeline |

@@ -35,6 +35,8 @@ describe('http-socket-common', () => {
       expect(isErrorCode('teapot')).to.be.false;
       expect(isSocketError({ code: 'forbidden', message: 'no', retryable: false })).to.be.true;
       expect(isSocketError({ code: 'forbidden', message: 'no' })).to.be.false;
+      expect(isSocketError({ code: 'forbidden', message: 'no', retryable: true, retryAfterMs: '5' })).to.be.false;
+      expect(isSocketError({ code: 'forbidden', message: 'no', retryable: true, retryAfterMs: 5, errorId: 'e1' })).to.be.true;
       expect(isSocketError(null)).to.be.false;
     });
   });

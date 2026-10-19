@@ -101,3 +101,33 @@ describe("loki non-retryable flush", () => {
     expect(target.HasError).to.eq(true);
   });
 });
+
+describe("loki entry and label handling", () => {
+  afterEach(() => sinon.restore());
+
+  it("write() does not mutate the shared entry", () => {
+    const target = buildTarget({ enabled: true });
+    target.resolve();
+    const e: any = { Level: 4, Variables: { logger: "graphana", level: "INFO", message: "m" } };
+    target.write(e);
+    expect(e.Variables).to.not.have.property("n_timestamp");
+  });
+
+  it("sends without labels and lets entry logger / level win over labels", async () => {
+    const noLabels = buildTarget({ labels: undefined });
+    noLabels.resolve();
+    const post1 = sinon.stub(noLabels.AxiosInstance, "post").resolves({});
+    await noLabels.send([entry("a")]);
+    expect(post1.calledOnce).to.eq(true);
+
+    const target = buildTarget({ labels: { app: "x", level: "OVERRIDE" } });
+    target.resolve();
+    const post2 = sinon.stub(target.AxiosInstance, "post").resolves({});
+    await target.send([entry("b")]);
+    expect(post2.firstCall.args[1].streams[0].stream.level).to.eq("INFO");
+  });
+
+  it("dispose() before resolve() does not throw", async () => {
+    await buildTarget().dispose();
+  });
+});
