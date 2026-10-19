@@ -370,6 +370,12 @@ authz: {
   its id, `created_at` and `source`.
 - `DbRuleStore` keeps scoped rules in `authz_rule` as their `definition`. Rules are check-only; a rule
   that would make a `list: true` permission unlistable is refused at write (`not_list_filterable`).
+- **Records.** The DB stores and `DbAuthzAdminBackend` read and write through internal ORM models
+  (`AssignmentRecord`, `MembershipRecord`, `RuleRecord`, `RuleSubjectRecord`, `LinkRecord`,
+  `VersionRecord`, `AdminIdempotencyRecord`) on the `authz` connection. The ORM binds models when it
+  boots, so import `@spinajs/authz-rbac` before the `Orm` resolves. Code that creates the authz tables
+  after the ORM booted (a test that runs the migrations by hand) calls `orm.reloadTableInfo()` before
+  the stores read them.
 - **Share link tokens.** A token is 32 random bytes in base64url. The table keeps only `v1:` and an
   HMAC-SHA256 of the token under `authz.rbac.links.secret`, which needs at least 32 characters. The
   store checks the key at first use, not at boot, and throws `AuthzConfigError` when it is missing.

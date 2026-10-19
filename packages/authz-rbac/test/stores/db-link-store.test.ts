@@ -9,7 +9,7 @@ import { DI } from '@spinajs/di';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 
-import { AdminLinkStore, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, DbLinkStore, LINK_LIST_MAX_LIMIT, LINK_SECRET_KEY, LINK_TOKEN_MAX_LENGTH, LinkStore, linkTokenHash, readVersion, toDate } from '../../src/index.js';
+import { AdminLinkStore, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, DbLinkStore, LINK_LIST_MAX_LIMIT, LINK_SECRET_KEY, LINK_TOKEN_MAX_LENGTH, LinkStore, linkTokenHash, readVersion, AssignmentRecord, fromDateTime, LinkRecord } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
 import { statementsOf } from '../support/statements.js';
 
@@ -64,8 +64,8 @@ for (const kind of DB_KINDS) {
 
     const create = (l: Partial<Omit<LinkDef, 'id'>> = {}, grant: { role: string; tags?: readonly string[] } = { role: 'viewer', tags: ['comment'] }) => inTx((tx) => store.create({ scope: P1, expiresAt: AFTER, attributes: { org_only: true }, ...l }, grant, root, tx));
 
-    const linkRows = async (): Promise<Row[]> => (await db.driver.select().from('authz_link').orderBy('id')) as Row[];
-    const assignmentRows = async (): Promise<Row[]> => (await db.driver.select().from('authz_assignment').orderBy('id')) as Row[];
+    const linkRows = async (): Promise<LinkRecord[]> => LinkRecord.query().orderBy('id');
+    const assignmentRows = async (): Promise<AssignmentRecord[]> => AssignmentRecord.query().orderBy('id');
     const linkAssignments = async (id: string) => (await assignmentRows()).filter((r) => r.subject_type === 'link' && r.subject_id === id);
     const version = () => readVersion('root');
     const resetVersion = () => rawQuery(db.driver, 'DELETE FROM authz_version', [], QueryContext.Delete);
@@ -130,17 +130,17 @@ for (const kind of DB_KINDS) {
         expect(row.id).to.eq(link.id);
         expect(row.token_hash).to.match(/^v1:[0-9a-f]{64}$/);
         expect([row.scope_type, row.scope_id]).to.deep.eq(['project', 'p1']);
-        expect(JSON.parse(row.attributes as string)).to.deep.eq({ org_only: true });
-        expect(toDate(row.expires_at)).to.deep.eq(AFTER);
+        expect(row.attributes).to.deep.eq({ org_only: true });
+        expect(fromDateTime(row.expires_at)).to.deep.eq(AFTER);
         expect(row.revoked_at).to.eq(null);
         expect(row.created_by).to.eq('user:root');
-        expect(toDate(row.created_at)).to.deep.eq(CREATED);
+        expect(fromDateTime(row.created_at)).to.deep.eq(CREATED);
 
         const assignments = await assignmentRows();
         expect(assignments).to.have.length(1);
         const [a] = assignments;
         expect([a.subject_type, a.subject_id, a.subject_role, a.role, a.scope_type, a.scope_id, a.tags, a.granted_by, a.source]).to.deep.eq(['link', link.id, '', 'viewer', 'project', 'p1', ',comment,', 'user:root', 'db']);
-        expect(toDate(a.expires_at)).to.deep.eq(AFTER);
+        expect(fromDateTime(a.expires_at)).to.deep.eq(AFTER);
 
         expect(await version()).to.eq('1');
       });
@@ -163,7 +163,7 @@ for (const kind of DB_KINDS) {
         expect(row.token_hash).to.eq(`v1:${createHmac('sha256', SECRET).update(token).digest('hex')}`);
         expect(row.token_hash).to.not.eq(`v1:${sha256}`);
 
-        const stored = JSON.stringify([...(await linkRows()), ...(await assignmentRows())]);
+        const stored = JSON.stringify([await db.driver.select().from('authz_link'), await db.driver.select().from('authz_assignment')]);
         for (const form of [token, raw.toString('hex'), raw.toString('base64'), sha256]) {
           expect(stored.includes(form), form).to.eq(false);
         }
@@ -190,7 +190,7 @@ for (const kind of DB_KINDS) {
 
         expect(link).to.deep.eq({ id: link.id, scope: P1, expiresAt: null, attributes: {}, createdBy: root });
         const [row] = await linkRows();
-        expect([row.expires_at, row.attributes]).to.deep.eq([null, '{}']);
+        expect([row.expires_at, row.attributes]).to.deep.eq([null, {}]);
         const [a] = await assignmentRows();
         expect([a.role, a.tags, a.expires_at]).to.deep.eq(['editor', '', null]);
       });
@@ -384,7 +384,7 @@ for (const kind of DB_KINDS) {
         const rows = await linkRows();
         expect(rows).to.have.length(2);
         const row = rows.find((r) => r.id === link.id)!;
-        expect(toDate(row.revoked_at)).to.deep.eq(CREATED);
+        expect(fromDateTime(row.revoked_at)).to.deep.eq(CREATED);
         expect(row.token_hash).to.match(/^v1:/);
         expect(rows.find((r) => r.id === other.link.id)!.revoked_at).to.eq(null);
 
@@ -419,7 +419,7 @@ for (const kind of DB_KINDS) {
 
         expect(updated).to.deep.eq({ ...link, expiresAt: AFTER });
         expect(await store.byToken(token)).to.deep.eq(updated);
-        expect(toDate((await linkAssignments(link.id))[0].expires_at)).to.deep.eq(AFTER);
+        expect(fromDateTime((await linkAssignments(link.id))[0].expires_at)).to.deep.eq(AFTER);
         expect(await version()).to.eq('1');
       });
 
@@ -441,7 +441,7 @@ for (const kind of DB_KINDS) {
 
         expect(updated).to.deep.eq({ ...link, attributes: { org_only: false, note: 'x' } });
         expect(await store.byId(link.id)).to.deep.eq(updated);
-        expect(toDate((await linkAssignments(link.id))[0].expires_at)).to.deep.eq(AFTER);
+        expect(fromDateTime((await linkAssignments(link.id))[0].expires_at)).to.deep.eq(AFTER);
         expect(await version()).to.eq('1');
       });
 
@@ -499,16 +499,16 @@ for (const kind of DB_KINDS) {
 
         const { err, row } = await inTx(async (tx) => {
           const err = await racing.update(link.id, { expiresAt: null, attributes: { x: 1 } }, root, tx).catch((e: unknown) => e);
-          const [row] = (await (tx.driver as OrmDriver).select().from('authz_link').where('id', link.id)) as Row[];
+          const [row] = await LinkRecord.query().where('id', link.id);
           return { err, row };
         });
 
         expect(err).to.be.instanceOf(AuthzAdminFailure);
         expect((err as AuthzAdminFailure).code).to.eq('not_found');
-        expect(toDate(row.expires_at)).to.deep.eq(AFTER);
-        expect(JSON.parse(row.attributes as string)).to.deep.eq({ org_only: true });
-        expect(toDate(row.revoked_at)).to.deep.eq(BEFORE);
-        expect(toDate((await linkAssignments(link.id))[0].expires_at)).to.deep.eq(AFTER);
+        expect(fromDateTime(row.expires_at)).to.deep.eq(AFTER);
+        expect(row.attributes).to.deep.eq({ org_only: true });
+        expect(fromDateTime(row.revoked_at)).to.deep.eq(BEFORE);
+        expect(fromDateTime((await linkAssignments(link.id))[0].expires_at)).to.deep.eq(AFTER);
         expect(await version()).to.eq('0');
       });
 
@@ -517,8 +517,8 @@ for (const kind of DB_KINDS) {
           const made = await store.create({ scope: P1, expiresAt: BEFORE, attributes: {} }, { role: 'viewer' }, root, tx);
           const updated = await store.update(made.link.id, { expiresAt: AFTER, attributes: { a: 1 } }, root, tx);
           expect(updated).to.deep.eq({ ...made.link, expiresAt: AFTER, attributes: { a: 1 } });
-          const [a] = (await (tx.driver as OrmDriver).select().from('authz_assignment').where('subject_id', made.link.id)) as Row[];
-          expect(toDate(a.expires_at)).to.deep.eq(AFTER);
+          const [a] = await AssignmentRecord.query().where('subject_id', made.link.id);
+          expect(fromDateTime(a.expires_at)).to.deep.eq(AFTER);
           return made;
         });
         expect(await store.byToken(token)).to.deep.eq({ ...link, expiresAt: AFTER, attributes: { a: 1 } });
@@ -567,7 +567,7 @@ for (const kind of DB_KINDS) {
         expect(await store.byId(expired.link.id)).to.eq(null);
         expect(await store.byId(below.link.id)).to.deep.eq(below.link);
         expect(await store.byId(elsewhere.link.id)).to.deep.eq(elsewhere.link);
-        expect(toDate((await linkRows()).find((r) => r.id === revoked.link.id)!.revoked_at)).to.deep.eq(BEFORE);
+        expect(fromDateTime((await linkRows()).find((r) => r.id === revoked.link.id)!.revoked_at)).to.deep.eq(BEFORE);
 
         expect(await linkAssignments(live.link.id)).to.deep.eq([]);
         expect(await linkAssignments(expired.link.id)).to.deep.eq([]);
@@ -588,7 +588,7 @@ for (const kind of DB_KINDS) {
 
         await inTx((tx) => new Racing(db.container).forgetScope(P1, tx));
 
-        expect(toDate((await linkRows())[0].revoked_at)).to.deep.eq(BEFORE);
+        expect(fromDateTime((await linkRows())[0].revoked_at)).to.deep.eq(BEFORE);
         expect(await linkAssignments(link.id)).to.deep.eq([]);
       });
 

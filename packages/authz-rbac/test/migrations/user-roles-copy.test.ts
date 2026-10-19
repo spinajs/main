@@ -7,7 +7,7 @@ import { Configuration } from '@spinajs/configuration';
 import { renderTemplate } from '@spinajs/log-common';
 import { MigrationTransactionMode, OrmDriver } from '@spinajs/orm';
 
-import { AuthzRbacUserRoles_2026_10_01_00_01_00, USER_ROLES_DEFAULT_ID_COLUMN, USER_ROLES_DEFAULT_ROLE_COLUMN, toDate, USER_ROLES_SOURCE } from '../../src/index.js';
+import { AuthzRbacUserRoles_2026_10_01_00_01_00, USER_ROLES_DEFAULT_ID_COLUMN, USER_ROLES_DEFAULT_ROLE_COLUMN, USER_ROLES_SOURCE, AssignmentRecord } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
 import { versionOf } from '../support/version.js';
 
@@ -142,13 +142,15 @@ for (const kind of DB_KINDS) {
       expect(pairs(rows)).to.deep.eq(EXPECTED);
       expect(new Set(rows.map((r) => r.id)).size).to.eq(rows.length);
 
+      // The migration created the table after the ORM read its columns.
+      await db.orm.reloadTableInfo();
+      const createdAt = new Map((await AssignmentRecord.all()).map((a) => [a.id, a.created_at.toMillis()]));
       for (const r of rows) {
         expect(r.id).to.match(UUID);
         expect(r).to.deep.include({ subject_type: 'user', subject_role: '', scope_type: '$global', scope_id: '', tags: '', source: 'users.Role', expires_at: null, granted_by: null });
         expect(r.subject_key).to.eq(`user:${r.subject_id}`);
-        const created = toDate(r.created_at)!.getTime();
         // SQLite keeps milliseconds; Postgres TIMESTAMP keeps microseconds
-        expect(created).to.be.within(before.getTime() - 1, after.getTime() + 1);
+        expect(createdAt.get(r.id)).to.be.within(before.getTime() - 1, after.getTime() + 1);
       }
 
       expect(await versionOf(db)).to.eq('1');

@@ -10,7 +10,7 @@ import type { IContainer } from '@spinajs/di';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
 
 import * as rbac from '../../src/index.js';
-import { bumpVersion, normaliseTags, parsePrincipalKey, parseTags, readVersion, requireTransaction, scopeFromColumns, scopeToColumns, storeDomain, subjectFromColumns, subjectToColumns, toDate, VersionRecord } from '../../src/index.js';
+import { bumpVersion, normaliseTags, parsePrincipalKey, parseTags, readVersion, requireTransaction, scopeFromColumns, scopeToColumns, storeDomain, subjectFromColumns, subjectToColumns, VersionRecord } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
 import { statementsOf } from '../support/statements.js';
 
@@ -86,16 +86,6 @@ describe('store helpers', () => {
       expect(parsePrincipalKey('no-separator')).to.eq(undefined);
       expect(parsePrincipalKey(null)).to.eq(undefined);
     });
-
-    it('read dates from Date values and from SQLite local wall-clock text', () => {
-      const d = new Date(2026, 9, 1, 14, 0, 0, 250);
-      expect(toDate(d)).to.eq(d);
-      expect(toDate('2026-10-01 14:00:00.250')!.getTime()).to.eq(d.getTime());
-      expect(toDate('2026-10-01 14:00:00')!.getTime()).to.eq(new Date(2026, 9, 1, 14).getTime());
-      expect(toDate('2026-10-01T12:00:00.000Z')!.getTime()).to.eq(Date.UTC(2026, 9, 1, 12));
-      expect(toDate(null)).to.eq(null);
-      expect(() => toDate('yesterday')).to.throw(/yesterday/);
-    });
   });
 
   describe('storeDomain (D-L2-3)', () => {
@@ -122,7 +112,7 @@ describe('store helpers', () => {
 
   describe('connection plumbing', () => {
     it('is gone: the records and requireTransaction replace it', () => {
-      for (const name of ['transactionDriver', 'storeTransactionDriver', 'storeConnection', 'authzConnection', 'RBAC_CONNECTION_KEY', 'ADMIN_CONNECTION_KEY']) expect(rbac, name).to.not.have.property(name);
+      for (const name of ['transactionDriver', 'storeTransactionDriver', 'storeConnection', 'authzConnection', 'RBAC_CONNECTION_KEY', 'ADMIN_CONNECTION_KEY', 'toDate', 'isUniqueViolation']) expect(rbac, name).to.not.have.property(name);
       expect(rbac).to.have.property('requireTransaction');
     });
 

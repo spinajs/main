@@ -9,7 +9,7 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
 
-import { AdminRuleStore, AuthzRbac_2026_10_01_00_00_00, DbRuleStore, readVersion, RULE_LIST_MAX_LIMIT, RuleStore, toDate, toRuleRows } from '../../src/index.js';
+import { AdminRuleStore, AuthzRbac_2026_10_01_00_00_00, DbRuleStore, readVersion, RULE_LIST_MAX_LIMIT, RuleStore, toRuleRows, RuleRecord, fromDateTime } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
 import { CANVAS_RULES, F1, kitRuleSets, O1, P1 } from '../support/rules.js';
 import type { Rule } from '../support/rules.js';
@@ -181,7 +181,8 @@ for (const kind of DB_KINDS) {
 
         const [row] = await ruleRows();
         expect(row.created_by).to.eq('user:root');
-        expect(toDate(row.created_at)!.getTime()).to.eq(CREATED.getTime());
+        const [record] = await RuleRecord.query().where('id', 'r1');
+        expect(fromDateTime(record.created_at).getTime()).to.eq(CREATED.getTime());
       });
 
       it('replaces a rule with the same id: columns and subject rows, keeping created_*', async () => {

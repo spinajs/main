@@ -108,6 +108,12 @@ Indexes: unique `authz_assignment_uq` on
 | `authz_link` | 62-74 | Share links: `id`, `token_hash` (unique, HMAC-SHA256 with `authz.rbac.links.secret`), `scope_type`, `scope_id`, `attributes`, `expires_at`, `revoked_at`, `created_by`, `created_at`. The link's grant is an `authz_assignment` row with subject `link:<id>` |
 | `authz_version` | 76-79 | `domain` PK, `version` bigint. Bumped by every store write inside the admin transaction |
 
+The stores and `DbAuthzAdminBackend` reach these tables only through the records in
+`authz-rbac/src/stores/records.ts` (`AssignmentRecord`, `MembershipRecord`, `RuleRecord`,
+`RuleSubjectRecord`, `LinkRecord`, `VersionRecord`) and `admin/db/record.ts` (`AdminIdempotencyRecord`).
+Datetimes are luxon `DateTime` on a record and `Date` in the store API; `definition` and `attributes`
+are `@Json` columns; `authz_version.version` is `@Int64('string')`, the same text on every driver.
+
 Other authz-rbac migrations:
 
 - `AuthzRbacUserRoles_2026_10_01_00_01_00` copies the 2.x comma list in `users.Role` into
