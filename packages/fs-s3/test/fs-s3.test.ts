@@ -269,6 +269,29 @@ describe('fs s3 basic tests', function () {
 
     expect(first.Version).to.not.eq(second.Version);
   });
+
+  it("treats '/x' and 'x' as one key", async () => {
+    const s3 = await f();
+
+    await s3.write('/norm/a.txt', 'normalised');
+
+    expect(await s3.exists('norm/a.txt')).to.be.true;
+    expect(await s3.read('norm//a.txt', 'utf-8')).to.eq('normalised');
+    expect(await s3.list('/norm')).to.deep.equal(['norm/a.txt']);
+
+    await s3.rm('norm/a.txt');
+    expect(await s3.exists('/norm/a.txt')).to.be.false;
+  });
+
+  it('zips objects onto the s3 temp fs when no destination fs is given', async () => {
+    const s3 = await f();
+
+    await s3.write('zip-src/a.txt', 'zipped');
+    const result = await s3.zip(['zip-src/a.txt']);
+
+    expect(result.fs.Name).to.eq('fs-temp-s3');
+    await result.unlink();
+  });
 });
 
 describe('fs s3 exclusive upload', function () {
