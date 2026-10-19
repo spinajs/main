@@ -6,7 +6,7 @@ import type { AuthzTx, MemoryTx, PrincipalRef, ResourceRef } from '@spinajs/auth
 import type { Assignment, AssignmentSubject } from '../../contracts.js';
 import { AdminAssignmentStore } from '../ports.js';
 import type { AssignmentQuery, Page } from '../ports.js';
-import { copyDate, copyPrincipalRef, copyRef, copySubject, deepFreeze, isLive, isSetSubject, normaliseTags, paged, sameRef, subjectKey } from '../rows.js';
+import { copyDate, copyPrincipalRef, copyRef, copySubject, deepFreeze, isLiveAt, isSetSubject, paged, sameRef, sortedTags } from '../rows.js';
 import { subjectKeyOf } from '../../stores/columns.js';
 
 export interface MemoryAdminAssignmentStoreOptions {
@@ -15,7 +15,7 @@ export interface MemoryAdminAssignmentStoreOptions {
   readonly assignments?: readonly Assignment[];
 }
 
-const identity = (a: Pick<Assignment, 'subject' | 'role' | 'scope'>): string => `${subjectKey(a.subject)}\u0001${a.role}\u0001${resourceKey(a.scope)}`;
+const identity = (a: Pick<Assignment, 'subject' | 'role' | 'scope'>): string => `${subjectKeyOf(a.subject)}\u0001${a.role}\u0001${resourceKey(a.scope)}`;
 
 function copy(a: Assignment): Assignment {
   return deepFreeze({
@@ -23,7 +23,7 @@ function copy(a: Assignment): Assignment {
     subject: copySubject(a.subject),
     role: a.role,
     scope: copyRef(a.scope),
-    tags: normaliseTags(a.tags),
+    tags: sortedTags(a.tags),
     expiresAt: copyDate(a.expiresAt),
     ...(a.grantedBy ? { grantedBy: copyPrincipalRef(a.grantedBy) } : {}),
     source: a.source,
@@ -31,7 +31,7 @@ function copy(a: Assignment): Assignment {
 }
 
 /**
- * Assignments in a map, written inside a MemoryAuthzAdminBackend transaction. Not registered: tests and K1
+ * Assignments in a map, written inside a MemoryAuthzAdminBackend transaction. Not registered: tests and the test kit
  * register one instance under AdminAssignmentStore and AssignmentStore.
  */
 export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
@@ -46,7 +46,7 @@ export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
     for (const a of opts.assignments ?? []) this.rows.set(a.id, copy(a));
   }
 
-  /** Setup only (MemoryLinkStore preloads, tests, K1): an upsert outside any transaction, so no rollback undoes it. */
+  /** Setup only (MemoryLinkStore preloads, tests, the test kit): an upsert outside any transaction, so no rollback undoes it. */
   seed(a: Omit<Assignment, 'id' | 'source'>, actor: PrincipalRef): Assignment {
     const key = identity(a);
     const existing = [...this.rows.values()].find((r) => identity(r) === key);
@@ -57,17 +57,17 @@ export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
   }
 
   async forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]> {
-    const keys = new Set(subjects.map(subjectKey));
-    return [...this.rows.values()].filter((a) => keys.has(subjectKey(a.subject)) && isLive(a.expiresAt, at)).map(copy);
+    const keys = new Set(subjects.map(subjectKeyOf));
+    return [...this.rows.values()].filter((a) => keys.has(subjectKeyOf(a.subject)) && isLiveAt(a.expiresAt, at)).map(copy);
   }
 
   async forSubjectKeys(keys: readonly string[], at: Date): Promise<readonly Assignment[]> {
     const wanted = new Set(keys);
-    return [...this.rows.values()].filter((a) => wanted.has(subjectKeyOf(a.subject)) && isLive(a.expiresAt, at)).map(copy);
+    return [...this.rows.values()].filter((a) => wanted.has(subjectKeyOf(a.subject)) && isLiveAt(a.expiresAt, at)).map(copy);
   }
 
   async holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]> {
-    return [...this.rows.values()].filter((a) => a.role === role && sameRef(a.scope, scope) && isLive(a.expiresAt, at)).map((a) => deepFreeze(copySubject(a.subject)));
+    return [...this.rows.values()].filter((a) => a.role === role && sameRef(a.scope, scope) && isLiveAt(a.expiresAt, at)).map((a) => deepFreeze(copySubject(a.subject)));
   }
 
   async byId(id: string): Promise<Assignment | null> {
@@ -100,8 +100,8 @@ export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
   }
 
   async find(q: AssignmentQuery, page?: Page): Promise<{ items: readonly Assignment[]; total: number }> {
-    const subject = q.subject ? subjectKey(q.subject) : undefined;
-    const items = [...this.rows.values()].filter((a) => (q.scope === undefined || sameRef(a.scope, q.scope)) && (subject === undefined || subjectKey(a.subject) === subject) && (q.role === undefined || a.role === q.role) && (q.includeExpired === true || isLive(a.expiresAt, q.at)));
+    const subject = q.subject ? subjectKeyOf(q.subject) : undefined;
+    const items = [...this.rows.values()].filter((a) => (q.scope === undefined || sameRef(a.scope, q.scope)) && (subject === undefined || subjectKeyOf(a.subject) === subject) && (q.role === undefined || a.role === q.role) && (q.includeExpired === true || isLiveAt(a.expiresAt, q.at)));
     return paged(items.map(copy), page);
   }
 

@@ -1,8 +1,5 @@
-import { AuthzDomains } from '@spinajs/authz';
 import type { DecisionRequest, EvaluationContext, Principal } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
 
 import type { RbacExtension, RbacInput } from '../model/evaluate.js';
 import type { RbacModelOptions } from '../model/model.js';
@@ -23,7 +20,7 @@ export function isTokenRoleExtension(e: unknown): boolean {
 }
 
 /**
- * Applies `authz.token` to principals that authenticated with a token (B24, B07, design §18.3(g)):
+ * Applies `authz.token` to principals that authenticated with a token:
  * their roles become `ceiling.roles` (or every role, without one) cut by the excluded roles and the
  * TokenRolePolicy, and only assignments of those roles count. The roles come from the owner's own
  * assignments, so a token is never above its owner and a role the owner lacks grants nothing.
@@ -35,12 +32,11 @@ export function tokenRoleExtension(_opts: RbacModelOptions, deps: TokenRoleExten
       if (deps.rules instanceof TokenRoleRules) rules = deps.rules;
       else if (deps.rules) rules = await deps.rules();
       else {
-        const domain = hostDomain(ctx.domain);
-        // Outside a host only a Configuration already resolved counts: a model init must not start loading one.
-        rules = domain ? await loadTokenRoleRules(await configurationOf(domain), domain) : await loadTokenRoleRules(DI.get(Configuration) ?? NO_CONFIGURATION, DI.RootContainer);
+        // The host resolves Configuration before any model init; outside it a model init must not start loading one.
+        const configuration = ctx.container.isResolved(Configuration) ? ((await ctx.container.resolve(Configuration)) as Configuration) : NO_CONFIGURATION;
+        rules = await loadTokenRoleRules(configuration, ctx.container);
       }
     },
-    // Synchronous and without ctx: RbacModel.heldNow runs it with a context that throws.
     gather(request: DecisionRequest, _ctx: EvaluationContext, input: RbacInput): Partial<RbacInput> {
       if (!rules) throw new Error('rbac: the token role rules are used before the model init ran');
       // Under inherit delegation the models run as the delegate and the agent is the actor.
@@ -50,25 +46,13 @@ export function tokenRoleExtension(_opts: RbacModelOptions, deps: TokenRoleExten
       const profile: unknown = principal.attributes?.profile;
       const allowed = rules.allowedRoles(principal, tokenRoles ?? input.roles.names, typeof profile === 'string' ? profile : undefined);
       const keep = new Set(allowed);
-      // Narrowed ceiling.roles holds implied contributions to the same rule as assignments (D19).
+      // Narrowed ceiling.roles holds implied contributions to the same rule as assignments.
       const narrowed: Principal = Object.freeze({ ...principal, ceiling: Object.freeze({ ...(principal.ceiling ?? {}), roles: Object.freeze(allowed) }) });
       return { assignments: input.assignments.filter((a) => keep.has(a.role)), request: { ...input.request, principal: narrowed } };
     },
   };
   Object.defineProperty(extension, TOKEN_ROLE_EXTENSION, { value: true });
   return Object.freeze(extension);
-}
-
-/** The container of an authz host domain named `domain`; undefined when the model runs outside a host. */
-function hostDomain(domain: string): IContainer | undefined {
-  const domains = DI.get(AuthzDomains);
-  return domains && domains.names().includes(domain) ? domains.container(domain) : undefined;
-}
-
-/** As the host reads it; the defaults only when no Configuration is registered at all. */
-async function configurationOf(container: IContainer): Promise<Pick<Configuration, 'get'>> {
-  if (!container.hasRegistered(Configuration)) return NO_CONFIGURATION;
-  return (await container.resolve(Configuration)) as Configuration;
 }
 
 /** The token's roles; null counts as absent, as in the engine's ceiling reader. */

@@ -6,8 +6,8 @@ import { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DateTime } from 'luxon';
 
-import { DI } from '@spinajs/di';
-import { format } from '../src/variables.js';
+import { DI, Injectable } from '@spinajs/di';
+import { ConfigVariable, format } from '../src/variables.js';
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 chai.use(chaiAsPromised);
@@ -167,6 +167,40 @@ describe('Variable forma test', () => {
       '[${message}]',
     );
     expect(formatted).to.eq('[hello world]');
+  });
+
+  it('Should render 0 and empty string custom values instead of falling through', () => {
+    expect(format({ count: 0 } as any, '[${count}]')).to.eq('[0]');
+    expect(format({ user: '' } as any, '[${user}]')).to.eq('[]');
+  });
+
+  it('Should not render conditional block when variable is false', () => {
+    expect(format({ flag: false } as any, 'a${?flag} on${/flag}')).to.eq('a');
+  });
+
+  it('Should keep replacement patterns literal in function and property values', () => {
+    expect(format({ err: { message: 'a$&b' } } as any, '${err:message}')).to.eq('a$&b');
+    expect(format({ fn: () => 'x$`y' } as any, '${fn}')).to.eq('x$`y');
+  });
+
+  it('Should see a variable registered after the first format call', () => {
+    expect(format(null, '[${latevar}]')).to.eq('[]');
+
+    @Injectable(ConfigVariable)
+    class LateRegisteredVariable extends ConfigVariable {
+      public get Name(): string {
+        return 'latevar';
+      }
+      public Value(): string {
+        return 'late';
+      }
+    }
+
+    try {
+      expect(format(null, '[${latevar}]')).to.eq('[late]');
+    } finally {
+      DI.unregister(LateRegisteredVariable);
+    }
   });
 
   it('Should format against DI variables when custom vars are null', () => {

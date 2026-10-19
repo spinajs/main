@@ -39,13 +39,8 @@ export class FetchOidcHttpClient extends OidcHttpClient {
     super();
   }
 
-  protected configuration(): Configuration | undefined {
-    return this.Configuration;
-  }
-
   protected allowsHttp(): boolean {
-    const config = this.configuration();
-    return this.relaxed ?? (config ? isRelaxedEnv(appEnvOf(config)) : false);
+    return this.relaxed ?? (this.Configuration ? isRelaxedEnv(appEnvOf(this.Configuration)) : false);
   }
 
   public async getJson(url: string, headers: OidcHttpHeaders = {}): Promise<OidcHttpResponse> {

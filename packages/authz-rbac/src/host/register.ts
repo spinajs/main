@@ -41,8 +41,8 @@ const instance =
  * names (registerRbacStores), an RbacModel over them as an AuthorizationModel, its RbacContributor
  * as an AuthzContributor, an RbacService, and an RbacLinkResolver over it as the LinkResolver
  * (authz-http reads the root container's). Roles and assignments: one store each, required. Links: at
- * most one. Rules: at most one in-memory store and one other (design §8.5:
- * `['ConfigRuleStore', 'DbRuleStore']`); none turns rules off.
+ * most one. Rules: at most one in-memory store and one other
+ * (`['ConfigRuleStore', 'DbRuleStore']`); none turns rules off.
  * @throws AuthzConfigError, before registering anything, for a store name registerRbacStores
  *   refuses, a missing roles or assignments store, too many stores of a kind, two rule stores of
  *   one sort, or `authz.rbac.rules` with no ConfigRuleStore to read them
@@ -77,7 +77,7 @@ export async function registerRbac(container: IContainer, configuration: Pick<Co
   const rules = own.size > 0 ? ((await container.resolve(Array.chainOf(RuleStore))) as RuleStore[]).filter((s) => own.has(s.constructor)) : [];
   ruleStoreParts(rules);
   const links = await store(LinkStore);
-  // Registered by authz-rbac's storage lane, possibly in a parent container.
+  // Registered by registerRbacStores, possibly in a parent container.
   const membership = container.hasRegistered(MembershipStore) ? ((await container.resolve(MembershipStore)) as MembershipStore) : undefined;
   const options: RbacModelOptions = {
     roles: (await store(RoleStore))!,

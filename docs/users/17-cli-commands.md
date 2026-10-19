@@ -7,7 +7,7 @@ Five `spinajs` commands manage users from a shell: create, find, activate or dea
 1. users' config adds `node_modules/@spinajs/users/lib/<cjs|mjs>/cli` (and the same one directory up) to `system.dirs.cli`, so `spinajs` discovers the commands.
 2. The CLI resolves only the command it runs. `RbacCliCommand` injects `Orm` (`@Autoinject(Orm)`), which boots the ORM and its connections for that command alone; listing commands (`--help`) opens no connection.
 3. `execute()` calls the action and logs the result through the `rbac` logger.
-4. Errors are caught and logged (`Error while ...`); they do not reject the command.
+4. Errors are caught and logged (`Error while ...`), and the command sets `process.exitCode = 1`.
 
 ## Commands
 
@@ -16,8 +16,8 @@ Five `spinajs` commands manage users from a shell: create, find, activate or dea
 | `rbac:user-create` | `-e, --email <email>` (required), `-l, --login <login>` (required), `-p, --password <password>`, `-r, --roles <roles>` (comma separated) | `create({ Email, Login, Password }, roles, SYSTEM)` inside `AuthzService.runAs(SYSTEM, 'cli', ...)`. No `--roles`: `authz.rbac.defaultRoles`. No `--password`: the user is invited by mail. |
 | `rbac:user-find` | `-i, --identifier <identifier>` (required): id, UUID, email or login | `getUser()`; logs `Id`, `Uuid`, email, login, active, `CreatedAt`, `LastLoginAt`. |
 | `rbac:user-activate` | `<idOrUuid> <active>`; `active` is `true` or anything else (false) | `activate()` or `deactivate()`. |
-| `rbac:user-ban` | `<idOrUuid> [ban] <duration> <reason>` | `ban(idOrUuid, reason, duration)` or `unban(idOrUuid)`; see the limits below. |
-| `rbac:user-delete` | `<idOrUuid>` | `deleteUser()`: a soft delete, despite the help text "permanently". |
+| `rbac:user-ban` | `<idOrUuid> <ban> [duration] [reason]`; `ban` is `true` or anything else (false, unban); `duration` in minutes, default `1440` | `ban(idOrUuid, reason, duration * 60)` or `unban(idOrUuid)`. |
+| `rbac:user-delete` | `<idOrUuid>` | `deleteUser()`: a soft delete (`DeletedAt`); sessions and tokens end. |
 
 `idOrUuid` accepts anything `getUser()` does: id, UUID, email or login.
 
@@ -25,6 +25,8 @@ Five `spinajs` commands manage users from a shell: create, find, activate or dea
 spinajs rbac:user-create -e ada@acme.com -l ada -r user,support
 spinajs rbac:user-find -i ada@acme.com
 spinajs rbac:user-activate ada@acme.com true
+spinajs rbac:user-ban ada@acme.com true 60 "chargeback"
+spinajs rbac:user-ban ada@acme.com false
 spinajs rbac:user-delete 3f0e1b8c-2a4d-4e6f-9b1a-7c8d9e0f1a2b
 ```
 
@@ -67,19 +69,16 @@ export class ReinviteUser extends RbacCliCommand {
 
 ## Important behaviour
 
-- The commands log errors and return; scripts cannot rely on a non-zero exit code to detect a failure.
+- A failed command logs the error and exits with code 1.
 - `rbac:user-create` runs as `SYSTEM`, so `AuthzAdmin`'s guard is skipped: anyone with shell access grants any assignable role.
 - `rbac:user-find`, `-activate`, `-ban` and `-delete` do not run as `SYSTEM`. With an `@AccessResource` [user model](02-custom-user-model.md) their lookups are scoped to the CLI's principal.
-- `rbac:user-ban` limits, from its decorators:
-  - `[ban]` is declared with the parser in the default-value slot, so the value arrives as the raw string. Any non-empty value, `false` included, bans; omitting it also bans. `unban` is not reachable from this command.
-  - `duration` is described as minutes and defaults to `1440`, but `ban()` takes seconds: the default bans for 24 minutes, not 24 hours.
-- `rbac:user-activate` parses only the literal `true` (any case) as activate.
+- `rbac:user-ban` and `rbac:user-activate` parse only the literal `true` (any case) as ban or activate.
+- `rbac:user-ban` takes `duration` in minutes; `ban()` itself takes seconds.
 
 ## Best practices
 
 - Pass `--roles` explicitly in provisioning scripts; the defaults may change with configuration.
 - Prefer inviting (`rbac:user-create` without `--password`) over passing a password on the command line, where it lands in shell history.
-- Pass `duration` to `rbac:user-ban` in seconds until the command is fixed, and use the `unban()` action from code to lift a ban.
 
 ## Related
 

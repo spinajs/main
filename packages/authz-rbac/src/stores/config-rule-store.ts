@@ -21,6 +21,7 @@ const isId = (v: unknown): boolean => typeof v === 'string' && v !== '';
 const isNames = (v: unknown): boolean => Array.isArray(v) && v.length > 0 && v.every(isId);
 // The schema's pattern: Date.parse reads a date-time without a timezone as local time.
 const WITH_TIMEZONE = /(?:[zZ]|[+-]\d\d:?\d\d)$/;
+const NO_RULES: readonly unknown[] = Object.freeze([]);
 
 function refuse(bad: boolean, at: string, what: string): void {
   if (bad) throw new AuthzConfigError(`${at}: ${what}`);
@@ -52,7 +53,7 @@ function floor(r: Raw, scope: unknown, at: string): void {
 }
 
 /**
- * Rules as frozen RuleDefs: a rule without a scope applies at GLOBAL (design §5.8; §8.5 writes none), `source` is
+ * Rules as frozen RuleDefs: a rule without a scope applies at GLOBAL, `source` is
  * filled and an ISO `expiresAt` becomes a Date. AUTHZ_RBAC_CONFIGURATION_SCHEMA checks the shape of
  * `authz.rbac.rules`; the RBAC model checks ladders, roles, permissions and conditions when it compiles them.
  * @throws AuthzConfigError for a rule the schema would refuse that would read as broader access, or an `expiresAt`
@@ -80,7 +81,7 @@ function expiry(value: unknown, at: string): { expiresAt?: Date | null } {
 }
 
 /**
- * Rules from config (design §8.2 `authz.rbac.rules`) through @Config, or from a list or a Configuration given to the
+ * Rules from config (`authz.rbac.rules`) through @Config, or from a list or a Configuration given to the
  * constructor (tests, a host that builds the model itself). Registered by its class name; `registerRbacStores` binds
  * it to `RuleStore` when `authz.rbac.stores.rules` names it (the default).
  */
@@ -91,17 +92,17 @@ export class ConfigRuleStore extends RuleStore {
   @Config('authz.rbac.rules')
   protected Rules: readonly unknown[] | undefined;
 
-  private loaded?: readonly RuleDef[];
-  private hash?: string;
+  private loaded?: { readonly raw: readonly unknown[]; readonly rules: readonly RuleDef[]; hash?: string };
 
   constructor(private readonly source?: Pick<Configuration, 'get'> | readonly RuleDef[]) {
     super();
   }
 
-  /** Every rule, expired ones included; the model reads them without IO. */
+  /** Every rule, expired ones included; the model reads them without IO. Parsed again once the configured list is replaced. */
   all(): readonly RuleDef[] {
-    this.loaded ??= readRuleDefs(this.configured());
-    return this.loaded;
+    const raw = this.configured();
+    if (this.loaded?.raw !== raw) this.loaded = { raw, rules: readRuleDefs(raw) };
+    return this.loaded.rules;
   }
 
   /** The rules live at `at` whose scope is one of `path`. */
@@ -115,15 +116,16 @@ export class ConfigRuleStore extends RuleStore {
   }
 
   async version(): Promise<string> {
-    this.hash ??= createHash('sha256').update(JSON.stringify(this.all())).digest('hex');
-    return this.hash;
+    const rules = this.all();
+    this.loaded!.hash ??= createHash('sha256').update(JSON.stringify(rules)).digest('hex');
+    return this.loaded!.hash;
   }
 
   private configured(): readonly unknown[] {
     if (Array.isArray(this.source)) return this.source as readonly RuleDef[];
     const configuration = this.source as Pick<Configuration, 'get'> | undefined;
     const rules = configuration ? configuration.get<readonly unknown[] | undefined>(['authz', 'rbac', 'rules']) : this.Rules;
-    return rules === undefined ? [] : rules;
+    return rules === undefined ? NO_RULES : rules;
   }
 }
 

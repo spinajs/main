@@ -38,6 +38,7 @@ export class FsWriteCommand extends CliCommand {
       this.Log.success({ path, fsName }, 'Wrote ${path} ( fs: ${fsName} )');
     } catch (err) {
       this.Log.error({ error: err, path, fsName }, 'Cannot write ${path} on ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

@@ -120,7 +120,7 @@ console.log(fromConfig.get('greeting'), fromMs, fromParts);
 - Factories and `parse` throw `Error('TimeSpanTooLong')` beyond `Number.MAX_SAFE_INTEGER` milliseconds.
 - `parse('1.5')`, a decimal without `:`, throws: one token is not a span.
 - Fractional seconds are padded or truncated to three digits: `'00:00:01.1'` is 1100 ms, `'00:00:01.1234'` is 1123 ms.
-- A negative span does not survive `toString()` and `parse()`: `'-01:30:00'` parses as minus one hour **plus** 30 minutes, `-00:30:00`. Positive spans round-trip.
+- A leading `-` negates the whole span: `'-01:30:00'` is minus 90 minutes, so negative spans round-trip through `toString()` and `parse()` like positive ones.
 - `toJSON()` produces a string. After `JSON.parse` you get the string back; call `TimeSpan.parse` on it.
 - `TIMEZONE_OFFSET` is cached on first access and does not follow a later daylight saving change.
 - Methods return `new TimeSpan(...)`: a subclass loses its type after any arithmetic. Write functions that take a `TimeSpan` instead of subclassing.

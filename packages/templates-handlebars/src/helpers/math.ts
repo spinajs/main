@@ -28,19 +28,20 @@ export function multiply(...args: any[]): number {
 
 /**
  * Division
- * Usage: {{divide 10 2}} → 5
+ * Usage: {{divide 10 2}} → 5; a zero or non-numeric divisor gives 0
  */
 export function divide(a: any, b: any): number {
-  const divisor = Number(b) || 1;
-  return (Number(a) || 0) / divisor;
+  const divisor = Number(b) || 0;
+  return divisor === 0 ? 0 : (Number(a) || 0) / divisor;
 }
 
 /**
  * Modulo (remainder)
- * Usage: {{modulo 10 3}} → 1
+ * Usage: {{modulo 10 3}} → 1; a zero or non-numeric divisor gives 0
  */
 export function modulo(a: any, b: any): number {
-  return (Number(a) || 0) % (Number(b) || 1);
+  const divisor = Number(b) || 0;
+  return divisor === 0 ? 0 : (Number(a) || 0) % divisor;
 }
 
 /**
@@ -177,11 +178,11 @@ export function clamp(value: any, min: any, max: any): number {
 
 /**
  * Percentage calculation
- * Usage: {{percentage 25 200}} → 12.5
+ * Usage: {{percentage 25 200}} → 12.5; a zero or non-numeric total gives 0
  */
 export function percentage(value: any, total: any): number {
-  const totalNum = Number(total) || 1;
-  return ((Number(value) || 0) / totalNum) * 100;
+  const totalNum = Number(total) || 0;
+  return totalNum === 0 ? 0 : ((Number(value) || 0) / totalNum) * 100;
 }
 
 /**

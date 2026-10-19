@@ -61,7 +61,7 @@ These `@spinajs/http` keys change the error answer. The handler reads them once,
 
 | Exception name | Response class | Status |
 | --- | --- | --- |
-| `InvalidArgument`, `BadRequest`, `ExpectedResponseUnacceptable` | `BadRequestResponse` | 400 |
+| `InvalidArgument`, `BadRequest`, `JsonValidationFailed`, `ExpectedResponseUnacceptable` | `BadRequestResponse` | 400 |
 | `ValidationFailed` (`@spinajs/validation`) | `ValidationError` | 400 |
 | `AuthenticationFailed` | `Unauthorized` | 401 |
 | `Forbidden` | `ForbiddenResponse` | 403 |
@@ -70,7 +70,7 @@ These `@spinajs/http` keys change the error answer. The handler reads them once,
 | `EntityTooLargeException` (`@spinajs/http`) | `EntityTooLarge` | 413 |
 | `MethodNotImplemented`, `IOFail`, `UnexpectedServerError` | `ServerError` | 500 |
 
-`Exception`, `ConnectionNotFound`, `NotSupported`, `InvalidOption`, `InvalidOperation` and `JsonValidationFailed` have no entry: they answer 500 through the fallback.
+`Exception`, `ConnectionNotFound`, `NotSupported`, `InvalidOption` and `InvalidOperation` have no entry: they answer 500 through the fallback.
 
 ### Error response: custom implementation
 

@@ -94,4 +94,12 @@ describe('templates-csv', () => {
     await expect(t.render('data.csv', { fields: ['a'] } as any)).to.be.rejectedWith(/csv render model requires/);
     await expect(t.render('data.csv', { data: [] } as any)).to.be.rejectedWith(/csv render model requires/);
   });
+
+  it('should render columns from the model with custom labels', async () => {
+    const t = await tp();
+    const result = await t.render('data.csv', { fields: [{ label: 'First', value: 'a' }], data: MODEL.data });
+
+    expect(result).to.contain('"First"');
+    expect(result).to.not.contain('"b"');
+  });
 });

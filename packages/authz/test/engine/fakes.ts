@@ -2,7 +2,7 @@ import { AuthorizationModel, CORE_FILTER_OPS, DecisionAudit, FALSE, GLOBAL, Nati
 import type { DecisionRequest, EvaluationContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, PermissionDef, Principal, PrincipalType, ResourceFilter, ResourceRef, ResourceType, Trace, Vote } from '../../src/index.js';
 import { PermissionRegistryImpl } from '../../src/engine/registry.js';
 import type { PermissionInput } from '../../src/engine/registry.js';
-import type { EngineLog } from '../../src/engine/authorizer.js';
+import type { AuthzLog } from '../../src/host/log.js';
 import { renderTemplate } from '@spinajs/log-common';
 
 export type VoteSpec = Partial<Vote> | ((req: DecisionRequest, ctx: EvaluationContext) => unknown);
@@ -322,7 +322,7 @@ export interface LogEntry {
   readonly error?: Error;
 }
 
-export class RecordingLog implements EngineLog {
+export class RecordingLog implements Pick<AuthzLog, 'error' | 'warn' | 'debug'> {
   readonly entries: LogEntry[] = [];
 
   error(first: unknown, ...args: unknown[]): void {

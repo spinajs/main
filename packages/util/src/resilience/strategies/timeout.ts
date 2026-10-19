@@ -1,5 +1,6 @@
+import { InvalidArgument } from '@spinajs/exceptions';
 import { TimeSpan, TimeSpanLike } from '../../timespan.js';
-import { ResilienceContext, ResilienceStrategy, _linkSignal, _toTimeSpan } from '../core.js';
+import { ResilienceContext, ResilienceStrategy, _linkSignal } from '../core.js';
 import { TimeoutRejectedException } from '../exceptions.js';
 
 export interface TimeoutStrategyOptions {
@@ -20,10 +21,15 @@ export interface TimeoutStrategyOptions {
  * Works both ways:
  *  - pessimistic: rejects the awaiter with {@link TimeoutRejectedException} when time elapses,
  *  - optimistic: aborts the {@link ResilienceContext.Signal} so cooperative callbacks can stop early.
+ *
+ * @throws InvalidArgument when `Timeout` is missing or empty
  */
 export function timeoutStrategy<T>(options: TimeoutStrategyOptions | TimeSpanLike): ResilienceStrategy<T> {
   const opts: TimeoutStrategyOptions = isTimeoutOptions(options) ? options : { Timeout: options };
-  const timeout = _toTimeSpan(opts.Timeout, TimeSpan.ZERO);
+  const timeout = TimeSpan.parse(opts.Timeout);
+  if (timeout === null) {
+    throw new InvalidArgument('Timeout must be set to a time span', 'Timeout', 'EMPTY_VALUE');
+  }
 
   return (next) => (ctx) => {
     const { controller, dispose } = _linkSignal(ctx.Signal);

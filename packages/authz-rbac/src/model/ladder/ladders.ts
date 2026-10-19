@@ -6,11 +6,11 @@ import type { CompiledGrant, GrantIndex } from '../grants.js';
 import type { RoleEdge, RoleGraph } from '../roles.js';
 
 /*
- * Ladders (design §6.1.1, §6.1.2 "compile"): ranked roles, weakest first, rank = index. Each ladder
+ * Ladders, compiled with the roles: ranked roles, weakest first, rank = index. Each ladder
  * role implicitly extends the role right below it, so it holds the grants (and implies) of every
  * lower role. Membership needs both sides: the role listed in `LadderDef.roles` (the order) and
  * `RoleDef.ladder` naming that ladder. A role that only names a ladder has no rank, and a role that
- * is only listed reads as a typo of the other side, so both are refused at boot (§6.5 rule 9).
+ * is only listed reads as a typo of the other side, so both are refused at boot (boot rule 9).
  */
 
 export interface CompiledLadder {
@@ -46,7 +46,7 @@ const RULE = 'design §6.5 rule 9';
  * @throws AuthzConfigError for a malformed ladder, a ladder naming an unknown role, a role in two
  *   ladders, or a `RoleDef.ladder` that disagrees with `LadderDef.roles`
  */
-export function ladderMembership(defs: ReadonlyMap<string, RoleDef>, ladders: readonly LadderDef[]): readonly CompiledLadder[] {
+function ladderMembership(defs: ReadonlyMap<string, RoleDef>, ladders: readonly LadderDef[]): readonly CompiledLadder[] {
   const out: CompiledLadder[] = [];
   const listedIn = new Map<string, string>();
   ladders.forEach((def, index) => {

@@ -7,7 +7,7 @@ A logger is a named `Log` resolved from DI. Call one of its eight level methods 
 1. `DI.resolve(Log, ['checkout'])` calls the factory registered for `Log` in `log.ts`.
 2. The factory returns the cached logger from `Log.Loggers` when one with that name exists.
 3. When no `Configuration` is registered yet, it returns an `InternalLoggerProxy` from `@spinajs/internal-logger` and caches it in `Log.InternalLoggers`. See [Bootstrap, flushing and shutdown](14-bootstrap-flushing-and-shutdown.md#logging-before-configuration).
-4. Otherwise it resolves `'__logImplementation__'` (by default `FrameworkLogger`) with the name. `FrameworkLogger.resolve()` reads `logger` config, matches rules, resolves targets and filters, and stores itself in `Log.Loggers`.
+4. Otherwise it resolves `'__logImplementation__'` (by default `FrameworkLogger`) with the name, the variables and the parent. `FrameworkLogger.resolve()` reads `logger` config, matches rules, resolves targets and filters, and stores itself in `Log.Loggers`.
 5. A level method, eg. `info()`, first checks `isEnabled(level)` against the effective level. A disabled call returns before any entry is built.
 6. `wrapWrite()` picks the call shape from the first argument and calls `createLogMessageObject()`, which merges ambient context, the core fields (`logger`, `level`, `message`, `error`) and the logger variables, then runs the [serializers](11-structured-logging-and-serializers.md).
 7. `FrameworkLogger.write()` runs the logger [filters](09-filters.md), then writes the entry to every target whose level window holds its level. The result is `Promise.allSettled()` of the target writes, so one failing target never fails the call.
@@ -71,6 +71,8 @@ Every level method (`trace`, `debug`, `info`, `success`, `warn`, `error`, `fatal
 | `Error` | `log.error(err, 'cannot save order %d', id)` | `error` field holds the serialized error. With no message, the message is `err.message`. |
 | plain object | `log.info({ orderId, total }, 'order ${orderId} placed')` | Fields merge into the entry. The message is a template over **these fields only**, then printf arguments apply. |
 
+`log.warnOnce(key, ...)` takes the same shapes after a key and writes only the first time the process sees that key on a logger of that name; see [Logger contract](../log-common/01-logger-contract.md#once-only-and-rate-limited-lines).
+
 ### printf specifiers
 
 | Spec | Renders |
@@ -110,8 +112,8 @@ In the object shape, the message is rendered by `renderTemplate()`:
 
 ## Important behaviour
 
-- **Variables passed at resolve time are dropped.** The factory hands only the name to `'__logImplementation__'`, so the `variables` of `DI.resolve(Log, [name, variables])`, `@Logger(name, variables)` and `child(name, variables)` never reach the logger. A child also does **not** inherit the parent's `addVariable()` values. Call `addVariable()` on the logger you use.
-- **Reserved field names.** Object fields merge after the core fields, so a field named `message` or `level` replaces them. A field named `logger` changes the entry's logger, and `write()` then drops the entry silently.
+- **Variables apply when the logger is created.** The `variables` of `DI.resolve(Log, [name, variables])`, `@Logger(name, variables)` and `child(name, variables)` become the new logger's variables. A child starts with a copy of its parent's variables, overridden by its own. A later resolve of an existing name returns the cached logger and ignores the variables; call `addVariable()` on it instead.
+- **Reserved field names.** Object fields named `logger`, `level` or `message` are ignored: the entry keeps its own logger name, level and message. A `${message}` placeholder in the template still renders the field.
 - **Text layouts expand `${...}` inside the message.** The console and file targets render `message` through `format()` again, so a printf argument like `'${env:DB_PASSWORD}'` prints the environment variable. Field templates escape `$`, so untrusted values are safe only in the object shape.
 - A logger resolves its rules and targets once, on first resolve. Changing `logger` config later does not affect existing loggers; `Log.clearLoggers()` and a new resolve do.
 - Until an instance of `Configuration` is resolved (`DI.has(Configuration)`), `DI.resolve(Log, ...)` returns an `InternalLoggerProxy`. A reference taken then stays a proxy: its calls replay into the real logger, but `setLevel()`, `addTarget()` and `flush()` on it do nothing.
@@ -135,12 +137,11 @@ log.warn({ email: req.body.email }, 'login failed for ${email}');
 ```
 
 ```ts
-// Don't: these variables are dropped by the factory
-const log = DI.resolve(Log, ['billing', { region: 'eu-west-1' }]);
+// Don't: 'billing' already exists, so this returns it without the new variables
+const again = DI.resolve(Log, ['billing', { region: 'eu-west-1' }]);
 
-// Do
-const log = DI.resolve(Log, ['billing']);
-log.addVariable('region', 'eu-west-1');
+// Do: add variables to the existing logger
+again.addVariable('region', 'eu-west-1');
 ```
 
 ## Examples

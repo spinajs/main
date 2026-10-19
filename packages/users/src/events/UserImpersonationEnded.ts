@@ -11,8 +11,10 @@ import { User } from '../models/User.js';
 export class UserImpersonationEnded extends UserEvent {
   public TargetUUID: string;
 
-  constructor(original: User, target: User) {
+  constructor(original?: User, target?: User) {
     super(original);
-    this.TargetUUID = target.Uuid;
+    if (target) {
+      this.TargetUUID = target.Uuid;
+    }
   }
 }

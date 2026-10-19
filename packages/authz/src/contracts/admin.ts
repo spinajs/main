@@ -1,3 +1,4 @@
+import { Exception } from '@spinajs/exceptions';
 import type { Assignment, AssignmentSubject, LinkDef, Policy, RuleDef } from './data.js';
 import type { Permission } from './permission.js';
 import type { Principal, PrincipalRef, ResourceRef } from './principal.js';
@@ -49,13 +50,15 @@ export interface AuthzAdminError {
 //        not_list_filterable, set_cycle, set_too_deep
 
 /** Thrown by write handlers, AdminGuard and AuthzCommandValidator; AuthzAdmin reports it as an AuthzAdminError. */
-export class AuthzAdminFailure extends Error {
+export class AuthzAdminFailure extends Exception {
   readonly code: string;
   readonly field?: string;
 
   constructor(code: string, message?: string, field?: string, options?: ErrorOptions) {
-    super(message ?? code, options);
+    // not `inner`: @spinajs/http spreads an error's own enumerable props into the response body
+    super(message ?? code);
     this.name = new.target.name;
+    if (options && 'cause' in options) Object.defineProperty(this, 'cause', { value: options.cause, writable: true, configurable: true });
     this.code = code;
     this.field = field;
   }

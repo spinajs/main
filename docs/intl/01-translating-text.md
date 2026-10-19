@@ -98,7 +98,7 @@ const config = {
 - **Globals throw before resolve.** `__()` and the other globals call `DI.get(Intl)!`, which is `undefined` until `Intl` has been resolved: the call throws a `TypeError`.
 - **Extra arguments are appended.** `util.format` appends arguments that have no placeholder: `__('hello', 'Anna')` gives `'hello Anna'`.
 - **`__l()` and `__h()` read a lodash property path; `__()` does not.** `__l('errors.notFound')` finds `{ errors: { notFound: ... } }` (a flat key of that exact name wins), while `__()` and `__n()` look up flat keys only.
-- **`__h()` keys are array indexes**, not locale codes: `__h('hello')` gives `[{ 0: 'witaj' }, { 1: 'hello' }]`.
+- **`__h()` keys are locale codes**, one object per locale in `Locales` key order: `__h('hello')` gives `[{ pl: 'witaj' }, { en: 'hello' }]`.
 - **A plural object passed to `__()`** is formatted by `util.format` as an object; use `__n()` for plural phrases.
 - The class name `Intl` shadows the ECMAScript global `Intl` in any module that imports it.
 

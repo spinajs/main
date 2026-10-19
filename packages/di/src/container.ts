@@ -5,7 +5,7 @@ import { ChainArray, TypedArray } from './array.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isChainArray, isFactory, isTypedArray, isPromise } from './helpers.js';
-import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
+import { IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
 import { Class, Factory, ResolveResult } from './types.js';
 import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
@@ -81,6 +81,11 @@ export class Container extends EventEmitter implements IContainer {
   private children: Set<IContainer> = new Set();
 
   /**
+   * Singletons built by resolving a class registered nowhere.
+   */
+  private bareInstances = new WeakSet<object>();
+
+  /**
    * Returns container cache - map object with resolved classes as singletons
    */
   public get Cache() {
@@ -111,21 +116,26 @@ export class Container extends EventEmitter implements IContainer {
     this.clearRegistry();
   }
 
-  public async dispose() {
+  public async dispose(options?: IDisposeOptions) {
     const disposalErrors: Error[] = [];
 
     // Dispose all children first
     await Promise.all([...this.children].map(child =>
-      child.dispose().catch(err => {
+      child.dispose(options).catch(err => {
         disposalErrors.push(err);
         // Continue with other children even if one fails
       })
     ));
     this.children.clear();
+    if (options?.plainOwners) {
+      await this.disposePlainOwners(disposalErrors);
+    }
 
-    // Dispose services in this container
+    // One instance can sit under several keys ( its own and an Array.ofType base ).
+    const disposed = new Set<Service>();
     for (const entry of this.cache) {
-      if (entry.value instanceof Service) {
+      if (entry.value instanceof Service && !disposed.has(entry.value)) {
+        disposed.add(entry.value);
         try {
           await entry.value.dispose();
         } catch (err: any) {
@@ -141,6 +151,25 @@ export class Container extends EventEmitter implements IContainer {
     // Log disposal errors if any occurred
     if (disposalErrors.length > 0) {
       console.warn(`${disposalErrors.length} services failed to dispose properly:`, disposalErrors);
+    }
+  }
+
+  private async disposePlainOwners(errors: Error[]) {
+    const seen = new Set<unknown>();
+    for (const { value } of this.cache) {
+      if (seen.has(value) || value instanceof Service || value instanceof Container) {
+        continue;
+      }
+
+      seen.add(value);
+      const dispose = (value as { dispose?: unknown } | null)?.dispose;
+      if (typeof dispose === 'function') {
+        try {
+          await dispose.call(value);
+        } catch (err: any) {
+          errors.push(err);
+        }
+      }
     }
   }
 
@@ -190,12 +219,14 @@ export class Container extends EventEmitter implements IContainer {
     return new Binder(implementation, this);
   }
 
-  public unregister<T>(implementation: string | Class<T> | Factory<T> | ResolvableObject): void {
-    if (!implementation) {
+  public unregister<T>(implementation: string | Class<T> | Factory<T> | ResolvableObject): void;
+  public unregister<T>(type: string | Class<T>, implementation: Class<unknown> | Factory<unknown> | ResolvableObject): void;
+  public unregister<T>(typeOrImplementation: string | Class<T> | Factory<T> | ResolvableObject, implementation?: Class<unknown> | Factory<unknown> | ResolvableObject): void {
+    if (!typeOrImplementation) {
       throw new InvalidArgument('argument `type` cannot be null or undefined');
     }
 
-    this.Registry.unregister(implementation);
+    this.Registry.unregister(typeOrImplementation, implementation);
   }
 
   public uncache<T>(implementation: string | Class<T> | TypedArray<T>, parent?: boolean): void {
@@ -207,7 +238,7 @@ export class Container extends EventEmitter implements IContainer {
    *
    */
   public child(): IContainer {
-    const child = new Container(this);
+    const child = new (this.constructor as new (parent?: IContainer) => Container)(this);
     this.children.add(child);
 
     // Remove from parent when child is disposed
@@ -247,6 +278,10 @@ export class Container extends EventEmitter implements IContainer {
     return this.Registry.hasRegistered(service, parent);
   }
 
+  public hasImplementation<T>(type: Class<T> | string, parent = true): boolean {
+    return (this.getRegisteredTypes(type, parent) ?? []).some((t) => t !== type);
+  }
+
   /**
    * Checks if service is already resolved and exists in container cache.
    * NOTE: check is only valid for classes that are singletons.
@@ -263,6 +298,16 @@ export class Container extends EventEmitter implements IContainer {
     }
 
     return this.Cache.has(this.getCurrentType(service, null as any, parent ?? true) ?? service, parent);
+  }
+
+  public isCached(instance: unknown, parent = false): boolean {
+    for (const entry of this.cache) {
+      if (entry.value === instance) {
+        return true;
+      }
+    }
+
+    return parent && this.parent !== undefined && this.parent.isCached(instance, true);
   }
 
   /**
@@ -363,6 +408,11 @@ export class Container extends EventEmitter implements IContainer {
       // if its array type, resolve all registered types or throw exception
       const targetType = this.getRegisteredTypes(type);
 
+      // A bare singleton of the element type shares the collection's cache key; it belongs
+      // to the collection only once its class is registered under that key.
+      const hidden = (i: unknown) => this.bareInstances.has(i as object) && !(targetType ?? []).includes((i as object).constructor as Class<unknown>);
+      const listed = (items: unknown[]) => (items.some(hidden) ? items.filter((i) => !hidden(i)) : items) as T[];
+
       // special case for arrays
       // return the cached collection, but ONLY when nothing new has been
       // registered since it was built - otherwise a type registered after the
@@ -374,7 +424,7 @@ export class Container extends EventEmitter implements IContainer {
         const hasUnresolved = (targetType ?? []).some((t) => !isFactory(t) && !cached.some((i) => (i as object)?.constructor === t));
 
         if (!hasUnresolved) {
-          return cached as T[];
+          return listed(cached);
         }
       }
 
@@ -385,10 +435,10 @@ export class Container extends EventEmitter implements IContainer {
       const resolved = resolveEach(targetType, (r) => this.resolveType(type, r, opt ?? undefined));
 
       if (resolved.some((r) => r instanceof Promise)) {
-        return Promise.all(resolved).then(() => this.get(type, false)) as any;
+        return Promise.all(resolved).then(() => listed(this.get(type, false))) as any;
       }
 
-      return this.get(type, false) as T[];
+      return listed(this.get(type, false));
     } else {
 
       const fType = this.getCurrentType(type, tType, check ?? true);
@@ -569,9 +619,13 @@ export class Container extends EventEmitter implements IContainer {
       return owner.resolveType(sourceType, tType, options, true);
     }
 
-    // A registry entry written into a non-owner would hide later registrations in the owner.
-    const register = !exact && owner === this;
     const ownsKey = this.Registry.ownsRegistration(sName);
+
+    // A registry entry written into a non-owner would hide later registrations in the owner.
+    const register = !exact && owner === this && ownsKey;
+
+    // Registered nowhere: the class is built as is, but recording it would make it look registered.
+    const bare = !exact && owner === this && !ownsKey;
 
     // A container that registered the key itself must not pick up an ancestor's instance
     // that only shares the class name.
@@ -583,12 +637,20 @@ export class Container extends EventEmitter implements IContainer {
       }
 
       if (register) {
-        this.Registry.register(sName, t, !ownsKey);
+        this.Registry.register(sName, t);
       }
 
       // For singletons, don't check cache here - let getOrCreate handle it atomically
-      return this.getNewInstance(t, i, options);
+      const created = this.getNewInstance(t, i, options);
+      if (!bare) {
+        return created;
+      }
 
+      const markBare = (instance: unknown) => {
+        this.bareInstances.add(instance as object);
+        return instance;
+      };
+      return isPromise(created) ? created.then(markBare) : markBare(created);
     };
 
     // For singletons, use atomic cache operations to prevent concurrent creation

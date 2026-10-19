@@ -7,7 +7,7 @@
 1. **Registration.** Importing `@spinajs/orm-mysql` runs `@Injectable('orm-driver-mysql') @NewInstance()` on `MySqlOrmDriver`: the class is registered in the root container under the string `orm-driver-mysql` and under itself.
 2. **Resolve.** `Orm.createConnections()` reads `db.Connections`, checks `Container.hasRegistered(c.Driver)`, and resolves `orm-driver-mysql` with the connection entry. `OrmDriver`'s constructor merges the entry into `Options`.
 3. **Dialect.** The container calls `MySqlOrmDriver.resolve()`: `OrmDriver.resolve()` creates the `orm-driver-<Name>` logger and the child container `this.Container`, `SqlDriver.resolve()` registers the shared SQL classes, and `MySqlOrmDriver.resolve()` registers the MySQL dialect. See [Customizing the dialect](08-customizing-the-dialect.md#what-mysqlormdriverresolve-registers).
-4. **Connect.** `Orm` calls `connect()`. It builds a `mysql2` pool from `Host`, `User`, `Password`, `Port`, `Database` and the resolved `Pool.*` values, takes one connection to prove the link, releases it, and sets `State` to `Connected`. A failed test connection ends the pool and rejects; `Orm` then calls `disconnect()` and throws `OrmException('Failed to connect to database for connection <Name> ...')`.
+4. **Connect.** `Orm` calls `connect()`. It builds a `mysql2` pool from `poolConfig()` (`Options`, then `Host`, `User`, `Password`, `Port`, `Database`, `Encoding` and the resolved `Pool.*` values), takes one connection to prove the link, releases it, makes the pool `this.Pool` and sets `State` to `Connected`. A pool it replaces (a reconnect) is ended once every connection it lent out is back. A failed test connection ends the new pool, keeps the previous one and rejects; on the first connect `Orm` then calls `disconnect()` and throws `OrmException('Failed to connect to database for connection <Name> ...')`.
 5. **Health probe.** `Orm` calls `startHealthCheck()`. Every `Resilience.HealthCheckInterval` ms, `ping()` runs `SELECT 1` once, outside the retry loop. A failed probe sets `Degraded` and calls `connect()` again.
 6. **Execute.** An awaited builder calls `SqlDriver.execute()`, which compiles and calls `MySqlOrmDriver.executeOnDb(stmt, params, context)`:
    1. `withReconnect()` wraps the attempt.
@@ -15,7 +15,7 @@
    3. Otherwise `Pool.getConnection()` takes a connection. The wait is recorded in the `orm_pool_acquire_seconds` histogram through `observeAcquireSeconds()`.
    4. `connection.query(stmt, params)` runs with `?` placeholders; the connection is released exactly once, also when `query()` throws synchronously.
    5. The result is shaped by `QueryContext` (table below).
-7. **Errors.** Any `mysql2` error is wrapped in `OrmException('Error executing orm command ', { Host, User, Name }, stmt, params, err)`. `withReconnect()` retries it only when `isRetryableError()` says the transport died. See [Retries](#retries).
+7. **Errors.** Any `mysql2` error is wrapped in `OrmException('Error executing orm command ', { Host, User, Name }, stmt, params, err)`. `withReconnect()` retries it only when `isRetryableError()` says the transport died. See [Retries](#retries). `SqlDriver.execute()` then rejects a duplicate key (`errno === 1062`, `isUniqueViolation()`) with `ResourceDuplicated`, the `OrmException` as its `inner`.
 
 | `QueryContext` | `executeOnDb()` resolves with |
 | --- | --- |
@@ -65,8 +65,8 @@ Connection keys are listed in [Connections](../orm/01-connections.md#configurati
 | `db.Connections[].Pool.AcquireTimeout` | `number` | `10000` | ms | **Not applied.** The pool queues without limit (`waitForConnections: true`, `queueLimit: 0`). |
 | `db.Connections[].PoolLimit` | `number` | | | Deprecated. `Pool.Max` when `Pool.Max` is absent. |
 | `db.Connections[].Resilience.*` | `IConnectionResilienceOptions` | `30000`, `5`, `200`, `5000` | | Health probe interval and retry policy. |
-| `db.Connections[].Encoding` | `string` | | | **Not applied.** The connection uses `mysql2`'s default charset, `UTF8MB4_UNICODE_CI`. |
-| `db.Connections[].Options` | `any` | | | **Not applied.** TLS, `timezone`, `decimalNumbers` and other `mysql2` options are not passed. Override `connect()` to set them: [example](#connection-setup-custom-implementation). |
+| `db.Connections[].Encoding` | `string` | `mysql2`: `UTF8MB4_UNICODE_CI` | a `mysql2` charset or collation name, eg. `utf8mb4`, `UTF8MB4_GENERAL_CI` | `charset` of the pool. An unknown name (eg. `utf-8`) makes `connect()` reject with `Unknown charset`. |
+| `db.Connections[].Options` | `object` | | `mysql2` pool options | Passed to `mysql2` as is: `ssl`, `timezone`, `connectTimeout`, `decimalNumbers` and so on. The keys above that have their own setting win over the same key here. `mysql2` logs `Ignoring invalid configuration option` for a key it does not know. |
 | `db.Connections[].AliasSeparator` | `string` | `$` | | Wraps generated table aliases. |
 | `db.Connections[].Migration.*` | | | | See [Migrations](../orm/10-migrations.md) and [DDL is not transactional](06-schema-views-and-events.md#ddl-is-not-transactional). |
 
@@ -111,7 +111,7 @@ export class ShopConfiguration extends FrameworkConfiguration {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | MySQL driver | `'orm-driver-mysql'` and `MySqlOrmDriver`; `@NewInstance()`, one instance per connection entry, resolved by `Orm` at boot from `Driver` | `MySqlOrmDriver` | `MySqlSSHOrmDriver` (`'orm-driver-mysql-ssh'`, see [SSH tunnel](02-ssh-tunnel.md)) | Subclass with `@Injectable('<string>') @NewInstance()`. Use a new string for chosen connections, or `'orm-driver-mysql'` to replace it everywhere. Register before `Orm` resolves. |
-| Connection setup | `connect()` (public) | `mysql2.createPool()` with the keys above | | Override to pass `ssl`, `timezone`, `charset` or any other `mysql2` option. Call `setState(ConnectionState.Connected)` when the link is proven. |
+| Connection setup | `poolConfig()` (protected), `connect()` (public) | `poolConfig()` maps the keys above; `connect()` opens and proves the pool | | Override `poolConfig()` to compute `mysql2` options that configuration cannot hold, eg. a CA read from a file. Override `connect()` only to change how the pool is opened; call `setState(ConnectionState.Connected)` when the link is proven. |
 | Retry policy | `isRetryableError(err)` (protected) | shared codes, `fatal` errors, never inside a transaction | | Override, call `super.isRetryableError(err)` first so the transaction guard stays. |
 | Pool gauges | `poolMetrics()` (public) | reads `mysql2`'s internal `_allConnections`, `_freeConnections`, `_connectionQueue`; zeros when they are absent | | Override when you swap the pool implementation. Must never throw. |
 | Health probe | `ping()` (public) | `SELECT 1` once, no retry | | Override to probe something stronger, eg. a replica's lag. Must return `false`, not throw. |
@@ -121,55 +121,24 @@ export class ShopConfiguration extends FrameworkConfiguration {
 
 ### Connection setup: custom implementation
 
-Override `connect()` when a connection needs `mysql2` options the driver does not pass: TLS, a session timezone, a charset. Keep the shape of the stock method: build the pool from `resolvedPoolOptions()`, prove one connection, then set `Connected`. Register the class before `Orm` resolves.
+Override `poolConfig()` when a `mysql2` option has to be computed at runtime, eg. a CA certificate read from a file whose path is in configuration. `connect()` keeps proving the pool and replacing the old one. Register the class before `Orm` resolves.
 
 ```ts sample
 import { readFileSync } from 'fs';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { ConnectionState, OrmDriver } from '@spinajs/orm';
 import { MySqlOrmDriver } from '@spinajs/orm-mysql';
-import * as mysql from 'mysql2';
+import { PoolOptions } from 'mysql2';
 
 /**
- * Reads `Options.CaFile` and `Encoding` from the connection entry, which the stock driver ignores.
+ * Reads the CA certificate from `Options.CaFile`; everything else in `Options` reaches mysql2 as is.
  */
 @Injectable('orm-driver-mysql-tls')
 @NewInstance()
 export class TlsMySqlOrmDriver extends MySqlOrmDriver {
-  public connect(): Promise<OrmDriver> {
-    const pool = this.resolvedPoolOptions();
-    const previous = this.Pool;
+  protected poolConfig(): PoolOptions {
+    const { CaFile, ...config } = super.poolConfig() as PoolOptions & { CaFile: string };
 
-    this.Pool = mysql.createPool({
-      host: this.Options.Host,
-      user: this.Options.User,
-      password: this.Options.Password,
-      port: this.Options.Port,
-      database: this.Options.Database,
-      waitForConnections: true,
-      connectionLimit: pool.Max,
-      maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
-      idleTimeout: pool.IdleTimeout,
-      queueLimit: 0,
-      charset: this.Options.Encoding ?? 'UTF8MB4_UNICODE_CI',
-      timezone: 'Z',
-      ssl: { ca: readFileSync(this.Options.Options.CaFile, 'utf8'), rejectUnauthorized: true },
-    });
-
-    return new Promise((resolve, reject) => {
-      this.Pool.getConnection((err, connection) => {
-        if (err) {
-          this.Pool.end(() => reject(err));
-          return;
-        }
-
-        connection.release();
-        // a reconnect replaces the pool, so the old one is closed here
-        previous?.end(() => undefined);
-        this.setState(ConnectionState.Connected);
-        resolve(this);
-      });
-    });
+    return { ...config, ssl: { ca: readFileSync(CaFile, 'utf8'), rejectUnauthorized: true } };
   }
 }
 ```
@@ -177,7 +146,7 @@ export class TlsMySqlOrmDriver extends MySqlOrmDriver {
 Use it from a connection entry:
 
 ```ts
-{ Name: 'billing', Driver: 'orm-driver-mysql-tls', Host: 'db.internal', User: 'billing', Password: '...', Database: 'billing', Encoding: 'UTF8MB4_GENERAL_CI', Options: { CaFile: '/etc/ssl/rds-ca.pem' } }
+{ Name: 'billing', Driver: 'orm-driver-mysql-tls', Host: 'db.internal', User: 'billing', Password: '...', Database: 'billing', Encoding: 'UTF8MB4_GENERAL_CI', Options: { CaFile: '/etc/ssl/rds-ca.pem', timezone: 'Z' } }
 ```
 
 ### Retry policy: custom implementation
@@ -222,10 +191,10 @@ Registered under `'orm-driver-mysql'`, it replaces the stock driver for every co
 ## Important behaviour
 
 - Importing the package registers both drivers. `DI.register(MySqlOrmDriver).as('orm-driver-mysql')` repeats what the decorator did; it is harmless.
-- `Encoding`, `Options` and `Pool.AcquireTimeout` are read by no code in this driver. Without an override, the session timezone is `mysql2`'s `local` and there is no TLS.
-- `decimalNumbers` stays off: `DECIMAL` and `NUMERIC` values come back as strings, so precision above 2^53 survives. `ResponseSchemaTypes` documents them as `string` for the generated response schema.
-- `connect()` assigns a new pool without ending the previous one. A reconnect by `withReconnect()` or the health probe leaves the old pool's sockets open.
-- A failed `connect()` ends the new pool but keeps it as `this.Pool`. The next retry attempt fails with `mysql2`'s `Pool is closed.`, which has no code and is not retryable, so `withReconnect()` stops early. The next health tick reconnects.
+- `Pool.AcquireTimeout` is not applied: `mysql2` has no acquire timeout, and the pool queues without limit. Without `Options.timezone` the session timezone is `mysql2`'s `local`; without `Options.ssl` there is no TLS.
+- `decimalNumbers` stays off unless `Options` turns it on: `DECIMAL` and `NUMERIC` values come back as strings, so precision above 2^53 survives. `ResponseSchemaTypes` documents them as `string` for the generated response schema; a connection with `Options.decimalNumbers: true` needs a driver that redeclares it ([example](05-table-reflection.md#response-schema-types-custom-implementation)).
+- A reconnect by `withReconnect()` or the health probe ends the replaced pool once every connection it lent out is back (checked every second), so a transaction still running on it keeps its connection.
+- A failed `connect()` ends only the pool it just created; `this.Pool` stays the previous pool, so the next retry attempt fails with that pool's transport error and `withReconnect()` keeps retrying.
 - `connect()` sets `Connected` itself, because it proves the link with a real connection.
 - `ping()` bypasses `withReconnect()`, so a dead server does not turn every probe into a reconnect loop.
 - `OrmException` from a failed statement carries the bindings (`params`). Log it with care when bindings hold personal data.
@@ -233,7 +202,7 @@ Registered under `'orm-driver-mysql'`, it replaces the stock driver for every co
 
 ## Best practices
 
-- Keep `Options` out of connection entries unless a subclass reads it; the stock driver ignores it.
+- Put only `mysql2` pool options in `Options`; it reaches `mysql2` unfiltered.
 - When you subclass the driver, call `super.resolve()` first in `resolve()` and keep `@NewInstance()`: each connection needs its own driver and container.
 - Put credentials in environment variables and read them in the configuration class, as in the sample above.
 - Watch `orm_pool_waiting` and `orm_pool_acquire_seconds`: with an unbounded queue, a saturated pool shows up as latency, not as errors.
@@ -241,11 +210,11 @@ Registered under `'orm-driver-mysql'`, it replaces the stock driver for every co
 ## Patterns and antipatterns
 
 ```ts
-// Don't: the stock driver passes neither Options nor Encoding to mysql2; this connection runs without TLS
-{ Name: 'billing', Driver: 'orm-driver-mysql', Encoding: 'latin1', Options: { ssl: { ca: '...' }, timezone: 'Z' } }
+// Don't: 'utf-8' is not a MySQL charset name; connect() rejects with Unknown charset
+{ Name: 'billing', Driver: 'orm-driver-mysql', Encoding: 'utf-8', Options: { ssl: { ca: '...' }, timezone: 'Z' } }
 
-// Do: a driver subclass that reads them (see "Connection setup: custom implementation")
-{ Name: 'billing', Driver: 'orm-driver-mysql-tls', Encoding: 'LATIN1_SWEDISH_CI', Options: { CaFile: '/etc/ssl/ca.pem' } }
+// Do
+{ Name: 'billing', Driver: 'orm-driver-mysql', Encoding: 'utf8mb4', Options: { ssl: { ca: '...' }, timezone: 'Z' } }
 ```
 
 ```ts

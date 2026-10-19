@@ -1,15 +1,7 @@
 import type { IdentityRef } from '@spinajs/authn/contracts';
+import type { MfaRecord } from '@spinajs/authn-orm';
 
-/** One MFA step of an identity as stored. */
-export interface MfaRecord {
-  /** Cipher text as `put` received it; stores never encrypt or decrypt. */
-  readonly secretEnc: string;
-  readonly keyId: string;
-  readonly confirmedAt: Date | null;
-  /** The last accepted time step. */
-  readonly lastStep: number | null;
-  readonly createdAt: Date;
-}
+export type { MfaRecord };
 
 /**
  * `authn_mfa` and `authn_recovery_code` behind `TotpMfaStep`. Apps register `DbMfaSecretStore` by importing

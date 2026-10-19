@@ -9,9 +9,10 @@ It is a work in progress: the connection is built at boot, but every file operat
 1. `fsService.resolve()` (from `@spinajs/fs`) reads `fs.providers`, orders the entries by their `provider` key, and looks up the registered `fs` type whose class name equals the entry's `service` (`'fsOneDrive'`).
 2. `DI.resolve(fsOneDrive, [entry])` creates the instance with the whole provider entry as `Options`. `@PerInstanceCheck()` returns the existing instance when one with the same `name` exists.
 3. `fsOneDrive.resolve()` runs:
-   1. creates `OneDriveCredentials`, a `ClientSecretCredential` from `tenantId`, `clientId` and `clientSecret`;
-   2. creates `Client` with `Client.initWithMiddleware()`, with `debugLogging` set from `debug` and an auth provider that requests a token for `https://graph.microsoft.com/.default` on every Graph call;
-   3. sets `TempFs` to `getFs('fs-temp')`.
+   1. creates `OneDriveCredentials`, a `ClientSecretCredential` from `tenantId`, `clientId` and `clientSecret`, with `fs.onedrive.aad_endpoint` as authority host;
+   2. creates `Client` with `Client.initWithMiddleware()`, with `debugLogging` set from `debug`, the base URL taken from `fs.onedrive.graph_endpoint` (plus `v1.0`) and an auth provider that requests a token for `GRAPH_SCOPE` (`https://graph.microsoft.com/.default`, read from the instance's class, so a subclass can override it) on every Graph call.
+
+   `TempFs` is not set in `resolve()`: it is looked up lazily from `fs-temp` when first used.
 4. `fsService` publishes the instance under its `name`, then wraps it with every registered `FsDecorator`.
 5. Callers get it through `getFs('<name>')`, `@FileSystem('<name>')` or `DI.resolve('__file_provider__', ['<name>'])`.
 6. Any file operation on the instance throws `MethodNotImplemented` with the message `fs onedrive provider does not implement '<method>' yet`.
@@ -19,7 +20,6 @@ It is a work in progress: the connection is built at boot, but every file operat
 Boot fails when:
 
 - `tenantId`, `clientId` or `clientSecret` is empty: `ClientSecretCredential` throws an `Error` in step 3.1.
-- no provider named `fs-temp` exists yet: `getFs('fs-temp')` throws `ResolveException` in step 3.3.
 
 No token is requested at boot. A wrong secret or tenant surfaces on the first Graph call a subclass makes.
 
@@ -51,11 +51,11 @@ Each OneDrive provider is one entry in `fs.providers`. `IOnedriveConfig` types t
 | `fs.providers[].clientSecret` | `string` | none | client secret value | App registration secret; required |
 | `fs.providers[].drive` | `string` | none | Graph drive id | Stored in `Options.drive`; `fsOneDrive` does not read it, subclasses use it to build drive paths |
 | `fs.providers[].debug` | `boolean` | `undefined` (off) | `true`, `false` | Passed as `debugLogging` to the Graph client |
-| `fs.providers[].provider` | `string` | none | `'fs-temp'` | Not read by `fsOneDrive`; `fsService` creates the named provider first. Set it so `fs-temp` exists when `resolve()` runs |
-| `fs.onedrive.aad_endpoing` | `string` | `'https://login.microsoftonline.com/'` | URL | Shipped in the package config; not read by any code |
-| `fs.onedrive.graph_endpoint` | `string` | `'https://graph.microsoft.com/'` | URL | Shipped in the package config; not read by any code |
+| `fs.providers[].provider` | `string` | none | `'fs-temp'` | Not read by `fsOneDrive`; `fsService` creates the named provider first. Optional: `TempFs` is resolved lazily |
+| `fs.onedrive.aad_endpoint` | `string` | `'https://login.microsoftonline.com/'` | URL | Authority host of the credential |
+| `fs.onedrive.graph_endpoint` | `string` | `'https://graph.microsoft.com/'` | URL | Graph host; the client base URL is this plus `v1.0`. The token scope stays `GRAPH_SCOPE` |
 
-The provider also needs a temp provider named exactly `fs-temp`. The name is hard-coded.
+Subclasses that use `TempFs` need a temp provider named exactly `fs-temp`. The name is hard-coded, but it is resolved on first use, so config order does not matter.
 
 ```ts
 export default {
@@ -104,32 +104,17 @@ Members a subclass can use:
 - The async methods return a rejected promise. `tmppath()` and `resolvePath()` are synchronous and throw directly.
 - The inherited `hash()` and `metadata()` call `resolvePath()`, so they reject with `MethodNotImplemented` too.
 - `fsOneDrive` does not implement `signedUrl()`.
-- The temp provider name `fs-temp` is hard-coded. Without `provider: 'fs-temp'` on the entry, boot depends on the order of `fs.providers`.
-- The `Config` field (`@Config('fs.onedrive')`) receives the shipped `{ aad_endpoing, graph_endpoint }` object, not provider options. The provider reads only `Options`.
+- The temp provider name `fs-temp` is hard-coded and resolved lazily on first `TempFs` access; a missing provider throws `ResolveException` then, not at boot.
+- The `Config` field (`@Config('fs.onedrive')`) holds the `{ aad_endpoint, graph_endpoint }` object, not provider options. Provider options come from `Options`.
 - The auth provider calls `ClientSecretCredential.getToken()` on each Graph request and sends an empty token when the call returns `null`.
 
 ## Best practices
 
 - Keep `clientSecret` out of config files: read it from `process.env` in the config entry.
-- Set `provider: 'fs-temp'` on every OneDrive entry, so `fsService` creates `fs-temp` first.
+- Declare an `fs-temp` provider if your subclass uses `TempFs`.
 - Give each drive its own entry and `name`; `@PerInstanceCheck()` keeps one Graph client per name.
 - Check for `MethodNotImplemented` in code that accepts any `fs` provider, until the operations you call are implemented.
 
-## Patterns and antipatterns
-
-```ts
-// Don't: fsService may create the OneDrive provider before fs-temp, and resolve() then fails
-providers: [
-  { service: 'fsOneDrive', name: 'onedrive', tenantId, clientId, clientSecret, drive },
-  { service: 'fsTemp', name: 'fs-temp', provider: 'fs-local' },
-]
-
-// Do: declare the dependency, fsService orders creation by it
-providers: [
-  { service: 'fsOneDrive', name: 'onedrive', provider: 'fs-temp', tenantId, clientId, clientSecret, drive },
-  { service: 'fsTemp', name: 'fs-temp', provider: 'fs-local' },
-]
-```
 
 ## Examples
 

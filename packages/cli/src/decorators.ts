@@ -77,11 +77,8 @@ export function Option(
           }
         : flagsOrConfig;
 
-    let args: IOption[] = [];
-
-    if (Reflect.hasMetadata(META_OPTION, target)) {
-      args = Reflect.getMetadata(META_OPTION, target) as IOption[];
-    }
+    // copy: getMetadata also returns a decorated parent's list, which must stay untouched.
+    const args = [...((Reflect.getMetadata(META_OPTION, target) as IOption[] | undefined) ?? [])];
     // stacked decorators apply bottom-up, so unshift to preserve the
     // top-to-bottom declaration order.
     args.unshift(arg);
@@ -131,11 +128,8 @@ export function Argument(
           }
         : nameOrConfig;
 
-    let args: IArgument[] = [];
-
-    if (Reflect.hasMetadata(META_ARGUMENT, target)) {
-      args = Reflect.getMetadata(META_ARGUMENT, target) as IArgument[];
-    }
+    // copy: getMetadata also returns a decorated parent's list, which must stay untouched.
+    const args = [...((Reflect.getMetadata(META_ARGUMENT, target) as IArgument[] | undefined) ?? [])];
     // stacked decorators apply bottom-up, so unshift to preserve the
     // top-to-bottom declaration order.
     args.unshift(arg);

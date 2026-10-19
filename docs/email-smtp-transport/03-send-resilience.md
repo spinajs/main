@@ -1,32 +1,34 @@
 # Send resilience
 
-`EmailSenderSmtp` wraps every `Transporter.sendMail()` call in a resilience pipeline from `@spinajs/util`: a timeout and an exponential retry with jitter. It covers short SMTP outages inside one `send()` call; the queue retry of `sendDeferred()` covers longer ones.
+`EmailSenderSmtp` wraps every `Transporter.sendMail()` call in a resilience pipeline from `@spinajs/util`: an exponential retry with jitter around a per-attempt timeout. It covers short SMTP outages inside one `send()` call; the queue retry of `sendDeferred()` covers longer ones.
 
 ## How it works
 
 1. **Build.** `resolve()` calls `buildSendPipeline()` once and stores the result in `SendPipeline`.
-2. **Default pipeline.** `buildSendPipeline()` returns `new ResiliencePipelineBuilder().addTimeout(timeout).addRetry({ MaxRetryAttempts: retries, Delay: delay, BackoffType: BackoffType.Exponential, UseJitter: true }).build()`.
-3. **Order.** The first strategy added is the outermost. The timeout wraps the retry, so `timeout` bounds the whole send: every attempt and every delay between attempts.
+2. **Default pipeline.** `buildSendPipeline()` returns `new ResiliencePipelineBuilder().addRetry({ MaxRetryAttempts: retries, Delay: delay, BackoffType: BackoffType.Exponential, UseJitter: true, ShouldHandle }).addTimeout(timeout).build()`.
+3. **Order.** The first strategy added is the outermost. The retry wraps the timeout, so `timeout` bounds each attempt; a timed-out attempt is retried.
 4. **Execute.** `send()` calls `SendPipeline.execute(() => Transporter.sendMail(message))`.
-5. **Retry.** Any error is retried, up to `retries` times. Retry `n` waits `delay * 2^(n-1)` ms, with jitter of 0.5x to 1.5x.
-6. **Give up.** After the last attempt the last error is rethrown. When `timeout` elapses first, `TimeoutRejectedException` is thrown.
+5. **Retry.** Any error except an SMTP `5xx` reply (`responseCode` 500 or above) is retried, up to `retries` times; a timeout counts as retryable. Retry `n` waits `delay * 2^(n-1)` ms, with jitter of 0.5x to 1.5x.
+6. **Give up.** After the last attempt, or on a `5xx` reply, the last error is rethrown. When the last attempt times out, that error is `TimeoutRejectedException`.
 7. **Report.** `send()` redacts, logs and rethrows the error; see [Sending mail](02-sending-mail.md). Under `sendDeferred()`, the queue job then fails and the queue retries it, up to `email.retry.count` times.
 
 ```mermaid
 sequenceDiagram
   participant S as EmailSenderSmtp.send()
-  participant TO as Timeout (outer)
-  participant R as Retry (inner)
+  participant R as Retry (outer)
+  participant TO as Timeout (inner)
   participant NM as Transporter.sendMail
-  S->>TO: execute
-  TO->>R: start, timer runs
-  R->>NM: attempt 1
-  NM-->>R: error
-  R->>R: wait ~delay
-  R->>NM: attempt 2
-  NM-->>R: info
-  R-->>TO: info
-  TO-->>S: info, or TimeoutRejectedException when the timer fires first
+  S->>R: execute
+  R->>TO: attempt 1, timer runs
+  TO->>NM: sendMail
+  NM-->>TO: error, or TimeoutRejectedException when the timer fires first
+  TO-->>R: error
+  R->>R: wait ~delay, unless 5xx
+  R->>TO: attempt 2, new timer
+  TO->>NM: sendMail
+  NM-->>TO: info
+  TO-->>R: info
+  R-->>S: info, or the last error
 ```
 
 ## Configuration
@@ -35,7 +37,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `email.connections[].resilience.retries` | `number` | `2` | `0` or more | Retries after the first attempt. `0` sends once. |
 | `email.connections[].resilience.delay` | `number` | `500` | ms, `0` or more | Base delay before the first retry; doubles each retry, with jitter. |
-| `email.connections[].resilience.timeout` | `number` | `30000` | ms, above `0` | Budget for the whole send, retries and delays included. |
+| `email.connections[].resilience.timeout` | `number` | `30000` | ms, above `0` | Budget for one attempt. |
 | `email.retry.count` | `number` | `3` | `0` or more | Queue-level retries of a deferred mail, in `@spinajs/email`. |
 
 ```ts
@@ -56,20 +58,20 @@ export default {
 };
 ```
 
-With the defaults a failing server costs up to 3 attempts and about 1.5 s of delays, all inside 30 s.
+With the defaults a failing server costs up to 3 attempts of at most 30 s each, plus about 1.5 s of delays.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Send pipeline | `protected buildSendPipeline(): ResiliencePipeline<SentMessageInfo>`, called once per sender in `resolve()`; not in DI | timeout, then exponential retry with jitter | any pipeline from `ResiliencePipelineBuilder`: retry, timeout, circuit breaker, concurrency limiter, fallback, hedging | Subclass `EmailSenderSmtp`, override `buildSendPipeline()`, register the subclass under `EmailSender` and set `service` to its class name |
+| Send pipeline | `protected buildSendPipeline(): ResiliencePipeline<SentMessageInfo>`, called once per sender in `resolve()`; not in DI | exponential retry with jitter, skipping `5xx`, around a per-attempt timeout | any pipeline from `ResiliencePipelineBuilder`: retry, timeout, circuit breaker, concurrency limiter, fallback, hedging | Subclass `EmailSenderSmtp`, override `buildSendPipeline()`, register the subclass under `EmailSender` and set `service` to its class name |
 
 ### Send pipeline: custom implementation
 
 Override `buildSendPipeline()` when the config keys are not enough:
 
-- a timeout per attempt instead of per send (retry outside, timeout inside);
-- no retry for permanent SMTP rejections (`responseCode` 5xx);
+- a timeout for the whole send instead of per attempt (timeout outside, retry inside);
+- a different retry filter, for example no retry on timeouts;
 - a circuit breaker, so a dead server fails fast instead of holding every send for the full timeout;
 - a concurrency limit per connection.
 
@@ -133,9 +135,9 @@ Here `timeout` applies to each attempt and a 5xx rejection fails at once. When h
 
 ## Important behaviour
 
-- `timeout` is the budget of the whole `send()` call, not of one attempt, although the `EmailConnectionOptions` comment says "single SMTP send attempt". With `timeout: 30000` and one hanging attempt, no retry runs.
-- The timeout does not cancel `sendMail()`. `nodemailer` ignores the abort signal, so a timed-out message can still be delivered later. Under `sendDeferred()` the queue then retries the job, and the recipient gets the mail twice.
-- Every error is retried, permanent ones included: a `550` mailbox rejection is sent `retries + 1` times. Override `buildSendPipeline()` to filter by `responseCode`.
+- `timeout` is the budget of one attempt. A whole `send()` can take up to `(retries + 1) * timeout` plus the delays.
+- The timeout does not cancel `sendMail()`. `nodemailer` ignores the abort signal, so a timed-out message can still be delivered later. The in-process retry, and under `sendDeferred()` the queue retry, can then deliver it twice.
+- A `5xx` reply (for example a `550` mailbox rejection) is not retried in-process. The queue retry of `sendDeferred()` still retries it.
 - SMTP sends are not idempotent. A retry after a connection drop that happened after the server accepted the message delivers a duplicate.
 - In-process and queue retries multiply. A deferred mail with `email.retry.count: 3` and `retries: 2` can reach the server up to 12 times.
 - With `IEmail.redact` set, the thrown error is a new plain `Error`: `instanceof TimeoutRejectedException` no longer matches.
@@ -145,7 +147,7 @@ Here `timeout` applies to each attempt and a 5xx rejection fails at once. When h
 ## Best practices
 
 - Keep `retries` low (`0` to `2`) on connections used with `sendDeferred()`; the queue already retries.
-- Set `timeout` above the server's slowest normal response, and above `retries * delay * 2` so the retries can run.
+- Set `timeout` above the server's slowest normal response for one message.
 - Set `nodemailer` socket timeouts (`options: { connectionTimeout, socketTimeout }`) below `timeout`. They close the socket; the pipeline timeout only stops waiting.
 - Test a custom pipeline without a server: replace `Transporter` with a fake and build `SendPipeline` the way the package tests do.
 

@@ -27,7 +27,7 @@ const toRow = (r: StoredRow): MembershipRow => ({ memberKey: String(r.member_key
 const sorted = (keys: Iterable<string>): string[] => [...new Set(keys)].sort();
 
 /**
- * `MembershipStore` over `authz_subject_membership` (design §4.3), on the `authz.rbac.connection` connection.
+ * `MembershipStore` over `authz_subject_membership`, on the `authz.rbac.connection` connection.
  * The RBAC write handlers keep it right inside each AuthzAdmin batch; `authz:membership-rebuild` rewrites it.
  * Registered by class name; `authz.rbac.stores.membership` selects it.
  */

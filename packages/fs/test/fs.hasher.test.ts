@@ -71,6 +71,14 @@ describe('fs hasher tests', function () {
         expect(md5Result).to.eq(MD5_HELLO_WORLD);
     });
 
+    it('should not reuse a hasher resolved with other HashOptions', async () => {
+        // constructed directly: DI resolves by class name and may pick another build of the class
+        const hasher = new DefaultFileHasher('shake256', { outputLength: 4 });
+
+        expect(hasher.__checkInstance__(['shake256', { outputLength: 4 }])).to.be.true;
+        expect(hasher.__checkInstance__(['shake256', { outputLength: 8 }])).to.be.false;
+    });
+
     it('should hash a file with a base64 output encoding', async () => {
         const hasher = await DI.resolve<FileHasher>(FileHasher);
         const result = await hasher.hash(dir('sample-files/test.txt'), 'base64');

@@ -161,6 +161,7 @@ describe('key registry contract', () => {
             { name: 'list', modifiers: ['abstract'], optional: false, params: ['owner'] },
             { name: 'revoke', modifiers: ['abstract'], optional: false, params: ['owner', 'kid', 'ctx', 'opts'] },
             { name: 'byId', modifiers: ['abstract'], optional: false, params: ['kid'] },
+            { name: 'touch', modifiers: [], optional: true, params: ['kid', 'at'] },
             { name: 'challenge', modifiers: ['abstract'], optional: false, params: ['req', 'ctx'] },
           ],
         },
@@ -268,6 +269,8 @@ describe('key registry contract', () => {
       same<ReturnType<KeyRegistry['revoke']>, Promise<boolean>>(true);
       same<Parameters<KeyRegistry['byId']>, [string]>(true);
       same<ReturnType<KeyRegistry['byId']>, Promise<KeyRecord | null>>(true);
+      same<Parameters<NonNullable<KeyRegistry['touch']>>, [string, Date]>(true);
+      same<ReturnType<NonNullable<KeyRegistry['touch']>>, Promise<void>>(true);
       same<Parameters<KeyRegistry['challenge']>, [KeyChallengeRequest, AuthnContext]>(true);
       same<ReturnType<KeyRegistry['challenge']>, Promise<KeyChallengeResult>>(true);
     });

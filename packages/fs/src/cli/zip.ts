@@ -42,6 +42,7 @@ export class FsZipCommand extends CliCommand {
       );
     } catch (err) {
       this.Log.error({ error: err, fsName }, 'Cannot zip on ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

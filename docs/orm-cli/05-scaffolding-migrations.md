@@ -8,8 +8,6 @@ spinajs migrate-create --name CreateInvoices --dir ./src/migrations --connection
 spinajs migrate-create --name SeedDemoCustomers -e local
 ```
 
-The command is skipped by `Cli` discovery as shipped; see [Command discovery](07-command-discovery.md#migrate-create-is-not-discovered) for the one-line fix.
-
 ## How it works
 
 1. `MigrateCreateCommand.execute(options)` takes `name`, `connection` (default `DEFAULT_MIGRATION_CONNECTION`, `'default'`) and `env`. `env` is `options.env`, or else `parseEnvArgv()` reads `--env <value>` or `--env=<value>` from `process.argv`.

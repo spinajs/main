@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { META_COMMAND } from '@spinajs/cli';
 import type { ICommand } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { Orm } from '@spinajs/orm';
 import { DbAuthnAuditSink, DbAuthnThrottle } from '@spinajs/authn-orm';
 import { AuthnEventSink, AuthnService, AuthnThrottle, IdentityStore, SessionIssuer } from '@spinajs/authn/contracts';
@@ -15,10 +17,11 @@ import { TOTP_DEFAULTS, totpOpts } from './support/totp-defaults.js';
 import { TotpService } from '../../src/service/index.js';
 import { MfaReset } from '../../src/cli/index.js';
 import { CLI_ACTOR } from '../../src/cli/common.js';
-import { registered } from '../../src/support/registered.js';
 import authnTotpConfig from '../../src/config/authn-totp.js';
 import * as pkg from '../../src/index.js';
 import { renderTemplate } from '@spinajs/log';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { Generate2FaQrCode } from '../../src/cli/Generate2FaQrCode.js';
 
 const text = (first: unknown, template?: string): string => (typeof first === 'string' ? first : renderTemplate(template ?? '', first as Record<string, unknown>));
 
@@ -106,7 +109,7 @@ describe('v3 cli: authn:mfa-reset', () => {
   it('an unknown login throws, echoing only the login, and changes nothing', async () => {
     await enrol();
     const { cmd, out } = command();
-    await assert.rejects(cmd.execute('mallory'), (e: Error) => e.message.includes('mallory') && !e.message.includes(alice.id));
+    await assert.rejects(cmd.execute('mallory'), (e: Error) => e instanceof InvalidArgument && e.message.includes('mallory') && !e.message.includes(alice.id));
     assert.deepStrictEqual(out, { success: [], info: [], warn: [] });
     assert.strictEqual(await step.enrolment(alice), 'confirmed');
     assert.deepStrictEqual(events.all(), []);
@@ -115,6 +118,12 @@ describe('v3 cli: authn:mfa-reset', () => {
   it('carries the authn:mfa-reset command name', () => {
     const meta = Reflect.getMetadata(META_COMMAND, MfaReset) as ICommand;
     assert.match(meta.nameAndArgs, /^authn:mfa-reset\b/);
+  });
+
+  it('names the QR command authn:mfa-qr and keeps rbac:2fa-qr as an alias', () => {
+    const meta = Reflect.getMetadata(META_COMMAND, Generate2FaQrCode) as ICommand;
+    assert.match(meta.nameAndArgs, /^authn:mfa-qr\b/);
+    assert.deepStrictEqual(meta.aliases, ['rbac:2fa-qr']);
   });
 
   it('the package no longer exports EnableUser2Fa and keeps the QR helper', () => {
@@ -157,7 +166,7 @@ describe('v3 cli: authn:mfa-reset', () => {
     /** MfaReset autoinjects the Orm; the reset never touches it. */
     class KitOrm {}
 
-    before(() => {
+    before(async () => {
       DI.clearCache();
       // Other files in this run load @spinajs/authn-totp/db, which registers authn-orm's DB defaults; the reset needs none.
       DI.unregister(DbAuthnAuditSink);
@@ -166,6 +175,9 @@ describe('v3 cli: authn:mfa-reset', () => {
       DI.register(KitIdentities).as(IdentityStore);
       DI.register(KitTotp).as(TotpService);
       DI.register(KitOrm).as(Orm);
+      // DI.clearCache() dropped the schema registered at import; AuthnAudit reads authn.audit when MfaReset resolves.
+      DI.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+      await DI.resolve(Configuration);
     });
 
     after(() => {
@@ -180,11 +192,11 @@ describe('v3 cli: authn:mfa-reset', () => {
 
     it('adminReset needs only the step and the sinks', async () => {
       for (const t of [SessionIssuer, AuthnService, AuthnThrottle]) {
-        assert.strictEqual(registered(t), false, t.name);
+        assert.strictEqual(DI.hasImplementation<unknown>(t), false, t.name);
       }
       await enrol();
       seen.length = 0;
-      const svc = new TotpService({ step });
+      const svc = new TotpService({ step, sinks: [new KitSink()] });
       assert.deepStrictEqual(await svc.adminReset(CLI_ACTOR, alice, { now: clock.now(), purpose: 'request' }), { reset: true });
       assert.deepStrictEqual(
         seen.map((e) => e.type),
@@ -206,7 +218,7 @@ describe('v3 cli: authn:mfa-reset', () => {
   });
 });
 
-describe('v3 support: registered', () => {
+describe('v3 support', () => {
   abstract class Probe {}
   class ProbeImpl extends Probe {}
 
@@ -215,17 +227,22 @@ describe('v3 support: registered', () => {
     DI.clearCache();
   });
 
-  it('is false before, true while and false after a registration', () => {
-    assert.strictEqual(registered(Probe), false);
+  it('DI.hasImplementation is false before, true while and false after a registration', () => {
+    assert.strictEqual(DI.hasImplementation(Probe), false);
     DI.register(ProbeImpl).as(Probe);
-    assert.strictEqual(registered(Probe), true);
+    assert.strictEqual(DI.hasImplementation(Probe), true);
     DI.unregister(ProbeImpl);
-    assert.strictEqual(registered(Probe), false);
+    assert.strictEqual(DI.hasImplementation(Probe), false);
   });
 
-  it('a failed command without an IdentityStore says so', async () => {
-    const cmd = new MfaReset();
-    Object.defineProperty(cmd, 'Identities', { value: undefined });
-    await assert.rejects(cmd.execute('alice'), /needs a registered IdentityStore/);
+  it('MfaReset does not resolve without a registered IdentityStore', async () => {
+    class KitOrm {}
+    DI.register(KitOrm).as(Orm);
+    try {
+      assert.strictEqual(DI.hasImplementation(IdentityStore), false);
+      await assert.rejects(Promise.resolve(DI.resolve(MfaReset)), /Type IdentityStore is not registered/);
+    } finally {
+      DI.unregister(KitOrm);
+    }
   });
 });

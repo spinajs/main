@@ -50,6 +50,7 @@ export type MetricMap<T extends AnyMetric = AnyMetric> = Record<string, T>;
 @Injectable()
 export class Metrics {
   protected registry: Registry;
+  protected defaultsCollected = false;
 
   constructor() {
     this.registry = new client.Registry();
@@ -69,7 +70,8 @@ export class Metrics {
    * Each metric name is prefixed with `${prefix}_`. If a metric with the same
    * name is already registered ( e.g. on a re-init during tests ) it is removed
    * and recreated rather than throwing, mirroring swagger-stats'
-   * `clearPrometheusMetrics` behaviour.
+   * `clearPrometheusMetrics` behaviour. If any definition fails, the registry
+   * is restored to its state before the call.
    *
    * @param prefix - metric-name prefix ( e.g. `http` -> `http_requests_total` )
    * @param defs - the metrics to construct
@@ -77,47 +79,63 @@ export class Metrics {
    */
   public defineMetrics(prefix: string, defs: MetricDef[]): MetricMap {
     const map: MetricMap = {};
+    const removed: AnyMetric[] = [];
 
-    for (const def of defs) {
-      const name = `${prefix}_${def.name}`;
+    try {
+      for (const def of defs) {
+        const name = `${prefix}_${def.name}`;
 
-      // Guard against duplicate registration ( re-init in tests ).
-      if (this.registry.getSingleMetric(name)) {
-        this.registry.removeSingleMetric(name);
+        // Guard against duplicate registration ( re-init in tests ).
+        const existing = this.registry.getSingleMetric(name) as AnyMetric | undefined;
+        if (existing) {
+          if (!Object.values(map).includes(existing)) {
+            removed.push(existing);
+          }
+          this.registry.removeSingleMetric(name);
+        }
+
+        const common = {
+          name,
+          help: def.help,
+          labelNames: def.labelNames ?? [],
+          registers: [this.registry],
+        };
+
+        let metric: AnyMetric;
+        switch (def.type) {
+          case 'counter':
+            metric = new client.Counter(common);
+            break;
+          case 'gauge':
+            metric = new client.Gauge(common);
+            break;
+          case 'histogram':
+            metric = new client.Histogram({
+              ...common,
+              buckets: def.buckets ?? client.linearBuckets(1, 1, 10),
+            });
+            break;
+          case 'summary':
+            metric = new client.Summary({
+              ...common,
+              ...(def.percentiles ? { percentiles: def.percentiles } : {}),
+            });
+            break;
+          default:
+            throw new Error(`unknown metric type '${String(def.type)}' for metric '${name}'`);
+        }
+
+        map[def.name] = metric;
       }
-
-      const common = {
-        name,
-        help: def.help,
-        labelNames: def.labelNames ?? [],
-        registers: [this.registry],
-      };
-
-      let metric: AnyMetric;
-      switch (def.type) {
-        case 'counter':
-          metric = new client.Counter(common);
-          break;
-        case 'gauge':
-          metric = new client.Gauge(common);
-          break;
-        case 'histogram':
-          metric = new client.Histogram({
-            ...common,
-            buckets: def.buckets ?? client.linearBuckets(1, 1, 10),
-          });
-          break;
-        case 'summary':
-          metric = new client.Summary({
-            ...common,
-            ...(def.percentiles ? { percentiles: def.percentiles } : {}),
-          });
-          break;
-        default:
-          throw new Error(`unknown metric type '${String(def.type)}' for metric '${name}'`);
+    } catch (err) {
+      // All-or-nothing: drop what this call built and put back what it displaced.
+      for (const created of Object.values(map)) {
+        this.registry.removeSingleMetric((created as any).name);
       }
-
-      map[def.name] = metric;
+      for (const old of removed) {
+        this.registry.registerMetric(old);
+      }
+      throw err;
     }
 
     return map;
@@ -125,9 +143,13 @@ export class Metrics {
 
   /**
    * Register the default process/heap/cpu/event-loop metrics against this
-   * ( non-global ) registry.
+   * ( non-global ) registry. Calling it again is a no-op.
    */
   public collectDefault(): void {
+    if (this.defaultsCollected) {
+      return;
+    }
+    this.defaultsCollected = true;
     client.collectDefaultMetrics({ register: this.registry });
   }
 

@@ -5,7 +5,7 @@ import type { Class } from '@spinajs/di';
 import { PROTOCOL_VERSION, SYSTEM_EVENTS, SocketDispatcher, SocketHandlerRegistry, SocketHub, SocketPrincipalGuard, SocketServer, WIRE_EVENTS } from '@spinajs/http-socket';
 import type { CommandReply, CommandRequest, EventFrame, SocketError } from '@spinajs/http-socket';
 
-import { APP_ORIGIN, config, cookieName } from '../v3-app/app.js';
+import { appOrigin, config, cookieName } from '../v3-app/app.js';
 
 /** Attaches a SocketServer to the running v3 app's http server ( HttpServerHost ); `revalidateMs` short enough to wait out. */
 export async function startSockets(revalidateMs: number): Promise<void> {
@@ -42,7 +42,7 @@ export function socketTo(o: SocketOptions = {}): ClientSocket {
   if (o.cookie) headers.cookie = `${cookieName()}=${encodeURIComponent(o.cookie)}`;
   if (o.origin) headers.origin = o.origin;
 
-  const socket = io(APP_ORIGIN, {
+  const socket = io(appOrigin(), {
     path: config().get<string>('http.socket.path'),
     transports: ['websocket'],
     reconnection: false,

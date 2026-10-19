@@ -2,7 +2,7 @@ import 'mocha';
 
 import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
-import '@spinajs/fs';
+import { fsService } from '@spinajs/fs';
 import { Configuration } from '@spinajs/configuration';
 import { Controllers, HttpServer } from '@spinajs/http';
 import { Intl } from '@spinajs/intl';
@@ -25,6 +25,8 @@ describe('http & controller tests', function () {
       await b.bootstrap();
     }
 
+    await DI.resolve(Configuration);
+    await DI.resolve(fsService);
     await DI.resolve(Intl);
     await DI.resolve(Controllers);
     const server = await DI.resolve(HttpServer);
@@ -80,6 +82,11 @@ describe('http & controller tests', function () {
 
   it('Query param faild with validation', async () => {
     let response = await req().get('responses/testLangAllowedLanguages?lang=de_dddd').set('Accept', 'application/json').send();
+    expect(response).to.have.status(400);
+  });
+
+  it('Default language outside allowed languages should fail', async () => {
+    let response = await req().get('responses/testLangDefaultNotAllowed').set('Accept', 'application/json').send();
     expect(response).to.have.status(400);
   });
 });

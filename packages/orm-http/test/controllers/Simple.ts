@@ -1,5 +1,5 @@
 import { BaseController, Get, Ok, BasePath, Post, Body, Query, Param } from '@spinajs/http';
-import { FromModel } from './../../src/index.js';
+import { AsModel, FromModel } from './../../src/index.js';
 import { Test } from '../models/Test.js';
 
 @BasePath('simple')
@@ -12,6 +12,11 @@ export class Simple extends BaseController {
   @Post()
   public testHydrate(@Body() model: Test) {
     return new Ok({ Text: model.Text });
+  }
+
+  @Post()
+  public testAsModelField(@AsModel('left') a: Test, @AsModel('right') b: Test) {
+    return new Ok({ a: a.Text, b: b.Text });
   }
 
   @Get('testinclude/:model')

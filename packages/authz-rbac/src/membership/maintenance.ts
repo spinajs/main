@@ -4,7 +4,7 @@ import { honoured, setRolesOf } from '../admin/common.js';
 import type { RoleIndex } from '../admin/common.js';
 import { membershipEdges } from '../admin/membership.js';
 import type { AdminAssignmentStore, AdminMembershipStore } from '../admin/ports.js';
-import { isLive } from '../admin/rows.js';
+import { isLiveAt } from '../admin/rows.js';
 import { subjectKeyOf } from '../stores/columns.js';
 import { computeClosures } from './closure.js';
 import type { MembershipRow } from './closure.js';
@@ -24,7 +24,7 @@ export interface MembershipDiff {
 }
 
 /** The closure the live assignment rows give: every subject of a row whose role holds a subjectSet role. */
-export async function expectedMemberships(s: MembershipSources): Promise<Map<string, MembershipRow[]>> {
+async function expectedMemberships(s: MembershipSources): Promise<Map<string, MembershipRow[]>> {
   const members = new Set<string>();
   for (const role of s.roles.roles.keys()) {
     if (setRolesOf(s.roles, role).length === 0) continue;
@@ -42,7 +42,7 @@ export async function diffMemberships(s: MembershipSources): Promise<MembershipD
   const expected = await expectedMemberships(s);
   const keys = [...new Set([...(await s.memberships.memberKeys()), ...expected.keys()])];
   const want = new Map([...expected.values()].flat().map((r) => [pair(r), r]));
-  const have = new Map((await s.memberships.rowsOf(keys)).filter((r) => isLive(r.expiresAt, s.now)).map((r) => [pair(r), r]));
+  const have = new Map((await s.memberships.rowsOf(keys)).filter((r) => isLiveAt(r.expiresAt, s.now)).map((r) => [pair(r), r]));
   return {
     missing: [...want]
       .filter(([k]) => !have.has(k))

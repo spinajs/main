@@ -39,6 +39,16 @@ sequenceDiagram
   FC->>FC: validateModule(lateSchema)
 ```
 
+### Runtime changes
+
+After boot, every change to the tree is checked against the schemas of the modules it reaches:
+
+1. `set(path, value)` and `merge(path, value)` take the registered schemas whose `$configurationModule` is at, under or above `path`. `mergeSource()` takes the schemas under the top-level keys its source returns. `load()` takes every schema.
+2. The change runs on a deep copy of those modules first, and each module of the copy is validated. A violation throws `InvalidConfiguration` and nothing is applied: the stored values stay, `mergeSource()` does not add the source, and `load()` keeps the previous tree.
+3. When every module passes, the change is applied and each module is validated in place: defaults and coercion are filled, and a module a late schema refused is released.
+
+A path that no schema covers is written unchecked. Nothing is checked during `resolve()` before the boot check, nor while `load()` rebuilds the tree; it checks the finished tree once.
+
 ## Configuration
 
 A schema is a JSON Schema (draft-07, as Ajv 8 reads it) with one extra keyword:
@@ -169,10 +179,11 @@ void main();
 ## Important behaviour
 
 - Validation **changes** the config: defaults are filled, types are coerced (`'7'` becomes `7` for an `integer`), and properties outside the schema are removed where the schema sets `additionalProperties: false`.
+- A `ConfigVar` that reads `null` (not ready yet) is never replaced by its coercion: a key typed `string` keeps the var instead of `''`.
 - A failing check leaves the stored value untouched: it is checked on a copy first. Defaults and coercion apply only to a value that passes.
 - `null` counts as configured. `{ mailer: null }` is a violation of an object schema, not an unconfigured module.
 - An unconfigured module gets its defaults only when `{}` passes the schema. With a `required` key and no default, the module stays `undefined` and only a warning is logged; the boot does not fail.
-- `set()`, `merge()` and `load()` do not validate. A `load()` also drops the defaults; nothing re-applies them.
+- `set()`, `merge()`, `mergeSource()` and `load()` validate the modules they change (see [Runtime changes](#runtime-changes)). A refused change throws `InvalidConfiguration` and is not applied.
 - A schema registered in an ancestor container applies to a child's configuration. A schema registered in a child does not apply to the parent's.
 - Two different schemas with the same `$id` count as one: the first one found (nearest container first, or first registered) is used and the other is ignored.
 - A late schema that refuses a value makes reads of that module throw, but not the import: `registerConfigurationSchemaAtImport` swallows the error so other modules loaded with it still load.
@@ -202,12 +213,12 @@ protected RetryCount: number;
 ```
 
 ```ts
-// Don't: set() is not validated; a bad value reaches the service
-configuration.set('mailer.retryCount', -1);
+// Don't: copy the schema range into code
+if (retryCount < 0) throw new Error('mailer.retryCount must be >= 0');
+configuration.set('mailer.retryCount', retryCount);
 
-// Do: re-check the module after changing it
-configuration.set('mailer.retryCount', -1);
-registerConfigurationSchema(MAILER_SCHEMA); // throws InvalidConfiguration, reads of mailer.* throw
+// Do: set() checks the mailer schema, throws InvalidConfiguration and keeps the old value
+configuration.set('mailer.retryCount', retryCount);
 ```
 
 ## Examples
