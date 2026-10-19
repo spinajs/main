@@ -1,4 +1,4 @@
-import { InvalidArgument, ConnectionNotFound } from '@spinajs/exceptions';
+import { InvalidArgument, ConnectionNotFound, toError } from '@spinajs/exceptions';
 import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IJobProgressMeta, QueueMessage, QueueService, JobRetentionService, isJob } from './interfaces.js';
@@ -59,7 +59,7 @@ export class DefaultQueueService extends QueueService {
       try {
         await this.Retention.dispose();
       } catch (err) {
-        this.Log.error(err, 'Cannot dispose job retention service');
+        this.Log.error(toError(err), 'Cannot dispose job retention service');
       }
     }
 

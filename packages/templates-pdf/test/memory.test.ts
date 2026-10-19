@@ -213,7 +213,7 @@ describe('PDF Templates Memory Management Tests', () => {
           }
           
         } catch (err) {
-          console.warn(`Stress test ${i} failed:`, err.message);
+          console.warn(`Stress test ${i} failed:`, (err as Error).message);
         }
 
         // Log memory usage periodically

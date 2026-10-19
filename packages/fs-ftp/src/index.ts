@@ -3,7 +3,7 @@ import { Log, Logger } from '@spinajs/log-common';
 import { fs, IStat, IZipResult, FileSystem, FileInfoService, FileHasher, IFileInfo } from '@spinajs/fs';
 import { Client } from 'basic-ftp';
 import path from 'path';
-import { IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
+import { errorMessage, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 import { PassThrough, Readable } from 'stream';
 import type { IFsUploadOptions } from '@spinajs/fs';
@@ -109,7 +109,7 @@ export class fsFTP extends fs {
         );
       });
     } catch (e) {
-      throw new IOFail(`Cannot connect to ftp server: ${e.message}`);
+      throw new IOFail(`Cannot connect to ftp server: ${errorMessage(e)}`);
     }
   }
 

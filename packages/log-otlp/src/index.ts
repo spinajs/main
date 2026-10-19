@@ -455,7 +455,7 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
         // retryable but exhausted: put the batch back at the front so the next
         // flush retries it. The queue enforces the maxQueue cap ( dropping the
         // oldest + onOverflow ) so the retry buffer never grows without bound.
-        this.Log.error(err, `Cannot export log records to OTLP target - retries exhausted, retaining records for next flush.`);
+        this.Log.error({ error: err }, `Cannot export log records to OTLP target - retries exhausted, retaining records for next flush.`);
         this.Queue.requeueFront(batch);
         return;
       }

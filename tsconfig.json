@@ -33,7 +33,6 @@
     "strictPropertyInitialization": false,
     "strictFunctionTypes": false,
     "strictBindCallApply": false,
-    "useUnknownInCatchVariables": false,
     "noImplicitThis": false
   }
 }
