@@ -6,10 +6,11 @@ import { HTTP_STATUS_CODE, ServerMiddleware, parseOrigin, requestOrigin } from '
 import type { ProxyTrust, Request } from '@spinajs/http';
 import { SESSION_COOKIE_BASE_NAME } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { Log, Logger, RateLimitedLog } from '@spinajs/log';
+import { Log, Logger } from '@spinajs/log';
 import type * as express from 'express';
 
 import { proxyTrustOf } from './client-ip.js';
+import { CSRF_REFUSED_EVENT } from './csrf-log.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const ALLOWED_ORIGINS_KEY = 'authn.http.csrf.allowedOrigins';
@@ -34,21 +35,19 @@ function normalisedOrigins(list: readonly string[]): ReadonlySet<string> {
   );
 }
 
-
-const WARN_INTERVAL_MS = 60_000;
-const WARN_KEYS_MAX = 256;
-const WARN_LINES_PER_INTERVAL = 20;
 const SHOWN_MAX = 120;
 
 const clip = (v: string): string => (v.length > SHOWN_MAX ? `${v.slice(0, SHOWN_MAX)}…` : v);
 
-/** Request headers are client input: only a well-formed origin is logged, never cookies. */
-function warnRefused(warnings: RateLimitedLog, origin: string | undefined, fetchSite: unknown, own: string | undefined): void {
+/**
+ * Request headers are client input: only a well-formed origin is logged, never cookies. How many of these lines are
+ * written is left to `logger.filters` (CSRF_REFUSAL_LOG_FILTERS, shipped in the package config).
+ */
+function warnRefused(log: Log, origin: string | undefined, fetchSite: unknown, own: string | undefined): void {
   const site = typeof fetchSite === 'string' && /^[a-z-]{1,16}$/.test(fetchSite) ? fetchSite : 'absent';
   const shown = origin === undefined ? `none (Sec-Fetch-Site ${site})` : (parseOrigin(origin) ?? 'malformed');
-  warnings.warn(
-    `${shown}|${own ?? ''}`,
-    { origin: clip(shown), ownOrigin: own === undefined ? 'unknown (no usable Host)' : clip(own), allowedOriginsKey: ALLOWED_ORIGINS_KEY },
+  log.warn(
+    { event: CSRF_REFUSED_EVENT, origin: clip(shown), ownOrigin: own === undefined ? 'unknown (no usable Host)' : clip(own), allowedOriginsKey: ALLOWED_ORIGINS_KEY },
     'CsrfOriginGuard refused a cookie request: Origin ${origin}, own origin ${ownOrigin}. ' +
       'Behind a proxy set authn.http.trustProxy (or http.trustProxy) so the own origin comes from X-Forwarded-Proto/-Host, or list the origin in ${allowedOriginsKey}.',
   );
@@ -99,9 +98,6 @@ export class CsrfOriginGuard extends ServerMiddleware {
     // development and test), so either form can be the session cookie.
     const base = this.SessionCookie?.name ?? SESSION_COOKIE_BASE_NAME;
     const sessionCookies = [base, `__Host-${base}`];
-    // One line per (Origin, own origin) pair a minute and WARN_LINES_PER_INTERVAL a minute in all, so requests that
-    // vary the headers cannot turn refusals into one log line each.
-    const warnings = new RateLimitedLog(() => this.Log, { intervalMs: WARN_INTERVAL_MS, maxPerInterval: WARN_LINES_PER_INTERVAL, maxKeys: WARN_KEYS_MAX });
 
     return (req: Request, res: express.Response, next: express.NextFunction) => {
       if (SAFE_METHODS.has(req.method) || !carriesCookie(req.headers.cookie, sessionCookies)) return next();
@@ -111,7 +107,7 @@ export class CsrfOriginGuard extends ServerMiddleware {
       const allowedRequest = origin === undefined ? req.headers['sec-fetch-site'] === 'same-origin' : allowed.has(origin) || origin === own;
       if (allowedRequest) return next();
 
-      warnRefused(warnings, origin, req.headers['sec-fetch-site'], origin === undefined ? ownOrigin(req, trust) : own);
+      warnRefused(this.Log, origin, req.headers['sec-fetch-site'], origin === undefined ? ownOrigin(req, trust) : own);
       res.status(HTTP_STATUS_CODE.FORBIDDEN).json(REFUSED);
     };
   }

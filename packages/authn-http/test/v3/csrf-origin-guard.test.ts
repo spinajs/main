@@ -1,7 +1,10 @@
 import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { renderTemplate } from '@spinajs/log-common';
+import { LogLevel, createLogMessageObject, renderTemplate } from '@spinajs/log-common';
+import type { ILogEntry } from '@spinajs/log-common';
+import { RateLimitFilter } from '@spinajs/log';
+import type { IRateLimitFilterOptions } from '@spinajs/log';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
@@ -17,6 +20,8 @@ import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import * as barrel from '../../src/index.js';
 import * as api from '../../src/api.js';
 import { CsrfOriginGuard, ownOrigin } from '../../src/middleware/csrf.js';
+import { CSRF_REFUSAL_LOG_FILTERS, CSRF_REFUSED_EVENT } from '../../src/middleware/csrf-log.js';
+import authnHttpConfig from '../../src/config/authn-http.js';
 import { AUTHN_PROBE_PATH, authnProbeHits } from './probe.js';
 import { TestConfiguration, req, restoreHttpErrorMap } from '../token-common.js';
 
@@ -317,7 +322,7 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
       for (const cookie of ['__Host-sid=x', '__Host-__Host-sid=x']) expect(run(prefixed, 'POST', { origin: EVIL, cookie }).passed, cookie).to.eq(false);
     });
 
-    it('logs a refusal once a minute per origin pair, naming both origins and the settings, never the cookie', () => {
+    it('logs each refusal with its event, naming both origins and the settings, never the cookie', () => {
       const guard = unitGuard({});
       const warn = sinon.spy();
       Object.defineProperty(guard, 'Log', { value: { warn } });
@@ -325,51 +330,66 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
       const hit = (headers: Record<string, string>) => handler(fakeReq('POST', { cookie: 'ssid=secret-cookie-value', host: 'app_upstream:1337', ...headers }), fakeRes() as any, sinon.spy());
       hit({ origin: 'https://app.example.com' });
       hit({ origin: 'https://app.example.com' });
-      expect(warn.callCount).to.eq(1);
+      expect(warn.callCount).to.eq(2);
+      expect(warn.firstCall.args[0]).to.include({ event: CSRF_REFUSED_EVENT });
       const line = rendered(warn.firstCall);
       expect(line).to.contain('https://app.example.com').and.contain('http://app_upstream:1337').and.contain('trustProxy').and.contain('allowedOrigins');
       expect(line).to.not.contain('secret-cookie-value');
-      hit({ origin: 'https://other.example.com' });
       hit({ origin: 'not an origin\nforged log line' });
       hit({ 'sec-fetch-site': 'cross-site' });
-      expect(warn.callCount).to.eq(4);
       expect(rendered(warn.getCall(2))).to.contain('Origin malformed').and.not.contain('forged');
       expect(rendered(warn.getCall(3))).to.contain('Sec-Fetch-Site cross-site');
       hit({ origin: 'http://app_upstream:1337' });
       expect(warn.callCount, 'a passing request logs nothing').to.eq(4);
     });
 
-    it('a refusal logged after a quiet minute says how many of its pair were suppressed', () => {
-      const clock = sinon.useFakeTimers({ now: 1_000_000, toFake: ['Date'] });
-      try {
-        const guard = unitGuard({});
-        const warn = sinon.spy();
-        Object.defineProperty(guard, 'Log', { value: { warn } });
-        const handler = guard.before()!;
-        const hit = () => handler(fakeReq('POST', { cookie: 'ssid=x', host: 'app_upstream:1337', origin: 'https://app.example.com' }), fakeRes() as any, sinon.spy());
-        hit();
-        hit();
-        hit();
-        clock.tick(60_000);
-        hit();
-        expect(warn.callCount).to.eq(2);
-        expect(rendered(warn.firstCall)).to.not.contain('suppressed');
-        expect(rendered(warn.secondCall)).to.contain('(2 more suppressed)');
-      } finally {
-        clock.restore();
+    describe('through the logger filters the package config ships', () => {
+      /** A Log whose warn runs the entry through CSRF_REFUSAL_LOG_FILTERS as FrameworkLogger.write() would. */
+      function filteredLog(now: () => number) {
+        const filters = CSRF_REFUSAL_LOG_FILTERS.map((spec) => new RateLimitFilter(spec as IRateLimitFilterOptions, now));
+        const lines: string[] = [];
+        const warn = (fields: Record<string, unknown>, template: string) => {
+          let entry: ILogEntry | null = createLogMessageObject(null as never, renderTemplate(template, fields), LogLevel.Warn, 'authn-http', { ...fields });
+          for (const f of filters) entry = entry && f.apply(entry);
+          if (entry) lines.push(String(entry.Variables.message));
+        };
+        return { log: { warn }, lines };
       }
-    });
 
-    it('writes at most 20 refusal lines a minute however the origins vary, and clips long values', () => {
-      const guard = unitGuard({});
-      const warn = sinon.spy();
-      Object.defineProperty(guard, 'Log', { value: { warn } });
-      const handler = guard.before()!;
-      for (let i = 0; i < 100; i++) {
-        handler(fakeReq('POST', { cookie: 'ssid=x', host: 'app_upstream:1337', origin: `https://e${i}.${'a'.repeat(200)}.example` }), fakeRes() as any, sinon.spy());
+      function filteredGuard(now: () => number) {
+        const guard = unitGuard({});
+        const { log, lines } = filteredLog(now);
+        Object.defineProperty(guard, 'Log', { value: log });
+        const handler = guard.before()!;
+        const hit = (origin: string) => handler(fakeReq('POST', { cookie: 'ssid=x', host: 'app_upstream:1337', origin }), fakeRes() as any, sinon.spy());
+        return { hit, lines };
       }
-      expect(warn.callCount).to.eq(20);
-      expect(rendered(warn.firstCall).length).to.be.below(500);
+
+      it('are in the package config', () => {
+        expect(authnHttpConfig.logger.filters).to.deep.eq(CSRF_REFUSAL_LOG_FILTERS);
+      });
+
+      it('keep one line per origin pair a minute; the next one says how many were suppressed', () => {
+        let clock = 0;
+        const { hit, lines } = filteredGuard(() => clock);
+        hit('https://app.example.com');
+        hit('https://app.example.com');
+        hit('https://app.example.com');
+        hit('https://other.example.com');
+        expect(lines).to.have.length(2);
+        expect(lines[0]).to.not.contain('suppressed');
+        clock = 60_000;
+        hit('https://app.example.com');
+        expect(lines).to.have.length(3);
+        expect(lines[2]).to.contain('(2 suppressed)');
+      });
+
+      it('keep at most 20 lines a minute however the origins vary, and long values are clipped', () => {
+        const { hit, lines } = filteredGuard(() => 0);
+        for (let i = 0; i < 100; i++) hit(`https://e${i}.${'a'.repeat(200)}.example`);
+        expect(lines).to.have.length(20);
+        expect(lines[0].length).to.be.below(500);
+      });
     });
   });
 });

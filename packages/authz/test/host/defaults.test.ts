@@ -271,36 +271,13 @@ describe('isProduction', () => {
 });
 
 describe('engineLog', () => {
-  it('falls back without throwing when no Log is registered', () => {
+  it('throws on a write while no Log is registered, without registering one', () => {
     const log = engineLog('authz-test');
-    const origError = console.error;
-    const origWarn = console.warn;
-    console.error = () => {};
-    console.warn = () => {};
-    try {
-      expect(() => log.error('e')).to.not.throw();
-      expect(() => log.warn('w')).to.not.throw();
-      expect(() => log.debug('d')).to.not.throw();
-    } finally {
-      console.error = origError;
-      console.warn = origWarn;
-    }
-  });
-
-  it('does not resolve a Log when none is registered', () => {
-    const before = DI.check(Log);
-    const orig = console.warn;
-    console.warn = () => {};
-    try {
-      engineLog('authz-test4').warn('w');
-    } finally {
-      console.warn = orig;
-    }
-    expect(DI.check(Log)).to.equal(before);
+    expect(() => log.warn('w')).to.throw(/no Log is registered/);
     expect(DI.has(Log)).to.equal(false);
   });
 
-  it('picks up a Log registered after its first write', () => {
+  it('resolves the Log on the first write, so one registered after the writer was made is used', () => {
     class LateLog {
       static lines: string[] = [];
       warn(message: string) {
@@ -308,53 +285,33 @@ describe('engineLog', () => {
       }
     }
     const log = engineLog('authz-test-late');
-    const orig = console.warn;
-    console.warn = () => {};
+    DI.register(LateLog as never).as(Log as never);
     try {
       log.warn('first');
-      DI.register(LateLog as never).as(Log as never);
-      log.warn('second');
     } finally {
-      console.warn = orig;
       DI.uncache(LateLog as never);
       DI.unregister(LateLog as never);
     }
-    expect(LateLog.lines).to.deep.equal(['second']);
-    expect(DI.getRegisteredTypes(Log) ?? []).to.have.length(0);
+    expect(LateLog.lines).to.deep.equal(['first']);
   });
 
-  it('uses the resolved Log when there is one', () => {
+  it('writes through the resolved Log and resolves it once', () => {
     const fake = new FakeLog();
-    const log = engineLog('authz-test2', () => fake as unknown as Log);
+    let resolved = 0;
+    const log = engineLog('authz-test2', () => {
+      resolved++;
+      return fake as unknown as Log;
+    });
     log.warn('hello');
     log.debug('dbg');
     expect(fake.lines.map((l) => l.level)).to.deep.equal(['warn', 'debug']);
+    expect(resolved).to.equal(1);
   });
 
-  it('falls back when the resolved object lacks the method', () => {
-    const log = engineLog('authz-test3', () => ({} as unknown as Log));
-    const orig = console.warn;
-    const calls: unknown[] = [];
-    console.warn = (...a: unknown[]) => void calls.push(a);
-    try {
-      log.warn('w');
-    } finally {
-      console.warn = orig;
-    }
-    expect(calls).to.have.length(1);
-  });
-
-  it('renders a fields-form call on the console fallback, the error after the line', () => {
-    const log = engineLog('authz-test5', () => undefined);
-    const orig = console.error;
+  it('forwards warnOnce to the resolved Log', () => {
     const calls: unknown[][] = [];
-    console.error = (...a: unknown[]) => void calls.push(a);
-    const error = new Error('down');
-    try {
-      log.error({ error, domain: 'root', step: 'a b' }, 'Authz domain ${domain}: ${step} failed');
-    } finally {
-      console.error = orig;
-    }
-    expect(calls).to.deep.equal([['Authz domain root: "a b" failed', error]]);
+    const log = engineLog('authz-test3', () => ({ warnOnce: (...a: unknown[]) => (calls.push(a), true) }) as unknown as Log);
+    expect(log.warnOnce('k', 'w')).to.equal(true);
+    expect(calls).to.deep.equal([['k', 'w']]);
   });
 });

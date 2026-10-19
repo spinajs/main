@@ -1,6 +1,5 @@
 import { AuthzConfigError, SYSTEM, currentPrincipal } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { warnOnce } from '@spinajs/log-common';
 import { InStatement, QueryMiddleware, SelectQueryBuilder, SqlOperator, WhereStatement, extractModelDescriptor } from '@spinajs/orm';
 import type { IQueryStatement, QueryBuilder } from '@spinajs/orm';
 
@@ -80,6 +79,6 @@ export class AccessGuardMiddleware extends QueryMiddleware {
     const message = `authz-orm: a select of ${nameOf(query.Model)} (@AccessResource '${entry.type}') runs without .accessible(permission), .unscoped(reason) or runAs(SYSTEM)`;
     if (mode === 'throw') throw new AuthzConfigError(message);
     const site = this.sites.get(query) ?? 'unknown call site';
-    warnOnce(ormLog(), `authz-orm:unguarded-select:${site}`, { model: nameOf(query.Model), resourceType: entry.type, site }, 'authz-orm: a select of ${model} (@AccessResource ${resourceType}) runs without .accessible(permission), .unscoped(reason) or runAs(SYSTEM) (${site})');
+    ormLog().warnOnce(`unguarded-select:${site}`,{ model: nameOf(query.Model), resourceType: entry.type, site }, 'authz-orm: a select of ${model} (@AccessResource ${resourceType}) runs without .accessible(permission), .unscoped(reason) or runAs(SYSTEM) (${site})');
   }
 }
