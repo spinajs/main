@@ -4,7 +4,6 @@ import { DI } from '@spinajs/di';
 import type { DecisionRequest } from '@spinajs/authz';
 import { BaseController, BasePath, BasePolicy, Body, BodyField, FormField, Get, Ok, Patch, Policy, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
-import { testHost } from '@spinajs/authz-testing';
 import type { ScriptedVote } from '@spinajs/authz-testing';
 
 import { Access, AuthzFieldTransformer, UnfilteredInput, fromParam } from '../src/index.js';
@@ -137,10 +136,18 @@ describe('field filters (B17 http)', function () {
   let domain: TestDomain;
   let unregisterSource: () => void;
 
+  let rejecting = false;
+
+  // The filters read the fields config the domain's service booted with.
+  const bootDomain = async (fields?: Record<string, unknown>) => {
+    await domain?.dispose();
+    domain = await createDomain(D, { permissions: { 'user:read': { fields: true }, 'user:update': { fields: true } }, model: { votes, capabilities: { fields: true } }, ...(fields ? { domain: { fields } } : {}) });
+  };
+
   before(async () => {
     unregisterSource = registerHeaderSource();
     app = await startApp({ controllers: [FieldRoutes] });
-    domain = await createDomain(D, { permissions: { 'user:read': { fields: true }, 'user:update': { fields: true } }, model: { votes, capabilities: { fields: true } } });
+    await bootDomain();
   });
 
   after(async () => {
@@ -149,13 +156,17 @@ describe('field filters (B17 http)', function () {
     unregisterSource();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     script.read = ['id', 'name', 'email', 'address.city'];
     script.write = ['name', 'address.city'];
-    testHost.config().unset(['authz', 'domains', D, 'fields']);
+    if (rejecting) await bootDomain();
+    rejecting = false;
   });
 
-  const reject = () => testHost.config().set(['authz', 'domains', D, 'fields'], { write: { mode: 'reject' } });
+  const reject = async () => {
+    rejecting = true;
+    await bootDomain({ write: { mode: 'reject' } });
+  };
 
   describe('output', () => {
     it("@Access(…, { fields: 'filter' }) keeps only readable fields, nested ones included", async () => {
@@ -211,7 +222,7 @@ describe('field filters (B17 http)', function () {
     });
 
     it("answers 400 naming the fields in 'reject' mode", async () => {
-      reject();
+      await reject();
       const res = await app.request().patch('/fld/users/u1').set('x-user', 'alice').send({ name: 'M', salary: 10, address: { zip: 'Y' } });
 
       expect(res.status).to.eq(400);
@@ -219,7 +230,7 @@ describe('field filters (B17 http)', function () {
     });
 
     it("lets writable input through in 'reject' mode", async () => {
-      reject();
+      await reject();
       const res = await app.request().patch('/fld/users/u1').set('x-user', 'alice').send({ name: 'M' });
 
       expect(res.status).to.eq(200);
@@ -231,7 +242,7 @@ describe('field filters (B17 http)', function () {
       const strip = await app.request().patch('/fld/users/u1').set('x-user', 'alice').send({ name: 'M', Password: 'new' });
       expect(strip.body.body).to.deep.eq({ name: 'M' });
 
-      reject();
+      await reject();
       expect((await app.request().patch('/fld/users/u1').set('x-user', 'alice').send({ name: 'M', Password: 'new' })).status).to.eq(400);
     });
 
@@ -242,7 +253,7 @@ describe('field filters (B17 http)', function () {
       expect(res.status).to.eq(200);
       expect(res.body).to.deep.eq({ name: 'M', roles: null, user: { name: 'M' } });
 
-      reject();
+      await reject();
       const refused = await send();
       expect(refused.status).to.eq(400);
       // the first offending param refuses the request; http extracts params in its own order
@@ -260,7 +271,7 @@ describe('field filters (B17 http)', function () {
       const send = () => app.request().patch('/fld/roles/u1').set('x-user', 'alice').send({ roles: ['admin', {}] });
       expect((await send()).body.roles).to.eq(null);
 
-      reject();
+      await reject();
       expect((await send()).status).to.eq(400);
     });
 
@@ -283,7 +294,7 @@ describe('field filters (B17 http)', function () {
       const res = await app.request().patch('/fld/roles/u1').set('x-user', 'alice').send({ roles: ['admin'] });
       expect(res.body.roles).to.eq(null);
 
-      reject();
+      await reject();
       expect((await app.request().patch('/fld/roles/u1').set('x-user', 'alice').send({ roles: ['admin'] })).status).to.eq(400);
     });
 
@@ -317,7 +328,7 @@ describe('field filters (B17 http)', function () {
       expect(res.status).to.eq(200);
       expect(res.body).to.deep.eq({ name: 'M', salary: null });
 
-      reject();
+      await reject();
       expect((await app.request().patch('/fld/users/u1/fields').set('x-user', 'alice').send({ name: 'M', salary: 10 })).status).to.eq(400);
     });
   });
