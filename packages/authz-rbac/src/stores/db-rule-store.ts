@@ -2,7 +2,7 @@ import { AuthzAdminFailure, GLOBAL, principalKey } from '@spinajs/authz';
 import type { AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef, RuleDef } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { UniqueViolation } from '@spinajs/orm';
+import { UniqueViolation, deleteFrom } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 
 import { AdminRuleStore } from '../admin/ports.js';
@@ -12,7 +12,7 @@ import type { ScopeRefColumns } from './columns.js';
 import { requireTransaction } from './context.js';
 import { withDbRbacStore } from './db-store.js';
 import { pageWindow, requireScopeNode, whereLive } from './queries.js';
-import { RuleRecord, RuleSubjectRecord, deleteFrom, fromDateTime, recordValues, toDateTime } from './records.js';
+import { RuleRecord, RuleSubjectRecord, fromDateTime, recordValues, toDateTime } from './records.js';
 import type { RuleFields, RuleSubjectFields } from './records.js';
 import { toRuleRows } from './rule-rows.js';
 import type { RuleSubjectList } from './rule-rows.js';

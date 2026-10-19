@@ -2,10 +2,11 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { AUTHZ_CONNECTION, AuthzConfigError } from '@spinajs/authz';
-import { extractModelDescriptor } from '@spinajs/orm';
+import { OrmConnectionMissing, deleteFrom, extractModelDescriptor } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
-import { AdminIdempotencyRecord, AssignmentRecord, LinkRecord, MembershipRecord, RuleRecord, RuleSubjectRecord, VersionRecord, deleteFrom, fromDateTime, recordDriver, recordValues, toDateTime } from '../../src/index.js';
+import * as rbac from '../../src/index.js';
+import { AdminIdempotencyRecord, AssignmentRecord, LinkRecord, MembershipRecord, RuleRecord, RuleSubjectRecord, VersionRecord, fromDateTime, recordDriver, recordValues, toDateTime } from '../../src/index.js';
 import { bootDb, DB_KINDS } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 
@@ -38,6 +39,10 @@ describe('authz records', () => {
     expect(toDateTime(undefined)).to.eq(null);
     expect(fromDateTime(null)).to.eq(null);
   });
+
+  it('leave ormReady and deleteFrom to @spinajs/orm', () => {
+    for (const name of ['ormReady', 'deleteFrom']) expect(rbac, name).to.not.have.property(name);
+  });
 });
 
 for (const kind of DB_KINDS) {
@@ -63,6 +68,13 @@ for (const kind of DB_KINDS) {
       db.orm.Connections.delete(AUTHZ_CONNECTION);
       try {
         expect(() => recordDriver(VersionRecord)).to.throw(AuthzConfigError, 'VersionRecord: no ORM connection answers to "authz"; set db.Aliases.authz');
+        let cause: unknown;
+        try {
+          recordDriver(VersionRecord);
+        } catch (e) {
+          cause = (e as Error).cause;
+        }
+        expect(cause).to.be.instanceOf(OrmConnectionMissing);
       } finally {
         db.orm.Connections.set(AUTHZ_CONNECTION, db.driver);
       }

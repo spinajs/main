@@ -1,6 +1,7 @@
 import type { AuthzTx } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { deleteFrom } from '@spinajs/orm';
 
 import { AdminMembershipStore } from '../admin/ports.js';
 import { latestPerSet } from '../membership/closure.js';
@@ -8,7 +9,7 @@ import type { MembershipRow } from '../membership/closure.js';
 import { requireTransaction } from './context.js';
 import { withDbRbacStore } from './db-store.js';
 import { whereLive } from './queries.js';
-import { MembershipRecord, deleteFrom, fromDateTime, recordValues, toDateTime } from './records.js';
+import { MembershipRecord, fromDateTime, recordValues, toDateTime } from './records.js';
 import type { MembershipFields } from './records.js';
 
 const toRow = (r: MembershipFields): MembershipRow => ({ memberKey: r.member_key, setKey: r.set_key, depth: r.depth, expiresAt: fromDateTime(r.expires_at) });

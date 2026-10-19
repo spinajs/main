@@ -2,7 +2,7 @@ import { AuthzAdminFailure, principalKey } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { UniqueViolation } from '@spinajs/orm';
+import { UniqueViolation, deleteFrom } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import type { DateTime } from 'luxon';
 import { randomUUID } from 'node:crypto';
@@ -14,7 +14,7 @@ import { SUBJECT_KEY_MAX_LENGTH, scopeToColumns, subjectKeyOf, subjectToColumns 
 import { requireTransaction } from './context.js';
 import { withDbRbacStore } from './db-store.js';
 import { pageWindow, requireScopeNode, whereLive } from './queries.js';
-import { AssignmentRecord, deleteFrom, recordValues, toDateTime } from './records.js';
+import { AssignmentRecord, recordValues, toDateTime } from './records.js';
 import type { AssignmentFields } from './records.js';
 import { normaliseTags, parseTags } from './tags.js';
 import { bumpVersion } from './version.js';

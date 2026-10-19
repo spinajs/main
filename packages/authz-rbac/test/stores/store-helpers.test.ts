@@ -7,7 +7,7 @@ import type { AuthzTx } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { OrmDriver, QueryContext } from '@spinajs/orm';
+import { OrmDriver, QueryContext, TransactionRequired } from '@spinajs/orm';
 
 import * as rbac from '../../src/index.js';
 import { bumpVersion, normaliseTags, parsePrincipalKey, parseTags, readVersion, requireTransaction, scopeFromColumns, scopeToColumns, storeDomain, subjectFromColumns, subjectToColumns, VersionRecord } from '../../src/index.js';
@@ -181,6 +181,11 @@ for (const kind of DB_KINDS) {
       });
       expect(() => requireTransaction(VersionRecord, { driver: {} }, 'test')).to.throw(AuthzConfigError, 'test: AuthzTx.driver must be the OrmDriver of an AuthzAdmin transaction');
       expect(() => requireTransaction(VersionRecord, { driver: db.driver }, 'test')).to.throw(AuthzConfigError, 'test: stores write only inside an AuthzAdmin transaction, and none is in scope');
+      try {
+        requireTransaction(VersionRecord, { driver: db.driver }, 'test');
+      } catch (e) {
+        expect((e as Error).cause).to.be.instanceOf(TransactionRequired);
+      }
       await db.second!.transaction(async (driver: OrmDriver) => {
         expect(() => requireTransaction(VersionRecord, { driver }, 'test')).to.throw(AuthzConfigError, `test: the AuthzTx runs on connection "l2-version_helpers-second", but authz_version is on connection ${JSON.stringify(db.driver.Options.Name)} (db.Aliases.authz)`);
       });

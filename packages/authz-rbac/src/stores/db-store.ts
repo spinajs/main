@@ -1,8 +1,8 @@
 import { AuthzClock } from '@spinajs/authz';
 import type { IContainer } from '@spinajs/di';
+import { ormReady } from '@spinajs/orm';
 
 import { storeDomain } from './context.js';
-import { ormReady } from './records.js';
 
 // TypeScript accepts a class as a mixin base only with an `any[]` rest constructor.
 type AbstractClass<T = object> = abstract new (...args: any[]) => T;

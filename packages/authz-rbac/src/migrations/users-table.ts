@@ -2,7 +2,8 @@ import { AUTHZ_CONNECTION, AuthzConfigError } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { OrmDriver } from '@spinajs/orm';
 
-import { VersionRecord, recordDriver } from '../stores/records.js';
+import { recordDriver } from '../stores/context.js';
+import { VersionRecord } from '../stores/records.js';
 
 /** The 2.x `users` table the role copy reads and the drop alters; shared by both migrations, not exported by the package. */
 export const USERS_TABLE = 'users';

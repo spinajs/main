@@ -1,8 +1,9 @@
 import type { AuthzTx } from '@spinajs/authz';
+import { ormReady } from '@spinajs/orm';
 import type { IUpdateResult, OrmDriver } from '@spinajs/orm';
 
 import { requireTransaction } from './context.js';
-import { VersionRecord, ormReady } from './records.js';
+import { VersionRecord } from './records.js';
 import { AUTHZ_VERSION_TABLE } from './tables.js';
 
 /**
