@@ -44,9 +44,10 @@ returns the raw provider. An entry must state a valid `mode`, and an unknown key
 `inherit` or `policies` on a filesystem checked in `root` is an `AuthzConfigError` (decorator, and every domain
 boot): root never holds the fs models. Root-wide policies belong in `authz.abac.policies`.
 
-Other keys: `authz.fsMetadata.connection` (ORM connection of `OrmFileMetadataStore` and its migration, default
-`default`; not under `authz.fs`, which is keyed by filesystem name) and
-`authz.domains.<domain>.parent` (parent of a domain the package creates, default `root`).
+Other keys: `authz.domains.<domain>.parent` (parent of a domain the package creates, default `root`). The table of
+`OrmFileMetadataStore` and its migration live on the ORM connection alias `authz-fs`, which the package maps to
+`default`; set `db.Aliases['authz-fs']` to keep file metadata in another database. The former key
+`authz.fsMetadata.connection` fails every domain boot with `AuthzConfigError`.
 
 Every permission the effective operation table of a filesystem names (its `operations` and `inherit` keys
 included) is declared to the boot of its domain, so an unregistered one fails that boot.
@@ -296,13 +297,18 @@ the subject, and does not hold for the filesystem root or a filesystem without a
 Stores:
 
 - `OrmFileMetadataStore`: table `fs_object` (migration `AuthzFsObject_2026_10_01_00_00_00`), one row per
-  filesystem and normalised path, on the connection `authz.fsMetadata.connection`. `delete` removes one row;
+  filesystem and normalised path, on the ORM connection alias `authz-fs` (`db.Aliases['authz-fs']`, default
+  `default`). `delete` removes one row;
   `deleteTree` and `move` take the rows under a directory path along (`LIKE ... ESCAPE '~'` with `%`, `_`, `~`
   and `[` escaped). Paths are matched exactly in code and rows changed by their stored key. The migration gives
-  the key columns a binary collation on MySQL (`utf8mb4_bin`) and PostgreSQL (`"C"`); on a case-insensitive key
-  (MSSQL, or a table created otherwise) a case variant of an existing path cannot be stored, and its update fails
-  instead of sharing the row. Paths are limited to 512 characters; on MSSQL with nvarchar columns the `(fs, path)`
-  key can exceed the 900-byte index key limit, and an insert of a very long path then fails.
+  the key columns `caseSensitive()` (`utf8mb4_bin` on MySQL, `"C"` on PostgreSQL, SQLite's default `BINARY`,
+  `NVARCHAR` with `Latin1_General_100_BIN2` on MSSQL), which keep case variants apart. MySQL's `utf8mb4_bin` and
+  MSSQL still ignore trailing blanks, so `uploads` and `uploads ` are one key there: paths never end in a blank
+  (normalised paths refuse it), filesystem names may. On such a key, or a case-insensitive one in a table created
+  otherwise, a variant of an existing key cannot be stored, and its update fails instead of sharing the row. Paths
+  are limited to 512 characters. MSSQL cannot create the table yet (its table compiler cannot declare the
+  composite key); with `NVARCHAR` columns the `(fs, path)` key can exceed the 900-byte index key limit there, and
+  an insert of a very long path then fails.
 - `S3ObjectMetadataStore`: the metadata lives on the object as the user metadata `x-amz-meta-authz-meta`
   (URI-encoded JSON, within S3's 2 KB). It needs `getMetadata` and `setMetadata` (fsS3) on the provider and calls
   the raw provider behind the guard. `fsS3.setMetadata` copies the object onto itself: objects over 5 GB cannot be

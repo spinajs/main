@@ -3,6 +3,7 @@ import 'mocha';
 
 import { AuthzConfigError, AuthzContributor } from '@spinajs/authz';
 import type { PermissionRefDecl } from '@spinajs/authz';
+import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
@@ -27,6 +28,13 @@ describe('authz-fs FsAuthzContributor', () => {
   afterEach(async () => {
     await child?.dispose();
     child = undefined;
+  });
+
+  it('fails every domain boot on the removed authz.fsMetadata.connection, naming db.Aliases', async () => {
+    child = await configuredChild(undefined);
+    (child.get(Configuration) as Configuration).set(['authz', 'fsMetadata', 'connection'], 'files');
+
+    expect(() => new FsAuthzContributor(child!).contribute('root')).to.throw(AuthzConfigError, `authz.fsMetadata.connection: removed; fs_object uses the ORM connection alias "authz-fs", so set db.Aliases['authz-fs'] to the connection name instead (default: "default")`);
   });
 
   it('is registered in the root container as an AuthzContributor', () => {

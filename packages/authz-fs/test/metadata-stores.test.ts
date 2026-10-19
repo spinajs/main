@@ -12,14 +12,14 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { fsNative } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
 import { fsS3 } from '@spinajs/fs-s3';
-import { Orm, QueryContext, extractMigrationDescriptor } from '@spinajs/orm';
+import { Orm, OrmConnectionMissing, QueryContext, extractMigrationDescriptor } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { AuthzFsObject_2026_10_01_00_00_00, FileMetadataStore, OrmFileMetadataStore, S3ObjectMetadataStore, guardFs, parseFsAccessConfig } from '../src/index.js';
+import { AuthzFsObject_2026_10_01_00_00_00, FS_METADATA_CONNECTION, FileMetadataStore, OrmFileMetadataStore, S3ObjectMetadataStore, guardFs, parseFsAccessConfig } from '../src/index.js';
 import type { FileMeta } from '../src/index.js';
 import { FakeConfiguration, configuredChild } from './helpers.js';
 import { installQuietLog } from './support/log.js';
@@ -154,6 +154,8 @@ type DbKind = 'sqlite' | 'postgres' | 'mysql';
 /** Runs plain SQL; executeOnDb lives on the SQL drivers, not on OrmDriver. */
 const rawSql = (driver: OrmDriver, sql: string): Promise<unknown> => (driver as unknown as { executeOnDb(sql: string, bindings: unknown[], context: QueryContext): Promise<unknown> }).executeOnDb(sql, [], QueryContext.Schema);
 
+const rawRows = (driver: OrmDriver, sql: string): Promise<Record<string, unknown>[]> => (driver as unknown as { executeOnDb(sql: string, bindings: unknown[], context: QueryContext): Promise<Record<string, unknown>[]> }).executeOnDb(sql, [], QueryContext.Select);
+
 const PG = { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres' };
 const MYSQL = { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_MYSQL_PORT ?? 13306), User: 'root', Password: 'root' };
 
@@ -215,7 +217,7 @@ function ormSuite(kind: DbKind): void {
       DI.register(FakeConfiguration).as(Configuration);
       DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
       config = (await DI.resolve(Configuration)) as Configuration;
-      config.set(['db'], { DefaultConnection: main.Name, Connections: [main, sqlite('other'), sqlite('nocase')] });
+      config.set(['db'], { DefaultConnection: main.Name, Connections: [main, sqlite('other'), sqlite('nocase')], Aliases: { [FS_METADATA_CONNECTION]: 'default' } });
       orm = (await DI.resolve(Orm)) as Orm;
       db = orm.Connections.get('default')!;
       if (kind !== 'sqlite') await new AuthzFsObject_2026_10_01_00_00_00().up(db);
@@ -234,7 +236,6 @@ function ormSuite(kind: DbKind): void {
     });
 
     beforeEach(() => {
-      config.set(['authz', 'fsMetadata'], undefined);
       config.set(['authz', 'fs'], undefined);
     });
 
@@ -255,10 +256,9 @@ function ormSuite(kind: DbKind): void {
       expect(info.filter((c) => c.PrimaryKey).map((c) => c.Name)).to.have.members(['fs', 'path']);
     });
 
-    it('the migration runs on the connection the store uses, authz.fsMetadata.connection (review M3)', () => {
-      expect(extractMigrationDescriptor(AuthzFsObject_2026_10_01_00_00_00)?.Connection).to.equal('default');
-      config.set(['authz', 'fsMetadata', 'connection'], 'other');
-      expect(extractMigrationDescriptor(AuthzFsObject_2026_10_01_00_00_00)?.Connection).to.equal('other');
+    it('the migration and the store use the ORM connection alias authz-fs (review M3)', () => {
+      expect(extractMigrationDescriptor(AuthzFsObject_2026_10_01_00_00_00)?.Connection).to.equal(FS_METADATA_CONNECTION);
+      expect(orm!.Connections.get(FS_METADATA_CONNECTION)).to.equal(db);
     });
 
     it('keeps case variants of a path apart: Report.pdf and report.pdf are two files (review C2)', async () => {
@@ -269,6 +269,17 @@ function ormSuite(kind: DbKind): void {
       expect(await store.get('uploads', 'case/report.pdf')).to.deep.equal({ owner: BOB });
       await store.delete('uploads', 'case/report.pdf');
       expect(await store.get('uploads', 'case/Report.pdf')).to.deep.equal({ owner: ALICE });
+    });
+
+    it('declares the key columns case-sensitive where the database has column collations (review C2)', async function () {
+      if (kind === 'sqlite') this.skip();
+      const expected = kind === 'postgres' ? 'C' : 'utf8mb4_bin';
+      const schema = kind === 'postgres' ? '' : ' AND table_schema = DATABASE()';
+      const rows = await rawRows(db, `SELECT column_name AS name, collation_name AS collation FROM information_schema.columns WHERE table_name = 'fs_object'${schema} AND column_name IN ('fs', 'path') ORDER BY column_name`);
+      expect(rows).to.deep.equal([
+        { name: 'fs', collation: expected },
+        { name: 'path', collation: expected },
+      ]);
     });
 
     it('writes one row with the owner and scope columns and the tags as JSON; set keeps created_at', async () => {
@@ -322,44 +333,53 @@ function ormSuite(kind: DbKind): void {
       store.checkMeta('uploads', 'long/a', FULL);
     });
 
-    it('uses the connection authz.fsMetadata.connection names, else the default one', async function () {
+    it("reads and writes where db.Aliases['authz-fs'] points, and names the alias when nothing answers to it", async function () {
       sqliteOnly(this);
       const other = orm!.Connections.get('other')!;
       await new AuthzFsObject_2026_10_01_00_00_00().up(other);
-      config.set(['authz', 'fsMetadata', 'connection'], 'other');
-      await store.set('uploads', 'conn/a.txt', { owner: BOB });
-      expect(((await other.select().from('fs_object').where({ path: 'conn/a.txt' })) as unknown[]).length).to.equal(1);
-      expect(((await db.select().from('fs_object').where({ path: 'conn/a.txt' })) as unknown[]).length).to.equal(0);
-      expect(await new OrmFileMetadataStore({ connection: 'default' }).get('uploads', 'conn/a.txt')).to.equal(null);
+      try {
+        orm!.Connections.set(FS_METADATA_CONNECTION, other);
+        await store.set('uploads', 'conn/a.txt', { owner: BOB });
+        expect(((await other.select().from('fs_object').where({ path: 'conn/a.txt' })) as unknown[]).length).to.equal(1);
+        expect(((await db.select().from('fs_object').where({ path: 'conn/a.txt' })) as unknown[]).length).to.equal(0);
 
-      config.set(['authz', 'fsMetadata', 'connection'], 'nope');
-      const e = await rejection(store.get('uploads', 'conn/a.txt'));
-      expect(e).to.be.instanceOf(AuthzConfigError);
-      expect(e.message).to.contain('authz.fsMetadata.connection');
+        orm!.Connections.delete(FS_METADATA_CONNECTION);
+        const e = await rejection(store.get('uploads', 'conn/a.txt'));
+        expect(e).to.be.instanceOf(AuthzConfigError);
+        expect(e.message).to.equal(`OrmFileMetadataStore: no ORM connection answers to "${FS_METADATA_CONNECTION}"; set db.Aliases['${FS_METADATA_CONNECTION}']`);
+        expect(e.cause).to.be.instanceOf(OrmConnectionMissing);
+      } finally {
+        orm!.Connections.set(FS_METADATA_CONNECTION, db);
+      }
     });
 
     it('on a case-insensitive table matches rows exactly in code and refuses to merge case variants (review C2)', async function () {
       sqliteOnly(this);
-      // As MySQL's or MSSQL's default collation would make the table; SQLite's LIKE also ignores ASCII case.
+      // A table not created by the migration may compare its keys ignoring case.
       await rawSql(orm!.Connections.get('nocase')!, 'CREATE TABLE fs_object (fs varchar(64) COLLATE NOCASE NOT NULL, path varchar(512) COLLATE NOCASE NOT NULL, owner_type varchar(32), owner_id varchar(64), scope_type varchar(64), scope_id varchar(64), tags text, created_at datetime NOT NULL, updated_at datetime NOT NULL, PRIMARY KEY (fs, path))');
-      const ci = new OrmFileMetadataStore({ connection: 'nocase' });
-      await ci.set('uploads', 'Report.pdf', { owner: ALICE });
-      expect(await ci.get('uploads', 'report.pdf')).to.equal(null);
-      expect(await rejection(ci.set('uploads', 'report.pdf', { owner: BOB }))).to.be.an('error');
-      expect(await ci.get('uploads', 'Report.pdf')).to.deep.equal({ owner: ALICE });
-      await ci.delete('uploads', 'report.pdf');
-      expect(await ci.get('uploads', 'Report.pdf')).to.deep.equal({ owner: ALICE });
+      const ci = store;
+      orm!.Connections.set(FS_METADATA_CONNECTION, orm!.Connections.get('nocase')!);
+      try {
+        await ci.set('uploads', 'Report.pdf', { owner: ALICE });
+        expect(await ci.get('uploads', 'report.pdf')).to.equal(null);
+        expect(await rejection(ci.set('uploads', 'report.pdf', { owner: BOB }))).to.be.an('error');
+        expect(await ci.get('uploads', 'Report.pdf')).to.deep.equal({ owner: ALICE });
+        await ci.delete('uploads', 'report.pdf');
+        expect(await ci.get('uploads', 'Report.pdf')).to.deep.equal({ owner: ALICE });
 
-      await ci.set('uploads', 'Docs/a.txt', { owner: ALICE });
-      await ci.set('uploads', 'docs/b.txt', { owner: BOB });
-      await ci.deleteTree('uploads', 'docs');
-      expect(await ci.get('uploads', 'Docs/a.txt')).to.deep.equal({ owner: ALICE });
-      expect(await ci.get('uploads', 'docs/b.txt')).to.equal(null);
-      await ci.move('uploads', 'Docs', 'uploads', 'moved');
-      expect(await ci.get('uploads', 'moved/a.txt')).to.deep.equal({ owner: ALICE });
-      await ci.set('uploads', 'x/one.txt', { owner: BOB });
-      await ci.move('uploads', 'X', 'uploads', 'y');
-      expect(await ci.get('uploads', 'x/one.txt')).to.deep.equal({ owner: BOB });
+        await ci.set('uploads', 'Docs/a.txt', { owner: ALICE });
+        await ci.set('uploads', 'docs/b.txt', { owner: BOB });
+        await ci.deleteTree('uploads', 'docs');
+        expect(await ci.get('uploads', 'Docs/a.txt')).to.deep.equal({ owner: ALICE });
+        expect(await ci.get('uploads', 'docs/b.txt')).to.equal(null);
+        await ci.move('uploads', 'Docs', 'uploads', 'moved');
+        expect(await ci.get('uploads', 'moved/a.txt')).to.deep.equal({ owner: ALICE });
+        await ci.set('uploads', 'x/one.txt', { owner: BOB });
+        await ci.move('uploads', 'X', 'uploads', 'y');
+        expect(await ci.get('uploads', 'x/one.txt')).to.deep.equal({ owner: BOB });
+      } finally {
+        orm!.Connections.set(FS_METADATA_CONNECTION, db);
+      }
     });
 
     it("is what a guard with metadata: 'OrmFileMetadataStore' stamps owners into", async () => {

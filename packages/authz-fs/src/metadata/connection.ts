@@ -1,14 +1,13 @@
+import { AuthzConfigError } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-// Not under authz.fs: that section is keyed by filesystem name.
-export const FS_METADATA_CONNECTION_KEY = 'authz.fsMetadata.connection';
+/** The ORM connection alias of fs_object; an app maps it with `db.Aliases['authz-fs']` (package default: `default`). */
+export const FS_METADATA_CONNECTION = 'authz-fs';
 
-export const FS_METADATA_DEFAULT_CONNECTION = 'default';
-
-/** The ORM connection of OrmFileMetadataStore and of its migration: `authz.fsMetadata.connection`, else the default one. */
-export function fsMetadataConnection(container: IContainer = DI.RootContainer): string {
+/** Fails on the key the alias replaced, so an app's choice of database is never ignored. */
+export function checkRemovedFsMetadataKeys(container: IContainer): void {
   const configuration = container.get(Configuration) as Configuration | undefined;
-  return (configuration?.get?.(['authz', 'fsMetadata', 'connection']) as string | null | undefined) ?? FS_METADATA_DEFAULT_CONNECTION;
+  if (configuration?.get?.(['authz', 'fsMetadata', 'connection']) === undefined) return;
+  throw new AuthzConfigError(`authz.fsMetadata.connection: removed; fs_object uses the ORM connection alias "${FS_METADATA_CONNECTION}", so set db.Aliases['${FS_METADATA_CONNECTION}'] to the connection name instead (default: "default")`);
 }

@@ -5,6 +5,7 @@ import type { IContainer } from '@spinajs/di';
 
 import { fsAccessConfigs } from '../access-config/index.js';
 import { assertFsDomainConfig } from '../domain/index.js';
+import { checkRemovedFsMetadataKeys } from '../metadata/connection.js';
 import { effectiveFsOperations } from '../operations/index.js';
 
 /**
@@ -12,7 +13,7 @@ import { effectiveFsOperations } from '../operations/index.js';
  * `authz.fs.<name>.operations` entry naming an unregistered permission fails that domain's boot (design §6.5
  * rule 7), and so do the `authz.fs.<name>.inherit` keys. Registered in root: a domain's boot asks the contributors of
  * its whole container chain. Every domain's boot also fails on a filesystem config that root cannot serve
- * (`assertFsDomainConfig`).
+ * (`assertFsDomainConfig`) and on the removed `authz.fsMetadata.connection`.
  */
 @Injectable(AuthzContributor)
 export class FsAuthzContributor extends AuthzContributor {
@@ -22,6 +23,7 @@ export class FsAuthzContributor extends AuthzContributor {
   }
 
   contribute(domain: string): AuthzContribution {
+    checkRemovedFsMetadataKeys(this.container);
     const refs = new Map<string, PermissionRefDecl>();
     for (const [name, config] of fsAccessConfigs(this.container)) {
       assertFsDomainConfig(name, config);

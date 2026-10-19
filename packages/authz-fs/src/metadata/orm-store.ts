@@ -1,14 +1,13 @@
 import { AuthzConfigError } from '@spinajs/authz';
-import { DI, Injectable } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
+import { Injectable } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { LIKE_ESCAPE_CHARACTER, Orm, RawQuery, escapeLikeValue } from '@spinajs/orm';
+import { LIKE_ESCAPE_CHARACTER, OrmConnectionMissing, RawQuery, escapeLikeValue, ormConnection, ormReady } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { FileMetadataStore } from '../api.js';
 import type { FileMeta } from '../api.js';
 import { normalizeFsPath } from '../refs/index.js';
-import { FS_METADATA_CONNECTION_KEY, fsMetadataConnection } from './connection.js';
+import { FS_METADATA_CONNECTION } from './connection.js';
 import { checkFileMeta, checkFsName } from './meta.js';
 
 const TABLE = 'fs_object';
@@ -25,17 +24,10 @@ interface Row {
   readonly tags: string | null;
 }
 
-export interface OrmFileMetadataStoreOptions {
-  /** The ORM connection; default: config authz.fsMetadata.connection, else the ORM default connection. */
-  readonly connection?: string;
-  /** Where Configuration and Orm are resolved; default the DI root. */
-  readonly container?: IContainer;
-}
-
 const chunks = <T>(list: readonly T[], size: number): T[][] => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, (i + 1) * size));
 
 /**
- * FileMeta in table fs_object (migration AuthzFsObject_2026_10_01_00_00_00), one row per (fs, normalised path).
+ * FileMeta in table fs_object (migration AuthzFsObject_2026_10_01_00_00_00), one row per (fs, normalised path), on the ORM connection alias `authz-fs`.
  * `delete` removes the row of that path only; `deleteTree` and `move` take the rows under a directory path along
  * (providers remove and move directories whole).
  * Paths are matched exactly in code and rows changed by their stored key, whatever the column collation: on a
@@ -43,10 +35,6 @@ const chunks = <T>(list: readonly T[], size: number): T[][] => Array.from({ leng
  */
 @Injectable(FileMetadataStore)
 export class OrmFileMetadataStore extends FileMetadataStore {
-  constructor(private readonly opts: OrmFileMetadataStoreOptions = {}) {
-    super();
-  }
-
   async get(fsName: string, path: string): Promise<FileMeta | null> {
     const fs = checkFsName(fsName);
     const p = normalizeFsPath(path);
@@ -124,13 +112,15 @@ export class OrmFileMetadataStore extends FileMetadataStore {
     await driver.transaction(async (tx) => deleteRows(tx, await tree(tx, fs, p)));
   }
 
+  /** The driver of the alias authz-fs, after resolving the Orm when nothing did yet. */
   private async driver(): Promise<OrmDriver> {
-    const container = this.opts.container ?? DI.RootContainer;
-    const name = this.opts.connection ?? fsMetadataConnection(container);
-    const orm = (await container.resolve(Orm)) as Orm;
-    const driver = orm.Connections.get(name);
-    if (!driver) throw new AuthzConfigError(`OrmFileMetadataStore: ${FS_METADATA_CONNECTION_KEY} names connection ${JSON.stringify(name)}, which the ORM does not have (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
-    return driver;
+    await ormReady();
+    try {
+      return ormConnection(FS_METADATA_CONNECTION);
+    } catch (err) {
+      if (err instanceof OrmConnectionMissing) throw new AuthzConfigError(`OrmFileMetadataStore: no ORM connection answers to "${FS_METADATA_CONNECTION}"; set db.Aliases['${FS_METADATA_CONNECTION}']`, { cause: err });
+      throw err;
+    }
   }
 }
 
