@@ -358,7 +358,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
   protected addPageEventListeners(page: Page): () => void {
     const listeners = {
       console: (message: ConsoleMessage) => this.Log.trace({ consoleType: message.type().slice(0, 3).toUpperCase(), text: message.text() }, '${consoleType} ${text}'),
-      pageerror: (error: Error) => this.Log.error({ error }, 'Page error'),
+      pageerror: (error: unknown) => this.Log.error({ error }, 'Page error'),
       response: (response: HTTPResponse) => this.Log.trace({ status: response.status(), url: response.url() }, '${status} ${url}'),
       requestfailed: (request: HTTPRequest) => {
         const failure = request.failure();

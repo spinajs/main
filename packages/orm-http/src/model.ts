@@ -1,8 +1,11 @@
-import { IModelDescriptor, OrmException, SelectQueryBuilder, createQuery } from '@spinajs/orm';
+import { IModelDescriptor, ModelBase, OrmException, SelectQueryBuilder, createQuery } from '@spinajs/orm';
 import './builders.js';
 import { IColumnFilter, IFilterRequest, FilterableLogicalOperators } from './interfaces.js';
 
-export const MODEL_STATIC_MIXINS = {
+/** Bound to each model class by the orm, so `this` is the class. */
+const staticMixins = <M>(mixins: M & ThisType<typeof ModelBase>): M => mixins;
+
+export const MODEL_STATIC_MIXINS = staticMixins({
   async filter(filterRequest?: IFilterRequest) {
     const { query } = createQuery(this, SelectQueryBuilder);
     return (query as any).filter(filterRequest?.filters, filterRequest?.op);
@@ -43,7 +46,7 @@ export const MODEL_STATIC_MIXINS = {
       [...modelDescriptor.FilterableColumns.entries()].map(([column, val]: [string, IColumnFilter<unknown>]) => ({ column, operators: val.operators })),
     );
   },
-};
+});
 
 /**
  * JSON schema of a filter request over the given columns: a flat list of conditions, each of
