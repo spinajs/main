@@ -13,7 +13,7 @@ import { planFilter, planRow } from '../../src/lists/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { createAncestorTable, dropAncestorTable, insertLinks } from '../support/ancestors.js';
-import { FlagTerm, SilentTerm } from '../support/flag-term.js';
+import { EmptyGroupTerm, FlagTerm, SilentTerm } from '../support/flag-term.js';
 
 const expect = chai.expect;
 
@@ -37,7 +37,7 @@ describe('planFilter', function () {
   before(async () => {
     pg = await TestDb.postgresReachable();
     db = await TestDb.open({ postgres: pg });
-    undo.push(testHost.registerInRoot(PlanTermCompiler, FlagTerm), testHost.registerInRoot(PlanTermCompiler, SilentTerm));
+    undo.push(testHost.registerInRoot(PlanTermCompiler, FlagTerm), testHost.registerInRoot(PlanTermCompiler, SilentTerm), testHost.registerInRoot(PlanTermCompiler, EmptyGroupTerm));
   });
 
   after(async () => {
@@ -153,6 +153,8 @@ describe('planFilter', function () {
         };
         expect(apply(filter({ permit: [{ op: 'nope', args: {} }] }))).to.throw(AuthzConfigError, /no PlanTermCompiler applies op "nope"/);
         expect(apply(filter({ permit: [{ op: 'test.silent', args: {} }] }))).to.throw(AuthzConfigError, /SilentTerm\.apply\(\) for op "test\.silent" added no condition/);
+        expect(apply(filter({ permit: [{ op: 'test.empty-group', args: {} }] }))).to.throw(AuthzConfigError, /EmptyGroupTerm\.apply\(\) for op "test\.empty-group" added no condition/);
+        expect(apply(filter({ deny: [{ op: 'test.empty-group', args: {} }] }))).to.throw(AuthzConfigError, /added no condition/);
       });
     });
   }

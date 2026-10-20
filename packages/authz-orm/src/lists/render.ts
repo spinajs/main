@@ -16,8 +16,8 @@ function term(where: Where, t: PlanTerm, row: PlanRow, compilers: ReadonlyMap<st
   if (!compiler) throw new AuthzConfigError(`authz-orm: no PlanTermCompiler applies op ${JSON.stringify(t?.op)}; register one with @Injectable(PlanTermCompiler)`);
   where.orWhere(function () {
     compiler.apply(t.args, this, row);
-    // An empty group compiles to no condition at all, which would keep every row.
-    if (this.Statements.length === 0) throw new AuthzConfigError(`authz-orm: ${compiler.constructor.name}.apply() for op ${JSON.stringify(t.op)} added no condition; a term that matches no row adds where(false)`);
+    // Nothing, or only empty groups, compiles to no condition at all, which would keep every row.
+    if (!this.hasCondition()) throw new AuthzConfigError(`authz-orm: ${compiler.constructor.name}.apply() for op ${JSON.stringify(t.op)} added no condition; a term that matches no row adds where(false)`);
   });
 }
 

@@ -906,6 +906,11 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this._parent;
   }
 
+  /** Whether this builder compiles to any condition: a group with nothing in it compiles to none and is dropped. */
+  public hasCondition(): boolean {
+    return this._statements.some((s) => !(s instanceof WhereQueryStatement) || s.Builder.hasCondition());
+  }
+
 
   /**
    * Pushes a statement onto this builder, stamping it with the currently pending

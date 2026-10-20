@@ -138,6 +138,10 @@ export abstract class WhereQueryStatement extends QueryStatement {
     this._not = not;
   }
 
+  public get Builder(): WhereBuilder<any> {
+    return this._builder;
+  }
+
   public abstract build(): IQueryStatementResult;
 }
 

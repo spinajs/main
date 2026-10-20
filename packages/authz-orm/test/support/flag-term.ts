@@ -18,3 +18,15 @@ export class SilentTerm extends PlanTermCompiler {
 
   apply(): void {}
 }
+
+/** Adds only empty groups, which compile to nothing: as silent as SilentTerm. */
+export class EmptyGroupTerm extends PlanTermCompiler {
+  readonly op = 'test.empty-group';
+
+  apply(_args: unknown, where: IWhereBuilder<unknown>): void {
+    where.where(function () {
+      this.orWhere(function () {});
+    });
+    where.whereNot(function () {});
+  }
+}

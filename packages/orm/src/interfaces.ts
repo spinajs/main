@@ -1244,6 +1244,9 @@ export interface IWhereBuilder<T> {
 
   clone<P extends IWhereBuilder<any>>(parent: P): IWhereBuilder<T>;
 
+  /** False when every statement is a group with no condition inside, so the builder compiles to nothing. */
+  hasCondition(): boolean;
+
   when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this;
 
   where(val: boolean): this;
