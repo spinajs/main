@@ -184,7 +184,7 @@ export abstract class RouteArgs implements IRouteArgs {
 
       return arg;
     } catch (err) {
-      if (err.constructor.name === 'SyntaxError') {
+      if (err instanceof Error && err.constructor.name === 'SyntaxError') {
         // The parser message quotes the input.
         throw new InvalidArgument(`Argument '${param.Name}' is invalid JSON`, param.Name);
       }

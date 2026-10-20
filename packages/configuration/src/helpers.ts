@@ -46,7 +46,7 @@ export async function service<T>(path: string, type: Class<T>, options?: []): Pr
   } catch (err) {
     throw new ResolveException(
       `Cannot resolve service from ${path}: ${(err as Error).message}. Check your configuration file at this path.`,
-      err,
+      err as Error,
     );
   }
 }

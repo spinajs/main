@@ -41,7 +41,7 @@ describe('HTTP Server Memory Management Tests', () => {
       try {
         await srv.dispose();
       } catch (err) {
-        console.warn('Error disposing server:', err.message);
+        console.warn('Error disposing server:', (err as Error).message);
       }
     }
     startedServers = [];
