@@ -1,4 +1,4 @@
-import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
+import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, NewInstance } from '@spinajs/di';
@@ -46,7 +46,7 @@ function _carryQuoter<T extends { Quoter: IdentifierQuoter }>(clone: T, source: 
  * Rebinding statements: {@link SqlWhereStatement} (`_builder`), {@link SqlInStatement}
  * (`_builder`), {@link SqlJoinStatement} (`_options.builder`), {@link SqlWhereQueryStatement}
  * (nested where-builder), {@link SqlExistsQueryStatement} (sub-select correlation),
- * {@link SqlInQueryStatement} (sub-select correlation and `_ownerBuilder`), {@link SqlColumnCompareStatement} (`_builder`),
+ * {@link SqlInQueryStatement} (sub-select correlation and `_ownerBuilder`), {@link SqlColumnCompareStatement} (`_builder`), {@link SqlColumnConditionStatement} (nested where-builder),
  * {@link SqlLazyQueryStatement} (deferred evaluation context) and
  * {@link SqlWithRecursiveStatement} (`_query`, the owning query).
  *
@@ -768,6 +768,28 @@ export class SqlColumnRawStatement extends ColumnRawStatement {
     return {
       Bindings: this.RawQuery.Bindings,
       Statements: [this.RawQuery.Query],
+    };
+  }
+}
+
+/** CASE WHEN, because T-SQL selects no predicate as a value; every dialect reads it as 1 or 0. */
+@NewInstance()
+export class SqlColumnConditionStatement extends ColumnConditionStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): SqlColumnConditionStatement {
+    return _carryQuoter(new SqlColumnConditionStatement(this._builder.clone((parent ?? this._builder.Parent ?? this._builder) as any), this._alias), this);
+  }
+
+  public build(): IQueryStatementResult {
+    const condition = new SqlWhereCompiler().where(this._builder);
+    // An empty group is no condition: every row has it.
+    const expression = condition.expression || '1 = 1';
+
+    return {
+      Bindings: condition.bindings,
+      Statements: [`CASE WHEN ${expression} THEN 1 ELSE 0 END AS ${this.Quoter.quote(this._alias)}`],
     };
   }
 }

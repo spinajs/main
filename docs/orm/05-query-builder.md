@@ -125,6 +125,7 @@ Available on `SelectQueryBuilder`. `InsertQueryBuilder` shares `columns()` and `
 | --- | --- |
 | `select(column, alias?)` | Adds one column. On a model-bound builder, a column that is not a non-virtual descriptor column throws `InvalidArgument`. `'*'` is always accepted. |
 | `select(RawQuery)` | Adds a raw expression. |
+| `selectCondition(alias, function () { ... })` | Adds `CASE WHEN <group> THEN 1 ELSE 0 END AS alias`; `this` in the callback is a nested `WhereBuilder` of the query, so `outer()` in its sub-queries names the query. Rows read through the builder hold `true` / `false` (the driver's `BooleanValueConverter`), a model gets it as a property; `asRaw()` keeps the driver's `1` / `0`. An empty group is `true`. |
 | `select(new Map([[column, alias]]))` | Adds several aliased columns. Only non-virtual model columns are added, so on a builder with no model it adds nothing. |
 | `columns(names)` | Replaces the column list. |
 | `clearColumns()` | Empties the column list. |

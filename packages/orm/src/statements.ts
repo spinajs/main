@@ -572,6 +572,25 @@ export abstract class ColumnRawStatement extends QueryStatement {
   public abstract build(): IQueryStatementResult;
 }
 
+/** A where-group selected as a column: `CASE WHEN <group> THEN 1 ELSE 0 END AS alias`. */
+@NewInstance()
+export abstract class ColumnConditionStatement extends QueryStatement {
+  protected _builder: WhereBuilder<any>;
+  protected _alias: string;
+
+  constructor(builder: WhereBuilder<any>, alias: string) {
+    super();
+    this._builder = builder;
+    this._alias = alias;
+  }
+
+  public get Alias(): string {
+    return this._alias;
+  }
+
+  public abstract build(): IQueryStatementResult;
+}
+
 @NewInstance()
 export abstract class ColumnMethodStatement extends ColumnStatement {
   protected _method: ColumnMethods;

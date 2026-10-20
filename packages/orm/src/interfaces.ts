@@ -1402,6 +1402,8 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
   selectCount(column: string, as?: string): Promise<number>;
   sum(column: string, as?: string): this;
   avg(column: string, as?: string): this;
+  /** `condition` as the boolean column `alias` (`CASE WHEN ... THEN 1 ELSE 0 END`). */
+  selectCondition(alias: string, condition: WhereFunction<T>): this;
   setAlias(alias: string): this;
   setTable(table: string, alias?: string): this;
   distinct(): this;

@@ -6,8 +6,8 @@ import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
 import type { Op } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, LockTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from './interfaces.js';
-import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement, ColumnCompareStatement, OuterColumn } from './statements.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, LockTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, BooleanValueConverter } from './interfaces.js';
+import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement, ColumnCompareStatement, OuterColumn, ColumnConditionStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
 import { ModelBase } from './model.js';
@@ -1289,6 +1289,32 @@ export function outerBuilder(builder: IWhereBuilder<any>, levels: number): IWher
   return target;
 }
 
+/** Reads the driver's value of a selectCondition() column as a boolean. */
+class BooleanColumnMiddleware implements IBuilderMiddleware<any> {
+  constructor(
+    private readonly alias: string,
+    private readonly converter: BooleanValueConverter,
+  ) {}
+
+  public afterQuery(data: any): any {
+    if (Array.isArray(data)) {
+      for (const row of data) {
+        if (row !== null && typeof row === 'object' && this.alias in row) {
+          row[this.alias] = this.converter.fromDB(row[this.alias], row, null);
+        }
+      }
+    }
+
+    return data;
+  }
+
+  public modelCreation(): ModelBase | null {
+    return null;
+  }
+
+  public async afterHydration(): Promise<void> {}
+}
+
 @Injectable(SelectQueryBuilder)
 export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /**
@@ -1711,6 +1737,18 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   public avg(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.AVG, as, this._tableAlias]));
+    return this;
+  }
+
+  /**
+   * Selects `condition` as the column `alias`. Rows read through the builder hold a boolean on every
+   * driver (its BooleanValueConverter); `asRaw()` keeps the driver's 1 / 0.
+   */
+  public selectCondition(alias: string, condition: WhereFunction<T>): this {
+    const builder = new WhereBuilder<T>(this as unknown as WhereBuilder<T>);
+    condition.call(builder);
+    this._columns.push(this._container.resolve<ColumnConditionStatement>(ColumnConditionStatement, [builder, alias]));
+    this.middleware(new BooleanColumnMiddleware(alias, this._container.resolve<BooleanValueConverter>(BooleanValueConverter)));
     return this;
   }
 

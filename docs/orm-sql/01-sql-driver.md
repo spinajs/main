@@ -72,7 +72,7 @@ All in the driver's own `this.Container`, after `OrmDriver.resolve()` registered
 | `WhereStatement`, `WhereQueryStatement`, `LazyQueryStatement`, `ColumnCompareStatement` | `SqlWhereStatement`, `SqlWhereQueryStatement`, `SqlLazyQueryStatement`, `SqlColumnCompareStatement` |
 | `InStatement`, `InQueryStatement`, `InSetStatement` | `SqlInStatement`, `SqlInQueryStatement`, `SqlInSetStatement` |
 | `ExistsQueryStatement`, `BetweenStatement`, `RawQueryStatement` | `SqlExistsQueryStatement`, `SqlBetweenStatement`, `SqlRawStatement` |
-| `ColumnStatement`, `ColumnRawStatement`, `ColumnMethodStatement` | `SqlColumnStatement`, `SqlColumnRawStatement`, `SqlColumnMethodStatement` |
+| `ColumnStatement`, `ColumnRawStatement`, `ColumnMethodStatement`, `ColumnConditionStatement` | `SqlColumnStatement`, `SqlColumnRawStatement`, `SqlColumnMethodStatement`, `SqlColumnConditionStatement` |
 | `JoinStatement`, `GroupByStatement`, `WithRecursiveStatement` | `SqlJoinStatement`, `SqlGroupByStatement`, `SqlWithRecursiveStatement` |
 | `DateWrapper`, `DateTimeWrapper`, `TextWrapper` | `SqlDateWrapper`, `SqlDateTimeWrapper`, `SqlTextWrapper` |
 | `SelectQueryCompiler`, `InsertQueryCompiler`, `UpdateQueryCompiler`, `DeleteQueryCompiler` | `SqlSelectQueryCompiler`, `SqlInsertQueryCompiler`, `SqlUpdateQueryCompiler`, `SqlDeleteQueryCompiler` |

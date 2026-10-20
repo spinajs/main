@@ -41,6 +41,7 @@ Every abstract token extends `QueryStatement`, which implements `TableAlias`, `B
 | `StartsWithStatement` | `SqlStartsWithStatement` | `whereStartsWith` | `` `col` LIKE ? ESCAPE '~' ``, bound `escapeLikeValue(prefix) + '%'`; a dialect extends `pattern()` for its own wildcards | no builder; `clone()` keeps the subclass |
 | `ColumnStatement` | `SqlColumnStatement` | `select(column)`, `columns()` | `` `alias`.`col` as `name` ``, `*` | no builder |
 | `ColumnRawStatement` | `SqlColumnRawStatement` | `select(RawQuery)` | the query verbatim | no builder |
+| `ColumnConditionStatement` | `SqlColumnConditionStatement` | `selectCondition()` | `CASE WHEN <nested where> THEN 1 ELSE 0 END AS alias` | clones the nested `WhereBuilder` onto the parent |
 | `ColumnMethodStatement` | `SqlColumnMethodStatement` | `min`, `max`, `sum`, `avg`, `count` | `` COUNT(`col`) as `alias` `` | no builder |
 | `JoinStatement` | `SqlJoinStatement` | `innerJoin`, `leftJoin`, ..., `populate()` | see [Joins](#joins) | rebinds `_options.builder` |
 | `GroupByStatement` | `SqlGroupByStatement` | `groupBy()` | `` `col` `` or a raw expression | no builder |
