@@ -1,8 +1,8 @@
 import { Injectable, Singleton } from '@spinajs/di';
-import { ormReady } from '@spinajs/orm';
+import { UniqueViolation, ormReady } from '@spinajs/orm';
 
 import { AuthnNonce } from '../models/AuthnNonce.js';
-import { checkedMs, checkedText, instant, isDuplicate } from '../support/sql.js';
+import { checkedMs, checkedText, instant } from '../support/sql.js';
 const KEY_MAX = 160;
 const PURGE_EVERY = 64;
 const PURGE_BATCH = 500;
@@ -64,7 +64,7 @@ export class DbNonceStore extends NonceStore {
         await AuthnNonce.insert({ k: key, expires_at: expires });
         return true;
       } catch (err) {
-        if (!isDuplicate(err)) throw err;
+        if (!(err instanceof UniqueViolation)) throw err;
       }
       if ((await AuthnNonce.update({ expires_at: expires }).where('k', key).where('expires_at', '<=', t)).RowsAffected === 1) {
         return true;

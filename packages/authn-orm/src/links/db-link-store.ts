@@ -4,10 +4,10 @@ import { IdentityLinkStore } from '@spinajs/authn/contracts';
 import type { ExternalSubject, IdentityLink, IdentityRef } from '@spinajs/authn/contracts';
 import { Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
-import { ormReady } from '@spinajs/orm';
+import { UniqueViolation, ormReady } from '@spinajs/orm';
 
 import { AuthnIdentity } from '../models/AuthnIdentity.js';
-import { checkedMs, checkedText, dateOf, instant, isDuplicate } from '../support/sql.js';
+import { checkedMs, checkedText, dateOf, instant } from '../support/sql.js';
 import { columnValues } from '../support/values.js';
 
 const LINK_COLUMNS = ['id', 'identity_type', 'identity_id', 'provider', 'subject', 'email', 'linked_at', 'last_used_at'];
@@ -51,7 +51,7 @@ export class DbIdentityLinkStore extends IdentityLinkStore {
     try {
       await AuthnIdentity.insert(columnValues<AuthnIdentity>({ id: linkId, identity_type: type, identity_id: id, provider, subject, email: email ?? null, email_verified: external.emailVerified === true, attributes: null, linked_at: instant(nowMs), last_used_at: null }));
     } catch (err) {
-      if (isDuplicate(err)) throw new ResourceDuplicated(`DbIdentityLinkStore: (${provider}, subject) is already linked`, err);
+      if (err instanceof UniqueViolation) throw new ResourceDuplicated(`DbIdentityLinkStore: (${provider}, subject) is already linked`, err);
       throw err;
     }
     return { id: linkId, identity: { type, id }, provider, subject, ...(email !== undefined ? { email } : {}), linkedAt: new Date(nowMs) };

@@ -24,15 +24,15 @@ Every method first builds the identity key with `identityKey(id)` (`<type>:<id>`
 ### Enrol, `put()` and `putPending()`
 
 1. `put(id, step, secretEnc, keyId)` checks `secretEnc` (non-empty) and `keyId` (1 to 32 characters) and takes "now" from the Node clock.
-2. It inserts an unconfirmed row: `confirmed_at` and `last_step` `NULL`, `created_at` now.
+2. It inserts an unconfirmed row: `secret_hash` the hex SHA-256 of `secretEnc`, `confirmed_at` and `last_step` `NULL`, `created_at` now.
 3. On a duplicate `(identity, step)` it updates the row to the same unconfirmed values. A row deleted in between sends it back to step 2, up to 8 times; then it throws `UnexpectedServerError`.
 4. `putPending(id, step, secretEnc, keyId)` does the same, but its update also requires `confirmed_at IS NULL`. When no row changed and the row is confirmed, it resolves `false` and changes nothing; otherwise `true`.
 
 ### Confirm, `confirm(id, step, at?, expectedSecretEnc?)`
 
 1. Without `expectedSecretEnc`, it sets `confirmed_at` = `at` (default now) on the row and resolves `true` when the row exists.
-2. With `expectedSecretEnc`, the update also requires `confirmed_at IS NULL` and `secret_enc` equal to it. Of parallel confirmations exactly one resolves `true`.
-3. The comparison of `secret_enc` is exact on every driver: `CAST([secret_enc] AS NVARCHAR(MAX)) = ?` on MSSQL, ``CAST(`secret_enc` AS BINARY) = ?`` on MySQL, a plain `=` elsewhere. The dialect comes from `modelDriver(AuthnMfa)`.
+2. With `expectedSecretEnc`, the update also requires `confirmed_at IS NULL` and `secret_hash` equal to the hex SHA-256 of it. Of parallel confirmations exactly one resolves `true`.
+3. The comparison is exact on every driver with the same SQL: it compares lowercase hex in a `varchar(64)`, never the `text` column, which MSSQL cannot compare with `=` and MySQL compares ignoring case.
 
 ### Accept a code, `acceptStep(id, step, timeStep)`
 
@@ -84,6 +84,7 @@ See [`@spinajs/authn` MFA](../authn/04-mfa-policy-and-steps.md).
 | `identity` | `varchar(100)`, primary key part | `<type>:<id>` of the owner. |
 | `step` | `varchar(32)`, primary key part | The step name, for example `totp`. |
 | `secret_enc` | `text` | Cipher text exactly as `put` got it. |
+| `secret_hash` | `varchar(64)` | Hex SHA-256 of `secret_enc`; `confirm` with `expectedSecretEnc` compares it. |
 | `key_id` | `varchar(32)` | Id of the key that wrote `secret_enc`. |
 | `confirmed_at` | `datetime`, nullable | Set by `confirm`; `NULL` while enrolment is pending. |
 | `last_step` | `bigint`, nullable | The last accepted time step. PostgreSQL returns it as a string; `get` turns it into a number. |
@@ -210,7 +211,7 @@ export async function startAuthenticatorEnrolment(userUuid: string, plainSecret:
 
 ### `DbMfaStore` takes no driver
 
-The store writes through the `AuthnMfa` and `AuthnRecoveryCode` models on the `default` connection and has no constructor arguments. `confirm` with `expectedSecretEnc` picks its dialect from the driver of `AuthnMfa`.
+The store writes through the `AuthnMfa` and `AuthnRecoveryCode` models on the `default` connection and has no constructor arguments. Its SQL is the same on every driver.
 
 ```ts
 // Before

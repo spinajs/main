@@ -1,32 +1,8 @@
 import { createHash } from 'node:crypto';
 
-import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
-import { OrmDriver } from '@spinajs/orm';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
 import { DateTime } from 'luxon';
-
-/** @internal */
-export type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mssql' | 'other';
-
-const DIALECT_CLASSES: readonly (readonly [string, Dialect])[] = [
-  ['SqliteOrmDriver', 'sqlite'],
-  ['PostgresOrmDriver', 'postgres'],
-  ['MySqlOrmDriver', 'mysql'],
-  ['MsSqlOrmDriver', 'mssql'],
-];
-
-/** @internal The driver's SQL dialect, from its class chain, else from the name it was registered under. */
-export function driverDialect(driver: OrmDriver): Dialect {
-  for (let p = Object.getPrototypeOf(driver); p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
-    const hit = DIALECT_CLASSES.find(([name]) => p.constructor?.name === name);
-    if (hit) return hit[1];
-  }
-  const registered = String((driver as { Options?: { Driver?: unknown } }).Options?.Driver ?? '');
-  for (const d of ['sqlite', 'postgres', 'mysql', 'mssql'] as const) {
-    if (registered.includes(d)) return d;
-  }
-  return 'other';
-}
 
 // Four-digit years keep the text form of a datetime ordered on sqlite, where the column holds text.
 export const MIN_MS = Date.UTC(1000, 0, 1);
@@ -49,19 +25,6 @@ export function checkedMs(value: unknown, label: string): number {
     throw new InvalidArgument(`${label} must be a valid Date`);
   }
   return ms;
-}
-
-// sqlite: ResourceDuplicated; postgres: 23505; mysql: ER_DUP_ENTRY / 1062; mssql: 2627 (key) or 2601 (index).
-/** @internal */
-export function isDuplicate(err: unknown): boolean {
-  let current = err as { code?: unknown; errno?: unknown; number?: unknown; inner?: unknown; cause?: unknown; originalError?: unknown } | undefined;
-  for (let depth = 0; current && depth < 5; depth++) {
-    if (current instanceof ResourceDuplicated || current.code === '23505' || current.code === 'ER_DUP_ENTRY' || current.errno === 1062 || current.number === 2627 || current.number === 2601) {
-      return true;
-    }
-    current = (current.inner ?? current.cause ?? current.originalError) as typeof current;
-  }
-  return false;
 }
 
 /** @internal Hex SHA-256 of the UTF-8 bytes. */

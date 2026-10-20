@@ -111,6 +111,7 @@ Unique index `authn_identity_subject`: `(provider, subject)`. Index `authn_ident
 | `identity` | `varchar(100)`, primary key part; `string` | `<type>:<id>` of the owner. |
 | `step` | `varchar(32)`, primary key part; `string` | Step name. |
 | `secret_enc` | `text`; `string` | Cipher text, `v1.<iv>.<tag>.<ct>`. |
+| `secret_hash` | `varchar(64)`; `string` | Hex SHA-256 of `secret_enc`, which `confirm` compares. |
 | `key_id` | `varchar(32)`; `string` | Id of the encrypting key. |
 | `confirmed_at` | `datetime`, nullable; `DateTime` (optional) | Set by `confirm`. |
 | `last_step` | `bigint`, nullable; `number \| string \| null` | Last accepted time step; PostgreSQL returns it as a string. |

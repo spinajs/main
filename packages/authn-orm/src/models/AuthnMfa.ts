@@ -13,6 +13,9 @@ export class AuthnMfa extends ModelBase<AuthnMfa> {
 
   public secret_enc: string;
 
+  /** Hex SHA-256 of `secret_enc`: `confirm` compares this, since TEXT is not comparable on MSSQL and case-blind on MySQL. */
+  public secret_hash: string;
+
   public key_id: string;
 
   // Optional rather than `| null`: @DT() rejects the union, whose design type is Object.

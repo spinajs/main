@@ -1,13 +1,14 @@
 /** Compiles the throttle's queries with the MySQL and MSSQL dialects, on an Orm over recording drivers: no server needed. */
 import { DEFAULT_THROTTLE, FakeClock, pwKeys } from '@spinajs/authn-testing';
 import '@spinajs/log';
-import { OrmException, QueryContext } from '@spinajs/orm';
+import { QueryContext } from '@spinajs/orm';
+import { mapMsSqlError } from '@spinajs/orm-mssql';
+import { mapMySqlError } from '@spinajs/orm-mysql';
 import { expect } from 'chai';
 import 'mocha';
 
 import { DbAuthnThrottle } from '../src/index.js';
-import { driverDialect } from '../src/support/sql.js';
-import { FakeMsSql, FakeMySql, fake, sql } from './support/fake-drivers.js';
+import { sql } from './support/fake-drivers.js';
 import { bootFakeOrm } from './support/fake-orm.js';
 import type { FakeOrm } from './support/fake-orm.js';
 
@@ -17,9 +18,8 @@ const ctx = { now: NOW, purpose: 'login' as const };
 const DIALECTS = [
   {
     name: 'mysql',
-    type: FakeMySql,
     time: (iso: string) => iso.replace('T', ' ').replace('Z', ''),
-    duplicate: () => new OrmException('Error executing orm command ', { Name: 'mysql' }, 'INSERT', [], Object.assign(new Error("Duplicate entry 'x' for key 'PRIMARY'"), { code: 'ER_DUP_ENTRY', errno: 1062 })),
+    duplicate: () => mapMySqlError(Object.assign(new Error("Duplicate entry 'x' for key 'PRIMARY'"), { code: 'ER_DUP_ENTRY', errno: 1062 }), { Name: 'mysql' }, 'INSERT', []),
     blocked: 'SELECT `k`,`next_allowed_at` FROM `authn_throttle` WHERE `k` IN (?) AND `next_allowed_at` > ?',
     live: 'SELECT `k`,`attempts`,`last_attempt_at`,`next_allowed_at` FROM `authn_throttle` WHERE `k` IN (?) AND ( `last_attempt_at` > ? OR `next_allowed_at` > ? )',
     cas: 'UPDATE `authn_throttle` SET `attempts` = ?,`last_attempt_at` = ?,`next_allowed_at` = ?,`updated_at` = ? WHERE `k` = ? AND `attempts` = ? AND `next_allowed_at` <= ? AND `last_attempt_at` > ?',
@@ -31,9 +31,8 @@ const DIALECTS = [
   },
   {
     name: 'mssql',
-    type: FakeMsSql,
     time: (iso: string) => iso,
-    duplicate: () => Object.assign(new Error("Violation of PRIMARY KEY constraint 'PK_authn_throttle'."), { name: 'RequestError', number: 2627 }),
+    duplicate: () => mapMsSqlError(Object.assign(new Error("Violation of PRIMARY KEY constraint 'PK_authn_throttle'."), { name: 'RequestError', number: 2627 }), { Name: 'mssql' }, 'INSERT', []),
     blocked: 'SELECT [k],[next_allowed_at] FROM [authn_throttle] WHERE [k] IN (?) AND [next_allowed_at] > ?',
     live: 'SELECT [k],[attempts],[last_attempt_at],[next_allowed_at] FROM [authn_throttle] WHERE [k] IN (?) AND ( [last_attempt_at] > ? OR [next_allowed_at] > ? )',
     cas: 'UPDATE [authn_throttle] SET [attempts] = ?,[last_attempt_at] = ?,[next_allowed_at] = ?,[updated_at] = ? WHERE [k] = ? AND [attempts] = ? AND [next_allowed_at] <= ? AND [last_attempt_at] > ?',
@@ -62,10 +61,6 @@ for (const d of DIALECTS) {
     beforeEach(() => {
       orm.driver.executed = [];
       orm.driver.respond = () => [];
-    });
-
-    it(`detects the ${d.name} dialect`, async () => {
-      expect(driverDialect(await fake(d.type, `n4-${d.name}`))).to.eq(d.name);
     });
 
     it('claims a live row with a compare-and-set', async () => {

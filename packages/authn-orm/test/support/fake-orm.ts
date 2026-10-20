@@ -21,7 +21,7 @@ const TABLES: Record<string, { key: string[]; columns: Col[] }> = {
     columns: [['id', 'varchar'], ['at', 'datetime'], ['type', 'varchar'], ['outcome', 'varchar'], ['identity', 'varchar', true], ['actor', 'varchar', true], ['strategy', 'varchar', true], ['reason', 'varchar', true], ['ip', 'varchar', true], ['user_agent', 'varchar', true], ['session', 'varchar', true], ['data', 'text', true]],
   },
   authn_secret: { key: ['id'], columns: [['id', 'varchar'], ['identity', 'varchar'], ['purpose', 'varchar'], ['secret_hash', 'varchar'], ['expires_at', 'datetime'], ['used_at', 'datetime', true], ['created_at', 'datetime']] },
-  authn_mfa: { key: ['identity', 'step'], columns: [['identity', 'varchar'], ['step', 'varchar'], ['secret_enc', 'text'], ['key_id', 'varchar'], ['confirmed_at', 'datetime', true], ['last_step', 'bigint', true], ['created_at', 'datetime']] },
+  authn_mfa: { key: ['identity', 'step'], columns: [['identity', 'varchar'], ['step', 'varchar'], ['secret_enc', 'text'], ['secret_hash', 'varchar'], ['key_id', 'varchar'], ['confirmed_at', 'datetime', true], ['last_step', 'bigint', true], ['created_at', 'datetime']] },
   authn_recovery_code: { key: ['id'], columns: [['id', 'varchar'], ['identity', 'varchar'], ['code_hash', 'varchar'], ['used_at', 'datetime', true]] },
   authn_nonce: { key: ['k'], columns: [['k', 'varchar'], ['expires_at', 'datetime']] },
 };

@@ -1,12 +1,12 @@
 import { backoffDelayMs } from '@spinajs/authn/contracts';
 import type { BackoffParams } from '@spinajs/authn/contracts';
-import { ormReady } from '@spinajs/orm';
+import { UniqueViolation, ormReady } from '@spinajs/orm';
 import type { WhereBuilder } from '@spinajs/orm';
 import type { KeyedBackoffVerdict, ThrottleGate, ThrottleLower, ThrottleStore } from '@spinajs/util';
 import type { DateTime } from 'luxon';
 
 import { AuthnThrottle } from '../models/AuthnThrottle.js';
-import { instant, isDuplicate } from '../support/sql.js';
+import { instant } from '../support/sql.js';
 
 /** Each miss means another attempt won that key, so this bounds the parallel attempts one call waits behind. */
 const MAX_TRIES = 64;
@@ -170,7 +170,7 @@ export class DbThrottleStore implements ThrottleStore {
       await AuthnThrottle.insert({ k: w.k, attempts: w.attempts, last_attempt_at: w.last, next_allowed_at: w.next, updated_at: t.now });
       return true;
     } catch (err) {
-      if (!isDuplicate(err)) throw err;
+      if (!(err instanceof UniqueViolation)) throw err;
     }
     const r = await AuthnThrottle.update({ attempts: w.attempts, last_attempt_at: w.last, next_allowed_at: w.next, updated_at: t.now }).where('k', w.k).where('next_allowed_at', '<=', t.now).where('last_attempt_at', '<=', t.cutoff);
     return r.RowsAffected === 1;
