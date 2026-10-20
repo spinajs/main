@@ -2,7 +2,7 @@ import { JoinMethod, Op } from './enums.js';
 /* eslint-disable prettier/prettier */
 import { QueryBuilder, RawQuery } from './builders.js';
 import { SortOrder, WhereBoolean } from './enums.js';
-import { IQueryStatement, Wrap } from './statements.js';
+import { IQueryStatement, OuterColumn, Wrap } from './statements.js';
 import { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
 import { IOrmRelation } from './relations.js';
 import { OrmDriver } from './driver.js';
@@ -1285,6 +1285,8 @@ export interface IWhereBuilder<T> {
   whereNotBetween(column: string, val: unknown[]): this;
   whereInSet(column: string, val: unknown[]): this;
   whereNotInSet(column: string, val: unknown[]): this;
+  /** `left <op> right` over two columns; `right` may be `outer(column)`, a column of an enclosing query. */
+  whereColumn(left: string | Wrap, operator: Op, right: string | Wrap | OuterColumn): this;
   whereStartsWith(column: string, prefix: string): this;
 
   // join-scoped conditions - land in relation JOIN ON clause instead of parent WHERE

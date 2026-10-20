@@ -35,6 +35,7 @@ Every abstract token extends `QueryStatement`, which implements `TableAlias`, `B
 | `InStatement` | `SqlInStatement` | `whereIn`, `whereNotIn` with values | `` `col` [NOT] IN (?,?) ``; a dialect may bind a list longer than `listThreshold` as one parameter | rebinds `_builder`; `clone()` keeps the subclass |
 | `InQueryStatement` | `SqlInQueryStatement` | `whereIn`, `whereNotIn` with a sub-select | `` `col` [NOT] IN ( <sub-select> ) `` | clones the sub-select, re-correlates, rebinds the owner |
 | `ExistsQueryStatement` | `SqlExistsQueryStatement` | `whereExist`, `whereNotExists` | `[NOT] EXISTS ( <sub-select> )` | clones the sub-select, re-correlates |
+| `ColumnCompareStatement` | `SqlColumnCompareStatement` | `whereColumn()` | `` `a`.`x` <OP> `b`.`y` ``; an `outer()` side through the correlation source, a `Wrap` side through its wrapper | rebinds `_builder` |
 | `BetweenStatement` | `SqlBetweenStatement` | `whereBetween`, `whereNotBetween` | `` `col` [NOT] BETWEEN ? AND ? `` | no builder |
 | `InSetStatement` | `SqlInSetStatement` | `whereInSet`, `whereNotInSet` | see [Set membership](#set-membership) | no builder |
 | `StartsWithStatement` | `SqlStartsWithStatement` | `whereStartsWith` | `` `col` LIKE ? ESCAPE '~' ``, bound `escapeLikeValue(prefix) + '%'`; a dialect extends `pattern()` for its own wildcards | no builder; `clone()` keeps the subclass |
@@ -78,6 +79,7 @@ The operator is uppercased. Column existence is checked earlier, in the core `Wh
 
 ### Sub-queries and deferred statements
 
+- `whereExist()`, `whereNotExists()`, `whereIn()` and `whereNotIn()` correlate a ready sub-query with the builder the call is made on (`correlateWith(this)`) when it has no correlation source. `SqlColumnCompareStatement` resolves `outer(column, levels)` with `outerBuilder()`: it follows that link `levels` times, each time from the query a nested group belongs to (`queryOf()`), and qualifies the column with `qualifierOf()` (the query's alias, else its table).
 - `SqlExistsQueryStatement` and `SqlInQueryStatement` compile their sub-select with `toDB()` at build time and take its bindings.
 - `SqlLazyQueryStatement.build()` clones its context builder, keeps its alias (only when it has one) and correlation source, clears columns, group by, joins and where, runs the callback on the clone and returns the clone's built statements.
 - `SqlWithRecursiveStatement.build()` compiles the anchor member (`clone().clearRecursive().clearJoins()`) and, after pushing a `RECURSIVE` join onto `recursive_cte`, the recursive member (`clone().clearRecursive().clearWhere().setAlias('$recursive$')`). `clearRecursive()` on both clones is what stops infinite recursion.

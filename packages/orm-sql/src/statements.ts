@@ -1,4 +1,4 @@
-import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
+import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, NewInstance } from '@spinajs/di';
@@ -46,7 +46,7 @@ function _carryQuoter<T extends { Quoter: IdentifierQuoter }>(clone: T, source: 
  * Rebinding statements: {@link SqlWhereStatement} (`_builder`), {@link SqlInStatement}
  * (`_builder`), {@link SqlJoinStatement} (`_options.builder`), {@link SqlWhereQueryStatement}
  * (nested where-builder), {@link SqlExistsQueryStatement} (sub-select correlation),
- * {@link SqlInQueryStatement} (sub-select correlation and `_ownerBuilder`),
+ * {@link SqlInQueryStatement} (sub-select correlation and `_ownerBuilder`), {@link SqlColumnCompareStatement} (`_builder`),
  * {@link SqlLazyQueryStatement} (deferred evaluation context) and
  * {@link SqlWithRecursiveStatement} (`_query`, the owning query).
  *
@@ -305,6 +305,39 @@ export class SqlWhereStatement extends WhereStatement {
       Bindings: isNullableQuery ? [] : [val],
       Statements: [`${column} ${this._operator.toUpperCase()}${binding}`],
     };
+  }
+}
+
+/**
+ * `left <op> right` over two columns. Each side is qualified by its query's alias, or by the table
+ * without one: in a correlated sub-query an unqualified name could bind to the inner table. An `outer()`
+ * side is resolved at build time through the correlation source, which a clone's EXISTS / IN rebinds.
+ */
+@NewInstance()
+export class SqlColumnCompareStatement extends ColumnCompareStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): SqlColumnCompareStatement {
+    return _carryQuoter(new SqlColumnCompareStatement(this._left, this._operator, this._right, (parent ?? this._builder) as WhereBuilder<any>), this);
+  }
+
+  public build(): IQueryStatementResult {
+    const right = this._right instanceof OuterColumn ? this.side(this._right.Column, outerBuilder(this._builder, this._right.Levels)) : this.side(this._right, this._builder);
+
+    return {
+      Bindings: [],
+      Statements: [`${this.side(this._left, this._builder)} ${this._operator.toUpperCase()} ${right}`],
+    };
+  }
+
+  private side(column: string | Wrap, builder: IWhereBuilder<any>): string {
+    const qualifier = qualifierOf(builder);
+    if (column instanceof Wrap) {
+      return this._builder.Container.resolve<WrapStatement>(column.Wrapper, [column.Column, qualifier]).wrap();
+    }
+
+    return _columnWrap(this.Quoter, column, qualifier);
   }
 }
 

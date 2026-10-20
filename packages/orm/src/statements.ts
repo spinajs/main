@@ -234,6 +234,44 @@ export abstract class DateTimeWrapper extends WrapStatement {}
 @NewInstance()
 export abstract class TextWrapper extends WrapStatement {}
 
+/** A column of an enclosing query, for a statement of a correlated sub-query; see {@link outer}. */
+export class OuterColumn {
+  constructor(
+    public readonly Column: string | Wrap,
+    public readonly Levels: number,
+  ) {}
+}
+
+/**
+ * `whereColumn('scope_id', '=', outer('id'))`: a column of the query the sub-query is attached to with
+ * `whereExist()` / `whereIn()`. `levels` 2 is the query that one is attached to, and so on.
+ */
+export function outer(column: string | Wrap, levels = 1): OuterColumn {
+  if (!Number.isInteger(levels) || levels < 1) {
+    throw new InvalidArgument(`outer(): levels must be a positive integer, got ${levels}`);
+  }
+
+  return new OuterColumn(column, levels);
+}
+
+@NewInstance()
+export abstract class ColumnCompareStatement extends QueryStatement {
+  protected _left: string | Wrap;
+  protected _operator: SqlOperator;
+  protected _right: string | Wrap | OuterColumn;
+  protected _builder: WhereBuilder<any>;
+
+  constructor(left: string | Wrap, operator: SqlOperator, right: string | Wrap | OuterColumn, builder: WhereBuilder<any>) {
+    super();
+    this._left = left;
+    this._operator = operator;
+    this._right = right;
+    this._builder = builder;
+  }
+
+  public abstract build(): IQueryStatementResult;
+}
+
 @NewInstance()
 export abstract class JoinStatement extends QueryStatement {
   protected _whereBuilder: SelectQueryBuilder<any>;
