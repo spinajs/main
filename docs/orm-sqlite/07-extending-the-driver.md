@@ -52,6 +52,9 @@ sequenceDiagram
 | `OrderByQueryCompiler` | `SqliteOrderByCompiler` | yes | [Query dialect](06-query-dialect.md) |
 | `JoinStatement` | `SqlLiteJoinStatement` | **no** | [Query dialect](06-query-dialect.md) |
 | `InSetStatement` | `SqliteInSetStatement` | **no** | [Query dialect](06-query-dialect.md) |
+| `InStatement` | `SqliteInStatement` (long lists through `json_each`) | **no** | [Query dialect](06-query-dialect.md) |
+| `StartsWithStatement` | `SqliteStartsWithStatement` (`GLOB`) | **no** | [Query dialect](06-query-dialect.md) |
+| `LockTableQueryCompiler` | `SqliteLockTableQueryCompiler` (sends nothing) | yes | [Transactions](03-transactions.md#important-behaviour) |
 | `LimitQueryCompiler` | `SqlLimitQueryCompiler` (`@spinajs/orm-sql`) | | [Query dialect](06-query-dialect.md) |
 | `RecursiveQueryCompiler` | `SqlWithRecursiveCompiler` (`@spinajs/orm-sql`) | | [Query dialect](06-query-dialect.md) |
 | `IdentifierQuoter` | `BacktickIdentifierQuoter` (`@spinajs/orm-sql`) | | [Query dialect](06-query-dialect.md) |
@@ -92,7 +95,7 @@ What to extend for a replacement:
 | You change | Extend | Register as |
 | --- | --- | --- |
 | A clause the SQLite driver overrides and exports | that class, eg. `SqliteInsertQueryCompiler` | its token |
-| A clause the SQLite driver overrides but does not export (`DefaultValueBuilder`, `ModelToSqlConverter`, `JoinStatement`, `InSetStatement`) | the base from `@spinajs/orm` or `@spinajs/orm-sql`, re-implementing the SQLite part | its token |
+| A clause the SQLite driver overrides but does not export (`DefaultValueBuilder`, `ModelToSqlConverter`, `JoinStatement`, `InSetStatement`, `InStatement`, `StartsWithStatement`, `NowExpression`) | the base from `@spinajs/orm` or `@spinajs/orm-sql`, re-implementing the SQLite part | its token |
 | A clause SQLite takes from the shared layer | the `Sql*` class from `@spinajs/orm-sql` | its token |
 | How statements are sent, routed, opened | `SqliteOrmDriver` itself | (the driver string) |
 
@@ -172,7 +175,7 @@ export async function boot() {
 - `SqlJoinStatement.build()` refuses to join models whose drivers have different class names (`Cannot join models with different drivers`). Models on a subclass connection cannot be joined with models on a stock `orm-driver-sqlite` connection.
 - The replacement keeps the constructor signature of the class it replaces; builders pass fixed constructor arguments (see each page's services table).
 - A statement subclass must override `clone()`, or a cloned query turns it back into the parent class.
-- Four SQLite classes are not exported: `SqlLiteDefaultValueBuilder`, `SqliteModelToSqlConverter`, `SqlLiteJoinStatement`, `SqliteInSetStatement`. Replace them by extending their bases.
+- Seven SQLite classes are not exported: `SqlLiteDefaultValueBuilder`, `SqliteModelToSqlConverter`, `SqlLiteJoinStatement`, `SqliteInSetStatement`, `SqliteInStatement`, `SqliteStartsWithStatement`, `SqliteNowExpression`. Replace them by extending their bases. The package exports the driver, `SqliteServerResponseMapper`, every compiler and `mapSqliteError`.
 - `@Injectable(...)` also registers the class under itself, so `DI.resolve(MySubclass)` works in tests.
 
 ## Best practices

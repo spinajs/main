@@ -474,6 +474,27 @@ export class ArchiveOrders_2026_10_05_09_00_00 extends OrmMigration {
 }
 ```
 
+## Migration
+
+### `dateTime()` and `timestamp()` create instant columns
+
+A new migration that calls `dateTime()` or `timestamp()` creates `TIMESTAMPTZ(3)` on PostgreSQL, `DATETIME(3)` / `TIMESTAMP(3)` on MySQL and `DATETIMEOFFSET(3)` on MSSQL; on MSSQL `timestamp()` is no longer `rowversion`. Columns created by earlier migrations are not altered, so one database can hold both kinds. Alter an old column yourself when it must hold instants, and keep a row version as a raw column:
+
+```ts
+// Before: on MSSQL this created a rowversion column
+table.timestamp('RowVersion');
+
+// After: a rowversion needs raw DDL
+await connection.schema().raw('ALTER TABLE [orders] ADD [RowVersion] rowversion');
+
+// After: move an old PostgreSQL column to the instant type, when its values hold UTC wall-clock time
+await connection.schema().raw(`ALTER TABLE "orders" ALTER COLUMN "CreatedAt" TYPE TIMESTAMPTZ(3) USING "CreatedAt" AT TIME ZONE 'UTC'`);
+```
+
+### `caseSensitive()` takes string and text columns only
+
+`caseSensitive()` on an `int`, `binary`, `json` or any other non-text column throws `InvalidArgument` naming the column. Remove the call from such columns.
+
 ## Related
 
 - [Migrations](10-migrations.md): where schema statements run, and how they are tracked, locked and wrapped in transactions.

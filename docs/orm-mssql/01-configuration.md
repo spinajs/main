@@ -8,7 +8,7 @@
 2. **Resolve.** `Orm.createConnections()` reads `db.Connections` and resolves each entry's `Driver` string with the entry as the constructor argument. A string with no registration throws `OrmException('ORM connection driver <Driver> not registerd')`.
 3. **Constructor.** `MsSqlOrmDriver` merges `{ AliasSeparator: '#' }` under the entry, so a configured `AliasSeparator` still wins. `OrmDriver` then merges the result over its defaults.
 4. **`resolve()`.** `OrmDriver.resolve()` creates the `orm-driver-<Name>` logger and the driver's child container `this.Container`. `SqlDriver.resolve()` registers the shared SQL classes. `MsSqlOrmDriver.resolve()` registers the T-SQL classes listed in [Extending the driver](08-extending-the-driver.md#what-the-driver-registers).
-5. **`connect()`.** Calls `mssql.connect()` with `Host`, `User`, `Password`, `Database`, the TLS options and the pool settings, then runs `USE <Database>`. On failure it closes the pool, sets it to `null` and re-throws; `Orm` wraps the error in `OrmException('Failed to connect to database for connection <Name> ...')`.
+5. **`connect()`.** Calls `mssql.connect()` with the object `connectionConfig()` builds: `Host`, `User`, `Password`, `Database`, the TLS options, `useUTC: true` and the pool settings. Then it runs `USE <Database>`. On failure it closes the pool, sets it to `null` and re-throws; `Orm` wraps the error in `OrmException('Failed to connect to database for connection <Name> ...')`.
 6. **Health check.** `Orm` starts the health check, which calls `ping()`. `ping()` runs `SELECT 1` and returns `true`, or `false` on any error.
 7. **`disconnect()`.** Closes the pool and clears it.
 
@@ -52,7 +52,7 @@ Keys of one `db.Connections[]` entry. Keys this driver does not read are listed 
 | `db.Connections[].Migration.*` | | see [Migrations](../orm/10-migrations.md) | | `OnStartup`, `Table`, `Transaction.Mode`, `Lock`. |
 | any other `Options.*` key | | ignored | | `encrypt`, `requestTimeout`, `instanceName` and other `mssql` options are **not** passed through. |
 
-`mssql` fills the options the driver does not pass with its own defaults: `encrypt: true`, port `1433`, a 15 000 ms connect timeout and a 15 000 ms request timeout. To change them, override `connect()` (see [the example below](#connect-with-a-custom-port-encryption-and-a-pool-per-connection)).
+`mssql` fills the options the driver does not pass with its own defaults: `encrypt: true`, port `1433`, a 15 000 ms connect timeout and a 15 000 ms request timeout. To change them, override `connectionConfig()`, or `connect()` for a pool per connection (see [the example below](#connect-with-a-custom-port-encryption-and-a-pool-per-connection)).
 
 ```ts sample
 import { FrameworkConfiguration } from '@spinajs/configuration';
@@ -98,7 +98,7 @@ export class AppConfiguration extends FrameworkConfiguration {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | The driver | `'orm-driver-mssql'` in the root container, new instance per connection (`@Injectable`, `@NewInstance`) | `MsSqlOrmDriver` | none shipped | Subclass `MsSqlOrmDriver` with its own `@Injectable('<string>')`, and set that string as `Driver`. Or `DI.register(MySubclass).as('orm-driver-mssql')` before `Orm` resolves, to use it for every MSSQL connection. |
-| Connection setup | `MsSqlOrmDriver.connect()`, `disconnect()`, `ping()` | `mssql.connect()` global pool | | Override `connect()` to pass more `mssql` options or to open a pool per connection. Assign the pool to `this._connectionPool`; `executeOnDb()`, transactions and `disconnect()` read it from there. |
+| Connection setup | `MsSqlOrmDriver.connect()`, `disconnect()`, `ping()`; `connectionConfig()` (protected) builds the `mssql.config` | `mssql.connect()` global pool | | Override `connectionConfig()` to change the options passed to `mssql`; override `connect()` to open a pool per connection. Assign the pool to `this._connectionPool`; `executeOnDb()`, transactions and `disconnect()` read it from there. |
 | Table reflection | `MsSqlOrmDriver.tableInfo(name, schema?)` | `INFORMATION_SCHEMA` queries | | Override `tableInfo()` to fix the column descriptors; see [Important behaviour](#important-behaviour). |
 
 ### Connection setup: custom implementation
@@ -144,6 +144,7 @@ Then set `Driver: 'orm-driver-mssql-tls'` and, for example, `Port: 14330, Option
 - **One global pool per process.** `connect()` calls `mssql.connect()`, which creates the `mssql` package's global pool once and returns that same pool on later calls. A second MSSQL connection with a different host or database gets the first connection's pool, and `disconnect()` on either closes it for both. Use the `connect()` override above for more than one MSSQL connection.
 - **`Port` is ignored.** Only `Host` is passed; the server must listen on `1433`.
 - **`TrustServerCertificate` defaults to `true`.** The connection is encrypted (the `mssql` default) but the server certificate is not validated unless you set it to `false`.
+- **`useUTC` is always `true`.** `connectionConfig()` sets it, so `mssql` binds a `Date` as UTC and reads `DATETIME` / `DATETIME2` columns as UTC. No connection option turns it off; override `connectionConfig()` in a subclass to change it.
 - **The option keys are PascalCase.** `Options.TrustServerCertificate` is read; `Options.trustServerCertificate` is not.
 - **`USE <Database>` is not quoted.** A database name with spaces or brackets fails at connect.
 - **No statement retries.** `executeOnDb()` does not use `withReconnect()`. A dropped connection fails the statement; the health check marks the connection state. See [Executing statements](02-executing-statements.md#retry-statements-after-a-dropped-connection).

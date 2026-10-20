@@ -45,7 +45,7 @@ stateDiagram-v2
 | `JobStatus` | type | `'created' \| 'executing' \| 'retrying' \| 'success' \| 'error' \| 'dead'`. `error` is a legacy terminal status the queue no longer writes |
 | `JOB_TERMINAL_STATUSES` | constant | `['success', 'error', 'dead']` |
 | `JOB_ACTIVE_STATUSES` | constant | `['created', 'executing', 'retrying']` |
-| `JobQueryScopes` | query scopes on every `JobModel` query | `byJobId(id)`, `withStatus(status \| status[])`, `terminal()`, `active()`, `olderThan(date)` (by `CreatedAt`), `finishedBefore(date)` |
+| `JobQueryScopes` | query scopes on every `JobModel` builder: `query()`, `destroy()` | `byJobId(id)`, `withStatus(status \| status[])`, `terminal()`, `active()`, `olderThan(date)` (by `CreatedAt`), `finishedBefore(date)`. Each takes any where builder and returns it with its type, so they chain on a delete too: `JobModel.destroy().terminal().olderThan(date)` |
 
 ## Configuration
 

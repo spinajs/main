@@ -16,7 +16,7 @@ Pick the driver package for your database.
 
 | Feature | What it does |
 | --- | --- |
-| [Connections](01-connections.md) | Boots `Orm`, opens the configured connections and binds models to them |
+| [Connections](01-connections.md) | Boots `Orm`, opens the configured connections, binds models to them and checks that their tables exist |
 | [Models](02-models.md) | Declares a model class over a table: primary keys, timestamps, soft delete, archiving, hidden and historical columns |
 | [Model API](03-model-api.md) | Static and instance methods on `ModelBase`: get, find, where, insert, update, destroy, scopes |
 | [Converters and hydration](04-converters-and-hydration.md) | Converts column values between the database and JS, and maps rows to models and back |

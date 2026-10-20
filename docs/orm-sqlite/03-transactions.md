@@ -64,9 +64,10 @@ Use it with `Driver: 'orm-driver-sqlite-immediate'`.
 - Code inside a transaction must not wait for such a held statement, or for another outermost transaction of the same connection: both wait for this transaction to end, so the callback never resolves.
 - `SELECT`s inside a transaction always use the writer, so they see the transaction's own uncommitted writes.
 - `BEGIN` is `DEFERRED`. A transaction holds no lock until its first statement that needs one.
+- `schema().lockTable(t)` sends nothing (`SqliteLockTableQueryCompiler` compiles to `[]`). Inside a transaction it resolves at once: the writer gate already holds this process's other writers. A write from another process between this transaction's first read and its first write makes one of the two fail with `SQLITE_BUSY`; use `BEGIN IMMEDIATE` (below) to take the write lock up front. Outside a transaction the core rejects it with `InvalidOperation`. See [Locking a table](../orm/09-schema-builder.md#locking-a-table).
 - `SupportedIsolationLevels` is `['SERIALIZABLE']`: `sqlite3` outside shared-cache mode serializes access to the file. Other levels are rejected, not ignored.
 - DDL is transactional in SQLite: `CREATE TABLE` and `ALTER TABLE` inside a rolled-back transaction are undone.
-- A failed `Transaction` statement is an `OrmException` with the `sqlite3` error in `inner` (see [Connection and driver](01-connection.md#errors)).
+- A failed `Transaction` statement is mapped like any other: `OrmException` with the `sqlite3` error in `inner`, or `ConstraintViolation` for a constraint checked at `COMMIT` (see [Connection and driver](01-connection.md#errors)).
 - The driver never retries a statement, so the core's rule "no retries inside a transaction" holds trivially.
 
 ## Best practices

@@ -109,6 +109,8 @@ void main();
 - `resolve(Array.chainOf(T))` with a non-async base is typed `T[] | Promise<T[]>`; `await` it.
 - A key recorded only because an unregistered class was resolved does not take part in `Array.chainOf` once any container registers that key.
 - `Array.ofType(T)` and `Array.chainOf(T)` in one `@Inject` are two separate dependencies.
+- **A second copy of `@spinajs/di` in the process** (the cjs and the mjs build side by side, or the packages of another checkout) does not replace `Array.ofType` and `Array.chainOf`: each is installed on `Array` only when absent, so the first copy loaded keeps them.
+- The container recognises a list marker by its class name (`TypedArray`, `ChainArray`), not by `instanceof`. A marker built by another copy resolves as a list, collects singletons already cached under their own name, and is cached as the collection, not as its first element.
 
 ## Best practices
 
@@ -182,3 +184,4 @@ void main();
 - [Child containers](05-child-containers.md): owner rules that decide where list elements live.
 - [Named services](07-named-services.md): pick one element of a chain by name.
 - [Injection decorators](03-injection-decorators.md): `mapFunc` and the other `@Autoinject` options.
+- [`@spinajs/configuration`: config files](../configuration/03-config-files.md#search-directories): the config search stops at the workspace root, so a nested checkout does not load a second copy of the framework packages.

@@ -149,6 +149,8 @@ void main();
 - A config module that throws on import, or a JSON file with a syntax error, is logged and skipped. The configuration boots without it, and a schema may then fill defaults for the missing module.
 - Without `DI.setESMModuleSupport()`, the sources search `lib/cjs/config` of each `@spinajs` package and load files with `require()`. An ESM app must call it before the configuration resolves.
 - `WORKSPACE_ROOT_PATH` is detected once per source construction and written to `process.env`. In a workspace, without it, package configs build paths under the app package that do not exist.
+- The ancestor walk (row 2 and the `WORKSPACE_ROOT_PATH` detection) stops at the workspace root, but an explicit `WORKSPACE_ROOT_PATH` is searched wherever it points (row 3). In a nested checkout, leave it unset or point it at the inner checkout, or the outer packages load again.
+- A project with neither `workspaces` nor `pnpm-workspace.yaml` walks up to the filesystem root. Inside another project's tree it loads that project's `@spinajs` package configs; add a `pnpm-workspace.yaml` or a `workspaces` entry to stop the walk.
 - The sources are singletons: the constructor arguments (`app`, paths, `Env`) are read when a source is first resolved in a container.
 - A `.js` config module runs as code at boot. Keep it free of side effects other than building the object; put setup in a [`configure()` hook](01-configuration-service.md#configure-hooks).
 

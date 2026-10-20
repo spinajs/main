@@ -136,7 +136,7 @@ are capped at 64 bits. An `unsigned` type raises the upper bound to the unsigned
 | `@Model(tableName)` | class | `tableName: string` | Sets `TableName`, registers the class under `__models__`. Required for the static query API and for table columns. |
 | `@Connection(name)` | class | `name: string` | Sets `Connection`. See [Connections](01-connections.md). |
 | `@Primary(options?)` | property | `generated?: 'auto' \| 'uuid' \| 'assigned'`, default `'auto'` | Adds the property to `PrimaryKey`. Repeat on several properties for a composite key. |
-| `@CreatedAt()` | property | none | Sets `Timestamps.CreatedAt` and a `DatetimeValueConverter`. The constructor stamps it with `DateTime.now()`. |
+| `@CreatedAt()` | property | none | Sets `Timestamps.CreatedAt` and a `DatetimeValueConverter`. The constructor stamps it with `DateTime.utc()`. |
 | `@UpdatedAt()` | property | none | Sets `Timestamps.UpdatedAt` and a `DatetimeValueConverter`. `update()` and `save()` stamp it when another column changed. |
 | `@SoftDelete()` | property | none | Sets `SoftDelete.DeletedAt` and a `DatetimeValueConverter`. `destroy()` becomes an `UPDATE` of this column, and selects filter deleted rows out. |
 | `@Archived()` | property | none | Sets `Archived.ArchivedAt` and a `DatetimeValueConverter`. Selects filter archived rows out. `model.archive()` stamps it. |
@@ -148,7 +148,7 @@ are capped at 64 bits. An `unsigned` type raises the upper bound to the unsigned
 | `@DiscriminationMap(field, entries)` | class | see [Discrimination maps](14-discrimination-maps.md) | Picks the class per row from a column value. |
 
 Relation decorators are covered in [Relations](06-relations.md). Converter decorators (`@DateTime()`,
-`@Bool()`, `@Json()`, `@Set()`, `@UniversalConverter()`) are covered in
+`@Bool()`, `@Json()`, `@Int64()`, `@Set()`, `@UniversalConverter()`) are covered in
 [Converters and hydration](04-converters-and-hydration.md).
 
 ### Primary key strategies

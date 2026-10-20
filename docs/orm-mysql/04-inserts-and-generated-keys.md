@@ -16,11 +16,11 @@ MySQL has no `RETURNING`, so `MySqlOrmDriver` hands back generated keys through 
 5. **Key one row.** For a model with an `auto` primary key and no key set, `PrimaryKeyValue = LastInsertId`.
 6. **Key a batch.** For `Model.insert([a, b, c])`, every row gets `LastInsertId + index` when all seven guards hold (next section). Otherwise no key is assigned.
 
-Errors: `returning(columns)` throws `NotSupported('driver orm-driver-mysql does not support RETURNING on INSERT')`. `Model.insert([...], behaviour)` with any behaviour other than `InsertBehaviour.None` throws `OrmException('insert behaviour is not supported with arrays')`.
+Errors: a duplicate primary or unique key without `orIgnore()`, `orReplace()` or `onDuplicate()` throws `UniqueViolation` ([Errors](01-mysql-driver.md#errors)). `returning(columns)` throws `NotSupported('driver orm-driver-mysql does not support RETURNING on INSERT')`. `Model.insert([...], behaviour)` with any behaviour other than `InsertBehaviour.None` throws `OrmException('insert behaviour is not supported with arrays')`.
 
 ### Contiguous keys for a batch
 
-`supportedFeatures()` returns `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, maxBindParameters: Infinity, concurrentTransactions: true }`. `insertIdIsFirstOfBatch` rests on InnoDB behaviour:
+`supportedFeatures()` returns `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, maxBindParameters: Infinity, concurrentTransactions: true }`. `maxBindParameters: Infinity` because `mysql2`'s `query()` writes the bindings into the SQL text on the client, so the server never counts parameters; the model layer does not split a MySQL batch by parameter count. The statement is still bounded by the server's `max_allowed_packet`. `insertIdIsFirstOfBatch` rests on InnoDB behaviour:
 
 - `INSERT INTO t (...) VALUES (...), (...)` is a *simple insert*: the row count is known before execution. It is the only shape `InsertQueryBuilder` builds.
 - For a simple insert InnoDB reserves one contiguous block of N auto-increment values, and `LAST_INSERT_ID()` reports the first. Row k gets `LAST_INSERT_ID() + k`.

@@ -12,7 +12,7 @@
    `Orm` reports either as `OrmException('Failed to resolve ORM driver orm-driver-mysql-ssh for connection <Name>')`.
 3. **Connect.** `connect()` creates an `ssh2` `Client` and connects to `SSH.Host:SSH.Port` as `SSH.User` with the key read by `fs.readFileSync(SSH.PrivateKey)`.
 4. **Forward.** On `ready`, `forwardOut('127.0.0.1', 12345, Host, Port)` opens one channel from the bastion to the database. `Host` and `Port` are the database address as the bastion sees it. `127.0.0.1:12345` is only the origin reported to the SSH server; no local port is opened.
-5. **Pool.** A `mysql2` pool is built with the same `Pool.*` mapping as `MySqlOrmDriver` and `stream` set to the forwarded channel. `connect()` resolves without testing a connection.
+5. **Pool.** A `mysql2` pool is built from `poolOptions()` (the same `Pool.*` mapping and `timezone: 'Z'` as `MySqlOrmDriver`), with `host: 'localhost'` and `stream` set to the forwarded channel. `pinSessionZone()` sets `time_zone = '+00:00'` on every connection the pool opens, and statements take connections through `acquire()`, as on the direct driver. `connect()` resolves without testing a connection.
 6. **Errors.** An SSH `error` event or a failed forward rejects `connect()`.
 7. **Disconnect.** `disconnect()` stops the health probe, ends the pool, then ends the SSH client.
 
@@ -28,7 +28,7 @@ sequenceDiagram
   S-->>D: ready
   D->>S: forwardOut(127.0.0.1:12345 -> Host:Port)
   S->>M: TCP to Host:Port
-  D->>D: mysql2.createPool({ stream })
+  D->>D: mysql2.createPool({ ...poolOptions(), stream }), pinSessionZone()
   D-->>O: resolved
 ```
 
@@ -107,7 +107,6 @@ import { Duplex, PassThrough } from 'stream';
 export class MultiChannelSshMySqlDriver extends MySqlSSHOrmDriver {
   public connect(): Promise<OrmDriver> {
     const ssh = this.Options.SSH!;
-    const pool = this.resolvedPoolOptions();
 
     this.SshClient?.end();
     this.SshClient = new SSHClient();
@@ -116,24 +115,20 @@ export class MultiChannelSshMySqlDriver extends MySqlSSHOrmDriver {
       this.SshClient.on('error', reject);
 
       this.SshClient.on('ready', () => {
+        // poolOptions() carries the Pool.* mapping and timezone: 'Z'
         this.Pool = mysql.createPool({
-          user: this.Options.User,
-          password: this.Options.Password,
-          database: this.Options.Database,
-          waitForConnections: true,
-          connectionLimit: pool.Max,
-          maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
-          idleTimeout: pool.IdleTimeout,
-          queueLimit: 0,
+          ...this.poolOptions(),
+          host: 'localhost',
           stream: () => this.openChannel(),
         } as mysql.PoolOptions);
+        this.pinSessionZone(this.Pool);
 
-        this.Pool.getConnection((err, connection) => {
+        this.acquire((err, connection) => {
           if (err) {
             reject(err);
             return;
           }
-          connection.release();
+          connection!.release();
           this.setState(ConnectionState.Connected);
           resolve(this);
         });

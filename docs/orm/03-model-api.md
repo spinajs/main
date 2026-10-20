@@ -51,7 +51,7 @@ Every method below is bound by `Orm`. Before `Orm` resolves, or on a class witho
 | `exists(pk)` | `Promise<boolean>` | Selects only the key columns of the row with this key. With `pk === null` it checks whether the table has any row. |
 | `insert(data, behaviour?)` | `Promise<IInsertResult>` | Inserts one model, one plain object or an array. See [Insert](#insert). |
 | `update(data)` | update builder | `UPDATE ... SET data`. Every value whose column has a converter (`@Json`, `@DateTime`, `@Int64`, `@Set`, `@Uuid`, ...) is converted the way `insert()` converts it; `null`, `undefined` and keys without a column are bound as they are. A `@DateTime` column accepts ISO 8601 and SQL-format (`YYYY-MM-DD HH:mm:ss`) strings; any other string makes `update(data)` throw `InvalidArgument` synchronously, before a builder exists. Chain a `where()`: an update without one throws `InvalidArgument` too, but that rejects when the builder is awaited. Throws `OrmException` when `data` is a `ModelBase`. |
-| `destroy(pk? \| pk[])` | delete builder | `DELETE` by key, or `UPDATE ... SET DeletedAt = now` on a `@SoftDelete` model. Without a key, a builder to narrow with `where()`; executing it un-narrowed rejects with `OrmException`, a WHERE added by a query middleware does not count. Throws `OrmException` for `null` or `[]`. |
+| `destroy(pk? \| pk[])` | delete builder; update builder on a `@SoftDelete` model | `DELETE` by key, or `UPDATE ... SET DeletedAt = now` on a `@SoftDelete` model. Without a key, a builder to narrow with `where()`; executing it un-narrowed rejects with `OrmException`, a WHERE added by a query middleware does not count. Throws `OrmException` for `null` or `[]`. |
 | `truncate()` | truncate builder | Clears the table. |
 | `create(data)` | `Promise<model>` | `new Model(data)`, then `insert()`. |
 | `getOrCreate(pk, data?)` | `Promise<model>` | Looks up by `pk` (skipped when `null`) and by every `Unique` column with its value from `data`. Inserts `new Model(data)` when nothing matches. |
@@ -317,6 +317,63 @@ export async function closeTicket(id: number): Promise<Ticket> {
   const ticket = await _getEntity(id, Ticket)();
   return await _update<Ticket>({ Status: 'closed' })(ticket);
 }
+```
+
+## Migration
+
+### Constraint errors are `UniqueViolation` and `ConstraintViolation` on every driver
+
+A duplicate key rejects with `UniqueViolation`, which extends `ResourceDuplicated` and **not** `OrmException`. A NOT NULL, CHECK or foreign key failure rejects with `ConstraintViolation` and its `kind`. A `catch` that tests for `OrmException` does not see a duplicate.
+
+```ts
+// Before: a duplicate on PostgreSQL, MySQL or MSSQL arrived as OrmException
+try {
+  await Invoice.insert({ Number: number, CustomerId: customerId });
+} catch (err) {
+  if (err instanceof OrmException) return null;
+  throw err;
+}
+
+// After
+try {
+  await Invoice.insert({ Number: number, CustomerId: customerId });
+} catch (err) {
+  if (err instanceof UniqueViolation) return null;
+  if (err instanceof ConstraintViolation && err.kind === 'foreign_key') throw new UnknownCustomer(customerId);
+  throw err;
+}
+```
+
+### Static `update(data)` converts values
+
+`Model.update(data)` runs each value through its column converter, as `insert()` does. Pass the JS value, not the database form: a string you serialized for a `@Json` column is serialized again. See [Converters and hydration](04-converters-and-hydration.md#migration).
+
+### `deleteFrom()` is removed; `destroy()` without keys builds the delete
+
+`Model.destroy()` with no argument returns the builder `deleteFrom(Model)` returned, under `requireWhere()`. It no longer throws synchronously: an un-narrowed one rejects with `OrmException` when awaited. On a `@SoftDelete` model it soft-deletes, where `deleteFrom()` deleted the rows.
+
+```ts
+// Before
+import { deleteFrom } from '@spinajs/orm';
+await deleteFrom(Session).where('ExpiresAt', '<', now);
+
+// After
+await Session.destroy().where('ExpiresAt', '<', now);
+
+// After, hard delete of a @SoftDelete model, or inside a migration's up() where the statics do not exist yet
+await modelDriver(Session).del().from(extractModelDescriptor(Session).TableName).where('ExpiresAt', '<', now);
+```
+
+### `count()` is a number
+
+`Model.count()` and `selectCount()` resolve with a `number` on every driver, PostgreSQL included. A strict comparison with a string (`count === '0'`) never matches.
+
+```ts
+// Before
+const unpaid = parseInt((await Invoice.count((q) => q.where('Status', 'unpaid'))) as unknown as string, 10);
+
+// After
+const unpaid = await Invoice.count((q) => q.where('Status', 'unpaid'));
 ```
 
 ## Related

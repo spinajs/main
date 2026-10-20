@@ -1,6 +1,6 @@
 # Schema dialect
 
-What the schema builder (`driver.schema()`, migrations) produces on SQL Server: tables, columns, indexes, databases, views and existence checks. The driver replaces the table, column, database, view and existence compilers; column **types** still use the shared MySQL spelling, so pick types that are valid T-SQL or replace the column compiler.
+What the schema builder (`driver.schema()`, migrations) produces on SQL Server: tables, columns, indexes, databases, views and existence checks. The driver replaces the table, column, default value, database, view, lock and existence compilers. `string()`, `dateTime()`, `timestamp()` and `autoIncrement()` are written in T-SQL; most other column **types** use the shared MySQL spelling, so pick types that are valid T-SQL (see the table below) or replace the column compiler.
 
 ## How it works
 
@@ -13,7 +13,9 @@ What the schema builder (`driver.schema()`, migrations) produces on SQL Server: 
 5. `_foreignKeys()` compiles each foreign key with the shared `ForeignKeyQueryCompiler`.
 6. The result is one statement: `CREATE TABLE [dbo].[orders] (<columns> , UNIQUE(...) ,<foreign keys>)`.
 
-`MsSqlColumnQueryCompiler` is `SqlColumnQueryCompiler` with these changes: `autoIncrement()` writes `IDENTITY(1,1)` instead of `AUTO_INCREMENT`, `collation()` is written unquoted, and `caseSensitive()` writes `COLLATE Latin1_General_100_BIN2` and makes a `string()` column `NVARCHAR`.
+`MsSqlColumnQueryCompiler` is `SqlColumnQueryCompiler` with these changes: `autoIncrement()` writes `IDENTITY(1,1)` instead of `AUTO_INCREMENT`, `dateTime()` and `timestamp()` write `DATETIMEOFFSET(3)` (T-SQL `TIMESTAMP` is a row version, not a point in time), `charset()` writes nothing, `collation()` is written unquoted, and `caseSensitive()` writes `COLLATE Latin1_General_100_BIN2` and makes a `string()` column `NVARCHAR`.
+
+`MsSqlDefaultValueBuilder` writes the column defaults: `default().date()` is `CAST(SYSUTCDATETIME() AS DATE)`, the UTC date as on the other dialects, and `default().dateTime()` is `SYSDATETIMEOFFSET()`. `CURRENT_TIMESTAMP` and `GETDATE()` are the server's local time without an offset, so the driver does not use them.
 
 ### Column types
 
@@ -78,6 +80,7 @@ All in the driver's child container, registered by `MsSqlOrmDriver.resolve()`. T
 | Column definition | `ColumnQueryCompiler`, new instance | `MsSqlColumnQueryCompiler` | `SqlColumnQueryCompiler` | Extend `SqlColumnQueryCompiler`; reassign entries of `this._statementsMappings` in the constructor, and override `charsetName()` / `collationName()` to change the character set and collation clauses. |
 | `CREATE TABLE` | `TableQueryCompiler`, new instance | `MsSqlTableQueryCompiler` | `SqlTableQueryCompiler` (adds history triggers, MySQL spelling) | Extend `SqlTableQueryCompiler`; override `compile()`, `_table()`, `_columns()` or `_foreignKeys()`. |
 | Column defaults | `DefaultValueBuilder`, new instance | `MsSqlDefaultValueBuilder` | `SqlDefaultValueBuilder` (`@spinajs/orm-sql`, MySQL spelling) | Extend `SqlDefaultValueBuilder`, decorate `@NewInstance()`, register `.as(DefaultValueBuilder)`. |
+| Table lock | `LockTableQueryCompiler`, new instance | `MsSqlLockTableQueryCompiler` (`WITH (TABLOCK, HOLDLOCK)`) | | Extend `LockTableQueryCompiler`, implement `compile()` returning an array; for an exclusive lock write `WITH (TABLOCKX, HOLDLOCK)`. |
 | Table existence | `TableExistsCompiler`, new instance | `MsSqlTableExistsCompiler` | | Implement `TableExistsCompiler.compile()`; return a query that yields a row when the table exists. |
 | Databases | `CreateDatabaseCompiler`, `DropDatabaseCompiler`, new instance | `MsSqlCreateDatabaseQueryCompiler`, `MsSqlDropDatabaseQueryCompiler` | `SqlCreateDatabaseQueryCompiler`, `SqlDropDatabaseQueryCompiler` (MySQL spelling) | Extend the abstract token, implement `compile()`. |
 | Views | `CreateViewCompiler`, new instance | `MsSqlCreateViewCompiler` | `SqlCreateViewQueryCompiler` | Extend `SqlCreateViewQueryCompiler`; override the hooks (`_replace()`, `_name()`, `_checkOption()`, ...). See [View compiler hooks](../orm-sql/06-view-compiler-hooks.md). |
@@ -163,6 +166,7 @@ Then `table.date('Day').default().date()` writes `[Day] DATE DEFAULT CAST(GETDAT
 - **`trackHistory()` is ignored.** `MsSqlTableQueryCompiler` does not compile table history; the table is created without it.
 - **`temporary()` and `ifExists()` on `createTable` write MySQL syntax** (`CREATE TEMPORARY TABLE`, `IF NOT EXISTS`), which SQL Server rejects.
 - **`UNIQUE(...)` names are not quoted.** A unique column named after a reserved word, such as `Key`, breaks the statement.
+- **`lockTable()` takes a shared lock.** `TABLOCK` lets other sessions read and blocks their writes; `HOLDLOCK` keeps it until the transaction ends, so outside `driver.transaction()` it is released when the statement finishes.
 - **`tableExists()` ignores `Options.Schema`.** A table of the same name in another schema of the database counts as existing.
 - **`CREATE DATABASE` is guarded with `EXEC`** because it must be alone in its batch; the name is escaped by doubling `'`.
 - **A view body's bindings are inlined** with `MsSqlLiteralQuoter`: strings as `N'...'`, booleans as `1` / `0`. A string containing a backtick throws `InvalidArgument`.

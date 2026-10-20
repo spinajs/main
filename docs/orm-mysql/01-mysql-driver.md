@@ -7,15 +7,16 @@
 1. **Registration.** Importing `@spinajs/orm-mysql` runs `@Injectable('orm-driver-mysql') @NewInstance()` on `MySqlOrmDriver`: the class is registered in the root container under the string `orm-driver-mysql` and under itself.
 2. **Resolve.** `Orm.createConnections()` reads `db.Connections`, checks `Container.hasRegistered(c.Driver)`, and resolves `orm-driver-mysql` with the connection entry. `OrmDriver`'s constructor merges the entry into `Options`.
 3. **Dialect.** The container calls `MySqlOrmDriver.resolve()`: `OrmDriver.resolve()` creates the `orm-driver-<Name>` logger and the child container `this.Container`, `SqlDriver.resolve()` registers the shared SQL classes, and `MySqlOrmDriver.resolve()` registers the MySQL dialect. See [Customizing the dialect](08-customizing-the-dialect.md#what-mysqlormdriverresolve-registers).
-4. **Connect.** `Orm` calls `connect()`. It builds a `mysql2` pool from `Host`, `User`, `Password`, `Port`, `Database` and the resolved `Pool.*` values, takes one connection to prove the link, releases it, and sets `State` to `Connected`. A failed test connection ends the pool and rejects; `Orm` then calls `disconnect()` and throws `OrmException('Failed to connect to database for connection <Name> ...')`.
+4. **Connect.** `Orm` calls `connect()`. It builds a `mysql2` pool from `Host` and `poolOptions()` (`User`, `Password`, `Port`, `Database`, the resolved `Pool.*` values, `timezone: 'Z'`). `pinSessionZone()` makes every new pooled connection run `SET time_zone = '+00:00'`. `acquire()` takes one connection to prove the link, `connect()` releases it and sets `State` to `Connected`. A failed test connection (including a failed `SET time_zone`) ends the pool and rejects; `Orm` then calls `disconnect()` and throws `OrmException('Failed to connect to database for connection <Name> ...')`.
 5. **Health probe.** `Orm` calls `startHealthCheck()`. Every `Resilience.HealthCheckInterval` ms, `ping()` runs `SELECT 1` once, outside the retry loop. A failed probe sets `Degraded` and calls `connect()` again.
 6. **Execute.** An awaited builder calls `SqlDriver.execute()`, which compiles and calls `MySqlOrmDriver.executeOnDb(stmt, params, context)`:
-   1. `withReconnect()` wraps the attempt.
-   2. Inside a transaction, the statement runs on the transaction's own connection. See [Transactions](03-transactions.md).
-   3. Otherwise `Pool.getConnection()` takes a connection. The wait is recorded in the `orm_pool_acquire_seconds` histogram through `observeAcquireSeconds()`.
-   4. `connection.query(stmt, params)` runs with `?` placeholders; the connection is released exactly once, also when `query()` throws synchronously.
-   5. The result is shaped by `QueryContext` (table below).
-7. **Errors.** Any `mysql2` error is wrapped in `OrmException('Error executing orm command ', { Host, User, Name }, stmt, params, err)`. `withReconnect()` retries it only when `isRetryableError()` says the transport died. See [Retries](#retries).
+   1. `toDriverParams()` writes every `Date` or luxon `DateTime` parameter through the connection's `DatetimeValueConverter`, so raw SQL binds datetimes as model writes do.
+   2. `withReconnect()` wraps the attempt.
+   3. Inside a transaction, the statement runs on the transaction's own connection. See [Transactions](03-transactions.md).
+   4. Otherwise `acquire()` takes a connection with `Pool.getConnection()` and waits until its `SET time_zone` has answered. A connection whose `SET` failed is destroyed and the statement fails with `could not set the session time zone of connection <Name> to UTC: ...`. The wait is recorded in the `orm_pool_acquire_seconds` histogram through `observeAcquireSeconds()`.
+   5. `connection.query(stmt, params)` runs with `?` placeholders; the connection is released exactly once, also when `query()` throws synchronously.
+   6. The result is shaped by `QueryContext` (table below).
+7. **Errors.** `mapMySqlError()` turns every `mysql2` error into an ORM error (see [Errors](#errors)). `withReconnect()` retries it only when `isRetryableError()` says the transport died. See [Retries](#retries).
 
 | `QueryContext` | `executeOnDb()` resolves with |
 | --- | --- |
@@ -31,8 +32,8 @@ sequenceDiagram
   B->>D: execute(builder)
   D->>D: toDB(), logQuery()
   D->>D: withReconnect(_executeOnDbOnce)
-  D->>P: getConnection()
-  P-->>D: connection (wait observed as orm_pool_acquire_seconds)
+  D->>P: acquire(): getConnection()
+  P-->>D: connection, once its SET time_zone answered (wait observed as orm_pool_acquire_seconds)
   D->>P: connection.query(stmt, params)
   P-->>D: rows or OkPacket
   D->>P: connection.release()
@@ -46,6 +47,27 @@ sequenceDiagram
 - Outside a transaction it returns `true` for the shared codes of `isRetryableErrorCode()` from `@spinajs/orm`: `ECONNRESET`, `ECONNREFUSED`, `EPIPE`, `ETIMEDOUT`, `EHOSTUNREACH`, `ENETUNREACH`, `ENOTFOUND`, `PROTOCOL_CONNECTION_LOST`, `PROTOCOL_SEQUENCE_TIMEOUT`, `PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR`, `PROTOCOL_ENQUEUE_AFTER_QUIT`, `ER_CON_COUNT_ERROR`, `ER_LOCK_WAIT_TIMEOUT`.
 - It also returns `true` for any error whose `fatal` flag is `true`. `mysql2` marks connection-level failures fatal. The `inner` / `cause` chain is walked up to 5 levels.
 - Between attempts `withReconnect()` waits `RetryDelay * 2^attempt` ms (capped at `MaxRetryDelay`) and calls `connect()`. See [Observability and resilience](../orm/13-observability-and-resilience.md).
+
+### Errors
+
+`mapMySqlError(err, { Host, User, Name }, stmt, params)` (exported) reads the `mysql2` error's `errno`:
+
+| `errno` / `code` | Thrown | Filled fields |
+| --- | --- | --- |
+| `1062` / `ER_DUP_ENTRY` | `UniqueViolation` | `constraint`, and on MySQL 8 `table`, from the `for key '...'` part of the message (`table.key` on 8.0, `key` on 5.7) |
+| `1048`, `1364` | `ConstraintViolation`, `kind: 'not_null'` | `columns` from `Column '...'` / `Field '...'` |
+| `1451`, `1452` | `ConstraintViolation`, `kind: 'foreign_key'` | `constraint` from `` CONSTRAINT `...` `` |
+| `3819` | `ConstraintViolation`, `kind: 'check'` | `constraint` from `Check constraint '...'` |
+| anything else | `OrmException('Error executing orm command ', { Host, User, Name }, stmt, params, err)` | |
+
+The `mysql2` error is `inner` on every one of them. `UniqueViolation` and `ConstraintViolation` come from `@spinajs/orm`, so code that catches them runs unchanged on every driver. None of them is retried.
+
+### Dates and time zone
+
+- `poolOptions()` passes `timezone: 'Z'`, so `mysql2` writes and reads `DATETIME` and `TIMESTAMP` values as UTC.
+- `pinSessionZone()` runs `SET time_zone = '+00:00'` on every new pooled connection, so `NOW()`, `CURRENT_TIMESTAMP` and `TIMESTAMP` columns use UTC too. `acquire()` hands out a connection only after that `SET` succeeded.
+- `SqlDatetimeValueConverter` (from `@spinajs/orm-sql`) writes an instant as the UTC wall clock with milliseconds, `yyyy-MM-dd HH:mm:ss.SSS`, which `DATETIME(3)` and `TIMESTAMP(3)` columns keep exactly. See [Value converters and defaults](../orm-sql/05-value-converters-and-defaults.md).
+- `driver.now()` returns `RawQuery('UTC_TIMESTAMP(3)')` (`MySqlNowExpression`): the database's current instant in UTC, whatever the session zone.
 
 ## Configuration
 
@@ -111,7 +133,10 @@ export class ShopConfiguration extends FrameworkConfiguration {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | MySQL driver | `'orm-driver-mysql'` and `MySqlOrmDriver`; `@NewInstance()`, one instance per connection entry, resolved by `Orm` at boot from `Driver` | `MySqlOrmDriver` | `MySqlSSHOrmDriver` (`'orm-driver-mysql-ssh'`, see [SSH tunnel](02-ssh-tunnel.md)) | Subclass with `@Injectable('<string>') @NewInstance()`. Use a new string for chosen connections, or `'orm-driver-mysql'` to replace it everywhere. Register before `Orm` resolves. |
-| Connection setup | `connect()` (public) | `mysql2.createPool()` with the keys above | | Override to pass `ssl`, `charset` or any other `mysql2` option. Call `setState(ConnectionState.Connected)` when the link is proven. |
+| Connection setup | `connect()` (public) | `mysql2.createPool()` with the keys above | | Override to pass `ssl`, `charset` or any other `mysql2` option. Build on `poolOptions()`, call `pinSessionZone()` on the new pool, prove the link with `acquire()`, then call `setState(ConnectionState.Connected)`. |
+| Pool options | `poolOptions()` (protected) | the `Pool.*` mapping above plus `timezone: 'Z'` | | Override to add `mysql2` options to both connect paths, including `MySqlSSHOrmDriver`. Keep `timezone: 'Z'`. |
+| Session zone | `pinSessionZone(pool)`, `acquire(done)` (protected) | `SET time_zone = '+00:00'` per new connection; `acquire()` waits for it and destroys a connection on which it failed | | Call both from a custom `connect()`. A pool built without `pinSessionZone()` hands out connections in the server's zone. |
+| Error mapping | `mapMySqlError(err, driver, query, bindings)` (exported function) | the table in [Errors](#errors) | | Not a DI service. Catch the ORM errors instead; override `executeOnDb()` only to map more `errno` values. |
 | Retry policy | `isRetryableError(err)` (protected) | shared codes, `fatal` errors, never inside a transaction | | Override, call `super.isRetryableError(err)` first so the transaction guard stays. |
 | Pool gauges | `poolMetrics()` (public) | reads `mysql2`'s internal `_allConnections`, `_freeConnections`, `_connectionQueue`; zeros when they are absent | | Override when you swap the pool implementation. Must never throw. |
 | Health probe | `ping()` (public) | `SELECT 1` once, no retry | | Override to probe something stronger, eg. a replica's lag. Must return `false`, not throw. |
@@ -121,7 +146,7 @@ export class ShopConfiguration extends FrameworkConfiguration {
 
 ### Connection setup: custom implementation
 
-Override `connect()` when a connection needs `mysql2` options the driver does not pass: TLS, a charset. Keep the shape of the stock method: build the pool from `poolOptions()`, pin the session zone with `pinSessionZone()`, prove one connection, then set `Connected`. Register the class before `Orm` resolves.
+Override `connect()` when a connection needs `mysql2` options the driver does not pass: TLS, a charset. Keep the shape of the stock method: build the pool from `poolOptions()`, pin the session zone with `pinSessionZone()`, prove one connection with `acquire()`, then set `Connected`. Register the class before `Orm` resolves.
 
 ```ts sample
 import { readFileSync } from 'fs';
@@ -148,13 +173,14 @@ export class TlsMySqlOrmDriver extends MySqlOrmDriver {
     this.pinSessionZone(this.Pool);
 
     return new Promise((resolve, reject) => {
-      this.Pool.getConnection((err, connection) => {
+      // acquire() also fails when the connection's SET time_zone failed
+      this.acquire((err, connection) => {
         if (err) {
           this.Pool.end(() => reject(err));
           return;
         }
 
-        connection.release();
+        connection!.release();
         // a reconnect replaces the pool, so the old one is closed here
         previous?.end(() => undefined);
         this.setState(ConnectionState.Connected);
@@ -221,7 +247,8 @@ Registered under `'orm-driver-mysql'`, it replaces the stock driver for every co
 - `ping()` bypasses `withReconnect()`, so a dead server does not turn every probe into a reconnect loop.
 - `OrmException` from a failed statement carries the bindings (`params`). Log it with care when bindings hold personal data.
 - Size `Pool.Max` against the server's `max_connections`: each process and each connection entry opens its own pool.
-- `ER_DUP_ENTRY` (`1062`) throws `UniqueViolation`, with `constraint` (and on MySQL 8 `table`) read from the `for key '...'` part of the message. `1048` and `1364` throw `ConstraintViolation` of kind `not_null`, `1451` and `1452` `foreign_key`, `3819` `check`. Every other error stays `OrmException`. The `mysql2` error is `inner`.
+- `UniqueViolation` extends `ResourceDuplicated` from `@spinajs/exceptions`, not `OrmException`: a `catch` that tests `instanceof OrmException` does not see duplicates. See [Errors](#errors).
+- The constraint names come from the server's message text. A server running with a non-English `lc_messages` reports the right class but leaves `constraint`, `table` and `columns` empty.
 
 ## Best practices
 
@@ -282,6 +309,42 @@ export async function shopPoolReport() {
     busy: pool.InUse,
     queued: pool.Waiting,
   };
+}
+```
+
+### Reject a second account with the same email
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { OrmDriver, UniqueViolation } from '@spinajs/orm';
+
+export async function registerCustomer(email: string): Promise<'created' | 'taken'> {
+  const shop = DI.resolve<OrmDriver>('OrmConnection', ['shop'])!;
+
+  try {
+    await shop.insert().into('customers').values({ Email: email });
+    return 'created';
+  } catch (err) {
+    // ER_DUP_ENTRY on the unique index customers.email_unique
+    if (err instanceof UniqueViolation && err.constraint === 'email_unique') {
+      return 'taken';
+    }
+    throw err;
+  }
+}
+```
+
+### Expire sessions by the database clock
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { OrmDriver } from '@spinajs/orm';
+
+export async function purgeExpiredSessions(): Promise<void> {
+  const shop = DI.resolve<OrmDriver>('OrmConnection', ['shop'])!;
+
+  // DELETE FROM `sessions` WHERE `ExpiresAt` < UTC_TIMESTAMP(3)
+  await shop.del().from('sessions').where('ExpiresAt', '<', shop.now());
 }
 ```
 

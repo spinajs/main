@@ -13,11 +13,12 @@ SQLite is the driver with `RETURNING` (`insertReturning: true`), so it reads gen
    - `columns()` / `values()` (inherited from `SqlInsertQueryCompiler`): an auto-increment primary key is left out when no row supplies it, else rendered `NULL` in the rows that do not; `null` renders `NULL`; `undefined` renders `DEFAULT`.
    - `upsort()`: when `onDuplicate()` was called and `orReplace()` was not, resolves `OnDuplicateQueryCompiler`: `SqliteOnDuplicateQueryCompiler`, which emits `ON CONFLICT(<target>) DO UPDATE SET col = ?, ... RETURNING <cols|*>;`.
    - `returning()`: ``RETURNING `a`,`b` `` (or `*`), skipped when an upsert clause is present, because `ON CONFLICT` already carries one.
-3. **Execute.** `executeOnDb()` uses `run()` for `Insert` and `all()` for `InsertReturning` and `Upsert` (see [Result shapes](01-connection.md#result-shapes)).
-4. **Map.** Model inserts resolve `ServerResponseMapper` (`SqliteServerResponseMapper`) and call `read(result, pkNames)`:
+3. **Split.** `supportedFeatures().maxBindParameters` is `32766`, SQLite's `SQLITE_MAX_VARIABLE_NUMBER` in the build `sqlite3` 5.x bundles. A multi-row insert that would bind more values is sent as several statements, each under the limit. They are atomic: when a later statement fails, the rows of the earlier ones are rolled back too.
+4. **Execute.** `executeOnDb()` uses `run()` for `Insert` and `all()` for `InsertReturning` and `Upsert` (see [Result shapes](01-connection.md#result-shapes)).
+5. **Map.** Model inserts resolve `ServerResponseMapper` (`SqliteServerResponseMapper`) and call `read(result, pkNames)`:
    - An array (upsert rows): `RowsAffected` = row count; `LastInsertId` = the key of the **last** row when there is one key column and its value is a number, else `0`; `Returning` = the rows.
    - An object: `RowsAffected`, `LastInsertId` and `Returning` copied, defaulting to `0`, `0`, `[]`.
-5. **Keys back.** A model with an `auto` key asks for `RETURNING <key columns>` (`model.insert()` except with `InsertOrUpdate`, and `Model.insert(rowOrRows)`). When `Returning` has one row per inserted model, each model gets its own key, in insert order. `uuid` and `assigned` keys are set before the insert and kept.
+6. **Keys back.** A model with an `auto` key asks for `RETURNING <key columns>` (`model.insert()` except with `InsertOrUpdate`, and `Model.insert(rowOrRows)`). When `Returning` has one row per inserted model, each model gets its own key, in insert order, also when the insert was split into several statements. `uuid` and `assigned` keys are set before the insert and kept.
 
 ### Model serialization
 
@@ -34,7 +35,7 @@ The only difference from `StandardModelToSqlConverter` in `@spinajs/orm` is step
 
 ## Configuration
 
-No keys. `supportedFeatures()` is fixed: `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, maxBindParameters: 32766, concurrentTransactions: false }`. `insertIdIsFirstOfBatch` is `false` because `sqlite3`'s `lastID` is the **last** row id of a multi-row insert; SQLite gets every key from `RETURNING` instead.
+No keys. `supportedFeatures()` is fixed: `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, maxBindParameters: 32766, concurrentTransactions: false }`. `insertIdIsFirstOfBatch` is `false` because `sqlite3`'s `lastID` is the **last** row id of a multi-row insert; SQLite gets every key from `RETURNING` instead. `maxBindParameters` sets where a multi-row insert is split. `concurrentTransactions: false` makes the core queue outermost transactions (see [Transactions](03-transactions.md)).
 
 ## Services and extension points
 
@@ -207,6 +208,7 @@ export class TrimmingSqliteDriver extends SqliteOrmDriver {
 - `orReplace()` deletes the conflicting row and inserts a new one: its other columns take defaults, and `ON DELETE` actions fire if foreign keys are enforced.
 - `orIgnore()` with `returning()` returns no row for a skipped insert.
 - A multi-row insert whose rows set different columns renders `DEFAULT` and fails with `near "DEFAULT": syntax error`. Batch model inserts hit this when one model leaves a nullable column `undefined` and another sets it.
+- An insert of more than 32766 bound values runs as several statements, so it reaches the database as more than one round trip. `RowsAffected` is the total over all of them.
 - A unique or primary key failure is `UniqueViolation` on every path (`Insert`, `InsertReturning`, `Upsert`); other constraint failures are `ConstraintViolation`. See [Connection and driver](01-connection.md#errors).
 
 ## Best practices

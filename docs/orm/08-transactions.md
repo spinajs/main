@@ -7,7 +7,7 @@
 1. You call `driver.transaction(cb, options?)`, or `Model.transaction(cb, options?)`, which forwards to the driver of the model's connection.
 2. `OrmDriver.transaction()` checks `options.isolation` against `OrmDriver.SupportedIsolationLevels`. An unlisted level throws `OrmException` (`isolation level <level> not supported by driver <driver>`) before anything reaches the database.
 3. It reads the ambient context from the driver's `AsyncLocalStorage` (`OrmDriver.CurrentTransaction`).
-4. **No transaction in scope:** the driver's `_begin(options)` opens one and returns an `ITransactionContext` with `depth = 0`. The callback runs inside `AsyncLocalStorage.run(ctx, ...)` and receives the driver.
+4. **No transaction in scope:** on a driver whose `supportedFeatures().concurrentTransactions` is `false` (SQLite), the call first waits for the outermost transactions queued before it on this driver. Then the driver's `_begin(options)` opens one and returns an `ITransactionContext` with `depth = 0`. The callback runs inside `AsyncLocalStorage.run(ctx, ...)` and receives the driver.
 5. Every statement executed inside the callback reads the context and runs on the transaction's connection. Nothing is passed by hand.
 6. The callback resolves: `_commit(ctx)`. The callback or the commit throws: `_rollback(ctx)`, and the original error is rethrown. A failing rollback is swallowed so it cannot hide that error.
 7. `_dispose(ctx)` releases the connection, exactly once, on every path.

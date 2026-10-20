@@ -1,6 +1,6 @@
 # Inserts and upserts
 
-On SQL Server an insert is `INSERT INTO ... VALUES (...); SELECT SCOPE_IDENTITY() as ID;`, an upsert is a `MERGE` statement, and `INSERT IGNORE` does not exist. The driver registers no `ServerResponseMapper`, so every model insert path throws after the row is written until you register one. This page shows the mapper to register.
+On SQL Server an insert is `INSERT INTO ... VALUES (...); SELECT SCOPE_IDENTITY() as ID;`, an upsert is a `MERGE` statement, and `INSERT IGNORE` does not exist. The driver registers `MsSqlServerResponseMapper`, which passes the insert result `executeOnDb()` already shaped to the model insert paths.
 
 ## How it works
 
@@ -13,10 +13,10 @@ On SQL Server an insert is `INSERT INTO ... VALUES (...); SELECT SCOPE_IDENTITY(
 
 ### Model insert
 
-1. `Model.insert(data)`, `model.insert()`, `model.save()` and the unit of work resolve `ServerResponseMapper` from the connection's container.
-2. Nothing is registered under that token on this driver, so the container returns an instance of the base class `ServerResponseMapper` itself.
-3. The statement runs; the row is written.
-4. The result goes to `ServerResponseMapper.read()`, which throws `MethodNotImplemented('no ServerResponseMapper is registered for this connection. Every driver must register one: ...')`.
+1. `Model.insert(data)`, `model.insert()`, `model.save()` and the unit of work resolve `ServerResponseMapper` from the connection's container: `MsSqlServerResponseMapper`.
+2. The statement runs through the builder path above.
+3. `MsSqlServerResponseMapper.read()` returns `RowsAffected`, `LastInsertId` and `Returning` from that result. A missing field reads as `0`, and `Returning` as `[]` unless it is an array.
+4. A single new row with an `auto` key gets `LastInsertId`, the `SCOPE_IDENTITY()` value, as its primary key.
 
 ### Upsert
 
@@ -32,53 +32,49 @@ WHEN MATCHED THEN UPDATE SET [Name] = ?
 WHEN NOT MATCHED THEN INSERT ([Email],[Name]) VALUES (?,?); SELECT SCOPE_IDENTITY() as ID;
 ```
 
-4. `executeOnDb()` returns the `[{ ID }]` row array (the `Upsert` context returns `recordset`).
+4. `executeOnDb()` returns the `[{ ID }]` row array (the `Upsert` context returns `recordset`). `MsSqlServerResponseMapper` reads no fields from an array, so a model upsert gets `RowsAffected: 0` and `LastInsertId: 0`.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Insert response mapper | `ServerResponseMapper` (from `@spinajs/orm`), in the driver's child container; resolved per insert | **none**: the base class, whose `read()` throws | `MysqlServerResponseMapper` (`@spinajs/orm-mysql`) reads the same `{ RowsAffected, LastInsertId }` object but not the upsert row array | Subclass `ServerResponseMapper`, implement `read(data, pkNames?)`, register `.as(ServerResponseMapper)` in a driver subclass's `resolve()` after `super.resolve()`. |
+| Insert response mapper | `ServerResponseMapper` (from `@spinajs/orm`), in the driver's child container; resolved per insert | `MsSqlServerResponseMapper` (exported): passes `RowsAffected`, `LastInsertId` and `Returning` through | `MysqlServerResponseMapper` (`@spinajs/orm-mysql`) reads the same `{ RowsAffected, LastInsertId }` object | Extend `MsSqlServerResponseMapper`, override `read(data, pkNames?)`, register `.as(ServerResponseMapper)` in a driver subclass's `resolve()` after `super.resolve()`. |
 | Insert compiler | `InsertQueryCompiler`, new instance per query | `MsSqlInsertQueryCompiler` (not exported) | `SqlInsertQueryCompiler` (`@spinajs/orm-sql`, MySQL spelling) | Extend `SqlInsertQueryCompiler`, register `.as(InsertQueryCompiler)`. |
 | Upsert compiler | `OnDuplicateQueryCompiler`, new instance per query | `MsSqlOnDuplicateQueryCompiler` (not exported) | `SqlOnDuplicateQueryCompiler` (`ON DUPLICATE KEY UPDATE`, not T-SQL) | Extend `SqlOnDuplicateQueryCompiler`; return the `MERGE ... WHEN NOT MATCHED THEN ` prefix. The insert compiler appends `INSERT (...) VALUES (...)` and the identity read. |
 
 ### Insert response mapper: custom implementation
 
-`read()` receives what `executeOnDb()` returned: the `{ RowsAffected, LastInsertId, Returning }` object for `Insert`, the `[{ ID }]` rows for `Upsert`. Return a `DbServerResponse`.
+`read()` receives what `executeOnDb()` returned: the `{ RowsAffected, LastInsertId, Returning }` object for `Insert`, the `[{ ID }]` rows for `Upsert`. Return a `DbServerResponse`. Replace the shipped mapper when a model upsert must read the key `MERGE` inserted.
 
 ```ts sample
 import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { DbServerResponse, ServerResponseMapper } from '@spinajs/orm';
-import { MsSqlOrmDriver } from '@spinajs/orm-mssql';
+import { MsSqlOrmDriver, MsSqlServerResponseMapper } from '@spinajs/orm-mssql';
 
-/** Reads the SCOPE_IDENTITY() value the MSSQL insert compiler appends to every insert. */
-export class MsSqlServerResponseMapper extends ServerResponseMapper {
+/** Also reads the SCOPE_IDENTITY() row an upsert resolves with. */
+export class MergeKeyResponseMapper extends MsSqlServerResponseMapper {
   public read(data: any): DbServerResponse {
-    if (Array.isArray(data)) {
-      // an upsert resolves with the rows of SELECT SCOPE_IDENTITY(); ID is null when MERGE updated
-      const id = data.length !== 0 ? data[data.length - 1]?.ID : undefined;
-      return { RowsAffected: data.length, LastInsertId: typeof id === 'number' ? id : 0, Returning: [] };
+    if (!Array.isArray(data)) {
+      return super.read(data);
     }
 
-    return {
-      RowsAffected: data?.RowsAffected ?? 0,
-      LastInsertId: typeof data?.LastInsertId === 'number' ? data.LastInsertId : 0,
-      Returning: [],
-    };
+    // ID is null when MERGE updated an existing row
+    const id = data.length !== 0 ? data[data.length - 1]?.ID : undefined;
+    return { RowsAffected: data.length, LastInsertId: typeof id === 'number' ? id : 0, Returning: [] };
   }
 }
 
-@Injectable('orm-driver-mssql-writable')
+@Injectable('orm-driver-mssql-merge-keys')
 @NewInstance()
-export class WritableMsSqlDriver extends MsSqlOrmDriver {
+export class MergeKeyMsSqlDriver extends MsSqlOrmDriver {
   public resolve() {
     super.resolve();
-    this.Container.register(MsSqlServerResponseMapper).as(ServerResponseMapper);
+    this.Container.register(MergeKeyResponseMapper).as(ServerResponseMapper);
   }
 }
 
 // every connection configured with Driver: 'orm-driver-mssql' gets the subclass; call before DI.resolve(Orm)
-DI.register(WritableMsSqlDriver).as('orm-driver-mssql');
+DI.register(MergeKeyMsSqlDriver).as('orm-driver-mssql');
 ```
 
 ### Upsert compiler: custom implementation
@@ -131,7 +127,7 @@ export class UpsertMsSqlDriver extends MsSqlOrmDriver {
 
 ## Important behaviour
 
-- **The row is written before the mapper throws.** A model insert without a registered mapper inserts the row, then throws. Inside `driver.transaction()` the throw rolls it back; outside, the row stays and the model has no primary key.
+- **A model upsert reads no key.** The shipped mapper reports `RowsAffected: 0` and `LastInsertId: 0` for the upsert row array, so a model whose upsert inserted a row with an `auto` key keeps no primary key. Register the mapper above when you need it.
 - **`SCOPE_IDENTITY()` is the last identity of the batch.** A multi-row insert reports the last generated key, so `insertIdIsFirstOfBatch` is `false` and the ORM does not backfill keys of a batch.
 - **`RETURNING` is not supported.** `insertReturning` is `false`; `InsertQueryBuilder.returning()` throws `NotSupported`.
 - **`InsertBehaviour.InsertOrIgnore` throws** `OrmException('mssql insert or ignore is not supported')` at compile time, before anything is sent.
@@ -144,7 +140,7 @@ export class UpsertMsSqlDriver extends MsSqlOrmDriver {
 
 ## Best practices
 
-- Register a `ServerResponseMapper` before using models on MSSQL; replace the driver string everywhere with `DI.register(...).as('orm-driver-mssql')` so no connection is left without one.
+- Extend `MsSqlServerResponseMapper` rather than `ServerResponseMapper`, so plain inserts keep the shipped reading; replace the driver string everywhere with `DI.register(...).as('orm-driver-mssql')` so every connection gets the subclass.
 - Use `InsertBehaviour.InsertOrUpdate` with a single `@Unique` column, or register the upsert compiler above.
 - Guard a "create if missing" with `Model.where(...).orderBy(...).first()` or an upsert, not with `InsertOrIgnore`.
 
@@ -154,15 +150,13 @@ export class UpsertMsSqlDriver extends MsSqlOrmDriver {
 // Don't: InsertOrIgnore throws on SQL Server
 await Subscriber.insert(subscriber, InsertBehaviour.InsertOrIgnore);
 
-// Do: upsert on the unique column (with a mapper, and the upsert compiler for new rows)
+// Do: upsert on the unique column (with the upsert compiler for new rows)
 await Subscriber.insert(subscriber, InsertBehaviour.InsertOrUpdate);
 ```
 
 ## Examples
 
 ### Create a customer and read its generated key
-
-With `WritableMsSqlDriver` registered as above:
 
 ```ts sample
 import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
@@ -187,9 +181,9 @@ export async function registerCustomer(email: string, name: string): Promise<num
 }
 ```
 
-### Insert a row and read the identity without a mapper
+### Insert a row through the builder and read the identity
 
-The builder path returns the driver's result directly.
+The builder path returns the driver's result directly, without the mapper.
 
 ```ts sample
 import { DI } from '@spinajs/di';

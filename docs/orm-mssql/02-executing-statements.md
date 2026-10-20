@@ -8,9 +8,10 @@
 2. `executeOnDb()` removes every backtick from the statement text: `stmt.replaceAll('`', '')`.
 3. It picks the request. Inside `driver.transaction()`, `this.TransactionStorage.getStore()` holds an `IMsSqlTransactionContext` and its `request` is used. Otherwise it takes a new request from the pool: `this._connectionPool.request()`.
 4. `toNamedParameters(stmt, params.length)` replaces the first `params.length` `?` characters with `@p0`, `@p1`, ... in order.
-5. Each value is bound with `req.input('p<i>', value)`. `mssql` infers the SQL type from the JavaScript value.
-6. `req.query(statement)` runs it. Database errors propagate as the `mssql` error, unwrapped and not logged by the driver.
-7. The result is shaped by context:
+5. `SqlDriver.toDriverParams(params)` converts every `Date` and luxon `DateTime` parameter with the connection's `DatetimeValueConverter` (`IsoDatetimeValueConverter`), so a raw statement binds the same ISO 8601 UTC text a model writes. Other values pass unchanged.
+6. Each value is bound with `req.input('p<i>', value)`. `mssql` infers the SQL type from the JavaScript value.
+7. `req.query(statement)` runs it. A rejected query goes through `mapMsSqlError()`, which throws the mapped error (see [Errors](#errors)).
+8. The result is shaped by context:
 
 | `QueryContext` | `executeOnDb()` returns |
 | --- | --- |
@@ -20,6 +21,19 @@
 
 `LastInsertId` comes from the `SELECT SCOPE_IDENTITY() as ID` that the insert compiler appends; see [Inserts and upserts](04-inserts-and-upserts.md).
 
+### Errors
+
+`mapMsSqlError(err, driver, query, bindings)` reads the SQL Server error number from `err.number`, or from `err.originalError.info.number` when the wrapper has none:
+
+| Error number | Thrown | Fields filled from the message |
+| --- | --- | --- |
+| `2627` (primary key or unique constraint), `2601` (unique index) | `UniqueViolation` | `table` (eg. `dbo.users`), `constraint` (the constraint or index name) |
+| `515` (NULL into a `NOT NULL` column) | `ConstraintViolation`, `kind: 'not_null'` | `table`, `columns: [<column>]` |
+| `547` (constraint conflict) | `ConstraintViolation`, `kind: 'check'`, `'foreign_key'` or `'other'` | `table`, `constraint` |
+| any other | `OrmException('Error executing orm command ', ...)` | `driver`, `query`, `bindings` |
+
+The `mssql` error is `inner` on every mapped error. `UniqueViolation` extends `ResourceDuplicated` from `@spinajs/exceptions`, so an HTTP layer that maps that class answers it as a conflict. `UniqueViolation`, `ConstraintViolation` and `OrmException` are exported by `@spinajs/orm` ([exceptions](../orm/03-model-api.md#exceptions)); every SQL driver throws the same classes, so catch code works on any dialect.
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
@@ -27,6 +41,7 @@
 | Statement transport | `MsSqlOrmDriver.executeOnDb(stmt, params, context)` (public) | `mssql` request per statement, or the transaction's request | | Override in a driver subclass. Call `super.executeOnDb()` to keep the behaviour, or re-implement it with `toNamedParameters()` and `IMsSqlTransactionContext`. |
 | Retry policy | `isRetryableError(err)` (protected, from `OrmDriver`) | `isRetryableErrorCode()`: network codes such as `ECONNRESET`; none of the `mssql` codes | | Override to add `ESOCKET` / `ECONNCLOSED`, and wrap `executeOnDb()` in `this.withReconnect(...)`. |
 | Placeholder rewriting | `toNamedParameters(stmt, count)`, exported function | | | Call it from your own `executeOnDb()`. |
+| Error mapping | `mapMsSqlError(err, driver, query, bindings)`, exported function | | | Call it from your own `executeOnDb()` to throw the same error classes. |
 
 ### `toNamedParameters(stmt, count)`
 
@@ -75,10 +90,11 @@ export class SlowQueryLoggingMsSqlDriver extends MsSqlOrmDriver {
 
 - **Backticks are removed from the whole statement**, including inside string literals in a `RawQuery`. Bound values are not affected, because they travel as parameters. `MsSqlLiteralQuoter` refuses to inline a value containing a backtick for the same reason; see [Query dialect](05-query-dialect.md#literal-quoting-custom-implementation).
 - **`toNamedParameters()` counts every `?`**, including one inside a string literal or a comment. A literal `?` placed before a placeholder takes that placeholder's name, and the real placeholder stays a `?`. A `?` after the last placeholder, or in a statement with no bindings, is left alone.
-- **Parameter types are inferred** by `mssql` from the JavaScript value: a `string` binds as `NVARCHAR`, a `number` as `INT` or `FLOAT`, a `Date` as a datetime type.
+- **Parameter types are inferred** by `mssql` from the JavaScript value: a `string` binds as `NVARCHAR`, a `number` as `INT` or `FLOAT`. A `Date` or `DateTime` is converted to ISO 8601 UTC text first, so it binds as `NVARCHAR` and SQL Server converts it to the column type.
 - **No retries.** A transport error fails the statement at once. See [the retry example](#retry-statements-after-a-dropped-connection).
 - **`ping()` goes through `executeOnDb()`.** A driver whose pool is closed or `null` reports `false` instead of throwing.
-- **Failed statements are wrapped.** Error numbers `2627` and `2601` throw `UniqueViolation`, `515` throws `ConstraintViolation` of kind `not_null`, `547` one of kind `foreign_key` or `check` (read from the message), anything else `OrmException`. The `mssql` `RequestError` is `inner`: read `err.inner.number`, not `err.number`.
+- **Failed statements are wrapped.** See [Errors](#errors). The `mssql` `RequestError` is `inner`: read `err.inner.number`, not `err.number`.
+- **The kind of a `547` error is read from the message text.** `CHECK constraint` gives `check`, `FOREIGN KEY` or `REFERENCE constraint` gives `foreign_key`. A server language other than English gives `other`, and `table` / `constraint` stay `undefined`.
 
 ## Best practices
 
@@ -97,6 +113,35 @@ await driver.executeOnDb('SELECT * FROM [faq] WHERE [Question] LIKE ? AND [Lang]
 ```
 
 ## Examples
+
+### Answer a duplicate e-mail with a validation message
+
+```ts sample
+import { Connection, Model, ModelBase, Primary, UniqueViolation } from '@spinajs/orm';
+
+@Connection('mssql')
+@Model('users')
+export class User extends ModelBase<User> {
+  @Primary()
+  public Id: number;
+
+  public Email: string;
+}
+
+export async function register(email: string): Promise<string> {
+  try {
+    await User.insert(new User({ Email: email }));
+    return 'created';
+  } catch (err) {
+    if (err instanceof UniqueViolation && err.constraint === 'UQ_users_email') {
+      return 'this e-mail is already registered';
+    }
+    throw err;
+  }
+}
+```
+
+The model insert reads its result through `MsSqlServerResponseMapper`; see [Inserts and upserts](04-inserts-and-upserts.md).
 
 ### Run a raw T-SQL report
 

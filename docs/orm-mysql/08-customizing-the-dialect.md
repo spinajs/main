@@ -49,6 +49,9 @@ On top of [`SqlDriver.resolve()`](../orm-sql/01-sql-driver.md#what-sqldriverreso
 | `TableCloneQueryCompiler`, `TruncateTableQueryCompiler`, `TableHistoryQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTruncateTableQueryCompiler`, `SqlTableHistoryQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `SqlEventQueryCompiler`, `SqlDropEventQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | | [Schema](06-schema-views-and-events.md) |
+| `LockTableQueryCompiler` | `MySqlLockTableQueryCompiler`: `SELECT COUNT(*) FROM <table> FOR UPDATE` | no | [Schema](06-schema-views-and-events.md) |
+| `NowExpression` | `MySqlNowExpression`: `UTC_TIMESTAMP(3)`, returned by `driver.now()` | no | [MySQL driver](01-mysql-driver.md#dates-and-time-zone) |
+| `TextWrapper` | `MySqlTextWrapper`: extends `SqlTextWrapper` and casts to `CHAR`, because `TEXT` is no `CAST` target in MySQL | no | [Statements](../orm-sql/03-statements.md) |
 | `LimitQueryCompiler`, `RecursiveQueryCompiler` | `SqlLimitQueryCompiler`, `SqlWithRecursiveCompiler` | | [Query compilers](../orm-sql/02-query-compilers.md) |
 
 `Sql*` classes are exported from `@spinajs/orm-sql`. The `MySql*` classes marked "no" are not exported: to change one, extend the `Sql*` class it extends and re-implement its MySQL part, as the custom examples on each page do.
@@ -74,7 +77,7 @@ db: {
 | --- | --- | --- | --- | --- |
 | MySQL driver | `'orm-driver-mysql'`; `@NewInstance()` per connection | `MySqlOrmDriver` | `MySqlSSHOrmDriver` (`'orm-driver-mysql-ssh'`) | Subclass; `@Injectable('orm-driver-mysql')` for all connections, or a new string for some. |
 | Dialect classes | the tokens above, in `driver.Container` | the table above | per-page alternatives | `this.Container.register(X).as(Token)` after `super.resolve()`. |
-| Driver hooks | `connect()`, `isRetryableError()`, `ping()`, `poolMetrics()`, `tableInfo()`, `supportedFeatures()`, `_begin()` and the other transaction primitives, `ResponseSchemaTypes`, `SupportedIsolationLevels` | `MySqlOrmDriver` | | Override in the subclass. See [MySQL driver](01-mysql-driver.md), [Transactions](03-transactions.md), [Table reflection](05-table-reflection.md). |
+| Driver hooks | `connect()`, `poolOptions()`, `pinSessionZone()`, `acquire()`, `isRetryableError()`, `ping()`, `poolMetrics()`, `tableInfo()`, `supportedFeatures()`, `_begin()` and the other transaction primitives, `ResponseSchemaTypes`, `SupportedIsolationLevels` | `MySqlOrmDriver` | | Override in the subclass. See [MySQL driver](01-mysql-driver.md), [Transactions](03-transactions.md), [Table reflection](05-table-reflection.md). |
 
 ### How other packages recognize a MySQL connection
 

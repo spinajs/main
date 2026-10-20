@@ -1,6 +1,6 @@
 # Query dialect
 
-How `MsSqlOrmDriver` writes the parts of a query that T-SQL spells differently from the shared SQL layer: identifiers, table names, paging, sorting, limited deletes, set membership and inlined literals. Each part is a class registered in the connection's child container, so each can be replaced on its own.
+How `MsSqlOrmDriver` writes the parts of a query that T-SQL spells differently from the shared SQL layer: identifiers, table names, paging, sorting, limited deletes, long `IN` lists, set membership, prefix matches, text casts, `now()` and inlined literals. Each part is a class registered in the connection's child container, so each can be replaced on its own.
 
 ## How it works
 
@@ -27,7 +27,16 @@ SELECT ... FROM [shop].[dbo].[orders] as [#orders#] WHERE ... = @p0 ORDER BY [Pa
 | `whereInSet('Roles', ['admin'])` | `MsSqlInSetStatement` | `(CHARINDEX(?, ',' + ISNULL([Roles], '') + ',') > 0)`, bound `',admin,'` |
 | `whereNotInSet('Roles', ['admin', 'editor'])` | `MsSqlInSetStatement` | `(NOT (...) AND NOT (...))` |
 | `whereInSet('Roles', [])` / negated | `MsSqlInSetStatement` | `(1 = 0)` / `(1 = 1)` |
-| `whereStartsWith('Path', 'docs[1]/')` | `MsSqlStartsWithStatement` | `[Path] LIKE ? ESCAPE '~'`, bound `'docs~[1]/%'`; whether case variants match follows the column's collation |
+| `whereStartsWith('Path', 'docs[1]/')` | `MsSqlStartsWithStatement` | `[Path] LIKE ? ESCAPE '~'`, bound `'docs~[1]/%'`; `[` is escaped as well, since T-SQL `LIKE` reads it as a character class; whether case variants match follows the column's collation |
+| `whereIn('Id', [1, 2])` | `MsSqlInStatement` | `[Id] IN (?,?)` |
+| `whereIn('Id', list)` with more than 200 strings or numbers | `MsSqlInStatement` | `[Id] IN (SELECT [value] FROM OPENJSON(?))`, bound `JSON.stringify(list)`; `whereNotIn()` writes `NOT IN` |
+| `whereIn('Id', [])` / `whereNotIn('Id', [])` | shared `SqlInStatement` | `1 = 0` / `1 = 1` |
+| `where(true)` / `where(false)` | shared | `1 = 1` / `1 = 0`; T-SQL has no boolean literal |
+| `where(Wrapper.Text('Id'), '=', '1')`, `whereIn(Wrapper.Text('Id'), ...)` | `MsSqlTextWrapper` | `CAST([Id] AS NVARCHAR(4000)) = ?` |
+| `whereColumn('ParentRef', '=', outer(Wrapper.Text('Id')))` in a `whereExist()` sub-query | shared `SqlColumnCompareStatement` | `[c].[ParentRef] = CAST([p].[Id] AS NVARCHAR(4000))`, each side qualified by its own query's alias |
+| `whereNot(function () { this.where('Flag', 'a'); })` | shared `SqlWhereQueryStatement` | `NOT ( [Flag] = ? )`; an empty group gives `1 = 0` |
+| `selectCondition('isA', function () { this.where('Flag', 'a'); })` | shared `SqlColumnConditionStatement` | `CASE WHEN [Flag] = ? THEN 1 ELSE 0 END AS [isA]`, since T-SQL selects no predicate as a value |
+| `where('At', '<=', driver.now())` | `MsSqlNowExpression` | `[At] <= SYSDATETIMEOFFSET()`, no binding |
 | `whereExist('Owner', ...)` | shared `SqlExistsQueryStatement` | `EXISTS (...)` with bracket-quoted correlation `[account].[id] = [#items#].[user_id]` |
 | inlined value (views, `LiteralQuoter.quote()`) | `MsSqlLiteralQuoter` | `N'it''s'`, `1` / `0` for booleans |
 | `withRecursive(...)` | none registered | fails: no `RecursiveQueryCompiler` |
@@ -44,7 +53,11 @@ All registered in the driver's child container by `MsSqlOrmDriver.resolve()`; no
 | Paging | `LimitQueryCompiler`, new instance | `MsSqlLimitCompiler` | `SqlLimitQueryCompiler` (`LIMIT`, not T-SQL) | Extend `SqlLimitQueryCompiler`, override `compile()`. The builder passed in is the select builder, so `getSorts()` is available. |
 | Sorting | `OrderByQueryCompiler`, new instance | `MsSqlOrderByCompiler` (first sort only) | `SqlOrderByQueryCompiler` (every sort, quoted through `IdentifierQuoter`) | Register `SqlOrderByQueryCompiler` `.as(OrderByQueryCompiler)` for multi-column sorting. |
 | Deletes | `DeleteQueryCompiler`, new instance | `MsSqlDeleteQueryCompiler` | `SqlDeleteQueryCompiler` (`LIMIT`, not T-SQL) | Extend `SqlDeleteQueryCompiler`, override `compile()` or `from()`. |
-| Set membership | `InSetStatement`, new instance | `MsSqlInSetStatement` | `SqlInSetStatement` (`FIND_IN_SET`, MySQL only) | Extend `InSetStatement`, implement `build()` and `clone()`, register `.as(InSetStatement)`. |
+| Set membership | `InSetStatement`, new instance | `MsSqlInSetStatement` | `SqlInSetStatement` (portable `=` and `LIKE` patterns) | Extend `InSetStatement`, implement `build()` and `clone()`, register `.as(InSetStatement)`. |
+| `whereIn()` lists | `InStatement`, new instance | `MsSqlInStatement` (`listThreshold = 200`, `OPENJSON`) | `SqlInStatement` (always `IN (?, ...)`) | Extend `SqlInStatement`; set `listThreshold`, override `listExpression(column)` and `listBinding(values)`. |
+| Prefix match | `StartsWithStatement`, new instance | `MsSqlStartsWithStatement` | `SqlStartsWithStatement` (does not escape `[`) | Extend `SqlStartsWithStatement`, override `pattern()`. |
+| Text cast | `TextWrapper`, new instance | `MsSqlTextWrapper` (`NVARCHAR(4000)`) | `SqlTextWrapper` (`TEXT`) | Extend `SqlTextWrapper`, override `textType()`. |
+| `driver.now()` | `NowExpression` | `MsSqlNowExpression` (`SYSDATETIMEOFFSET()`) | | Extend `NowExpression`, implement `sql()`. |
 | Recursive CTE | `RecursiveQueryCompiler` | **none** | `SqlRecursiveQueryCompiler` (`WITH RECURSIVE`, not T-SQL) | Implement `RecursiveQueryCompiler` with `WITH cte AS (...)` and register it. |
 
 ### Paging: custom implementation
@@ -130,7 +143,9 @@ export class OdbcDatesMsSqlDriver extends MsSqlOrmDriver {
 - **Every backtick is removed** from the statement text before sending. `MsSqlLiteralQuoter` throws `InvalidArgument` for a value containing one, instead of letting it vanish.
 - **`whereInSet()` throws `InvalidArgument`** for a value containing the set delimiter `,`.
 - **The schema prefix applies to every table.** One connection has one `Options.Schema`; for a table in another schema, use a second connection or a `RawQuery`.
-- **Long `whereIn()` lists use `OPENJSON`.** More than 200 strings or numbers compile to `[col] IN (SELECT [value] FROM OPENJSON(?))` with the list as one JSON parameter, which needs database compatibility level 130 or later. `OPENJSON` returns `nvarchar`, so SQL Server converts per row instead of seeking an index.
+- **Long `whereIn()` lists use `OPENJSON`.** More than 200 strings or numbers compile to `[col] IN (SELECT [value] FROM OPENJSON(?))` with the list as one JSON parameter, which needs database compatibility level 130 or later. `OPENJSON` returns `nvarchar`, so SQL Server converts per row instead of seeking an index. After value conversion, a list holding any other value (a `null`, a boolean, `NaN`) stays `IN (?, ...)`.
+- **The threshold is 200, not the shared 1000**, so two long lists and the rest of the query stay under SQL Server's 2100 parameters.
+- **`Wrapper.Text()` casts to `NVARCHAR(4000)`.** A value longer than 4000 characters is cut by the cast.
 
 ## Best practices
 

@@ -131,6 +131,7 @@ A view built from a select builder has its bindings inlined as PostgreSQL litera
 
 ## Important behaviour
 
+- A `dateTime` / `timestamp` column is `TIMESTAMPTZ(3)`: it stores the instant, whatever zone wrote it, and keeps milliseconds. Because every session runs in UTC, `CAST(col AS TEXT)` reads `2026-10-19 12:00:00.123+00`. A value PostgreSQL stamps itself (`DEFAULT CURRENT_TIMESTAMP`) is rounded to the millisecond.
 - `BY DEFAULT`, not `ALWAYS`: the identity column accepts explicit keys, which the batch insert path supplies for rows that have one. An explicit key does not advance the identity sequence; a later generated key can collide with it.
 - `modify()` changes the type, `NOT NULL` and the default only. It does not add or remove `UNIQUE`, an enum's `CHECK`, an identity or a collation.
 - `ALTER COLUMN ... TYPE` has no `USING` clause. PostgreSQL refuses a type change it cannot cast implicitly (`text` to `integer`); run that one with `schema().raw(...)`.

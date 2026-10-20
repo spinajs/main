@@ -313,6 +313,8 @@ DI.register(MaintenanceWindowMigrationService).as('maintenance-window-migrations
 
 - `Migration.OnStartup` is off unless set, so the boot pass applies nothing for a connection without it. `orm.Migration.up()` and the CLI ignore the flag.
 - The table check of the boot does not depend on `Migration.OnStartup`: a connection that migrates through the CLI must be migrated before the app starts.
+- `orm.Migration.up()` on a booted `Orm` does not reload table info. Models of the tables it created have no reflected columns until you call `orm.reloadTableInfo()`; pass `{ strict: true }` to fail on a table still missing. See [Connections](01-connections.md#important-behaviour).
+- A migration on a `db.Aliases` name whose target connection does not exist is skipped with a warning, like one on an unknown connection.
 - `data()` runs only in the boot pass of `Orm.resolve()`, and only for migrations that pass applied. `orm.Migration.up()` and the CLI never call it.
 - When a boot pass applies M1 and then fails on M2, M1 is recorded as applied but its `data()` never runs, on that boot or any later one. Nothing reports it.
 - During `data()`, `DI.get(Orm)` is still `undefined`: the `Orm` is mid-resolve. Use models, which are wired by then.

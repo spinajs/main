@@ -2,7 +2,7 @@
 
 The MySQL and MariaDB driver for [`@spinajs/orm`](../orm/README.md), built on [`@spinajs/orm-sql`](../orm-sql/README.md) and `mysql2`. It ships `MySqlOrmDriver` (`orm-driver-mysql`) and `MySqlSSHOrmDriver` (`orm-driver-mysql-ssh`), which tunnels the pool through an SSH bastion.
 
-It does **not** pass `Encoding` or `Options` to `mysql2`: TLS, timezone and charset need a driver subclass ([example](01-mysql-driver.md#connection-setup-custom-implementation)). It has no `RETURNING`; generated keys come from `LAST_INSERT_ID()`.
+It does **not** pass `Encoding` or `Options` to `mysql2`: TLS and charset need a driver subclass ([example](01-mysql-driver.md#connection-setup-custom-implementation)). Every connection runs in UTC, with no option to change it. It has no `RETURNING`; generated keys come from `LAST_INSERT_ID()`.
 
 ## Install
 
@@ -14,12 +14,12 @@ npm install @spinajs/orm @spinajs/orm-mysql
 
 | Feature | What it does |
 | --- | --- |
-| [MySQL driver](01-mysql-driver.md) | Connection pool, statement execution, retries, health probe, pool metrics; how to override `connect()` and the retry policy. |
+| [MySQL driver](01-mysql-driver.md) | Connection pool, UTC session zone, statement execution, error mapping to `UniqueViolation` / `ConstraintViolation`, `driver.now()`, retries, health probe, pool metrics; how to override `connect()` and the retry policy. |
 | [SSH tunnel](02-ssh-tunnel.md) | `MySqlSSHOrmDriver`: the pool over a forwarded SSH channel, its limits and a multi-channel override. |
 | [Transactions](03-transactions.md) | One pooled connection per transaction, savepoints, all four isolation levels, no retries inside. |
 | [Inserts and generated keys](04-inserts-and-generated-keys.md) | `LAST_INSERT_ID()`, contiguous batch keys, `INSERT IGNORE`, `REPLACE`, `ON DUPLICATE KEY UPDATE`, the response mapper. |
 | [Table reflection](05-table-reflection.md) | `tableInfo()`, `parseColumnDefault()`, `ResponseSchemaTypes`, the table-exists probe. |
-| [Schema, views and events](06-schema-views-and-events.md) | Column types, `ALTER TABLE`, views, scheduled events, non-transactional DDL. |
+| [Schema, views and events](06-schema-views-and-events.md) | Column types (`DATETIME(3)`, `TIMESTAMP(3)`), `ALTER TABLE`, table locks, views, scheduled events, non-transactional DDL. |
 | [Set membership and literal quoting](07-set-membership-and-literals.md) | `FIND_IN_SET`, backslash-escaped literals, backtick identifiers, and `sql_mode` variants. |
 | [Customizing the dialect](08-customizing-the-dialect.md) | Every class the driver registers, how to replace one per connection or everywhere, and how other packages detect MySQL. |
 
@@ -76,6 +76,12 @@ export async function bootstrap(): Promise<Orm> {
 | Views | `OR REPLACE`, `ALGORITHM`, `SQL SECURITY`, every `CHECK OPTION`; no `IF NOT EXISTS`, no `TEMPORARY` |
 | Set membership | `FIND_IN_SET` |
 | `DECIMAL` values | strings |
+| Session time zone | UTC (`timezone: 'Z'` and `SET time_zone = '+00:00'`); a connection that cannot be pinned fails the acquire |
+| `dateTime()` / `timestamp()` columns | `DATETIME(3)` / `TIMESTAMP(3)` |
+| `driver.now()` | `UTC_TIMESTAMP(3)` |
+| Duplicate key | `UniqueViolation`; NOT NULL, FK and CHECK failures `ConstraintViolation` |
+| Bind-parameter limit | none (`mysql2` interpolates on the client) |
+| Table lock | `SELECT COUNT(*) ... FOR UPDATE` |
 
 ## Testing
 

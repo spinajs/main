@@ -1,6 +1,6 @@
 # Extending the driver
 
-Every T-SQL behaviour of `@spinajs/orm-mssql` is a class registered in the connection's own DI container, or a method of `MsSqlOrmDriver`. Subclass the driver, override a method or register a different class after `super.resolve()`, and select the subclass per connection or for every MSSQL connection. Only `MsSqlOrmDriver`, `IMsSqlTransactionContext` and `toNamedParameters` are exported; a replacement extends the shared class from `@spinajs/orm-sql` or the abstract token from `@spinajs/orm`.
+Every T-SQL behaviour of `@spinajs/orm-mssql` is a class registered in the connection's own DI container, or a method of `MsSqlOrmDriver`. Subclass the driver, override a method or register a different class after `super.resolve()`, and select the subclass per connection or for every MSSQL connection. Only `MsSqlOrmDriver`, `IMsSqlTransactionContext`, `toNamedParameters` and `mapMsSqlError` are exported; a replacement extends the shared class from `@spinajs/orm-sql` or the abstract token from `@spinajs/orm`.
 
 ## How it works
 
@@ -55,6 +55,7 @@ Methods a subclass overrides:
 | Method | Visibility | Stock behaviour | Page |
 | --- | --- | --- | --- |
 | `connect()`, `disconnect()`, `ping()` | public | `mssql` global pool; `SELECT 1` | [Connection and configuration](01-configuration.md) |
+| `connectionConfig()` | protected | the `mssql.config` `connect()` passes, with `useUTC: true` | [Connection and configuration](01-configuration.md) |
 | `executeOnDb(stmt, params, context)` | public | backticks stripped, `@p<n>` parameters, result shaped by context | [Executing statements](02-executing-statements.md) |
 | `isRetryableError(err)` | protected | not used: `executeOnDb()` does not retry | [Executing statements](02-executing-statements.md#retry-statements-after-a-dropped-connection) |
 | `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` | protected | `mssql.Transaction`, `SAVE TRANSACTION` | [Transactions](03-transactions.md) |
@@ -76,9 +77,14 @@ Methods a subclass overrides:
 | `OrderByQueryCompiler` | `MsSqlOrderByCompiler` | `SqlOrderByQueryCompiler` | [Query dialect](05-query-dialect.md#sort-a-customer-list-by-last-and-first-name) |
 | `DeleteQueryCompiler` | `MsSqlDeleteQueryCompiler` | `SqlDeleteQueryCompiler` | [Query dialect](05-query-dialect.md) |
 | `InSetStatement` | `MsSqlInSetStatement` | `SqlInSetStatement` | [Query dialect](05-query-dialect.md) |
+| `InStatement` | `MsSqlInStatement` (`OPENJSON` above 200 values) | `SqlInStatement` | [Query dialect](05-query-dialect.md) |
+| `StartsWithStatement` | `MsSqlStartsWithStatement` | `SqlStartsWithStatement` | [Query dialect](05-query-dialect.md) |
+| `TextWrapper` | `MsSqlTextWrapper` (`NVARCHAR(4000)`) | `SqlTextWrapper` | [Query dialect](05-query-dialect.md) |
 | `InsertQueryCompiler` | `MsSqlInsertQueryCompiler` | `SqlInsertQueryCompiler` | [Inserts and upserts](04-inserts-and-upserts.md) |
+| `ServerResponseMapper` | `MsSqlServerResponseMapper` (passes the insert result through) | nothing | [Inserts and upserts](04-inserts-and-upserts.md#insert-response-mapper-custom-implementation) |
 | `OnDuplicateQueryCompiler` | `MsSqlOnDuplicateQueryCompiler` | nothing | [Inserts and upserts](04-inserts-and-upserts.md#upsert-compiler-custom-implementation) |
 | `TableExistsCompiler` | `MsSqlTableExistsCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
+| `LockTableQueryCompiler` | `MsSqlLockTableQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `TableQueryCompiler` | `MsSqlTableQueryCompiler` | `SqlTableQueryCompiler` | [Schema dialect](06-schema-dialect.md) |
 | `ColumnQueryCompiler` | `MsSqlColumnQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md#column-definition-custom-implementation) |
 | `CreateDatabaseCompiler` | `MsSqlCreateDatabaseQueryCompiler` | `SqlCreateDatabaseQueryCompiler` | [Schema dialect](06-schema-dialect.md) |
@@ -88,14 +94,13 @@ Methods a subclass overrides:
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `DatetimeValueConverter` | `IsoDatetimeValueConverter` (`@spinajs/orm-sql`) | `SqlDatetimeValueConverter` | [Value conversion](07-value-conversion.md) |
 | `DefaultValueBuilder` | `MsSqlDefaultValueBuilder` | nothing | [Schema dialect](06-schema-dialect.md#column-defaults-custom-implementation) |
-| `NowExpression` | `MsSqlNowExpression` (`SYSDATETIMEOFFSET()`) | nothing | [Value conversion](07-value-conversion.md) |
+| `NowExpression` | `MsSqlNowExpression` (`SYSDATETIMEOFFSET()`) | nothing | [Query dialect](05-query-dialect.md) |
 | `ModelDehydrator` | `MssqlModelDehydrator` (never resolved by the core) | nothing | [Value conversion](07-value-conversion.md) |
 
 Tokens the driver leaves **unregistered**, each a place to add your own:
 
 | Token | Effect while unregistered | Page |
 | --- | --- | --- |
-| `ServerResponseMapper` | model `insert()`, `save()` and upserts throw after the row is written | [Inserts and upserts](04-inserts-and-upserts.md#insert-response-mapper-custom-implementation) |
 | `AlterTableQueryCompiler`, `AlterColumnQueryCompiler`, `TableCloneQueryCompiler`, `TableHistoryQueryCompiler`, `RecursiveQueryCompiler` | the feature fails on first use | [Schema dialect](06-schema-dialect.md) |
 
 ### A driver for tests: custom implementation
@@ -143,7 +148,7 @@ export class OfflineMsSqlDriver extends MsSqlOrmDriver {
 - **Register after `super.resolve()`.** A registration made before it is overwritten.
 - **A subclass is not registered under the parent's string.** Give it its own `@Injectable('<string>')`, or register it explicitly.
 - **Keep constructor signatures.** Compilers are resolved with fixed arguments (the builder, sometimes the container first); a replacement must accept the same.
-- **A statement subclass must override `clone()`**, or a cloned query turns it back into the parent class. `MsSqlInSetStatement.clone()` copies its injected `Quoter` by hand, because a clone does not go through the container.
+- **A statement subclass must override `clone()`**, or a cloned query turns it back into the parent class. `MsSqlInSetStatement.clone()` copies its injected `Quoter` by hand, because a clone does not go through the container. Subclasses of `SqlInStatement` and `SqlStartsWithStatement` need no override: their `clone()` constructs `this.constructor`.
 - **The MSSQL classes are not exported.** Extend the shared `Sql*` class and re-implement the T-SQL part, as the examples do.
 
 ## Best practices

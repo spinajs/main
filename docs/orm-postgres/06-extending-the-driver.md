@@ -6,7 +6,7 @@ Change how PostgreSQL connections behave without forking the package: subclass `
 
 1. **Subclass.** `class MyDriver extends PostgresOrmDriver`, decorated `@Injectable('<driver string>')` and `@NewInstance()`. `@Injectable` registers the class in the root container under that string when the module is imported.
 2. **Override `resolve()`.** Call `super.resolve()` first. It runs, in order, `OrmDriver.resolve()` (logger, child container `this.Container`, model converters), `SqlDriver.resolve()` (shared `Sql*` classes) and `PostgresOrmDriver.resolve()` (PostgreSQL classes). Then register your classes: `this.Container.register(MyCompiler).as(<token>)`. The container returns the last registration of a token, so yours wins.
-3. **Override methods.** `connect()`, `executeOnDb()`, `isRetryableError()`, `tableInfo()`, `supportedFeatures()`, the transaction primitives and `ResponseSchemaTypes` are all overridable.
+3. **Override methods.** `poolConfig()`, `connect()`, `executeOnDb()`, `isRetryableError()`, `tableInfo()`, `supportedFeatures()`, the transaction primitives and `ResponseSchemaTypes` are all overridable.
 4. **Select it.** `Orm.createConnections()` resolves each entry's `Driver` string:
    - a new string (`'orm-driver-postgres-tls'`) applies the subclass only to entries that name it;
    - the stock string (`@Injectable('orm-driver-postgres')` on the subclass, or `DI.register(MyDriver).as('orm-driver-postgres')` before `Orm` resolves) applies it to every PostgreSQL connection.
@@ -59,7 +59,8 @@ Overridable members:
 | Member | Visibility | Default behaviour | Override to |
 | --- | --- | --- | --- |
 | `resolve()` | public | registers the PostgreSQL dialect | register different compilers, statements, quoters or mappers |
-| `connect()` | public | builds `pg.Pool` from the connection keys, pins `search_path` | pass more `pg.Pool` options (TLS, `application_name`, `statement_timeout`) |
+| `poolConfig()` | protected | the `pg.PoolConfig`: connection keys, pool sizes, `options: '<PGOPTIONS> -c TimeZone=UTC'`, UTC `timestamp` parser | pass more `pg.Pool` options (TLS, `application_name`); spread `super.poolConfig()` to keep the UTC session |
+| `connect()` | public | creates `pg.Pool` from `poolConfig()`, verifies it, pins `search_path` | change the connect sequence itself |
 | `disconnect()` | public | ends the pool | release extra resources |
 | `executeOnDb(stmt, params, context)` | public | `withReconnect()` around `_executeOnDbOnce()` | add tracing, routing or statement rewriting |
 | `_executeOnDbOnce(stmt, params, context)` | protected | one attempt on the transaction client or a pooled client | change how one attempt runs |
@@ -91,6 +92,10 @@ Overridable members:
 | `DefaultValueBuilder` | `PostgresDefaultValueBuilder` | this package | [Schema DDL](04-schema-ddl-and-reflection.md#column-modifiers) |
 | `TableAliasCompiler` | `PostgresTableAliasCompiler` | this package | [Queries and inserts](03-queries-and-inserts.md#table-references) |
 | `CreateViewCompiler` | `PostgresCreateViewCompiler` | this package | [Schema DDL](04-schema-ddl-and-reflection.md) |
+| `LockTableQueryCompiler` | `PostgresLockTableQueryCompiler` | this package | [Schema DDL](04-schema-ddl-and-reflection.md#databases-views-and-other-ddl) |
+| `InStatement` | `PostgresInStatement` | this package | [Queries and inserts](03-queries-and-inserts.md#select) |
+| `NowExpression` | `PostgresNowExpression` (no lifetime decorator) | this package | [Queries and inserts](03-queries-and-inserts.md#select) |
+| `DatetimeValueConverter` | `IsoDatetimeValueConverter` | `@spinajs/orm-sql` | [Queries and inserts](03-queries-and-inserts.md#datetime-values) |
 | `DropDatabaseCompiler` | `SqlDropDatabaseQueryCompiler` | shared, claimed | |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | shared, claimed | |
 | `RecursiveQueryCompiler` | `SqlWithRecursiveCompiler` | shared, claimed | |
@@ -99,7 +104,7 @@ Overridable members:
 | `DropEventQueryCompiler` | `UnsupportedDropEventQueryCompiler` (throws) | shared | |
 | `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | not registered | | |
 
-Everything else (statements, select, update and delete compilers, index and foreign-key compilers, value converters, date wrappers) comes from `SqlDriver.resolve()` unchanged; see [What `SqlDriver.resolve()` registers](../orm-sql/01-sql-driver.md#what-sqldriverresolve-registers).
+Everything else (the other statements, select, update and delete compilers, index and foreign-key compilers, the other value converters, date and text wrappers) comes from `SqlDriver.resolve()` unchanged; see [What `SqlDriver.resolve()` registers](../orm-sql/01-sql-driver.md#what-sqldriverresolve-registers).
 
 ### Driver: custom implementation
 
@@ -184,61 +189,25 @@ protected isRetryableError(err: unknown) {
 
 ### Connect over TLS with a private CA
 
-`PostgresOrmDriver.connect()` does not pass `ssl` to `pg.Pool`. Override `connect()` to build the pool yourself; the rest of the driver uses `this.Pool` unchanged.
+`PostgresOrmDriver` does not pass `ssl` to `pg.Pool`. Override `poolConfig()` and spread `super.poolConfig()`: `connect()`, the `search_path` pinning, the UTC session and the UTC `timestamp` parser all stay.
 
 ```ts sample
 import { readFileSync } from 'node:fs';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { ConnectionState, OrmDriver } from '@spinajs/orm';
-import { PostgresOrmDriver, pgEscapeIdentifier } from '@spinajs/orm-postgres';
+import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import pg from 'pg';
 
 @Injectable('orm-driver-postgres-tls')
 @NewInstance()
 export class TlsPostgresOrmDriver extends PostgresOrmDriver {
-  public async connect(): Promise<OrmDriver> {
-    const pool = this.resolvedPoolOptions();
+  protected poolConfig(): pg.PoolConfig {
     const caFile = this.Options.Options?.CaFile as string | undefined;
-    const schema = this.Options.Options?.Schema as string | undefined;
 
-    // reconnects call connect() again; end the pool being replaced instead of leaking it
-    if (this.Pool) {
-      await this.Pool.end().catch(() => undefined);
-    }
-
-    this.Pool = new pg.Pool({
-      host: this.Options.Host,
-      port: this.Options.Port,
-      user: this.Options.User,
-      password: this.Options.Password,
-      database: this.Options.Database,
-      max: pool.Max,
-      min: pool.Min,
-      idleTimeoutMillis: pool.IdleTimeout,
-      connectionTimeoutMillis: pool.AcquireTimeout,
+    return {
+      ...super.poolConfig(),
       application_name: `spinajs-${this.Options.Name}`,
       ssl: { ca: caFile ? readFileSync(caFile, 'utf8') : undefined, rejectUnauthorized: true },
-    });
-
-    this.Pool.on('error', (err) => this.Log?.warn({ error: err, connection: this.Options.Name }, 'postgres pool connection error for ${connection}'));
-
-    if (schema) {
-      // registered before the first client opens, so every client gets it
-      this.Pool.on('connect', (client) => {
-        client.query(`SET search_path TO ${pgEscapeIdentifier(schema)}`).catch(() => undefined);
-      });
-    }
-
-    try {
-      const client = await this.Pool.connect();
-      client.release();
-      this.setState(ConnectionState.Connected);
-      return this;
-    } catch (err) {
-      await this.Pool.end().catch(() => undefined);
-      this.Pool = null as unknown as pg.Pool;
-      throw err;
-    }
+    };
   }
 }
 ```
