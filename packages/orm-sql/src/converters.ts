@@ -50,7 +50,7 @@ export class SqlBooleanValueConverter implements BooleanValueConverter {
     return dehydrating.length > 0 ? !!value : value ? 1 : 0;
   }
   fromDB(value: any) {
-    return value === 1 || value === true || value === '1';
+    return value === 1 || value === true || value === '1' || value === 1n;
   }
 }
 
