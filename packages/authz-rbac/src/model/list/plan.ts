@@ -1,5 +1,7 @@
 import { GLOBAL, resourceKey } from '@spinajs/authz';
 import type { ModelListPlan, PlanTerm, Principal, ResourceType } from '@spinajs/authz';
+import { RELATION_OWNER_OP, RELATION_SELF_OP } from '@spinajs/authz-orm/plan';
+import type { RelationPlanArgs } from '@spinajs/authz-orm/plan';
 
 import { RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs } from '../../plan/args.js';
 import type { RbacAssignmentPlanArgs, RbacPlanRole } from '../../plan/args.js';
@@ -12,14 +14,6 @@ import { reachableGrants } from '../ladder/steps.js';
 import { usableVia } from '../sets/extension.js';
 import { principalSubjectKey } from '../sets/keys.js';
 import { WILDCARD_ID } from '../sets/resolver.js';
-
-export const RELATION_OWNER_OP = 'relation.owner';
-export const RELATION_SELF_OP = 'relation.self';
-
-/** relation.owner / relation.self (overview names table): the row's owner (self) is one of these principals; L4 compiles it. */
-export interface RelationPlanArgs {
-  readonly principals: readonly { readonly type: string; readonly id: string }[];
-}
 
 type Holders = Pick<RbacAssignmentPlanArgs, 'subjects'>;
 
