@@ -55,8 +55,6 @@ export class ConnectionConf extends FrameworkConfiguration {
         ],
       },
       db: {
-        // The tasks and queue migrations are not registered in this harness, so their tables never exist.
-        StrictTableCheck: false,
         DefaultConnection: 'sqlite',
         Connections: [
           // queue DB
