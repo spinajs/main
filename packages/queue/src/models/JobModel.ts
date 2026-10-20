@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { ModelBase, Connection, Model, Json, CreatedAt, UpdatedAt, DateTime as DT, Primary, QueryScope, ISelectQueryBuilder } from '@spinajs/orm';
+import { ModelBase, Connection, Model, Json, CreatedAt, UpdatedAt, DateTime as DT, Primary, QueryScope, IWhereBuilder } from '@spinajs/orm';
 
 /**
  * Possible job lifecycle statuses.
@@ -26,31 +26,31 @@ export const JOB_ACTIVE_STATUSES: JobStatus[] = ['created', 'executing', 'retryi
  *   await JobModel.query().byJobId(id).first();
  */
 export class JobQueryScopes implements QueryScope {
-  public byJobId(this: ISelectQueryBuilder<JobModel[]> & JobQueryScopes, jobId: string) {
+  public byJobId<B extends IWhereBuilder<JobModel> & JobQueryScopes>(this: B, jobId: string) {
     return this.where('JobId', jobId);
   }
 
-  public withStatus(this: ISelectQueryBuilder<JobModel[]> & JobQueryScopes, status: JobStatus | JobStatus[]) {
+  public withStatus<B extends IWhereBuilder<JobModel> & JobQueryScopes>(this: B, status: JobStatus | JobStatus[]) {
     return Array.isArray(status) ? this.whereIn('Status', status) : this.where('Status', status);
   }
 
   /** Jobs in a terminal state ( success / error / dead ). */
-  public terminal(this: ISelectQueryBuilder<JobModel[]> & JobQueryScopes) {
+  public terminal<B extends IWhereBuilder<JobModel> & JobQueryScopes>(this: B) {
     return this.whereIn('Status', JOB_TERMINAL_STATUSES);
   }
 
   /** Jobs still in flight ( created / executing / retrying ). */
-  public active(this: ISelectQueryBuilder<JobModel[]> & JobQueryScopes) {
+  public active<B extends IWhereBuilder<JobModel> & JobQueryScopes>(this: B) {
     return this.whereIn('Status', JOB_ACTIVE_STATUSES);
   }
 
   /** Jobs created before the given moment ( row age ). */
-  public olderThan(this: ISelectQueryBuilder<JobModel[]> & JobQueryScopes, date: DateTime) {
+  public olderThan<B extends IWhereBuilder<JobModel> & JobQueryScopes>(this: B, date: DateTime) {
     return this.where('CreatedAt', '<', date);
   }
 
   /** Jobs finished before the given moment. */
-  public finishedBefore(this: ISelectQueryBuilder<JobModel[]> & JobQueryScopes, date: DateTime) {
+  public finishedBefore<B extends IWhereBuilder<JobModel> & JobQueryScopes>(this: B, date: DateTime) {
     return this.where('FinishedAt', '<', date);
   }
 }

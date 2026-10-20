@@ -8,7 +8,7 @@ A `JobRetentionService` deletes old rows from `queue_jobs` on a timer, so the ta
 2. `JobRetentionService` extends `AsyncService`, so DI awaits its `resolve()`.
 3. `DefaultJobRetentionService.resolve()` starts the timer only when `enabled` is `true` and `maxAge` is set. The timer is `unref()`'d, so it never keeps the process alive.
 4. Every `interval` ms the timer calls `purgeJobs(now - maxAge, statuses)`. It logs the count when rows were removed, and logs errors without stopping the timer.
-5. `purgeJobs(olderThan, statuses?)` runs through the [tracking hooks](07-tracking-hooks.md): it selects the `Id`s of rows with a status in `statuses` (default `success`, `error`, `dead`) and `CreatedAt` before `olderThan`, deletes them with `JobModel.destroy(ids)`, and returns the count.
+5. `purgeJobs(olderThan, statuses?)` runs through the [tracking hooks](07-tracking-hooks.md): it deletes the rows with a status in `statuses` (default `success`, `error`, `dead`) and `CreatedAt` before `olderThan` in one `JobModel.destroy().withStatus(...).olderThan(...)`, and returns `RowsAffected`.
 6. `DefaultQueueService.dispose()` calls `Retention.dispose()`, which clears the timer.
 
 ## API

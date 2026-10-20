@@ -85,9 +85,8 @@ describe('db session provider', function () {
       expect(diff).to.be.lessThan(5000);
     });
 
-    // Regression: the cleanup timer built its DELETE with
-    // `DbSession.destroy().where(...)`, which throws "Cannot destroy without
-    // primary keys" — so expired sessions piled up forever.
+    // Regression: the cleanup timer's DELETE once threw before reaching the
+    // database, so expired sessions piled up forever.
     it('cleanupExpired removes expired sessions and keeps live ones', async () => {
       const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
       await store.truncate();

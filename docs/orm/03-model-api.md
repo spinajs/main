@@ -156,7 +156,7 @@ its connections and `OrmConnectionMissing` (with `connection`) when no connectio
 | `NoRowsAffected` | `insertModel()`, `deleteModel()` and the `_insert()` / `_delete()` wrappers when the statement changed no row. Extends `OrmException`. |
 | `UniqueViolation` | Any statement that breaks a primary key or unique constraint, on every driver. Extends `ResourceDuplicated` from `@spinajs/exceptions`, not `OrmException`. Carries `table`, `constraint` and `columns` when the driver reports them, and the native error as `inner`; its message is the native message. |
 | `ConstraintViolation` | A NOT NULL, CHECK or FOREIGN KEY failure. Extends `OrmException`. `kind` is `'not_null'`, `'check'`, `'foreign_key'` or `'other'`; `table`, `constraint`, `columns` and `inner` as for `UniqueViolation`. |
-| `OrmNotResolved` | `ormConnection()`, `modelDriver()` and the helpers built on them before an Orm created its connections. Extends `OrmException`. |
+| `OrmNotResolved` | `ormConnection()`, `modelDriver()`, the helpers built on them and `createQuery()` (so the model statics) before an Orm created its connections. Extends `OrmException`. |
 | `OrmConnectionMissing` | The same helpers, and the model statics, when no connection or `db.Aliases` entry has the name; `connection` holds it. Extends `OrmException`. |
 | `NotAnOrmDriver`, `TransactionRequired`, `ConnectionMismatch` | `requireModelConnection()` / `requireModelTransaction()`. `ConnectionMismatch` carries `table`, `expected` (the model's connection) and `actual` (the given driver's). All extend `OrmException`. |
 

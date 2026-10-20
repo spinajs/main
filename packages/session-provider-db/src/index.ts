@@ -4,7 +4,7 @@ import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Injectable } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/DbSession.js';
-import { DeleteQueryBuilder, InsertBehaviour, createQuery } from '@spinajs/orm';
+import { InsertBehaviour } from '@spinajs/orm';
 import type { IUpdateResult } from '@spinajs/orm';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
@@ -66,17 +66,7 @@ export class DbSessionStore extends SessionProvider {
    * @returns how many sessions were removed
    */
   public async cleanupExpired(): Promise<number> {
-    // destroy() only builds a DELETE bounded by primary keys, so the expired
-    // rows are looked up first.
-    const expired = await DbSession.where('Expiration', '<=', DateTime.now());
-
-    if (expired.length === 0) {
-      return 0;
-    }
-
-    await DbSession.destroy(expired.map((s) => s.SessionId));
-
-    return expired.length;
+    return rowsAffected(await DbSession.destroy().where('Expiration', '<=', DateTime.now()));
   }
 
   public async restore(sessionId: string): Promise<ISession | null> {
@@ -165,8 +155,7 @@ export class DbSessionStore extends SessionProvider {
     }
 
     const key = refKey(subject);
-    const { query } = createQuery(DbSession, DeleteQueryBuilder);
-    query.where(function () {
+    const query = DbSession.destroy().where(function () {
       this.where('Subject', key);
       if (opts?.includeImpersonations === true) {
         this.orWhere('ImpersonatorId', key);

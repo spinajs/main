@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { Container, Inject, NewInstance, Constructor, IContainer, DI, Injectable, isConstructor, Class } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation, NotSupported } from '@spinajs/exceptions';
-import { OrmConnectionMissing, OrmException, OrmNotFoundException } from './exceptions.js';
+import { OrmConnectionMissing, OrmException, OrmNotFoundException, OrmNotResolved } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
@@ -3458,6 +3458,10 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
 
   if (!dsc) {
     throw new Error(`model ${model.name} does not have model descriptor. Use @model decorator on class`);
+  }
+
+  if (!DI.check('OrmConnection')) {
+    throw new OrmNotResolved(`${model.name}: the Orm has not created its connections yet; await ormReady() first`);
   }
 
   const driver = DI.resolve<OrmDriver>('OrmConnection', [dsc.Connection]);

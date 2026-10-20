@@ -27,10 +27,13 @@ export function recordDriver(record: typeof ModelBase): OrmDriver {
   }
 }
 
-/** `record.query()`, which on its own fails with a plain error when the alias is missing. */
+/** `record.query()`, its connection errors naming `db.Aliases.authz`. */
 export function selectFrom<R extends typeof ModelBase>(record: R): ISelectQueryBuilder<InstanceType<R>[]> {
-  recordDriver(record);
-  return record.query();
+  try {
+    return record.query();
+  } catch (err) {
+    throw connectionError(record, err);
+  }
 }
 
 /** `driver` when it is the connection `record` lives on, so a statement and the authz rows it keeps commit together. */

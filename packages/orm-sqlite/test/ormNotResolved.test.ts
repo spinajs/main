@@ -14,7 +14,7 @@ async function freshProcess(body: string): Promise<Record<string, string>> {
     "import { DI } from '@spinajs/di';",
     "import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';",
     "import '@spinajs/log';",
-    "import { Connection, Model, ModelBase, Orm, OrmNotResolved, modelDriver, ormConnection, ormReady } from '@spinajs/orm';",
+    "import { Connection, Model, ModelBase, Orm, OrmNotResolved, SelectQueryBuilder, createQuery, modelDriver, ormConnection, ormReady } from '@spinajs/orm';",
     "import { SqliteOrmDriver } from '@spinajs/orm-sqlite';",
     'class Doc extends ModelBase {}',
     "Connection('sqlite')(Doc);",
@@ -46,12 +46,13 @@ async function freshProcess(body: string): Promise<Record<string, string>> {
 describe('sqlite model driver helpers in a process that has not resolved the Orm', function () {
   this.timeout(120_000);
 
-  it('modelDriver and ormConnection say the Orm is not resolved, not that the connection is missing', async () => {
-    const result = await freshProcess(['attempt("model", () => modelDriver(Doc));', 'attempt("connection", () => ormConnection("sqlite"));'].join('\n'));
+  it('modelDriver, ormConnection and createQuery say the Orm is not resolved, not that the connection is missing', async () => {
+    const result = await freshProcess(['attempt("model", () => modelDriver(Doc));', 'attempt("connection", () => ormConnection("sqlite"));', 'attempt("query", () => createQuery(Doc, SelectQueryBuilder));'].join('\n'));
 
     expect(result).to.deep.eq({
       model: 'OrmNotResolved: Doc: the Orm has not created its connections yet; await ormReady() first',
       connection: 'OrmNotResolved: the Orm has not created its connections yet; await ormReady() first',
+      query: 'OrmNotResolved: Doc: the Orm has not created its connections yet; await ormReady() first',
     });
   });
 
