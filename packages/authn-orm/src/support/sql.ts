@@ -37,15 +37,6 @@ export function instant(ms: number): DateTime {
   return DateTime.fromMillis(Math.min(Math.max(ms, MIN_MS), MAX_MS), { zone: 'utc' });
 }
 
-/**
- * @internal {@link instant} as column text, for the migrations, which run on a bare driver: ISO-8601 on SQLite, where
- * columns hold text and compare as text, the SQL format elsewhere.
- */
-export function sqlTime(ms: number, dialect: Dialect): string {
-  const at = instant(ms);
-  return dialect === 'sqlite' ? at.toISO()! : at.toFormat('yyyy-MM-dd HH:mm:ss.SSS');
-}
-
 /** @internal A hydrated datetime column as a Date; an invalid or missing value is an invalid Date. */
 export function dateOf(value: DateTime | null | undefined): Date {
   return value ? value.toJSDate() : new Date(NaN);

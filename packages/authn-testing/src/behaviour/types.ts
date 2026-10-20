@@ -5,10 +5,10 @@ import type { HttpRoutes } from '../harness/http.js';
 import type { Harness, Need, PortName } from '../harness/ports.js';
 import type { CookieJar } from '../helpers/cookies.js';
 
-export const RULE_IDS = ['A01', 'A02', 'A03', 'A04', 'A05', 'A06', 'A07', 'A08', 'A09', 'A10', 'A11', 'A12', 'A13', 'A14', 'A15', 'A16', 'A17', 'A18', 'A19', 'A20', 'A21', 'A22', 'A23', 'A24', 'A25', 'A26', 'A27', 'A30', 'A31', 'A32'] as const;
+export const RULE_IDS = ['A01', 'A02', 'A03', 'A04', 'A05', 'A06', 'A07', 'A08', 'A09', 'A10', 'A11', 'A12', 'A13', 'A14', 'A15', 'A16', 'A17', 'A18', 'A19', 'A20', 'A21', 'A22', 'A23', 'A24', 'A25', 'A26', 'A27', 'A30', 'A31'] as const;
 export type RuleId = (typeof RULE_IDS)[number];
 
-export const FACET_KINDS = ['core', 'store', 'http', 'local', 'argon2', 'external', 'step', 'totp', 'token', 'jwt', 'keys', 'jws', 'oidc', 'api', 'identity', 'flow', 'lifecycle', 'boot', 'config', 'migration'] as const;
+export const FACET_KINDS = ['core', 'store', 'http', 'local', 'argon2', 'external', 'step', 'totp', 'token', 'jwt', 'keys', 'jws', 'oidc', 'api', 'identity', 'flow', 'lifecycle', 'boot', 'config'] as const;
 export type FacetKind = (typeof FACET_KINDS)[number];
 export type Facet = `${RuleId}/${FacetKind}`;
 
@@ -48,7 +48,6 @@ const portNames = {
   lifecycle: 1,
   metadata: 1,
   identityMeta: 1,
-  migration: 1,
   boot: 1,
   actors: 1,
   http: 1,

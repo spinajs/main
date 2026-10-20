@@ -46,7 +46,6 @@ export interface Harness {
   readonly lifecycle?: LifecyclePort;
   readonly metadata?: MetadataPort;
   readonly identityMeta?: IdentityMetaPort;
-  readonly migration?: MigrationPort;
   readonly boot?: BootPort;
   readonly actors?: ActorsPort;
   readonly http?: HttpPort;
@@ -245,39 +244,6 @@ export interface MetadataPort {
  */
 export interface IdentityMetaPort {
   set(id: IdentityRef, key: string, value: unknown): Promise<{ ok: boolean }>;
-}
-
-export interface LegacyMetadataRow {
-  readonly Key: string;
-  readonly Type: 'number' | 'float' | 'string' | 'json' | 'boolean' | 'datetime';
-  readonly Value: string | null;
-}
-
-export interface LegacyUser {
-  readonly Uuid: string;
-  readonly Email: string;
-  readonly Login: string;
-  readonly IsActive: boolean;
-  readonly metadata: readonly LegacyMetadataRow[];
-}
-
-export interface SecretRowView {
-  readonly identity: string;
-  readonly purpose: string;
-  readonly secret_hash: string;
-  readonly expires_at: Date;
-  readonly created_at: Date;
-  readonly used_at: Date | null;
-}
-
-export interface MigrationPort {
-  /** Users and users_metadata rows exactly as given. */
-  seedLegacy(users: readonly LegacyUser[]): Promise<void>;
-  /** AuthnFromUserMetadata up(). */
-  run(): Promise<void>;
-  /** authn_secret rows. */
-  secretRows(): Promise<readonly SecretRowView[]>;
-  metadataKeys(uuid: string): Promise<readonly string[]>;
 }
 
 /** 'public' exists only for the cookie secret: the shipped `http.cookie.secret` default. Pepper and MFA key ship null, so they have no public value. */

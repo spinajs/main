@@ -65,12 +65,9 @@ Same migration, lines 21-28. Columns `Id`, `Key` varchar(255), `Type`
 enum(number|float|string|json|boolean|datetime), `Value` text, `user_id` (FK to `users.Id`,
 `ON DELETE CASCADE`). Unique on `(user_id, Key)`.
 
-It still holds the ban state, `user:invite:pending` and app keys. 2FA and reset secrets were moved
-out by `AuthnFromUserMetadata_2026_10_02_00_01_00`
-([lines 146-207](../../packages/authn-orm/src/migrations/AuthnFromUserMetadata_2026_10_02_00_01_00.ts#L146-L207)):
-`2fa:*` becomes encrypted `authn_mfa` rows, live `user:pwd_reset:token` values become `authn_secret`
-rows, and the old keys are deleted. The migration refuses to run without
-`authn.mfa.encryptionKey.secret`.
+It still holds the ban state, `user:invite:pending` and app keys. 3.0 keeps MFA secrets in `authn_mfa`
+and reset and invite secrets in `authn_secret`, and never reads the 2.x `2fa:*`, `user:2fa:*`,
+`user:pwd_reset:*` and `user:login:*` keys. No migration carries or deletes them.
 
 ### authn-orm tables
 

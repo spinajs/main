@@ -5,21 +5,10 @@ ORM stores and migrations for SpinaJS authentication (design §22.12, §22.13, �
 
 ## Migrations
 
-Importing the package registers them on the `default` connection:
-
-- `AuthnInitial_2026_10_02_00_00_00` creates `authn_identity`, `authn_throttle`,
-  `authn_audit`, `authn_secret`, `authn_mfa`, `authn_recovery_code` and `authn_nonce`.
-- `AuthnFromUserMetadata_2026_10_02_00_01_00` upgrades 2.x data out of
-  `users_metadata`:
-  - TOTP secrets are encrypted into `authn_mfa`.
-  - Pending resets and invites are carried into `authn_secret` as SHA-256 hashes, with
-    their 2.x expiry.
-  - Every `2fa:`, `user:2fa:`, `user:login:`, `user:pwd_reset:` and `user:pwd:reset`
-    key is deleted.
-
-  When any user has a 2fa secret, the upgrade needs `authn.mfa.encryptionKey.secret`.
-  `down()` decrypts the TOTP secrets back and deletes the carried reset and invite rows.
-  It names the affected users, who then have to request a new link.
+Importing the package registers `AuthnInitial_2026_10_02_00_00_00` on the `default` connection. It
+creates `authn_identity`, `authn_throttle`, `authn_audit`, `authn_secret`, `authn_mfa`,
+`authn_recovery_code` and `authn_nonce`. Nothing is carried over from 2.x `users_metadata`: 2.x TOTP
+enrolments, pending resets and invites do not survive the upgrade.
 
 ## Services
 

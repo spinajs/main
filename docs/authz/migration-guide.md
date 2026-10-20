@@ -370,7 +370,7 @@ on that resource, such as `user:impersonate`. You may collapse by hand when you 
 | `@Policy(NoTokenAuthPolicy)` | `NoTokenAuthPolicy` from `authn-http` (a token or key caller gets 403 `session_required`) |
 | `LoggedPolicy`, `AuthorizedPolicy` | `Authenticated` (a pending MFA session does not pass); fresh auth through `FreshAuth(seconds)` or, in a handler, `assertFreshAuth` (exported from the `@spinajs/authn-http` root) |
 | `@User()` (users-http) | `@CurrentUser()` (users-http, the user record); `@CurrentPrincipal()` (authz-http); `@Identity()`, `@AuthnSession()` (authn-http) |
-| metadata keys `2fa:*`, `user:pwd_reset:*`, `user:login:*` | gone from `users_metadata`; see [section 7](#7-data-migration) |
+| metadata keys `2fa:*`, `user:pwd_reset:*`, `user:login:*` | no longer read; they stay in `users_metadata` until you delete them, see [section 7](#7-data-migration) |
 
 Removed with no replacement (§11.5): `@Resource`, `@Permission`, `RbacPolicy`,
 `checkRbacPermission`, `checkUserPermission`, `checkRoutePermission`, `GrantsController`,
@@ -571,23 +571,13 @@ is a follow-up, not part of the port.
 | What | What happens | Needs |
 |---|---|---|
 | `users.Role` | Copied into `authz_assignment` as `$global` assignments of `user:<users.Uuid>`. A second migration drops the column, and refuses while the copy is incomplete. Its `down()` rebuilds the column from `$global` assignments. | `authz.rbac.migration.roleColumn` if your column is not `Role`; `authz.rbac.migration.idColumn` if your id column is not `Uuid` |
-| TOTP secrets (`2fa:token`, ...) in `users_metadata` | Encrypted with AES-256-GCM into `authn_mfa`. `confirmed_at` is set when 2FA was enabled. `2fa:*`, `user:2fa:*` and `user:login:*` keys are deleted. | `authn.mfa.encryptionKey`. The upgrade refuses to run without it **when some user has a 2FA secret**. |
-| Pending password resets and invites | Each unexpired token becomes one `authn_secret` row (SHA-256 of the token, purpose `reset` or `invite`, the 2.x expiry). Expired or malformed entries are dropped. `user:pwd_reset:*` keys are deleted. `user:invite:pending` stays. | |
-| Throttle state (`user:login:*`) | Dropped. | |
+| TOTP secrets, pending password resets and invites, throttle state (`2fa:*`, `user:2fa:*`, `user:pwd_reset:*`, `user:login:*` in `users_metadata`) | Not carried. Users with 2FA enrol again through `/user/mfa`, and a reset or invite link mailed by 2.x stops working: ask the user for a new one. 3.0 never reads these keys, and no migration deletes them. `2fa:token` holds the TOTP secret in clear, so delete the keys after the upgrade. `user:invite:pending` stays in use. | |
 | Session ids | `user_sessions.SessionId` is widened to 64 characters for hashed ids. 2.x sessions migrate lazily: the first request re-saves the session under the hash of its id. | |
 | Tokens without `ExpiresAt` | Get `CreatedAt + authn.token.maxTtlDays` (default 90 days). | |
 | Password hashes | Stay in `users.Password`. A login rehashes them when the pepper is set or changed. The argon2 cost stays at the library default, so 2.x hashes already match it. | |
 
 Details you may need:
 
-- **Carried-over secrets (H35, A32).** A link already mailed redeems once through
-  `POST /auth/password/reset` until its old expiry, then fails like any expired secret. The migration
-  counts live entries before and rows after, and fails on a mismatch. `down()` deletes the carried
-  rows and names the affected users, who must ask for a new link. A mail still waiting in the queue
-  keeps its clear link and it works, because its hash is now in `authn_secret`.
-- **A 2.x start date without an offset** is read as UTC.
-- **TOTP identity format.** The cipher binds a secret to `user:<Uuid>`. Do not rewrite user UUIDs
-  between the migration and the first login.
 - **Sessions after the upgrade.** A migrated session is `aal1` with `authenticatedAt` set to its
   creation time, so users with MFA step up or log in again. A migrated 2.x session that was not
   fully authorised comes back as a *pending* session. A 2.x session row that carries an `ActiveRole`
@@ -770,9 +760,9 @@ apply. Export the `--db` rows now if you did not (section 4.2).
 
 Set these before you run the migrations and before the first 3.0 start:
 
-- `authn.mfa.encryptionKey` (a secret reference, never an inline value). The step 7 migration needs it
-  when any user has a 2FA secret. Boot also refuses a missing key outside development and test when a
-  listed MFA step stores secrets, and only warns in development and test;
+- `authn.mfa.encryptionKey` (a secret reference, never an inline value). Boot refuses a missing key
+  outside development and test when a listed MFA step stores secrets, and only warns in development
+  and test;
 - `authn.local.pepper.secret` (optional; see the authn README);
 - a real `http.cookie.secret`, loaded from a secret reference. The boot refuses the public default
   outside development and test;
@@ -797,10 +787,7 @@ therefore needs `APP_ENV=development` (or `test`).
 
 Back up the database. Run the migrations. They copy `users.Role` into `authz_assignment` and drop the
 column (H13; `AuthzRbacUserRoles_…` then `AuthzRbacDropUserRole_…`, [section 7](#7-data-migration)),
-move TOTP secrets into `authn_mfa` (needs `authn.mfa.encryptionKey`, step 6), carry resets
-and invites into `authn_secret`, drop throttle state from `users_metadata` and widen
-`user_sessions.SessionId`. Check: the migration's own counts match (enrolled users, live resets and
-invites). Compare the number of users with a role before and after. If the drop migration refuses,
+and widen `user_sessions.SessionId`. Compare the number of users with a role before and after. If the drop migration refuses,
 nothing changed: read its message, fix the missing grants, resolve it, and migrate again.
 
 ### Step 8: CORS
@@ -968,7 +955,7 @@ are rewritten or dropped. If you keep your own copy of those tests, use them as 
 
 ### F7 and F7b: authn test kit
 
-No app change. `@spinajs/authn-testing` holds the behaviour rules A01-A32 and the canvas C8 golden
+No app change. `@spinajs/authn-testing` holds the behaviour rules A01-A31 and the canvas C8 golden
 tickets. Use it to test an `AuthenticationStrategy` or a store of your own.
 
 ### G1prep and G1b: gate preparation
@@ -1216,12 +1203,8 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
 ### N4: authn-orm
 
 - Tables: `authn_identity`, `authn_throttle`, `authn_audit`, `authn_secret`, `authn_mfa`,
-  `authn_recovery_code`, `authn_nonce`. Migrations `AuthnInitial_2026_10_02_00_00_00` and
-  `AuthnFromUserMetadata_2026_10_02_00_01_00`.
-- The upgrade needs `authn.mfa.encryptionKey` only when some user has a 2FA secret to carry. The design
-  said it always refuses without the key.
-- It runs an independent census, compares sets (not counts), re-scans for leftover security keys and
-  rolls back on any failed check.
+  `authn_recovery_code`, `authn_nonce`, created by `AuthnInitial_2026_10_02_00_00_00`. No migration
+  carries 2.x `users_metadata` secrets ([section 7](#7-data-migration)).
 - Throttle keys are an HMAC under `authn.audit.hashKey.secret`. Time always comes from Node, never SQL
   `now()`.
 - The audit sink never fails on event content. An identity that does not fit goes into `data`.

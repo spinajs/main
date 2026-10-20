@@ -10,7 +10,6 @@ import { createHmac } from 'node:crypto';
 import { DbAuthnThrottle, ThrottleParams, readInstant } from '../src/index.js';
 import { DbThrottleStore } from '../src/throttle/db-throttle-store.js';
 import type { ClaimState, Claimed, DbThrottleStoreOptions, StoreTimes } from '../src/throttle/db-throttle-store.js';
-import { sqlTime } from '../src/support/sql.js';
 import { DB_KINDS, TestDb, bootDb, rawQuery } from './support/db.js';
 
 const IP = '192.0.2.10';
@@ -37,8 +36,8 @@ async function row(db: TestDb, k: string): Promise<Row | undefined> {
 }
 
 async function plant(db: TestDb, k: string, attempts: number, last: string, next: string): Promise<void> {
-  const text = (iso: string) => sqlTime(Date.parse(iso), db.kind);
-  await rawQuery(db.driver, 'INSERT INTO authn_throttle (k, attempts, last_attempt_at, next_allowed_at, updated_at) VALUES (?, ?, ?, ?, ?)', [k, attempts, text(last), text(next), text(last)], QueryContext.Insert);
+  // The driver writes a bound Date through the connection's datetime converter, as the models do.
+  await rawQuery(db.driver, 'INSERT INTO authn_throttle (k, attempts, last_attempt_at, next_allowed_at, updated_at) VALUES (?, ?, ?, ?, ?)', [k, attempts, new Date(last), new Date(next), new Date(last)], QueryContext.Insert);
 }
 
 async function rejectsWith(p: Promise<unknown>, message: RegExp): Promise<void> {
@@ -282,7 +281,7 @@ for (const kind of DB_KINDS) {
       expect(before?.attempts).to.eq(2);
 
       // 90 s after the attempt below: the second key now delays it.
-      throttle.between = () => rawQuery(db.driver, 'UPDATE authn_throttle SET next_allowed_at = ? WHERE k = ?', [sqlTime(Date.parse('2026-06-01T10:01:31.000Z'), db.kind), second], QueryContext.Update);
+      throttle.between = () => rawQuery(db.driver, 'UPDATE authn_throttle SET next_allowed_at = ? WHERE k = ?', [new Date('2026-06-01T10:01:31.000Z'), second], QueryContext.Update);
       const later = new Date(T0.getTime() + 1000);
       expect(await throttle.attempt(keys, 'login', ctxAt(later))).to.deep.eq({ allowed: false, retryAfterSeconds: 90 });
       expect(throttle.between).to.eq(undefined);

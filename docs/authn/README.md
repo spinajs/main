@@ -69,7 +69,7 @@ users registers them when the app imports it: `UserIdentityStore`, `UserPassword
 | `@spinajs/authn-keys` | Public keys, strict JWS, client assertions, HTTP signatures, challenge login. |
 | `@spinajs/authn-oidc` | OIDC and OAuth2 client with presets. |
 | `@spinajs/authn-http` | Middleware, credential extractors, CSRF origin guard, policies, routes, `authn:check-config`. |
-| `@spinajs/authn-testing` | Fakes, conformance suites and the behaviour rules A01-A32. |
+| `@spinajs/authn-testing` | Fakes, conformance suites and the behaviour rules A01-A31. |
 
 ## How a login runs
 
@@ -197,9 +197,9 @@ it verifies against a dummy hash made at boot with the same parameters, so the t
 - **Reset and invite:** `requestReset` answers at once with the same body whether or not the account
   exists, and issues a single-use secret through `SecretStore`. `redeemReset` is single use, revokes
   all sessions and, with `reset.revokeTokens` (default true), all API tokens. It accepts a secret of
-  purpose `reset`, or `invite` while the identity has a pending invite. A secret mailed before the
-  upgrade keeps working once (A32). The mail is rendered and sent when the secret is issued; the queue
-  never holds the secret (`PasswordMailer`).
+  purpose `reset`, or `invite` while the identity has a pending invite. A link mailed by 2.x does not
+  work after the upgrade. The mail is rendered and sent when the secret is issued; the queue never
+  holds the secret (`PasswordMailer`).
 - **Expiry:** off by default (`authn.local.expiration.enabled: false`, `maxAgeDays: 31`). An expired
   password is stored as the marker `!expired`, and the old password no longer logs in.
 - **CLI:** `authn:password <login>` (the password from `--generate` or standard input, never from an
@@ -618,7 +618,7 @@ export default {
 | `authn.strategies` | `StrategyRegistry` (N1) | A list of `{ name, service }`. Packages ship no entry. See [How a login runs](#how-a-login-runs). |
 | `authn.local.*` | `authn-local` | No code reads `hasher.service`: the registered `PasswordHasher` (`Argon2PasswordHasher`) runs. `expiration.enabled` defaults to `false`. |
 | `authn.session.*` | `authn-session`, `session-provider-*` | `hashIds: false` fails boot (schema). |
-| `authn.mfa.*` | `authn-orm` (storage), `authn-totp` (`totp.*`, `encryptionKey`) | The upgrade migration needs `encryptionKey` when a user has a 2FA secret. Boot needs it outside development and test when a listed step stores secrets. `authn-totp` ships `authn.mfa.totp` only: no step and no key ([MFA](#mfa)). |
+| `authn.mfa.*` | `authn-orm` (storage), `authn-totp` (`totp.*`, `encryptionKey`) | Boot needs `encryptionKey` outside development and test when a listed step stores secrets. `authn-totp` ships `authn.mfa.totp` only: no step and no key ([MFA](#mfa)). |
 | `authn.throttle.*` | N1, `authn-orm` (`DbAuthnThrottle`) | The schema holds the defaults. `service` names the throttle; unset, the only registered throttle runs, or the only one besides `MemoryAuthnThrottle` (see [Throttling](#throttling)). `maxRows` caps `MemoryAuthnThrottle` per flow (1,000,000 when unset). |
 | `authn.token.*`, `authn.jwt.issuers` | `authn-token` | |
 | `authn.keys.*` | `authn-keys` | |
@@ -650,7 +650,7 @@ ships a `rbac.*` key.
 
 `@spinajs/authn-testing` holds what you need to test a strategy or a store.
 
-- `runAuthnBehaviour(ids, harnessFactory, opts)`: the behaviour rules A01-A32, with facets and ports. A
+- `runAuthnBehaviour(ids, harnessFactory, opts)`: the behaviour rules A01-A31, with facets and ports. A
   rule your harness cannot serve stays pending and names the missing ports.
 - `runStrategyConformance` and `runIdentityStoreConformance`, plus wrappers for the session issuer, the
   secret store, the link store and the throttle.
