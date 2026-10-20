@@ -3,16 +3,13 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import '@spinajs/log';
-import { ModelHydrator, Orm, QueryContext } from '@spinajs/orm';
+import { Orm, QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { randomBytes } from 'node:crypto';
 
 import { AuthzAbac_2026_10_01_00_00_00 } from '../../src/index.js';
-
-/** Array.ofType of the @spinajs/di the tests resolve with, captured before a configuration load can re-patch it. */
-const { ofType, chainOf } = Array;
 
 export type DbKind = 'sqlite' | 'postgres';
 
@@ -91,10 +88,6 @@ async function dropPgDatabase(name: string): Promise<void> {
  */
 export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string): Promise<TestDb> {
   DI.setESMModuleSupport();
-  // A checkout nested in another one loads a second @spinajs/di through the outer node_modules configs, which re-patches
-  // Array.ofType; a list first resolved after that comes back empty, so the hydrators are resolved before the boot.
-  DI.resolve(Array.ofType(ModelHydrator));
-
   const name = `abac-${suite}`;
   const secondName = `${name}-second`;
   let database: string | undefined;
@@ -129,8 +122,6 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string): P
 
   try {
     await container.resolve(Configuration);
-    // Restores Array.ofType/chainOf if loading the configuration pulled in a second copy of @spinajs/di.
-    Object.assign(Array, { ofType, chainOf });
     const orm = await container.resolve(Orm);
     const driver = orm.Connections.get('authz')!;
 

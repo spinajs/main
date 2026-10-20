@@ -4,7 +4,6 @@ import { AuthzAdminFailure, ListSupportGuard, PermissionRegistryImpl } from '@sp
 import type { AdminContext, AuthzCommand, AuthzService } from '@spinajs/authz';
 import { fakeModelInitContext } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
-import { ModelHydrator } from '@spinajs/orm';
 
 import { AbacListSupportGuard, AbacModel, MemoryPolicyStore } from '../../src/index.js';
 
@@ -32,11 +31,6 @@ async function refusal(p: Promise<unknown>): Promise<AuthzAdminFailure> {
 }
 
 describe('authz-abac: AbacListSupportGuard', () => {
-  // Resolved before the first Array.ofType list, as the DB harness does, so the list is not empty when the order of files varies.
-  before(() => {
-    DI.resolve(Array.ofType(ModelHydrator));
-  });
-
   it('is registered as a ListSupportGuard at import', async () => {
     const guards = (await DI.resolve(Array.ofType(ListSupportGuard))) as ListSupportGuard[];
     expect(guards.some((g) => g instanceof AbacListSupportGuard)).to.equal(true);

@@ -16,7 +16,6 @@ async function freshProcess(body: string): Promise<Record<string, string>> {
     "import '@spinajs/log';",
     "import { Connection, Model, ModelBase, Orm, OrmNotResolved, modelDriver, ormConnection, ormReady } from '@spinajs/orm';",
     "import { SqliteOrmDriver } from '@spinajs/orm-sqlite';",
-    'const { ofType, chainOf } = Array;',
     'class Doc extends ModelBase {}',
     "Connection('sqlite')(Doc);",
     "Model('doc')(Doc);",
@@ -31,8 +30,6 @@ async function freshProcess(body: string): Promise<Record<string, string>> {
     'DI.register(Config).as(Configuration);',
     "DI.register(SqliteOrmDriver).as('orm-driver-sqlite');",
     'await DI.resolve(Configuration);',
-    // a second @spinajs/di loaded with the configuration re-patches Array.ofType (see authz-rbac test/support/db.ts)
-    'Object.assign(Array, { ofType, chainOf });',
     'const result = {};',
     'const attempt = (name, fn) => { try { fn(); result[name] = "returned"; } catch (e) { result[name] = `${e instanceof OrmNotResolved ? "OrmNotResolved" : e.constructor.name}: ${e.message}`; } };',
     body,
