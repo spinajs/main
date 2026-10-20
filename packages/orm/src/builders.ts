@@ -987,16 +987,16 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
 
     if (typeof value === 'undefined') {
-      return _handleForTwo.call(this, column, operator);
+      return _handleForTwo(column, operator);
     }
 
-    return _handleForThree.call(this, column, operator, value);
+    return _handleForThree(column, operator, value);
 
     /**
      * handles for where("foo", 1).where(...) cases
      * it produces WHERE foo = 1
      */
-    function _handleForTwo(this: WhereBuilder<T>, c: any, v: any) {
+    function _handleForTwo(c: any, v: any) {
       let sVal = v;
 
       if (sVal === undefined) {
@@ -1012,10 +1012,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       }
 
       if (sVal === null) {
-        return this.whereNull(c);
+        return self.whereNull(c);
       }
 
-      self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, this]));
+      self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, self]));
 
       return self;
     }
@@ -1024,7 +1024,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
      * Handles for where("foo",'!=',1) etc
      * it produces WHERE foo != 1
      */
-    function _handleForThree(this: WhereBuilder<T>, c: any, o: any, v: any) {
+    function _handleForThree(c: any, o: any, v: any) {
       let sVal = v;
 
       if (!isWhereOperator(o)) {
@@ -1043,17 +1043,17 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         const op = String(o).toLowerCase();
         // where(col, '=', null) => IS NULL ; where(col, '!=' / '<>', null) => IS NOT NULL
         if (op === SqlOperator.EQ) {
-          return this.whereNull(c);
+          return self.whereNull(c);
         }
         if (op === SqlOperator.NOT || op === SqlOperator.NOT_2) {
-          return this.whereNotNull(c);
+          return self.whereNotNull(c);
         }
         throw new InvalidArgument(`operator ${o} cannot be used with null value ( only =, !=, <> are allowed )`);
       }
 
       self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self]));
 
-      return this;
+      return self;
     }
   }
 

@@ -109,7 +109,8 @@ export class fsS3 extends fs {
       this.Logger.trace({ bucket: this.Options.bucket }, 'Checking if bucket ${bucket} exists');
       await this.S3.send(new HeadBucketCommand({ Bucket: this.Options.bucket }));
       this.Logger.info({ bucket: this.Options.bucket }, 'Bucket ${bucket} exists and is accessible');
-    } catch (error) {
+    } catch (err) {
+      const error = err as { name?: string; $metadata?: { httpStatusCode?: number } };
       if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
         if (this.Options.createBucketIfNotExists === false) {
           this.Logger.error({ bucket: this.Options.bucket }, 'Bucket ${bucket} does not exist and createBucketIfNotExists is disabled');

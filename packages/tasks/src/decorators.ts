@@ -91,14 +91,15 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
           log.success({ taskName: _name }, 'Task ${taskName} executed !');
         } catch (err) {
           log.error({ error: err, taskName: _name }, 'Cannot execute task ${taskName}');
+          const message = err instanceof Error ? err.message : String(err);
           taskResult = {
             error: true,
-            message: err.message,
+            message,
           };
 
           await TaskFailed.emit({
             TaskName: _name,
-            Reason: err.message,
+            Reason: message,
           });
         } finally {
           try {
@@ -119,7 +120,7 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
               Duration: DateTime.now().diff(start).milliseconds,
             });
           } catch (err) {
-            log.error(err, `Cannot finalize task`);
+            log.error({ error: err }, 'Cannot finalize task');
           }
         }
 

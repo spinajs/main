@@ -1,5 +1,5 @@
 import { Page, LaunchOptions, ConsoleMessage, HTTPRequest, HTTPResponse } from 'puppeteer';
-import { NotSupported } from '@spinajs/exceptions';
+import { errorMessage, NotSupported } from '@spinajs/exceptions';
 import { TemplateRenderer, Templates, IRenderOptions, RenderPhase, RenderProgressCallback } from '@spinajs/templates';
 import { IInstanceCheck, LazyInject } from '@spinajs/di';
 import { basename, dirname, extname, join } from 'path';
@@ -247,7 +247,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
         removeListeners();
       }
     } catch (err) {
-      progress.phase(RenderPhase.Failed, err?.message);
+      progress.phase(RenderPhase.Failed, errorMessage(err));
       this.Log.error({ error: err, filePath }, 'Error rendering to file ${filePath}');
       throw err;
     } finally {
