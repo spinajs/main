@@ -996,7 +996,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
      * handles for where("foo", 1).where(...) cases
      * it produces WHERE foo = 1
      */
-    function _handleForTwo(c: any, v: any) {
+    function _handleForTwo(this: WhereBuilder<T>, c: any, v: any) {
       let sVal = v;
 
       if (sVal === undefined) {
@@ -1024,7 +1024,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
      * Handles for where("foo",'!=',1) etc
      * it produces WHERE foo != 1
      */
-    function _handleForThree(c: any, o: any, v: any) {
+    function _handleForThree(this: WhereBuilder<T>, c: any, o: any, v: any) {
       let sVal = v;
 
       if (!isWhereOperator(o)) {
@@ -1084,13 +1084,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereNotNull(column: string): this {
+  public whereNotNull(column: string | Wrap): this {
     this.pushStatement(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this]));
 
     return this;
   }
 
-  public whereNull(column: string): this {
+  public whereNull(column: string | Wrap): this {
     this.pushStatement(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this]));
     return this;
   }

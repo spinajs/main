@@ -101,7 +101,7 @@ export class LocalAssetServer {
     return new Promise((resolve, reject) => {
       const server = app
         .listen(port, '127.0.0.1')
-        .on('listening', function () {
+        .on('listening', function (this: http.Server) {
           log.trace({ port: (this.address() as AddressInfo).port }, 'Puppeteer asset server started on port ${port}');
           log.trace({ basePath }, 'Puppeteer static file dir at ${basePath}');
           resolve(this);
