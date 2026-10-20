@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
-import _ from 'lodash';
 
 @Migration('default')
 export class RBACInitial_2022_06_28_01_13_00 extends OrmMigration {
@@ -11,11 +10,12 @@ export class RBACInitial_2022_06_28_01_13_00 extends OrmMigration {
       table.string('Email', 64).unique().notNull();
       table.string('Password', 128).notNull();
       table.string('Login', 64).notNull();
-      table.string('Role', 256).notNull();
       table.boolean('IsActive').notNull().default().value(0);
       table.dateTime('CreatedAt').notNull().default().dateTime();
       table.dateTime('DeletedAt');
       table.dateTime('LastLoginAt');
+      table.dateTime('RegisteredAt');
+      table.dateTime('PasswordSetAt');
     });
 
     await connection.schema().createTable('users_metadata', (table) => {

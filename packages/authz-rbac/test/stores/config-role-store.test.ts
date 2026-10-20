@@ -90,7 +90,6 @@ const SAMPLE_8_2 = () => ({
   serviceRoles: { 'service:telemetry': ['telemetry'] },
   stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['ConfigRuleStore'], links: ['DbLinkStore'] },
   cache: { assignmentsTtlSeconds: 60 },
-  migration: { roleColumn: 'Role' },
 });
 
 const PW = ['project', 'org'];
@@ -452,8 +451,8 @@ describe('authz-rbac stores: authz.rbac schema', function () {
     }
   });
 
-  it('lets connection through to the boot check, accepts migration.idColumn and keeps keys of other lanes', async () => {
-    const cfg = await configured({ connection: 'authz', migration: { roleColumn: 'Role', idColumn: 'Uuid' }, admin: { x: 1 }, future: { y: true }, stores: { roles: ['A'], policies: ['B'] } });
+  it('lets connection through to the boot check and keeps keys of other lanes', async () => {
+    const cfg = await configured({ connection: 'authz', admin: { x: 1 }, future: { y: true }, stores: { roles: ['A'], policies: ['B'] } });
     expect(cfg.admin).to.deep.equal({ x: 1 });
     expect(cfg.future).to.deep.equal({ y: true });
     expect((cfg.stores as Record<string, unknown>).policies).to.deep.equal(['B']);
@@ -485,7 +484,6 @@ describe('authz-rbac stores: authz.rbac schema', function () {
     await fails({ cache: { assignmentsTtlSeconds: -1 } }, 'cache.assignmentsTtlSeconds');
     await fails({ cache: { maxSubjects: 1.5 } }, 'cache.maxSubjects');
     await fails({ cache: { rolesCheckSeconds: -1 } }, 'cache.rolesCheckSeconds');
-    await fails({ migration: { roleColumn: '' } }, 'migration.roleColumn');
   });
 
   describe('role names follow ROLE_NAME_PATTERN, the one authz and users read too', () => {
@@ -594,7 +592,6 @@ describe('authz-rbac stores: schema registration', function () {
     it('validates authz.rbac next to authz and merges the fragment defaults', async () => {
       const cfg = await boot({ combine: { default: { algorithm: 'deny-overrides', models: ['rbac'] } }, rbac: SAMPLE_8_5() });
       expect(cfg.get('authz.rbac.cache.assignmentsTtlSeconds')).to.equal(60);
-      expect(cfg.get('authz.rbac.migration')).to.equal(undefined);
       // the app's list replaces the code default, so no store name appears twice
       expect(cfg.get('authz.rbac.stores.rules')).to.deep.equal(['ConfigRuleStore', 'DbRuleStore']);
       expect(rbacStoreNames(cfg, 'rules')).to.deep.equal(['ConfigRuleStore', 'DbRuleStore']);

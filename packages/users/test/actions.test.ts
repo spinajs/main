@@ -141,12 +141,7 @@ describe('User model tests', function () {
     expect(U).to.be.instanceOf(User);
   });
 
-  /**
-   * Regression: the model declared `RegisteredAt` and `create()` stamped it, but
-   * the initial migration never created the column — and the ORM writes only
-   * columns the table description reports, so the value was dropped silently on
-   * every single insert.
-   */
+  // The ORM writes only columns the table description reports, so a missing column drops the value silently.
   it('Should persist the registration date of a created user', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 

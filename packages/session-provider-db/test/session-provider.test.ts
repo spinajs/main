@@ -1,12 +1,9 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { DI } from '@spinajs/di';
 import { DbSession } from '../src/models/DbSession.js';
 import { UserSession as Session, encodeSessionData, decodeSessionData } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
 import { DateTime } from 'luxon';
-import { Orm } from '@spinajs/orm';
-import { columnNativeType, isMySqlDialect } from '../src/migration-support.js';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
 import { bootStore, disposeStore, seedLegacyRow, sessionConnection } from './support.js';
 
@@ -326,60 +323,12 @@ describe('db session provider', function () {
       assertPayload(session.Data, 'buffer column');
     });
 
-    // Both converging migrations run on EVERY startup of a database that has not
-    // recorded them - including this sqlite one, where the table was just created
-    // with the target types already. Both must survive that WITHOUT touching
-    // anything: sqlite is not MySQL, has no `MODIFY` and no `JSON` type, and its
-    // `Data` column is already declared `JSON` by the create path, so each one
-    // has to return early on its own probe. Asserting they are recorded as
-    // applied proves they were discovered, executed and did not throw - the
-    // failure being guarded against is a throw here being recorded as a FAILED
-    // migration, which makes `assertNoFailed()` block every future migration on
-    // the connection.
-    it('runs both converging migrations on startup without failing on a driver that cannot MODIFY', async () => {
-      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
-      const driver = (store as any).Container?.get?.(Orm) ?? (await DI.resolve(Orm));
+    it('records the create migration on startup', async () => {
+      await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      const connection = await sessionConnection();
 
-      const applied = (await driver.Connections.get('session-provider-connection').select().from('spinajs_migration')) as Array<{ Migration: string }>;
-      const names = applied.map((r) => r.Migration);
-
-      expect(names, 'create migration must be recorded').to.include('UserSessionDBSqlMigration_2022_06_28_01_20_00');
-      expect(names, 'json converging migration must be recorded').to.include('UserSessionDataJson_2026_07_31_00_00_00');
-      expect(names, 'timestamp converging migration must be recorded').to.include('UserSessionTimestamps_2026_07_31_00_00_01');
-      expect(names, 'session id hash migration must be recorded').to.include('UserSessionIdHash_2026_10_02_00_00_00');
-    });
-
-    // The skip is the whole point of the probes, so it is asserted directly
-    // rather than inferred from "nothing blew up". Each migration's guard is
-    // evaluated against the live sqlite connection here, so a future edit that
-    // makes either one fire on a non-MySQL driver fails loudly and locally
-    // instead of at somebody's boot.
-    it('both migrations resolve to SKIP on this sqlite connection', async () => {
-      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
-      const orm = (store as any).Container?.get?.(Orm) ?? (await DI.resolve(Orm));
-      const connection = orm.Connections.get('session-provider-connection');
-
-      // guard 3, and on its own enough to skip both: `MODIFY` / `JSON` are MySQL's
-      expect(isMySqlDialect(connection), 'sqlite must never be treated as MySQL').to.equal(false);
-
-      // guard 2 of the JSON migration. sqlite's column compiler has no `json`
-      // case at all, so `table.json('Data')` emits a column with NO type token
-      // and PRAGMA table_info reports an empty type - which the probe reports as
-      // "cannot establish the state", i.e. skip.
-      expect(await columnNativeType(connection, 'user_sessions', 'Data'), 'unreadable Data type must skip, not guess').to.equal(null);
-
-      // guard 2 of the timestamps migration: sqlite stores dateTime as TEXT,
-      // which is not `date`, so there is nothing to widen.
-      expect(await columnNativeType(connection, 'user_sessions', 'CreatedAt')).to.equal('text');
-
-      // UserSessionIdHash: the SessionId widen has nothing to do here, but the
-      // impersonator column and its index must exist (SR-06).
-      expect(await columnNativeType(connection, 'user_sessions', 'ImpersonatorId'), 'ImpersonatorId column').to.not.equal(null);
-      const indexes = (await connection.select().from('sqlite_master').where('type', 'index').where('tbl_name', 'user_sessions')) as Array<{ sql: string | null }>;
-      expect(
-        indexes.some((i) => (i.sql ?? '').includes('(`ImpersonatorId`)')),
-        'ImpersonatorId index',
-      ).to.equal(true);
+      const applied = (await connection.select().from('spinajs_migration')) as Array<{ Migration: string }>;
+      expect(applied.map((r) => r.Migration)).to.include('UserSessionDBSqlMigration_2022_06_28_01_20_00');
     });
 
     it('round-trips a saved session back out of the store with its structural types intact', async () => {

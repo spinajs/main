@@ -13,9 +13,6 @@ import { refKey, refOf, sessionDataFromColumn } from './session-row.js';
 
 export * from './models/DbSession.js';
 export * from './migrations/UserSessionDBSqlMigration_2022_06_28_01_20_00.js';
-export * from './migrations/UserSessionDataJson_2026_07_31_00_00_00.js';
-export * from './migrations/UserSessionTimestamps_2026_07_31_00_00_01.js';
-export * from './migrations/UserSessionIdHash_2026_10_02_00_00_00.js';
 
 const sameRef = (a: IdentityRef | undefined, b: IdentityRef) => !!a && a.type === b.type && a.id === b.id;
 

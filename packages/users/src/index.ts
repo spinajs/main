@@ -14,8 +14,6 @@ export * from './exceptions.js';
 export * from './models/User.js';
 export * from './models/UserMetadata.js';
 export * from './migrations/RBACInitial_2022_06_28_01_13_00.js';
-export * from './migrations/RBACRegisteredAt_2026_07_28_00_00_00.js';
-export * from './migrations/UsersPasswordSetAt_2026_10_04_00_00_00.js';
 export * from './events/index.js';
 export * from './actions.js';
 export * from './profile.js';

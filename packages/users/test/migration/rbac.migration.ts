@@ -9,7 +9,7 @@ export const TEST_USER_UUID = uuidv4();
 export const TEST_USER_UUID_2 = uuidv4();
 export const TEST_USER_UUID_3 = uuidv4();
 
-/** A live GLOBAL assignment row, as the authz-rbac copy migration writes a 2.x `users.Role` entry. */
+/** A live GLOBAL assignment row. */
 async function seedGlobalRole(uuid: string, role: string): Promise<void> {
   await User.query()
     .Driver.insert()

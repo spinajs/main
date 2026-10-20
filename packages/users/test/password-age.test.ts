@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { PasswordAgeSource } from '@spinajs/authn-local';
 
-import { User, UserPasswordAgeSource, UsersPasswordSetAt_2026_10_04_00_00_00 } from '../src/index.js';
+import { User, UserPasswordAgeSource } from '../src/index.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
 
 const HASH = '$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$aGFzaA';
@@ -36,41 +36,15 @@ describe('password age (PasswordSetAt, UserPasswordAgeSource)', function () {
     DI.clearCache();
   });
 
-  describe('migration UsersPasswordSetAt_2026_10_04_00_00_00', () => {
-    it('adds a nullable users.PasswordSetAt that the model reads as a DateTime', async () => {
+  describe('users.PasswordSetAt', () => {
+    it('is a nullable column that the model reads as a DateTime', async () => {
       const { ref } = await seedUser({ login: 'age-model', password: HASH });
+      expect(await columns()).to.include('PasswordSetAt');
+      expect((await storedUser(ref.id)).PasswordSetAt).to.not.be.ok;
+
       const at = new Date('2026-09-01T10:00:00.000Z');
       await setPasswordSetAt(ref.id, at);
-
-      expect(await columns()).to.include('PasswordSetAt');
       expect((await storedUser(ref.id)).PasswordSetAt.toMillis()).to.eq(at.getTime());
-    });
-
-    it('stamps the rows that hold a password with the migration time, and only those', async () => {
-      const { ref: hash } = await seedUser({ login: 'age-backfill-hash', password: HASH });
-      const { ref: none } = await seedUser({ login: 'age-backfill-none' });
-      const { ref: expired } = await seedUser({ login: 'age-backfill-expired', password: '!expired' });
-      const { ref: kept } = await seedUser({ login: 'age-backfill-kept', password: HASH });
-      const earlier = new Date('2026-01-01T00:00:00.000Z');
-      await setPasswordSetAt(kept.id, earlier);
-
-      const before = Date.now();
-      await new UsersPasswordSetAt_2026_10_04_00_00_00().up(User.query().Driver);
-
-      expect((await storedUser(hash.id)).PasswordSetAt.toMillis()).to.be.within(before - 1000, Date.now() + 1000);
-      expect((await storedUser(none.id)).PasswordSetAt).to.not.be.ok;
-      expect((await storedUser(expired.id)).PasswordSetAt).to.not.be.ok;
-      expect((await storedUser(kept.id)).PasswordSetAt.toMillis()).to.eq(earlier.getTime());
-    });
-
-    it('drops the column on down and adds it again on up', async () => {
-      const migration = new UsersPasswordSetAt_2026_10_04_00_00_00();
-
-      await migration.down(User.query().Driver);
-      expect(await columns()).to.not.include('PasswordSetAt');
-
-      await migration.up(User.query().Driver);
-      expect(await columns()).to.include('PasswordSetAt');
     });
   });
 
