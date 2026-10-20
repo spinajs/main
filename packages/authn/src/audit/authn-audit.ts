@@ -110,6 +110,16 @@ export class AuthnAudit extends AsyncService {
     return this.publish(stamped(ctx, body));
   }
 
+  /** Fire-and-forget: sink errors and timeouts are logged as by `publishIn`; returns at once. */
+  public publishDetached(_ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, _body: AuthnEventBody): void {
+    throw new Error('not implemented: AuthnAudit.publishDetached');
+  }
+
+  /** Resolves when every detached delivery started so far has settled. For tests and graceful shutdown. */
+  public settled(): Promise<void> {
+    throw new Error('not implemented: AuthnAudit.settled');
+  }
+
   private assertResolved(): void {
     if (!this.Resolved) throw new InvalidOperation('AuthnAudit is not resolved');
   }
