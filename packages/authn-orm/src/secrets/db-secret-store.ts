@@ -3,13 +3,13 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { SecretStore } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
-import { Orm, OrmDriver } from '@spinajs/orm';
-import type { WhereBuilder } from '@spinajs/orm';
+import { everyNthCall, Orm, OrmDriver, purgeBatch, rowsAffected } from '@spinajs/orm';
+import type { IWhereBuilder } from '@spinajs/orm';
 import { _check_arg, _finite, _gt, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 
 import { identityKey } from '../identity.js';
 import { StoreConnection } from '../support/connection.js';
-import { checkedMs, checkedText, columnText, rowsAffected, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
+import { checkedMs, checkedText, columnText, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
 
 const TABLE = 'authn_secret';
 const PURPOSE_MAX = 32;
@@ -32,7 +32,7 @@ export class DbSecretStore extends SecretStore {
   protected Orm: Orm;
 
   private readonly connection: StoreConnection;
-  private calls = 0;
+  private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   /** DI passes nothing and injects the Orm of the resolving container; tests pass a driver. */
   constructor(driver?: OrmDriver) {
@@ -84,13 +84,11 @@ export class DbSecretStore extends SecretStore {
   public async purge(now: Date = new Date()): Promise<number> {
     const t = sqlTime(checkedMs(now, 'DbSecretStore.purge: now'));
     const { driver } = await this.connection.get();
-    const done = function (this: WhereBuilder<unknown>) {
+    const done = function (this: IWhereBuilder<unknown>) {
       this.whereNotNull('used_at');
       this.orWhere('expires_at', '<=', t);
     };
-    const ids = ((await driver.select().from(TABLE).select('id').where(done).orderBy('id').take(PURGE_BATCH)) as { id: string }[]).map((r) => r.id);
-    if (ids.length === 0) return 0;
-    return rowsAffected(await driver.del().from(TABLE).whereIn('id', ids).where(done));
+    return purgeBatch(driver, { table: TABLE, key: 'id', where: done, limit: PURGE_BATCH });
   }
 
   /** @internal An early exit only: the claim's SQL guard decides. */
@@ -100,7 +98,7 @@ export class DbSecretStore extends SecretStore {
   }
 
   private async purgeNowAndThen(nowMs: number): Promise<void> {
-    if (++this.calls % PURGE_EVERY === 0) {
+    if (this.purgeDue()) {
       await this.purge(new Date(nowMs));
     }
   }

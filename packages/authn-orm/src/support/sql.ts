@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 
 import { InvalidArgument } from '@spinajs/exceptions';
 import { OrmDriver, RawQuery, SqlExpressions } from '@spinajs/orm';
-import type { IUpdateResult } from '@spinajs/orm';
 import { _check_arg, _is_string, _non_empty, truncate } from '@spinajs/util';
 import { DateTime } from 'luxon';
 
@@ -42,9 +41,6 @@ export function checkedMs(value: unknown, label: string): number {
   }
   return ms;
 }
-
-/** @internal */
-export const rowsAffected = (r: unknown): number => (r as IUpdateResult | undefined)?.RowsAffected ?? 0;
 
 /** @internal Hex SHA-256 of the UTF-8 bytes. */
 export const sha256hex = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');

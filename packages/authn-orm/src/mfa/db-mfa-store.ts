@@ -3,13 +3,13 @@ import { randomUUID } from 'node:crypto';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, ResourceDuplicated, UnexpectedServerError } from '@spinajs/exceptions';
-import { IdentifierQuoter, Orm, OrmDriver, SqlExpressions, sql, toRawQuery } from '@spinajs/orm';
+import { IdentifierQuoter, Orm, OrmDriver, rowsAffected, SqlExpressions, sql, toRawQuery } from '@spinajs/orm';
 import { _between, _check_arg, _integer, _is_array, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import type { WhereBuilder } from '@spinajs/orm';
 
 import { identityKey } from '../identity.js';
 import { StoreConnection } from '../support/connection.js';
-import { checkedMs, checkedText, columnText, rowsAffected, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
+import { checkedMs, checkedText, columnText, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
 
 const MFA = 'authn_mfa';
 const CODES = 'authn_recovery_code';

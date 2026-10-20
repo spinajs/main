@@ -4,10 +4,10 @@ import { IdentityLinkStore } from '@spinajs/authn/contracts';
 import type { ExternalSubject, IdentityLink, IdentityRef } from '@spinajs/authn/contracts';
 import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
-import { Orm, OrmDriver } from '@spinajs/orm';
+import { Orm, OrmDriver, rowsAffected } from '@spinajs/orm';
 
 import { StoreConnection } from '../support/connection.js';
-import { checkedMs, checkedText, columnText, rowsAffected, selectTime, sqlTime, textMs } from '../support/sql.js';
+import { checkedMs, checkedText, columnText, selectTime, sqlTime, textMs } from '../support/sql.js';
 
 const TABLE = 'authn_identity';
 

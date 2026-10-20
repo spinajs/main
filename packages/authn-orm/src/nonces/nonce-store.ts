@@ -1,10 +1,11 @@
 import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 import { NonceStore } from '@spinajs/authn/contracts';
 import { ResourceDuplicated } from '@spinajs/exceptions';
-import { Orm, OrmDriver } from '@spinajs/orm';
+import { everyNthCall, Orm, OrmDriver, purgeBatch, rowsAffected } from '@spinajs/orm';
+import type { IWhereBuilder } from '@spinajs/orm';
 
 import { StoreConnection } from '../support/connection.js';
-import { checkedMs, checkedText, rowsAffected, sqlTime } from '../support/sql.js';
+import { checkedMs, checkedText, sqlTime } from '../support/sql.js';
 
 export { NonceStore } from '@spinajs/authn/contracts';
 export { MemoryNonceStore } from '@spinajs/authn/nonces';
@@ -29,7 +30,7 @@ export class DbNonceStore extends NonceStore {
   protected Orm: Orm;
 
   private readonly connection: StoreConnection;
-  private claims = 0;
+  private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   /** DI passes nothing and injects the Orm of the resolving container; tests pass a driver. */
   constructor(driver?: OrmDriver) {
@@ -40,7 +41,7 @@ export class DbNonceStore extends NonceStore {
   public async claim(key: string, expiresAt: Date, now: Date): Promise<boolean> {
     const { expiresMs, nowMs } = checkClaim(key, expiresAt, now, 'DbNonceStore');
     const { driver } = await this.connection.get();
-    if (++this.claims % PURGE_EVERY === 0) {
+    if (this.purgeDue()) {
       await this.purge(now);
     }
 
@@ -66,8 +67,13 @@ export class DbNonceStore extends NonceStore {
   public async purge(now: Date = new Date()): Promise<number> {
     const t = sqlTime(checkedMs(now, 'DbNonceStore.purge: now'));
     const { driver } = await this.connection.get();
-    const keys = ((await driver.select().from(TABLE).select('k').where('expires_at', '<=', t).orderBy('k').take(PURGE_BATCH)) as { k: string }[]).map((r) => r.k);
-    if (keys.length === 0) return 0;
-    return rowsAffected(await driver.del().from(TABLE).whereIn('k', keys).where('expires_at', '<=', t));
+    return purgeBatch(driver, {
+      table: TABLE,
+      key: 'k',
+      where: function (this: IWhereBuilder<unknown>) {
+        this.where('expires_at', '<=', t);
+      },
+      limit: PURGE_BATCH,
+    });
   }
 }
