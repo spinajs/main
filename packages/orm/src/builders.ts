@@ -962,9 +962,9 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       return this;
     }
 
-    // Support "where true || where false"
+    // TRUE and FALSE are no T-SQL; a comparison of two constants is valid in every dialect.
     if (_.isBoolean(column)) {
-      return this.where(RawQuery.create(column ? 'TRUE' : 'FALSE'));
+      return this.where(RawQuery.create(column ? '1 = 1' : '1 = 0'));
     }
 
     if (column instanceof RawQuery) {

@@ -28,6 +28,6 @@ describe('update without where', () => {
   });
 
   it('compiles where(true) for a deliberate update of every row', () => {
-    expect(connection().update().in('users').update({ Name: 'x' }).where(true).toDB().expression).to.eq('UPDATE `users` SET `Name` = ? WHERE TRUE');
+    expect(connection().update().in('users').update({ Name: 'x' }).where(true).toDB().expression).to.eq('UPDATE `users` SET `Name` = ? WHERE 1 = 1');
   });
 });

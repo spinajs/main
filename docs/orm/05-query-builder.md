@@ -77,7 +77,7 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `where(column, operator, value)` | `column <OP> ?` | `operator` is an `Op`: `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`, `<=>`, `like`, `rlike`, `regexp`. An unknown operator throws `InvalidArgument`. With `null`: `=` emits `IS NULL`, `!=` / `<>` emit `IS NOT NULL`, any other operator throws. |
 | `where({ Status: 'paid', Region: ['EU', 'US'], ClosedAt: null })` | `whereObject()` | Each key becomes `= ?`; an array becomes `whereIn()`; `null` becomes `whereNull()`; `undefined` keys are skipped. |
 | `where(function () { ... })` | `( ... )` | Nested group. `this` inside the callback is a new `WhereBuilder` on the same model and alias. |
-| `where(true)` / `where(false)` | `TRUE` / `FALSE` | |
+| `where(true)` / `where(false)` | `1 = 1` / `1 = 0` | Constants every dialect accepts (T-SQL has no `TRUE`/`FALSE`). |
 | `where(RawQuery.create(sql, bindings))` | `sql` verbatim | Columns are not quoted or qualified. |
 | `where(column, operator?, RawQuery.create(sql, bindings))` | `column <OP> sql` | The raw SQL stands in for the value: no `?`, no converter; its bindings follow. |
 | `where('ExpiresAt', '>', driver.now())` | `ExpiresAt > <dialect now>` | `OrmDriver.now()` is the database's current instant: `CURRENT_TIMESTAMP` (PostgreSQL), `UTC_TIMESTAMP(3)` (MySQL), `SYSDATETIMEOFFSET()` (MSSQL), `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` (SQLite). On PostgreSQL that is the start of the current transaction, the same for every statement in it; the other dialects give the time of the statement. PostgreSQL rounds a value it stamps itself to the column's precision (`TIMESTAMPTZ(3)`: milliseconds), so it can lie up to half a millisecond after the clock. In raw SQL use `driver.now().Query`. |
@@ -90,7 +90,7 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `when(condition, callback, elseCallback?)` | | Runs `callback` (or `elseCallback`) with `this` set to the builder. |
 | `whereNull(column)` / `whereNotNull(column)` | `IS NULL` / `IS NOT NULL` | |
 | `whereNot(column, value)` | `column != ?` | |
-| `whereIn(column, values \| subQuery)` / `whereNotIn(...)` | `IN (?, ...)` / `IN ( SELECT ... )` | An empty array emits `FALSE` (`whereIn`) or `1 = 1` (`whereNotIn`). A non-array, non-builder value throws `InvalidArgument`. Values are converted like `where()` values. PostgreSQL, SQLite and MSSQL bind a long list as one parameter; see [`@spinajs/orm-sql` statements](../orm-sql/03-statements.md). |
+| `whereIn(column, values \| subQuery)` / `whereNotIn(...)` | `IN (?, ...)` / `IN ( SELECT ... )` | An empty array emits `1 = 0` (`whereIn`) or `1 = 1` (`whereNotIn`). A non-array, non-builder value throws `InvalidArgument`. Values are converted like `where()` values. PostgreSQL, SQLite and MSSQL bind a long list as one parameter; see [`@spinajs/orm-sql` statements](../orm-sql/03-statements.md). |
 | `whereBetween(column, [from, to])` / `whereNotBetween(...)` | `BETWEEN ? AND ?` | |
 | `whereExist(subQuery \| relation, callback?)` / `whereNotExists(...)` | `EXISTS ( ... )` / `NOT EXISTS ( ... )` | A relation name dispatches to the `ExistsRelationHandler` of its type. See [Relations](06-relations.md). |
 | `whereInSet(column, values)` / `whereNotInSet(...)` | dialect membership test on a `@Set()` column | `null`, `undefined` or a value containing `SET_DELIMITER` (`,`) throws `InvalidArgument`. |
@@ -107,7 +107,7 @@ Take any `IWhereBuilder` or `IOrderByBuilder` and the model descriptor (`Model.g
 | Function | Emits |
 | --- | --- |
 | `wherePk(builder, descriptor, value)` | `pk = ?`, or `( a = ? AND b = ? )` for a composite key |
-| `whereAnyPk(builder, descriptor, values)` | `pk IN (...)`, or OR-ed tuples. Empty `values` emits `FALSE`. |
+| `whereAnyPk(builder, descriptor, values)` | `pk IN (...)`, or OR-ed tuples. Empty `values` emits `1 = 0`. |
 | `whereNotAnyPk(builder, descriptor, values)` | `pk NOT IN (...)`, or AND-ed negated tuples. Empty `values` adds nothing. |
 | `orderByPk(builder, descriptor, order)` | One `ORDER BY` term per key column. Returns `false` when the model has no primary key. |
 
