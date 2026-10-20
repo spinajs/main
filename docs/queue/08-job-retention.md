@@ -4,7 +4,7 @@ A `JobRetentionService` deletes old rows from `queue_jobs` on a timer, so the ta
 
 ## How it works
 
-1. `DefaultQueueService.Retention` is decorated `@AutoinjectService('queue.retention', JobRetentionService)`. When the queue is built, DI resolves the `JobRetentionService` registration whose class name equals `queue.retention.service`, with the whole `queue.retention` block as the constructor's `Options`. No `queue.retention` block: a warning is logged and `Retention` stays `undefined`.
+1. `DefaultQueueService.Retention` is decorated `@AutoinjectService('queue.retention', JobRetentionService, { optional: true })`. When the queue is built, DI resolves the `JobRetentionService` registration whose class name equals `queue.retention.service`, with the whole `queue.retention` block as the constructor's `Options`. No `queue.retention` block: the `Configuration` logger warns, `Retention` stays `undefined`, and the queue still builds.
 2. `JobRetentionService` extends `AsyncService`, so DI awaits its `resolve()`.
 3. `DefaultJobRetentionService.resolve()` starts the timer only when `enabled` is `true` and `maxAge` is set. The timer is `unref()`'d, so it never keeps the process alive.
 4. Every `interval` ms the timer calls `purgeJobs(now - maxAge, statuses)`. It logs the count when rows were removed, and logs errors without stopping the timer.

@@ -1,6 +1,8 @@
 {
   "compilerOptions": {
     "composite": true,
+    // TypeScript 7 defaults this on; typescript-eslint still type-checks with 5.x, which does not.
+    "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
     "removeComments": false,

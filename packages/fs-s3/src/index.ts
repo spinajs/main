@@ -137,7 +137,7 @@ export class fsS3 extends fs {
           { error, bucket: this.Options.bucket, errorName: error.name, statusCode: error.$metadata?.httpStatusCode },
           'Error checking bucket ${bucket}: ${errorName}, code: ${statusCode}',
         );
-        throw error;
+        throw err;
       }
     }
   }

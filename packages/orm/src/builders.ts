@@ -414,10 +414,10 @@ export function sortOrderOf(order?: string | SortOrder | null): SortOrder {
   }
 
   if (normalized !== SortOrder.ASC && normalized !== SortOrder.DESC) {
-    throw new InvalidArgument(`Invalid sort order '${order as string}', expected ASC or DESC`);
+    throw new InvalidArgument(`Invalid sort order '${order}', expected ASC or DESC`);
   }
 
-  return normalized as SortOrder;
+  return normalized;
 }
 
 /**
@@ -768,7 +768,7 @@ export class JoinBuilder implements IJoinBuilder {
       };
     }
     else if (_.isObject(arg1)) {
-      options = arg1 as IJoinStatementOptions<R>;
+      options = arg1;
     } else {
       throw new InvalidArgument(`Invalid argument passed to innerJoin: ${arg1}`);
     }
@@ -1462,7 +1462,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       }
     }
 
-    return relInstance!;
+    return relInstance;
   }
 
   // A nullish relation is a no-op, so routes with an optional `include` param

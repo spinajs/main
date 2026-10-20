@@ -6,7 +6,7 @@
 
 1. `@spinajs/queue` registers `DefaultQueueService` with `@Injectable(QueueService)` when it is imported.
 2. `DI.resolve(QueueService)` (from `ev()`, your code, or another package) takes the last registration under `QueueService` and builds it once (singleton).
-3. While building it, DI injects `Configuration` (`@Config('queue')`), the connection `Map` (`@AutoinjectService('queue.connections', QueueClient)`), the retention service (`@AutoinjectService('queue.retention', JobRetentionService)`) and the `queue` logger. These need the `Configuration` already resolved.
+3. While building it, DI injects `Configuration` (`@Config('queue')`), the connection `Map` (`@AutoinjectService('queue.connections', QueueClient)`), the retention service (`@AutoinjectService('queue.retention', JobRetentionService, { optional: true })`, `undefined` without a `queue.retention` block) and the `queue` logger. These need the `Configuration` already resolved.
 4. `QueueService` extends `AsyncService`, so `DI.resolve(QueueService)` returns a promise.
 5. `emit()`, `consume()` and `stopConsuming()` call the protected `getConnectionsForMessage()` to pick connections; see [Connections and routing](02-connections-and-routing.md#how-it-works).
 6. `DefaultQueueService.dispose()` disposes the retention service, then every connection, then clears the `Map`.

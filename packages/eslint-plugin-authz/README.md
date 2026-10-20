@@ -5,23 +5,29 @@ ESLint rules for SpinaJS authorization.
 ## Install
 
 ```sh
-npm i -D @spinajs/eslint-plugin-authz @typescript-eslint/parser eslint@8 typescript
+npm i -D @spinajs/eslint-plugin-authz eslint typescript-eslint typescript
 ```
 
-The rule is typed: ESLint must run with `@typescript-eslint/parser` and a `parserOptions.project`.
+ESLint 9 or 10 with a flat config. The rule is typed: the files it lints need typescript-eslint's parser
+with type information (`projectService` or `project`).
 
 ```js
-// .eslintrc.cjs
-module.exports = {
-  parser: '@typescript-eslint/parser',
-  parserOptions: { project: './tsconfig.json', tsconfigRootDir: __dirname },
-  plugins: ['@spinajs/authz'],
-  extends: ['plugin:@spinajs/authz/recommended'],
-  // or: rules: { '@spinajs/authz/require-accessible': ['error', { resources: ['User'] }] },
-};
+// eslint.config.mjs
+import { defineConfig } from 'eslint/config';
+import tseslint from 'typescript-eslint';
+import authz from '@spinajs/eslint-plugin-authz';
+
+export default defineConfig(
+  {
+    files: ['**/*.ts'],
+    languageOptions: { parser: tseslint.parser, parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname } },
+  },
+  authz.configs.recommended,
+  // or: { plugins: { '@spinajs/authz': authz }, rules: { '@spinajs/authz/require-accessible': ['error', { resources: ['User'] }] } },
+);
 ```
 
-SpinaJS's own CI does not run ESLint; apps add the rule to their lint step.
+SpinaJS lints its own packages with this rule (root `eslint.config.mjs`).
 
 ## `require-accessible`
 

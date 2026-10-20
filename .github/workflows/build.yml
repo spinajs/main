@@ -57,6 +57,44 @@ jobs:
       - name: build monorepo (esm + cjs)
         run: npm run build
 
+  # Lint and dependency rules fail only on findings newer than their baselines
+  # ( eslint-suppressions.json, .dependency-cruiser-known-violations.json ).
+  # Typed lint and the package checks read the built lib/, hence the build.
+  analysis:
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: analysis-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # dependency-cruiser needs node ^22 || ^24. Not 24: its npm 11 `npm ci` refuses this lock file.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: build monorepo (esm + cjs)
+        run: npm run build
+
+      - name: eslint
+        run: npm run lint
+
+      - name: dependency rules
+        run: npm run deps
+
+      # Unused / unlisted dependencies; warnings only until the existing ones are cleaned up.
+      - name: knip
+        run: npm run knip
+
+      - name: package exports and types ( publint, attw )
+        run: npm run check:packages
+
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: build

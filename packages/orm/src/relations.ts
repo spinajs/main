@@ -56,7 +56,7 @@ function _paramCheck<T>(callback: () => T, err: string): NonNullable<T> {
     throw new Error(err);
   }
 
-  return val as NonNullable<T>;
+  return val;
 }
 
 

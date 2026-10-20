@@ -151,6 +151,6 @@ export class MetadataRelation<R extends MetadataModel<R>, O extends ModelBase<O>
 
         return found.map(x => x.Value);
       },
-    }) as any;
+    });
   }
 }
