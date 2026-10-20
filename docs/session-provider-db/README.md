@@ -79,3 +79,4 @@ Importing `@spinajs/session-provider-db` registers `DbSessionStore` and its migr
 - [`@spinajs/orm`](../orm/README.md): models, [connections and aliases](../orm/01-connections.md) and [migrations](../orm/10-migrations.md) the store runs on.
 - [`@spinajs/orm-mysql`](../orm-mysql/README.md), [`@spinajs/orm-sqlite`](../orm-sqlite/README.md): drivers the migration runs on; each maps the column types its own way.
 - [`@spinajs/session-provider-redis`](../session-provider-redis/README.md), [`@spinajs/session-provider-dynamodb`](../session-provider-dynamodb/README.md): the other shipped `SessionProvider` stores.
+- [`@spinajs/users`](../users/README.md): ends a user's sessions through `SessionIssuer.revokeAll()` on a ban or deletion; `user_sessions` has no foreign key to `users`.

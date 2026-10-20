@@ -60,7 +60,7 @@ Callers in the monorepo:
 ### End one listed session: `revokeHandle(subject, handle)`
 
 1. `revokeHandle()` answers `false` for a handle that is not a string.
-2. It lists the subject's rows, as `list` does, and deletes the row whose `Subject` is the subject and whose handle equals `handle`.
+2. It lists the subject's rows, as `list` does, and deletes the first row whose `Subject` is the subject and whose handle equals `handle`.
 3. It answers `true` when it found that row, `false` otherwise.
 
 `DELETE /user/sessions/:handle` of `@spinajs/authn-http` calls it with the caller as subject. A handle of another user's session finds no row and answers `false`; the subject can never end a session it only impersonates from.

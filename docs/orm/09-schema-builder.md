@@ -294,7 +294,7 @@ See the dialect pages for the details: [MySQL](../orm-mysql/06-schema-views-and-
 - Nothing runs until you `await` the builder (or call `execute()`, `then()`, `catch()`, `finally()`). A builder that is only created is silently dropped.
 - A builder executes at most once. Awaiting it again returns the memoized result and sends nothing.
 - `toDB()` compiles without executing. Use it to preview the SQL a builder produces.
-- `alterTable`, a deep `cloneTable` and `createTable` with `trackHistory()` compile to several statements. `SqlDriver.execute()` sends an array of statements together through `Promise.all`, not one after another. When one alteration depends on another, use separate `alterTable` calls.
+- `alterTable`, a deep `cloneTable` and `createTable` with `trackHistory()` compile to several statements. `SqlDriver.execute()` sends them one after another, in compile order. Outside a transaction a pooled driver may run each on a different connection.
 - Schema statements pass through query middlewares like every other builder: `QueryMiddleware.beforeQueryExecution()` runs before the driver call. See [Query builder](05-query-builder.md).
 - Names that reach the SQL unquoted are validated, not escaped: view options and event units against fixed lists in `@spinajs/orm`, and database charset and collation names against `[A-Za-z0-9_]` in `@spinajs/orm-sql`.
 - DDL is not transactional on MySQL: a migration transaction does not undo a `CREATE TABLE`. See [MySQL: DDL is not transactional](../orm-mysql/06-schema-views-and-events.md#ddl-is-not-transactional) and [Migrations](10-migrations.md#transaction-modes).

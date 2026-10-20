@@ -15,7 +15,7 @@ The replacement must be registered before `Cli` dispatches, in your own CLI entr
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `MigrateUpCommand` | Class token, singleton (no lifetime decorator); also `'__cli_command__'` | `MigrateUpCommand` | none shipped | `DI.register(Sub).as(MigrateUpCommand)`. Hooks: `execute(options)`, `explainEmptyNamedRun(orm, name, connection?)`, `Log` |
+| `MigrateUpCommand` | Class token, singleton (no lifetime decorator); also `'__cli_command__'` | `MigrateUpCommand` | none shipped | `DI.register(Sub).as(MigrateUpCommand)`. Hooks: `execute(options)`, `reportRun(orm, executed, options)`, `explainEmptyNamedRun(orm, name, connection?)`, `checkModelTables(orm, fake?)`, `Log` |
 | `MigrateDownCommand` | Class token, singleton; also `'__cli_command__'` | `MigrateDownCommand` | none shipped | `DI.register(Sub).as(MigrateDownCommand)`. Hooks: `execute(options)`, `announce(options)` (runs before `down()`; throw to veto), `Log` |
 | `MigrateStatusCommand` | Class token, singleton; also `'__cli_command__'` | `MigrateStatusCommand` | none shipped | `DI.register(Sub).as(MigrateStatusCommand)`. Hooks: `execute()`, `state(entry)`, `explainFailed(failed)`, `explainInterrupted(interrupted)` |
 | `MigrateResolveCommand` | Class token, singleton; also `'__cli_command__'` | `MigrateResolveCommand` | none shipped | `DI.register(Sub).as(MigrateResolveCommand)`. Hooks: `execute(options)`, `action(options)` (runs before the `Orm` is resolved), `Log` |
@@ -28,7 +28,9 @@ The replacement must be registered before `Cli` dispatches, in your own CLI entr
 
 | Command | Protected member | Called | Default behaviour |
 | --- | --- | --- | --- |
+| `MigrateUpCommand` | `reportRun(orm: Orm, executed: OrmMigration[], options: IMigrateUpCommandOptions): Promise<void>` | after every `orm.Migration.up()` | Logs what was applied or recorded, or that nothing is pending; calls `explainEmptyNamedRun()` for an empty named run |
 | `MigrateUpCommand` | `explainEmptyNamedRun(orm: Orm, name: string, connection?: string): Promise<void>` | `--name` given and nothing applied | Looks the migration up in `orm.Migration.status()`, logs why it did not run, sets `process.exitCode = 1` unless applied |
+| `MigrateUpCommand` | `checkModelTables(orm: Orm, fake?: boolean): Promise<void>` | after `reportRun()`, only without `--name` and `--connection` | Returns when `orm.StrictTableCheck` is `false`; otherwise calls `orm.reloadTableInfo({ strict: true })`, logs a missing table at error level and sets `process.exitCode = 1` |
 | `MigrateDownCommand` | `announce(options: IMigrateDownCommandOptions): void` | after `resolveCliOrm()`, before `orm.Migration.down()` | Logs the scope about to be reversed |
 | `MigrateStatusCommand` | `state(e: IMigrationStatusEntry): string` | once per table line | `FAILED`, `applied`, `INTERRUPTED`, `rolled-back` or `pending` |
 | `MigrateStatusCommand` | `explainFailed(failed: IMigrationStatusEntry[]): void` | at least one failed entry | Prints the blocking warning and two `migrate-resolve` invocations per entry |
@@ -115,6 +117,7 @@ Put it in its own file in a directory your application lists in `system.dirs.cli
 - **Do not add `@Option` to a subclass of a shipped command.** `@Option` appends to the inherited metadata array, so the new option leaks into the shipped command too. Declare a new command on `CliCommand` instead.
 - **Register before `Cli` dispatches.** Commands resolve lazily; a registration made after the command was resolved is ignored for that run.
 - **`migrationTemplate()` and `resolveCliOrm()` are imported directly by the commands.** Replacing them on a subclass or in DI changes nothing; override `execute()` or write a new command.
+- **A command of your own gets no table check.** The CLI `Orm` only warns about a missing table; call `orm.reloadTableInfo({ strict: true })` after `orm.Migration.up()` when the command must fail like `migrate-up` does.
 - **Commands are singletons.** State kept on a command instance survives between calls in the same process, which matters when a script calls `execute()` twice.
 
 ## Best practices

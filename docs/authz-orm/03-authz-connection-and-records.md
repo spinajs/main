@@ -6,19 +6,18 @@ authz-orm keeps the ancestor table and the scope attribute tables on the ORM con
 
 1. authz-orm's package config (`config/db.ts`) sets `db.Aliases.authz: 'default'`. Package config merges before the app's, so an app's `db.Aliases.authz` wins.
 2. `Orm.resolve()` stores the named connection under the extra name `authz` ([`@spinajs/orm` connections](../orm/01-connections.md)). The records `AncestorRecord`, `ScopeAttributeRecord` and `ScopeAttributeVersionRecord` carry `@Connection('authz')` (`AUTHZ_CONNECTION` from `@spinajs/authz`), and the migrations `AuthzResourceAncestor_2026_10_14_00_00_00` and `AuthzScopeAttribute_2026_10_02_00_00_00` run there.
-3. At the root domain's boot, `DefaultAuthzService` runs `checkRemovedConnectionKeys(config)`: `authz.rbac.connection` or `authz.admin.connection` fails boot with `AuthzConfigError`.
-4. At every domain boot, `AuthzOrmContributor` runs `checkResourceConnections(orm)`. It fails with `AuthzConfigError` when no connection answers to `authz`, or when an `@AccessResource` model uses another connection. The list filter joins the resource table with `authz_assignment` and `authz_resource_ancestor`, so they must share one database.
-5. On a write of an `@AccessResource` model, `AncestorMiddleware` checks that the statement's connection is the one `AncestorRecord` lives on, before it touches a row. It then reads and writes `authz_resource_ancestor` through `AncestorRecord` in the statement's transaction.
-6. `authz:ancestors-verify` and `authz:ancestors-rebuild` take the connection of the type's first registered model, which must be the record's; a type without a model uses the record's connection.
-7. `DbScopeAttributeStore` resolves the `Orm` before a read when nothing has (a CLI process boots only its command). A write runs only inside the `AuthzAdmin` transaction on the `authz` connection.
+3. At every domain boot, `AuthzOrmContributor` runs `checkResourceConnections(orm)`. It fails with `AuthzConfigError` when no connection answers to `authz`, or when an `@AccessResource` model uses another connection. The list filter joins the resource table with `authz_assignment` and `authz_resource_ancestor`, so they must share one database.
+4. On a write of an `@AccessResource` model, `AncestorMiddleware` checks that the statement's connection is the one `AncestorRecord` lives on, before it touches a row. It then reads and writes `authz_resource_ancestor` through `AncestorRecord` in the statement's transaction.
+5. `authz:ancestors-verify` and `authz:ancestors-rebuild` take the connection of the type's first registered model, which must be the record's; a type without a model uses the record's connection.
+6. `DbScopeAttributeStore` resolves the `Orm` before a read when nothing has (a CLI process boots only its command). A write runs only inside the `AuthzAdmin` transaction on the `authz` connection.
 
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `db.Aliases.authz` | `string` | `'default'` (authz-orm, authz-rbac and authz-abac package config) | a connection `Name` from `db.Connections` | The database of every authz table: `authz_resource_ancestor`, `authz_scope_attribute`, `authz_scope_attribute_version`, and the RBAC and ABAC tables. It must also hold the `@AccessResource` tables. |
-| `authz.rbac.connection` | | | removed | Fails the root domain's boot: `authz.rbac.connection: removed; the authz tables use the ORM connection alias "authz", so set db.Aliases.authz to the connection name instead (default: "default")`. |
-| `authz.admin.connection` | | | removed | Fails boot the same way. |
+
+`db.Aliases.authz` is the only key that moves these tables. No package reads `authz.rbac.connection` or `authz.admin.connection`; such a key is ignored.
 
 ```ts
 export default {
@@ -111,7 +110,7 @@ Writes need `authz.admin.backend: 'DbAuthzAdminBackend'`, whose batch transactio
 ## Patterns and antipatterns
 
 ```ts
-// Don't: removed keys fail boot
+// Don't: no package reads these keys, so the tables stay on 'default'
 export default { authz: { admin: { connection: 'main' }, rbac: { connection: 'main' } } };
 
 // Do
@@ -139,7 +138,7 @@ checkResourceConnections(orm);
 ## Related
 
 - [Access lists](01-access-lists.md): `.within()` and the RBAC term read `authz_resource_ancestor`.
-- [`@spinajs/authz`](../authz-rbac/README.md): the other tables on `authz` and the removed keys.
+- [`@spinajs/authz`](../authz/04-host-boot-and-configuration.md#the-authz-connection): `AUTHZ_CONNECTION`, the alias every authz table uses.
 - [`@spinajs/authz-rbac`](../authz-rbac/README.md): the RBAC stores and migrations on the same alias.
 - [`@spinajs/orm` connections](../orm/01-connections.md): `db.Aliases` and `db.StrictTableCheck`.
 - [The ancestor table](06-ancestor-table.md): how the middleware and the CLI keep `authz_resource_ancestor` right.

@@ -32,7 +32,7 @@ WHEN MATCHED THEN UPDATE SET [Name] = ?
 WHEN NOT MATCHED THEN INSERT ([Email],[Name]) VALUES (?,?); SELECT SCOPE_IDENTITY() as ID;
 ```
 
-4. `executeOnDb()` returns the `[{ ID }]` row array (the `Upsert` context returns `recordset`).
+4. `executeOnDb()` returns the `[{ ID }]` row array (the `Upsert` context returns `recordset`). For a model upsert `MsSqlServerResponseMapper` reports the row count as `RowsAffected` and the last row's `ID` as `LastInsertId`, `0` when `MERGE` updated.
 
 ## Services and extension points
 

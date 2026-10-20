@@ -151,6 +151,8 @@ Indexes `authn_audit_at`: `at`; `authn_audit_identity`: `(identity, at)`.
 
 `@spinajs/authn-keys` ships no migration for `authn_nonce`: its `DbKeyNonceStore` writes into the table this migration creates.
 
+No migration copies 2.x `users_metadata` rows (TOTP secrets, pending resets, invites) into the `authn_*` tables: 3.0 starts from an empty database.
+
 ## Identity keys and time helpers
 
 | Export | Meaning |

@@ -31,7 +31,7 @@ When no connection or alias has the name, `Orm` logs `Cannot find connection ses
 | `@Primary()` | `DbSession.SessionId` | | Primary key; `destroy()` deletes by it. |
 | `@CreatedAt()` | `DbSession.CreatedAt` | | Creation timestamp column. |
 | `@DateTime()` | `DbSession.Expiration` | | Converts the column to a luxon `DateTime`. |
-| `@Migration('session-provider-connection')` | each migration class | connection name | Registers the migration for that connection. |
+| `@Migration('session-provider-connection')` | `UserSessionDBSqlMigration_2022_06_28_01_20_00` | connection name | Registers the migration for that connection. |
 
 `DbSession.Data` has **no** `@Json()` decorator: the store writes the string from `encodeSessionData()`, and `@Json()` would encode it a second time.
 
@@ -64,8 +64,8 @@ this.Config = _.merge(this.Config, {
 | `Expiration` | same type as `CreatedAt`, nullable | Absolute expiration; `NULL` means never. |
 | `Data` | `NOT NULL`; `JSON` on MySQL, `JSONB` on PostgreSQL, no declared type on SQLite | Session data encoded by `encodeSessionData()`. |
 | `Subject` | `VARCHAR(100)`, nullable, index `user_sessions_subject_idx` | Principal key of the owner. The store reads a row without one as absent. |
-| `ImpersonatorId` | `VARCHAR(100)`, nullable, index `user_sessions_impersonator_idx` | Principal key of the impersonator. |
-| `State` | `VARCHAR(16)`, nullable, no default | `active` or `pending`. Any other value reads as `pending`. |
+| `ImpersonatorId` | `VARCHAR(100)`, nullable, index `user_sessions_impersonator_idx` | Principal key of the impersonator; `NULL` when nobody impersonates. |
+| `State` | `VARCHAR(16)`, nullable, no default | `active` or `pending`. Any other value reads as `pending`; `touch()` never updates a row with `NULL`. |
 
 ### `DbSession` model
 
@@ -94,7 +94,7 @@ this.Config = _.merge(this.Config, {
 
 ## Best practices
 
-- Bind `session-provider-connection` with `db.Aliases` to the application database unless sessions need a database of their own.
+- Bind `session-provider-connection` with `db.Aliases` to the application database unless sessions need a database of their own; one connection means one migration plan and one backup.
 - Query `user_sessions` through the store, not through `DbSession`: `Data` comes back as a string on one driver and as an object on another.
 
 ## Patterns and antipatterns

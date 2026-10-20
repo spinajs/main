@@ -95,7 +95,7 @@ connection `authz` (`db.Aliases.authz`, default `default`). Full schema:
 | `tags` | str(512), default `''` | Stored as `,a,b,` |
 | `expires_at` | datetime | |
 | `granted_by` | str(100) | |
-| `source` | str(32), default `db` | |
+| `source` | str(32), default `db` | Where the row came from; `DbAssignmentStore` writes `db` |
 | `created_at` | datetime | |
 
 Indexes: unique `authz_assignment_uq` on
@@ -121,7 +121,8 @@ are `@Json` columns; `authz_version.version` is `@Int64('string')`, the same tex
 
 The other authz-rbac migration, `admin/db/AuthzAdminIdempotency_2026_10_02_00_01_00`, creates
 `authz_admin_idempotency`: PK `(domain, actor, idem_key)`, `results`, `rows`, `expires_at`,
-`created_at`. No migration reads or alters a 2.x table: 3.0 starts from an empty database.
+`created_at`. No authz-rbac migration reads or alters a 2.x table: 3.0 starts from an empty
+database, and roles are granted as assignments.
 
 ### authz-abac
 

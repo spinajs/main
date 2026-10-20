@@ -16,7 +16,10 @@
 | luxon `DateTime` in any zone | the same instant in UTC with `Z` |
 | ISO 8601 or SQL-format `string` | parsed (no offset = UTC) and written in UTC with `Z` |
 | a `string` that is not a datetime | throws `InvalidArgument` naming the column |
+| any of the above, for a column whose type is numeric (`int`, `bigint`, `decimal`, ...) | Unix seconds |
 | `null`, `undefined`, `''` | `null` |
+
+`model.dehydrate()` and `toJSON()` call the same converter with dehydrate options: they write `dateTimeFormat` (`'iso'`, `'sql'` or `'unix'`), ISO 8601 in UTC when none is set.
 
 4. The string is bound as a parameter; see [Executing statements](02-executing-statements.md).
 

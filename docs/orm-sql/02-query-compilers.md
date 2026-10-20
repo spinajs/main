@@ -101,7 +101,7 @@ Which dialect binds which class: [Adding a new SQL dialect](07-adding-a-sql-dial
 | `SqlSelectQueryCompiler` | see [above](#how-sqlselectquerycompiler-builds-a-select) | An empty column list compiles to `*`. |
 | `SqlInsertQueryCompiler` | `INSERT [IGNORE] INTO <table> (<cols>) VALUES (?,?),(?,?) [upsert]` | See [insert rules](#insert-rules). |
 | `SqlOnDuplicateQueryCompiler` | `ON DUPLICATE KEY UPDATE `c` = VALUES(`c`),...` | MySQL syntax. A `RawQuery` update column is emitted verbatim with its bindings. |
-| `SqlUpdateQueryCompiler` | `UPDATE <table alias> SET `a` = ?,`b` = ? WHERE <where>` | Bindings: `SET` values, then where bindings. `WHERE` is always emitted. |
+| `SqlUpdateQueryCompiler` | ``UPDATE <table alias> SET `a` = ?,`b` = ?,`n` = `n` + ? WHERE <where>`` | `increment(column, by)` adds `` `n` = `n` + ? `` after the `update()` values. Bindings: `SET` values, increments, then where bindings. An update with no condition throws `InvalidArgument('update of <t> has no where clause; add .where(true) to update every row')`; a column both set and incremented throws `InvalidArgument`. |
 | `SqlDeleteQueryCompiler` | `DELETE FROM <table alias> [WHERE ...] [LIMIT ...]` | No conditions means no `WHERE`: every row is deleted. |
 | `SqlLimitQueryCompiler` | ` LIMIT ?`, ` OFFSET ?` | An offset without a limit emits `LIMIT 18446744073709551615` (`2^64 - 1`), because MySQL has no bare `OFFSET`. Throws `InvalidOperation('builder cannot be null or undefined')`. |
 | `SqlOrderByQueryCompiler` | ` ORDER BY `alias`.`a` ASC, `b` DESC` | Every sort from `getSorts()`; empty when there are none. |
@@ -150,7 +150,10 @@ Which dialect binds which class: [Adding a new SQL dialect](07-adding-a-sql-dial
 | `enum`, `set` | `ENUM('a','b')`, `SET('a','b')` |
 | `binary` | `BINARY(n)`, default `255` |
 | `boolean` | `BOOLEAN` |
-| `smallint`, `tinyint`, `mediumint`, `int`, `bigint`, `tinytext`, `mediumtext`, `longtext`, `text`, `bit`, `date`, `time`, `dateTime`, `timestamp`, `json`, `tinyblob`, `mediumblob`, `longblob` | the type name uppercased |
+| `dateTime`, `timestamp` | `DATETIME(3)`, `TIMESTAMP(3)`: millisecond precision, the precision of a JS `Date` |
+| `smallint`, `tinyint`, `mediumint`, `int`, `bigint`, `tinytext`, `mediumtext`, `longtext`, `text`, `bit`, `date`, `time`, `json`, `tinyblob`, `mediumblob`, `longblob` | the type name uppercased |
+
+The instant type each dialect writes for `dateTime()`: `DATETIME(3)` (MySQL, this class), `TEXT` (SQLite), `DATETIMEOFFSET(3)` (MSSQL), `TIMESTAMPTZ(3)` (PostgreSQL). See each driver's schema page.
 
 ## Services and extension points
 
@@ -204,8 +207,8 @@ Point a connection at it with `Driver: 'orm-driver-sqlite-guarded'`.
 - A multi-statement result (`ICompilerOutput[]`) is sent by `SqlDriver.execute()` one `executeOnDb()` per entry, each awaited before the next.
 - `toDB()` compiles without a database and without query middlewares. The output is what the compiler sees after `afterQueryCreation` hooks.
 - Every compiler quotes through `@Autoinject(IdentifierQuoter)`. `SqlDriver` registers no quoter: a driver that forgets one fails on its first query.
-- `SqlUpdateQueryCompiler` always emits `WHERE`. An update with no conditions compiles to `... WHERE ` and the database rejects it.
-- `SqlDeleteQueryCompiler` omits `WHERE` when there are no conditions, so `driver.del().from('t')` deletes every row.
+- `SqlUpdateQueryCompiler` refuses an update without a condition at compile time. Write `.where(true)` to update every row: it compiles to `WHERE 1 = 1` on every dialect (`where(false)` is `1 = 0`), since T-SQL has no `TRUE` / `FALSE`.
+- `SqlDeleteQueryCompiler` omits `WHERE` when there are no conditions, so `driver.del().from('t')` deletes every row. Unlike the update compiler, it does not refuse.
 - Values in DML are always bound. DDL and event or view bodies have no placeholders, so their literals are escaped (`escapeStringLiteral()`) or inlined (`inlineBindings()` with the driver's `LiteralQuoter`). See [Identifier and literal quoting](04-identifier-and-literal-quoting.md).
 
 ## Best practices

@@ -77,6 +77,7 @@ Only `Date` is faked. Timers, `performance.now()` and `process.hrtime` stay real
 | `container` | `IContainer` | `DI.RootContainer` | Container that `restore` passes to `resolveSession` |
 
 - Ids are 16 random bytes in base64url; the store keys rows by their SHA-256. `facts.sessionHandle` and `list()` give a handle derived from that key, never the id or the key.
+- `restore()` looks a row up by the SHA-256 of the id only; an id equal to a stored key restores nothing.
 - `elevate()` refuses an active session; `set()` refuses the reserved keys `Subject`, `Impersonator`, `State` and `authn:facts`.
 - `revoke()` answers `true` only for the call that removed the row.
 

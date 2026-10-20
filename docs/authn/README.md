@@ -4,7 +4,7 @@ The authentication core of SpinaJS. It answers one question, who is calling and 
 
 It does **not** ship a login method, a session store, a second factor or HTTP routes. Passwords, tokens, keys, OIDC, TOTP, sessions and routes come from the packages under [Related packages](#related-packages). It does not decide what a caller may do: that is [`@spinajs/authz`](../authz/README.md).
 
-Moving a 2.x app: read [the migration guide](../authz/migration-guide.md), in particular [the authentication keys](../authz/migration-guide.md#32-authentication-keys), [the data migration](../authz/migration-guide.md#7-data-migration) and [the steps for an app](../authz/migration-guide.md#8-steps-for-an-app).
+Moving a 2.x app: read [the migration guide](../authz/migration-guide.md), in particular [the authentication keys](../authz/migration-guide.md#32-authentication-keys) and [the steps for an app](../authz/migration-guide.md#8-steps-for-an-app). 3.0 starts from an empty database; no migration carries 2.x data.
 
 ## Install
 

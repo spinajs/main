@@ -7,7 +7,7 @@ The host is the DI side of the package: `DefaultAuthzService` boots one engine p
 `DefaultAuthzService.resolve()` runs once per domain container, when the service is first resolved:
 
 1. **Domain.** It resolves `AuthzDomains` and finds the domain of its container. A child domain first waits for its parent's service to boot.
-2. **Config.** It resolves `Configuration`. The configuration module validates `authz.*` against `AUTHZ_CONFIGURATION_SCHEMA` (AJV, defaults filled in).
+2. **Config.** It resolves `Configuration`. The configuration module validates `authz.*` against `AUTHZ_CONFIGURATION_SCHEMA` (AJV, defaults filled in). Boot reads no `rbac.*` key.
 3. **Domain config.** `readDomainConfig()` merges the domain's keys over its ancestors' and over `AUTHZ_DEFAULTS` ([Domains](05-domains.md#configuration)).
 4. **Audit and bus.** It picks the `DecisionAudit` and `ChangeBus` classes named by `authz.audit.service` and `authz.bus.service`, else the last registration (`pickNamed()`, [Domains](05-domains.md#services-and-extension-points)). It subscribes to the bus before any model initialises; changes published meanwhile are applied once the boot ends.
 5. **Collect.** From the container chain (`Array.chainOf`) it resolves every `AuthorizationModel`, `ResourceAdapter`, `ScopeResolver`, `RelationResolver`, `NativeFilter`, `Combinator` and `AuthzContributor`.

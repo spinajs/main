@@ -127,11 +127,12 @@ this.Config = _.merge(this.Config, {
 
 - `restore()` throws when one row's `Data` does not decode. `deleteBySubject()` and `listBySubject()` do not: they log a warning and treat that row's `Data` as empty, so one bad row cannot block a revocation.
 - A stored `State` other than exactly `active` reads back as `pending` (fail closed). A row without a readable `Subject` reads as absent.
-- `touch()` never extends a row that is expired, deleted, or stored in another `State`. A forged `active` view of a `pending` row returns `false` and changes nothing.
+- `touch()` never extends a row that is expired, deleted, or stored in another `State`, a `NULL` `State` included. A forged `active` view of a `pending` row returns `false` and changes nothing.
 - `touch()` writes `Data` even when it returns `false` because the expiration did not change.
 - The store does not hash ids. It keys rows by whatever `SessionId` it gets; the issuer passes `sha256(rawId)`.
 - `user_sessions` has no foreign key to `users`, so deleting a user does not end the user's sessions; call `SessionIssuer.revokeAll()` first.
 - A session with `Expiration` `NULL` never expires and the sweep never deletes it.
+- `cleanupExpired()` is one `DELETE` and loads no rows, so a large backlog costs no memory.
 - Each `DbSessionStore` instance runs its own sweep. With several application instances, each sweeps the same table; the deletes are conditional on `Expiration`, so the overlap is harmless.
 
 ## Best practices

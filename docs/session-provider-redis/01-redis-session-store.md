@@ -138,7 +138,7 @@ Every key is written under `authn.session.redis.keyPrefix`; ioredis adds the pre
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `Subject` | `string` | Owner as a principal key; while impersonating, the target |
+| `Subject` | `string` | Owner as a principal key; while impersonating, the target. A value without a readable `Subject` reads as absent |
 | `Impersonator` | `string`, optional | The impersonating principal key |
 | `State` | `'active' \| 'pending'` | Any other stored value reads as `'pending'` |
 | `Creation` | ISO 8601 string | Issue time |

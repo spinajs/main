@@ -31,9 +31,26 @@ The schema builder (`driver.schema()`, migrations) compiles through SQLite's own
 | `boolean` | `BOOLEAN NOT NULL CHECK ( col IN (0, 1))` in `CREATE TABLE`, `BOOLEAN CHECK ( col IN (0, 1))` in `ADD COLUMN` |
 | `json`, `bit` | no declared type (the column name alone) |
 
-- Datetimes are stored as ISO-8601 text; the datetime value converter does the round trip.
+- `dateTime()` and `timestamp()` are SQLite's instant type: fixed-width ISO-8601 UTC text in a `TEXT` column. See [Value conversion](#value-conversion).
 - `enum` and `set` values are not constrained by the database. The set converter joins and splits on commas.
 - A column with no declared type gets no type affinity, and `tableInfo()` reports an empty `NativeType` for it.
+
+### Value conversion
+
+The driver container resolves these converters for model columns, `where()` values and raw bindings:
+
+| Token | SQLite implementation | Writes | Reads |
+| --- | --- | --- | --- |
+| `DatetimeValueConverter` | `IsoDatetimeValueConverter` from `@spinajs/orm-sql` | `2026-10-19T12:00:00.123Z`: UTC, milliseconds, `Z` <!-- TODO(docs-hook): verify whether a datetime property on an INTEGER column is written as Unix seconds; SqlDatetimeValueConverter matches lower-case type names and PRAGMA table_info reports upper case --> | any ISO or SQL text, `Date`, `DateTime` or Unix seconds, as a `DateTime` in UTC |
+| `BooleanValueConverter` | `SqlBooleanValueConverter` (shared) | `1` / `0` | `true` for `1`, `1n`, `true` and `'1'` |
+| `SetValueConverter` | `SqlSetConverter` (shared) | comma-joined text | split on `,` |
+
+- The fixed width keeps text order equal to time order, so `orderBy('CreatedAt')` and `where('CreatedAt', '>', date)` compare instants correctly, whatever the process time zone.
+- `Date` and `DateTime` bindings of raw SQL (`executeOnDb()`, `RawQuery` bindings) are converted the same way by `SqlDriver.toDriverParams()`.
+- `toJSON()` writes datetimes as ISO 8601 in UTC and booleans as `true` / `false`.
+- Text written by hand in another format (`2026-10-19 12:00:00`) still reads back, but compares as text against the stored ISO form. Write instants through the converter or `driver.now()`.
+
+The converters themselves are described in [Value converters and default values](../orm-sql/05-value-converters-and-defaults.md).
 
 ### Column modifiers
 
@@ -51,8 +68,8 @@ Emitted in this order, each only when set: `UNSIGNED`, `COLLATE '<x>'`, `NOT NUL
 | --- | --- |
 | `.default().value('draft')` | `DEFAULT 'draft'` (trimmed, `'` doubled: `value("it's")` gives `DEFAULT 'it''s'`) |
 | `.default().value(0)` | `DEFAULT 0` |
-| `.default().date()` | `DEFAULT ((strftime('%Y-%m-%d', 'now')))` |
-| `.default().dateTime()` | `DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`: UTC ISO-8601 with milliseconds |
+| `.default().date()` | `DEFAULT ((strftime('%Y-%m-%d', 'now')))`: the UTC date |
+| `.default().dateTime()` | `DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`: UTC ISO-8601 with milliseconds, the same text the datetime converter writes and `driver.now()` returns |
 | `.default().raw(RawQuery.create('...'))` | `DEFAULT (...)`; the raw query's bindings are ignored |
 
 `.default()` returns the `DefaultValueBuilder`, and its methods return the base `ColumnQueryBuilder`: chain `default()` last.

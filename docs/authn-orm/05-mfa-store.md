@@ -31,7 +31,7 @@ Every method first builds the identity key with `identityKey(id)` (`<type>:<id>`
 ### Confirm, `confirm(id, step, at?, expectedSecretEnc?)`
 
 1. Without `expectedSecretEnc`, it sets `confirmed_at` = `at` (default now) on the row and resolves `true` when the row exists.
-2. With `expectedSecretEnc`, the update also requires `confirmed_at IS NULL` and `secret_hash` equal to the SHA-256 of it. Of parallel confirmations exactly one resolves `true`.
+2. With `expectedSecretEnc`, the update also requires `confirmed_at IS NULL` and `secret_hash` equal to the hex SHA-256 of it. Of parallel confirmations exactly one resolves `true`.
 3. Comparing the hex hash keeps the match exact on every driver without casting the `text` column: SQL Server cannot compare `text` with `=`, and MySQL compares it case-blind by default.
 
 ### Accept a code, `acceptStep(id, step, timeStep)`

@@ -64,9 +64,10 @@ Use it with `Driver: 'orm-driver-sqlite-immediate'`.
 - Code inside a transaction must not wait for such a held statement, or for another outermost transaction of the same connection: both wait for this transaction to end, so the callback never resolves.
 - `SELECT`s inside a transaction always use the writer, so they see the transaction's own uncommitted writes.
 - `BEGIN` is `DEFERRED`. A transaction holds no lock until its first statement that needs one.
+- `driver.lockTableShared(t)` sends `DELETE FROM <t> WHERE 0`: a write that deletes nothing but takes the database's `RESERVED` lock, which keeps every other writer, in this process or another, out until the transaction ends. The lock covers the whole file, not only `t`. Outside a transaction it throws `InvalidOperation`. See [Shared table lock](../orm/08-transactions.md#shared-table-lock).
 - `SupportedIsolationLevels` is `['SERIALIZABLE']`: `sqlite3` outside shared-cache mode serializes access to the file. Other levels are rejected, not ignored.
 - DDL is transactional in SQLite: `CREATE TABLE` and `ALTER TABLE` inside a rolled-back transaction are undone.
-- A failed `Transaction` statement is an `OrmException` with the `sqlite3` error in `inner` (see [Connection and driver](01-connection.md#errors)).
+- A failed `Transaction` statement is mapped like any other: `OrmException` with the `sqlite3` error in `inner`, or `ConstraintViolation` for a constraint checked at `COMMIT` (see [Connection and driver](01-connection.md#errors)).
 - Statements inside a transaction are never retried; a `SQLITE_BUSY` there fails at once and the transaction rolls back.
 
 ## Best practices

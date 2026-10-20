@@ -41,6 +41,8 @@ The converter classes are exported from `@spinajs/orm-sql`. To change one, exten
 | otherwise | `SqlDatetimeValueConverter`: `2026-10-17 09:30:00.000` (UTC); `IsoDatetimeValueConverter`: `2026-10-17T09:30:00.000Z` |
 | `fromDB(value)` | `instantFromDb()`: `null` for `null`, `undefined`, `''` and a value that is not a valid datetime (unparsable text, an invalid `Date`); `Date`, `DateTime`, ISO or SQL text, unix seconds (`0` is the epoch) to a `DateTime` in UTC |
 
+The column text comes from one protected method, `write(dt)`, which receives a valid `DateTime` in UTC. `SqlDatetimeValueConverter.write()` returns `yyyy-MM-dd HH:mm:ss.SSS`; `IsoDatetimeValueConverter` overrides only `write()` to return `dt.toISO()`. Override `write()` to change the stored text and keep the null, numeric-column and dehydrate rules.
+
 ### `SqlTimeValueConverter`
 
 - `toDB(TimeSpan | string | number)` writes `[-]HH:MM:SS`, with hours above 24 allowed (MySQL `TIME` spans `-838:59:59` to `838:59:59`). A value `TimeSpan.parse()` cannot read becomes `null`.
@@ -62,7 +64,7 @@ The converter classes are exported from `@spinajs/orm-sql`. To change one, exten
 
 | Method | Stored | Rendered by `SqlColumnQueryCompiler` |
 | --- | --- | --- |
-| `date()` | `Query = RawQuery('(CURRENT_DATE())')` | `DEFAULT (CURRENT_DATE())` |
+| `date()` | `Query = RawQuery('(CURRENT_DATE())')` | `DEFAULT (CURRENT_DATE())`, the UTC date in the UTC session the MySQL driver opens |
 | `dateTime()` | `Query = RawQuery('CURRENT_TIMESTAMP(3)')` | `DEFAULT CURRENT_TIMESTAMP(3)` (MySQL needs the precision of the `DATETIME(3)` column) |
 | `value('x')`, `value(5)` | `Value` | `DEFAULT 'x'` (escaped, trimmed), `DEFAULT 5` |
 | `raw(query)` | `Query` | `DEFAULT <query>` |
@@ -75,6 +77,7 @@ Each method returns the column builder, so the chain continues.
 - `SqlBooleanValueConverter` and the datetime converters decide by argument count, not by value: a caller that passes a fifth argument gets a boolean, or an ISO 8601 datetime unless it asks for another `dateTimeFormat`.
 - Datetimes are written in UTC on every dialect; the drivers run their sessions in UTC (see each driver's connection page), so SQL-side `NOW()` agrees with stored values.
 - `SqlLiteralQuoter.quoteDate()` uses the connection's `DatetimeValueConverter`, so a replaced converter also changes dates inlined into view and event bodies.
+- Raw bindings use it too: `SqlDriver.toDriverParams()` converts a `Date` or `DateTime` passed to `RawQuery.create()` or straight to `executeOnDb()`, so raw SQL compares with model-written values.
 - `SqlDriver` does not register `DefaultValueBuilder`; every driver registers its own (MSSQL: `MsSqlDefaultValueBuilder`, `SYSDATETIMEOFFSET()`).
 
 ## Best practices

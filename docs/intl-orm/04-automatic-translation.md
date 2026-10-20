@@ -1,6 +1,6 @@
 # Automatic translation
 
-`IntlQueryMiddleware` is a `QueryMiddleware` that calls [`translate(lang)`](02-query-translation.md) on model selects when the current language differs from `intl.defaultLocale`. With `@spinajs/intl-http` installed, a request with `?lang=en_GB` gets English model values without any `translate()` call in your code.
+`IntlQueryMiddleware` is a `QueryMiddleware` that calls [`translate(lang)`](02-query-translation.md) on selects of models with a `@Translate()` column or a relation, when the current language differs from `intl.defaultLocale`. With `@spinajs/intl-http` installed, a request with `?lang=en_GB` gets English model values without any `translate()` call in your code.
 
 ## How it works
 
@@ -12,7 +12,7 @@
    2. On Node (`AsyncLocalStorage` exists), the current store of `DI.get(AsyncLocalStorage)` has `noTranslate === true`: skip.
    3. `builder.AllowTranslate === false`: skip.
    4. `builder.Model` is unset (raw builder): skip.
-   5. The model has no `@Translate()` column and no relation: skip, as there is nothing to translate.
+   5. The model descriptor has no `@Translate()` column (`Translatable`, set by the decorator) and no relation: skip, as there is nothing to translate. Internal models of other packages therefore read the same in every language.
    6. The builder is not a `SelectQueryBuilder`, or `builder.translated` is set: skip.
    7. `guessLanguage()` reads the `language` of the current `AsyncLocalStorage` store, else `intl.defaultLocale`. When it differs from `defaultLanguage()`, the middleware calls `builder.translate(lang)`.
 5. The query then compiles and runs; [`IntlModelRelation`](03-translation-relation.md) loads the translations after hydration.

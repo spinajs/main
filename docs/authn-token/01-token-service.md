@@ -80,8 +80,8 @@ Password resets call it when `authn.local.reset.revokeTokens` is on (the default
 Housekeeping behind `authn:token-delete-expired`. It is not part of the `TokenService` contract.
 
 1. `now` must be a valid `Date`, or it throws `InvalidOperation`.
-2. It selects the ids of rows with `ExpiresAt <= now`, and of revoked rows, through the model, so the cutoff is written in the column's format.
-3. It deletes them in batches of 500 ids and answers the count. Rows without an expiry are kept.
+2. It selects the ids of rows with `ExpiresAt <= now`, rows without `ExpiresAt` and revoked rows, through the model, so the cutoff is written in the column's format.
+3. It deletes them in batches of 500 ids and answers the count.
 
 ## Configuration
 

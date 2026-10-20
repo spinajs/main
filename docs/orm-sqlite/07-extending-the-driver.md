@@ -54,6 +54,8 @@ sequenceDiagram
 | `OrderByQueryCompiler` | `SqliteOrderByCompiler` | yes | [Query dialect](06-query-dialect.md) |
 | `JoinStatement` | `SqlLiteJoinStatement` | yes | [Query dialect](06-query-dialect.md) |
 | `InSetStatement` | `SqliteInSetStatement` | yes | [Query dialect](06-query-dialect.md) |
+| `InStatement` | `SqliteInStatement` (long lists through `json_each`) | yes | [Query dialect](06-query-dialect.md) |
+| `StartsWithStatement` | `SqliteStartsWithStatement` (`GLOB`) | yes | [Query dialect](06-query-dialect.md) |
 | `LimitQueryCompiler` | `SqliteLimitQueryCompiler` | yes | [Query dialect](06-query-dialect.md) |
 | `RecursiveQueryCompiler` | `SqlWithRecursiveCompiler` (`@spinajs/orm-sql`) | | [Query dialect](06-query-dialect.md) |
 | `IdentifierQuoter` | `BacktickIdentifierQuoter` (`@spinajs/orm-sql`) | | [Query dialect](06-query-dialect.md) |

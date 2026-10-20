@@ -31,14 +31,14 @@ Every abstract token extends `QueryStatement`, which implements `TableAlias`, `B
 | `WhereStatement` | `SqlWhereStatement` | `where(column, [op,] value)`, `whereNull`, `whereNotNull` | `` `alias`.`col` <OP> ? `` | rebinds `_builder`; a `RawQuery` value is inlined with its bindings instead of a `?` |
 | `WhereQueryStatement` | `SqlWhereQueryStatement` | `where(function () { ... })`, `whereNot(function () { ... })` | `( <nested where> )`, `NOT ( <nested where> )`; an empty negated group is `1 = 0` | clones the nested `WhereBuilder` onto the parent, keeps the negation |
 | `LazyQueryStatement` | `SqlLazyQueryStatement` | `where(Lazy)`, correlated `EXISTS` | the callback's statements, built at compile time | rebinds `context` |
-| `RawQueryStatement` | `SqlRawStatement` | `where(RawQuery)` | the query verbatim | no builder |
+| `RawQueryStatement` | `SqlRawStatement` | `where(RawQuery)`, `where(true)`, `where(false)` | the query verbatim; `where(true)` is `1 = 1` and `where(false)` is `1 = 0` | no builder |
 | `InStatement` | `SqlInStatement` | `whereIn`, `whereNotIn` with values | `` `col` [NOT] IN (?,?) ``; a dialect may bind a list longer than `listThreshold` as one parameter | rebinds `_builder`; `clone()` keeps the subclass |
 | `InQueryStatement` | `SqlInQueryStatement` | `whereIn`, `whereNotIn` with a sub-select | `` `col` [NOT] IN ( <sub-select> ) `` | clones the sub-select, re-correlates, rebinds the owner |
 | `ExistsQueryStatement` | `SqlExistsQueryStatement` | `whereExist`, `whereNotExists` | `[NOT] EXISTS ( <sub-select> )` | clones the sub-select, re-correlates |
 | `ColumnCompareStatement` | `SqlColumnCompareStatement` | `whereColumn()` | `` `a`.`x` <OP> `b`.`y` ``; an `outer()` side through the correlation source, a `Wrap` side through its wrapper | rebinds `_builder` |
 | `BetweenStatement` | `SqlBetweenStatement` | `whereBetween`, `whereNotBetween` | `` `col` [NOT] BETWEEN ? AND ? `` | no builder |
 | `InSetStatement` | `SqlInSetStatement` | `whereInSet`, `whereNotInSet` | see [Set membership](#set-membership) | no builder |
-| `StartsWithStatement` | `SqlStartsWithStatement` | `whereStartsWith` | `` `col` LIKE ? ESCAPE '~' ``, bound `escapeLikeValue(prefix) + '%'`; a dialect extends `pattern()` for its own wildcards | no builder; `clone()` keeps the subclass |
+| `StartsWithStatement` | `SqlStartsWithStatement`; `SqliteStartsWithStatement`, `MsSqlStartsWithStatement` in their drivers | `whereStartsWith(column, prefix)` | `` `col` LIKE ? ESCAPE '~' ``, bound `escapeLikeValue(prefix) + '%'`; a dialect extends `pattern()` for its own wildcards; SQLite uses `` `col` GLOB ? `` instead, which is case-sensitive. A prefix that is not a string throws `InvalidArgument`. | no builder; `clone()` keeps the subclass |
 | `ColumnStatement` | `SqlColumnStatement` | `select(column)`, `columns()` | `` `alias`.`col` as `name` ``, `*` | no builder |
 | `ColumnRawStatement` | `SqlColumnRawStatement` | `select(RawQuery)` | the query verbatim | no builder |
 | `ColumnConditionStatement` | `SqlColumnConditionStatement` | `selectCondition()` | `CASE WHEN <nested where> THEN 1 ELSE 0 END AS alias` | clones the nested `WhereBuilder` onto the parent |
@@ -47,7 +47,7 @@ Every abstract token extends `QueryStatement`, which implements `TableAlias`, `B
 | `GroupByStatement` | `SqlGroupByStatement` | `groupBy()` | `` `col` `` or a raw expression | no builder |
 | `WithRecursiveStatement` | `SqlWithRecursiveStatement` | `withRecursive()`, `@Recursive` relations | the CTE members | rebinds `_query` |
 | `DateWrapper`, `DateTimeWrapper` | `SqlDateWrapper`, `SqlDateTimeWrapper` | `Wrapper.Date(col)`, `Wrapper.DateTime(col)` in `where()` | `` DATE(`alias`.`col`) ``, `` DATETIME(`alias`.`col`) `` | not cloned (a wrapper is resolved at build time) |
-| `TextWrapper` | `SqlTextWrapper`; `MySqlTextWrapper`, `MsSqlTextWrapper` in their drivers | `Wrapper.Text(col)` in `where()`, `whereIn()`, `whereNotIn()` | `` CAST(`alias`.`col` AS TEXT) ``, `AS CHAR` (MySQL), `AS NVARCHAR(4000)` (MSSQL) | not cloned (a wrapper is resolved at build time) |
+| `TextWrapper` | `SqlTextWrapper`; `MySqlTextWrapper`, `MsSqlTextWrapper` in their drivers | `Wrapper.Text(col)` in `where()`, `whereIn()`, `whereNotIn()`, `whereColumn()` | `` CAST(`alias`.`col` AS TEXT) ``, `AS CHAR` (MySQL), `AS NVARCHAR(4000)` (MSSQL); the type comes from the protected `textType()` | not cloned (a wrapper is resolved at build time) |
 
 Constructor arguments of each token are listed in [Architecture](../orm/12-architecture.md#statement-classes).
 
@@ -82,7 +82,8 @@ The operator is uppercased. Column existence is checked earlier, in the core `Wh
 
 ### Sub-queries and deferred statements
 
-- `whereExist()`, `whereNotExists()`, `whereIn()` and `whereNotIn()` correlate a ready sub-query with the builder the call is made on (`correlateWith(this)`) when it has no correlation source. `SqlColumnCompareStatement` resolves `outer(column, levels)` with `outerBuilder()`: it follows that link `levels` times, each time from the query a nested group belongs to (`queryOf()`), and qualifies the column with `qualifierOf()` (the query's alias, else its table).
+- `whereExist()`, `whereNotExists()`, `whereIn()` and `whereNotIn()` correlate a ready sub-query with the builder the call is made on (`correlateWith(this)`) when it has no correlation source. A sub-query already correlated with another query is refused with `InvalidArgument('<method>(): the sub-query is already correlated with another query; attach a clone() of it')`. `SelectQueryBuilder.clone()` copies the correlation source, so a clone taken **after** the first attach is refused too: to use one sub-query on two queries, `clone()` it **before** the first attach and attach each copy once.
+- `SqlColumnCompareStatement` resolves `outer(column, levels)` with `outerBuilder()`: it follows that link `levels` times, each time from the query a nested group belongs to (`queryOf()`), and qualifies the column with `qualifierOf()` (the query's alias, else its table).
 - `SqlExistsQueryStatement` and `SqlInQueryStatement` compile their sub-select with `toDB()` at build time and take its bindings.
 - `SqlLazyQueryStatement.build()` clones its context builder, keeps its alias (only when it has one) and correlation source, clears columns, group by, joins and where, runs the callback on the clone and returns the clone's built statements.
 - `SqlWithRecursiveStatement.build()` compiles the anchor member (`clone().clearRecursive().clearJoins()`) and, after pushing a `RECURSIVE` join onto `recursive_cte`, the recursive member (`clone().clearRecursive().clearWhere().setAlias('$recursive$')`). `clearRecursive()` on both clones is what stops infinite recursion.
@@ -105,9 +106,12 @@ The portable form escapes `~`, `%` and `_` with `escapeLikeValue()` and `LIKE_ES
 | Service | Role | Default implementation | How to override |
 | --- | --- | --- | --- |
 | Any statement token above | Builds one fragment | The `Sql*` class, or the dialect's subclass | Subclass it, register `.as(<token>)` in a driver subclass's `resolve()` after `super.resolve()` |
-| A new statement token | A fragment the core has no builder method for | none | Declare an abstract token extending `QueryStatement`, implement it, register it, add a builder method through a prototype extension. See the [example](#add-wherestartswith-to-every-select-builder). |
+| A new statement token | A fragment the core has no builder method for | none | Declare an abstract token extending `QueryStatement`, implement it, register it, add a builder method through a prototype extension. See the [example](#add-whereendswith-to-every-select-builder). |
 | `_columnWrap(quoter, column, tableAlias, isAggregate?)` | Quotes and alias-prefixes a column the way the shared statements do | exported function | Call it from your statement |
 | `DateWrapper`, `DateTimeWrapper` | Column expression for `Wrapper.Date()` / `Wrapper.DateTime()` | `SqlDateWrapper` (`DATE(...)`), `SqlDateTimeWrapper` (`DATETIME(...)`) | Subclass, implement `wrap()`, register |
+| `TextWrapper` | Column expression for `Wrapper.Text()` | `SqlTextWrapper` (`CAST(... AS TEXT)`) | Subclass, override `textType()` (as `MySqlTextWrapper` returns `CHAR`), register `.as(TextWrapper)` |
+| `SqlInStatement` hooks | Bind a long value list as one parameter | `listThreshold` `1000`, `listExpression()` returns `null` (expanded `IN (?, ...)`), `listBinding()` returns JSON text | Subclass, override `listExpression(column)` to return the one-parameter predicate and `listBinding(values)` for its value; lower `listThreshold` when the engine's limit is lower. `valueConverter()` is the per-value conversion `build()` applies. |
+| `SqlStartsWithStatement.pattern()` | The escaped prefix | `escapeLikeValue(prefix)` (`~`, `%`, `_`) | Override to escape more wildcards, as MSSQL escapes `[` |
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -137,7 +141,9 @@ export class DatesPostgresDriver extends PostgresOrmDriver {
 ## Important behaviour
 
 - `clone()` builds statements with `new`, which bypasses DI: property injection (`@Autoinject(IdentifierQuoter) Quoter`) does not run on a clone. Every shipped `clone()` copies `Quoter` onto the copy; yours must too, or the cloned statement throws on its first `quote()`.
-- A subclass that does not override `clone()` turns back into its parent class on clone, because the parent's `clone()` calls `new <Parent>(...)`. Override `clone()` in every statement subclass.
+- A subclass that does not override `clone()` turns back into its parent class on clone, because the parent's `clone()` calls `new <Parent>(...)`. Override `clone()` in every statement subclass. `SqlInStatement` and `SqlStartsWithStatement` are the exceptions: their `clone()` calls `new this.constructor(...)`, so a subclass with the same constructor keeps its class.
+- An empty `where(function () {})` group emits nothing; an empty `whereNot(...)` group emits `1 = 0`; an empty `selectCondition()` group emits `CASE WHEN 1 = 1 ...`.
+- `selectCondition()` reads the selected `1` / `0` back as a boolean through the connection's `BooleanValueConverter`, so rows hold `true` / `false` on every driver; `asRaw()` keeps the driver's value.
 - `SelectQueryBuilder.clone()` runs on every compile of a query with a `Lazy` where statement, and for every pagination count. Clone bugs are not rare-path bugs.
 - `SelectQueryBuilder.clone()` does not copy `Boolean` back onto cloned statements; `WhereBuilder.clone()` does. Set `Boolean` in your `clone()` when it matters.
 - Statements that hold no builder (`SqlBetweenStatement`, `SqlColumnStatement`, `SqlInSetStatement`, ...) carry the table alias as a value snapshotted at creation; `setAlias()` re-stamps it.
@@ -160,12 +166,12 @@ export class DatesPostgresDriver extends PostgresOrmDriver {
 ```ts
 // Don't: the clone has no Quoter (DI never ran on it) and keeps pointing at the old builder
 public clone(): IQueryStatement {
-  return new SqlStartsWithStatement(this._column, this._prefix, this._builder);
+  return new SqlEndsWithStatement(this._column, this._suffix, this._builder);
 }
 
 // Do: rebind to the builder clone() is handed, and carry the injected quoter
 public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
-  const copy = new SqlStartsWithStatement(this._column, this._prefix, (parent as WhereBuilder<unknown>) ?? this._builder);
+  const copy = new SqlEndsWithStatement(this._column, this._suffix, (parent as WhereBuilder<unknown>) ?? this._builder);
   copy.Quoter = this.Quoter;
   copy.Boolean = this.Boolean;
   return copy;
@@ -182,9 +188,9 @@ this.Statements.push(statement);
 
 ## Examples
 
-### Add `whereStartsWith()` to every select builder
+### Add `whereEndsWith()` to every select builder
 
-A prefix search with `LIKE` metacharacters escaped, so `whereStartsWith('Sku', 'AB_1')` does not also match `ABX1...`.
+`whereStartsWith()` ships with the core. A suffix search does not: this adds it as a new statement token, with `LIKE` metacharacters escaped, so `whereEndsWith('Email', '@acme_eu.com')` does not also match `@acmeXeu.com`.
 
 ```ts sample
 import { DI, NewInstance, Autoinject } from '@spinajs/di';
@@ -203,21 +209,21 @@ import { _columnWrap } from '@spinajs/orm-sql';
 
 declare module '@spinajs/orm' {
   interface ISelectQueryBuilder<T> {
-    /** Rows whose `column` starts with `prefix`, compared literally. */
-    whereStartsWith(column: string, prefix: string): this;
+    /** Rows whose `column` ends with `suffix`, compared literally. */
+    whereEndsWith(column: string, suffix: string): this;
   }
 }
 
 /** Token: what the builder method resolves. A dialect may register its own class for it. */
 @NewInstance()
-export abstract class StartsWithStatement extends QueryStatement {
-  constructor(protected _column: string, protected _prefix: string, protected _builder: WhereBuilder<unknown>) {
+export abstract class EndsWithStatement extends QueryStatement {
+  constructor(protected _column: string, protected _suffix: string, protected _builder: WhereBuilder<unknown>) {
     super();
   }
 }
 
 @NewInstance()
-export class SqlStartsWithStatement extends StartsWithStatement {
+export class SqlEndsWithStatement extends EndsWithStatement {
   @Autoinject(IdentifierQuoter)
   public Quoter: IdentifierQuoter;
 
@@ -226,12 +232,12 @@ export class SqlStartsWithStatement extends StartsWithStatement {
 
     return {
       Statements: [`${column} LIKE ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'`],
-      Bindings: [`${escapeLikeValue(this._prefix)}%`],
+      Bindings: [`%${escapeLikeValue(this._suffix)}`],
     };
   }
 
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
-    const copy = new SqlStartsWithStatement(this._column, this._prefix, (parent as unknown as WhereBuilder<unknown>) ?? this._builder);
+    const copy = new SqlEndsWithStatement(this._column, this._suffix, (parent as unknown as WhereBuilder<unknown>) ?? this._builder);
     copy.Quoter = this.Quoter;
     copy.Boolean = this.Boolean;
     return copy;
@@ -239,10 +245,10 @@ export class SqlStartsWithStatement extends StartsWithStatement {
 }
 
 // Root registration: driver containers fall back to it, and a driver may still register its own.
-DI.register(SqlStartsWithStatement).as(StartsWithStatement);
+DI.register(SqlEndsWithStatement).as(EndsWithStatement);
 
-(SelectQueryBuilder.prototype as unknown as Record<string, unknown>).whereStartsWith = function (this: SelectQueryBuilder, column: string, prefix: string) {
-  const statement = this.Container.resolve(StartsWithStatement, [column, prefix, this]);
+(SelectQueryBuilder.prototype as unknown as Record<string, unknown>).whereEndsWith = function (this: SelectQueryBuilder, column: string, suffix: string) {
+  const statement = this.Container.resolve(EndsWithStatement, [column, suffix, this]);
 
   // pushStatement() is protected; it applies a pending orWhere() connector.
   (this as unknown as { pushStatement(s: IQueryStatement): unknown }).pushStatement(statement);
@@ -257,21 +263,34 @@ import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
 
 declare module '@spinajs/orm' {
   interface ISelectQueryBuilder<T> {
-    whereStartsWith(column: string, prefix: string): this;
+    whereEndsWith(column: string, suffix: string): this;
   }
 }
 
 @Connection('default')
-@Model('products')
-export class Product extends ModelBase<Product> {
+@Model('users')
+export class User extends ModelBase<User> {
   @Primary()
   public Id: number;
 
-  public Sku: string;
+  public Email: string;
 }
 
-export async function productsInLine(line: string): Promise<Product[]> {
-  return await Product.where('Sku', '!=', '').whereStartsWith('Sku', `${line}-`);
+export async function usersOfDomain(domain: string): Promise<User[]> {
+  return await User.where('Email', '!=', '').whereEndsWith('Email', `@${domain}`);
+}
+```
+
+### Update every row on purpose
+
+An update without a condition is refused at compile time. Say so explicitly with `where(true)`.
+
+```ts sample
+import { OrmDriver } from '@spinajs/orm';
+
+export async function expireAllSessions(driver: OrmDriver): Promise<void> {
+  // UPDATE `sessions` SET `Expired` = ? WHERE 1 = 1
+  await driver.update().in('sessions').update({ Expired: 1 }).where(true);
 }
 ```
 

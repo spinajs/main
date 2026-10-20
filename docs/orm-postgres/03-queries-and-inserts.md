@@ -19,6 +19,13 @@ The SQL a select, insert or upsert compiles to on a PostgreSQL connection, and h
 | `.take(10)` | `... LIMIT ?` |
 | `whereExist('Owner', cb)` | `EXISTS ( SELECT * FROM "account" as "account_exists" WHERE ... )` |
 | `withRecursive('Parent_Id', 'Id')` | `WITH RECURSIVE recursive_cte("Id","Parent_Id") AS (...)` (shared `SqlWithRecursiveCompiler`) |
+| `whereIn('id', ids)`, up to 1000 values | `"id" IN (?,?,...)`, one binding per value |
+| `whereIn('id', ids)`, more than 1000 strings or numbers | `"id" = ANY(?)`, the list bound as one array (`PostgresInStatement`) |
+| `whereNotIn('id', ids)`, more than 1000 strings or numbers | `"id" <> ALL(?)` |
+| `where('expires_at', '<=', driver.now())` | `"expires_at" <= CURRENT_TIMESTAMP`, no binding (`PostgresNowExpression`) |
+| `where(Wrapper.Text('Id'), '=', '2')` | `CAST("Id" AS TEXT) = ?` (shared `SqlTextWrapper`) |
+
+`whereColumn()`, `outer()`, `whereNot()`, `selectCondition()`, `where(true)` / `where(false)` and the other shared statements compile as described in [Statements](../orm-sql/03-statements.md); with this driver's quoter their identifiers are double-quoted.
 
 ### Insert
 
@@ -35,6 +42,14 @@ The SQL a select, insert or upsert compiles to on a PostgreSQL connection, and h
 | `.onDuplicate('id').update(['email'])` | `... ON CONFLICT ("id") DO UPDATE SET "email" = EXCLUDED."email" RETURNING *` |
 
 `ON CONFLICT DO NOTHING` and the plain-insert `RETURNING` are skipped when an upsert clause is present, because the upsert compiler emits its own conflict handling and `RETURNING`.
+
+#### Large inserts
+
+PostgreSQL's Bind message counts parameters in an Int16, so the driver's `MaxBindings` is `65535` and `MaxInsertRows` is unlimited. A multi-row insert whose bindings exceed the limit is sent as several `INSERT` statements, each within it: 40 000 rows of two columns take two statements. When one statement fails, the rows of every statement roll back. `Model.insert(models)` assigns the keys of every model across all statements. The split is `InsertQueryBuilder.splitByDriverLimits()` in `@spinajs/orm`; see [Query builder](../orm/05-query-builder.md#insert-update-and-delete).
+
+#### Datetime values
+
+The driver registers `IsoDatetimeValueConverter` as `DatetimeValueConverter`. A `Date` or luxon `DateTime` written to a `dateTime` / `timestamp` column, bound in a `where()`, or passed as a raw binding to `executeOnDb()` is sent as ISO 8601 in UTC with `Z` (`2026-10-19T12:00:00.123Z`). PostgreSQL reads that text as the exact instant, whatever the zone of the Node process. A model property declared `@DateTime()` reads back as a luxon `DateTime` in the `UTC` zone.
 
 ### Upsert
 
@@ -60,14 +75,14 @@ When `onDuplicate()` is called without columns on a model query, the conflict ta
 | Column type | Value read back | `ResponseSchemaTypes` entry |
 | --- | --- | --- |
 | `NUMERIC`, `DECIMAL` | string, e.g. `'12.50'` | `decimal: { type: 'string' }`, `numeric: { type: 'string' }` |
-| `BIGINT`, `COUNT(*)` | string, e.g. `'42'` | `bigint: { type: 'string' }` |
+| `BIGINT`, `COUNT(*)` in a raw select | string, e.g. `'42'` | `bigint: { type: 'string' }` |
 | `INTEGER`, `SMALLINT`, `REAL`, `DOUBLE PRECISION` | number | |
 | `BOOLEAN` | boolean | |
 | `JSONB` | parsed object | |
 | `TIMESTAMPTZ`, `TIMESTAMP`, `DATE` | `Date` (`TIMESTAMP` read as UTC, `DATE` at local midnight) | |
 | `BYTEA` | `Buffer` | |
 
-On the request side these stay numbers; only response schemas change.
+On the request side these stay numbers; only response schemas change. `selectCount()` and `Model.count()` convert the count and resolve with a `number`.
 
 ## Services and extension points
 
@@ -81,6 +96,10 @@ On the request side these stay numbers; only response schemas change.
 | Response type overrides | `ResponseSchemaTypes`, public readonly field of the driver | `decimal`, `numeric`, `bigint` → `string` | | Redeclare the field in a driver subclass. |
 | Join statement | `JoinStatement`, `@NewInstance()`, resolved per join | `PostgresJoinStatement` (schema or no prefix) | `SqlJoinStatement` (database prefix) | Subclass and override `tableQualifier(driver)`. |
 | Date wrappers | `DateWrapper` (registered by `SqlDriver`), `DateTimeWrapper` | `SqlDateWrapper` (`DATE(col)`), `PostgresDateTimeWrapper` (`CAST(col AS TIMESTAMP)`) | `SqlDateTimeWrapper` (`DATETIME(col)`) | Subclass, implement `wrap()`, register in a driver subclass. See the [example](#compare-with-a-time-zone-aware-datetime-wrapper). |
+| Text wrapper | `TextWrapper` (registered by `SqlDriver`) | `SqlTextWrapper` (`CAST(col AS TEXT)`) | | Subclass and override `textType()`. |
+| `IN` list statement | `InStatement`, `@NewInstance()`, resolved per `whereIn()` | `PostgresInStatement` | `SqlInStatement` (always `IN (?,...)`) | Subclass; override `listExpression(column)`, `listBinding(values)` or the `listThreshold` field (`1000`). |
+| Database clock | `NowExpression`, resolved by `driver.now()` | `PostgresNowExpression` (`CURRENT_TIMESTAMP`) | | Subclass and override `sql()`, e.g. `clock_timestamp()` for the wall clock instead of the transaction start. Column defaults (`default().dateTime()`) do not resolve the token and keep `CURRENT_TIMESTAMP`. |
+| Datetime converter | `DatetimeValueConverter`, resolved per value | `IsoDatetimeValueConverter` (from `@spinajs/orm-sql`) | `SqlDatetimeValueConverter` (`yyyy-MM-dd HH:mm:ss.SSS`) | See [Value converters and default values](../orm-sql/05-value-converters-and-defaults.md). |
 
 ### `PostgresServerResponseMapper`: custom implementation
 
@@ -136,14 +155,17 @@ export class BigintKeysPostgresDriver extends PostgresOrmDriver {
 - An insert whose columns include a `RawQuery` column is written with backticks by the shared `SqlInsertQueryCompiler.columns()`, which PostgreSQL rejects.
 - Joins from a table name or model qualify both tables with `Options.Schema` when it is set, and are unqualified otherwise. The `FROM` table is always unqualified and resolves through `search_path`, which `connect()` sets to the same schema. A join built from a raw query (`options.query`) is not prefixed.
 - `Wrapper.DateTime()` renders `CAST("col" AS TIMESTAMP)`. `Wrapper.Date()` renders `DATE("col")`, which PostgreSQL accepts as a cast.
+- `Wrapper.Text(col)` renders `CAST("col" AS TEXT)`. PostgreSQL refuses to compare an integer column with a text value; the cast makes `where(Wrapper.Text('Id'), '=', '2')` and `whereIn(Wrapper.Text('Id'), ['1', '3'])` valid. A list of more than 1000 values is still bound as one array.
+- `driver.now()` is `CURRENT_TIMESTAMP`: the start of the current transaction, read from the server clock in UTC. Use `driver.now().Query` inside raw SQL.
+- The ISO text the datetime converter writes into a `timestamp` (without time zone) column is stored as its UTC wall clock, and the pool reads it back as UTC. Compare and cast such columns knowing they hold UTC.
 - `IN SET` conditions (`whereInSet`) use the shared, portable `LIKE` statement, matching the comma-joined `TEXT` that `SET` columns are stored as.
 - `whereStartsWith(col, prefix)` uses the shared `SqlStartsWithStatement`: `"col" LIKE ? ESCAPE '~'`, the prefix's `%`, `_` and `~` escaped. PostgreSQL's `LIKE` compares case-sensitively under every deterministic collation.
-- A failed statement with SQLSTATE `23505` throws `UniqueViolation` (extends `ResourceDuplicated`) with the pg error's `table` and `constraint` and the key columns from its `detail`. Any other class `23` SQLSTATE throws `ConstraintViolation`: `23502` is `not_null`, `23503` `foreign_key`, `23514` `check`, the rest `other`. Every other error stays `OrmException`. The pg error is `inner` in all three.
+- A failed statement with SQLSTATE `23505` throws `UniqueViolation` (extends `ResourceDuplicated`) with the pg error's `table` and `constraint` and the key columns from its `detail`. Any other class `23` SQLSTATE throws `ConstraintViolation`: `23502` is `not_null`, `23503` `foreign_key`, `23514` `check`, the rest `other`. Every other error stays `OrmException`. The pg error is `inner` in all three; see [Errors](01-connection-and-pooling.md#errors).
 - `whereIn()` with more than 1000 strings or numbers emits `"col" = ANY(?)` (`"col" <> ALL(?)` for `whereNotIn()`) and binds the list as one array parameter; PostgreSQL infers its element type from the column.
 
 ## Best practices
 
-- Convert `COUNT(*)`, `BIGINT` and `NUMERIC` results explicitly (`Number(total)`, a decimal library) at the edge of your code.
+- Convert raw `COUNT(*)`, `BIGINT` and `NUMERIC` results explicitly (`Number(total)`, a decimal library) at the edge of your code.
 - Upsert with an explicit conflict target (`onDuplicate('email')`) that matches a unique index; PostgreSQL requires the target to match one.
 - Prefer `orIgnore()` to `onDuplicate().update([])` for "insert if absent": the upsert compiler needs at least one column to update.
 - Use `returning(['*'])` on a plain insert to read server-side defaults (`created_at DEFAULT now()`) without a second query.
@@ -204,6 +226,21 @@ export async function openTicket(subject: string): Promise<{ id: number; created
   // INSERT INTO "tickets" ("subject") VALUES (?) RETURNING "id","created_at"
   const result = (await driver.insert().into('tickets').values({ subject }).returning(['id', 'created_at'])) as IInsertResult;
   return result.Returning[0];
+}
+```
+
+### Count expired sessions by the database clock
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
+
+export async function countExpiredSessions(): Promise<number> {
+  const orm = await DI.resolve(Orm);
+  const driver = orm.Connections.get('main')!;
+
+  // SELECT COUNT(*) ... WHERE "expires_at" <= CURRENT_TIMESTAMP: the server's clock, not the app server's
+  return driver.select().from('sessions').where('expires_at', '<=', driver.now()).selectCount();
 }
 ```
 

@@ -69,9 +69,9 @@ Available on `User.query()`, `User.where(...)`, `User.update(...)` and `User.des
 | `user:ban:reason` | `USER_BAN_REASON` | `ban()` |
 | `user:avatar`, `user:phone`, `user:newsletter:enabled` | `USER_AVATAR`, `USER_PHONE`, `USER_NEWSLETTER_ENABLED` | your application |
 | `user:2fa:token` | `USER_2FA_TOKEN` | nothing in this monorepo; reserved |
-| `user:pwd:reset`, `user:pwd_reset:*` | `USER_PWD_RESET*` | nothing in this monorepo; reserved |
+| `user:pwd:reset`, `user:pwd_reset:*` | `USER_PWD_RESET*` | nothing in this monorepo; reserved (reset secrets live in authn's secret store) |
 | `user:invite:pending` | `USER_INVITE_PENDING` | `create()` without a password; removed on invite redeem, `activate()` and `deactivate()` |
-| `user:login:attempts`, `user:login:locked_until` | `USER_LOGIN_ATTEMPTS`, `USER_LOGIN_LOCKED_UNTIL` | nothing in this monorepo; reserved |
+| `user:login:attempts`, `user:login:locked_until` | `USER_LOGIN_ATTEMPTS`, `USER_LOGIN_LOCKED_UNTIL` | nothing in this monorepo; reserved (authn's throttle keeps login state) |
 
 ### Reserved keys, logins and markers
 
@@ -101,8 +101,8 @@ Available on `User.query()`, `User.where(...)`, `User.update(...)` and `User.des
 | `CreatedAt` | `datetime`, not null, default now | Creation time. |
 | `DeletedAt` | `datetime`, nullable | Soft delete time. |
 | `LastLoginAt` | `datetime`, nullable | Last login. |
-| `RegisteredAt` | `datetime`, nullable | Registration time. |
-| `PasswordSetAt` | `datetime`, nullable | When the current password was set. |
+| `RegisteredAt` | `datetime`, nullable | Registration time; set by `create()`. |
+| `PasswordSetAt` | `datetime`, nullable | When the current password was set; written by [`UserAccountSink`](08-authn-event-sinks.md). |
 
 ### `users_metadata`
 
@@ -154,6 +154,7 @@ export class HideInternalUserMetadata extends Bootstrapper {
 - An expired ban leaves `user:ban:is_banned` stored until `unban()` removes it. `IsBanned` is `false` for it and `ban()` accepts a new ban.
 - `dehydrateWithRelations()` also hides `2fa:enabled` (it is under a reserved prefix). MFA status comes from authn's MFA routes.
 - `UserMetadataBase` applies no access check. Callers such as users-http decide each row.
+- The `users` table has no role column: roles are role assignments of [`@spinajs/authz-rbac`](../authz-rbac/README.md).
 
 ## Best practices
 

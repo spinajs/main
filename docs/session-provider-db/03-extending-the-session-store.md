@@ -54,15 +54,10 @@ export class AuditRetentionSessionStore extends DbSessionStore {
 
   public async cleanupExpired(): Promise<number> {
     const cutoff = DateTime.now().minus({ days: this.RetentionDays });
-    const old = await DbSession.where('Expiration', '<=', cutoff);
+    const { RowsAffected } = await DbSession.destroy().where('Expiration', '<=', cutoff);
 
-    if (old.length === 0) {
-      return 0;
-    }
-
-    await DbSession.destroy(old.map((s) => s.SessionId));
-    this.Log.info(`Deleted ${old.length} sessions past the audit retention`);
-    return old.length;
+    this.Log.info(`Deleted ${RowsAffected} sessions past the audit retention`);
+    return RowsAffected;
   }
 }
 

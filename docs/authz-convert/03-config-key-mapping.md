@@ -17,7 +17,6 @@
 | --- | --- | --- |
 | `rbac.enableGuestAccount` | `authz.principals.anonymous.enabled` | Same boolean. When `true`, also `authz.rbac.anonymousRoles: ['guest']`: the 2.x guest account always held `guest`. |
 | `rbac.defaultRole` | `authz.rbac.defaultRoles` | `[role]`. |
-| `rbac.roleColumn` | `authz.rbac.migration.roleColumn` | Copied; the `users.Role` copy migration reads it. |
 | `rbac.roleSwitch.requirePassword` | `authz.principals.roleSwitch.requirePassword` | Copied (array of role names). |
 | `rbac.impersonation.protectedRoles` | `authz.impersonation.protectedRoles` | The app's roles plus the 2.x package part `['system']` (`package-array` note), in the common layer, or in an env layer when common does not set the key. |
 | `rbac.admin.roleGuard.service` | `authz.admin.guard.service` | `DefaultRoleGuard` becomes `DefaultAdminGuard`. Any other name is written as found, plus a manual `custom-service` item: boot fails until a 3.0 `AdminGuard` of that name is registered. |
@@ -70,7 +69,8 @@ When the converter writes any `authz.admin.guard` key but no `privilegedPermissi
 | `rbac.requireKnownRole` | Dropped. `false` gives a `require-known-role` warning: 3.0 always refuses an unknown role on an assignment write. |
 | `rbac.systemRole` | Dropped. A value other than `system` gives a `system-role` warning: 3.0 has no system role, `SYSTEM` is a principal. |
 | `rbac.admin.roleGuard.requireKnownRole` | Dropped, `removed` note: `AuthzAdmin` always refuses unknown roles. |
-| Any other `rbac.*` key | Manual `unknown-key` item. 3.0 fails boot on any `rbac.*` key unless `authz.config.rejectLegacyKeys` is `false`. |
+| `rbac.roleColumn` | Dropped, `removed` note: 3.0 starts from an empty database and reads no `users.Role` column. Grant roles as assignments. |
+| Any other `rbac.*` key | Manual `unknown-key` item. 3.0 reads no `rbac.*` key and boot does not report one, so a key left behind is ignored. |
 
 ## 2.x package defaults
 

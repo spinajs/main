@@ -6,8 +6,8 @@
 
 1. A migration or your code calls `driver.schema().createTable()`, `alterTable()`, `createView()`, `createEvent()`, `cloneTable()` or `truncate()`.
 2. Awaiting the builder calls `toDB()`, which resolves the compiler for its token from the connection's container. `MySqlOrmDriver.resolve()` registered the MySQL set (table below).
-3. A compiler returns one `ICompilerOutput` or an array. `SqlDriver.execute()` sends an array with `Promise.all`, one `executeOnDb()` per statement, with `QueryContext.Schema`.
-4. `executeOnDb()` resolves the raw `mysql2` result. Errors surface as `OrmException` and are retried only on transport failure.
+3. A compiler returns one `ICompilerOutput` or an array. `SqlDriver.execute()` sends an array one statement after another, in compile order, one `executeOnDb()` per statement, with `QueryContext.Schema`.
+4. `executeOnDb()` resolves the raw `mysql2` result. Errors go through `mapMySqlError()` (see [MySQL driver](01-mysql-driver.md#errors)) and are retried only on transport failure.
 
 | Token | MySQL registers | Emits |
 | --- | --- | --- |
@@ -15,7 +15,7 @@
 | `AlterTableQueryCompiler` | `SqlAlterTableQueryCompiler` | one `ALTER TABLE` per dropped column (`` DROP COLUMN `c` ``), rename and changed column |
 | `IndexQueryCompiler` | `SqlIndexQueryCompiler` (from `SqlDriver`) | `` CREATE [UNIQUE] INDEX `i` ON `t` (...) ``, or `` DROP INDEX `i` ON `t` `` after `drop()` |
 | `AlterColumnQueryCompiler` | `SqlAlterColumnQueryCompiler` | `ADD <column> [AFTER x]`, `MODIFY <column>`, `RENAME COLUMN a TO b` |
-| `DefaultValueBuilder` | `SqlDefaultValueBuilder` | `date()`: `(CURRENT_DATE())`; `dateTime()`: `CURRENT_TIMESTAMP`; `value(v)`; `raw(q)` |
+| `DefaultValueBuilder` | `SqlDefaultValueBuilder` | `date()`: `(CURRENT_DATE())`; `dateTime()`: `CURRENT_TIMESTAMP(3)`, the precision of a `DATETIME(3)` column; `value(v)`; `raw(q)`. Both read the session clock, which the driver pins to UTC. |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | `TRUNCATE TABLE <table>` |
 | `TableCloneQueryCompiler` | `SqlTableCloneQueryCompiler` | `CREATE [TEMPORARY] TABLE t LIKE src`, then for a deep clone `INSERT INTO t SELECT ...` |
 | `TableHistoryQueryCompiler` | `SqlTableHistoryQueryCompiler` | `<table>__history` and triggers, for `table.trackHistory()` |
@@ -34,7 +34,9 @@
 | `int`, `tinyint`, `smallint`, `mediumint`, `bigint`, `bit` | the same names |
 | `float`, `double`, `decimal` (`precision?`, `scale?`) | `TYPE(precision,scale)`, defaults `8,2` |
 | `boolean` | `BOOLEAN` (stored as `TINYINT(1)`) |
-| `date`, `dateTime`, `time`, `timestamp` | the same names |
+| `date`, `time` | `DATE`, `TIME` |
+| `dateTime` | `DATETIME(3)`: keeps the milliseconds of a JS `Date` |
+| `timestamp` | `TIMESTAMP(3)` |
 | `enum(name, values)` | `ENUM('a','b')` |
 | `set(name, values)` | `SET('a','b')` |
 | `json` | `JSON` (`supportedFeatures().nativeJson` is `true`) |
@@ -153,12 +155,14 @@ export class InvokerViewsMySqlDriver extends MySqlOrmDriver {
 
 ## Important behaviour
 
-- A multi-statement compile (`alterTable()` with several changes, `cloneTable()` with `deepClone()`, `trackHistory()`) is sent with `Promise.all`. Outside a transaction each statement takes its own pooled connection, so they run concurrently and in no fixed order: a deep clone's `INSERT ... SELECT` can reach the server before its `CREATE TABLE ... LIKE`.
+- A multi-statement compile (`alterTable()` with several changes, `cloneTable()` with `deepClone()`, `trackHistory()`) is sent one statement after another, in compile order. Outside a transaction each statement may take a different pooled connection.
 - `trackHistory()` emits `DELIMITER $$`, a `mysql` command-line directive the server does not accept, and its trigger matches rows on a column named `Id`.
 - `TRUNCATE TABLE` resets the auto-increment counter and cannot be rolled back.
 - `onDelete` / `onUpdate` foreign keys need InnoDB tables; MyISAM accepts the syntax and ignores the constraint.
 - A view body has no placeholders: its bindings are inlined by `MySqlLiteralQuoter`, which escapes backslashes (`'it\'s'`).
 - `algorithm()`, `security()` and `checkOption()` reject values outside their lists, because those values reach the SQL unquoted.
+- A column written by hand as plain `DATETIME` or `TIMESTAMP` keeps second precision: MySQL rounds the milliseconds `SqlDatetimeValueConverter` writes, so a value read back differs from the one saved. `dateTime()` and `timestamp()` create `(3)` columns.
+- `driver.lockTableShared(t)` is `SELECT COUNT(*) FROM <t> FOR UPDATE`, not `LOCK TABLES`, which would commit the open transaction. It is exclusive, so the locks reach the clustered records even when the count scans a secondary index. Its row locks keep writers out until commit under `REPEATABLE READ`; plain (non-locking) reads go on. Outside a transaction it throws `InvalidOperation`. See [Shared table lock](../orm/08-transactions.md#shared-table-lock).
 
 ## Best practices
 

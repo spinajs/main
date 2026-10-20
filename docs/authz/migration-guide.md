@@ -38,7 +38,7 @@ What bites, on one screen:
 
 | Change | What you see | What you do |
 |---|---|---|
-| **Union of roles (H1)** | A user with several roles gets the grants of all of them. 2.x mixed the active role and all roles. A role switch now only narrows. | Before the data migration, list users with several roles (step 5). Decide that the union is meant. |
+| **Union of roles (H1)** | A user with several roles gets the grants of all of them. 2.x mixed the active role and all roles. A role switch now only narrows. | Before you leave 2.x, list users with several roles (step 5). Decide that the union is meant. |
 | **Unattended work is denied (H2)** | CLI commands, cron jobs, queue handlers, `@Task` bodies, sockets without a user and config polling have no principal. Every check denies them, and a query on a scoped ORM model throws. | Wrap the entry point in `authz().runAs(SYSTEM, 'reason', fn)`, or run the job as its initiator (step 4). |
 | **Roles live in `authz_assignment` (H13)** | 3.0 has no `users.Role` column and no `User.Role`; raw SQL on them stops working. No migration copies 2.x roles. | Export the roles from the 2.x database (section 4.2), grant them as assignments (step 7), and remove every read of the column. |
 | **Empty CORS list allows nothing (H33, A31)** | 2.x answered every origin, with credentials, when `http.cors.origins` was empty. 3.0 sends no CORS headers. | List every origin a browser client uses (step 8). |
@@ -72,9 +72,10 @@ New packages: `authn` (core), `authn-orm`, `authn-keys`, `authn-oidc`, `authz`, 
 
 Rules for the move (§4.1.1):
 
-- Table names and migration class names do not change (`users`, `users_metadata`, `user_sessions`,
-  `rbac_access_tokens`, `RBACInitial_2022_06_28_01_13_00`). The ORM keys migration history by class
-  name, so a renamed class would run again.
+- Table names and the class names of the creating migrations stay (`users`, `users_metadata`,
+  `user_sessions`, `rbac_access_tokens`, `RBACInitial_2022_06_28_01_13_00`). Each migration creates
+  its table in the 3.0 shape on an empty database; none alters a 2.x table
+  ([section 7](#7-data-migration)).
 - DI class names stay where the class keeps its job (`SessionProvider`, `MemorySessionStore`,
   `AbsoluteExpiration`). Classes that change their job get new names: `SimpleDbAuthProvider` is now
   `LocalPasswordStrategy`, `TwoFactorAuthProvider` is now `MfaStep`, `RbacMiddleware` is now
@@ -569,16 +570,25 @@ is a follow-up, not part of the port.
 ## 7. Data migration
 
 3.0 starts from an empty database. Its migrations create the 3.0 tables; none of them reads, copies,
-alters or drops a 2.x table or column, and no 3.0 code reads 2.x rows at run time. Keep the 2.x
-database as it is (it is your rollback), create a new one for 3.0, and move the data you keep with
-scripts of your own once the 3.0 migrations have run.
+alters or drops a 2.x table or column, and no 3.0 code reads 2.x rows at run time:
+
+| Migration | Creates |
+|---|---|
+| `RBACInitial_2022_06_28_01_13_00` (`users`) | `users` (no `Role`; `RegisteredAt` and `PasswordSetAt` included) and `users_metadata` |
+| `UserSessionDBSqlMigration_2022_06_28_01_20_00` (`session-provider-db`) | `user_sessions`: `SessionId` (a 64-character hash), `Data`, `Subject`, `ImpersonatorId`, `State`, and no `UserId` |
+| `RbacHttpTokenInitial_2026_08_11_01_00_00` (`authn-token`) | `rbac_access_tokens` with `Profile`, `Scope`, `Kind`, `RevokedAt` and `LastUsedIp` |
+| `AuthnInitial_2026_10_02_00_00_00` (`authn-orm`) | the `authn_*` tables |
+| `AuthzRbac_2026_10_01_00_00_00`, `AuthzAdminIdempotency_2026_10_02_00_01_00` (`authz-rbac`) | the RBAC tables, on the `authz` connection ([authz-rbac database storage](../authz-rbac/02-database-storage.md#migrations)) |
+
+Keep the 2.x database as it is (it is your rollback), create a new one for 3.0, and move the data you
+keep with scripts of your own once the 3.0 migrations have run. No 3.0 tool copies it.
 
 | What | In 3.0 | What you do |
 |---|---|---|
 | Roles (`users.Role`, a comma list) | `$global` assignments of `user:<Uuid>` in `authz_assignment`; 3.0 user principals are `user:<Uuid>`, not `user:<Id>` | Export the column (section 4.2). After the migrations, grant each role through `AuthzAdmin.assign` (as `SYSTEM`) or `authz:assign user:<Uuid> <role>`. Never insert into `authz_*` tables directly: `AuthzAdmin` keeps `authz_version` and the membership closure right (H22). |
-| Users and their profile metadata | The tables of `@spinajs/users` | Copy the rows you keep into the tables the 3.0 migrations created. Check each table's 3.0 schema first. |
+| Users and their profile metadata | The tables of `@spinajs/users` | Copy the rows you keep into the tables the 3.0 migrations created. Keep `Uuid`: it is the subject of the role assignments. Check each table's 3.0 schema first. |
 | Password hashes (`users.Password`) | Verified as they are | Copy them with the users. A login rehashes a hash when the pepper is set or changed. The argon2 cost stays at the library default, so 2.x hashes already match it. |
-| TOTP secrets, pending password resets and invites, throttle state (`2fa:*`, `user:2fa:*`, `user:pwd_reset:*`, `user:login:*` in `users_metadata`) | Not read | Do not copy them. Users with 2FA enrol again through `/user/mfa`, and a reset or invite link mailed by 2.x stops working: ask the user for a new one. `user:invite:pending` stays in use. |
+| TOTP secrets, pending password resets and invites, throttle state (`2fa:*`, `user:2fa:*`, `user:pwd_reset:*`, `user:login:*` in `users_metadata`) | Not read. 3.0 keeps them in `authn_mfa`, `authn_secret` and `authn_throttle`, which start empty | Do not copy them; `2fa:token` holds the TOTP secret in clear. Users with 2FA enrol again through `/user/mfa`, and a reset or invite link mailed by 2.x stops working: ask the user for a new one. `user:invite:pending` stays in use. |
 | Sessions | Stored under the SHA-256 of the session id | Not carried: every user logs in again. The rename of the cookie to `__Host-ssid` outside development and test logs every 2.x session out anyway. |
 | API tokens (`rbac_access_tokens`) | Every token has an expiry; a row without `ExpiresAt` reads as expired | Not carried: owners create new tokens. The converter lists 2.x tokens without expiry (`--db`). |
 
@@ -587,12 +597,12 @@ Details you may need:
 - **Cut-over.** Stop every 2.x node before you start the first 3.0 node, so no write lands in the old
   database after your export.
 - **Store limits.** `session-provider-db` supports MySQL, PostgreSQL and SQLite. `session-provider-redis`
-  assumes a single Redis, not Cluster. DynamoDB never expires items by its TTL (it reads seconds, the
-  rows store milliseconds, as in 2.x).
+  assumes a single Redis, not Cluster.
 - **MySQL and MSSQL**: default collations ignore case. Give identity, subject and hash columns a binary
   collation. A sub-second `authn.throttle` delay is not supported there.
 - **The `authz` connection.** The authz tables live on the ORM connection alias `authz`
-  (`db.Aliases.authz`, default `default`); their migrations run there.
+  (`db.Aliases.authz`, default `default`); their migrations run there. When it names another
+  connection, create that database empty too and migrate both connections in one run.
 
 *Before and after.* Compare the number of users with a role in your export against the number of
 distinct `subject_id` of `$global` assignments in `authz_assignment`.
@@ -629,7 +639,8 @@ Compile the app, run the converter ([section 4](#4-running-spinajs-authz-convert
 generated files into the config dir. Read `authz-warnings.md` and act on every "convert by hand" item.
 Then delete every `rbac.*` key from your own config files. No 3.0 package reads or ships one, and
 nothing reports one that is left: a forgotten key silently has no effect, so check that every key the
-converter listed has a 3.0 home. Check: the app boots.
+converter listed has a 3.0 home. Check: the app boots, and no config file of yours still sets a
+`rbac.*` key.
 
 Keys whose 2.x meaning changed:
 
@@ -703,11 +714,12 @@ SELECT Id, Login, Role FROM users WHERE Role LIKE '%,%';
 The converter lists them too, from the `--db` file. For each, decide that the union is meant. Also
 check roles that the config does not define: in 2.x a user holding one got no permission at all
 (`accesscontrol` refused the whole list). In 3.0 that role is ignored, with a warning, and the others
-apply. Export the `--db` rows now if you did not (section 4.2).
+apply. Export the `--db` rows now if you did not (section 4.2): the 3.0 database has no `Role`
+column, so the export is the only list step 7 can grant from.
 
 ### Step 6: secrets, proxy and env settings
 
-Set these before you run the migrations and before the first 3.0 start:
+Set these before the first 3.0 start:
 
 - `authn.mfa.encryptionKey` (a secret reference, never an inline value). Boot refuses a missing key
   outside development and test when a listed MFA step stores secrets, and only warns in development
@@ -734,11 +746,17 @@ therefore needs `APP_ENV=development` (or `test`).
 
 ### Step 7: create the database, then move the data
 
-Stop the 2.x nodes and take the last export (section 4.2). Point the app at a new, empty database and
-run the 3.0 migrations: they create the 3.0 tables and touch nothing else. Then copy the users you keep
-and grant their roles as `$global` assignments of `user:<Uuid>` through `AuthzAdmin` or
-`authz:assign` ([section 7](#7-data-migration)). Check: the number of users with a role in the export
-matches the users with a `$global` assignment.
+Stop the 2.x nodes and take the last export (section 4.2). Point the app at a new, empty database
+(and `db.Aliases.authz` at its own, when the authz tables live elsewhere) and run the 3.0 migrations:
+they create the 3.0 tables and touch nothing else. Then copy the users you keep and grant their roles
+as `$global` assignments of `user:<Uuid>`, not the numeric `Id` ([section 7](#7-data-migration)):
+
+```sh
+npx spinajs authz:assign user:5f0c2a7e-0d4b-4a3e-9c1f-2b8d7e6a1c90 admin
+```
+
+A script can call `AuthzAdmin.assign` instead ([AuthzAdmin](./10-authz-admin.md)). Check: the number
+of users with a role in the export matches the users with a `$global` assignment.
 
 ### Step 8: CORS
 
@@ -869,6 +887,7 @@ These change how containers behave. They matter if your app uses child container
   domain's service booted. Resolve the service at boot. Register a child domain's models before its
   first `service()` call, and resolve `Configuration` before `AuthzDomains.create`.
 - Only the root container and containers made by `AuthzDomains.create` are domains.
+- Boot reads no `rbac.*` key and does not look for one; a key left in the config is ignored.
 - Per-domain keys: `authz.domains.<name>.{combine, engine, fields, cache, audit, permissions,
   disable}`. `bus` and `principals` come from the root only.
 - A model's `init` runs once per instance. Its registrations are replayed in each domain that lists
@@ -998,7 +1017,7 @@ and in [section 7](#7-data-migration). What changes for an app:
   `new DbScopeAttributeStore()` (authz-orm) take no arguments
   ([The `authz` connection and records](../authz-orm/03-authz-connection-and-records.md)).
 - Roles are `$global` assignments of `user:<Uuid>` (the design says `users.Id`). No migration copies
-  `users.Role`; grant the roles after the move ([section 7](#7-data-migration)).
+  `users.Role`: 3.0 starts from an empty database. Grant the roles after the move ([section 7](#7-data-migration)).
 - Rules in the database are narrower than rules in config: the SQL form must never be wider than
   the evaluator, so `authz_rule` refuses permission globs other than `*`, the ops `in`, `nin` and
   `pattern` in `when`, numeric strings, and order ops on values that are not numbers
@@ -1063,7 +1082,7 @@ it, write the routes you need on `@Access`.
 
 ### N1: authn core
 
-Config, boot checks and the old-key detector are in [section 3.4](#34-keys-that-other-config-files-own).
+Config, boot checks and old keys are in [section 3.4](#34-keys-that-other-config-files-own).
 The flow is in the [authentication flow](../authn/01-authentication-flow.md). What an app sees:
 
 - **Class names.** `DefaultAuthnService`, `StrategyRegistry`, `DefaultMfaPolicy`,
@@ -1113,7 +1132,9 @@ The flow is in the [authentication flow](../authn/01-authentication-flow.md). Wh
   resolved, not `NODE_ENV=production` alone (SR-16). The boot refuses the public cookie secret outside development and test.
   With no env set, authn treats the deployment as production (N8a, step 6).
 - `SlidingCappedExpiration` caps a session at `Creation + maxLifetime` (defaults 30 and 480 minutes).
-- Deleting a user must call `revokeAll`, because 3.0 session rows have a null `UserId`.
+- The DB session migration is `UserSessionDBSqlMigration_2022_06_28_01_20_00`. It creates
+  `user_sessions` with no `UserId` column and no foreign key to `users`; its `down()` drops the table.
+  A session belongs to its `Subject`, so deleting a user must call `revokeAll`.
 - Stop 2.x nodes before the first 3.0 node (section 7).
 
 ### N3: password (`authn-local`)
@@ -1148,8 +1169,8 @@ The flow is in the [authentication flow](../authn/01-authentication-flow.md). Wh
 ### N4: authn-orm
 
 - Tables: `authn_identity`, `authn_throttle`, `authn_audit`, `authn_secret`, `authn_mfa`,
-  `authn_recovery_code`, `authn_nonce`, created by `AuthnInitial_2026_10_02_00_00_00`. No migration
-  carries 2.x `users_metadata` secrets ([section 7](#7-data-migration)).
+  `authn_recovery_code`, `authn_nonce`, created by `AuthnInitial_2026_10_02_00_00_00`, the only authn-orm
+  migration. No migration carries 2.x `users_metadata` secrets ([section 7](#7-data-migration)).
 - Throttle keys are an HMAC under `authn.audit.hashKey.secret`. Time always comes from Node, never SQL
   `now()`.
 - The audit sink never fails on event content. An identity that does not fit goes into `data`.
@@ -1175,7 +1196,10 @@ The flow is in the [authentication flow](../authn/01-authentication-flow.md). Wh
   at creation. Agent tokens carry no roles.
 - Every use checks expiry, revocation, the owner's status (through `IdentityStore`) and the profile.
   Revoking keeps the row (`RevokedAt`), and `list` hides revoked rows.
-- A token row without an expiry reads as expired at its creation. 2.x tokens are not carried.
+- The only token migration is `RbacHttpTokenInitial_2026_08_11_01_00_00`. It creates
+  `rbac_access_tokens` with `Profile`, `Scope`, `Kind`, `RevokedAt` and `LastUsedIp`, and its
+  `down()` drops the table. No 2.x token is carried. A row without `ExpiresAt` is refused as expired,
+  and `deleteExpired` (`authn:token-delete-expired`) removes it.
 - The CLI is renamed: `authn:token-create`, `authn:token-delete`, `authn:token-delete-expired`. The
   plaintext of a new token goes to standard output only, never to a logger. `authn:token-create`
   without `--expires` uses `authn.token.defaultTtlDays`.
@@ -1362,17 +1386,16 @@ The full description is in the [authn-totp docs](../authn-totp/README.md).
   Keep the old key in `authn.mfa.encryptionKey.previous` on rotation. The converter writes the step
   entry and leaves the key and the imports to you.
 - **Importing `@spinajs/authn-totp/db` registers `DbMfaSecretStore`**, which keeps TOTP secrets in
-  `authn_mfa`. No migration carries 2.x TOTP secrets or deletes the 2.x `2fa:*`, `user:2fa:*`,
-  `user:login:*` and `user:pwd_reset:*` metadata: users enrol again ([section 7](#7-data-migration)).
-- With the `totp` step listed in `authn.mfa.steps`, a user with 2.x 2FA enabled never logs in with the
+  `authn_mfa`. 3.0 starts from an empty database, so no 2.x TOTP secret is carried: users enrol
+  again ([section 7](#7-data-migration)).
+- With the `totp` step listed in `authn.mfa.steps`, a user enrolled in TOTP never logs in with the
   password alone. **A user enrolled in a factor whose step is not listed cannot log in with a password
   at all** (Z8): the login gets the wrong-password answer, audited as `mfa_step_not_listed` (or
   `mfa_enrolment_mismatch` when the listed step does not see the enrolment), with or without `force`.
   This login guard needs the authn-orm stores in the process that serves logins (import
   `@spinajs/authn-orm` or `@spinajs/authn-totp/db`). It costs one `authn_mfa` query per password login
   without a listed enrolment, and a failed query refuses the login. A login the MFA policy refuses
-  keeps its throttle count. List the step before the first 3.0 start if any user has 2.x 2FA;
-  `authn:check-config` names each enrolled step the list lacks.
+  keeps its throttle count. `authn:check-config` names each enrolled step the list lacks.
 - **`rbac:user-enable-2fa` is gone.** It printed a secret. Use `authn:mfa-reset <login>`; the owner
   enrols again through `/user/mfa`.
 - **Recovery codes** are 16 base32 characters shown as `XXXX-XXXX-XXXX-XXXX`, 80 bits each, ten by
@@ -1389,6 +1412,11 @@ The full description is in the [authn-totp docs](../authn-totp/README.md).
 The 3.0 HTTP layer replaced the 2.x one in one switch (N8c). The release notes list every route, body
 field and error code a client sees. For an app:
 
+- **Request fields.** Routes read only the camelCase body fields `login`, `password`, `secret`,
+  `confirmPassword`, `oldPassword`, `role`, `target`, `name`, `expiresAt`, `roles` and `profile`. The
+  2.x PascalCase names (`Email`, `Password`, `Token`, `ConfirmPassword`, `OldPassword`, `Role`,
+  `TargetUuid`, `Name`, `ExpiresAt`, `Roles`, `Profile`) are not read: move every client to the
+  camelCase names.
 - **Middleware.** `ClientIp` (Order 1), `CsrfOriginGuard` (Order 4) and `AuthnMiddleware` (key, token
   and session credentials) run before authz-http's `PrincipalMiddleware`. `AuthnMiddleware`
   writes `req.storage.AuthnPrincipal`, which authz-http's `AuthnPrincipalSource` reads.
@@ -1408,8 +1436,8 @@ field and error code a client sees. For an app:
   `true`) and fresh auth (`requirePassword`, default `true`). The actor is judged again on every
   request; impersonators lose `/user/sessions`.
 - **Sessions.** The cookie is a browser-session cookie (no `Max-Age`); idle and absolute timeouts are
-  enforced on the server. 2.x sessions are not carried. Truncate the session store of a staging
-  system that ran earlier 3.0 builds. `authn.strategies` must list the strategies (`local` → `LocalPasswordStrategy`); without one
+  enforced on the server. No 2.x session is restored; users log in again. A staging system that ran
+  earlier 3.0 builds needs a new database: the creating migrations were changed in place. `authn.strategies` must list the strategies (`local` → `LocalPasswordStrategy`); without one
   the login answers 401.
 - **Signed requests** need a JSON body or none: only JSON keeps the raw bytes the digest needs.
 - A key login is `aal1` and asks no MFA step under the default policy; after fresh auth such a session

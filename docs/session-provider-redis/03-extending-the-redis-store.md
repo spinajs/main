@@ -53,7 +53,7 @@ Overridable members:
 | `restore`, `save`, `touch`, `delete`, `deleteBySubject`, `listBySubject`, `truncate` | public | Wrap the `SessionProvider` contract; call `super` to keep the atomicity and race handling |
 | `createClient()` | protected | Build the connection |
 | `sessionKey()`, `indexKey()`, `indexSetsOf()`, `keyPatterns()` | protected | Change key names, which sets a row joins, or the patterns `truncate()` scans |
-| `toSession()`, `instant()` | protected | Read another stored shape |
+| `toSession()`, `instant()` | protected | Read another stored shape; keep returning `null` for a value without a readable `Subject` |
 | `lookup()`, `prune()`, `scanSessionKeys()`, `expireAt()`, `exec()`, `expirationEquals()` | protected | Low-level helpers the operations share |
 | `Log`, `RedisConfig`, `Client`, `Expiration` | protected fields | The logger, the raw config, the ioredis client, the expiration strategy |
 

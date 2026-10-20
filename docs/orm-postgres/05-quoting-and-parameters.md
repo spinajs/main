@@ -9,7 +9,7 @@ How identifiers and literals are written on a PostgreSQL connection, and how the
    - `null` / `undefined` → `NULL`; finite numbers and bigints as digits; a non-finite number throws `InvalidArgument`.
    - booleans → `TRUE` / `FALSE` (`quoteBoolean()`).
    - strings → `pg.escapeLiteral(value)` (`quoteString()`): single quotes doubled; a string with a backslash becomes ` E'...'` with the backslash doubled.
-   - `Date` and luxon `DateTime` → converted by the connection's `DatetimeValueConverter`, then quoted as a string.
+   - `Date` and luxon `DateTime` → converted by the connection's `DatetimeValueConverter` (`IsoDatetimeValueConverter`: ISO 8601 in UTC, `'2026-10-19T12:00:00.123Z'`), then quoted as a string.
 3. **Placeholders.** Compiled DML keeps `?` placeholders and a bindings array. `PostgresOrmDriver._executeOnDbOnce()` calls `toDriverStatement(stmt, params)` before sending:
    - with no bindings, the statement is sent unchanged, so a `?` inside an inlined literal survives;
    - with `n` bindings, the first `n` `?` characters become `$1..$n`, left to right, and any later `?` stays as text.

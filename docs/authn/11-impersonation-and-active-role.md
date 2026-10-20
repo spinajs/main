@@ -50,7 +50,7 @@ For an impersonation, the impersonation ends (the session is revoked and the end
 | The actor or the target may no longer log in | `impersonation.end` | `impersonator_<status>`, `target_<status>` |
 | The guard no longer consents | `impersonation.end` | the guard's code, or `guard_error` |
 
-Otherwise the principal is the target, with `principal.authn.impersonator` set. A session issued with an impersonator but no block takes its login time as the start.
+Otherwise the principal is the target, with `principal.authn.impersonator` set. A session issued with an impersonator but no block takes its login time as the start, with no actor ceiling.
 
 ### Stop: `stop(session, ctx)`
 

@@ -11,8 +11,8 @@
 
    `Orm` reports either as `OrmException('Failed to resolve ORM driver orm-driver-mysql-ssh for connection <Name>')`.
 3. **Connect.** `connect()` creates an `ssh2` `Client` and connects to `SSH.Host:SSH.Port` as `SSH.User` with the key read by `fs.readFileSync(SSH.PrivateKey)`.
-4. **Pool.** On `ready`, a `mysql2` pool is built from the same `poolConfig()` as `MySqlOrmDriver`, with `stream` set to a function. `mysql2` calls it for every connection it opens, and each call runs `forwardOut('127.0.0.1', 0, Host, Port ?? 3306)`: one channel from the bastion to the database per pooled connection. `Host` and `Port` are the database address as the bastion sees it; no local port is opened.
-5. **Prove.** One connection is taken and released, then the pool becomes `this.Pool`, the client becomes `SshClient`, and `State` is set to `Connected`. On a reconnect the replaced pool is ended once its borrowed connections are back, and the previous SSH client is ended after it.
+4. **Pool.** On `ready`, a `mysql2` pool is built from the same `poolConfig()` as `MySqlOrmDriver`, with `stream` set to a function. `mysql2` calls it for every connection it opens, and each call runs `forwardOut('127.0.0.1', 0, Host, Port ?? 3306)`: one channel from the bastion to the database per pooled connection. `Host` and `Port` are the database address as the bastion sees it; no local port is opened. `openPool()` pins the session zone of every connection with `pinSessionZone()` (`SET time_zone = '+00:00'`), as on the direct driver.
+5. **Prove.** One connection is taken with `acquire()` and released, then the pool becomes `this.Pool`, the client becomes `SshClient`, and `State` is set to `Connected`. On a reconnect the replaced pool is ended once its borrowed connections are back, and the previous SSH client is ended after it.
 6. **Errors.** An SSH `error` event before `ready`, or a failed test connection, rejects `connect()`; the new client is ended and the previous pool and client stay in use.
 7. **Disconnect.** `disconnect()` stops the health probe, ends the pool, then ends the SSH client.
 

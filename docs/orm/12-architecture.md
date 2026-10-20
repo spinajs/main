@@ -5,7 +5,7 @@
 ## How it works
 
 1. **Driver boot.** `Orm.resolve()` resolves the class registered under each connection's `Driver` token, passing the connection entry. See [Connections](01-connections.md).
-2. **Driver container.** `OrmDriver.resolve()` creates `driver.Container` as a child of the root container and registers `StandardModelToSqlConverter` as `ModelToSqlConverter`, `StandardObjectToSqlConverter` as `ObjectToSqlConverter`, plus `JsonValueConverter`, `UuidConverter` and `UniversalValueConverter`.
+2. **Driver container.** `OrmDriver.resolve()` creates `driver.Container` as a child of the root container and registers `StandardModelToSqlConverter` as `ModelToSqlConverter`, `StandardObjectToSqlConverter` as `ObjectToSqlConverter`, plus `JsonValueConverter`, `UuidConverter`, `UniversalValueConverter` and `Int64ValueConverter`.
 3. **Dialect bindings.** A dialect driver overrides `resolve()`, calls `super.resolve()`, then registers its implementations: `SqlDriver.resolve()` in `@spinajs/orm-sql` binds the generic SQL statements and compilers, and each dialect driver binds its overrides plus its `IdentifierQuoter`, `LiteralQuoter` and `ServerResponseMapper` (see the exceptions in [Services and extension points](#services-and-extension-points)). The container resolves the last registration of a token, so a registration made after `super.resolve()` wins.
 4. **Builder creation.** `createQuery()` calls `DI.resolve('OrmConnection', [descriptor.Connection])` to get the model's driver and resolves the builder from `driver.Container` with `[driver, model]`. `OrmDriver.select()`, `insert()`, `update()`, `del()`, `schema()` and `index()` resolve from the same container. The builder keeps that container as `builder.Container`.
 5. **Statement creation.** Each builder call resolves an abstract statement from `builder.Container`, eg. `container.resolve(WhereStatement, [column, operator, value, builder])`. The dialect's concrete class comes back. See [Query builder](05-query-builder.md).
@@ -16,7 +16,7 @@
 10. **Results.** Back in the builder, after-hooks and builder middlewares run, and rows of a model-bound select become models: `modelCreation` or the `__orm_model_factory__` DI factory, `hydrate()`, `takeSnapshot()`, `afterHydration`. See [Converters and hydration](04-converters-and-hydration.md) and [Relations](06-relations.md).
 11. **Insert responses.** `Model.insert()`, `ModelBase.insert()` and the unit of work resolve `ServerResponseMapper` from the builder's container and call `read(response, pkNames)` to get a `DbServerResponse` (`RowsAffected`, `LastInsertId`, `Returning`) for primary key backfill. See [Unit of work](07-unit-of-work.md).
 
-Errors: a missing driver registration throws `OrmException` at boot. A compiler, statement or quoter token with no registration resolves to the abstract class itself, so the first call of its abstract method throws a `TypeError`. `ServerResponseMapper` is a concrete class whose `read()` throws `MethodNotImplemented` naming the missing registration. A driver error rejects the builder's promise.
+Errors: a missing driver registration throws `OrmException` at boot. A compiler, statement or quoter token with no registration resolves to the abstract class itself, so the first call of its abstract method throws a `TypeError`. `ServerResponseMapper` is a concrete class whose `read()` throws `MethodNotImplemented` naming the missing registration. A driver error rejects the builder's promise; a broken constraint rejects with `UniqueViolation` or `ConstraintViolation` (see [Model API](03-model-api.md#exceptions)), which each driver builds from its native error and carries as `inner`.
 
 ```mermaid
 sequenceDiagram
@@ -83,7 +83,8 @@ Every statement extends `QueryStatement` (`IQueryStatement`): `TableAlias`, `Boo
 | Abstract statement | Created by | Constructor arguments |
 | --- | --- | --- |
 | `WhereStatement` | `where(column, [operator,] value)`, `whereNull`, `whereNotNull`, `whereNot` | `column`, `operator`, `value`, owning `WhereBuilder` |
-| `WhereQueryStatement` | `where(function () { ... })` | nested `WhereBuilder` |
+| `WhereQueryStatement` | `where(function () { ... })`, `whereNot(function () { ... })` | nested `WhereBuilder`, `not` (`true` for `whereNot`). `WhereQueryStatement.isGroup(statement)` recognizes one by a `Symbol.for` brand, also across two loaded copies of the ORM. |
+| `ColumnCompareStatement` | `whereColumn(left, operator, right)` | `left`, `operator`, `right` (a column, a `Wrap` or an `OuterColumn` from `outer()`), owning `WhereBuilder` |
 | `RawQueryStatement` | `where(RawQuery)`, `where(boolean)` | `query`, `bindings` |
 | `LazyQueryStatement` | `where(Lazy)` | `callback`, `context` |
 | `InStatement` | `whereIn` / `whereNotIn` with an array | `column`, `values`, `not`, owning builder |
@@ -96,10 +97,21 @@ Every statement extends `QueryStatement` (`IQueryStatement`): `TableAlias`, `Boo
 | `ColumnStatement` | `select(column)`, `columns()` | `column`, `alias`, `tableAlias`, column descriptor |
 | `ColumnRawStatement` | `select(RawQuery)` | `RawQuery` |
 | `ColumnMethodStatement` | `min`, `max`, `sum`, `avg`, `count` | `column`, `ColumnMethods`, `alias`, `tableAlias` |
+| `ColumnConditionStatement` | `selectCondition(alias, fn)` | nested `WhereBuilder`, `alias`; compiles to `CASE WHEN <group> THEN 1 ELSE 0 END AS alias` |
 | `JoinStatement` | `innerJoin`, `leftJoin`, ... | `IJoinStatementOptions` |
 | `GroupByStatement` | `groupBy()` | `expression` |
 | `WithRecursiveStatement` | `withRecursive()` | container, CTE name, query, `rcKeyName`, `pkName` |
-| `WrapStatement`: `DateWrapper`, `DateTimeWrapper` | `Wrapper.Date(column)`, `Wrapper.DateTime(column)` | `value`, `tableAlias`; implements `wrap(): string` |
+| `WrapStatement`: `DateWrapper`, `DateTimeWrapper`, `TextWrapper` | `Wrapper.Date(column)`, `Wrapper.DateTime(column)`, `Wrapper.Text(column)` | `value`, `tableAlias`; implements `wrap(): string` |
+
+Statement implementations that qualify a column or resolve `outer()` use three exported helpers:
+
+| Function | Returns |
+| --- | --- |
+| `queryOf(builder)` | The query a where-builder belongs to, walking up the parents of nested groups. |
+| `qualifierOf(builder)` | What a column of `builder` is qualified with: its query's alias, else its table. Read at compile time, so it follows a later `setAlias()`. |
+| `outerBuilder(builder, levels)` | The builder `outer(column, levels)` names, through each query's `CorrelationSource`. Throws `InvalidOperation` when the query is not a sub-query that many levels deep. |
+
+`mergeInsertResults(results)` folds the driver results of a split multi-row insert into one: rows concatenated in order, `RowsAffected` summed, the last `LastInsertId`.
 
 `InSetStatement` carries the rules every dialect shares: a `null`, `undefined` or `SET_DELIMITER`-containing value throws `InvalidArgument`, per-value tests are OR-ed for a match and AND-ed as `NOT ...` for a negation, and an empty list compiles to `(1 = 0)` / `(1 = 1)`. `escapeLikeValue()` and `LIKE_ESCAPE_CHARACTER` serve its portable `LIKE` form in `@spinajs/orm-sql`.
 
@@ -121,7 +133,7 @@ Every statement extends `QueryStatement` (`IQueryStatement`): `TableAlias`, `Boo
 | `LiteralQuoter` | Literal values in view and event bodies. | none; `SqlLiteralQuoter` (SQLite), `MySqlLiteralQuoter`, `MsSqlLiteralQuoter`, `PostgresLiteralQuoter` | Register in the driver's `resolve()`. |
 | `SqlExpressions` | SQL the dialects spell differently, for raw SQL: `castText`, `datetimeText`, `contains`, `equalsExactly`. See [SQL helpers](17-sql-helpers.md#dialect-expressions). | Base class registered by `OrmDriver.resolve()`, every method throws `NotSupported`; `SqliteSqlExpressions`, `MySqlSqlExpressions`, `MsSqlSqlExpressions`, `PostgresSqlExpressions` | Subclass, register `.as(SqlExpressions)` in the driver's `resolve()`. |
 | `TableAliasCompiler` | Table references. | `SqlTableAliasCompiler`; `MsSqlTableAliasCompiler`, `PostgresTableAliasCompiler` | Register in the driver's `resolve()`. |
-| `ServerResponseMapper` | Normalizes a raw insert response to `DbServerResponse`. | Base class throws `MethodNotImplemented`; `SqliteServerResponseMapper`, `MysqlServerResponseMapper`, `PostgresServerResponseMapper`. `@spinajs/orm-mssql` registers none. | Subclass, implement `read(response, pkNames?)`, register in the driver's `resolve()`. |
+| `ServerResponseMapper` | Normalizes a raw insert response to `DbServerResponse`. | Base class throws `MethodNotImplemented`; `SqliteServerResponseMapper`, `MysqlServerResponseMapper`, `PostgresServerResponseMapper`, `MsSqlServerResponseMapper`. | Subclass, implement `read(response, pkNames?)`, register in the driver's `resolve()`. |
 | `DefaultValueBuilder<T>` | Column defaults in DDL: `date()`, `dateTime()`, `value(val)`, `raw(query)`; fields `Query`, `Value`. Resolved by `ColumnQueryBuilder.default()`. | abstract; `SqlDefaultValueBuilder` (MySQL), `SqlLiteDefaultValueBuilder` (SQLite), `PostgresDefaultValueBuilder`, `MsSqlDefaultValueBuilder`. | Register in the driver's `resolve()`. See [Schema builder](09-schema-builder.md). |
 | `NowExpression` | The database's current instant as SQL; `OrmDriver.now()` wraps it in a `RawQuery`. | abstract; `SqliteNowExpression`, `MySqlNowExpression` (`UTC_TIMESTAMP(3)`), `MsSqlNowExpression`, `PostgresNowExpression` | Register in the driver's `resolve()`. |
 | `ModelToSqlConverter`, `ObjectToSqlConverter` | Model or object to column values for writes. | `StandardModelToSqlConverter`, `StandardObjectToSqlConverter` (SQLite overrides the model converter) | See [Converters and hydration](04-converters-and-hydration.md). |
@@ -176,7 +188,7 @@ Point a connection at it with `Driver: 'orm-driver-sqlite-nulls-last'`. Other co
 - `toDB()` compiles without a database round trip and without running query middlewares. Statements created by `afterQueryCreation` are in the output; changes made in `beforeQueryExecution` are not.
 - The select compiler in `@spinajs/orm-sql` compiles populated relations first, then JOIN, then WHERE; both may change table aliases, so the column list is built after them.
 - A `LazyQueryStatement` or a sub-select statement builds a clone of its builder at compile time. Every statement implementation must implement `clone(parent?)` and rebind to `parent`; the abstract classes in `@spinajs/orm` have no `clone()` of their own.
-- An array from `toDB()` (multi-statement DDL) is sent with `Promise.all`, one `executeOnDb` per statement, not in sequence.
+- An array from `toDB()` (multi-statement DDL) is sent one `executeOnDb` per statement, each awaited before the next.
 - No dialect is a fallback for another: `IdentifierQuoter`, `LiteralQuoter`, `ServerResponseMapper` and `TableExistsCompiler` have no default registration, so a missing one fails on first use instead of emitting another dialect's SQL.
 - `QueryContext.Transaction` is set by drivers for their own `BEGIN` / `COMMIT` statements; builders never use it.
 

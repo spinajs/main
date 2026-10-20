@@ -15,7 +15,7 @@
 5. `Orm` registers the `OrmConnection` factory in DI: `DI.resolve<OrmDriver>('OrmConnection', [name])` returns the driver stored under `name`, or `null`.
 6. `Orm` discovers migrations (see [Migrations](10-migrations.md)) and registers every class decorated with `@Model` into `Orm.Models`.
 7. `Orm` assigns `Orm.Migration` (a `MigrationRunner`), registers the default value converters, and runs the boot migration pass unless `MigrateOnStartup` is `false`.
-8. `Orm.reloadTableInfo()` binds each model to the driver named by its `@Connection`, reads the table's columns with `driver.tableInfo()` and merges them into the model descriptor. A model whose connection is not in `Orm.Connections` is skipped with a warning. A model whose table is missing (`tableInfo()` answers `null`) fails the boot when `db.StrictTableCheck` is on (the default): one `OrmException` names every such model, its table and its connection, for example `Missing tables (db.StrictTableCheck): model PolicyRecord: table authz_policy on connection authz (main). Create them (run their migrations) or set db.StrictTableCheck to false`. With the key `false`, or in an `Orm` resolved with `MigrateOnStartup: false`, each one is logged as a warning and the model keeps only its decorator columns.
+8. `Orm.reloadTableInfo()` binds each model to the driver named by its `@Connection`, reads the table's columns with `driver.tableInfo()` and merges them into the model descriptor. A model whose connection is not in `Orm.Connections` is skipped with a warning. A model whose table is missing (`tableInfo()` answers `null`) fails the boot when `db.StrictTableCheck` is on (the default): one `OrmException` names every such model, its table and its connection, for example `Missing tables (db.StrictTableCheck): model PolicyRecord: table authz_policy on connection authz (main). Create them (run their migrations) or set db.StrictTableCheck to false`. Before that exception leaves `resolve()`, `Orm` calls `dispose()`: every open connection is disconnected and its health probe stopped, so the failed boot holds no pool or timer. With the key `false`, or in an `Orm` resolved with `MigrateOnStartup: false`, each one is logged as a warning and the model keeps only its decorator columns.
 9. `Orm` wires relation targets (an unknown target model throws `OrmException`), installs the model static methods, and runs the `data()` phase of the migrations applied in step 7.
 
 ```mermaid
@@ -147,6 +147,7 @@ Constructor options of `Orm`, passed through DI rather than read from configurat
 | `supportedFeatures()` | Abstract. Returns `ISupportedFeature`. |
 | `tableInfo(name, schema?)` | Abstract. Returns the table's `IColumnDescriptor[]`. `findColumn(columns, name)` from `@spinajs/orm` picks one: the exact name, else the only one equal ignoring case, with `Name` spelled as the table spells it. |
 | `select<T>()`, `insert()`, `update<T>()`, `del<T>()`, `truncate(table)` | Query builders bound to this connection. See [Query builder](05-query-builder.md). |
+| `now()` | A `RawQuery` holding the database's current instant, from the dialect's `NowExpression`: `where('ExpiresAt', '>', driver.now())`. See [Query builder](05-query-builder.md#filtering). |
 | `schema()`, `index()` | Schema and index builders. See [Schema builder](09-schema-builder.md). |
 | `transaction(cb, options?)`, `afterCommit(cb)` | Transactions; `cb` is a `TransactionCallback<R>`: `(driver: OrmDriver) => Promise<R>`. See [Transactions](08-transactions.md). |
 | `lockTableShared(table)` | Keeps other writers off `table` until the transaction in scope ends; readers go on. Throws `InvalidOperation` outside a transaction, `NotSupported` on a driver that does not implement it. See [Transactions](08-transactions.md#shared-table-lock). |
@@ -179,7 +180,7 @@ export async function bootstrapDatabase(): Promise<Orm> {
 
 ## Important behaviour
 
-- Connections open one after another, in `db.Connections` order. The first failure aborts `Orm.resolve()`; connections opened before it stay open.
+- Connections open one after another, in `db.Connections` order. The first failure aborts `Orm.resolve()`; connections opened before it stay open. A failed strict table check (step 8) is different: `Orm` disposes every connection before it throws.
 - `Orm` logs only `Database`, `User`, `Host`, `Port`, `Filename`, `Driver` and `Name` of a connection. `Password` never reaches the log.
 - `default` and every alias point to the same driver instance as the connection they name. They share one pool and one health probe.
 - `Orm.dispose()` stops the health probe and calls `disconnect()` once per `Orm.Connections` entry. A driver stored under `default` or an alias is disconnected more than once, so `disconnect()` must be idempotent.
@@ -188,7 +189,7 @@ export async function bootstrapDatabase(): Promise<Orm> {
 - Model static methods (`where`, `get`, `query`, ...) throw `Not implemented` until `Orm.resolve()` completes. `Orm` installs them in step 9.
 - A model with no `@Connection`, or with a name missing from `Orm.Connections`, is left without a driver. `Orm` logs `Cannot find connection ... in connection list` and continues.
 - Every model a package registers by import is checked, used or not. An app importing `@spinajs/authz-abac` registers `PolicyRecord`, so with `db.StrictTableCheck` on it needs the `authz_policy` table on the connection `db.Aliases.authz` names, or `db.StrictTableCheck: false`. The same holds for the record models of `@spinajs/authz-rbac` and `@spinajs/authz-orm` on the same alias.
-- `orm.reloadTableInfo()` called by hand only warns unless passed `{ strict: true }`. An app that migrates after the boot (`Migration.OnStartup` off, then `orm.Migration.up()`) sets `db.StrictTableCheck: false` and calls `orm.reloadTableInfo({ strict: true })` after its `up()`; it needs that call anyway for the columns of the new tables.
+- `orm.reloadTableInfo(options?: IReloadTableInfoOptions)` called by hand only warns unless passed `{ strict: true }`. An app that migrates after the boot (`Migration.OnStartup` off, then `orm.Migration.up()`) sets `db.StrictTableCheck: false` and calls `orm.reloadTableInfo({ strict: true })` after its `up()`; it needs that call anyway for the columns of the new tables.
 - `Orm.Migration` is assigned inside `resolve()`. It is `undefined` on an unresolved `Orm`.
 - Each driver has its own child container. A registration in `driver.Container` affects only that connection.
 
@@ -329,6 +330,25 @@ export async function pendingMigrations(): Promise<IMigrationStatusEntry[]> {
     await orm.dispose();
   }
 }
+```
+
+## Migration
+
+### `db.StrictTableCheck` defaults to `true`
+
+`Orm.resolve()` fails when any registered model has no table on its connection. Apply the migrations before the app starts, or turn the check off where tables are created after the boot.
+
+```ts
+// Before: the app boots with a missing table and the model has no reflected columns
+db: { Connections: [{ Name: 'main', Driver: 'orm-driver-mysql' }] }
+
+// After: keep the strict check and migrate first (`spinajs migrate-up`, or Migration.OnStartup)
+db: { Connections: [{ Name: 'main', Driver: 'orm-driver-mysql', Migration: { OnStartup: true } }] }
+
+// After: or opt out, and check once the tables exist
+db: { StrictTableCheck: false, Connections: [{ Name: 'main', Driver: 'orm-driver-mysql' }] }
+await orm.Migration.up();
+await orm.reloadTableInfo({ strict: true });
 ```
 
 ## Related

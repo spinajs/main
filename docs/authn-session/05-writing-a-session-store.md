@@ -14,7 +14,7 @@ The rules every store keeps (the issuer's guarantees depend on them):
 
 | Method | Rule |
 | --- | --- |
-| `restore(sessionId)` | Missing or expired: `null` |
+| `restore(sessionId)` | Missing or expired: `null`. The shipped stores also answer `null` for a row without a readable `Subject` |
 | `save(session)` | Upsert. Call `applyInitialExpiration()` only when `session.Expiration === undefined`; otherwise persist `Expiration` verbatim |
 | `touch(session)` | Update-only: when the stored row is gone or expired, write nothing and answer `false`. Otherwise call `applyRenewedExpiration()`, write `Expiration` and `Data`, and answer whether the expiration changed. A compare-and-set or conditional write closes the race with a parallel delete |
 | `delete(sessionId)` | One atomic operation; `true` only for the call that removed the row |
@@ -182,7 +182,7 @@ The example scans every key in `listBySubject`. A production store keeps a secon
 
 - Run both conformance suites against your store:
   - `runSessionIssuerConformance()` of [`@spinajs/authn-testing`](../authn-testing/README.md) drives `DefaultSessionIssuer` over your store (the shipped stores run it).
-  - `runSessionProviderConformance()` checks the store contract directly. It lives in `packages/authn-session/test/conformance/session-provider-conformance.ts` and is not published; the shipped stores import it by relative path inside the monorepo.
+  - `runSessionProviderConformance(makeProvider)` checks the store contract directly. `makeProvider` gets an expiration config (`service`, `ttl`, `maxLifetime?`) and returns a ready store. It lives in `packages/authn-session/test/conformance/session-provider-conformance.ts` and is not published; the shipped stores import it by relative path inside the monorepo.
 - Keep `Data` opaque: never read or rewrite entries starting with `authn:`.
 - Keep the expiration logic in the strategy. A store that computes its own deadlines breaks the guarantee that every store expires a session at the same instant.
 

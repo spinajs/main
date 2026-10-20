@@ -48,10 +48,10 @@ What each driver package exports for subclassing:
 
 | Package | Driver class | Driver string | Also exported |
 | --- | --- | --- | --- |
-| `@spinajs/orm-sqlite` | `SqliteOrmDriver` | `orm-driver-sqlite` | `SqliteServerResponseMapper`, every compiler (`SqliteInsertQueryCompiler`, `SqliteColumnCompiler`, `SqliteOrderByCompiler`, `SqliteCreateViewCompiler`, ...). Statements are not exported. |
-| `@spinajs/orm-mysql` | `MySqlOrmDriver`, `MySqlSSHOrmDriver` | `orm-driver-mysql`, `orm-driver-mysql-ssh` | `MysqlServerResponseMapper`, `parseColumnDefault`, `IMySqlTransactionContext`. Compilers and statements are not exported. |
-| `@spinajs/orm-mssql` | `MsSqlOrmDriver` | `orm-driver-mssql` | `toNamedParameters`, `IMsSqlTransactionContext`. Compilers and statements are not exported. |
-| `@spinajs/orm-postgres` | `PostgresOrmDriver` | `orm-driver-postgres` | every compiler and statement, `PostgresServerResponseMapper`, `pgEscapeIdentifier`, `toPositionalParameters`, `toDriverStatement` |
+| `@spinajs/orm-sqlite` | `SqliteOrmDriver` | `orm-driver-sqlite` | `SqliteServerResponseMapper`, `mapSqliteError`, every compiler (`SqliteInsertQueryCompiler`, `SqliteColumnCompiler`, `SqliteOrderByCompiler`, `SqliteCreateViewCompiler`, ...) and statement (`SqlLiteJoinStatement`, `SqliteInStatement`, `SqliteNowExpression`, ...), `SqlLiteDefaultValueBuilder`, `SqliteModelToSqlConverter` |
+| `@spinajs/orm-mysql` | `MySqlOrmDriver`, `MySqlSSHOrmDriver` | `orm-driver-mysql`, `orm-driver-mysql-ssh` | `MysqlServerResponseMapper`, `mapMySqlError`, `parseColumnDefault`, `IMySqlTransactionContext`, every compiler and statement (`MySqlInsertQueryCompiler`, `MySqlInSetStatement`, `MySqlNowExpression`, ...) |
+| `@spinajs/orm-mssql` | `MsSqlOrmDriver` | `orm-driver-mssql` | `mapMsSqlError`, `toNamedParameters`, `IMsSqlTransactionContext`. Compilers and statements are not exported. |
+| `@spinajs/orm-postgres` | `PostgresOrmDriver` | `orm-driver-postgres` | every compiler and statement, `PostgresServerResponseMapper`, `mapPostgresError`, `parseUtcTimestamp`, `pgEscapeIdentifier`, `toPositionalParameters`, `toDriverStatement` |
 
 What to extend for a replacement:
 
@@ -61,15 +61,15 @@ What to extend for a replacement:
 | A clause the dialect takes from the shared layer | the `Sql*` class from `@spinajs/orm-sql` | its token |
 | A dialect class that is not exported | the `Sql*` class it extends, re-implementing the dialect part | its token |
 | How statements are sent | the driver class: override `executeOnDb()`, `isRetryableError()`, `logQuery()` | (the driver itself) |
+| How the connection is opened | the driver class: override `poolConfig()` (PostgreSQL, MySQL) or `connectionConfig()` (MSSQL) and spread `super`'s result, so the UTC session settings stay | (the driver itself) |
 
 ## Important behaviour
 
 - A driver subclass is not registered under its parent's string: `@Injectable('orm-driver-sqlite')` decorates `SqliteOrmDriver` only. Give the subclass its own `@Injectable(...)` or register it with `DI.register(...).as(...)`.
 - Registrations go to the subclass's own child container, so they affect only connections that use the subclass.
 - Registering in the root container (`DI.register(MyCompiler).as(OrderByQueryCompiler)`) does not work for a token the dialect registers: the driver's child container answers first.
-- A statement subclass must override `clone()`; otherwise a cloned query turns it back into the parent class. `SqlLiteJoinStatement` itself has no `clone()`, so a cloned SQLite join is a plain `SqlJoinStatement`.
+- A statement subclass must override `clone()`; otherwise a cloned query turns it back into the parent class. Subclasses of `SqlJoinStatement`, `SqlInStatement` and `SqlStartsWithStatement` that keep the parent's constructor are the exception: those `clone()` methods build `this.constructor`, so a cloned SQLite join stays a `SqlLiteJoinStatement`.
 - `SqliteOrderByCompiler` renders a single sort (`getSort()`) with literal backticks. `orderBy('a').orderBy('b')` on SQLite orders by one column only; the shared `SqlOrderByQueryCompiler` renders every sort.
-- `SqlLiteJoinStatement` throws `NotSupported` for `RIGHT` and `RIGHT OUTER` joins in its constructor.
 
 ## Best practices
 
@@ -126,55 +126,35 @@ export class ReportingSqliteDriver extends SqliteOrmDriver {
 }
 ```
 
-### Allow `RIGHT JOIN` on SQLite 3.39 and later
-
-SQLite supports `RIGHT JOIN` since 3.39.0. Register the shared join statement back in place of the SQLite one.
-
-```ts sample
-import { Injectable, NewInstance } from '@spinajs/di';
-import { JoinStatement } from '@spinajs/orm';
-import { SqlJoinStatement } from '@spinajs/orm-sql';
-import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-
-@Injectable('orm-driver-sqlite-339')
-@NewInstance()
-export class ModernSqliteDriver extends SqliteOrmDriver {
-  public resolve() {
-    super.resolve();
-    this.Container.register(SqlJoinStatement).as(JoinStatement);
-  }
-}
-```
-
 ### Match e-mail addresses case-insensitively in `whereIn()` on every SQLite connection
+
+The stock `SqliteInStatement` binds a list longer than 1000 values as one `json_each(?)` parameter. This subclass of the shared `SqlInStatement` expands every list, so it suits short lists such as a handful of addresses.
 
 ```ts sample
 import { DI, Injectable, NewInstance } from '@spinajs/di';
-import { InStatement, IQueryStatement, IQueryStatementResult, QueryBuilder, SelectQueryBuilder, WhereBuilder } from '@spinajs/orm';
+import { InStatement, IQueryStatementResult } from '@spinajs/orm';
 import { SqlInStatement, _columnWrap } from '@spinajs/orm-sql';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 @NewInstance()
 export class NoCaseInStatement extends SqlInStatement {
   public build(): IQueryStatementResult {
-    // a Wrap column (Wrapper.Text()) keeps the stock statement
-    if (this._val.length === 0 || typeof this._column !== 'string') {
+    // a Wrapper.Text() column and the empty list keep the shared rendering
+    if (typeof this._column !== 'string' || this._val.length === 0) {
       return super.build();
     }
 
     const column = _columnWrap(this.Quoter, this._column, this._builder.TableAlias);
+    const convert = this.valueConverter();
+    const values = this._val.map((v) => convert(v));
+
     return {
-      Statements: [`${column} COLLATE NOCASE ${this._not ? 'NOT IN' : 'IN'} (${this._val.map(() => '?').join(',')})`],
-      Bindings: this._val,
+      Statements: [`${column} COLLATE NOCASE ${this._not ? 'NOT IN' : 'IN'} (${values.map(() => '?').join(',')})`],
+      Bindings: values,
     };
   }
 
-  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
-    const copy = new NoCaseInStatement(this._column, this._val, this._not, (parent as unknown as SelectQueryBuilder) ?? this._builder);
-    copy.Quoter = this.Quoter;
-    copy.Boolean = this.Boolean;
-    return copy;
-  }
+  // no clone() override: SqlInStatement.clone() builds this.constructor, so a clone stays a NoCaseInStatement
 }
 
 @Injectable('orm-driver-sqlite-nocase')

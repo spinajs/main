@@ -133,6 +133,7 @@ export class AuditedDynamoSessionStore extends DynamoDbSessionProvider {
 - **`Expiration` is stored in epoch seconds,** the unit DynamoDB TTL reads, so TTL eventually removes expired items.
 - **An `Expiration` that is not a number counts as passed.** `instant()` maps it to epoch 0.
 - **`touch` never changes ownership or state.** It writes `Expiration` and `Data` only; `Subject`, `ImpersonatorId` and `State` stay as stored. A row that turned `pending`, was deleted, or expired between the caller's read and the write is not extended and not re-created.
+- **`touch` never writes an item without `State`.** The condition fails and `touch` returns `false`.
 - **`touch` on a never-expiring session** (no `Expiration`, strategy returns `undefined`) removes nothing, writes `Data` and returns `false`.
 - **`save` is an unconditional overwrite.** It does not check that the item exists or its state.
 - **`restore` returns `null` for an item with missing or undecodable `Data`** and logs a warning; `listBySubject` and `deleteBySubject` read such an item with empty `Data`, so one bad item cannot break a revocation.

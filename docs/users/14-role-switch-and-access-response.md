@@ -19,7 +19,7 @@ An impersonation session gets the target's roles, which are the session's.
 2. `AccessResponseExtension` sets `body.Access` to `AuthzService.summary(principal)` of the access domain, what `GET /user/access` answers.
 3. A failing summary rejects: an answer without `Access` would hide the failure.
 
-`buildUserWithAccess(user, principal)` builds the dehydrated user plus its `Access`: `user.dehydrateWithRelations({ dateTimeFormat: 'iso' })`, then `AccessResponseExtension` as for a `whoami` answer. It throws `InvalidArgument` when `principal` is not `user:<user.Uuid>`.
+`buildUserWithAccess(user, principal)` builds the dehydrated user plus its `Access`, typed `UserWithAccess`: `user.dehydrateWithRelations({ dateTimeFormat: 'iso' })`, then `AccessResponseExtension` as for a `whoami` answer. It throws `InvalidArgument` when `principal` is not `user:<user.Uuid>`.
 
 ## Configuration
 
@@ -92,7 +92,7 @@ export class FeatureFlagsExtension extends AuthnResponseExtension {
 ## Best practices
 
 - List only high-risk roles in `requirePassword` once your users switch roles often; the default asks for every role.
-- Read roles and permissions in clients from `Access`.
+- Read roles and permissions in clients from `Access`; the user payload carries no role field.
 - Use `buildUserWithAccess()` in your own endpoints that answer with the user record and its access.
 
 ## Patterns and antipatterns

@@ -41,7 +41,7 @@ sequenceDiagram
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `matching(subject, includeImpersonations?): Promise<ISession[]>` | Protected method of the `SessionProvider` singleton. | Filtered consistent `Scan` + client-side match | none | Override; return every item of the subject, **expired ones included**, as `ISession`. `listBySubject` and `deleteBySubject` filter liveness themselves. |
+| `matching(subject, includeImpersonations?): Promise<ISession[]>` | Protected method of the `SessionProvider` singleton. | Filtered consistent `Scan`, re-checked in Node | none | Override; return every item of the subject, **expired ones included**, as `ISession`. `listBySubject` and `deleteBySubject` filter liveness themselves. |
 | `scan(input): Promise<Record<string, AttributeValue>[]>` | Protected; used by `matching` and `truncate`. | All pages of a `ScanCommand` with `ConsistentRead: true` | none | Override to add `Limit`, parallel `Segment`s or metrics. |
 | `toSession(item, lenient?)` | Protected; used by `restore` (strict) and `matching` (lenient). | The item layout of [DynamoDB session store](01-dynamodb-session-store.md#schema) | none | Override to read extra attributes; call `super.toSession()` first. |
 
@@ -145,6 +145,7 @@ For an existing table, add the two indexes with `UpdateTable` or your infrastruc
 
 - Revoke through `SessionIssuer.revokeAll()`; it calls `deleteBySubject` with the right `except` key.
 - Watch the table's consumed read capacity: every revocation and every session list is a full scan.
+- Keep the default scan when a ban must reach a session saved a moment before it; a GSI `Query` cannot read consistently.
 
 ## Patterns and antipatterns
 

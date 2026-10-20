@@ -52,6 +52,7 @@ The SQL is the log message; bindings go to the structured `bindings` field only,
 | `SqlExpressions` registration | `OrmDriver` registers the base | always | Register your subclass `.as(SqlExpressions)` in `resolve()`; the base throws `NotSupported` from every method. See [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions). |
 | `execute(builder)` | `SqlDriver` | no | Compile, log, measure, send. |
 | `logQuery(expression, bindings, builder)` | `SqlDriver` (protected) | optional | Override to log differently; it must never throw. |
+| `toDriverParams(params)` | `SqlDriver` (protected) | no; call it from `executeOnDb()` | Converts every `Date` and luxon `DateTime` in `params` with the connection's `DatetimeValueConverter`, so raw SQL binds datetimes the way model writes store them. Returns `params` unchanged (or `[]` for `undefined`) when there is no date. |
 
 ### What `executeOnDb()` returns
 
@@ -73,7 +74,7 @@ All in the driver's own `this.Container`, after `OrmDriver.resolve()` registered
 | Token | Implementation |
 | --- | --- |
 | `WhereStatement`, `WhereQueryStatement`, `LazyQueryStatement`, `ColumnCompareStatement` | `SqlWhereStatement`, `SqlWhereQueryStatement`, `SqlLazyQueryStatement`, `SqlColumnCompareStatement` |
-| `InStatement`, `InQueryStatement`, `InSetStatement` | `SqlInStatement`, `SqlInQueryStatement`, `SqlInSetStatement` |
+| `InStatement`, `InQueryStatement`, `InSetStatement`, `StartsWithStatement` | `SqlInStatement`, `SqlInQueryStatement`, `SqlInSetStatement`, `SqlStartsWithStatement` |
 | `ExistsQueryStatement`, `BetweenStatement`, `RawQueryStatement` | `SqlExistsQueryStatement`, `SqlBetweenStatement`, `SqlRawStatement` |
 | `ColumnStatement`, `ColumnRawStatement`, `ColumnMethodStatement`, `ColumnConditionStatement` | `SqlColumnStatement`, `SqlColumnRawStatement`, `SqlColumnMethodStatement`, `SqlColumnConditionStatement` |
 | `JoinStatement`, `GroupByStatement`, `WithRecursiveStatement` | `SqlJoinStatement`, `SqlGroupByStatement`, `SqlWithRecursiveStatement` |
@@ -89,6 +90,7 @@ All in the driver's own `this.Container`, after `OrmDriver.resolve()` registered
 
 - `IdentifierQuoter`, `LiteralQuoter`, `ServerResponseMapper`, `TableExistsCompiler`, `CreateViewCompiler`.
 - `LimitQueryCompiler`, `OnDuplicateQueryCompiler`, `ColumnQueryCompiler`, `AlterColumnQueryCompiler`, `AlterTableQueryCompiler`, `TruncateTableQueryCompiler`, `RecursiveQueryCompiler`, `TableCloneQueryCompiler`, `TableHistoryQueryCompiler`, `EventQueryCompiler`, `DropEventQueryCompiler`, `DefaultValueBuilder`.
+- `NowExpression`: `driver.now()` resolves it, and each engine reads its clock differently (`UTC_TIMESTAMP(3)` on MySQL, `SYSDATETIMEOFFSET()` on MSSQL).
 
 A driver that leaves one of these out makes that feature fail on first use rather than emit another dialect's SQL. The per-driver matrix is in [Adding a new SQL dialect](07-adding-a-sql-dialect.md#what-each-shipped-driver-registers).
 
@@ -96,15 +98,18 @@ A driver that leaves one of these out makes that feature fail on first use rathe
 
 - Every registration is per connection. Two connections on different dialects coexist in one process because each driver owns its own child container.
 - A registration made after `super.resolve()` replaces the one `SqlDriver` made; one made before is replaced by it.
-- `execute()` is synchronous up to the returned promise: only compile errors land in its `catch`. Log database errors in `executeOnDb()` or wrap them in `OrmException`, as the shipped drivers do.
+- `execute()` is synchronous up to the returned promise: only compile errors land in its `catch`. Map database errors in `executeOnDb()`. The shipped drivers throw `UniqueViolation` for a primary or unique key, `ConstraintViolation` (with `kind` `not_null`, `check`, `foreign_key` or `other`) for another constraint, and `OrmException` for anything else; see `mapSqliteError`, `mapMySqlError`, `mapMsSqlError` and `mapPostgresError` in the driver packages.
+- `UniqueViolation` extends `ResourceDuplicated` from `@spinajs/exceptions`, not `OrmException`: a `catch` that tests `instanceof OrmException` does not see a duplicate key.
+- A multi-row insert larger than the driver's `MaxBindings` or `MaxInsertRows` reaches `execute()` as several builders, one per statement. `InsertQueryBuilder.splitByDriverLimits()` cuts them, and the insert runs them in one transaction (or in the caller's), so they commit or roll back together.
 - Multi-statement DDL (`ALTER TABLE` with several changes, table history, table clone) is sent sequentially in compile order. Outside a transaction a pooled driver may still use a different connection per statement.
 - `logQuery()` uses `this.Log?.trace(...)`: a driver used before `resolve()` has no logger and logs nothing instead of failing.
 - `Perf.measure('orm.query')` shares the `perf` logger with other spans. Route query logs by `orm-driver-<Name>`, not by `perf`.
-- The converters `SqlDriver` registers (`SqlDatetimeValueConverter`, `SqlBooleanValueConverter`, ...) are not exported from `@spinajs/orm-sql`. See [Value converters and default values](05-value-converters-and-defaults.md).
+- The converters `SqlDriver` registers (`SqlDatetimeValueConverter`, `SqlBooleanValueConverter`, ...) are exported from `@spinajs/orm-sql`, together with `IsoDatetimeValueConverter`, which the SQLite, MSSQL and PostgreSQL drivers register instead. See [Value converters and default values](05-value-converters-and-defaults.md).
 
 ## Best practices
 
 - Pass bindings to the database client as parameters; never interpolate them into `stmt`.
+- Run `params` through `this.toDriverParams(params)` before sending, as every shipped driver does, so a `Date` bound in raw SQL compares equal to the stored column.
 - Read the transaction context from `this.TransactionStorage.getStore()` in `executeOnDb()`, so statements inside `driver.transaction()` use the transaction's connection.
 - Wrap retryable reads and writes in `this.withReconnect(...)` and return `false` from `isRetryableError()` inside a transaction, as `MySqlOrmDriver` and `PostgresOrmDriver` do.
 - Call `ping()` without `withReconnect()`: the health check must see the failure, not a retry.
