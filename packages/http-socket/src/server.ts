@@ -336,11 +336,14 @@ export class SocketServer extends AsyncService {
 
     const wrap = () => {
       const adapter = nsp.adapter;
-      const restore = adapter.restoreSession.bind(adapter);
-      adapter.restoreSession = async (pid, offset) => {
+      // socket.io-adapter types restoreSession as Promise<Session>, yet resolves null for an unknown or expired session.
+      type Restore = (pid: string, offset: string) => Promise<Awaited<ReturnType<typeof adapter.restoreSession>> | null>;
+      const restore: Restore = adapter.restoreSession.bind(adapter);
+      const guarded: Restore = async (pid, offset) => {
         const session = await restore(pid, offset);
         return session && this.Guard.restorable(session.data) ? session : null;
       };
+      adapter.restoreSession = guarded as typeof adapter.restoreSession;
     };
 
     wrap();

@@ -185,7 +185,7 @@ describe('URL signing – integration tests (fsS3)', function () {
         await p.getSignedUrl('signer-test.txt');
         expect.fail('Expected an error to be thrown');
       } catch (err) {
-        expect(err.message).to.include('no signer service configured');
+        expect((err as Error).message).to.include('no signer service configured');
       } finally {
         await p.rm('signer-test.txt');
       }
@@ -215,7 +215,7 @@ describe('URL signing – integration tests (fsS3)', function () {
         await p.getSignedUrl('does-not-exist-xyz.txt');
         expect.fail('Expected an error to be thrown');
       } catch (err) {
-        expect(err.message).to.include('does not exists');
+        expect((err as Error).message).to.include('does not exists');
       }
     });
   });
@@ -244,7 +244,7 @@ describe('URL signing – integration tests (fsS3)', function () {
         await p.getSignedUrl('cf-does-not-exist-xyz.txt');
         expect.fail('Expected an error to be thrown');
       } catch (err) {
-        expect(err.message).to.include('does not exists');
+        expect((err as Error).message).to.include('does not exists');
       }
     });
   });

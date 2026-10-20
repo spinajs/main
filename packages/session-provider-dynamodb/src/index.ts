@@ -430,7 +430,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
       );
     } catch (err) {
       // v3 names the error class in `err.name` (v2 used `err.code`).
-      if (err.name === 'ResourceNotFoundException') {
+      if (err instanceof Error && err.name === 'ResourceNotFoundException') {
         return null;
       }
 

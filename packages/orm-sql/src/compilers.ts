@@ -277,8 +277,8 @@ export class SqlWhereCompiler implements IWhereCompiler {
       result: stmt.build(),
     }));
 
-    const nonLazyEntries = builder.Statements
-      .filter((x: WhereStatement) => !x.IsAggregate)
+    const nonLazyEntries = (builder.Statements as WhereStatement[])
+      .filter((x) => !x.IsAggregate)
       .filter((x) => !(x instanceof LazyQueryStatement))
       .map((stmt) => ({ boolean: stmt.Boolean, result: stmt.build() }));
 
@@ -331,7 +331,7 @@ export class SqlHavingCompiler implements IHavingCompiler {
   public having(builder: IWhereBuilder<unknown>) {
     const bindings: any[] = [];
 
-    const aggregates = builder.Statements.filter((x: WhereStatement) => x.IsAggregate).map((stmt) => ({ boolean: stmt.Boolean, result: stmt.build() }));
+    const aggregates = (builder.Statements as WhereStatement[]).filter((x) => x.IsAggregate).map((stmt) => ({ boolean: stmt.Boolean, result: stmt.build() }));
 
     return {
       bindings,

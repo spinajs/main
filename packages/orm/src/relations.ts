@@ -56,7 +56,7 @@ function _paramCheck<T>(callback: () => T, err: string): NonNullable<T> {
     throw new Error(err);
   }
 
-  return val as NonNullable<T>;
+  return val;
 }
 
 
@@ -233,15 +233,16 @@ export class BelongsToRecursiveRelation extends NativeOrmRelation {
 @Inject(Container)
 export class QueryRelation extends OrmRelation {
 
+  // IOrmRelation hands every callback a NativeOrmRelation; this one is not, it only scopes the owner's query.
   public execute(callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void) {
     if (callback) {
-      callback.call(this._query, this);
+      callback.call(this._query, this as unknown as NativeOrmRelation);
     }
   }
 
   public executeOnQuery(callback: (this: ISelectQueryBuilder<any>, relation: NativeOrmRelation) => void): void {
     if (callback) {
-      callback.call(this._query, this);
+      callback.call(this._query, this as unknown as NativeOrmRelation);
     }
   }
 

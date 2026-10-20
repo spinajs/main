@@ -414,10 +414,10 @@ export function sortOrderOf(order?: string | SortOrder | null): SortOrder {
   }
 
   if (normalized !== SortOrder.ASC && normalized !== SortOrder.DESC) {
-    throw new InvalidArgument(`Invalid sort order '${order as string}', expected ASC or DESC`);
+    throw new InvalidArgument(`Invalid sort order '${order}', expected ASC or DESC`);
   }
 
-  return normalized as SortOrder;
+  return normalized;
 }
 
 /**
@@ -768,7 +768,7 @@ export class JoinBuilder implements IJoinBuilder {
       };
     }
     else if (_.isObject(arg1)) {
-      options = arg1 as IJoinStatementOptions<R>;
+      options = arg1;
     } else {
       throw new InvalidArgument(`Invalid argument passed to innerJoin: ${arg1}`);
     }
@@ -987,10 +987,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
 
     if (typeof value === 'undefined') {
-      return _handleForTwo.call(this, column, operator);
+      return _handleForTwo(column, operator);
     }
 
-    return _handleForThree.call(this, column, operator, value);
+    return _handleForThree(column, operator, value);
 
     /**
      * handles for where("foo", 1).where(...) cases
@@ -1012,10 +1012,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       }
 
       if (sVal === null) {
-        return this.whereNull(c);
+        return self.whereNull(c);
       }
 
-      self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, this]));
+      self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, self]));
 
       return self;
     }
@@ -1043,17 +1043,17 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         const op = String(o).toLowerCase();
         // where(col, '=', null) => IS NULL ; where(col, '!=' / '<>', null) => IS NOT NULL
         if (op === SqlOperator.EQ) {
-          return this.whereNull(c);
+          return self.whereNull(c);
         }
         if (op === SqlOperator.NOT || op === SqlOperator.NOT_2) {
-          return this.whereNotNull(c);
+          return self.whereNotNull(c);
         }
         throw new InvalidArgument(`operator ${o} cannot be used with null value ( only =, !=, <> are allowed )`);
       }
 
       self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self]));
 
-      return this;
+      return self;
     }
   }
 
@@ -1084,13 +1084,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereNotNull(column: string): this {
+  public whereNotNull(column: string | Wrap): this {
     this.pushStatement(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this]));
 
     return this;
   }
 
-  public whereNull(column: string): this {
+  public whereNull(column: string | Wrap): this {
     this.pushStatement(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this]));
     return this;
   }
@@ -1462,7 +1462,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       }
     }
 
-    return relInstance!;
+    return relInstance;
   }
 
   // A nullish relation is a no-op, so routes with an optional `include` param
@@ -1517,7 +1517,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     // Everything that is not a string was handled above (constructor / array /
     // object), so the remaining value is a plain relation name.
-    this._getRelationInstance(relation as string).execute(callback);
+    // The relation runs the callback on its relation query, a SelectQueryBuilder.
+    this._getRelationInstance(relation as string).execute(callback as Parameters<IOrmRelation['execute']>[0]);
 
     return this;
   }
@@ -2010,8 +2011,8 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
         .map((c) => {
           return c.Column;
         })
-        .forEach((c: string) => {
-          binding.push(d[c]);
+        .forEach((c) => {
+          binding.push(d[c as string]);
         });
 
       self._values.push(binding);
