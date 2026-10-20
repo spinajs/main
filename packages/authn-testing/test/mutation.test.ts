@@ -167,13 +167,6 @@ class RotateKeepsOld extends MemorySessionIssuer {
   }
 }
 
-/** M07d: no raw fallback for 2.x ids. */
-class NoLegacyMigration extends MemorySessionIssuer {
-  async restore(raw: string) {
-    return /^[0-9a-f]{8}-/.test(raw) ? null : super.restore(raw);
-  }
-}
-
 const withService =
   (S: typeof ReferenceAuthnService): HarnessFactory =>
   (ctx) =>
@@ -285,11 +278,5 @@ describe('mutation checks (design §10.4)', function () {
       'A07 rotate gives a new id, keeps the data and kills the old id',
       issuer,
       withIssuer((o) => new RotateKeepsOld(o)),
-    ));
-  it('M07d legacy restore without migration', () =>
-    bites(
-      'A07 a 2.x raw id is migrated on first use',
-      issuer,
-      withIssuer((o) => new NoLegacyMigration(o)),
     ));
 });

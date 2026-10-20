@@ -15,12 +15,12 @@ npm install @spinajs/orm @spinajs/orm-mssql
 | Feature | What it does |
 | --- | --- |
 | [Connection and configuration](01-configuration.md) | Registers the `orm-driver-mssql` driver; connection keys, the `mssql` pool, TLS options, `ping()`, `tableInfo()` |
-| [Executing statements](02-executing-statements.md) | `executeOnDb()`: backtick stripping, `?` to `@p0` rewriting with `toNamedParameters()`, result shapes per `QueryContext` |
+| [Executing statements](02-executing-statements.md) | `executeOnDb()`: backtick stripping, `?` to `@p0` rewriting with `toNamedParameters()`, raw `Date` parameters, result shapes per `QueryContext`, error mapping with `mapMsSqlError()` |
 | [Transactions](03-transactions.md) | Four isolation levels, `SAVE TRANSACTION` savepoints, `IMsSqlTransactionContext` |
-| [Inserts and upserts](04-inserts-and-upserts.md) | `SCOPE_IDENTITY()`, `MsSqlServerResponseMapper`, `MERGE` upserts, no `INSERT IGNORE` or `INSERT OR REPLACE` |
-| [Query dialect](05-query-dialect.md) | Bracket quoting, three-part table names, `OFFSET ... FETCH`, multi-column `ORDER BY`, `DELETE TOP (n)`, `CHARINDEX` set membership, `N'...'` literals |
-| [Schema dialect](06-schema-dialect.md) | `CREATE TABLE`, `IDENTITY(1,1)`, column type spelling, column defaults, `ALTER TABLE` / `ALTER COLUMN` / `sp_rename`, databases, views, table existence, unsupported schema features |
-| [Value conversion](07-value-conversion.md) | `MsSqlDatetimeValueConverter` for `Date` and luxon `DateTime` |
+| [Inserts and upserts](04-inserts-and-upserts.md) | `SCOPE_IDENTITY()`, `MsSqlServerResponseMapper`, `MERGE` upserts, no `INSERT IGNORE` or `INSERT OR REPLACE`, batches split by `MaxBindings` / `MaxInsertRows` |
+| [Query dialect](05-query-dialect.md) | Bracket quoting, three-part table names, `OFFSET ... FETCH`, multi-column `ORDER BY`, `DELETE TOP (n)`, `OPENJSON` for long `whereIn()` lists, `CHARINDEX` set membership, `NVARCHAR(4000)` text casts, `SYSDATETIMEOFFSET()` for `now()`, `N'...'` literals |
+| [Schema dialect](06-schema-dialect.md) | `CREATE TABLE`, `IDENTITY(1,1)`, `DATETIMEOFFSET(3)` instants, column type spelling, `exact()` columns, UTC column defaults, `ALTER TABLE` / `ALTER COLUMN` / `sp_rename`, databases, views, table existence, unsupported schema features |
+| [Value conversion](07-value-conversion.md) | `IsoDatetimeValueConverter`: `Date`, luxon `DateTime` and datetime strings as ISO 8601 in UTC |
 | [Extending the driver](08-extending-the-driver.md) | Every DI token the driver registers, how to subclass `MsSqlOrmDriver`, replace one token, or replace the driver everywhere |
 
 ## Quick start
@@ -74,6 +74,11 @@ export class AppConfiguration extends FrameworkConfiguration {
 | `ServerResponseMapper` | `MsSqlServerResponseMapper`, reads `SCOPE_IDENTITY()` |
 | `RETURNING` | Not supported: `returning()` throws `NotSupported` |
 | Batch key backfill | Not supported (`insertIdIsFirstOfBatch: false`) |
+| Batch limits | `MaxBindings` `2000`, `MaxInsertRows` `1000`: a larger insert is split into several statements |
+| Long `whereIn()` | More than 200 strings or numbers bind as one JSON parameter read with `OPENJSON(?)` |
+| `driver.now()` | `SYSDATETIMEOFFSET()` |
+| Datetime columns | `dateTime()` / `timestamp()` create `DATETIMEOFFSET(3)`; values are written as ISO 8601 in UTC |
+| Constraint errors | `UniqueViolation` (2627, 2601), `ConstraintViolation` (515, 547), else `OrmException` |
 | `INSERT IGNORE`, `INSERT OR REPLACE` | Throw `OrmException` |
 | Upsert | `MERGE ... WITH (HOLDLOCK)` on the unique columns |
 | Paging | `OFFSET ? ROWS FETCH NEXT ? ROWS ONLY`; `ORDER BY (SELECT NULL)` when the query has no sort |

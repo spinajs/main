@@ -5,13 +5,16 @@ import { DateTime } from 'luxon';
 @Connection('default')
 @Model('authn_mfa')
 export class AuthnMfa extends ModelBase<AuthnMfa> {
-  @Primary()
+  @Primary({ generated: 'assigned' })
   public identity: string;
 
-  @Primary()
+  @Primary({ generated: 'assigned' })
   public step: string;
 
   public secret_enc: string;
+
+  /** Hex SHA-256 of `secret_enc`: `confirm` compares this, since TEXT is not comparable on MSSQL and case-blind on MySQL. */
+  public secret_hash: string;
 
   public key_id: string;
 

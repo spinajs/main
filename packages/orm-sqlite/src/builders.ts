@@ -1,5 +1,6 @@
 import { NewInstance } from '@spinajs/di';
 import { DefaultValueBuilder, RawQuery } from '@spinajs/orm';
+import { SqliteNowExpression } from './statements.js';
 
 @NewInstance()
 export class SqlLiteDefaultValueBuilder<T> extends DefaultValueBuilder<T> {
@@ -13,7 +14,7 @@ export class SqlLiteDefaultValueBuilder<T> extends DefaultValueBuilder<T> {
   }
 
   public dateTime(): T {
-    this.Query = RawQuery.create("strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
+    this.Query = RawQuery.create(new SqliteNowExpression().sql());
     return this.Owner;
   }
 

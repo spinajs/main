@@ -151,6 +151,6 @@ export function canSkipAuth(cfg: { get<T>(path: string, def?: T): T }): boolean 
 
 - [Custom access policies](11-custom-access-policies.md): your own policy in a slot, and slots for your own routes.
 - [Scrape token](12-scrape-token.md): how the default token becomes a principal with `telemetry:read`.
-- [`@spinajs/authz` HTTP adapter](../authz/README.md#http-spinajsauthz-http): `AccessPolicy`, principals and 401/403 answers.
+- [`@spinajs/authz` HTTP adapter](../authz-http/README.md): `AccessPolicy`, principals and 401/403 answers.
 - [`@spinajs/http` policies](../http/13-policies.md): `@Policy()`, `BasePolicy` and named policies.
 - [`@spinajs/configuration-common` environment names](../configuration-common/07-environment-names.md): how the env is normalized.

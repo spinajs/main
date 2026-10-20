@@ -1,21 +1,22 @@
 # Client and table provisioning
 
-On boot, `DynamoDbSessionProvider.resolve()` builds the `DynamoDBClient` and creates the session table with TTL when it does not exist. Override its protected hooks to change the client (retries, instrumentation, credentials) or the table (on-demand billing, extra indexes, tags).
+On boot, `DynamoDbSessionProvider.resolve()` builds the `DynamoDBClient`, creates the session table with TTL when it does not exist, and turns TTL on for an existing table that has it off. Override its protected hooks to change the client (retries, instrumentation, credentials) or the table (on-demand billing, extra indexes, tags).
 
 ## How it works
 
 DI calls `resolve()` once, when the singleton store is first resolved (usually while `DefaultSessionIssuer` is being built):
 
-1. **Client config.** When `authn.session.aws.configPath` is set, `resolve()` reads the file with `readFileSync` and `JSON.parse`. It is merged over `authn.session.aws.config` (the file wins on a clash), and top-level `accessKeyId`/`secretAccessKey` become `credentials`. With neither, the config is `{}`. A missing `authn.session.aws.table` fails the boot with a clear error.
+1. **Client config.** A missing or empty `authn.session.aws.table` fails the boot with `Error('DynamoDbSessionProvider: config key authn.session.aws.table is required')`. When `authn.session.aws.configPath` is set, `resolve()` reads the file with `readFileSync` and `JSON.parse`. It is merged over `authn.session.aws.config` (the file wins on a clash), and its top-level `accessKeyId`/`secretAccessKey` (and `sessionToken`) become `credentials` when no `credentials` is set. With neither, the config is `{}`.
 2. **Client.** `createClient(cfg)` returns the client; the default is `new DynamoDBClient(cfg)`. The result goes to the protected `DynamoDb` field.
 3. **Table check.** `checkSessionTable()` sends `DescribeTableCommand`. A `ResourceNotFoundException` returns `null`; any other error fails the boot.
 4. **Table creation** (only when step 3 returned `null`):
    1. `createSessionTable()` sends `CreateTableCommand`: hash key `SessionId` (`S`), provisioned throughput from `readCapacityUnits` and `writeCapacityUnits`.
    2. `waitUntilTableExists` polls until the table is `ACTIVE`, up to 120 seconds.
    3. `updateTimeToLive()` enables TTL on the `Expiration` attribute.
-5. **Shutdown.** `dispose()` calls `DynamoDb.destroy()`.
+5. **TTL check** (only when the table existed): `isTimeToLiveEnabled()` sends `DescribeTimeToLiveCommand`; unless the status is `ENABLED` or `ENABLING`, `updateTimeToLive()` enables it.
+6. **Shutdown.** `dispose()` calls `DynamoDb.destroy()`.
 
-An existing table is used as it is: the store does not check its key schema or throughput. When `DescribeTimeToLive` reports TTL off, `updateTimeToLive()` enables it; if the describe call fails the store only logs a warning. If another instance creates the table first, the `ResourceInUseException` is ignored and the store waits for the table.
+An existing table is used as it is: the store does not check its key schema or throughput. When the `DescribeTimeToLive` call fails, `isTimeToLiveEnabled()` logs a warning and answers `true`, so TTL is left as it is. If another instance creates the table first, the `ResourceInUseException` is ignored and the store waits for the table.
 
 ```mermaid
 sequenceDiagram
@@ -29,6 +30,11 @@ sequenceDiagram
     Store->>DDB: CreateTable (createSessionTable)
     Store->>DDB: waitUntilTableExists (max 120 s)
     Store->>DDB: UpdateTimeToLive Expiration (updateTimeToLive)
+  else table exists
+    Store->>DDB: DescribeTimeToLive (isTimeToLiveEnabled)
+    opt TTL off
+      Store->>DDB: UpdateTimeToLive Expiration (updateTimeToLive)
+    end
   end
 ```
 
@@ -62,6 +68,7 @@ authn: {
 | Client factory `createClient(cfg: DynamoDBClientConfig): DynamoDBClient` | Protected method of the `SessionProvider` singleton; called once in `resolve()`. | `new DynamoDBClient(cfg)` | none | Override in a subclass; return any `DynamoDBClient`, or call `super.createClient()` with a changed config. |
 | `checkSessionTable()` | Protected; called in `resolve()`. | `DescribeTableCommand`, `null` on `ResourceNotFoundException` | none | Override to skip the check (return a non-null value) or to validate the table. |
 | `createSessionTable()` | Protected; called when the check returned `null`. | Provisioned table, hash key `SessionId` | none | Override to change billing mode, add indexes, tags or encryption. Keep `SessionId` (`S`) as the hash key. |
+| `isTimeToLiveEnabled()` | Protected; called in `resolve()` for an existing table. | `DescribeTimeToLiveCommand`; `true` for `ENABLED` or `ENABLING`, and when the call fails | none | Override to skip the check (return `true`). |
 | `updateTimeToLive()` | Protected; called after the new table is `ACTIVE`, or when an existing table has TTL off. | TTL on `Expiration` | none | Override to skip TTL or to tag the table. |
 
 The subclass is registered and selected like any store: `@Injectable(SessionProvider)` and `authn.session.service` set to its class name. See [Selecting the store](01-dynamodb-session-store.md#selecting-the-store).
@@ -163,12 +170,12 @@ export class ManagedTableDynamoSessionStore extends DynamoDbSessionProvider {
 ## Patterns and antipatterns
 
 ```ts
-// Don't: a 2.x-style credentials file; the v3 client ignores these keys.
+// Don't: long-lived access keys in a file on AWS, where a role can sign the requests
 // /etc/app/dynamo.json
 { "region": "eu-central-1", "accessKeyId": "AKIA...", "secretAccessKey": "..." }
 
-// Do
-{ "region": "eu-central-1", "credentials": { "accessKeyId": "AKIA...", "secretAccessKey": "..." } }
+// Do: no credentials; the instance or task role signs
+{ "region": "eu-central-1" }
 ```
 
 ```ts

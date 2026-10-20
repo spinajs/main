@@ -9,10 +9,11 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
 
-import { AdminRuleStore, AuthzRbac_2026_10_01_00_00_00, DbRuleStore, readVersion, RULE_LIST_MAX_LIMIT, RuleStore, toDate, toRuleRows } from '../../src/index.js';
+import { AdminRuleStore, AuthzRbac_2026_10_01_00_00_00, DbRuleStore, readVersion, RULE_LIST_MAX_LIMIT, RuleStore, toRuleRows, RuleRecord, fromDateTime } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
 import { CANVAS_RULES, F1, kitRuleSets, O1, P1 } from '../support/rules.js';
 import type { Rule } from '../support/rules.js';
+import { statementsOf } from '../support/statements.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -59,7 +60,7 @@ for (const kind of DB_KINDS) {
       if (ruleId !== undefined) q.where('rule_id', ruleId);
       return (await q) as Row[];
     };
-    const version = (domain = 'root') => readVersion(db.driver, domain);
+    const version = (domain = 'root') => readVersion(domain);
 
     /** Counts the SELECT statements `fn` sends on the default connection. */
     const countSelects = async <R>(fn: () => Promise<R>): Promise<{ result: R; selects: number }> => {
@@ -162,13 +163,15 @@ for (const kind of DB_KINDS) {
           { rule_id: 'r', list: 'allow', subject_type: 'user', subject_id: 'alice', subject_role: '' },
         ]);
         expect(rows.rule).to.deep.include({ id: 'r', kind: 'restrict', scope_type: 'project', scope_id: 'p1', expires_at: null });
-        expect(JSON.parse(rows.rule.definition)).to.deep.eq({ kind: 'restrict', allow: [alice, g1Members, alice] });
+        expect(rows.rule.definition).to.deep.eq({ kind: 'restrict', allow: [alice, g1Members, alice] });
       });
 
-      it('writes and reads a rule with more subject rows than one insert batch', async () => {
+      it('writes the 150 subject rows of a rule in one statement and reads them back', async () => {
         const allow = Array.from({ length: 150 }, (_, i) => ({ type: 'user', id: `u${String(i).padStart(3, '0')}` }));
-        await put(restrict('big', F1, { allow }));
 
+        const { statements } = await statementsOf(db.driver, () => put(restrict('big', F1, { allow })));
+
+        expect(statements.filter((s) => (s.context === QueryContext.Insert || s.context === QueryContext.InsertReturning) && /authz_rule_subject/.test(s.sql))).to.have.length(1);
         expect(await subjectRows('big')).to.have.length(150);
         expect((await store.byId('big'))!.allow).to.deep.eq(allow);
       });
@@ -178,7 +181,8 @@ for (const kind of DB_KINDS) {
 
         const [row] = await ruleRows();
         expect(row.created_by).to.eq('user:root');
-        expect(toDate(row.created_at)!.getTime()).to.eq(CREATED.getTime());
+        const [record] = await RuleRecord.query().where('id', 'r1');
+        expect(fromDateTime(record.created_at).getTime()).to.eq(CREATED.getTime());
       });
 
       it('replaces a rule with the same id: columns and subject rows, keeping created_*', async () => {
@@ -259,29 +263,22 @@ for (const kind of DB_KINDS) {
         expect(ids(await store.forPath([P1], AT))).to.not.include('expires-at-at');
       });
 
-      it('sends one query per batch of scopes, and one for the subject rows', async () => {
-        class Small extends DbRuleStore {
-          protected override readonly scopeBatch = 2;
-        }
-        const small = new Small(db.container);
-        // 10 path nodes and GLOBAL: 6 batches of at most 2
+      it('sends one query for the rules of a path and one for their subject rows', async () => {
         const path = [F1, ...Array.from({ length: 7 }, (_, i) => ({ type: 'folder', id: `d${i}` })), P1, O1];
 
-        const { result, selects } = await countSelects(() => small.forPath(path, AT));
+        const { result, selects } = await countSelects(() => store.forPath(path, AT));
 
         expect(ids(result)).to.deep.eq(['at-f1', 'at-global', 'at-o1', 'at-p1', 'live']);
-        expect(selects).to.eq(7);
-        expect((await countSelects(() => store.forPath(path, AT))).selects).to.eq(2);
+        expect(selects).to.eq(2);
       });
 
-      it('answers a long path in batches', async () => {
-        class Small extends DbRuleStore {
-          protected override readonly scopeBatch = 2;
-        }
-        const small = new Small(db.container);
+      it('answers a path of 600 nodes with the same two queries', async () => {
         const path = [F1, ...Array.from({ length: 600 }, (_, i) => ({ type: 'folder', id: `d${i}` })), P1, O1];
-        expect(ids(await small.forPath(path, AT))).to.deep.eq(['at-f1', 'at-global', 'at-o1', 'at-p1', 'live']);
-        expect(ids(await store.forPath(path, AT))).to.deep.eq(['at-f1', 'at-global', 'at-o1', 'at-p1', 'live']);
+
+        const { result, selects } = await countSelects(() => store.forPath(path, AT));
+
+        expect(ids(result)).to.deep.eq(['at-f1', 'at-global', 'at-o1', 'at-p1', 'live']);
+        expect(selects).to.eq(2);
       });
     });
 
@@ -308,13 +305,7 @@ for (const kind of DB_KINDS) {
         });
 
         it("bumps and reads that domain's version, not root's", async () => {
-          const driver = db.driver;
-          class InDomain extends DbRuleStore {
-            protected override connection(): Promise<OrmDriver> {
-              return Promise.resolve(driver);
-            }
-          }
-          const s = new InDomain(domain);
+          const s = new DbRuleStore(domain);
           await inTx((tx) => s.put(restrict('r1', F1), root, tx));
 
           expect(await s.version()).to.eq('1');

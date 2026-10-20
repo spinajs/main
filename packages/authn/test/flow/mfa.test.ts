@@ -271,7 +271,7 @@ describe('MFA steps and DefaultMfaPolicy', function () {
       assert.deepStrictEqual(await (await policyOf(p)).required(ALICE, PASSWORD), ['fake']);
     });
 
-    describe('enrolments in steps authn.mfa.steps does not list (a 2.x migration that lists no step)', () => {
+    describe('enrolments in steps authn.mfa.steps does not list', () => {
       const withEnrolments =
         (...sources: Enrolments[]) =>
         (c: Parameters<NonNullable<CoreOptions['register']>>[0]): void =>

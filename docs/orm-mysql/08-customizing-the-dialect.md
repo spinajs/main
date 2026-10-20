@@ -50,6 +50,8 @@ On top of [`SqlDriver.resolve()`](../orm-sql/01-sql-driver.md#what-sqldriverreso
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `SqlEventQueryCompiler`, `SqlDropEventQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | | [Schema](06-schema-views-and-events.md) |
 | `SqlExpressions` | `MySqlSqlExpressions` | yes | [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
+| `NowExpression` | `MySqlNowExpression`: `UTC_TIMESTAMP(3)`, returned by `driver.now()` | yes | [MySQL driver](01-mysql-driver.md#dates-and-time-zone) |
+| `TextWrapper` | `MySqlTextWrapper`: extends `SqlTextWrapper` and casts to `CHAR`, because `TEXT` is no `CAST` target in MySQL | yes | [Statements](../orm-sql/03-statements.md) |
 | `LimitQueryCompiler`, `RecursiveQueryCompiler` | `SqlLimitQueryCompiler`, `SqlWithRecursiveCompiler` | | [Query compilers](../orm-sql/02-query-compilers.md) |
 
 `Sql*` classes are exported from `@spinajs/orm-sql`, the `MySql*` classes from `@spinajs/orm-mysql`: to change one, extend it and override only the part that differs.
@@ -75,7 +77,7 @@ db: {
 | --- | --- | --- | --- | --- |
 | MySQL driver | `'orm-driver-mysql'`; `@NewInstance()` per connection | `MySqlOrmDriver` | `MySqlSSHOrmDriver` (`'orm-driver-mysql-ssh'`) | Subclass; `@Injectable('orm-driver-mysql')` for all connections, or a new string for some. |
 | Dialect classes | the tokens above, in `driver.Container` | the table above | per-page alternatives | `this.Container.register(X).as(Token)` after `super.resolve()`. |
-| Driver hooks | `connect()`, `poolConfig()`, `isRetryableError()`, `isUniqueViolation()`, `lockTableShared()`, `ping()`, `poolMetrics()`, `tableInfo()`, `supportedFeatures()`, `_begin()` and the other transaction primitives, `ResponseSchemaTypes`, `SupportedIsolationLevels`, `MaxBindings` | `MySqlOrmDriver` | | Override in the subclass. See [MySQL driver](01-mysql-driver.md), [Transactions](03-transactions.md), [Table reflection](05-table-reflection.md). |
+| Driver hooks | `connect()`, `poolConfig()`, `pinSessionZone()`, `acquire()`, `isRetryableError()`, `lockTableShared()`, `ping()`, `poolMetrics()`, `tableInfo()`, `supportedFeatures()`, `_begin()` and the other transaction primitives, `ResponseSchemaTypes`, `SupportedIsolationLevels`, `MaxBindings` | `MySqlOrmDriver` | | Override in the subclass. See [MySQL driver](01-mysql-driver.md), [Transactions](03-transactions.md), [Table reflection](05-table-reflection.md). |
 
 ### What other packages read from the driver
 
@@ -83,11 +85,12 @@ No shipped package checks the `Driver` string or the driver class. Packages that
 
 | Driver member | MySQL | Read by |
 | --- | --- | --- |
-| `SqlExpressions` | `MySqlSqlExpressions`: `CAST(x AS CHAR[(n)])`, `LOCATE()`, `= CAST(? AS BINARY)` | list rendering, datetime reads, byte-exact comparisons; see [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
-| `supportedFeatures().nativeJson` | `true` | the session-table JSON migration |
-| `lockTableShared(table)` | `SELECT COUNT(*) FROM <table> FOR SHARE` | the `users.Role` drop migration; see [Transactions](../orm/08-transactions.md#shared-table-lock) |
-| `isUniqueViolation(err)` | `errno === 1062` | stores that treat a duplicate key as a lost race; see [Duplicate keys](../orm/17-sql-helpers.md#duplicate-keys) |
-| `exact()` on a column | `CHARACTER SET utf8mb4 COLLATE utf8mb4_bin` | binary key columns; see [Schema builder](../orm/09-schema-builder.md#exact-columns) |
+| `SqlExpressions` | `MySqlSqlExpressions`: `CAST(x AS CHAR[(n)])`, `LOCATE()`, `= CAST(? AS BINARY)` | raw SQL that renders lists, reads datetimes or compares bytes exactly; see [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
+| `supportedFeatures().nativeJson` | `true` | migrations that choose between a JSON column and text |
+| `lockTableShared(table)` | `SELECT COUNT(*) FROM <table> FOR UPDATE` | migrations that check rows before they change a table; see [Transactions](../orm/08-transactions.md#shared-table-lock) |
+| `MaxBindings` | `65535` | `insertChunked()`, `deleteChunked()`, `whereInGroups()`; see [SQL helpers](../orm/17-sql-helpers.md#batches) |
+| Error mapping (`mapMySqlError()`) | `errno` `1062` rejects with `UniqueViolation` | stores that treat a duplicate key as a lost race; see [Duplicate keys](../orm/17-sql-helpers.md#duplicate-keys) |
+| `exact()` on a column | `CHARACTER SET 'utf8mb4' COLLATE 'utf8mb4_bin'` | binary key columns; see [Schema builder](../orm/09-schema-builder.md#exact-columns) |
 
 Override one of these in a subclass to change it for every package on the connection.
 

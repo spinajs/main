@@ -24,12 +24,12 @@ export async function rebuildNodes(driver: OrmDriver, nodes: readonly ResourceRe
   const parents = await readParents(driver, list);
   const outsideRefs = unique([...parents.values()].flat(), new Set([...keys, ...gone]));
   const outside = new Map<string, Link[]>();
-  for (const [k, rows] of await readAncestors(driver, outsideRefs))
+  for (const [k, rows] of await readAncestors(outsideRefs))
     outside.set(
       k,
       rows.map((r) => ({ type: r.ancestor_type, id: r.ancestor_id, depth: r.depth })),
     );
-  await replaceAncestors(driver, list, closeOver(list, parents, outside, gone));
+  await replaceAncestors(list, closeOver(list, parents, outside, gone));
   return list.length;
 }
 
@@ -37,7 +37,7 @@ export async function rebuildNodes(driver: OrmDriver, nodes: readonly ResourceRe
 export async function rebuildFrom(driver: OrmDriver, roots: readonly ResourceRef[]): Promise<number> {
   const list = unique(roots);
   if (list.length === 0) return 0;
-  return rebuildNodes(driver, [...list, ...(await readDescendants(driver, list))]);
+  return rebuildNodes(driver, [...list, ...(await readDescendants(list))]);
 }
 
 /** Design §6.4 steps 1–2: drop the rows of the deleted resources and recompute what was below them without them. */
@@ -45,7 +45,7 @@ export async function removeNodes(driver: OrmDriver, deleted: readonly ResourceR
   const list = unique(deleted);
   if (list.length === 0) return;
   const gone = new Set(list.map((n) => resourceKey(n)));
-  const below = (await readDescendants(driver, list)).filter((d) => !gone.has(resourceKey(d)));
-  await deleteRowsOf(driver, list);
+  const below = (await readDescendants(list)).filter((d) => !gone.has(resourceKey(d)));
+  await deleteRowsOf(list);
   await rebuildNodes(driver, below, gone);
 }

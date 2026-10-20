@@ -1,6 +1,5 @@
 import { DI } from '@spinajs/di';
 import { IdentifierQuoter, Orm, OrmDriver, RawQuery, SqlExpressions } from '@spinajs/orm';
-import { DateTime } from 'luxon';
 
 import { NO_PASSWORD, USER_COMMON_METADATA, User } from '../models/User.js';
 
@@ -95,22 +94,16 @@ export function raw(condition: Condition): RawQuery {
   return RawQuery.create(condition.sql, condition.bindings);
 }
 
-/** @internal The text the ORM's datetime converter writes for a model's `@DateTime()` column, so model reads parse it back. */
-export function sqlDateTime(at: Date): string {
-  return DateTime.fromJSDate(at).toSQL({ includeOffset: false })!;
-}
-
 /** @internal Stamps `users.PasswordSetAt` forward only, so writes that arrive out of order never move it back. */
 export async function recordPasswordSetAt(uuid: string, at: Date): Promise<void> {
   const driver = usersDriver();
   const setAt = quoted(driver, 'PasswordSetAt');
-  const when = sqlDateTime(at);
   await driver
     .update()
     .in(USERS_TABLE)
-    .update({ PasswordSetAt: when })
+    .update({ PasswordSetAt: at })
     .where('Uuid', uuid)
-    .where(raw({ sql: `(${setAt} IS NULL OR ${setAt} < ?)`, bindings: [when] }));
+    .where(raw({ sql: `(${setAt} IS NULL OR ${setAt} < ?)`, bindings: [at] }));
 }
 
 /** @internal The number of rows an update or delete reports. */

@@ -1,11 +1,10 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { SessionIssuer } from '@spinajs/authn/contracts';
-import { AbsoluteExpiration, DefaultSessionIssuer, SessionExpirationProvider, SessionProvider, SlidingCappedExpiration, SlidingExpiration, encodeSessionData } from '@spinajs/authn-session';
-import { DynamoDBClient, PutItemCommand, ScanCommand } from '@aws-sdk/client-dynamodb';
+import { AbsoluteExpiration, DefaultSessionIssuer, SessionExpirationProvider, SessionProvider, SlidingCappedExpiration, SlidingExpiration } from '@spinajs/authn-session';
+import { DynamoDBClient, ScanCommand } from '@aws-sdk/client-dynamodb';
 import type { DynamoDBClientConfig, AttributeValue } from '@aws-sdk/client-dynamodb';
 import _ from 'lodash';
-import { DateTime } from 'luxon';
 import { DynamoDbSessionProvider } from '../src/index.js';
 import { FakeDynamo } from './fake-dynamo.js';
 
@@ -81,36 +80,6 @@ export async function bootStore(session: Record<string, unknown> = {}): Promise<
 export const disposeStore = shutdown;
 
 const internals = (store: DynamoDbSessionProvider) => store as unknown as { DynamoDb: DynamoDBClient; Table: string };
-
-/** A session as 2.x wrote it: raw uuid key, numeric UserId, identity only in Data. */
-export interface LegacyRow {
-  rawId: string;
-  user?: string;
-  authorized: boolean;
-  impersonator?: string;
-  creation: DateTime;
-  expiration?: DateTime;
-}
-
-/** The PutItem the 2.x `save` sent (UserId N, Creation ISO, Data through the codec, Expiration epoch ms). */
-export async function writeLegacyRow(store: DynamoDbSessionProvider, row: LegacyRow): Promise<void> {
-  const data = new Map<string, unknown>([['Logged', true]]);
-  if (row.user !== undefined) data.set('User', row.user);
-  data.set('Authorized', row.authorized);
-  if (row.impersonator) data.set('Impersonator', row.impersonator);
-
-  const item: Record<string, AttributeValue> = {
-    SessionId: { S: row.rawId },
-    UserId: { N: '1' },
-    Creation: { S: row.creation.toISO()! },
-    Data: { S: encodeSessionData(data) },
-  };
-  if (row.expiration) {
-    item.Expiration = { N: `${row.expiration.toMillis()}` };
-  }
-  const { DynamoDb, Table } = internals(store);
-  await DynamoDb.send(new PutItemCommand({ TableName: Table, Item: item }));
-}
 
 /** Every SessionId in the table, live or not yet removed by TTL. */
 export async function storedKeys(store: DynamoDbSessionProvider): Promise<string[]> {

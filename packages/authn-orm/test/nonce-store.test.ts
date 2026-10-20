@@ -59,7 +59,7 @@ const targets: Target[] = [
       },
       make: async () => {
         await rawQuery(db!.driver, 'DELETE FROM authn_nonce', [], QueryContext.Delete);
-        return new DbNonceStore(db!.driver);
+        return new DbNonceStore();
       },
       teardown: async () => {
         await db?.dispose();
@@ -142,7 +142,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('purges expired keys only', async () => {
-      const store = new DbNonceStore(db.driver);
+      const store = new DbNonceStore();
       await store.claim('old', at(10), at(0));
       await store.claim('edge', at(20), at(0));
       await store.claim('live', at(60), at(0));
@@ -153,7 +153,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('purges now and then while claiming', async () => {
-      const store = new DbNonceStore(db.driver);
+      const store = new DbNonceStore();
       for (let i = 0; i < 100; i++) {
         await store.claim(`n${i}`, at(1), at(i < 50 ? 0 : 100));
       }
@@ -162,10 +162,10 @@ for (const kind of DB_KINDS) {
       expect(left).to.include('n99');
     });
 
-    it("resolves the Orm's default connection from its container when given no driver", async () => {
+    it('claims on the connection of the AuthnNonce model when DI builds it', async () => {
       const store = await db.container.resolve(DbNonceStore);
       expect(await store.claim('via-container', at(60), at(0))).to.eq(true);
-      expect(await new DbNonceStore(db.driver).claim('via-container', at(60), at(0))).to.eq(false);
+      expect(await new DbNonceStore().claim('via-container', at(60), at(0))).to.eq(false);
     });
   });
 }

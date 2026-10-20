@@ -146,4 +146,4 @@ console.log(data['authz.http.services']);
 
 - [Endpoint access](10-endpoint-access.md): the `'AccessPolicy'` slots the principal must pass.
 - [Setup and configuration](01-setup-and-configuration.md): the bootstrappers and the package config.
-- [`@spinajs/authz` HTTP adapter](../authz/README.md#http-spinajsauthz-http): `authz.http.services` and service principals.
+- [`@spinajs/authz` HTTP adapter](../authz-http/README.md): `authz.http.services` and service principals.

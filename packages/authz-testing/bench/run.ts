@@ -5,9 +5,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { formatTable, runScenario, type Scenario, type ScenarioResult } from './lib.js';
 
 // Usage: npm run bench -- [--filter=scenario-substring] [--files=file-substring] [--repeats=3] [--scale=0.1]
-// --files narrows which scenario files are imported at all: it keeps a 2.x file whose sources are
-// gone, and its global DI side effects, out of a 3.0 run. A file that fails to import is skipped, but the run exits 1
-// when --files was given or no scenario ran.
+// --files narrows which scenario files are imported at all, keeping the global DI side effects of the
+// others out of the run. A file that fails to import is skipped, but the run exits 1 when --files was
+// given or no scenario ran.
 const args = new Map(
   process.argv.slice(2).map((a) => {
     const [k, v] = a.replace(/^--/, '').split('=');

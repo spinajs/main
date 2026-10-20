@@ -243,7 +243,7 @@ describe('authn.* configuration schema', () => {
       refused({ http: { trustProxy: [''] } }, '/http/trustProxy/0');
     });
 
-    it('accepts the cookie values the 2.x cookie builder accepts and keeps them as given', () => {
+    it('accepts the cookie values the cookie writers accept and keeps them as given', () => {
       for (const cookie of [{ sameSite: true }, { sameSite: false }, { sameSite: 'Lax' }, { sameSite: 'STRICT' }, { sameSite: 'none' }, { secure: 'true' }, { secure: 'false' }, { hostPrefix: 'true' }, { secure: true, hostPrefix: false }]) {
         const r = check({ session: { cookie: { ...cookie } } });
         expect(r.errors, JSON.stringify(cookie)).to.deep.eq([]);

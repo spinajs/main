@@ -146,7 +146,7 @@ export class SubjectExecutor {
 
     const updatedAt = subject.Descriptor.Timestamps?.UpdatedAt;
     if (updatedAt) {
-      (subject.Model as any)[updatedAt] = DateTime.now();
+      (subject.Model as any)[updatedAt] = DateTime.utc();
       if (!changed.includes(updatedAt)) {
         changed.push(updatedAt);
       }
@@ -328,7 +328,7 @@ export class SubjectExecutor {
 
   protected async updateOrphans(delta: IOrphanDelta, result: ISaveResult): Promise<void> {
     const policy = this.effectivePolicy(delta);
-    const payload = policy === OrphanPolicy.Nullify ? { [delta.Descriptor.ForeignKey]: null } : { [delta.TargetDescriptor.SoftDelete!.DeletedAt]: DateTime.now() };
+    const payload = policy === OrphanPolicy.Nullify ? { [delta.Descriptor.ForeignKey]: null } : { [delta.TargetDescriptor.SoftDelete!.DeletedAt]: DateTime.utc() };
 
     for (const batch of this.chunked(delta.PrimaryKeys)) {
       const { query } = createQuery(delta.Descriptor.TargetModel, UpdateQueryBuilder);

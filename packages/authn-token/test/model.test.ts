@@ -91,8 +91,8 @@ describe('AccessToken model', function () {
     expect(loaded.Profile).to.equal('admin.primespot');
   });
 
-  it('leaves Profile undefined for legacy rows', async () => {
-    const token = new AccessToken({ Name: 'legacy', Token: 'hash-legacy-test', Roles: ['user'], user_id: 1 });
+  it('leaves Profile undefined for a token without a profile', async () => {
+    const token = new AccessToken({ Name: 'unpinned', Token: 'hash-unpinned-test', Roles: ['user'], user_id: 1 });
     await token.insert();
 
     const loaded = await AccessToken.where('Uuid', token.Uuid).firstOrFail();

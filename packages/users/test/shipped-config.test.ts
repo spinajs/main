@@ -29,7 +29,7 @@ async function shippedConfigs(): Promise<[string, Record<string, unknown>][]> {
   return Promise.all(files.map(async (f) => [f, (await import(pathToFileURL(join(configDir, f)).href)).default] as [string, Record<string, unknown>]));
 }
 
-function expectNoLegacyRoots(config: Record<string, unknown>, file: string) {
+function expectNoForeignRoots(config: Record<string, unknown>, file: string) {
   expect(config, file).to.not.have.any.keys('rbac', 'authn');
 }
 
@@ -41,14 +41,14 @@ describe('the configuration users ships', function () {
 
     expect(configs.map(([f]) => f)).to.include('users.ts');
     for (const [file, config] of configs) {
-      expectNoLegacyRoots(config, file);
+      expectNoForeignRoots(config, file);
     }
   });
 
   it('the check above fails when either key is present', () => {
-    expect(() => expectNoLegacyRoots({ users: {}, rbac: {} }, 'rbac only')).to.throw();
-    expect(() => expectNoLegacyRoots({ users: {}, authn: {} }, 'authn only')).to.throw();
-    expect(() => expectNoLegacyRoots({ users: {} }, 'neither')).to.not.throw();
+    expect(() => expectNoForeignRoots({ users: {}, rbac: {} }, 'rbac only')).to.throw();
+    expect(() => expectNoForeignRoots({ users: {}, authn: {} }, 'authn only')).to.throw();
+    expect(() => expectNoForeignRoots({ users: {} }, 'neither')).to.not.throw();
   });
 
   it('keeps identity keys under users.* and ships no defaultRoles or anonymousRoles array', () => {
@@ -65,13 +65,11 @@ describe('the configuration users ships', function () {
       sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
 
       // As an application would load it: users' fragment merged with the application's roles, the ones the test
-      // fixtures use. No 2.x rbac tree, and the authz legacy-key detector fails the boot.
+      // fixtures use.
       await bootUsersDb((config: Configuration) => {
         const roles = _.mergeWith({}, config.get('authz.rbac.roles'), usersConfig.authz.rbac.roles, mergeArrays);
         config.set('authz.rbac.roles', roles);
         config.set('authz.rbac.anonymousRoles', ['guest']);
-        config.set('rbac', undefined);
-        config.set('authz.config', { rejectLegacyKeys: true });
       });
     });
 
@@ -136,7 +134,7 @@ describe('the configuration users ships', function () {
       }
     });
 
-    it('gives admin user:impersonate through the fragment, and a user its own row with the 2.x fields', async () => {
+    it('gives admin user:impersonate through the fragment, and a user its own row', async () => {
       const authz = (await DI.resolve(AuthzService)) as AuthzService;
       const factory = (await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory;
 

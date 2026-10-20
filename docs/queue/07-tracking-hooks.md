@@ -6,7 +6,7 @@ A `QueueTrackingHook` wraps every query the queue runs against its own `queue_jo
 
 1. Each job-row operation calls `tracked(fn)`, where `fn` builds and runs the queries. Callers are:
    - `DefaultQueueService.consume()`: find the row, insert it, read it again after a failed insert, the `executing`, `success` and failure updates, and every progress write;
-   - `DefaultJobRetentionService.purgeJobs()`: the select and the delete, as one `fn`.
+   - `DefaultJobRetentionService.purgeJobs()`: the delete, as one `fn`.
 2. `tracked()` resolves `Array.ofType(QueueTrackingHook)` from DI, on every call.
 3. It nests the hooks: the first registered hook's `aroundTracking(next)` is outermost; the innermost `next` is `fn`.
 4. With no hooks, `fn` runs as is.

@@ -385,21 +385,21 @@ describe('Where query builder', () => {
 
   it('where true && where false', () => {
     let result = sqb().select('*').from('users').where(true).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE TRUE');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE 1 = 1');
 
     result = sqb().select('*').from('users').where(false).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE FALSE');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE 1 = 0');
   });
 
   it('Should convert date to sql', () => {
     let result = sqb().select('*').from('users').where('CreatedAt', new Date('2022-07-21T09:35:31.820Z')).toDB();
 
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE `CreatedAt` = ?');
-    expect(result.bindings![0]).to.equal('2022-07-21 11:35:31.820');
+    expect(result.bindings![0]).to.equal('2022-07-21 09:35:31.820');
 
     result = sqb().select('*').from('users').where('CreatedAt', DateTime.fromISO('2022-07-21T09:35:31.820Z')).toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE `CreatedAt` = ?');
-    expect(result.bindings![0]).to.equal('2022-07-21 11:35:31.820');
+    expect(result.bindings![0]).to.equal('2022-07-21 09:35:31.820');
   });
 
   it('Should resolve datetime in where as object', () => {
@@ -412,7 +412,7 @@ describe('Where query builder', () => {
       .toDB();
 
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE `CreatedAt` = ?');
-    expect(result.bindings![0]).to.equal('2022-07-21 11:35:31.820');
+    expect(result.bindings![0]).to.equal('2022-07-21 09:35:31.820');
 
     result = sqb()
       .select('*')
@@ -422,7 +422,7 @@ describe('Where query builder', () => {
       })
       .toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE `CreatedAt` = ?');
-    expect(result.bindings![0]).to.equal('2022-07-21 11:35:31.820');
+    expect(result.bindings![0]).to.equal('2022-07-21 09:35:31.820');
   });
 
   it('where with nested expressions', () => {
@@ -497,7 +497,7 @@ describe('Where query builder', () => {
       .select('*')
       .from('users')
       .where({
-        created_at: DateTime.fromFormat('29/01/2023', 'dd/MM/yyyy'),
+        created_at: DateTime.fromFormat('29/01/2023', 'dd/MM/yyyy', { zone: 'utc' }),
       })
       .toDB();
 
@@ -515,13 +515,13 @@ describe('Where query builder', () => {
       })
       .toDB();
 
-    // empty array => `IN ()` => match nothing (FALSE), NOT "no condition"
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE FALSE');
+    // empty array => `IN ()` => match nothing (1 = 0), NOT "no condition"
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE 1 = 0');
   });
 
-  it('whereIn with empty array compiles to FALSE ( B4b )', () => {
+  it('whereIn with empty array matches nothing ( B4b )', () => {
     const result = sqb().select('*').from('users').whereIn('id', []).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE FALSE');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE 1 = 0');
   });
 
   it('where(col, "=", null) compiles to IS NULL ( B6 )', () => {
@@ -599,7 +599,7 @@ describe('Delete query builder', () => {
   it('Should delete with datetime', () => {
     const result = dqb().from('users').database('spine').where('CreatedAt', DateTime.fromISO('2022-07-21T09:35:31.820Z')).toDB();
     expect(result.expression).to.equal('DELETE FROM `spine`.`users` WHERE `CreatedAt` = ?');
-    expect(result.bindings![0]).to.equal('2022-07-21 11:35:31.820');
+    expect(result.bindings![0]).to.equal('2022-07-21 09:35:31.820');
   });
 
   it('Simple truncate', () => {
@@ -1721,7 +1721,7 @@ describe('schema building', () => {
     expect(result[0].expression).to.be.eq('CREATE TABLE `users` (`Id` INT NOT NULL AUTO_INCREMENT,`Name` VARCHAR(255) NOT NULL ,PRIMARY KEY (`Id`) )');
     expect(result[1].expression).to.be.eq('CREATE TABLE `users__history` LIKE `users`');
     expect(result[2].expression!.replace(r, ' ')).to.be.eq(`ALTER TABLE \`users__history\` CHANGE COLUMN Id Id INT NOT NULL , DROP PRIMARY KEY;`);
-    expect(result[3].expression!.replace(r, ' ')).to.be.eq(`ALTER TABLE \`users__history\` ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AFTER __action__, ADD __start__ DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER __revision__, ADD __end__ DATETIME AFTER __start__`);
+    expect(result[3].expression!.replace(r, ' ')).to.be.eq(`ALTER TABLE \`users__history\` ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AFTER __action__, ADD __start__ DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) AFTER __revision__, ADD __end__ DATETIME(3) AFTER __start__`);
     expect(result[4].expression!.replace(r, ' ')).to.be.eq(`ALTER TABLE \`users__history\` ADD PRIMARY KEY (Id, __revision__)`);
     expect(result[5].expression!.replace(r, ' ')).to.be.eq(`CREATE TRIGGER users__history__insert_trigger BEFORE INSERT ON \`users__history\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); SET NEW.__revision__ = rev + 1; END;`);
     expect(result[6].expression!.replace(r, ' ')).to.be.eq('DROP TRIGGER IF EXISTS users__insert_trigger');
@@ -1866,7 +1866,7 @@ describe('schema building', () => {
       })
       .toDB() as ICompilerOutput[];
 
-    expect(result[0].expression).to.contain('`foo` TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    expect(result[0].expression).to.contain('`foo` TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP');
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
@@ -1874,7 +1874,7 @@ describe('schema building', () => {
       })
       .toDB() as ICompilerOutput[];
 
-    expect(result[0].expression).to.contain('`foo` TIMESTAMP DEFAULT (CURRENT_DATE())');
+    expect(result[0].expression).to.contain('`foo` TIMESTAMP(3) DEFAULT (CURRENT_DATE())');
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
@@ -1882,7 +1882,7 @@ describe('schema building', () => {
       })
       .toDB() as ICompilerOutput[];
 
-    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` TIMESTAMP DEFAULT CURRENT_TIMESTAMP  )');
+    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3)  )');
   });
 
   it('create index', () => {
@@ -2166,8 +2166,8 @@ describe('schema building', () => {
     expect(result[0].expression).to.contain('`foo` DOUBLE(8,2)');
     expect(result[0].expression).to.contain('`foo` DATE');
     expect(result[0].expression).to.contain('`foo` TIME');
-    expect(result[0].expression).to.contain('`foo` DATETIME');
-    expect(result[0].expression).to.contain('`foo` TIMESTAMP');
+    expect(result[0].expression).to.contain('`foo` DATETIME(3)');
+    expect(result[0].expression).to.contain('`foo` TIMESTAMP(3)');
     expect(result[0].expression).to.contain('`foo` JSON');
     expect(result[0].expression).to.contain("`foo` SET('bar','baz')");
   });

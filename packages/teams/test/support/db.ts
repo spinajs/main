@@ -45,8 +45,9 @@ export function onClose(fn: () => Promise<void>): void {
 async function open(): Promise<TeamsDb> {
   const cfg = await testHost.installHost();
   cfg.set('logger', SILENT_LOGGER);
-  // Migration.OnStartup stays off: the list above runs by hand, so no other imported package's migration runs.
-  cfg.set('db', { DefaultConnection: 'sqlite', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' }] });
+  // Migration.OnStartup stays off: the list above runs by hand after the boot, so no other imported package's migration runs,
+  // and test_projects has no migration; the boot therefore cannot require the tables.
+  cfg.set('db', { DefaultConnection: 'sqlite', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' }], Aliases: { authz: 'default' }, StrictTableCheck: false });
   const orm = (await DI.resolve(Orm)) as Orm;
   const driver = orm.Connections.get('default');
   if (!driver) throw new Error('teams test db: no connection default');

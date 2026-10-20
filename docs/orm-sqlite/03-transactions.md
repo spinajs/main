@@ -7,12 +7,11 @@ The lifecycle (commit on resolve, rollback on throw, savepoints, `afterCommit`) 
 ## How it works
 
 1. `OrmDriver.transaction(cb, options?)` checks `options.isolation` against `SupportedIsolationLevels` (`['SERIALIZABLE']`). Any other level throws `OrmException('isolation level <level> not supported by driver orm-driver-sqlite')` before anything is sent.
-2. Outermost call: `SqliteOrmDriver._begin()` waits until no other outermost transaction is open, then sends `BEGIN TRANSACTION` (`QueryContext.Transaction`, writer handle) and returns `{ depth: 0 }`. There is no per-transaction connection to carry.
-   - While the transaction is open, a writer statement sent from outside its async scope waits until it ends, so it never joins the transaction.
-3. The callback runs inside `TransactionStorage`. While it is in scope, `handleFor()` sends every statement, `SELECT`s included, to the writer.
+2. Outermost call: `supportedFeatures().concurrentTransactions` is `false`, so `OrmDriver.transaction()` first waits for the previous outermost transaction of this connection. `SqliteOrmDriver._begin()` then closes the writer gate, waits for outside statements already sent to the writer to finish (`sqlite3` runs the statements of one handle in parallel, so one of them could otherwise run after `BEGIN`), sends `beginStatement()` (`BEGIN TRANSACTION`) on the writer handle and returns `{ depth: 0 }`. There is no per-transaction connection to carry.
+3. The callback runs inside `TransactionStorage`. While it is in scope, `handleFor()` sends every statement, `SELECT`s included, to the writer. A statement issued with no transaction in scope that needs the writer handle — every write, and every read when there is no read pool — waits at the gate.
 4. Nested call: `_savepoint()` sends `SAVEPOINT <name>`; success sends `RELEASE <name>`, a throw sends `ROLLBACK TO <name>`. Names (`sp_1`, `sp_2`, ...) are quoted with `escapeIdentifier()`, never bound.
 5. The callback resolves: `_commit()` sends `COMMIT`. It throws: `_rollback()` sends `ROLLBACK`; a rollback failure is swallowed and the original error is rethrown.
-6. `_dispose()` lets the next outermost transaction and the waiting outside statements run. It runs before `afterCommit` callbacks, so a callback can open a new transaction.
+6. `_dispose()` opens the gate: statements held from other async paths run now, before the `afterCommit` callbacks and before the next queued transaction begins.
 
 ## Configuration
 
@@ -35,24 +34,23 @@ The lifecycle (commit on resolve, rollback on throw, savepoints, `afterCommit`) 
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Transaction primitives | protected `_begin`, `_sendBegin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` on the driver instance | `_begin()` queues, then calls `_sendBegin()` (`BEGIN TRANSACTION`); `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `RELEASE`, `ROLLBACK TO`; `_dispose()` releases the queue | none shipped | Override in a driver subclass, eg. `_sendBegin()` sending `BEGIN IMMEDIATE`; call `super` when overriding `_begin()` or `_dispose()`, or the queue breaks. |
+| Transaction primitives | protected `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` on the driver instance | `BEGIN TRANSACTION`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `RELEASE`, `ROLLBACK TO`, opening the writer gate | none shipped | Override `beginStatement()` to change the opening statement, eg. `BEGIN IMMEDIATE TRANSACTION`. An `_begin()` override must close the writer gate as `SqliteOrmDriver._begin()` does. |
 | Isolation levels | `SupportedIsolationLevels`, readonly field | `['SERIALIZABLE']` | | Redeclare in a subclass only if the engine really honours more. |
-| Transaction entry | `transaction(cb, options?)`, public, from `OrmDriver` | savepoints when nested, `BEGIN` otherwise | | Override in a subclass to instrument transactions; call `super.transaction()`. |
+| Transaction entry | `transaction(cb, options?)`, public, from `OrmDriver` | savepoints when nested, `BEGIN` otherwise | | Override in a subclass to instrument transactions; call `super.transaction()`. Outermost calls are already queued. |
 
 ### Transaction primitives: custom implementation
 
-SQLite's plain `BEGIN` is `DEFERRED`: it takes the write lock at the first write, and a transaction that reads first can fail with `SQLITE_BUSY` when it upgrades because another process holds the file. `BEGIN IMMEDIATE` takes the write lock up front. Override `_sendBegin()`, not `_begin()`: `_begin()` also queues outermost transactions.
+SQLite's plain `BEGIN` is `DEFERRED`: it takes the write lock at the first write, and a transaction that reads first can fail with `SQLITE_BUSY` when it upgrades. `BEGIN IMMEDIATE` takes the write lock up front. Outermost transactions are already queued by the core, so the subclass only changes the statement.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
-import { ITransactionOptions, QueryContext } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 @Injectable('orm-driver-sqlite-immediate')
 @NewInstance()
 export class ImmediateSqliteDriver extends SqliteOrmDriver {
-  protected async _sendBegin(_options?: ITransactionOptions): Promise<void> {
-    await this.executeOnDb('BEGIN IMMEDIATE TRANSACTION', [], QueryContext.Transaction);
+  protected beginStatement(): string {
+    return 'BEGIN IMMEDIATE TRANSACTION';
   }
 }
 ```
@@ -61,24 +59,33 @@ Use it with `Driver: 'orm-driver-sqlite-immediate'`.
 
 ## Important behaviour
 
-- One writer handle, no per-transaction connection. Outermost transactions of one connection run one after another: a second `transaction()` started while one is open waits for it to end.
-- Statements for the writer from code **outside** the transaction's async path, issued while it is open, wait until it commits or rolls back, so they never become part of it. Code inside the transaction must not wait for such a statement, or both wait forever.
+- One writer handle, no per-transaction connection. Outermost transactions therefore run one at a time: a second `transaction()` waits until the first has committed or rolled back. Nested calls are savepoints and never wait.
+- While a transaction is open, a statement from another async path that needs the writer handle — every write, and every read when there is no read pool (`:memory:`, `Pool.Max` 1) — waits until the transaction ends. It never joins the transaction. A read on a read handle does not wait and sees committed rows only.
+- Code inside a transaction must not wait for such a held statement, or for another outermost transaction of the same connection: both wait for this transaction to end, so the callback never resolves.
 - `SELECT`s inside a transaction always use the writer, so they see the transaction's own uncommitted writes.
 - `BEGIN` is `DEFERRED`. A transaction holds no lock until its first statement that needs one.
+- `driver.lockTableShared(t)` sends `DELETE FROM <t> WHERE 0`: a write that deletes nothing but takes the database's `RESERVED` lock, which keeps every other writer, in this process or another, out until the transaction ends. The lock covers the whole file, not only `t`. Outside a transaction it throws `InvalidOperation`. See [Shared table lock](../orm/08-transactions.md#shared-table-lock).
 - `SupportedIsolationLevels` is `['SERIALIZABLE']`: `sqlite3` outside shared-cache mode serializes access to the file. Other levels are rejected, not ignored.
 - DDL is transactional in SQLite: `CREATE TABLE` and `ALTER TABLE` inside a rolled-back transaction are undone.
-- A `Transaction` statement that fails raises `OrmException` with the `sqlite3` error in `inner` (see [Connection and driver](01-connection.md#errors)).
+- A failed `Transaction` statement is mapped like any other: `OrmException` with the `sqlite3` error in `inner`, or `ConstraintViolation` for a constraint checked at `COMMIT` (see [Connection and driver](01-connection.md#errors)).
 - Statements inside a transaction are never retried; a `SQLITE_BUSY` there fails at once and the transaction rolls back.
 
 ## Best practices
 
-- Keep transactions short and awaited end to end; every other writer statement of the connection waits for them.
+- Keep transactions short and awaited end to end: every other outermost transaction and every outside statement that needs the writer handle waits for the one that is open.
 - Use `BEGIN IMMEDIATE` (`ImmediateSqliteDriver`) for read-then-write transactions that compete with other processes on the same file.
 - Nest with `transaction()` rather than raw `SAVEPOINT` SQL, so `afterCommit` callbacks and rollback of nested work stay correct.
 
 ## Patterns and antipatterns
 
 ```ts
+// Don't: inside a transaction, wait for a write that another request started meanwhile;
+// that write is held until this transaction ends, so neither finishes
+await driver.transaction(async () => {
+  await driver.insert().into('ledger').values({ Amount: 10 });
+  await auditWriteStartedByAnotherRequest;
+});
+
 // Don't: two transactions for work that belongs together; they run one after another and the
 // first commits even when the second fails
 await Promise.all([

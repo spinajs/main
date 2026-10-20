@@ -8,9 +8,11 @@ import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
+import { Settings } from 'luxon';
 
 import { ASSIGNMENT_LIST_MAX_LIMIT, AdminAssignmentStore, AssignmentStore, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, readVersion, subjectFromColumns, subjectKeyOf } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
+import { statementsOf } from '../support/statements.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -49,6 +51,22 @@ const row = (over: Row = {}): Row => {
 
 const byId = (items: readonly Assignment[]) => [...items].sort((a, b) => a.id.localeCompare(b.id));
 
+async function inZone<T>(zone: string, fn: () => PromiseLike<T>): Promise<T> {
+  const tz = process.env.TZ;
+  const system = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const luxonZone = Settings.defaultZone;
+  process.env.TZ = zone;
+  Settings.defaultZone = zone;
+  try {
+    return await fn();
+  } finally {
+    // Deleting TZ alone keeps Node in the last zone; setting it back first resets it.
+    process.env.TZ = tz ?? system;
+    if (tz === undefined) delete process.env.TZ;
+    Settings.defaultZone = luxonZone;
+  }
+}
+
 for (const kind of DB_KINDS) {
   describe(`DbAssignmentStore (${kind})`, function () {
     this.timeout(60000);
@@ -69,7 +87,7 @@ for (const kind of DB_KINDS) {
 
     const rows = async (): Promise<Row[]> => (await db.driver.select().from('authz_assignment').orderBy('id')) as Row[];
 
-    const version = (domain = 'root') => readVersion(db.driver, domain);
+    const version = (domain = 'root') => readVersion(domain);
 
     /** Counts the SELECT statements `fn` sends on the default connection. */
     const countSelects = async <R>(fn: () => Promise<R>): Promise<{ result: R; selects: number }> => {
@@ -168,16 +186,13 @@ for (const kind of DB_KINDS) {
       });
 
       it('answers an empty subject list with [] and no query', async () => {
-        class NoDb extends DbAssignmentStore {
-          protected override connection(): Promise<OrmDriver> {
-            throw new Error('no query expected');
-          }
-        }
+        const { result, selects } = await countSelects(() => store.forSubjects([], AT));
 
-        expect(await new NoDb(db.container).forSubjects([], AT)).to.deep.eq([]);
+        expect(result).to.deep.eq([]);
+        expect(selects).to.eq(0);
       });
 
-      it('answers 1,500 subjects (batched under the parameter limits)', async () => {
+      it('answers 1,500 subjects in one query', async () => {
         const many = Array.from({ length: 1500 }, (_, i) => ({ type: 'user', id: `u${i}` }));
         await seed(...many.map((p, i) => row({ id: `b${String(i).padStart(4, '0')}`, subject_id: p.id })), row({ id: 'zz', subject_id: 'other' }));
 
@@ -185,22 +200,19 @@ for (const kind of DB_KINDS) {
 
         expect(found).to.have.length(1500);
         expect(new Set(found.map((a) => a.id)).size).to.eq(1500);
-        expect(selects, 'one query per 250 subjects').to.eq(6);
+        expect(selects, 'one query').to.eq(1);
       });
 
-      it('loses and repeats nothing across batch boundaries', async () => {
-        class SmallBatches extends DbAssignmentStore {
-          protected override readonly subjectBatch = 3;
-        }
+      it('deduplicates subjects and reads them in one query', async () => {
         const users = Array.from({ length: 8 }, (_, i) => ({ type: 'user', id: `u${i}` }));
         const sets = Array.from({ length: 4 }, (_, i): AssignmentSubject => ({ set: { role: 'group.member', scope: { type: 'group', id: `g${i}` } } }));
         await seed(...users.map((p) => row({ id: `p-${p.id}`, subject_id: p.id })), ...sets.map((_, i) => row({ id: `s-g${i}`, subject_type: 'group', subject_id: `g${i}`, subject_role: 'group.member' })));
 
         const subjects = [...users.slice(0, 4), ...sets, ...users.slice(4), users[0], sets[1]];
-        const { result: found, selects } = await countSelects(() => new SmallBatches(db.container).forSubjects(subjects, AT));
+        const { result: found, selects } = await countSelects(() => store.forSubjects(subjects, AT));
 
         expect(found.map((a) => a.id).sort()).to.deep.eq([...users.map((p) => `p-${p.id}`), ...sets.map((_, i) => `s-g${i}`)].sort());
-        expect(selects, '12 distinct subjects in batches of 3').to.eq(4);
+        expect(selects, '12 distinct subjects').to.eq(1);
       });
     });
 
@@ -378,14 +390,8 @@ for (const kind of DB_KINDS) {
         });
 
         it("bumps that domain's version, not root's", async () => {
-          const driver = db.driver;
-          class InDomain extends DbAssignmentStore {
-            protected override connection(): Promise<OrmDriver> {
-              return Promise.resolve(driver);
-            }
-          }
 
-          await inTx((tx) => new InDomain(domain).assign({ subject: alice, role: 'editor', scope: P1 }, root, tx));
+          await inTx((tx) => new DbAssignmentStore(domain).assign({ subject: alice, role: 'editor', scope: P1 }, root, tx));
 
           expect(await version(`l2_t3_${kind}`)).to.eq('1');
           expect(await version('root')).to.eq('0');
@@ -411,25 +417,37 @@ for (const kind of DB_KINDS) {
         expect(await version()).to.eq('0');
       });
 
-      it('compares expiry correctly in a zone far from UTC', async () => {
-        const tz = process.env.TZ;
-        const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      it('keeps instants and expiry when the writer and the reader run in different zones', async () => {
         const offset = AT.getTimezoneOffset();
-        process.env.TZ = 'Asia/Kolkata';
+        const [live, ending] = await inZone('Asia/Kolkata', async () => {
+          expect(AT.getTimezoneOffset(), 'the writer runs in Kolkata').to.eq(-330);
+          return [
+            await inTx((tx) => store.assign({ subject: alice, role: 'editor', scope: P1, expiresAt: AFTER }, root, tx)),
+            await inTx((tx) => store.assign({ subject: alice, role: 'viewer', scope: P1, expiresAt: AT }, root, tx)),
+          ];
+        });
 
-        try {
-          expect(AT.getTimezoneOffset(), 'the zone switch took effect').to.eq(-330);
-          const live = await inTx((tx) => store.assign({ subject: alice, role: 'editor', scope: P1, expiresAt: AFTER }, root, tx));
-          await inTx((tx) => store.assign({ subject: alice, role: 'viewer', scope: P1, expiresAt: AT }, root, tx));
-
+        await inZone('America/Los_Angeles', async () => {
+          expect(AT.getTimezoneOffset(), 'the reader runs in Los Angeles').to.eq(420);
           expect((await store.forSubjects([alice], AT)).map((a) => a.id)).to.deep.eq([live.id]);
+          expect((await store.forSubjects([alice], BEFORE)).map((a) => a.id).sort()).to.deep.eq([live.id, ending.id].sort());
           expect((await store.byId(live.id))!.expiresAt!.getTime()).to.eq(AFTER.getTime());
-        } finally {
-          // Deleting TZ alone keeps Node in the last zone; setting it back first resets it.
-          process.env.TZ = tz ?? zone;
-          if (tz === undefined) delete process.env.TZ;
-        }
+        });
+
         expect(AT.getTimezoneOffset(), 'the zone is restored').to.eq(offset);
+      });
+
+      it('compares an expiry the database stamped with the bound clock', async () => {
+        const a = await inTx((tx) => store.assign({ subject: alice, role: 'editor', scope: P1, expiresAt: AFTER }, root, tx));
+        await rawQuery(db.driver, `UPDATE authz_assignment SET expires_at = ${db.driver.now().Query} WHERE id = ?`, [a.id], QueryContext.Update);
+
+        await inZone('Asia/Kolkata', async () => {
+          const stamped = (await store.byId(a.id))!.expiresAt!.getTime();
+          // the database's clock, not this process's: allow for a drifting container clock
+          expect(stamped).to.be.within(Date.now() - 120_000, Date.now() + 120_000);
+          expect((await store.forSubjects([alice], new Date(stamped - 1))).map((x) => x.id)).to.deep.eq([a.id]);
+          expect(await store.forSubjects([alice], new Date(stamped))).to.deep.eq([]);
+        });
       });
     });
 
@@ -631,15 +649,14 @@ for (const kind of DB_KINDS) {
         expect(await version()).to.eq('1');
       });
 
-      it('revokeSubjects batches the subjects', async () => {
-        class Small extends DbAssignmentStore {
-          protected readonly subjectBatch = 1;
-        }
-        const small = new Small(db.container);
+      it('revokeSubjects deletes the rows of hundreds of subjects in one statement', async () => {
+        const many = Array.from({ length: 600 }, (_, i) => ({ type: 'user', id: `bulk${i}` }));
+        await seed(...many.map((p, i) => row({ id: `bulk-${i}`, subject_id: p.id })));
 
-        const gone = await inTx((tx) => small.revokeSubjects([alice, bob, g1Members], tx));
+        const { result: gone, statements } = await statementsOf(db.driver, () => inTx((tx) => store.revokeSubjects([...many, alice, bob, g1Members], tx)));
 
-        expect(gone.map((a) => a.id).sort()).to.deep.eq(['w1', 'w2', 'w3', 'w4', 'w5', 'w6', 'w7']);
+        expect(gone).to.have.length(607);
+        expect(statements.filter((s) => s.context === QueryContext.Delete)).to.have.length(1);
         expect(await rows()).to.deep.eq([]);
         expect(await version()).to.eq('1');
       });

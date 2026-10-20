@@ -15,14 +15,14 @@ export const DB_KINDS: DbKind[] = ['sqlite', 'postgres'];
 export const PG_SERVER = { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres', Database: 'test' };
 
 /** The shared server can be slow to answer while other lanes load it. */
-const PG_ACQUIRE_TIMEOUT = 15000;
+export const PG_ACQUIRE_TIMEOUT = 15000;
 
 export interface TestDb {
   kind: DbKind;
   orm: Orm;
   /** The child container the Orm was resolved in; resolve stores from it. */
   container: IContainer;
-  /** The connection the authz-rbac migrations and stores use (`'default'`). */
+  /** The default connection; db.Aliases.authz names it unless `authzOnSecond`. */
   driver: OrmDriver;
   /** Postgres only: the database created for this run. */
   database?: string;
@@ -32,20 +32,23 @@ export interface TestDb {
 }
 
 export interface BootOptions {
-  /** `Migration.OnStartup` of the connection; default true. */
+  /** `Migration.OnStartup` of the connection; default true. `false` also boots with db.StrictTableCheck off: those suites create or seed the authz tables after the boot. */
   migrate?: boolean;
   /** Also boot a second connection (`TestDb.second`). */
   second?: boolean;
+  /** With `second`: db.Aliases.authz names the second connection, which then migrates at boot unless `migrate` is false. */
+  authzOnSecond?: boolean;
 }
 
-function configurationFor(connection: Record<string, unknown>, extra: Record<string, unknown>[]) {
+function configurationFor(connection: Record<string, unknown>, extra: Record<string, unknown>[], authz: string | undefined, strictTables: boolean) {
   return class TestDbConfiguration extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
 
       // replaced, not merged: package configs must not add connections here
       const config = this.Config as Record<string, unknown>;
-      config.db = { ...(config.db as object), DefaultConnection: connection.Name, Connections: [connection, ...extra] };
+      const db = (config.db ?? {}) as { Aliases?: Record<string, string> };
+      config.db = { ...db, DefaultConnection: connection.Name, Connections: [connection, ...extra], StrictTableCheck: strictTables, ...(authz ? { Aliases: { ...db.Aliases, authz } } : {}) };
     }
   };
 }
@@ -110,7 +113,6 @@ export async function dropPgDatabase(name: string): Promise<void> {
  */
 export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, options: BootOptions = {}): Promise<TestDb> {
   DI.setESMModuleSupport();
-
   const migration = { OnStartup: options.migrate ?? true };
   let database: string | undefined;
   let connection: Record<string, unknown>;
@@ -124,10 +126,11 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
   }
 
   const container: IContainer = DI.child();
-  const second = options.second ? [{ Name: `l2-${suite}-second`, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: false } }] : [];
-  // The test database boots as an app does: the core schema gives authz.admin.connection its default.
+  const secondName = `l2-${suite}-second`;
+  const second = options.second ? [{ Name: secondName, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: options.authzOnSecond === true && migration.OnStartup } }] : [];
+  // The test database boots as an app does, against the core schema.
   container.register(AUTHZ_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
-  container.register(configurationFor(connection, second)).as(Configuration);
+  container.register(configurationFor(connection, second, options.authzOnSecond ? secondName : undefined, migration.OnStartup)).as(Configuration);
   container.register(SqliteOrmDriver).as('orm-driver-sqlite');
   container.register(PostgresOrmDriver).as('orm-driver-postgres');
 
@@ -148,7 +151,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
     orm,
     container,
     driver: orm.Connections.get('default')!,
-    second: second.length > 0 ? orm.Connections.get(`l2-${suite}-second`) : undefined,
+    second: second.length > 0 ? orm.Connections.get(secondName) : undefined,
     database,
     dispose: async () => {
       await orm.dispose();

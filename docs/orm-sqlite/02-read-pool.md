@@ -10,7 +10,7 @@ SQLite serializes writers at the file level, so a second writer handle buys noth
    3. Stops when `Max <= 1`, or the trimmed filename is `:memory:` or `''`. Each handle on those would open its own private database.
    4. Opens `Max - 1` handles in parallel with `new sqlite3.Database(filename, sqlite3.OPEN_READONLY)`.
    5. Drops a handle that fails to open, with a `warn` log on `orm-driver-<Name>` (`could not open a read-only sqlite handle for <Name>`). The connection still works on the writer.
-2. **Route.** `executeOnDb()` asks `handleFor(queryContext)` for a handle:
+2. **Route.** `executeOnDb()` asks `handleFor(queryContext)` for a handle. `handleFor()` returns the writer when `usesWriter(queryContext)` is `true`, which the writer gate also reads:
    1. No read handles, or a `QueryContext` other than `Select`: the writer.
    2. A transaction in scope (`TransactionStorage.getStore()` is set): the writer.
    3. Otherwise the next read handle, round-robin.
@@ -67,19 +67,18 @@ export class ReportingConfiguration extends FrameworkConfiguration {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Handle routing | `SqliteOrmDriver.handleFor(queryContext)`, protected method, per driver instance | writer for non-`Select` and transactions, round-robin read handles otherwise | none shipped | Override in a driver subclass; return `this.Db` or one of `this.ReadPool`. |
+| Handle routing | `SqliteOrmDriver.usesWriter(queryContext)` and `handleFor(queryContext)`, protected methods, per driver instance | writer for non-`Select` and transactions, round-robin read handles otherwise | none shipped | Override `usesWriter()` in a driver subclass to send more queries to the writer; `handleFor()` and the writer gate both follow it. Override `handleFor()` only to choose among `this.ReadPool`. |
 | Read pool lifecycle | `openReadPool(filename)`, `closeReadPool()`, protected methods | opens `Max - 1` `OPEN_READONLY` handles / closes them all | none shipped | Override in a driver subclass; call `super` and then adjust `this.ReadPool`. |
 | Pool gauges | `poolMetrics()`, public method | `Size` = writer + read handles | | Override to report a different size. |
 
 ### Handle routing: custom implementation
 
-Override `handleFor()` when some reads must see the writer's state: tables `ATTACH`ed on the writer, `TEMP` tables, or data a bulk job writes in many small autocommit steps. Call `super.handleFor()` for every other case, so transactions keep their guarantee.
+Override `usesWriter()` when some reads must see the writer's state: tables `ATTACH`ed on the writer, `TEMP` tables, or data a bulk job writes in many small autocommit steps. Call `super.usesWriter()` for every other case, so transactions keep their guarantee. A read sent to the writer this way also waits at the writer gate while another async path has a transaction open, so it never sees that transaction's uncommitted rows.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
 import { QueryContext } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import sqlite3 from 'sqlite3';
 
 /** Sends every read to the writer while a nightly import runs, so readers never see a half-imported batch from another handle. */
 @Injectable('orm-driver-sqlite-import-aware')
@@ -87,12 +86,8 @@ import sqlite3 from 'sqlite3';
 export class ImportAwareSqliteDriver extends SqliteOrmDriver {
   public ImportRunning = false;
 
-  protected handleFor(queryContext: QueryContext): sqlite3.Database {
-    if (this.ImportRunning) {
-      return this.Db;
-    }
-
-    return super.handleFor(queryContext);
+  protected usesWriter(queryContext: QueryContext): boolean {
+    return this.ImportRunning || super.usesWriter(queryContext);
   }
 }
 

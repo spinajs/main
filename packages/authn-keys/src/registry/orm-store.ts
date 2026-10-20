@@ -3,14 +3,14 @@ import { Orm, rowsAffected } from '@spinajs/orm';
 import type { IdentityRef, KeyOwner, KeyRecord } from '@spinajs/authn/contracts';
 import { sameRef } from '@spinajs/authn/contracts';
 import { AuthnKey } from '../models/AuthnKey.js';
-import { fromUtcColumn, toUtcColumn } from '../models/utc.js';
+import { DateTime } from 'luxon';
 import { decodeCeiling, decodePrincipalRef, encodeCeiling, encodePrincipalRef, KeyStore } from './store.js';
 
 function toRecord(row: AuthnKey): KeyRecord {
   const createdBy = row.created_by ? decodePrincipalRef(row.created_by) : undefined;
-  const expiresAt = fromUtcColumn(row.expires_at);
-  const revokedAt = fromUtcColumn(row.revoked_at);
-  const lastUsedAt = fromUtcColumn(row.last_used_at);
+  const expiresAt = row.expires_at?.toJSDate();
+  const revokedAt = row.revoked_at?.toJSDate();
+  const lastUsedAt = row.last_used_at?.toJSDate();
   return Object.freeze({
     kid: row.kid,
     owner: Object.freeze({ type: row.owner_type, id: row.owner_id }) as KeyOwner,
@@ -19,7 +19,7 @@ function toRecord(row: AuthnKey): KeyRecord {
     thumbprint: row.thumbprint,
     ...(row.name ? { name: row.name } : {}),
     ...(row.scope ? { scope: decodeCeiling(row.scope) } : {}),
-    createdAt: fromUtcColumn(row.created_at)!,
+    createdAt: row.created_at.toJSDate(),
     ...(createdBy ? { createdBy } : {}),
     ...(expiresAt ? { expiresAt } : {}),
     ...(revokedAt ? { revokedAt } : {}),
@@ -54,8 +54,8 @@ export class OrmKeyStore extends KeyStore {
       scope: key.scope ? encodeCeiling(key.scope) : null,
       name: key.name ?? null,
       created_by: key.createdBy ? encodePrincipalRef(key.createdBy) : null,
-      created_at: toUtcColumn(key.createdAt),
-      ...(key.expiresAt ? { expires_at: toUtcColumn(key.expiresAt) } : {}),
+      created_at: DateTime.fromJSDate(key.createdAt),
+      ...(key.expiresAt ? { expires_at: DateTime.fromJSDate(key.expiresAt) } : {}),
     });
     try {
       await row.insert();
@@ -88,13 +88,13 @@ export class OrmKeyStore extends KeyStore {
     if (row.revokedAt) {
       return 'already';
     }
-    const r = await AuthnKey.update({ revoked_at: toUtcColumn(at) })
+    const r = await AuthnKey.update({ revoked_at: DateTime.fromJSDate(at) })
       .where('kid', kid)
       .whereNull('revoked_at');
     return rowsAffected(r) > 0 ? 'revoked' : 'already';
   }
 
   async touch(kid: string, at: Date): Promise<void> {
-    await AuthnKey.update({ last_used_at: toUtcColumn(at) }).where('kid', kid);
+    await AuthnKey.update({ last_used_at: DateTime.fromJSDate(at) }).where('kid', kid);
   }
 }

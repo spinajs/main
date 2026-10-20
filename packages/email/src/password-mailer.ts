@@ -26,7 +26,7 @@ export interface EmailPasswordMailerDeps {
 
 const DEFAULT_SUBJECTS = { reset: 'Reset your password', invite: 'Set up your account' } as const;
 
-/** As 2.x `passwordResetUrl` builds it, so 2.x redemption pages keep working. */
+/** `base` with the `token` and `email` query parameters the redemption page reads. */
 function resetUrl(base: string, secret: string, email: string): string {
   if (!base) {
     return '';
@@ -95,7 +95,6 @@ export class EmailPasswordMailer {
       connection,
       subject: purpose.subject || DEFAULT_SUBJECTS[mail.purpose],
       tag: `authn-password-${mail.purpose}`,
-      // 2.x model names, so 2.x templates keep working.
       model: {
         Token: mail.secret,
         ResetUrl: link,

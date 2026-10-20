@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 /**
  * A bench scenario. Drop a file exporting one (or an array) as default into `bench/scenarios/`;
- * the runner picks it up, so a 3.0 scenario sits next to the 2.x ones without runner changes.
+ * the runner picks it up without runner changes.
  */
 export interface Scenario {
   /** Unique, used as the output file name. Convention: `<area>.<what>`. */

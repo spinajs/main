@@ -49,7 +49,7 @@ for (const kind of DB_KINDS) {
 
     beforeEach(async () => {
       await rawQuery(db.driver, 'DELETE FROM authn_mfa', [], QueryContext.Delete);
-      store = new DbMfaStore(db.driver);
+      store = new DbMfaStore();
       source = new DbMfaEnrolments(store);
     });
 

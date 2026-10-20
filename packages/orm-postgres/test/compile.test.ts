@@ -237,11 +237,21 @@ describe('postgres SQL compilation', function () {
         table.tinyint('Small');
       });
 
-      expect(stmt).to.contain('"CreatedAt" TIMESTAMP');
+      expect(stmt).to.contain('"CreatedAt" TIMESTAMPTZ(3)');
       expect(stmt).to.contain('"Ratio" DOUBLE PRECISION');
       expect(stmt).to.contain('"Payload" JSONB');
       expect(stmt).to.contain('"Blob" BYTEA');
       expect(stmt).to.contain('"Small" SMALLINT');
+    });
+
+    it('renders a datetime as TIMESTAMPTZ(3), defaulting to CURRENT_TIMESTAMP', () => {
+      const stmt = createTable((table) => {
+        table.dateTime('CreatedAt').notNull().default().dateTime();
+        table.timestamp('SeenAt');
+      });
+
+      expect(stmt).to.contain('"CreatedAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP');
+      expect(stmt).to.contain('"SeenAt" TIMESTAMPTZ(3)');
     });
 
     it('renders an enum as TEXT with a CHECK constraint over its members', () => {

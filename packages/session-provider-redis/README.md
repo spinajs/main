@@ -12,5 +12,4 @@ Select it with `authn.session.service: 'RedisSessionStore'` and configure the co
 
 - [Package overview](../../docs/session-provider-redis/README.md)
 - [Redis session store](../../docs/session-provider-redis/01-redis-session-store.md)
-- [2.x sessions and the boot sweep](../../docs/session-provider-redis/02-legacy-session-sweep.md)
 - [Extending the Redis store](../../docs/session-provider-redis/03-extending-the-redis-store.md)

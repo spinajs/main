@@ -1,13 +1,12 @@
 import { createHash } from 'node:crypto';
-import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, compareDenyReasons, FALSE, GLOBAL, TRUE, and, or, registeredFunctions, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
-import { Orm } from '@spinajs/orm';
+import { AUTHZ_CONNECTION, AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, compareDenyReasons, FALSE, GLOBAL, TRUE, and, or, registeredFunctions, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
 import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { PolicyStore } from '../contracts.js';
 import { notListFilterable, rowDependence } from './list.js';
 import { PolicyIndex, loadPolicy, scopeFilter, targets, targetsPrincipal } from './policies.js';
 import type { LoadedPolicy } from './policies.js';
-import { ABAC_DEFAULT_CONNECTION, ABAC_DEFAULT_STORES, ABAC_STORE_NAMES } from './schema.js';
+import { ABAC_DEFAULT_STORES, ABAC_STORE_NAMES } from './schema.js';
 import { ConfigPolicyStore } from './stores/config.js';
 import { DbPolicyStore } from './stores/db.js';
 
@@ -16,8 +15,8 @@ export interface AbacModelOptions {
   readonly name?: string;
   /**
    * Default: the stores named in `authz.<name>.stores` (design §8.3; 'ConfigPolicyStore' over
-   * `authz.<name>.policies`, 'DbPolicyStore' on the connection `authz.<name>.connection`, else
-   * 'default'), and without that key a ConfigPolicyStore.
+   * `authz.<name>.policies`, 'DbPolicyStore' on the ORM connection alias `authz`), and without that
+   * key a ConfigPolicyStore.
    */
   readonly stores?: readonly PolicyStore[];
   /** Functions a policy condition may call, for the checks at load; default every ConditionFunction the domain's container sees (the built-ins included). */
@@ -85,6 +84,7 @@ export class AbacModel extends AuthorizationModel {
   }
 
   async init(ctx: ModelInitContext): Promise<void> {
+    refuseConnectionKey(this.name, ctx);
     this.registry = ctx.permissions;
     if (!this.functions) this.parser = new DefaultConditionCompiler(await registeredFunctions(ctx.container));
     this.stores ??= storesFromConfig(this.name, ctx);
@@ -517,8 +517,8 @@ function fieldsOf(permits: readonly Entry[], denies: readonly Entry[]): FieldSet
   return { read: pick('read'), write: pick('write'), ...(hide.length > 0 ? { hide } : {}) };
 }
 
-/** The stores `authz.<model>.stores` names (design §8.3); DbPolicyStore resolves its connection on first use. */
-export function storesFromConfig(model: string, ctx: Pick<ModelInitContext, 'config' | 'container'>): PolicyStore[] {
+/** The stores `authz.<model>.stores` names (design §8.3). */
+export function storesFromConfig(model: string, ctx: Pick<ModelInitContext, 'config'>): PolicyStore[] {
   const names = ctx.config<readonly string[]>('stores', ABAC_DEFAULT_STORES);
   const policies = ctx.config<readonly unknown[]>('policies', []);
   // A runtime Configuration.set skips the schema: a string would be spread into one policy per character.
@@ -526,15 +526,14 @@ export function storesFromConfig(model: string, ctx: Pick<ModelInitContext, 'con
   if (!Array.isArray(policies)) throw new AuthzConfigError(`authz.${model}.policies must be a list of policies`);
   return names.map((name) => {
     if (name === 'ConfigPolicyStore') return new ConfigPolicyStore(policies);
-    if (name === 'DbPolicyStore') {
-      const connection = ctx.config<string>('connection', ABAC_DEFAULT_CONNECTION);
-      return new DbPolicyStore(async () => {
-        const driver = ((await ctx.container.resolve(Orm)) as Orm).Connections.get(connection);
-        if (!driver) throw new AuthzConfigError(`authz.${model}.connection: no ORM connection named ${JSON.stringify(connection)}`);
-        return driver;
-      });
-    }
+    if (name === 'DbPolicyStore') return new DbPolicyStore();
     // AUTHZ_ABAC_CONFIGURATION_SCHEMA covers authz.abac only; a model under another name reads an unchecked section.
     throw new AuthzConfigError(`authz.${model}.stores names ${JSON.stringify(name)}, which is not a policy store (${ABAC_STORE_NAMES.join(', ')})`);
   });
+}
+
+/** db.Aliases.authz replaced `authz.<model>.connection`; a key left set fails, so policies never move database unnoticed. */
+function refuseConnectionKey(model: string, ctx: Pick<ModelInitContext, 'config'>): void {
+  if (ctx.config<unknown>('connection') === undefined) return;
+  throw new AuthzConfigError(`authz.${model}.connection: removed; the authz tables use the ORM connection alias "${AUTHZ_CONNECTION}", so set db.Aliases.${AUTHZ_CONNECTION} to the connection name instead (default: "default")`);
 }

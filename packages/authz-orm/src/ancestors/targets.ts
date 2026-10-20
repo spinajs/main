@@ -5,7 +5,6 @@ import type { DeleteQueryBuilder, IQueryStatement, InsertQueryBuilder, OrmDriver
 
 import { idLookup, idText, tableOf } from '../ids.js';
 import type { ModelClass, ResourceEntry } from '../registry.js';
-import { ID_CHUNK, chunks } from './table.js';
 
 const refsOf = (type: string, ids: readonly unknown[]): ResourceRef[] => [...new Set(ids.map((v) => idText(v)).filter((v): v is string => v !== undefined))].map((id) => ({ type, id }));
 
@@ -33,12 +32,11 @@ export function targetRefs(query: UpdateQueryBuilder<unknown> | DeleteQueryBuild
 export async function stillThere(driver: OrmDriver, model: ModelClass, entry: ResourceEntry, refs: readonly ResourceRef[]): Promise<Set<string>> {
   const out = new Set<string>();
   const values = refs.map((r) => idLookup(model, entry.idColumn, String(r.id))).filter((v) => v !== undefined);
-  for (const part of chunks(values, ID_CHUNK)) {
-    const rows = (await driver.select().from(tableOf(model)).columns([entry.idColumn]).whereIn(entry.idColumn, part)) as Record<string, unknown>[];
-    for (const row of rows) {
-      const id = idText(row[entry.idColumn]);
-      if (id !== undefined) out.add(id);
-    }
+  if (values.length === 0) return out;
+  const rows = (await driver.select().from(tableOf(model)).columns([entry.idColumn]).whereIn(entry.idColumn, values)) as Record<string, unknown>[];
+  for (const row of rows) {
+    const id = idText(row[entry.idColumn]);
+    if (id !== undefined) out.add(id);
   }
   return out;
 }

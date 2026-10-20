@@ -34,14 +34,11 @@ const recordingLog = () => {
 
 const trace: Trace = { domain: 'root', algorithm: 'deny-overrides', models: ['m1'], votes: [], steps: [{ by: 'core', step: 'deny', note: "no permit for 'x'\nline two" }], durationMs: 1.5 };
 
-/**
- * `at` holds UTC wall time without an offset. The raw driver value: on SQLite the orm's datetime
- * text; on Postgres a Date that pg built by reading that wall time as local time.
- */
+/** The raw driver value of `at`: on SQLite the converter's ISO text, on Postgres a Date. */
 const time = (v: unknown): number => {
-  if (v instanceof Date) return Date.UTC(v.getFullYear(), v.getMonth(), v.getDate(), v.getHours(), v.getMinutes(), v.getSeconds(), v.getMilliseconds());
-  expect(v).to.match(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}$/);
-  return new Date(`${String(v).replace(' ', 'T')}Z`).getTime();
+  if (v instanceof Date) return v.getTime();
+  expect(v).to.match(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+  return Date.parse(String(v));
 };
 
 describe('authz-orm DbDecisionAudit', function () {
@@ -76,8 +73,6 @@ describe('authz-orm DbDecisionAudit', function () {
         db = await TestDb.open({ postgres: dialect === 'postgres' });
         driver = db.driver(dialect);
         db.orm.Connections.set(AUDIT_CONNECTION, driver);
-        // The Postgres database is shared between runs: start from no table.
-        await migration.down(driver);
       });
 
       afterEach(async () => {
@@ -136,10 +131,11 @@ describe('authz-orm DbDecisionAudit', function () {
         expect(models).to.have.length(1);
         expect(models[0]).to.be.instanceOf(AuthzAuditEntry);
         expect(models[0]).to.include({ id: byKind.deny.id, principal: 'user:alice', resource: 'doc:d1' });
-        // Through the model `at` is a luxon DateTime on both dialects, its wall time UTC.
+        // Through the model `at` is a luxon DateTime in UTC on both dialects.
         const at = (models[0] as unknown as { at: unknown }).at;
         expect(DateTime.isDateTime(at), `${dialect} at is a DateTime`).to.equal(true);
-        expect((at as DateTime).setZone('utc', { keepLocalTime: true }).toMillis()).to.be.within(before - 1000, after + 1000);
+        expect((at as DateTime).zoneName).to.equal('UTC');
+        expect((at as DateTime).toMillis()).to.be.within(before - 1000, after + 1000);
       });
 
       it('values with quotes, newlines and SQL syntax are stored as they are; long ones are cut to the column', async () => {

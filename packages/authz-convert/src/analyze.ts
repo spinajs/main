@@ -193,13 +193,13 @@ function dbFacts(merged: Plain, grants: Grants2, db: DbFacts, f: Findings): void
     f.warn(
       'held-unknown-role',
       twin !== undefined
-        ? `${n} user(s) or token(s) hold role '${role}', which matches '${twin}' only in case; 3.0 ignores the assignment (with a warning) after the users.Role copy.`
+        ? `${n} user(s) or token(s) hold role '${role}', which matches '${twin}' only in case; 3.0 ignores an assignment of it (with a warning).`
         : `${n} user(s) or token(s) hold role '${role}', which these config files do not define; 3.0 ignores such an assignment (with a warning) unless a package fragment defines the role.`,
     );
   }
   const open = db.tokens.filter((t) => t.expiresAt === null || t.expiresAt === undefined || t.expiresAt === '');
   if (open.length > 0) {
-    f.warn('token-no-expiry', `${open.length} API token(s) have no expiry; the 3.0 migration gives them CreatedAt + authn.token.maxTtlDays (default 90 days). Tell their owners: ${open.slice(0, 50).map((t) => t.id).join(', ')}${open.length > 50 ? ', …' : ''}`);
+    f.warn('token-no-expiry', `${open.length} API token(s) have no expiry; 3.0 starts from an empty database, so no 2.x token survives the upgrade and every 3.0 token expires. Tell their owners: ${open.slice(0, 50).map((t) => t.id).join(', ')}${open.length > 50 ? ', …' : ''}`);
   }
 }
 

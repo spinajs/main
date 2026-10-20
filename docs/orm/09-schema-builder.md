@@ -90,6 +90,8 @@ Several columns marked `primaryKey()` form a composite key: the SQL compiler emi
 
 How each type maps to SQL is dialect business: see [`@spinajs/orm-sql` compilers](../orm-sql/02-query-compilers.md#ddl) and the [SQLite type mapping](../orm-sqlite/04-schema-and-ddl.md#type-mapping).
 
+`dateTime()` and `timestamp()` create the dialect's instant type and hold UTC: `TIMESTAMPTZ(3)` on PostgreSQL, `DATETIME(3)` and `TIMESTAMP(3)` on MySQL (the driver runs its sessions in UTC; `TIMESTAMP` ends in 2038), `DATETIMEOFFSET(3)` on MSSQL, and ISO-8601 UTC text in a `TEXT` column on SQLite. `default().dateTime()` is the database clock: `CURRENT_TIMESTAMP`, `CURRENT_TIMESTAMP(3)`, `SYSDATETIMEOFFSET()`, `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`.
+
 ### `ColumnQueryBuilder`
 
 Every modifier returns the column builder, except `default()`.
@@ -103,14 +105,14 @@ Every modifier returns the column builder, except `default()`.
 | `primaryKey()` | Marks the column as (part of) the primary key. |
 | `comment(text)` | Column comment. |
 | `charset(name)`, `collation(name)` | Column character set and collation. |
-| `exact()` | Compares and orders the column byte for byte: the driver's binary collation. See [Exact columns](#exact-columns). |
+| `exact()` | Compares and orders the column byte for byte: the driver's binary collation. An explicit `collation()` wins. String and text columns only: on any other column type it throws `InvalidArgument` naming the column. See [Exact columns](#exact-columns). |
 | `default()` | Returns a `DefaultValueBuilder`; each of its methods returns the column builder. |
 
 | `DefaultValueBuilder` method | Default value |
 | --- | --- |
 | `value(val: string \| number)` | A literal. |
 | `date()` | The current date. |
-| `dateTime()` | The current date and time. |
+| `dateTime()` | The database's current instant, at the column's precision. |
 | `raw(query: RawQuery)` | The given SQL expression. |
 
 `InlinePrimaryKey` is a public flag the dialect compilers clear to move a key to a table-level constraint (SQLite does this for composite keys). Leave it alone.
@@ -147,7 +149,7 @@ Every modifier returns the column builder, except `default()`.
 
 | `AlterTableQueryBuilder` method | Effect |
 | --- | --- |
-| `dropColumn(column)` | Drops the column; the name is quoted. Returns `void`. |
+| `dropColumn(column)` | Drops the column; the name is quoted like every other identifier. Returns `void`. |
 | `rename(newTableName)` | Renames the table (`RENAME TO`; `sp_rename` on MSSQL). Returns `void`. |
 
 `default()` returns the column typed as `ColumnQueryBuilder`, which has no `addColumn()` or `modify()`. Set the mode first, or keep a reference to the column:
@@ -173,16 +175,16 @@ await connection.schema().alterTable('invoices', (table) => {
 
 ### Exact columns
 
-`exact()` declares the column so that comparison, `UNIQUE` and ordering go byte for byte: no case, accent or trailing-space folding. Use it for keys such as paths, tokens or external subject ids, where `Report.pdf` and `report.pdf` are two rows.
+`exact()` declares the column so that comparison, `UNIQUE` and ordering go byte for byte: case and accent variants are different values. Use it for keys such as paths, tokens or external subject ids, where `Report.pdf` and `report.pdf` are two rows. An explicit `collation()` wins over the clause below. String and text columns only: on any other column type it throws `InvalidArgument` naming the column.
 
 | Driver | Clause |
 | --- | --- |
-| MySQL | `CHARACTER SET utf8mb4 COLLATE utf8mb4_bin` |
-| PostgreSQL | `COLLATE "C"`, unless `collation()` is set |
-| MSSQL | `COLLATE Latin1_General_BIN2` |
+| MySQL | `CHARACTER SET 'utf8mb4' COLLATE 'utf8mb4_bin'`; with `charset(name)`, `CHARACTER SET '<name>' COLLATE '<name>_bin'` |
+| PostgreSQL | `COLLATE "C"` |
+| MSSQL | `COLLATE Latin1_General_100_BIN2`, and a `string()` column is written `NVARCHAR(n)`: a binary collation on `VARCHAR` limits it to code page 1252 |
 | SQLite | none: `BINARY` is the default collation |
 
-To compare a column that is not `exact()` byte for byte, use `SqlExpressions.equalsExactly()`; see [SQL helpers](17-sql-helpers.md#dialect-expressions).
+MySQL's `_bin` collations and MSSQL's `=` still ignore trailing blanks. To compare a column that is not `exact()` byte for byte, use `SqlExpressions.equalsExactly()`; see [SQL helpers](17-sql-helpers.md#dialect-expressions).
 
 ### Indexes
 
@@ -204,6 +206,10 @@ To compare a column that is not `exact()` byte for byte, use `SqlExpressions.equ
 | `TruncateTableQueryBuilder` | none | SQLite emits `DELETE FROM` and keeps its auto-increment counter. |
 | `CloneTableQueryBuilder` | `shallowClone(src, target)`, `deepClone(src, target, filter?)` | A shallow clone copies the structure. A deep clone also copies the rows, filtered by the `SelectQueryBuilder` callback when given. `deepClone` is `async`. |
 | `TableExistsQueryBuilder` | none | Used by `tableExists()`; each dialect registers its own `TableExistsCompiler`. |
+
+### Locking a table
+
+There is no schema builder for a table lock. Inside a transaction, `driver.lockTableShared(table)` keeps other writers off the table until the transaction ends; see [Shared table lock](08-transactions.md#shared-table-lock).
 
 ## Views
 
@@ -288,7 +294,7 @@ See the dialect pages for the details: [MySQL](../orm-mysql/06-schema-views-and-
 - Nothing runs until you `await` the builder (or call `execute()`, `then()`, `catch()`, `finally()`). A builder that is only created is silently dropped.
 - A builder executes at most once. Awaiting it again returns the memoized result and sends nothing.
 - `toDB()` compiles without executing. Use it to preview the SQL a builder produces.
-- `alterTable`, a deep `cloneTable` and `createTable` with `trackHistory()` compile to several statements. `SqlDriver.execute()` sends an array of statements together through `Promise.all`, not one after another. When one alteration depends on another, use separate `alterTable` calls.
+- `alterTable`, a deep `cloneTable` and `createTable` with `trackHistory()` compile to several statements. `SqlDriver.execute()` sends them one after another, in compile order. Outside a transaction a pooled driver may run each on a different connection.
 - Schema statements pass through query middlewares like every other builder: `QueryMiddleware.beforeQueryExecution()` runs before the driver call. See [Query builder](05-query-builder.md).
 - Names that reach the SQL unquoted are validated, not escaped: view options and event units against fixed lists in `@spinajs/orm`, and database charset and collation names against `[A-Za-z0-9_]` in `@spinajs/orm-sql`.
 - DDL is not transactional on MySQL: a migration transaction does not undo a `CREATE TABLE`. See [MySQL: DDL is not transactional](../orm-mysql/06-schema-views-and-events.md#ddl-is-not-transactional) and [Migrations](10-migrations.md#transaction-modes).

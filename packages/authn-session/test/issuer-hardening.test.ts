@@ -1,6 +1,5 @@
 import { expect } from 'chai';
-import { createHash, randomUUID } from 'node:crypto';
-import { DateTime } from 'luxon';
+import { createHash } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
@@ -11,7 +10,7 @@ import { FakeClock } from '@spinajs/authn-testing';
 import { DefaultSessionIssuer, MemorySessionStore, SESSION_PENDING_STEPS_KEY } from '../src/index.js';
 import type { ISession } from '../src/index.js';
 import shipped from '../src/config/session.js';
-import { plantLegacyRow, uncacheOwned, withSessionConfig } from './support.js';
+import { uncacheOwned, withSessionConfig } from './support.js';
 
 const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex');
 const MIN = 60_000;
@@ -135,7 +134,6 @@ describe('DefaultSessionIssuer hardening', () => {
       const pd = await issuer.issue(alice, facts(), { pending: { steps: ['totp'] } });
 
       expect(await rejects(issuer.set(pd, 'State', 'active'))).to.be.true;
-      expect(await rejects(issuer.set(pd, 'Authorized', true))).to.be.true;
       expect(await rejects(issuer.set(pd, 'authn:pending', null))).to.be.true;
       expect((await issuer.restore(pd.id))!.handle.state).to.equal('pending');
       expect(await issuer.list(alice)).to.deep.equal([]);
@@ -322,16 +320,6 @@ describe('DefaultSessionIssuer hardening', () => {
       expect(rowsOf(store).size).to.equal(1);
     });
 
-    it('the first use of a 2.x id after a ban does not migrate it back', async () => {
-      const { issuer, store } = await setup();
-      const raw = randomUUID();
-      const creation = DateTime.now().minus({ minutes: 1 });
-      plantLegacyRow(store, { rawId: raw, user: 'u-1', authorized: true, creation, expiration: creation.plus({ minutes: 30 }) });
-
-      beforeNextWrite(store, () => issuer.revokeAll({ type: 'user', id: 'u-1' }));
-      expect(await issuer.restore(raw)).to.be.null;
-      expect(rowsOf(store).size).to.equal(0);
-    });
   });
 
   describe('malformed handles', () => {

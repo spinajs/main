@@ -8,7 +8,6 @@ export default {
     },
     rbac: {
       defaultRoles: ['guest'],
-      migration: { roleColumn: 'Role' },
       roles: {
         guest: {
           grants: [{ permission: 'UserBase:read', relation: 'owner' }],

@@ -9,10 +9,12 @@ import { testHost } from '@spinajs/authz-testing';
 
 // The built authz-orm, which '@spinajs/authz-orm' resolves to: its registry is the one the decorators fill.
 import { unregisterResource } from '../../../../authz-orm/lib/mjs/registry.js';
+// authz-rbac's test database helpers import only libraries.
+import { createPgDatabase, dropPgDatabase } from '../../../../authz-rbac/test/support/db.js';
 
 export type Dialect = 'sqlite' | 'postgres';
 
-export const POSTGRES = { Host: 'localhost', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres', Database: 'test' };
+export const POSTGRES = { Host: 'localhost', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres' };
 
 export interface ModelSpec {
   /** Class name; made unique per definition. */
@@ -38,6 +40,7 @@ export class TestDb {
   private readonly models: { model: typeof ModelBase; table: string; dialect: Dialect }[] = [];
   private ownsInstall = false;
   private restoreConfig: () => void = () => undefined;
+  private postgresDatabase: string | undefined;
 
   private constructor(readonly orm: Orm, readonly dialects: readonly Dialect[]) {}
 
@@ -55,8 +58,8 @@ export class TestDb {
     });
   }
 
-  /** `database`: a throwaway Postgres database to use instead of the shared one, run with its own jit setting. */
-  static async open(opts: { postgres?: boolean; database?: string } = {}): Promise<TestDb> {
+  /** With `postgres`, the 'postgres' connection is a database of its own, dropped by `close()`. `authz`: the dialect whose connection db.Aliases.authz names; default sqlite. */
+  static async open(opts: { postgres?: boolean; authz?: Dialect } = {}): Promise<TestDb> {
     let ownsInstall = false;
     try {
       testHost.config();
@@ -68,23 +71,18 @@ export class TestDb {
     const connections: unknown[] = [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' }];
     // The orm qualifies a joined Postgres table with the database name as its schema; a schema of
     // that name on the search path makes the joined and the unqualified spelling one table.
-    const database = opts.database ?? POSTGRES.Database;
-    if (opts.postgres) connections.push({ Driver: 'orm-driver-postgres', Name: 'postgres', ...POSTGRES, Database: database, Options: { Schema: database } });
+    const database = opts.postgres ? await createPgDatabase('authz_e2e') : undefined;
+    if (database !== undefined) connections.push({ Driver: 'orm-driver-postgres', Name: 'postgres', ...POSTGRES, Database: database, Options: { Schema: database } });
     const before = { logger: cfg.get<unknown>('logger'), db: cfg.get<unknown>('db') };
-    // authz-orm refuses a connection with jit on, and the shared database is not ours to ALTER: its sessions get jit
-    // off as a host's would, through the pool's PGOPTIONS (pg reads it when it opens a connection).
-    const pgOptions = process.env.PGOPTIONS;
-    if (opts.postgres && opts.database === undefined) process.env.PGOPTIONS = `${pgOptions ?? ''} -c jit=off`.trim();
     cfg.set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
-    cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections });
+    // The e2e stack runs the authz migrations by hand after the boot, on the connection the case picks.
+    cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections, Aliases: { authz: opts.authz ?? 'sqlite' }, StrictTableCheck: false });
 
     const restoreConfig = () => {
       for (const [k, v] of Object.entries(before)) {
         if (v === undefined) cfg.unset(k);
         else cfg.set(k, v);
       }
-      if (pgOptions === undefined) delete process.env.PGOPTIONS;
-      else process.env.PGOPTIONS = pgOptions;
     };
     let orm: Orm | undefined;
     try {
@@ -92,7 +90,8 @@ export class TestDb {
       const db = new TestDb(orm, opts.postgres ? ['sqlite', 'postgres'] : ['sqlite']);
       db.ownsInstall = ownsInstall;
       db.restoreConfig = restoreConfig;
-      if (opts.postgres) await db.raw(`CREATE SCHEMA IF NOT EXISTS "${database}"`, [], 'postgres');
+      db.postgresDatabase = database;
+      if (database !== undefined) await db.raw(`CREATE SCHEMA IF NOT EXISTS "${database}"`, [], 'postgres');
       return db;
     } catch (e) {
       if (orm) {
@@ -100,6 +99,7 @@ export class TestDb {
         await orm.dispose().catch(() => undefined);
       }
       restoreConfig();
+      if (database !== undefined) await dropPgDatabase(database).catch(() => undefined);
       throw e;
     }
   }
@@ -187,6 +187,7 @@ export class TestDb {
       await this.orm.dispose();
     } finally {
       this.restoreConfig();
+      if (this.postgresDatabase !== undefined) await dropPgDatabase(this.postgresDatabase);
     }
     if (this.ownsInstall) await testHost.uninstallHost();
   }

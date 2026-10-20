@@ -3,7 +3,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Class, DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { MIGRATION_FILE_REGEXP, Migration, Orm, OrmDriver, OrmException, OrmMigration } from '@spinajs/orm';
+import { Connection, MIGRATION_FILE_REGEXP, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, Primary } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 import * as fs from 'node:fs';
@@ -11,7 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
-import { MigrateCreateCommand, MigrateDownCommand, MigrateResolveCommand, MigrateStatusCommand, MigrateUpCommand } from '../src/index.js';
+import { MigrateCreateCommand, MigrateDownCommand, MigrateResolveCommand, MigrateStatusCommand, MigrateUpCommand, resolveCliOrm } from '../src/index.js';
 
 const expect = chai.expect;
 
@@ -1232,5 +1232,145 @@ describe('migrate-create', () => {
       expect(err, 'an unsafe argv-sourced env was accepted').to.be.instanceOf(InvalidArgument);
       expect(fs.existsSync(dir), 'a refused argv env still created its target directory').to.equal(false);
     });
+  });
+});
+
+/**
+ * A fresh database: the CLI Orm boots although no model has its table yet, a full migrate-up then fails when a
+ * registered model still has none, and a narrowed run does not check.
+ */
+function countReloads(orm: Orm) {
+  const original = orm.reloadTableInfo;
+  let calls = 0;
+  orm.reloadTableInfo = function (this: Orm, ...args: Parameters<Orm['reloadTableInfo']>) {
+    calls++;
+    return original.apply(this, args);
+  };
+
+  return {
+    count: () => calls,
+    restore: () => {
+      orm.reloadTableInfo = original;
+    },
+  };
+}
+
+describe('orm-cli migrate-up and db.StrictTableCheck', function () {
+  this.timeout(20000);
+
+  const CONNECTION_NAME = 'orm-cli-strict';
+  const TRACKING_TABLE = 'orm_cli_strict_migrations';
+
+  const Conf = connectionConf(CONNECTION_NAME, TRACKING_TABLE);
+
+  let orm: Orm;
+  let defined: any[] = [];
+  let missingType: any;
+
+  function defineSchema() {
+    @Migration(CONNECTION_NAME)
+    class OrmCliStrict_2021_09_01_00_00_00 extends OrmMigration {
+      public async up(connection: OrmDriver): Promise<void> {
+        await connection.schema().createTable('orm_cli_strict_present', (table) => {
+          table.int('Id').primaryKey();
+        });
+      }
+
+      public async down(connection: OrmDriver): Promise<void> {
+        await connection.schema().dropTable('orm_cli_strict_present');
+      }
+    }
+
+    @Connection(CONNECTION_NAME)
+    @Model('orm_cli_strict_present')
+    class OrmCliStrictPresent extends ModelBase {
+      @Primary()
+      public Id: number;
+    }
+
+    @Connection(CONNECTION_NAME)
+    @Model('orm_cli_strict_missing')
+    class OrmCliStrictMissing extends ModelBase {
+      @Primary()
+      public Id: number;
+    }
+
+    defined = [OrmCliStrict_2021_09_01_00_00_00, OrmCliStrictPresent, OrmCliStrictMissing];
+    missingType = OrmCliStrictMissing;
+  }
+
+  const originalExitCode = process.exitCode;
+
+  before(async () => {
+    DI.clearCache();
+    defineSchema();
+    DI.register(Conf).as(Configuration);
+    orm = await resolveCliOrm();
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(Conf);
+      defined.forEach((t) => DI.unregister(t));
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  beforeEach(() => {
+    process.exitCode = 0;
+  });
+
+  // The three tests run in order on one database.
+  it('migrate-up applies the migrations and exits 1 when a registered model still has no table', async () => {
+    const cmd = await DI.resolve(MigrateUpCommand);
+    await cmd.execute({});
+
+    const created = (await orm.Connections.get(CONNECTION_NAME)!.select().from('sqlite_master').where('name', 'orm_cli_strict_present').asRaw<any[]>()) as any[];
+    expect(created.length, 'the migration did not run').to.equal(1);
+    expect(process.exitCode).to.equal(1);
+  });
+
+  it('migrate-up --connection does not check the tables', async () => {
+    const cmd = await DI.resolve(MigrateUpCommand);
+    await cmd.execute({ connection: CONNECTION_NAME });
+
+    expect(process.exitCode).to.equal(0);
+  });
+
+  it('migrate-up --name does not check the tables', async () => {
+    const reloads = countReloads(orm);
+    const cmd = await DI.resolve(MigrateUpCommand);
+    await cmd.execute({ name: defined[0].name });
+
+    expect(reloads.count()).to.equal(0);
+    expect(process.exitCode).to.equal(0);
+    reloads.restore();
+  });
+
+  it('migrate-up does not reload the table info again when db.StrictTableCheck is false', async () => {
+    const reloads = countReloads(orm);
+    Object.defineProperty(orm, 'StrictTableCheck', { get: () => false, configurable: true });
+    const cmd = await DI.resolve(MigrateUpCommand);
+    await cmd.execute({});
+    delete (orm as any).StrictTableCheck;
+
+    expect(reloads.count()).to.equal(0);
+    expect(process.exitCode).to.equal(0);
+    reloads.restore();
+  });
+
+  it('migrate-up exits 0 once every registered model has its table', async () => {
+    DI.unregister(missingType);
+    orm.Models = orm.Models.filter((m) => m.type !== missingType);
+
+    const cmd = await DI.resolve(MigrateUpCommand);
+    await cmd.execute({});
+
+    expect(process.exitCode).to.equal(0);
   });
 });

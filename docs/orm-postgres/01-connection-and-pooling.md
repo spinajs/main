@@ -6,17 +6,17 @@
 
 1. **Resolve.** `Orm.createConnections()` resolves the class registered under the entry's `Driver` string, `orm-driver-postgres`, with the entry as the constructor argument. The DI container then calls `PostgresOrmDriver.resolve()`, which runs `OrmDriver.resolve()` and `SqlDriver.resolve()` and registers the PostgreSQL dialect in the driver's own child container (see [Extending the driver](06-extending-the-driver.md#what-the-driver-registers)).
 2. **Connect.** `Orm` calls `PostgresOrmDriver.connect()`:
-   1. `resolvedPoolOptions()` merges `Pool.*` over the defaults, and `connect()` creates `new pg.Pool({ host, user, password, port, database, max, min, idleTimeoutMillis, connectionTimeoutMillis })`.
+   1. `connect()` creates `new pg.Pool(this.poolConfig())`. `poolConfig()` merges `Pool.*` over the defaults with `resolvedPoolOptions()` and returns `{ host, user, password, port, database, max, min, idleTimeoutMillis, connectionTimeoutMillis, options, types }`: `options` carries `-c TimeZone=UTC` and `types` parses `timestamp` as UTC (see [Important behaviour](#important-behaviour)).
    2. It adds an `error` listener to the pool that logs `postgres pool connection error for <Name>` at `warn`. Without it, an idle client dying between checkouts would crash the process.
    3. It takes one client and releases it, which verifies the server address and credentials.
    4. When `Options.Schema` is set, it adds a `connect` listener that runs `SET search_path TO "<Schema>"` on every new pooled client, and runs the same statement once through `executeOnDb()` for the client that already exists.
    5. It sets the state to `Connected`. On any error it ends the pool, sets `Pool` to `null` and re-throws; `Orm` wraps the error in `OrmException('Failed to connect to database for connection <Name> ...')`.
 3. **Execute.** Every statement goes through `PostgresOrmDriver.executeOnDb(stmt, params, context)`:
-   1. `withReconnect()` wraps the attempt; see [Retries](#retries).
+   1. The inherited `toDriverParams()` writes `Date` and luxon `DateTime` bindings through the connection's `DatetimeValueConverter` (ISO 8601 in UTC); other values pass as given. `withReconnect()` wraps the attempt; see [Retries](#retries).
    2. `_executeOnDbOnce()` rewrites `?` placeholders to `$1..$n` with `toDriverStatement()` (see [Quoting and parameters](05-quoting-and-parameters.md)).
    3. Inside a transaction it runs on the transaction's client. Outside, it takes a client with `Pool.connect()`, records the wait in the `orm_pool_acquire_seconds` histogram, runs the query and releases the client.
    4. It shapes the result by `QueryContext`: `{ RowsAffected }` for `Update` and `Delete`; `{ RowsAffected, LastInsertId: 0, Returning: rows }` for `Insert`, `Upsert` and `InsertReturning`; the row array for everything else.
-   5. A failure is thrown as `OrmException('Error executing orm command ', { Host, User, Name }, stmt, params, err)`. The `pg` error, with its SQLSTATE `code`, is the inner error.
+   5. A failure goes through `mapPostgresError(err, { Host, User, Name }, stmt, params)`, which picks the error class by SQLSTATE; see [Errors](#errors). The `pg` error, with its SQLSTATE `code`, is the `inner` error.
 4. **Probe.** `Orm` starts the health check after connecting. Each tick calls `ping()`, which runs `SELECT 1` once, without `withReconnect()`, and resolves `true` or `false`.
 5. **Disconnect.** `disconnect()` stops the health check, sets the state to `Disconnected`, ends the pool and sets `Pool` to `null`.
 
@@ -92,7 +92,9 @@ this.Config = _.merge(this.Config, {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Connection driver | `'orm-driver-postgres'`, `@NewInstance()`: one instance per connection entry, resolved by `Orm` at boot | `PostgresOrmDriver` | none shipped | Subclass and register under `orm-driver-postgres` (every connection) or a new string (one connection). See [Extending the driver](06-extending-the-driver.md). |
-| `connect()` | method of the driver | builds `pg.Pool` from the keys above | | Override in a subclass to pass more `pg.Pool` options, e.g. TLS. See [Connect over TLS](06-extending-the-driver.md#connect-over-tls-with-a-private-ca). |
+| `poolConfig()` | protected method of the driver | the `pg.PoolConfig` built from the keys above, with `options` and `types` | | Override in a subclass and spread `super.poolConfig()` to add `pg.Pool` options, e.g. TLS. See [Connect over TLS](06-extending-the-driver.md#connect-over-tls-with-a-private-ca). |
+| `connect()` | method of the driver | creates the pool from `poolConfig()`, verifies it, pins `search_path` | | Override only to change the connect sequence itself. |
+| `mapPostgresError(err, driver, query, bindings)` | exported function, called by `_executeOnDbOnce()` | SQLSTATE `23xxx` to `UniqueViolation` / `ConstraintViolation`, else `OrmException` | | Call it from an `executeOnDb()` override that sends statements itself. |
 | `isRetryableError(err)` | protected method of the driver | base transport codes plus PostgreSQL connection SQLSTATEs | | Override to retry more codes; keep the in-transaction guard. See [Retry when the server is out of connections](06-extending-the-driver.md#retry-when-the-server-is-out-of-connections). |
 | `poolMetrics()` | method of the driver | `pg.Pool` counters | | Override only for a pool that is not `pg.Pool`. |
 
@@ -127,6 +129,39 @@ Between attempts `withReconnect()` waits with exponential backoff and calls `con
 
 All three are `0` before `connect()` and after `disconnect()`. The health check publishes them as gauges; see [Observability and resilience](../orm/13-observability-and-resilience.md#published-metrics).
 
+## Errors
+
+`mapPostgresError()` turns a failed statement into one of three `@spinajs/orm` errors, by the SQLSTATE in the `pg` error's `code`:
+
+| SQLSTATE | Thrown | Fields |
+| --- | --- | --- |
+| `23505` | `UniqueViolation` (extends `ResourceDuplicated`, not `OrmException`) | `table`, `constraint` from the `pg` error; `columns` parsed from its `detail` (`Key ("Email", tenant)=(...)` gives `['Email', 'tenant']`) |
+| `23502` | `ConstraintViolation`, `kind: 'not_null'` | `table`, `constraint`, `columns: [column]` |
+| `23503` | `ConstraintViolation`, `kind: 'foreign_key'` | same |
+| `23514` | `ConstraintViolation`, `kind: 'check'` | same |
+| any other `23xxx` | `ConstraintViolation`, `kind: 'other'` | same |
+| anything else | `OrmException('Error executing orm command ', { Host, User, Name }, stmt, params, err)` | `driver`, `query`, `bindings` |
+
+In every case the `pg` error is `inner`, and `UniqueViolation` and `ConstraintViolation` keep its message.
+
+### Migration: catching duplicate keys
+
+A unique violation is a `UniqueViolation`, which is not an `OrmException`. Code that matched `OrmException` and SQLSTATE `23505` no longer catches it.
+
+```ts
+// Before
+catch (err) {
+  if (err instanceof OrmException && (err.inner as { code?: string } | undefined)?.code === '23505') { /* taken */ }
+}
+
+// After
+catch (err) {
+  if (err instanceof UniqueViolation) { /* taken; err.columns names the key */ }
+}
+```
+
+The same holds for `23502`, `23503` and `23514`: match `ConstraintViolation` and its `kind`. It still extends `OrmException`, so a broad `instanceof OrmException` check keeps catching it.
+
 ## Important behaviour
 
 - `search_path` is a session setting. The driver sets it per pooled client through the pool's `connect` event. The `SET` is not awaited there; `pg` queues it ahead of the first query on that client.
@@ -135,9 +170,9 @@ All three are `0` before `connect()` and after `disconnect()`. The health check 
 - `ping()` takes a client from the pool. With every client checked out, a probe waits up to `Pool.AcquireTimeout` and then reports the connection unhealthy.
 - Every reconnect, from `withReconnect()` or from a failed health probe, calls `connect()`, which first ends the previous pool and then creates a new `pg.Pool`. When the new pool cannot connect, `Pool` is `null` until the next successful reconnect; statements in that window fail with a retryable error (code `08003`), so `withReconnect()` keeps trying.
 - `pg` returns `NUMERIC`, `DECIMAL` and `BIGINT` values, `COUNT(*)` included, as strings. `ResponseSchemaTypes` declares this for JSON Schema generation; see [Queries and inserts](03-queries-and-inserts.md#response-types).
-- `pg` parses `TIMESTAMP` (without time zone) values in the Node process's local time zone.
-- Database errors reach the caller as `OrmException` with the `pg` error as inner error. Read the SQLSTATE from the inner error's `code`, e.g. `23502` for a `NOT NULL` violation.
-- A unique or primary-key violation (`23505`) rejects with `ResourceDuplicated` instead, its `inner` the `OrmException`: `isUniqueViolation()` recognises it. See [Duplicate keys](../orm/17-sql-helpers.md#duplicate-keys).
+- Every pooled session runs with `TimeZone=UTC`, so `now()`, `date_trunc()` and the text of a `timestamptz` are UTC. The pool passes `pg` its own `options`, which makes `pg` ignore the `PGOPTIONS` environment variable, so the driver puts `PGOPTIONS` in front: `PGOPTIONS='-c statement_timeout=5000'` gives `options: '-c statement_timeout=5000 -c TimeZone=UTC'`. `-c TimeZone=UTC` comes last and wins over a `TimeZone` in `PGOPTIONS`.
+- The pool parses `timestamp` (without time zone) as UTC, the wall clock the datetime converter writes into such a column; the global `pg.types` registry is not touched.
+- Constraint failures reach the caller as `UniqueViolation` or `ConstraintViolation`, every other database error as `OrmException`; see [Errors](#errors) and [Duplicate keys](../orm/17-sql-helpers.md#duplicate-keys). Read any other SQLSTATE from `inner.code`, e.g. `40001` for a serialization failure.
 
 ## Best practices
 
@@ -158,11 +193,11 @@ process.env.PGOPTIONS = '-c statement_timeout=5000';
 ```
 
 ```ts
-// Don't: reads the SQLSTATE from the wrapper; OrmException has no code
-catch (err) { if ((err as any).code === '23503') { /* ... */ } }
+// Don't: reads the SQLSTATE from the wrapper; the driver's errors have no code
+catch (err) { if ((err as any).code === '23505') { /* ... */ } }
 
-// Do: the pg error is the inner error
-catch (err) { if ((err as OrmException).inner?.code === '23503') { /* ... */ } }
+// Do: match the error class the driver maps the SQLSTATE to
+catch (err) { if (err instanceof UniqueViolation) { /* ... */ } }
 ```
 
 ## Examples
@@ -224,8 +259,7 @@ export async function postgresReadiness(): Promise<{ ready: boolean; waiting: nu
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { ResourceDuplicated } from '@spinajs/exceptions';
-import { Orm } from '@spinajs/orm';
+import { Orm, UniqueViolation } from '@spinajs/orm';
 
 export async function registerEmail(email: string): Promise<'created' | 'taken'> {
   const orm = await DI.resolve(Orm);
@@ -235,8 +269,8 @@ export async function registerEmail(email: string): Promise<'created' | 'taken'>
     await driver.insert().into('subscribers').values({ email });
     return 'created';
   } catch (err) {
-    // SQLSTATE 23505; other constraint failures stay OrmException
-    if (err instanceof ResourceDuplicated) {
+    // SQLSTATE 23505; err.columns is ['email'], parsed from the pg error's detail
+    if (err instanceof UniqueViolation) {
       return 'taken';
     }
     throw err;

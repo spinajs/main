@@ -132,6 +132,8 @@ export function testConfig(): Record<string, unknown> {
     },
     db: {
       DefaultConnection: 'default',
+      // The whole config is replaced, so authz-orm's package default alias is restated.
+      Aliases: { authz: 'default' },
       Connections: [
         {
           Driver: 'orm-driver-sqlite',

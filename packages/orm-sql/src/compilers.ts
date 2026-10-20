@@ -450,6 +450,10 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
     const set = this.set();
     const where = this.where(this._builder);
 
+    if (!where.expression) {
+      throw new InvalidArgument(`update of ${this._builder.Table} has no where clause; add .where(true) to update every row`);
+    }
+
     const bindings = [];
     bindings.push(...(set.bindings ?? []));
     bindings.push(...(where.bindings ?? []));
@@ -470,6 +474,16 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
       exprr.push(`${this.Quoter.quote(prop)} = ?`);
 
       bindings = bindings.concat(this.tryConvertValue(v));
+    }
+
+    for (const [column, by] of this._builder.Increments) {
+      if (Object.prototype.hasOwnProperty.call(this._builder.Value, column)) {
+        throw new InvalidArgument(`column ${column} is both set and incremented in one update`);
+      }
+
+      const quoted = this.Quoter.quote(column);
+      exprr.push(`${quoted} = ${quoted} + ?`);
+      bindings.push(by);
     }
 
     return {
@@ -1013,7 +1027,7 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
       // remove primary key & add history columns
       {
         bindings: [],
-        expression: `ALTER TABLE ${hTtblName} ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AFTER __action__, ADD __start__ DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER __revision__, ADD __end__ DATETIME AFTER __start__`,
+        expression: `ALTER TABLE ${hTtblName} ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AFTER __action__, ADD __start__ DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) AFTER __revision__, ADD __end__ DATETIME(3) AFTER __start__`,
       },
 
       {
@@ -1168,8 +1182,9 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     bit: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
     date: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
     time: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
-    dateTime: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
-    timestamp: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    // (3) keeps the milliseconds a JS Date carries
+    dateTime: () => 'DATETIME(3)',
+    timestamp: () => 'TIMESTAMP(3)',
     json: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
     tinyblob: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
     mediumblob: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
@@ -1177,9 +1192,8 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
 
     // COLUMN ADDITIONA PROPS
     unsigned: () => 'UNSIGNED',
-    charset: (builder: ColumnQueryBuilder) => `CHARACTER SET '${escapeStringLiteral(builder.Charset)}'`,
-    collation: (builder: ColumnQueryBuilder) => `COLLATE '${escapeStringLiteral(builder.Collation)}'`,
-    exact: () => 'CHARACTER SET utf8mb4 COLLATE utf8mb4_bin',
+    charset: (name: string) => `CHARACTER SET '${escapeStringLiteral(name)}'`,
+    collation: (name: string) => `COLLATE '${escapeStringLiteral(name)}'`,
     notnull: () => `NOT NULL`,
     default: () => this._defaultCompiler(),
     autoincrement: () => `AUTO_INCREMENT`,
@@ -1201,14 +1215,13 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     if (this.builder.Unsigned) {
       _stmt.push(this._statementsMappings.unsigned());
     }
-    if (this.builder.Charset) {
-      _stmt.push(this._statementsMappings.charset(this.builder));
+    const charset = this.charsetName();
+    if (charset) {
+      _stmt.push(this._statementsMappings.charset(charset));
     }
-    if (this.builder.Collation) {
-      _stmt.push(this._statementsMappings.collation(this.builder));
-    }
-    if (this.builder.Exact) {
-      _stmt.push(this._statementsMappings.exact());
+    const collation = this.collationName();
+    if (collation) {
+      _stmt.push(this._statementsMappings.collation(collation));
     }
     if (this.builder.NotNull) {
       _stmt.push(this._statementsMappings.notnull());
@@ -1230,6 +1243,16 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
       bindings: [],
       expression: _stmt.filter((x) => !_.isEmpty(x)).join(' '),
     };
+  }
+
+  /** `charset()`, else utf8mb4 for an exact column without a collation: its binary collation names a character set. */
+  protected charsetName(): string {
+    return this.builder.Charset || (this.builder.Exact && !this.builder.Collation ? 'utf8mb4' : '');
+  }
+
+  /** `collation()`, else the binary collation of the character set for an exact column. */
+  protected collationName(): string {
+    return this.builder.Collation || (this.builder.Exact ? `${this.charsetName()}_bin` : '');
   }
 
   protected _defaultCompiler() {

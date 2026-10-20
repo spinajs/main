@@ -6,7 +6,7 @@ import type { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore,
 import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from './cache.js';
 import { RBAC_SUMMARY_STEPS, createRbacExtensions, liveAssignments, rbacTables, rbacState, readRbacInput, runRbacPipeline } from './evaluate.js';
 import { effectiveRole } from './ladder/steps.js';
-import { DEFAULT_MAX_PLAN_SUBJECTS, rbacListPlan } from './list/plan.js';
+import { rbacListPlan } from './list/plan.js';
 import { rbacListSupport, ruleCanMatch } from './list/support.js';
 import { isDbRulesMarker, ruleStoreParts } from './rules/extension.js';
 import { unlessRowRules } from './rules/steps.js';
@@ -45,7 +45,6 @@ interface Loaded {
   readonly serviceRoles: ReadonlyMap<string, readonly string[]>;
   readonly assignments: AssignmentCache;
   readonly rolesCheckMs: number;
-  readonly maxPlanSubjects: number;
 }
 
 const PROBLEM_TEXT: Readonly<Record<AssignmentProblem, string>> = {
@@ -66,6 +65,7 @@ export class RbacModel extends AuthorizationModel {
   private readonly warnedRoles = new Set<string>();
   private readonly warnedAssignments = new Set<string>();
   private readonly warnedListRules = new Set<string>();
+  private warnedMaxPlanSubjects = false;
   private storedRulesAt?: { readonly version: string; readonly rules: readonly RuleDef[] };
   /*
    * Role reload on a RoleStore version change: every stale mark bumps roleMarks; the
@@ -109,11 +109,12 @@ export class RbacModel extends AuthorizationModel {
     const graph = compileRoles(roles, ladders, { extraEdges: this.extraEdges() });
     for (const ext of this.extensions) for (const filter of ext.nativeFilters?.() ?? []) ctx.registerNativeFilter(filter);
     const { rolesCheckMs, ...cache } = cacheConfig(ctx);
+    if (!this.warnedMaxPlanSubjects && ctx.config<unknown>('maxPlanSubjects', undefined) !== undefined) {
+      this.warnedMaxPlanSubjects = true;
+      this.log.warn({}, 'rbac: authz.rbac.maxPlanSubjects is no longer read; a list term carries every subject, so remove the key');
+    }
     const assignments = new AssignmentCache(this.opts.assignments, { ...cache, clock: this.clock(), model: this.name });
-    const maxPlanSubjects = ctx.config<number>('maxPlanSubjects', DEFAULT_MAX_PLAN_SUBJECTS);
-    // An unvalidated configuration still gets here.
-    if (!Number.isInteger(maxPlanSubjects) || maxPlanSubjects < 1) throw new AuthzConfigError('authz.rbac.maxPlanSubjects must be a positive integer');
-    this.loaded = { version, graph, registry: ctx.permissions, anonymousRoles: anonymousRoles(ctx, graph), serviceRoles: serviceRoles(ctx, graph), assignments, rolesCheckMs, maxPlanSubjects };
+    this.loaded = { version, graph, registry: ctx.permissions, anonymousRoles: anonymousRoles(ctx, graph), serviceRoles: serviceRoles(ctx, graph), assignments, rolesCheckMs };
     this.grants = undefined;
     this.roleMarks = 0;
     this.rolesFreshAt = 0;
@@ -169,7 +170,7 @@ export class RbacModel extends AuthorizationModel {
     const read = await readRbacInput(request, ctx, this.sources());
     // Every stored rule was checked above; the DB store's marker is not a rule.
     const input = { ...read, rowDependentRules: (read.rowDependentRules ?? []).filter((id) => !isDbRulesMarker(id)) };
-    return rbacListPlan(rbacState(input, 'cap'), { maxSubjects: this.state().maxPlanSubjects, membership: this.opts.membership !== undefined });
+    return rbacListPlan(rbacState(input, 'cap'));
   }
 
   /**

@@ -60,6 +60,8 @@ export class ConnectionConf extends FrameworkConfiguration {
           rules: [{ name: '*', level: 'trace', target: 'Empty' }],
         },
         db: {
+          // FakePostgresDriver has no database: tableInfo() reports every table missing.
+          StrictTableCheck: false,
           Connections: [
             {
               Driver: 'postgres',

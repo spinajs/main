@@ -26,7 +26,7 @@ class PipedSetUserPassword extends SetUserPassword {
   }
 }
 
-// Ported from legacy-v2/cli.test.ts row 1 (A03). A cli process resolves only the command it runs; nothing else boots the
+// A03: a cli process resolves only the command it runs; nothing else boots the
 // Orm, so the store must, or the login lookup runs against bare models whose statics throw "Not implemented". Like
 // cli.test.ts, these never resolve the Orm themselves. Run alone, the file is the fresh process the bug needs.
 describe('a cli command that resolves only the IdentityStore', function () {

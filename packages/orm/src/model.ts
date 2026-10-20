@@ -587,11 +587,11 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 
   /**
-   * Deletes model from db
+   * Deletes rows by primary key, or without one returns a DELETE to narrow with `where()`; executing it
+   * un-narrowed throws, `truncate()` clears the table. A SoftDelete model gets an UPDATE of DeletedAt instead.
    *
-   * @param pk - primary key
+   * @param pk - primary key or keys
    */
-
   public static destroy<T extends typeof ModelBase>(this: T, _pk?: any | any[]): DeleteQueryBuilder<InstanceType<T>> & T['_queryScopes'] {
     throw new Error('Not implemented');
   }
@@ -743,7 +743,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public async archive() {
     if (this.ModelDescriptor!.Archived) {
-      (this as any)[this.ModelDescriptor!.Archived.ArchivedAt] = DateTime.now();
+      (this as any)[this.ModelDescriptor!.Archived.ArchivedAt] = DateTime.utc();
     } else {
       throw new OrmException('archived at column not exists in model');
     }
@@ -796,7 +796,7 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     const updatedAt = this.ModelDescriptor!.Timestamps.UpdatedAt;
     if (updatedAt) {
-      (this as any)[updatedAt] = DateTime.now();
+      (this as any)[updatedAt] = DateTime.utc();
       if (!changed.includes(updatedAt)) {
         changed.push(updatedAt);
       }
@@ -973,7 +973,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     generateClientSideKeys(this, this.ModelDescriptor!);
 
     if (this.ModelDescriptor!.Timestamps.CreatedAt) {
-      (this as any)[this.ModelDescriptor!.Timestamps.CreatedAt] = DateTime.now();
+      (this as any)[this.ModelDescriptor!.Timestamps.CreatedAt] = DateTime.utc();
     }
 
     for (const [, rel] of this.ModelDescriptor!.Relations) {
@@ -1024,7 +1024,7 @@ export class ModelBase<M = unknown> implements IModelBase {
  *
  * The guards below rule out every case where the mapping stops being positional.
  */
-function _canBackfillContiguousKeys(description: IModelDescriptor, rows: any[], response: DbServerResponse, features: ISupportedFeature, insertBehaviour: InsertBehaviour): boolean {
+function _canBackfillContiguousKeys(description: IModelDescriptor, rows: any[], response: DbServerResponse, features: ISupportedFeature, insertBehaviour: InsertBehaviour, statements: number): boolean {
   // Only a dialect whose reported id is the FIRST of the block can be walked forwards. MSSQL's
   // SCOPE_IDENTITY() and SQLite's last_insert_rowid() report the LAST one.
   if (!features.insertIdIsFirstOfBatch) {
@@ -1043,6 +1043,12 @@ function _canBackfillContiguousKeys(description: IModelDescriptor, rows: any[], 
   // k-th input row. ( The array path rejects these outright today; this keeps the invariant
   // local to the decision rather than depending on a check three hundred lines away. )
   if (insertBehaviour !== InsertBehaviour.None) {
+    return false;
+  }
+
+  // The block is contiguous within one statement only, and a split insert reports the last
+  // statement's identity value, not the first row's.
+  if (statements > 1) {
     return false;
   }
 
@@ -1105,6 +1111,18 @@ export abstract class HistoricalModel implements IHistoricalModel {
   public readonly __end__: DateTime;
 }
 
+
+/** `data` with every value whose column has a converter in its database form, as an insert converts it. */
+function _toColumnValues(data: Record<string, unknown>, descriptor: IModelDescriptor): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    const column = descriptor.Columns.find((c) => c.Name === key);
+    values[key] = column?.Converter && value !== null && value !== undefined ? column.Converter.toDB(value, undefined as unknown as ModelBase, column, descriptor.Converters.get(key)?.Options) : value;
+  }
+
+  return values;
+}
 
 /** Bound to each model class at registration (orm.ts), so `this` is the class. */
 const staticMixins = <M>(mixins: M & ThisType<typeof ModelBase>): M => mixins;
@@ -1275,8 +1293,8 @@ export const MODEL_STATIC_MIXINS = staticMixins({
       throw new OrmException(`use model::update() function to update model`);
     }
 
-    const { query } = createQuery(this, UpdateQueryBuilder);
-    return query.update(data);
+    const { query, description } = createQuery(this, UpdateQueryBuilder);
+    return query.update(_toColumnValues(data as Record<string, unknown>, description));
   },
 
   all(page?: number, perPage?: number) {
@@ -1371,7 +1389,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
           if (v instanceof ModelBase && !v.PrimaryKeyValue) {
             v.PrimaryKeyValue = response.LastInsertId;
           }
-        } else if (_canBackfillContiguousKeys(description, rows, response, query.Driver.supportedFeatures(), insertBehaviour)) {
+        } else if (_canBackfillContiguousKeys(description, rows, response, query.Driver.supportedFeatures(), insertBehaviour, query.splitByDriverLimits().length)) {
           // Multi-row `INSERT ... VALUES` on a dialect with no RETURNING whose identity value is
           // the first of the statement's contiguous block. See _canBackfillContiguousKeys.
           rows.forEach((v, idx) => {
@@ -1457,15 +1475,16 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     return (await query.firstOrFail()) as unknown as Promise<InstanceType<T>>;
   },
 
-  destroy<T extends typeof ModelBase>(pks?: any | any[]): IWhereBuilder<InstanceType<T>> {
+  destroy<T extends typeof ModelBase>(pks?: any | any[]): DeleteQueryBuilder<InstanceType<T>> | UpdateQueryBuilder<InstanceType<T>> {
     const description = _descriptor(this)!;
 
-    if (pks === undefined || pks === null) {
-      throw new OrmException('Cannot destroy without primary keys ( unbounded DELETE/UPDATE ). Use truncate() to clear the whole table.');
+    // `undefined` is "no keys given"; a null key or an empty list is a caller bug, not "every row".
+    if (pks === null) {
+      throw new OrmException('Cannot destroy by a null primary key; to delete by a condition call destroy() without arguments and narrow it with where()');
     }
 
-    const data = Array.isArray(pks) ? pks : [pks];
-    if (data.length === 0) {
+    const data = pks === undefined ? undefined : Array.isArray(pks) ? pks : [pks];
+    if (data?.length === 0) {
       throw new OrmException('Cannot delete empty array of primary keys');
     }
 
@@ -1473,12 +1492,14 @@ export const MODEL_STATIC_MIXINS = staticMixins({
 
     if (description.SoftDelete?.DeletedAt) {
       (query as UpdateQueryBuilder<never>).update({
-        [description.SoftDelete.DeletedAt]: DateTime.now(),
+        [description.SoftDelete.DeletedAt]: DateTime.utc(),
       });
     }
 
-    if (pks) {
+    if (data) {
       whereAnyPk(query as unknown as IWhereBuilder<any>, description, data);
+    } else {
+      query.requireWhere();
     }
 
     return query;
@@ -1649,8 +1670,8 @@ export const MODEL_STATIC_MIXINS = staticMixins({
       callback(query);
     }
 
-    const row = await query.takeFirst().asRaw<{ count: number }>();
-    return row?.count ?? 0;
+    const row = await query.takeFirst().asRaw<{ count: number | string }>();
+    return Number(row?.count ?? 0);
   },
 
   async transaction<T extends typeof ModelBase, R>(this: T, callback: (trx: OrmDriver) => Promise<R>, options?: ITransactionOptions): Promise<R> {

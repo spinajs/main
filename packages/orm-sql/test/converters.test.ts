@@ -53,6 +53,11 @@ describe('SqlBooleanValueConverter', () => {
     expect(converter.fromDB(false)).to.equal(false);
     expect(converter.fromDB(null)).to.equal(false);
   });
+
+  it('reads a BigInt 1n/0n, as a driver returning 64-bit integers does', () => {
+    expect(converter.fromDB(1n)).to.equal(true);
+    expect(converter.fromDB(0n)).to.equal(false);
+  });
 });
 
 /**

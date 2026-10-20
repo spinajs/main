@@ -1,6 +1,6 @@
 import _ from 'lodash';
 import { TypedArray } from './array.js';
-import { getTypeName } from './helpers.js';
+import { getTypeName, isTypedArray } from './helpers.js';
 import { IContainer, IInjectDescriptor, IInstanceCheck } from './interfaces.js';
 import { Class } from './types.js';
 import { ResolveType } from './enums.js';
@@ -148,7 +148,7 @@ export class ContainerCache {
         // sits in the cache under its own key must still contribute it to the
         // collection - otherwise the fast path returns early and the type is
         // silently MISSING from the resolved array.
-        if (sourceType instanceof TypedArray && getTypeName(targetType) !== sourceTypeKey) {
+        if (isTypedArray(sourceType) && getTypeName(targetType) !== sourceTypeKey) {
           const collection = this.get(sourceTypeKey);
           if (!this.has(sourceTypeKey)) {
             this.add(sourceTypeKey, instance);
@@ -199,7 +199,7 @@ export class ContainerCache {
     }
 
     const _checkCache = (resolvedInstance: T) => {
-      if (sourceType instanceof TypedArray) {
+      if (isTypedArray(sourceType)) {
         // If sourceType is a TypedArray, we need to ensure we cache it correctly
         if (!this.has(sourceTypeKey)) {
           this.add(sourceTypeKey, resolvedInstance);
@@ -224,7 +224,7 @@ export class ContainerCache {
         }
 
         const cached = this.get(sourceTypeKey);
-        return sourceType instanceof TypedArray ? cached : cached[0];
+        return isTypedArray(sourceType) ? cached : cached[0];
       } else {
         if (perInstanceCheck) {
           this.add(targetType, resolvedInstance);

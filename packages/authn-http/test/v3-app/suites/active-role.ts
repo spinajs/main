@@ -120,13 +120,6 @@ export function activeRoleSuite(): void {
     }
   });
 
-  it('accepts the 2.x field names Role and Password', async () => {
-    const { u, c } = await withRoles();
-    const res = await later(301, () => c.post('/auth/active-role', { Role: 'root', Password: u.password }));
-    expect(res.status, JSON.stringify(res.body)).to.eq(200);
-    expect(res.body.ActiveRole).to.eq('root');
-  });
-
   describe('A26 a requirePassword role needs fresh auth (A13, SR-20)', () => {
     it('a fresh session switches without a password and verifies nothing', async () => {
       const { c } = await withRoles();

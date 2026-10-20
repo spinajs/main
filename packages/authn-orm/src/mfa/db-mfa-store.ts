@@ -1,18 +1,19 @@
 import { randomUUID } from 'node:crypto';
 
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
-import { InvalidArgument, ResourceDuplicated, UnexpectedServerError } from '@spinajs/exceptions';
-import { IdentifierQuoter, Orm, OrmDriver, rowsAffected, SqlExpressions, sql, toRawQuery } from '@spinajs/orm';
+import { Injectable, PerChildInstance } from '@spinajs/di';
+import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
+import { UniqueViolation, ormReady } from '@spinajs/orm';
 import { _between, _check_arg, _integer, _is_array, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
-import type { WhereBuilder } from '@spinajs/orm';
+import type { IWhereBuilder } from '@spinajs/orm';
+import type { DateTime } from 'luxon';
 
 import { identityKey } from '../identity.js';
-import { StoreConnection } from '../support/connection.js';
-import { checkedMs, checkedText, columnText, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
+import { AuthnMfa } from '../models/AuthnMfa.js';
+import { AuthnRecoveryCode } from '../models/AuthnRecoveryCode.js';
+import { checkedMs, checkedText, dateOf, instant, sha256hex } from '../support/sql.js';
+import { columnValues } from '../support/values.js';
 
-const MFA = 'authn_mfa';
-const CODES = 'authn_recovery_code';
 /** Each retry means a parallel `remove` deleted the row between this call's insert and update. */
 const MAX_TRIES = 8;
 /** As DbSecretStore: longer input is refused before hashing. */
@@ -38,10 +39,11 @@ function lastStepOf(value: unknown): number | null {
   return n;
 }
 
-const confirmed = (r: Record<string, unknown>): boolean => r.confirmed_at !== null && r.confirmed_at !== undefined;
+const confirmed = (r: AuthnMfa): boolean => r.confirmed_at !== null && r.confirmed_at !== undefined;
 
-function timeOf(text: string | null): Date | null {
-  return text === null ? null : new Date(textMs(text));
+/** The columns `putPending` writes: unconfirmed, no accepted time step. */
+function pending(secretEnc: string, keyId: string, createdAt: DateTime): Partial<AuthnMfa> {
+  return columnValues<AuthnMfa>({ secret_enc: secretEnc, secret_hash: sha256hex(secretEnc), key_id: keyId, confirmed_at: null, last_step: null, created_at: createdAt });
 }
 
 /**
@@ -55,30 +57,19 @@ function timeOf(text: string | null): Date | null {
 @PerChildInstance()
 @Injectable()
 export class DbMfaStore {
-  @Autoinject(Orm)
-  protected Orm: Orm;
-
-  private readonly connection: StoreConnection;
-
-  /** DI passes nothing and injects the Orm of the resolving container; tests pass a driver. */
-  constructor(driver?: OrmDriver) {
-    this.connection = new StoreConnection('DbMfaStore', driver, () => this.Orm);
-  }
-
   public async get(id: IdentityRef, step: string): Promise<MfaRecord | null> {
     const identity = identityKey(id);
     const name = stepName(step);
-    const { driver } = await this.connection.get();
-    const q = driver.select().from(MFA).select('identity').select('step').select('secret_enc').select('key_id').select('last_step');
-    const rows = (await selectTime(driver, selectTime(driver, q, 'confirmed_at', 'confirmed_text'), 'created_at', 'created_text').where('identity', identity).where('step', name)) as Record<string, unknown>[];
+    await ormReady();
+    const rows = await AuthnMfa.query().columns(['identity', 'step', 'secret_enc', 'key_id', 'last_step', 'confirmed_at', 'created_at']).where('identity', identity).where('step', name);
     const r = rows.find((x) => x.identity === identity && x.step === name);
     if (!r) return null;
     return {
-      secretEnc: String(r.secret_enc),
-      keyId: String(r.key_id),
-      confirmedAt: timeOf(columnText(r, 'confirmed_text')),
+      secretEnc: r.secret_enc,
+      keyId: r.key_id,
+      confirmedAt: r.confirmed_at ? dateOf(r.confirmed_at) : null,
       lastStep: lastStepOf(r.last_step),
-      createdAt: timeOf(columnText(r, 'created_text')) ?? new Date(NaN),
+      createdAt: dateOf(r.created_at),
     };
   }
 
@@ -92,21 +83,18 @@ export class DbMfaStore {
     const name = stepName(step);
     checkedText(secretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: secretEnc');
     checkedText(keyId, 32, 'DbMfaStore: keyId');
-    const now = sqlTime(checkedMs(new Date(), 'DbMfaStore.putPending: the clock'));
-    const { driver } = await this.connection.get();
+    const ms = checkedMs(new Date(), 'DbMfaStore.putPending: the clock');
+    await ormReady();
 
-    const fields = { secret_enc: secretEnc, key_id: keyId, confirmed_at: null, last_step: null, created_at: now };
+    const fields = pending(secretEnc, keyId, instant(ms));
     for (let i = 0; i < MAX_TRIES; i++) {
       try {
-        await driver
-          .insert()
-          .into(MFA)
-          .values({ identity, step: name, ...fields });
+        await AuthnMfa.insert({ identity, step: name, ...fields });
         return true;
       } catch (err) {
-        if (!(err instanceof ResourceDuplicated)) throw err;
+        if (!(err instanceof UniqueViolation)) throw err;
       }
-      if (rowsAffected(await driver.update().in(MFA).update(fields).where('identity', identity).where('step', name).whereNull('confirmed_at')) === 1) return true;
+      if ((await AuthnMfa.update(fields).where('identity', identity).where('step', name).whereNull('confirmed_at')).RowsAffected === 1) return true;
       // No row updated: either it is confirmed, or a parallel remove deleted it and the insert is worth retrying.
       if ((await this.get(id, name))?.confirmedAt) return false;
     }
@@ -120,15 +108,16 @@ export class DbMfaStore {
   public async confirm(id: IdentityRef, step: string, at: Date = new Date(), expectedSecretEnc?: string): Promise<boolean> {
     const identity = identityKey(id);
     const name = stepName(step);
-    const t = sqlTime(checkedMs(at, 'DbMfaStore.confirm: at'));
+    const ms = checkedMs(at, 'DbMfaStore.confirm: at');
     if (expectedSecretEnc !== undefined) checkedText(expectedSecretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: expectedSecretEnc');
-    const { driver } = await this.connection.get();
-    const q = driver.update().in(MFA).update({ confirmed_at: t }).where('identity', identity).where('step', name);
+    await ormReady();
+    const q = AuthnMfa.update({ confirmed_at: instant(ms) })
+      .where('identity', identity)
+      .where('step', name);
     if (expectedSecretEnc !== undefined) {
-      const column = driver.Container.resolve(IdentifierQuoter).quote('secret_enc');
-      q.whereNull('confirmed_at').where(toRawQuery(driver.Container.resolve(SqlExpressions).equalsExactly(column, sql`${expectedSecretEnc}`)));
+      q.whereNull('confirmed_at').where('secret_hash', sha256hex(expectedSecretEnc));
     }
-    return rowsAffected(await q) === 1;
+    return (await q).RowsAffected === 1;
   }
 
   /** True once per time step, and never for a step at or below the last accepted one (SR-15); false when the step does not exist. */
@@ -136,27 +125,27 @@ export class DbMfaStore {
     const identity = identityKey(id);
     const name = stepName(step);
     _check_arg(_is_number(_integer(), _between(0, Number.MAX_SAFE_INTEGER)))(timeStep, 'timeStep');
-    const { driver } = await this.connection.get();
-    const older = function (this: WhereBuilder<unknown>) {
+    await ormReady();
+    const older = function (this: IWhereBuilder<unknown>) {
       this.whereNull('last_step');
       this.orWhere('last_step', '<', timeStep);
     };
-    return rowsAffected(await driver.update().in(MFA).update({ last_step: timeStep }).where('identity', identity).where('step', name).where(older)) === 1;
+    return (await AuthnMfa.update({ last_step: timeStep }).where('identity', identity).where('step', name).where(older)).RowsAffected === 1;
   }
 
   public async remove(id: IdentityRef, step: string): Promise<void> {
     const identity = identityKey(id);
     const name = stepName(step);
-    const { driver } = await this.connection.get();
-    await driver.del().from(MFA).where('identity', identity).where('step', name);
+    await ormReady();
+    await AuthnMfa.destroy().where('identity', identity).where('step', name);
   }
 
   /** The names of the identity's confirmed steps. */
   public async confirmedSteps(id: IdentityRef): Promise<string[]> {
     const identity = identityKey(id);
-    const { driver } = await this.connection.get();
-    const rows = (await driver.select().from(MFA).select('identity').select('step').select('confirmed_at').where('identity', identity).whereNotNull('confirmed_at')) as Record<string, unknown>[];
-    return rows.filter((r) => r.identity === identity && confirmed(r)).map((r) => String(r.step));
+    await ormReady();
+    const rows = await AuthnMfa.query().columns(['identity', 'step', 'confirmed_at']).where('identity', identity).whereNotNull('confirmed_at');
+    return rows.filter((r) => r.identity === identity && confirmed(r)).map((r) => r.step);
   }
 
   /**
@@ -164,9 +153,9 @@ export class DbMfaStore {
    * `totp` and `TOTP` into one under a case-blind collation (MySQL's default); one row per confirmed enrolment.
    */
   public async confirmedStepNames(): Promise<string[]> {
-    const { driver } = await this.connection.get();
-    const rows = (await driver.select().from(MFA).select('step').select('confirmed_at').whereNotNull('confirmed_at')) as Record<string, unknown>[];
-    return [...new Set(rows.filter(confirmed).map((r) => String(r.step)))];
+    await ormReady();
+    const rows = await AuthnMfa.query().columns(['step', 'confirmed_at']).whereNotNull('confirmed_at');
+    return [...new Set(rows.filter(confirmed).map((r) => r.step))];
   }
 
   /** Deletes the identity's codes, then stores the SHA-256 of each new one. Empty or repeated codes throw. */
@@ -175,37 +164,37 @@ export class DbMfaStore {
     _check_arg(_is_array())(rawCodes, 'rawCodes');
     const hashes = rawCodes.map((code) => sha256hex(checkedText(code, Number.MAX_SAFE_INTEGER, 'DbMfaStore: a recovery code')));
     if (new Set(hashes).size !== hashes.length) throw new InvalidArgument('DbMfaStore.replaceRecoveryCodes: the codes repeat');
-    const { driver } = await this.connection.get();
+    await ormReady();
 
-    await driver.del().from(CODES).where('identity', identity);
+    await AuthnRecoveryCode.destroy().where('identity', identity);
     if (hashes.length === 0) return;
-    await driver
-      .insert()
-      .into(CODES)
-      .values(hashes.map((code_hash) => ({ id: randomUUID(), identity, code_hash, used_at: null })));
+    await AuthnRecoveryCode.insert(hashes.map((code_hash) => columnValues<AuthnRecoveryCode>({ id: randomUUID(), identity, code_hash, used_at: null })));
   }
 
   /** Spends the code in one conditional update; true for exactly one caller. */
   public async redeemRecoveryCode(id: IdentityRef, raw: string): Promise<boolean> {
     const identity = identityKey(id);
     if (!_try_check_arg(_is_string(_non_empty(), _max_length(RAW_MAX)))(raw, 'raw')[0]) return false;
-    const now = sqlTime(checkedMs(new Date(), 'DbMfaStore.redeemRecoveryCode: the clock'));
-    const { driver } = await this.connection.get();
-    const r = await driver.update().in(CODES).update({ used_at: now }).where('identity', identity).where('code_hash', sha256hex(raw)).whereNull('used_at');
-    return rowsAffected(r) > 0;
+    const ms = checkedMs(new Date(), 'DbMfaStore.redeemRecoveryCode: the clock');
+    await ormReady();
+    const r = await AuthnRecoveryCode.update({ used_at: instant(ms) })
+      .where('identity', identity)
+      .where('code_hash', sha256hex(raw))
+      .whereNull('used_at');
+    return r.RowsAffected > 0;
   }
 
   /** Unused codes. */
   public async countRecoveryCodes(id: IdentityRef): Promise<number> {
     const identity = identityKey(id);
-    const { driver } = await this.connection.get();
-    const rows = (await driver.select().from(CODES).select('identity').where('identity', identity).whereNull('used_at')) as Record<string, unknown>[];
+    await ormReady();
+    const rows = await AuthnRecoveryCode.query().columns(['identity']).where('identity', identity).whereNull('used_at');
     return rows.filter((r) => r.identity === identity).length;
   }
 
   public async removeRecoveryCodes(id: IdentityRef): Promise<void> {
     const identity = identityKey(id);
-    const { driver } = await this.connection.get();
-    await driver.del().from(CODES).where('identity', identity);
+    await ormReady();
+    await AuthnRecoveryCode.destroy().where('identity', identity);
   }
 }

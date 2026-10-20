@@ -1,8 +1,9 @@
+import { AUTHZ_CONNECTION } from '@spinajs/authz';
 import { Migration, OrmMigration } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 /** authz_admin_idempotency: what DbAuthzAdminBackend remembers of a committed AuthzAdmin batch, per idempotency key. */
-@Migration('default')
+@Migration(AUTHZ_CONNECTION)
 export class AuthzAdminIdempotency_2026_10_02_00_01_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable('authz_admin_idempotency', (table) => {

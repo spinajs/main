@@ -6,7 +6,7 @@ import { QueryContext } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
 
-import { DbAuthnAuditSink, fromUtcColumn } from '../src/index.js';
+import { DbAuthnAuditSink, readInstant } from '../src/index.js';
 import { DB_KINDS, TestDb, bootDb, rawQuery } from './support/db.js';
 
 const T0 = new Date('2026-06-01T10:00:00.123Z');
@@ -79,7 +79,7 @@ for (const kind of DB_KINDS) {
 
     beforeEach(async () => {
       await rawQuery(db.driver, 'DELETE FROM authn_audit', [], QueryContext.Delete);
-      sink = new DbAuthnAuditSink(db.driver);
+      sink = new DbAuthnAuditSink();
     });
 
     it('SR-11 the DB sink keeps login and impersonation rows', async () => {
@@ -96,8 +96,8 @@ for (const kind of DB_KINDS) {
       expect(s.id).to.match(UUID_V4);
       expect([l.type, l.outcome, l.identity, l.actor, l.ip, l.user_agent, l.strategy, l.session]).to.deep.eq(['login', 'success', `user:${ALICE.id}`, null, '203.0.113.9', 'Mozilla/5.0 (kit)', 'local', 'h'.repeat(43)]);
       expect([s.type, s.outcome, s.identity, s.actor, s.ip]).to.deep.eq(['impersonation.start', 'success', `user:${ALICE.id}`, `user:${ADMIN.id}`, '198.51.100.4']);
-      expect(fromUtcColumn(l.at_text)).to.deep.eq(login.at);
-      expect(fromUtcColumn(s.at_text)).to.deep.eq(start.at);
+      expect(readInstant(l.at_text)).to.deep.eq(login.at);
+      expect(readInstant(s.at_text)).to.deep.eq(start.at);
     });
 
     it('cuts over-long free text to the column width instead of refusing the event', async () => {
@@ -148,7 +148,7 @@ for (const kind of DB_KINDS) {
       expect(await auditRows(db)).to.deep.eq([]);
     });
 
-    it("resolves the Orm's default connection from its container when given no driver", async () => {
+    it('writes on the connection of the AuthnAudit model when DI builds it', async () => {
       await (await db.container.resolve(DbAuthnAuditSink)).publish({ type: 'logout', at: T0, outcome: 'success' });
       expect(await auditRows(db)).to.have.length(1);
     });

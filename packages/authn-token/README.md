@@ -20,13 +20,13 @@ API tokens and JWT bearer authentication for SpinaJS 3.0, behind the
   the identity links.
 - The CLI: `authn:token-create`, `authn:token-delete` and
   `authn:token-delete-expired` (run it on a schedule).
-- The migration `AuthnTokenScope_2026_10_02_00_00_00`: adds `Scope`, `Kind`,
-  `RevokedAt` and `LastUsedIp`, and gives 2.x tokens without an expiry one of
-  `CreatedAt + authn.token.maxTtlDays`.
+- The migration `RbacHttpTokenInitial_2026_08_11_01_00_00`: creates
+  `rbac_access_tokens` in its 3.0 shape. 3.0 starts from an empty database; no
+  migration upgrades a 2.x table.
 
 Import the package in the app's bootstrap (`import '@spinajs/authn-token';`).
-The model, the migrations and both strategies register themselves when the
-module loads; the migrations are not found by a scan of `system.dirs`.
+The model, the migration and both strategies register themselves when the
+module loads; the migration is not found by a scan of `system.dirs`.
 
 ## Bearer dispatch
 

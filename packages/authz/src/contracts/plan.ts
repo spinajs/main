@@ -3,7 +3,7 @@ import type { PermissionDef } from './permission.js';
 import type { DenyReason } from './decision.js';
 import type { RelationResolver } from './adapter.js';
 
-/** One condition on a row, rendered by the PlanTermSql compiler registered for `op`. */
+/** One condition on a row; an adapter that filters lists compiles it by `op` (authz-orm: a PlanTermCompiler). */
 export interface PlanTerm {
   readonly op: string;
   readonly args: unknown;
@@ -46,35 +46,4 @@ export interface ListPlanRequest {
   readonly env?: Readonly<Record<string, unknown>>;
   /** Set for a consistency `fresh` permission, as `DecisionRequest.fresh`. */
   readonly fresh?: boolean;
-}
-
-/** SQL that each dialect spells its own way, from the connection's driver. */
-export interface SqlRowExpressions {
-  /** `expression` as text; `length` bounds the type where the dialect needs one. */
-  castText(expression: string, length?: number): string;
-  /** True where `needle` occurs in `haystack`. */
-  contains(haystack: SqlFragment, needle: SqlFragment): SqlFragment;
-}
-
-/** Row context a compiler renders against. `rowId` is SQL yielding the row id as text. */
-export interface SqlRowContext {
-  readonly type: ResourceType;
-  readonly rowId: string;
-  readonly rowColumn: (column: string) => string;
-  readonly ancestorTable: string;
-  /** Columns of the row's relation `name` (owner, self, or a named column relation), when the resource declares one. */
-  readonly relation: (name: string) => { readonly column: string; readonly typeColumn?: string } | undefined;
-  readonly now: Date;
-  readonly expressions: SqlRowExpressions;
-}
-
-export interface SqlFragment {
-  readonly sql: string;
-  readonly bindings: readonly unknown[];
-}
-
-/** Renders one PlanTerm op to a boolean SQL expression over the current row. */
-export abstract class PlanTermSql {
-  abstract readonly op: string;
-  abstract toSql(args: unknown, row: SqlRowContext): SqlFragment;
 }

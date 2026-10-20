@@ -34,7 +34,7 @@ describe('v3 step: TotpMfaStep on DbMfaSecretStore (sqlite)', function () {
     await clearMfaTables(db.driver);
     clock = new FakeClock(START);
     clock.install();
-    step = new TotpMfaStep({ store: new DbMfaSecretStore(new DbMfaStore(db.driver)), keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(), identities: null });
+    step = new TotpMfaStep({ store: new DbMfaSecretStore(new DbMfaStore()), keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(), identities: null });
   });
 
   afterEach(() => {

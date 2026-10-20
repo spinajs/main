@@ -174,7 +174,7 @@ describe('token cli commands', function () {
     return AccessToken.where('Uuid', uuid).first();
   }
 
-  /** A row written straight through the model, as a 2.x install or another process would. */
+  /** A row written straight through the model, bypassing TokenService's checks. */
   async function stored(rowId: number, name: string, fields: Partial<AccessToken>): Promise<AccessToken> {
     const t = new AccessToken({ Name: name, Token: sha256(randomUUID()), Roles: [], Kind: 'pat', CreatedAt: DateTime.now() as DateTime<true>, user_id: rowId, ...fields });
     await t.insert();
@@ -509,7 +509,7 @@ describe('token cli commands', function () {
       const a = await owner();
       const live = await mint(a.ref);
       const future = await stored(a.rowId, 'future', { ExpiresAt: DateTime.now().plus({ days: 30 }) as DateTime<true> });
-      const legacy = await stored(a.rowId, 'legacy', {});
+      const noExpiry = await stored(a.rowId, 'no expiry', {});
       const dead = await stored(a.rowId, 'dead', { ExpiresAt: DateTime.now().minus({ minutes: 1 }) as DateTime<true> });
       const revoked = await mint(a.ref);
       await (await service()).revoke(a.ref, revoked.record.id, ctx(new Date()));
@@ -518,9 +518,10 @@ describe('token cli commands', function () {
       const output = capture(cmd);
       await cmd.execute();
 
-      expect((await rows()).map((t) => t.Uuid)).to.have.members([live.record.id, future.Uuid, legacy.Uuid]);
+      expect((await rows()).map((t) => t.Uuid)).to.have.members([live.record.id, future.Uuid]);
       expect(await row(dead.Uuid)).to.equal(undefined);
-      expect(output().all).to.include('Deleted 2 expired or revoked token(s)');
+      expect(await row(noExpiry.Uuid)).to.equal(undefined);
+      expect(output().all).to.include('Deleted 3 expired or revoked token(s)');
       expect(process.exitCode).to.equal(undefined);
     });
 
@@ -596,20 +597,20 @@ describe('token cli commands', function () {
   describe('DbTokenService.deleteExpired', () => {
     const NOW = DateTime.fromISO('2026-10-03T10:00:00.000Z') as DateTime<true>;
 
-    it('deletes rows expired at or before now and revoked rows, keeps live and null-expiry rows', async () => {
+    it('deletes rows expired at or before now, revoked rows and null-expiry rows, keeps live rows', async () => {
       const a = await owner();
       const atNow = await stored(a.rowId, 'at now', { ExpiresAt: NOW });
       const before = await stored(a.rowId, 'before', { ExpiresAt: NOW.minus({ days: 1 }) });
       const after = await stored(a.rowId, 'after', { ExpiresAt: NOW.plus({ milliseconds: 1 }) });
       const revoked = await stored(a.rowId, 'revoked', { ExpiresAt: NOW.plus({ days: 1 }), RevokedAt: NOW.minus({ hours: 1 }) });
-      const revokedLegacy = await stored(a.rowId, 'revoked legacy', { RevokedAt: NOW.minus({ hours: 1 }) });
-      const legacy = await stored(a.rowId, 'legacy', {});
+      const revokedNoExpiry = await stored(a.rowId, 'revoked no expiry', { RevokedAt: NOW.minus({ hours: 1 }) });
+      const noExpiry = await stored(a.rowId, 'no expiry', {});
 
-      expect(await (await service()).deleteExpired(NOW.toJSDate())).to.equal(4);
+      expect(await (await service()).deleteExpired(NOW.toJSDate())).to.equal(5);
 
       const left = (await rows()).map((t) => t.Uuid);
-      expect(left).to.have.members([after.Uuid, legacy.Uuid]);
-      for (const gone of [atNow, before, revoked, revokedLegacy]) {
+      expect(left).to.have.members([after.Uuid]);
+      for (const gone of [atNow, before, revoked, revokedNoExpiry, noExpiry]) {
         expect(left, gone.Name).to.not.include(gone.Uuid);
       }
     });

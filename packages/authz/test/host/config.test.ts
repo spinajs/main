@@ -4,9 +4,8 @@ import Ajv from 'ajv';
 import ajvFormats from 'ajv-formats';
 import ajvKeywords from 'ajv-keywords';
 
-import { AUTHZ_CONFIGURATION_SCHEMA, AUTHZ_DEFAULTS, readDomainConfig, configAt, AUTHZ_LEGACY_KEYS, checkLegacyKeys, findLegacyKeys, AuthzConfigError, AuthzConfigBootstrapper } from '@spinajs/authz';
+import { AUTHZ_CONFIGURATION_SCHEMA, AUTHZ_DEFAULTS, readDomainConfig, configAt, AuthzConfigBootstrapper } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
-import { renderTemplate } from '@spinajs/log-common';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { existsSync } from 'node:fs';
@@ -34,11 +33,9 @@ const validConfig = () => ({
   cache: { maxEntries: 0, ttlSeconds: 0.5 },
   audit: { denials: true, runAs: false, unscoped: true, service: 'MyAudit' },
   bus: { service: 'MyBus' },
-  config: { rejectLegacyKeys: true },
   admin: {
     maxBatch: 50,
     backend: 'DbAuthzAdminBackend',
-    connection: 'authz',
     permissions: { 'assignment.*': 'app:members.manage', 'assignment.grant': { project: 'app:project.share', '*': 'app:any.share' } },
     guard: { service: 'DefaultAdminGuard', privilegedPermission: 'users:update', protectSystemRole: true, preventEscalation: true, preventSelfLockout: true, preventLastPrivilegedRemoval: false },
   },
@@ -72,7 +69,6 @@ describe('authz config schema', () => {
       fields: AUTHZ_DEFAULTS.fields,
       cache: AUTHZ_DEFAULTS.cache,
       audit: AUTHZ_DEFAULTS.audit,
-      config: AUTHZ_DEFAULTS.config,
     });
     expect(cfg.principals ?? {}).to.not.have.nested.property('anonymous.enabled');
     expect(cfg.domains).to.deep.equal({ fs: { engine: {} } });
@@ -120,7 +116,6 @@ describe('authz defaults', () => {
     expect(AUTHZ_DEFAULTS.fields.neverRead).to.deep.equal(['Password']);
     expect(AUTHZ_DEFAULTS.fields.write.mode).to.equal('strip');
     expect(AUTHZ_DEFAULTS.principals.anonymous.enabled).to.equal(true);
-    expect(AUTHZ_DEFAULTS.config.rejectLegacyKeys).to.equal(true);
     expect(AUTHZ_DEFAULTS.combine).to.deep.equal({ default: { algorithm: 'deny-overrides' } });
   });
 });
@@ -246,99 +241,6 @@ describe('readDomainConfig', () => {
   });
 });
 
-describe('legacy keys', () => {
-  const logger = () => {
-    const warnings: string[] = [];
-    return { warnings, log: { warn: (fields: unknown, template?: unknown) => void warnings.push(typeof fields === 'string' ? fields : renderTemplate(template as string, fields as Record<string, unknown>)) } };
-  };
-
-  it('lists the authorization rows', () => {
-    const rows = Object.fromEntries(AUTHZ_LEGACY_KEYS.map((r) => [r.from, r.to]));
-    expect(rows['rbac.grants']).to.equal('authz.rbac.roles');
-    expect(rows['rbac.roles']).to.equal('authz.rbac.roles');
-    expect(rows['rbac.defaultRole']).to.equal('authz.rbac.defaultRoles');
-    expect(rows['rbac.enableGuestAccount']).to.equal('authz.principals.anonymous.enabled');
-    expect(rows['rbac.requireKnownRole']).to.equal(null);
-    expect(rows['rbac.systemRole']).to.equal(null);
-    expect(rows['rbac.roleColumn']).to.equal(null);
-    expect(rows['rbac.roleSwitch']).to.equal('authz.principals.roleSwitch');
-    expect(rows['rbac.impersonation.protectedRoles']).to.equal('authz.impersonation.protectedRoles');
-    expect(rows['rbac.admin.roleGuard']).to.equal('authz.admin.guard');
-    expect(rows['rbac.token.rolePolicy']).to.equal('authz.token.rolePolicy');
-    expect(rows['rbac.token.excludedRoles']).to.equal('authz.token.excludedRoles');
-  });
-
-  it('finds one finding per leaf with the longest matching row', () => {
-    const found = findLegacyKeys({ grants: { admin: { x: 1 } }, defaultRole: ['a', 'b'], session: { cookie: 'c' }, roleColumn: 'r', impersonation: { protectedRoles: ['x'], other: 1 } });
-    const byPath = Object.fromEntries(found.map((f) => [f.path, f.to]));
-    expect(byPath).to.deep.equal({
-      'rbac.grants.admin.x': 'authz.rbac.roles',
-      'rbac.defaultRole': 'authz.rbac.defaultRoles',
-      'rbac.session.cookie': 'authn.* or users.*',
-      'rbac.roleColumn': null,
-      'rbac.impersonation.protectedRoles': 'authz.impersonation.protectedRoles',
-      'rbac.impersonation.other': 'authn.* or users.*',
-    });
-  });
-
-  it('treats a non-object rbac as one leaf', () => {
-    expect(findLegacyKeys(true).map((f) => f.path)).to.deep.equal(['rbac']);
-  });
-
-  it("skips the config loader's __file__ marker", () => {
-    expect(findLegacyKeys({ __file__: 'app.js', grants: { admin: 1 } }).map((f) => f.path)).to.deep.equal(['rbac.grants.admin']);
-    const { warnings, log } = logger();
-    checkLegacyKeys({ __file__: 'app.js' }, true, log);
-    expect(warnings).to.deep.equal([]);
-  });
-
-  it('does nothing without rbac', () => {
-    const { warnings, log } = logger();
-    checkLegacyKeys(undefined, true, log);
-    expect(warnings).to.deep.equal([]);
-  });
-
-  it('warns once when rejectLegacyKeys is off', () => {
-    const { warnings, log } = logger();
-    checkLegacyKeys({ grants: { admin: { a: 1 } }, session: { cookie: 'c' } }, false, log);
-    expect(warnings).to.have.length(1);
-    expect(warnings[0]).to.contain('rbac.grants.admin.a');
-    expect(warnings[0]).to.contain('authz.rbac.roles');
-    expect(warnings[0]).to.contain('authn.* or users.*');
-  });
-
-  it('throws one error listing every key when rejectLegacyKeys is on', () => {
-    const { warnings, log } = logger();
-    let err: unknown;
-    try {
-      checkLegacyKeys({ grants: { admin: { a: 1 } }, session: { cookie: 'c' } }, true, log);
-    } catch (e) {
-      err = e;
-    }
-    expect(err).to.be.instanceOf(AuthzConfigError);
-    const m = (err as Error).message;
-    expect(m).to.contain('rbac.grants.admin.a');
-    expect(m).to.contain('rbac.session.cookie');
-    expect(m).to.contain('spinajs-authz-convert');
-    expect(m).to.contain('authz.config.rejectLegacyKeys: false');
-    expect(warnings).to.deep.equal([]);
-  });
-
-  it('maps rbac.user, rbac.email and rbac.actions to users.*', () => {
-    const byPath = Object.fromEntries(findLegacyKeys({ user: { a: 1 }, email: 'x', actions: { b: 1 } }).map((f) => [f.path, f.to]));
-    expect(byPath).to.deep.equal({ 'rbac.user.a': 'users.user', 'rbac.email': 'users.email', 'rbac.actions.b': 'users.actions' });
-  });
-
-  it('includes the notes of the rows in the text', () => {
-    const { warnings, log } = logger();
-    checkLegacyKeys({ defaultRole: 'x', password: { lockoutTime: 5 }, roleColumn: 'r' }, false, log);
-    expect(warnings[0]).to.contain('authz.rbac.anonymousRoles');
-    expect(warnings[0]).to.contain('rbac.password.lockoutTime -> removed (H31:');
-    expect(warnings[0]).to.contain('authn.throttle.login.account.maxDelayMs');
-    expect(warnings[0]).to.contain('rbac.roleColumn -> removed');
-  });
-});
-
 describe('authz configuration through a child Configuration', function () {
   this.timeout(30000);
   const children: IContainer[] = [];
@@ -364,9 +266,8 @@ describe('authz configuration through a child Configuration', function () {
 
   it('fills the root-level defaults of an unconfigured authz, equal to AUTHZ_DEFAULTS', async () => {
     const authz = (await booted({})).get<Record<string, unknown>>(['authz']);
-    expect(authz).to.deep.include({ combine: AUTHZ_DEFAULTS.combine, engine: AUTHZ_DEFAULTS.engine, fields: AUTHZ_DEFAULTS.fields, cache: AUTHZ_DEFAULTS.cache, audit: AUTHZ_DEFAULTS.audit, config: AUTHZ_DEFAULTS.config });
+    expect(authz).to.deep.include({ combine: AUTHZ_DEFAULTS.combine, engine: AUTHZ_DEFAULTS.engine, fields: AUTHZ_DEFAULTS.fields, cache: AUTHZ_DEFAULTS.cache, audit: AUTHZ_DEFAULTS.audit });
     expect(authz.principals ?? {}).to.not.have.nested.property('anonymous.enabled');
-    expect(authz.config).to.deep.equal({ rejectLegacyKeys: true });
   });
 
   it('fills only the keys a root section leaves out', async () => {
@@ -391,8 +292,6 @@ describe('authz configuration through a child Configuration', function () {
       [{ audit: { service: '' } }, 'authz.audit.service'],
       [{ bus: { service: '' } }, 'authz.bus.service'],
       [{ principals: { anonymous: { enabled: 'no' } } }, 'authz.principals.anonymous.enabled'],
-      [{ config: 5 }, 'authz.config'],
-      [{ config: { rejectLegacyKeys: 'sometimes' } }, 'authz.config.rejectLegacyKeys'],
       [{ combine: { default: {} } }, 'authz.combine.default.algorithm'],
       [{ domains: { root: {} } }, 'authz.domains.root'],
       [{ domains: { 'a.b': { engine: { explain: 'yes' } } } }, 'authz.domains.a.b.engine.explain'],
@@ -409,7 +308,7 @@ describe('authz configuration through a child Configuration', function () {
 describe('authz.admin through a child Configuration', function () {
   this.timeout(30000);
   const children: IContainer[] = [];
-  const EXPECTED_ADMIN_DEFAULTS = { maxBatch: 100, backend: 'MemoryAuthzAdminBackend', connection: 'default' };
+  const EXPECTED_ADMIN_DEFAULTS = { maxBatch: 100, backend: 'MemoryAuthzAdminBackend' };
   const adminSchema = (AUTHZ_CONFIGURATION_SCHEMA.properties.admin as any).properties;
 
   afterEach(async () => {
@@ -452,7 +351,6 @@ describe('authz.admin through a child Configuration', function () {
       [{ maxBatch: 0 }, 'authz.admin.maxBatch'],
       [{ maxBatch: 1.5 }, 'authz.admin.maxBatch'],
       [{ backend: '' }, 'authz.admin.backend'],
-      [{ connection: '' }, 'authz.admin.connection'],
       [{ guard: { service: '', privilegedPermission: 'users:update' } }, 'authz.admin.guard.service'],
       [{ guard: { privilegedPermission: 'users' } }, 'authz.admin.guard.privilegedPermission'],
       [{ guard: { protectSystemRole: 'sometimes', privilegedPermission: 'users:update' } }, 'authz.admin.guard.protectSystemRole'],

@@ -93,7 +93,7 @@ describe('roles as GLOBAL assignments (H13)', function () {
   });
 
   describe('users table', () => {
-    it('has no Role column after the authz-rbac migrations', async () => {
+    it('has no Role column', async () => {
       const columns = await User.query().Driver.tableInfo('users');
 
       expect(columns?.map((c) => c.Name)).to.not.include('Role');

@@ -2,11 +2,10 @@ import { randomUUID } from 'node:crypto';
 
 import { AuthzConfigError } from '@spinajs/authz';
 import type { PrincipalRef } from '@spinajs/authz';
-import { toDate } from '@spinajs/authz-rbac';
 import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { LIKE_ESCAPE_CHARACTER, Orm, RawQuery, escapeLikeValue } from '@spinajs/orm';
+import { Orm, instantFromDb } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { chunk } from '@spinajs/util';
 
@@ -174,15 +173,23 @@ export class OrmFileAclStore extends FileAclStore {
 
 const rowKey = (path: string, r: Row): string => `${path}\0${r.subject_key}\0${r.relation}`;
 
+// Rows are read without a model, so no column converter runs: SQLite hands back ISO text, the others a Date.
+function toDate(value: unknown, column: string): Date | null {
+  if (value === null || value === undefined) return null;
+  const instant = instantFromDb(value);
+  if (!instant) throw new AuthzConfigError(`${FS_ACL_TABLE}.${column} holds an unreadable datetime ${JSON.stringify(value)}`);
+  return instant.toJSDate();
+}
+
 function live(row: Row, at: Date): boolean {
-  const until = toDate(row.expires_at);
+  const until = toDate(row.expires_at, 'expires_at');
   return until === null || until.getTime() > at.getTime();
 }
 
-const oldestFirst = (rows: readonly Row[]): Row[] => [...rows].sort((a, b) => (toDate(a.created_at)?.getTime() ?? 0) - (toDate(b.created_at)?.getTime() ?? 0));
+const oldestFirst = (rows: readonly Row[]): Row[] => [...rows].sort((a, b) => (toDate(a.created_at, 'created_at')?.getTime() ?? 0) - (toDate(b.created_at, 'created_at')?.getTime() ?? 0));
 
 function rowOf(row: Row): FsAclRow {
-  const expiresAt = toDate(row.expires_at);
+  const expiresAt = toDate(row.expires_at, 'expires_at');
   return Object.freeze({
     fs: row.fs,
     path: row.path,
@@ -199,18 +206,12 @@ async function exactRows(driver: OrmDriver, fs: string, path: string): Promise<R
 }
 
 /**
- * The rows at `path` and under it ('' = every row of the filesystem). LIKE with the wildcards escaped only narrows
- * the read (it ignores case under many collations); the exact test in code decides.
+ * The rows at `path` and under it ('' = every row of the filesystem). `whereStartsWith` only narrows the read (it may
+ * ignore case under the column's collation); the exact test in code decides.
  */
 async function tree(driver: OrmDriver, fs: string, path: string): Promise<Row[]> {
   if (path === '') return (((await driver.select().from(FS_ACL_TABLE).where({ fs })) ?? []) as Row[]).filter((r) => r.fs === fs);
-  // MSSQL reads '[' as the start of a character class; escaped, it is a literal on every driver.
-  const prefix = escapeLikeValue(path).replace(/\[/g, `${LIKE_ESCAPE_CHARACTER}[`);
-  const below = ((await driver
-    .select()
-    .from(FS_ACL_TABLE)
-    .where({ fs })
-    .where(RawQuery.create(`path LIKE ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'`, [`${prefix}/%`]))) ?? []) as Row[];
+  const below = ((await driver.select().from(FS_ACL_TABLE).where({ fs }).whereStartsWith('path', `${path}/`)) ?? []) as Row[];
   return [...(await exactRows(driver, fs, path)), ...below.filter((r) => r.fs === fs && r.path.startsWith(`${path}/`))];
 }
 

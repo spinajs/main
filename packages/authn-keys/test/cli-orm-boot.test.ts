@@ -23,6 +23,8 @@ const CLI_PROCESS = `
       return {
         logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
         db: {
+          // authn_nonce comes with authn-orm's migration, which this process does not load.
+          StrictTableCheck: false,
           DefaultConnection: 'sqlite',
           Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { Table: 'orm_migrations', OnStartup: true, Transaction: { Mode: MigrationTransactionMode.PerMigration } } }],
         },

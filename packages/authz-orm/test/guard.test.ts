@@ -9,7 +9,7 @@ import type { ModelBase } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 import { Log, renderTemplate } from '@spinajs/log-common';
 
-import { AccessGuardMiddleware } from '../src/guard/middleware.js';
+import { AccessGuardMiddleware, callSite } from '../src/guard/middleware.js';
 import { guardMode } from '../src/guard/env.js';
 import { AccessListMiddleware } from '../src/lists/middleware.js';
 import { AccessResource } from '../src/index.js';
@@ -104,6 +104,22 @@ describe('authz-orm runtime guard', function () {
     await as(alice, async () => await Task.query());
     expect(warn.callCount).to.equal(2);
     expect(renderTemplate(warn.firstCall.args[1] as string, warn.firstCall.args[0] as unknown as Record<string, unknown>)).to.match(/guard\.test\.ts/);
+  });
+
+  it('names the first frame outside the framework, whichever ORM driver package built the query', () => {
+    const app = 'at listTasks (C:\\app\\src\\tasks.ts:12:5)';
+    const stack = [
+      'Error',
+      'at AccessGuardMiddleware.afterQueryCreation (C:\\repo\\packages\\authz-orm\\lib\\mjs\\guard\\middleware.js:67:62)',
+      'at SqliteOrmDriver.select (/srv/app/node_modules/@spinajs/orm-sqlite/lib/mjs/driver.js:40:3)',
+      'at OracleOrmDriver.select (/srv/app/node_modules/@spinajs/orm-oracle/lib/cjs/driver.js:40:3)',
+      'at createQuery (/srv/app/node_modules/@spinajs/orm/lib/mjs/builders.js:3422:9)',
+      'at Container.resolve (/srv/app/node_modules/@spinajs/di/lib/mjs/container.js:10:1)',
+      'at Array.forEach (<anonymous>)',
+      app,
+    ].join('\n');
+    expect(callSite(stack)).to.equal(app);
+    expect(callSite(undefined)).to.equal('unknown call site');
   });
 
   it('does not flag single-object loads by primary key', async () => {

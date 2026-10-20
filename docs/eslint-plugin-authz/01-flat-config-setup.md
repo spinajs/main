@@ -31,14 +31,17 @@ The plugin ships as an ESLint flat-config plugin. Spread `configs.recommended` i
 
 ## Important behaviour
 
-- The rule needs type information. Lint `.js` files in a separate config entry without the plugin, or the rule fails on them.
+- The rule needs type information (`meta.docs.requiresTypeChecking` is `true`). Lint `.js` files in a separate config entry without the plugin, or the rule fails on them.
+- The rule resolves each model through the type checker, so the files that declare your models must belong to the linted TypeScript project.
 - The plugin prefix is `@spinajs/authz`. Use it in rule keys and in `eslint-disable` comments: `// eslint-disable-next-line @spinajs/authz/require-accessible`.
-- SpinaJS lints its own packages with `configs.recommended` in the root `eslint.config.mjs`.
+- Unknown options fail the config: the option schema has `additionalProperties: false` and `uniqueItems: true` on `resources`.
+- SpinaJS lints its own packages with `configs.recommended` in the root `eslint.config.mjs`. It does not lint your app: add the rule to your app's lint step and fail the build on errors.
 
 ## Best practices
 
 - List compiled models in `resources` when you set the rule yourself: decorators do not survive into `.d.ts`, so `User` from `@spinajs/users` is not detected otherwise ([details](02-require-accessible.md#configuration)).
 - Keep the rule at `error`. A flagged query is an authorization hole in production, where the runtime guard is off.
+- Keep the run-time guard on in tests (`APP_ENV=test`); it catches what the rule misses ([what it misses](02-require-accessible.md#what-it-misses)).
 
 ## Examples
 
@@ -106,5 +109,5 @@ export default defineConfig(
 
 ## Related
 
-- [`require-accessible` rule](02-require-accessible.md): what the rule reports and its options.
-- [`@spinajs/authz`, ORM adapter](../authz/README.md#orm-spinajsauthz-orm): the runtime guard the rule mirrors.
+- [The `require-accessible` rule](02-require-accessible.md): what the rule reports and its options.
+- [The runtime guard](../authz-orm/07-runtime-guard.md): the `@spinajs/authz-orm` check the rule mirrors.

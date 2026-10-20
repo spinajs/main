@@ -8,8 +8,6 @@ import { FakeIdentityStore, MemorySessionIssuer, RecordingPrincipalFactory } fro
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
-import { Orm } from '@spinajs/orm';
-import type { OrmDriver } from '@spinajs/orm';
 
 import { DbAuthnThrottle } from '../src/index.js';
 import type { DbThrottleOptions } from '../src/index.js';
@@ -20,18 +18,9 @@ const HASH_KEY = 'k'.repeat(40);
 const bad = (authn: Record<string, unknown>) => violationsOf(SCHEMAS, { authn });
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
-/** A stand-in `'default'` connection: these tests read the configuration and never query. */
-class StubOrm extends Orm {
-  public async resolve(): Promise<void> {
-    this.Connections.set('default', {} as OrmDriver);
-  }
-}
-
 /** A throttle DI builds in its own child of `from`, so it reads the configuration of `from`. */
 async function throttleIn(from: IContainer, options?: DbThrottleOptions): Promise<DbAuthnThrottle> {
-  const own = from.child();
-  own.register(StubOrm).as(Orm);
-  return own.resolve(DbAuthnThrottle, options ? [undefined, undefined, options] : undefined);
+  return from.child().resolve(DbAuthnThrottle, options ? [undefined, options] : undefined);
 }
 
 describe('DbAuthnThrottle configuration', () => {
@@ -79,7 +68,7 @@ describe('DbAuthnThrottle configuration', () => {
   });
 
   it('takes explicit params as given, without a container', () => {
-    const throttle = new DbAuthnThrottle({} as OrmDriver, DEFAULT_THROTTLE_PARAMS);
+    const throttle = new DbAuthnThrottle(DEFAULT_THROTTLE_PARAMS);
     expect(throttle.params).to.eq(DEFAULT_THROTTLE_PARAMS);
   });
 
@@ -88,10 +77,10 @@ describe('DbAuthnThrottle configuration', () => {
       for (const [key, value] of [['free', -1], ['baseDelayMs', Number.NaN], ['maxDelayMs', 0]] as const) {
         const params = clone(DEFAULT_THROTTLE_PARAMS) as unknown as Record<string, Record<string, Record<string, unknown>>>;
         params[flow].account[key] = value;
-        expect(() => new DbAuthnThrottle({} as OrmDriver, params as never), `${flow}.${key}`).to.throw(InvalidOption, `authn.throttle.${flow}.account.${key}`);
+        expect(() => new DbAuthnThrottle(params as never), `${flow}.${key}`).to.throw(InvalidOption, `authn.throttle.${flow}.account.${key}`);
       }
     }
-    expect(() => new DbAuthnThrottle({} as OrmDriver, { ...DEFAULT_THROTTLE_PARAMS, resetAfterSeconds: 0 })).to.throw(InvalidOption, 'authn.throttle.resetAfterSeconds');
+    expect(() => new DbAuthnThrottle({ ...DEFAULT_THROTTLE_PARAMS, resetAfterSeconds: 0 })).to.throw(InvalidOption, 'authn.throttle.resetAfterSeconds');
   });
 
   it('refuses limits set past the schema before init', async () => {
@@ -176,9 +165,9 @@ describe('DbAuthnThrottle without authn.audit.hashKey.secret', () => {
   }
 
   it('keys rows of an instance given neither a configuration nor a key with the random key of this process', () => {
-    const throttle = new DbAuthnThrottle({} as OrmDriver, DEFAULT_THROTTLE_PARAMS);
+    const throttle = new DbAuthnThrottle(DEFAULT_THROTTLE_PARAMS);
     expect(throttle.rowKey('login', KEY)).to.not.eq(publicRowKey);
-    expect(throttle.rowKey('login', KEY)).to.eq(new DbAuthnThrottle({} as OrmDriver, DEFAULT_THROTTLE_PARAMS, { hashKey: null }).rowKey('login', KEY));
+    expect(throttle.rowKey('login', KEY)).to.eq(new DbAuthnThrottle(DEFAULT_THROTTLE_PARAMS, { hashKey: null }).rowKey('login', KEY));
   });
 
   describe('when the authn service boots on it', () => {

@@ -219,7 +219,7 @@ describe('users authn event sinks', function () {
       expect(sent.Error).to.be.instanceOf(InvalidCredentials);
     });
 
-    it('gives UserLoginFailed the 2.x error class of a status refusal', async () => {
+    it('gives UserLoginFailed the error class of a status refusal', async () => {
       const { ref } = await seedUser({ login: 'refused', password: HASH });
       const sink = await DI.resolve(QueueAuthnEventSink);
 

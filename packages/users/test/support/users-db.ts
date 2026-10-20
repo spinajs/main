@@ -161,7 +161,7 @@ export async function setIdentityFlags(ref: IdentityRef, flags: IdentityFlags): 
     await driver
       .update()
       .in('users')
-      .update({ DeletedAt: flags.deleted ? DateTime.now().toSQL({ includeOffset: false }) : null })
+      .update({ DeletedAt: flags.deleted ? DateTime.utc() : null })
       .where('Uuid', ref.id);
   }
   for (const [flag, key] of [

@@ -1,13 +1,11 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { randomUUID } from 'node:crypto';
-import { UserSession as Session, decodeSessionData, encodeSessionData } from '@spinajs/authn-session';
+import { UserSession as Session, encodeSessionData } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
 import { DateTime } from 'luxon';
 import { RedisSessionStore } from '../src/index.js';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
-import { bootStore, disposeStore, rawClient, seedLegacyRow, writeLegacyRow } from './support.js';
-import type { LegacyRow } from './support.js';
+import { bootStore, disposeStore, rawClient } from './support.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -24,11 +22,6 @@ async function makeProvider(expiration: IConformanceExpiration) {
 const conformanceFactory = makeProvider as unknown as SessionProviderFactory;
 
 const session = (over: Partial<ISession>) => new Session({ Subject: user('u-1'), State: 'active', Expiration: DateTime.now().plus({ minutes: 10 }), Data: new Map<string, unknown>(), ...over });
-
-const legacy = (over: Partial<LegacyRow> = {}) => {
-  const creation = DateTime.now().minus({ minutes: 1 });
-  return { rawId: randomUUID(), user: 'u-legacy', authorized: true, creation, expiration: creation.plus({ minutes: 30 }), ...over };
-};
 
 const stored = async (key: string) => JSON.parse((await rawClient().get(key))!);
 const members = async (key: string) => (await rawClient().smembers(key)).sort();
@@ -55,9 +48,7 @@ describe('redis session provider', function () {
     await disposeStore();
   });
 
-  runSessionProviderConformance(conformanceFactory, {
-    seedLegacy: async (provider, row) => seedLegacyRow(provider as unknown as RedisSessionStore, row),
-  });
+  runSessionProviderConformance(conformanceFactory);
 
   describe('RedisSessionStore regressions', () => {
     it("deleteBySubject removes only the target subject's sessions across multiple subjects", async () => {
@@ -133,7 +124,6 @@ describe('redis session provider', function () {
       expect(raw.Subject).to.equal('user:victim');
       expect(raw.Impersonator).to.equal('user:admin');
       expect(raw.State).to.equal('active');
-      expect(raw).to.not.have.property('UserId');
       expect(await members('session:subject:user:victim')).to.deep.equal(['k-imp']);
       expect(await members('session:impersonator:user:admin')).to.deep.equal(['k-imp']);
       expect(await rawClient().pttl('session:k-imp'), 'the key expires with the session').to.be.greaterThan(0);
@@ -226,8 +216,7 @@ describe('redis session provider', function () {
       expect(await store.touch(restored)).to.be.true;
       expect(ids(await store.listBySubject(user('admin'), { includeImpersonations: true }))).to.deep.equal(['k-pre']);
 
-      await writeLegacyRow(legacy({ user: 'p' }), 'app:');
-      await store.sweepLegacy();
+      await store.save(session({ SessionId: 'k-pre-b', Subject: user('p') }));
       expect(await store.deleteBySubject(user('p'))).to.equal(2);
 
       await store.save(session({ SessionId: 'k-pre-2', Subject: user('p') }));
@@ -254,35 +243,6 @@ describe('redis session provider', function () {
       expect(after.State).to.equal('pending');
       expect(after.Expiration!.toMillis()).to.equal(fixed.toMillis());
       expect(after.Data.has('authn:facts'), 'nothing of the forged view is written').to.be.false;
-    });
-
-    it('SR-07 touch with an active view never extends a 2.x row that never passed 2FA', async () => {
-      const store = await makeProvider(SLIDING);
-      await store.truncate();
-
-      const row = legacy({ authorized: false });
-      await seedLegacyRow(store, row);
-
-      expect(await store.touch(session({ SessionId: row.rawId, Subject: user(row.user), State: 'active', Expiration: row.expiration }))).to.be.false;
-      const after = (await store.restore(row.rawId))!;
-      expect(after.State).to.equal('pending');
-      expect(after.Expiration!.toMillis()).to.equal(row.expiration.toMillis());
-    });
-
-    it('touch keeps the 2.x shape of a 2.x row it renews', async () => {
-      const store = await makeProvider(SLIDING);
-      await store.truncate();
-
-      const row = legacy({ user: 'u-2x' });
-      await seedLegacyRow(store, row);
-      const restored = (await store.restore(row.rawId))!;
-      restored.Data.set('Ip', '198.51.100.1');
-
-      expect(await store.touch(restored)).to.be.true;
-      const raw = await stored(`session:${row.rawId}`);
-      expect(raw.UserId).to.equal(1);
-      expect(raw).to.not.have.property('Subject');
-      expect(decodeSessionData(raw.Data).get('Ip')).to.equal('198.51.100.1');
     });
 
     it('touch renews the Redis TTL with the Expiration', async () => {
@@ -357,66 +317,8 @@ describe('redis session provider', function () {
     });
   });
 
-  describe('2.x rows and the boot sweep', () => {
-    it('A08 resolve() indexes the 2.x rows written before the boot, so a ban reaches them', async () => {
-      await (await makeProvider(SLIDING)).truncate();
-      const own = legacy({ user: 'banned' });
-      const imp = legacy({ user: 'victim', impersonator: 'banned' });
-      const other = legacy({ user: 'someone' });
-      await writeLegacyRow(own);
-      await writeLegacyRow(imp);
-      await writeLegacyRow(other);
-
-      const store = await makeProvider(SLIDING);
-
-      expect(await members('session:subject:user:banned')).to.deep.equal([own.rawId]);
-      expect(await members('session:impersonator:user:banned')).to.deep.equal([imp.rawId]);
-      expect(await store.deleteBySubject(user('banned'), { includeImpersonations: true })).to.equal(2);
-      expect(await store.restore(other.rawId)).to.not.be.null;
-    });
-
-    it('the sweep is idempotent and leaves 3.0 rows and 2.x rows without User alone', async () => {
-      const store = await makeProvider(SLIDING);
-      await store.truncate();
-      const row = legacy({ user: 'u-sweep' });
-      await writeLegacyRow(row);
-      await writeLegacyRow(legacy({ user: undefined }));
-      await store.save(session({ SessionId: 's-30', Subject: user('u-30') }));
-
-      await store.sweepLegacy();
-      await store.sweepLegacy();
-
-      expect(await members('session:subject:user:u-sweep')).to.deep.equal([row.rawId]);
-      expect(await members('session:subject:user:u-30')).to.deep.equal(['s-30']);
-      expect(await stored(`session:${row.rawId}`)).to.not.have.property('Subject');
-    });
-
-    it('a 2.x row written after the sweep is reached once sweepLegacy runs again (rolling-upgrade window)', async () => {
-      const store = await makeProvider(SLIDING);
-      await store.truncate();
-      await writeLegacyRow(legacy({ user: 'u-late' }));
-
-      expect(await store.deleteBySubject(user('u-late')), 'not indexed yet').to.equal(0);
-      await store.sweepLegacy();
-      expect(await store.deleteBySubject(user('u-late'))).to.equal(1);
-    });
-
-    it('one undecodable row fails neither the sweep nor subject lookups for others', async () => {
-      const store = await makeProvider(SLIDING);
-      await store.truncate();
-      const client = rawClient();
-      await client.set(`session:${randomUUID()}`, '{not json');
-      await client.set(`session:${randomUUID()}`, JSON.stringify({ UserId: 1, Creation: DateTime.now().toISO(), Data: '{not json' }));
-      const good = legacy({ user: 'u-good' });
-      await writeLegacyRow(good);
-
-      await store.sweepLegacy();
-
-      expect(ids(await store.listBySubject(user('u-good')))).to.deep.equal([good.rawId]);
-      expect(await store.deleteBySubject(user('u-good'))).to.equal(1);
-    });
-
-    it('a 3.0 row whose Data does not decode keeps the owner its own fields give', async () => {
+  describe('undecodable rows', () => {
+    it('a row whose Data does not decode keeps the owner its own fields give', async () => {
       const store = await makeProvider(SLIDING);
       await store.truncate();
       await store.save(session({ SessionId: 'bad-data', Subject: user('u-bad') }));

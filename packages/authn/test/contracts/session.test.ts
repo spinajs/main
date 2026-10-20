@@ -205,7 +205,6 @@ describe('session issuer contract', () => {
       expect(docOf(m, 'issue')).to.contain('NEW session');
       expect(docOf(m, 'issue')).to.contain('facts.impersonator');
       expect(docOf(m, 'restore')).to.contain('A07');
-      expect(docOf(m, 'restore')).to.contain('only a uuid v4 input falls back to a raw lookup');
       expect(docOf(m, 'restore')).to.contain('a stored hash never works as an id (SR-18)');
       expect(docOf(m, 'list')).to.contain('Includes sessions in which someone impersonates');
       expect(docOf(m, 'list')).to.contain("impersonator's ip and userAgent");

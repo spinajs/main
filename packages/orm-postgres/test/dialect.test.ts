@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
-import { MethodNotImplemented } from '@spinajs/exceptions';
+import { InvalidOperation, MethodNotImplemented } from '@spinajs/exceptions';
 import { IdentifierQuoter, RawQuery, SchemaQueryBuilder } from '@spinajs/orm';
 
 import { PostgresOrmDriver, PostgresServerResponseMapper, toPositionalParameters } from '../src/index.js';
@@ -33,6 +33,31 @@ describe('postgres dialect', function () {
     }
   });
 
+  it('quotes the column alterTable() drops', () => {
+    const schema = driver.Container.resolve(SchemaQueryBuilder, [driver]);
+
+    expect(schema.alterTable('users', (table) => table.dropColumn('Role')).toDB()).to.deep.eq([{ bindings: [], expression: 'ALTER TABLE "users" DROP COLUMN "Role"' }]);
+  });
+
+  it('locks a table in SHARE mode', async () => {
+    const sent: string[] = [];
+    driver.executeOnDb = (stmt: string) => (sent.push(stmt), Promise.resolve([]));
+    // a transaction context in scope is all assertInTransaction() checks
+    await (driver as any).TransactionStorage.run({ depth: 0 }, () => driver.lockTableShared('users'));
+
+    expect(sent).to.deep.eq(['LOCK TABLE "users" IN SHARE MODE']);
+  });
+
+  it('refuses lockTableShared outside a transaction', async () => {
+    const err = await driver.lockTableShared('users').then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(err).to.be.instanceOf(InvalidOperation);
+    expect((err as Error).message).to.eq('lockTableShared must run inside a transaction');
+  });
+
   /**
    * Trigger-based table history and `CREATE TABLE ... LIKE` have no postgres implementation
    * here. They must stay UNREGISTERED so the failure is a DI error naming the abstraction —
@@ -61,7 +86,7 @@ describe('postgres dialect', function () {
   });
 
   it('reports RETURNING support and no events', () => {
-    expect(driver.supportedFeatures()).to.deep.eq({ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: true });
+    expect(driver.supportedFeatures()).to.deep.eq({ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, concurrentTransactions: true, nativeJson: true });
   });
 
   describe('positional parameters', () => {

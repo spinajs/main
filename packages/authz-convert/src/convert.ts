@@ -205,7 +205,7 @@ export function convertLayers(layers: ConfigLayers, opts: Omit<ConvertOptions, '
   const tail = new Findings();
   for (const s of layers.skipped) tail.warn('file-skipped', `Not converted: ${s}.`);
   if (outputs.some((o) => getPath(o.out.authn, ['authn', 'mfa', 'steps']) !== undefined)) {
-    tail.warn('mfa-key', 'TOTP secrets are stored encrypted in 3.0: set authn.mfa.encryptionKey (a secret reference) before running the migrations, which refuse to run without it.', 'authn.mfa.encryptionKey');
+    tail.warn('mfa-key', 'TOTP secrets are stored encrypted in 3.0: set authn.mfa.encryptionKey (a secret reference). Outside development and test, boot refuses to start without it while a listed step stores secrets.', 'authn.mfa.encryptionKey');
   }
   for (const [layer, paths] of layers.computed) {
     const read = paths.filter((p) => p.startsWith('rbac.') || p.startsWith('http.'));

@@ -2,8 +2,8 @@ import * as chai from 'chai';
 import 'mocha';
 
 import * as authz from '../../src/index.js';
-import { AuthorizationModel, PlanTermSql, ResourceAdapter, FALSE, GLOBAL, TRUE, UNATTENDED, resourceKey } from '../../src/index.js';
-import type { AccessPlan, DecisionRequest, DenyReason, EvaluationContext, ListPlanRequest, ListSupport, ListSupportContext, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PlanTerm, Principal, ResourceRef, ResourceType, SqlFragment, SqlRowContext, SqlRowExpressions, Vote } from '../../src/index.js';
+import { AuthorizationModel, ResourceAdapter, FALSE, GLOBAL, TRUE, UNATTENDED, resourceKey } from '../../src/index.js';
+import type { AccessPlan, DecisionRequest, DenyReason, EvaluationContext, ListPlanRequest, ListSupport, ListSupportContext, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PlanTerm, Principal, ResourceRef, ResourceType, Vote } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -60,27 +60,9 @@ class BatchAdapter extends PlainAdapter {
   }
 }
 
-class OwnerSql extends PlanTermSql {
-  public readonly op = 'relation.owner';
-  public toSql(args: unknown, row: SqlRowContext): SqlFragment {
-    const { principals } = args as { principals: { type: string; id: string }[] };
-    const owner = row.relation('owner');
-    if (!owner) return { sql: '1 = 0', bindings: [] };
-    const users = principals.filter((p) => owner.typeColumn !== undefined || p.type === 'user');
-    if (users.length === 0) return { sql: '1 = 0', bindings: [] };
-    if (owner.typeColumn === undefined) {
-      return { sql: `${row.rowColumn(owner.column)} IN (${users.map(() => '?').join(', ')})`, bindings: users.map((p) => p.id) };
-    }
-    return {
-      sql: users.map(() => `(${row.rowColumn(owner.typeColumn!)} = ? AND ${row.rowColumn(owner.column)} = ?)`).join(' OR '),
-      bindings: users.flatMap((p) => [p.type, p.id]),
-    };
-  }
-}
-
 describe('list plan contracts', () => {
-  it('exports PlanTermSql as a runtime value from the barrel', () => {
-    expect((authz as Record<string, unknown>).PlanTermSql).to.be.a('function');
+  it('core holds no SQL contract: an adapter compiles list terms its own way', () => {
+    expect((authz as Record<string, unknown>).PlanTermSql).to.equal(undefined);
   });
 
   it('list members of AuthorizationModel and batch members of ResourceAdapter are optional', () => {
@@ -111,18 +93,6 @@ describe('list plan contracts', () => {
     const ancestors = await a.ancestorsMany(refs);
     expect(ancestors.get('task:1')).to.deep.equal([refs[0], GLOBAL]);
     expect(ancestors.get('task:gone')).to.equal(null);
-  });
-
-  it('a PlanTermSql renders its op against the row context and its relation columns', () => {
-    const base = { type: 'task', rowId: 'CAST(t.id AS varchar(64))', rowColumn: (c: string) => `t.${c}`, ancestorTable: 'authz_resource_ancestor', now: new Date(0), expressions: { castText: (e: string) => e, contains: (h: SqlFragment) => h } };
-    const userOwned: SqlRowContext = { ...base, relation: (name) => (name === 'owner' ? { column: 'owner_id' } : undefined) };
-    const typedOwner: SqlRowContext = { ...base, relation: (name) => (name === 'owner' ? { column: 'owner_id', typeColumn: 'owner_type' } : undefined) };
-    const noOwner: SqlRowContext = { ...base, relation: () => undefined };
-    const sql = new OwnerSql();
-    expect(sql.toSql(owner.args, userOwned)).to.deep.equal({ sql: 't.owner_id IN (?)', bindings: ['u1'] });
-    expect(sql.toSql(owner.args, typedOwner)).to.deep.equal({ sql: '(t.owner_type = ? AND t.owner_id = ?)', bindings: ['user', 'u1'] });
-    expect(sql.toSql(owner.args, noOwner)).to.deep.equal({ sql: '1 = 0', bindings: [] });
-    expect(sql.toSql({ principals: [{ type: 'service', id: 's1' }] }, userOwned)).to.deep.equal({ sql: '1 = 0', bindings: [] });
   });
 
   it('an all plan may carry deny terms', () => {
@@ -157,11 +127,8 @@ describe('list plan contracts', () => {
     >();
     yes<Equal<ListSupport, true | { readonly reason: string }>>();
     yes<Equal<ListPlanRequest, { readonly principal: Principal; readonly actor?: Principal; readonly permission: PermissionDef; readonly type: ResourceType; readonly env?: Readonly<Record<string, unknown>>; readonly fresh?: boolean }>>();
-    yes<Equal<SqlRowContext, { readonly type: ResourceType; readonly rowId: string; readonly rowColumn: (column: string) => string; readonly ancestorTable: string; readonly relation: (name: string) => { readonly column: string; readonly typeColumn?: string } | undefined; readonly now: Date; readonly expressions: SqlRowExpressions }>>();
-    yes<Equal<SqlFragment, { readonly sql: string; readonly bindings: readonly unknown[] }>>();
     yes<Equal<Pick<AuthorizationModel, 'listSupport' | 'listPlan'>, { listSupport?: (permission: PermissionDef, type: ResourceType, ctx?: ListSupportContext) => ListSupport; listPlan?: (req: ListPlanRequest, ctx: EvaluationContext) => Promise<ModelListPlan> }>>();
     yes<Equal<Pick<ResourceAdapter, 'loadMany' | 'ancestorsMany'>, { loadMany?: (refs: readonly ResourceRef[]) => Promise<ReadonlyMap<string, unknown>>; ancestorsMany?: (refs: readonly ResourceRef[]) => Promise<ReadonlyMap<string, readonly ResourceRef[] | null>> }>>();
-    yes<Equal<PlanTermSql['op'], string>>();
     expect(true).to.equal(true);
   });
 });

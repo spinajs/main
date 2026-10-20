@@ -86,7 +86,7 @@ function asSeconds(v: unknown, at: string, f: Findings): number | undefined {
 
 function unknownKeys(node: Plain, known: readonly string[], at: string, f: Findings): void {
   for (const k of Object.keys(node)) {
-    if (!known.includes(k)) f.manual('unknown-key', `${keyPath(at, k)} is not a SpinaJS 2.x key the converter knows; move it by hand (3.0 drops the rbac.* root: a boot fails on it unless authz.config.rejectLegacyKeys is false).`, keyPath(at, k));
+    if (!known.includes(k)) f.manual('unknown-key', `${keyPath(at, k)} is not a SpinaJS 2.x key the converter knows; move it by hand (3.0 reads no rbac.* key).`, keyPath(at, k));
   }
 }
 
@@ -147,11 +147,9 @@ export function convertKeys(layer: Plain, merged: Plain, f: Findings, common?: P
         else f.info('removed', "Removed: SYSTEM is a principal in 3.0; the role 'system' stays an ordinary role.", at);
         break;
 
-      case 'roleColumn': {
-        const column = asString(value, at, f);
-        if (column !== undefined) w.set('authz.rbac.migration.roleColumn', column);
+      case 'roleColumn':
+        f.info('removed', 'Removed: 3.0 starts from an empty database and reads no users.Role column; grant roles as assignments.', at);
         break;
-      }
 
       case 'roleSwitch': {
         if (!isPlain(value)) {

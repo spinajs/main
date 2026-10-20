@@ -5,7 +5,7 @@ import { ALICE, WRONG, auth, expectSuccess, pw, seedUser } from './steps.js';
 import { defineCase, defineRule, table } from './types.js';
 import type { AuthnRule } from './types.js';
 
-/** One sample per prefix the 2.x metadata layer must refuse (plan SEC1). */
+/** One sample per reserved prefix the metadata layer must refuse (SR-01, plan SEC1). */
 const RESERVED_SAMPLES = ['2fa:token', '2fa:enabled', 'user:2fa:token', 'user:pwd_reset:token', 'user:pwd:reset', 'user:login:attempts', 'user:ban:is_banned', 'user:invite:pending'] as const;
 
 const ACTORS: readonly MetadataActor[] = ['owner', 'admin'];

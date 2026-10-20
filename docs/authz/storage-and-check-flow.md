@@ -2,8 +2,9 @@
 
 This page describes where permission data lives and how a check reaches a decision. It is a map of
 the current code, with file references, for people working on the authz packages. For
-configuration and usage, read [the authz guide](./README.md). For how the `Principal` is built,
-read [the authn internals page](../authn/storage-and-login-flow.md).
+configuration and usage, read [the authz docs](./README.md); the check flow for users is
+[How a check works](./01-check-flow.md). For how the `Principal` is built,
+read [the authn internals page](../authn/01-authentication-flow.md).
 
 Paths below are relative to `packages/`.
 
@@ -45,7 +46,7 @@ the grant schema at lines 25-40. A grant is a permission string, or:
 ```ts
 {
   permission: 'document:update',
-  relation: 'owner',                              // or 'self', resolved by a RelationResolver
+  relation: 'owner',                              // or 'self', a @Relation name, ...: resolved by a RelationResolver
   on: [{ type: 'project', id: '{principal.attributes.projectId}' }],
   fields: { read: [...], write: [...], hide: [...] },
   requiresTag: 'beta',
@@ -76,7 +77,8 @@ None of the authz tables declares foreign keys.
 ### authz-rbac
 
 [AuthzRbac_2026_10_01_00_00_00.ts](../../packages/authz-rbac/src/migrations/AuthzRbac_2026_10_01_00_00_00.ts),
-connection `default`.
+connection `authz` (`db.Aliases.authz`, default `default`). Full schema:
+[authz-rbac database storage](../authz-rbac/02-database-storage.md#schema).
 
 **`authz_assignment`** (lines 10-30) holds every grant of a role to a subject at a scope.
 
@@ -93,7 +95,7 @@ connection `default`.
 | `tags` | str(512), default `''` | Stored as `,a,b,` |
 | `expires_at` | datetime | |
 | `granted_by` | str(100) | |
-| `source` | str(32), default `db` | `users.Role` for rows copied from 2.x |
+| `source` | str(32), default `db` | Where the row came from; `DbAssignmentStore` writes `db` |
 | `created_at` | datetime | |
 
 Indexes: unique `authz_assignment_uq` on
@@ -109,35 +111,45 @@ Indexes: unique `authz_assignment_uq` on
 | `authz_link` | 62-74 | Share links: `id`, `token_hash` (unique, HMAC-SHA256 with `authz.rbac.links.secret`), `scope_type`, `scope_id`, `attributes`, `expires_at`, `revoked_at`, `created_by`, `created_at`. The link's grant is an `authz_assignment` row with subject `link:<id>` |
 | `authz_version` | 76-79 | `domain` PK, `version` bigint. Bumped by every store write inside the admin transaction |
 
-Other authz-rbac migrations:
+The stores and `DbAuthzAdminBackend` reach these tables only through the records in
+`authz-rbac/src/stores/records.ts` (`AssignmentRecord`, `MembershipRecord`, `RuleRecord`,
+`RuleSubjectRecord`, `LinkRecord`, `VersionRecord`) and `admin/db/record.ts` (`AdminIdempotencyRecord`).
+Datetimes are luxon `DateTime` on a record and `Date` in the store API; the columns are the ORM's
+`dateTime()` type and hold UTC instants (`TIMESTAMPTZ(3)` on PostgreSQL, ISO-8601 text on SQLite), and
+the expiry filters compare them with the `AuthzClock` instant bound as a parameter; `definition` and `attributes`
+are `@Json` columns; `authz_version.version` is `@Int64('string')`, the same text on every driver.
 
-- `AuthzRbacUserRoles_2026_10_01_00_01_00` copies the 2.x comma list in `users.Role` into
-  `$global` assignments with `source='users.Role'`.
-- `AuthzRbacDropUserRole_2026_10_01_00_02_00` drops `users.Role`. It refuses while a role in the
-  column has no live assignment, and `down()` rebuilds the column.
-- `admin/db/AuthzAdminIdempotency_2026_10_02_00_01_00` creates `authz_admin_idempotency`: PK
-  `(domain, actor, idem_key)`, `results`, `rows`, `expires_at`, `created_at`.
+The other authz-rbac migration, `admin/db/AuthzAdminIdempotency_2026_10_02_00_01_00`, creates
+`authz_admin_idempotency`: PK `(domain, actor, idem_key)`, `results`, `rows`, `expires_at`,
+`created_at`. No authz-rbac migration reads or alters a 2.x table: 3.0 starts from an empty
+database, and roles are granted as assignments.
 
 ### authz-abac
 
-`AuthzAbac_2026_10_01_00_00_00.ts:10-28` creates **`authz_policy`**: `id` PK, `effect`,
+`AuthzAbac_2026_10_01_00_00_00.ts:11-29`, connection `authz`, creates **`authz_policy`**: `id` PK, `effect`,
 `permissions` (globs), `resource_types`, `principal_types`, `actor_types`, `scope_type`,
 `scope_id`, `condition`, `fields`, `reason`, `priority`, `expires_at`, `created_by`, `created_at`.
-Index on `(scope_type, scope_id)`.
+Index on `(scope_type, scope_id)`. Full schema:
+[authz-abac database policy store](../authz-abac/06-database-policy-store.md#schema).
 
 ### authz-orm
 
+Full schema of the ancestor and scope attribute tables:
+[the `authz` connection and records](../authz-orm/03-authz-connection-and-records.md#schema).
+
+
 | Table | Migration | Content |
 |---|---|---|
-| `authz_resource_ancestor` | `ancestors/AuthzResourceAncestor_2026_10_14_00_00_00.ts` | PK `(resource_type, resource_id, ancestor_type, ancestor_id)`, `depth`. Proper ancestors only, no self row and no `$global` row. Index on `(ancestor_type, ancestor_id)`. Kept current by `AncestorMiddleware` on writes |
-| `authz_scope_attribute` | `scope-attributes/AuthzScopeAttribute_2026_10_02_00_00_00.ts` | PK `(scope_type, scope_id, path)`, `value_json`, `value_text`, `value_num` decimal(20,6), `updated_by`, `updated_at` |
-| `authz_scope_attribute_version` | same file | Single row: `id`, `version` |
+| `authz_resource_ancestor` | `ancestors/AuthzResourceAncestor_2026_10_14_00_00_00.ts` | On connection `authz`: PK `(resource_type, resource_id, ancestor_type, ancestor_id)`, `depth`. Proper ancestors only, no self row and no `$global` row. Index on `(ancestor_type, ancestor_id)`. Kept current by `AncestorMiddleware` on writes. Read and written through `AncestorRecord` (`ancestors/record.ts`) |
+| `authz_scope_attribute` | `scope-attributes/AuthzScopeAttribute_2026_10_02_00_00_00.ts` | On connection `authz`: PK `(scope_type, scope_id, path)`, `value_json`, `value_text`, `value_num` decimal(20,6), `updated_by`, `updated_at`. Read and written through `ScopeAttributeRecord` (`scope-attributes/records.ts`); `value_json` is a `@Json` column, but reads take the rows raw and parse it per row, so a value that is not JSON fails with an `AuthzConfigError` naming its path |
+| `authz_scope_attribute_version` | same file | Single row: `id`, `version`. Read and written through `ScopeAttributeVersionRecord` |
 | `authz_audit` | `audit/AuthzAudit_2026_10_01_00_00_00.ts` | On connection `authz-audit`: `id`, `at`, `kind`, `principal`, `permission`, `resource`, `reason`, `trace`; index on `at` |
 
 ### authz-fs
 
-`AuthzFsAcl_2026_10_17_00_00_00.ts` creates **`fs_acl`**: `id` (PK), `fs`, `path`, `path_hash` (SHA-256 hex of
-the path), `subject_key`, `relation`, `expires_at`, `granted_by`, `created_at`. `fs`, `path`, `path_hash`,
+`AuthzFsAcl_2026_10_17_00_00_00.ts` creates **`fs_acl`** on the connection `authz.fsAcl.connection`
+names (default `default`): `id` (PK), `fs`, `path`, `path_hash` (SHA-256 hex of the path),
+`subject_key`, `relation`, `expires_at`, `granted_by`, `created_at`. `fs`, `path`, `path_hash`,
 `subject_key` and `relation` are `exact()` (the driver's binary collation, so case variants of a path are two
 rows). Unique key `(fs, path_hash, subject_key, relation)` and index `(fs, path_hash, relation)`; the hash
 keeps the key under every driver's limit. See [File ACL](../authz-fs/03-file-acl.md).
@@ -250,9 +262,10 @@ exported from each package's `src/index.ts`. `src/api.ts` holds only the contrac
 
 ### 3. Service
 
-`AuthzService` (`authz/src/contracts/service.ts:12-33`) offers `check`, `can`, `assert` (throws
+`AuthzService` (`authz/src/contracts/service.ts`) offers `check`, `can`, `assert` (throws
 `AccessDenied`), `checkMany`, `checkAll`, `accessPlan`, `filter`, `filterNow`, `explain`,
-`summary`, `covers`, `preload`, `runAs`, `invalidate` and `admin()`. `DefaultAuthzService`
+`summary`, `covers`, `preload`, `runAs`, `invalidate` and `admin()`, and the optional `inspect`
+(unaudited, uncached, for admin tools) and `ancestors`. `DefaultAuthzService`
 (`authz/src/host/service.ts:106`) delegates to `Authorizer`.
 
 ### 4. Engine pipeline
@@ -346,20 +359,27 @@ vote permits every row and denies none.
 The only per-row ACL is the file ACL (`fs_acl`). Access to one resource comes from:
 
 - an `authz_assignment` at that resource or at one of its ancestors. The engine walks
-  `authz_resource_ancestor` for ORM models (`authz-orm/src/adapter.ts:65-97`) and path ancestors
+  `authz_resource_ancestor` for ORM models (`authz-orm/src/adapter.ts:62-86`) and path ancestors
   for files;
-- a relation check on a grant: `@Owner` and `@Self` columns on ORM models
-  (`authz-orm/src/relations.ts`), or `fs_acl` rows through `FsAclRelation` (`authz-fs/src/acl/`);
+- a relation check on a grant: `@Owner`, `@Self` and `@Relation` columns on ORM models
+  (`authz-orm/src/relations.ts`, [Column relations](./12-column-relations.md)), or `fs_acl` rows
+  through `FsAclRelation` (`authz-fs/src/acl/`);
 - a share link: an assignment to `link:<id>` at the link's scope.
 
 ## ORM enforcement
 
-- [`AccessListMiddleware`](../../packages/authz-orm/src/lists/middleware.ts#L61-L98) turns
-  `.accessible(perm)` into an `accessPlan` rendered as SQL and AND'd with the caller's `where`.
-  `.withAccess([...])` adds per-row access columns; `.within(refs)` restricts to those scopes.
-- [`AccessGuardMiddleware`](../../packages/authz-orm/src/guard/middleware.ts#L58-L86) throws in
+- [`AccessListMiddleware`](../../packages/authz-orm/src/lists/middleware.ts) turns
+  `.accessible(perm)` into an `accessPlan`. `planFilter` (`lists/render.ts`) applies it to the query
+  builder through the registered `PlanTermCompiler`s (`plan/index.ts`): permit terms OR-ed, deny
+  terms under `whereNot()`, all built in a detached group, then AND'd with the caller's `where` by
+  `restrict()`. Expiry is the database's now (`PlanRow.now()`). `.withAccess([...])` adds one
+  `selectCondition()` boolean column per permission; `.within(refs)` is a correlated `whereExist()`
+  on `authz_resource_ancestor`. Details: [Access lists](../authz-orm/01-access-lists.md) and
+  [Plan term compilers](../authz-orm/02-plan-term-compilers.md).
+- [`AccessGuardMiddleware`](../../packages/authz-orm/src/guard/middleware.ts#L58-L88) throws in
   test and warns in development when an `@AccessResource` model is selected without
-  `.accessible`, `.unscoped` or SYSTEM. A single primary-key load is exempt.
+  `.accessible`, `.unscoped` or SYSTEM. A single primary-key load is exempt. The warning names the
+  first stack frame outside `di`, `util`, `orm`, any `orm-*` package, `authz` and `authz-orm`.
 
 ## Caching and invalidation
 

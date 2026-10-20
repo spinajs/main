@@ -43,8 +43,31 @@ export interface IOrmOptions {
    * It is deliberately not a `force` variation. `force` chooses whether the `OnStartup` gate is
    * honoured, and both of its values RUN migrations - `force: false` runs every connection whose
    * gate is on, which is exactly the set a migration tool must not touch on its way in.
+   *
+   * `false` also turns the `db.StrictTableCheck` boot check into warnings: such a process runs
+   * before the migrations created the tables. `migrate-up` checks after its run instead.
    */
   MigrateOnStartup?: boolean;
+}
+
+export interface IReloadTableInfoOptions {
+  /** Throw one OrmException listing every registered model whose table is missing. Default false: warn per model. */
+  strict?: boolean;
+}
+
+/** A registered model whose table `tableInfo()` did not find. */
+export interface IMissingModelTable {
+  model: string;
+  table: string;
+  /** The name the model's `@Connection` uses: a connection, an alias or `default`. */
+  connection: string;
+  /** The configured `Name` of the driver that name resolved to. */
+  target: string;
+}
+
+function missingTablesMessage(missing: IMissingModelTable[]): string {
+  const list = missing.map((m) => `model ${m.model}: table ${m.table} on connection ${m.connection}${m.target === m.connection ? '' : ` (${m.target})`}`);
+  return `Missing tables (db.StrictTableCheck): ${list.join('; ')}. Create them (run their migrations) or set db.StrictTableCheck to false`;
 }
 
 export class Orm extends AsyncService {
@@ -77,11 +100,19 @@ export class Orm extends AsyncService {
     super();
   }
 
+  /** `db.StrictTableCheck`: only an explicit `false` turns it off, so a configuration replaced after validation keeps it on. */
+  public get StrictTableCheck(): boolean {
+    return this.Configuration.get<boolean>('db.StrictTableCheck', true) !== false;
+  }
+
   /**
-   * This function is exposed mainly for unit testing purposes. It reloads table information for models
-   * ORM always try to load table at resolve time
+   * Reads the columns of every registered model's table into its descriptor; call it after creating tables on a
+   * booted Orm. A model whose table is missing keeps only its decorator columns and is logged, or, with `strict`,
+   * fails the call. `Orm.resolve()` calls it strict when `db.StrictTableCheck` is on.
    */
-  public async reloadTableInfo() {
+  public async reloadTableInfo(options: IReloadTableInfoOptions = {}): Promise<void> {
+    const missing: IMissingModelTable[] = [];
+
     for (const m of this.Models) {
       const descriptor = extractModelDescriptor(m.type);
       if (descriptor) {
@@ -164,8 +195,22 @@ export class Orm extends AsyncService {
             d.Schema = buildModelJsonSchema(d);
             d.ResponseSchema = buildModelJsonSchema(d, 'response');
           });
+        } else {
+          missing.push({ model: m.name, table: descriptor.TableName, connection: descriptor.Connection!, target: connection.Options.Name });
         }
       }
+    }
+
+    if (missing.length === 0) {
+      return;
+    }
+
+    if (options.strict) {
+      throw new OrmException(missingTablesMessage(missing));
+    }
+
+    for (const m of missing) {
+      this.Log.warn({ model: m.model, table: m.table, connection: m.connection }, 'Table ${table} of model ${model} does not exist on connection ${connection}; the model has no column info');
     }
   }
 
@@ -218,7 +263,15 @@ export class Orm extends AsyncService {
     // reloadTableInfo / wireRelations / applyModelMixins and the data() phase all stay AFTER the
     // migration pass: up() runs against a schema no model is wired to yet, data() against one
     // that is.
-    await this.reloadTableInfo();
+    // Not tied to Migration.OnStartup, which is off unless set: most deployments migrate through the CLI before the boot.
+    try {
+      await this.reloadTableInfo({ strict: migrateOnStartup && this.StrictTableCheck });
+    } catch (err) {
+      // The caller never gets an Orm to dispose, and the open connections and health-check timers would keep the process alive.
+      await this.dispose().catch(() => undefined);
+      throw err;
+    }
+
     this.wireRelations();
     this.applyModelMixins();
 
@@ -483,11 +536,13 @@ export class Orm extends AsyncService {
     // wire connection aliases
     // for example if we have module that uses conn name of db-user-session
     // and we want to wire it to some existinc connection instead creating new one
-    const aliases = this.Configuration.get<any>('db.Aliases', {});
+    const aliases = this.Configuration.get<Record<string, string>>('db.Aliases', {});
     for (const a in aliases) {
       const conn = aliases[a];
       if (!this.Connections.has(conn)) {
-        throw new InvalidOperation(`default connection ${conn} not exists`);
+        // Packages default aliases for their own models; one that cannot resolve concerns only those models.
+        this.Log.warn({ alias: a, connection: conn }, 'Connection alias ${alias} points at ${connection}, which does not exist; models and migrations on ${alias} are skipped');
+        continue;
       }
 
       this.Connections.set(a, this.Connections.get(conn)!);

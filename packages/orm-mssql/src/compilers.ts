@@ -3,6 +3,7 @@ import { MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
 import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder, IOrderByBuilder, AlterColumnQueryBuilder, AlterColumnQueryCompiler, ColumnAlterationType } from '@spinajs/orm';
 import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler, SqlDefaultValueBuilder, SqlAlterTableQueryCompiler, SqlAlterColumnQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
+import { MsSqlNowExpression } from './statements.js';
 
 /**
  * Escapes a T-SQL string literal by doubling embedded single quotes. Used for the dynamic
@@ -292,25 +293,49 @@ export class MsSqlColumnQueryCompiler extends SqlColumnQueryCompiler {
     // no unsigned integers and no inline column comments; the empty string is dropped from the definition
     this._statementsMappings.unsigned = () => '';
     this._statementsMappings.comment = () => '';
-    this._statementsMappings.charset = () => {
-      throw new NotSupported('mssql has no CHARACTER SET for a column, use collation() instead');
-    };
-    this._statementsMappings.collation = (b: ColumnQueryBuilder) => `COLLATE ${assertCharsetName(b.Collation, 'collation')}`;
+    // A binary collation on VARCHAR limits it to code page 1252; NVARCHAR keeps every character.
+    this._statementsMappings.string = (column: ColumnQueryBuilder) => `${column.Exact ? 'N' : ''}VARCHAR(${column.Args[0] ? column.Args[0] : 255})`;
+    // T-SQL takes a collation name, not a string literal.
+    this._statementsMappings.collation = (name: string) => `COLLATE ${assertCharsetName(name, 'collation')}`;
     // TEXT is deprecated and cannot be compared with `=`.
     const unbounded = () => 'NVARCHAR(MAX)';
     this._statementsMappings.text = unbounded;
     this._statementsMappings.tinytext = unbounded;
     this._statementsMappings.mediumtext = unbounded;
     this._statementsMappings.longtext = unbounded;
-    this._statementsMappings.exact = () => 'COLLATE Latin1_General_BIN2';
+
+    // TIMESTAMP is a row version in T-SQL, not a point in time
+    this._statementsMappings.dateTime = () => 'DATETIMEOFFSET(3)';
+    this._statementsMappings.timestamp = () => 'DATETIMEOFFSET(3)';
+  }
+
+  /** T-SQL has no column character set: the collation carries the code page. */
+  protected charsetName(): string {
+    if (this.builder.Charset) {
+      throw new NotSupported('mssql has no CHARACTER SET for a column, use collation() instead');
+    }
+
+    return '';
+  }
+
+  protected collationName(): string {
+    return this.builder.Collation || (this.builder.Exact ? 'Latin1_General_100_BIN2' : '');
   }
 }
 
-/** T-SQL has no `CURRENT_DATE()`; the shared builder is right about everything else. */
+/**
+ * `CURRENT_TIMESTAMP` and `GETDATE()` are the server's local time without an offset; a DATETIMEOFFSET default needs the
+ * offset, and a DATE default is the UTC date as on the other dialects.
+ */
 @NewInstance()
 export class MsSqlDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
   public date(): T {
-    this.Query = RawQuery.create('(CAST(GETDATE() AS DATE))');
+    this.Query = RawQuery.create('CAST(SYSUTCDATETIME() AS DATE)');
+    return this.Owner;
+  }
+
+  public dateTime(): T {
+    this.Query = RawQuery.create(new MsSqlNowExpression().sql());
     return this.Owner;
   }
 }

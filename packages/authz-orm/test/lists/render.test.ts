@@ -1,20 +1,19 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { AuthzConfigError, GLOBAL, PlanTermSql } from '@spinajs/authz';
+import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
 import type { AccessPlan, PlanTerm } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
-import { RawQuery, SqlExpressions } from '@spinajs/orm';
 import type { ModelBase, QueryBuilder } from '@spinajs/orm';
 
-import { AccessResource, Owner, Parent } from '../../src/index.js';
+import { AccessResource, Owner, Parent, PlanTermCompiler } from '../../src/index.js';
 import { entryOf } from '../../src/registry.js';
-import { renderPlan, rowContext } from '../../src/lists/index.js';
+import { planFilter, planRow } from '../../src/lists/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { createAncestorTable, dropAncestorTable, insertLinks } from '../support/ancestors.js';
-import { BrokenSql, FlagSql } from '../support/flag-sql.js';
+import { EmptyGroupTerm, FlagTerm, SilentTerm } from '../support/flag-term.js';
 
 const expect = chai.expect;
 
@@ -29,7 +28,7 @@ const ROWS = [
   { id: 4, flag: null, owner: null, project_id: null },
 ];
 
-describe('renderPlan', function () {
+describe('planFilter', function () {
   this.timeout(60000);
   let db: TestDb;
   let pg = false;
@@ -38,13 +37,13 @@ describe('renderPlan', function () {
   before(async () => {
     pg = await TestDb.postgresReachable();
     db = await TestDb.open({ postgres: pg });
-    undo.push(testHost.registerInRoot(PlanTermSql, FlagSql), testHost.registerInRoot(PlanTermSql, BrokenSql));
+    undo.push(testHost.registerInRoot(PlanTermCompiler, FlagTerm), testHost.registerInRoot(PlanTermCompiler, SilentTerm), testHost.registerInRoot(PlanTermCompiler, EmptyGroupTerm));
   });
 
   after(async () => {
     undo.forEach((u) => u());
-    // Unregistering leaves the resolved instances in the cached PlanTermSql array.
-    DI.RootContainer.uncache(PlanTermSql);
+    // Unregistering leaves the resolved instances in the cached PlanTermCompiler array.
+    DI.RootContainer.uncache(PlanTermCompiler);
     await db?.close();
   });
 
@@ -79,17 +78,17 @@ describe('renderPlan', function () {
         await dropAncestorTable(db, dialect);
       });
 
-      /** Ids the rendered plan keeps, through a plain select of the table. */
+      const select = () => db.driver(dialect).select().from(db.table(Task));
+
+      /** Ids a plain select of the table keeps under the filter. */
       async function ids(plan: AccessPlan): Promise<number[] | 'all' | 'none'> {
-        const query = Task.query();
-        const row = rowContext(query, entryOf(Task)!, new Date());
-        const r = renderPlan(plan, row);
-        if (r.kind !== 'sql') return r.kind;
-        const rows = (await db
-          .driver(dialect)
-          .select()
-          .from(db.table(Task))
-          .where(RawQuery.create(r.sql, [...r.bindings]))) as { id: number }[];
+        const f = planFilter(plan, planRow(Task.query(), entryOf(Task)!));
+        if (f.kind !== 'where') return f.kind;
+        const rows = (await select()
+          .where(function () {
+            f.apply(this);
+          })
+          .asRaw()) as { id: number }[];
         return rows.map((x) => Number(x.id)).sort();
       }
 
@@ -123,16 +122,17 @@ describe('renderPlan', function () {
         expect(await ids(filter({ permit: [flag('green')], within: [{ type: 'project', id: 'p1' }] }))).to.deep.equal([1]);
       });
 
-      it('the sql is self-contained when AND-ed after another predicate', async () => {
-        const row = rowContext(Task.query(), entryOf(Task)!, new Date());
+      it('the filter stays one group when AND-ed after another predicate', async () => {
+        const row = planRow(Task.query(), entryOf(Task)!);
         for (const plan of [filter({ permit: [flag('green'), flag('red')] }), filter({ permit: [owner('alice', 'bob')] })]) {
-          const r = renderPlan(plan, row);
-          if (r.kind !== 'sql') throw new Error(`expected sql, got ${r.kind}`);
-          const rows = await db
-            .driver(dialect)
-            .select()
-            .from(db.table(Task))
-            .where(RawQuery.create(`1 = 0 AND ${r.sql}`, [...r.bindings]));
+          const f = planFilter(plan, row);
+          if (f.kind !== 'where') throw new Error(`expected where, got ${f.kind}`);
+          const rows = await select()
+            .where(false)
+            .where(function () {
+              f.apply(this);
+            })
+            .asRaw();
           expect(rows).to.deep.equal([]);
         }
       });
@@ -142,23 +142,19 @@ describe('renderPlan', function () {
         expect(await ids({ kind: 'none', reason: { code: 'no_access' } })).to.equal('none');
       });
 
-      it('refuses an op without a compiler and a malformed compiler answer', async () => {
-        const row = rowContext(Task.query(), entryOf(Task)!, new Date());
-        expect(() => renderPlan(filter({ permit: [{ op: 'nope', args: {} }] }), row)).to.throw(AuthzConfigError, /no PlanTermSql renders op "nope"/);
-        expect(() => renderPlan(filter({ permit: [{ op: 'test.broken', args: {} }] }), row)).to.throw(AuthzConfigError, /BrokenSql/);
-      });
-
-      it('the row context quotes the ancestor table and casts the id', () => {
-        const row = rowContext(Task.query(), entryOf(Task)!, new Date(5));
-        // orm-sqlite quotes with backticks, orm-postgres with double quotes.
-        const q = (name: string) => (dialect === 'sqlite' ? `\`${name}\`` : `"${name}"`);
-        expect(row.type).to.equal('task');
-        expect(row.expressions).to.equal(db.driver(dialect).Container.resolve(SqlExpressions));
-        expect(row.ancestorTable).to.equal(q('authz_resource_ancestor'));
-        expect(row.rowId).to.equal(`CAST(${q(db.table(Task))}.${q('id')} AS TEXT)`);
-        expect(row.now.getTime()).to.equal(5);
-        expect(row.relation('owner')).to.deep.equal({ column: 'owner' });
-        expect(row.relation('self')).to.equal(undefined);
+      it('refuses an op without a compiler and a compiler that adds no condition', () => {
+        const row = planRow(Task.query(), entryOf(Task)!);
+        const apply = (plan: AccessPlan) => () => {
+          const f = planFilter(plan, row);
+          if (f.kind === 'where')
+            select().where(function () {
+              f.apply(this);
+            });
+        };
+        expect(apply(filter({ permit: [{ op: 'nope', args: {} }] }))).to.throw(AuthzConfigError, /no PlanTermCompiler applies op "nope"/);
+        expect(apply(filter({ permit: [{ op: 'test.silent', args: {} }] }))).to.throw(AuthzConfigError, /SilentTerm\.apply\(\) for op "test\.silent" added no condition/);
+        expect(apply(filter({ permit: [{ op: 'test.empty-group', args: {} }] }))).to.throw(AuthzConfigError, /EmptyGroupTerm\.apply\(\) for op "test\.empty-group" added no condition/);
+        expect(apply(filter({ deny: [{ op: 'test.empty-group', args: {} }] }))).to.throw(AuthzConfigError, /added no condition/);
       });
     });
   }

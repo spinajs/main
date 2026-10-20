@@ -3,13 +3,16 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 
 import { AuthzAdminFailure, AuthzConfigError, AuthzDomains, GLOBAL, principalKey } from '@spinajs/authz';
+import type { AuthzTx } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { Container, DI, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { OrmDriver, QueryContext } from '@spinajs/orm';
+import { OrmDriver, QueryContext, TransactionRequired } from '@spinajs/orm';
 
-import { bumpVersion, normaliseTags, parsePrincipalKey, parseTags, readVersion, scopeFromColumns, scopeToColumns, storeDomain, subjectFromColumns, subjectToColumns, toDate, transactionDriver } from '../../src/index.js';
+import * as rbac from '../../src/index.js';
+import { bumpVersion, normaliseTags, parsePrincipalKey, parseTags, readVersion, requireTransaction, scopeFromColumns, scopeToColumns, storeDomain, subjectFromColumns, subjectToColumns, VersionRecord } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
+import { statementsOf } from '../support/statements.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -83,16 +86,6 @@ describe('store helpers', () => {
       expect(parsePrincipalKey('no-separator')).to.eq(undefined);
       expect(parsePrincipalKey(null)).to.eq(undefined);
     });
-
-    it('read dates from Date values and from SQLite local wall-clock text', () => {
-      const d = new Date(2026, 9, 1, 14, 0, 0, 250);
-      expect(toDate(d)).to.eq(d);
-      expect(toDate('2026-10-01 14:00:00.250')!.getTime()).to.eq(d.getTime());
-      expect(toDate('2026-10-01 14:00:00')!.getTime()).to.eq(new Date(2026, 9, 1, 14).getTime());
-      expect(toDate('2026-10-01T12:00:00.000Z')!.getTime()).to.eq(Date.UTC(2026, 9, 1, 12));
-      expect(toDate(null)).to.eq(null);
-      expect(() => toDate('yesterday')).to.throw(/yesterday/);
-    });
   });
 
   describe('storeDomain (D-L2-3)', () => {
@@ -145,10 +138,15 @@ describe('store helpers', () => {
     });
   });
 
-  describe('transactionDriver (D-L2-1)', () => {
-    it('refuses a tx without an OrmDriver', () => {
-      expect(() => transactionDriver({ driver: {} }, 'test')).to.throw(AuthzConfigError, /OrmDriver/);
-      expect(() => transactionDriver({ driver: undefined }, 'test')).to.throw(AuthzConfigError, /OrmDriver/);
+  describe('connection plumbing', () => {
+    it('is gone: the records and requireTransaction replace it', () => {
+      for (const name of ['transactionDriver', 'storeTransactionDriver', 'storeConnection', 'authzConnection', 'RBAC_CONNECTION_KEY', 'ADMIN_CONNECTION_KEY', 'toDate', 'isUniqueViolation']) expect(rbac, name).to.not.have.property(name);
+      expect(rbac).to.have.property('requireTransaction');
+    });
+
+    it('requireTransaction refuses a tx without an OrmDriver', () => {
+      expect(() => requireTransaction(VersionRecord, { driver: {} }, 'test')).to.throw(AuthzConfigError, /OrmDriver/);
+      expect(() => requireTransaction(VersionRecord, { driver: undefined }, 'test')).to.throw(AuthzConfigError, /OrmDriver/);
     });
   });
 });
@@ -159,8 +157,10 @@ for (const kind of DB_KINDS) {
 
     let db: TestDb;
 
+    const inTx = <R>(fn: (tx: AuthzTx) => Promise<R>): Promise<R> => db.driver.transaction((driver: OrmDriver) => fn({ driver }));
+
     before(async function () {
-      db = await bootDb(this, kind, 'version_helpers');
+      db = await bootDb(this, kind, 'version_helpers', { second: true });
     });
 
     after(async () => {
@@ -168,18 +168,18 @@ for (const kind of DB_KINDS) {
     });
 
     it('read 0 for an absent domain, create the row at 1, bump by one, keep domains apart', async () => {
-      expect(await readVersion(db.driver, 'root')).to.eq('0');
+      expect(await readVersion('root')).to.eq('0');
 
-      await db.driver.transaction(async (d: OrmDriver) => bumpVersion(d, 'root'));
-      expect(await readVersion(db.driver, 'root')).to.eq('1');
+      await inTx((tx) => bumpVersion(tx, 'root'));
+      expect(await readVersion('root')).to.eq('1');
 
-      await db.driver.transaction(async (d: OrmDriver) => {
-        await bumpVersion(d, 'root');
-        await bumpVersion(d, 'tenant');
+      await inTx(async (tx) => {
+        await bumpVersion(tx, 'root');
+        await bumpVersion(tx, 'tenant');
       });
 
-      expect(await readVersion(db.driver, 'root')).to.eq('2');
-      expect(await readVersion(db.driver, 'tenant')).to.eq('1');
+      expect(await readVersion('root')).to.eq('2');
+      expect(await readVersion('tenant')).to.eq('1');
 
       const rows = (await rawQuery(db.driver, 'SELECT domain, version FROM authz_version ORDER BY domain', [], QueryContext.Select)) as { domain: string; version: unknown }[];
       expect(rows.map((r) => [r.domain, String(r.version)])).to.deep.eq([
@@ -188,8 +188,35 @@ for (const kind of DB_KINDS) {
       ]);
     });
 
+    it('bumps an existing row with one UPDATE', async () => {
+      await inTx((tx) => bumpVersion(tx, 'once'));
+
+      const { statements } = await statementsOf(db.driver, () => inTx((tx) => bumpVersion(tx, 'once')));
+
+      const writes = statements.filter((s) => s.context === QueryContext.Insert || s.context === QueryContext.Update);
+      expect(writes).to.have.length(1);
+      expect(writes[0].sql).to.match(/^UPDATE .*authz_version.* \+ /i);
+      expect(await readVersion('once')).to.eq('2');
+    });
+
     it('bumpVersion refuses to run outside a transaction', async () => {
-      await expect(bumpVersion(db.driver, 'root')).to.be.rejectedWith(AuthzConfigError, /transaction/);
+      await expect(bumpVersion({ driver: db.driver }, 'root')).to.be.rejectedWith(AuthzConfigError, /transaction/);
+    });
+
+    it('requireTransaction gives the driver of a transaction on the record connection and refuses anything else', async () => {
+      await inTx(async (tx) => {
+        expect(requireTransaction(VersionRecord, tx, 'test')).to.equal(db.driver);
+      });
+      expect(() => requireTransaction(VersionRecord, { driver: {} }, 'test')).to.throw(AuthzConfigError, 'test: AuthzTx.driver must be the OrmDriver of an AuthzAdmin transaction');
+      expect(() => requireTransaction(VersionRecord, { driver: db.driver }, 'test')).to.throw(AuthzConfigError, 'test: stores write only inside an AuthzAdmin transaction, and none is in scope');
+      try {
+        requireTransaction(VersionRecord, { driver: db.driver }, 'test');
+      } catch (e) {
+        expect((e as Error).cause).to.be.instanceOf(TransactionRequired);
+      }
+      await db.second!.transaction(async (driver: OrmDriver) => {
+        expect(() => requireTransaction(VersionRecord, { driver }, 'test')).to.throw(AuthzConfigError, `test: the AuthzTx runs on connection "l2-version_helpers-second", but authz_version is on connection ${JSON.stringify(db.driver.Options.Name)} (db.Aliases.authz)`);
+      });
     });
   });
 }

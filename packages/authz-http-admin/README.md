@@ -31,7 +31,7 @@ design §6.6.5).
   required; `expandSets=true` also lists set members). It answers `{ items,
   total }`, or 400 `invalid_query` for a missing or unknown value, 401, and
   403 `forbidden` (the caller needs `authz:holders.read` at the resource).
-  See [Holders](../../docs/authz/03-holders.md).
+  See [Holders](../../docs/authz/13-holders.md).
 - A link token is shown once: only in the answer of `POST /authz/links` or
   of the `POST /authz/commands` batch that created it. Both routes send
   `Cache-Control: no-store`.

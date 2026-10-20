@@ -3,14 +3,18 @@ import { FakeClock } from '@spinajs/authn-testing';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { ResourceDuplicated, UnexpectedServerError } from '@spinajs/exceptions';
 import '@spinajs/log';
-import { OrmException, QueryContext } from '@spinajs/orm';
+import { QueryContext } from '@spinajs/orm';
+import { mapMsSqlError } from '@spinajs/orm-mssql';
+import { mapMySqlError } from '@spinajs/orm-mysql';
 import { expect } from 'chai';
 import 'mocha';
 
 import { createHash } from 'node:crypto';
 
 import { DbIdentityLinkStore, DbMfaStore, DbNonceStore, DbSecretStore } from '../src/index.js';
-import { FakeMsSql, FakeMySql, fake, sql } from './support/fake-drivers.js';
+import { sql } from './support/fake-drivers.js';
+import { bootFakeOrm } from './support/fake-orm.js';
+import type { FakeOrm } from './support/fake-orm.js';
 
 const ALICE: IdentityRef = { type: 'user', id: '0b6a3c1e-8a55-4c41-9f0e-4b1d2a7c9e10' };
 const NOW = new Date('2026-06-01T10:00:00.000Z');
@@ -20,35 +24,35 @@ const sha256hex = (s: string): string => createHash('sha256').update(s, 'utf8').
 const DIALECTS = [
   {
     name: 'mysql',
-    type: FakeMySql,
-    duplicate: () => new OrmException('Error executing orm command ', { Name: 'mysql' }, 'INSERT', [], Object.assign(new Error("Duplicate entry 'x' for key 'PRIMARY'"), { code: 'ER_DUP_ENTRY', errno: 1062 })),
-    secretSelect: 'SELECT `id`,`identity`,`purpose`,CAST(expires_at AS CHAR) AS expires_text FROM `authn_secret` WHERE `secret_hash` = ? AND `identity` = ? AND `purpose` = ? AND `used_at` IS NULL',
+    now: NOW_TEXT,
+    later: '2026-06-01 10:01:00.000',
+    duplicate: () => mapMySqlError(Object.assign(new Error("Duplicate entry 'x' for key 'PRIMARY'"), { code: 'ER_DUP_ENTRY', errno: 1062 }), { Name: 'mysql' }, 'INSERT', []),
+    secretSelect: 'SELECT `id`,`identity`,`purpose`,`expires_at` FROM `authn_secret` WHERE `secret_hash` = ? AND `identity` = ? AND `purpose` = ? AND `used_at` IS NULL',
     secretClaim: 'UPDATE `authn_secret` SET `used_at` = ? WHERE `id` = ? AND `used_at` IS NULL AND `expires_at` > ?',
     secretPurge: 'SELECT `id` FROM `authn_secret` WHERE ( `used_at` IS NOT NULL OR `expires_at` <= ? ) ORDER BY `id` ASC LIMIT ?',
     nonceTakeover: 'UPDATE `authn_nonce` SET `expires_at` = ? WHERE `k` = ? AND `expires_at` <= ?',
-    noncePurge: 'SELECT `k` FROM `authn_nonce` WHERE ( `expires_at` <= ? ) ORDER BY `k` ASC LIMIT ?',
+    noncePurge: 'SELECT `k` FROM `authn_nonce` WHERE `expires_at` <= ? ORDER BY `k` ASC LIMIT ?',
     acceptStep: 'UPDATE `authn_mfa` SET `last_step` = ? WHERE `identity` = ? AND `step` = ? AND ( `last_step` IS NULL OR `last_step` < ? )',
     redeemCode: 'UPDATE `authn_recovery_code` SET `used_at` = ? WHERE `identity` = ? AND `code_hash` = ? AND `used_at` IS NULL',
-    putPendingUpdate: 'UPDATE `authn_mfa` SET `secret_enc` = ?,`key_id` = ?,`confirmed_at` = ?,`last_step` = ?,`created_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL',
-    confirmExact: 'UPDATE `authn_mfa` SET `confirmed_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL AND `secret_enc` = CAST(? AS BINARY)',
-    confirmExactCipher: 1,
+    putPendingUpdate: 'UPDATE `authn_mfa` SET `secret_enc` = ?,`secret_hash` = ?,`key_id` = ?,`confirmed_at` = ?,`last_step` = ?,`created_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL',
+    confirmExact: 'UPDATE `authn_mfa` SET `confirmed_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL AND `secret_hash` = ?',
     confirmedSteps: 'SELECT `identity`,`step`,`confirmed_at` FROM `authn_mfa` WHERE `identity` = ? AND `confirmed_at` IS NOT NULL',
     confirmedStepNames: 'SELECT `step`,`confirmed_at` FROM `authn_mfa` WHERE `confirmed_at` IS NOT NULL',
   },
   {
     name: 'mssql',
-    type: FakeMsSql,
-    duplicate: () => Object.assign(new Error('Cannot insert duplicate key row.'), { name: 'RequestError', number: 2601 }),
-    secretSelect: 'SELECT [id],[identity],[purpose],CONVERT(varchar(23), expires_at, 121) AS expires_text FROM [authn_secret] WHERE [secret_hash] = ? AND [identity] = ? AND [purpose] = ? AND [used_at] IS NULL',
+    now: '2026-06-01T10:00:00.000Z',
+    later: '2026-06-01T10:01:00.000Z',
+    duplicate: () => mapMsSqlError(Object.assign(new Error('Cannot insert duplicate key row.'), { name: 'RequestError', number: 2601 }), { Name: 'mssql' }, 'INSERT', []),
+    secretSelect: 'SELECT [id],[identity],[purpose],[expires_at] FROM [authn_secret] WHERE [secret_hash] = ? AND [identity] = ? AND [purpose] = ? AND [used_at] IS NULL',
     secretClaim: 'UPDATE [authn_secret] SET [used_at] = ? WHERE [id] = ? AND [used_at] IS NULL AND [expires_at] > ?',
     secretPurge: 'SELECT [id] FROM [authn_secret] WHERE ( [used_at] IS NOT NULL OR [expires_at] <= ? ) ORDER BY [id] ASC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
     nonceTakeover: 'UPDATE [authn_nonce] SET [expires_at] = ? WHERE [k] = ? AND [expires_at] <= ?',
-    noncePurge: 'SELECT [k] FROM [authn_nonce] WHERE ( [expires_at] <= ? ) ORDER BY [k] ASC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
+    noncePurge: 'SELECT [k] FROM [authn_nonce] WHERE [expires_at] <= ? ORDER BY [k] ASC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
     acceptStep: 'UPDATE [authn_mfa] SET [last_step] = ? WHERE [identity] = ? AND [step] = ? AND ( [last_step] IS NULL OR [last_step] < ? )',
     redeemCode: 'UPDATE [authn_recovery_code] SET [used_at] = ? WHERE [identity] = ? AND [code_hash] = ? AND [used_at] IS NULL',
-    putPendingUpdate: 'UPDATE [authn_mfa] SET [secret_enc] = ?,[key_id] = ?,[confirmed_at] = ?,[last_step] = ?,[created_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL',
-    confirmExact: "UPDATE [authn_mfa] SET [confirmed_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL AND ([secret_enc] = ? COLLATE Latin1_General_BIN2 AND LEN([secret_enc] + 'x') = LEN(? + 'x'))",
-    confirmExactCipher: 2,
+    putPendingUpdate: 'UPDATE [authn_mfa] SET [secret_enc] = ?,[secret_hash] = ?,[key_id] = ?,[confirmed_at] = ?,[last_step] = ?,[created_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL',
+    confirmExact: 'UPDATE [authn_mfa] SET [confirmed_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL AND [secret_hash] = ?',
     confirmedSteps: 'SELECT [identity],[step],[confirmed_at] FROM [authn_mfa] WHERE [identity] = ? AND [confirmed_at] IS NOT NULL',
     confirmedStepNames: 'SELECT [step],[confirmed_at] FROM [authn_mfa] WHERE [confirmed_at] IS NOT NULL',
   },
@@ -58,13 +62,28 @@ for (const d of DIALECTS) {
   describe(`task 3 store SQL on ${d.name} (compiled, no server)`, function () {
     this.timeout(30000);
 
-    it('DbSecretStore.redeem reads expiry as text and claims with a guarded update', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+    let orm: FakeOrm;
+
+    before(async () => {
+      orm = await bootFakeOrm(d.name);
+    });
+
+    after(async () => {
+      await orm?.dispose();
+    });
+
+    beforeEach(() => {
+      orm.driver.executed = [];
+      orm.driver.respond = () => [];
+    });
+
+    it('DbSecretStore.redeem reads the expiry and claims with a guarded update', async () => {
+      const driver = orm.driver;
       driver.respond = (_stmt, context) => {
         if (context === QueryContext.Update) return { RowsAffected: 1 };
-        return [{ id: 'row-1', identity: `user:${ALICE.id}`, purpose: 'reset', expires_text: '2026-06-01 10:01:00.000' }];
+        return [{ id: 'row-1', identity: `user:${ALICE.id}`, purpose: 'reset', expires_at: '2026-06-01 10:01:00.000' }];
       };
-      const store = new DbSecretStore(driver);
+      const store = new DbSecretStore();
       const clock = new FakeClock(NOW);
       clock.install();
       try {
@@ -75,41 +94,41 @@ for (const d of DIALECTS) {
 
       expect(driver.executed.map(sql)).to.deep.eq([d.secretSelect, d.secretClaim]);
       expect(driver.executed[0].params).to.deep.eq([sha256hex('raw-secret'), `user:${ALICE.id}`, 'reset']);
-      expect(driver.executed[1].params).to.deep.eq([NOW_TEXT, 'row-1', NOW_TEXT]);
+      expect(driver.executed[1].params).to.deep.eq([d.now, 'row-1', d.now]);
     });
 
     it('DbSecretStore.purge pages an ordered batch of spent or expired rows', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      expect(await new DbSecretStore(driver).purge(NOW)).to.eq(0);
+      const driver = orm.driver;
+      expect(await new DbSecretStore().purge(NOW)).to.eq(0);
       expect(driver.executed.map(sql)).to.deep.eq([d.secretPurge]);
-      expect(driver.executed[0].params[0]).to.eq(NOW_TEXT);
+      expect(driver.executed[0].params[0]).to.eq(d.now);
     });
 
     it('DbNonceStore takes over an expired key after a duplicate insert', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = (_stmt, context) => {
         if (context === QueryContext.Insert) throw d.duplicate();
         if (context === QueryContext.Update) return { RowsAffected: 1 };
         return [];
       };
 
-      expect(await new DbNonceStore(driver).claim('jti:1', new Date(NOW.getTime() + 60_000), NOW)).to.eq(true);
+      expect(await new DbNonceStore().claim('jti:1', new Date(NOW.getTime() + 60_000), NOW)).to.eq(true);
 
       expect(driver.executed.map((e) => e.context)).to.deep.eq([QueryContext.Insert, QueryContext.Update]);
       expect(sql(driver.executed[1])).to.eq(d.nonceTakeover);
-      expect(driver.executed[1].params).to.deep.eq(['2026-06-01 10:01:00.000', 'jti:1', NOW_TEXT]);
+      expect(driver.executed[1].params).to.deep.eq([d.later, 'jti:1', d.now]);
     });
 
     it('DbNonceStore.purge pages an ordered batch of expired keys', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      expect(await new DbNonceStore(driver).purge(NOW)).to.eq(0);
+      const driver = orm.driver;
+      expect(await new DbNonceStore().purge(NOW)).to.eq(0);
       expect(driver.executed.map(sql)).to.deep.eq([d.noncePurge]);
     });
 
     it('DbMfaStore.acceptStep and redeemRecoveryCode decide in one guarded update', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = () => ({ RowsAffected: 1 });
-      const store = new DbMfaStore(driver);
+      const store = new DbMfaStore();
 
       expect(await store.acceptStep(ALICE, 'totp', 58_000_000)).to.eq(true);
       expect(await store.redeemRecoveryCode(ALICE, 'code-1')).to.eq(true);
@@ -120,7 +139,7 @@ for (const d of DIALECTS) {
     });
 
     it('DbMfaStore.putPending retries the insert when a parallel remove deleted the row', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       let inserts = 0;
       driver.respond = (_stmt, context) => {
         if (context === QueryContext.Insert && inserts++ === 0) throw d.duplicate();
@@ -128,28 +147,28 @@ for (const d of DIALECTS) {
         return [];
       };
 
-      expect(await new DbMfaStore(driver).putPending(ALICE, 'totp', 'v1.new', 'kid-a')).to.eq(true);
+      expect(await new DbMfaStore().putPending(ALICE, 'totp', 'v1.new', 'kid-a')).to.eq(true);
 
       expect(driver.executed.map((e) => e.context)).to.deep.eq([QueryContext.Insert, QueryContext.Update, QueryContext.Select, QueryContext.Insert]);
       expect(sql(driver.executed[1])).to.eq(d.putPendingUpdate);
-      expect(driver.executed[1].params.slice(0, 2)).to.deep.eq(['v1.new', 'kid-a']);
+      expect(driver.executed[1].params.slice(0, 3)).to.deep.eq(['v1.new', sha256hex('v1.new'), 'kid-a']);
       expect(driver.executed[1].params.slice(-2)).to.deep.eq([`user:${ALICE.id}`, 'totp']);
     });
 
     it('DbMfaStore.putPending is false and writes nothing more when the re-read finds the row confirmed', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = (_stmt, context) => {
         if (context === QueryContext.Insert) throw d.duplicate();
         if (context === QueryContext.Update) return { RowsAffected: 0 };
-        return [{ identity: `user:${ALICE.id}`, step: 'totp', secret_enc: 'v1.old', key_id: 'kid-a', last_step: null, confirmed_text: NOW_TEXT, created_text: NOW_TEXT }];
+        return [{ identity: `user:${ALICE.id}`, step: 'totp', secret_enc: 'v1.old', key_id: 'kid-a', last_step: null, confirmed_at: NOW_TEXT, created_at: NOW_TEXT }];
       };
 
-      expect(await new DbMfaStore(driver).putPending(ALICE, 'totp', 'v1.new', 'kid-a')).to.eq(false);
+      expect(await new DbMfaStore().putPending(ALICE, 'totp', 'v1.new', 'kid-a')).to.eq(false);
       expect(driver.executed.map((e) => e.context)).to.deep.eq([QueryContext.Insert, QueryContext.Update, QueryContext.Select]);
     });
 
     it('DbMfaStore.putPending throws UnexpectedServerError after MAX_TRIES rounds', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = (_stmt, context) => {
         if (context === QueryContext.Insert) throw d.duplicate();
         if (context === QueryContext.Update) return { RowsAffected: 0 };
@@ -158,7 +177,7 @@ for (const d of DIALECTS) {
 
       let err: unknown;
       try {
-        await new DbMfaStore(driver).putPending(ALICE, 'totp', 'v1.new', 'kid-a');
+        await new DbMfaStore().putPending(ALICE, 'totp', 'v1.new', 'kid-a');
       } catch (e) {
         err = e;
       }
@@ -168,26 +187,26 @@ for (const d of DIALECTS) {
       expect(driver.executed).to.have.length(24);
     });
 
-    it('DbMfaStore.confirm with an expected cipher text compares it exactly in one guarded update', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+    it('DbMfaStore.confirm with an expected cipher text compares its hash in one guarded update', async () => {
+      const driver = orm.driver;
       driver.respond = () => ({ RowsAffected: 1 });
 
-      expect(await new DbMfaStore(driver).confirm(ALICE, 'totp', NOW, 'v1.expected')).to.eq(true);
+      expect(await new DbMfaStore().confirm(ALICE, 'totp', NOW, 'v1.expected')).to.eq(true);
 
       expect(driver.executed.map(sql)).to.deep.eq([d.confirmExact]);
-      expect(driver.executed[0].params).to.deep.eq([NOW_TEXT, `user:${ALICE.id}`, 'totp', ...Array(d.confirmExactCipher).fill('v1.expected')]);
+      expect(driver.executed[0].params).to.deep.eq([d.now, `user:${ALICE.id}`, 'totp', sha256hex('v1.expected')]);
     });
 
     it('DbSecretStore.redeem refuses a row that matched only under a case-blind collation', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = (_stmt, context) => {
         if (context === QueryContext.Update) return { RowsAffected: 1 };
-        return [{ id: 'row-1', identity: `USER:${ALICE.id.toUpperCase()}`, purpose: 'RESET', expires_text: '2026-06-01 10:01:00.000' }];
+        return [{ id: 'row-1', identity: `USER:${ALICE.id.toUpperCase()}`, purpose: 'RESET', expires_at: '2026-06-01 10:01:00.000' }];
       };
       const clock = new FakeClock(NOW);
       clock.install();
       try {
-        expect(await new DbSecretStore(driver).redeem(ALICE, 'reset', 'raw-secret')).to.eq(false);
+        expect(await new DbSecretStore().redeem(ALICE, 'reset', 'raw-secret')).to.eq(false);
       } finally {
         clock.uninstall();
       }
@@ -196,11 +215,12 @@ for (const d of DIALECTS) {
 
     it('DbSecretStore.redeem runs the same statements for an unknown identity as for a real one with a wrong secret', async () => {
       const redeemWrong = async (identity: IdentityRef) => {
-        const driver = await fake(d.type, `n4-${d.name}`);
+        const driver = orm.driver;
+        driver.executed = [];
         const clock = new FakeClock(NOW);
         clock.install();
         try {
-          expect(await new DbSecretStore(driver).redeem(identity, 'reset', 'wrong-secret')).to.eq(false);
+          expect(await new DbSecretStore().redeem(identity, 'reset', 'wrong-secret')).to.eq(false);
         } finally {
           clock.uninstall();
         }
@@ -217,78 +237,75 @@ for (const d of DIALECTS) {
     });
 
     it('DbSecretStore.redeem refuses an over-long input without a query', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      expect(await new DbSecretStore(driver).redeem(ALICE, 'reset', 'x'.repeat(1025))).to.eq(false);
+      const driver = orm.driver;
+      expect(await new DbSecretStore().redeem(ALICE, 'reset', 'x'.repeat(1025))).to.eq(false);
       expect(driver.executed).to.have.length(0);
     });
 
     it('DbIdentityLinkStore.list keeps only rows of exactly that identity', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      driver.respond = () => [
-        { id: 'l1', identity_type: 'user', identity_id: ALICE.id.toUpperCase(), provider: 'oidc:g', subject: 'a', email: null, linked_text: NOW_TEXT, last_used_text: null },
-        { id: 'l2', identity_type: 'user', identity_id: ALICE.id, provider: 'oidc:g', subject: 'b', email: null, linked_text: NOW_TEXT, last_used_text: null },
+      orm.driver.respond = () => [
+        { id: 'l1', identity_type: 'user', identity_id: ALICE.id.toUpperCase(), provider: 'oidc:g', subject: 'a', email: null, linked_at: NOW_TEXT, last_used_at: null },
+        { id: 'l2', identity_type: 'user', identity_id: ALICE.id, provider: 'oidc:g', subject: 'b', email: null, linked_at: NOW_TEXT, last_used_at: null },
       ];
-      expect((await new DbIdentityLinkStore(driver).list(ALICE)).map((l) => l.id)).to.deep.eq(['l2']);
+      expect((await new DbIdentityLinkStore().list(ALICE)).map((l) => l.id)).to.deep.eq(['l2']);
     });
 
     it('DbMfaStore.get and countRecoveryCodes keep only rows of exactly that identity and step', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       const other = `user:${ALICE.id.toUpperCase()}`;
       driver.respond = (stmt) =>
         stmt.includes('authn_recovery_code')
           ? [{ identity: other }, { identity: `user:${ALICE.id}` }]
-          : [{ identity: other, step: 'totp', secret_enc: 'v1.x', key_id: 'k', last_step: null, confirmed_text: null, created_text: NOW_TEXT }];
-      const store = new DbMfaStore(driver);
+          : [{ identity: other, step: 'totp', secret_enc: 'v1.x', key_id: 'k', last_step: null, confirmed_at: null, created_at: NOW_TEXT }];
+      const store = new DbMfaStore();
       expect(await store.get(ALICE, 'totp')).to.eq(null);
       expect(await store.countRecoveryCodes(ALICE)).to.eq(1);
     });
 
     it('DbMfaStore.confirmedSteps keeps only confirmed rows of exactly that identity', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = () => [
         { identity: `user:${ALICE.id.toUpperCase()}`, step: 'webauthn', confirmed_at: NOW },
         { identity: `user:${ALICE.id}`, step: 'totp', confirmed_at: NOW },
         { identity: `user:${ALICE.id}`, step: 'sms', confirmed_at: null },
       ];
-      expect(await new DbMfaStore(driver).confirmedSteps(ALICE)).to.deep.eq(['totp']);
+      expect(await new DbMfaStore().confirmedSteps(ALICE)).to.deep.eq(['totp']);
       expect(driver.executed.map(sql)).to.deep.eq([d.confirmedSteps]);
       expect(driver.executed[0].params).to.deep.eq([`user:${ALICE.id}`]);
     });
 
     it('DbMfaStore.confirmedStepNames keeps step names that differ only in case, once each, and only of confirmed rows', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = () => [
         { step: 'totp', confirmed_at: NOW },
         { step: 'TOTP', confirmed_at: NOW },
         { step: 'totp', confirmed_at: NOW },
         { step: 'sms', confirmed_at: null },
       ];
-      expect(await new DbMfaStore(driver).confirmedStepNames()).to.deep.eq(['totp', 'TOTP']);
+      expect(await new DbMfaStore().confirmedStepNames()).to.deep.eq(['totp', 'TOTP']);
       expect(driver.executed.map(sql)).to.deep.eq([d.confirmedStepNames]);
     });
 
     it('DbMfaStore.redeemRecoveryCode refuses an over-long input without a query', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      expect(await new DbMfaStore(driver).redeemRecoveryCode(ALICE, 'x'.repeat(1025))).to.eq(false);
+      const driver = orm.driver;
+      expect(await new DbMfaStore().redeemRecoveryCode(ALICE, 'x'.repeat(1025))).to.eq(false);
       expect(driver.executed).to.have.length(0);
     });
 
     it('DbIdentityLinkStore.find refuses a subject that matched only under a case-blind collation', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      driver.respond = () => [{ id: 'l1', identity_type: 'user', identity_id: ALICE.id, provider: 'oidc:g', subject: 'ALICE', email: null, linked_text: NOW_TEXT, last_used_text: null }];
-      const store = new DbIdentityLinkStore(driver);
+      orm.driver.respond = () => [{ id: 'l1', identity_type: 'user', identity_id: ALICE.id, provider: 'oidc:g', subject: 'ALICE', email: null, linked_at: NOW_TEXT, last_used_at: null }];
+      const store = new DbIdentityLinkStore();
       expect(await store.find('oidc:g', 'alice')).to.eq(null);
       expect((await store.find('oidc:g', 'ALICE'))?.id).to.eq('l1');
     });
 
     it('DbIdentityLinkStore.link maps the driver duplicate error to ResourceDuplicated', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      driver.respond = () => {
+      orm.driver.respond = () => {
         throw d.duplicate();
       };
       let err: unknown;
       try {
-        await new DbIdentityLinkStore(driver).link(ALICE, { provider: 'p', subject: 's' });
+        await new DbIdentityLinkStore().link(ALICE, { provider: 'p', subject: 's' });
       } catch (e) {
         err = e;
       }
@@ -296,3 +313,34 @@ for (const d of DIALECTS) {
     });
   });
 }
+
+describe('task 3 store times on mssql (compiled, no server)', function () {
+  this.timeout(30000);
+
+  let orm: FakeOrm;
+
+  before(async () => {
+    orm = await bootFakeOrm('mssql');
+  });
+
+  after(async () => {
+    await orm?.dispose();
+  });
+
+  it('DbSecretStore.redeem reads an expiry stamped in another offset as its instant', async () => {
+    const driver = orm.driver;
+    driver.respond = (_stmt, context) => {
+      if (context === QueryContext.Update) return { RowsAffected: 1 };
+      // 09:30Z: expired at NOW, though its wall clock reads after NOW
+      return [{ id: 'row-1', identity: `user:${ALICE.id}`, purpose: 'reset', expires_at: '2026-06-01T11:30:00.0000000+02:00' }];
+    };
+    const clock = new FakeClock(NOW);
+    clock.install();
+    try {
+      expect(await new DbSecretStore().redeem(ALICE, 'reset', 'raw-secret')).to.eq(false);
+    } finally {
+      clock.uninstall();
+    }
+    expect(driver.executed.map((e) => e.context)).to.deep.eq([QueryContext.Select]);
+  });
+});

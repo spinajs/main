@@ -90,7 +90,7 @@ These decorators are described in [Models](02-models.md) and [Relations](06-rela
 | `@BelongsTo(target, foreignKey?, primaryKey?)` | Property | — | A set `Value` is always followed and inserted first if new. The foreign key is written from the target's `primaryKey` column. |
 | `@Primary({ generated })` | Property | `'auto'` (default), `'uuid'`, `'assigned'` | `auto`: key read back after insert. `uuid`: generated client-side before insert. `assigned`: insert throws when empty. |
 | `@SoftDelete()` | Property | — | Required by `OrphanPolicy.SoftDelete`. Turns `OrphanPolicy.Delete` into a soft delete. |
-| `@UpdatedAt()` | Property | — | Set to `DateTime.now()` on every `UPDATE` that has at least one other changed column. |
+| `@UpdatedAt()` | Property | — | Set to `DateTime.utc()` on every `UPDATE` that has at least one other changed column. |
 
 ### Orphan policy
 
@@ -100,7 +100,7 @@ These decorators are described in [Models](02-models.md) and [Relations](06-rela
 | --- | --- |
 | `OrphanPolicy.Nullify` (`'nullify'`) | `UPDATE` sets the child's foreign key to `NULL`. Default. |
 | `OrphanPolicy.Delete` (`'delete'`) | `DELETE` the child row. Degrades to `soft-delete` when the child model has `@SoftDelete`. |
-| `OrphanPolicy.SoftDelete` (`'soft-delete'`) | `UPDATE` stamps the child's `@SoftDelete` column with `DateTime.now()`. Throws `OrmException` when the child has no `@SoftDelete` column. |
+| `OrphanPolicy.SoftDelete` (`'soft-delete'`) | `UPDATE` stamps the child's `@SoftDelete` column with `DateTime.utc()`. Throws `OrmException` when the child has no `@SoftDelete` column. |
 | `OrphanPolicy.Disable` (`'disable'`) | Nothing. You manage removed rows yourself. |
 
 With no `orphan` option, `resolveOrphanPolicy()` picks `Nullify`. It throws `OrmException` instead when the foreign key column is reflected from the database (non-empty `NativeType`) and is `NOT NULL`: deleting rows is never inferred. Declare a policy on the relation to fix it.

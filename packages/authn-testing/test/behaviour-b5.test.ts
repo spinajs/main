@@ -2,11 +2,8 @@ import assert from 'node:assert/strict';
 import 'mocha';
 import { planCases, runAuthnBehaviour, settleCase } from '../src/behaviour/index.js';
 import type { Facet, HarnessContext, HarnessFactory, RuleId } from '../src/behaviour/index.js';
-import { MemorySecretStore } from '../src/fakes/index.js';
 import { UnsupportedConfig } from '../src/harness/index.js';
-import type { Harness, LegacyUser, MigrationPort } from '../src/harness/index.js';
-import { migrateA32 } from './reference/a32-migration.js';
-import type { MigrationResult } from './reference/a32-migration.js';
+import type { Harness } from '../src/harness/index.js';
 import { corsStub } from './reference/cors-stub.js';
 import type { CorsStubMutants } from './reference/cors-stub.js';
 import { ORIGIN_PARTNER } from '../src/behaviour/steps.js';
@@ -22,43 +19,9 @@ function corsFactory(mutants: CorsStubMutants = {}): HarnessFactory {
   };
 }
 
-interface MigrationMutants {
-  readonly rawTokens?: boolean;
-  readonly keepKeys?: boolean;
-}
-
-/** MigrationPort and SecretStore over the test-only reference migration and MemorySecretStore. */
-function migrationFactory(mutants: MigrationMutants = {}): HarnessFactory {
-  return (ctx: HarnessContext): Harness => {
-    if (Object.keys(ctx.config).length > 0) {
-      throw new UnsupportedConfig(Object.keys(ctx.config));
-    }
-    const secrets = new MemorySecretStore();
-    let users: readonly LegacyUser[] = [];
-    let result: MigrationResult | undefined;
-    const migration: MigrationPort = {
-      seedLegacy: async (seeded) => {
-        users = seeded;
-      },
-      run: async () => {
-        result = migrateA32(users, new Date());
-        for (const row of result.rows) {
-          const hash = mutants.rawTokens ? users.find((u) => `user:${u.Uuid}` === row.identity)?.metadata.find((m) => m.Key === 'user:pwd_reset:token')?.Value ?? row.secret_hash : row.secret_hash;
-          secrets.seedHash({ type: 'user', id: row.identity.slice('user:'.length) }, row.purpose, hash, row.expires_at, row.created_at);
-        }
-      },
-      secretRows: async () => secrets.rows().map((r) => ({ identity: `${r.identity.type}:${r.identity.id}`, purpose: r.purpose, secret_hash: r.hash, expires_at: r.expiresAt, created_at: r.createdAt, used_at: r.usedAt })),
-      metadataKeys: async (uuid) => (mutants.keepKeys ? users.find((u) => u.Uuid === uuid)?.metadata.map((m) => m.Key) ?? [] : result?.metadataKeys.get(uuid) ?? []),
-    };
-    return { migration, secrets };
-  };
-}
-
 runAuthnBehaviour(['A22'], (ctx) => referenceHttpHarness(ctx), { title: 'reference http app: A22/http', facets: ['A22/http'], claim: ['A22/http'] });
 
 runAuthnBehaviour(['A31'], corsFactory(), { title: 'CORS stub: A31/http', facets: ['A31/http'], claim: ['A31/http'] });
-
-runAuthnBehaviour(['A32'], migrationFactory(), { title: 'reference migration: A32/migration', facets: ['A32/migration'], claim: ['A32/migration'] });
 
 const named = (rule: RuleId, facet: Facet, name: string) => {
   const found = planCases([rule], { facets: [facet] }).filter((p) => p.kase.name === name);
@@ -127,10 +90,4 @@ describe('A31 CORS stub mutants', () => {
   it('fails the exact-match rows when a preflight echoes any origin', () => assertBites('A31', 'A31/http', ['A31 an origin must match exactly: unlisted', 'A31 an origin must match exactly: other port'], corsFactory(), corsFactory({ preflightEchoesAny: true })));
 
   it("fails when '*' is combined with credentials", () => assertBites('A31', 'A31/http', ["A31 '*' is never combined with credentials"], corsFactory(), corsFactory({ allowAnyWithCredentials: true })));
-});
-
-describe('A32 migration mutants', () => {
-  it('fails when the raw token is stored instead of its hash', () => assertBites('A32', 'A32/migration', ['A32 each live reset or invite becomes one authn_secret row'], migrationFactory(), migrationFactory({ rawTokens: true })));
-
-  it('fails SR-09 when the reset keys stay in users_metadata', () => assertBites('A32', 'A32/migration', ['A32 SR-09 no clear secret in users_metadata'], migrationFactory(), migrationFactory({ keepKeys: true })));
 });

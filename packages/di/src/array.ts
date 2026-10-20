@@ -24,10 +24,12 @@ export class ChainArray<R> extends TypedArray<R> {
   public readonly Chain = true;
 }
 
-Array.ofType = function <T>(type: Class<T> | string) {
+// A second copy of this module in the process (another checkout's packages, the cjs and the mjs
+// build side by side) must not swap these for its own classes: lists are told apart by class name.
+Array.ofType ??= function <T>(type: Class<T> | string) {
   return new TypedArray<T>(type);
 };
 
-Array.chainOf = function <T>(type: Class<T> | string) {
+Array.chainOf ??= function <T>(type: Class<T> | string) {
   return new ChainArray<T>(type);
 };

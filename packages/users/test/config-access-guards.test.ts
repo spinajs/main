@@ -27,7 +27,7 @@ describe('users access domain and impersonation configuration', () => {
       expect(config.get('authz.impersonation.protectedRoles')).to.deep.equal([]);
     });
 
-    it('protects a 2.x role name that holds an inner space, as authz.rbac.roles accepts it', async () => {
+    it('protects a role name that holds an inner space, as authz.rbac.roles accepts it', async () => {
       const { config } = await bootChild({ authz: { impersonation: { protectedRoles: ['Stock editor'] } } }, ...SCHEMAS);
 
       expect(config.get('authz.impersonation.protectedRoles')).to.deep.equal(['Stock editor']);

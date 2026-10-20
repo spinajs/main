@@ -185,7 +185,7 @@ export function tokenRoutesSuite(): void {
       expect(res.status, JSON.stringify(res.body)).to.eq(200);
       expect(res.headers['cache-control']).to.eq('no-store');
       const entries = body<unknown[]>(res);
-      expect(entries, 'a bare array, as 2.x answered').to.be.an('array').with.length(2);
+      expect(entries, 'a bare array').to.be.an('array').with.length(2);
       for (const e of entries) expectEntry(e);
       const byId = new Map((entries as Entry[]).map((e) => [e.Uuid, e]));
       expect([...byId.keys()]).to.have.members([soon.record.id, viaRoute.Uuid]);
@@ -245,15 +245,6 @@ export function tokenRoutesSuite(): void {
       expect(tokenEvents('token.create')).to.deep.eq([]);
     });
 
-    it('takes the 2.x field names Name, ExpiresAt and Roles', async () => {
-      const u = await user();
-      await h.roles!.grant(u.ref, [{ role: 'user', requirePassword: false }]);
-      const c = await login(u);
-      const res = await create(c, { Name: '2.x client', ExpiresAt: isoIn(DAY), Roles: ['user'] });
-      expect(res.status, JSON.stringify(res.body)).to.eq(200);
-      expect(body<{ Token: Entry }>(res).Token).to.deep.include({ Name: '2.x client', Roles: ['user'] });
-    });
-
     it('a role the owner does not hold answers 400 invalid_scope; a held one becomes the ceiling (LEDGER AccessTokenController 4)', async () => {
       const u = await user();
       const c = await login(u);
@@ -272,7 +263,7 @@ export function tokenRoutesSuite(): void {
       const c = await login(u);
       expectBadRequest(await create(c, valid({ profile: 'editor' })), 'invalid_scope');
       laneTokenProfiles(['editor']);
-      const res = await create(c, valid({ Profile: 'editor' }));
+      const res = await create(c, valid({ profile: 'editor' }));
       expect(res.status, JSON.stringify(res.body)).to.eq(200);
       expect(body<{ Token: Entry }>(res).Token.Profile).to.eq('editor');
       expect(body<Entry[]>(await list(c)).map((e) => e.Profile)).to.deep.eq(['editor']);

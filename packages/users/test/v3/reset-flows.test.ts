@@ -31,8 +31,7 @@ async function metadataKeys(userId: number): Promise<string[]> {
   return rows.map((r) => r.Key);
 }
 
-// Ported from users legacy-v2/actions.test.ts rows 49-72 and actions-fundamentals rows 23, 24 (A11, A12, A32, A02), the cases
-// that depend on what the users stores answer: the real LocalPasswordService runs over UserIdentityStore and UserPasswordStore.
+// A11, A12, A32, A02: the cases that depend on what the users stores answer: the real LocalPasswordService runs over UserIdentityStore and UserPasswordStore.
 // The reset secret is a SecretStore entry, so the tests take it from the mail and force no metadata.
 describe('reset and invite over the users stores', function () {
   this.timeout(60000);

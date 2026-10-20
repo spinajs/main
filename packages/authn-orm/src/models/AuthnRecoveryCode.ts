@@ -4,7 +4,7 @@ import { DateTime } from 'luxon';
 @Connection('default')
 @Model('authn_recovery_code')
 export class AuthnRecoveryCode extends ModelBase<AuthnRecoveryCode> {
-  @Primary()
+  @Primary({ generated: 'assigned' })
   public id: string;
 
   public identity: string;

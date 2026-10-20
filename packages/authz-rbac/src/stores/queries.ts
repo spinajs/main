@@ -1,4 +1,5 @@
-import { AuthzAdminFailure } from '@spinajs/authz';
+import { AuthzAdminFailure, GLOBAL } from '@spinajs/authz';
+import type { ResourceRef } from '@spinajs/authz';
 import type { IWhereBuilder } from '@spinajs/orm';
 
 /** Live at `at`: no expiry, or one strictly after `at` (a row expiring exactly at `at` is gone). */
@@ -16,4 +17,11 @@ export function pageWindow(page: { readonly limit: number; readonly offset: numb
     }
   }
   return { limit: Math.min(page?.limit ?? max, max), offset: page?.offset ?? 0 };
+}
+
+/** Refuses GLOBAL and type-level refs (`wrong_scope_type`); `rule` says why a scope node is needed. */
+export function requireScopeNode(scope: ResourceRef, where: string, rule: string): void {
+  if (scope?.type === GLOBAL.type || !scope?.id) {
+    throw new AuthzAdminFailure('wrong_scope_type', `${where}: ${rule}, not ${scope?.type === GLOBAL.type ? 'GLOBAL' : `the type-level ref ${scope?.type}`}`, 'scope');
+  }
 }

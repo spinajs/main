@@ -10,7 +10,7 @@ import { DateTime } from 'luxon';
 
 import { GROUP_TYPE, TEAM_ADMIN_ROLE, TEAM_MEMBER_ROLE, TEAM_OWNER_ROLE, TEAM_PURGED_EVENT, TEAM_TYPE, TeamService } from '../api.js';
 import type { CreateTeamInput, MemberEntry, Page, Paged, PrincipalTeams, PurgeReport, TeamSubject, TeamView, UpdateTeamInput } from '../api.js';
-import { asSystem, assertAllowed, domainContainer, execute, teamsDomain, teamsDriver } from '../host.js';
+import { asSystem, assertAllowed, domainContainer, execute, teamsDomain } from '../host.js';
 import { deleteInvitations } from '../invitations/rows.js';
 import { anyTeam, liveGroup, liveTeam, teamLineage } from '../lookup.js';
 import { principalTeams } from '../membership.js';
@@ -265,8 +265,7 @@ export class DefaultTeamService extends TeamService {
 
   protected async purge(team: Team): Promise<readonly string[]> {
     const removed = { teams: [] as string[], groups: [] as string[] };
-    const driver = await teamsDriver();
-    await asSystem(() => driver.transaction(() => this.purgeTree(team, removed)));
+    await asSystem(() => Team.transaction(() => this.purgeTree(team, removed)));
     const teams = [team.id, ...removed.teams.filter((t) => t !== team.id)];
     await this.publish({
       type: TEAM_PURGED_EVENT,

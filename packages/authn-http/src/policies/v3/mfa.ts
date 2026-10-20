@@ -56,8 +56,7 @@ export class MfaSatisfied extends BasePolicy {
  * For the MFA enrolment routes, in a policy group of its own beside the one with `Authenticated` (groups are ORed):
  * passes a pending session whose identity is enrolled in none of the steps of authn.mfa.steps and that the MFA policy does
  * not refuse. Such a session comes from a forced enrolment (authn.mfa.policy.force or forceForRoles), where enrolling is
- * the one way out of it (A09), or from the 2.x session upgrade, which stores no steps. A pending session of an enrolled
- * identity must complete its step instead.
+ * the one way out of it (A09). A pending session of an enrolled identity must complete its step instead.
  */
 export class PendingMfaEnrolment extends BasePolicy {
   @Autoinject(Container)

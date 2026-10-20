@@ -69,7 +69,7 @@ authz: {
 | `AuthorizedPolicy` + `@Permission`, `readOwn` / `updateOwn` grants | `@Access('users:<action>')`; own-record access is a conditional grant (`relation: 'self'`) decided on the row |
 | `GET /user/refresh` | `GET /user` |
 | `GET /user/grants` | `GET /user/access` of `@spinajs/authz-http` |
-| `PATCH /user/password`, `changePassword`, `password-reset-request`, `expire-password`, `reset2fa`, `2fa/enable`, `2fa/disable`, `unlock` under `/users/security` | gone (`404`); credential routes are in `@spinajs/authn-http` |
+| `PATCH /user/password`, `changePassword`, `password-reset-request`, `expire-password`, `reset2fa`, `2fa/enable`, `2fa/disable`, `unlock` under `/users/security` | removed; credential routes are in [`@spinajs/authn-http`](../authn-http/12-password-routes.md) |
 | `DELETE /users/security/sessions/:uuid` (end every session) | `DELETE /authn/admin/users/:uuid/sessions` of `@spinajs/authn-http`, answering `{ revoked }` |
 | `GET /users/security/activate/:uuid`, `GET .../deactivate/:uuid` | `POST` |
 | Session list entry with `Expires` | `IAdminSessionEntry`: `{ Handle, Created, LastSeen, Ip?, UserAgent? }` |

@@ -63,13 +63,11 @@ export const TEST_CONFIG = {
     // project:* declare team: team roles grant them at a team, where the admin guard checks them.
     permissions: { 'authz:assignments.manage': {}, 'project:read': { types: ['project', 'team'] }, 'project:update': { types: ['project', 'team'] } },
     rbac: {
-      connection: 'default',
       stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'] },
       // grants concatenate with the fragment's: an app giving team roles rights on its own type below the team.
       roles: { 'teams.creator': { grants: ['team:create'], scopeTypes: ['$global'] }, 'team.member': { grants: ['project:read'] }, 'team.admin': { grants: ['project:update'] } },
     },
     admin: {
-      connection: 'default',
       backend: 'DbAuthzAdminBackend',
       guard: { service: 'DefaultAdminGuard', privilegedPermission: 'authz:assignments.manage', protectSystemRole: true, preventEscalation: true, preventSelfLockout: true, preventLastPrivilegedRemoval: true },
     },
@@ -100,7 +98,7 @@ async function boot(): Promise<TeamsStack> {
   const mailer = new RecordingInvitationMailer();
   root.register(testHost.instance(mailer)).as(InvitationMailer);
   root.register(testHost.instance(new AttributesEmailSource())).as(VerifiedEmailSource);
-  const attributes = new DbScopeAttributeStore({ container: root });
+  const attributes = new DbScopeAttributeStore();
   root.register(testHost.instance(attributes)).as(ScopeAttributeStore);
   root.register(testHost.instance(attributes)).as(WritableScopeAttributeStore);
   const abac = new AbacModel({ stores: [new ConfigPolicyStore(config.get<unknown[]>(['authz', 'abac', 'policies'], []))] });

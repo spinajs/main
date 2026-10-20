@@ -12,7 +12,7 @@ import { ACCESS_DOMAIN_KEY, accessDomain } from './target-guard.js';
 
 type ResponseKind = Parameters<AuthnResponseExtension['extend']>[0];
 
-export type UserWithAccess = Omit<ModelDataWithRelationData<User>, 'Role'> & { readonly Access: AccessSummary };
+export type UserWithAccess = ModelDataWithRelationData<User> & { readonly Access: AccessSummary };
 
 /**
  * Adds `Access` to the login, MFA, role switch, impersonation and whoami answers (B25): the principal's `AccessSummary`
@@ -30,7 +30,7 @@ export class AccessResponseExtension extends AuthnResponseExtension {
 }
 
 /**
- * The 2.x login payload without `Role`, `ActiveRole` and `Grants`: the dehydrated user plus `Access`.
+ * The dehydrated user plus `Access`.
  * @throws InvalidArgument when `principal` is not `user:<user.Uuid>`
  */
 export async function buildUserWithAccess(user: User, principal: Principal): Promise<UserWithAccess> {

@@ -43,7 +43,7 @@ async function sqliteStore(): Promise<{ store: MfaSecretStore; storage: MfaStora
   await clearMfaTables(driver);
   const select = async (sql: string, id: IdentityRef): Promise<Record<string, unknown>[]> => (await rawQuery(driver, sql, [identityKey(id)])) as Record<string, unknown>[];
   return {
-    store: new DbMfaSecretStore(new DbMfaStore(driver)),
+    store: new DbMfaSecretStore(new DbMfaStore()),
     storage: {
       storedSecret: async (id) => {
         const rows = await select("SELECT secret_enc FROM authn_mfa WHERE identity = ? AND step = 'totp'", id);

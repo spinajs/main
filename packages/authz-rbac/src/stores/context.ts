@@ -1,40 +1,48 @@
-import { AuthzConfigError, AuthzDomains, ROOT_DOMAIN } from '@spinajs/authz';
+import { AUTHZ_CONNECTION, AuthzConfigError, AuthzDomains, ROOT_DOMAIN } from '@spinajs/authz';
 import type { AuthzTx } from '@spinajs/authz';
-import { Configuration } from '@spinajs/configuration';
 import type { IContainer } from '@spinajs/di';
-import { Orm, OrmDriver } from '@spinajs/orm';
+import { ConnectionMismatch, NotAnOrmDriver, OrmConnectionMissing, OrmNotResolved, TransactionRequired, modelDriver, requireModelTransaction } from '@spinajs/orm';
+import type { ModelBase, OrmDriver } from '@spinajs/orm';
 
-/** Config key naming the ORM connection of the authz-rbac tables; absent means {@link ADMIN_CONNECTION_KEY}. */
-const RBAC_CONNECTION_KEY = 'authz.rbac.connection';
-
-/** The connection DbAuthzAdminBackend opens its transactions on; absent means the default connection. */
-export const ADMIN_CONNECTION_KEY = 'authz.admin.connection';
-
-/**
- * The driver of an `AuthzAdmin` transaction. Stores write only inside one,
- * so anything else is a programming error.
- */
-export function transactionDriver(tx: AuthzTx, where: string): OrmDriver {
-  const driver = tx?.driver;
-  if (!(driver instanceof OrmDriver)) {
-    throw new AuthzConfigError(`${where}: AuthzTx.driver must be the OrmDriver of an AuthzAdmin transaction`);
+/** The ORM's connection errors in the words of the authz tables; anything else as it is. */
+function connectionError(record: typeof ModelBase, err: unknown): unknown {
+  if (err instanceof OrmNotResolved) {
+    return new AuthzConfigError(`${record.name}: the Orm is not resolved yet; resolve it (await DI.resolve(Orm)) before the authz tables are used`, { cause: err });
   }
-  if (driver.CurrentTransaction === undefined) {
-    throw new AuthzConfigError(`${where}: stores write only inside an AuthzAdmin transaction, and none is in scope`);
+  if (err instanceof OrmConnectionMissing) {
+    return new AuthzConfigError(`${record.name}: no ORM connection answers to "${AUTHZ_CONNECTION}"; set db.Aliases.${AUTHZ_CONNECTION}`, { cause: err });
   }
-  return driver;
+  return err;
+}
+
+/** The driver `record`'s queries run on; a transaction on it is the one they join. */
+export function recordDriver(record: typeof ModelBase): OrmDriver {
+  try {
+    return modelDriver(record);
+  } catch (err) {
+    throw connectionError(record, err);
+  }
 }
 
 /**
- * Like {@link transactionDriver}, and the transaction must run on `store`, the connection the store
- * reads: a write on another connection would land where the model never looks.
+ * The driver of `tx`, an `AuthzAdmin` transaction on the connection `record` lives on. Stores write only
+ * inside one; a write on another connection would land where the reads never look.
  */
-export function storeTransactionDriver(tx: AuthzTx, store: OrmDriver, where: string): OrmDriver {
-  const driver = transactionDriver(tx, where);
-  if (driver !== store) {
-    throw new AuthzConfigError(`${where}: the AuthzTx runs on connection ${JSON.stringify(driver.Options.Name)}, but the store uses ${JSON.stringify(store.Options.Name)} (${RBAC_CONNECTION_KEY}, else ${ADMIN_CONNECTION_KEY}, else the default connection)`);
+export function requireTransaction(record: typeof ModelBase, tx: AuthzTx, where: string): OrmDriver {
+  try {
+    return requireModelTransaction(record, tx?.driver);
+  } catch (err) {
+    if (err instanceof NotAnOrmDriver) {
+      throw new AuthzConfigError(`${where}: AuthzTx.driver must be the OrmDriver of an AuthzAdmin transaction`, { cause: err });
+    }
+    if (err instanceof TransactionRequired) {
+      throw new AuthzConfigError(`${where}: stores write only inside an AuthzAdmin transaction, and none is in scope`, { cause: err });
+    }
+    if (err instanceof ConnectionMismatch) {
+      throw new AuthzConfigError(`${where}: the AuthzTx runs on connection ${JSON.stringify(err.actual)}, but ${err.table} is on connection ${JSON.stringify(err.expected)} (db.Aliases.${AUTHZ_CONNECTION})`, { cause: err });
+    }
+    throw connectionError(record, err);
   }
-  return driver;
 }
 
 /**
@@ -52,27 +60,4 @@ export function storeDomain(container: IContainer): string {
   }
 
   throw new AuthzConfigError('a store container is not inside any authz domain (AuthzDomains.describe() places none of its ancestors)');
-}
-
-/**
- * The connection named by `authz.rbac.connection`, else by `authz.admin.connection`, else the ORM's
- * default connection: with only one key set, the stores and DbAuthzAdminBackend still share it.
- */
-export async function storeConnection(container: IContainer): Promise<OrmDriver> {
-  const configuration = container.hasRegistered(Configuration) ? await container.resolve(Configuration) : undefined;
-  const rbac = configuration?.get<string>(RBAC_CONNECTION_KEY);
-  const admin = rbac === undefined ? configuration?.get<string>(ADMIN_CONNECTION_KEY) : undefined;
-  const key = rbac !== undefined ? RBAC_CONNECTION_KEY : admin !== undefined ? ADMIN_CONNECTION_KEY : 'the ORM default connection';
-  return rbacConnection(container, rbac ?? admin ?? 'default', key);
-}
-
-/**
- * The ORM connection `name` of the Orm `container` resolves; `source` (the config key that named it) leads the error.
- * @throws AuthzConfigError when the ORM has no such connection
- */
-export async function rbacConnection(container: IContainer, name: string, source: string): Promise<OrmDriver> {
-  const orm = (await container.resolve(Orm)) as Orm;
-  const driver = orm.Connections.get(name);
-  if (!driver) throw new AuthzConfigError(`${source}: no ORM connection named ${JSON.stringify(name)} (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
-  return driver;
 }

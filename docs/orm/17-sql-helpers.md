@@ -2,7 +2,7 @@
 
 Small functions for stores that talk to a connection directly (`driver.select()`, `driver.insert()`, …) instead of through models. They cover what every such store repeats: counting affected rows, building SQL with bindings, matching composite keys, and writing or purging rows in batches that stay under the driver's parameter limits.
 
-All of them are exported from `@spinajs/orm`. None of them asks which database it runs on. What differs between databases is the driver's job: duplicate keys reject with `ResourceDuplicated`, statement limits come from the driver, and SQL that each dialect spells its own way comes from the connection's `SqlExpressions`.
+All of them are exported from `@spinajs/orm`. None of them asks which database it runs on. What differs between databases is the driver's job: duplicate keys reject with `UniqueViolation` (a `ResourceDuplicated`), statement limits come from the driver, and SQL that each dialect spells its own way comes from the connection's `SqlExpressions`.
 
 | Helper | What it does |
 | --- | --- |
@@ -26,16 +26,16 @@ All of them are exported from `@spinajs/orm`. None of them asks which database i
 
 ### Duplicate keys
 
-A statement that breaks a unique or primary key constraint rejects with `ResourceDuplicated` (from `@spinajs/exceptions`), its `inner` the error the driver wrapped. Each driver recognises its own server's signal; other constraint failures (`NOT NULL`, `CHECK`, foreign keys) stay `OrmException`.
+A statement that breaks a unique or primary key constraint rejects with `UniqueViolation` from `@spinajs/orm`. It extends `ResourceDuplicated` (from `@spinajs/exceptions`), so catching either works. Its `inner` is the client's error; `table`, `constraint` and `columns` carry what the server reported, where it reports them. A `NOT NULL`, `CHECK` or foreign-key failure rejects with `ConstraintViolation`, an `OrmException` whose `kind` is `not_null`, `check`, `foreign_key` or `other`. Each driver maps its own server's signal:
 
-| Driver | Signal |
-| --- | --- |
-| PostgreSQL | `code === '23505'` |
-| MySQL | `errno === 1062` |
-| MSSQL | `number === 2627` (key or constraint) or `2601` (unique index) |
-| SQLite | `SQLITE_CONSTRAINT` with `UNIQUE constraint failed` (primary keys report the same text) |
+| Driver | `UniqueViolation` | `ConstraintViolation` |
+| --- | --- | --- |
+| PostgreSQL | `code === '23505'` | the rest of SQLSTATE class `23` |
+| MySQL | `errno === 1062` | `errno` `1048`, `1364`, `1451`, `1452`, `3819` |
+| MSSQL | `number === 2627` (key or constraint) or `2601` (unique index) | `number` `515`, `547` |
+| SQLite | `SQLITE_CONSTRAINT` with `UNIQUE constraint failed` or `PRIMARY KEY must be unique` | any other `SQLITE_CONSTRAINT`, told apart by its message |
 
-A driver that does not override `isUniqueViolation()` recognises nothing: its violations reject as it threw them.
+Every other error rejects as `OrmException` with the client's error as `inner`.
 
 ### Dialect expressions
 
@@ -44,13 +44,13 @@ A driver that does not override `isUniqueViolation()` recognises nothing: its vi
 | Method | Returns | SQLite | PostgreSQL | MySQL | MSSQL |
 | --- | --- | --- | --- | --- | --- |
 | `castText(expression, length?)` | `expression` as text; `length` bounds the type where the dialect needs one | `CAST(x AS TEXT)` | `CAST(x AS TEXT)` | `CAST(x AS CHAR[(n)])` | `CAST(x AS NVARCHAR(n \| MAX))` |
-| `datetimeText(expression)` | A datetime column as the wall-clock text it stores, `yyyy-MM-dd HH:mm:ss[.SSS]`, never shifted into a zone | `x` (stored as text) | `CAST(x AS TEXT)` | `CAST(x AS CHAR)` | `CONVERT(varchar(23), x, 121)` |
+| `datetimeText(expression)` | A datetime column as text, never shifted into the process zone. The text differs by dialect: SQLite returns the stored ISO 8601 text (`yyyy-MM-ddTHH:mm:ss.SSSZ`), PostgreSQL a `timestamptz` in the UTC session (`yyyy-MM-dd HH:mm:ss[.SSS]+00`), MySQL and MSSQL `yyyy-MM-dd HH:mm:ss.SSS` | `x` (stored as text) | `CAST(x AS TEXT)` | `CAST(x AS CHAR)` | `CONVERT(varchar(23), x, 121)` |
 | `contains(haystack, needle)` | `SqlFragment`, true where `needle` occurs in `haystack` | `instr(h, n) > 0` | `strpos(h, n) > 0` | `LOCATE(n, h) > 0` | `CHARINDEX(n, h) > 0` |
 | `equalsExactly(left, right)` | `SqlFragment`, `left = right` byte for byte, whatever the column collation | `l = r` | `l = r` | `l = CAST(r AS BINARY)` | `l = r COLLATE Latin1_General_BIN2` plus a `LEN(… + 'x')` check for trailing spaces; binds `right` twice |
 
 The base `SqlExpressions` throws `NotSupported` from every method, so a driver that registers none fails loudly instead of emitting another dialect's SQL. To add or fix one, subclass a shipped implementation and register it `.as(SqlExpressions)` in the driver's `resolve()`; see [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md).
 
-Use `datetimeText()` to read a datetime column when the driver would parse it in a zone: `node-postgres` reads `timestamp` in the process zone, and `tedious` reads it as UTC. Use `equalsExactly()` where a match must not fold case, such as a secret or a token, on a column declared without [`exact()`](09-schema-builder.md#exact-columns).
+Every shipped driver reads datetime columns as UTC instants, so a model column or a plain select needs no `datetimeText()`. Because its text differs by dialect, do not compare or parse it across connections. Use `equalsExactly()` where a match must not fold case, such as a secret or a token, on a column declared without [`exact()`](09-schema-builder.md#exact-columns).
 
 ### SQL fragments
 

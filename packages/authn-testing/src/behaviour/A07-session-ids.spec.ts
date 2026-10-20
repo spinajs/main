@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
 import type { AppEnv } from '../harness/config.js';
 import { sha256hex } from '../helpers/crypto.js';
 import { idBits } from '../helpers/ids.js';
@@ -12,7 +11,7 @@ const ENVS: readonly AppEnv[] = ['production', 'staging', 'development', 'test']
 type Planted = 'an unknown value' | 'the cookie of a live pending session';
 const PLANTED: readonly Planted[] = ['an unknown value', 'the cookie of a live pending session'];
 
-export const A07: AuthnRule = defineRule('A07', 'session ids are strong, hashed, migrated and rotated', [
+export const A07: AuthnRule = defineRule('A07', 'session ids are strong, hashed and rotated', [
   defineCase({
     name: 'A07 session ids have at least 128 bits',
     facet: 'A07/store',
@@ -39,38 +38,6 @@ export const A07: AuthnRule = defineRule('A07', 'session ids are strong, hashed,
       const keys = await h.sessionStorage.storedKeys();
       assert.ok(keys.includes(sha256hex(h1.id)), 'the storage key is sha256(id)');
       assert.ok(!keys.some((x) => x.includes(h1.id)), 'no storage key holds the raw id');
-    },
-  }),
-  defineCase({
-    name: 'A07 a 2.x raw id is migrated on first use without logging the user out',
-    facet: 'A07/store',
-    needs: ['sessions', 'sessionStorage', 'seed'],
-    async run(h, k) {
-      const t0 = k.clock.now().getTime();
-      const a = await seedUser(h, ALICE);
-      const raw = randomUUID();
-      await h.sessionStorage.seedLegacy({ rawId: raw, user: a.id, authorized: true, creation: new Date(t0 - 60_000) });
-      const r = await h.sessions.restore(raw);
-      assert.ok(r, 'the 2.x session restores');
-      assert.deepStrictEqual({ ...r.identity }, { type: 'user', id: a.id });
-      assert.strictEqual(r.handle.state, 'active');
-      assert.strictEqual(r.facts.assurance, 'aal1');
-      assert.strictEqual(r.facts.authenticatedAt.getTime(), t0 - 60_000);
-      const keys = await h.sessionStorage.storedKeys();
-      assert.ok(keys.includes(sha256hex(raw)), 'migrated under sha256(raw)');
-      assert.ok(!keys.includes(raw), 'the raw key is gone');
-      assert.ok(await h.sessions.restore(raw), 'the same raw id restores again');
-    },
-  }),
-  defineCase({
-    name: 'A07 a 2.x row without Authorized comes back pending',
-    facet: 'A07/store',
-    needs: ['sessions', 'sessionStorage', 'seed'],
-    async run(h, k) {
-      const a = await seedUser(h, ALICE);
-      const raw = randomUUID();
-      await h.sessionStorage.seedLegacy({ rawId: raw, user: a.id, authorized: false, creation: new Date(k.clock.now().getTime() - 60_000) });
-      assert.strictEqual((await h.sessions.restore(raw))?.handle.state, 'pending');
     },
   }),
   defineCase({

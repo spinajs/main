@@ -10,17 +10,18 @@ import { DateTime } from 'luxon';
 
 import { GROUP_MEMBER_ROLE, InvitationMailer, InvitationRefused, InvitationService, VerifiedEmailSource } from '../api.js';
 import type { AcceptedInvitation, CreateInvitationInput, InvitationView, Page, Paged } from '../api.js';
-import { assertAllowed, domainContainer, execute, teamsDriver } from '../host.js';
+import { assertAllowed, domainContainer, execute } from '../host.js';
 import { liveGroup, liveTeam } from '../lookup.js';
 import type { Group } from '../models/Group.js';
 import type { Team } from '../models/Team.js';
 import { TeamInvitation } from '../models/TeamInvitation.js';
+import { TeamInvitationUse } from '../models/TeamInvitationUse.js';
 import { groupRef, teamRef } from '../refs.js';
 import { TEAMS_DEFAULTS } from '../schema.js';
 import { createdBy, reasonOf, undoOnFailure } from '../services/common.js';
 import { readEmail, readId, readPage, readRole } from '../validate.js';
 import { dateOf, toGroupView, toTeamView } from '../views.js';
-import { INVITATION_USES_TABLE, toInvitationView } from './rows.js';
+import { toInvitationView } from './rows.js';
 import { INVITATION_TOKEN_MAX_LENGTH, hashesEqual, invitationTokenHash, newInvitationToken, readInvitationSecret } from './token.js';
 
 const MAX_TTL_HOURS = 24 * 365;
@@ -168,40 +169,28 @@ export class DefaultInvitationService extends InvitationService {
   }
 
   protected async usedBy(invitationId: string, who: string): Promise<boolean> {
-    const rows = (await (await teamsDriver()).select().from(INVITATION_USES_TABLE).where({ invitation_id: invitationId, principal: who })) as unknown[];
-    return rows.length > 0;
+    return (await TeamInvitationUse.query().columns(['invitation_id']).where({ invitation_id: invitationId, principal: who })).length > 0;
   }
 
   /** The use row and the counter in one transaction; the compare-and-set keeps two accepts from both taking the last use. */
   protected async recordUse(invitationId: string, who: string): Promise<void> {
-    const driver = await teamsDriver();
-    await driver.transaction(async () => {
-      await driver.insert().into(INVITATION_USES_TABLE).values({ invitation_id: invitationId, principal: who, used_at: new Date() });
+    await TeamInvitation.transaction(async () => {
+      await TeamInvitationUse.insert({ invitation_id: invitationId, principal: who, used_at: DateTime.utc() });
       for (let attempt = 0; attempt < 5; attempt++) {
-        const [row] = (await driver.select().from('team_invitations').where('id', invitationId)) as { uses: unknown; max_uses: unknown }[];
+        const [row] = await TeamInvitation.query().columns(['uses', 'max_uses']).where('id', invitationId);
         const uses = Number(row.uses);
         if (row.max_uses !== null && row.max_uses !== undefined && uses >= Number(row.max_uses)) throw new InvitationRefused('used_up');
-        const out = (await driver
-          .update()
-          .in('team_invitations')
-          .update({ uses: uses + 1 })
-          .where({ id: invitationId, uses })) as { RowsAffected?: number } | undefined;
-        if ((out?.RowsAffected ?? 0) > 0) return;
+        if ((await TeamInvitation.update({ uses: uses + 1 }).where({ id: invitationId, uses })).RowsAffected > 0) return;
       }
       throw new InvalidOperation(`invitation ${invitationId} is accepted by many users at once; try again`);
     });
   }
 
   protected async forgetUse(invitationId: string, who: string): Promise<void> {
-    const driver = await teamsDriver();
-    await driver.transaction(async () => {
-      await driver.del().from(INVITATION_USES_TABLE).where({ invitation_id: invitationId, principal: who });
-      const [row] = (await driver.select().from('team_invitations').where('id', invitationId)) as { uses: unknown }[];
-      await driver
-        .update()
-        .in('team_invitations')
-        .update({ uses: Math.max(0, Number(row.uses) - 1) })
-        .where('id', invitationId);
+    await TeamInvitation.transaction(async () => {
+      await TeamInvitationUse.destroy().where({ invitation_id: invitationId, principal: who });
+      const [row] = await TeamInvitation.query().columns(['uses']).where('id', invitationId);
+      await TeamInvitation.update({ uses: Math.max(0, Number(row.uses) - 1) }).where('id', invitationId);
     });
   }
 

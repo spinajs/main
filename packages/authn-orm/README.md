@@ -5,21 +5,10 @@ ORM stores and migrations for SpinaJS authentication (design §22.12, §22.13, �
 
 ## Migrations
 
-Importing the package registers them on the `default` connection:
-
-- `AuthnInitial_2026_10_02_00_00_00` creates `authn_identity`, `authn_throttle`,
-  `authn_audit`, `authn_secret`, `authn_mfa`, `authn_recovery_code` and `authn_nonce`.
-- `AuthnFromUserMetadata_2026_10_02_00_01_00` upgrades 2.x data out of
-  `users_metadata`:
-  - TOTP secrets are encrypted into `authn_mfa`.
-  - Pending resets and invites are carried into `authn_secret` as SHA-256 hashes, with
-    their 2.x expiry.
-  - Every `2fa:`, `user:2fa:`, `user:login:`, `user:pwd_reset:` and `user:pwd:reset`
-    key is deleted.
-
-  When any user has a 2fa secret, the upgrade needs `authn.mfa.encryptionKey.secret`.
-  `down()` decrypts the TOTP secrets back and deletes the carried reset and invite rows.
-  It names the affected users, who then have to request a new link.
+Importing the package registers `AuthnInitial_2026_10_02_00_00_00` on the `default` connection. It
+creates `authn_identity`, `authn_throttle`, `authn_audit`, `authn_secret`, `authn_mfa`,
+`authn_recovery_code` and `authn_nonce`. Nothing is carried over from 2.x `users_metadata`: 2.x TOTP
+enrolments, pending resets and invites do not survive the upgrade.
 
 ## Services
 
@@ -48,15 +37,18 @@ unsalted SHA-256, so steps must generate codes of at least 80 bits.
 The cipher and `identityKey` are also exported from the side-effect-free subpaths
 `@spinajs/authn-orm/cipher` and `@spinajs/authn-orm/identity`, which register nothing.
 
+Every store reads and writes through the package's models (`AuthnIdentity`, `AuthnSecret`,
+`AuthnNonce`, `AuthnMfa`, `AuthnRecoveryCode`, `AuthnThrottle`, `AuthnAudit`), which name the
+table and the `default` connection. The stores take no driver: a store awaits `ormReady()` before
+its first statement, and a test boots an Orm whose `default` connection is the database under test.
 The stores, `DbAuthnThrottle` and `DbMfaEnrolments` are `@PerChildInstance`: each container that
-resolves one gets its own instance, on the `default` connection of that container's Orm (the throttle
-also reads that container's configuration). Tests pass a driver instead.
+resolves one gets its own instance, and the throttle reads that container's configuration.
 
 ## Rules the stores keep
 
 - **Time comes from Node.** "Now" is `ctx.now`, or `Date` at call time; SQL `now()` is
   never used. Every claim, expiry or compare-and-set is decided in SQL against bound
-  values. Datetime columns hold UTC wall-clock text.
+  values. Datetimes are written as UTC (ISO-8601 text on SQLite).
 - **Secrets are never stored in clear:**
   - single-use secrets and recovery codes are kept as SHA-256 only;
   - TOTP secrets are kept as cipher text only;

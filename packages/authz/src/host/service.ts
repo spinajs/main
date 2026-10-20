@@ -23,7 +23,6 @@ import { PermissionRegistryImpl } from '../engine/registry.js';
 import type { PermissionInput } from '../engine/registry.js';
 import { validateBoot } from '../engine/validate.js';
 import type { PermissionRefDecl, RelationRefDecl, ScopeRefDecl } from '../engine/validate.js';
-import { checkLegacyKeys } from './config/legacy-keys.js';
 import { configAt, readDomainConfig } from './config/domain-config.js';
 import { AUTHZ_AUDIT_SERVICE_KEY, AUTHZ_BUS_SERVICE_KEY } from './config/defaults.js';
 import type { DomainConfig } from './config/domain-config.js';
@@ -100,13 +99,6 @@ export class DefaultAuthzService extends AuthzService {
   /** The whole authz tree: domain names may contain dots, so a domain's section is indexed (configAt), never read by a dotted path. */
   @Config('authz')
   protected Config: unknown;
-
-  @Config('authz.config.rejectLegacyKeys')
-  protected RejectLegacyKeys: boolean | undefined;
-
-  /** The 2.x section, read only to report its keys. */
-  @Config('rbac')
-  protected LegacyRbac: unknown;
 
   constructor(private readonly container: IContainer) {
     super();
@@ -343,8 +335,6 @@ export class DefaultAuthzService extends AuthzService {
     // @Config reads only a resolved Configuration, and a domain container may register its own.
     await container.resolve(Configuration);
     const lineage = domains.lineage(name);
-    // Floor for a Configuration the schema never saw: only an explicit false turns the rejection off.
-    if (parent === undefined) checkLegacyKeys(this.LegacyRbac, this.RejectLegacyKeys !== false, this.log);
     const cfg = readDomainConfig(this.Config, lineage);
     const disables = [...(parent?.disables ?? []), cfg.disable];
     const levels = lineage.map((n) => domains.container(n));

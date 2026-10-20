@@ -1,26 +1,27 @@
-import { IdentifierQuoter, OrmDriver } from '@spinajs/orm';
+import type { AuthzTx } from '@spinajs/authz';
+import { ormReady } from '@spinajs/orm';
+import type { IUpdateResult, OrmDriver } from '@spinajs/orm';
 
-import { transactionDriver } from './context.js';
+import { requireTransaction } from './context.js';
+import { VersionRecord } from './records.js';
+import { AUTHZ_VERSION_TABLE } from './tables.js';
 
-export const AUTHZ_VERSION_TABLE = 'authz_version';
-
-/**
- * `authz_version(domain) += 1` inside the caller's transaction, creating the row at 1.
- * The increment is one statement, so concurrent writers never lose a bump; the update builder
- * cannot express `version = version + 1`, hence the raw statement.
- */
-export async function bumpVersion(driver: OrmDriver, domain: string): Promise<void> {
-  transactionDriver({ driver }, 'bumpVersion');
-
+/** `authz_version(domain) += 1` in the transaction of `tx`, creating the row at 1. */
+export async function bumpVersion(tx: AuthzTx, domain: string, where = 'bumpVersion'): Promise<void> {
+  const driver = requireTransaction(VersionRecord, tx, where);
+  if ((await increment(driver, domain)) > 0) return;
   await driver.insert().into(AUTHZ_VERSION_TABLE).values({ domain, version: 0 }).orIgnore();
-
-  const q = driver.Container.resolve(IdentifierQuoter);
-  const [table, version, key] = [q.quote(AUTHZ_VERSION_TABLE), q.quote('version'), q.quote('domain')];
-  await driver.schema().raw(`UPDATE ${table} SET ${version} = ${version} + 1 WHERE ${key} = ?`, [domain]);
+  await increment(driver, domain);
 }
 
-/** The domain's version as text (Postgres returns bigint as a string); `'0'` when the row is absent. */
-export async function readVersion(driver: OrmDriver, domain: string): Promise<string> {
-  const rows = (await driver.select().from(AUTHZ_VERSION_TABLE).where('domain', domain)) as { version: unknown }[];
-  return rows.length === 0 ? '0' : String(rows[0].version);
+async function increment(driver: OrmDriver, domain: string): Promise<number> {
+  const result: IUpdateResult = await driver.update().in(AUTHZ_VERSION_TABLE).increment('version').where('domain', domain);
+  return result.RowsAffected;
+}
+
+/** The domain's version; `'0'` when the row is absent. */
+export async function readVersion(domain: string): Promise<string> {
+  await ormReady();
+  const [row] = await VersionRecord.where('domain', domain);
+  return row?.version ?? '0';
 }

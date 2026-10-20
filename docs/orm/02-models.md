@@ -26,7 +26,8 @@ table itself when it starts.
    - gives a column with no converter the one registered in `__orm_db_value_converters__` under
      its lower-cased `NativeType`;
    - builds `descriptor.Schema` and `descriptor.ResponseSchema` (see
-     [JSON schema](11-json-schema.md)).
+     [JSON schema](11-json-schema.md));
+   - when `tableInfo()` answers `null` (no such table), leaves the descriptor's columns as the decorators made them and records the model; at the end it throws one `OrmException` for all of them when called strict (the boot does, under `db.StrictTableCheck`), or logs a warning per model. See [Connections](01-connections.md).
 6. `Orm.wireRelations()` resolves relation targets, and `applyModelMixins()` binds the static query
    API (`get`, `where`, `select`, ...) onto every registered model.
 
@@ -106,6 +107,28 @@ sequenceDiagram
 | `IsForeignKey` | `boolean` | Foreign key column. |
 | `ForeignKeyDescription` | `{ From, To, Table } \| null \| undefined` | Reflected foreign key. |
 
+### Column kinds
+
+`columnKind(column)` names what a column holds, whatever spelling its driver reports in `Type`
+(SQLite's declared type, Postgres' `udt_name`, MySQL's and MSSQL's `DATA_TYPE`): `'integer'`
+(`int`, `int4`, `bigint`, `serial`, `INTEGER`, ...), `'decimal'` (`numeric`, `decimal`, `real`,
+`float8`, `money`, ...), `'uuid'` (`uuid`, `uniqueidentifier`), `'text'` (`varchar`, `text`,
+`nvarchar`, `bpchar`, ...) or `'other'`. A size, `unsigned` or `zerofill` in the type is ignored;
+an empty `Type` falls back to `NativeType`.
+
+`lookupValue(column, text)` is the value to compare `column` with when a key arrives as text (a URL
+segment, an authz resource id). An integer column takes an integer literal, as a number while it is
+a safe integer and as text beyond `Number.MAX_SAFE_INTEGER`, within the range of its type; a decimal
+column takes a decimal literal, as text; a uuid column takes a uuid. For any other text it returns
+`undefined`: leave that key out of the `where`/`whereIn`. Bound anyway, Postgres and MSSQL fail the
+query on the cast, Postgres fails it on a value out of the column's range, and MySQL converts `'abc'` to
+`0` and matches that row. Text and other columns take the text as it is.
+
+The range comes from the reported type name. `int2`/`smallint` hold 16 bits, `mediumint` 24, `int4` 32
+and `int8`/`bigint` 64; `tinyint` holds -128 to 255 (signed on MySQL, unsigned on MSSQL). `int` and
+`integer` are 32 bits on MySQL and MSSQL but 64 on SQLite, so they, and every other integer spelling,
+are capped at 64 bits. An `unsigned` type raises the upper bound to the unsigned maximum of its width.
+
 ## Decorators
 
 | Decorator | Target | Options | Effect |
@@ -113,7 +136,7 @@ sequenceDiagram
 | `@Model(tableName)` | class | `tableName: string` | Sets `TableName`, registers the class under `__models__`. Required for the static query API and for table columns. |
 | `@Connection(name)` | class | `name: string` | Sets `Connection`. See [Connections](01-connections.md). |
 | `@Primary(options?)` | property | `generated?: 'auto' \| 'uuid' \| 'assigned'`, default `'auto'` | Adds the property to `PrimaryKey`. Repeat on several properties for a composite key. |
-| `@CreatedAt()` | property | none | Sets `Timestamps.CreatedAt` and a `DatetimeValueConverter`. The constructor stamps it with `DateTime.now()`. |
+| `@CreatedAt()` | property | none | Sets `Timestamps.CreatedAt` and a `DatetimeValueConverter`. The constructor stamps it with `DateTime.utc()`. |
 | `@UpdatedAt()` | property | none | Sets `Timestamps.UpdatedAt` and a `DatetimeValueConverter`. `update()` and `save()` stamp it when another column changed. |
 | `@SoftDelete()` | property | none | Sets `SoftDelete.DeletedAt` and a `DatetimeValueConverter`. `destroy()` becomes an `UPDATE` of this column, and selects filter deleted rows out. |
 | `@Archived()` | property | none | Sets `Archived.ArchivedAt` and a `DatetimeValueConverter`. Selects filter archived rows out. `model.archive()` stamps it. |
@@ -125,7 +148,7 @@ sequenceDiagram
 | `@DiscriminationMap(field, entries)` | class | see [Discrimination maps](14-discrimination-maps.md) | Picks the class per row from a column value. |
 
 Relation decorators are covered in [Relations](06-relations.md). Converter decorators (`@DateTime()`,
-`@Bool()`, `@Json()`, `@Set()`, `@UniversalConverter()`) are covered in
+`@Bool()`, `@Json()`, `@Int64()`, `@Set()`, `@UniversalConverter()`) are covered in
 [Converters and hydration](04-converters-and-hydration.md).
 
 ### Primary key strategies
@@ -144,8 +167,9 @@ Multi-row `Model.insert([...])` backfills `auto` keys as follows:
 - A single row takes `LastInsertId`.
 - Several rows take `LastInsertId + index` only when all of these hold: the driver reports
   `insertIdIsFirstOfBatch`, the model has one `auto` key column, the insert behaviour is
-  `InsertBehaviour.None`, `LastInsertId` is a positive number, `RowsAffected` equals the row count,
-  and no row carried a key.
+  `InsertBehaviour.None`, the batch ran as one statement (not split by the driver's `MaxBindings` or
+  `MaxInsertRows`), `LastInsertId` is a positive number, `RowsAffected` equals the row count, and
+  no row carried a key.
 - Otherwise no key is assigned. Re-select the rows or insert them one at a time.
 
 `InsertBehaviour` selects the conflict handling of `model.insert()` and `Model.insert()`:

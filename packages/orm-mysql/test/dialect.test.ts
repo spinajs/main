@@ -2,8 +2,8 @@ import 'mocha';
 import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
-import { InvalidArgument } from '@spinajs/exceptions';
-import { IdentifierQuoter, InSetStatement, WhereBoolean } from '@spinajs/orm';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { IdentifierQuoter, InSetStatement, SchemaQueryBuilder, WhereBoolean } from '@spinajs/orm';
 
 import { MySqlOrmDriver } from '../src/index.js';
 import { MySqlInSetStatement } from '../src/statements.js';
@@ -44,6 +44,31 @@ describe('mysql dialect', function () {
     const quoter = driver.Container.resolve<IdentifierQuoter>(IdentifierQuoter);
 
     expect(quoter.quote('Role')).to.eq('`Role`');
+  });
+
+  it('quotes the column alterTable() drops', () => {
+    const schema = driver.Container.resolve(SchemaQueryBuilder, [driver]);
+
+    expect(schema.alterTable('users', (table) => table.dropColumn('Role')).toDB()).to.deep.eq([{ bindings: [], expression: 'ALTER TABLE `users` DROP COLUMN `Role`' }]);
+  });
+
+  it('locks a table with a locking read of every row', async () => {
+    const sent: string[] = [];
+    driver.executeOnDb = (stmt: string) => (sent.push(stmt), Promise.resolve([]));
+    // a transaction context in scope is all assertInTransaction() checks
+    await (driver as any).TransactionStorage.run({ depth: 0 }, () => driver.lockTableShared('users'));
+
+    expect(sent).to.deep.eq(['SELECT COUNT(*) FROM `users` FOR UPDATE']);
+  });
+
+  it('refuses lockTableShared outside a transaction', async () => {
+    const err = await driver.lockTableShared('users').then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(err).to.be.instanceOf(InvalidOperation);
+    expect((err as Error).message).to.eq('lockTableShared must run inside a transaction');
   });
 
   describe('set membership', () => {

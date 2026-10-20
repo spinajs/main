@@ -47,11 +47,11 @@ Every method below is bound by `Orm`. Before `Orm` resolves, or on a class witho
 | `first(callback?)` | `Promise<model>` | First row ordered by primary key ascending. Without a key it orders by `Unique` columns, then `@CreatedAt`, then `@UpdatedAt`. `callback` receives the builder. |
 | `last(callback?)` | `Promise<model>` | As `first()`, descending. |
 | `newest(callback?)` / `oldest(callback?)` | `Promise<model>` | First row by `@CreatedAt` descending / ascending. Throws `OrmException` when the model has no `@CreatedAt`. |
-| `count(callback?)` | `Promise<number>` | `COUNT(*)`; `0` when nothing matches. |
+| `count(callback?)` | `Promise<number>` | `COUNT(*)` as a `number` on every driver (PostgreSQL's `bigint` count text is converted); `0` when nothing matches. |
 | `exists(pk)` | `Promise<boolean>` | Selects only the key columns of the row with this key. With `pk === null` it checks whether the table has any row. |
 | `insert(data, behaviour?)` | `Promise<IInsertResult>` | Inserts one model, one plain object or an array. See [Insert](#insert). |
-| `update(data)` | update builder | `UPDATE ... SET data`. Chain a `where()`. Throws `OrmException` when `data` is a `ModelBase`. |
-| `destroy(pk \| pk[])` | delete builder | `DELETE` by key, or `UPDATE ... SET DeletedAt = now` on a `@SoftDelete` model. Throws `OrmException` for `undefined`, `null` or `[]`. |
+| `update(data)` | update builder | `UPDATE ... SET data`. Every value whose column has a converter (`@Json`, `@DateTime`, `@Int64`, `@Set`, `@Uuid`, ...) is converted the way `insert()` converts it; `null`, `undefined` and keys without a column are bound as they are. A `@DateTime` column accepts ISO 8601 and SQL-format (`YYYY-MM-DD HH:mm:ss`) strings; any other string makes `update(data)` throw `InvalidArgument` synchronously, before a builder exists. Chain a `where()`: an update without one throws `InvalidArgument` too, but that rejects when the builder is awaited. Throws `OrmException` when `data` is a `ModelBase`. |
+| `destroy(pk? \| pk[])` | delete builder; update builder on a `@SoftDelete` model | `DELETE` by key, or `UPDATE ... SET DeletedAt = now` on a `@SoftDelete` model. Without a key, a builder to narrow with `where()`; executing it un-narrowed rejects with `OrmException`, a WHERE added by a query middleware does not count. Throws `OrmException` for `null` or `[]`. |
 | `truncate()` | truncate builder | Clears the table. |
 | `create(data)` | `Promise<model>` | `new Model(data)`, then `insert()`. |
 | `getOrCreate(pk, data?)` | `Promise<model>` | Looks up by `pk` (skipped when `null`) and by every `Unique` column with its value from `data`. Inserts `new Model(data)` when nothing matches. |
@@ -71,6 +71,7 @@ Every builder is lazy: awaiting it executes the query. See [Query builder](05-qu
 3. `behaviour` maps to `orIgnore()`, `onDuplicate().update(<every non-key column>)` or `orReplace()`. An array with any behaviour other than `InsertBehaviour.None` throws `OrmException`; an empty array resolves without a query.
 4. When the key is database-generated and the driver supports `RETURNING`, the insert asks for the key columns.
 5. After execution, generated keys are written back onto every `ModelBase` row: from `RETURNING`, from `LastInsertId` for a single row, or from `LastInsertId + index` when the driver reports `insertIdIsFirstOfBatch`. Every `ModelBase` row is then re-baselined with `takeSnapshot()`.
+6. A batch larger than one statement can carry is split by `InsertQueryBuilder.splitByDriverLimits()` and runs in one transaction; generated keys come back from every statement's `RETURNING`, in insert order. A driver without `RETURNING` leaves the keys of a split batch unset: `LastInsertId` names one statement, and the ids of several statements are not contiguous.
 
 ### Instance members
 
@@ -112,6 +113,22 @@ A scope is a reusable set of conditions you call on a builder: `Invoice.query().
 | `_getEntity(idOrEntity, Model, fresh?)` | Returns `() => getEntity(...)`. |
 | `_insert(behaviour?)` / `_update(data?)` / `_insertOrUpdate()` / `_delete()` | Return `(model) => insertModel(...)` and so on, for composing pipelines. |
 
+### Driver and transaction helpers
+
+For code that runs outside the model statics: migrations, which run before the Orm installs the statics, and
+stores that must refuse a write outside their transaction.
+
+| Function | Behaviour |
+| --- | --- |
+| `ormReady()` | Resolves the Orm unless one already created its connections; concurrent callers share one resolve. Await it before the first model call in a process that may not have booted the Orm (a cli command). |
+| `ormConnection(name)` | The driver of connection `name`, an alias from `db.Aliases` included. |
+| `modelDriver(Model)` | The driver `Model`'s queries run on; a transaction open on it is the one they join. Works inside migrations. |
+| `requireModelConnection(Model, driver)` | Returns `driver` when it is `Model`'s driver; throws `NotAnOrmDriver` or `ConnectionMismatch`. |
+| `requireModelTransaction(Model, driver)` | Returns `driver` when it is an `OrmDriver` with a transaction open in this async context on `Model`'s connection. Checks in this order: `NotAnOrmDriver`, `TransactionRequired`, the connection errors below, `ConnectionMismatch`. |
+
+`ormConnection`, `modelDriver` and the functions built on them throw `OrmNotResolved` before an Orm created
+its connections and `OrmConnectionMissing` (with `connection`) when no connection or alias has the name.
+
 ### Types and results
 
 | Type | Meaning |
@@ -134,9 +151,14 @@ A scope is a reusable set of conditions you call on a builder: `Invoice.query().
 
 | Exception | Thrown by |
 | --- | --- |
-| `OrmException` | Invalid use: a missing descriptor or relation, `destroy()` without keys, `newest()` without `@CreatedAt`, `archive()` without `@Archived`, an array insert with a behaviour. Driver errors carry `driver`, `query`, `bindings` and `inner`. |
+| `OrmException` | Invalid use: a missing descriptor or relation, `destroy()` executed without keys or `where()`, `newest()` without `@CreatedAt`, `archive()` without `@Archived`, an array insert with a behaviour. Driver errors carry `driver`, `query`, `bindings` and `inner`. |
 | `OrmNotFoundException` | `getOrFail()`, `fresh()`, `refresh()` and any builder's `firstOrFail()` when no row matches. Extends `OrmException`. |
 | `NoRowsAffected` | `insertModel()`, `deleteModel()` and the `_insert()` / `_delete()` wrappers when the statement changed no row. Extends `OrmException`. |
+| `UniqueViolation` | Any statement that breaks a primary key or unique constraint, on every driver. Extends `ResourceDuplicated` from `@spinajs/exceptions`, not `OrmException`. Carries `table`, `constraint` and `columns` when the driver reports them, and the native error as `inner`; its message is the native message. |
+| `ConstraintViolation` | A NOT NULL, CHECK or FOREIGN KEY failure. Extends `OrmException`. `kind` is `'not_null'`, `'check'`, `'foreign_key'` or `'other'`; `table`, `constraint`, `columns` and `inner` as for `UniqueViolation`. |
+| `OrmNotResolved` | `ormConnection()`, `modelDriver()`, the helpers built on them and `createQuery()` (so the model statics) before an Orm created its connections. Extends `OrmException`. |
+| `OrmConnectionMissing` | The same helpers, and the model statics, when no connection or `db.Aliases` entry has the name; `connection` holds it. Extends `OrmException`. |
+| `NotAnOrmDriver`, `TransactionRequired`, `ConnectionMismatch` | `requireModelConnection()` / `requireModelTransaction()`. `ConnectionMismatch` carries `table`, `expected` (the model's connection) and `actual` (the given driver's). All extend `OrmException`. |
 
 ## Services and extension points
 
@@ -152,7 +174,7 @@ A scope is a reusable set of conditions you call on a builder: `Invoice.query().
 - Construct a model after `Orm` has resolved. `hydrate()` resolves the connection's container and throws `model <Name> have invalid connection ...` when it cannot.
 - `get()`, `first()`, `last()`, `newest()` and `oldest()` resolve `undefined` when nothing matches, although their return type is the model.
 - Static `insert()` is `async`: it returns a promise, not the `InsertQueryBuilder` its type declares. Pass everything through `data` and `behaviour`.
-- Static `update(data)` sends `data` as given. Column converters declared with decorators are **not** applied; see [Converters and hydration](04-converters-and-hydration.md#important-behaviour).
+- Static `update(data)` converts `data` through the column converters when it is called, so a value its converter refuses (a `@DateTime` string that is neither ISO 8601 nor SQL format) throws `InvalidArgument` synchronously, before the `where()` is chained.
 - `insertOrUpdate()` tests `PrimaryKeyValue` for truthiness. A `@Uuid()` column or a `uuid` key is filled at construction, and a composite key is a non-empty array, so these models always take the `update()` path.
 - `getOrCreate(pk, data)` uses `pk` only for the lookup. The new model gets its key from `data` or from the database.
 - `getOrNew(data)` with no key or `Unique` column in `data`, and `getOrCreate(null, data)` on a model without `Unique` columns, add no condition and return the first row of the table.
@@ -190,10 +212,11 @@ await payment.save();
 ```
 
 ```ts
-// Don't: destroy() refuses an unbounded delete and throws OrmException
+// Don't: destroy() without keys refuses to run un-narrowed and rejects with OrmException
 await Invoice.destroy();
 
-// Do
+// Do: narrow it, or clear the table on purpose
+await Invoice.destroy().where('Status', 'draft');
 await Invoice.truncate();
 ```
 
@@ -294,6 +317,63 @@ export async function closeTicket(id: number): Promise<Ticket> {
   const ticket = await _getEntity(id, Ticket)();
   return await _update<Ticket>({ Status: 'closed' })(ticket);
 }
+```
+
+## Migration
+
+### Constraint errors are `UniqueViolation` and `ConstraintViolation` on every driver
+
+A duplicate key rejects with `UniqueViolation`, which extends `ResourceDuplicated` and **not** `OrmException`. A NOT NULL, CHECK or foreign key failure rejects with `ConstraintViolation` and its `kind`. A `catch` that tests for `OrmException` does not see a duplicate.
+
+```ts
+// Before: a duplicate on PostgreSQL, MySQL or MSSQL arrived as OrmException
+try {
+  await Invoice.insert({ Number: number, CustomerId: customerId });
+} catch (err) {
+  if (err instanceof OrmException) return null;
+  throw err;
+}
+
+// After
+try {
+  await Invoice.insert({ Number: number, CustomerId: customerId });
+} catch (err) {
+  if (err instanceof UniqueViolation) return null;
+  if (err instanceof ConstraintViolation && err.kind === 'foreign_key') throw new UnknownCustomer(customerId);
+  throw err;
+}
+```
+
+### Static `update(data)` converts values
+
+`Model.update(data)` runs each value through its column converter, as `insert()` does. Pass the JS value, not the database form: a string you serialized for a `@Json` column is serialized again. See [Converters and hydration](04-converters-and-hydration.md#migration).
+
+### `deleteFrom()` is removed; `destroy()` without keys builds the delete
+
+`Model.destroy()` with no argument returns the builder `deleteFrom(Model)` returned, under `requireWhere()`. It no longer throws synchronously: an un-narrowed one rejects with `OrmException` when awaited. On a `@SoftDelete` model it soft-deletes, where `deleteFrom()` deleted the rows.
+
+```ts
+// Before
+import { deleteFrom } from '@spinajs/orm';
+await deleteFrom(Session).where('ExpiresAt', '<', now);
+
+// After
+await Session.destroy().where('ExpiresAt', '<', now);
+
+// After, hard delete of a @SoftDelete model, or inside a migration's up() where the statics do not exist yet
+await modelDriver(Session).del().from(extractModelDescriptor(Session).TableName).where('ExpiresAt', '<', now);
+```
+
+### `count()` is a number
+
+`Model.count()` and `selectCount()` resolve with a `number` on every driver, PostgreSQL included. A strict comparison with a string (`count === '0'`) never matches.
+
+```ts
+// Before
+const unpaid = parseInt((await Invoice.count((q) => q.where('Status', 'unpaid'))) as unknown as string, 10);
+
+// After
+const unpaid = await Invoice.count((q) => q.where('Status', 'unpaid'));
 ```
 
 ## Related

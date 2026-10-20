@@ -1,6 +1,6 @@
 import { createHmac, randomBytes } from 'node:crypto';
 
-import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS } from '@spinajs/authn/contracts';
+import { AuthnThrottle } from '@spinajs/authn/contracts';
 import { authnAppEnv, checkThrottleParams, isLenientAuthnEnv } from '@spinajs/authn/env';
 import type { AuthnConfigSource } from '@spinajs/authn/env';
 import { StoreAuthnThrottle } from '@spinajs/authn/store-throttle';
@@ -10,7 +10,6 @@ import '@spinajs/authn/register-schema';
 import { Autoinject, Container, IContainer, Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { Orm, OrmDriver } from '@spinajs/orm';
 import { deepFreeze, isNonEmptyString } from '@spinajs/util';
 import type { ThrottleStore } from '@spinajs/util';
 
@@ -55,13 +54,10 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   @Logger('authn-orm')
   protected Log: Log;
 
-  @Autoinject(Orm)
-  protected Orm: Orm;
-
   @Autoinject(Container)
   protected Container: IContainer;
 
-  /** Complete params given to the constructor, or the §22.5 defaults when there is a driver. */
+  /** Complete params given to the constructor. */
   private readonly fixedParams: ThrottleParams | undefined;
   private loadedParams: ThrottleParams | undefined;
   private readonly fromConfiguration: boolean;
@@ -71,15 +67,14 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
 
   /**
    * DI passes nothing: `authn.throttle` and `authn.audit.hashKey.secret` come from the configuration of the resolving
-   * container on first use (`init`), and the rows go to the `'default'` connection of its Orm. With a driver nothing
-   * is read from the configuration: `params` default to §22.5 and the hash key to `options.hashKey`.
+   * container on first use (`init`). With `params` nothing is read from the configuration: the hash key is
+   * `options.hashKey`. The rows live on the connection of the `AuthnThrottle` model.
    */
-  constructor(private driver?: OrmDriver, params?: ThrottleParams, private readonly options: DbThrottleOptions = {}) {
+  constructor(params?: ThrottleParams, private readonly options: DbThrottleOptions = {}) {
     super();
     if (params) checkThrottleParams(params);
-    // Fixed here: init() sets the driver later.
-    this.fromConfiguration = driver === undefined;
-    this.fixedParams = params ?? (this.fromConfiguration ? undefined : DEFAULT_THROTTLE_PARAMS);
+    this.fromConfiguration = params === undefined;
+    this.fixedParams = params;
     if (!this.fromConfiguration) {
       this.loadedParams = this.fixedParams;
       this.hmacKey = hashKeyOf(this.options.hashKey);
@@ -110,7 +105,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
     }
   }
 
-  /** Resolves the connection and the configuration; the first `attempt`, `peek` or `succeed` and every `purge` call it. */
+  /** Resolves the configuration; the first `attempt`, `peek` or `succeed` and every `purge` call it. */
   public async init(): Promise<void> {
     this.loading ??= this.load().catch((err: unknown) => {
       this.loading = undefined;
@@ -159,7 +154,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
 
   private async dbStore(): Promise<DbThrottleStore> {
     await this.init();
-    this.rows ??= this.createStore({ driver: this.driver!, resetAfterMs: this.params.resetAfterSeconds * 1000 });
+    this.rows ??= this.createStore({ resetAfterMs: this.params.resetAfterSeconds * 1000 });
     return this.rows;
   }
 
@@ -177,7 +172,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   }
 
   private configurationContainer(): IContainer {
-    if (!this.Container) throw new InvalidOperation('DbAuthnThrottle: built without a driver and not by DI, so it has no configuration');
+    if (!this.Container) throw new InvalidOperation('DbAuthnThrottle: built without params and not by DI, so it has no configuration');
     return this.Container;
   }
 
@@ -191,11 +186,6 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
       if (!isNonEmptyString(secret)) {
         this.Log.warnOnce('random-hash-key','DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle rows are keyed with a random key of this process: their counts end with the process and are not shared with other instances');
       }
-    }
-    if (!this.driver) {
-      const driver = this.Orm.Connections.get('default');
-      if (!driver) throw new InvalidOption("DbAuthnThrottle: the Orm has no 'default' connection");
-      this.driver = driver;
     }
   }
 }

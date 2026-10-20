@@ -25,7 +25,7 @@ export function resetPasswordCalls(): void {
 
 /**
  * The PasswordService users calls in the suites: the test config's rule (8+ characters with a digit); `set` hashes
- * with the legacy provider into users.Password so the 2.x login tests still find the password; `expire` writes
+ * with the test hasher into users.Password, where the login tests read it; `expire` writes
  * authn-local's marker and publishes its event to the registered sinks, as authn-local does. The reset calls only
  * record (tests stub their answers).
  */

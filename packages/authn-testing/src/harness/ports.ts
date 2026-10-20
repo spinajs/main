@@ -46,7 +46,6 @@ export interface Harness {
   readonly lifecycle?: LifecyclePort;
   readonly metadata?: MetadataPort;
   readonly identityMeta?: IdentityMetaPort;
-  readonly migration?: MigrationPort;
   readonly boot?: BootPort;
   readonly actors?: ActorsPort;
   readonly http?: HttpPort;
@@ -87,8 +86,6 @@ export interface SeedPort {
 export interface SessionStoragePort {
   /** Every storage key (ISession.SessionId) the lane's store holds, live or not yet swept. */
   storedKeys(): Promise<readonly string[]>;
-  /** A 2.x-shaped row: SessionId = rawId (uuid v4), Data User = user (users.Uuid), Authorized, Impersonator. */
-  seedLegacy(row: { rawId: string; user: string; authorized: boolean; creation: Date; impersonator?: string }): Promise<void>;
 }
 
 export interface BackoffParams {
@@ -227,7 +224,7 @@ export interface LifecyclePort {
 export type MetadataActor = 'owner' | 'admin';
 
 export interface MetadataPort {
-  /** Writes through the lane's guard-free internal path (the 2.x writer); returns the row id. */
+  /** Writes through the lane's guard-free internal path; returns the row id. */
   seedRaw(id: IdentityRef, key: string, value: unknown): Promise<string>;
   rawKeys(id: IdentityRef): Promise<readonly string[]>;
   /** The stored value of the raw row with that key (the one seedRaw wrote). */
@@ -245,39 +242,6 @@ export interface MetadataPort {
  */
 export interface IdentityMetaPort {
   set(id: IdentityRef, key: string, value: unknown): Promise<{ ok: boolean }>;
-}
-
-export interface LegacyMetadataRow {
-  readonly Key: string;
-  readonly Type: 'number' | 'float' | 'string' | 'json' | 'boolean' | 'datetime';
-  readonly Value: string | null;
-}
-
-export interface LegacyUser {
-  readonly Uuid: string;
-  readonly Email: string;
-  readonly Login: string;
-  readonly IsActive: boolean;
-  readonly metadata: readonly LegacyMetadataRow[];
-}
-
-export interface SecretRowView {
-  readonly identity: string;
-  readonly purpose: string;
-  readonly secret_hash: string;
-  readonly expires_at: Date;
-  readonly created_at: Date;
-  readonly used_at: Date | null;
-}
-
-export interface MigrationPort {
-  /** Users and users_metadata rows exactly as given. */
-  seedLegacy(users: readonly LegacyUser[]): Promise<void>;
-  /** AuthnFromUserMetadata up(). */
-  run(): Promise<void>;
-  /** authn_secret rows. */
-  secretRows(): Promise<readonly SecretRowView[]>;
-  metadataKeys(uuid: string): Promise<readonly string[]>;
 }
 
 /** 'public' exists only for the cookie secret: the shipped `http.cookie.secret` default. Pepper and MFA key ship null, so they have no public value. */

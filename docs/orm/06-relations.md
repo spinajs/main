@@ -46,7 +46,7 @@ sequenceDiagram
 Filtering with `whereExist()`:
 
 1. `whereExist(relation, callback?)` or `whereNotExists(relation, callback?)` on any where-capable builder (select, update, delete) calls `buildExistsClause()`.
-2. A ready sub-query (an `ISelectQueryBuilder`) becomes an `ExistsQueryStatement` directly.
+2. A ready sub-query (an `ISelectQueryBuilder`) becomes an `ExistsQueryStatement` directly. It is correlated with the builder the call is made on, so `whereColumn(column, '=', outer(column))` inside it names that builder; a sub-query already correlated with another query throws `InvalidArgument`. See [Query builder](05-query-builder.md#filtering).
 3. A relation name resolves the relation descriptor with `getRelationDescriptor()`, then the `ExistsRelationHandler` whose `Type` matches. No handler throws `OrmException` (`no ExistsRelationHandler registered for relation type ...`). Query and Virtual relations have none.
 4. The handler returns a correlated sub-query, which the builder wraps in `EXISTS` / `NOT EXISTS`:
    - `OneExistsRelationHandler` (belongs-to) always adds `<ForeignKey> IS NOT NULL`. Only with a callback does it add an `EXISTS` on the target table, correlated on `<target>.<PrimaryKey> = <source>.<ForeignKey>`.

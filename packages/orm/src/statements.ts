@@ -127,17 +127,31 @@ export abstract class BetweenStatement extends QueryStatement {
 
   public abstract build(): IQueryStatementResult;
 }
+const WHERE_GROUP = Symbol.for('@spinajs/orm:WhereQueryStatement');
+
 @NewInstance()
 export abstract class WhereQueryStatement extends QueryStatement {
-  protected _builder: WhereBuilder<any>;
+  /** `instanceof` fails for a group from a second loaded copy of the ORM (cjs next to mjs); the registry symbol does not. */
+  public static isGroup(statement: unknown): statement is WhereQueryStatement {
+    return (statement as Record<symbol, unknown> | null | undefined)?.[WHERE_GROUP] === true;
+  }
 
-  constructor(builder: WhereBuilder<any>) {
+  protected _builder: WhereBuilder<any>;
+  protected _not: boolean;
+
+  constructor(builder: WhereBuilder<any>, not = false) {
     super();
     this._builder = builder;
+    this._not = not;
+  }
+
+  public get Builder(): WhereBuilder<any> {
+    return this._builder;
   }
 
   public abstract build(): IQueryStatementResult;
 }
+Object.defineProperty(WhereQueryStatement.prototype, WHERE_GROUP, { value: true });
 
 @NewInstance()
 export abstract class LazyQueryStatement extends QueryStatement {
@@ -232,6 +246,47 @@ export abstract class DateWrapper extends WrapStatement {}
 export abstract class DateTimeWrapper extends WrapStatement {}
 
 @NewInstance()
+export abstract class TextWrapper extends WrapStatement {}
+
+/** A column of an enclosing query, for a statement of a correlated sub-query; see {@link outer}. */
+export class OuterColumn {
+  constructor(
+    public readonly Column: string | Wrap,
+    public readonly Levels: number,
+  ) {}
+}
+
+/**
+ * `whereColumn('scope_id', '=', outer('id'))`: a column of the query the sub-query is attached to with
+ * `whereExist()` / `whereIn()`. `levels` 2 is the query that one is attached to, and so on.
+ */
+export function outer(column: string | Wrap, levels = 1): OuterColumn {
+  if (!Number.isInteger(levels) || levels < 1) {
+    throw new InvalidArgument(`outer(): levels must be a positive integer, got ${levels}`);
+  }
+
+  return new OuterColumn(column, levels);
+}
+
+@NewInstance()
+export abstract class ColumnCompareStatement extends QueryStatement {
+  protected _left: string | Wrap;
+  protected _operator: SqlOperator;
+  protected _right: string | Wrap | OuterColumn;
+  protected _builder: WhereBuilder<any>;
+
+  constructor(left: string | Wrap, operator: SqlOperator, right: string | Wrap | OuterColumn, builder: WhereBuilder<any>) {
+    super();
+    this._left = left;
+    this._operator = operator;
+    this._right = right;
+    this._builder = builder;
+  }
+
+  public abstract build(): IQueryStatementResult;
+}
+
+@NewInstance()
 export abstract class JoinStatement extends QueryStatement {
   protected _whereBuilder: SelectQueryBuilder<any>;
 
@@ -288,10 +343,10 @@ export abstract class JoinStatement extends QueryStatement {
 export abstract class InStatement extends QueryStatement {
   protected _val: any[];
   protected _not: boolean;
-  protected _column: string;
+  protected _column: string | Wrap;
   protected _builder: SelectQueryBuilder<any>;
 
-  constructor(column: string, val: any[], not: boolean, builder: SelectQueryBuilder<any>) {
+  constructor(column: string | Wrap, val: any[], not: boolean, builder: SelectQueryBuilder<any>) {
     super();
 
     this._val = val || [];
@@ -426,6 +481,33 @@ export abstract class InSetStatement extends QueryStatement {
 }
 
 /**
+ * `column` begins with a prefix taken literally: no character of it is a wildcard. Each dialect registers its own
+ * form, and with it whether case variants match.
+ */
+@NewInstance()
+export abstract class StartsWithStatement extends QueryStatement {
+  protected _column: string;
+  protected _prefix: string;
+
+  constructor(column: string, prefix: string, tableAlias: string) {
+    super(tableAlias);
+
+    this._column = column || '';
+    this._prefix = prefix;
+  }
+
+  public abstract build(): IQueryStatementResult;
+
+  protected prefix(): string {
+    if (typeof this._prefix !== 'string') {
+      throw new InvalidArgument(`whereStartsWith(${this._column}) takes a string prefix, got ${this._prefix === null ? 'null' : typeof this._prefix}`);
+    }
+
+    return this._prefix;
+  }
+}
+
+/**
  * Delimiter a `@Set()` column is stored with. Must agree with the SetValueConverter,
  * which joins on it.
  */
@@ -497,6 +579,25 @@ export abstract class ColumnStatement extends QueryStatement {
 export abstract class ColumnRawStatement extends QueryStatement {
   constructor(public RawQuery: RawQuery) {
     super();
+  }
+
+  public abstract build(): IQueryStatementResult;
+}
+
+/** A where-group selected as a column: `CASE WHEN <group> THEN 1 ELSE 0 END AS alias`. */
+@NewInstance()
+export abstract class ColumnConditionStatement extends QueryStatement {
+  protected _builder: WhereBuilder<any>;
+  protected _alias: string;
+
+  constructor(builder: WhereBuilder<any>, alias: string) {
+    super();
+    this._builder = builder;
+    this._alias = alias;
+  }
+
+  public get Alias(): string {
+    return this._alias;
   }
 
   public abstract build(): IQueryStatementResult;

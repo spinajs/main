@@ -3,6 +3,7 @@ import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx, Permission, Polic
 import { Injectable, Singleton } from '@spinajs/di';
 
 import { DbPolicyStore, policyTags } from '../model/stores/db.js';
+import { POLICY_ACTOR_MAX_LENGTH as MAX_ACTOR, POLICY_ID_MAX_LENGTH as MAX_ID, POLICY_TEXT_MAX_LENGTH as MAX_TEXT } from '../model/stores/policy-record.js';
 import { abacModels, actorRef, byId, deepFreeze, isPlainObject, policiesInTx, policyChanged, quote, sameScope, scopeOf, writableStore } from './common.js';
 import type { WritablePolicyStore } from './common.js';
 
@@ -11,10 +12,6 @@ type Applied = { id?: string; affected: number; tags: readonly string[]; events:
 
 const MANAGE: Permission = 'authz:policies.manage';
 const POLICY_KEYS = new Set(['id', 'effect', 'permissions', 'resourceTypes', 'principalTypes', 'actorTypes', 'scope', 'when', 'fields', 'reason', 'priority', 'expiresAt']);
-// The authz_policy column widths DbPolicyStore enforces (design §9.1), and created_by.
-const MAX_ID = 64;
-const MAX_TEXT = 64;
-const MAX_ACTOR = 100;
 
 /** The shape a command must have before the model looks at it; returns a detached copy without undefined keys. */
 function readPolicy(v: unknown, ctx: AdminContext): PolicyInput {

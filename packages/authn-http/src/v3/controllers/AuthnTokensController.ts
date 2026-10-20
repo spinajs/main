@@ -18,7 +18,7 @@ import { boundedString, contextOf } from '../routes.js';
  * 403 `session_required` (no credential mints or manages credentials), an impersonation 403 `impersonating` (a token
  * minted there would outlive it), an anonymous caller or a pending session 401. Every answer carries no-store.
  *
- * One token on the wire, in the list and as `Token` of the create answer, keeps the names a 2.x client reads:
+ * One token on the wire, in the list and as `Token` of the create answer:
  * `{ Uuid, Name, Kind, Roles, Profile, Scope, CreatedAt, ExpiresAt, LastUsedAt, LastUsedIp, Expired }`. Instants are
  * ISO 8601 to the second, absent values null, `Roles` always a list. Never the plaintext or its hash.
  * @tags AccessTokens

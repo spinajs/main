@@ -2,17 +2,17 @@ import * as chai from 'chai';
 import 'mocha';
 import sinon from 'sinon';
 
-import { PlanTermSql, runWithPrincipal } from '@spinajs/authz';
+import { runWithPrincipal } from '@spinajs/authz';
 import type { AccessPlan, AuthzService, Principal } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { ModelBase } from '@spinajs/orm';
 
-import { AccessResource } from '../../src/index.js';
+import { AccessResource, PlanTermCompiler } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { createAncestorTable, dropAncestorTable } from '../support/ancestors.js';
-import { FlagSql } from '../support/flag-sql.js';
+import { FlagTerm } from '../support/flag-term.js';
 
 const expect = chai.expect;
 
@@ -43,7 +43,7 @@ describe('.withAccess()', function () {
   });
 
   beforeEach(async () => {
-    undo.push(testHost.registerInRoot(PlanTermSql, FlagSql));
+    undo.push(testHost.registerInRoot(PlanTermCompiler, FlagTerm));
     service = await (await testHost.domains()).service('root');
     sinon.stub(service, 'accessPlan').callsFake(async (_p, permission) => plans[permission]);
   });
@@ -52,7 +52,7 @@ describe('.withAccess()', function () {
     sinon.restore();
     testHost.config().unset(['authz', 'orm', 'accessField']);
     for (const fn of undo.splice(0).reverse()) fn();
-    DI.RootContainer.uncache(PlanTermSql);
+    DI.RootContainer.uncache(PlanTermCompiler);
     await testHost.resetRoot();
   });
 
