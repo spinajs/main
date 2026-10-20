@@ -1229,6 +1229,13 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
   and MSSQL collations ignore case.
 - Recovery codes are unsalted SHA-256, so codes need at least 80 bits.
 - `DbSecretStore.redeem` costs the same for an unknown identity as for a wrong secret.
+- The stores work through the package's models (`AuthnIdentity`, `AuthnSecret`, `AuthnNonce`,
+  `AuthnMfa`, `AuthnRecoveryCode`, `AuthnThrottle`, `AuthnAudit`) on the `default` connection. Their
+  3.0 alpha constructors took a driver and `StoreOptions`; now `new DbSecretStore()`,
+  `new DbIdentityLinkStore()`, `new DbNonceStore()`, `new DbMfaStore()` and `new DbAuthnAuditSink()`
+  take no arguments, `StoreOptions` is gone, and `DbAuthnThrottle` takes `(params?, options?)`:
+  without `params`, or with `options.container`, it reads `authn.throttle` and the hash key from the
+  configuration. `DbThrottleStoreOptions` has no `driver`.
 
 ### N6: tokens (`authn-token`)
 

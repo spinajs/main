@@ -46,8 +46,10 @@ The format is `v1.<iv>.<tag>.<ct>`, and the additional authenticated data is
 stored (`user:<Uuid>`), or the secret will not decrypt. Recovery codes are stored as
 unsalted SHA-256, so steps must generate codes of at least 80 bits.
 
-Every store resolves the Orm's `default` connection on first use. Tests pass a driver
-instead.
+Every store reads and writes through the package's models (`AuthnIdentity`, `AuthnSecret`,
+`AuthnNonce`, `AuthnMfa`, `AuthnRecoveryCode`, `AuthnThrottle`, `AuthnAudit`), which name the
+table and the `default` connection. The stores take no driver: a store awaits `ormReady()` before
+its first statement, and a test boots an Orm whose `default` connection is the database under test.
 
 ## Rules the stores keep
 
