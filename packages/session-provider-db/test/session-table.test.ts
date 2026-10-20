@@ -21,11 +21,12 @@ describe('UserSessionDBSqlMigration_2022_06_28_01_20_00', function () {
     await disposeStore();
   });
 
-  it('creates Subject, ImpersonatorId, State and UserId as nullable columns, SessionId not null', async () => {
+  it('creates Subject, ImpersonatorId and State as nullable columns, SessionId not null, and no UserId', async () => {
     await bootStore();
     const cols = await columns(await sessionConnection());
 
-    for (const c of ['Subject', 'ImpersonatorId', 'State', 'UserId']) {
+    expect(cols.has('UserId'), 'UserId').to.be.false;
+    for (const c of ['Subject', 'ImpersonatorId', 'State']) {
       expect(cols.get(c), c).to.not.be.undefined;
       expect(cols.get(c)!.Nullable, `${c} nullable`).to.be.true;
     }
@@ -44,7 +45,7 @@ describe('UserSessionDBSqlMigration_2022_06_28_01_20_00', function () {
     ).to.be.true;
   });
 
-  it('stores a 3.0 row without UserId under a 64 char key', async () => {
+  it('stores a row under a 64 char key', async () => {
     const store = await bootStore();
 
     const key = 'f'.repeat(64);

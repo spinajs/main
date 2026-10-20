@@ -29,9 +29,6 @@ export class DbSession extends ModelBase {
    */
   public Data: string;
 
-  /** Always null: a session is owned through Subject. */
-  public UserId: number | null;
-
   /** principalKey of the owner. */
   public Subject: string | null;
 

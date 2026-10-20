@@ -1,13 +1,9 @@
-import { Migration, OrmMigration, OrmDriver, ReferentialAction } from '@spinajs/orm';
+import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
 
 /**
  * Creates `user_sessions`. `SessionId` holds sha256(raw id) as 64 hex chars; Subject and
  * ImpersonatorId hold principal keys (indexed for A08 / SR-06). `State` has no default: a default
- * `'active'` would activate a row that never passed 2FA (SR-07). `UserId` is nullable, so its
- * ON DELETE CASCADE does not end 3.0 sessions.
- *
- * The timestamp is later than `@spinajs/users`'s `RBACInitial_2022_06_28_01_13_00`: the foreign
- * key references `users`, and on one connection the migrations run in timestamp order.
+ * `'active'` would activate a row that never passed 2FA (SR-07).
  */
 @Migration('session-provider-connection')
 export class UserSessionDBSqlMigration_2022_06_28_01_20_00 extends OrmMigration {
@@ -17,12 +13,9 @@ export class UserSessionDBSqlMigration_2022_06_28_01_20_00 extends OrmMigration 
       table.dateTime('CreatedAt').notNull();
       table.dateTime('Expiration');
       table.json('Data').notNull();
-      table.int('UserId');
       table.string('Subject', 100);
       table.string('ImpersonatorId', 100);
       table.string('State', 16);
-
-      table.foreignKey('UserId').references('users', 'Id').onDelete(ReferentialAction.Cascade);
     });
 
     // Explicit, or the sqlite driver cannot read the unique index back from sqlite_master.
@@ -31,6 +24,7 @@ export class UserSessionDBSqlMigration_2022_06_28_01_20_00 extends OrmMigration 
     await connection.index().table('user_sessions').name('user_sessions_impersonator_idx').columns(['ImpersonatorId']);
   }
 
-  // tslint:disable-next-line: no-empty
-  public async down(_: OrmDriver): Promise<void> {}
+  public async down(connection: OrmDriver): Promise<void> {
+    await connection.schema().dropTable('user_sessions');
+  }
 }

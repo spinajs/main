@@ -132,7 +132,6 @@ describe('db session provider', function () {
       expect(row.Subject).to.equal('user:u-1');
       expect(row.ImpersonatorId).to.equal('svc%3Aops:a:b');
       expect(row.State).to.equal('active');
-      expect(row.UserId ?? null, 'a 3.0 row has no numeric owner').to.equal(null);
 
       const back = (await store.restore('k-cols'))!;
       expect({ ...back.Impersonator }).to.deep.equal({ type: 'svc:ops', id: 'a:b' });
@@ -239,7 +238,6 @@ describe('db session provider', function () {
         Subject: 'user:72beaf78-0000-4000-8000-000000000001',
         ImpersonatorId: null,
         State: 'active',
-        UserId: null,
         CreatedAt: CREATED,
         Expiration: EXPIRES,
         Data: data,

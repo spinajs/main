@@ -96,7 +96,6 @@ export class DbSessionStore extends SessionProvider {
     s.CreatedAt = session.Creation;
     // column is nullable; a never-expiring session persists a NULL Expiration
     s.Expiration = (session.Expiration ?? null) as DateTime;
-    s.UserId = null;
     s.Subject = refKey(session.Subject);
     s.ImpersonatorId = session.Impersonator ? refKey(session.Impersonator) : null;
     s.State = session.State;
