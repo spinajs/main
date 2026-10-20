@@ -33,7 +33,7 @@ export interface ImpliedRole {
 }
 
 export interface RoleDef {
-  readonly name: string; // no namespace: role definitions are global in 3.0
+  readonly name: string; // no namespace: role definitions are global
   readonly ladder?: string; // member of this ladder; holds the grants of every lower ladder role
   readonly extends: readonly string[];
   readonly grants: readonly GrantDef[];
