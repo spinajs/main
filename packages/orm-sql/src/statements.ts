@@ -1,4 +1,4 @@
-import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
+import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, NewInstance } from '@spinajs/di';
@@ -477,7 +477,7 @@ export class SqlInStatement extends InStatement {
   }
 
   public build(): IQueryStatementResult {
-    const column = _columnWrap(this.Quoter, this._column, this._builder.TableAlias);
+    const column = this._column instanceof Wrap ? this._builder.Container.resolve<WrapStatement>(this._column.Wrapper, [this._column.Column, this._builder.TableAlias]).wrap() : _columnWrap(this.Quoter, this._column, this._builder.TableAlias);
 
     // `IN ()` is a syntax error, so degenerate to a constant predicate with the same meaning:
     // nothing can be in an empty set, and everything is outside of it.
@@ -521,7 +521,8 @@ export class SqlInStatement extends InStatement {
   protected valueConverter(): (value: unknown) => unknown {
     const container = this._builder.Container;
     const descriptor = this._builder.Model ? extractModelDescriptor(this._builder.Model) : undefined;
-    const declared = descriptor?.Converters.get(this._column);
+    // A wrapped column is compared as the wrapper's type, not the column's.
+    const declared = typeof this._column === 'string' ? descriptor?.Converters.get(this._column) : undefined;
 
     if (declared) {
       const columnDescriptor = descriptor!.Columns.find((c) => c.Name === this._column);
@@ -706,6 +707,21 @@ export abstract class SqlDateTimeWrapper extends DateTimeWrapper {
     }
 
     return `DATETIME(${this.Quoter.quote(this._value as string)})`;
+  }
+}
+
+/** `CAST(col AS TEXT)`, which SQLite and PostgreSQL accept; MySQL and MSSQL register their own type. */
+@NewInstance()
+export class SqlTextWrapper extends TextWrapper {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public wrap(): string {
+    return `CAST(${_columnWrap(this.Quoter, this._value as string, this._tableAlias)} AS ${this.textType()})`;
+  }
+
+  protected textType(): string {
+    return 'TEXT';
   }
 }
 

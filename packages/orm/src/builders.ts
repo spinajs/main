@@ -1104,8 +1104,11 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this.where(column, SqlOperator.NOT, val);
   }
 
-  public whereIn(column: string, val: any[] | ISelectQueryBuilder): this {
+  public whereIn(column: string | Wrap, val: any[] | ISelectQueryBuilder): this {
     if (val instanceof SelectQueryBuilder) {
+      if (column instanceof Wrap) {
+        throw new InvalidArgument('whereIn(): a wrapped column takes a list of values, not a sub-query');
+      }
       this.pushStatement(this._container.resolve<InQueryStatement>(InQueryStatement, [val, column, false, this]));
       return this;
     }
@@ -1124,8 +1127,11 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereNotIn(column: string, val: any[] | ISelectQueryBuilder): this {
+  public whereNotIn(column: string | Wrap, val: any[] | ISelectQueryBuilder): this {
     if (val instanceof SelectQueryBuilder) {
+      if (column instanceof Wrap) {
+        throw new InvalidArgument('whereIn(): a wrapped column takes a list of values, not a sub-query');
+      }
       this.pushStatement(this._container.resolve<InQueryStatement>(InQueryStatement, [val, column, true, this]));
       return this;
     }

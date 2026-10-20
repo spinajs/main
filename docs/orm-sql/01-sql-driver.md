@@ -74,7 +74,7 @@ All in the driver's own `this.Container`, after `OrmDriver.resolve()` registered
 | `ExistsQueryStatement`, `BetweenStatement`, `RawQueryStatement` | `SqlExistsQueryStatement`, `SqlBetweenStatement`, `SqlRawStatement` |
 | `ColumnStatement`, `ColumnRawStatement`, `ColumnMethodStatement` | `SqlColumnStatement`, `SqlColumnRawStatement`, `SqlColumnMethodStatement` |
 | `JoinStatement`, `GroupByStatement`, `WithRecursiveStatement` | `SqlJoinStatement`, `SqlGroupByStatement`, `SqlWithRecursiveStatement` |
-| `DateWrapper`, `DateTimeWrapper` | `SqlDateWrapper`, `SqlDateTimeWrapper` |
+| `DateWrapper`, `DateTimeWrapper`, `TextWrapper` | `SqlDateWrapper`, `SqlDateTimeWrapper`, `SqlTextWrapper` |
 | `SelectQueryCompiler`, `InsertQueryCompiler`, `UpdateQueryCompiler`, `DeleteQueryCompiler` | `SqlSelectQueryCompiler`, `SqlInsertQueryCompiler`, `SqlUpdateQueryCompiler`, `SqlDeleteQueryCompiler` |
 | `OrderByQueryCompiler`, `GroupByQueryCompiler`, `TableAliasCompiler` | `SqlOrderByQueryCompiler`, `SqlGroupByCompiler`, `SqlTableAliasCompiler` |
 | `TableQueryCompiler`, `IndexQueryCompiler`, `ForeignKeyQueryCompiler` | `SqlTableQueryCompiler`, `SqlIndexQueryCompiler`, `SqlForeignKeyQueryCompiler` |

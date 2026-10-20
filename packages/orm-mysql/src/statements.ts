@@ -1,6 +1,6 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, NowExpression } from '@spinajs/orm';
-import { _columnWrap, SqlLiteralQuoter } from '@spinajs/orm-sql';
+import { _columnWrap, SqlLiteralQuoter, SqlTextWrapper } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 
 /**
@@ -61,5 +61,13 @@ export class MySqlLiteralQuoter extends SqlLiteralQuoter {
 export class MySqlNowExpression extends NowExpression {
   public sql(): string {
     return 'UTC_TIMESTAMP(3)';
+  }
+}
+
+/** TEXT is no CAST target in MySQL. */
+@NewInstance()
+export class MySqlTextWrapper extends SqlTextWrapper {
+  protected textType(): string {
+    return 'CHAR';
   }
 }

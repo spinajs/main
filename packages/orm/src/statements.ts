@@ -232,6 +232,9 @@ export abstract class DateWrapper extends WrapStatement {}
 export abstract class DateTimeWrapper extends WrapStatement {}
 
 @NewInstance()
+export abstract class TextWrapper extends WrapStatement {}
+
+@NewInstance()
 export abstract class JoinStatement extends QueryStatement {
   protected _whereBuilder: SelectQueryBuilder<any>;
 
@@ -288,10 +291,10 @@ export abstract class JoinStatement extends QueryStatement {
 export abstract class InStatement extends QueryStatement {
   protected _val: any[];
   protected _not: boolean;
-  protected _column: string;
+  protected _column: string | Wrap;
   protected _builder: SelectQueryBuilder<any>;
 
-  constructor(column: string, val: any[], not: boolean, builder: SelectQueryBuilder<any>) {
+  constructor(column: string | Wrap, val: any[], not: boolean, builder: SelectQueryBuilder<any>) {
     super();
 
     this._val = val || [];

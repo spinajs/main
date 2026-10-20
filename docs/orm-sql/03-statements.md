@@ -45,6 +45,7 @@ Every abstract token extends `QueryStatement`, which implements `TableAlias`, `B
 | `GroupByStatement` | `SqlGroupByStatement` | `groupBy()` | `` `col` `` or a raw expression | no builder |
 | `WithRecursiveStatement` | `SqlWithRecursiveStatement` | `withRecursive()`, `@Recursive` relations | the CTE members | rebinds `_query` |
 | `DateWrapper`, `DateTimeWrapper` | `SqlDateWrapper`, `SqlDateTimeWrapper` | `Wrapper.Date(col)`, `Wrapper.DateTime(col)` in `where()` | `` DATE(`alias`.`col`) ``, `` DATETIME(`alias`.`col`) `` | not cloned (a wrapper is resolved at build time) |
+| `TextWrapper` | `SqlTextWrapper`; `MySqlTextWrapper`, `MsSqlTextWrapper` in their drivers | `Wrapper.Text(col)` in `where()`, `whereIn()`, `whereNotIn()` | `` CAST(`alias`.`col` AS TEXT) ``, `AS CHAR` (MySQL), `AS NVARCHAR(4000)` (MSSQL) | not cloned (a wrapper is resolved at build time) |
 
 Constructor arguments of each token are listed in [Architecture](../orm/12-architecture.md#statement-classes).
 
@@ -138,6 +139,7 @@ export class DatesPostgresDriver extends PostgresOrmDriver {
 - `SqlInStatement` with an empty array emits `1 = 0` (`1 = 1` for `NOT IN`), because `IN ()` is a syntax error.
 - `SqlInStatement` converts every value the way `SqlWhereStatement` does: through the model column's declared converter, else through the `__orm_db_value_converters__` entry named after the value's class, so a `Date` or `DateTime` becomes the dialect's datetime text. A list longer than `listThreshold` (1000) whose converted values are all strings and finite numbers is bound as ONE parameter when the dialect overrides `listExpression()` (and `listBinding()` for its shape): `= ANY(?)` / `<> ALL(?)` with an array on PostgreSQL, `IN (SELECT value FROM json_each(?))` with JSON text on SQLite, `IN (SELECT [value] FROM OPENJSON(?))` on MSSQL, where `listThreshold` is 200. MySQL and any list with another value type keep the expanded `IN (?, ...)`.
 - `SqlColumnMethodStatement` never alias-prefixes its column.
+- `SqlInStatement` resolves a `Wrap` column (`Wrapper.Text()`) the way `SqlWhereStatement` does and converts its values by their class only: the column's declared converter does not apply to the wrapped expression.
 - `SqlDateWrapper` and `SqlDateTimeWrapper` emit `DATE()` and `DATETIME()`. No shipped driver overrides them; check that your engine has these functions before using `Wrapper.Date()`.
 - Values in DML statements are always bound with `?`, never interpolated.
 
