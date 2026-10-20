@@ -12,7 +12,7 @@ import Express, { ErrorRequestHandler, RequestHandler } from 'express';
 import _ from 'lodash';
 import fs from 'fs';
 
-import { ServerMiddleware, IHttpServerConfiguration, LifecycleState } from './interfaces.js';
+import { ServerMiddleware, IHttpServerConfiguration, LifecycleState, Request } from './interfaces.js';
 import './transformers/index.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
@@ -375,7 +375,8 @@ export class HttpServer extends AsyncService {
    *
    * @param middleware - middleware function
    */
-  public use(middleware: RequestHandler | ErrorRequestHandler): void {
-    this.Express.use(middleware);
+  /** ServerMiddleware handlers take the http `Request`; its `storage` is added by the ReqStorage middleware. */
+  public use(middleware: RequestHandler | ErrorRequestHandler | ((req: Request, res: Express.Response, next: Express.NextFunction) => void)): void {
+    this.Express.use(middleware as RequestHandler | ErrorRequestHandler);
   }
 }

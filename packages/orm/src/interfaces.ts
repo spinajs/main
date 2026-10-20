@@ -776,8 +776,8 @@ export interface IRelationDescriptor {
 
 export interface IModelStatic extends Constructor<ModelBase<unknown>> {
   where<T extends typeof ModelBase>(val: boolean): ISelectQueryBuilder<Array<InstanceType<T>>>;
-  where<T extends typeof ModelBase>(val: PartialArray<InstanceType<T>> | PickRelations<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   where<T extends typeof ModelBase>(func: WhereFunction<InstanceType<T>>): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  where<T extends typeof ModelBase>(val: PartialArray<InstanceType<T>> | PickRelations<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   where<T extends typeof ModelBase>(column: string, operator: Op, value: any): ISelectQueryBuilder<Array<InstanceType<T>>>;
   where<T extends typeof ModelBase>(column: string, value: any): ISelectQueryBuilder<Array<InstanceType<T>>>;
   where<T extends typeof ModelBase>(statement: Wrap): ISelectQueryBuilder<Array<InstanceType<T>>>;
@@ -1241,8 +1241,8 @@ export interface IWhereBuilder<T> {
   when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this;
 
   where(val: boolean): this;
-  where(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   where(func: WhereFunction<T>): this;
+  where(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   where(func: Lazy<void>): this;
   where(column: string, operator: Op, value: any): this;
   where(column: string, value: any): this;
@@ -1250,8 +1250,8 @@ export interface IWhereBuilder<T> {
   where(column: string | boolean | WhereFunction<T> | Lazy<void> | RawQuery | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>> | Wrap, operator?: Op | any, value?: any): this;
 
   orWhere(val: boolean): this;
-  orWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   orWhere(func: WhereFunction<T>): this;
+  orWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   orWhere(func: Lazy<void>): this;
   orWhere(column: string, operator: Op, value: any): this;
   orWhere(column: string, value: any): this;
@@ -1259,8 +1259,8 @@ export interface IWhereBuilder<T> {
   orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>, operator?: Op | any, value?: any): this;
 
   andWhere(val: boolean): this;
-  andWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   andWhere(func: WhereFunction<T>): this;
+  andWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   andWhere(func: Lazy<void>): this;
   andWhere(column: string, operator: Op, value: any): this;
   andWhere(column: string, value: any): this;
@@ -1268,8 +1268,8 @@ export interface IWhereBuilder<T> {
   andWhere(column: string | boolean | Lazy<void> | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, operator?: Op | any, value?: any): this;
 
   whereObject(obj: Partial<ModelData<Unbox<T>>>): this;
-  whereNotNull(column: string): this;
-  whereNull(column: string): this;
+  whereNotNull(column: string | Wrap): this;
+  whereNull(column: string | Wrap): this;
   whereNot(column: string, val: unknown): this;
   whereIn(column: string, val: unknown[] | ISelectQueryBuilder): this;
   whereNotIn(column: string, val: unknown[] | ISelectQueryBuilder): this;

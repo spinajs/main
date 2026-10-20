@@ -31,8 +31,6 @@
     // mostly strictPropertyInitialization ). Lift them one by one when the code
     // is ready - do not remove casually.
     "strictPropertyInitialization": false,
-    "strictFunctionTypes": false,
-    "useUnknownInCatchVariables": false,
-    "noImplicitThis": false
+    "useUnknownInCatchVariables": false
   }
 }

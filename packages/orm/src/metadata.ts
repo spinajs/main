@@ -103,7 +103,8 @@ export class MetadataRelation<R extends MetadataModel<R>, O extends ModelBase<O>
 
 
     return new Proxy(this, {
-      set: (target: MetadataRelation<MetadataModel<unknown>, ModelBase<unknown>>, prop: string, value: any) => {
+      set: (target: this, p: string | symbol, value: any) => {
+        const prop = p as string;
         if (prop in target || !isNaN(Number(prop))) {
           target[prop] = value;
           return true;
@@ -130,7 +131,8 @@ export class MetadataRelation<R extends MetadataModel<R>, O extends ModelBase<O>
         return true;
       },
 
-      get: (target: MetadataRelation<MetadataModel<unknown>, ModelBase<unknown>>, prop: string) => {
+      get: (target: this, p: string | symbol) => {
+        const prop = p as string;
         if (prop in target) {
           return target[prop];
         }

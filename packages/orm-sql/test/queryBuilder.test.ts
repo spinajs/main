@@ -2351,7 +2351,8 @@ describe('Query builder execution ( F1 )', () => {
 
   it('runs a multi-statement query in order, each after the previous one finished', async () => {
     const log: string[] = [];
-    sinon.stub(FakeSqliteDriver.prototype, 'executeOnDb').callsFake(async (expression: string) => {
+    sinon.stub(FakeSqliteDriver.prototype, 'executeOnDb').callsFake(async (stmt: string | object) => {
+      const expression = stmt as string;
       log.push(`start ${expression}`);
       await new Promise((r) => setTimeout(r, expression.includes('first') ? 20 : 0));
       log.push(`end ${expression}`);

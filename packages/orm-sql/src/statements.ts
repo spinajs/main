@@ -175,7 +175,8 @@ export class SqlWithRecursiveStatement extends WithRecursiveStatement {
     const additionalQuery = this._query.clone().clearRecursive().clearWhere().setAlias('$recursive$').toDB();
     const cte_columns = this._query
       .getColumns()
-      .map((c: ColumnStatement) => typeof c.Column === 'string' ? this.Quoter.quote(c.Column) : c.Column.Query)
+      .map((c) => (c as ColumnStatement))
+      .map((c) => typeof c.Column === 'string' ? this.Quoter.quote(c.Column) : c.Column.Query)
       .join(',');
 
     return {
@@ -439,9 +440,9 @@ export class SqlJoinStatement extends JoinStatement {
     // so the outer join semantics are preserved
     if (this._options.onStatements) {
       const parts: string[] = [];
-      this._options.onStatements
-        .filter((x: WhereStatement) => !x.IsAggregate)
-        .forEach((x: WhereStatement) => {
+      (this._options.onStatements as WhereStatement[])
+        .filter((x) => !x.IsAggregate)
+        .forEach((x) => {
           const r = x.build();
           parts.push(...r.Statements);
           if (Array.isArray(r.Bindings)) {

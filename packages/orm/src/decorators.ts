@@ -389,7 +389,7 @@ export function JunctionTable() {
  * @param discriminationMap - field - model mapping
  */
 export function DiscriminationMap(fieldName: string, discriminationMap: IDiscriminationEntry[]) {
-  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, _propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, _propertyKey: string | symbol) => {
     model.DiscriminationMap.Field = fieldName;
     model.DiscriminationMap.Models = new Map<string, Constructor<ModelBase>>();
 

@@ -133,7 +133,7 @@ describe('fs cli commands', function () {
   it('fs-hash labels the digest with the configured default algorithm', async () => {
     const config = DI.get(Configuration) as any;
     const original = config.get.bind(config);
-    sinon.stub(config, 'get').callsFake((path: string, def?: unknown) =>
+    sinon.stub(config, 'get').callsFake((path: unknown, def?: unknown) =>
       path === 'fs.hasher.defaultAlgorithm' ? 'sha1' : original(path, def),
     );
 

@@ -107,7 +107,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
             return (rd as any)['ResourceId'] === val[self._description.PrimaryKey[0]];
           });
 
-          relData.forEach((rd: IntlResource) => {
+          (relData as IntlResource[]).forEach((rd) => {
             if (self._owner && self._owner instanceof BelongsToRelation) {
               val[rd.Column] = rd.Value;
             } else {

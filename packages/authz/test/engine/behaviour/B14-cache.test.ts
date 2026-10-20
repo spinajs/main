@@ -286,7 +286,7 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
     it('B14: two principals that differ only in onBehalfOf, companions, attributes, authn or actor get different entries', async () => {
       const decide = (req: DecisionRequest): Vote => {
         const p = req.principal as Principal & Record<string, any>;
-        const ok = p.id !== 'carol' && p.attributes?.team !== 'blue' && !(p.companions ?? []).some((c: Principal) => c.id === 'u2') && !(p.authn?.mfa ?? []).includes('none') && req.actor?.id !== 'evil';
+        const ok = p.id !== 'carol' && p.attributes?.team !== 'blue' && !(p.companions ?? []).some((c) => c.id === 'u2') && !(p.authn?.mfa ?? []).includes('none') && req.actor?.id !== 'evil';
         return pass('m', ok ? TRUE : FALSE);
       };
       const pairs: [string, CheckInput, CheckInput][] = [
