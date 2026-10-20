@@ -35,7 +35,7 @@ what each fix changes for an app.
 8. **Apply the migrations before the first start** (`spinajs migrate-up`, or `Migration.OnStartup: true`).
    The `Orm` boot now fails when a registered model's table is missing (`db.StrictTableCheck`, default
    `true`) and names each model, table and connection. Every `@spinajs/authz*`, `users*` and `authn*`
-   package you import registers its models. `db.StrictTableCheck: false` restores the 2.x behaviour.
+   package you import registers its models. `db.StrictTableCheck: false` restores the lenient behaviour.
 
 ## BREAKING CHANGES
 

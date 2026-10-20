@@ -24,7 +24,7 @@ spinajs migrate-up --fake                                       # record as appl
    - no entry: the migration is registered, but its connection is not configured here or it has no `@Migration()`. Logs an error, sets `process.exitCode = 1`;
    - applied: logs `already applied ... nothing to do`. Exit code `0`;
    - otherwise: logs a connection mismatch when `--connection` was given, then that the migration is failed or still pending. Sets `process.exitCode = 1`.
-7. Without `--name` and `--connection`, it calls `orm.reloadTableInfo({ strict: orm.StrictTableCheck })`. With `db.StrictTableCheck` on (the default), a registered model whose table is still missing logs `Migrations are applied, but the application will not boot: Missing tables (db.StrictTableCheck): ...` at error level and sets `process.exitCode = 1`. The migrations stay applied. With the key `false`, each missing table is a warning.
+7. Without `--name` and `--connection`, it calls `orm.reloadTableInfo({ strict: orm.StrictTableCheck })`. With `db.StrictTableCheck` on (the default), a registered model whose table is still missing logs `Migrations are applied, but the application will not boot: Missing tables (db.StrictTableCheck): ...` at error level (`Migrations are recorded as applied ( --fake ), but ...` with `--fake`) and sets `process.exitCode = 1`. The migrations stay applied. With the key `false`, the command skips the check: the boot already logged each missing table once as a warning.
 
 ```mermaid
 sequenceDiagram
