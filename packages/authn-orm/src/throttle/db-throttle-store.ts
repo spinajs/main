@@ -1,10 +1,11 @@
 import { backoffDelayMs } from '@spinajs/authn/contracts';
 import type { BackoffParams } from '@spinajs/authn/contracts';
 import { ResourceDuplicated } from '@spinajs/exceptions';
-import type { OrmDriver, RawQuery, WhereBuilder } from '@spinajs/orm';
+import { everyNthCall, purgeBatch, rowsAffected } from '@spinajs/orm';
+import type { IWhereBuilder, OrmDriver, RawQuery, WhereBuilder } from '@spinajs/orm';
 import type { KeyedBackoffVerdict, ThrottleGate, ThrottleLower, ThrottleStore } from '@spinajs/util';
 
-import { columnText, rowsAffected, selectTime, sqlTime, textMs } from '../support/sql.js';
+import { columnText, selectTime, sqlTime, textMs } from '../support/sql.js';
 
 const TABLE = 'authn_throttle';
 /** Each miss means another attempt won that key, so this bounds the parallel attempts one call waits behind. */
@@ -57,7 +58,7 @@ export interface DbThrottleStoreOptions {
 export class DbThrottleStore implements ThrottleStore {
   private readonly driver: OrmDriver;
   private readonly resetAfterMs: number;
-  private attempts = 0;
+  private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   constructor(options: DbThrottleStoreOptions) {
     this.driver = options.driver;
@@ -66,7 +67,7 @@ export class DbThrottleStore implements ThrottleStore {
 
   public async attempt(_flow: string, gates: readonly ThrottleGate[], counted: readonly string[], nowMs: number): Promise<KeyedBackoffVerdict> {
     const db = this.driver;
-    if (++this.attempts % PURGE_EVERY === 0) {
+    if (this.purgeDue()) {
       await this.purge(nowMs);
     }
 
@@ -127,19 +128,14 @@ export class DbThrottleStore implements ThrottleStore {
   public async purge(nowMs: number): Promise<number> {
     const db = this.driver;
     const t = this.times(nowMs);
-    const stale = (await db.select().from(TABLE).select('k').where('last_attempt_at', '<=', t.cutoff).where('next_allowed_at', '<=', t.now).orderBy('k').take(PURGE_BATCH)) as { k: string }[];
-    if (stale.length === 0) return 0;
-    return rowsAffected(
-      await db
-        .del()
-        .from(TABLE)
-        .whereIn(
-          'k',
-          stale.map((r) => r.k),
-        )
-        .where('last_attempt_at', '<=', t.cutoff)
-        .where('next_allowed_at', '<=', t.now),
-    );
+    return purgeBatch(db, {
+      table: TABLE,
+      key: 'k',
+      where: function (this: IWhereBuilder<unknown>) {
+        this.where('last_attempt_at', '<=', t.cutoff).where('next_allowed_at', '<=', t.now);
+      },
+      limit: PURGE_BATCH,
+    });
   }
 
   /**
