@@ -29,15 +29,15 @@ export class MigrateResolveCommand extends CliCommand {
     // would fail here, on the very row this call is about to clear. See `resolveCliOrm`.
     const orm = await resolveCliOrm();
 
-    // The facade refuses anything that is not in the failed state - `FinishedAt` NULL and `Logs`
-    // set - so a healthy or absent row throws rather than being silently rewritten. That error is
+    // The facade accepts only a failed row ( `FinishedAt` NULL and `Logs` set ) or an interrupted
+    // one, so a healthy or absent row throws rather than being silently rewritten. That error is
     // let through unchanged; it names the migration and the connection.
     await orm.Migration.resolve(options.name, action);
 
     if (action === 'applied') {
-      this.Log.success(`Migration ${options.name} is now recorded as applied. It will not run again.`);
+      this.Log.success({ migration: options.name }, 'Migration ${migration} is now recorded as applied. It will not run again.');
     } else {
-      this.Log.success(`Migration ${options.name} is now recorded as rolled back. It is pending again and WILL run on the next migrate-up.`);
+      this.Log.success({ migration: options.name }, 'Migration ${migration} is now recorded as rolled back. It is pending again and WILL run on the next migrate-up.');
     }
   }
 

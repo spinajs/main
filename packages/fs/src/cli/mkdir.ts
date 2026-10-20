@@ -15,9 +15,10 @@ export class FsMkdirCommand extends CliCommand {
 
     try {
       await _mkdir(path, fsName);
-      this.Log.success(`Created directory ${path} on filesystem ${fsName}`);
+      this.Log.success({ path, fsName }, 'Created directory ${path} on filesystem ${fsName}');
     } catch (err) {
-      this.Log.error(`Cannot create directory ${path} on ${fsName}: ${err.message}`);
+      this.Log.error({ error: err, path, fsName }, 'Cannot create directory ${path} on ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

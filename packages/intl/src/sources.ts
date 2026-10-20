@@ -20,7 +20,7 @@ export class JsonTranslationSource extends TranslationSource {
       }, [])
       .map((f) => normalize(resolve(f)))
       .map((f) => {
-        this.Log.trace(`Found json localisation file at ${f}`);
+        this.Log.trace({ file: f }, 'Found json localisation file at ${file}');
         return f;
       })
       .forEach((f) => {
@@ -30,12 +30,12 @@ export class JsonTranslationSource extends TranslationSource {
         try {
           data = JSON.parse(fs.readFileSync(f, 'utf-8'));
         } catch (ex) {
-          this.Log.warn(ex, `Cannot load localisation data from file ${f} for lang ${lang}`);
+          this.Log.warn({ error: ex, file: f, lang }, 'Cannot load localisation data from file ${file} for lang ${lang}');
           return;
         }
 
         if (!data) {
-          this.Log.warn(`No localisation data at ${f} for lang ${lang}`);
+          this.Log.warn({ file: f, lang }, 'No localisation data at ${file} for lang ${lang}');
           return;
         }
 
@@ -60,16 +60,23 @@ export class JsTranslationSource extends TranslationSource {
       }, [])
       .map((f) => normalize(resolve(f)))
       .map((f) => {
-        this.Log.trace(`Found json localisation file at ${f}`);
+        this.Log.trace({ file: f }, 'Found js localisation file at ${file}');
         return f;
       });
 
     for (const f of files) {
       const lang = basename(basename(f, '.js'), '.cjs');
-      let data = await DI.__spinajs_require__(f);
+      let data;
+
+      try {
+        data = await DI.__spinajs_require__(f);
+      } catch (ex) {
+        this.Log.warn({ error: ex, file: f, lang }, 'Cannot load localisation data from file ${file} for lang ${lang}');
+        continue;
+      }
 
       if (!data) {
-        this.Log.warn(`No localisation data at ${f} for lang ${lang}`);
+        this.Log.warn({ file: f, lang }, 'No localisation data at ${file} for lang ${lang}');
         continue;
       }
 

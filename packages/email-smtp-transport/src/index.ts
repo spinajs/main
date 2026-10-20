@@ -1,13 +1,12 @@
 import { IOFail, UnexpectedServerError } from '@spinajs/exceptions';
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { IEmail, EmailSender, EmailConnectionOptions, IEmailAttachement } from '@spinajs/email';
+import { IEmail, EmailSender, EmailConnectionOptions, IEmailAttachement, attachmentFile, redactError } from '@spinajs/email';
 import { Templates } from '@spinajs/templates';
 import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder } from '@spinajs/util';
 import * as nodemailer from 'nodemailer';
 import { fs, getFs } from '@spinajs/fs';
 import _ from 'lodash';
-import { Config } from '@spinajs/configuration';
 
 @Injectable(EmailSender)
 @NewInstance()
@@ -17,9 +16,6 @@ export class EmailSenderSmtp extends EmailSender {
 
   @Autoinject(Templates)
   protected Templates: Templates;
-
-  @Config('fs.defaultProvider')
-  protected DefaultFileProvider: string;
 
   protected Transporter: nodemailer.Transporter;
 
@@ -39,8 +35,15 @@ export class EmailSenderSmtp extends EmailSender {
    */
   protected buildSendPipeline(): ResiliencePipeline<nodemailer.SentMessageInfo> {
     return new ResiliencePipelineBuilder<nodemailer.SentMessageInfo>()
+      .addRetry({
+        MaxRetryAttempts: this.Options.resilience?.retries ?? 2,
+        Delay: this.Options.resilience?.delay ?? 500,
+        BackoffType: BackoffType.Exponential,
+        UseJitter: true,
+        // SMTP 5xx replies are permanent rejections, repeating them cannot succeed
+        ShouldHandle: ({ Error: error }) => error !== undefined && ((error as { responseCode?: number }).responseCode ?? 0) < 500,
+      })
       .addTimeout(this.Options.resilience?.timeout ?? 30_000)
-      .addRetry({ MaxRetryAttempts: this.Options.resilience?.retries ?? 2, Delay: this.Options.resilience?.delay ?? 500, BackoffType: BackoffType.Exponential, UseJitter: true })
       .build();
   }
 
@@ -53,17 +56,18 @@ export class EmailSenderSmtp extends EmailSender {
         host: this.Options.host,
         port: this.Options.port,
         secure: this.Options.ssl, // true for 465, false for other ports
-        auth: {
-          user: this.Options.user, // generated ethereal user
-          pass: this.Options.password, // generated ethereal password
-        },
+        // nodemailer attempts LOGIN whenever an auth object is present, even an empty one
+        auth: this.Options.user || this.Options.password ? { user: this.Options.user, pass: this.Options.password } : undefined,
       },
 
       // all additional options merged
       this.Options.options,
     );
 
-    this.Log.info(`Creating connection to smtp: ${options.auth.user}@${options.host}:${options.port}, secure: ${options.secure}`)
+    this.Log.info(
+      { user: options.auth?.user, host: options.host, port: options.port, secure: options.secure },
+      'Creating connection to smtp: ${user}@${host}:${port}, secure: ${secure}',
+    );
 
     // create reusable transporter object using the default SMTP transport
     this.Transporter = nodemailer.createTransport(options);
@@ -77,11 +81,11 @@ export class EmailSenderSmtp extends EmailSender {
       // we must catch exception
       await this.Transporter.verify();
     } catch (err) {
-      this.Log.error(err, `Cannot verify smtp connection ${this.Options.name} (${this.Options.host}:${this.Options.port})`);
+      this.Log.error({ error: err, connection: this.Options.name, host: this.Options.host, port: this.Options.port }, 'Cannot verify smtp connection ${connection} (${host}:${port})');
       throw new UnexpectedServerError(`Cannot verify smtp connection ${this.Options.name} (${this.Options.host}:${this.Options.port})`, err);
     }
 
-    this.Log.success(`Email smtp connection ${this.Options.name} on host ${this.Options.host} established !`);
+    this.Log.success({ connection: this.Options.name, host: this.Options.host }, 'Email smtp connection ${connection} on host ${host} established !');
   }
 
   public async send(email: IEmail): Promise<void> {
@@ -96,25 +100,24 @@ export class EmailSenderSmtp extends EmailSender {
     if (email.template) {
       // string template -> default template filesystem
       // IEmailTemplate object -> resolve its own fs provider
-      let templateFs: fs = this.defaultTemplateFs;
+      // getFs() throws ResolveException for a name that is not registered
+      const templateFs: fs | undefined = _.isString(email.template) ? this.defaultTemplateFs : getFs(email.template.fs);
 
-      if (!_.isString(email.template)) {
-        templateFs = await getFs(email.template.fs);
-        if (!templateFs) {
-          throw new IOFail(`Filesystem provider for ${email.template.fs} not registered. Make sure you importer all required fs providers`);
-        }
+      if (!templateFs) {
+        throw new IOFail(`No filesystem to load email template from. Set email.templateFs, or fs of the template`);
       }
 
-      this.Log.trace(`Using filesystem ${templateFs.Name} to resolve email template`);
+      this.Log.trace({ filesystem: templateFs.Name }, 'Using filesystem ${filesystem} to resolve email template');
       const tfile = await (_.isString(email.template) ? templateFs.download(email.template) : templateFs.download(email.template.file));
-      this.Log.trace(`Resolved email template ${tfile}`);
+      this.Log.trace({ templateFile: tfile }, 'Resolved email template ${templateFile}');
 
       try {
-        html = await this.Templates.render(tfile, { ...email.model, ...this.Options.templates?.defaults }, email.lang);
+        html = await this.Templates.render(tfile, { ...this.Options.templates?.defaults, ...email.model }, email.lang, email.redact ? { redact: email.redact } : undefined);
       } catch (err) {
-        // template rendering is a deterministic failure - log & rethrow the original error, do not retry
-        this.Log.error(err, `Cannot render email template ${tfile} for connection ${this.Options.name}`);
-        throw err;
+        // template rendering is a deterministic failure - log & rethrow, do not retry
+        const failure = redactError(err, email.redact);
+        this.Log.error({ error: failure, templateFile: tfile, connection: this.Options.name }, 'Cannot render email template ${templateFile} for connection ${connection}');
+        throw failure;
       }
     }
 
@@ -132,27 +135,12 @@ export class EmailSenderSmtp extends EmailSender {
 
     if (email.attachements) {
       options.attachments = await Promise.all(
-        email.attachements.map(async (a: IEmailAttachement) => {
-          // we allow to use multiple file sources, default is local
-
-          const provider = await getFs(a.provider || this.DefaultFileProvider);
-          if (!provider) {
-            throw new IOFail(`Filesystem provider for ${a.provider} not registered. Make sure you importer all required fs providers`);
-          }
-
-          // with local filesystem, it just return original path
-          // other implementations should dodwnload file locally,
-          // and return temporary path
-          // we provide path to file, becouse nodemailer
-          // prefer it when sending bigger files
-          const file = await provider.download(a.path);
-          return {
-            cid: a.cid,
-            filename: a.name,
-            path: file,
-            provider: provider.Name,
-          };
-        }),
+        // A local path rather than content: nodemailer streams it, which suits bigger files.
+        email.attachements.map(async (a: IEmailAttachement) => ({
+          cid: a.cid,
+          filename: a.name,
+          path: await attachmentFile(a, this.DefaultFileProvider),
+        })),
       );
     }
 
@@ -161,10 +149,18 @@ export class EmailSenderSmtp extends EmailSender {
       // guard only the SMTP send with the resilience pipeline ( timeout + retry )
       message = await this.SendPipeline.execute(() => this.Transporter.sendMail(options));
     } catch (err) {
-      this.Log.error(err, `Cannot send email for connection ${this.Options.name}, subject: ${email.subject}, recipients: ${email.to?.length ?? 0}`);
-      throw err;
+      // an SMTP response may quote the message back, secret values included
+      const failure = redactError(err, email.redact);
+      this.Log.error(
+        { error: failure, connection: this.Options.name, subject: email.subject, recipients: email.to?.length ?? 0 },
+        'Cannot send email for connection ${connection}, subject: ${subject}, recipients: ${recipients}',
+      );
+      throw failure;
     }
 
-    this.Log.trace(`Sent email with data: ${JSON.stringify(_.pick(email, ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject']))}, messageId: ${message?.messageId}, response: ${message?.response}`);
+    this.Log.trace(
+      { email: _.pick(email, ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject']), messageId: message?.messageId, response: message?.response },
+      'Sent email with data: ${email}, messageId: ${messageId}, response: ${response}',
+    );
   }
 }

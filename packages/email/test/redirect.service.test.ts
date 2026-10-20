@@ -4,6 +4,7 @@ import * as sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { renderTemplate } from '@spinajs/log-common';
 
 import { EmailSender, IEmail } from '../src/index.js';
 import { DefaultEmailService } from '../src/index.js';
@@ -61,7 +62,7 @@ before(async () => {
  * through the prototype's setter lookup, so the prototype accessor's `configurable: false`
  * doesn't block it.
  */
-function serviceWith(isProduction: boolean, redirectTo?: string[]) {
+function serviceWith(isProduction: boolean | undefined, redirectTo?: string[]) {
   const options = { name: 'test', service: 'CapturingSender', redirectTo };
 
   cfg.set('configuration.isProduction', isProduction);
@@ -114,6 +115,40 @@ describe('DefaultEmailService recipient redirect', () => {
     expect(sender.Captured!.subject).to.equal('Your invoice');
   });
 
+  describe('without a configuration.isProduction boolean', () => {
+    let saved: { APP_ENV?: string; NODE_ENV?: string };
+
+    beforeEach(() => {
+      saved = { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV };
+      delete process.env.NODE_ENV;
+    });
+
+    afterEach(() => {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    });
+
+    it('refuses to redirect when the env names production', async () => {
+      process.env.APP_ENV = 'production';
+      const { service, sender } = serviceWith(undefined, ['dev-inbox@screennetwork.pl']);
+
+      await service.send(anEmail());
+
+      expect(sender.Captured!.to).to.deep.equal(['client@acme.com']);
+    });
+
+    it('redirects when the env names development', async () => {
+      process.env.APP_ENV = 'development';
+      const { service, sender } = serviceWith(undefined, ['dev-inbox@screennetwork.pl']);
+
+      await service.send(anEmail());
+
+      expect(sender.Captured!.to).to.deep.equal(['dev-inbox@screennetwork.pl']);
+    });
+  });
+
   it('logs an error at startup when a production connection configures a redirect', async () => {
     const { service } = serviceWith(true, ['dev-inbox@screennetwork.pl']);
 
@@ -121,7 +156,7 @@ describe('DefaultEmailService recipient redirect', () => {
 
     const error = (service as any).Log.error as sinon.SinonStub;
     expect(error.calledOnce).to.equal(true);
-    expect(error.firstCall.args[0]).to.contain('test');
+    expect(renderTemplate(error.firstCall.args[1], error.firstCall.args[0])).to.contain('test');
   });
 
   it('says nothing at startup on a dev environment', async () => {
@@ -140,7 +175,8 @@ describe('DefaultEmailService recipient redirect', () => {
 
     const warn = (service as any).Log.warn as sinon.SinonStub;
     expect(warn.calledOnce).to.equal(true);
-    expect(warn.firstCall.args[0]).to.not.contain('client@acme.com');
+    expect(renderTemplate(warn.firstCall.args[1], warn.firstCall.args[0])).to.not.contain('client@acme.com');
+    expect(JSON.stringify(warn.firstCall.args[0])).to.not.contain('client@acme.com');
     expect((service as any).Log.trace.calledOnce).to.equal(true);
   });
 
@@ -154,6 +190,7 @@ describe('DefaultEmailService recipient redirect', () => {
 
     const info = (service as any).Log.info as sinon.SinonStub;
     expect(info.calledOnce).to.equal(true);
-    expect(info.firstCall.args[0]).to.not.contain('client@acme.com');
+    expect(renderTemplate(info.firstCall.args[1], info.firstCall.args[0])).to.not.contain('client@acme.com');
+    expect(JSON.stringify(info.firstCall.args[0])).to.not.contain('client@acme.com');
   });
 });

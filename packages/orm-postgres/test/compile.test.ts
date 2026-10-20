@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-floating-promises */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -10,9 +9,10 @@ import '@spinajs/log';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { NotSupported } from '@spinajs/exceptions';
-import { SelectQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TableQueryBuilder, Orm, ICompilerOutput } from '@spinajs/orm';
+import { SelectQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TableQueryBuilder, Orm, ICompilerOutput, Wrapper } from '@spinajs/orm';
 
 import { ConnectionConf, FakePostgresDriver } from './fixture.js';
+import { ExistsItem } from './models/exists.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -81,18 +81,104 @@ describe('postgres SQL compilation', function () {
       expect(result.expression).to.equal('SELECT * FROM "users" OFFSET ?');
       expect(result.bindings).to.deep.equal([20]);
     });
+  });
 
-    it('joins without a database qualifier and quotes the join key columns', () => {
-      const result = sqb()
-        .select('*')
-        .from('orders')
-        .leftJoin({ joinTable: 'clients', joinTableAlias: '$c$', joinTableDriver: connection(), sourceTablePrimaryKey: 'client_id', joinTableForeignKey: 'Id' } as any)
-        .toDB();
+  describe('identifier quoting in joins', () => {
+    it('quotes the FROM table, the join tables and the ON keys with double quotes', () => {
+      const connection = db()!.Connections.get('postgres')!;
+      const qb = connection.Container.resolve<SelectQueryBuilder>(SelectQueryBuilder, [connection]).select('*').from('users');
+      const result = qb.leftJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).orderBy('name').toDB();
 
-      const s = sql(result);
-      expect(s).to.contain('LEFT JOIN "clients" as "$c$" ON');
-      expect(s).to.contain('"$orders$"."client_id" = "$c$"."Id"');
-      expect(s).to.not.contain('"test".');
+      expect(sql(result)).to.equal('SELECT "$users$".* FROM "users" as "$users$" LEFT JOIN "adresses" as "adresses" ON "$users$"."id" = "adresses"."addressId" ORDER BY "name" ASC');
+    });
+
+    it('qualifies the join table with the configured schema, not the database', () => {
+      const connection = db()!.Connections.get('postgres')!;
+      const options = connection.Options.Options;
+      connection.Options.Options = { Schema: 'app' };
+      const qb = connection.Container.resolve<SelectQueryBuilder>(SelectQueryBuilder, [connection]).select('*').from('users');
+      const result = qb.leftJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).clone().toDB();
+      connection.Options.Options = options;
+
+      expect(sql(result)).to.equal('SELECT "$users$".* FROM "users" as "$users$" LEFT JOIN "app"."adresses" as "adresses" ON "$users$"."id" = "adresses"."addressId"');
+    });
+  });
+
+  describe('date wrappers', () => {
+    it('casts Wrapper.DateTime() to TIMESTAMP - postgres has no DATETIME()', () => {
+      const result = sqb().select('*').from('roles').where(Wrapper.DateTime('CreatedAt'), '<', 'abc').toDB();
+
+      expect(result.expression).to.equal('SELECT * FROM "roles" WHERE CAST("CreatedAt" AS TIMESTAMP) < ?');
+      expect(result.bindings).to.deep.equal(['abc']);
+    });
+  });
+
+  describe('recursive CTE', () => {
+    it('quotes the CTE column list and the ON keys alike, so a mixed-case key resolves', () => {
+      const result = sqb().withRecursive('Parent_Id', 'Id').from('roles').columns(['Id', 'Parent_Id']).toDB();
+
+      expect(sql(result)).to.contain('recursive_cte("Id","Parent_Id")');
+      expect(sql(result)).to.contain('ON "$recursive$"."Parent_Id" = "$recursive_cte$"."Id"');
+    });
+  });
+
+  describe('whereExist correlation', () => {
+    function compiled(query: { toDB(): unknown }) {
+      return sql(query.toDB() as ICompilerOutput);
+    }
+
+    const byId = function (this: any) {
+      this.where('id', '=', '42');
+    };
+
+    it('quotes a belongsTo correlation with double quotes', () => {
+      const stmt = compiled(ExistsItem.select().whereExist('Owner', byId));
+
+      expect(stmt).to.equal('SELECT * FROM "model" WHERE "user_id" IS NOT NULL AND EXISTS ( SELECT * FROM "account" as "account_exists" WHERE "account_exists"."id" = ? AND "account_exists"."id" = "model"."user_id" )');
+    });
+
+    it('quotes a belongsTo correlation against the outer alias', () => {
+      const stmt = compiled(ExistsItem.select().setAlias('m').whereNotExists('Owner', byId));
+
+      expect(stmt).to.contain('NOT EXISTS (');
+      expect(stmt).to.contain('"account_exists"."id" = "m"."user_id"');
+      expect(stmt).to.not.contain('`');
+    });
+
+    it('quotes a hasMany correlation with double quotes', () => {
+      const stmt = compiled(ExistsItem.select().whereExist('Notes', byId));
+
+      expect(stmt).to.equal('SELECT * FROM "model" WHERE EXISTS ( SELECT * FROM "note" as "note_exists" WHERE "note_exists"."id" = ? AND "note_exists"."item_id" = "model"."id" )');
+    });
+
+    it('quotes a hasMany correlation for whereNotExists', () => {
+      const stmt = compiled(ExistsItem.select().whereNotExists('Notes'));
+
+      expect(stmt).to.equal('SELECT * FROM "model" WHERE NOT EXISTS ( SELECT * FROM "note" as "note_exists" WHERE "note_exists"."item_id" = "model"."id" )');
+    });
+
+    it('quotes a many-to-many correlation through the junction table', () => {
+      const stmt = compiled(ExistsItem.select().whereExist('Tags'));
+
+      expect(stmt).to.equal('SELECT * FROM "model" WHERE EXISTS ( SELECT * FROM "item_tag" as "item_tag_exists" WHERE "item_tag_exists"."item_id" = "model"."id" )');
+    });
+
+    it('quotes a many-to-many correlation for whereNotExists with a callback', () => {
+      const stmt = compiled(ExistsItem.select().setAlias('m').whereNotExists('Tags', byId));
+
+      expect(stmt).to.contain('NOT EXISTS (');
+      expect(stmt).to.contain('WHERE "item_tag_exists"."item_id" = "m"."id"');
+      expect(stmt).to.not.contain('`');
+    });
+
+    it('keeps the quoting on a clone', () => {
+      const query = ExistsItem.select().whereExist('Owner', byId);
+
+      const clone = compiled(query.clone());
+
+      expect(clone).to.equal(compiled(query));
+      expect(clone).to.contain('"account_exists"');
+      expect(clone).to.not.contain('`');
     });
   });
 
@@ -158,6 +244,16 @@ describe('postgres SQL compilation', function () {
       expect(stmt).to.contain('"Payload" JSONB');
       expect(stmt).to.contain('"Blob" BYTEA');
       expect(stmt).to.contain('"Small" SMALLINT');
+    });
+
+    it('renders a datetime as TIMESTAMPTZ(3), defaulting to CURRENT_TIMESTAMP', () => {
+      const stmt = createTable((table) => {
+        table.dateTime('CreatedAt').notNull().default().dateTime();
+        table.timestamp('SeenAt');
+      });
+
+      expect(stmt).to.contain('"CreatedAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP');
+      expect(stmt).to.contain('"SeenAt" TIMESTAMPTZ(3)');
     });
 
     it('renders an enum as TEXT with a CHECK constraint over its members', () => {
@@ -233,7 +329,7 @@ describe('postgres SQL compilation', function () {
         })
         .toDB() as unknown as ICompilerOutput[];
 
-      expect(result[0].expression).to.equal('ALTER TABLE "test" ALTER COLUMN "Id2" TYPE VARCHAR(128), ALTER COLUMN "Id2" SET NOT NULL, ALTER COLUMN "Id2" DROP DEFAULT');
+      expect(result[0].expression).to.equal('ALTER TABLE "test" ALTER COLUMN "Id2" TYPE VARCHAR(128) USING "Id2"::VARCHAR(128), ALTER COLUMN "Id2" SET NOT NULL, ALTER COLUMN "Id2" DROP DEFAULT');
     });
 
     it('sets a numeric boolean default as FALSE or TRUE', () => {

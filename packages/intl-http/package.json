@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/intl-http",
-  "version": "2.0.557",
+  "version": "3.0.0",
   "description": "Internationalization support for http module",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -29,7 +29,7 @@
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
-    "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
+    "lint": "cd ../.. && npm run lint -- packages/intl-http",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
   },
@@ -51,17 +51,17 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "2.0.557",
-    "@spinajs/di": "2.0.557",
-    "@spinajs/exceptions": "2.0.557",
-    "@spinajs/util": "2.0.557",
-    "@spinajs/http": "2.0.557",
-    "@spinajs/intl": "2.0.557",
-    "@spinajs/log-common": "2.0.557",
-    "@spinajs/reflection": "2.0.557"
+    "@spinajs/configuration": "3.0.0",
+    "@spinajs/di": "3.0.0",
+    "@spinajs/exceptions": "3.0.0",
+    "@spinajs/util": "3.0.0",
+    "@spinajs/http": "3.0.0",
+    "@spinajs/intl": "3.0.0",
+    "@spinajs/log-common": "3.0.0",
+    "@spinajs/reflection": "3.0.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "2.0.557"
+    "@spinajs/orm-sqlite": "3.0.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

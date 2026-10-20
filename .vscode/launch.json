@@ -258,17 +258,6 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "[ ORM ] orm-api test",
-      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
-      "cwd": "${workspaceFolder}/packages/orm-api/",
-      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
-      "env": {
-        "NODE_ENV": "development"
-      }
-    },
-    {
-      "type": "node",
-      "request": "launch",
       "name": "[ ORM ] orm-http test",
       "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
       "cwd": "${workspaceFolder}/packages/orm-http/",
@@ -380,17 +369,6 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "[ HTTP ] rbac-http test",
-      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
-      "cwd": "${workspaceFolder}/packages/rbac-http/",
-      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
-      "env": {
-        "NODE_ENV": "development"
-      }
-    },
-    {
-      "type": "node",
-      "request": "launch",
       "name": "[ HTTP ] intl-http test",
       "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
       "cwd": "${workspaceFolder}/packages/intl-http/",
@@ -453,17 +431,6 @@
       "name": "[ LOG ] internal-logger tests",
       "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
       "cwd": "${workspaceFolder}/packages/internal-logger/",
-      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
-      "env": {
-        "NODE_ENV": "development"
-      }
-    },
-    {
-      "type": "node",
-      "request": "launch",
-      "name": "[ RBAC ] test",
-      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
-      "cwd": "${workspaceFolder}/packages/rbac/",
       "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
       "env": {
         "NODE_ENV": "development"

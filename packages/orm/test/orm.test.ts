@@ -61,6 +61,23 @@ describe('Orm general', () => {
     expect(orm.Connections.get('SampleConnection1')).to.be.not.null;
   });
 
+  it('ORM maps an alias to its connection and skips one whose connection does not exist', async () => {
+    class AliasConf extends ConnectionConf {
+      public async resolve(): Promise<void> {
+        await super.resolve();
+        // ConnectionConf names no DefaultConnection, so 'default' is one of the missing targets.
+        (this.Config as { db: Record<string, unknown> }).db.Aliases = { reporting: 'sqlite', authz: 'default', broken: 'nope' };
+      }
+    }
+    DI.register(AliasConf).as(Configuration);
+
+    const orm = await db();
+
+    expect(orm.Connections.get('reporting')).to.equal(orm.Connections.get('sqlite'));
+    expect(orm.Connections.has('authz')).to.be.false;
+    expect(orm.Connections.has('broken')).to.be.false;
+  });
+
   it('ORM should register value converters before the boot migration pass', async () => {
     // `Migration.up()` reaches `OrmMigrationService.ensureStorage()`, which probes the tracking
     // table with `driver.tableInfo()` - and a driver's `tableInfo()` may read the value-converter

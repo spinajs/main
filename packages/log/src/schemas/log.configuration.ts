@@ -1,3 +1,5 @@
+import { registerConfigurationSchemaAtImport } from "@spinajs/configuration";
+
 const CONFIGURATION_SCHEMA = {
   $id: "spinajs/log.configuration.schema.json",
   $configurationModule: "logger",
@@ -40,7 +42,8 @@ const CONFIGURATION_SCHEMA = {
               required: ["type"],
             },
           },
-          // FileTarget options ( nested under `options` )
+          // FileTarget options ( nested under `options` ). Not `required: ["path"]`: every target type has `options`, and
+          // FileTarget checks its path itself, after merging the `logger.file` defaults under it.
           options: {
             type: "object",
             properties: {
@@ -127,7 +130,6 @@ const CONFIGURATION_SCHEMA = {
                 minimum: 1,
               },
             },
-            required: ["path"],
           },
         },
         required: ["name", "type"],
@@ -249,5 +251,7 @@ const CONFIGURATION_SCHEMA = {
     },
   },
 };
+
+registerConfigurationSchemaAtImport(CONFIGURATION_SCHEMA);
 
 export default CONFIGURATION_SCHEMA;

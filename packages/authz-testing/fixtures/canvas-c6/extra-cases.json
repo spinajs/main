@@ -1,0 +1,29 @@
+{
+  "pending": "upstream (CV1)",
+  "note": "Pinned by SpinaJS 3.0 design decisions H21 and H27 (design §16.3, §16.4). CV1 appends the cases to canvas cases.json, the state additions to state.json, and changes reference.ts to check the link before the org admin shortcut and to read external_sharing.",
+  "state": {
+    "ids": {
+      "SEALED": "a4a4a4a4-a4a4-a4a4-a4a4-a4a4a4a4a4a4",
+      "VAULT": "b5b5b5b5-b5b5-b5b5-b5b5-b5b5b5b5b5b5"
+    },
+    "orgs": {
+      "SEALED": { "policies": { "external_sharing": false }, "members": {} }
+    },
+    "projects": {
+      "VAULT": {
+        "org": "SEALED",
+        "org_default_role": "none",
+        "grants": [{ "grantee": { "kind": "user", "id": "ZED" }, "role": "viewer", "addons": [] }],
+        "branch_rules": []
+      }
+    }
+  },
+  "cases": [
+    { "name": "expired link denies an org admin", "pending": "upstream (CV1)", "decision": "H21",
+      "principal": { "kind": "link", "link": "OLD_LINK", "user": "ADAM" }, "capability": "project.read", "resource": { "kind": "project", "project": "WEB" },
+      "expected": { "allowed": false, "reason": { "code": "link_invalid" } } },
+    { "name": "external sharing off cuts an existing external grant", "pending": "upstream (CV1)", "decision": "H27",
+      "principal": { "kind": "user", "user": "ZED" }, "capability": "project.read", "resource": { "kind": "project", "project": "VAULT" },
+      "expected": { "allowed": false, "reason": { "code": "no_access" } } }
+  ]
+}

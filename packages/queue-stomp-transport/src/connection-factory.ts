@@ -10,8 +10,8 @@ export function defaultClientId(options: IQueueConnectionOptions, appName: strin
 
 /**
  * Create factory func that sets client-id to connection by app name.
- * We cannot have two connection with same ID, so by default we take app-name
- * with NODE_ENV and then name from options.
+ * We cannot have two connection with same ID, so unless the connection sets its own
+ * `clientId` we take app-name with APP_ENV and then name from options.
  *
  * This way we can have same  config/connections for shared across multipel apps
  *

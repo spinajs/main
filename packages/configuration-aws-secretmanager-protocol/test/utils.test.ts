@@ -3,7 +3,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import sinon from 'sinon';
 import { InternalLogger } from '@spinajs/internal-logger';
-import { parseAwsPath, extractValue, resolveFallback, TtlCache, assignNested, parseBoolParam, warnUnknownParams } from '../src/utils.js';
+import { parseAwsPath, extractValue, resolveFallback, TtlCache, assignNested, extractWithFallback, parseBoolParam, warnUnknownParams } from '../src/utils.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -191,9 +191,50 @@ describe('utils', () => {
       assignNested(o, ['a', 'b'], 1);
       expect(o).to.deep.eq({ a: { b: 1 } });
     });
+
+    it('Should keep a branch when a leaf with the same name arrives later', () => {
+      const o: Record<string, unknown> = {};
+      assignNested(o, ['a', 'b', 'c'], 1);
+      assignNested(o, ['a', 'b'], 'leaf');
+      expect(o).to.deep.eq({ a: { b: { c: 1 } } });
+    });
+
+    it('Should skip parameter names that reach the prototype chain', () => {
+      const o: Record<string, unknown> = {};
+      assignNested(o, ['__proto__', 'polluted'], 1);
+      assignNested(o, ['a', '__proto__'], { polluted: 1 });
+      assignNested(o, ['constructor', 'prototype', 'polluted'], 1);
+      assignNested(o, ['b', 'prototype'], 1);
+      expect(({} as Record<string, unknown>).polluted).to.eq(undefined);
+      expect(Object.keys(o)).to.deep.eq([]);
+    });
+  });
+
+  describe('extractWithFallback', () => {
+    it('Should apply ?default= when the value is not valid JSON', () => {
+      expect(extractWithFallback('nope', 'a', new URLSearchParams('default=d'), 'X', 'id')).to.eq('d');
+    });
+
+    it('Should throw on invalid JSON without a fallback', () => {
+      expect(() => extractWithFallback('nope', 'a', new URLSearchParams(), 'X', 'id')).to.throw('not valid JSON');
+    });
+
+    it('Should return an empty string for a missing key', () => {
+      expect(extractWithFallback('{"a":1}', 'b', new URLSearchParams(), 'X', 'id')).to.eq('');
+    });
   });
 
   describe('TtlCache', () => {
+    it('Should not repopulate the cache from a fetch that was in flight during clear()', async () => {
+      const cache = new TtlCache();
+      let release!: (v: string) => void;
+      const slow = cache.resolve('k', 1000, () => new Promise((r) => (release = r)));
+      cache.clear();
+      release('stale');
+      await slow;
+      expect(await cache.resolve('k', 1000, async () => 'fresh')).to.eq('fresh');
+    });
+
     it('Should serve a fresh value from cache without re-running the factory', async () => {
       let now = 1000;
       const cache = new TtlCache(() => now);

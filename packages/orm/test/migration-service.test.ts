@@ -4,7 +4,7 @@ import { DateTime } from 'luxon';
 import 'mocha';
 import { createHash } from 'node:crypto';
 import * as sinon from 'sinon';
-import { FakeSqliteDriver, TEST_TABLE_INFO, bootstrapAll, makeDriver, registerFakes, stubDb } from './misc.js';
+import { FakeSqliteDriver, TEST_TABLE_INFO, bootstrapAll, makeDriver, registerFakes, stubDb, logText } from './misc.js';
 import { DefaultMigrationService, MIGRATION_TABLE_NAME, MIGRATION_LOCK_MAX_STEALS, migrationChecksum, OrmMigration, MigrationTransactionMode, IMigrationRecord, IMigrationUnit, OrmException } from '../src/index.js';
 import { TableQueryBuilder, AlterTableQueryBuilder, RawSchemaQueryBuilder, SelectQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder, DeleteQueryBuilder, TableExistsQueryBuilder } from '../src/builders.js';
 import { OrmDriver } from '../src/driver.js';
@@ -486,9 +486,9 @@ describe('DefaultMigrationService up', () => {
 
     await svc.up([unit(MigA_2021_01_01_00_00_00)]);
 
-    const drift = warn.getCalls().find((c) => String(c.args[0]).includes('MigA_2021_01_01_00_00_00'));
+    const drift = warn.getCalls().find((c) => logText(c).includes('MigA_2021_01_01_00_00_00'));
     expect(drift, 'expected a checksum drift warning').to.not.be.undefined;
-    expect(String(drift!.args[0])).to.contain('checksum');
+    expect(logText(drift!)).to.contain('checksum');
   });
 });
 
@@ -664,9 +664,9 @@ describe('DefaultMigrationService down/resolve/status', () => {
 
     expect(dB.calledOnce, 'the schema really was reverted before the delete failed').to.be.true;
 
-    const loud = error.getCalls().find((c) => String(c.args[0]).includes('MigB_2021_01_02_00_00_00'));
+    const loud = error.getCalls().find((c) => logText(c).includes('MigB_2021_01_02_00_00_00'));
     expect(loud, 'expected a loud log about the reverted-but-still-recorded migration').to.not.be.undefined;
-    expect(String(loud!.args[0])).to.contain('still reports this migration as applied');
+    expect(logText(loud!)).to.contain('still reports this migration as applied');
   });
 
   it('down() warns about the failed and orphaned rows it steps around', async () => {
@@ -685,12 +685,12 @@ describe('DefaultMigrationService down/resolve/status', () => {
     expect(dA.calledOnce, 'the rollback still runs what it can').to.be.true;
     expect(executed).to.have.length(1);
 
-    const orphan = warn.getCalls().find((c) => String(c.args[0]).includes('Ghost_2020_12_31_00_00_00'));
+    const orphan = warn.getCalls().find((c) => logText(c).includes('Ghost_2020_12_31_00_00_00'));
     expect(orphan, 'expected a warning naming the row no registered migration matches').to.not.be.undefined;
 
-    const failed = warn.getCalls().find((c) => String(c.args[0]).includes('MigB_2021_01_02_00_00_00'));
+    const failed = warn.getCalls().find((c) => logText(c).includes('MigB_2021_01_02_00_00_00'));
     expect(failed, 'expected a warning naming the failed row the rollback skipped').to.not.be.undefined;
-    expect(String(failed!.args[0])).to.contain('resolve');
+    expect(logText(failed!)).to.contain('resolve');
   });
 
   it('resolve applied / rolled-back mutate the failed row', async () => {
@@ -931,10 +931,10 @@ describe('DefaultMigrationService down/resolve/status', () => {
     expect(upA.calledOnce, 'the re-run must still happen').to.be.true;
     expect(executed).to.have.length(1);
 
-    const loud = warn.getCalls().find((c) => String(c.args[0]).includes('MigA_2021_01_01_00_00_00'));
+    const loud = warn.getCalls().find((c) => logText(c).includes('MigA_2021_01_01_00_00_00'));
     expect(loud, 'expected a warning about the interrupted run').to.not.be.undefined;
-    expect(String(loud!.args[0])).to.contain('never finished');
-    expect(String(loud!.args[0]), 'the operator needs the lever named').to.contain('resolve');
+    expect(logText(loud!)).to.contain('never finished');
+    expect(logText(loud!), 'the operator needs the lever named').to.contain('resolve');
   });
 
   it('up() does not warn about a rolled-back row, which carries the same NULLs on purpose', async () => {
@@ -949,7 +949,7 @@ describe('DefaultMigrationService down/resolve/status', () => {
     await svc.up([unit(MigA_2021_01_01_00_00_00)]);
 
     expect(
-      warn.getCalls().some((c) => String(c.args[0]).includes('never finished')),
+      warn.getCalls().some((c) => logText(c).includes('never finished')),
       'a deliberately rolled-back row must not be reported as an interrupted run',
     ).to.be.false;
   });
@@ -1092,7 +1092,7 @@ describe('DefaultMigrationService lock', () => {
     expect(ops).to.eql(['lock-insert', 'lock-delete', 'lock-insert', 'lock-delete']);
     expect(insertAttempt).to.eq(2);
 
-    const stolen = warn.getCalls().find((c) => String(c.args[0]).includes('dead:1'));
+    const stolen = warn.getCalls().find((c) => logText(c).includes('dead:1'));
     expect(stolen, 'stealing a lock must be loud - it may be a live process the clock disagrees with').to.not.be.undefined;
   });
 
@@ -1138,7 +1138,7 @@ describe('DefaultMigrationService lock', () => {
     // the spin showed up as a steal per turn with no sleep between them: capped, so the delete
     // and its warning are issued a bounded number of times and the loop falls back to polling
     expect(ops.filter((o) => o === 'lock-delete').length, 'steals must be capped').to.eq(MIGRATION_LOCK_MAX_STEALS);
-    expect(warn.getCalls().filter((c) => String(c.args[0]).includes('Stealing stale')).length, 'one warning per steal and no more - this runs on boot').to.eq(MIGRATION_LOCK_MAX_STEALS);
+    expect(warn.getCalls().filter((c) => logText(c).includes('Stealing stale')).length, 'one warning per steal and no more - this runs on boot').to.eq(MIGRATION_LOCK_MAX_STEALS);
     // an unbounded loop issues thousands of these in the same window
     expect(ops.filter((o) => o === 'lock-insert').length, 'the retry loop must poll, not spin').to.be.at.most(MIGRATION_LOCK_MAX_STEALS + 4);
   }).timeout(5000);
@@ -1176,9 +1176,9 @@ describe('DefaultMigrationService lock', () => {
       expect(e.message, 'the migration failure is what the operator needs, not the release failure').to.contain('ddl exploded');
     }
 
-    const loud = error.getCalls().find((c) => String(c.args[0]).includes('lock table vanished'));
+    const loud = error.getCalls().find((c) => (c.args[0] as { error?: Error } | undefined)?.error?.message === 'lock table vanished');
     expect(loud, 'a lock left behind must still be reported, even though it is not rethrown').to.not.be.undefined;
-    expect(String(loud!.args[0]), 'the operator has to be told which row to clear').to.contain(LOCK_TABLE);
+    expect(logText(loud!), 'the operator has to be told which row to clear').to.contain(LOCK_TABLE);
   });
 
   it('down() takes the lock too', async () => {

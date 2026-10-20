@@ -1,10 +1,10 @@
 /* eslint-disable security/detect-object-injection */
 /* eslint-disable prettier/prettier */
 
-import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler, SqlAlterColumnQueryCompiler, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
-import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, TableQueryCompiler, TableQueryBuilder, TableAliasCompiler, ColumnAlterationType, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder } from '@spinajs/orm';
-import { NotSupported } from '@spinajs/exceptions';
-import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
+import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler, SqlAlterColumnQueryCompiler, SqlCreateViewQueryCompiler, SqlLimitQueryCompiler, escapeStringLiteral, SqlIndexQueryCompiler } from '@spinajs/orm-sql';
+import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, TableQueryCompiler, TableQueryBuilder, TableAliasCompiler, ColumnAlterationType, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder, IdentifierQuoter } from '@spinajs/orm';
+import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
+import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import _ from 'lodash';
 
@@ -24,6 +24,9 @@ export class SqliteTruncateTableQueryCompiler extends TableQueryCompiler {
 
 @NewInstance()
 export class SqliteOrderByCompiler extends OrderByQueryCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   protected _builder: OrderByBuilder;
 
   constructor(builder: OrderByBuilder) {
@@ -36,12 +39,12 @@ export class SqliteOrderByCompiler extends OrderByQueryCompiler {
     this._builder = builder;
   }
   public compile(): ICompilerOutput {
-    const sort = this._builder.getSort();
+    const sorts = this._builder.getSorts();
     let stmt = '';
     const bindings = [] as unknown[];
 
-    if (sort) {
-      stmt = ` ORDER BY ${sort.tableAlias ? `\`${sort.tableAlias}\`.` : ''}\`${sort.column}\` ${sort.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC'}`;
+    if (sorts.length > 0) {
+      stmt = ` ORDER BY ${sorts.map((s) => `${s.tableAlias ? `${this.Quoter.quote(s.tableAlias)}.` : ''}${this.Quoter.quote(s.column)} ${s.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC'}`).join(', ')}`;
     }
 
     return {
@@ -62,30 +65,19 @@ export class SqliteOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler 
       throw new OrmException(`no unique or primary key columns defined in table ${this._builder.getParent().Table}`);
     }
 
-    const columns = this._builder.getColumnsToUpdate().map((c: string | RawQuery): string => {
-      if (_.isString(c)) {
-        return `${c} = ?`;
-      } else {
-        return c.Query;
-      }
-    });
+    const updates: Array<string | RawQuery> = this._builder.getColumnsToUpdate() ?? [];
 
-    const parent = this._builder.getParent() as InsertQueryBuilder;
-
-    const bindings = _.flatMap(this._builder.getColumnsToUpdate(), (c: string | RawQuery) => {
-      if (_.isString(c)) {
-        const cIndex = parent.getColumns().findIndex((col: ColumnStatement) => (_.isString(col.Column) ? col.Column === c : null));
-        return parent.Values[0][cIndex];
-      } else {
-        return c.Bindings;
-      }
-    });
+    // `excluded.col` is the row being inserted, so each conflicting row of a multi row upsert
+    // gets its own values
+    const columns = updates.map((c: string | RawQuery): string => (_.isString(c) ? `${this.Quoter.quote(c)} = excluded.${this.Quoter.quote(c)}` : c.Query));
+    const bindings = _.flatMap(updates, (c: string | RawQuery): unknown[] => (_.isString(c) ? [] : c.Bindings ?? []));
+    const action = columns.length === 0 ? 'DO NOTHING' : `DO UPDATE SET ${columns.join(',')}`;
 
     const returning = this._builder.getReturning()[0] === '*' ? ['*'] : this._builder.getReturning().map((c: string) => `\`${c}\``);
 
     return {
       bindings,
-      expression: `ON CONFLICT(${this._builder.getColumn().join(',')}) DO UPDATE SET ${columns.join(',')} RETURNING ${returning.join(',')};`,
+      expression: `ON CONFLICT(${this._builder.getColumn().map((c) => this.Quoter.quote(c)).join(',')}) ${action} RETURNING ${returning.join(',')};`,
     };
   }
 }
@@ -138,6 +130,11 @@ export class SqliteDropDatabaseQueryCompiler extends DropDatabaseCompiler {
 @Inject(Container)
 export class SqliteTableQueryCompiler extends SqlTableQueryCompiler {
   public compile(): ICompilerOutput[] {
+    // the shared history compiler emits MySQL triggers ( DELIMITER, FIRST / AFTER ) sqlite cannot run
+    if (this.builder.TrackHistory) {
+      throw new NotSupported(`sqlite driver does not support history tables, cannot track history of ${this.builder.Table}`);
+    }
+
     const pkColumns = this.builder.Columns.filter((c) => c.PrimaryKey);
 
     // SQLite has no syntax for two inline PRIMARY KEY column constraints - it rejects
@@ -207,6 +204,98 @@ export class SqliteInsertQueryCompiler extends SqlInsertQueryCompiler {
   protected into() {
     return `INSERT${this._builder.Ignore ? ' OR IGNORE' : ''}${this._builder.Replace ? ' OR REPLACE' : ''} INTO \`${this._builder.Table}\``;
   }
+
+  /**
+   * A column no row supplies is left out, so sqlite applies the table default - there is no
+   * DEFAULT keyword inside VALUES to ask for it per row.
+   */
+  protected keptColumnIndices(): number[] {
+    return super.keptColumnIndices().filter((i) => this._builder.Values.some((row) => row[i] !== undefined));
+  }
+
+  /**
+   * A row that leaves out a column other rows set renders NULL only when that is provably what
+   * the column default gives ( a nullable column without a default ). Anything else cannot be
+   * written in one sqlite VALUES list, so it fails here naming the column.
+   */
+  protected values() {
+    if (this._builder.Values.length === 0) {
+      throw new InvalidArgument('values count invalid');
+    }
+
+    const kept = this.keptColumnIndices();
+    const columns = this._builder.getColumns() as ColumnStatement[];
+    const bindings: unknown[] = [];
+
+    const rows = this._builder.Values.map((val) => {
+      const toInsert = kept.map((i) => {
+        const v: unknown = val[i];
+        const descriptor = columns[i].Descriptor;
+
+        if (descriptor) {
+          if (!descriptor.Nullable && (v === null || v === undefined) && !descriptor.AutoIncrement) {
+            throw new InvalidArgument(`value column ${descriptor.Name} cannot be null`);
+          }
+
+          if (descriptor.AutoIncrement && descriptor.PrimaryKey && (v === undefined || v === null)) {
+            return this.autoIncrementPlaceholder();
+          }
+        }
+
+        if (v === undefined) {
+          if (descriptor && _.isNil(descriptor.DefaultValue)) {
+            return 'NULL';
+          }
+
+          throw new InvalidArgument(`insert into ${this._builder.Table}: a row has no value for column ${String(columns[i].Column)} that other rows set, and sqlite has no DEFAULT inside VALUES; pass null or the value explicitly`);
+        }
+
+        if (v === null) {
+          return 'NULL';
+        }
+
+        bindings.push(this.tryConvertValue(v));
+        return '?';
+      });
+
+      return `(${toInsert.join(',')})`;
+    });
+
+    return {
+      bindings,
+      data: `VALUES ${rows.join(',')}`,
+    };
+  }
+}
+
+/**
+ * sqlite rejects the shared compiler's offset-only `LIMIT 18446744073709551615` ( it does not fit
+ * a signed 64-bit integer ) with SQLITE_MISMATCH; `LIMIT -1` is its spelling of "no limit".
+ */
+@NewInstance()
+export class SqliteLimitQueryCompiler extends SqlLimitQueryCompiler {
+  public compile(): ICompilerOutput {
+    const limits = this._builder.getLimits();
+    const bindings = [];
+    let stmt = '';
+
+    if ((limits.limit ?? 0) > 0) {
+      stmt += ` LIMIT ?`;
+      bindings.push(limits.limit);
+    } else if ((limits.offset ?? 0) > 0) {
+      stmt += ` LIMIT -1`;
+    }
+
+    if ((limits.offset ?? 0) > 0) {
+      stmt += ` OFFSET ?`;
+      bindings.push(limits.offset);
+    }
+
+    return {
+      bindings,
+      expression: stmt,
+    };
+  }
 }
 
 @NewInstance()
@@ -259,9 +348,6 @@ export class SqliteColumnCompiler extends SqlColumnQueryCompiler {
     if (this.builder.Unsigned) {
       _stmt.push('UNSIGNED');
     }
-    if (this.builder.Charset) {
-      _stmt.push(`CHARACTER SET '${this.builder.Charset}'`);
-    }
     if (this.builder.Collation) {
       _stmt.push(`COLLATE '${this.builder.Collation}'`);
     }
@@ -270,9 +356,6 @@ export class SqliteColumnCompiler extends SqlColumnQueryCompiler {
     }
     if (this.builder.Default) {
       _stmt.push(this._defaultCompiler());
-    }
-    if (this.builder.Comment) {
-      _stmt.push(`COMMENT '${this.builder.Comment}'`);
     }
     if (this.builder.PrimaryKey && this.builder.InlinePrimaryKey) {
       _stmt.push(`PRIMARY KEY`);
@@ -307,7 +390,7 @@ export class SqliteColumnCompiler extends SqlColumnQueryCompiler {
     }
 
     if (_.isString(this.builder.Default.Value)) {
-      _stmt = `DEFAULT '${this.builder.Default.Value.trim()}'`;
+      _stmt = `DEFAULT '${escapeStringLiteral(this.builder.Default.Value.trim())}'`;
     } else if (_.isNumber(this.builder.Default.Value)) {
       _stmt = `DEFAULT ${this.builder.Default.Value}`;
     } else if (this.builder.Default.Query instanceof RawQuery) {
@@ -359,19 +442,9 @@ export class SqliteAlterColumnQueryCompiler extends SqlAlterColumnQueryCompiler 
     return super._columnDefinition();
   }
 
-  /**
-   * sqlite cannot change a column's type: it has no MODIFY / ALTER COLUMN.
-   * It is also dynamically typed and renders enum/string/date as unconstrained
-   * TEXT, so a type-only change is a semantic no-op here anyway.
-   *
-   * Constraint changes (NOT NULL / DEFAULT / UNIQUE) ARE enforced by sqlite and
-   * are NOT applied - they need an explicit table-rebuild migration. Warn rather
-   * than throw: portable migrations legitimately restate existing constraints
-   * (mysql's MODIFY drops any attribute you omit), and throwing would break them.
-   */
+  // sqlite has no ALTER COLUMN: SqliteOrmDriver.execute rebuilds the table instead, which no single statement expresses.
   protected _modify(_definition: string): string | null {
-    this.Log.warn(`sqlite cannot MODIFY column '${this.builder.Name}' - skipping. Type changes are a no-op (sqlite is dynamically typed); any NOT NULL / DEFAULT / UNIQUE change was NOT applied. Write an explicit table-rebuild migration if you need one.`);
-    return null;
+    throw new NotSupported(`sqlite cannot compile a MODIFY of column ${this.builder.Name}: run the alterTable() on the connection, which rebuilds the table`);
   }
 
   protected _add(definition: string): string | null {
@@ -395,5 +468,13 @@ export class SqliteCreateViewCompiler extends SqlCreateViewQueryCompiler {
 
   protected _ifNotExists(): string {
     return this.builder.IfNotExists ? 'IF NOT EXISTS' : '';
+  }
+}
+
+// Index names are schema-wide, so DROP INDEX names no table.
+@NewInstance()
+export class SqliteIndexQueryCompiler extends SqlIndexQueryCompiler {
+  protected _drop(): string {
+    return `DROP INDEX ${this.Quoter.quote(this._builder.Name)}`;
   }
 }

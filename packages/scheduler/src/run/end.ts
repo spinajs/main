@@ -1,6 +1,5 @@
 import type { Log } from '@spinajs/log-common';
 import type { RunStatus, StructuredError } from '../contract.js';
-import { jsonColumn } from '../models/converters.js';
 import { RunAttemptModel } from '../models/RunAttemptModel.js';
 import type { RunModel } from '../models/RunModel.js';
 import type { RunEventWriter } from './RunEventWriter.js';
@@ -29,7 +28,7 @@ export async function journalAttemptEnd(
       await RunAttemptModel.update({
         FinishedAt: end.now,
         Status: end.attemptStatus,
-        Error: jsonColumn(end.error) as never,
+        Error: end.error,
       })
         .where('RunId', run.Id)
         .where('Attempt', run.Attempt);

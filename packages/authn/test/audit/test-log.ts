@@ -1,0 +1,70 @@
+import { DI, NewInstance } from '@spinajs/di';
+import { Log, renderTemplate } from '@spinajs/log-common';
+
+export interface TestLogEntry {
+  readonly level: 'info' | 'warn';
+  readonly logger: string;
+  readonly message: string;
+  readonly fields?: Readonly<Record<string, unknown>>;
+}
+
+/** Stands in for the app's Log so DI-built services write here, not to the console. One instance per resolve, like FrameworkLogger. */
+@NewInstance()
+export class TestLog {
+  static readonly entries: TestLogEntry[] = [];
+  static readonly lines: string[] = [];
+
+  private static readonly warned = new Set<string>();
+
+  static clear(): void {
+    TestLog.entries.length = 0;
+    TestLog.lines.length = 0;
+    TestLog.warned.clear();
+  }
+
+  static of(logger: string): TestLogEntry[] {
+    return TestLog.entries.filter((e) => e.logger === logger);
+  }
+
+  constructor(readonly Name: string = '') {}
+
+  info(first: unknown, ...rest: unknown[]): void {
+    this.write('info', first, rest);
+  }
+
+  warn(first: unknown, ...rest: unknown[]): void {
+    this.write('warn', first, rest);
+  }
+
+  // Log.warnOnce, but its keys are forgotten by clear(), so every test sees the warnings it causes.
+  warnOnce(key: string, first: unknown, ...rest: unknown[]): boolean {
+    const id = `${this.Name}\u0000${key}`;
+    if (TestLog.warned.has(id)) return false;
+    this.warn(first, ...rest);
+    TestLog.warned.add(id);
+    return true;
+  }
+
+  // The Log overloads: (message, ...args) or (fields, message?, ...args).
+  private write(level: TestLogEntry['level'], first: unknown, rest: unknown[]): void {
+    const fields = first !== null && typeof first === 'object' ? (first as Record<string, unknown>) : undefined;
+    const [format, ...args] = fields ? rest : [first, ...rest];
+    const template = fields ? renderTemplate(String(format ?? ''), fields, args.length !== 0) : String(format ?? '');
+    const message = template.replace(/%s/g, () => String(args.shift()));
+    TestLog.entries.push({ level, logger: this.Name, message, ...(fields ? { fields } : {}) });
+    TestLog.lines.push(`${level} ${this.Name} ${message}`);
+  }
+}
+
+export function useTestLog(): void {
+  before(() => {
+    DI.register(TestLog).as(Log as never);
+  });
+  beforeEach(() => {
+    TestLog.clear();
+  });
+  after(() => {
+    DI.uncache(TestLog);
+    DI.unregister(TestLog);
+  });
+}

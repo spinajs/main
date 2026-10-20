@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib/mjs",
+    "module": "node16",
+    "moduleResolution": "node16"
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../http-socket/tsconfig.mjs.json" },
+    { "path": "../http-socket-client/tsconfig.mjs.json" },
+    { "path": "../http-socket-common/tsconfig.mjs.json" }
+  ]
+}

@@ -1,4 +1,7 @@
+import type { AddressInfo } from 'node:net';
+import { DI } from '@spinajs/di';
 import { FrameworkConfiguration } from '@spinajs/configuration';
+import { HttpServer } from '@spinajs/http';
 import chai from 'chai';
 import { join, normalize, resolve } from 'path';
 import _ from 'lodash';
@@ -22,8 +25,17 @@ export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
+// http.port is 0, so every start binds a free port and parallel runs never collide; requests read it back from the running server.
+export function appPort(): number {
+  const address = DI.get(HttpServer)?.Server?.address() as AddressInfo | null | undefined;
+  if (!address) throw new Error('no http server listening: start HttpServer first');
+  return address.port;
+}
+
+export const appOrigin = (): string => `http://localhost:${appPort()}`;
+
 export function req() {
-  return chai.request('http://localhost:9999/');
+  return chai.request(`${appOrigin()}/`);
 }
 
 
@@ -75,7 +87,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
       http: {
-        port: 9999,
+        port: 0,
         middlewares: [
           express.json({
             limit: '5mb',
@@ -93,6 +105,8 @@ export class TestConfiguration extends FrameworkConfiguration {
         AcceptHeaders: 1 | 2,
       },
       db: {
+        // filters.test.ts registers filter_regression, which no migration creates.
+        StrictTableCheck: false,
         DefaultConnection: 'sqlite',
 
         Connections: [

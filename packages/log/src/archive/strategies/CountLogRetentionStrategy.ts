@@ -24,10 +24,10 @@ export class CountLogRetentionStrategy extends LogRetentionStrategy {
 
     for (const a of toDelete) {
       try {
-        this.Logger.trace(`Deleting archive ${a.path} ( over count limit ${keep} )`);
+        this.Logger.trace({ archivePath: a.path, keep }, "Deleting archive ${archivePath} ( over count limit ${keep} )");
         await ctx.archiveFs.rm(a.path);
       } catch (err) {
-        this.Logger.warn(`Cannot delete archive ${a.path}: ${(err as Error).message}`);
+        this.Logger.warn({ error: err, archivePath: a.path }, "Cannot delete archive ${archivePath}");
       }
     }
   }

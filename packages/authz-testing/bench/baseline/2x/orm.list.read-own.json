@@ -1,0 +1,44 @@
+{
+  "name": "orm.list.read-own",
+  "description": "select 50 of 1,000 rows (read:own: 50 of the 100 owned rows); read:own user (two grant probes + owner WHERE)",
+  "compare": "orm.list.nouser",
+  "unit": "ns",
+  "iterations": 4000,
+  "warmup": 500,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 4072600,
+  "p95": 6272800,
+  "p99": 7809500,
+  "mean": 4366081.375,
+  "opsPerSec": 229.03833302923724,
+  "perRepeat": [
+    {
+      "p50": 4013100,
+      "p95": 6241600,
+      "p99": 7809500,
+      "mean": 4298558.7,
+      "opsPerSec": 232.63611591485304
+    },
+    {
+      "p50": 4086600,
+      "p95": 6272800,
+      "p99": 7800500,
+      "mean": 4367136.55,
+      "opsPerSec": 228.98299344452604
+    },
+    {
+      "p50": 4072600,
+      "p95": 6333900,
+      "p99": 8317600,
+      "mean": 4366081.375,
+      "opsPerSec": 229.03833302923724
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

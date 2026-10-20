@@ -1,0 +1,57 @@
+import type { Principal, ResourceRef, ResourceType } from './principal.js';
+import type { Permission, PermissionDef } from './permission.js';
+import type { FilterOp } from './filter.js';
+
+export abstract class ResourceAdapter<T = unknown> {
+  abstract readonly kind: string; // 'orm' | 'fs' | 'queue' | app
+  abstract readonly types: readonly ResourceType[];
+  abstract accepts(target: unknown): target is T;
+  abstract refOf(target: T): ResourceRef | Promise<ResourceRef>;
+  /** [self, parent, ..., GLOBAL]; null = unknown resource. */
+  abstract ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null>;
+  scopeAttributes?(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null>; // values for 'scope.<type>.*' refs
+  load?(ref: ResourceRef): Promise<unknown | null>; // subject loader for definite answers
+  /** Rows by resourceKey; missing keys mean unknown resources. */
+  loadMany?(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, unknown>>;
+  /** Ancestors by resourceKey, each `[self, parent, ..., GLOBAL]`; null = unknown resource. */
+  ancestorsMany?(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, readonly ResourceRef[] | null>>;
+  attribute?(subject: unknown, field: string): unknown; // in-memory 'cmp' reads; default subject[field]
+  relations?(): readonly RelationResolver[];
+  permissions?(): readonly Omit<PermissionDef, 'source'>[];
+  operations?(): Readonly<Record<string, Permission | readonly Permission[]>>; // proxies, docs
+  /** Filter ops this adapter compiles into its query language; undefined = not list-scoped. */
+  readonly compiles?: readonly FilterOp[];
+}
+
+export abstract class ScopeResolver {
+  abstract readonly types: readonly ResourceType[];
+  abstract ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null>;
+  /** Attributes of one node for 'scope.<type>.*' and 'resource.*' refs (canvas: org policies, branch name). Must fill defaults. */
+  attributes?(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null>;
+}
+// Unregistered type: ancestors = [ref, GLOBAL]; attributes = {}. A type a boot-time adapter starts listing after boot is refused: using it throws AuthzConfigError.
+// A missing scope attribute, or a scope.<type>.* ref the engine cannot resolve (unknown node; a type-level request for a type other than $global), makes the vote indeterminate: B04, fail closed, reason model_error (B39).
+
+export abstract class RelationResolver {
+  abstract readonly type: ResourceType;
+  abstract readonly relation: string; // 'owner' | 'self' | 'pool' | 'polsat' | 'initiator' | 'editor'
+  abstract holds(principal: Principal, ref: ResourceRef, subject?: unknown): boolean | Promise<boolean>;
+}
+
+// Merged into the class so it emits no field: a subclass may declare it with a field initialiser or a getter.
+export interface RelationResolver {
+  /** True when the resource adapter renders this relation in SQL (op `relation.column`), so list plans may use it. Only the ORM adapter's `relation.column` compiler renders it: a custom resolver must not set it unless an adapter renders its relation. */
+  readonly listable?: boolean;
+}
+
+/** Scope attributes as authz data: ctx.attributes(ref) = schema defaults ⊕ adapter/resolver attributes ⊕ store rows (store wins). */
+export interface ScopeAttributeSchema {
+  readonly scopeType: ResourceType;
+  readonly schema: object; // JSON schema of the attribute object, scalars at the leaves
+  readonly defaults: Readonly<Record<string, unknown>>;
+}
+
+export abstract class ScopeAttributeStore {
+  abstract get(ref: ResourceRef): Promise<Readonly<Record<string, unknown>>>; // nested object rebuilt from flat paths
+  abstract version(): Promise<string>;
+}

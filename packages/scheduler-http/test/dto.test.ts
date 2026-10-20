@@ -25,6 +25,14 @@ describe('scheduler-http dto', () => {
     validator = await DI.resolve(DataValidator);
   });
 
+  // the http suites install their own Configuration and must not find this one cached
+  after(() => {
+    DI.uncache(DataValidator);
+    DI.uncache(EmptyConfiguration);
+    DI.uncache(Configuration);
+    DI.unregister(EmptyConfiguration);
+  });
+
   const valid = (type: object, data: unknown) => validator.tryValidate(validator.extractSchema(type), data as object)[0];
   const validAgainst = (schema: object, data: unknown) => validator.tryValidate(schema, data as object)[0];
 

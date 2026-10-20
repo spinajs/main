@@ -1,7 +1,10 @@
+import type { AddressInfo } from 'node:net';
 import { DI } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
 import { FrameworkConfiguration } from '@spinajs/configuration';
+import { Forbidden } from '@spinajs/exceptions';
 import chai from 'chai';
-import { Controllers } from '../src/index.js';
+import { BaseController, Controllers, HttpServer } from '../src/index.js';
 import { join, normalize, resolve } from 'path';
 import _ from 'lodash';
 import chaiHttp from 'chai-http';
@@ -24,8 +27,17 @@ chai.use(chaiSubset);
 chai.use(chaiLike);
 chai.use(chaiThings);
 
+// http.port is 0, so every start binds a free port and parallel runs never collide; requests read it back from the running server.
+export function appPort(): number {
+  const address = DI.get(HttpServer)?.Server?.address() as AddressInfo | null | undefined;
+  if (!address) throw new Error('no http server listening: start HttpServer first');
+  return address.port;
+}
+
+export const appOrigin = (): string => `http://localhost:${appPort()}`;
+
 export function req() {
-  return chai.request('http://localhost:8888/');
+  return chai.request(`${appOrigin()}/`);
 }
 
 export function dir(path: string) {
@@ -111,12 +123,18 @@ export class TestConfiguration extends FrameworkConfiguration {
 
         },
 
-        port: 8888,
+        port: 0,
         middlewares: [
           (helmet as any)(),
           express.json({
             limit: '5mb',
             verify: (req: any, _res: any, buf: Buffer) => {
+              if (req.headers['x-test-refuse-body']) {
+                throw new Error('request body refused');
+              }
+              if (req.headers['x-test-forbid-body']) {
+                throw new Forbidden('webhook signature mismatch');
+              }
               req.rawBody = buf;
             },
           }),
@@ -199,4 +217,25 @@ export class TestConfiguration extends FrameworkConfiguration {
 
 export function ctr() {
   return DI.get(Controllers);
+}
+
+// A controller binds its middlewares' methods when it builds its routes, so an instance built
+// before a suite installs its spies never calls them. Any suite that resolves
+// Array.ofType(BaseController) builds an instance of every registered controller, and a
+// suite may drop the collection while the instances stay cached under their own names.
+export function uncacheControllers() {
+  for (const type of DI.getRegisteredTypes(BaseController) ?? []) {
+    DI.uncache(type as Class<BaseController>);
+  }
+  DI.uncache(BaseController);
+}
+
+// HttpServer attaches its 404 and error handlers on its first start(), so a server started
+// before Controllers mounted its router answers 404 for every route. A suite that boots a
+// server drops it, the loader and the controllers when it ends.
+export async function releaseHttpServer() {
+  await DI.get(HttpServer)?.stop();
+  DI.uncache(HttpServer);
+  DI.uncache(Controllers);
+  uncacheControllers();
 }

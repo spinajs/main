@@ -1,0 +1,43 @@
+{
+  "name": "orm.build.nostore",
+  "description": "build a 50-row list select; no ALS store at all: the middleware returns at its first check; the baseline without ALS",
+  "unit": "ns",
+  "iterations": 50000,
+  "warmup": 5000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 93200,
+  "p95": 203100,
+  "p99": 345800,
+  "mean": 112277.43,
+  "opsPerSec": 8906.509527337774,
+  "perRepeat": [
+    {
+      "p50": 94600,
+      "p95": 199900,
+      "p99": 345300,
+      "mean": 112277.43,
+      "opsPerSec": 8906.509527337774
+    },
+    {
+      "p50": 93200,
+      "p95": 207600,
+      "p99": 347600,
+      "mean": 112391.2,
+      "opsPerSec": 8897.493753959385
+    },
+    {
+      "p50": 92700,
+      "p95": 203100,
+      "p99": 345800,
+      "mean": 111901.12,
+      "opsPerSec": 8936.461047038672
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

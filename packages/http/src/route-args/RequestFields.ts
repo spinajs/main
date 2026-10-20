@@ -10,13 +10,28 @@ export class BodyFieldRouteArgs extends RouteArgs {
     return ParameterType.BodyField;
   }
 
-  public async extract(callData: IRouteCall,_args : unknown [],  _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
+  public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
     return {
       CallData: callData,
-      Args: req.body,
+      Args: req.body === undefined || req.body === null ? req.body : await this.filterInput(req.body, param, route),
     };
   }
 }
+
+const ACCEPT_TYPES: [string[], HttpAcceptHeaders][] = [
+  [['application/json'], HttpAcceptHeaders.JSON],
+  [['text/html'], HttpAcceptHeaders.HTML],
+  [['application/xml', 'text/xml'], HttpAcceptHeaders.XML],
+  [['text/plain'], HttpAcceptHeaders.TEXT],
+  [['image/png', 'image/jpeg'], HttpAcceptHeaders.IMAGE],
+  [['application/pdf'], HttpAcceptHeaders.PDF],
+];
+
+/**
+ * `HttpAcceptHeaders` flags of every type the `Accept` header allows. Lists, wildcards
+ * and q-values are honoured, a missing header allows every type, and a header that
+ * allows none of them gives `OTHER`.
+ */
 @Injectable()
 export class RequestTypeRouteArgs extends RouteArgs {
   public get SupportedType(): ParameterType {
@@ -24,41 +39,23 @@ export class RequestTypeRouteArgs extends RouteArgs {
   }
 
   public async extract(callData: IRouteCall,_args : unknown [],  _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
-    let acceptHeader = HttpAcceptHeaders.ALL;
+    let acceptHeader = 0;
 
-    switch (req.headers.accept?.toLowerCase()) {
-      case 'text/*':
-      case 'text/html':
-        acceptHeader = HttpAcceptHeaders.HTML;
-        break;
-      case 'text/plain':
-        acceptHeader = HttpAcceptHeaders.TEXT;
-        break;
-      case 'image/png':
-      case 'image/jpeg':
-      case 'image/*':
-        acceptHeader = HttpAcceptHeaders.IMAGE;
-        break;
-      case 'application/pdf':
-        acceptHeader = HttpAcceptHeaders.PDF;
-        break;
-      case 'application/json':
-        acceptHeader = HttpAcceptHeaders.JSON;
-        break;
-      default:
-        acceptHeader = HttpAcceptHeaders.OTHER;
-        break;
+    for (const [types, flag] of ACCEPT_TYPES) {
+      if (req.accepts(types)) {
+        acceptHeader |= flag;
+      }
     }
 
     return {
       CallData: callData,
-      Args: acceptHeader,
+      Args: acceptHeader === 0 ? HttpAcceptHeaders.OTHER : acceptHeader,
     };
   }
 }
 
 @Injectable()
-export class QueryFieldRouteArg extends RouteArgs {
+export class QueryFieldRouteArgs extends RouteArgs {
   public get SupportedType(): ParameterType {
     return ParameterType.QueryField;
   }
@@ -72,7 +69,7 @@ export class QueryFieldRouteArg extends RouteArgs {
 }
 
 @Injectable()
-export class HeadersFieldRouteArg extends RouteArgs {
+export class HeadersFieldRouteArgs extends RouteArgs {
   public get SupportedType(): ParameterType {
     return ParameterType.Headers;
   }
@@ -86,7 +83,7 @@ export class HeadersFieldRouteArg extends RouteArgs {
 }
 
 @Injectable()
-export class ParamFieldRouteArg extends RouteArgs {
+export class ParamFieldRouteArgs extends RouteArgs {
   public get SupportedType(): ParameterType {
     return ParameterType.ParamField;
   }
@@ -98,3 +95,15 @@ export class ParamFieldRouteArg extends RouteArgs {
     };
   }
 }
+
+/** @deprecated use `QueryFieldRouteArgs` */
+export const QueryFieldRouteArg = QueryFieldRouteArgs;
+export type QueryFieldRouteArg = QueryFieldRouteArgs;
+
+/** @deprecated use `HeadersFieldRouteArgs` */
+export const HeadersFieldRouteArg = HeadersFieldRouteArgs;
+export type HeadersFieldRouteArg = HeadersFieldRouteArgs;
+
+/** @deprecated use `ParamFieldRouteArgs` */
+export const ParamFieldRouteArg = ParamFieldRouteArgs;
+export type ParamFieldRouteArg = ParamFieldRouteArgs;

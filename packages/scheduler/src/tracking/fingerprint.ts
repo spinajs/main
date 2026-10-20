@@ -7,6 +7,7 @@ const PATH = /(?:[a-zA-Z]:)?(?:[\\/][\w.@-]+){2,}/g;
 const HEX = /\b0x[0-9a-f]+\b/gi;
 const NUMBER = /\d+(?:\.\d+)?/g;
 const FRAME = /^at (?:(.+?) \()?(.+?)(?::\d+)?(?::\d+)?\)?$/;
+const LINE_BREAK = /[\r\u2028\u2029]/;
 const OUTSIDE_APP = /node_modules|^node:|^internal\//;
 
 /** Replaces the parts of a message that vary between occurrences of the same failure. */
@@ -28,7 +29,11 @@ export function normalizeMessage(message: string): string {
 export function topInAppFrame(stack?: string): string | null {
   if (!stack) return null;
   for (const raw of stack.split('\n').slice(1)) {
-    const m = FRAME.exec(raw.trim());
+    const line = raw.trim();
+    // FRAME never matches across one of these, and trying is quadratic; a multi-line error message (often
+    // remote text) sits in the stack ahead of the frames.
+    if (LINE_BREAK.test(line)) continue;
+    const m = FRAME.exec(line);
     if (!m || OUTSIDE_APP.test(m[2])) continue;
     const file = m[2].split(/[\\/]/).pop() || m[2];
     // V8 prefixes frames resumed after an await with `async `; it is the same function

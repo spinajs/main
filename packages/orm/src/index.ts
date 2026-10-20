@@ -9,6 +9,7 @@ export * from './primary-keys.js';
 export * from './resilience.js';
 export * from './metrics.js';
 export * from './schema.js';
+export * from './column-kind.js';
 export * from './schema-providers.js';
 export * from './statements.js';
 export * from './exceptions.js';
@@ -39,8 +40,12 @@ export * from './driver.js';
 export * from './quoting.js';
 export * from './wrappers.js';
 export * from './helpers.js';
+export * from './model-driver.js';
+export * from './sql-helpers.js';
+export * from './expressions.js';
 export * from './fp.js';
 export * from './bootstrap.js';
+export * from './configuration-schema.js';
 export * from './metadata.js';
 
 // NOTE: metadata.js is not exported from index to avoid circular dependency issues

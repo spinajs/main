@@ -1,0 +1,44 @@
+{
+  "name": "orm.build.read-any",
+  "description": "build a 50-row list select; read:any user (two grant probes, no WHERE added)",
+  "compare": "orm.build.nouser",
+  "unit": "ns",
+  "iterations": 50000,
+  "warmup": 5000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 107200,
+  "p95": 241000,
+  "p99": 382600,
+  "mean": 128725.18,
+  "opsPerSec": 7768.487874711071,
+  "perRepeat": [
+    {
+      "p50": 107200,
+      "p95": 241000,
+      "p99": 382600,
+      "mean": 128725.18,
+      "opsPerSec": 7768.487874711071
+    },
+    {
+      "p50": 106900,
+      "p95": 242800,
+      "p99": 397900,
+      "mean": 129289.14,
+      "opsPerSec": 7734.601684255925
+    },
+    {
+      "p50": 107800,
+      "p95": 230900,
+      "p99": 379100,
+      "mean": 128184.01,
+      "opsPerSec": 7801.285043274898
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

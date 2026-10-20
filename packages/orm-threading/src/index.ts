@@ -1,16 +1,13 @@
 import { _check_arg, _default, _non_empty, _trim } from '@spinajs/util';
 import { Mutex, MutexLockOptions, LockResult, MutexLock, processIdentity } from '@spinajs/threading';
 import { Config } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { IUpdateResult, Orm } from '@spinajs/orm';
+import { IUpdateResult, modelDriver } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { __mutex__ } from './models/__mutex__.js';
 import { dbNowMs } from './db-clock.js';
 
 export * from './migrations/Mutex_2024_12_03_11_41_00.js';
-export * from './migrations/Mutex_2026_10_15_00_00_00.js';
-export * from './migrations/Mutex_2026_10_15_00_00_01.js';
 export * from './models/__mutex__.js';
 export * from './db-clock.js';
 
@@ -24,7 +21,7 @@ export * from './db-clock.js';
 export class OrmMutex extends Mutex {
   /**
    * Fixed default tenant. Empty = identity of the current process. Setting one value on
-   * every replica brings back the old shared tenant, where replicas do not exclude each other.
+   * every replica makes them share the tenant, so they no longer exclude each other.
    */
   @Config('threading.mutex.tenant', {
     defaultValue: '',
@@ -60,7 +57,7 @@ export class OrmMutex extends Mutex {
 
     return {
       Locked: granted,
-      Mutex: (await this.get(name))!,
+      Mutex: toLock(await this.get(name)),
     };
   }
 
@@ -97,6 +94,7 @@ export class OrmMutex extends Mutex {
         .update({
           Locked: false,
           LockedUntil: null,
+          Updated_at: DateTime.now(),
         })
         .where({
           Name: name,
@@ -127,6 +125,7 @@ export class OrmMutex extends Mutex {
 
     const result = await (__mutex__ as any).destroy(name).where({
       Tenant: tenant,
+      Locked: false,
     });
     return result.RowsAffected === 1;
   }
@@ -178,6 +177,7 @@ export class OrmMutex extends Mutex {
         Locked: true,
         Tenant: tenant,
         LockedUntil: ttl > 0 ? now + ttl : null,
+        Updated_at: DateTime.now(),
       })
       .where('Name', name)
       .where(function (this: any) {
@@ -211,8 +211,7 @@ export class OrmMutex extends Mutex {
    * Database clock, so replicas with skewed clocks agree on expiry.
    */
   protected now(): Promise<number> {
-    const connection = (__mutex__ as any).getModelDescriptor().Connection;
-    return dbNowMs(DI.get(Orm)!.Connections.get(connection)!);
+    return dbNowMs(modelDriver(__mutex__));
   }
 
   protected nameOf(name: string): string {
@@ -232,4 +231,20 @@ export class OrmMutex extends Mutex {
 
     return ttl;
   }
+}
+
+/** A plain lock with the row's current state, so callers never hold a live model. */
+function toLock(row: MutexLock | null): MutexLock {
+  if (!row) {
+    return null as any;
+  }
+
+  return {
+    Name: row.Name,
+    Tenant: row.Tenant,
+    Locked: row.Locked,
+    LockedUntil: row.LockedUntil ?? null,
+    Created_at: row.Created_at,
+    Updated_at: row.Updated_at,
+  };
 }

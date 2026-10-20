@@ -1,0 +1,123 @@
+import { Autoinject, Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
+import './register-schema.js';
+import { InvalidOption } from '@spinajs/exceptions';
+import { Log, Logger } from '@spinajs/log';
+import { PasswordCredentialStore, PasswordService } from '@spinajs/authn/contracts';
+import type { IdentityRef } from '@spinajs/authn/contracts';
+
+import type { AuditLog } from './audit.js';
+import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
+import { EXPIRED_PASSWORD_MARKER } from './hasher.js';
+
+const DAY_MS = 86_400_000;
+
+/** Knows when each password was set; @spinajs/users implements it. */
+export abstract class PasswordAgeSource {
+  public abstract passwordsSetBefore(cutoff: Date): Promise<readonly IdentityRef[]>;
+}
+
+export interface PasswordExpirationResult {
+  /** Set when the job did nothing: it is disabled, or no `PasswordAgeSource` is registered. */
+  readonly idle?: 'disabled' | 'no_source';
+  readonly expired: number;
+  /** Already holding the expiry marker, or no password at all. */
+  readonly skipped: number;
+  readonly failed: number;
+}
+
+export interface PasswordExpirationJobDeps {
+  /** null: none registered. */
+  readonly ages: PasswordAgeSource | null;
+  readonly passwords: PasswordCredentialStore;
+  readonly service: PasswordService;
+  /** `authn.local.expiration.enabled`; default false. */
+  readonly enabled?: boolean;
+  /** `authn.local.expiration.maxAgeDays`; default 31. */
+  readonly maxAgeDays?: number;
+  readonly log?: AuditLog;
+}
+
+/**
+ * Expires every password set more than `maxAgeDays` ago (D16, A30) with cause `aged`. Runs only when called (the
+ * `authn:password-expire` command); apps schedule it.
+ */
+@Injectable()
+export class PasswordExpirationJob {
+  @Config('authn.local.expiration.enabled')
+  protected Enabled: boolean;
+
+  @Config('authn.local.expiration.maxAgeDays')
+  protected MaxAgeDays: number;
+
+  @Logger('authn-local')
+  protected Log: Log;
+
+  @Autoinject(PasswordAgeSource, { optional: true })
+  protected Ages: PasswordAgeSource | undefined;
+
+  @Autoinject(PasswordCredentialStore)
+  protected Passwords: PasswordCredentialStore;
+
+  @Autoinject(PasswordService)
+  protected Service: PasswordService;
+
+  constructor(protected readonly Deps?: PasswordExpirationJobDeps) {}
+
+  public async run(now: Date = new Date()): Promise<PasswordExpirationResult> {
+    if (!(this.Deps ? (this.Deps.enabled ?? AUTHN_LOCAL_DEFAULTS.expiration.enabled) : this.Enabled)) {
+      return { idle: 'disabled', expired: 0, skipped: 0, failed: 0 };
+    }
+    const maxAgeDays = this.Deps ? (this.Deps.maxAgeDays ?? AUTHN_LOCAL_DEFAULTS.expiration.maxAgeDays) : this.MaxAgeDays;
+    // A zero or negative age would expire every password at once (and NaN none), so it must stop the run, not pass the schema's word.
+    if (typeof maxAgeDays !== 'number' || !Number.isFinite(maxAgeDays) || maxAgeDays <= 0) {
+      throw new InvalidOption(`authn.local.expiration.maxAgeDays must be a positive number of days, got ${String(maxAgeDays)}`);
+    }
+
+    const ages = await this.ages();
+    if (!ages) {
+      this.log().warn('No PasswordAgeSource is registered: no password was expired');
+      return { idle: 'no_source', expired: 0, skipped: 0, failed: 0 };
+    }
+
+    const passwords = await this.passwords();
+    const service = await this.service();
+    const counts = { expired: 0, skipped: 0, failed: 0 };
+    for (const id of await ages.passwordsSetBefore(new Date(now.getTime() - maxAgeDays * DAY_MS))) {
+      try {
+        const stored = await passwords.get(id);
+        // null: no password to expire (an OIDC-only or service identity listed by mistake); it must get no reset mail.
+        if (stored === null || stored === EXPIRED_PASSWORD_MARKER) {
+          counts.skipped++;
+          continue;
+        }
+        await service.expire(id, { cause: 'aged' }, { now, purpose: 'request' });
+        counts.expired++;
+      } catch (err) {
+        counts.failed++;
+        // The name only: a store error may carry the hash in its message.
+        this.log().warn({ identityType: id.type, identityId: id.id, errorName: (err as Error)?.name ?? typeof err }, 'Could not expire the password of ${identityType} ${identityId}: ${errorName}');
+      }
+    }
+    return counts;
+  }
+
+  protected async ages(): Promise<PasswordAgeSource | null> {
+    if (this.Deps) {
+      return this.Deps.ages;
+    }
+    return this.Ages ?? null;
+  }
+
+  protected async passwords(): Promise<PasswordCredentialStore> {
+    return this.Deps?.passwords ?? this.Passwords;
+  }
+
+  protected async service(): Promise<PasswordService> {
+    return this.Deps?.service ?? this.Service;
+  }
+
+  protected log(): AuditLog {
+    return this.Deps ? (this.Deps.log ?? { warn: () => undefined }) : this.Log;
+  }
+}

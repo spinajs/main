@@ -1,5 +1,5 @@
 const sessionDb = {
-  rbac: {
+  authn: {
     session: {
       db: {
         cleanupInterval: 10 * 60 * 1000,

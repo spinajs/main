@@ -22,7 +22,7 @@ export class SwaggerDocCache extends AsyncService {
   }
 
   public async getCache(controller: ClassInfo<BaseController>): Promise<ISwaggerCacheEntry> {
-    this.Log.trace(`Getting swagger doc cache for ${controller.name}`);
+    this.Log.trace({ controller: controller.name }, 'Getting swagger doc cache for ${controller}');
     const doc = await this.ControllerCache.getDocumentation(controller);
 
     // Walk runtime descriptors to learn which policy classes are applied where

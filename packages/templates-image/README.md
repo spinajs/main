@@ -2,6 +2,14 @@
 
 Template renderer for generating images using Puppeteer.
 
+## Documentation
+
+- [Package overview](../../docs/templates-image/README.md)
+- [Image renderer](../../docs/templates-image/01-image-renderer.md)
+- [Configuration](../../docs/templates-image/02-configuration.md)
+- [`render-image` command](../../docs/templates-image/03-render-image-command.md)
+- [Custom image renderers](../../docs/templates-image/04-custom-image-renderers.md)
+
 ## Installation
 
 ```bash
@@ -13,14 +21,13 @@ npm install @spinajs/templates-image
 This package extends `@spinajs/templates-puppeteer` to render templates as image files (PNG, JPEG, etc.).
 
 ```typescript
+import { DI } from '@spinajs/di';
 import { ImageRenderer } from '@spinajs/templates-image';
 
-const renderer = new ImageRenderer({
-  type: 'png',
-  fullPage: true
-});
+const renderer = await DI.resolve(ImageRenderer, [{ type: 'png', fullPage: true }]);
 
-await renderer.renderToFile('template.pug', { data: 'example' }, 'output.png');
+// the renderer's extension replaces the template's: 'template.png' reads 'template.pug'
+await renderer.renderToFile('template.png', { data: 'example' }, 'output.png');
 ```
 
 ## Configuration

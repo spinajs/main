@@ -1,67 +1,43 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { DatetimeValueConverter, IColumnDescriptor, IDehydrateOptions, JsonValueConverter, ModelBase } from '@spinajs/orm';
+import { IColumnDescriptor, IDehydrateOptions, JsonValueConverter, ModelBase, toInstant } from '@spinajs/orm';
+import { IsoDatetimeValueConverter } from '@spinajs/orm-sql';
 import { DateTime } from 'luxon';
 
-const NUMERIC_TYPES = ['int', 'integer', 'float', 'double', 'decimal', 'bigint', 'smallint', 'tinyint', 'mediumint', 'int2', 'int4', 'int8', 'numeric', 'float4', 'float8'];
+const PG_NUMERIC_TYPES = ['int2', 'int4', 'int8', 'numeric', 'float4', 'float8'];
 
 /**
- * Instants go to the server as UTC ISO strings and come back as UTC DateTimes, so neither the
- * process zone nor the session TimeZone moves a stored instant. `dehydrate()` (API output) keeps
- * the formats of the shared SQL converter.
+ * {@link IsoDatetimeValueConverter} ( UTC instants ) with two exceptions: an unset value stays
+ * unset, and a DATE column takes the calendar day of the value in its own zone.
  */
-export class PostgresDatetimeValueConverter extends DatetimeValueConverter {
-  public toDB(value: Date | DateTime | string, _model: ModelBase<unknown>, column: IColumnDescriptor, _options?: any, dehydrateOptions?: IDehydrateOptions): string | number | null | undefined {
+export class PostgresDatetimeValueConverter extends IsoDatetimeValueConverter {
+  public toDB(value: unknown, model?: ModelBase<unknown>, column?: IColumnDescriptor, options?: unknown, ...dehydrating: [IDehydrateOptions?]): any {
     // undefined stays undefined: the insert then writes DEFAULT (e.g. CURRENT_TIMESTAMP) instead of NULL
-    if (value === null || value === undefined) {
-      return value;
+    if (value === undefined) {
+      return undefined;
     }
 
-    const dt = typeof value === 'string' ? DateTime.fromISO(value, { setZone: true }) : DateTime.isDateTime(value) ? value : DateTime.fromJSDate(value as Date);
-
-    if (dehydrateOptions) {
-      switch (dehydrateOptions.dateTimeFormat) {
-        case 'iso':
-          return dt.toISO();
-        case 'unix':
-          return dt.toUnixInteger() ?? 0;
-        case 'sql':
-          return dt.toSQL({ includeOffset: false });
+    if (dehydrating.length === 0 && column?.Type === 'date') {
+      const day = DateTime.isDateTime(value) ? value : value instanceof Date ? DateTime.fromJSDate(value) : null;
+      if (day?.isValid) {
+        return day.toISODate();
       }
     }
 
-    if (column && NUMERIC_TYPES.includes(column.Type)) {
-      return dt.toUnixInteger();
+    // tableInfo() reports udt names ( int8, float8 ), which the shared numeric-type list does not know
+    if (dehydrating.length === 0 && column && PG_NUMERIC_TYPES.includes(column.Type)) {
+      return toInstant(value, column.Name)?.toUnixInteger() ?? null;
     }
 
-    if (dehydrateOptions) {
-      return dt.toSQL({ includeOffset: false });
-    }
-
-    // a DATE is a calendar day in the value's own zone, not an instant
-    if (column?.Type === 'date') {
-      return dt.toISODate();
-    }
-
-    return dt.toUTC().toISO();
+    return super.toDB(value, model, column, options, ...dehydrating);
   }
 
-  public fromDB(value: string | DateTime | Date | number): any {
-    if (value === null || value === undefined || (value as any) === '') {
-      return null;
-    }
+  public fromDB(value: unknown): DateTime | null {
     // model construction runs assigned values through here too; converting the zone would move a DATE's day
-    if (DateTime.isDateTime(value)) {
+    if (DateTime.isDateTime(value) && value.isValid) {
       return value;
     }
-    if (value instanceof Date) {
-      return DateTime.fromJSDate(value, { zone: 'utc' });
-    }
-    if (typeof value === 'number') {
-      return DateTime.fromSeconds(value, { zone: 'utc' });
-    }
-    // text without an offset (a raw query, a legacy TIMESTAMP read without the type parser) is UTC
-    const iso = DateTime.fromISO(value as string, { zone: 'utc' });
-    return iso.isValid ? iso : DateTime.fromSQL(value as string, { zone: 'utc' });
+
+    return super.fromDB(value);
   }
 }
 

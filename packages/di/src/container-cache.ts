@@ -1,6 +1,6 @@
 import _ from 'lodash';
 import { TypedArray } from './array.js';
-import { getTypeName } from './helpers.js';
+import { getTypeName, isTypedArray } from './helpers.js';
 import { IContainer, IInjectDescriptor, IInstanceCheck } from './interfaces.js';
 import { Class } from './types.js';
 import { ResolveType } from './enums.js';
@@ -18,9 +18,13 @@ export class ContainerCache {
   constructor(private container: IContainer) {
     this.cache = new Map<string, any[]>();
 
-    // add to cache container
-    // so we can inject container if needed
-    this.add(container, container);
+    this.addSelf();
+  }
+
+  // Under `Container` too, so a subclass instance is what `@Autoinject(Container)` gets.
+  private addSelf() {
+    this.add(this.container, this.container);
+    this.add('Container', this.container);
   }
 
   *[Symbol.iterator]() {
@@ -102,7 +106,8 @@ export class ContainerCache {
     factory: () => Promise<T> | T,
     isSingleton: boolean = true,
     descriptor: IInjectDescriptor<unknown>,
-    options?: unknown[]
+    options?: unknown[],
+    lookupParents = true
   ): Promise<T> | T {
     const keyName = getTypeName(targetType);
     const sourceTypeKey = getTypeName(sourceType);
@@ -120,42 +125,39 @@ export class ContainerCache {
       }
     };
 
-    if (descriptor.resolver === ResolveType.PerInstanceCheck && !(sourceType instanceof TypedArray)) {
-      return this.getOrCreateChecked(targetType, factory, emit, options);
+    const perInstanceCheck = descriptor.resolver === ResolveType.PerInstanceCheck;
+    if (perInstanceCheck && !isTypedArray(sourceType)) {
+      return this.getOrCreateChecked(targetType, factory, emit, options, lookupParents);
     }
 
     // Fast path: return cached instance if it exists
-    if (this.has(targetType, descriptor.resolver === ResolveType.PerChildContainer ? false : true)) {
-      const cached = this.get(targetType, descriptor.resolver === ResolveType.PerChildContainer ? false : true);
+    const parent = lookupParents && descriptor.resolver !== ResolveType.PerChildContainer;
+    if (this.has(targetType, parent)) {
+      const cached = this.get(targetType, parent);
 
-      if (descriptor.resolver === ResolveType.PerInstanceCheck) {
+      if (perInstanceCheck) {
+        const found = cached.find((x: unknown) => this.checkInstance(x, options));
+        if (found) {
+          return found;
+        }
+      } else {
+        const instance = Array.isArray(cached) ? cached[0] : cached;
 
-        if (cached) {
-          const found = cached.find((x: unknown) => this.checkInstance(x, options));
-          if (found) {
-            return found;
-          } else {
-            return factory();
+        // Resolving a collection ( Array.ofType(Base) ) over a type that already
+        // sits in the cache under its own key must still contribute it to the
+        // collection - otherwise the fast path returns early and the type is
+        // silently MISSING from the resolved array.
+        if (isTypedArray(sourceType) && getTypeName(targetType) !== sourceTypeKey) {
+          const collection = this.get(sourceTypeKey);
+          if (!this.has(sourceTypeKey)) {
+            this.add(sourceTypeKey, instance);
+          } else if (!collection.includes(instance)) {
+            collection.push(instance);
           }
         }
+
+        return instance;
       }
-
-      const instance = Array.isArray(cached) ? cached[0] : cached;
-
-      // Resolving a collection ( Array.ofType(Base) ) over a type that already
-      // sits in the cache under its own key must still contribute it to the
-      // collection - otherwise the fast path returns early and the type is
-      // silently MISSING from the resolved array.
-      if (sourceType instanceof TypedArray && getTypeName(targetType) !== sourceTypeKey) {
-        const collection = this.get(sourceTypeKey);
-        if (!this.has(sourceTypeKey)) {
-          this.add(sourceTypeKey, instance);
-        } else if (!collection.includes(instance)) {
-          collection.push(instance);
-        }
-      }
-
-      return instance;
     }
 
     // For non-singletons, always create new instance
@@ -165,7 +167,13 @@ export class ContainerCache {
 
     // Check if creation is already in progress (async)
     if (this.resolutionPromises.has(keyName)) {
-      return this.resolutionPromises.get(keyName)!;
+      const pending = this.resolutionPromises.get(keyName)!;
+      if (perInstanceCheck) {
+        // the pending instance may have been built for other options, check again once it settles
+        const retry = () => this.getOrCreate(sourceType, targetType, factory, isSingleton, descriptor, options, lookupParents);
+        return pending.then(retry, retry);
+      }
+      return pending;
     }
 
     // Check if creation is already in progress (sync)
@@ -190,7 +198,7 @@ export class ContainerCache {
     }
 
     const _checkCache = (resolvedInstance: T) => {
-      if (sourceType instanceof TypedArray) {
+      if (isTypedArray(sourceType)) {
         // If sourceType is a TypedArray, we need to ensure we cache it correctly
         if (!this.has(sourceTypeKey)) {
           this.add(sourceTypeKey, resolvedInstance);
@@ -215,7 +223,7 @@ export class ContainerCache {
         }
 
         const cached = this.get(sourceTypeKey);
-        return sourceType instanceof TypedArray ? cached : cached[0];
+        return isTypedArray(sourceType) ? cached : cached[0];
       } else {
         // Cache the instance if not already cached
         if (!this.has(targetType)) {
@@ -266,9 +274,15 @@ export class ContainerCache {
    * with the container. A creation in flight has no instance to check yet, so concurrent
    * resolutions share it only when their options are deep-equal.
    */
-  private getOrCreateChecked<T>(targetType: string | Class<any> | TypedArray<any>, factory: () => Promise<T> | T, emit: (instance: unknown) => void, options?: unknown[]): Promise<T> | T {
+  private getOrCreateChecked<T>(
+    targetType: string | Class<any> | TypedArray<any>,
+    factory: () => Promise<T> | T,
+    emit: (instance: unknown) => void,
+    options?: unknown[],
+    lookupParents = true,
+  ): Promise<T> | T {
     const keyName = getTypeName(targetType);
-    const cached: unknown[] = this.has(targetType, true) ? this.get(targetType, true) : [];
+    const cached: unknown[] = this.has(targetType, lookupParents) ? this.get(targetType, lookupParents) : [];
     const found = cached.find((x) => this.checkInstance(x, options));
     if (found) {
       return found as T;
@@ -328,6 +342,6 @@ export class ContainerCache {
     this.resolutionPromises.clear();
     this.creatingKeys.clear();
     this.pendingChecked.clear();
-    this.add(this.container, this.container);
+    this.addSelf();
   }
 }

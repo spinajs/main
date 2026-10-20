@@ -1,0 +1,118 @@
+import { Autoinject, Container, Injectable } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { Config, Configuration } from '@spinajs/configuration';
+import '@spinajs/authn-session/register-schema';
+import { AuthenticationFailed } from '@spinajs/exceptions';
+import { Log, Logger } from '@spinajs/log';
+import { SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
+import type { AuthnContext, Principal } from '@spinajs/authn/contracts';
+import { appEnvOf, assertSessionCookieSecret, peekingSessions, sessionCookieName } from '@spinajs/authn-session';
+import type { ISessionCookieConfig } from '@spinajs/authn-session';
+import { AUTHENTICATION_FAILED, SocketPrincipalSource } from '@spinajs/http-socket';
+import type { ISocketHandshake, ISocketRevalidation, SocketRevalidationResult } from '@spinajs/http-socket';
+
+import { SessionPrincipalResolver } from '../resolvers/session.js';
+import { logHash, unsignSessionCookie, warnNoLiveSession } from '../session-cookie.js';
+import { clientContext } from '../v3/context.js';
+
+/**
+ * The browser session cookie as a socket principal: AuthnMiddleware's restore and SessionPrincipalResolver for a handshake.
+ * Order 40, before AuthnCredentialSource ( 50 ): an active session wins over bearer credentials, as in http. A pending
+ * session, or an unknown, ended or forged cookie, gives null, so a bearer token is still tried ( SR-07 ); an active
+ * session that gives no principal refuses the handshake, as http tries no bearer credentials beside it. http-socket
+ * refuses a cross-site handshake before any source runs ( SR-12 ). Revalidation reads the session again and slides
+ * it only for client activity, so logout, revocation, an id rotation or the idle timeout of an idle socket closes it.
+ */
+@Injectable(SocketPrincipalSource)
+export class SessionSocketPrincipalSource extends SocketPrincipalSource {
+  public readonly name = 'session';
+  public readonly order = 40;
+
+  @Autoinject(Container)
+  protected Container!: IContainer;
+
+  @Autoinject(SessionIssuer, { optional: true })
+  protected Sessions: SessionIssuer | undefined;
+
+  @Autoinject(SessionPrincipalResolver)
+  protected Resolver!: SessionPrincipalResolver;
+
+  // appEnvOf reads the Configuration's Env for the SR-16 "no env named" rule, which @Config cannot give
+  @Autoinject(Configuration)
+  protected Configuration!: Configuration;
+
+  @Config('http.cookie.secret')
+  protected CookieSecret: string;
+
+  @Config('authn.session.cookie')
+  protected SessionCookie: ISessionCookieConfig | undefined;
+
+  @Logger('authn-http')
+  protected Log!: Log;
+
+  public async authenticate(handshake: ISocketHandshake): Promise<Principal | null> {
+    // inert until the 3.0 session layer is registered, as AuthnCredentialSource is without an AuthnService
+    if (!this.Sessions) {
+      return null;
+    }
+
+    const rawId = this.sessionId(handshake);
+    if (rawId === null) {
+      return null;
+    }
+
+    const restored = await this.Sessions.restore(rawId);
+    if (!restored) {
+      warnNoLiveSession(this.Log, rawId, handshake.address);
+      return null;
+    }
+    const session = resolveSession(this.Container, restored);
+
+    const principal = await this.Resolver.principalOfSession(session, this.context(handshake));
+    if (principal === null && session.handle.state === 'active') {
+      throw new AuthenticationFailed(AUTHENTICATION_FAILED);
+    }
+
+    return principal;
+  }
+
+  /**
+   * The inherited check. When `check.active` reports a command or an event since the last check ( or a recovery ), the
+   * session is restored as an http request restores it, which slides it, up to `http.socket.auth.revalidateMs` after the
+   * activity. Otherwise it is only read: sweeps are no user activity, so an idle socket still ends at the idle timeout.
+   * Only DefaultSessionIssuer honours `peekingSessions`.
+   */
+  public revalidate(handshake: ISocketHandshake, principal: Principal, check?: ISocketRevalidation): Promise<SocketRevalidationResult> {
+    if (check?.active) {
+      return super.revalidate(handshake, principal, check);
+    }
+
+    return peekingSessions(() => super.revalidate(handshake, principal, check));
+  }
+
+  /**
+   * The raw session id from the signed cookie; null when it is absent, unsigned, forged or empty. Both the raw form
+   * (`cs.sign`) and express's `s:` form are verified here with `http.cookie.secret`: the handshake carries raw cookie
+   * values, whatever cookie parser the app's http stack uses.
+   */
+  protected sessionId(handshake: ISocketHandshake): string | null {
+    const env = appEnvOf(this.Configuration);
+    const value = handshake.cookies[sessionCookieName(this.SessionCookie ?? {}, env)];
+    if (typeof value !== 'string' || value === '') {
+      return null;
+    }
+
+    assertSessionCookieSecret(this.CookieSecret, env);
+    const id = unsignSessionCookie(value.startsWith('s:') ? value.slice(2) : value, this.CookieSecret);
+    if (id === false) {
+      this.Log.warn({ cookie: logHash(value), ip: handshake.address }, 'Rejected a socket session cookie with an invalid signature: cookie ${cookie}, ip ${ip}');
+      return null;
+    }
+
+    return id === '' ? null : id;
+  }
+
+  protected context(handshake: ISocketHandshake): AuthnContext {
+    return clientContext(handshake.address, handshake.headers['user-agent'], 'request');
+  }
+}

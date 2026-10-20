@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
+import { Int64Mode, Int64ValueConverter, JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { Constructor, DI, IContainer, getInheritedDescriptor } from '@spinajs/di';
 import { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, RelationType, IRelationDescriptor, IDiscriminationEntry, BooleanValueConverter, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy } from './interfaces.js';
 import 'reflect-metadata';
@@ -389,7 +389,7 @@ export function JunctionTable() {
  * @param discriminationMap - field - model mapping
  */
 export function DiscriminationMap(fieldName: string, discriminationMap: IDiscriminationEntry[]) {
-  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, _propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, _propertyKey: string | symbol) => {
     model.DiscriminationMap.Field = fieldName;
     model.DiscriminationMap.Models = new Map<string, Constructor<ModelBase>>();
 
@@ -783,6 +783,27 @@ export function Json() {
     // add converter for this field
     model.Converters.set(propertyKey, {
       Class: JsonValueConverter,
+    });
+  });
+}
+
+/**
+ * Reads a 64-bit integer column as `as` on every driver. `'number'` throws for a value beyond
+ * `Number.MAX_SAFE_INTEGER` instead of rounding it.
+ */
+export function Int64(as: Int64Mode = 'string') {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
+    if (as !== 'string' && as !== 'number' && as !== 'bigint') {
+      throw new InvalidArgument(`@Int64 mode of ${propertyKey} must be 'string', 'number' or 'bigint', got ${String(as)}`);
+    }
+
+    if (model.Converters.has(propertyKey)) {
+      throw new InvalidArgument(`property ${propertyKey} already have data converter attached`);
+    }
+
+    model.Converters.set(propertyKey, {
+      Class: Int64ValueConverter,
+      Options: { as },
     });
   });
 }

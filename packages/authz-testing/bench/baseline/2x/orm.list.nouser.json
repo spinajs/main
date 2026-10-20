@@ -1,0 +1,44 @@
+{
+  "name": "orm.list.nouser",
+  "description": "select 50 of 1,000 rows (read:own: 50 of the 100 owned rows); ALS store without a user: middleware returns at !User; baseline that includes the ALS cost",
+  "compare": "orm.list.nostore",
+  "unit": "ns",
+  "iterations": 4000,
+  "warmup": 500,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 4299800,
+  "p95": 7151800,
+  "p99": 8866000,
+  "mean": 4708147.175,
+  "opsPerSec": 212.39777832561066,
+  "perRepeat": [
+    {
+      "p50": 4299800,
+      "p95": 7151800,
+      "p99": 8866000,
+      "mean": 4708147.175,
+      "opsPerSec": 212.39777832561066
+    },
+    {
+      "p50": 4357200,
+      "p95": 7760400,
+      "p99": 9810100,
+      "mean": 4872600.3,
+      "opsPerSec": 205.22922842655493
+    },
+    {
+      "p50": 3800300,
+      "p95": 5634700,
+      "p99": 7193400,
+      "mean": 4035803.1,
+      "opsPerSec": 247.78215765779058
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

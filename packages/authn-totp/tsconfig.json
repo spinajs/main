@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./",
+    "outDir": "./lib/mjs",
+    "module": "node16",
+    "moduleResolution": "node16"
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "references": [{ "path": "../authn/tsconfig.json" }, { "path": "../authn-orm/tsconfig.json" }, { "path": "../cli/tsconfig.json" }, { "path": "../configuration/tsconfig.json" }, { "path": "../di/tsconfig.json" }, { "path": "../exceptions/tsconfig.json" }, { "path": "../log/tsconfig.json" }, { "path": "../orm/tsconfig.json" }, { "path": "../util/tsconfig.json" }, { "path": "../authn-testing/tsconfig.json" }]
+}

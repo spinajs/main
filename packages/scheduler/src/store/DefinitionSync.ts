@@ -1,7 +1,7 @@
 import { Injectable, Singleton } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { ScheduleModel } from '../models/ScheduleModel.js';
-import { defined, jsonColumn } from '../models/converters.js';
+import { defined } from '../models/converters.js';
 import { definitionHash, serializeDefinition, timingKey } from '../registry/definitions.js';
 import { nextOccurrence } from '../time/spec.js';
 import type { ScheduleDefinition } from '../interfaces.js';
@@ -69,7 +69,7 @@ export class DefinitionSync {
       const timingChanged = timingKey(existing.Definition ?? {}) !== timingKey(serialized);
       await ScheduleModel.update(
         defined({
-          Definition: jsonColumn(serialized) as never,
+          Definition: serialized,
           DefinitionHash: hash,
           Orphaned: false,
           NextRunAt: timingChanged ? initialNextRun(def, now) : undefined,

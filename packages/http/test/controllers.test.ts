@@ -11,7 +11,7 @@ import '@spinajs/templates-pug';
 import { Controllers, HttpServer } from '../src/index.js';
 import { SampleMiddleware2 } from './middlewares/SampleMiddleware2.js';
 import { SamplePolicy2 } from './policies/SamplePolicy2.js';
-import { req, TestConfiguration } from './common.js';
+import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
 import { DataTransformer } from './../src/interfaces.js';
 import { TestTransformer } from './transformers/TestTransformer.js';
 import { SamplePolicy } from './policies/SamplePolicy.js';
@@ -52,8 +52,7 @@ describe('http & controller tests', function () {
 
     samplePolicyExecuteSpy = middlewareSandbox.spy(SamplePolicy.prototype, 'execute');
     samplePolicy2ExecuteSpy = middlewareSandbox.spy(SamplePolicy2.prototype, 'execute');
-
-    DI.setESMModuleSupport();
+    uncacheControllers();
 
     DI.register(TestConfiguration).as(Configuration);
     DI.register(TestTransformer).as(DataTransformer);
@@ -65,8 +64,7 @@ describe('http & controller tests', function () {
   });
 
   after(async () => {
-    const server = await DI.resolve(HttpServer);
-    server.stop();
+    await releaseHttpServer();
 
     middlewareSandbox.restore();
   });
@@ -80,7 +78,7 @@ describe('http & controller tests', function () {
     await c?.add(TestMethods2);
 
     const server = await DI.resolve(HttpServer);
-    server.start();
+    await server.start();
 
     let response = await req().get('testmethods2/testGet2');
     expect(response).to.have.status(200);
@@ -88,7 +86,7 @@ describe('http & controller tests', function () {
 
   it('should load controllers from dir', async () => {
     const controllers = await ctr()?.Controllers;
-    expect(controllers?.length).to.eq(19);
+    expect(controllers?.length).to.eq(20);
   });
 
   it('should server static files', async () => {
@@ -250,6 +248,24 @@ describe('http & controller tests', function () {
     });
   });
 
+  it('Created renders its html page', async () => {
+    const response = await req().get('responses/created').set('Accept', 'text/html').send();
+    expect(response).to.have.status(201);
+    expect(response).to.be.html;
+  });
+
+  it('@Accepts(JSON) lets */* through and answers 406 to an html-only client', async () => {
+    const any = await req().get('responses/acceptsJson').set('Accept', '*/*').send();
+    expect(any).to.have.status(200);
+
+    const list = await req().get('responses/acceptsJson').set('Accept', 'text/html, application/json;q=0.9').send();
+    expect(list).to.have.status(200);
+
+    const html = await req().get('responses/acceptsJson').set('Accept', 'text/html').send();
+    expect(html).to.have.status(406);
+    expect(html).to.be.html;
+  });
+
   it('Should return error 500', async () => {
     const response = await req().get('responses/testError').set('Accept', 'application/json').send();
     expect(response).to.have.status(500);
@@ -300,10 +316,10 @@ describe('http & controller tests', function () {
     expect(Buffer.compare(response.body, Buffer.from(Array.from({ length: 256 }, (_, i) => i)))).to.eq(0);
   });
 
-  it('@Ip returns client ip', async () => {
+  it('@Ip returns the socket address, not a client-set X-Forwarded-For', async () => {
     const response = await req().get('extra/ip').set('Accept', 'application/json').set('X-Forwarded-For', '203.0.113.7, 10.0.0.1').send();
     expect(response).to.have.status(200);
-    expect(response.body.ip).to.eq('203.0.113.7');
+    expect(response.body.ip).to.be.oneOf(['127.0.0.1', '::1']);
   });
 
   it('@RequestId returns the per-request id matching the response header', async () => {

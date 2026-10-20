@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { _modelProxyFactory, MigrationTransactionMode, Orm } from '@spinajs/orm';
-import { __mutex__, OrmMutex, dbNowMs, Mutex_2026_10_15_00_00_01 } from '../src/index';
+import { __mutex__, OrmMutex, dbNowMs } from '../src/index';
 
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
@@ -156,6 +156,38 @@ describe('orm-threading', function () {
     expect(m.Locked).to.be.true;
   });
 
+  it('Should grant a free lock to only one of two racing tenants', async () => {
+    await mutex_create({ Name: 'test', Tenant: 'test-1' });
+
+    const results = await Promise.all([mutex_acquire({ Name: 'test', Tenant: 'test-1' }), mutex_acquire({ Name: 'test', Tenant: 'test-2' })]);
+
+    expect(results.filter((r) => r.Locked)).to.have.length(1);
+  });
+
+  it('Should return the locked state and stamp Updated_at on acquire', async () => {
+    await mutex_create({ Name: 'test', Tenant: 'test-1' });
+    const before = await __mutex__.get('test');
+
+    const r = await mutex_acquire({ Name: 'test', Tenant: 'test-1' });
+    expect(r.Mutex.Locked).to.be.true;
+
+    await before.refresh();
+    expect(before.Updated_at.toMillis()).to.be.gt(before.Created_at.toMillis());
+  });
+
+  it('Should not delete a locked mutex', async () => {
+    await mutex_acquire({ Name: 'test', Tenant: 'test-1' });
+
+    const r = await mutex_delete({ Name: 'test', Tenant: 'test-1' });
+
+    expect(r).to.be.false;
+    expect(await __mutex__.get('test')).to.be.not.undefined;
+  });
+
+  it('Should resolve wait for a mutex that does not exist', async () => {
+    expect(await mutex_wait('missing', 1000)).to.be.true;
+  });
+
   it('should release', async () => {
     const r = await mutex_acquire({
       Name: 'test',
@@ -240,21 +272,11 @@ describe('orm-threading', function () {
     expect(diff.milliseconds).to.be.gt(2500);
   });
   describe('schema and clock', () => {
-    it('Should add the LockedUntil column', async () => {
+    it('Should create the LockedUntil column', async () => {
       const orm = await DI.resolve(Orm);
       const columns = await orm.Connections.get('sqlite')!.tableInfo('__mutex__');
 
       expect(columns.map((c) => c.Name)).to.include('LockedUntil');
-    });
-
-    it('Should release locks held at upgrade time', async () => {
-      const orm = await DI.resolve(Orm);
-      await mutex_acquire({ Name: 'stale', Tenant: 'spina-js' });
-
-      await new Mutex_2026_10_15_00_00_01().up(orm.Connections.get('sqlite')!);
-
-      const m = await __mutex__.get('stale');
-      expect(m.Locked).to.eq(false);
     });
 
     it('Should read epoch ms from the sqlite clock', async () => {
@@ -280,7 +302,6 @@ describe('orm-threading', function () {
     });
 
     it('Should not share a lock with another replica of the same app', async () => {
-      // what replica A stored under the old default tenant
       const appName = DI.get(Configuration)!.get<string>('app.name', 'spina-js');
       await mutex_acquire({ Name: 'test', Tenant: appName });
 

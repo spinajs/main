@@ -21,6 +21,8 @@ export class SizeLogArchiveStrategy extends LogArchiveStrategy {
     this.timer = setInterval(() => {
       void this.check(ctx);
     }, interval);
+    // a size check must not keep the process alive, or the beforeExit flush never runs
+    this.timer.unref?.();
   }
 
   public stop(): void {
@@ -45,11 +47,11 @@ export class SizeLogArchiveStrategy extends LogArchiveStrategy {
 
       const size = stat.Size ?? 0;
       if (size > maxSize) {
-        this.Logger.trace(`Active log ${ctx.activePath} size ${size} exceeds ${maxSize}, rotating`);
+        this.Logger.trace({ activePath: ctx.activePath, size, maxSize }, "Active log ${activePath} size ${size} exceeds ${maxSize}, rotating");
         await this.triggerRotation(ctx);
       }
     } catch (err) {
-      this.Logger.warn(`Size check for log target ${ctx.activePath} failed: ${(err as Error).message}`);
+      this.Logger.warn({ error: err, activePath: ctx.activePath }, "Size check for log target ${activePath} failed");
     }
   }
 }

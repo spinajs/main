@@ -1,0 +1,23 @@
+import { Log, Logger } from '@spinajs/log';
+import { Argument, Command } from '@spinajs/cli';
+import { RbacCliCommand } from './RbacCliCommand.js';
+import { activate, deactivate } from '../actions.js';
+
+@Command('rbac:user-activate', 'Sets active or inactive user')
+@Argument('idOrUuid', true, 'numeric id or uuid')
+@Argument('active', true, ' true / false', false, (opt: string) => (opt.toLowerCase() === 'true' ? true : false))
+export class ActivateUser extends RbacCliCommand {
+  @Logger('rbac')
+  protected Log: Log;
+
+  public async execute(idOrUuid: string, active: boolean): Promise<void> {
+    try {
+      await (active ? activate(idOrUuid) : deactivate(idOrUuid));
+
+      this.Log.success({ user: idOrUuid }, active ? 'User ${user} activated' : 'User ${user} deactivated');
+    } catch (e) {
+      this.Log.error({ error: e, user: idOrUuid }, 'Error while activating user ${user}');
+      process.exitCode = 1;
+    }
+  }
+}

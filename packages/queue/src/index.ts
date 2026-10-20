@@ -1,4 +1,4 @@
-import { UnexpectedServerError, InvalidArgument, ConnectionNotFound } from '@spinajs/exceptions';
+import { InvalidArgument, ConnectionNotFound, toError } from '@spinajs/exceptions';
 import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IJobProgressMeta, QueueMessage, QueueService, JobRetentionService, isJob } from './interfaces.js';
@@ -6,10 +6,13 @@ import { JobModel, JOB_TERMINAL_STATUSES } from './models/JobModel.js';
 import { v4 as uuidv4 } from 'uuid';
 import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
+import { runAroundHandle, runBeforeEmit, tracked } from './hook-runner.js';
 
 export * from './BlackHoleQueueClient.js';
 export * from './interfaces.js';
 export * from './decorators.js';
+export * from './hooks.js';
+export * from './tracking-hook.js';
 export * from './models/JobModel.js';
 export * from './services/JobRetentionService.js';
 export * from './migrations/Queue_2022_10_18_01_13_00.js';
@@ -17,12 +20,23 @@ export * from './migrations/Queue_2026_06_30_00_00_00.js';
 export * from './migrations/Queue_2026_07_02_00_00_00.js';
 export * from './migrations/Queue_2026_07_10_00_00_00.js';
 export * from './migrations/Queue_2026_07_17_00_00_00.js';
+export * from './migrations/Queue_2026_10_03_00_00_00.js';
+export * from './migrations/Queue_2026_10_17_00_00_00.js';
 export * from './helpers.js';
 export * from './fp.js';
 
 /** Fallback progress-throttle values used when `queue.progress` is not configured. */
 const DEFAULT_PROGRESS_MIN_DELTA = 5;
 const DEFAULT_PROGRESS_MIN_INTERVAL_MS = 1000;
+
+/** Lengths of the queue_jobs text columns, so a long value cannot fail the row write on a strict-mode DB. */
+const LAST_ERROR_MAX_LENGTH = 1024;
+const PHASE_MAX_LENGTH = 32;
+const MESSAGE_MAX_LENGTH = 512;
+
+function truncate(value: string, max: number): string {
+  return value.length > max ? value.substring(0, max) : value;
+}
 
 @Injectable(QueueService)
 export class DefaultQueueService extends QueueService {
@@ -37,7 +51,7 @@ export class DefaultQueueService extends QueueService {
    * Started / stopped by DI on injection / disposal. May be undefined if retention
    * is not configured.
    */
-  @AutoinjectService('queue.retention', JobRetentionService)
+  @AutoinjectService('queue.retention', JobRetentionService, { optional: true })
   protected Retention?: JobRetentionService;
 
   public async dispose() {
@@ -45,7 +59,7 @@ export class DefaultQueueService extends QueueService {
       try {
         await this.Retention.dispose();
       } catch (err) {
-        this.Log.error(err, 'Cannot dispose job retention service');
+        this.Log.error(toError(err), 'Cannot dispose job retention service');
       }
     }
 
@@ -54,7 +68,7 @@ export class DefaultQueueService extends QueueService {
         try {
           await val.dispose();
         } catch (err) {
-          this.Log.error(err, `Cannot dispose queue connection ${val.constructor.name}`);
+          this.Log.error({ error: err, connection: val.constructor.name }, 'Cannot dispose queue connection ${connection}');
         }
       }),
     );
@@ -63,6 +77,8 @@ export class DefaultQueueService extends QueueService {
   }
 
   public async emit(event: IQueueMessage | QueueEvent | QueueJob): Promise<string | undefined> {
+    await runBeforeEmit(event);
+
     const connections = this.getConnectionsForMessage(event);
     let jobId: string | undefined;
 
@@ -79,7 +95,7 @@ export class DefaultQueueService extends QueueService {
 
       await connection.emit(event);
 
-      this.Log.trace(`Emitted message ${event.Name}, type: ${event.Type} to connection ${c}`);
+      this.Log.trace({ messageName: event.Name, messageType: event.Type, connection: c }, 'Emitted message ${messageName}, type: ${messageType} to connection ${connection}');
     }
 
     // for jobs this is the id the caller uses to track progress / status
@@ -87,7 +103,14 @@ export class DefaultQueueService extends QueueService {
   }
 
   public async stopConsuming(event: Constructor<QueueMessage>) {
-    this.getConnectionsForMessage(event).forEach((c) => this.Connections.get(c)!.unsubscribe(event));
+    for (const c of this.getConnectionsForMessage(event)) {
+      const connection = this.Connections.get(c);
+      if (!connection) {
+        throw new ConnectionNotFound(`Queue connection ${c} not found. Please check your configuration before unsubscribing from this connection.`);
+      }
+
+      await connection.unsubscribe(event);
+    }
   }
 
   /**
@@ -153,7 +176,7 @@ export class DefaultQueueService extends QueueService {
               // Consumer owns the tracking row. First receipt inserts; a redelivery finds the
               // row from the prior attempt. The queue_jobs.JobId unique index makes a rare
               // concurrent double-receipt safe (second insert collides -> re-read).
-              let jModel = await JobModel.where({ JobId: ev.JobId }).first();
+              let jModel = await tracked(() => JobModel.where({ JobId: ev.JobId }).first());
               if (!jModel) {
                 jModel = new JobModel();
                 jModel.JobId = ev.JobId;
@@ -167,20 +190,34 @@ export class DefaultQueueService extends QueueService {
                 // capture the dispatch-time attempt ceiling ( retries + 1 ) so it stays authoritative
                 // across redeliveries and consumers can render Attempt/MaxAttempts consistently.
                 jModel.MaxAttempts = ((ev as QueueJob).RetryCount ?? 0) + 1;
+                jModel.InitiatorType = ev.Initiator?.type;
+                jModel.InitiatorId = ev.Initiator?.id;
 
                 try {
-                  await jModel.insert();
-                } catch (e) {
+                  const row = jModel;
+                  await tracked(() => row.insert());
+                } catch (insertErr) {
                   // concurrent first-receipt from another worker won the insert; re-read and continue.
-                  jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
+                  // No row means the insert failed for another reason, so that error is the one to surface.
+                  const existing = await tracked(() => JobModel.where({ JobId: ev.JobId }).first());
+                  if (!existing) {
+                    throw insertErr;
+                  }
+                  jModel = existing;
                 }
+              }
+
+              // A JobId is caller-supplied: a message for a row another initiator owns must not run under, or write into, that row.
+              if ((jModel.InitiatorType ?? null) !== (ev.Initiator?.type ?? null) || (jModel.InitiatorId ?? null) !== (ev.Initiator?.id ?? null)) {
+                this.Log.warn({ jobName: ev.Name, jobId: ev.JobId }, 'Job ${jobName}:${jobId} dropped: its initiator differs from the one that owns the tracking row');
+                return;
               }
 
               // at-least-once delivery means a job can be redelivered after it already finished
               // ( consumer crash before ack, broker failover ). Skip re-running a job whose tracking
               // row is already terminal so jobs stay idempotent. Acks without re-execution or rethrow.
               if ((this.Configuration?.deduplicate ?? true) && JOB_TERMINAL_STATUSES.includes(jModel.Status)) {
-                this.Log.info(`Job ${ev.Name}:${ev.JobId} already in terminal state ${jModel.Status}, skipping duplicate delivery`);
+                this.Log.info({ jobName: ev.Name, jobId: ev.JobId, status: jModel.Status }, 'Job ${jobName}:${jobId} already in terminal state ${status}, skipping duplicate delivery');
                 return;
               }
 
@@ -196,18 +233,18 @@ export class DefaultQueueService extends QueueService {
 
               try {
                 // update executing state
-                await jModel.update();
+                await tracked(() => jModel.update());
 
-                jobResult = await ev.execute(onProgress);
+                jobResult = await runAroundHandle(ev, () => ev.execute(onProgress));
 
                 jModel.Result = jobResult;
                 jModel.Status = 'success';
                 jModel.FinishedAt = DateTime.now();
                 jModel.Progress = 100;
 
-                this.Log.trace(`Job ${event.name} processed with result ${JSON.stringify(jModel.Result)}`);
+                this.Log.trace({ jobName: event.name, result: jModel.Result }, 'Job ${jobName} processed with result ${result}');
               } catch (err) {
-                this.Log.error(err, `Cannot execute job ${event.name}`);
+                this.Log.error({ error: err, jobName: event.name }, 'Cannot execute job ${jobName}');
 
                 // record the failed attempt and mark the job retrying / dead so the
                 // transport can apply its retry-then-dead-letter policy ( re-thrown below ).
@@ -218,16 +255,20 @@ export class DefaultQueueService extends QueueService {
                 // RetryCount ). MaxAttempts is retries + 1, so the limit is MaxAttempts - 1.
                 const maxRetries = jModel.MaxAttempts ? jModel.MaxAttempts - 1 : ((ev as QueueJob).RetryCount ?? 0);
                 jModel.Status = jModel.Attempt > maxRetries ? 'dead' : 'retrying';
-                jModel.LastError = err instanceof Error ? err.message : String(err);
+                if (jModel.Status === 'dead') {
+                  jModel.FinishedAt = DateTime.now();
+                }
+                jModel.LastError = truncate(err instanceof Error ? err.message : String(err), LAST_ERROR_MAX_LENGTH);
 
-                await jModel.update();
+                await tracked(() => jModel.update());
 
                 // notify the job of the failed attempt ( e.g. to send an alert on the final one ).
                 // the hook must never mask the original error, so its own failure is only logged.
                 try {
-                  await (ev as QueueJob).onFailed(err, { attempt: jModel.Attempt, maxAttempts: jModel.MaxAttempts ?? maxRetries + 1, isFinal: jModel.Status === 'dead', jobId: ev.JobId });
+                  const failure = { attempt: jModel.Attempt, maxAttempts: jModel.MaxAttempts ?? maxRetries + 1, isFinal: jModel.Status === 'dead', jobId: ev.JobId };
+                  await runAroundHandle(ev, () => (ev as QueueJob).onFailed(err, failure));
                 } catch (hookErr) {
-                  this.Log.error(hookErr, `onFailed hook for job ${event.name} threw`);
+                  this.Log.error({ error: hookErr, jobName: event.name }, 'onFailed hook for job ${jobName} threw');
                 }
 
                 // propagate so the transport sees the failure and can retry / dead-letter.
@@ -235,7 +276,7 @@ export class DefaultQueueService extends QueueService {
                 throw err;
               }
 
-              await jModel.update();
+              await tracked(() => jModel.update());
 
               async function onProgress(p: number, meta?: IJobProgressMeta) {
                 const now = DateTime.now().toMillis();
@@ -244,10 +285,10 @@ export class DefaultQueueService extends QueueService {
 
                 // apply meta eagerly so a phase / message change is never lost to throttling
                 if (meta?.phase !== undefined) {
-                  jModel.Phase = meta.phase;
+                  jModel.Phase = truncate(meta.phase, PHASE_MAX_LENGTH);
                 }
                 if (meta?.message !== undefined) {
-                  jModel.Message = meta.message;
+                  jModel.Message = truncate(meta.message, MESSAGE_MAX_LENGTH);
                 }
 
                 // always persist the final 100% or a meta change; otherwise throttle by delta + time
@@ -259,9 +300,9 @@ export class DefaultQueueService extends QueueService {
                 lastProgress = p;
                 lastProgressAt = now;
                 jModel.Progress = p;
-                await jModel.update();
+                await tracked(() => jModel.update());
 
-                self.Log.trace(`Job ${event.name}:${jModel.JobId} progress: ${p}%`);
+                self.Log.trace({ jobName: event.name, jobId: jModel.JobId, progress: p }, 'Job ${jobName}:${jobId} progress: ${progress}%');
               }
             }
 
@@ -269,10 +310,10 @@ export class DefaultQueueService extends QueueService {
               throw new InvalidArgument('when subscribing to events, callback cannot be null. Subscriber should handle event in callback function !');
             }
 
-            this.Log.trace(`Queue message ${event.name} processed`);
+            this.Log.trace({ messageName: event.name }, 'Queue message ${messageName} processed');
 
             if (callback) {
-              return callback(ev as T);
+              return runAroundHandle(ev, () => callback(ev as T));
             }
           }
         },

@@ -1,7 +1,7 @@
 import { Container } from './container.js';
-import { IBind, IContainer, ResolvableObject } from './interfaces.js';
+import { IBind, IContainer, IDisposeOptions, ResolvableObject, ResolveChainResult } from './interfaces.js';
 import { Class, InferClass, InferTypedArray, ResolveResult, ResolveArrayResult, Factory } from './types.js';
-import { TypedArray } from './array.js';
+import { ChainArray, TypedArray } from './array.js';
 
 /**
  * App main DI container
@@ -92,8 +92,8 @@ export function clearCache() {
   RootContainer.clearCache();
 }
 
-export async function dispose() {
-  await RootContainer.dispose();
+export async function dispose(options?: IDisposeOptions) {
+  await RootContainer.dispose(options);
 }
 
 /**
@@ -105,8 +105,14 @@ export function register<T>(type: Class<T> | Factory<T> | ResolvableObject): IBi
   return RootContainer.register(type);
 }
 
-export function unregister<T>(type: string | Class<T> | Factory<T> | ResolvableObject): void {
-  RootContainer.unregister(type);
+export function unregister<T>(type: string | Class<T> | Factory<T> | ResolvableObject): void;
+export function unregister<T>(type: string | Class<T>, implementation: Class<unknown> | Factory<unknown> | ResolvableObject): void;
+export function unregister<T>(type: string | Class<T> | Factory<T> | ResolvableObject, implementation?: Class<unknown> | Factory<unknown> | ResolvableObject): void {
+  if (implementation === undefined) {
+    RootContainer.unregister(type);
+  } else {
+    RootContainer.unregister(type as string | Class<T>, implementation);
+  }
 }
 
 export function uncache<T>(type: string | Class<T> | TypedArray<T>, parent?: boolean): void {
@@ -125,6 +131,8 @@ export function resolve<T>(type: string, options?: unknown[], check?: boolean): 
 export function resolve<T>(type: string, check?: boolean): T;
 export function resolve<T>(type: Class<T>, check?: boolean): ResolveResult<T>;
 export function resolve<T>(type: Class<T>, options?: unknown[] | boolean, check?: boolean): ResolveResult<T>;
+export function resolve<T>(type: ChainArray<T>, check?: boolean): ResolveChainResult<T>;
+export function resolve<T>(type: ChainArray<T>, options?: unknown[] | boolean, check?: boolean): ResolveChainResult<T>;
 export function resolve<T>(type: TypedArray<T>, check?: boolean): ResolveArrayResult<T>;
 export function resolve<T>(type: TypedArray<T>, options?: unknown[] | boolean, check?: boolean): ResolveArrayResult<T>;
 export function resolve<T extends Class<any>>(type: T, check?: boolean): ResolveResult<InferClass<T>>;
@@ -134,8 +142,6 @@ export function resolve<T extends TypedArray<any>>(type: T, options?: unknown[] 
 export function resolve(type: Class<any> | TypedArray<any> | string, options?: unknown[] | boolean, check?: boolean): unknown {
   return RootContainer.resolve(type as any, options, check);
 }
-
-
 
 /**
  * Gets already resolved service from root container.
@@ -154,7 +160,9 @@ export function get<T>(serviceName: string | Class<T> | TypedArray<T>): T | T[] 
  *
  * @param type - base type to check
  */
-export function getRegisteredTypes<T>(type: string | Class<T>): Class<T>[] {
+export function getRegisteredTypes<T>(type: TypedArray<T>): Array<Class<unknown> | Factory<unknown>>;
+export function getRegisteredTypes<T>(type: string | Class<T>): Class<T>[];
+export function getRegisteredTypes<T>(type: string | Class<T> | TypedArray<T>): Array<Class<unknown> | Factory<unknown>> {
   return RootContainer.getRegisteredTypes(type);
 }
 
@@ -175,6 +183,14 @@ export function has<T>(service: string | Class<T>): boolean {
  */
 export function check<T>(service: Class<T> | string): boolean {
   return RootContainer.hasRegistered(service);
+}
+
+/**
+ * Checks if something other than `type` itself is registered under `type` in the root container,
+ * e.g. an implementation of an abstract contract.
+ */
+export function hasImplementation<T>(type: Class<T> | string): boolean {
+  return RootContainer.hasImplementation(type);
 }
 
 /**

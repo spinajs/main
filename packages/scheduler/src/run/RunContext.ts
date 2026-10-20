@@ -32,7 +32,7 @@ export interface RunContextInit {
   plannedWeight?: number;
   onStepFinished?: (step: string, status: StepStatus, durationMs: number) => Promise<void>;
   /** Writes the checkpoint to the run row while this replica still owns the run; `false` when it does not. */
-  saveCheckpoint: (json: string) => Promise<boolean>;
+  saveCheckpoint: (value: unknown) => Promise<boolean>;
   /** Called when a write proves another replica owns the run; the executor aborts the run with `lease-lost`. */
   onLeaseLost?: () => void;
   /** Results of steps completed by an earlier attempt, keyed `${name}#${occurrence}`. */
@@ -298,12 +298,13 @@ export class RunContext {
   public async checkpoint(data: unknown): Promise<void> {
     const json = safeJson(data);
     if (json === null) throw new InvalidArgument('checkpoint data must be JSON-serializable');
-    if (!(await this.init.saveCheckpoint(json))) {
+    const value = JSON.parse(json) as unknown;
+    if (!(await this.init.saveCheckpoint(value))) {
       // abort before the task sees the error, so its step-end and later lines are not journaled
       this.init.onLeaseLost?.();
       throw new RunAbortedError('lease-lost');
     }
-    this.checkpointValue = JSON.parse(json) as unknown;
+    this.checkpointValue = value;
   }
 
   public get dirty(): boolean {
@@ -480,9 +481,9 @@ export class RunContext {
           Done: s.done ?? null,
           Total: s.total ?? null,
           Message: s.message,
-          Result: fits ? json : undefined,
+          Result: fits ? kept?.value : undefined,
           ResultStored: stored,
-          Error: jsonColumn(error) as never,
+          Error: error,
         }),
       ).where('Id', s.rowId),
     );

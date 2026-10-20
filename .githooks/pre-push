@@ -1,0 +1,75 @@
+#!/bin/sh
+# For each pushed branch whose new commits touch packages/*/src, starts a background
+# headless Claude Code run of the update-docs skill over the pushed range. The push never
+# waits for it and never fails because of it. Doc edits stay uncommitted for the next push;
+# run output is appended to <git-dir>/docs-hook.log.
+#   DOCS_HOOK_SKIP=1 git push ...   skip it for one push
+#   CLAUDE_BIN=/path/to/claude      use a specific CLI binary
+
+remote=$1
+zero=0000000000000000000000000000000000000000
+
+find_claude() {
+  claude=${CLAUDE_BIN:-$(command -v claude)}
+  # The VS Code extension ships the CLI without putting it on PATH.
+  [ -z "$claude" ] && claude=$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/claude* 2>/dev/null | sort -V | tail -n 1)
+  echo "$claude"
+}
+
+# Where the pushed commits branch off what the remote already has.
+push_base() {
+  local_sha=$1
+  remote_sha=$2
+  if [ "$remote_sha" != "$zero" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    echo "$remote_sha"
+    return
+  fi
+  default=$(git symbolic-ref -q "refs/remotes/$remote/HEAD" || echo "refs/remotes/$remote/master")
+  git merge-base "$local_sha" "$default" 2>/dev/null
+}
+
+docs_sync() {
+  [ -n "$DOCS_HOOK" ] && return 0
+  [ "${DOCS_HOOK_SKIP:-0}" = "1" ] && return 0
+
+  git_dir=$(git rev-parse --git-dir)
+  log="$git_dir/docs-hook.log"
+  claude=""
+
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    case "$local_ref" in refs/heads/*) ;; *) continue ;; esac
+    [ "$local_sha" = "$zero" ] && continue
+
+    base=$(push_base "$local_sha" "$remote_sha")
+    [ -z "$base" ] && continue
+    [ "$base" = "$local_sha" ] && continue
+    git diff --name-only "$base" "$local_sha" -- ':(glob)packages/*/src/**' | grep -q . || continue
+
+    [ -z "$claude" ] && claude=$(find_claude)
+    if [ -z "$claude" ]; then
+      echo "docs hook: claude CLI not found, install it or set CLAUDE_BIN" >&2
+      return 0
+    fi
+
+    range="$(git rev-parse --short "$base")..$(git rev-parse --short "$local_sha")"
+    echo "docs hook: updating docs for $range in background, log: $log" >&2
+    echo "=== $(date '+%Y-%m-%d %H:%M:%S') $local_ref $range" >> "$log"
+
+    # Double fork with every stream redirected, so the push does not wait for the run.
+    ( DOCS_HOOK=1 "$claude" -p "/update-docs $range" \
+        --permission-mode acceptEdits \
+        --allowedTools "Skill,Read,Edit,Write,Glob,Grep,Bash(git show:*),Bash(git diff:*),Bash(git log:*),Bash(graphify:*)" \
+        < /dev/null >> "$log" 2>&1 & )
+  done
+}
+
+# git feeds the pushed refs on stdin; a legacy pre-push hook needs them too.
+refs=$(cat)
+printf '%s\n' "$refs" | docs_sync
+
+. "$(dirname "$0")/graphify-refresh.sh"
+graphify_refresh push
+
+legacy="$(git rev-parse --git-common-dir)/hooks/pre-push"
+[ -f "$legacy" ] && { printf '%s\n' "$refs" | sh "$legacy" "$@"; exit $?; }
+exit 0

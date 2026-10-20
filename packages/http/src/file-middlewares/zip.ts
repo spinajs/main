@@ -24,7 +24,7 @@ export class ZipFileTransformer extends FileUploadMiddleware {
             const stat = await file.Provider!.stat(result.asFilePath());
             
             const duration = this.Log.timeEnd(`[ZIP] ${originalName}`);
-            this.Log.trace(`[ZIP] Transformed ${originalName} to ${result.asFilePath()}, duration: ${duration}ms`);
+            this.Log.trace({ file: originalName, result: result.asFilePath(), duration }, '[ZIP] Transformed ${file} to ${result}, duration: ${duration}ms');
 
             return {
                 ...file,

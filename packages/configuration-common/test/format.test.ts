@@ -6,8 +6,8 @@ import { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DateTime } from 'luxon';
 
-import { DI } from '@spinajs/di';
-import { format } from '../src/variables.js';
+import { DI, Injectable } from '@spinajs/di';
+import { ConfigVariable, format } from '../src/variables.js';
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 chai.use(chaiAsPromised);
@@ -169,7 +169,59 @@ describe('Variable forma test', () => {
     expect(formatted).to.eq('[hello world]');
   });
 
+  it('Should render 0 and empty string custom values instead of falling through', () => {
+    expect(format({ count: 0 } as any, '[${count}]')).to.eq('[0]');
+    expect(format({ user: '' } as any, '[${user}]')).to.eq('[]');
+  });
+
+  it('Should not render conditional block when variable is false', () => {
+    expect(format({ flag: false } as any, 'a${?flag} on${/flag}')).to.eq('a');
+  });
+
+  it('Should keep replacement patterns literal in function and property values', () => {
+    expect(format({ err: { message: 'a$&b' } } as any, '${err:message}')).to.eq('a$&b');
+    expect(format({ fn: () => 'x$`y' } as any, '${fn}')).to.eq('x$`y');
+  });
+
+  it('Should see a variable registered after the first format call', () => {
+    expect(format(null, '[${latevar}]')).to.eq('[]');
+
+    @Injectable(ConfigVariable)
+    class LateRegisteredVariable extends ConfigVariable {
+      public get Name(): string {
+        return 'latevar';
+      }
+      public Value(): string {
+        return 'late';
+      }
+    }
+
+    try {
+      expect(format(null, '[${latevar}]')).to.eq('[late]');
+    } finally {
+      DI.unregister(LateRegisteredVariable);
+    }
+  });
+
   it('Should format against DI variables when custom vars are null', () => {
     expect(format(null, '${date}')).to.eq(DateTime.now().toFormat('dd/MM/yyyy'));
+  });
+
+  it('Should close a conditional block at the first matching close tag only', () => {
+    const vars = { a: 1, b: 1 } as any;
+    expect(format(vars, '${?a}1${/a}2${/a}')).to.eq('12');
+    expect(format(vars, '${?a}${?a}x${/a}')).to.eq('x');
+    expect(format(vars, '<${?a}x${?b}y${/a}z${/b}>')).to.eq('<xyz>');
+    expect(format({ b: 1 } as any, '${?a}x${/b}${?b}y${/b}${/a}')).to.eq('');
+    expect(format({ a: 1 } as any, '${?b}x${/a}${?a}y${/b}${/a}')).to.eq('');
+    expect(format(vars, '${?a}open ${?b}done${/b}')).to.eq('open done');
+  });
+
+  it('Should format text with unclosed tags in linear time', () => {
+    const started = performance.now();
+    expect(format({ message: '${?0}' + '${?0}a'.repeat(20_000) } as any, '${message}')).to.eq('a'.repeat(20_000));
+    expect(format({ message: '${'.repeat(50_000) } as any, '[${message}]')).to.eq('[' + '${'.repeat(50_000) + ']');
+    expect(format(null, '${?a}'.repeat(50_000) + '${/b}')).to.eq('');
+    expect(performance.now() - started).to.be.below(1000);
   });
 });

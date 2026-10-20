@@ -1,0 +1,69 @@
+{
+  "name": "@spinajs/http-socket-client",
+  "version": "3.0.0",
+  "description": "Isomorphic socket client for spinajs: connection state, reconnect, commands, events, typed contracts",
+  "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/mjs/index.d.ts",
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    },
+    "./browser": {
+      "types": "./lib/mjs/browser.d.ts",
+      "import": "./lib/mjs/browser.js",
+      "require": "./lib/cjs/browser.js"
+    },
+    "./node": {
+      "types": "./lib/mjs/node/index.d.ts",
+      "import": "./lib/mjs/node/index.js",
+      "require": "./lib/cjs/node/index.js"
+    }
+  },
+  "type": "module",
+  "sideEffects": false,
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=17"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.mjs.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit --composite false --incremental false",
+    "coverage": "nyc npm run test"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "websocket",
+    "socket.io",
+    "client"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/http-socket-common": "3.0.0",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
+    "socket.io": "^4.8.1"
+  }
+}

@@ -24,6 +24,9 @@ export type CompiledTemplate = (locals: any) => string;
  * Caching (including dev-mode recompilation) is owned by the base
  * {@link TemplateRenderer.withCache} machinery, not this class.
  */
+// unique per render so concurrent renders of one template do not share a timer
+let renderSeq = 0;
+
 export abstract class CompiledTemplateRenderer<TDelegate extends CompiledTemplate = CompiledTemplate> extends TemplateRenderer {
   public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
     const content = await this.render(template, model, language);
@@ -36,15 +39,15 @@ export abstract class CompiledTemplateRenderer<TDelegate extends CompiledTemplat
       throw new InvalidArgument('template parameter cannot be null or empty');
     }
 
-    const label = `${this.constructor.name}.render.${templateName}`;
-    this.Log.trace(`Rendering template ${templateName}`);
+    const label = `${this.constructor.name}.render.${templateName}.${++renderSeq}`;
+    this.Log.trace({ templateName }, 'Rendering template ${templateName}');
     this.Log.timeStart(label);
 
     const delegate = await this.withCache(templateName, () => this.compile(templateName));
     const content = delegate(this.buildContext(model, this.resolveLanguage(language)));
 
     const time = this.Log.timeEnd(label);
-    this.Log.trace(`Rendering template ${templateName} ended, (${time} ms)`);
+    this.Log.trace({ templateName, time }, 'Rendering template ${templateName} ended, (${time} ms)');
 
     return content;
   }

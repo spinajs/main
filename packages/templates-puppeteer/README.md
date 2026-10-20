@@ -2,6 +2,16 @@
 
 Base Puppeteer renderer for SpineJS templates. This package provides shared logic for rendering templates using Puppeteer.
 
+## Documentation
+
+Full documentation lives in [docs/templates-puppeteer](../../docs/templates-puppeteer/README.md):
+
+- [Rendering to files](../../docs/templates-puppeteer/01-rendering-to-files.md)
+- [Render progress](../../docs/templates-puppeteer/02-render-progress.md)
+- [Custom Puppeteer renderers](../../docs/templates-puppeteer/03-custom-renderers.md)
+- [Browser pool](../../docs/templates-puppeteer/04-browser-pool.md)
+- [Local asset server](../../docs/templates-puppeteer/05-local-asset-server.md)
+
 ## Installation
 
 ``bash

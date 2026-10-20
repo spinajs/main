@@ -102,11 +102,11 @@ export async function resolveRoutePolicies(
                   `No policy named ${policyType ?? '<undefined>'} is registered for route ${controllerName}::${String(route.Method)} at path ${path} ( check your configuration at ${m.Type} )`,
                 );
               }
-              log.trace(`Policy ${policyType} is used in controller ${controllerName}::${String(route.Method)} at path ${path}`);
+              log.trace({ policy: policyType, controller: controllerName, method: route.Method, path }, 'Policy ${policy} is used in controller ${controller}::${method} at path ${path}');
               return container.resolve<BasePolicy>(policyType, m.Options);
             }
 
-            log.trace(`Policy ${m.Type.name} is used in controller ${controllerName}::${String(route.Method)} at path ${path}`);
+            log.trace({ policy: m.Type.name, controller: controllerName, method: route.Method, path }, 'Policy ${policy} is used in controller ${controller}::${method} at path ${path}');
             return container.resolve<BasePolicy>(m.Type, m.Options);
           }),
         ),
@@ -168,10 +168,10 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
                 return p
                   .execute(req, route, controller)
                   .then(() => {
-                    log.trace(`Policy succeded for route ${routeName}, policy: ${p.constructor.name}`);
+                    log.trace({ route: routeName, policy: p.constructor.name }, 'Policy succeded for route ${route}, policy: ${policy}');
                   })
                   .catch((err) => {
-                    log.trace(`Policy failed for route ${routeName} error ${err}, policy: ${p.constructor.name}`);
+                    log.trace({ error: err, route: routeName, policy: p.constructor.name }, 'Policy failed for route ${route}, policy: ${policy}');
                     throw err;
                   });
               }),
@@ -184,7 +184,7 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
         // AND across scopes, OR across the groups of one scope, AND inside a
         // group.
         if (scopeResults.every((groups) => groups.some((results) => results.every((r) => r.status === 'fulfilled')))) {
-          log.trace(`Policy for route ${routeName} succeded, continue execution`);
+          log.trace({ route: routeName }, 'Policy for route ${route} succeded, continue execution');
           next();
           return;
         }
@@ -254,31 +254,27 @@ export function createActionHandler(
       await storage.run(req.storage, async () => {
         const args = (await extractRouteArgs(route, req, res, controller.constructor.name)).concat([req, res, next]);
 
+        let result: unknown;
+
         try {
-          const result = controller[route.Method as string].call(controller, ...args);
+          result = controller[route.Method as string].call(controller, ...args);
 
           if (isPromise(result)) {
-            result
-              .then((r: unknown) => {
-                if (r instanceof Response) {
-                  enabledMiddlewares.forEach((x) => x.onResponse(r, route, controller));
-                }
-                res.locals.response = r;
-                next();
-              })
-              .catch((err: unknown) => {
-                next(err);
-              });
-          } else {
-            if (result instanceof Response) {
-              enabledMiddlewares.forEach((x) => x.onResponse(result, route, controller));
+            result = await result;
+          }
+
+          if (result instanceof Response) {
+            for (const x of enabledMiddlewares) {
+              await x.onResponse(result, route, controller);
             }
-            res.locals.response = result;
-            next();
           }
         } catch (err) {
           next(err);
+          return;
         }
+
+        res.locals.response = result;
+        next();
       });
     } catch (err) {
       next(err);

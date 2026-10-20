@@ -3,6 +3,7 @@ import { Injectable } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
 import { ServerMiddleware } from '../interfaces.js';
+import { redactUrl } from '../util/redact-url.js';
 
 /**
  * Catches requests that no controller route matched and turns them into a
@@ -30,7 +31,7 @@ export class NotFoundMiddleware extends ServerMiddleware {
 
   public after(): (req: express.Request, res: express.Response, next: express.NextFunction) => void {
     return (req, _res, next) => {
-      next(new ResourceNotFound(`Route not found: ${req.method} ${req.originalUrl}`));
+      next(new ResourceNotFound(`Route not found: ${req.method} ${redactUrl(req.originalUrl)}`));
     };
   }
 }

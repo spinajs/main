@@ -1,0 +1,361 @@
+import { AuthorizationModel, CORE_FILTER_OPS, DecisionAudit, FALSE, GLOBAL, NativeFilter, RelationResolver, ResourceAdapter, ScopeResolver, TRUE, resourceKey } from '../../src/index.js';
+import type { DecisionRequest, EvaluationContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, PermissionDef, Principal, PrincipalType, ResourceFilter, ResourceRef, ResourceType, Trace, Vote } from '../../src/index.js';
+import { PermissionRegistryImpl } from '../../src/engine/registry.js';
+import type { PermissionInput } from '../../src/engine/registry.js';
+import type { AuthzLog } from '../../src/host/log.js';
+import { renderTemplate } from '@spinajs/log-common';
+
+export type VoteSpec = Partial<Vote> | ((req: DecisionRequest, ctx: EvaluationContext) => unknown);
+
+export interface StaticModelOptions {
+  readonly capabilities?: Partial<ModelCapabilities>;
+  readonly applies?: (def: PermissionDef, type: ResourceType) => boolean;
+  /** A vote (merged over a FALSE/FALSE cacheable default) or a function whose result is returned as is. */
+  readonly vote?: VoteSpec;
+  /** Resolve the vote after this many ms (a promise is returned). */
+  readonly delayMs?: number;
+  /** Return the vote through a resolved promise. */
+  readonly async?: boolean;
+  /** Throw this from evaluate. */
+  readonly throws?: unknown;
+}
+
+export const DEFAULT_CAPABILITIES: ModelCapabilities = Object.freeze({ effects: Object.freeze(['permit', 'deny'] as const), residuals: CORE_FILTER_OPS, sync: 'always', fields: false, needsSubject: false });
+
+export class StaticModel extends AuthorizationModel {
+  readonly capabilities: ModelCapabilities;
+  readonly calls: { readonly req: DecisionRequest; readonly ctx: EvaluationContext }[] = [];
+  readonly preloads: Principal[] = [];
+  readonly invalidations: (readonly string[])[] = [];
+  preloadImpl?: (p: Principal) => Promise<void>;
+  invalidateImpl?: (tags: readonly string[]) => void;
+
+  constructor(readonly name: string, private readonly options: StaticModelOptions = {}) {
+    super();
+    this.capabilities = { ...DEFAULT_CAPABILITIES, ...options.capabilities };
+  }
+
+  init(): void {}
+
+  applies(def: PermissionDef, type: ResourceType): boolean {
+    return this.options.applies ? this.options.applies(def, type) : true;
+  }
+
+  evaluate(req: DecisionRequest, ctx: EvaluationContext): Vote | Promise<Vote> {
+    this.calls.push({ req, ctx });
+    if (this.options.throws !== undefined) throw this.options.throws;
+    const spec = this.options.vote ?? {};
+    const vote = (typeof spec === 'function' ? spec(req, ctx) : { model: this.name, permitWhen: FALSE, denyWhen: FALSE, cacheable: true, ...spec }) as Vote;
+    if (this.options.delayMs !== undefined) {
+      return new Promise((resolve) => setTimeout(() => resolve(vote), this.options.delayMs));
+    }
+    return this.options.async ? Promise.resolve(vote) : vote;
+  }
+
+  async preload(p: Principal): Promise<void> {
+    this.preloads.push(p);
+    if (this.preloadImpl) await this.preloadImpl(p);
+  }
+
+  invalidate(tags: readonly string[]): void {
+    this.invalidations.push(tags);
+    this.invalidateImpl?.(tags);
+  }
+}
+
+export interface ListModelOptions extends StaticModelOptions {
+  /** Default true. */
+  readonly listSupport?: ListSupport | ((def: PermissionDef, type: ResourceType) => ListSupport);
+  /** Default abstain; a function's result is returned as is (a promise, a throw, a malformed value). */
+  readonly listPlan?: ModelListPlan | ((req: ListPlanRequest, ctx: EvaluationContext) => unknown);
+}
+
+/** A StaticModel that plans lists; StaticModel itself has no listSupport, so it cannot. */
+export class ListModel extends StaticModel {
+  readonly planCalls: { readonly req: ListPlanRequest; readonly ctx: EvaluationContext }[] = [];
+
+  constructor(name: string, private readonly list: ListModelOptions = {}) {
+    super(name, list);
+  }
+
+  listSupport(def: PermissionDef, type: ResourceType): ListSupport {
+    const support = this.list.listSupport ?? true;
+    return typeof support === 'function' ? support(def, type) : support;
+  }
+
+  listPlan(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan> {
+    this.planCalls.push({ req, ctx });
+    const plan = this.list.listPlan ?? { kind: 'abstain' };
+    return Promise.resolve().then(() => (typeof plan === 'function' ? plan(req, ctx) : plan)) as Promise<ModelListPlan>;
+  }
+}
+
+export const permit = (when: ResourceFilter = TRUE, extra: Partial<Vote> = {}): Partial<Vote> => ({ permitWhen: when, ...extra });
+export const deny = (when: ResourceFilter = TRUE, extra: Partial<Vote> = {}): Partial<Vote> => ({ denyWhen: when, ...extra });
+
+/** A row an adapter accepts; attributes are own properties. */
+export class FakeRow {
+  [k: string]: unknown;
+  constructor(readonly $type: ResourceType, readonly id: string, attributes: Record<string, unknown> = {}, readonly $parent?: ResourceRef) {
+    Object.assign(this, attributes);
+  }
+}
+
+export interface FakeAdapterOptions {
+  readonly kind?: string;
+  readonly rows?: readonly FakeRow[];
+  /** Extra nodes (not rows) with parent links, keyed by resourceKey. */
+  readonly nodes?: Readonly<Record<string, ResourceRef | null>>;
+  readonly attribute?: (subject: unknown, field: string) => unknown;
+  readonly relations?: readonly RelationResolver[];
+  readonly scopeAttributes?: Readonly<Record<string, Readonly<Record<string, unknown>> | null>>;
+  readonly asyncRefOf?: boolean;
+}
+
+export class FakeAdapter extends ResourceAdapter<FakeRow> {
+  readonly kind: string;
+  readonly ancestorCalls: ResourceRef[] = [];
+  readonly refOfCalls: FakeRow[] = [];
+  readonly attributeCalls: ResourceRef[] = [];
+  private readonly parents = new Map<string, ResourceRef | null>();
+  protected readonly rowsByKey = new Map<string, FakeRow>();
+  attribute?: (subject: unknown, field: string) => unknown;
+
+  constructor(readonly types: readonly ResourceType[], private readonly options: FakeAdapterOptions = {}) {
+    super();
+    this.kind = options.kind ?? 'fake';
+    for (const row of options.rows ?? []) this.add(row);
+    for (const [key, parent] of Object.entries(options.nodes ?? {})) this.parents.set(key, parent);
+    if (options.attribute) this.attribute = options.attribute;
+  }
+
+  add(row: FakeRow): void {
+    const key = resourceKey({ type: row.$type, id: row.id });
+    this.parents.set(key, row.$parent ?? null);
+    this.rowsByKey.set(key, row);
+  }
+
+  accepts(target: unknown): target is FakeRow {
+    return target instanceof FakeRow && this.types.includes(target.$type);
+  }
+
+  refOf(target: FakeRow): ResourceRef | Promise<ResourceRef> {
+    this.refOfCalls.push(target);
+    const ref = { type: target.$type, id: target.id };
+    return this.options.asyncRefOf ? Promise.resolve(ref) : ref;
+  }
+
+  async ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null> {
+    this.ancestorCalls.push(ref);
+    return this.chain(ref);
+  }
+
+  /** [self, parent, ..., GLOBAL] without recording a call; null for an unknown node. */
+  protected chain(ref: ResourceRef): ResourceRef[] | null {
+    if (ref.id === undefined) return [ref, GLOBAL];
+    const key = resourceKey(ref);
+    if (!this.parents.has(key)) return null;
+    const out: ResourceRef[] = [ref];
+    let parent = this.parents.get(key) ?? null;
+    while (parent && out.length < 32) {
+      out.push(parent);
+      parent = this.parents.get(resourceKey(parent)) ?? null;
+    }
+    out.push(GLOBAL);
+    return out;
+  }
+
+  async scopeAttributes(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null> {
+    this.attributeCalls.push(ref);
+    return this.options.scopeAttributes?.[resourceKey(ref)] ?? {};
+  }
+
+  relations(): readonly RelationResolver[] {
+    return this.options.relations ?? [];
+  }
+}
+
+/** A FakeAdapter that loads its rows one at a time. */
+export class LoadingAdapter extends FakeAdapter {
+  readonly loadCalls: ResourceRef[] = [];
+
+  async load(ref: ResourceRef): Promise<unknown | null> {
+    this.loadCalls.push(ref);
+    return this.rowsByKey.get(resourceKey(ref)) ?? null;
+  }
+}
+
+export interface BatchAdapterOptions extends FakeAdapterOptions {
+  readonly failAncestorsMany?: boolean;
+  readonly failLoadMany?: boolean;
+}
+
+/** A LoadingAdapter with the batch methods. */
+export class BatchAdapter extends LoadingAdapter {
+  readonly ancestorsManyCalls: (readonly ResourceRef[])[] = [];
+  readonly loadManyCalls: (readonly ResourceRef[])[] = [];
+
+  constructor(types: readonly ResourceType[], private readonly batch: BatchAdapterOptions = {}) {
+    super(types, batch);
+  }
+
+  async ancestorsMany(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, readonly ResourceRef[] | null>> {
+    this.ancestorsManyCalls.push(refs);
+    if (this.batch.failAncestorsMany) throw new Error('ancestor store down');
+    return new Map(refs.map((r) => [resourceKey(r), this.chain(r)]));
+  }
+
+  async loadMany(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, unknown>> {
+    this.loadManyCalls.push(refs);
+    if (this.batch.failLoadMany) throw new Error('row store down');
+    const out = new Map<string, unknown>();
+    for (const r of refs) {
+      const row = this.rowsByKey.get(resourceKey(r));
+      if (row) out.set(resourceKey(r), row);
+    }
+    return out;
+  }
+}
+
+export class FakeScopeResolver extends ScopeResolver {
+  readonly ancestorCalls: ResourceRef[] = [];
+  readonly attributeCalls: ResourceRef[] = [];
+
+  constructor(
+    readonly types: readonly ResourceType[],
+    /** resourceKey => parent (null = root below GLOBAL); a missing key is an unknown node. */
+    private readonly nodes: Readonly<Record<string, ResourceRef | null>> = {},
+    private readonly attrs: Readonly<Record<string, Readonly<Record<string, unknown>> | null>> = {},
+  ) {
+    super();
+  }
+
+  async ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null> {
+    this.ancestorCalls.push(ref);
+    if (!Object.hasOwn(this.nodes, resourceKey(ref))) return null;
+    const out: ResourceRef[] = [ref];
+    let parent = this.nodes[resourceKey(ref)];
+    while (parent && out.length < 32) {
+      out.push(parent);
+      parent = this.nodes[resourceKey(parent)] ?? null;
+    }
+    out.push(GLOBAL);
+    return out;
+  }
+
+  async attributes(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null> {
+    this.attributeCalls.push(ref);
+    return Object.hasOwn(this.attrs, resourceKey(ref)) ? this.attrs[resourceKey(ref)] : {};
+  }
+}
+
+export class FakeRelation extends RelationResolver {
+  readonly calls: { principal: Principal; ref: ResourceRef; subject: unknown }[] = [];
+
+  constructor(readonly type: ResourceType, readonly relation: string, private readonly fn: (principal: Principal, ref: ResourceRef, subject: unknown) => boolean | Promise<boolean>) {
+    super();
+  }
+
+  holds(principal: Principal, ref: ResourceRef, subject?: unknown): boolean | Promise<boolean> {
+    this.calls.push({ principal, ref, subject });
+    return this.fn(principal, ref, subject);
+  }
+}
+
+export class FakeNativeFilter extends NativeFilter {
+  readonly calls: { args: unknown; subject: unknown; ref: ResourceRef }[] = [];
+
+  constructor(readonly op: `native:${string}`, private readonly fn: (args: unknown, subject: unknown, ref: ResourceRef, ctx: EvaluationContext) => boolean | Promise<boolean>) {
+    super();
+  }
+
+  matches(args: unknown, subject: unknown, ref: ResourceRef, ctx: EvaluationContext): boolean | Promise<boolean> {
+    this.calls.push({ args, subject, ref });
+    return this.fn(args, subject, ref, ctx);
+  }
+}
+
+export interface FakeClock {
+  readonly clock: () => Date;
+  now: Date;
+  advance(ms: number): void;
+}
+
+export const fakeClock = (start = '2026-10-01T12:00:00.000Z'): FakeClock => {
+  const c: FakeClock = {
+    now: new Date(start),
+    clock: () => new Date(c.now.getTime()),
+    advance(ms: number) {
+      c.now = new Date(c.now.getTime() + ms);
+    },
+  };
+  return c;
+};
+
+export type AuditEntry = Parameters<DecisionAudit['record']>[0];
+
+export class RecordingAudit extends DecisionAudit {
+  readonly entries: AuditEntry[] = [];
+  mode: 'ok' | 'throw' | 'reject' = 'ok';
+
+  record(e: AuditEntry): void | Promise<void> {
+    this.entries.push(e);
+    if (this.mode === 'throw') throw new Error('audit down');
+    if (this.mode === 'reject') return Promise.reject(new Error('audit down'));
+  }
+
+  kinds(): string[] {
+    return this.entries.map((e) => e.kind);
+  }
+
+  traces(): (Trace | undefined)[] {
+    return this.entries.map((e) => e.trace);
+  }
+}
+
+export interface LogEntry {
+  readonly level: 'error' | 'warn' | 'debug';
+  readonly message: string;
+  readonly args: unknown[];
+  readonly fields?: Record<string, unknown>;
+  /** The `error` field, which a layout prints after the message. */
+  readonly error?: Error;
+}
+
+export class RecordingLog implements Pick<AuthzLog, 'error' | 'warn' | 'debug'> {
+  readonly entries: LogEntry[] = [];
+
+  error(first: unknown, ...args: unknown[]): void {
+    this.record('error', first, args);
+  }
+
+  warn(first: unknown, ...args: unknown[]): void {
+    this.record('warn', first, args);
+  }
+
+  debug(first: unknown, ...args: unknown[]): void {
+    this.record('debug', first, args);
+  }
+
+  private record(level: LogEntry['level'], first: unknown, args: unknown[]): void {
+    if (typeof first === 'string') this.entries.push({ level, message: first, args });
+    else {
+      const fields = first as Record<string, unknown>;
+      this.entries.push({ level, message: renderTemplate(args[0] as string, fields), args: args.slice(1), fields, ...(fields.error instanceof Error ? { error: fields.error } : {}) });
+    }
+  }
+
+  at(level: LogEntry['level']): LogEntry[] {
+    return this.entries.filter((e) => e.level === level);
+  }
+}
+
+export const principal = (type: PrincipalType, id: string, extra: Partial<Principal> = {}): Principal => ({ type, id, authenticated: true, source: 'session', attributes: {}, ...extra });
+
+/** A frozen registry with the given permissions. */
+export const registryOf = (defs: readonly PermissionInput[], source = 'test'): PermissionRegistryImpl => {
+  const r = new PermissionRegistryImpl();
+  r.register(defs, source);
+  r.freeze();
+  return r;
+};

@@ -144,7 +144,7 @@ describe('scheduler models', () => {
     });
     const lost = await RunModel.update({ Status: 'running' }).where('Id', 'r1').where('Status', 'running');
     expect(lost.RowsAffected).to.eq(0);
-    const won = await RunModel.update({ Status: 'running', Result: jsonColumn({ ok: true }), LeaseUntil: T + 60_000 })
+    const won = await RunModel.update({ Status: 'running', Result: { ok: true }, LeaseUntil: T + 60_000 })
       .where('Id', 'r1')
       .where('Status', 'queued');
     expect(won.RowsAffected).to.eq(1);
@@ -153,6 +153,10 @@ describe('scheduler models', () => {
     expect(row.TriggeredBy).to.deep.eq({ kind: 'user', id: '7' });
     expect(row.Result).to.deep.eq({ ok: true });
     expect(row.LeaseUntil).to.eq(T + 60_000);
+
+    // static update() serializes through the column converter, so a JSON string is passed as the plain value
+    await RunModel.update({ Result: '123' }).where('Id', 'r1');
+    expect((await RunModel.where('Id', 'r1').first()).Result).to.eq('123');
   });
 
   it('assigns journal ids and enforces unique (RunId, Seq) and unique Pos', async () => {

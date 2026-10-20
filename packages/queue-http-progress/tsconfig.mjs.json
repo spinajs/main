@@ -7,7 +7,9 @@
     "moduleResolution": "node16"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../configuration/tsconfig.mjs.json" },
+  "references": [{ "path": "../authz/tsconfig.mjs.json" },
+    { "path": "../authz-http/tsconfig.mjs.json" },
+    { "path": "../configuration/tsconfig.mjs.json" },
     { "path": "../di/tsconfig.mjs.json" },
     { "path": "../exceptions/tsconfig.mjs.json" },
     { "path": "../http/tsconfig.mjs.json" },

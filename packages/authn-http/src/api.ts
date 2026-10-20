@@ -1,0 +1,35 @@
+import type { AuthnContext, AuthnFacts, Credentials, IAuthnPrincipalStorage, IdentityRef, Principal, Session } from '@spinajs/authn/contracts';
+import type { Request } from '@spinajs/http';
+
+declare module '@spinajs/http' {
+  interface IActionLocalStoregeContext extends IAuthnPrincipalStorage {
+    /** Written by ClientIp: the client address from the trusted-proxy chain only (A05). Authn reads this, never realIp. */
+    ClientIp?: string;
+    /**
+     * Written by AuthnMiddleware: the restored session, pending included; null without one. The session route args read it.
+     * A session here is not authentication: check handle.state; only AuthnPrincipal means authenticated (SR-07).
+     */
+    AuthnSession?: Session | null;
+  }
+}
+
+/** What `@Identity()` resolves to. `identity` is the principal's own type and id (for an agent, the agent, not onBehalfOf). */
+export interface AuthnIdentity {
+  readonly identity: IdentityRef;
+  readonly facts: AuthnFacts;
+}
+
+/**
+ * One credential family in AuthnMiddleware's principal resolution. Registered with Array.ofType, asked in ascending `order`.
+ * undefined: none of this resolver's credentials, ask the next. null: its credentials are present but yield no principal (rejected,
+ * expired, revoked, or a pending session); resolution stops, so a bad credential never falls through to another one.
+ * Never throws for bad credentials. Key and token resolvers verify through AuthnService.authenticate(credentials, ctx) with purpose
+ * 'request', then AuthnService.principalOf (PrincipalFactory, authn facts, A23), so the throttle and audit apply (A05, A21); never
+ * through TokenService or KeyRegistry directly.
+ */
+export abstract class AuthnPrincipalResolver {
+  /** Lower is asked first. */
+  abstract readonly order: number;
+  /** `credentials` is passed, never stored on the request, because it holds secrets; `ctx.ip` comes from ClientIp (A05). */
+  abstract resolve(req: Request, credentials: Credentials | null, ctx: AuthnContext): Promise<Principal | null | undefined>;
+}

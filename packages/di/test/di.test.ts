@@ -1107,12 +1107,12 @@ describe('Dependency injection', () => {
     }).to.throw();
   });
 
-  it('Should register singleton at resolve', () => {
+  it('Should not register singleton at resolve', () => {
     class PisFart {}
 
     DI.resolve(PisFart);
 
-    expect(DI.check(PisFart)).to.eq(true);
+    expect(DI.check(PisFart)).to.eq(false);
   });
 
   it('Should not register at resolve @NewInstance', () => {
@@ -1282,6 +1282,74 @@ describe('Dependency injection', () => {
     expect(a == b).to.be.true;
     expect(a == c).to.be.false;
     expect(b == c).to.be.false;
+    expect(DI.resolve(A, ['bar'])).to.equal(c);
+  });
+
+  it('Should resolve per name when resolved concurrently', async () => {
+    @PerInstanceCheck()
+    class A extends AsyncService implements IInstanceCheck {
+      constructor(public Name: string) {
+        super();
+      }
+      __checkInstance__(creationOptions: any): boolean {
+        return this.Name === creationOptions[0];
+      }
+    }
+
+    const [foo, bar, foo2] = await Promise.all([DI.resolve(A, ['foo']), DI.resolve(A, ['bar']), DI.resolve(A, ['foo'])]);
+
+    expect(foo.Name).to.eq('foo');
+    expect(bar.Name).to.eq('bar');
+    expect(foo2).to.equal(foo);
+  });
+
+  it('singleInstance() makes a @NewInstance class a singleton', () => {
+    @NewInstance()
+    class _NI {}
+
+    DI.register(_NI).asSelf().singleInstance();
+
+    expect(DI.resolve(_NI)).to.equal(DI.resolve(_NI));
+  });
+
+  it('A subclass that adds a property injection keeps the base lifetime', () => {
+    class _Dep {}
+
+    @NewInstance()
+    class _Base {}
+
+    class _Sub extends _Base {
+      @Autoinject(_Dep)
+      public Dep: _Dep;
+    }
+
+    expect(DI.resolve(_Sub)).to.not.equal(DI.resolve(_Sub));
+  });
+
+  it('@Autoinject with an explicit type works without decorator metadata', () => {
+    class _Dep {}
+    class _Target {
+      public Dep: _Dep;
+    }
+
+    Autoinject(_Dep)(_Target.prototype, 'Dep');
+
+    expect(DI.resolve(_Target).Dep).to.be.instanceOf(_Dep);
+  });
+
+  it('@Autoinject without a type on an array property throws', () => {
+    class _Target {}
+    Reflect.defineMetadata('design:type', Array, _Target.prototype, 'List');
+
+    expect(() => Autoinject()(_Target.prototype, 'List')).to.throw('you must provide inject type');
+  });
+
+  it('A Container subclass injects itself and creates children of its class', () => {
+    class _MyContainer extends Container {}
+    const container = new _MyContainer();
+
+    expect(container.resolve(Container)).to.equal(container);
+    expect(container.child()).to.be.instanceOf(_MyContainer);
   });
 
   it('Should cache every per-check instance, not only the first', () => {
@@ -1444,6 +1512,18 @@ describe('Dependency injection', () => {
     const dispose = spy(Foo.prototype, 'dispose');
 
     await DI.resolve(Foo);
+    await DI.dispose();
+
+    expect(dispose.calledOnce).to.be.true;
+  });
+
+  it('Should dispose a service resolved through Array.ofType once', async () => {
+    class _Base extends SyncService {}
+    @Injectable(_Base)
+    class _Impl extends _Base {}
+
+    DI.resolve(Array.ofType(_Base));
+    const dispose = spy(_Impl.prototype, 'dispose');
     await DI.dispose();
 
     expect(dispose.calledOnce).to.be.true;

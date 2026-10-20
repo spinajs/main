@@ -15,9 +15,10 @@ export class FsRmCommand extends CliCommand {
 
     try {
       await _rm(path, fsName);
-      this.Log.success(`Removed ${path} from filesystem ${fsName}`);
+      this.Log.success({ path, fsName }, 'Removed ${path} from filesystem ${fsName}');
     } catch (err) {
-      this.Log.error(`Cannot remove ${path} from ${fsName}: ${err.message}`);
+      this.Log.error({ error: err, path, fsName }, 'Cannot remove ${path} from ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

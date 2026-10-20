@@ -1,4 +1,4 @@
-import { TypedArray } from './array.js';
+import { ChainArray, TypedArray } from './array.js';
 import { ResolveException } from './exceptions.js';
 import { AsyncService, SyncService } from './interfaces.js';
 import { Factory, Class } from './types.js';
@@ -63,7 +63,11 @@ export function isSyncService(value: any): value is SyncService {
  * @returns
  */
 export function isTypedArray(value: any): value is TypedArray<any> {
-  return (value instanceof Array && value.constructor.name === 'TypedArray') || isMap(value);
+  return (value instanceof Array && value.constructor.name === 'TypedArray') || isChainArray(value) || isMap(value);
+}
+
+export function isChainArray(value: any): value is ChainArray<any> {
+  return value instanceof Array && value.constructor.name === 'ChainArray';
 }
 
 export function isMap(value: any): value is Map<string, any> {

@@ -30,7 +30,8 @@ import {
   undefineParitySchedules,
 } from '@spinajs/scheduler';
 
-import { asRole, bootRealHttp, req, stopHttp, TestConfiguration } from './common.js';
+import { asRole, bootRealHttp, req, stopHttp } from './common.js';
+import type { IBootOptions } from './common.js';
 import { codeFromHttp, httpParityDriver, toHttpCall } from './http-parity-driver.js';
 import { events, ISseConnection, openSse } from './sse-client.js';
 
@@ -64,22 +65,14 @@ export class SseRetryTask extends ScheduledTask {
   }
 }
 
-class ParityConfiguration extends TestConfiguration {
-  protected schedulerSection(): Record<string, unknown> {
-    // no loop of its own: the stream tests drive a Scheduler with tickOnce()
-    return { enabled: false, shutdownGrace: 2000, retention: { enabled: false } };
-  }
-
-  protected extraConnections(): Array<Record<string, unknown>> {
-    // importing @spinajs/queue registers JobModel on this connection ( same as the core test env )
-    return [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'queue', Migration: { Table: 'orm_migrations', OnStartup: true } }];
-  }
-
-  protected extraSections(): Record<string, unknown> {
-    // scheduler events go nowhere, as with the core's shipped routing
-    return { queue: { default: 'black-hole', routing: {}, connections: [{ name: 'black-hole', service: 'BlackHoleQueueClient' }] } };
-  }
-}
+const PARITY_BOOT: IBootOptions = {
+  // no loop of its own: the stream tests drive a Scheduler with tickOnce()
+  scheduler: { enabled: false, shutdownGrace: 2000, retention: { enabled: false } },
+  // importing @spinajs/queue registers JobModel on this connection ( same as the core test env )
+  connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'queue', Migration: { Table: 'orm_migrations', OnStartup: true } }],
+  // scheduler events go nowhere, as with the core's shipped routing
+  config: { queue: { default: 'black-hole', routing: {}, connections: [{ name: 'black-hole', service: 'BlackHoleQueueClient' }] } },
+};
 
 const ALL_ACTIONS: Record<ParityAction['action'], true> = {
   listSchedules: true,
@@ -161,7 +154,7 @@ describe('scheduler-http: parity with the service and the CLI', function () {
 
   before(async () => {
     defineParitySchedules();
-    await bootRealHttp(ParityConfiguration, () => {
+    await bootRealHttp(PARITY_BOOT, () => {
       DI.register(DefaultSchedulerService).as(SchedulerService);
       DI.register(() => clock).as(Clock);
       DI.register(() => clock.dbSource).as(DbTimeSource);

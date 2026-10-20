@@ -66,7 +66,10 @@ function controllerInfo(): ClassInfo<BaseController> {
   });
 }
 
-describe('DefaultControllerCache keying', () => {
+describe('DefaultControllerCache keying', function () {
+  // The first parse of a real source file is slow on a cold start.
+  this.timeout(10000);
+
   it('does not regenerate when the entry already exists', async () => {
     const { cache, calls } = makeCache(true);
     await cache.getCache(controllerInfo());

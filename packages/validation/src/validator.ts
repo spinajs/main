@@ -1,7 +1,7 @@
 import { Autoinject, Container, AsyncService, Singleton } from '@spinajs/di';
 import Ajv from 'ajv';
 import { Config } from '@spinajs/configuration';
-import { IValidationError, ValidationFailed } from './exceptions/index.js';
+import { IValidationError, ValidationFailed, sanitizeError } from './exceptions/index.js';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
@@ -9,6 +9,8 @@ import { Logger, Log } from '@spinajs/log-common';
 
 // import default souces
 import './sources.js';
+// The package index loads no Bootstrapper: the schema module registers itself.
+import './schemas/validation.js';
 
 
 import { default as ajvMergePath } from 'ajv-merge-patch';
@@ -67,6 +69,8 @@ export class DataValidator extends AsyncService {
       },
       ...this.Options,
       $data: true,
+      // `parentSchema` tells sanitizeError which rules are `$data` refs; no error leaves this class unsanitised.
+      verbose: true,
     };
 
 
@@ -93,7 +97,7 @@ export class DataValidator extends AsyncService {
       }, [])
       .filter((s) => {
         if (!s.schema || typeof s.schema !== 'object' || !s.schema.$id) {
-          this.Log.error(`Schema at ${s.file} is empty or has no $id property`, 'validator');
+          this.Log.error({ file: s.file }, 'Schema at ${file} is empty or has no $id property');
           return false;
         }
 
@@ -101,14 +105,14 @@ export class DataValidator extends AsyncService {
         try {
           const vResult = this.Validator.validateSchema(s.schema, true);
           if (!vResult) {
-            this.Log.error(`Schema at ${s.file} invalid`, 'validator');
+            this.Log.error({ file: s.file }, 'Schema at ${file} invalid');
 
             return false;
           }
 
           return true;
         } catch (err) {
-          this.Log.error(`Schema at ${s.file} invalid, reason: ${(err as Error).message}`, 'validator');
+          this.Log.error({ error: err, file: s.file }, 'Schema at ${file} invalid');
           return false;
         }
       })
@@ -121,12 +125,12 @@ export class DataValidator extends AsyncService {
 
   public addSchema(schemaObject: object, identifier: string) {
     if (this.hasSchema(identifier)) {
-      this.Log.warn(`Schema ${identifier} already registered, skipping`, 'validator');
+      this.Log.warn({ schema: identifier }, 'Schema ${schema} already registered, skipping');
       return;
     }
 
     this.Validator.addSchema(schemaObject, identifier);
-    this.Log.trace(`Schema ${identifier} added !`, 'validator');
+    this.Log.trace({ schema: identifier }, 'Schema ${schema} added !');
   }
 
   /**
@@ -137,7 +141,7 @@ export class DataValidator extends AsyncService {
   public removeSchema(schemaId: string): void {
     if (this.hasSchema(schemaId)) {
       this.Validator.removeSchema(schemaId);
-      this.Log.trace(`Schema ${schemaId} removed !`, 'validator');
+      this.Log.trace({ schema: schemaId }, 'Schema ${schema} removed !');
     }
   }
 
@@ -173,20 +177,24 @@ export class DataValidator extends AsyncService {
    */
   public tryValidate(schema: object | string, data: object): [boolean, IValidationError[] | null];
   public tryValidate(schemaOrData: object | string, data?: object): [boolean, IValidationError[] | null] {
-    const target = data !== null && data !== undefined ? data : schemaOrData;
+    return this.tryValidateInternal(arguments.length > 1, schemaOrData, data);
+  }
+
+  private tryValidateInternal(hasSchemaArg: boolean, schemaOrData: object | string, data?: object): [boolean, IValidationError[] | null] {
+    const target = hasSchemaArg ? data : schemaOrData;
 
     if (target === null || target === undefined) {
       return [false, [syntheticError('invalid_argument', 'data is null or undefined')]];
     }
 
-    const schema = this.resolveSchema(schemaOrData, data);
+    const schema = this.resolveSchema(hasSchemaArg, schemaOrData);
     if (!schema) {
       return [false, [syntheticError('empty_schema', 'objects schema is not set')]];
     }
 
     const result = this.Validator.validate(schema, target);
     if (!result) {
-      return [false, (this.Validator.errors as IValidationError[]) ?? []];
+      return [false, this.sanitizedErrors(schema)];
     }
 
     return [true, null];
@@ -210,11 +218,13 @@ export class DataValidator extends AsyncService {
       const isValid = this.Validator.validateSchema(schema) as boolean;
 
       if (!isValid) {
-        return [false, (this.Validator.errors as IValidationError[]) ?? []];
+        return [false, this.sanitizedErrors()];
       }
 
       // meta-valid but uncompilable - an unknown `format`, an unresolvable `$ref`
-      this.Validator.compile(schema);
+      // compile() registers a `$id` in Ajv, which would clash with an already registered schema
+      const { $id, ...unregistered } = schema as Record<string, unknown>;
+      this.Validator.compile(unregistered);
 
       return [true, null];
     } catch (err) {
@@ -222,12 +232,16 @@ export class DataValidator extends AsyncService {
     }
   }
 
+  private sanitizedErrors(schema?: object): IValidationError[] {
+    return ((this.Validator.errors as IValidationError[]) ?? []).map((error) => sanitizeError(error, schema));
+  }
+
   /**
    * Internal method to get the schema being used for validation
    */
-  private resolveSchema(schemaOrData: object | string, data?: object): ISchemaObject | null {
-    if (data === null || data === undefined) {
-      return (Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData) as ISchemaObject) ?? null;
+  private resolveSchema(hasSchemaArg: boolean, schemaOrData: object | string): ISchemaObject | null {
+    if (!hasSchemaArg) {
+      return this.extractSchema(schemaOrData) ?? null;
     }
 
     if (typeof schemaOrData === 'string') {
@@ -236,11 +250,36 @@ export class DataValidator extends AsyncService {
       /* eslint-enable */
     }
 
-    return schemaOrData as ISchemaObject;
+    if (typeof schemaOrData === 'function') {
+      return this.extractSchema(schemaOrData) ?? null;
+    }
+
+    return this.uniqueIdSchema(schemaOrData as ISchemaObject);
   }
 
+  // Ajv registers an inline schema's `$id` globally; a different object reusing a taken `$id` would throw.
+  private uniqueIdSchema(schema: ISchemaObject): ISchemaObject {
+    const id = (schema as Record<string, unknown>).$id;
+    if (typeof id !== 'string' || !this.Validator.getSchema(id) || this.Validator.getSchema(id)?.schema === schema) {
+      return schema;
+    }
+
+    let copy = this.unregisteredSchemas.get(schema);
+    if (!copy) {
+      const { $id, ...rest } = schema as Record<string, unknown>;
+      copy = rest as ISchemaObject;
+      this.unregisteredSchemas.set(schema, copy);
+    }
+    return copy;
+  }
+
+  private unregisteredSchemas = new WeakMap<object, ISchemaObject>();
+
   public extractSchema(object: any) {
-    return Reflect.getMetadata(SCHEMA_SYMBOL, object) as ISchemaObject ?? Reflect.getMetadata(SCHEMA_SYMBOL, object.prototype) as ISchemaObject;
+    if (object === null || object === undefined) {
+      return undefined as unknown as ISchemaObject;
+    }
+    return (Reflect.getMetadata(SCHEMA_SYMBOL, object) as ISchemaObject) ?? (object.prototype ? (Reflect.getMetadata(SCHEMA_SYMBOL, object.prototype) as ISchemaObject) : (undefined as unknown as ISchemaObject));
   }
 
   /**
@@ -260,7 +299,8 @@ export class DataValidator extends AsyncService {
    */
   public validate(schema: object | string, data: object): void;
   public validate(schemaOrData: object | string, data?: object): void {
-    const [isValid, errors] = this.tryValidate(schemaOrData, data!);
+    const hasSchemaArg = arguments.length > 1;
+    const [isValid, errors] = this.tryValidateInternal(hasSchemaArg, schemaOrData, data);
     if (!isValid) {
       switch (errors![0]?.keyword) {
         case 'invalid_argument':
@@ -268,9 +308,7 @@ export class DataValidator extends AsyncService {
         case 'empty_schema':
           throw new InvalidArgument('objects schema is not set');
         default: {
-          const validatedData = data !== null && data !== undefined ? data : schemaOrData;
-          const usedSchema = this.resolveSchema(schemaOrData, data);
-          throw new ValidationFailed('validation error', errors ?? [], validatedData, usedSchema);
+          throw new ValidationFailed('validation error', errors ?? [], this.resolveSchema(hasSchemaArg, schemaOrData));
         }
       }
     }

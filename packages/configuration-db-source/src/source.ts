@@ -21,6 +21,9 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
   protected Options!: IConfiguratioDbSourceConfig;
 
+  /** True when `Connect()` opened a driver connection of its own instead of borrowing the ORM's. */
+  protected OwnsConnection = false;
+
   @Autoinject(DbConfigValueConverter)
   protected Converter!: DbConfigValueConverter;
 
@@ -32,28 +35,44 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
   public async Load(configuration: Configuration): Promise<IConfigLike> {
     this.Configuration = configuration;
-    this.Options = this.Configuration.get('configuration_db_source', {
+    // schema defaults are applied only after all sources ran, so a partial object must be completed here
+    this.Options = {
       connection: 'default',
       table: 'configuration',
-    });
+      ..._.omitBy(this.Configuration.get<Partial<IConfiguratioDbSourceConfig>>('configuration_db_source', {}), _.isUndefined),
+    };
 
     try {
       await this.Connect();
     } catch (err) {
-      InternalLogger.error(`Failed to connect to database for configuration source (connection: ${this.Options.connection}): ${err instanceof Error ? err.message : String(err)}`, 'configuration-db-source');
+      InternalLogger.error({ error: err, connection: this.Options.connection }, 'Failed to connect to database for configuration source (connection: ${connection})', 'configuration-db-source');
       return {}  as IConfigLike;
     }
 
     if (!this.Connection) {
-      InternalLogger.warn(`No database connection available for configuration source (connection: ${this.Options.connection}), skipping db config`, 'configuration-db-source');
+      InternalLogger.warn({ connection: this.Options.connection }, 'No database connection available for configuration source (connection: ${connection}), skipping db config', 'configuration-db-source');
       return {}  as IConfigLike;
     }
 
+    try {
+      return await this.LoadEntries();
+    } finally {
+      if (this.OwnsConnection) {
+        try {
+          await this.Connection.disconnect();
+        } catch (err) {
+          InternalLogger.warn({ error: err, connection: this.Options.connection }, 'Failed to close configuration source connection ${connection}', 'configuration-db-source');
+        }
+      }
+    }
+  }
+
+  protected async LoadEntries(): Promise<IConfigLike> {
     let tableExists = false;
     try {
       tableExists = await this.CheckTable();
     } catch (err) {
-      InternalLogger.error(`Failed to check if configuration table '${this.Options.table}' exists: ${err instanceof Error ? err.message : String(err)}`, 'configuration-db-source');
+      InternalLogger.error({ error: err, table: this.Options.table }, 'Failed to check if configuration table ${table} exists', 'configuration-db-source');
       return {}  as IConfigLike;
     }
 
@@ -66,7 +85,7 @@ export class ConfiguratioDbSource extends ConfigurationSource {
     try {
       dbOptions = await this.Connection.select<IConfigurationEntry[]>().from(this.Options.table);
     } catch (err) {
-      InternalLogger.error(`Failed to read configuration entries from table '${this.Options.table}': ${err instanceof Error ? err.message : String(err)}`, 'configuration-db-source');
+      InternalLogger.error({ error: err, table: this.Options.table }, 'Failed to read configuration entries from table ${table}', 'configuration-db-source');
       return {}  as IConfigLike;
     }
 
@@ -84,7 +103,7 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
     const final: IConfigLike = {} as IConfigLike;
     dbOptions.forEach((entry) => {
-      InternalLogger.trace(`Loaded config ${entry.Slug} from db source`, 'Configuration-db-source');
+      InternalLogger.trace({ slug: entry.Slug }, 'Loaded config ${slug} from db source', 'Configuration-db-source');
       _.set(final, entry.Slug, entry.Value);
     });
 
@@ -115,7 +134,9 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       throw new Error(`Connection for configuration-db-source named ${dbConnection} not exists, please check your default connection name or if ${dbConnection} exists in configuration.`);
     }
 
-    InternalLogger.trace(`Using db connection ${dbConnection}`, 'Configuration-db-source');
+    InternalLogger.trace({ connection: dbConnection }, 'Using db connection ${connection}', 'Configuration-db-source');
+
+    this.OwnsConnection = false;
 
     // create or get connection
     if (DI.has(Orm)) {
@@ -129,10 +150,10 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       try {
         const alive = await this.Connection.ping();
         if (!alive) {
-          InternalLogger.warn(`Database connection '${dbConnection}' exists but ping failed, connection may be broken`, 'configuration-db-source');
+          InternalLogger.warn({ connection: dbConnection }, 'Database connection ${connection} exists but ping failed, connection may be broken', 'configuration-db-source');
         }
       } catch (err) {
-        InternalLogger.warn(`Database connection '${dbConnection}' ping check failed: ${err instanceof Error ? err.message : String(err)}`, 'configuration-db-source');
+        InternalLogger.warn({ error: err, connection: dbConnection }, 'Database connection ${connection} ping check failed', 'configuration-db-source');
       }
     } else {
       if (!DI.check(cfgConnectionOptions.Driver)) {
@@ -140,12 +161,14 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       }
 
       this.Connection = DI.resolve<OrmDriver>(cfgConnectionOptions.Driver, [cfgConnectionOptions]);
+      this.OwnsConnection = true;
 
       try {
         await this.Connection.connect();
       } catch (err) {
         InternalLogger.error(
-          `Failed to connect to database '${dbConnection}' (driver: ${cfgConnectionOptions.Driver}, host: ${cfgConnectionOptions.Host ?? 'N/A'}, database: ${cfgConnectionOptions.Database ?? cfgConnectionOptions.Filename ?? 'N/A'}): ${err instanceof Error ? err.message : String(err)}`,
+          { error: err, connection: dbConnection, driver: cfgConnectionOptions.Driver, host: cfgConnectionOptions.Host, database: cfgConnectionOptions.Database ?? cfgConnectionOptions.Filename },
+          'Failed to connect to database ${connection} (driver: ${driver}${?host}, host: ${host}${/host}${?database}, database: ${database}${/database})',
           'configuration-db-source',
         );
 

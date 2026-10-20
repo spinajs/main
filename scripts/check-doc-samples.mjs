@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Type-checks the TypeScript samples embedded in the packages' `docs/` markdown.
+ * Type-checks the TypeScript samples embedded in the per-package markdown under `docs/<package>/`.
  *
  * A fenced block participates only when its info string is exactly `ts sample`:
  *
@@ -13,7 +13,7 @@
  * everything it references. Blocks fenced as plain ```ts are deliberately partial
  * and are skipped, as is every non-TypeScript fence.
  *
- * Each block is written to .tmp/docs-samples/<package>/<doc>-<n>.ts and the whole
+ * Each block is written to .tmp/docs-samples/<run>/<package>/<doc>-<n>.ts and the whole
  * directory is compiled once with `tsc --noEmit`. Diagnostics are mapped back to
  * the markdown file and line the block came from.
  *
@@ -29,12 +29,12 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PACKAGES = join(ROOT, 'packages');
-const OUT = join(ROOT, '.tmp', 'docs-samples');
-
 const FENCE = /^([ \t]*)```([^\n`]*)\n([\s\S]*?)\n?\1```[ \t]*$/gm;
 const SAMPLE_INFO = /^ts\s+sample$/;
 
 const only = process.argv.slice(2);
+// One folder per package set: parallel runs for different packages must not wipe each other's samples.
+const OUT = join(ROOT, '.tmp', 'docs-samples', only.length ? [...only].sort().join('+') : 'all');
 
 function markdownFiles(dir) {
   const found = [];
@@ -82,7 +82,7 @@ function collect() {
 
   for (const pkg of packages) {
     if (only.length && !only.includes(pkg)) continue;
-    const docs = join(PACKAGES, pkg, 'docs');
+    const docs = join(ROOT, 'docs', pkg);
     try {
       if (!statSync(docs).isDirectory()) continue;
     } catch {

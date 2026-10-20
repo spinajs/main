@@ -1,118 +1,35 @@
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { DI, Bootstrapper } from '@spinajs/di';
-import '../src/index.js';
-import { DbSessionStore } from '../src/index.js';
 import { DbSession } from '../src/models/DbSession.js';
-import { UserSession as Session, encodeSessionData, decodeSessionData } from '@spinajs/rbac';
+import { UserSession as Session, encodeSessionData, decodeSessionData } from '@spinajs/authn-session';
+import type { ISession } from '@spinajs/authn-session';
 import { DateTime } from 'luxon';
-import { Orm } from '@spinajs/orm';
-import { columnNativeType, isMySqlDialect } from '../src/migration-support.js';
-import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { runSessionProviderConformance, IConformanceExpiration } from '../../rbac/test/conformance/session-provider-conformance.js';
+import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
+import { bootStore, disposeStore, sessionConnection } from './support.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
 
-// Current expiration strategy config the ConnectionConf will publish. The
-// conformance factory swaps this per strategy before (re)resolving DI.
-let CURRENT_EXPIRATION: IConformanceExpiration = { service: 'SlidingExpiration', ttl: 60 };
-
-export function mergeArrays(target: any, source: any) {
-  if (_.isArray(target)) {
-    return target.concat(source);
-  }
-}
-
-export class ConnectionConf extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.mergeWith(
-      this.Config,
-      {
-        rbac: {
-          session: {
-            db: {
-              cleanupInterval: 1000,
-            },
-            expiration: CURRENT_EXPIRATION,
-          },
-        },
-        db: {
-          DefaultConnection: 'sqlite',
-          Connections: [
-            {
-              Driver: 'orm-driver-sqlite',
-              Filename: ':memory:',
-              Name: 'session-provider-connection',
-              Migration: {
-                OnStartup: true,
-              },
-            },
-            {
-              Driver: 'orm-driver-sqlite',
-              Filename: ':memory:',
-              Name: 'sqlite',
-              Migration: {
-                OnStartup: true,
-              },
-            },
-          ],
-        },
-        logger: {
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-              layout: '${datetime} ${level} ${message} ${error} duration: ${duration} (${logger})',
-            },
-          ],
-
-          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-        },
-      },
-      mergeArrays,
-    );
-  }
-}
-
-async function boot() {
-  DI.clearCache();
-
-  // importing @spinajs/rbac registers ORM query middleware that depends on the
-  // AccessControl instance provided by RbacBootstrapper — run bootstrappers as a
-  // real app would before touching the Orm.
-  const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-  for (const b of bootstrappers) {
-    await b.bootstrap();
-  }
-
-  await DI.resolve(Configuration);
-  await DI.resolve(Orm);
-  return DI.resolve(DbSessionStore);
-}
+const user = (id: string) => ({ type: 'user', id });
 
 async function makeProvider(expiration: IConformanceExpiration) {
-  CURRENT_EXPIRATION = expiration;
-  return boot();
+  return bootStore({ expiration });
 }
+
+// The suite types the provider against authn-session's sources, the store against its build.
+const conformanceFactory = makeProvider as unknown as SessionProviderFactory;
 
 describe('db session provider', function () {
   this.timeout(15000);
 
-  before(() => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+  after(async () => {
+    await disposeStore();
   });
 
-  // Full provider contract under multiple expiration strategies (E — reused kit).
-  runSessionProviderConformance(makeProvider);
+  runSessionProviderConformance(conformanceFactory);
 
   describe('DbSessionStore regressions', () => {
-    it('reads the correctly-spelled rbac.session.db.cleanupInterval config key (B2)', async () => {
+    it('reads the correctly-spelled authn.session.db.cleanupInterval config key (B2)', async () => {
       const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
 
       // The fixture sets cleanupInterval = 1000. With the historic typo
@@ -128,7 +45,8 @@ describe('db session provider', function () {
       const fixed = DateTime.fromISO('2031-05-06T07:08:09.000Z');
       const session = new Session({
         SessionId: 'b3-verbatim',
-        UserId: 3,
+        Subject: user('u-3'),
+        State: 'active',
         Expiration: fixed,
         Data: new Map<string, unknown>([['foo', 'bar']]),
       });
@@ -146,7 +64,8 @@ describe('db session provider', function () {
 
       const session = new Session({
         SessionId: 'b3-initial',
-        UserId: 4,
+        Subject: user('u-4'),
+        State: 'active',
         Expiration: undefined,
         Data: new Map<string, unknown>(),
       });
@@ -161,9 +80,8 @@ describe('db session provider', function () {
       expect(diff).to.be.lessThan(5000);
     });
 
-    // Regression: the cleanup timer built its DELETE with
-    // `DbSession.destroy().where(...)`, which throws "Cannot destroy without
-    // primary keys" — so expired sessions piled up forever.
+    // Regression: the cleanup timer's DELETE once threw before reaching the
+    // database, so expired sessions piled up forever.
     it('cleanupExpired removes expired sessions and keeps live ones', async () => {
       const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
       await store.truncate();
@@ -171,7 +89,8 @@ describe('db session provider', function () {
       await store.save(
         new Session({
           SessionId: 'expired-one',
-          UserId: 10,
+          Subject: user('u-10'),
+          State: 'active',
           Expiration: DateTime.now().minus({ hours: 1 }),
           Data: new Map<string, unknown>(),
         }),
@@ -180,7 +99,8 @@ describe('db session provider', function () {
       await store.save(
         new Session({
           SessionId: 'live-one',
-          UserId: 11,
+          Subject: user('u-11'),
+          State: 'active',
           Expiration: DateTime.now().plus({ hours: 1 }),
           Data: new Map<string, unknown>(),
         }),
@@ -201,11 +121,88 @@ describe('db session provider', function () {
     });
   });
 
+  describe('3.0 columns', () => {
+    it('stores Subject, ImpersonatorId and State in their own columns as principal keys', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      await store.save(new Session({ SessionId: 'k-cols', Subject: user('u-1'), Impersonator: { type: 'svc:ops', id: 'a:b' }, State: 'active', Data: new Map() }));
+      const row = (await DbSession.where({ SessionId: 'k-cols' }).first()) as DbSession;
+
+      expect(row.Subject).to.equal('user:u-1');
+      expect(row.ImpersonatorId).to.equal('svc%3Aops:a:b');
+      expect(row.State).to.equal('active');
+
+      const back = (await store.restore('k-cols'))!;
+      expect({ ...back.Impersonator }).to.deep.equal({ type: 'svc:ops', id: 'a:b' });
+    });
+
+    it('SR-07 a stored State other than active comes back pending (fail closed)', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      await store.save(new Session({ SessionId: 'k-odd', Subject: user('u-1'), State: 'active', Data: new Map() }));
+      await DbSession.update({ State: 'Active' } as Partial<DbSession>).where('SessionId', 'k-odd');
+
+      expect((await store.restore('k-odd'))!.State).to.equal('pending');
+    });
+
+    it('SR-07 touch with an active view never extends a row stored as pending', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      const fixed = DateTime.now().plus({ minutes: 5 });
+      await store.save(new Session({ SessionId: 'k-pending', Subject: user('u-1'), State: 'pending', Expiration: fixed, Data: new Map() }));
+      const forged = new Session({ SessionId: 'k-pending', Subject: user('u-1'), State: 'active', Expiration: fixed, Data: new Map() });
+
+      expect(await store.touch(forged)).to.be.false;
+      const after = (await store.restore('k-pending'))!;
+      expect(after.State).to.equal('pending');
+      expect(after.Expiration!.toMillis()).to.equal(fixed.toMillis());
+    });
+
+    it('deleteBySubject counts only live rows, and also deletes the expired ones', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      await store.save(new Session({ SessionId: 'k-live', Subject: user('u-1'), State: 'active', Data: new Map() }));
+      await store.save(new Session({ SessionId: 'k-dead', Subject: user('u-1'), State: 'active', Expiration: DateTime.now().minus({ minutes: 1 }), Data: new Map() }));
+
+      expect(await store.deleteBySubject(user('u-1'))).to.equal(1);
+      expect(await DbSession.where({ SessionId: 'k-dead' }).first()).to.not.exist;
+    });
+
+    it('one row whose Data does not decode cannot make revocation throw for everybody', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      const conn = await sessionConnection();
+      const exp = DateTime.now().plus({ minutes: 10 });
+      await conn.insert().into('user_sessions').values({ SessionId: 'k-corrupt', CreatedAt: DateTime.now(), Expiration: exp, Data: '{not json', Subject: 'user:u-1', State: 'active' });
+      await store.save(new Session({ SessionId: 'k-other', Subject: user('u-2'), State: 'active', Data: new Map() }));
+
+      expect(await store.deleteBySubject(user('u-2'))).to.equal(1);
+      expect(await store.deleteBySubject(user('u-1')), "the subject's own undecodable row is still revoked").to.equal(1);
+      expect(await DbSession.where({ SessionId: 'k-corrupt' }).first()).to.not.exist;
+    });
+
+    it('SR-session revocation: touch never extends a row that has already expired', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      const past = DateTime.now().minus({ seconds: 1 });
+      await store.save(new Session({ SessionId: 'k-expired', Subject: user('u-1'), State: 'active', Expiration: past, Data: new Map() }));
+      const view = new Session({ SessionId: 'k-expired', Subject: user('u-1'), State: 'active', Expiration: past, Data: new Map() });
+
+      expect(await store.touch(view)).to.be.false;
+      expect(await store.restore('k-expired')).to.be.null;
+    });
+  });
+
   // `user_sessions.Data` is a MySQL `json` column, and mysql2 hands a json column
   // back ALREADY PARSED - so the read path receives an object, not the string the
   // write path stored. sqlite (what these tests run on) has no json type and
-  // returns the text, and so does any deployed database that has not yet run the
-  // converging migration. Both shapes therefore reach `toSession` in the wild, and
+  // returns the text. Both shapes therefore reach `toSession` in the wild, and
   // both are pinned here.
   //
   // The failure this guards against is silent, not loud: the stored payload's top
@@ -221,7 +218,7 @@ describe('db session provider', function () {
     // ride along because they are the other two tagged types the codec emits.
     function payload() {
       return new Map<string, unknown>([
-        ['User', '72beaf78-0000-4000-8000-000000000001'],
+        ['Owner', '72beaf78-0000-4000-8000-000000000001'],
         ['TwoFactorPending', true],
         [
           'Preferences',
@@ -238,7 +235,9 @@ describe('db session provider', function () {
     function row(data: unknown): DbSession {
       return {
         SessionId: 'representation-probe',
-        UserId: 42,
+        Subject: 'user:72beaf78-0000-4000-8000-000000000001',
+        ImpersonatorId: null,
+        State: 'active',
         CreatedAt: CREATED,
         Expiration: EXPIRES,
         Data: data,
@@ -248,7 +247,7 @@ describe('db session provider', function () {
     function assertPayload(data: Map<string, unknown>, label: string) {
       expect(data, `${label}: must decode to a Map`).to.be.instanceOf(Map);
       expect(data.size, `${label}: entry count`).to.equal(5);
-      expect(data.get('User'), `${label}: User`).to.equal('72beaf78-0000-4000-8000-000000000001');
+      expect(data.get('Owner'), `${label}: Owner`).to.equal('72beaf78-0000-4000-8000-000000000001');
       expect(data.get('TwoFactorPending'), `${label}: TwoFactorPending`).to.equal(true);
 
       const prefs = data.get('Preferences') as Map<string, unknown>;
@@ -274,8 +273,8 @@ describe('db session provider', function () {
       const asObject = JSON.parse(encoded) as unknown;
       expect(typeof asObject, 'the json-column representation must be an object, not a string').to.equal('object');
 
-      const fromJsonColumn = (store as any).toSession(row(asObject));
-      const fromTextColumn = (store as any).toSession(row(encoded));
+      const fromJsonColumn = (store as any).toSession(row(asObject)) as ISession;
+      const fromTextColumn = (store as any).toSession(row(encoded)) as ISession;
 
       assertPayload(fromJsonColumn.Data, 'json column (object)');
       assertPayload(fromTextColumn.Data, 'text column (string)');
@@ -283,7 +282,7 @@ describe('db session provider', function () {
       // identical, entry for entry, not merely both non-empty
       expect([...fromJsonColumn.Data.keys()]).to.deep.equal([...fromTextColumn.Data.keys()]);
       expect(fromJsonColumn.SessionId).to.equal(fromTextColumn.SessionId);
-      expect(fromJsonColumn.UserId).to.equal(fromTextColumn.UserId);
+      expect({ ...fromJsonColumn.Subject }).to.deep.equal({ ...fromTextColumn.Subject });
     });
 
     it('rebuilds the tagged payload from an object without going through JSON text', () => {
@@ -305,50 +304,12 @@ describe('db session provider', function () {
       assertPayload(session.Data, 'buffer column');
     });
 
-    // Both converging migrations run on EVERY startup of a database that has not
-    // recorded them - including this sqlite one, where the table was just created
-    // with the target types already. Both must survive that WITHOUT touching
-    // anything: sqlite is not MySQL, has no `MODIFY` and no `JSON` type, and its
-    // `Data` column is already declared `JSON` by the create path, so each one
-    // has to return early on its own probe. Asserting they are recorded as
-    // applied proves they were discovered, executed and did not throw - the
-    // failure being guarded against is a throw here being recorded as a FAILED
-    // migration, which makes `assertNoFailed()` block every future migration on
-    // the connection.
-    it('runs both converging migrations on startup without failing on a driver that cannot MODIFY', async () => {
-      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
-      const driver = (store as any).Container?.get?.(Orm) ?? (await DI.resolve(Orm));
+    it('records the create migration on startup', async () => {
+      await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      const connection = await sessionConnection();
 
-      const applied = (await driver.Connections.get('session-provider-connection').select().from('spinajs_migration')) as Array<{ Migration: string }>;
-      const names = applied.map((r) => r.Migration);
-
-      expect(names, 'create migration must be recorded').to.include('UserSessionDBSqlMigration_2022_06_28_01_20_00');
-      expect(names, 'json converging migration must be recorded').to.include('UserSessionDataJson_2026_07_31_00_00_00');
-      expect(names, 'timestamp converging migration must be recorded').to.include('UserSessionTimestamps_2026_07_31_00_00_01');
-    });
-
-    // The skip is the whole point of the probes, so it is asserted directly
-    // rather than inferred from "nothing blew up". Each migration's guard is
-    // evaluated against the live sqlite connection here, so a future edit that
-    // makes either one fire on a non-MySQL driver fails loudly and locally
-    // instead of at somebody's boot.
-    it('both migrations resolve to SKIP on this sqlite connection', async () => {
-      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
-      const orm = (store as any).Container?.get?.(Orm) ?? (await DI.resolve(Orm));
-      const connection = orm.Connections.get('session-provider-connection');
-
-      // guard 3, and on its own enough to skip both: `MODIFY` / `JSON` are MySQL's
-      expect(isMySqlDialect(connection), 'sqlite must never be treated as MySQL').to.equal(false);
-
-      // guard 2 of the JSON migration. sqlite's column compiler has no `json`
-      // case at all, so `table.json('Data')` emits a column with NO type token
-      // and PRAGMA table_info reports an empty type - which the probe reports as
-      // "cannot establish the state", i.e. skip.
-      expect(await columnNativeType(connection, 'user_sessions', 'Data'), 'unreadable Data type must skip, not guess').to.equal(null);
-
-      // guard 2 of the timestamps migration: sqlite stores dateTime as TEXT,
-      // which is not `date`, so there is nothing to widen.
-      expect(await columnNativeType(connection, 'user_sessions', 'CreatedAt')).to.equal('text');
+      const applied = (await connection.select().from('spinajs_migration')) as Array<{ Migration: string }>;
+      expect(applied.map((r) => r.Migration)).to.include('UserSessionDBSqlMigration_2022_06_28_01_20_00');
     });
 
     it('round-trips a saved session back out of the store with its structural types intact', async () => {
@@ -358,7 +319,8 @@ describe('db session provider', function () {
       await store.save(
         new Session({
           SessionId: 'round-trip',
-          UserId: 42,
+          Subject: user('u-42'),
+          State: 'active',
           Expiration: EXPIRES,
           Data: payload(),
         }),

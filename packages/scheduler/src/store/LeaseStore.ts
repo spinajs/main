@@ -182,7 +182,6 @@ export class LeaseStore {
     return { ok: true, cancelRequested: !!row?.CancelRequested };
   }
 
-  /** `patch` holds static-update values: JSON columns already serialized with `jsonColumn()`. */
   public async finishRun(runId: string, attempt: number, patch: Record<string, unknown>): Promise<boolean> {
     const r = await RunModel.update(patch as never)
       .where('Id', runId)

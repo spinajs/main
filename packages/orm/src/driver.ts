@@ -1,10 +1,12 @@
 import { Log } from '@spinajs/log-common';
 /* eslint-disable prettier/prettier */
-import { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
+import { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ModelToSqlConverter, NowExpression, ObjectToSqlConverter } from './interfaces.js';
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
-import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, Builder } from './builders.js';
-import { JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
+import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, Builder, RawQuery } from './builders.js';
+import { Int64ValueConverter, JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
+import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
+import { SqlExpressions } from './expressions.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, IConnectionResilienceOptions, isRetryableErrorCode } from './resilience.js';
 import { IPoolMetrics, ORM_METRIC_KEY_ACQUIRE_SECONDS, ORM_METRIC_KEY_CONNECTION_STATE, ORM_METRIC_KEY_POOL_IN_USE, ORM_METRIC_KEY_POOL_SIZE, ORM_METRIC_KEY_POOL_WAITING, ormGauge, ormHistogram, ormMetrics } from './metrics.js';
@@ -15,6 +17,8 @@ import './dehydrators.js';
  * Body of a transaction. Whatever it resolves with becomes the result of `transaction()`.
  */
 export type TransactionCallback<R = any> = (driver: OrmDriver) => Promise<R>;
+
+const STATE_CHANGE_TEMPLATE = 'connection ${connection} is ${state} (was ${previousState})';
 
 export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> extends SyncService {
   /**
@@ -63,6 +67,12 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    */
   public readonly ResponseSchemaTypes: Readonly<Record<string, unknown>> = {};
 
+  /** Most bound parameters one statement may carry. Drivers set their server's limit. */
+  public readonly MaxBindings: number = Number.POSITIVE_INFINITY;
+
+  /** Most rows one `INSERT … VALUES` may list. Drivers set their server's limit. */
+  public readonly MaxInsertRows: number = Number.POSITIVE_INFINITY;
+
   /**
    * The transaction currently in scope on this async execution path, or `undefined` outside
    * a transaction.
@@ -108,6 +118,10 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    */
   public abstract supportedFeatures(): ISupportedFeature;
 
+  /**
+   * The table's columns, or `null` when the table does not exist. The declared type stays non-null so that callers
+   * probing a table they created compile unchanged; `Orm.reloadTableInfo()` reads a missing table from the `null`.
+   */
   public abstract tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]>;
 
   public resolve() {
@@ -122,6 +136,8 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     this.Container.register(JsonValueConverter).as(JsonValueConverter);
     this.Container.register(UuidConverter).as(UuidConverter);
     this.Container.register(UniversalValueConverter).as(UniversalValueConverter);
+    this.Container.register(Int64ValueConverter).as(Int64ValueConverter);
+    this.Container.register(SqlExpressions).as(SqlExpressions);
   }
 
   /**
@@ -159,12 +175,13 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     const previous = this._state;
     this._state = state;
 
+    const fields = { connection: this.Options.Name, state, previousState: previous };
     if (state === ConnectionState.Connected) {
-      this.Log.info(`connection ${this.Options.Name} is ${state} (was ${previous})`);
+      this.Log.info(fields, STATE_CHANGE_TEMPLATE);
     } else if (state === ConnectionState.Degraded || state === ConnectionState.Disconnected) {
-      this.Log.warn(`connection ${this.Options.Name} is ${state} (was ${previous})`);
+      this.Log.warn(fields, STATE_CHANGE_TEMPLATE);
     } else {
-      this.Log.trace(`connection ${this.Options.Name} is ${state} (was ${previous})`);
+      this.Log.trace(fields, STATE_CHANGE_TEMPLATE);
     }
   }
 
@@ -216,14 +233,14 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
         }
 
         const wait = backoffDelay(attempt, RetryDelay, MaxRetryDelay);
-        this.Log.warn(`connection ${this.Options.Name} lost (${(err as Error).message}); reconnect attempt ${attempt + 1}/${MaxRetries} in ${wait}ms`);
+        this.Log.warn({ error: err, connection: this.Options.Name, attempt: attempt + 1, maxRetries: MaxRetries, wait }, 'connection ${connection} lost; reconnect attempt ${attempt}/${maxRetries} in ${wait}ms');
         await delay(wait);
 
         try {
           this.setState(ConnectionState.Connecting);
           await this.connect();
         } catch (reconnectErr) {
-          this.Log.warn(`reconnect attempt ${attempt + 1} for ${this.Options.Name} failed: ${(reconnectErr as Error).message}`);
+          this.Log.warn({ error: reconnectErr, attempt: attempt + 1, connection: this.Options.Name }, 'reconnect attempt ${attempt} for ${connection} failed');
           this.setState(ConnectionState.Degraded);
         }
       }
@@ -296,7 +313,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
       // a real connection ) set the state themselves.
       await this.connect();
     } catch (err) {
-      this.Log.warn(`health check reconnect for ${this.Options.Name} failed: ${(err as Error).message}`);
+      this.Log.warn({ error: err, connection: this.Options.Name }, 'health check reconnect for ${connection} failed');
     }
   }
 
@@ -332,7 +349,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
       // Telemetry must never break a connection. This runs first on every health tick, so a
       // registry that throws — or a driver built outside DI, as tooling and tests do — would
       // otherwise stop the probe that follows it from ever running.
-      this.Log?.trace(`publishing pool metrics for ${this.Options.Name} failed: ${(err as Error).message}`);
+      this.Log?.trace({ error: err, connection: this.Options.Name }, 'publishing pool metrics for ${connection} failed');
     }
   }
 
@@ -352,7 +369,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
 
       ormHistogram(metrics, ORM_METRIC_KEY_ACQUIRE_SECONDS).observe({ connection: this.Options.Name }, seconds);
     } catch (err) {
-      this.Log?.trace(`observing pool acquire time for ${this.Options.Name} failed: ${(err as Error).message}`);
+      this.Log?.trace({ error: err, connection: this.Options.Name }, 'observing pool acquire time for ${connection} failed');
     }
   }
 
@@ -403,6 +420,11 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    */
   public schema(): SchemaQueryBuilder {
     return this.Container.resolve(SchemaQueryBuilder, [this]);
+  }
+
+  /** The database's current instant: `where('expires_at', '>', driver.now())`, or `driver.now().Query` inside raw SQL. */
+  public now(): RawQuery {
+    return RawQuery.create(this.Container.resolve<NowExpression>(NowExpression).sql());
   }
 
   /**
@@ -464,6 +486,9 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    * Calling it again while a transaction is already in scope on this async path does **not**
    * open a second, independent transaction: it takes a savepoint, so a failing nested block
    * rolls back only its own work.
+   * Callbacks queued with {@link afterCommit} run after the outermost commit, before this resolves.
+   * On a driver whose `supportedFeatures().concurrentTransactions` is `false`, outermost calls
+   * run one at a time, in call order.
    *
    * @param cb - the transaction body
    * @param options - optional isolation level, validated against {@link SupportedIsolationLevels}
@@ -478,6 +503,9 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     // already inside a transaction — nest with a savepoint rather than opening a second one
     if (active) {
       const name = `sp_${++active.depth}`;
+      // Savepoints of one transaction run one after another, so everything queued past this
+      // mark was queued inside this savepoint.
+      const queued = active.afterCommit?.length ?? 0;
 
       await this._savepoint(active, name);
 
@@ -486,24 +514,87 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
         await this._releaseSavepoint(active, name);
         return result;
       } catch (err) {
+        active.afterCommit?.splice(queued);
         await this._rollbackToSavepoint(active, name);
         throw err;
       }
     }
 
+    const run = () => this._runOutermost(cb, options);
+    // The queue slot is released before the afterCommit callbacks run, so a callback can open a
+    // transaction of its own instead of waiting for the slot its own transaction still holds.
+    const { result, afterCommit } = this.supportedFeatures().concurrentTransactions === false ? await this._enqueueOutermost(run) : await run();
+
+    await this._runAfterCommit(afterCommit);
+    return result;
+  }
+
+  private _outermostQueue: Promise<unknown> = Promise.resolve();
+
+  private _enqueueOutermost<T>(run: () => Promise<T>): Promise<T> {
+    const turn = this._outermostQueue.then(run);
+    this._outermostQueue = turn.catch(() => undefined);
+    return turn;
+  }
+
+  private async _runOutermost<R>(cb: TransactionCallback<R>, options?: ITransactionOptions): Promise<{ result: R; afterCommit: (() => void | Promise<void>)[] }> {
     const ctx = await this._begin(options);
     ctx.depth = 0;
 
+    let result: R;
     try {
-      const result = await this.TransactionStorage.run(ctx, () => cb(this));
+      result = await this.TransactionStorage.run(ctx, () => cb(this));
       await this._commit(ctx);
-      return result;
     } catch (err) {
       // swallow a rollback failure so it cannot mask whatever actually went wrong
       await this._rollback(ctx).catch(() => undefined);
       throw err;
     } finally {
       await this._dispose(ctx);
+    }
+
+    return { result, afterCommit: ctx.afterCommit ?? [] };
+  }
+
+  /**
+   * Inside a transaction, keeps other writers off `table` until it ends; readers go on.
+   * Drivers implement it; the default throws `NotSupported`.
+   */
+  public async lockTableShared(table: string): Promise<void> {
+    throw new NotSupported(`driver ${this.Options.Driver} cannot lock table ${table}`);
+  }
+
+  protected assertInTransaction(operation: string): void {
+    if (!this.CurrentTransaction) {
+      throw new InvalidOperation(`${operation} must run inside a transaction`);
+    }
+  }
+
+  /**
+   * Runs `cb` after the outermost transaction in scope commits, or at once when none is open.
+   * Queued callbacks run in registration order once the connection is released, before
+   * `transaction()` resolves. A rollback drops what was queued inside the part it rolls back:
+   * everything for the outermost transaction, everything since the savepoint began for a
+   * savepoint. A callback that throws is logged and never rethrown.
+   */
+  public async afterCommit(cb: () => void | Promise<void>): Promise<void> {
+    const active = this.TransactionStorage.getStore();
+
+    if (!active) {
+      await this._runAfterCommit([cb]);
+      return;
+    }
+
+    (active.afterCommit ??= []).push(cb);
+  }
+
+  private async _runAfterCommit(callbacks: readonly (() => void | Promise<void>)[]): Promise<void> {
+    for (const cb of callbacks) {
+      try {
+        await cb();
+      } catch (err) {
+        this.Log?.error({ error: err, connection: this.Options.Name }, 'afterCommit callback on connection ${connection} failed');
+      }
     }
   }
 }

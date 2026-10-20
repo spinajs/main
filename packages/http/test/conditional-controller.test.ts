@@ -49,6 +49,21 @@ describe('Conditional controller registration (Array.ofType<BaseController>)', (
     DI.register(MinimalTestConfiguration).as(Configuration);
   });
 
+  after(() => {
+    // Root-container registrations outlive this file and would inflate the
+    // controller counts of later suites.
+    for (const type of [ControllerA, ControllerB]) {
+      DI.unregister(type);
+      DI.uncache(type);
+    }
+    DI.uncache(BaseController);
+
+    // The registry keeps the first position of a re-registered type, so a later
+    // suite's `register(TestConfiguration)` would not override this one.
+    DI.unregister(MinimalTestConfiguration);
+    DI.uncache(MinimalTestConfiguration);
+  });
+
   beforeEach(async () => {
     await DI.resolve(Configuration);
   });

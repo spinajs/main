@@ -21,8 +21,8 @@ const MAX_PORT_ATTEMPTS = 10;
 export class LocalAssetServer {
   /**
    * @param log - logger for lifecycle traces
-   * @param portRange - supplies the optional [min, max] port range; when absent
-   *   an OS-assigned port (0) is used, which cannot collide.
+   * @param portRange - supplies the optional [min, max] port range (the last two
+   *   elements are read); when absent an OS-assigned port (0) is used, which cannot collide.
    */
   constructor(private readonly log: Log, private readonly portRange: () => number[] | undefined) {}
 
@@ -35,10 +35,12 @@ export class LocalAssetServer {
     const range = this.portRange();
     const hasRange = !!range && range.length > 0;
     const maxAttempts = hasRange ? MAX_PORT_ATTEMPTS : 1;
+    // config arrays merge by concatenation, so an app's range is appended after the shipped one
+    const [min, max] = hasRange ? range!.slice(-2) : [];
     let lastErr: any;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const port = hasRange ? _.random(range![0], range![1]) : 0;
+      const port = hasRange ? _.random(min, max) : 0;
 
       try {
         return await this.listenOnce(basePath, port);
@@ -46,7 +48,7 @@ export class LocalAssetServer {
         lastErr = err;
 
         if (err?.code === 'EADDRINUSE' && hasRange) {
-          this.log.trace(`Puppeteer asset server port ${port} in use, retrying (${attempt + 1}/${maxAttempts})`);
+          this.log.trace({ port, attempt: attempt + 1, maxAttempts }, 'Puppeteer asset server port ${port} in use, retrying (${attempt}/${maxAttempts})');
           continue;
         }
 
@@ -54,7 +56,7 @@ export class LocalAssetServer {
       }
     }
 
-    this.log.error(lastErr, `Puppeteer asset server cannot start - no free port in range after ${maxAttempts} attempts`);
+    this.log.error({ error: lastErr, maxAttempts }, 'Puppeteer asset server cannot start - no free port in range after ${maxAttempts} attempts');
     throw lastErr;
   }
 
@@ -73,7 +75,7 @@ export class LocalAssetServer {
         });
       });
     } catch (err) {
-      this.log.warn(`Error closing server: ${err.message}`);
+      this.log.warn({ error: err }, 'Error closing server');
 
       // Force close connections if available
       try {
@@ -81,7 +83,7 @@ export class LocalAssetServer {
           (server as any).closeAllConnections();
         }
       } catch (forceErr) {
-        this.log.error(`Error force closing server connections: ${forceErr.message}`);
+        this.log.error({ error: forceErr }, 'Error force closing server connections');
       }
     }
   }
@@ -99,9 +101,9 @@ export class LocalAssetServer {
     return new Promise((resolve, reject) => {
       const server = app
         .listen(port, '127.0.0.1')
-        .on('listening', function () {
-          log.trace(`Puppeteer asset server started on port ${(this.address() as AddressInfo).port}`);
-          log.trace(`Puppeteer static file dir at ${basePath}`);
+        .on('listening', function (this: http.Server) {
+          log.trace({ port: (this.address() as AddressInfo).port }, 'Puppeteer asset server started on port ${port}');
+          log.trace({ basePath }, 'Puppeteer static file dir at ${basePath}');
           resolve(this);
         })
         .on('error', (err: any) => {

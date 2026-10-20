@@ -1,6 +1,6 @@
-import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
+import { Connection, Json, Model, ModelBase, Primary } from '@spinajs/orm';
 import type { RunEventPayload } from '../contract.js';
-import { EpochMs, Int8, JsonText } from './converters.js';
+import { EpochMs, Int8 } from './converters.js';
 
 @Connection('default')
 @Model('__scheduler_run_log')
@@ -27,7 +27,7 @@ export class RunLogModel extends ModelBase {
 
   public Message: string | null;
 
-  @JsonText()
+  @Json()
   public Data: RunEventPayload;
 
   /** Global position, commit-ordered across replicas; written only by appendJournalRow(). */

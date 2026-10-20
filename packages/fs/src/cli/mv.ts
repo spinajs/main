@@ -21,9 +21,13 @@ export class FsMvCommand extends CliCommand {
 
     try {
       await _move(src, dst, fsName, options.dstFs);
-      this.Log.success(`Moved ${src} ( ${fsName} ) -> ${dst} ( ${options.dstFs ?? fsName} )`);
+      this.Log.success(
+        { src, fsName, dst, dstFs: options.dstFs ?? fsName },
+        'Moved ${src} ( ${fsName} ) -> ${dst} ( ${dstFs} )',
+      );
     } catch (err) {
-      this.Log.error(`Cannot move ${src}: ${err.message}`);
+      this.Log.error({ error: err, src }, 'Cannot move ${src}');
+      process.exitCode = 1;
     }
   }
 }

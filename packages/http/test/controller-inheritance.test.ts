@@ -7,6 +7,7 @@ import { BaseController, BasePath, Controllers, ControllerSource, Get, Middlewar
 import { BasePolicy, RouteMiddleware } from '../src/interfaces.js';
 import type { IControllerDescriptor, IRoute, IController, Response } from '../src/interfaces.js';
 import { OtherFilePkgController } from './controller-inheritance-fixture.js';
+import { renderTemplate } from '@spinajs/log-common';
 
 class MinimalTestConfiguration extends FrameworkConfiguration {
   protected onLoad() {
@@ -98,7 +99,12 @@ interface ILogCall {
  * built from this file's blackhole configuration.
  */
 function recordingLog(calls: ILogCall[]) {
-  const record = (level: string) => (message: string) => { calls.push({ level, message: String(message) }); };
+  const render = (first: unknown, template?: string): string => {
+    if (typeof first === 'string') return first;
+    if (first instanceof Error) return template ?? first.message;
+    return renderTemplate(template ?? '', first as Record<string, unknown>);
+  };
+  const record = (level: string) => (first: unknown, template?: string) => { calls.push({ level, message: render(first, template) }); };
   return {
     trace: record('trace'),
     debug: record('debug'),
@@ -162,6 +168,13 @@ const descriptorOf = (c: object) => Reflect.getOwnMetadata(CONTROLLED_DESCRIPTOR
 describe('controller descriptor inheritance', () => {
   before(() => {
     DI.register(MinimalTestConfiguration).as(Configuration);
+  });
+
+  // The registry keeps the first position of a re-registered type, so a later
+  // suite's `register(TestConfiguration)` would not override this one.
+  after(() => {
+    DI.unregister(MinimalTestConfiguration);
+    DI.uncache(MinimalTestConfiguration);
   });
 
   beforeEach(async () => {
@@ -294,7 +307,7 @@ describe('controller descriptor inheritance', () => {
 
     it('stays quiet for controllers with no scanned base', async () => {
       // LoaderPkgController is deliberately NOT scanned - the shape of a shared
-      // base living outside the controllers dir ( eg. abstract Crud in orm-api ).
+      // base living outside the controllers dir.
       const { calls } = await runLoader([LoaderAppController, LoaderSoloController]);
 
       const noisy = calls.filter((c) => (c.level === 'warn' || c.level === 'info') && /Loader\w+Controller/.test(c.message));

@@ -16,9 +16,10 @@ export class FsUploadCommand extends CliCommand {
 
     try {
       await _upload(src, dst, fsName);
-      this.Log.success(`Uploaded ${src} -> ${dst ?? '( basename )'} ( fs: ${fsName} )`);
+      this.Log.success({ src, dst: dst ?? '( basename )', fsName }, 'Uploaded ${src} -> ${dst} ( fs: ${fsName} )');
     } catch (err) {
-      this.Log.error(`Cannot upload ${src} to ${fsName}: ${err.message}`);
+      this.Log.error({ error: err, src, fsName }, 'Cannot upload ${src} to ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

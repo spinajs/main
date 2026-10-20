@@ -1,9 +1,9 @@
-import { BasePath, Body, Get, Header, HTTP_STATUS_CODE, Ok, Param, Policy, Post, SseResponse } from '@spinajs/http';
-import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
+import { BasePath, Body, Get, Header, HTTP_STATUS_CODE, Ok, Param, Post, SseResponse } from '@spinajs/http';
+import { Access } from '@spinajs/authz-http';
 import { parseSseEventId } from '@spinajs/scheduler';
 
 import { SchedulerControllerBase } from '../scheduler-controller.js';
-import { SCHEDULER_MANAGE, SCHEDULER_READ, SCHEDULER_RESOURCE, SCHEDULER_RUN } from '../permissions.js';
+import { SCHEDULER_MANAGE, SCHEDULER_READ, SCHEDULER_RUN } from '../permissions.js';
 import { LAST_EVENT_ID_SCHEMA, PauseDto, RetryFailedDto, RunNowDto } from '../dto/requests.js';
 import { streamScheduleEvents } from '../sse/run-events.js';
 
@@ -12,19 +12,17 @@ import { streamScheduleEvents } from '../sse/run-events.js';
  * @tags Scheduler
  */
 @BasePath('scheduler/schedules')
-@Policy(AuthorizedPolicy)
-@Resource(SCHEDULER_RESOURCE, SCHEDULER_READ)
 export class SchedulesController extends SchedulerControllerBase {
   /**
    * List schedules
    * Every schedule with its spec, next run, pause state, health and last run.
    * @security cookieAuth
    * @returns {ScheduleInfo[]} Schedules
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny on the scheduler resource required
+   * @response 401 Unauthorized — authenticated caller required
+   * @response 403 Forbidden — scheduler:read required
    */
   @Get('/')
-  @Permission(SCHEDULER_READ)
+  @Access(SCHEDULER_READ)
   public async list() {
     return new Ok(await this.Scheduler.listSchedules());
   }
@@ -35,12 +33,12 @@ export class SchedulesController extends SchedulerControllerBase {
    * @security cookieAuth
    * @param name Schedule name
    * @returns {ScheduleDetail} Schedule details
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny on the scheduler resource required
+   * @response 401 Unauthorized — authenticated caller required
+   * @response 403 Forbidden — scheduler:read required
    * @response 404 Schedule not found
    */
   @Get(':name')
-  @Permission(SCHEDULER_READ)
+  @Access(SCHEDULER_READ)
   public async show(@Param() name: string) {
     return new Ok(await this.Scheduler.getSchedule(name));
   }
@@ -55,13 +53,13 @@ export class SchedulesController extends SchedulerControllerBase {
    * @returns {ISchedulerRunAccepted} Run id and the run, when the request waited
    * @response 202 {ISchedulerRunAccepted} Run queued
    * @response 400 Invalid body, or params rejected by the schedule's schema
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny on the scheduler resource required
+   * @response 401 Unauthorized — authenticated caller required
+   * @response 403 Forbidden — scheduler:run required
    * @response 404 Schedule not found
    * @response 409 A run is in progress ( body carries its runId ), or the schedule is hard-paused
    */
   @Post(':name/runs')
-  @Permission(SCHEDULER_RUN)
+  @Access(SCHEDULER_RUN)
   public async runNow(@Param() name: string, @Body() body: RunNowDto) {
     const dto = body ?? new RunNowDto();
     const result = await this.Scheduler.runNow(name, {
@@ -82,12 +80,12 @@ export class SchedulesController extends SchedulerControllerBase {
    * @param name Schedule name
    * @response 202 Retries queued; the body lists their run ids
    * @response 400 Missing or invalid since
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny on the scheduler resource required
+   * @response 401 Unauthorized — authenticated caller required
+   * @response 403 Forbidden — scheduler:run required
    * @response 404 Schedule not found
    */
   @Post(':name/retry-failed')
-  @Permission(SCHEDULER_RUN)
+  @Access(SCHEDULER_RUN)
   public async retryFailed(@Param() name: string, @Body({ required: true }) body: RetryFailedDto) {
     const result = await this.Scheduler.retryFailed(name, body.since, { triggeredBy: this.triggeredBy() });
     return new Ok(result, { StatusCode: HTTP_STATUS_CODE.ACCEPTED });
@@ -100,12 +98,12 @@ export class SchedulesController extends SchedulerControllerBase {
    * @param name Schedule name
    * @returns {ScheduleInfo} The paused schedule
    * @response 400 Invalid body
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — deleteAny on the scheduler resource required
+   * @response 401 Unauthorized — authenticated caller required
+   * @response 403 Forbidden — scheduler:manage required
    * @response 404 Schedule not found
    */
   @Post(':name/pause')
-  @Permission(SCHEDULER_MANAGE)
+  @Access(SCHEDULER_MANAGE)
   public async pause(@Param() name: string, @Body() body: PauseDto) {
     return new Ok(await this.Scheduler.pause(name, { hard: body?.hard ?? false, triggeredBy: this.triggeredBy() }));
   }
@@ -116,12 +114,12 @@ export class SchedulesController extends SchedulerControllerBase {
    * @security cookieAuth
    * @param name Schedule name
    * @returns {ScheduleInfo} The resumed schedule
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — deleteAny on the scheduler resource required
+   * @response 401 Unauthorized — authenticated caller required
+   * @response 403 Forbidden — scheduler:manage required
    * @response 404 Schedule not found
    */
   @Post(':name/resume')
-  @Permission(SCHEDULER_MANAGE)
+  @Access(SCHEDULER_MANAGE)
   public async resume(@Param() name: string) {
     return new Ok(await this.Scheduler.resume(name, { triggeredBy: this.triggeredBy() }));
   }
@@ -136,12 +134,12 @@ export class SchedulesController extends SchedulerControllerBase {
    * @param lastEventId Global id of the last event the client received
    * @returns {SseResponse} Schedule event stream
    * @response 400 Malformed Last-Event-ID
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny on the scheduler resource required
+   * @response 401 Unauthorized — authenticated caller required
+   * @response 403 Forbidden — scheduler:read required
    * @response 404 Schedule not found
    */
   @Get(':name/events')
-  @Permission(SCHEDULER_READ)
+  @Access(SCHEDULER_READ)
   public async events(@Param() name: string, @Header('last-event-id', LAST_EVENT_ID_SCHEMA) lastEventId?: string) {
     await this.Scheduler.getSchedule(name);
 

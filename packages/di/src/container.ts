@@ -1,18 +1,59 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 import { uniqueBy } from '@spinajs/util';
 import 'reflect-metadata';
-import { TypedArray } from './array.js';
+import { ChainArray, TypedArray } from './array.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
-import { getTypeName, isAsyncService, isFactory, isTypedArray, isPromise } from './helpers.js';
-import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service } from './interfaces.js';
-import { Class, Factory } from './types.js';
+import { getTypeName, isAsyncService, isChainArray, isFactory, isTypedArray, isPromise } from './helpers.js';
+import { IBind, IContainer, IDisposeOptions, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
+import { Class, Factory, ResolveResult } from './types.js';
 import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
 import { Registry } from './registry.js';
 import { ContainerCache } from './container-cache.js';
 import _ from 'lodash';
 import { ServiceNotFound } from './exceptions.js';
+
+/**
+ * Maps `items` with `fn`. When `fn` throws synchronously, promises returned for the
+ * earlier items get a no-op handler, so a later rejection is not reported as unhandled.
+ */
+function resolveEach<I>(items: I[], fn: (item: I) => unknown): unknown[] {
+  const results: unknown[] = [];
+  try {
+    for (const item of items) {
+      results.push(fn(item));
+    }
+  } catch (err) {
+    results.filter((r) => isPromise(r)).forEach((p) => (p as Promise<unknown>).catch(() => undefined));
+    throw err;
+  }
+
+  return results;
+}
+
+/**
+ * The resolve strategy alone, as `extractDescriptor` reports it, without collecting the injections.
+ */
+function resolverOf(type: Class<unknown>): ResolveType {
+  const meta = Reflect.getMetadata(DI_DESCRIPTION_SYMBOL, type) as IInjectDescriptor<unknown> | undefined;
+  return meta ? meta.resolver : ResolveType.Singleton;
+}
+
+/**
+ * A chain has no cache entry of its own: its elements are cached by the containers that own them.
+ */
+function rejectChain(service: unknown, method: string) {
+  if (isChainArray(service)) {
+    throw new InvalidArgument(`${method}() does not accept Array.chainOf(${getTypeName(service)}), use resolve()`);
+  }
+}
+
+// A class goes by its name; a factory by its function name, which callers set with Object.defineProperty.
+function registrationName(type: unknown): string {
+  const name = (type as { name?: unknown }).name;
+  return typeof name === 'string' ? name : '';
+}
 
 /**
  * Dependency injection container implementation
@@ -38,6 +79,11 @@ export class Container extends EventEmitter implements IContainer {
    * Child containers created from this container
    */
   private children: Set<IContainer> = new Set();
+
+  /**
+   * Singletons built by resolving a class registered nowhere.
+   */
+  private bareInstances = new WeakSet<object>();
 
   /**
    * Returns container cache - map object with resolved classes as singletons
@@ -70,22 +116,28 @@ export class Container extends EventEmitter implements IContainer {
     this.clearRegistry();
   }
 
-  public async dispose() {
+  public async dispose(options?: IDisposeOptions) {
     const disposalErrors: Error[] = [];
 
     // Dispose all children first
     await Promise.all([...this.children].map(child =>
-      child.dispose().catch(err => {
+      child.dispose(options).catch(err => {
         disposalErrors.push(err);
         // Continue with other children even if one fails
       })
     ));
     this.children.clear();
+    if (options?.plainOwners) {
+      await this.disposePlainOwners(disposalErrors);
+    }
 
     // Reverse resolution order: a service resolved later may still use one resolved before it
     // ( eg. a scheduler finishing its runs on the ORM connection ) while it disposes.
+    // One instance can sit under several keys ( its own and an Array.ofType base ).
+    const disposed = new Set<Service>();
     for (const entry of [...this.cache].reverse()) {
-      if (entry.value instanceof Service) {
+      if (entry.value instanceof Service && !disposed.has(entry.value)) {
+        disposed.add(entry.value);
         try {
           await entry.value.dispose();
         } catch (err: any) {
@@ -101,6 +153,25 @@ export class Container extends EventEmitter implements IContainer {
     // Log disposal errors if any occurred
     if (disposalErrors.length > 0) {
       console.warn(`${disposalErrors.length} services failed to dispose properly:`, disposalErrors);
+    }
+  }
+
+  private async disposePlainOwners(errors: Error[]) {
+    const seen = new Set<unknown>();
+    for (const { value } of this.cache) {
+      if (seen.has(value) || value instanceof Service || value instanceof Container) {
+        continue;
+      }
+
+      seen.add(value);
+      const dispose = (value as { dispose?: unknown } | null)?.dispose;
+      if (typeof dispose === 'function') {
+        try {
+          await dispose.call(value);
+        } catch (err: any) {
+          errors.push(err);
+        }
+      }
     }
   }
 
@@ -150,12 +221,14 @@ export class Container extends EventEmitter implements IContainer {
     return new Binder(implementation, this);
   }
 
-  public unregister<T>(implementation: string | Class<T> | Factory<T> | ResolvableObject): void {
-    if (!implementation) {
+  public unregister<T>(implementation: string | Class<T> | Factory<T> | ResolvableObject): void;
+  public unregister<T>(type: string | Class<T>, implementation: Class<unknown> | Factory<unknown> | ResolvableObject): void;
+  public unregister<T>(typeOrImplementation: string | Class<T> | Factory<T> | ResolvableObject, implementation?: Class<unknown> | Factory<unknown> | ResolvableObject): void {
+    if (!typeOrImplementation) {
       throw new InvalidArgument('argument `type` cannot be null or undefined');
     }
 
-    this.Registry.unregister(implementation);
+    this.Registry.unregister(typeOrImplementation, implementation);
   }
 
   public uncache<T>(implementation: string | Class<T> | TypedArray<T>, parent?: boolean): void {
@@ -167,7 +240,7 @@ export class Container extends EventEmitter implements IContainer {
    *
    */
   public child(): IContainer {
-    const child = new Container(this);
+    const child = new (this.constructor as new (parent?: IContainer) => Container)(this);
     this.children.add(child);
 
     // Remove from parent when child is disposed
@@ -192,9 +265,11 @@ export class Container extends EventEmitter implements IContainer {
   public get<T>(service: TypedArray<T>, parent?: boolean): T[];
   public get<T>(service: string | Class<T>, parent?: boolean): T;
   public get<T>(service: string | Class<T> | TypedArray<T>, parent = true): T | T[] {
+    rejectChain(service, 'get');
+
     // get value registered as TypedArray ( mean to return all created instances )
     if (service instanceof Array && service.constructor.name === 'TypedArray' || service instanceof TypedArray) {
-      return this.cache.get(getTypeName(service.Type)) as T[];
+      return this.cache.get(getTypeName(service.Type), parent) as T[];
     }
 
     const r = this.cache.get(this.getCurrentType(service, null as any, parent ?? true) ?? service, parent);
@@ -203,6 +278,10 @@ export class Container extends EventEmitter implements IContainer {
 
   public hasRegistered<T>(service: Class<T> | string, parent = true): boolean {
     return this.Registry.hasRegistered(service, parent);
+  }
+
+  public hasImplementation<T>(type: Class<T> | string, parent = true): boolean {
+    return (this.getRegisteredTypes(type, parent) ?? []).some((t) => t !== type);
   }
 
   /**
@@ -214,11 +293,48 @@ export class Container extends EventEmitter implements IContainer {
    * @throws {@link InvalidArgument} when service is null or empty
    */
   public isResolved<T>(service: string | Class<T> | TypedArray<T>, parent = true): boolean {
+    rejectChain(service, 'isResolved');
+
     if (service instanceof Array && service.constructor.name === 'TypedArray' || service instanceof TypedArray) {
       return this.Cache.has(this.getCurrentType(service.Type, null as any, parent ?? true) ?? service, parent);
     }
 
     return this.Cache.has(this.getCurrentType(service, null as any, parent ?? true) ?? service, parent);
+  }
+
+  public isCached(instance: unknown, parent = false): boolean {
+    for (const entry of this.cache) {
+      if (entry.value === instance) {
+        return true;
+      }
+    }
+
+    return parent && this.parent !== undefined && this.parent.isCached(instance, true);
+  }
+
+  /**
+   * Resolves `type` only when it is registered (here or in an ancestor), otherwise returns `undefined`.
+   * Unlike `resolve`, it never falls back to instantiating the class itself.
+   */
+  public resolveOptional<T>(type: string, options?: unknown[]): T | undefined;
+  public resolveOptional<T>(type: Class<T>, options?: unknown[]): ResolveResult<T> | undefined;
+  public resolveOptional<T>(type: Class<T> | string, options?: unknown[]): unknown {
+    return this.hasRegistered(type) ? this.resolve(type as Class<T>, options) : undefined;
+  }
+
+  public getRegisteredNames(base: Class<unknown>): string[] {
+    const names = this.Registry.getTypesChain(base).map((e) => registrationName(e.type));
+    return [...new Set(names.filter((n) => n !== ''))];
+  }
+
+  public async resolveNamed<T>(base: Class<T>, name: string): Promise<T> {
+    const found = [...this.Registry.getTypesChain(base)].reverse().find((e) => registrationName(e.type) === name);
+    if (!found) {
+      throw new ServiceNotFound(`No ${base.name} is registered as "${name}"`);
+    }
+
+    // Unlike in a chain, a factory gets this container: it may read this container's configuration.
+    return (isFactory(found.type) ? await (found.type as Factory<T>)(this) : await this.resolveChainClass(base, found.type as Class<T>, found.container as Container)) as T;
   }
 
   /**
@@ -245,11 +361,15 @@ export class Container extends EventEmitter implements IContainer {
    *
    * Resolves all instances of given class. Under single definition can be registered multiple implementations.
    *
-   * @param type - typed array of specified type. since TS does not expose array metadata and type its uses TypedArray<T> consctruct
+   * @param type - typed array of specified type. since TS does not expose array metadata and type its uses TypedArray<T> consctruct.
+   *               `Array.chainOf(T)` merges the registrations of this container and its ancestors, and returns a promise
+   *               when the base type or any element is an AsyncService, or when a resolution is pending
    * @param options - options passed to constructor / factory
    * @param check - strict check if serivice is registered in container before resolving. Default behavior is to not check and resolve
    *
    */
+  public resolve<T>(type: ChainArray<T>, options?: unknown[], check?: boolean): ResolveChainResult<T>;
+  public resolve<T>(type: ChainArray<T>, check?: boolean): ResolveChainResult<T>;
   public resolve<T>(type: TypedArray<T>, options?: unknown[], check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
   public resolve<T>(type: TypedArray<T>, check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
 
@@ -276,9 +396,24 @@ export class Container extends EventEmitter implements IContainer {
       }
     }
 
+    // Constructor options are not passed on: chain elements are resolved by many containers.
+    if (isChainArray(type)) {
+      return this.resolveChain(type) as any;
+    }
+
     if (isTypedArray(type)) {
+      const owner = this.findOwner(sourceName);
+      if (owner !== this) {
+        return this.resolveAncestorList(owner, type, opt ?? undefined) as any;
+      }
+
       // if its array type, resolve all registered types or throw exception
       const targetType = this.getRegisteredTypes(type);
+
+      // A bare singleton of the element type shares the collection's cache key; it belongs
+      // to the collection only once its class is registered under that key.
+      const hidden = (i: unknown) => this.bareInstances.has(i as object) && !(targetType ?? []).includes((i as object).constructor as Class<unknown>);
+      const listed = (items: unknown[]) => (items.some(hidden) ? items.filter((i) => !hidden(i)) : items) as T[];
 
       // special case for arrays
       // return the cached collection, but ONLY when nothing new has been
@@ -291,7 +426,7 @@ export class Container extends EventEmitter implements IContainer {
         const hasUnresolved = (targetType ?? []).some((t) => !isFactory(t) && !cached.some((i) => (i as object)?.constructor === t));
 
         if (!hasUnresolved) {
-          return cached as T[];
+          return listed(cached);
         }
       }
 
@@ -299,13 +434,13 @@ export class Container extends EventEmitter implements IContainer {
         return [];
       }
 
-      const resolved = targetType.map((r) => this.resolveType(type, r, opt ?? undefined));
+      const resolved = resolveEach(targetType, (r) => this.resolveType(type, r, opt ?? undefined));
 
       if (resolved.some((r) => r instanceof Promise)) {
-        return Promise.all(resolved).then(() => this.get(type, check ?? true)) as any;
+        return Promise.all(resolved).then(() => listed(this.get(type, false))) as any;
       }
 
-      return this.get(type, check ?? true) as T[];
+      return listed(this.get(type, false));
     } else {
 
       const fType = this.getCurrentType(type, tType, check ?? true);
@@ -319,7 +454,42 @@ export class Container extends EventEmitter implements IContainer {
   }
 
   public getRegisteredTypes<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): (Class<unknown> | Factory<unknown>)[] {
+    if (isChainArray(service)) {
+      return this.Registry.getTypesChain(service).map((e) => e.type);
+    }
+
     return this.Registry.getTypes(service, parent);
+  }
+
+  private resolveChain<T>(chain: ChainArray<T>): ResolveChainResult<T> {
+    const type = chain.Type;
+
+    // The service class (not the array) is the source so the Array.ofType
+    // collection cache stays untouched.
+    const resolved = resolveEach(this.Registry.getTypesChain(type), ({ type: entry, container }) => {
+      const owner = container as Container;
+      if (isFactory(entry)) {
+        return owner.resolveType(type, entry as Factory<T>, undefined, true);
+      }
+
+      return this.resolveChainClass(type, entry as Class<T>, owner);
+    });
+
+    // An async element is a promise only on its first resolve; wrapping whenever
+    // one is present keeps the result shape the same on every call.
+    const isAsyncBase = typeof type !== 'string' && (type === AsyncService || type.prototype instanceof AsyncService);
+    if (isAsyncBase || resolved.some((r) => isPromise(r) || isAsyncService(r))) {
+      return Promise.all(resolved) as ResolveChainResult<T>;
+    }
+
+    return resolved as ResolveChainResult<T>;
+  }
+
+  /** A class of a chain resolves in the container that registered it, a PerChildContainer one in this container. */
+  private resolveChainClass<T>(base: Class<T> | string, entry: Class<T>, owner: Container) {
+    const target = owner.followRegistered(entry);
+    const resolver = resolverOf(target) === ResolveType.PerChildContainer ? this : owner;
+    return resolver.resolveType(base, target, undefined, true);
   }
 
   private getCurrentType<T>(type: Class<T> | string, tType?: Class<T>, check?: boolean) {
@@ -346,7 +516,88 @@ export class Container extends EventEmitter implements IContainer {
     return fType;
   }
 
-  private resolveType<T>(sourceType: Class<T> | string | TypedArray<T>, targetType: Class<T> | Factory<T>, options?: unknown[]): Promise<T> | T | Promise<T> | T[] {
+  /**
+   * Follows `last registered` links until they stabilize. Every @Injectable registers
+   * under itself, so X -> [ X ] is the common fixed point. The seen-set guards against
+   * registration cycles ( eg. A -> B -> C where C is self registered but never maps back to A ).
+   */
+  private followRegistered<T>(type: Class<T>): Class<T> {
+    let tType = type;
+    const seen = new Set<unknown>([tType]);
+    for (;;) {
+      const chained = this.Registry.getTypes(tType);
+      if (!chained || chained.length === 0) {
+        return tType;
+      }
+
+      const next = chained[chained.length - 1] as Class<T>;
+      if (next === tType || seen.has(next)) {
+        return tType;
+      }
+
+      // Keys are names: an ancestor's entry under this name is the ancestor's own class of
+      // that name ( its self record ), not a redirect for a child class that replaces it.
+      if (getTypeName(next) === getTypeName(tType) && !this.Registry.hasRegistered(tType, false)) {
+        return tType;
+      }
+
+      seen.add(next);
+      tType = next;
+    }
+  }
+
+  /**
+   * The container that owns the registration under `key`: the nearest one, starting at
+   * this container, with its own registry entry for it. A key registered nowhere is
+   * owned by this container.
+   */
+  private findOwner(key: string): Container {
+    for (let c: IContainer | undefined = this; c; c = c.Parent) {
+      if (c.Registry.ownsRegistration(key)) {
+        return c as Container;
+      }
+    }
+
+    return this;
+  }
+
+  /**
+   * `Array.ofType` over a list registered in an ancestor. Without a PerChildContainer
+   * element the owner resolves the whole list, so its collection cache serves this
+   * container too. Otherwise each element is resolved where it lives: singletons in the
+   * owner, the rest here. As with `Array.ofType` in the owner, factories and NewInstance
+   * elements are created but left out of the result.
+   */
+  private resolveAncestorList<T>(owner: Container, type: TypedArray<T>, options?: unknown[]): T[] | Promise<T[]> {
+    const entries = (owner.getRegisteredTypes(type, false) ?? []).map((t) => {
+      if (isFactory(t)) {
+        return { target: t as Factory<T>, resolver: null };
+      }
+
+      const target = owner.followRegistered(t as Class<T>);
+      return { target, resolver: resolverOf(target) };
+    });
+
+    if (!entries.some((e) => e.resolver === ResolveType.PerChildContainer)) {
+      return owner.resolve(type, options) as unknown as T[] | Promise<T[]>;
+    }
+
+    const kept = entries.map((e) => e.resolver !== null && e.resolver !== ResolveType.NewInstance);
+    const resolved = resolveEach(entries, ({ target, resolver }) => {
+      const inOwner = resolver === ResolveType.Singleton || resolver === ResolveType.PerInstance || resolver === ResolveType.PerInstanceCheck;
+      return (inOwner ? owner : this).resolveType(type.Type, target, options, true);
+    });
+
+    // two registrations can lead to the same class, the owner's list holds it once
+    const pick = (items: unknown[]) => [...new Set(items.filter((_, i) => kept[i]))] as T[];
+    return resolved.some((r) => isPromise(r)) ? Promise.all(resolved).then(pick) : pick(resolved);
+  }
+
+  /**
+   * @param exact - `targetType` is the final class and this container is where it lives:
+   *                no owner lookup, no following of registrations, no registry write
+   */
+  private resolveType<T>(sourceType: Class<T> | string | TypedArray<T>, targetType: Class<T> | Factory<T>, options?: unknown[], exact = false): Promise<T> | T | Promise<T> | T[] {
     /**
      * If its a factory func, always resolve as new instance
      */
@@ -354,35 +605,9 @@ export class Container extends EventEmitter implements IContainer {
       return this.getNewInstance(targetType, undefined, options) as T;
     }
 
-    // we now know its not factory func
-    // but typescript complains about this
-    // becouse isFactory is custom type check
-
-
-    /**
-     * Chain to the last registered type - follow `last registered` links until
-     * they stabilize. Every @Injectable registers under itself, so X -> [ X ]
-     * is the common fixed point. Seen-set guards against registration cycles
-     * that would otherwise loop forever ( eg. A -> B -> C where C is self
-     * registered but never maps back to A ).
-     */
-    let tType = targetType as Class<T>;
-    const seen = new Set<unknown>([tType]);
-    for (;;) {
-      const chained = this.Registry.getTypes(tType);
-      if (!chained || chained.length === 0) {
-        break;
-      }
-
-      const next = chained[chained.length - 1] as Class<T>;
-      if (next === tType || seen.has(next)) {
-        break;
-      }
-
-      seen.add(next);
-      tType = next;
-    }
     const sName = getTypeName(sourceType);
+    const owner = exact ? this : this.findOwner(sName);
+    const tType = exact ? (targetType as Class<T>) : owner.followRegistered(targetType as Class<T>);
     const descriptor = this.extractDescriptor(tType);
 
     // check if is singleton,
@@ -391,16 +616,43 @@ export class Container extends EventEmitter implements IContainer {
     const isSingletonInChild = descriptor.resolver === ResolveType.PerChildContainer;
     const isSingleton = descriptor.resolver === ResolveType.Singleton || descriptor.resolver === ResolveType.PerInstanceCheck || descriptor.resolver === ResolveType.PerInstance;
 
+    // A private instance of the class that this container already holds wins over the owner's.
+    if (isSingleton && owner !== this && !this.Cache.has(tType)) {
+      return owner.resolveType(sourceType, tType, options, true);
+    }
+
+    const ownsKey = this.Registry.ownsRegistration(sName);
+
+    // A registry entry written into a non-owner would hide later registrations in the owner.
+    const register = !exact && owner === this && ownsKey;
+
+    // Registered nowhere: the class is built as is, but recording it would make it look registered.
+    const bare = !exact && owner === this && !ownsKey;
+
+    // A container that registered the key itself must not pick up an ancestor's instance
+    // that only shares the class name.
+    const lookupParents = !ownsKey;
+
     const resolve = (d: IInjectDescriptor<unknown>, t: Class<T>, i: IResolvedInjection[]) => {
       if (d.resolver === ResolveType.NewInstance) {
         return this.getNewInstance(t, i, options);
       }
 
-      this.Registry.register(sName, t);
+      if (register) {
+        this.Registry.register(sName, t);
+      }
 
       // For singletons, don't check cache here - let getOrCreate handle it atomically
-      return this.getNewInstance(t, i, options);
+      const created = this.getNewInstance(t, i, options);
+      if (!bare) {
+        return created;
+      }
 
+      const markBare = (instance: unknown) => {
+        this.bareInstances.add(instance as object);
+        return instance;
+      };
+      return isPromise(created) ? created.then(markBare) : markBare(created);
     };
 
     // For singletons, use atomic cache operations to prevent concurrent creation
@@ -422,7 +674,8 @@ export class Container extends EventEmitter implements IContainer {
         },
         true, // isSingleton
         descriptor,
-        options
+        options,
+        lookupParents
       ) as T;
     }
 
@@ -506,6 +759,12 @@ export class Container extends EventEmitter implements IContainer {
 
   protected resolveDependencies(toInject: IToInject<unknown>[]) {
     const dependencies = toInject.map((t) => {
+      if (t.resolveFunc) {
+        const injected = (instance: unknown) => ({ autoinject: t.autoinject, autoinjectKey: t.autoinjectKey, instance });
+        const value = t.resolveFunc(t.data, this);
+        return isPromise(value) ? value.then(injected) : injected(value);
+      }
+
       let tInject = null;
 
       // if we have service func, retrieve target
@@ -618,19 +877,22 @@ export class Container extends EventEmitter implements IContainer {
       descriptor.resolver = rootMeta.resolver;
     }
 
+    // Array.ofType(T) and Array.chainOf(T) are different dependencies of one constructor.
+    const injectKey = (x: IToInject<unknown>) => (isChainArray(x.inject) ? 'Array.chainOf:' : '') + getTypeName(x.inject);
+
     function geAllTypes(clz: Record<string, any>): void {
       if (!clz) return;
       const toInject: IInjectDescriptor<unknown> = Reflect.getMetadata(DI_DESCRIPTION_SYMBOL, clz);
       if (toInject) {
         toInject.inject.forEach((x) => {
-          const xTypeName = getTypeName(x.inject);
+          const xTypeName = injectKey(x);
 
           // if we do it by autoinject, skip filtering injection props
           // autoinject can have multiple fields of same type and its identified by prop key
           // we cannot override injection props in derived class
           if (x.autoinject === true) {
             descriptor.inject.push(x);
-          } else if (descriptor.inject.find((i) => getTypeName(i.inject) === xTypeName) === undefined) {
+          } else if (descriptor.inject.find((i) => !i.autoinject && injectKey(i) === xTypeName) === undefined) {
             descriptor.inject.push(x);
           }
         });

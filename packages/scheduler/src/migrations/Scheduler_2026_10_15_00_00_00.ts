@@ -3,7 +3,7 @@ import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
 // Times are BIGINT epoch milliseconds (UTC): DATETIME round-trips are zone- and
 // precision-dependent across the three drivers, and lease checks need exact equality.
-// JSON payloads are LONGTEXT (TEXT on Postgres / SQLite), read through `@JsonText()`: JSON columns
+// JSON payloads are LONGTEXT (TEXT on Postgres / SQLite), read through `@Json()`: JSON columns
 // come back already parsed on Postgres / MySQL, which loses the difference between "123" and 123.
 @Migration('default')
 export class Scheduler_2026_10_15_00_00_00 extends OrmMigration {

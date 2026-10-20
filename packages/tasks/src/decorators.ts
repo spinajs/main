@@ -40,7 +40,7 @@ async function lockTask(name: string, opts: TaskOptions, log: Log): Promise<Unlo
   }
 
   if (runningInProcess.has(name)) {
-    log.warn(`Task ${name} is already running in this process`);
+    log.warn({ taskName: name }, 'Task ${taskName} is already running in this process');
     return null;
   }
 
@@ -51,7 +51,7 @@ async function lockTask(name: string, opts: TaskOptions, log: Log): Promise<Unlo
     const lock = await mutex_acquire({ Name: mutexName, ttl: opts.lockTtl });
     if (!lock.Locked) {
       runningInProcess.delete(name);
-      log.warn(`Cannot acquire mutex for task ${name}, already locked !`);
+      log.warn({ taskName: name }, 'Cannot acquire mutex for task ${taskName}, already locked !');
       return null;
     }
   } catch (err) {
@@ -65,10 +65,10 @@ async function lockTask(name: string, opts: TaskOptions, log: Log): Promise<Unlo
           mutex_renew({ Name: mutexName, ttl: opts.lockTtl })
             .then((renewed) => {
               if (!renewed) {
-                log.warn(`Task ${name} lost its mutex, another process may run it now`);
+                log.warn({ taskName: name }, 'Task ${taskName} lost its mutex, another process may run it now');
               }
             })
-            .catch((err) => log.error(err, `Cannot renew mutex for task ${name}`));
+            .catch((err: unknown) => log.error({ error: err, taskName: name }, 'Cannot renew mutex for task ${taskName}'));
         }, Math.max(1, Math.floor(opts.lockTtl / 3)))
       : undefined;
 
@@ -124,16 +124,28 @@ export async function runTask(
   opts: RunTaskOptions,
 ): Promise<unknown> {
   const log = DI.resolve('__log__', ['TASKS']) as Log;
-  log.info(`Executing task ${decl.name} ...`);
+  log.info({ taskName: decl.name }, 'Executing task ${taskName} ...');
 
   let task: __task;
   let unlock: Unlock;
   try {
-    task = await __task.getOrCreate(null, {
-      Name: decl.name,
-      Description: decl.description,
-      State: 'stopped',
-    });
+    task = await __task
+      .getOrCreate(null, {
+        Name: decl.name,
+        Description: decl.description,
+        State: 'stopped',
+      })
+      .catch(async (err) => {
+        // another process may have inserted the row between getOrCreate's select and insert
+        const existing = await __task
+          .where({ Name: decl.name })
+          .first()
+          .catch((): undefined => undefined);
+        if (!existing) {
+          throw err;
+        }
+        return existing;
+      });
 
     const lock = opts.lock ? await lockTask(decl.name, decl.options, log) : NO_LOCK;
     if (!lock) {
@@ -150,7 +162,7 @@ export async function runTask(
       throw err;
     }
   } catch (err) {
-    log.error(err, `Cannot start task ${decl.name}`);
+    log.error({ error: err, taskName: decl.name }, 'Cannot start task ${taskName}');
     throw err;
   }
 
@@ -162,7 +174,7 @@ export async function runTask(
       taskResult = await decl.method.apply(thisArg, args);
     } catch (err) {
       failure = { error: err };
-      log.error(err, `Cannot execute task ${decl.name}`);
+      log.error({ error: err, taskName: decl.name }, 'Cannot execute task ${taskName}');
       taskResult = {
         error: true,
         message: errorMessage(err),
@@ -181,10 +193,10 @@ export async function runTask(
         await TaskSuccess.emit({
           TaskName: decl.name,
         });
-        log.success(`Task ${decl.name} executed !`);
+        log.success({ taskName: decl.name }, 'Task ${taskName} executed !');
       }
     } catch (emitErr) {
-      log.error(emitErr, `Cannot emit ${failure ? 'TaskFailed' : 'TaskSuccess'} for ${decl.name}`);
+      log.error({ error: emitErr, event: failure ? 'TaskFailed' : 'TaskSuccess', taskName: decl.name }, 'Cannot emit ${event} for ${taskName}');
     }
   } finally {
     try {
@@ -200,7 +212,7 @@ export async function runTask(
         Duration: DateTime.now().diff(start).milliseconds,
       });
     } catch (err) {
-      log.error(err, `Cannot finalize task`);
+      log.error({ error: err, taskName: decl.name }, 'Cannot finalize task ${taskName}');
     }
   }
 

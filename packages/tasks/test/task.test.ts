@@ -3,21 +3,22 @@ import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
-import sinon from 'sinon';
+import * as sinon from 'sinon';
 
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
 
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { Mutex, mutex_acquire, mutex_get } from '@spinajs/threading';
+import { OrmMutex } from '@spinajs/orm-threading';
 import { QueueService } from '@spinajs/queue';
 import { TestTask } from './Tasks/TestTask.js';
 import { __task, __task_history } from '../src/index.js';
 import { DEFAULT_TASK_OPTIONS, getTaskDeclarations, runTask } from '../src/decorators.js';
 import '@spinajs/orm-sqlite';
 import { TestTask2 } from './Tasks/TestTask2.js';
-import { Mutex, mutex_acquire, mutex_get } from '@spinajs/threading';
-import { OrmMutex } from '@spinajs/orm-threading';
+import { TestTask3 } from './Tasks/TestTask3.js';
 import { TestTaskNoOptions } from './Tasks/TestTaskNoOptions.js';
 import { TestTaskFailing } from './Tasks/TestTaskFailing.js';
 import { TestTaskHeartbeat } from './Tasks/TestTaskHeartbeat.js';
@@ -116,6 +117,10 @@ describe('Commands', function () {
     await DI.resolve(QueueService);
   });
 
+  afterEach(() => {
+    sinon.restore();
+  });
+
   it('Should save task run data to db', async () => {
     const task = new TestTask();
     await task.execute(1);
@@ -145,9 +150,24 @@ describe('Commands', function () {
     expect(tHistory.length).to.equal(1);
   });
 
-  it('Should save error when task function fails', async () => {});
+  it('Should save error when task function fails', async () => {
+    const result = await new TestTask3().execute();
+    const tHistory = await __task_history.all();
 
-  it('Should emit succeed event to queue', async () => {});
+    expect(result).to.deep.equal({ error: true, message: 'task failed' });
+    expect(tHistory.length).to.equal(1);
+    expect(tHistory[0].Result).to.deep.equal({ error: true, message: 'task failed' });
+  });
+
+  it('Should emit succeed event to queue', async () => {
+    const queue = await DI.resolve(QueueService);
+    const emit = sinon.spy(queue, 'emit');
+
+    await new TestTask().execute(1);
+
+    expect(emit.calledWithMatch({ Name: 'TaskSuccess', TaskName: 'TestTask' })).to.be.true;
+  });
+
   describe('mutex', () => {
     it('Should release the task mutex after a run', async () => {
       await new TestTask().execute(1);

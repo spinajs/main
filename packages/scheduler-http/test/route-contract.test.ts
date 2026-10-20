@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, IControllerDescriptor, RouteType } from '@spinajs/http';
-import { ACL_CONTROLLER_DESCRIPTOR, AuthorizedPolicy, IRbacDescriptor } from '@spinajs/rbac-http';
+import { ACCESS_CLASS, accessDescriptorOf, AccessPolicy } from '@spinajs/authz-http';
 
 import { ErrorsController } from '../src/controllers/ErrorsController.js';
 import { MaintenanceController } from '../src/controllers/MaintenanceController.js';
@@ -19,7 +19,7 @@ const BASE_PATHS: Record<keyof typeof CONTROLLERS, string> = {
 };
 
 // design §7, one row per endpoint
-const ROUTES: Record<string, { type: RouteType; path: string; permission: string[] }> = {
+const ROUTES: Record<string, { type: RouteType; path: string; permission: string }> = {
   'SchedulesController.list': { type: RouteType.GET, path: '/', permission: SCHEDULER_READ },
   'SchedulesController.show': { type: RouteType.GET, path: ':name', permission: SCHEDULER_READ },
   'SchedulesController.runNow': { type: RouteType.POST, path: ':name/runs', permission: SCHEDULER_RUN },
@@ -38,7 +38,7 @@ const ROUTES: Record<string, { type: RouteType; path: string; permission: string
 };
 
 const http = (c: { prototype: object }) => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, c.prototype) as IControllerDescriptor;
-const acl = (c: { prototype: object }) => Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, c.prototype) as IRbacDescriptor;
+const access = (c: { prototype: object }) => accessDescriptorOf(c)!;
 
 describe('scheduler-http route contract', () => {
   it('exposes exactly the design §7 endpoints', () => {
@@ -52,13 +52,12 @@ describe('scheduler-http route contract', () => {
     expect(actual.sort()).to.deep.equal(Object.keys(ROUTES).sort());
   });
 
-  it('mounts every controller at its base path behind AuthorizedPolicy on the scheduler resource', () => {
+  it('mounts every controller at its base path with no class rule, so each route names its own permission', () => {
     for (const [name, controller] of Object.entries(CONTROLLERS)) {
       const descriptor = http(controller);
 
       expect(descriptor.BasePath, name).to.eq(BASE_PATHS[name as keyof typeof CONTROLLERS]);
-      expect(descriptor.Policies.flat().map((p) => p.Type), name).to.include(AuthorizedPolicy);
-      expect(acl(controller).Resource, name).to.eq('scheduler');
+      expect(access(controller).Access.has(ACCESS_CLASS), name).to.eq(false);
     }
   });
 
@@ -70,7 +69,8 @@ describe('scheduler-http route contract', () => {
 
       expect(route.Type).to.eq(expected.type);
       expect(route.Path).to.eq(expected.path);
-      expect(acl(controller).Routes.get(method)?.Permission).to.deep.equal(expected.permission);
+      expect(route.Policies.flat().map((p) => p.Type), key).to.include(AccessPolicy);
+      expect(access(controller).Access.get(method)?.permissions).to.deep.equal([expected.permission]);
     });
   }
 });

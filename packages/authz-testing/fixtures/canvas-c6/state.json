@@ -1,0 +1,166 @@
+{
+  "ids": {
+    "ACME": "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1",
+    "STRICT": "a2a2a2a2-a2a2-a2a2-a2a2-a2a2a2a2a2a2",
+    "OPEN": "a3a3a3a3-a3a3-a3a3-a3a3-a3a3a3a3a3a3",
+    "OLGA": "01010101-0101-0101-0101-010101010101",
+    "ADAM": "02020202-0202-0202-0202-020202020202",
+    "MIA": "03030303-0303-0303-0303-030303030303",
+    "ED": "04040404-0404-0404-0404-040404040404",
+    "DORA": "05050505-0505-0505-0505-050505050505",
+    "GUS": "06060606-0606-0606-0606-060606060606",
+    "XENA": "07070707-0707-0707-0707-070707070707",
+    "ZED": "08080808-0808-0808-0808-080808080808",
+    "MO": "09090909-0909-0909-0909-090909090909",
+    "UNA": "0a0a0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a",
+    "VIC": "0b0b0b0b-0b0b-0b0b-0b0b-0b0b0b0b0b0b",
+    "GWEN": "0c0c0c0c-0c0c-0c0c-0c0c-0c0c0c0c0c0c",
+    "NED": "0d0d0d0d-0d0d-0d0d-0d0d-0d0d0d0d0d0d",
+    "PAT": "0e0e0e0e-0e0e-0e0e-0e0e-0e0e0e0e0e0e",
+    "QUIN": "0f0f0f0f-0f0f-0f0f-0f0f-0f0f0f0f0f0f",
+    "DESIGN": "d1d1d1d1-d1d1-d1d1-d1d1-d1d1d1d1d1d1",
+    "WEB": "b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1",
+    "PRIVATE": "b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2",
+    "LOCKED": "b3b3b3b3-b3b3-b3b3-b3b3-b3b3b3b3b3b3",
+    "OPENPROJ": "b4b4b4b4-b4b4-b4b4-b4b4-b4b4b4b4b4b4",
+    "HOME": "c1c1c1c1-c1c1-c1c1-c1c1-c1c1c1c1c1c1",
+    "SECRET": "c2c2c2c2-c2c2-c2c2-c2c2-c2c2c2c2c2c2",
+    "SHARED": "c3c3c3c3-c3c3-c3c3-c3c3-c3c3c3c3c3c3",
+    "BRIEF": "c4c4c4c4-c4c4-c4c4-c4c4-c4c4c4c4c4c4",
+    "GHOST": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+    "VIEW_LINK": "e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1",
+    "FILE_LINK": "e2e2e2e2-e2e2-e2e2-e2e2-e2e2e2e2e2e2",
+    "OLD_LINK": "e3e3e3e3-e3e3-e3e3-e3e3-e3e3e3e3e3e3",
+    "MEMBER_LINK": "e4e4e4e4-e4e4-e4e4-e4e4-e4e4e4e4e4e4",
+    "STRICT_LINK": "e5e5e5e5-e5e5-e5e5-e5e5-e5e5e5e5e5e5",
+    "OPEN_LINK": "e6e6e6e6-e6e6-e6e6-e6e6-e6e6e6e6e6e6",
+    "AGENT_SESSION": "f1f1f1f1-f1f1-f1f1-f1f1-f1f1f1f1f1f1",
+    "TASK": "f2f2f2f2-f2f2-f2f2-f2f2-f2f2f2f2f2f2"
+  },
+  "orgs": {
+    "ACME": {
+      "policies": {},
+      "members": {
+        "OLGA": "owner",
+        "ADAM": "admin",
+        "MIA": "member",
+        "ED": "member",
+        "DORA": "member",
+        "MO": "member",
+        "GUS": "guest",
+        "XENA": "file_guest",
+        "NED": "member"
+      }
+    },
+    "STRICT": {
+      "policies": {
+        "agents_allowed": false,
+        "viewers_may_download": false,
+        "editors_may_invite": false,
+        "addons_for_guests": false,
+        "guest_max_role": "maintainer"
+      },
+      "members": {
+        "UNA": "member",
+        "VIC": "member",
+        "GWEN": "guest",
+        "ED": "member"
+      }
+    },
+    "OPEN": {
+      "policies": {
+        "public_links": false,
+        "max_link_role": "viewer",
+        "maintainers_may_delete": true
+      },
+      "members": {
+        "PAT": "member",
+        "QUIN": "member"
+      }
+    }
+  },
+  "groups": {
+    "DESIGN": { "org": "ACME", "members": ["DORA"] }
+  },
+  "projects": {
+    "WEB": {
+      "org": "ACME",
+      "org_default_role": "viewer",
+      "grants": [
+        { "grantee": { "kind": "user", "id": "ED" }, "role": "editor", "addons": ["inspect", "code"] },
+        { "grantee": { "kind": "group", "id": "DESIGN" }, "role": "commenter", "addons": ["code"] },
+        { "grantee": { "kind": "user", "id": "GUS" }, "role": "maintainer", "addons": ["inspect", "code"] },
+        { "grantee": { "kind": "user", "id": "MO" }, "role": "maintainer", "addons": ["inspect", "code"] }
+      ],
+      "branch_rules": [
+        { "pattern": "main", "merge_role": "maintainer", "push_role": "maintainer" },
+        { "pattern": "release/*", "merge_role": "maintainer", "push_role": "editor" },
+        { "pattern": "hotfix/*", "merge_role": "maintainer", "push_role": "maintainer" },
+        { "pattern": "*-lts", "merge_role": "maintainer", "push_role": "maintainer" }
+      ]
+    },
+    "PRIVATE": {
+      "org": "ACME",
+      "org_default_role": "none",
+      "grants": [],
+      "branch_rules": []
+    },
+    "LOCKED": {
+      "org": "STRICT",
+      "org_default_role": "viewer",
+      "grants": [
+        { "grantee": { "kind": "user", "id": "VIC" }, "role": "editor", "addons": ["inspect", "code"] },
+        { "grantee": { "kind": "user", "id": "GWEN" }, "role": "maintainer", "addons": ["inspect", "code"] },
+        { "grantee": { "kind": "user", "id": "ED" }, "role": "editor", "addons": ["inspect", "code"] }
+      ],
+      "branch_rules": []
+    },
+    "OPENPROJ": {
+      "org": "OPEN",
+      "org_default_role": "none",
+      "grants": [
+        { "grantee": { "kind": "user", "id": "PAT" }, "role": "maintainer", "addons": ["inspect", "code"] }
+      ],
+      "branch_rules": []
+    }
+  },
+  "files": {
+    "HOME": {
+      "project": "WEB",
+      "grants": [
+        { "grantee": { "kind": "user", "id": "XENA" }, "role": "editor", "addons": [] },
+        { "grantee": { "kind": "user", "id": "ZED" }, "role": "viewer", "addons": [] },
+        { "grantee": { "kind": "user", "id": "NED" }, "role": "editor", "addons": [] }
+      ],
+      "restricted_to": null
+    },
+    "SECRET": {
+      "project": "WEB",
+      "grants": [],
+      "restricted_to": [{ "kind": "user", "id": "ED" }]
+    },
+    "SHARED": {
+      "project": "PRIVATE",
+      "grants": [
+        { "grantee": { "kind": "user", "id": "MIA" }, "role": "editor", "addons": ["inspect", "code"] }
+      ],
+      "restricted_to": null
+    },
+    "BRIEF": {
+      "project": "LOCKED",
+      "grants": [
+        { "grantee": { "kind": "user", "id": "UNA" }, "role": "editor", "addons": [] },
+        { "grantee": { "kind": "user", "id": "ZED" }, "role": "viewer", "addons": ["inspect"] }
+      ],
+      "restricted_to": null
+    }
+  },
+  "links": {
+    "VIEW_LINK": { "project": "WEB", "file": null, "role": "viewer", "addons": ["inspect"], "expired": false, "org_only": false },
+    "FILE_LINK": { "project": "WEB", "file": "HOME", "role": "commenter", "addons": [], "expired": false, "org_only": false },
+    "OLD_LINK": { "project": "WEB", "file": null, "role": "viewer", "addons": [], "expired": true, "org_only": false },
+    "MEMBER_LINK": { "project": "WEB", "file": null, "role": "viewer", "addons": [], "expired": false, "org_only": true },
+    "STRICT_LINK": { "project": "LOCKED", "file": null, "role": "viewer", "addons": ["inspect"], "expired": false, "org_only": false },
+    "OPEN_LINK": { "project": "OPENPROJ", "file": null, "role": "commenter", "addons": [], "expired": false, "org_only": false }
+  }
+}

@@ -1,0 +1,19 @@
+// Side effect imports - these modules register Injectables ( the token
+// generator and the token and JWT strategies ) the moment they
+// are loaded, so they must run even if a consumer imports nothing from them.
+import './generator.js';
+import './strategy/TokenStrategy.js';
+import './jwt/JwtBearerStrategy.js';
+
+export * from './generation.js';
+export * from './models/AccessToken.js';
+export * from './migrations/RbacHttpTokenInitial_2026_08_11_01_00_00.js';
+export * from './generator.js';
+export * from './service/index.js';
+export * from './strategy/TokenStrategy.js';
+export * from './jwt/JwtBearerStrategy.js';
+export * from './cli/CreateToken.js';
+export * from './cli/DeleteToken.js';
+export * from './cli/DeleteExpiredTokens.js';
+export * from './schema.js';
+export * from './bootstrap.js';

@@ -1,8 +1,11 @@
 import { RouteArgs, IRouteArgsResult } from './RouteArgs.js';
-import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfaces.js';
+import { IRouteParameter, ParameterType, IRouteCall, IRoute, Request } from '../interfaces.js';
 import { Injectable } from '@spinajs/di';
 import { BadRequest } from '@spinajs/exceptions';
 import { XMLParser, XMLValidator, X2jOptions } from 'fast-xml-parser';
+
+// The parser's messages quote tag and attribute names from the input.
+const INVALID_XML_MESSAGE = 'request body is not valid XML';
 
 /**
  * Parses an XML request body into a plain object.
@@ -19,7 +22,7 @@ export class FromXmlRouteArgs extends RouteArgs {
     return ParameterType.FromXml;
   }
 
-  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter<Partial<X2jOptions>>, req: Request): Promise<IRouteArgsResult> {
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter<Partial<X2jOptions>>, req: Request, _res?: unknown, route?: IRoute): Promise<IRouteArgsResult> {
     const body = req.body;
 
     // No body -> nothing to parse (keep optional params optional).
@@ -29,19 +32,20 @@ export class FromXmlRouteArgs extends RouteArgs {
 
     // Already an object (some upstream parser handled it) -> pass through.
     if (typeof body !== 'string') {
-      return { CallData: callData, Args: body };
+      return { CallData: callData, Args: await this.filterInput(body, param, route) };
     }
 
-    const valid = XMLValidator.validate(body);
-    if (valid !== true) {
-      throw new BadRequest(`Invalid XML body: ${valid.err?.msg ?? 'malformed XML'}`);
+    if (XMLValidator.validate(body) !== true) {
+      throw new BadRequest(INVALID_XML_MESSAGE);
     }
 
     const parser = new XMLParser({ ignoreAttributes: false, ...(param.Options ?? {}) });
+    let parsed: unknown;
     try {
-      return { CallData: callData, Args: parser.parse(body) };
-    } catch (err) {
-      throw new BadRequest(`Invalid XML body: ${(err as Error).message}`);
+      parsed = parser.parse(body);
+    } catch {
+      throw new BadRequest(INVALID_XML_MESSAGE);
     }
+    return { CallData: callData, Args: await this.filterInput(parsed, param, route) };
   }
 }

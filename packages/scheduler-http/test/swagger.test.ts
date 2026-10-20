@@ -26,21 +26,20 @@ describe('scheduler-http swagger', function () {
     return operation;
   };
 
-  // routes declared as @Get('/') are documented with a trailing slash
   it('documents every design §7 endpoint', () => {
-    op('get', '/scheduler/schedules/');
+    op('get', '/scheduler/schedules');
     op('get', '/scheduler/schedules/{name}');
     op('post', '/scheduler/schedules/{name}/runs');
     op('post', '/scheduler/schedules/{name}/retry-failed');
     op('post', '/scheduler/schedules/{name}/pause');
     op('post', '/scheduler/schedules/{name}/resume');
     op('get', '/scheduler/schedules/{name}/events');
-    op('get', '/scheduler/runs/');
+    op('get', '/scheduler/runs');
     op('get', '/scheduler/runs/{id}');
     op('get', '/scheduler/runs/{id}/events');
     op('post', '/scheduler/runs/{id}/cancel');
     op('post', '/scheduler/runs/{id}/retry');
-    op('get', '/scheduler/errors/');
+    op('get', '/scheduler/errors');
     op('patch', '/scheduler/errors/{fingerprint}');
     op('post', '/scheduler/prune');
   });

@@ -10,6 +10,13 @@ export enum QueueMessageType {
   Event = 'EVENT',
 }
 
+/** Who emitted a message. Written by a `QueueMessageHook`; queue itself never trusts it. */
+export interface IQueueInitiator {
+  readonly type: string;
+  readonly id: string;
+  readonly ceiling?: unknown;
+}
+
 export interface IQueueMessage {
   CreatedAt: DateTime;
   Name: string;
@@ -38,6 +45,8 @@ export interface IQueueMessage {
    * Use a Cron entry to set the schedule
    */
   ScheduleCron?: string;
+
+  Initiator?: IQueueInitiator;
 }
 
 export interface IQueueJob extends IQueueMessage {
@@ -125,12 +134,14 @@ export abstract class QueueMessage implements IQueueMessage {
    */
   public ScheduleCron!: string | undefined;
 
+  public Initiator?: IQueueInitiator;
+
   constructor(data?: any) {
     if (data) {
       this.hydrate(data);
     }
 
-    this.CreatedAt = DateTime.now();
+    this.CreatedAt = this.CreatedAt ?? DateTime.now();
     this.Name = this.constructor.name;
   }
 
@@ -257,6 +268,9 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
   @Config('queue.routing')
   protected Routing: IQueueMessageRoutingOptions;
 
+  @Config('queue.default')
+  protected DefaultConnection: string;
+
   protected readonly WarnedInvalidMaxRetries = new Set<string>();
 
   public get Name(): string {
@@ -325,9 +339,9 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
       return rOption.deadLetterChannel;
     }
 
-    // multiple routes - use the first one that declares a dead-letter channel
+    // multiple routes - use the first one of this connection that declares a dead-letter channel
     if (_.isArray(rOption)) {
-      const withDlq = rOption.find((x) => !_.isString(x) && (x as IMessageRoutingOption).deadLetterChannel) as IMessageRoutingOption | undefined;
+      const withDlq = this.ownRouteItems(rOption).find((x) => !_.isString(x) && (x as IMessageRoutingOption).deadLetterChannel) as IMessageRoutingOption | undefined;
       if (withDlq) {
         return withDlq.deadLetterChannel;
       }
@@ -344,7 +358,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
   public getMaxRetriesForMessage(event: IQueueMessage | Constructor<QueueMessage>): number | undefined {
     const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
     const rOption = this.Routing?.[eName];
-    const entries = _.isArray(rOption) ? rOption : [rOption];
+    const entries: (string | IMessageRoutingOption | undefined)[] = _.isArray(rOption) ? this.ownRouteItems(rOption) : [rOption];
 
     const declared = entries.find((x) => x && !_.isString(x) && (x as IMessageRoutingOption).maxRetries !== undefined) as IMessageRoutingOption | undefined;
     if (!declared) {
@@ -355,7 +369,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
     if (!Number.isInteger(value) || (value as number) < 0) {
       if (!this.WarnedInvalidMaxRetries.has(eName)) {
         this.WarnedInvalidMaxRetries.add(eName);
-        this.Log.warn(`Routing for ${eName} has invalid maxRetries ${JSON.stringify(value)}, ignoring ( expected a non-negative integer )`);
+        this.Log.warn({ eventName: eName, maxRetries: JSON.stringify(value) }, 'Routing for ${eventName} has invalid maxRetries ${maxRetries}, ignoring ( expected a non-negative integer )');
       }
       return undefined;
     }
@@ -376,7 +390,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
     const rOption = this.Routing?.[eName];
 
     if (!rOption) {
-      this.Log.warn(`No routing for event ${eName} found, using default channel`);
+      this.Log.warn({ eventName: eName }, 'No routing for event ${eventName} found, using default channel');
       return [isJob ? this.Options.defaultQueueChannel! : this.Options.defaultTopicChannel!];
     }
 
@@ -386,7 +400,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
 
     if (_.isArray(rOption)) {
       return _.uniq(
-        rOption.map((x): string => {
+        this.ownRouteItems(rOption).map((x): string => {
           if (_.isString(x)) {
             return x;
           }
@@ -397,6 +411,14 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
     }
 
     return [rOption.channel ?? (isJob ? this.Options.defaultQueueChannel! : this.Options.defaultTopicChannel!)];
+  }
+
+  /**
+   * Items of an array route that belong to this connection. A string item, or one without
+   * `connection`, belongs to `queue.default`, as in {@link QueueService.getConnectionsForMessage}.
+   */
+  protected ownRouteItems(items: string[] | IMessageRoutingOption[]): (string | IMessageRoutingOption)[] {
+    return (items as (string | IMessageRoutingOption)[]).filter((x) => ((_.isString(x) ? undefined : x.connection) ?? this.DefaultConnection) === this.Name);
   }
 }
 
@@ -521,7 +543,15 @@ export interface IMessageRoutingOption {
 }
 
 export interface IQueueConnectionOptions {
-  transport: string;
+  /**
+   * Class name of the registered {@link QueueClient} that serves this connection.
+   */
+  service: string;
+
+  /**
+   * @deprecated Not read by the queue or the shipped transports; use `service`.
+   */
+  transport?: string;
   name: string;
   clientId?: string;
   login?: string;
@@ -530,7 +560,11 @@ export interface IQueueConnectionOptions {
   port?: number;
   queue?: string;
   options?: any;
-  type: 'event' | 'job';
+
+  /**
+   * @deprecated Not read by the queue or the shipped transports.
+   */
+  type?: 'event' | 'job';
 
   /**
    * Default topic ( events ) channel in broker

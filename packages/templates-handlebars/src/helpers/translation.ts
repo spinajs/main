@@ -2,10 +2,11 @@ import { __translate, __translateNumber, __translateL, __translateH } from '@spi
 
 /**
  * Translation helper - translates a key to the current language
- * Usage: {{__ "hello"}}
+ * Usage: {{__ "hello"}} or {{__ "Hello %s" name}}
  */
-export function __(context: string, options: any) {
-  return __translate(options.data.root.lang)(context);
+export function __(context: string, ...args: any[]) {
+  const options = args.pop();
+  return __translate(options.data.root.lang)(context, ...args);
 }
 
 /**

@@ -36,7 +36,7 @@ export abstract class LogArchiveStrategy {
     try {
       await ctx.rotate();
     } catch (err) {
-      this.Logger.warn(`Log rotation for target ${ctx.options.path} failed: ${(err as Error).message}`);
+      this.Logger.warn({ error: err, targetPath: ctx.options.path }, "Log rotation for target ${targetPath} failed");
     }
   }
 }

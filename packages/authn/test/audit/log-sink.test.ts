@@ -1,0 +1,256 @@
+import * as chai from 'chai';
+import 'mocha';
+import { createHash, createHmac } from 'node:crypto';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
+
+import { AUTHN_CONFIGURATION_SCHEMA, AuthnAudit, AuthnEventSink, LogAuthnAuditSink } from '../../src/index.js';
+import type { AuthnEvent } from '../../src/index.js';
+import { configurationOf } from '../behaviour/harness.js';
+import { TestLog, useTestLog } from './test-log.js';
+
+const expect = chai.expect;
+
+const KEY = 'audit-hash-key-0123456789abcdef-0123456789';
+const IP = '198.51.100.23';
+const HANDLE = 'hdl_k3JxQ0bR7Tz';
+const LOGIN = 'alice.smith';
+const EMAIL = 'alice@example.com';
+const PASSWORD = 'correct horse battery staple';
+
+const hmac = (key: string, input: string): string => createHmac('sha256', key).update(input).digest('base64url');
+
+const event = (over: Partial<AuthnEvent> = {}): AuthnEvent => ({
+  type: 'impersonation.start',
+  outcome: 'success',
+  at: new Date('2026-10-03T10:00:00.000Z'),
+  identity: { type: 'user', id: 'u-42' },
+  actor: { type: 'user', id: 'u-7' },
+  strategy: 'local',
+  ip: IP,
+  userAgent: `Mozilla/5.0 (${EMAIL})`,
+  session: HANDLE,
+  data: { login: LOGIN, email: EMAIL, password: PASSWORD, reason: 'support ticket' },
+  ...over,
+});
+
+const children: IContainer[] = [];
+
+// Isolated: the shipped authn config lists LogAuthnAuditSink, and config arrays concatenate.
+async function childWith(audit: unknown, parent: IContainer = DI.RootContainer): Promise<IContainer> {
+  const child = parent.child();
+  children.push(child);
+  child.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+  child.register(configurationOf({ authn: { audit } }, undefined, true)).as(Configuration);
+  await child.resolve(Configuration);
+  return child;
+}
+
+async function sink(audit: Record<string, unknown> = { hashKey: { secret: KEY } }): Promise<LogAuthnAuditSink> {
+  return (await childWith(audit)).resolve(LogAuthnAuditSink);
+}
+
+const written = () => TestLog.of('authn-audit').filter((e) => e.message.startsWith('authn audit '));
+const lines = (): string[] => written().map((e) => e.message);
+
+describe('LogAuthnAuditSink', function () {
+  this.timeout(15000);
+  useTestLog();
+
+  afterEach(async () => {
+    for (const c of children.splice(0).reverse()) await c.dispose();
+  });
+
+  it('is an AuthnEventSink', async () => {
+    expect(await sink()).to.be.instanceOf(AuthnEventSink);
+  });
+
+  it('writes one line per event with type, outcome, time, strategy and reason', async () => {
+    const s = await sink();
+    await s.publish(event());
+    await s.publish(event({ type: 'login', outcome: 'failure', reason: 'invalid_credentials', actor: undefined }));
+    const [first, second] = lines();
+    expect(lines()).to.have.length(2);
+    expect(first).to.match(/^authn audit impersonation\.start success /);
+    expect(first).to.contain('at=2026-10-03T10:00:00.000Z').and.contain('strategy=local');
+    expect(second).to.match(/^authn audit login failure /);
+    expect(second).to.contain('reason=invalid_credentials');
+    for (const l of lines()) expect(l).to.not.contain('\n');
+  });
+
+  it('writes failures at warn and successes at info, to the Log named authn-audit', async () => {
+    const s = await sink();
+    await s.publish(event());
+    await s.publish(event({ outcome: 'failure' }));
+    expect(written().map((e) => [e.level, e.logger])).to.deep.equal([
+      ['info', 'authn-audit'],
+      ['warn', 'authn-audit'],
+    ]);
+  });
+
+  it('writes identity, actor, ip and session as keyed hashes', async () => {
+    const s = await sink();
+    await s.publish(event());
+    const line = lines()[0];
+    for (const raw of ['u-42', 'u-7', IP, HANDLE]) expect(line).to.not.contain(raw);
+    expect(line).to.contain(`identity=user:${hmac(KEY, 'principal|user:u-42')}`);
+    expect(line).to.contain(`actor=user:${hmac(KEY, 'principal|user:u-7')}`);
+    expect(line).to.contain(`ip=${hmac(KEY, `ip|${IP}`)}`);
+    expect(line).to.contain(`session=${hmac(KEY, `session|${HANDLE}`)}`);
+  });
+
+  it('gives an identity and an actor with the same id the same hash', async () => {
+    const s = await sink();
+    await s.publish(event({ identity: { type: 'user', id: 'u-7' } }));
+    const id = /identity=user:(\S+)/.exec(lines()[0])![1];
+    const actor = /actor=user:(\S+)/.exec(lines()[0])![1];
+    expect(id).to.equal(actor);
+  });
+
+  it('never writes data, the user agent, a login, an email or a password', async () => {
+    const s = await sink();
+    await s.publish(event());
+    await s.publish(event({ type: 'login', outcome: 'failure', reason: 'unknown_identity' }));
+    const plain = await sink({ hashIdentifiers: false });
+    await plain.publish(event());
+    expect(lines()).to.have.length(3);
+    for (const line of lines()) {
+      for (const secret of [LOGIN, EMAIL, PASSWORD, 'support ticket', 'Mozilla']) expect(line).to.not.contain(secret);
+      expect(line).to.not.contain('data');
+    }
+  });
+
+  it('with hashIdentifiers false writes plain ids, but still hashes a value that looks like an email', async () => {
+    const plain = await sink({ hashIdentifiers: false, hashKey: { secret: KEY } });
+    await plain.publish(event());
+    await plain.publish(event({ identity: { type: 'user', id: EMAIL } }));
+    const [first, second] = lines();
+    expect(first).to.contain('identity=user:u-42').and.contain('actor=user:u-7').and.contain(`ip=${IP}`).and.contain(`session=${HANDLE}`);
+    expect(second).to.not.contain(EMAIL);
+    expect(second).to.contain(`identity=user:${hmac(KEY, `principal|user:${EMAIL}`)}`);
+  });
+
+  it('without a configured key hashes under one random per-process key', async () => {
+    const a = await sink({});
+    const b = await sink({});
+    await a.publish(event());
+    await b.publish(event());
+    const [first, second] = lines();
+    expect(first).to.equal(second);
+    const h = /ip=(\S+)/.exec(first)![1];
+    expect(h).to.not.equal(hmac(KEY, `ip|${IP}`));
+    expect(h).to.not.equal(createHash('sha256').update(`ip|${IP}`).digest('base64url'));
+    expect(h).to.not.equal(hmac('', `ip|${IP}`));
+  });
+
+  it('two keys give different hashes', async () => {
+    const a = await sink({ hashKey: { secret: KEY } });
+    const b = await sink({ hashKey: { secret: `${KEY}-other` } });
+    await a.publish(event());
+    await b.publish(event());
+    const [first, second] = lines();
+    expect(/ip=(\S+)/.exec(first)![1]).to.not.equal(/ip=(\S+)/.exec(second)![1]);
+  });
+
+  it('quotes values that are not plain tokens, so they cannot forge a field or a line', async () => {
+    const s = await sink({ hashIdentifiers: false });
+    await s.publish(event({ strategy: 'evil\nauthn audit login success identity=user:admin', reason: 'a b', identity: { type: 'us er', id: 'x=y z' } }));
+    expect(lines()).to.have.length(1);
+    const line = lines()[0];
+    expect(line).to.not.contain('\n');
+    expect(line).to.contain('strategy="evil\\nauthn audit login success identity=user:admin"');
+    expect(line).to.contain('reason="a b"');
+    expect(line).to.contain('identity="us er:x=y z"');
+  });
+
+  it('escapes Unicode line breaks, C1 controls and direction marks', async () => {
+    const s = await sink({ hashIdentifiers: false });
+    const marks = [0x2028, 0x2029, 0x85, 0x7f, 0x200e, 0x200f, 0x202a, 0x202e, 0x2066, 0x2069, 0x61c, 0xfeff].map((c) => String.fromCharCode(c));
+    await s.publish(event({ reason: `a${marks.join('')}b`, strategy: `x${marks[0]}authn audit login success` }));
+    const line = lines()[0];
+    for (const m of marks) expect(line).to.not.contain(m);
+    expect(line).to.contain('reason="a\\u2028\\u2029\\u0085\\u007f\\u200e\\u200f\\u202a\\u202e\\u2066\\u2069\\u061c\\ufeffb"');
+    expect(line).to.contain('strategy="x\\u2028authn audit login success"');
+  });
+
+  it('escapes $, so a value cannot hold a ${...} placeholder that a text log layout expands', async () => {
+    const s = await sink({ hashIdentifiers: false });
+    await s.publish(event({ reason: '${logger}', ip: '${?level}x${/level}' }));
+    const line = lines()[0];
+    expect(line).to.not.contain('$');
+    expect(line).to.contain('reason="\\u0024{logger}"').and.contain('ip="\\u0024{?level}x\\u0024{/level}"');
+  });
+
+  it('leaves out absent fields and survives malformed events', async () => {
+    const s = await sink();
+    await s.publish({ type: 'logout', outcome: 'success', at: new Date('2026-10-03T10:00:00.000Z') });
+    await s.publish({ type: 'logout', outcome: 'success', at: new Date(Number.NaN), identity: null } as never);
+    expect(lines()).to.deep.equal(['authn audit logout success at=2026-10-03T10:00:00.000Z', 'authn audit logout success at="Invalid Date"']);
+  });
+
+  it('writes a valid Date as ISO time and never calls a forged toISOString', async () => {
+    const s = await sink();
+    const at = (value: unknown) => s.publish({ type: 'logout', outcome: 'success', at: value } as never);
+    await at(new Date(Number.NaN));
+    await at('x y');
+    await at({ toISOString: () => 'forged' });
+    await at(new Date('2026-10-03T10:00:00.000Z'));
+    expect(lines().map((l) => l.replace('authn audit logout success ', ''))).to.deep.equal([
+      'at="Invalid Date"',
+      'at="x y"',
+      'at={}',
+      'at=2026-10-03T10:00:00.000Z',
+    ]);
+  });
+
+  it('fails on malformed configuration without echoing it', async () => {
+    let error: unknown;
+    try {
+      await sink({ hashKey: { secret: 'hunter2' } });
+    } catch (e) {
+      error = e;
+    }
+    expect(error).to.be.instanceOf(InvalidConfiguration);
+    expect((error as InvalidConfiguration).violations.map((v) => v.path)).to.include('authn.audit.hashKey.secret');
+    expect((error as Error).message).to.not.contain('hunter2');
+  });
+
+  describe('through DI', () => {
+    async function publishIn(container: IContainer): Promise<void> {
+      await (await container.resolve(AuthnAudit)).publish(event());
+    }
+
+    it('is selected by name, resolved as a singleton and writes to the DI Log', async () => {
+      const child = await childWith({ hashKey: { secret: KEY } });
+      const audit = await child.resolve(AuthnAudit);
+      const s = audit.sinks().find((x) => x instanceof LogAuthnAuditSink);
+      expect(s).to.equal(await child.resolve(LogAuthnAuditSink));
+      await audit.publish(event());
+      expect(written()).to.have.length(1);
+      expect(written()[0]).to.include({ level: 'info', logger: 'authn-audit' });
+      expect(lines()[0]).to.contain(`ip=${hmac(KEY, `ip|${IP}`)}`);
+    });
+
+    it('reads the config of the container that resolves it: hashing on in the parent, off in a child', async () => {
+      const parent = await childWith({ hashKey: { secret: KEY } });
+      const nested = await childWith({ hashIdentifiers: false }, parent);
+      await publishIn(parent);
+      await publishIn(nested);
+      const [outer, inner] = lines();
+      expect(outer).to.contain(`ip=${hmac(KEY, `ip|${IP}`)}`);
+      expect(inner).to.contain(`ip=${IP}`).and.contain('identity=user:u-42');
+    });
+
+    it('reads the config of the container that resolves it: hashing off in the parent, on in a child', async () => {
+      const parent = await childWith({ hashIdentifiers: false });
+      const nested = await childWith({ hashKey: { secret: KEY } }, parent);
+      await publishIn(parent);
+      await publishIn(nested);
+      const [outer, inner] = lines();
+      expect(outer).to.contain(`ip=${IP}`);
+      expect(inner).to.not.contain(IP);
+      expect(inner).to.contain(`ip=${hmac(KEY, `ip|${IP}`)}`);
+    });
+  });
+});

@@ -1,0 +1,44 @@
+{
+  "name": "orm.list.skip",
+  "description": "select 50 of 1,000 rows (read:own: 50 of the 100 owned rows); SkipModelPermissionCheck set (middleware enters, applies nothing)",
+  "compare": "orm.list.nouser",
+  "unit": "ns",
+  "iterations": 4000,
+  "warmup": 500,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 3882200,
+  "p95": 5842800,
+  "p99": 7328500,
+  "mean": 4127750.625,
+  "opsPerSec": 242.26269725293784,
+  "perRepeat": [
+    {
+      "p50": 3882200,
+      "p95": 5842800,
+      "p99": 7095400,
+      "mean": 4127750.625,
+      "opsPerSec": 242.26269725293784
+    },
+    {
+      "p50": 3852400,
+      "p95": 5808900,
+      "p99": 7328500,
+      "mean": 4096509.775,
+      "opsPerSec": 244.11024382335327
+    },
+    {
+      "p50": 3938700,
+      "p95": 6127400,
+      "p99": 7863300,
+      "mean": 4226806.425,
+      "opsPerSec": 236.5852370445377
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

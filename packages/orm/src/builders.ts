@@ -1,12 +1,13 @@
 /* eslint-disable prettier/prettier */
 import { Container, Inject, NewInstance, Constructor, IContainer, DI, Injectable, isConstructor, Class } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation, NotSupported } from '@spinajs/exceptions';
-import { OrmException, OrmNotFoundException } from './exceptions.js';
+import { OrmConnectionMissing, OrmException, OrmNotFoundException, OrmNotResolved } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from './interfaces.js';
-import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
+import type { Op } from './enums.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, BooleanValueConverter } from './interfaces.js';
+import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement, ColumnCompareStatement, OuterColumn, ColumnConditionStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
 import { ModelBase } from './model.js';
@@ -28,6 +29,12 @@ export interface InsertQueryBuilder extends IColumnsBuilder { }
 export interface DeleteQueryBuilder<T> extends IDeleteQueryBuilder<T> { }
 export interface UpdateQueryBuilder<T> extends IUpdateQueryBuilder<T> { }
 export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder { }
+
+/** Stable: Array.prototype.sort keeps the DI order of equal keys. A non-finite order counts as 0. */
+function sortQueryMiddlewares(list: QueryMiddleware[]): QueryMiddleware[] {
+  const key = (m: QueryMiddleware) => (Number.isFinite(m.order) ? m.order : 0);
+  return [...list].sort((a, b) => key(a) - key(b));
+}
 
 function isWhereOperator(val: any) {
   return _.isString(val) && Object.values(SqlOperator).includes((val as any).toLowerCase());
@@ -67,7 +74,7 @@ export class Builder<T = any> implements IBuilder<T> {
     this._nonSelect = true;
     this._asRaw = false;
 
-    this._queryMiddlewares = DI.resolve(Array.ofType(QueryMiddleware));
+    this._queryMiddlewares = sortQueryMiddlewares(DI.resolve(Array.ofType(QueryMiddleware)));
   }
 
   /**
@@ -77,15 +84,10 @@ export class Builder<T = any> implements IBuilder<T> {
    */
   protected _executionPromise: Promise<T> | null = null;
 
-  /**
-   * The execution engine. Sends the compiled query to the driver, applies the
-   * result middlewares, hydrates models and awaits the post-hydration middlewares.
-   *
-   * Always *returns* its value — the caller's promise chain is what propagates it.
-   * Subclasses override this (not `execute()`) so that their extra work also lands
-   * inside the memo.
-   */
-  protected async _run(): Promise<T> {
+  /** Before hooks, the driver call and after hooks: the part `_run()` may put in a transaction. */
+  private async _executeWithQueryMiddlewares(): Promise<T> {
+    const query = this as unknown as QueryBuilder;
+
     // Fires for EVERY builder type, not just SELECT. This used to live on
     // `SelectQueryBuilder._run`, so an INSERT/UPDATE/DELETE never reached a
     // `beforeQueryExecution` hook at all — which silently disabled any middleware that
@@ -97,10 +99,34 @@ export class Builder<T = any> implements IBuilder<T> {
     // return a promise into the void, and the query would execute anyway. For a security
     // check that is the difference between enforcing and pretending to.
     for (const middleware of this._queryMiddlewares) {
-      await middleware.beforeQueryExecution(this as unknown as QueryBuilder);
+      await middleware.beforeQueryExecution(query);
     }
 
-    const result = (await this._driver.execute(this)) as T;
+    const result = await this._executeOnDriver();
+
+    for (const middleware of this._queryMiddlewares) {
+      await middleware.afterQueryExecution?.(query, result);
+    }
+
+    return result;
+  }
+
+  /** The driver round trip of one execution; a builder that needs several statements overrides it. */
+  protected _executeOnDriver(): Promise<T> {
+    return this._driver.execute(this) as Promise<T>;
+  }
+
+  /**
+   * The execution engine. Sends the compiled query to the driver, applies the
+   * result middlewares, hydrates models and awaits the post-hydration middlewares.
+   *
+   * Always *returns* its value — the caller's promise chain is what propagates it.
+   * Subclasses override this (not `execute()`) so that their extra work also lands
+   * inside the memo.
+   */
+  protected async _run(): Promise<T> {
+    const wrap = this._driver.CurrentTransaction === undefined && this._queryMiddlewares.some((m) => m.transactional?.(this as unknown as QueryBuilder) === true);
+    const result = wrap ? await this._driver.transaction(() => this._executeWithQueryMiddlewares()) : await this._executeWithQueryMiddlewares();
 
     // Snapshot the pipeline once, *after* the driver call: compiling the query is what
     // registers the relation middlewares (the driver calls `toDB()`), so this is the first
@@ -394,10 +420,10 @@ export function sortOrderOf(order?: string | SortOrder | null): SortOrder {
   }
 
   if (normalized !== SortOrder.ASC && normalized !== SortOrder.DESC) {
-    throw new InvalidArgument(`Invalid sort order '${order as string}', expected ASC or DESC`);
+    throw new InvalidArgument(`Invalid sort order '${order}', expected ASC or DESC`);
   }
 
-  return normalized as SortOrder;
+  return normalized;
 }
 
 /**
@@ -748,7 +774,7 @@ export class JoinBuilder implements IJoinBuilder {
       };
     }
     else if (_.isObject(arg1)) {
-      options = arg1 as IJoinStatementOptions<R>;
+      options = arg1;
     } else {
       throw new InvalidArgument(`Invalid argument passed to innerJoin: ${arg1}`);
     }
@@ -880,6 +906,11 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this._parent;
   }
 
+  /** Whether this builder compiles to any condition: a group with nothing in it compiles to none and is dropped. */
+  public hasCondition(): boolean {
+    return this._statements.some((s) => !WhereQueryStatement.isGroup(s) || s.Builder.hasCondition());
+  }
+
 
   /**
    * Pushes a statement onto this builder, stamping it with the currently pending
@@ -937,9 +968,9 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       return this;
     }
 
-    // Support "where true || where false"
+    // TRUE and FALSE are no T-SQL; a comparison of two constants is valid in every dialect.
     if (_.isBoolean(column)) {
-      return this.where(RawQuery.create(column ? 'TRUE' : 'FALSE'));
+      return this.where(RawQuery.create(column ? '1 = 1' : '1 = 0'));
     }
 
     if (column instanceof RawQuery) {
@@ -952,7 +983,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       const builder = new WhereBuilder(this);
       column.call(builder);
 
-      self.pushStatement(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, self.TableAlias]));
+      self.pushStatement(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, false]));
       return this;
     }
 
@@ -967,10 +998,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
 
     if (typeof value === 'undefined') {
-      return _handleForTwo.call(this, column, operator);
+      return _handleForTwo(column, operator);
     }
 
-    return _handleForThree.call(this, column, operator, value);
+    return _handleForThree(column, operator, value);
 
     /**
      * handles for where("foo", 1).where(...) cases
@@ -992,10 +1023,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       }
 
       if (sVal === null) {
-        return this.whereNull(c);
+        return self.whereNull(c);
       }
 
-      self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, this]));
+      self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, self]));
 
       return self;
     }
@@ -1023,17 +1054,17 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         const op = String(o).toLowerCase();
         // where(col, '=', null) => IS NULL ; where(col, '!=' / '<>', null) => IS NOT NULL
         if (op === SqlOperator.EQ) {
-          return this.whereNull(c);
+          return self.whereNull(c);
         }
         if (op === SqlOperator.NOT || op === SqlOperator.NOT_2) {
-          return this.whereNotNull(c);
+          return self.whereNotNull(c);
         }
         throw new InvalidArgument(`operator ${o} cannot be used with null value ( only =, !=, <> are allowed )`);
       }
 
       self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self]));
 
-      return this;
+      return self;
     }
   }
 
@@ -1064,23 +1095,33 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereNotNull(column: string): this {
+  public whereNotNull(column: string | Wrap): this {
     this.pushStatement(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this]));
 
     return this;
   }
 
-  public whereNull(column: string): this {
+  public whereNull(column: string | Wrap): this {
     this.pushStatement(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this]));
     return this;
   }
 
-  public whereNot(column: string, val: any): this {
+  public whereNot(column: string | WhereFunction<T>, val?: any): this {
+    if (_.isFunction(column)) {
+      const builder = new WhereBuilder(this);
+      column.call(builder);
+      return this.pushStatement(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, true]));
+    }
+
     return this.where(column, SqlOperator.NOT, val);
   }
 
-  public whereIn(column: string, val: any[] | ISelectQueryBuilder): this {
+  public whereIn(column: string | Wrap, val: any[] | ISelectQueryBuilder): this {
     if (val instanceof SelectQueryBuilder) {
+      if (column instanceof Wrap) {
+        throw new InvalidArgument('whereIn(): a wrapped column takes a list of values, not a sub-query');
+      }
+      this.correlateSubQuery(val, 'whereIn');
       this.pushStatement(this._container.resolve<InQueryStatement>(InQueryStatement, [val, column, false, this]));
       return this;
     }
@@ -1099,8 +1140,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereNotIn(column: string, val: any[] | ISelectQueryBuilder): this {
+  public whereNotIn(column: string | Wrap, val: any[] | ISelectQueryBuilder): this {
     if (val instanceof SelectQueryBuilder) {
+      if (column instanceof Wrap) {
+        throw new InvalidArgument('whereNotIn(): a wrapped column takes a list of values, not a sub-query');
+      }
+      this.correlateSubQuery(val, 'whereNotIn');
       this.pushStatement(this._container.resolve<InQueryStatement>(InQueryStatement, [val, column, true, this]));
       return this;
     }
@@ -1135,6 +1180,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
    */
   protected buildExistsClause<R>(query: ISelectQueryBuilder | string, negated: boolean, callback?: WhereFunction<R>): this {
     if (typeof query !== 'string') {
+      this.correlateSubQuery(query, negated ? 'whereNotExists' : 'whereExist');
       this.pushStatement(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, negated]));
       return this;
     }
@@ -1156,6 +1202,19 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
 
     return this;
+  }
+
+  /**
+   * outer() in the sub-query names this builder; a clone re-correlates the same way. A sub-query
+   * already correlated with another query would keep answering for that one, so it is refused.
+   */
+  protected correlateSubQuery(query: ISelectQueryBuilder, method: string): void {
+    const source = query.CorrelationSource;
+    if (source === undefined) {
+      query.correlateWith(this as IWhereBuilder<any>);
+    } else if (queryOf(source) !== queryOf(this as IWhereBuilder<any>)) {
+      throw new InvalidArgument(`${method}(): the sub-query is already correlated with another query; attach a clone() of it`);
+    }
   }
 
   public whereBetween(column: string, val: any[]): this {
@@ -1189,11 +1248,84 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
+  public whereColumn(left: string | Wrap, operator: Op, right: string | Wrap | OuterColumn): this {
+    if (!isWhereOperator(operator)) {
+      throw new InvalidArgument(`operator ${operator} is invalid`);
+    }
+
+    return this.pushStatement(this._container.resolve<ColumnCompareStatement>(ColumnCompareStatement, [left, operator, right, this]));
+  }
+
+  public whereStartsWith(column: string, prefix: string): this {
+    this.pushStatement(this._container.resolve<StartsWithStatement>(StartsWithStatement, [column, prefix, this.TableAlias]));
+    return this;
+  }
+
   public clearWhere() {
     this._statements = [];
     return this;
   }
 }
+
+/** The query a where-builder belongs to: the parents of a nested group end at it. */
+export function queryOf(builder: IWhereBuilder<any>): QueryBuilder {
+  let current: unknown = builder;
+  while (current instanceof WhereBuilder && current.Parent !== undefined) {
+    current = current.Parent;
+  }
+
+  return current as QueryBuilder;
+}
+
+/**
+ * What a column of `builder` is qualified with: its query's alias, else the table. Read from the query, not
+ * the nested group, which copies the alias when it is created and misses a later `setAlias()`.
+ */
+export function qualifierOf(builder: IWhereBuilder<any>): string {
+  const query = queryOf(builder);
+  return query.TableAlias || query.Table;
+}
+
+/** The builder that `outer(column, levels)` names, seen from a statement of `builder`. */
+export function outerBuilder(builder: IWhereBuilder<any>, levels: number): IWhereBuilder<any> {
+  let target = builder;
+  for (let level = 1; level <= levels; level++) {
+    const source = (queryOf(target) as unknown as { CorrelationSource?: IWhereBuilder<any> }).CorrelationSource;
+    if (!source) {
+      throw new InvalidOperation(`outer(): the query is not a sub-query ${level} level(s) deep; attach it with whereExist() or whereIn()`);
+    }
+    target = source;
+  }
+
+  return target;
+}
+
+/** Reads the driver's value of a selectCondition() column as a boolean. */
+class BooleanColumnMiddleware implements IBuilderMiddleware<any> {
+  constructor(
+    private readonly alias: string,
+    private readonly converter: BooleanValueConverter,
+  ) {}
+
+  public afterQuery(data: any): any {
+    if (Array.isArray(data)) {
+      for (const row of data) {
+        if (row !== null && typeof row === 'object' && this.alias in row) {
+          row[this.alias] = this.converter.fromDB(row[this.alias], row, null);
+        }
+      }
+    }
+
+    return data;
+  }
+
+  public modelCreation(): ModelBase | null {
+    return null;
+  }
+
+  public async afterHydration(): Promise<void> {}
+}
+
 @Injectable(SelectQueryBuilder)
 export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /**
@@ -1365,7 +1497,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._statements = this._statements.map(c => c.clone(builder));
 
     // Clone group-by statements (previously dropped, silently losing GROUP BY
-    // on a cloned query — eg. orm-api count-pagination clones the builder).
+    // on a cloned query).
     builder._groupStatements = this._groupStatements.map(c => c.clone(builder));
 
     // Carry relations and result middlewares over. These hold live objects and
@@ -1442,7 +1574,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       }
     }
 
-    return relInstance!;
+    return relInstance;
   }
 
   // A nullish relation is a no-op, so routes with an optional `include` param
@@ -1497,7 +1629,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     // Everything that is not a string was handled above (constructor / array /
     // object), so the remaining value is a plain relation name.
-    this._getRelationInstance(relation as string).execute(callback);
+    // The relation runs the callback on its relation query, a SelectQueryBuilder.
+    this._getRelationInstance(relation as string).execute(callback as Parameters<IOrmRelation['execute']>[0]);
 
     return this;
   }
@@ -1603,10 +1736,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   public selectCount(column?: string, as?: string) {
     const a = as ?? 'count';
 
-    return this.count(column, as)
-      .takeFirst()
+    // postgres returns COUNT(*) as a bigint string
+    return this.count(column, as).takeFirst()
       .asRaw<{ [key: string]: number | string }>()
-      .then((x) => (x ? Number(x[a]) : 0));
+      .then((x) => Number(x?.[a] ?? 0));
   }
 
   public sum(column: string, as?: string): this {
@@ -1616,6 +1749,18 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   public avg(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.AVG, as, this._tableAlias]));
+    return this;
+  }
+
+  /**
+   * Selects `condition` as the column `alias`. Rows read through the builder hold a boolean on every
+   * driver (its BooleanValueConverter); `asRaw()` keeps the driver's 1 / 0.
+   */
+  public selectCondition(alias: string, condition: WhereFunction<T>): this {
+    const builder = new WhereBuilder<T>(this as unknown as WhereBuilder<T>);
+    condition.call(builder);
+    this._columns.push(this._container.resolve<ColumnConditionStatement>(ColumnConditionStatement, [builder, alias]));
+    this.middleware(new BooleanColumnMiddleware(alias, this._container.resolve<BooleanValueConverter>(BooleanValueConverter)));
     return this;
   }
 
@@ -1726,6 +1871,19 @@ export class DeleteQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
     this._queryMiddlewares.forEach((x) => x.afterQueryCreation(this));
   }
 
+  protected _whereFloor?: number;
+
+  /** Refuses to execute until the caller adds a WHERE; constraints already present (middleware ones) do not count. */
+  public requireWhere(): this {
+    this._whereFloor = this._statements.length;
+    return this;
+  }
+
+  protected async _run(): Promise<IUpdateResult> {
+    assertNarrowed('DELETE', this.Table, this._statements, this._whereFloor);
+    return super._run();
+  }
+
   public toDB(): ICompilerOutput {
     return this._container.resolve<DeleteQueryCompiler>(DeleteQueryCompiler, [this]).compile();
   }
@@ -1798,11 +1956,19 @@ export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
     return this._value;
   }
 
+  protected _increments: Map<string, number>;
+
+  /** Columns to increment and by how much, compiled after {@link Value}. */
+  public get Increments(): ReadonlyMap<string, number> {
+    return this._increments;
+  }
+
   @use(WhereBuilder) this: this;
 
   constructor(container: Container, driver: OrmDriver, model: Constructor<any>) {
     super(container, driver, model);
     this._value = {};
+    this._increments = new Map();
     this._method = QueryMethod.UPDATE;
     this._boolean = WhereBoolean.AND;
     this._statements = [];
@@ -1825,9 +1991,61 @@ export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
     return this;
   }
 
+  public increment(column: string, by = 1): this {
+    if (isNullOrWhitespace(column)) {
+      throw new InvalidArgument('increment column is empty');
+    }
+
+    if (typeof by !== 'number' || !Number.isFinite(by)) {
+      throw new InvalidArgument(`increment of ${column} must be a finite number, got ${String(by)}`);
+    }
+
+    this._increments.set(column, (this._increments.get(column) ?? 0) + by);
+    return this;
+  }
+
+  protected _whereFloor?: number;
+
+  /** Refuses to execute until the caller adds a WHERE; constraints already present (middleware ones) do not count. */
+  public requireWhere(): this {
+    this._whereFloor = this._statements.length;
+    return this;
+  }
+
+  protected async _run(): Promise<IUpdateResult> {
+    assertNarrowed('UPDATE', this.Table, this._statements, this._whereFloor);
+    return super._run();
+  }
+
   public toDB(): ICompilerOutput {
     return this._container.resolve<UpdateQueryCompiler>(UpdateQueryCompiler, [this]).compile();
   }
+}
+
+// Checked before the query middlewares run: one that adds its own WHERE (an ownership filter)
+// would otherwise pass a statement the caller never narrowed.
+function assertNarrowed(statement: string, table: string, statements: IQueryStatement[], floor?: number) {
+  if (floor !== undefined && statements.length <= floor) {
+    throw new OrmException(`Refusing an unbounded ${statement} on ${table}; narrow it with where(), or use truncate() to clear the table`);
+  }
+}
+
+/**
+ * Folds the driver results of one insert run as several statements into what one statement
+ * would have returned: rows in insert order, counts summed, the last statement's identity value.
+ */
+export function mergeInsertResults(results: unknown[]): unknown {
+  if (results.every((r) => Array.isArray(r))) {
+    return (results as unknown[][]).flat();
+  }
+
+  const packets = results as Array<{ RowsAffected?: number; LastInsertId?: number; Returning?: unknown[] } | undefined>;
+
+  return {
+    RowsAffected: packets.reduce((sum, r) => sum + (r?.RowsAffected ?? 0), 0),
+    LastInsertId: packets[packets.length - 1]?.LastInsertId ?? 0,
+    Returning: packets.flatMap((r) => (Array.isArray(r?.Returning) ? r!.Returning : [])),
+  };
 }
 
 @NewInstance()
@@ -1991,8 +2209,8 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
         .map((c) => {
           return c.Column;
         })
-        .forEach((c: string) => {
-          binding.push(d[c]);
+        .forEach((c) => {
+          binding.push(d[c as string]);
         });
 
       self._values.push(binding);
@@ -2020,6 +2238,61 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     return this.DuplicateQueryBuilder;
   }
 
+  /**
+   * The payload as one builder per statement, each within the driver's `MaxBindings` and
+   * `MaxInsertRows`. A payload that fits one statement is this builder alone.
+   */
+  public splitByDriverLimits(): InsertQueryBuilder[] {
+    const maxBindings = this._driver.MaxBindings;
+    const perRow = Math.max(this._columns.length, 1);
+    // raw ON CONFLICT / ON DUPLICATE KEY columns bind once per statement, not once per row
+    const reserved = _.flatMap(this.DuplicateQueryBuilder?.getColumnsToUpdate() ?? [], (c: string | RawQuery) => (c instanceof RawQuery ? c.Bindings ?? [] : [])).length;
+    const rowsPerStatement = Math.min(this._driver.MaxInsertRows,Math.floor((maxBindings - reserved) / perRow));
+
+    if (this._values.length <= rowsPerStatement) {
+      return [this];
+    }
+
+    if (rowsPerStatement < 1) {
+      throw new OrmException(`one row of ${perRow} columns needs more than the ${maxBindings} bound parameters driver ${this._driver.Options.Driver} allows in a statement`);
+    }
+
+    const chunks: InsertQueryBuilder[] = [];
+    for (let i = 0; i < this._values.length; i += rowsPerStatement) {
+      chunks.push(this.withRows(this._values.slice(i, i + rowsPerStatement)));
+    }
+
+    return chunks;
+  }
+
+  protected _executeOnDriver(): Promise<IUpdateResult> {
+    const chunks = this.splitByDriverLimits();
+
+    if (chunks.length === 1) {
+      return super._executeOnDriver();
+    }
+
+    const run = async () => {
+      const results: unknown[] = [];
+      for (const chunk of chunks) {
+        results.push(await this._driver.execute(chunk));
+      }
+
+      return mergeInsertResults(results) as IUpdateResult;
+    };
+
+    // the statements are one insert to the caller: they commit or roll back together
+    return this._driver.CurrentTransaction ? run() : this._driver.transaction(run);
+  }
+
+  /** A shallow copy that compiles `rows` instead of the whole payload; it is never executed itself. */
+  private withRows(rows: any[][]): InsertQueryBuilder {
+    const chunk = Object.assign(Object.create(Object.getPrototypeOf(this)), this) as InsertQueryBuilder;
+    chunk._values = rows;
+    chunk._executionPromise = null;
+    return chunk;
+  }
+
   public toDB(): ICompilerOutput {
     return this._container.resolve<InsertQueryCompiler>(InsertQueryCompiler, [this]).compile();
   }
@@ -2032,6 +2305,7 @@ export class IndexQueryBuilder extends Builder {
   public Unique: boolean;
   public Table: string;
   public Columns: string[];
+  public Drop: boolean;
 
   constructor(container: Container, driver: OrmDriver) {
     super(container, driver);
@@ -2059,6 +2333,13 @@ export class IndexQueryBuilder extends Builder {
 
   public columns(colNames: string[]) {
     this.Columns = colNames;
+
+    return this;
+  }
+
+  /** Drops the index named by `name()` on `table()` instead of creating it. */
+  public drop() {
+    this.Drop = true;
 
     return this;
   }
@@ -2146,6 +2427,8 @@ export class ForeignKeyBuilder {
   }
 }
 
+const EXACT_TYPES: ColumnType[] = [ColumnType.STRING, ColumnType.TEXT, ColumnType.TINY_TEXT, ColumnType.MEDIUM_TEXT, ColumnType.LONG_TEXT];
+
 @NewInstance()
 @Inject(Container)
 export class ColumnQueryBuilder {
@@ -2158,6 +2441,7 @@ export class ColumnQueryBuilder {
   public Comment: string;
   public Charset: string;
   public Collation: string;
+  public Exact: boolean;
   public NotNull: boolean;
   public Type: ColumnType;
   public Args: any[];
@@ -2177,6 +2461,7 @@ export class ColumnQueryBuilder {
     this.AutoIncrement = false;
     this.NotNull = false;
     this.Collation = '';
+    this.Exact = false;
     this.Comment = '';
     this.Unique = false;
     this.Unsigned = false;
@@ -2233,6 +2518,20 @@ export class ColumnQueryBuilder {
 
   public collation(collation: string) {
     this.Collation = collation;
+
+    return this;
+  }
+
+  /**
+   * Compares and orders values byte for byte, with the dialect's binary collation: case and accent variants are
+   * different values. An explicit `collation()` wins. String and text columns only.
+   */
+  public exact() {
+    if (!EXACT_TYPES.includes(this.Type)) {
+      throw new InvalidArgument(`exact() applies to string and text columns only, column '${this.Name}' is ${this.Type}`);
+    }
+
+    this.Exact = true;
 
     return this;
   }
@@ -3136,16 +3435,20 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
     throw new Error(`model ${model.name} does not have model descriptor. Use @model decorator on class`);
   }
 
+  if (!DI.check('OrmConnection')) {
+    throw new OrmNotResolved(`${model.name}: the Orm has not created its connections yet; await ormReady() first`);
+  }
+
   const own = DI.resolve<OrmDriver>('OrmConnection', [dsc.Connection]);
 
   if (!own) {
-    throw new Error(`model ${model.name} have invalid connection ${dsc.Connection}, please check your db config file or model connection name`);
+    throw new OrmConnectionMissing(`model ${model.name} have invalid connection ${dsc.Connection}, please check your db config file or model connection name`, dsc.Connection!);
   }
 
   const driver = via ?? own;
 
   const cnt = driver.Container;
-  const models = DI.getRegisteredTypes<ModelBase>('__models__');
+  const models = DI.getRegisteredTypes<ModelBase>('__models__') ?? [];
   const qr = cnt.resolve<T>(query, [driver, injectModel ? models.find((x) => x.name === model.name) : undefined]);
 
   // Query scopes bind to every statement type that can carry a WHERE clause, not just selects.

@@ -1,0 +1,14 @@
+{
+  "users": [
+    { "Login": "ann", "Role": "acme.salesman" },
+    { "Login": "bob", "Role": "acme.salesman,partner.backoffice" },
+    { "Login": "cid", "Role": "user,Stock editor" },
+    { "Login": "dan", "Role": "admin" },
+    { "Login": "sys", "Role": "system" },
+    { "Login": "eve", "Role": "Admin" }
+  ],
+  "tokens": [
+    { "Id": 1, "Roles": "system", "ExpiresAt": null },
+    { "Id": 2, "Roles": "localisations.read", "ExpiresAt": "2027-01-01 00:00:00" }
+  ]
+}

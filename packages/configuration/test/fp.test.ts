@@ -80,10 +80,23 @@ describe('configuration fp', () => {
       expect(s.foo()).to.eq('impl');
     });
 
+    it('resolves a service configured as a plain name', async () => {
+      cfg.set('fp.service.plain', 'FpTestServiceImpl');
+
+      expect(await _service('fp.service.plain', FpTestServiceBase)()).to.be.instanceOf(FpTestServiceImpl);
+    });
+
     it('names the missing service in the error when not registered', async () => {
       cfg.set('fp.service.bad', { service: 'NoSuchService' });
 
       await expect(_service('fp.service.bad', FpTestServiceBase)()).to.be.rejectedWith(/NoSuchService/);
+    });
+
+    it('names the service when no implementation of the type was ever registered', async () => {
+      class NeverRegisteredBase {}
+      cfg.set('fp.service.never', { service: 'NoSuchService' });
+
+      await expect(_service('fp.service.never', NeverRegisteredBase)()).to.be.rejectedWith(/NoSuchService is not registered for type NeverRegisteredBase/);
     });
 
     it('rejects with configuration path when config entry missing', async () => {

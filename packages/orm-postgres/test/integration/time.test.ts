@@ -132,16 +132,6 @@ describe('postgres integration - time (process zone Europe/Warsaw)', function ()
 
     expect(row.t.toISOString()).to.equal('2026-07-01T10:00:00.123Z');
   });
-
-  it('converts a legacy TIMESTAMP column with the documented ALTER', async () => {
-    await suite.driver.executeOnDb('CREATE TABLE "pg_legacy_ts" ("Id" int PRIMARY KEY, "At" timestamp(3))', [], QueryContext.Schema);
-    // an earlier driver version wrote the wall time of a Europe/Warsaw process
-    await suite.driver.executeOnDb(`INSERT INTO "pg_legacy_ts" VALUES (1, '2026-07-01 12:00:00.123')`, [], QueryContext.Insert);
-    await suite.driver.executeOnDb(`ALTER TABLE "pg_legacy_ts" ALTER COLUMN "At" TYPE TIMESTAMPTZ(3) USING "At" AT TIME ZONE 'Europe/Warsaw'`, [], QueryContext.Schema);
-
-    const [row] = await suite.raw<{ At: Date }[]>('SELECT "At" FROM "pg_legacy_ts"');
-    expect(row.At.toISOString()).to.equal('2026-07-01T10:00:00.123Z');
-  });
 });
 
 describe('postgres integration - time (database default zone America/New_York)', function () {

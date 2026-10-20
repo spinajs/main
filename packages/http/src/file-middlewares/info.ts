@@ -24,7 +24,7 @@ export class FileInfoMiddleware extends FileUploadMiddleware {
         if (paramOptions.fileInfo) {
 
             if(!this.FileInfo){
-                this.Log.warn(`FileInfo service not available, cannot retrieve file info for uploaded file ${file.Name}.`);
+                this.Log.warn({ file: file.Name }, 'FileInfo service not available, cannot retrieve file info for uploaded file ${file}.');
                 return file;
             }
 

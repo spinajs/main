@@ -97,6 +97,15 @@ describe('process utilities', () => {
       expect(errors).to.deep.eq(['b']);
     });
 
+    it('reports an unnamed inline handler as anonymous', async () => {
+      const errors: string[] = [];
+      onShutdown(() => {
+        throw new Error('boom');
+      });
+      await runShutdown((_e, name) => errors.push(name));
+      expect(errors).to.deep.eq(['anonymous']);
+    });
+
     it('unregister removes a handler', async () => {
       const ran: string[] = [];
       const off = onShutdown(() => void ran.push('x'));
@@ -134,6 +143,8 @@ describe('process utilities', () => {
       expect(envInt(KEY)).to.eq(42);
       process.env[KEY] = 'nope';
       expect(() => envInt(KEY)).to.throw(InvalidArgument);
+      process.env[KEY] = '';
+      expect(envInt(KEY, 7)).to.eq(7);
     });
 
     it('envBool parses truthy / falsy tokens', () => {

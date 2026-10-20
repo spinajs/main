@@ -10,6 +10,21 @@ HTTP server & controller framework for SpinaJS, built on top of Express.
 - Controller metadata cache with ahead-of-time CLI build (fast cold starts in docker)
 - Fail-fast startup: broken controllers throw typed exceptions instead of half-starting
 
+## Documentation
+
+Full documentation, one page per feature with its extension points: [docs/http](../../docs/http/README.md).
+
+| Topic | Page |
+| --- | --- |
+| Server, configuration, lifecycle | [HTTP server](../../docs/http/01-http-server.md) |
+| Controllers, routes, discovery | [Controllers and routing](../../docs/http/02-controllers-and-routing.md), [Controller discovery](../../docs/http/03-controller-discovery.md) |
+| Route arguments | [Route arguments](../../docs/http/04-route-arguments.md), [Custom route arguments](../../docs/http/05-custom-route-arguments.md), [Hydrators](../../docs/http/06-argument-hydrators.md), [Input filters](../../docs/http/07-argument-input-filters.md) |
+| Uploads | [File uploads](../../docs/http/08-file-uploads.md), [Upload middlewares and uploaders](../../docs/http/09-upload-middlewares-and-uploaders.md) |
+| Responses and errors | [Responses](../../docs/http/10-responses.md), [Error handling](../../docs/http/11-error-handling.md), [Data transformers](../../docs/http/12-data-transformers.md) |
+| Access and middlewares | [Policies](../../docs/http/13-policies.md), [Route middlewares](../../docs/http/14-route-middlewares.md), [Server middlewares](../../docs/http/15-server-middlewares.md) |
+| Shipped middlewares | [CORS](../../docs/http/16-cors.md), [Client IP](../../docs/http/17-client-ip-and-trust-proxy.md), [Throttling](../../docs/http/18-throttling.md), [Request storage and tracing](../../docs/http/19-request-storage-and-tracing.md), [Cookies](../../docs/http/20-cookies.md) |
+| Controller cache and CLI | [Controller cache and CLI](../../docs/http/21-controller-cache-and-cli.md) |
+
 ## Installation
 
 ```bash
@@ -240,7 +255,7 @@ export class AdminController extends BaseController {
 Policies can also be referenced **by configuration key** — the key must resolve to a registered policy type name:
 
 ```ts
-@Policy('rbac.session.policy')      // read from configuration at startup
+@Policy('authn.session.policy')      // read from configuration at startup
 ```
 
 A config key that does not resolve to a registered `BasePolicy` throws `RouteRegistrationException` at startup — a silently dropped policy would leave the route unprotected.
@@ -376,9 +391,25 @@ The command exits non-zero when any controller fails to parse, failing the image
 | `RouteRegistrationException` | route-level startup failure |
 | `EntityTooLargeException` | uploaded file exceeds limits ( maps to HTTP 413 ) |
 
+## Running the tests
+
+```bash
+npm run test --workspace=packages/http
+```
+
+The suites import the other `@spinajs/*` packages from their built `lib/mjs` output, so
+`pretest` builds this package and its references first (`tsc -b tsconfig.mjs.json` with the
+repo's `typescript-7`). It is incremental: a no-op when the tree is already built.
+
+All suites share one mocha process and one DI root container. `test/setup.ts`, loaded by
+`.mocharc.json` before any suite, puts DI in ESM mode, so the suites pass the same way with or
+without the CJS build and `npm run prepare-module-support`. A new suite must not call
+`DI.clearCache()`: uncache only the types it registered. A suite that starts the server calls
+`releaseHttpServer()` from `test/common.ts` in its `after()` hook.
+
 ## Related packages
 
 - `@spinajs/http-swagger` — OpenAPI document generation from controller JSDoc
 - `@spinajs/orm-http` — `@Model()` route arg, ORM-aware responses
-- `@spinajs/rbac-http` — session / role policies
+- `@spinajs/authn-http` — session / role policies
 - `@spinajs/templates-pug` — HTML rendering for `TemplateResponse` and error pages

@@ -12,6 +12,12 @@ export function safeJson(v: unknown): string | null {
   }
 }
 
+/** `v` as JSON reads it back (`toJSON()` applied, functions dropped); `null` when it does not serialize. */
+export function jsonValue(v: unknown): unknown {
+  const json = safeJson(v);
+  return json === null ? null : (JSON.parse(json) as unknown);
+}
+
 export function toStructuredError(
   err: unknown,
   o: { attempt: number; occurredAt: number; step?: string | null },

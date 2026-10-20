@@ -19,6 +19,21 @@ cd packages/orm && npm test
 > output. After changing `packages/orm/src`, rebuild it (`npm run build` in that package)
 > before running a dependent package's suite, or the dependent will keep testing the old code.
 
+## Static analysis
+
+Run after `npm run build`: typed lint and the package checks read the built `lib/`.
+
+```bash
+npm run lint             # ESLint, one root eslint.config.mjs (cd packages/x && npm run lint for one package)
+npm run deps             # dependency-cruiser: import cycles, cross-package relative imports, devDependencies in src
+npm run knip             # unused and unlisted dependencies (warnings)
+npm run check:packages   # publint + are-the-types-wrong on what each package publishes
+```
+
+`lint` and `deps` fail only on new findings. Existing ones are recorded in `eslint-suppressions.json`
+and `.dependency-cruiser-known-violations.json`. After fixing old findings, shrink the baselines with
+`npm run lint:prune` and `npm run deps:baseline`. Do not regenerate them to make a new finding pass.
+
 ## Running integration tests
 
 The unit suites (`npm test`) never touch a real database — they run everywhere, including CI

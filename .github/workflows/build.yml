@@ -57,6 +57,44 @@ jobs:
       - name: build monorepo (esm + cjs)
         run: npm run build
 
+  # Lint and dependency rules fail only on findings newer than their baselines
+  # ( eslint-suppressions.json, .dependency-cruiser-known-violations.json ).
+  # Typed lint and the package checks read the built lib/, hence the build.
+  analysis:
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: analysis-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # dependency-cruiser needs node ^22 || ^24. Not 24: its npm 11 `npm ci` refuses this lock file.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: build monorepo (esm + cjs)
+        run: npm run build
+
+      - name: eslint
+        run: npm run lint
+
+      - name: dependency rules
+        run: npm run deps
+
+      # Unused / unlisted dependencies; warnings only until the existing ones are cleaned up.
+      - name: knip
+        run: npm run knip
+
+      - name: package exports and types ( publint, attw )
+        run: npm run check:packages
+
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: build
@@ -105,10 +143,16 @@ jobs:
       # orphan the half-published one ( its exact internal pins would point at
       # versions that never reached the registry ) - so on a re-run the bump and
       # the commit are skipped and publish-all just finishes the current version.
+      # A version not yet on the registry (one set by hand, e.g. a new major) is
+      # published as is instead of being bumped past.
       - name: bump all packages ( lockstep patch )
         run: |
+          VERSION=$(node -p "require('./packages/orm/package.json').version")
           if git log -1 --format=%s | grep -qE '^release v[0-9]+\.[0-9]+\.[0-9]+ \[skip ci\]$'; then
-            echo "HEAD is already a release commit - finishing $(node -p "require('./packages/orm/package.json').version") without bumping"
+            echo "HEAD is already a release commit - finishing $VERSION without bumping"
+            echo "SKIP_BUMP=1" >> "$GITHUB_ENV"
+          elif [ -z "$(npm view @spinajs/orm@$VERSION version 2>/dev/null)" ]; then
+            echo "$VERSION is not on the registry yet - publishing it without bumping"
             echo "SKIP_BUMP=1" >> "$GITHUB_ENV"
           else
             node scripts/bump-all.mjs

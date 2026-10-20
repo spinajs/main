@@ -130,6 +130,20 @@ describe('fs cli commands', function () {
     expect(loggedWith(spy.info, 'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9')).to.be.true;
   });
 
+  it('fs-hash labels the digest with the configured default algorithm', async () => {
+    const config = DI.get(Configuration) as any;
+    const original = config.get.bind(config);
+    sinon.stub(config, 'get').callsFake((path: unknown, def?: unknown) =>
+      path === 'fs.hasher.defaultAlgorithm' ? 'sha1' : original(path, def),
+    );
+
+    const cmd = await DI.resolve(FsHashCommand);
+    const spy = spyLog(cmd);
+    await cmd.execute('test', 'cli/hello.txt', {});
+
+    expect(loggedWith(spy.info, 'sha1(cli/hello.txt) = 2aae6c35c94fcfb415dbe95f408b9ce91ee846ed')).to.be.true;
+  });
+
   it('fs-info prints metadata', async () => {
     const t = await testFs();
     sinon.stub(t, 'metadata').resolves({ FileSize: 11 } as any);
@@ -232,7 +246,12 @@ describe('fs cli commands', function () {
     const spy = spyLog(cmd);
 
     // must not throw - command catches and logs
-    await cmd.execute('does-not-exist', '/');
-    expect(spy.error.called).to.be.true;
+    try {
+      await cmd.execute('does-not-exist', '/');
+      expect(spy.error.called).to.be.true;
+      expect(process.exitCode).to.eq(1);
+    } finally {
+      process.exitCode = undefined;
+    }
   });
 });

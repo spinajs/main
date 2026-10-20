@@ -5,7 +5,7 @@ import { IRelationDescriptor, IModelStatic, ISelectQueryBuilder, RelationType } 
 import { RawQuery } from './builders.js';
 import type { WhereBuilder } from './builders.js';
 import { WhereFunction } from './types.js';
-import { quoterOf } from './quoting.js';
+import { IdentifierQuoter, quoterOf } from './quoting.js';
 
 /**
  * Strategy that builds the EXISTS / NOT EXISTS clause for one relation type.
@@ -23,25 +23,25 @@ export abstract class ExistsRelationHandler {
 }
 
 /**
- * Resolves the correlated source primary key column reference, eg. `` `users`.`Id` ``.
+ * Resolves the correlated source primary key column reference, eg. `"users"."Id"` in the
+ * driver's own quoting.
  * Falls back to the source descriptor's `TableName` when neither the builder nor its parent
  * has an alias set, matching the legacy behaviour of `whereExist` / `whereNotExists`.
  */
-function sourcePKeyRef(builder: WhereBuilder<any>, tDesc: { TableName: string; PrimaryKey: string[] }): string {
-  return sourceColumnRef(builder, tDesc, tDesc.PrimaryKey[0]);
+function sourcePKeyRef(quoter: IdentifierQuoter, builder: WhereBuilder<any>, tDesc: { TableName: string; PrimaryKey: string[] }): string {
+  return sourceColumnRef(quoter, builder, tDesc, tDesc.PrimaryKey[0]);
 }
 
 /**
- * Resolves an arbitrary correlated column on the source side, eg. `` `entries`.`group_id` ``.
+ * Resolves an arbitrary correlated column on the source side, eg. `"entries"."group_id"`.
  *
  * {@link RelationType.One} correlates on the source's FOREIGN key rather than its primary
  * key, so it cannot reuse {@link sourcePKeyRef}. Both share the alias resolution: the
  * builder's alias, its parent's, or the source table name.
  */
-function sourceColumnRef(builder: WhereBuilder<any>, tDesc: { TableName: string }, column: string): string {
+function sourceColumnRef(quoter: IdentifierQuoter, builder: WhereBuilder<any>, tDesc: { TableName: string }, column: string): string {
   const sourceAlias = builder.TableAlias ?? tDesc.TableName;
-  const q = quoterOf(builder);
-  return `${q.quote(sourceAlias)}.${q.quote(column)}`;
+  return `${quoter.quote(sourceAlias)}.${quoter.quote(column)}`;
 }
 
 /**
@@ -105,7 +105,7 @@ export class OneExistsRelationHandler extends ExistsRelationHandler {
     relQuery.where(
       Lazy.oF(function (this: ISelectQueryBuilder) {
         const q = quoterOf(this);
-        this.where(new RawQuery(`${q.quote(alias)}.${q.quote(rel.PrimaryKey)} = ${sourceColumnRef(correlationSource(this, builder), tDesc, rel.ForeignKey)}`));
+        this.where(new RawQuery(`${q.quote(alias)}.${q.quote(rel.PrimaryKey)} = ${sourceColumnRef(q, correlationSource(this, builder), tDesc, rel.ForeignKey)}`));
       }),
     );
 
@@ -127,10 +127,12 @@ export class ManyExistsRelationHandler extends ExistsRelationHandler {
 
     // set alias to avoid conflicts in case of multiple relations to same model and to make
     // sure that relation query is correct even if source query has alias
-    const relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`).correlateWith(builder);
+    const alias = `${tableName}_exists`;
+    const relQuery = rel.TargetModel.query().setAlias(alias).correlateWith(builder);
     relQuery.where(
       Lazy.oF(function (this: ISelectQueryBuilder) {
-        this.where(new RawQuery(`${quoterOf(this).quote(rel.ForeignKey)} = ${sourcePKeyRef(correlationSource(this, builder), tDesc)}`));
+        const q = quoterOf(this);
+        this.where(new RawQuery(`${q.quote(alias)}.${q.quote(rel.ForeignKey)} = ${sourcePKeyRef(q, correlationSource(this, builder), tDesc)}`));
       }),
     );
 
@@ -153,10 +155,12 @@ export class ManyToManyExistsRelationHandler extends ExistsRelationHandler {
     const junctionModel = rel.JunctionModel as unknown as IModelStatic;
     const junctionTableName = junctionModel.getModelDescriptor().TableName;
 
-    const relQuery = junctionModel.query().setAlias(`${junctionTableName}_exists`).correlateWith(builder);
+    const alias = `${junctionTableName}_exists`;
+    const relQuery = junctionModel.query().setAlias(alias).correlateWith(builder);
     relQuery.where(
       Lazy.oF(function (this: ISelectQueryBuilder) {
-        this.where(new RawQuery(`${quoterOf(this).quote(rel.JunctionModelSourceModelFKey_Name!)} = ${sourcePKeyRef(correlationSource(this, builder), tDesc)}`));
+        const q = quoterOf(this);
+        this.where(new RawQuery(`${q.quote(alias)}.${q.quote(rel.JunctionModelSourceModelFKey_Name!)} = ${sourcePKeyRef(q, correlationSource(this, builder), tDesc)}`));
       }),
     );
 

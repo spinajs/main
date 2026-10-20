@@ -71,16 +71,16 @@ export function _is_map<K, V>(...checks: ((arg: unknown, name: string) => unknow
 }
 
 export function _contains_key<K, V>(key: K): (arg: unknown, name: string) => Map<K, V> | object {
-  return function (arg: Map<K, V> | object, name: string) {
+  return function (arg: unknown, name: string) {
     if (arg instanceof Map) {
       if (!arg.has(key)) {
         throw new InvalidArgument(`${name} should contain key ${key}`, name, 'MISSING_KEY');
       }
-    } else if (typeof arg === 'object' && !Object.keys(arg).includes(String(key))) {
+    } else if (typeof arg === 'object' && !Object.keys(arg as object).includes(String(key))) {
       throw new InvalidArgument(`${name} should contain key ${key}`, name, 'MISSING_KEY');
     }
 
-    return arg;
+    return arg as Map<K, V> | object;
   };
 }
 
@@ -114,7 +114,7 @@ export function _is_string(...checks: ((arg: string, name: string) => unknown)[]
   };
 }
 
-export function _is_array(...checks: ((arg: any[], name: string) => any[])[]) {
+export function _is_array(...checks: ((arg: any[], name: string) => unknown)[]) {
   return function (arg: any[], name: string) {
     if (!Array.isArray(arg)) {
       throw new InvalidArgument(`${name} should be array`, name, 'TYPE_MISMATCH');
@@ -165,7 +165,7 @@ export function _is_object(...checks: ((arg: object, name: string) => object)[])
 
 export function _is_instance_of(c: Constructor<unknown>, ...checks: ((arg: object, name: string) => object)[]) {
   return function (arg: object, name: string) {
-    if (typeof arg !== 'object' || arg === null || arg === undefined || Array.isArray(arg) || arg.constructor.name !== c.name) {
+    if (typeof arg !== 'object' || arg === null || arg === undefined || Array.isArray(arg) || !(arg instanceof c)) {
       throw new InvalidArgument(`${name} is not type of ${c.name}`, name, 'TYPE_MISMATCH');
     }
 
@@ -175,15 +175,16 @@ export function _is_instance_of(c: Constructor<unknown>, ...checks: ((arg: objec
 
 export function _or(...checks: ((arg: any, name: string) => any)[]) {
   return function (arg: any, name: string) {
+    const errors: string[] = [];
     for (const check of checks) {
       try {
         return check(arg, name);
       } catch (e) {
-        // ignore
+        errors.push(e instanceof Error ? e.message : String(e));
       }
     }
 
-    throw new InvalidArgument(`${name} should pass at least one check: ${checks.map((c) => c.name).join(', ')}`, name, 'VALIDATION_FAILED');
+    throw new InvalidArgument(`${name} should pass at least one check: ${errors.join('; ')}`, name, 'VALIDATION_FAILED');
   };
 }
 
@@ -328,7 +329,7 @@ export function _non_nil(error?: InvalidArgument) {
 
 export function _non_empty(error?: InvalidArgument) {
   return function (arg: string | any[], name: string) {
-    if (arg.length === 0) {
+    if (arg === null || arg === undefined || arg.length === 0) {
       throw error ?? new InvalidArgument(`${name} should not be empty`, name, 'EMPTY_VALUE');
     }
 
@@ -488,7 +489,7 @@ export function _to_date(fromFormat?: string, error?: InvalidArgument) {
     const res = fromFormat ? DateTime.fromFormat(arg, fromFormat).startOf('day') : DateTime.fromISO(arg).startOf('day');
 
     if (res.isValid === false) {
-      throw error ?? new InvalidArgument(`${name} should be a valid date in format ${fromFormat}`, name, 'PARSE_ERROR');
+      throw error ?? new InvalidArgument(`${name} should be a valid date in format ${fromFormat ?? 'ISO 8601'}`, name, 'PARSE_ERROR');
     }
 
     return res;
@@ -528,6 +529,26 @@ export function _positive(error?: InvalidArgument) {
   return function (arg: number, name: string) {
     if (typeof arg !== 'number' || arg <= 0) {
       throw error ?? new InvalidArgument(`${name} should be a positive number`, name, 'NEGATIVE_OR_ZERO');
+    }
+
+    return arg;
+  };
+}
+
+export function _finite(error?: InvalidArgument) {
+  return function (arg: number, name: string) {
+    if (!Number.isFinite(arg)) {
+      throw error ?? new InvalidArgument(`${name} should be a finite number`, name, 'NOT_FINITE');
+    }
+
+    return arg;
+  };
+}
+
+export function _integer(error?: InvalidArgument) {
+  return function (arg: number, name: string) {
+    if (!Number.isInteger(arg)) {
+      throw error ?? new InvalidArgument(`${name} should be an integer`, name, 'NOT_INTEGER');
     }
 
     return arg;

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-sql",
-  "version": "2.0.557",
+  "version": "3.0.0",
   "description": "framework orm sql language module",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -29,7 +29,7 @@
     "coverage": "nyc npm run test",
     "build-docs": "rimraf api-docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
-    "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
+    "lint": "cd ../.. && npm run lint -- packages/orm-sql",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
   },
@@ -53,11 +53,11 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/di": "2.0.557",
-    "@spinajs/log-common": "2.0.557",
-    "@spinajs/orm": "2.0.557",
-    "@spinajs/exceptions": "2.0.557",
-    "@spinajs/util": "2.0.557",
+    "@spinajs/di": "3.0.0",
+    "@spinajs/log-common": "3.0.0",
+    "@spinajs/orm": "3.0.0",
+    "@spinajs/exceptions": "3.0.0",
+    "@spinajs/util": "3.0.0",
     "luxon": "^3.6.1",
     "typescript-mix": "^3.1.3"
   },

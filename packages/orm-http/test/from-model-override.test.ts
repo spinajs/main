@@ -62,6 +62,8 @@ class FromModelOverrideTestConfiguration extends FrameworkConfiguration {
         rules: [{ name: '*', level: 'error', target: 'Empty' }],
       },
       db: {
+        // filters.test.ts registers filter_regression, which no migration creates.
+        StrictTableCheck: false,
         DefaultConnection: 'sqlite',
         Connections: [
           {

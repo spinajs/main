@@ -12,7 +12,7 @@ import Express, { ErrorRequestHandler, RequestHandler } from 'express';
 import _ from 'lodash';
 import fs from 'fs';
 
-import { ServerMiddleware, IHttpServerConfiguration, LifecycleState } from './interfaces.js';
+import { ServerMiddleware, IHttpServerConfiguration, LifecycleState, Request } from './interfaces.js';
 import './transformers/index.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
@@ -122,11 +122,11 @@ export class HttpServer extends AsyncService {
     if (!f) {
       this.Log.info(`No fs provider for __fs_http_response_templates__ registered, response templates will not be available.`);
     } else {
-      this.Log.info(`Response templates path at ${f.Options.basePath}`);
+      this.Log.info({ path: f.Options.basePath }, 'Response templates path at ${path}');
     }
 
     this.HttpConfig.middlewares?.forEach((m) => {
-      this.Log.info(`Using server middleware::before() - ${m.constructor.name}`);
+      this.Log.info({ middleware: m.constructor.name }, 'Using server middleware::before() - ${middleware}');
       this.use(m);
     });
 
@@ -137,7 +137,7 @@ export class HttpServer extends AsyncService {
     this.Middlewares.forEach((m) => {
       const f = m.before();
       if (f) {
-        this.Log.info(`Using server middleware::before() - ${m.constructor.name}`);
+        this.Log.info({ middleware: m.constructor.name }, 'Using server middleware::before() - ${middleware}');
         this.use(f);
       }
     });
@@ -150,8 +150,8 @@ export class HttpServer extends AsyncService {
    */
   private _createServer()  {
     if (this.HttpsEnabled) {
-      this.Log.info(`Using https key file ${this.HttpConfig.ssl.key}`);
-      this.Log.info(`Using https cert file ${this.HttpConfig.ssl.cert}`);
+      this.Log.info({ keyFile: this.HttpConfig.ssl.key }, 'Using https key file ${keyFile}');
+      this.Log.info({ certFile: this.HttpConfig.ssl.cert }, 'Using https cert file ${certFile}');
 
       const key = fs.readFileSync(this.HttpConfig.ssl.key);
       const cert = fs.readFileSync(this.HttpConfig.ssl.cert);
@@ -179,7 +179,7 @@ export class HttpServer extends AsyncService {
       // removed on listen success, so without this a server-level 'error' emitted
       // AFTER listening would be unhandled and crash the process.
       this._httpsServer.on('error', (err: any) => {
-        this.Log.error(`Server error: ${err?.message ?? err}`);
+        this.Log.error({ error: err }, 'Server error');
       });
     } else {
       this.Log.info(`HTTP enabled !`);
@@ -198,7 +198,7 @@ export class HttpServer extends AsyncService {
       // removed on listen success, so without this a server-level 'error' emitted
       // AFTER listening would be unhandled and crash the process.
       this._httpServer.on('error', (err: any) => {
-        this.Log.error(`Server error: ${err?.message ?? err}`);
+        this.Log.error({ error: err }, 'Server error');
       });
     }
   }
@@ -211,13 +211,13 @@ export class HttpServer extends AsyncService {
     // equality) would never dedupe two config entries pointing at the same dir.
     _.uniqBy(this.HttpConfig.Static, (s) => s.Path).forEach((s) => {
       if (!existsSync(s.Path)) {
-        this.Log.warn(`static file path ${s.Path} not exists`);
+        this.Log.warn({ path: s.Path }, 'static file path ${path} not exists');
         return;
       }
 
       const sRoute = s.Route ?? '/static';
 
-      this.Log.info(`Serving static content from: ${s.Path} at path: ${sRoute}`);
+      this.Log.info({ path: s.Path, route: sRoute }, 'Serving static content from: ${path} at path: ${route}');
       this.Express.use(sRoute, Express.static(s.Path));
     });
   }
@@ -244,7 +244,7 @@ export class HttpServer extends AsyncService {
       [...this.Middlewares].reverse().forEach((m) => {
         const f = m.after();
         if (f) {
-          this.Log.info(`Using server middleware::after() - ${m.constructor.name}`);
+          this.Log.info({ middleware: m.constructor.name }, 'Using server middleware::after() - ${middleware}');
           this.use(f);
         }
       });
@@ -256,7 +256,7 @@ export class HttpServer extends AsyncService {
       // 'error' listeners on the reused server object.
       const onError = (err: any) => {
         if (err.code === 'EADDRINUSE') {
-          this.Log.error(`----- Port ${this.HttpConfig.port} is busy -----`);
+          this.Log.error({ port: this.HttpConfig.port }, '----- Port ${port} is busy -----');
         }
         rej(err);
       };
@@ -266,7 +266,7 @@ export class HttpServer extends AsyncService {
         this.Server.removeListener('error', onError);
         this._state = LifecycleState.Listening;
         this._emit('http.server.listening');
-        this.Log.info(`Server started at port ${this.HttpConfig.port}`);
+        this.Log.info({ port: this.HttpConfig.port }, 'Server started at port ${port}');
         res();
       });
     });
@@ -283,7 +283,7 @@ export class HttpServer extends AsyncService {
     try {
       this.Container.emit(event, this);
     } catch (err: any) {
-      this.Log.warn(`Listener for ${event} threw: ${err?.message ?? err}`);
+      this.Log.warn({ event, error: err }, 'Listener for ${event} threw');
     }
   }
 
@@ -335,7 +335,7 @@ export class HttpServer extends AsyncService {
         if (err) {
           // Unexpected given the guards above; log rather than reject so shutdown
           // always settles.
-          this.Log.warn(`Error during server close: ${err.message}`);
+          this.Log.warn({ error: err }, 'Error during server close');
         }
 
         this._emit('http.server.closed');
@@ -364,7 +364,7 @@ export class HttpServer extends AsyncService {
       try {
         connection.destroy();
       } catch (err) {
-        this.Log.warn('Error destroying connection:', err.message);
+        this.Log.warn({ error: err }, 'Error destroying connection');
       }
     }
     this._connections.clear();
@@ -375,7 +375,8 @@ export class HttpServer extends AsyncService {
    *
    * @param middleware - middleware function
    */
-  public use(middleware: RequestHandler | ErrorRequestHandler): void {
-    this.Express.use(middleware);
+  /** ServerMiddleware handlers take the http `Request`; its `storage` is added by the ReqStorage middleware. */
+  public use(middleware: RequestHandler | ErrorRequestHandler | ((req: Request, res: Express.Response, next: Express.NextFunction) => void)): void {
+    this.Express.use(middleware as RequestHandler | ErrorRequestHandler);
   }
 }

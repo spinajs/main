@@ -21,17 +21,23 @@ const schedulerHttp = {
       },
     },
   },
-  rbac: {
-    grants: {
-      'admin.scheduler': {
-        scheduler: {
-          'read:any': ['*'],
-          'update:any': ['*'],
-          'delete:any': ['*'],
+  authz: {
+    permissions: {
+      'scheduler:read': { description: 'List schedules, runs and error groups, and follow their live events' },
+      'scheduler:run': { description: 'Run a schedule now, cancel and retry runs' },
+      'scheduler:manage': { description: 'Pause and resume schedules, change the status of error groups, prune' },
+    },
+    // Unread unless the app loads @spinajs/authz-rbac.
+    rbac: {
+      roles: {
+        'admin.scheduler': {
+          assignable: false,
+          grants: ['scheduler:read', 'scheduler:run', 'scheduler:manage'],
         },
-      },
-      admin: {
-        $extend: ['admin.scheduler'],
+        // The config merge concatenates `extends` arrays, so this adds to the other `admin` fragments.
+        admin: {
+          extends: ['admin.scheduler'],
+        },
       },
     },
   },

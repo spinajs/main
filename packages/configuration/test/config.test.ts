@@ -5,9 +5,10 @@ import * as chai from 'chai';
 import { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { join, normalize, resolve } from 'path';
-import { DI, IMappableService, Injectable } from '@spinajs/di';
-import { Configuration, ConfigVar, ConfigVarProtocol } from '@spinajs/configuration-common';
+import { DI, IContainer, IMappableService, Injectable } from '@spinajs/di';
+import { Configuration, ConfigurationSource, ConfigVar, ConfigVarProtocol, IConfigLike } from '@spinajs/configuration-common';
 
+import { configurationOf, NoSource } from './fixtures.js';
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { AutoinjectService } from './../src/decorators.js';
 import { JsFileSource } from '../src/sources.js';
@@ -429,5 +430,82 @@ describe('environment resolution', () => {
     expect(envOf('production')).to.equal('prod');
     expect(envOf('local')).to.equal('local');
     expect(envOf(undefined)).to.equal('prod');
+  });
+});
+
+describe('FrameworkConfiguration load', () => {
+  const booted: IContainer[] = [];
+
+  async function boot(values: Record<string, unknown>, setup: (child: IContainer) => void = () => undefined, options?: unknown) {
+    const child = DI.child();
+    booted.push(child);
+    child.register(NoSource).as(ConfigurationSource);
+    child.register(configurationOf(values)).as(Configuration);
+    setup(child);
+    return (await child.resolve(Configuration, options ? [options] : [])) as FrameworkConfiguration;
+  }
+
+  afterEach(async () => {
+    for (const c of booted.splice(0).reverse()) await c.dispose();
+  });
+
+  it('merges a source added with mergeSource() into the current tree', async () => {
+    class LateSource extends ConfigurationSource {
+      public get Order() {
+        return 0;
+      }
+
+      public Load(): Promise<IConfigLike> {
+        return Promise.resolve({ late: { loaded: true } } as unknown as IConfigLike);
+      }
+    }
+
+    const config = await boot({});
+    await config.mergeSource(LateSource);
+    expect(config.get('late.loaded')).to.eq(true);
+  });
+
+  it('keeps a __configuration__ key no source defines', async () => {
+    const config = await boot({}, (c) => c.register({ codeOnly: { on: true } }).asValue('__configuration__'));
+    expect(config.get('codeOnly.on')).to.eq(true);
+  });
+
+  it('adds the app dirs to system.dirs', async () => {
+    const config = await boot({ system: { dirs: { controllers: ['/pkg/controllers'] } } }, undefined, { app: 'shop', appBaseDir: '/apps' });
+    expect(config.get('system.dirs.controllers')).to.deep.eq(['/pkg/controllers', normalize(join(resolve('/apps'), '/shop/controllers'))]);
+  });
+
+  it('sets the module defaults and environment flags without file sources, from the container process.env value', async () => {
+    const config = await boot({}, (c) => c.register({ APP_ENV: 'prod' }).asValue('process.env'));
+    expect(config.get('app.name')).to.eq('spinajs');
+    expect(config.get('configuration.isProduction')).to.eq(true);
+  });
+
+  it('resolves protocols registered in its own container', async () => {
+    class ChildProtocol extends ConfigVarProtocol {
+      public get Protocol() {
+        return 'child://';
+      }
+
+      public getVar(path: string): Promise<string> {
+        return Promise.resolve(`child-${path}`);
+      }
+    }
+
+    const config = await boot({ value: 'child://a' }, (c) => c.register(ChildProtocol).as(ConfigVarProtocol));
+    expect(config.get('value')).to.eq('child-a');
+  });
+
+  it('resolves protocol strings placed directly in an array', async () => {
+    const config = await boot({ list: ['test://a', 'plain'] });
+    expect(config.get('list')).to.deep.eq(['sample-val-proto', 'plain']);
+  });
+
+  it('returns the default value while a ConfigVar is not ready', async () => {
+    LazyRootProtocol.Value = null;
+    const config = await boot({ section: { lazy: 'lazyroot://a' } });
+    expect(config.get('section.lazy', 'fallback')).to.eq('fallback');
+    LazyRootProtocol.Value = 'lazy-root-val';
+    expect(config.get('section.lazy', 'fallback')).to.eq('lazy-root-val');
   });
 });

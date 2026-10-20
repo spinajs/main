@@ -1,7 +1,7 @@
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { TypedArray } from './array.js';
 import { getTypeName, isConstructor, isFactory, isObject } from './helpers.js';
-import { IContainer } from './interfaces.js';
+import { IChainRegistration, IContainer } from './interfaces.js';
 import { Class, Factory } from './types.js';
 
 export class Registry {
@@ -13,15 +13,38 @@ export class Registry {
     this.registry.clear();
   }
 
-  public unregister(type: any) {
-    const tname = getTypeName(type);
+  /**
+   * True when this registry ( not an ancestor ) holds an entry for `service`.
+   */
+  public ownsRegistration<T>(service: TypedArray<T> | Class<T> | string): boolean {
+    return this.registry.has(getTypeName(service));
+  }
 
-    this.registry.forEach((value) => {
-      const index = value.findIndex((x) => getTypeName(x) === tname);
-      if (index !== -1) {
-        value.splice(index, 1);
+  /**
+   * Without `implementation`: removes every entry named like `type`, under any key.
+   * With it: removes `implementation` itself ( by identity, so one of several arrow factories ) from the `type` key only.
+   */
+  public unregister(type: any, implementation?: unknown) {
+    const tname = getTypeName(type);
+    const byIdentity = implementation !== undefined;
+
+    for (const [key, value] of [...this.registry]) {
+      if (byIdentity && key !== tname) {
+        continue;
       }
-    });
+
+      const index = byIdentity ? value.indexOf(implementation) : value.findIndex((x) => getTypeName(x) === tname);
+      if (index === -1) {
+        continue;
+      }
+
+      value.splice(index, 1);
+      // An empty list would still count as a registration and hide the default
+      // resolution ( the type itself, or the parent's entries ).
+      if (value.length === 0) {
+        this.registry.delete(key);
+      }
+    }
   }
 
   public register(name: string | Class<any> | TypedArray<any>, type: any) {
@@ -30,6 +53,7 @@ export class Registry {
     } else {
       const tname = getTypeName(name);
       const value = this.registry.get(tname);
+
       if (value) {
         // factory functions, we always add to registry
         // its impossible to check for duplicates
@@ -72,6 +96,33 @@ export class Registry {
     }
 
     return null as any;
+  }
+
+  public getTypesChain<T>(service: string | Class<T> | TypedArray<T>): IChainRegistration[] {
+    if (!service) {
+      throw new InvalidArgument('argument "service" cannot be null or empty');
+    }
+
+    const lineage: IContainer[] = [];
+    for (let c: IContainer | undefined = this.container; c; c = c.Parent) {
+      lineage.unshift(c);
+    }
+
+    const chain: IChainRegistration[] = [];
+    for (const container of lineage) {
+      for (const type of container.Registry.getTypes(service, false) ?? []) {
+        const name = isFactory(type) ? null : getTypeName(type);
+        const replaced = name === null ? -1 : chain.findIndex((e) => !isFactory(e.type) && getTypeName(e.type) === name);
+
+        if (replaced === -1) {
+          chain.push({ type, container });
+        } else {
+          chain[replaced] = { type, container };
+        }
+      }
+    }
+
+    return chain;
   }
 
   public hasRegistered<T>(service: TypedArray<T> | Class<T> | string, parent = true): boolean {

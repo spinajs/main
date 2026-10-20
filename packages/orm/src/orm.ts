@@ -43,8 +43,31 @@ export interface IOrmOptions {
    * It is deliberately not a `force` variation. `force` chooses whether the `OnStartup` gate is
    * honoured, and both of its values RUN migrations - `force: false` runs every connection whose
    * gate is on, which is exactly the set a migration tool must not touch on its way in.
+   *
+   * `false` also turns the `db.StrictTableCheck` boot check into warnings: such a process runs
+   * before the migrations created the tables. `migrate-up` checks after its run instead.
    */
   MigrateOnStartup?: boolean;
+}
+
+export interface IReloadTableInfoOptions {
+  /** Throw one OrmException listing every registered model whose table is missing. Default false: warn per model. */
+  strict?: boolean;
+}
+
+/** A registered model whose table `tableInfo()` did not find. */
+export interface IMissingModelTable {
+  model: string;
+  table: string;
+  /** The name the model's `@Connection` uses: a connection, an alias or `default`. */
+  connection: string;
+  /** The configured `Name` of the driver that name resolved to. */
+  target: string;
+}
+
+function missingTablesMessage(missing: IMissingModelTable[]): string {
+  const list = missing.map((m) => `model ${m.model}: table ${m.table} on connection ${m.connection}${m.target === m.connection ? '' : ` (${m.target})`}`);
+  return `Missing tables (db.StrictTableCheck): ${list.join('; ')}. Create them (run their migrations) or set db.StrictTableCheck to false`;
 }
 
 export class Orm extends AsyncService {
@@ -77,18 +100,26 @@ export class Orm extends AsyncService {
     super();
   }
 
+  /** `db.StrictTableCheck`: only an explicit `false` turns it off, so a configuration replaced after validation keeps it on. */
+  public get StrictTableCheck(): boolean {
+    return this.Configuration.get<boolean>('db.StrictTableCheck', true) !== false;
+  }
+
   /**
-   * This function is exposed mainly for unit testing purposes. It reloads table information for models
-   * ORM always try to load table at resolve time
+   * Reads the columns of every registered model's table into its descriptor; call it after creating tables on a
+   * booted Orm. A model whose table is missing keeps only its decorator columns and is logged, or, with `strict`,
+   * fails the call. `Orm.resolve()` calls it strict when `db.StrictTableCheck` is on.
    */
-  public async reloadTableInfo() {
+  public async reloadTableInfo(options: IReloadTableInfoOptions = {}): Promise<void> {
+    const missing: IMissingModelTable[] = [];
+
     for (const m of this.Models) {
       const descriptor = extractModelDescriptor(m.type);
       if (descriptor) {
         const connection = this.Connections.get(descriptor.Connection!);
 
         if (!connection) {
-          this.Log.warn(`Cannot find connection ${descriptor.Connection} in connection list (model ${descriptor.Name})`);
+          this.Log.warn({ connection: descriptor.Connection, model: descriptor.Name }, 'Cannot find connection ${connection} in connection list (model ${model})');
           continue;
         }
 
@@ -164,8 +195,22 @@ export class Orm extends AsyncService {
             d.Schema = buildModelJsonSchema(d);
             d.ResponseSchema = buildModelJsonSchema(d, 'response');
           });
+        } else {
+          missing.push({ model: m.name, table: descriptor.TableName, connection: descriptor.Connection!, target: connection.Options.Name });
         }
       }
+    }
+
+    if (missing.length === 0) {
+      return;
+    }
+
+    if (options.strict) {
+      throw new OrmException(missingTablesMessage(missing));
+    }
+
+    for (const m of missing) {
+      this.Log.warn({ model: m.model, table: m.table, connection: m.connection }, 'Table ${table} of model ${model} does not exist on connection ${connection}; the model has no column info');
     }
   }
 
@@ -218,7 +263,15 @@ export class Orm extends AsyncService {
     // reloadTableInfo / wireRelations / applyModelMixins and the data() phase all stay AFTER the
     // migration pass: up() runs against a schema no model is wired to yet, data() against one
     // that is.
-    await this.reloadTableInfo();
+    // Not tied to Migration.OnStartup, which is off unless set: most deployments migrate through the CLI before the boot.
+    try {
+      await this.reloadTableInfo({ strict: migrateOnStartup && this.StrictTableCheck });
+    } catch (err) {
+      // The caller never gets an Orm to dispose, and the open connections and health-check timers would keep the process alive.
+      await this.dispose().catch(() => undefined);
+      throw err;
+    }
+
     this.wireRelations();
     this.applyModelMixins();
 
@@ -246,18 +299,18 @@ export class Orm extends AsyncService {
    * Not fixed here, because the tracking table has no notion of "applied but unseeded" and
    * inventing one would make the seed phase a second, weaker migration state machine - `data()`
    * has no `down()`, no checksum and no failure row, so a "seeded" column would be a claim
-   * nothing could verify or undo. It is documented instead ( packages/orm/docs,
+   * nothing could verify or undo. It is documented instead ( docs/orm,
    * 10-schema-and-migrations.md ), where the guidance is the one thing that actually holds:
    * write `data()` so that running it again is harmless.
    */
   protected async runDataPhase(executed: OrmMigration[]): Promise<void> {
     // `error` is deliberately `unknown` and kept verbatim - a rejection value is not promoted to
     // an Error, so `inner` still carries whatever the hook actually threw. `reason` is the
-    // human-readable rendering of it, computed once and used by both the log line and the aggregate.
+    // human-readable rendering of it for the aggregate.
     const errors: Array<{ name: string; reason: string; error: unknown }> = [];
 
     for (const m of executed) {
-      this.Log.trace(`Migrating data function for migration ${m.constructor.name} ...`);
+      this.Log.trace({ migration: m.constructor.name }, 'Migrating data function for migration ${migration} ...');
 
       try {
         await m.data();
@@ -267,7 +320,7 @@ export class Orm extends AsyncService {
         // message reporting the failure would name no reason for it at all
         const reason = err instanceof Error ? err.message : String(err);
 
-        this.Log.error(`Migration ${m.constructor.name}:data() failed: ${reason}`);
+        this.Log.error({ error: err, migration: m.constructor.name }, 'Migration ${migration}:data() failed');
         errors.push({ name: m.constructor.name, reason, error: err });
       }
     }
@@ -372,7 +425,7 @@ export class Orm extends AsyncService {
           // below is skipped on purpose: merging environments across two unrelated classes would
           // surface as "the same migration cannot belong to two environments", contradicting the
           // warning just logged - so the first entry is kept untouched instead.
-          this.Log.warn(`Two different migration classes are both named ${found.name} ( ${previous.file} and ${found.file} ) - keeping the first. Rename one of them.`);
+          this.Log.warn({ migration: found.name, firstFile: previous.file, secondFile: found.file }, 'Two different migration classes are both named ${migration} ( ${firstFile} and ${secondFile} ) - keeping the first. Rename one of them.');
           continue;
         }
 
@@ -397,7 +450,7 @@ export class Orm extends AsyncService {
         return true;
       }
 
-      this.Log.trace(`Migration ${m.type.name} belongs to environment '${m.env}' and this process runs as '${environment}' - it is not registered`);
+      this.Log.trace({ migration: m.type.name, migrationEnv: m.env, environment }, 'Migration ${migration} belongs to environment ${migrationEnv} and this process runs as ${environment} - it is not registered');
       return false;
     });
   }
@@ -433,8 +486,8 @@ export class Orm extends AsyncService {
     const cConnections = this.Configuration.get<IDriverOptions[]>('db.Connections', []);
 
     for (const c of cConnections) {
-      const connectionInfo = JSON.stringify(_.pick(c, CFG_PROPS));
-      this.Log.trace(`Trying to create connection name: ${c.Name}, driver: ${c.Driver}`);
+      const parameters = _.pick(c, CFG_PROPS);
+      this.Log.trace({ connection: c.Name, driver: c.Driver }, 'Trying to create connection name: ${connection}, driver: ${driver}');
 
       if (!this.Container.hasRegistered(c.Driver)) {
         throw new OrmException(`ORM connection driver ${c.Driver} not registerd`);
@@ -444,14 +497,14 @@ export class Orm extends AsyncService {
       try {
         driver = await this.Container.resolve<OrmDriver>(c.Driver, [c]);
       } catch (err) {
-        this.Log.error(`Failed to resolve ORM driver ${c.Driver} for connection ${c.Name} with parameters ${connectionInfo}`);
+        this.Log.error({ driver: c.Driver, connection: c.Name, parameters }, 'Failed to resolve ORM driver ${driver} for connection ${connection} with parameters ${parameters}');
         throw new OrmException(`Failed to resolve ORM driver ${c.Driver} for connection ${c.Name}`, c, undefined, undefined, err);
       }
 
       try {
         await driver.connect();
       } catch (err) {
-        this.Log.error(`Failed to connect to database for connection ${c.Name} (driver: ${c.Driver}) with parameters ${connectionInfo}, reason: ${err instanceof Error ? err.message : String(err)}`);
+        this.Log.error({ error: err, connection: c.Name, driver: c.Driver, parameters }, 'Failed to connect to database for connection ${connection} (driver: ${driver}) with parameters ${parameters}');
 
         // Try to clean up driver resources on failed connection
         try {
@@ -468,7 +521,7 @@ export class Orm extends AsyncService {
       // a connection that was healthy at boot says nothing about one whose server has since
       // restarted, so the probe keeps running for the lifetime of the connection
       driver.startHealthCheck();
-      this.Log.success(`Created ORM connection ${c.Name} with parameters ${connectionInfo}`);
+      this.Log.success({ connection: c.Name, parameters }, 'Created ORM connection ${connection} with parameters ${parameters}');
     }
 
     const defaultConnection = this.Configuration.get<string>('db.DefaultConnection');
@@ -483,11 +536,13 @@ export class Orm extends AsyncService {
     // wire connection aliases
     // for example if we have module that uses conn name of db-user-session
     // and we want to wire it to some existinc connection instead creating new one
-    const aliases = this.Configuration.get<any>('db.Aliases', {});
+    const aliases = this.Configuration.get<Record<string, string>>('db.Aliases', {});
     for (const a in aliases) {
       const conn = aliases[a];
       if (!this.Connections.has(conn)) {
-        throw new InvalidOperation(`default connection ${conn} not exists`);
+        // Packages default aliases for their own models; one that cannot resolve concerns only those models.
+        this.Log.warn({ alias: a, connection: conn }, 'Connection alias ${alias} points at ${connection}, which does not exist; models and migrations on ${alias} are skipped');
+        continue;
       }
 
       this.Connections.set(a, this.Connections.get(conn)!);

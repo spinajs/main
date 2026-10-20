@@ -63,4 +63,10 @@ export type RenderProgressCallback = (progress: IRenderProgress) => void | Promi
 export interface IRenderOptions {
   /** Receives throttled progress updates during the render. */
   onProgress?: RenderProgressCallback;
+
+  /**
+   * Secret values the model carries, e.g. a reset token. A failed render then reaches the perf span and the caller as a new
+   * error with each value, raw and URI-encoded, replaced by `[redacted]`, and no cause.
+   */
+  redact?: readonly string[];
 }

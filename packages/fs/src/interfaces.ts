@@ -1,12 +1,15 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { AsyncService, DI, IInstanceCheck, IMappableService } from '@spinajs/di';
-import { InvalidArgument, IOFail } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, IOFail, MethodNotImplemented } from '@spinajs/exceptions';
 import { ReadStream, WriteStream } from 'fs';
 import { DateTime } from 'luxon';
 import { PassThrough } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
 import type { BinaryToTextEncoding } from 'node:crypto';
 import { getFs } from './helpers.js';
+import { basename } from 'path';
+import { executeFsAction, fsTarget } from './actions.js';
+import type { FsTarget, FsTargetSpec } from './actions.js';
 
 /**
  * Class for handling fs URI eg. fs://fs-temp/path/to/file
@@ -191,10 +194,55 @@ export interface IZipResult {
   asBase64(): string;
 
   // deletes zipped  file ( from temp filesystem )
-  unlink(): void;
+  unlink(): Promise<void>;
+}
+
+export interface IFsUploadOptions {
+  /**
+   * Fail with `ResourceDuplicated` instead of overwriting when `destPath` already exists.
+   * Providers do it atomically where the backend allows ( see each provider's docs ).
+   */
+  exclusive?: boolean;
+}
+
+const FS_ACTION_METHODS = [
+  'download', 'upload', 'hash', 'metadata', 'read', 'readStream', 'write', 'writeStream', 'append',
+  'exists', 'dirExists', 'stat', 'isDir', 'list', 'hasEntries', 'mkdir', 'rm', 'copy', 'move', 'rename', 'zip', 'unzip',
+  'signedUrl', 'getSignedUrl',
+] as const;
+
+const checkedClasses = new WeakSet<object>();
+
+// A subclass overriding a public action would skip normalisation and every middleware.
+function assertNoActionOverrides(instance: object, base: object): void {
+  const proto = Object.getPrototypeOf(instance) as object;
+  if (checkedClasses.has(proto)) return;
+  for (let p: object | null = proto; p && p !== base; p = Object.getPrototypeOf(p) as object | null) {
+    for (const name of FS_ACTION_METHODS) {
+      if (Object.hasOwn(p, name)) {
+        const hook = `do${name[0].toUpperCase()}${name.slice(1)}`;
+        throw new InvalidOperation(`${(p as { constructor: { name: string } }).constructor.name} overrides ${name}; implement ${hook} instead`);
+      }
+    }
+  }
+  checkedClasses.add(proto);
+}
+
+/** A public action returns a promise, so what fails before it reaches runAction rejects too. */
+function rejecting<R>(fn: () => Promise<R>): Promise<R> {
+  try {
+    return fn();
+  } catch (err) {
+    return Promise.reject(err);
+  }
 }
 
 export abstract class fs extends AsyncService implements IMappableService, IInstanceCheck {
+  constructor() {
+    super();
+    assertNoActionOverrides(this, fs.prototype);
+  }
+
   public get ServiceName() {
     return this.Name;
   }
@@ -207,102 +255,275 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
 
   public abstract Name: string;
 
+  /** Root that absolute paths are made relative to before any action; undefined when the provider has none. */
+  public get BasePath(): string | undefined {
+    return undefined;
+  }
+
   /**
    * Downloads file to local storage and returns path to it.
-   * If used on local storage provider eg. hard drive it only returns full path to file
-   *
-   * On remote storage provivers eg. amazon s3 - it tries to download it to local disk first and returns
-   * full path.
-   *
-   * Returns local path to file
-   *
-   * @param path path to download
+   * On local providers it only returns the full path; remote providers download to local disk first.
    */
-  public abstract download(path: string): Promise<string>;
+  public download(path: string): Promise<string> {
+    return this.runAction('download', [{ path, kind: 'file', access: ['read'] }], [], ([t]) => this.doDownload(t.path));
+  }
 
   /**
    * Copies local file into fs
    *
-   * @param srcPath source path ( full absolute path eg. file from local disk )
-   * @param destPath dest path ( relative to base path of provider )
+   * @param srcPath source path ( full absolute path eg. file from local disk; not checked )
+   * @param destPath dest path ( relative to base path of provider ), default the source file name
+   * @param options.exclusive throw ResourceDuplicated instead of overwriting an existing destination
    */
-  public abstract upload(srcPath: string, destPath?: string): Promise<void>;
+  public upload(srcPath: string, destPath?: string, options?: IFsUploadOptions): Promise<void> {
+    return this.runAction(
+      'upload',
+      [{ path: destPath ?? basename(srcPath), kind: 'file', access: ['write'], role: 'destination' }],
+      [srcPath, options],
+      ([t], [src, o]) => this.doUpload(src as string, t.path, o as IFsUploadOptions | undefined),
+    );
+  }
 
   /**
-   *
    * Returns hash of file
    *
-   * @param srcPath file to calculate hash
-   * @param algo optional hash alghoritm, default is md5
+   * @param algo optional hash alghoritm, default is `fs.hasher.defaultAlgorithm`, then sha256
    */
-  public async hash(path: string, algo?: string): Promise<string> {
-    const hasher = DI.resolve<FileHasher>(FileHasher, [algo]);
-    return hasher.hash(this.resolvePath(path));
+  public hash(path: string, algo?: string): Promise<string> {
+    return this.runAction('hash', [{ path, kind: 'file', access: ['read'] }], [algo], ([t], [a]) => this.doHash(t.path, a as string | undefined));
   }
 
-  public async metadata(path: string) {
-    const fInfo = DI.resolve<FileInfoService>(FileInfoService);
-    return fInfo.getInfo(this.resolvePath(path));
+  public metadata(path: string): Promise<IFileInfo> {
+    return this.runAction('metadata', [{ path, kind: 'file', access: ['read'] }], [], ([t]) => this.doMetadata(t.path));
   }
 
   /**
-   *
    * Returns full LOCAL path to file
-   *
-   * @param path path to resolve
    */
   public abstract resolvePath(path: string): string;
-  public abstract read(path: string, encoding?: BufferEncoding): Promise<string | Buffer>;
-  public abstract readStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream>;
-  public abstract write(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void>;
-  public abstract writeStream(path: string, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
-  public abstract writeStream(
-    path: string,
-    readStream: NodeJS.ReadableStream | BufferEncoding,
-    encoding?: BufferEncoding,
-  ): Promise<WriteStream | PassThrough>;
-  public abstract exists(path: string): Promise<boolean>;
-  public abstract dirExists(path: string): Promise<boolean>;
-  public abstract copy(path: string, dest: string, dstFs?: fs): Promise<void>;
-  public abstract move(oldPath: string, newPath: string, dstFs?: fs): Promise<void>;
-  public abstract rename(oldPath: string, newPath: string): Promise<void>;
-  public abstract rm(path: string): Promise<void>;
-  public abstract mkdir(path: string): Promise<void>;
-  public abstract stat(path: string): Promise<IStat>;
-  public abstract list(path: string): Promise<string[]>;
-  public abstract tmppath(ext?: string): string;
-  public abstract append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void>;
-  /**
-   *
-   * Compress specified file or dir in provided path. If
-   * Dir is compressed recursively
-   *
-   * @param path - path to zip
-   * @param dstFile - destination file name
-   */
-  public abstract zip(path:  string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult>;
+
+  public read(path: string, encoding?: BufferEncoding): Promise<string | Buffer> {
+    return this.runAction('read', [{ path, kind: 'file', access: ['read'] }], [encoding], ([t], [e]) => this.doRead(t.path, e as BufferEncoding | undefined));
+  }
+
+  public readStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
+    return this.runAction('readStream', [{ path, kind: 'file', access: ['read'] }], [encoding], ([t], [e]) => this.doReadStream(t.path, e as BufferEncoding | undefined));
+  }
+
+  public write(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+    return this.runAction('write', [{ path, kind: 'file', access: ['write'] }], [data, encoding], ([t], [d, e]) => this.doWrite(t.path, d as string | Uint8Array, e as BufferEncoding | undefined));
+  }
+
+  public writeStream(path: string, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
+  public writeStream(path: string, readStream: NodeJS.ReadableStream | BufferEncoding, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
+  public writeStream(path: string, readStream?: NodeJS.ReadableStream | BufferEncoding, encoding?: BufferEncoding): Promise<WriteStream | PassThrough> {
+    return this.runAction(
+      'writeStream',
+      [{ path, kind: 'file', access: ['write'] }],
+      [readStream, encoding],
+      ([t], [r, e]) => this.doWriteStream(t.path, r as NodeJS.ReadableStream | BufferEncoding | undefined, e as BufferEncoding | undefined),
+      { stream: true },
+    );
+  }
+
+  public append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+    return this.runAction('append', [{ path, kind: 'file', access: ['write'] }], [data, encoding], ([t], [d, e]) => this.doAppend(t.path, d as string | Uint8Array, e as BufferEncoding | undefined));
+  }
+
+  public exists(path: string): Promise<boolean> {
+    return this.runAction('exists', [{ path, kind: 'file', access: ['stat'] }], [], ([t]) => this.doExists(t.path));
+  }
+
+  public dirExists(path: string): Promise<boolean> {
+    return this.runAction('dirExists', [{ path, kind: 'dir', access: ['stat'] }], [], ([t]) => this.doDirExists(t.path));
+  }
+
+  public stat(path: string): Promise<IStat> {
+    return this.runAction('stat', [{ path, kind: 'file', access: ['stat'] }], [], ([t]) => this.doStat(t.path));
+  }
+
+  public isDir(path: string): Promise<boolean> {
+    return this.runAction('isDir', [{ path, kind: 'dir', access: ['stat'] }], [], ([t]) => this.doIsDir(t.path));
+  }
+
+  public list(path: string): Promise<string[]> {
+    return this.runAction('list', [{ path, kind: 'dir', access: ['list'] }], [], ([t]) => this.doList(t.path));
+  }
+
+  /** Whether anything lives under `path` as a directory or, on a key store, as a prefix (nested keys included). */
+  public hasEntries(path: string): Promise<boolean> {
+    return this.runAction('hasEntries', [{ path, kind: 'dir', access: ['list'] }], [], ([t]) => this.doHasEntries(t.path));
+  }
+
+  public mkdir(path: string): Promise<void> {
+    return this.runAction('mkdir', [{ path, kind: 'dir', access: ['write'] }], [], ([t]) => this.doMkdir(t.path));
+  }
+
+  public rm(path: string): Promise<void> {
+    return this.runAction('rm', [{ path, kind: 'file', access: ['delete'] }], [], ([t]) => this.doRm(t.path));
+  }
+
+  public copy(path: string, dest: string, dstFs?: fs): Promise<void> {
+    return this.runAction(
+      'copy',
+      [
+        { path, kind: 'file', access: ['read'] },
+        { fs: dstFs ?? this, path: dest, kind: 'file', access: ['write'], role: 'destination' },
+      ],
+      [],
+      ([s, d]) => this.doCopy(s.path, d.path, dstFs),
+    );
+  }
+
+  public move(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
+    return this.runAction(
+      'move',
+      [
+        { path: oldPath, kind: 'file', access: ['read', 'delete'] },
+        { fs: dstFs ?? this, path: newPath, kind: 'file', access: ['write'], role: 'destination' },
+      ],
+      [],
+      ([s, d]) => this.doMove(s.path, d.path, dstFs),
+    );
+  }
+
+  public rename(oldPath: string, newPath: string): Promise<void> {
+    return this.runAction(
+      'rename',
+      [
+        { path: oldPath, kind: 'file', access: ['read', 'delete'] },
+        { path: newPath, kind: 'file', access: ['write'], role: 'destination' },
+      ],
+      [],
+      ([s, d]) => this.doRename(s.path, d.path),
+    );
+  }
 
   /**
-   * Decompress given file to destination path
-   *
-   * @param path path to zip file
-   * @param destPath path to destination dir
+   * Compress specified file or dir in provided path. Dir is compressed recursively.
+   * An entry `[path, entryName]` names the entry in the archive.
+   */
+  public zip(path: string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
+    return rejecting(() => {
+      const sources = Array.isArray(path) ? path : [path];
+      const dst = dstFs ?? this.zipDestination();
+      const specs: FsTargetSpec[] = sources.map((s) => ({ path: Array.isArray(s) ? s[0] : s, kind: 'file' as const, access: ['read' as const] }));
+      specs.push({ fs: dst, path: dstFile ?? dst.tmpname('.zip'), kind: 'file', access: ['write'], role: 'destination' });
+      return this.runAction('zip', specs, [], (targets) => {
+        const normalised = sources.map((s, i) => (Array.isArray(s) ? [targets[i].path, ...s.slice(1)] : targets[i].path));
+        return this.doZip(Array.isArray(path) ? normalised : (normalised[0] as string), dst, targets[targets.length - 1].path);
+      });
+    });
+  }
+
+  /**
+   * Decompress given file to destination dir, default a temp name on the destination fs.
    *
    * @returns path to unzipped file
    */
-  public abstract unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string>;
+  public unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string> {
+    return rejecting(() => {
+      const dst = dstFs ?? this.unzipDestination();
+      return this.runAction(
+        'unzip',
+        [
+          { path: srcPath, kind: 'file', access: ['read'] },
+          { fs: dst, path: destPath ?? dst.tmpname(), kind: 'dir', access: ['write'], role: 'destination' },
+        ],
+        [],
+        ([s, d]) => this.doUnzip(s.path, d.path, dst),
+      );
+    });
+  }
 
   /**
+   * Returns a time-limited public URL to the file.
    *
-   * Checks if given path is dir
-   *
-   * @param path path to check
+   * @param opts.until when the URL expires ( provider default when absent )
+   * @param opts.disposition content disposition the URL should serve the file with
+   * @throws MethodNotImplemented when the provider has no public URLs
    */
-  public abstract isDir(path: string): Promise<boolean>;
+  public signedUrl(path: string, opts: { until?: DateTime; disposition?: string } = {}): Promise<string> {
+    return this.runAction('signedUrl', [{ path, kind: 'file', access: ['share'] }], [opts], ([t], [o]) => {
+      if (!this.doSignedUrl) throw new MethodNotImplemented(`${this.Name} does not create signed URLs`);
+      return this.doSignedUrl(t.path, (o ?? {}) as { until?: DateTime; disposition?: string });
+    });
+  }
+
+  public getSignedUrl(path: string, until?: DateTime): Promise<string> {
+    return this.signedUrl(path, until ? { until } : {});
+  }
+
+  public abstract tmppath(ext?: string): string;
 
   public tmpname(ext?: string) {
     return ext ? `${uuidv4()}${ext}` : uuidv4();
   }
+
+  /** Where zip writes when the caller names no destination fs. */
+  protected zipDestination(): fs {
+    return this;
+  }
+
+  /** Where unzip writes when the caller names no destination fs. */
+  protected unzipDestination(): fs {
+    return this;
+  }
+
+  /** Every file action goes through here; provider methods that touch files outside the public API use it too. */
+  protected runAction<R>(
+    action: string,
+    targets: readonly FsTargetSpec[],
+    args: unknown[],
+    impl: (targets: readonly FsTarget[], args: unknown[]) => Promise<R>,
+    opts: { stream?: boolean } = {},
+  ): Promise<R> {
+    let resolved: FsTarget[];
+    try {
+      resolved = targets.map((t) => fsTarget(this, t));
+    } catch (err) {
+      return Promise.reject(err);
+    }
+    return executeFsAction({ action, owner: this, targets: resolved, args, impl, stream: opts.stream === true });
+  }
+
+  protected doHash(path: string, algo?: string): Promise<string> {
+    const hasher = DI.resolve<FileHasher>(FileHasher, [algo]);
+    return hasher.hash(this.resolvePath(path));
+  }
+
+  protected doMetadata(path: string): Promise<IFileInfo> {
+    const fInfo = DI.resolve<FileInfoService>(FileInfoService);
+    return fInfo.getInfo(this.resolvePath(path));
+  }
+
+  protected abstract doDownload(path: string): Promise<string>;
+  /** `options.exclusive`: throw ResourceDuplicated when `destPath` exists, atomically where the backend allows. */
+  protected abstract doUpload(srcPath: string, destPath: string, options?: IFsUploadOptions): Promise<void>;
+  protected abstract doRead(path: string, encoding?: BufferEncoding): Promise<string | Buffer>;
+  protected abstract doReadStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream>;
+  protected abstract doWrite(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void>;
+  protected abstract doWriteStream(path: string, readStream?: NodeJS.ReadableStream | BufferEncoding, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
+  protected abstract doAppend(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void>;
+  protected abstract doExists(path: string): Promise<boolean>;
+  protected abstract doDirExists(path: string): Promise<boolean>;
+  protected abstract doStat(path: string): Promise<IStat>;
+  protected abstract doIsDir(path: string): Promise<boolean>;
+  protected abstract doList(path: string): Promise<string[]>;
+  /** Key stores whose list stops at the first delimiter override this: keys nested deeper count too. */
+  protected async doHasEntries(path: string): Promise<boolean> {
+    return (await this.doDirExists(path)) && (await this.doList(path)).length > 0;
+  }
+  protected abstract doMkdir(path: string): Promise<void>;
+  protected abstract doRm(path: string): Promise<void>;
+  /** `dstFs` as the caller passed it; undefined copies within this fs. */
+  protected abstract doCopy(path: string, dest: string, dstFs?: fs): Promise<void>;
+  protected abstract doMove(oldPath: string, newPath: string, dstFs?: fs): Promise<void>;
+  protected abstract doRename(oldPath: string, newPath: string): Promise<void>;
+  /** `dstFs` and `dstFile` are resolved by the base class: the destination that was checked. */
+  protected abstract doZip(path: string | (string | string[])[], dstFs: fs, dstFile: string): Promise<IZipResult>;
+  protected abstract doUnzip(srcPath: string, destPath: string, dstFs: fs): Promise<string>;
+  protected doSignedUrl?(path: string, opts: { until?: DateTime; disposition?: string }): Promise<string>;
 
   /**
    * -------------------------------------------------------------------------
@@ -342,7 +563,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * Returns hash of file
    *
    * @param srcPath file to calculate hash
-   * @param algo optional hash alghoritm, default is md5
+   * @param algo optional hash alghoritm, default is `fs.hasher.defaultAlgorithm`, then sha256
    */
   public static hash(path: URI, algo?: string): Promise<string> {
     return path.Fs.hash(path.Path, algo);

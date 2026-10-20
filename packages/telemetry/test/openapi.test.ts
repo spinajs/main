@@ -1,16 +1,15 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { DI, Bootstrapper } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { Controllers, HttpServer } from '@spinajs/http';
-import { FsBootsrapper, fsService } from '@spinajs/fs';
+import { DI } from '@spinajs/di';
 
 // Side-effect import so the SwaggerService / OpenApiBuilder module graph is the
 // same one the scanned SwaggerController below binds to.
 import '@spinajs/http-swagger';
 
-import { TestConfiguration, req, TEST_TOKEN } from './common.js';
+import { TEST_TOKEN } from './common.js';
+import { startApp, stopApp } from './support/app.js';
+import type { TestApp } from './support/app.js';
 
 // Importing the DTO barrel runs the `@Schema` decorators. That is the ONLY thing
 // that puts the response schemas into the '__schemas__' DI map, which is what
@@ -33,13 +32,13 @@ import './../src/dto/index.js';
 /**
  * `@Schema` stores the '__schemas__' map in the DI *cache*, so ANY
  * `DI.clearCache()` after the decorators ran drops the container's reference to
- * it — and every sibling suite in this package calls `clearCache()` in its
+ * it — and sibling suites in this package call `clearCache()` in their
  * hooks. The decorators cannot be made to run a second time either: ESM caches
  * the module, so re-importing the barrel is a no-op.
  *
  * The Map object itself survives ( only the container's reference to it is
  * dropped ), so it is captured here at module load — the moment right after the
- * decorators ran — and put back into the fresh container in `before()`. Without
+ * decorators ran — and put back into the container in `before()`. Without
  * this, `DtoSchemaProvider` resolves nothing, every `@returns` silently degrades
  * to an untyped `object`, and the assertions below would fail for a reason that
  * has nothing to do with the controllers' JSDoc.
@@ -55,7 +54,7 @@ const SCHEMAS = DI.get<Map<string, object>>('__schemas__');
  * while `packages/http-swagger/src/openapi-builder.ts` ( `buildPath` ) builds
  * the document key as `/${basePath}/`. Every controller in the monorepo with a
  * root route is documented that way — http-swagger's own tests assert `/pets/`
- * and `/rbac/` — so it is the builder's established output, not something this
+ * and `/access/` — so it is the builder's established output, not something this
  * controller can influence.
  *
  * It is cosmetic rather than broken: express is not in strict-routing mode, so
@@ -66,53 +65,41 @@ const METRICS_PATH = '/metrics/';
 
 const TELEMETRY_PATHS = [METRICS_PATH, '/telemetry/stats', '/telemetry/timeline', '/telemetry/routes', '/telemetry/perf', '/telemetry/health', '/telemetry/ready'];
 
-/** the endpoints behind `TelemetryTokenPolicy` — see the `telemetry.auth.policies` block in common.ts */
+/** the endpoints behind an 'AccessPolicy' slot — see `telemetry.auth.policies` in the config fragment */
 const GUARDED_PATHS = [METRICS_PATH, '/telemetry/stats', '/telemetry/timeline', '/telemetry/routes', '/telemetry/perf'];
+
+// @spinajs/orm, which @spinajs/authz-rbac loads, registers ModelSchemaProvider for the builder,
+// and it throws while no ORM model is registered under '__models__'.
+class NoOrmModel {}
 
 describe('telemetry openapi document', function () {
   this.timeout(30000);
 
   let doc: any;
+  let app: TestApp;
+  const req = () => app.request();
 
   before(async () => {
-    DI.clearCache();
-
+    DI.register(NoOrmModel).as('__models__');
     expect(SCHEMAS, "the '__schemas__' map must have been captured at module load").to.not.be.undefined;
     for (const [name, schema] of SCHEMAS!) {
       DI.register(schema).asMapValue('__schemas__', name);
     }
 
-    DI.register(TestConfiguration).as(Configuration);
-    DI.setESMModuleSupport();
-
-    // The fs providers must exist before Controllers resolves — the controller
-    // cache, the swagger cache and the response templates all read through them.
-    DI.resolve(FsBootsrapper).bootstrap();
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-
-    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-
-    await DI.resolve(Controllers);
-    const server = await DI.resolve<HttpServer>(HttpServer);
-    server.start();
+    app = await startApp({ rbac: true });
 
     // Fetched over HTTP rather than built through SwaggerService by hand: that is
     // the path a real consumer takes, and it covers the controller cache and the
     // JSDoc extraction end to end.
-    const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+    const result = await req().get('/docs/swagger.json').set('Accept', 'application/json').send();
 
     expect(result, 'docs/swagger.json must be served').to.have.status(200);
     doc = JSON.parse(result.text);
   });
 
   after(async () => {
-    const server = await DI.resolve<HttpServer>(HttpServer);
-    server.stop();
-    DI.clearCache();
+    await stopApp();
+    DI.unregister(NoOrmModel);
   });
 
   const op = (path: string) => {
@@ -132,7 +119,7 @@ describe('telemetry openapi document', function () {
     // the builder checks that — it composes the path from decorator metadata by
     // its own rules, which are NOT the rules the express mount uses.
     for (const path of TELEMETRY_PATHS) {
-      const res = await req().get(path.replace(/^\//, '')).set('Accept', 'application/json').set('x-metrics-token', TEST_TOKEN);
+      const res = await req().get(path).set('Accept', 'application/json').set('x-metrics-token', TEST_TOKEN);
 
       // A denied request still proves the route exists; an unmounted one does not.
       expect(res.status, `${path} must be routed`).to.not.eq(404);
@@ -203,6 +190,15 @@ describe('telemetry openapi document', function () {
     }
 
     expect(doc.components.responses?.Forbidden, 'the Forbidden response component must exist').to.not.be.undefined;
+  });
+
+  it('documents the 401 on the guarded endpoints', () => {
+    for (const path of GUARDED_PATHS) {
+      expect(op(path).responses['401']?.$ref, `${path} must document a 401`).to.eq('#/components/responses/Unauthorized');
+    }
+    for (const path of ['/telemetry/health', '/telemetry/ready']) {
+      expect(op(path).responses['401'], `${path} must not document a 401`).to.be.undefined;
+    }
   });
 
   it('documents the 400 the timeline endpoint raises for a bad bucket count', () => {

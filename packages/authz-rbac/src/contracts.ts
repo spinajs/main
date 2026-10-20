@@ -1,0 +1,93 @@
+import type { Assignment, AssignmentSubject, AuthzTx, FieldSet, LinkDef, Principal, PrincipalRef, ResourceRef, ResourceType, RuleDef } from '@spinajs/authz';
+
+// Declared in the core because AuthzCommand carries them.
+export type { AssignmentSubject, Assignment, SubjectSelector, RuleDef, LinkDef } from '@spinajs/authz';
+
+export interface GrantDef {
+  readonly permission: string;
+  readonly relation?: string | readonly string[];
+  readonly on?: readonly ResourcePattern[];
+  readonly fields?: FieldSet;
+  readonly requiresTag?: string; // the principal's live tag set must hold it, else tag_missing{tag}
+  readonly grantedAt?: readonly ResourceType[]; // only assignments made at these scope types count, else provenance
+}
+
+export interface ResourcePattern {
+  readonly type: ResourceType;
+  readonly id?: string; // glob with {principal.*} templates
+}
+
+// ranked roles, weakest first; rank = index
+export interface LadderDef {
+  readonly name: string;
+  readonly roles: readonly string[];
+  readonly resourceTypes?: readonly ResourceType[]; // where the ladder's grants apply; default all
+}
+
+// holding this role also gives `role`
+export interface ImpliedRole {
+  readonly role: string;
+  readonly at: 'self-and-descendants' | 'descendants';
+  readonly tags?: readonly string[];
+  readonly bypass?: readonly ('restrict' | 'cap')[]; // never the ceiling
+}
+
+export interface RoleDef {
+  readonly name: string; // no namespace: role definitions are global
+  readonly ladder?: string; // member of this ladder; holds the grants of every lower ladder role
+  readonly extends: readonly string[];
+  readonly grants: readonly GrantDef[];
+  readonly implies?: readonly ImpliedRole[];
+  readonly subjectSet?: boolean; // holders form a subject set others can be assigned to
+  readonly deny?: boolean; // subtracts its grants on its scope and below; wins over every permit (role_denied)
+  readonly assignable: boolean;
+  readonly scopeTypes?: readonly ResourceType[];
+  readonly description?: string;
+  readonly source: string;
+}
+
+export abstract class RoleStore {
+  abstract readonly name: string;
+  abstract load(): Promise<{ roles: readonly RoleDef[]; ladders: readonly LadderDef[] }>;
+  abstract version(): Promise<string>;
+}
+
+export abstract class RuleStore {
+  abstract readonly name: string;
+  abstract forPath(path: readonly ResourceRef[], at: Date): Promise<readonly RuleDef[]>;
+  abstract version(): Promise<string>;
+}
+
+export abstract class AssignmentStore {
+  abstract readonly name: string;
+  abstract forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]>;
+  abstract holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]>; // AdminGuard last-holder
+  /** Expired rows too. AdminGuard and the RBAC write handlers resolve id-only commands (assignment.revoke, tags, expiry) with it. */
+  abstract byId(id: string): Promise<Assignment | null>;
+  // The write methods below are called only by the RBAC write handlers of AuthzAdmin, inside its transaction.
+  assign?(a: Omit<Assignment, 'id' | 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment>;
+  revoke?(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
+}
+
+export abstract class LinkStore {
+  abstract byToken(token: string): Promise<LinkDef | null>; // compares hashes in constant time
+  abstract byId(id: string): Promise<LinkDef | null>;
+  create?(l: Omit<LinkDef, 'id'>, grant: { role: string; tags?: readonly string[] }, actor: PrincipalRef, tx: AuthzTx): Promise<{ link: LinkDef; token: string }>; // via AuthzAdmin only
+  revoke?(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
+}
+
+// default: principal + companions + subject sets
+export abstract class SubjectResolver {
+  abstract subjects(p: Principal): Promise<readonly AssignmentSubject[]> | readonly AssignmentSubject[];
+}
+
+/** Port: the transitive closure of subject sets. */
+export abstract class MembershipStore {
+  /** Sets every given member key belongs to, live at `at`, each with its membership expiry (none = never). */
+  abstract setsOf(memberKeys: readonly string[], at: Date): Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]>;
+  /** Member keys (principal keys and set keys) of a set, live at `at`. */
+  abstract membersOf(setKey: string, at: Date): Promise<readonly string[]>;
+}
+
+/** Subject key: `type:id` (principal) or `type:id#role` (set); wildcard `type:*`. In `id`, `%`, `#` and `*` are escaped as `%25`, `%23`, `%2A`, so keys never collide. Max 200 characters; longer keys are refused on write. */
+export type SubjectKey = string;

@@ -1,19 +1,19 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AuthenticationFailed } from '@spinajs/exceptions';
-import { SCHEDULER_RBAC, SCHEDULER_SSE_HEARTBEAT_MS } from '@spinajs/scheduler';
+import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
+import { agentPrincipal, anonymousPrincipal, groupPrincipal, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
+import { SCHEDULER_PERMISSIONS, SCHEDULER_SSE_HEARTBEAT_MS } from '@spinajs/scheduler';
 
 import config from '../src/config/scheduler-http.js';
-import { SCHEDULER_MANAGE, SCHEDULER_READ, SCHEDULER_RESOURCE, SCHEDULER_RUN } from '../src/permissions.js';
+import { SCHEDULER_MANAGE, SCHEDULER_READ, SCHEDULER_RUN } from '../src/permissions.js';
 import { triggeredByFrom } from '../src/principal.js';
 
 describe('scheduler-http scaffold', () => {
   describe('permissions', () => {
-    it('wraps the core rbac mapping as route permission lists', () => {
-      expect(SCHEDULER_RESOURCE).to.eq(SCHEDULER_RBAC.resource);
-      expect(SCHEDULER_READ).to.deep.equal(['readAny']);
-      expect(SCHEDULER_RUN).to.deep.equal(['updateAny']);
-      expect(SCHEDULER_MANAGE).to.deep.equal(['deleteAny']);
+    it('uses the core permission names on the routes', () => {
+      expect(SCHEDULER_READ).to.eq(SCHEDULER_PERMISSIONS.read);
+      expect(SCHEDULER_RUN).to.eq(SCHEDULER_PERMISSIONS.run);
+      expect(SCHEDULER_MANAGE).to.eq(SCHEDULER_PERMISSIONS.manage);
     });
   });
 
@@ -27,33 +27,54 @@ describe('scheduler-http scaffold', () => {
       expect(config.scheduler.http.sse.heartbeat).to.eq(SCHEDULER_SSE_HEARTBEAT_MS);
     });
 
-    it('grants admins every scheduler tier through an admin sub-role', () => {
-      expect(config.rbac.grants['admin.scheduler']).to.deep.equal({
-        scheduler: { 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
+    it('declares every permission the routes check', () => {
+      expect(Object.keys(config.authz.permissions).sort()).to.deep.equal(Object.values(SCHEDULER_PERMISSIONS).sort());
+    });
+
+    it('grants admins every scheduler permission through an admin sub-role', () => {
+      expect(config.authz.rbac.roles['admin.scheduler']).to.deep.equal({
+        assignable: false,
+        grants: ['scheduler:read', 'scheduler:run', 'scheduler:manage'],
       });
-      expect(config.rbac.grants.admin.$extend).to.deep.equal(['admin.scheduler']);
+      expect(config.authz.rbac.roles.admin.extends).to.deep.equal(['admin.scheduler']);
     });
   });
 
   describe('triggeredByFrom', () => {
-    it('describes a session user', () => {
-      expect(triggeredByFrom({ User: { Uuid: 'u-1', Id: 7, Login: 'jane' } })).to.deep.equal({ kind: 'user', id: 'u-1', name: 'jane' });
+    it('describes a session user by its id and login', () => {
+      expect(triggeredByFrom(userPrincipal('u-1', { identity: { Login: 'jane', Email: 'jane@spinajs.pl' } }))).to.deep.equal({ kind: 'user', id: 'u-1', name: 'jane' });
     });
 
-    it('falls back to the numeric id and the email', () => {
-      expect(triggeredByFrom({ User: { Id: 7, Email: 'jane@spinajs.pl' } })).to.deep.equal({ kind: 'user', id: '7', name: 'jane@spinajs.pl' });
+    it('falls back to the email, and to no name', () => {
+      expect(triggeredByFrom(userPrincipal('u-1', { identity: { Email: 'jane@spinajs.pl' } }))).to.deep.equal({ kind: 'user', id: 'u-1', name: 'jane@spinajs.pl' });
+      expect(triggeredByFrom(userPrincipal('u-1'))).to.deep.equal({ kind: 'user', id: 'u-1' });
     });
 
     it('marks api-token requests as token principals', () => {
-      const by = triggeredByFrom({ User: { Uuid: 'u-1', Login: 'jane' }, TokenAuth: { Uuid: 't-1' } });
+      const by = triggeredByFrom(userPrincipal('u-1', { source: 'token', identity: { Login: 'jane' } }));
 
       expect(by.kind).to.eq('token');
       expect(by.id).to.eq('u-1');
     });
 
-    it('refuses to act without an authenticated user', () => {
-      expect(() => triggeredByFrom({ User: null })).to.throw(AuthenticationFailed);
+    it('records an agent as a token of the user it acts for', () => {
+      const user = userPrincipal('u-1', { identity: { Login: 'jane' } });
+
+      expect(triggeredByFrom(agentPrincipal('a-1', user))).to.deep.equal({ kind: 'token', id: 'u-1', name: 'jane' });
+    });
+
+    it('describes a service principal', () => {
+      expect(triggeredByFrom(servicePrincipal('ci'))).to.deep.equal({ kind: 'service', id: 'ci' });
+    });
+
+    it('refuses to act without an authenticated principal', () => {
+      expect(() => triggeredByFrom(anonymousPrincipal())).to.throw(AuthenticationFailed);
+      expect(() => triggeredByFrom(null)).to.throw(AuthenticationFailed);
       expect(() => triggeredByFrom(undefined)).to.throw(AuthenticationFailed);
+    });
+
+    it('refuses principals that cannot name who triggered the action', () => {
+      expect(() => triggeredByFrom(groupPrincipal('ops'))).to.throw(Forbidden);
     });
   });
 });

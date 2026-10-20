@@ -4,6 +4,17 @@ JSON-schema validation for the SpinaJS framework, built on [AJV](https://ajv.js.
 `ajv-formats`, `ajv-keywords` and `ajv-merge-patch` pre-registered. Schemas can be attached to
 classes with the `@Schema` decorator or loaded automatically from the filesystem.
 
+Full documentation: [`docs/validation`](../../docs/validation/README.md).
+
+- [Validating data](../../docs/validation/01-validating-data.md)
+- [Validator options](../../docs/validation/02-validator-options.md)
+- [The `@Schema` decorator](../../docs/validation/03-schema-decorator.md)
+- [Runtime schemas](../../docs/validation/04-runtime-schemas.md)
+- [Schema sources](../../docs/validation/05-schema-sources.md)
+- [Schema providers](../../docs/validation/06-schema-providers.md)
+- [Validation errors](../../docs/validation/07-validation-errors.md)
+- [Customizing the validator](../../docs/validation/08-customizing-the-validator.md)
+
 ## Install
 
 ```bash
@@ -21,7 +32,10 @@ const validator = await DI.resolve(DataValidator);
 
 ## Configuration
 
-Options under the `validation` configuration key are passed straight to the AJV constructor. Defaults:
+Options under the `validation` configuration key are passed to the AJV constructor, except two that are
+always forced on: `$data: true` and `verbose: true`. Verbose errors let the validator spot `$data` rules;
+every error it returns or throws is sanitised first (see [`ValidationFailed` error details](#validationfailed-error-details)),
+so the verbose `data`, `schema` and `parentSchema` never reach a caller. Defaults:
 
 ```typescript
 const config = {
@@ -228,17 +242,16 @@ older `@spinajs/validation` has no such method at all.
 
 ## `ValidationFailed` error details
 
-`validate` throws `ValidationFailed` on failure. Beyond the raw AJV `parameter` errors it exposes helpers for
-inspecting what went wrong:
+`validate` throws `ValidationFailed` on failure. Beyond the AJV errors in `parameter` (reduced to path, keyword,
+params and message) it exposes helpers for inspecting what went wrong:
 
 ```typescript
 try {
   validator.validate(schema, data);
 } catch (err) {
   if (err instanceof ValidationFailed) {
-    err.details;            // [{ field, rule, message, value?, params? }, ...]
-    err.data;               // the data that failed
-    err.schema;             // the schema used for validation
+    err.details;            // [{ field, rule, message, params? }, ...]
+    err.schema;             // the schema used for validation (not enumerable: never serialised)
 
     err.getSummary();       // "field: message; field: message"
     err.getFieldErrors('/user');            // errors for a field (exact + nested prefix match)
@@ -251,3 +264,15 @@ try {
 `details[].field` is the failing JSON pointer (`/user/email`, or `(root)` for the top level), `rule` is the
 AJV keyword (`required`, `type`, `format`, ...), and `message` falls back to a readable string when AJV
 message generation is disabled (`messages: false`).
+
+The exception never holds a value of the validated data: no `details[].value`, no `data`, and `parameter`
+keeps only `instancePath`, `schemaPath`, `keyword`, `params`, `message` (and `propertyName`) of each AJV
+error, also with AJV's `verbose` option. A 400 built from it cannot echo a password or a token back.
+A rule written with `$data` (`confirm: { const: { $data: '1/password' } }`) reports `params: { $data: '1/password' }`
+and a message naming only the keyword and the pointer, since AJV would build both from the referenced field;
+the `discriminator` `tagValue` is dropped. `tryValidate` and `validateSchema` return errors reduced the same way
+(the exported `sanitizeError` does it).
+
+A `ValidationFailed` built by hand takes `(message, errors, schema?)`. To redact `$data` rules it needs AJV
+errors from a verbose run (they carry `parentSchema`) or the `schema` argument. With neither, the params and
+message of a `$data` rule stay as AJV built them, request value included.

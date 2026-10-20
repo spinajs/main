@@ -1,8 +1,5 @@
-import { PermissionType } from '@spinajs/rbac';
-import { SCHEDULER_RBAC } from '@spinajs/scheduler';
+import { SCHEDULER_PERMISSIONS } from '@spinajs/scheduler';
 
-export const SCHEDULER_RESOURCE = SCHEDULER_RBAC.resource;
-
-export const SCHEDULER_READ: PermissionType[] = [SCHEDULER_RBAC.read];
-export const SCHEDULER_RUN: PermissionType[] = [SCHEDULER_RBAC.run];
-export const SCHEDULER_MANAGE: PermissionType[] = [SCHEDULER_RBAC.manage];
+export const SCHEDULER_READ = SCHEDULER_PERMISSIONS.read;
+export const SCHEDULER_RUN = SCHEDULER_PERMISSIONS.run;
+export const SCHEDULER_MANAGE = SCHEDULER_PERMISSIONS.manage;

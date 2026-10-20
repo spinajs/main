@@ -1,316 +1,373 @@
-import { Socket } from 'socket.io';
-import { tryGetHash } from '@spinajs/util';
-import { Configuration } from '@spinajs/configuration';
-import { AsyncService, Autoinject, Constructor, Container, DI, IContainer, isClass, TypedArray } from '@spinajs/di';
-import { ArgHydrator, CONTROLLED_DESCRIPTOR_SYMBOL, IRouteParameter, ParameterType, extractSchemaFromRuntimeType } from '@spinajs/http';
-import { Log, Logger } from '@spinajs/log-common';
-import { DataValidator } from '@spinajs/validation';
-import _ from 'lodash';
-import { UnexpectedServerError } from '@spinajs/exceptions';
+import type { IncomingHttpHeaders, Server as HttpNodeServer } from 'http';
+import type { Server as HttpsNodeServer } from 'https';
+import { principalKey } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
+import type { Class } from '@spinajs/di';
+import type { IPolicyGroup, IResolvedRoutePolicies } from '@spinajs/http';
+import type { Decision, IAuthnPrincipalStorage, IAuthzAsyncStorage } from '@spinajs/authz';
+import type { SocketConnection } from './connection.js';
+import type { BaseSocketController } from './controller.js';
+import { SocketException } from '@spinajs/http-socket-common';
+import type { CommandRequest, SocketError } from '@spinajs/http-socket-common';
+import { AuthenticationFailed } from '@spinajs/exceptions';
+import type { TokenBucket } from './limits.js';
+
+export interface ISocketRateConfig {
+  perSecond: number;
+  burst: number;
+}
+
+export interface ISocketIdempotencyConfig {
+  /** Class name of the IdempotencyStore implementation; this whole object is its first constructor argument. */
+  service: string;
+  /** How long a completed key replays its reply. */
+  ttlMs: number;
+  /** MemoryIdempotencyStore: completed keys kept at most; the least recently used go first. */
+  maxEntries: number;
+}
+
+export interface ISocketCorsConfig {
+  /** Exact origins allowed to open a socket besides same-origin pages; no wildcards. Empty: none ( authz-v3 A31 ). */
+  origins: string[];
+}
+
+export interface ISocketStreamsConfig {
+  /** largest credit window a client may grant one stream; a larger request or grant fails it with invalid_argument. Also the unsent packets on a connection above which its streams pause */
+  maxCredits: number;
+  /** streams open on one connection at once; they hold no command in-flight slot */
+  maxPerConnection: number;
+  /** a stream left without credit, or with its connection backlogged, this long fails with deadline_exceeded */
+  stallTimeoutMs: number;
+}
+
+export interface ISocketAuthConfig {
+  /** Refuse a handshake no SocketPrincipalSource resolves, instead of running it as UNATTENDED. */
+  required: boolean;
+  /** How often a live connection's principal is re-checked with its source, idle or not; 0 turns it off ( `ceiling.expiresAt` is still enforced ). */
+  revalidateMs: number;
+}
+
+/** `http.socket` */
+export interface ISocketServerConfig {
+  path: string;
+  cors: ISocketCorsConfig;
+  auth: ISocketAuthConfig;
+  pingInterval: number;
+  pingTimeout: number;
+  recovery: { maxDisconnectionMs: number };
+  maxPayloadBytes: number;
+  /** commands running on one connection at once */
+  maxInFlightPerConnection: number;
+  /** events running or waiting on one connection at once, apart from the command slots; at least rate.burst */
+  maxInFlightEventsPerConnection: number;
+  rate: ISocketRateConfig;
+  idempotency: ISocketIdempotencyConfig;
+  /** shutdown: how long running commands may finish before they are answered `unavailable` */
+  drainMs: number;
+  /** shutdown: the `retryAfterMs` of `sys.shutdown` and of every refusal during the drain */
+  shutdownRetryAfterMs: number;
+  /** `ordered` commands: how long an aborted command whose handler is still running keeps its queue place */
+  ordering: { abortGraceMs: number };
+  /**
+   * A connect hook still running after `connectTimeoutMs` is logged, and the connection's commands and events stop
+   * waiting for it. The connection then proceeds as if the hooks were done, so a disconnect hook may run while the
+   * timed-out connect hook is still running.
+   */
+  hooks: { connectTimeoutMs: number };
+  /** stream replies ( W4 ) */
+  streams: ISocketStreamsConfig;
+  /** socket.io adapter constructor for several instances; unset = in memory */
+  adapter?: unknown;
+  /**
+   * engine.io transports. Prefer `['websocket']` when a principal source reads cookies: a browser
+   * always sends an Origin on a WebSocket upgrade, while polling requests are plain HTTP.
+   */
+  transports: SocketTransport[];
+}
+
+export type SocketTransport = 'websocket' | 'polling';
+
+/** What a `SocketPrincipalSource` sees of the socket.io handshake. */
+export interface ISocketHandshake {
+  /** `io(url, { auth })`: protocol, clientId, token and any app fields */
+  readonly auth: Readonly<Record<string, unknown>>;
+  readonly headers: Readonly<IncomingHttpHeaders>;
+  /** Unsigned raw cookie values; signed-cookie checks belong to the source. */
+  readonly cookies: Readonly<Record<string, string>>;
+  /**
+   * The client address: the socket's peer, or behind trusted proxy hops ( `authn.http.trustProxy`, else `http.trustProxy`,
+   * as authn-http's ClientIp ) the X-Forwarded-For entry they vouch for. An untrusted peer's header is ignored ( SR-03 ). Always normalized as HTTP does: trimmed, IPv4-mapped `::ffff:a.b.c.d` as plain IPv4.
+   */
+  readonly address: string;
+  /** the socket's remote address as it connected; never taken from X-Forwarded-For */
+  readonly peerAddress: string;
+  readonly url: string;
+  readonly query: Readonly<Record<string, unknown>>;
+  readonly secure: boolean;
+  readonly issuedAt: number;
+}
+
+/** How a `SocketPrincipalSource` judged a live connection's principal. */
+export type SocketRevalidationStatus = 'valid' | 'invalid' | 'unavailable';
 
 /**
- * Middleware used server - wide ( for all incoming socket connections )
+ * `true` / `false` mean 'valid' / 'invalid' ( the pre-tri-state contract ). A 'valid' answer may carry
+ * the principal as the source sees it now ( eg. a rotated token's later `ceiling.expiresAt` ); the
+ * connection adopts it when it has the same `principalKey`, and is refused when it has not.
  */
-export abstract class SocketServerMiddleware extends AsyncService {
+export type SocketRevalidationResult = SocketRevalidationStatus | boolean | { readonly status: 'valid'; readonly principal: Principal };
+
+/** Why the guard re-checks a live connection; a source may extend a session for an active client, as an http request does. */
+export interface ISocketRevalidation {
   /**
-   * Execution order, ascending execution ( lower first )
+   * 'sweep': the server-wide check every `http.socket.auth.revalidateMs`. 'command' / 'event': a client frame found that check
+   * due and ran it first. 'recovery': connection state recovery restored the connection without a handshake.
    */
+  readonly trigger: 'sweep' | 'recovery' | 'command' | 'event';
+  /**
+   * The client sent a command or an event, or reconnected, since the last 'valid' check; always true unless the trigger is 'sweep'.
+   * Activity is reported at the next check, up to `revalidateMs` after it.
+   */
+  readonly active: boolean;
+}
+
+/**
+ * Resolves the authz-v3 principal of a connection from its handshake: the socket form of
+ * authz-http's `PrincipalSource`, whose `authenticate(req)` needs an express request that
+ * authn-http's middleware has already seen. Sources run in ascending `order` and the first
+ * non-null principal wins. Return null when the handshake carries none of your credentials;
+ * throw ( eg. `Unauthenticated` ) to refuse the connection. A system or unattended principal
+ * refuses the connection as a configuration error: no credential yields one ( design §14.1 ).
+ */
+export abstract class SocketPrincipalSource {
+  public abstract readonly name: string;
+
+  public abstract readonly order: number;
+
+  public abstract authenticate(handshake: ISocketHandshake): Promise<Principal | null>;
+
+  /**
+   * Re-checks a live connection every `http.socket.auth.revalidateMs` ( expiry, revocation ). By
+   * default the handshake must still authenticate as the same principal.
+   *
+   * - 'invalid' ( or `false` ): the connection is refused with `unauthenticated` and closed at once.
+   *   Return it for a definitive refusal ( disabled account, revoked credential ).
+   * - 'unavailable', a throw or a timeout: the source could not decide ( eg. its store is down ); a throw
+   *   is read as 'unavailable', never as a refusal. The connection
+   *   keeps running for ONE more `revalidateMs` grace window and is asked again; when that answer is
+   *   not 'valid' either, it is refused and closed. Commands are served during the grace window.
+   *
+   * `check` tells what triggered the check and whether the client was active since the last 'valid' one; the default
+   * ignores it. It is optional, so a source that overrides this method with two parameters still compiles.
+   */
+  public async revalidate(handshake: ISocketHandshake, principal: Principal, _check?: ISocketRevalidation): Promise<SocketRevalidationResult> {
+    let again: Principal | null;
+    try {
+      again = await this.authenticate(handshake);
+    } catch (err) {
+      // a throttled refusal ( retryAfterMs ) says "not now", not "no"
+      const refused = err instanceof AuthenticationFailed || (err instanceof SocketException && err.code === 'unauthenticated' && err.retryAfterMs === undefined);
+      return refused ? 'invalid' : 'unavailable';
+    }
+
+    return again !== null && principalKey(again) === principalKey(principal) ? { status: 'valid', principal: again } : 'invalid';
+  }
+}
+
+/**
+ * What the handshake checked, kept in `socket.data.client`. Connection state recovery restores it and
+ * skips the handshake middleware, so a recovered connection reads these, never its new `auth`.
+ */
+export interface ISocketClientState {
+  clientId: string;
+  protocol: number;
+}
+
+/** Kept in `socket.data.auth`, which connection state recovery restores after a short drop. */
+export interface ISocketAuthState {
+  principal: Principal;
+  /** name of the source that resolved the principal; null for UNATTENDED */
+  source: string | null;
+  /** ms epoch of the last successful check */
+  checkedAt: number;
+  /** ms epoch of an 'unavailable' answer not yet followed by a 'valid' one: the connection is in its grace window */
+  unavailableSince?: number;
+  /** ms epoch of the last command, event or reconnect of the client; absent before the first one, and in a state stored by an older version */
+  activeAt?: number;
+}
+
+/** Supplies the node http(s) server socket.io attaches to. */
+export abstract class SocketHttpHost {
+  public abstract server(): Promise<HttpNodeServer | HttpsNodeServer>;
+}
+
+export const SOCKET_CONTROLLER_DESCRIPTOR = Symbol('SOCKET_CONTROLLER_DESCRIPTOR');
+
+export type SocketHandlerKind = 'unknown' | 'command' | 'event' | 'connect' | 'disconnect';
+
+export interface ICommandOptions {
+  /** ajv schema for the payload; wins over the `@Payload` schema and the DTO's `@Schema` */
+  schema?: object;
+  /** server-side deadline; the earlier of this and the client's `deadline` applies */
+  timeoutMs?: number;
+  /** replay by principal, clientId and idempotencyKey; a durable command also needs ordered: 'client'; a stream handler cannot be idempotent */
+  idempotent?: boolean;
+  /** serial queue per connection, or per principal and clientId across reconnects; a stream handler cannot be ordered */
+  ordered?: 'connection' | 'client';
+}
+
+export interface IEventOptions {
+  schema?: object;
+}
+
+export interface ISocketParameter {
+  Index: number;
+  /** extractor resolved from DI */
+  Type: Class<SocketArg>;
+  /** design:paramtypes entry */
+  RuntimeType: unknown;
+  Schema: object | null;
+  Options?: unknown;
+}
+
+export interface ISocketHandlerDescriptor {
+  /** 'unknown' until a handler decorator runs; registration refuses it */
+  Kind: SocketHandlerKind;
+  Method: string | symbol;
+  /** name without the controller prefix */
+  Name: string;
+  Options: ICommandOptions;
+  Parameters: Map<number, ISocketParameter>;
+  /** one group per @SocketPolicy call: AND inside a group, OR across groups */
+  Policies: IPolicyGroup[];
+}
+
+export interface ISocketControllerDescriptor {
+  Prefix: string | null;
+  Policies: IPolicyGroup[];
+  Handlers: Map<string | symbol, ISocketHandlerDescriptor>;
+}
+
+export interface IRegisteredHandler {
+  /** prefix + '.' + name */
+  readonly fullName: string;
+  readonly controller: BaseSocketController;
+  readonly descriptor: ISocketHandlerDescriptor;
+  readonly policies: IResolvedRoutePolicies;
+}
+
+/**
+ * The AsyncLocalStorage store of one call ( D14 ). `Principal` is the key authz-v3's
+ * `AuthzService.current()` and `runAs` read ( F4 `IAuthzAsyncStorage`, as http's `req.storage.Principal` );
+ * `AuthnPrincipal` is authn's hand-off key: the principal when a source resolved it, else null.
+ */
+export interface ISocketCallStorage extends IAuthnPrincipalStorage, IAuthzAsyncStorage {
+  Principal: Principal;
+  /** written by SocketAccessPolicy, as authz-http's AccessPolicy writes req.storage.AuthzDecision */
+  AuthzDecision?: Decision;
+  [key: string]: unknown;
+}
+
+/** What argument extractors, policies and hooks see of one call. */
+export interface ISocketCallContext {
+  readonly kind: SocketHandlerKind;
+  readonly connection: SocketConnection;
+  handler?: IRegisteredHandler;
+  readonly payload: unknown;
+  readonly signal: AbortSignal;
+  /** disconnect reason, for @OnDisconnect hooks */
+  readonly reason?: string;
+  /** ambient AsyncLocalStorage store of the call */
+  readonly storage: ISocketCallStorage;
+}
+
+/** Extracts one handler argument. Implementations are resolved from DI by class. */
+export abstract class SocketArg {
+  public abstract extract(ctx: ISocketCallContext, param: ISocketParameter): Promise<unknown>;
+}
+
+/** Per-connection pipeline state. */
+export interface IConnectionRuntime {
+  readonly connection: SocketConnection;
+  readonly bucket: TokenBucket;
+  /** commands past the in-flight stage */
+  inFlight: number;
+  /** events counted against maxInFlightEventsPerConnection, from arrival until their handler settles */
+  eventsInFlight: number;
+  /** stream replies open on this connection, from the stream reply until their end or fail frame */
+  streams: number;
+  /** running commands by request id, for cancel / disconnect / shutdown */
+  readonly running: Map<string, ISocketCommandContext>;
+  /** settles, never rejects, when the connect hooks are done or `hooks.connectTimeoutMs` has passed */
+  ready: Promise<void>;
+  /** ms epoch of the last warn about a dropped event or command frame */
+  warnedAt?: number;
+}
+
+export interface ISocketCommandContext extends ISocketCallContext {
+  readonly kind: 'command';
+  readonly request: CommandRequest;
+  readonly runtime: IConnectionRuntime;
+  readonly receivedAt: number;
+  /** set by the arguments stage */
+  args?: unknown[];
+  /** the refusal of the rate token the dispatcher took when the frame arrived; the rate stage throws it */
+  rateRefusal?: unknown;
+  /** set by the idempotency stage when it runs the command under a key; the ordering stage settles it inside the queue place */
+  idempotency?: ISocketIdempotencyClaim;
+  /** fires `signal`; the dispatcher replies with `reason` at once */
+  abort(reason: SocketException): void;
+  /** keeps the earliest of all armed deadlines, counted from `receivedAt` */
+  armDeadline(ms: number | undefined): void;
+}
+
+/**
+ * One step of the command pipeline. Stages run in ascending `Order` as an onion: call `next()` to
+ * continue, return without calling it to answer early ( eg. an idempotent replay ), throw to fail.
+ * Register with `@Injectable(SocketCommandStage)`.
+ */
+export abstract class SocketCommandStage {
   public abstract get Order(): number;
 
-  /**
-   *
-   * Middleware func run for ALL sockets before message is proceeded
-   * Example for auth middleware or logging, etc.
-   *
-   * @param socket
-   * @param next
-   */
-  public abstract before(socket: Socket): Promise<void>;
-
-  /**
-   *
-   * Executed on connection event
-   *
-   * @param socket
-   */
-  public abstract onConnect(socket: Socket): Promise<void>;
-
-  /**
-   *
-   * Executed on disconnect event
-   *
-   * @param socket
-   */
-  public abstract onDisconnect(socket: Socket, reason: string): Promise<void>;
+  public abstract execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown>;
 }
 
 /**
- * Middleware for specific socket
+ * Spec §5.2 order. 320 waits for the connect hooks; 350 is W1's principal re-check ( Task 10A, D16 ); 500 is W3's idempotency stage.
+ * Ordering ( 550 ) comes before policies and arguments, so they see the state the command's predecessors left: a durable edit
+ * pipelined behind its create would otherwise be hydrated before the create ran, and its not_found stored as final.
  */
-export abstract class SocketMiddleware extends AsyncService {
+export const STAGE_ORDER = {
+  Size: 100,
+  Rate: 200,
+  InFlight: 300,
+  Ready: 320,
+  Authentication: 350,
+  Lookup: 400,
+  Idempotency: 500,
+  Ordering: 550,
+  Policies: 600,
+  Arguments: 700,
+} as const;
+
+/** What an idempotent command replays: its result, or the error it failed with for good. */
+export type IdempotentReply = { readonly ok: true; readonly result: unknown } | { readonly ok: false; readonly error: SocketError };
+
+/** A command's outcome as the pipeline saw it. */
+export type CommandOutcome = { readonly result: unknown } | { readonly error: unknown };
+
+/** The idempotency stage's hold on one key while its command runs. */
+export interface ISocketIdempotencyClaim {
   /**
-   *
-   * Middleware func before message is proceeded for this socket
-   * Example for auth middleware
-   *
-   * @param socket
-   * @param next
+   * Records the outcome once: a result or a final error is stored, a retryable or unauthenticated error or the call's own
+   * abort releases the key, except a shutdown abort after `start()`, which leaves it running. Later calls get the first answer.
+   * Null: released, left running, or detached.
+   * A result is answered in its wire ( JSON ) form, and still answered when the store cannot keep it.
    */
-  public abstract execute(socket: Socket, event: string, args: any[]): Promise<void>;
-}
-
-export interface ISocketMiddlewareDescriptor {
-  Type: Constructor<SocketMiddleware>;
-
-  Options: any[];
-}
-
-/**
- * Describes parameters passed to socket event
- */
-export interface ISocketEventParameter extends IRouteParameter { }
-
-export interface ISocketEvent {
-  /**
-   * Event name
-   */
-  Name: string;
-
-  Method: string;
-
-  Parameters: Map<number, ISocketEventParameter>;
-
-  Schema: any;
-}
-
-/**
- * Descriptor for controller
- */
-export interface ISocketControllerDescriptor {
-  /**
-   * Controller routes
-   */
-  Events: Map<string | symbol, ISocketEvent>;
-
-  /**
-   * Controller - wise middlewares
-   */
-  Middlewares: ISocketMiddlewareDescriptor[];
-
-  /**
-   * Sockets room ( optional ), if not set  "/" is set ( main room )
-   */
-  Room?: string;
-}
-
-/**
- * Route action call spefici data. Used to pass data / arguments when parsing
- * action parameters for specific call. Eg. to parse form data, and extract it
- * as different arguments.
- */
-export interface ISocketEventCall {
-  Payload: any;
-}
-
-export interface ISocketEventArgsResult {
-  CallData: ISocketEventCall;
-  Args: any;
-}
-
-export interface ISocketRouteArgs {
-  SupportedType: ParameterType | string;
-
-  extract(callData: ISocketEventCall, routeParameter: IRouteParameter, incomingArgs: any[], socket: Socket): Promise<ISocketEventArgsResult>;
-}
-
-export abstract class SocketRouteArgs implements ISocketRouteArgs {
-  @Autoinject()
-  protected Validator: DataValidator;
-
-  abstract get SupportedType(): ParameterType | string;
-
-  public abstract extract(callData: ISocketEventCall, routeParameter: IRouteParameter, incomingArgs: any[], socket: Socket): Promise<ISocketEventArgsResult>;
-
-  protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter, event: ISocketEvent) {
-    let result = null;
-    let schema = null;
-    let hydrator = null;
-
-    // first validate route parameter / body params etc
-    if (event.Schema && event.Schema[routeParameter.Name]) {
-      schema = event.Schema[routeParameter.Name];
-    } else if (routeParameter.Schema) {
-      schema = routeParameter.Schema;
-    } else if (routeParameter.RouteParamSchema) {
-      schema = routeParameter.RouteParamSchema;
-    } else {
-      schema = extractSchemaFromRuntimeType(routeParameter.RuntimeType, this.Validator);
-    }
-
-    if (this.isRuntimeType(routeParameter)) {
-      result = this.fromRuntimeType(routeParameter, arg);
-
-      // absent optional params are not validated - validator treats null / undefined data as failure
-      if (schema && result !== null && result !== undefined) {
-        this.Validator.validate(schema, result);
-      }
-    } else {
-      hydrator = this.getHydrator(routeParameter);
-      result = hydrator ? arg : this.tryExtractObject(arg, routeParameter);
-
-      // absent optional params are not validated - validator treats null / undefined data as failure
-      if (schema && result !== null && result !== undefined) {
-        this.Validator.validate(schema, result);
-      }
-
-      if (hydrator) {
-        result = await this.tryHydrateObject(result, routeParameter, hydrator);
-      }
-    }
-
-    return result;
-  }
-
-  protected async tryHydrateObject(arg: any, route: IRouteParameter, hydrator: any) {
-    const hInstance = await DI.resolve<ArgHydrator>(hydrator.hydrator, hydrator.options);
-    return await hInstance.hydrate(arg, route);
-  }
-
-  protected getHydrator(param: IRouteParameter) {
-    let hydrator = null;
-    if (param.RuntimeType instanceof TypedArray) {
-      hydrator = Reflect.getMetadata('custom:arg_hydrator', (param.RuntimeType as TypedArray<any>).Type);
-    } else {
-      hydrator = Reflect.getMetadata('custom:arg_hydrator', param.RuntimeType);
-    }
-
-    return hydrator;
-  }
-
-  protected tryExtractObject(arg: any, param: IRouteParameter) {
-    if (isClass(param.RuntimeType)) {
-      return new (param.RuntimeType as any)(_.isString(arg) ? JSON.parse(arg) : arg);
-    } else if (param.RuntimeType instanceof TypedArray) {
-      const type = (param.RuntimeType as TypedArray<any>).Type as any;
-      const arrData = _.isString(arg) ? JSON.parse(arg) : arg;
-      return arrData ? arrData.map((x: any) => new type(x)) : [];
-    } else if (param.RuntimeType.name === 'Object' || param.RuntimeType.name === 'Array') {
-      return _.isString(arg) ? JSON.parse(arg) : arg;
-    }
-
-    return arg;
-  }
-
-  protected isRuntimeType(param: IRouteParameter) {
-    return ['String', 'Number', 'BigInt', 'Boolean', 'Undefined', 'Null'].indexOf(param.RuntimeType.name) !== -1;
-  }
-
-  protected fromRuntimeType(param: IRouteParameter, arg: any) {
-    switch (param.RuntimeType.name) {
-      // query params are always sent as strings, even numbers,
-      // we must try to parse them as integers / booleans / objects
-      case 'String':
-        return arg;
-      case 'Number':
-        return arg ? Number(arg) : undefined;
-      case 'BigInt':
-        return BigInt(arg);
-      case 'Boolean':
-        return arg ? (arg === 1 ? true : (arg as string).toLowerCase() === 'true' ? true : false) : false;
-      case 'Undefined':
-        return undefined;
-      case 'Null':
-        return null;
-      default:
-        return new param.RuntimeType(_.isString(arg) ? JSON.parse(arg) : arg);
-    }
-  }
-}
-
-export abstract class SocketController extends AsyncService {
-  /**
-   * Event method getter
-   */
-  [action: string]: any;
-
-  /**
-   * Controller descriptor
-   */
-  public get Descriptor(): ISocketControllerDescriptor {
-    return Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, this) as ISocketControllerDescriptor;
-  }
-
-  @Autoinject(Container)
-  protected _container: IContainer;
-
-  @Logger('http')
-  protected _log: Log;
-
-  @Autoinject(Configuration)
-  protected _cfg: Configuration;
-
-  @Autoinject(SocketMiddleware)
-  protected _middlewares: SocketMiddleware[];
-
-  public async resolve() {
-
-    await super.resolve();
-
-    if (!this.Descriptor) {
-      this._log.warn(`Socket controller ${this.constructor.name} does not have descriptor. If its abstract or base class ignore this message.`);
-      return;
-    }
-  }
-
-  public async attach(socket: Socket) {
-    const self = this;
-
-    if (this.Descriptor.Room) {
-      socket.join(this.Descriptor.Room);
-    }
-
-    this._middlewares.forEach((m) => {
-      socket.use(([event, ...args], next) => {
-        m.execute(socket, event, args)
-          .catch((err) => {
-            next(err);
-          })
-          .then(() => {
-            next();
-          });
-      });
-    });
-
-    for (const [, event] of this.Descriptor.Events) {
-      socket.on(event.Name, async (...args) => {
-        const a = await _extractEventArgs(event, args);
-        await this[event.Method].call(this, ...a);
-      });
-    }
-
-    async function _extractEventArgs(route: ISocketEvent, incomingArgs: any) {
-      const callArgs = new Array(route.Parameters.size);
-      const argsCache = new Map<ParameterType | string, SocketRouteArgs>();
-
-      let callData = {
-        Payload: {},
-      };
-
-      for (const [, param] of route.Parameters) {
-        const routeArgsHandler = await tryGetHash(argsCache, param.Type, () => DI.resolve(param.Type));
-        if (!routeArgsHandler) {
-          throw new UnexpectedServerError(`invalid route parameter type for param: ${param.Name},
-              method: ${route.Name},
-              controller: ${self.constructor.name}`);
-        }
-
-        const { Args, CallData } = await routeArgsHandler.extract(callData, param, incomingArgs, socket);
-
-        callData = CallData;
-        callArgs[param.Index] = Args;
-      }
-
-      return callArgs;
-    }
-  }
+  settle(outcome: CommandOutcome): Promise<IdempotentReply | null>;
+  /** The pipeline gave up on a handler that still runs: the key stays running until `running` settles, and `settle` answers null. */
+  detach(running: Promise<unknown>): void;
+  /** @internal Called right before the handler: from then on an abort marked by `outcomeUnknownAfter` keeps the key running. */
+  start(): void;
+  readonly started: boolean;
 }

@@ -1,6 +1,7 @@
 import { QueueEvent, Event } from '@spinajs/queue';
 import { DateTime } from 'luxon';
 import { IEmail, IEmailTemplate } from '../interfaces.js';
+import { hasSecrets } from '../redact.js';
 
 @Event()
 export class EmailSent extends QueueEvent {
@@ -36,9 +37,13 @@ export class EmailSent extends QueueEvent {
     this.From = email.from ?? '';
     this.To = email.to;
     this.Template = email.template;
-    this.Model = email.model;
     this.Subject = email.subject;
-    this.Content = email.text;
+
+    // The event goes on the queue, so the secret values a model or text carries must not ride along (SR-09).
+    if (!hasSecrets(email)) {
+      this.Model = email.model;
+      this.Content = email.text;
+    }
 
     this.SentAt = DateTime.now();
   }

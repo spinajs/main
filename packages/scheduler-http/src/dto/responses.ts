@@ -16,5 +16,5 @@ export const SchedulerRunAcceptedSchema = {
   },
 };
 
-// same registry @Schema writes to, keyed by the name the controllers' JSDoc uses ( see rbac-http dto/auth-responses.ts )
+// same registry @Schema writes to, keyed by the name the controllers' JSDoc uses ( see users-http dto/metadata-entry-schema.ts )
 DI.register(SchedulerRunAcceptedSchema).asMapValue('__schemas__', 'ISchedulerRunAccepted');

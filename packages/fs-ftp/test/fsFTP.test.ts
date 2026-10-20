@@ -10,6 +10,7 @@ import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
 import { expect } from 'chai';
 import { fsFTP } from '../src/index.js';
+import { ResourceDuplicated } from '@spinajs/exceptions';
 
 async function f() {
   return await DI.resolve<fs>('__file_provider__', ['ftp']);
@@ -96,6 +97,53 @@ describe('fs ftp basic tests', function () {
     const files = await ftp.list('/');
     expect(files.length).to.be.greaterThan(0);
     expect(files).to.include('test.txt');
+  });
+
+  it('should detect directories', async () => {
+    const ftp = await f();
+    expect(await ftp.dirExists('sub')).to.be.true;
+    expect(await ftp.isDir('sub')).to.be.true;
+    expect(await ftp.isDir('notexists')).to.be.false;
+  });
+
+  it('should copy file into new subfolder', async () => {
+    const ftp = await f();
+    await ftp.copy('sub/test.txt', 'copied/test.txt');
+    expect(await ftp.read('copied/test.txt', 'utf-8')).to.eq('hello world');
+  });
+
+  it('should move file from subfolder to another fs', async () => {
+    const ftp = await f();
+    const ft = await fl();
+    await ftp.move('copied/test.txt', 'moved.txt', ft);
+    expect(await ftp.exists('copied/test.txt')).to.be.false;
+    expect(await ft.exists('moved.txt')).to.be.true;
+    await ft.rm('moved.txt');
+  });
+
+  it('should remove directories', async () => {
+    const ftp = await f();
+    await ftp.rm('copied');
+    expect(await ftp.dirExists('copied')).to.be.false;
+  });
+
+  it("treats '/sub/x' and 'sub/x' as one file", async () => {
+    const ftp = await f();
+    const local = await fl();
+
+    await ftp.write('/sub/norm.txt', 'normalised');
+
+    expect(await ftp.exists('sub/norm.txt')).to.be.true;
+    expect(await ftp.read('sub//norm.txt', 'utf-8')).to.eq('normalised');
+    expect(await ftp.list('/sub')).to.include('norm.txt');
+    expect(await ftp.isDir('/sub/')).to.be.true;
+    await expect(ftp.upload(local.resolvePath('Big_Buck_Bunny_1080_10s_30MB.mp4'), '/sub/norm.txt', { exclusive: true })).to.be.rejectedWith(ResourceDuplicated);
+
+    await ftp.rename('sub/norm.txt', '/sub/renamed.txt');
+    expect(await ftp.exists('/sub/renamed.txt')).to.be.true;
+
+    await ftp.rm('sub/renamed.txt');
+    expect(await ftp.exists('/sub/renamed.txt')).to.be.false;
   });
 
   it('should remove files', async () => {

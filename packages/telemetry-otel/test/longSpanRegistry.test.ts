@@ -99,4 +99,30 @@ describe('LongSpanRegistry', () => {
     expect(exporter.getFinishedSpans()).to.have.length(2);
     expect(registry.has('txn-1')).to.eq(false);
   });
+
+  it('exports open spans on tracing dispose, before the provider shuts down', async () => {
+    const { registry, exporter, tracing } = makeRegistry();
+    const exported: string[] = [];
+    const originalExport = exporter.export.bind(exporter);
+    exporter.export = (spans, cb) => {
+      exported.push(...spans.map((x) => x.name));
+      originalExport(spans, cb);
+    };
+    await registry.resolve();
+    registry.open('txn-1', 'payment.transaction');
+    await tracing.dispose();
+    expect(exported).to.deep.eq(['payment.transaction']);
+  });
+
+  it('sweep survives a span that throws and still closes the others', () => {
+    const { registry, exporter } = makeRegistry(0);
+    registry.open('bad', 'a');
+    registry.open('good', 'b');
+    (registry as any).spans.get('bad').span.end = () => {
+      throw new Error('boom');
+    };
+    registry.sweep();
+    expect(registry.has('good')).to.eq(false);
+    expect(exporter.getFinishedSpans().map((s) => s.name)).to.deep.eq(['b']);
+  });
 });

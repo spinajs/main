@@ -1,19 +1,14 @@
 /* eslint-disable prettier/prettier */
 import { Autoinject, NewInstance } from '@spinajs/di';
-import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, JoinMethod, IJoinStatementOptions, SET_DELIMITER } from '@spinajs/orm';
-import { SqlJoinStatement, _columnWrap } from '@spinajs/orm-sql';
-import { NotSupported } from '@spinajs/exceptions';
+import { IdentifierQuoter, InSetStatement, StartsWithStatement, IQueryStatement, IQueryStatementResult, NowExpression, SET_DELIMITER } from '@spinajs/orm';
+import { SqlInStatement, SqlJoinStatement, _columnWrap } from '@spinajs/orm-sql';
 
+/**
+ * Adds nothing to the shared statement: the bundled SQLite ( 3.39 and later ) runs RIGHT JOIN too.
+ * Kept as the sqlite join token so subclasses have a dialect-specific base.
+ */
 @NewInstance()
-export class SqlLiteJoinStatement extends SqlJoinStatement {
-  constructor(protected _options: IJoinStatementOptions) {
-    super(_options);
-
-    if (_options.method === JoinMethod.RIGHT || _options.method === JoinMethod.RIGHT_OUTER) {
-      throw new NotSupported(`join method ${_options.method} is not supported by sqlite driver`);
-    }
-  }
-}
+export class SqlLiteJoinStatement extends SqlJoinStatement {}
 
 /**
  * Membership test against a delimited `@Set()` column, SQLite dialect.
@@ -53,5 +48,41 @@ export class SqliteInSetStatement extends InSetStatement {
     clone.Quoter = this.Quoter;
 
     return clone;
+  }
+}
+
+/** A long list travels as one JSON array, so it never meets SQLITE_MAX_VARIABLE_NUMBER. */
+@NewInstance()
+export class SqliteInStatement extends SqlInStatement {
+  protected listExpression(column: string): string {
+    return `${column} ${this._not ? 'NOT IN' : 'IN'} (SELECT value FROM json_each(?))`;
+  }
+}
+
+/** GLOB, not LIKE: SQLite's LIKE ignores ASCII case whatever the column's collation. */
+@NewInstance()
+export class SqliteStartsWithStatement extends StartsWithStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public build(): IQueryStatementResult {
+    return {
+      Bindings: [`${this.prefix().replace(/[*?[]/g, (c) => `[${c}]`)}*`],
+      Statements: [`${_columnWrap(this.Quoter, this._column, this._tableAlias)} GLOB ?`],
+    };
+  }
+
+  public clone(): IQueryStatement {
+    const clone = new SqliteStartsWithStatement(this._column, this._prefix, this._tableAlias!);
+    clone.Quoter = this.Quoter;
+
+    return clone;
+  }
+}
+
+/** The text the datetime converter writes, so stored values compare with it as text. */
+export class SqliteNowExpression extends NowExpression {
+  public sql(): string {
+    return "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
   }
 }

@@ -1,0 +1,141 @@
+{
+  "name": "@spinajs/authn",
+  "version": "3.0.0",
+  "description": "Authentication core for SpinaJS: contracts, flow, throttling",
+  "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/mjs/index.d.ts",
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    },
+    "./contracts": {
+      "types": "./lib/mjs/contracts/index.d.ts",
+      "import": "./lib/mjs/contracts/index.js",
+      "require": "./lib/cjs/contracts/index.js"
+    },
+    "./env": {
+      "types": "./lib/mjs/service/boot/env.d.ts",
+      "import": "./lib/mjs/service/boot/env.js",
+      "require": "./lib/cjs/service/boot/env.js"
+    },
+    "./boot": {
+      "types": "./lib/mjs/service/boot/index.d.ts",
+      "import": "./lib/mjs/service/boot/index.js",
+      "require": "./lib/cjs/service/boot/index.js"
+    },
+    "./schemas": {
+      "types": "./lib/mjs/schemas/index.d.ts",
+      "import": "./lib/mjs/schemas/index.js",
+      "require": "./lib/cjs/schemas/index.js"
+    },
+    "./register-schema": {
+      "types": "./lib/mjs/register-schema.d.ts",
+      "import": "./lib/mjs/register-schema.js",
+      "require": "./lib/cjs/register-schema.js"
+    },
+    "./mfa-enrolments": {
+      "types": "./lib/mjs/flow/mfa-enrolments.d.ts",
+      "import": "./lib/mjs/flow/mfa-enrolments.js",
+      "require": "./lib/cjs/flow/mfa-enrolments.js"
+    },
+    "./store-throttle": {
+      "types": "./lib/mjs/throttle/store-throttle.d.ts",
+      "import": "./lib/mjs/throttle/store-throttle.js",
+      "require": "./lib/cjs/throttle/store-throttle.js"
+    },
+    "./nonces": {
+      "types": "./lib/mjs/nonces/index.d.ts",
+      "import": "./lib/mjs/nonces/index.js",
+      "require": "./lib/cjs/nonces/index.js"
+    },
+    "./audit": {
+      "types": "./lib/mjs/audit/authn-audit.d.ts",
+      "import": "./lib/mjs/audit/authn-audit.js",
+      "require": "./lib/cjs/audit/authn-audit.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "contracts": [
+        "lib/cjs/contracts/index.d.ts"
+      ],
+      "env": [
+        "lib/cjs/service/boot/env.d.ts"
+      ],
+      "boot": [
+        "lib/cjs/service/boot/index.d.ts"
+      ],
+      "schemas": [
+        "lib/cjs/schemas/index.d.ts"
+      ],
+      "register-schema": [
+        "lib/cjs/register-schema.d.ts"
+      ],
+      "mfa-enrolments": [
+        "lib/cjs/flow/mfa-enrolments.d.ts"
+      ],
+      "store-throttle": [
+        "lib/cjs/throttle/store-throttle.d.ts"
+      ],
+      "nonces": [
+        "lib/cjs/nonces/index.d.ts"
+      ],
+      "audit": [
+        "lib/cjs/audit/authn-audit.d.ts"
+      ]
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=16.11"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.mjs.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "pretest": "npm run compile && npm run compile:cjs && cd ../.. && node scripts/generate-packages-for-modules.mjs",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/authn",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "authn"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/configuration": "3.0.0",
+    "@spinajs/configuration-common": "3.0.0",
+    "@spinajs/di": "3.0.0",
+    "@spinajs/exceptions": "3.0.0",
+    "@spinajs/log-common": "3.0.0",
+    "@spinajs/util": "3.0.0"
+  },
+  "devDependencies": {
+    "@spinajs/authn-testing": "3.0.0"
+  }
+}

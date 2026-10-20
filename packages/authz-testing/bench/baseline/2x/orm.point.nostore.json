@@ -1,0 +1,43 @@
+{
+  "name": "orm.point.nostore",
+  "description": "select one row by Id (row 11, owned by the read:own user); no ALS store at all: the middleware returns at its first check; the baseline without ALS",
+  "unit": "ns",
+  "iterations": 10000,
+  "warmup": 1000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 303200,
+  "p95": 494700,
+  "p99": 692700,
+  "mean": 324640.64,
+  "opsPerSec": 3080.329067857924,
+  "perRepeat": [
+    {
+      "p50": 303200,
+      "p95": 486800,
+      "p99": 671000,
+      "mean": 324640.64,
+      "opsPerSec": 3080.329067857924
+    },
+    {
+      "p50": 318800,
+      "p95": 516100,
+      "p99": 692700,
+      "mean": 342956.79,
+      "opsPerSec": 2915.819220258039
+    },
+    {
+      "p50": 300300,
+      "p95": 494700,
+      "p99": 694800,
+      "mean": 323994.52,
+      "opsPerSec": 3086.4719563775334
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

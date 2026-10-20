@@ -1,0 +1,209 @@
+import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
+import { expect } from 'chai';
+import * as sinon from 'sinon';
+import { readdirSync } from 'fs';
+import { join } from 'path';
+import { pathToFileURL } from 'url';
+import _ from 'lodash';
+import { DefaultQueueService } from '@spinajs/queue';
+import { AuthzService, GLOBAL, ResourceAdapter } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
+
+import usersConfig from '../src/config/users.js';
+import { User, UserMetadata, UserPrincipalFactory, UserResourceAdapter } from '../src/index.js';
+import { activate, create } from '../src/actions.js';
+import { TEST_USER_UUID } from './migration/rbac.migration.js';
+import { bootUsersDb, registerUsersTestHost } from './support/users-db.js';
+
+/** As the configuration loader merges its files: arrays are concatenated. */
+const mergeArrays = (target: unknown, source: unknown) => (Array.isArray(target) ? target.concat(source) : undefined);
+
+const configDir = join(process.cwd(), 'src', 'config');
+
+// authz-http's anonymous principal; users does not depend on authz-http.
+const ANONYMOUS: Principal = Object.freeze({ type: 'anonymous', id: 'anonymous', authenticated: false, source: 'anonymous', attributes: Object.freeze({}) });
+
+async function shippedConfigs(): Promise<[string, Record<string, unknown>][]> {
+  const files = readdirSync(configDir).filter((f) => f.endsWith('.ts'));
+  return Promise.all(files.map(async (f) => [f, (await import(pathToFileURL(join(configDir, f)).href)).default] as [string, Record<string, unknown>]));
+}
+
+function expectNoForeignRoots(config: Record<string, unknown>, file: string) {
+  expect(config, file).to.not.have.any.keys('rbac', 'authn');
+}
+
+describe('the configuration users ships', function () {
+  this.timeout(30000);
+
+  it('carries no rbac.* and no authn.* key, in any file of src/config', async () => {
+    const configs = await shippedConfigs();
+
+    expect(configs.map(([f]) => f)).to.include('users.ts');
+    for (const [file, config] of configs) {
+      expectNoForeignRoots(config, file);
+    }
+  });
+
+  it('the check above fails when either key is present', () => {
+    expect(() => expectNoForeignRoots({ users: {}, rbac: {} }, 'rbac only')).to.throw();
+    expect(() => expectNoForeignRoots({ users: {}, authn: {} }, 'authn only')).to.throw();
+    expect(() => expectNoForeignRoots({ users: {} }, 'neither')).to.not.throw();
+  });
+
+  it('keeps identity keys under users.* and ships no defaultRoles or anonymousRoles array', () => {
+    expect(usersConfig.users).to.have.keys(['email', 'user', 'actions']);
+    expect(usersConfig.authz.rbac).to.have.keys(['roles']);
+  });
+
+  describe('roles, booted in a real root authz host', () => {
+    before(() => {
+      registerUsersTestHost();
+    });
+
+    beforeEach(async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
+
+      // As an application would load it: users' fragment merged with the application's roles, the ones the test
+      // fixtures use.
+      await bootUsersDb((config: Configuration) => {
+        const roles = _.mergeWith({}, config.get('authz.rbac.roles'), usersConfig.authz.rbac.roles, mergeArrays);
+        config.set('authz.rbac.roles', roles);
+        config.set('authz.rbac.anonymousRoles', ['guest']);
+      });
+    });
+
+    afterEach(() => {
+      sinon.restore();
+      DI.clearCache();
+    });
+
+    it('compiles them; UserResourceAdapter declares the user permissions they name', async () => {
+      expect(await DI.resolve(AuthzService)).to.be.instanceOf(AuthzService);
+
+      const chain = (await DI.RootContainer.resolve(Array.chainOf(ResourceAdapter))) as ResourceAdapter[];
+      const adapter = chain.find((a) => a instanceof UserResourceAdapter)!;
+      expect(adapter.permissions!()).to.deep.eq([
+        { name: 'user:read', resource: 'user', action: 'read', types: ['user'], fields: true },
+        { name: 'user:update', resource: 'user', action: 'update', types: ['user'], fields: true },
+        { name: 'user:impersonate', resource: 'user', action: 'impersonate', types: ['user'] },
+        { name: 'user.metadata:read', resource: 'user.metadata', action: 'read', types: ['user.metadata'] },
+        { name: 'user.metadata:create', resource: 'user.metadata', action: 'create', types: ['user.metadata'] },
+        { name: 'user.metadata:update', resource: 'user.metadata', action: 'update', types: ['user.metadata'] },
+        { name: 'user.metadata:delete', resource: 'user.metadata', action: 'delete', types: ['user.metadata'] },
+        { name: 'users:credentials', resource: 'users', action: 'credentials', types: ['users'] },
+      ]);
+    });
+
+    it('registers users:credentials, which admin.users holds at GLOBAL through users:*; a plain user does not', async () => {
+      const authz = (await DI.resolve(AuthzService)) as AuthzService;
+      const factory = (await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory;
+      // The fixture test user holds admin, which extends admin.users (seeded by the test migration).
+      const admin = await factory.principalOf(await User.query().where('Uuid', TEST_USER_UUID).populate('Metadata').firstOrFail());
+      const { User: plain } = await create({ Email: 'credentials-plain@spinajs.pl', Login: 'credentials-plain', Password: 'passw0rd123' }, ['user']);
+      await activate(plain);
+      const me = await factory.principalOf(await User.query().where('Uuid', plain.Uuid).populate('Metadata').firstOrFail());
+
+      expect(await authz.can(admin, 'users:credentials', GLOBAL)).to.eq(true);
+      expect(await authz.can(me, 'users:credentials', GLOBAL)).to.eq(false);
+    });
+
+    it("gives a user its own metadata rows through 'owner' and not another user's; admin.users any row, unconditionally", async () => {
+      const authz = (await DI.resolve(AuthzService)) as AuthzService;
+      const factory = (await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory;
+      const { User: plain } = await create({ Email: 'metadata-owner@spinajs.pl', Login: 'metadata-owner', Password: 'passw0rd123' }, ['user']);
+      await activate(plain);
+      const own = await User.query().where('Uuid', plain.Uuid).populate('Metadata').firstOrFail();
+      // The fixture test user holds admin (seeded by the test migration).
+      const other = await User.query().where('Uuid', TEST_USER_UUID).populate('Metadata').firstOrFail();
+      const me = await factory.principalOf(own);
+      const admin = await factory.principalOf(other);
+      const entryOf = (user: User) => Object.assign(new UserMetadata(), { Key: 'user:note', Value: 'x', Type: 'string', user_id: user.Id });
+
+      for (const action of ['read', 'create', 'update', 'delete']) {
+        const permission = `user.metadata:${action}`;
+
+        const typeLevel = await authz.check({ principal: me, permission, resource: { type: 'user.metadata' } });
+        expect(typeLevel.allowed, permission).to.eq(true);
+        expect(typeLevel.residual, permission).to.deep.eq({ op: 'relation', relation: 'owner' });
+        expect(await authz.can(me, permission, { type: 'user.metadata' }, entryOf(own)), permission).to.eq(true);
+        expect(await authz.can(me, permission, { type: 'user.metadata' }, entryOf(other)), permission).to.eq(false);
+
+        const any = await authz.check({ principal: admin, permission, resource: { type: 'user.metadata' } });
+        expect(any.allowed && any.residual.op, permission).to.eq('true');
+      }
+    });
+
+    it('gives admin user:impersonate through the fragment, and a user its own row', async () => {
+      const authz = (await DI.resolve(AuthzService)) as AuthzService;
+      const factory = (await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory;
+
+      // The fixture test user holds admin (seeded by the test migration).
+      const admin = await factory.principalOf(await User.query().where('Uuid', TEST_USER_UUID).populate('Metadata').firstOrFail());
+      expect(await authz.can(admin, 'user:impersonate')).to.eq(true);
+
+      const { User: plain } = await create({ Email: 'fragment@spinajs.pl', Login: 'fragment', Password: 'passw0rd123' }, ['user']);
+      await activate(plain);
+      const own = await User.query().where('Uuid', plain.Uuid).populate('Metadata').firstOrFail();
+      const other = await User.query().where('Uuid', TEST_USER_UUID).firstOrFail();
+      const me = await factory.principalOf(own);
+
+      const read = await authz.check({ principal: me, permission: 'user:read', resource: { type: 'user', id: own.Uuid }, subject: own });
+      expect(read.allowed).to.eq(true);
+      expect(read.fields.read).to.have.members(['Email', 'Login']);
+
+      const write = await authz.check({ principal: me, permission: 'user:update', resource: { type: 'user', id: own.Uuid }, subject: own });
+      expect(write.allowed).to.eq(true);
+      // authz.fields.neverRead (default ['Password']) takes Password out of every decision: it changes through PasswordService.
+      expect(write.fields.write).to.have.members(['Email', 'Login']);
+
+      expect(await authz.can(me, 'user:read', { type: 'user', id: other.Uuid }, other)).to.eq(false);
+      expect(await authz.can(me, 'user:impersonate')).to.eq(false);
+    });
+
+    /** `user:read` of an account holding `roles` on its own row: the check's fields and its summary entry's. */
+    const ownRead = async (roles: string[], login: string) => {
+      const authz = (await DI.resolve(AuthzService)) as AuthzService;
+      const factory = (await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory;
+      const { User: created } = await create({ Email: `${login}@spinajs.pl`, Login: login, Password: 'passw0rd123' }, roles);
+      await activate(created);
+      const own = await User.query().where('Uuid', created.Uuid).populate('Metadata').firstOrFail();
+      const principal = await factory.principalOf(own);
+      const read = await authz.check({ principal, permission: 'user:read', resource: { type: 'user', id: own.Uuid }, subject: own });
+      expect(read.allowed, login).to.eq(true);
+      const summary = (await authz.summary(principal)).permissions.find((p) => p.name === 'user:read');
+      return { check: read.fields.read, summary: summary?.fields?.read };
+    };
+
+    it('gives a guest-only account its own Login and not its Email, in a check and in the summary', async () => {
+      const fields = await ownRead(['guest'], 'guest-only');
+
+      expect(fields.check).to.have.members(['Login']);
+      expect(fields.summary).to.have.members(['Login']);
+    });
+
+    it('gives a user account its own Email and Login, in a check and in the summary', async () => {
+      const fields = await ownRead(['user'], 'user-only');
+
+      expect(fields.check).to.have.members(['Email', 'Login']);
+      expect(fields.summary).to.have.members(['Email', 'Login']);
+    });
+
+    it('RFC C3-1: an account holding guest and user reads its own row with Email and Login (union: both grants are on self)', async () => {
+      const fields = await ownRead(['guest', 'user'], 'guest-and-user');
+
+      expect(fields.check).to.have.members(['Email', 'Login']);
+      expect(fields.summary).to.have.members(['Email', 'Login']);
+    });
+
+    it("gives the anonymous principal (anonymousRoles guest) no other user's Email", async () => {
+      const authz = (await DI.resolve(AuthzService)) as AuthzService;
+      const other = await User.query().where('Uuid', TEST_USER_UUID).firstOrFail();
+
+      const read = await authz.check({ principal: ANONYMOUS, permission: 'user:read', resource: { type: 'user', id: other.Uuid }, subject: other });
+      expect(read.allowed).to.eq(false);
+      const summary = (await authz.summary(ANONYMOUS)).permissions.find((p) => p.name === 'user:read');
+      expect(summary?.fields?.read ?? []).to.not.include('Email');
+    });
+  });
+});

@@ -25,7 +25,8 @@ export class FsInfoCommand extends CliCommand {
       this.Log.info(`Info for ${path} ( fs: ${fsName} ):`);
       this.Log.info(JSON.stringify(info, null, 2));
     } catch (err) {
-      this.Log.error(`Cannot read info for ${path} on ${fsName}: ${err.message}`);
+      this.Log.error({ error: err, path, fsName }, 'Cannot read info for ${path} on ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

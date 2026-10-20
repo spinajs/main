@@ -138,4 +138,42 @@ describe("OtlpLogTarget behavior", () => {
     expect(target.Queue.size).to.eq(2);
     expect(target.HasError).to.eq(true);
   });
+
+  it("hands the batch to OnDropped when the final flush in dispose() fails with a retryable error", async () => {
+    const target = buildTarget();
+    target.resolve();
+    target.RetryPipeline = new ResiliencePipelineBuilder().build();
+    sinon.stub(target.AxiosInstance, "post").rejects({ response: { status: 503, headers: {} } });
+
+    const dropped: any[] = [];
+    target.OnDropped = (e: any) => dropped.push(e);
+    const e1 = entry("last");
+    target.write(e1);
+
+    await target.dispose();
+
+    expect(dropped).to.deep.eq([e1]);
+  });
+
+  it("dispose() before resolve() does not throw", async () => {
+    await buildTarget().dispose();
+  });
+
+  it("does not export entries from its own logger", async () => {
+    const target = buildTarget();
+    target.resolve();
+    const post = sinon.stub(target.AxiosInstance, "post").callsFake(() => Promise.resolve({ status: 200 }));
+
+    target.write({ Level: 0, Variables: { logger: "LogOtlpTarget", level: "TRACE", message: "Wrote buffered messages" } });
+    await target.forceFlush();
+
+    expect(post.called).to.eq(false);
+  });
+
+  it("__checkInstance__ matches on name and endpoint and tolerates missing options", () => {
+    const target = buildTarget();
+    expect(target.__checkInstance__([{ name: "Otlp", options: { endpoint: "http://localhost:4318" } }])).to.eq(true);
+    expect(target.__checkInstance__([{ name: "Otlp", options: { endpoint: "http://other:4318" } }])).to.eq(false);
+    expect(target.__checkInstance__(undefined)).to.eq(false);
+  });
 });

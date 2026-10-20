@@ -93,12 +93,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
 
     // start async init - fs resolution and dir creation cannot run in a sync
     // SyncService.resolve, so writes buffer until Ready settles
-    this.Ready = this.init();
-    this.Ready.catch((err) => {
-      this.HasError = true;
-      this.Error = err;
-      this.Log.error(err as Error, `Cannot initialize file target ${this.Options.name}`);
-    });
+    this.startInit();
 
     // BatchQueue owns accumulation, the periodic flush tick ( unref'd, so a
     // pending flush never keeps the process alive ) and the hard queue cap. The
@@ -116,12 +111,25 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
         // not File-as-primary drops.
         if (!this.Overflowed) {
           this.Overflowed = true;
-          this.Log.warn(`File target ${this.Options.name} buffer exceeded ${this.Options.options.maxQueueSize} messages, dropped ${droppedItems.length} oldest buffered messages.`);
+          this.Log.warn({ target: this.Options.name, maxQueueSize: this.Options.options.maxQueueSize, dropped: droppedItems.length }, "File target ${target} buffer exceeded ${maxQueueSize} messages, dropped ${dropped} oldest buffered messages.");
         }
       },
     });
 
     super.resolve();
+  }
+
+  protected startInit(): void {
+    this.Ready = this.init().catch((err) => {
+      // log only the first failure, append() retries init while no fs provider resolves
+      if (!this.HasError) {
+        this.Log.error({ error: err, target: this.Options.name }, "Cannot initialize file target ${target}");
+      }
+      this.HasError = true;
+      this.Error = err;
+      throw err;
+    });
+    this.Ready.catch(() => undefined);
   }
 
   /**
@@ -132,8 +140,13 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
     const o = this.Options.options;
 
     // o.fs is always populated from LOG_FILE_DEFAULTS ( see resolve() )
-    this.Fs = getFs(o.fs!);
-    this.ArchiveFs = o.archiveFs ? getFs(o.archiveFs) : this.Fs;
+    const logFs = getFs(o.fs!);
+    const archiveFs = o.archiveFs ? getFs(o.archiveFs) : logFs;
+    if (!logFs || !archiveFs) {
+      throw new InvalidOption(`FileTarget ${this.Options.name}: fs provider '${String(logFs ? o.archiveFs : o.fs)}' is not registered`);
+    }
+    this.Fs = logFs;
+    this.ArchiveFs = archiveFs;
 
     // path is relative to the fs provider base path; ensure its directory exists
     const logDir = posix.dirname(this.activePath());
@@ -148,13 +161,21 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
       await this.ArchiveFs.mkdir(this.ArchiveDir);
     }
 
+    // getters: a date-based path must be re-evaluated on every check, and reading
+    // the @Logger getter here could run while this target is still being constructed
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const target = this;
     this.Context = {
       fs: this.Fs,
       archiveFs: this.ArchiveFs,
-      activePath: this.activePath(),
+      get activePath() {
+        return target.activePath();
+      },
       archiveDir: this.ArchiveDir,
       options: o,
-      logger: this.Log,
+      get logger() {
+        return target.Log;
+      },
       rotate: () => this.ArchiveService.rotate(this.Context),
       withWriteLock: <T>(fn: () => Promise<T>) => this.withWriteLock(fn),
     };
@@ -204,9 +225,16 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
    * driven by dispose() - never rejects.
    */
   protected async append(batch: string[]): Promise<void> {
-    await this.Ready.catch(() => {
-      /* init failed - error already recorded, skip appending */
-    });
+    const ready = this.Ready;
+    await ready.catch(() => undefined);
+
+    // fs providers may register after this target was resolved ( fsService boots later )
+    if (!this.Fs && !this.Disposed) {
+      if (this.Ready === ready) {
+        this.startInit();
+      }
+      await this.Ready.catch(() => undefined);
+    }
 
     if (!this.Fs) {
       // init failed / fs unavailable - keep the batch for a later retry
@@ -226,7 +254,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
       } catch (err) {
         this.HasError = true;
         this.Error = err;
-        this.Log.error(err as Error, `Cannot write log messages to file target at path ${path}`);
+        this.Log.error({ error: err, path }, "Cannot write log messages to file target at path ${path}");
 
         // restore the batch in front of anything queued meanwhile - never drop.
         // the queue caps at maxQueue, dropping the oldest if the sink stays down.

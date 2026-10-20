@@ -1,0 +1,76 @@
+import { DI, Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
+import { AUTHZ_DEFAULTS, AuthzDomains, DefaultAuthzDomains, filterObject, readDomainConfig, subtractFieldGlobs } from '@spinajs/authz';
+import type { Decision } from '@spinajs/authz';
+import { IRegisteredHandler, ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { ISocketAccess, socketAccessDomain, socketAccessOf } from '../access.js';
+import { isStreamResult } from '../stream.js';
+
+/** The handler's own `@SocketAccess` rule, else its controller's: the one whose decision is in the call storage. */
+function accessOf(handler: IRegisteredHandler | undefined): ISocketAccess | undefined {
+  return handler ? (socketAccessOf(handler.descriptor.Policies) ?? socketAccessOf(handler.controller.Descriptor?.Policies)) : undefined;
+}
+
+/**
+ * Not a generator: a generator's return() never reaches a source it has not started, and queues behind a pending next(),
+ * so the dispatcher's close of a refused or failed stream would leak what the source holds.
+ */
+function filtered(source: AsyncIterable<unknown>, filter: (chunk: unknown) => unknown): AsyncIterable<unknown> {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<unknown> {
+      const iterator = source[Symbol.asyncIterator]();
+
+      // a done step carries no value: a generator's `return x` must not pass unfiltered
+      const settle = (step: IteratorResult<unknown>): IteratorResult<unknown> => (step.done ? { done: true, value: undefined } : { done: false, value: filter(step.value) });
+
+      return {
+        next: async (...args: [] | [undefined]) => settle(await iterator.next(...args)),
+        return: async () => (iterator.return ? settle(await iterator.return()) : { done: true, value: undefined }),
+        throw: async (error?: unknown) => {
+          if (iterator.throw) {
+            return settle(await iterator.throw(error));
+          }
+          await iterator.return?.();
+          throw error;
+        },
+      };
+    },
+  };
+}
+
+/**
+ * `@SocketAccess(…, { fields: 'filter' })`: the command result, or each chunk of a stream reply, limited to
+ * `decision.fields.read` minus the domain's `fields.neverRead`, as authz-http's `fields: 'filter'` limits a response ( B17 ).
+ * A call another policy group admitted has no decision, so only `neverRead` applies.
+ * A binary result or chunk passes unchanged; a binary value nested in an object goes through filterObject, as in HTTP's JSON.
+ */
+@Injectable(SocketCommandStage)
+export class AccessFieldsStage extends SocketCommandStage {
+  @Config('authz')
+  protected Authz: unknown;
+
+  public get Order(): number {
+    // after the policies left the decision; wraps the arguments and the handler
+    return STAGE_ORDER.Policies + 50;
+  }
+
+  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+    const access = accessOf(ctx.handler);
+    if (access?.fields !== 'filter') {
+      return next();
+    }
+
+    const result = await next();
+    const read = this.readable(ctx.storage.AuthzDecision, socketAccessDomain(ctx.handler!.descriptor.Policies, ctx.handler!.controller.Descriptor?.Policies));
+    const filter = (data: unknown): unknown => (data !== null && typeof data === 'object' && !ArrayBuffer.isView(data) && !(data instanceof ArrayBuffer) ? filterObject(read, data) : data);
+
+    return isStreamResult(result) ? filtered(result, filter) : filter(result);
+  }
+
+  protected readable(decision: Decision | undefined, domain: string): readonly string[] {
+    const domains = DI.get(AuthzDomains);
+    const neverRead = domains instanceof DefaultAuthzDomains ? readDomainConfig(this.Authz, domains.lineage(decision?.domain ?? domain)).fields.neverRead : AUTHZ_DEFAULTS.fields.neverRead;
+    const read = decision?.fields.read ?? ['*'];
+    return neverRead.length === 0 ? read : subtractFieldGlobs(read, neverRead);
+  }
+}

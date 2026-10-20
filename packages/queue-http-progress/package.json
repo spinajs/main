@@ -1,7 +1,7 @@
 {
   "name": "@spinajs/queue-http-progress",
-  "version": "2.0.557",
-  "description": "HTTP request progress tracking utility for SpineJS. Provides real-time progress updates for file uploads and downloads, integrating with SpineJS HTTP controllers.",
+  "version": "3.0.0",
+  "description": "Job status route for SpinaJS queue jobs: GET jobs/v1/:jobId/status returns the status, progress and result of one queue job.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
@@ -20,17 +20,16 @@
     "node": ">=16.11"
   },
   "scripts": {
-    "build": "npm run clean && npm run compile && npm run copy",
+    "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.mjs.json",
     "compile:cjs": "tsc -b tsconfig.cjs.json",
-    "copy": "cpx \"src/views/**/*.{pug,js}\" lib/views/",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
-    "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
+    "lint": "cd ../.. && npm run lint -- packages/queue-http-progress",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
   },
@@ -53,20 +52,25 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "2.0.557",
-    "@spinajs/di": "2.0.557",
-    "@spinajs/exceptions": "2.0.557",
-    "@spinajs/http": "2.0.557",
-    "@spinajs/log": "2.0.557",
-    "@spinajs/queue": "2.0.557",
-    "@spinajs/reflection": "2.0.557",
-    "@spinajs/fs": "2.0.557",
-    "@spinajs/templates": "2.0.557",
-    "@spinajs/templates-pug": "2.0.557",
-    "@spinajs/validation": "2.0.557",
-    "swagger-ui-dist": "^5.0.0"
+    "@spinajs/authz": "3.0.0",
+    "@spinajs/authz-http": "3.0.0",
+    "@spinajs/configuration": "3.0.0",
+    "@spinajs/di": "3.0.0",
+    "@spinajs/exceptions": "3.0.0",
+    "@spinajs/http": "3.0.0",
+    "@spinajs/log": "3.0.0",
+    "@spinajs/queue": "3.0.0",
+    "@spinajs/reflection": "3.0.0",
+    "@spinajs/fs": "3.0.0",
+    "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "cpx": "1.5.0"
+    "@spinajs/authz-orm": "3.0.0",
+    "@spinajs/authz-queue": "3.0.0",
+    "@spinajs/authz-testing": "3.0.0",
+    "@spinajs/fs": "3.0.0",
+    "@spinajs/orm": "3.0.0",
+    "@spinajs/orm-sqlite": "3.0.0",
+    "@types/luxon": "^3.6.1"
   }
 }

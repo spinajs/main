@@ -35,9 +35,10 @@ export class FsWriteCommand extends CliCommand {
         throw new InvalidArgument('Provide content with --content or --from-file');
       }
 
-      this.Log.success(`Wrote ${path} ( fs: ${fsName} )`);
+      this.Log.success({ path, fsName }, 'Wrote ${path} ( fs: ${fsName} )');
     } catch (err) {
-      this.Log.error(`Cannot write ${path} on ${fsName}: ${err.message}`);
+      this.Log.error({ error: err, path, fsName }, 'Cannot write ${path} on ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

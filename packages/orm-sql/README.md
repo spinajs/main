@@ -49,16 +49,21 @@ export class MyDbOrmDriver extends SqlDriver {
 
 ## Documentation
 
-Full documentation lives in **[docs/](docs/)**.
+Full documentation lives in **[docs/](../../docs/orm-sql/)**.
 
 | | Page |
 | --- | --- |
-| 01 | [Overview](docs/01-overview.md) |
-| 02 | [Compilers](docs/02-compilers.md) |
-| 03 | [Statements](docs/03-statements.md) |
-| 04 | [Writing a driver](docs/04-writing-a-driver.md) |
+| 01 | [`SqlDriver`](../../docs/orm-sql/01-sql-driver.md) |
+| 02 | [Query compilers](../../docs/orm-sql/02-query-compilers.md) |
+| 03 | [Statements](../../docs/orm-sql/03-statements.md) |
+| 04 | [Identifier and literal quoting](../../docs/orm-sql/04-identifier-and-literal-quoting.md) |
+| 05 | [Value converters and default values](../../docs/orm-sql/05-value-converters-and-defaults.md) |
+| 06 | [View compiler hooks](../../docs/orm-sql/06-view-compiler-hooks.md) |
+| 07 | [Adding a new SQL dialect](../../docs/orm-sql/07-adding-a-sql-dialect.md) |
+| 08 | [Extending an existing dialect](../../docs/orm-sql/08-extending-an-existing-dialect.md) |
+| 09 | [Injecting your own builders](../../docs/orm-sql/09-injecting-your-own-builders.md) |
 
-See also [the core's architecture page](../orm/docs/12-architecture.md) for how a query becomes
+See also [the core's architecture page](../../docs/orm/12-architecture.md) for how a query becomes
 SQL, end to end.
 
 ## Development

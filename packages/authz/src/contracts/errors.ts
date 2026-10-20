@@ -1,0 +1,34 @@
+import { AuthenticationFailed, Forbidden, InvalidOption } from '@spinajs/exceptions';
+import type { Decision } from './decision.js';
+import { resourceKey } from './resource.js';
+
+export class AuthzConfigError extends InvalidOption {
+  // boot/programming errors
+  constructor(message?: string, options?: ErrorOptions) {
+    // not `inner`: @spinajs/http spreads an error's own enumerable props into the response body
+    super(message);
+    this.name = new.target.name;
+    if (options && 'cause' in options) Object.defineProperty(this, 'cause', { value: options.cause, writable: true, configurable: true });
+  }
+}
+
+export class UnknownPermission extends AuthzConfigError {}
+
+export class AccessDenied extends Forbidden {
+  declare readonly decision: Decision;
+
+  constructor(decision: Decision, message?: string) {
+    super(message ?? `Access denied: ${decision.permission} on ${resourceKey(decision.resource)}${decision.reason ? ` (${decision.reason.code})` : ''}`);
+    this.name = new.target.name;
+    // non-enumerable: @spinajs/http spreads an error's own enumerable props into the response body
+    Object.defineProperty(this, 'decision', { value: decision, enumerable: false });
+  }
+}
+
+// @spinajs/exceptions has no Unauthorized; @spinajs/http maps AuthenticationFailed to 401.
+export class Unauthenticated extends AuthenticationFailed {
+  constructor(message?: string, inner?: Error | unknown) {
+    super(message, inner);
+    this.name = new.target.name;
+  }
+}

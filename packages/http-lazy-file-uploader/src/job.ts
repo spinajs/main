@@ -1,9 +1,9 @@
 import { IOFail } from '@spinajs/exceptions';
-import { getFs } from '@spinajs/fs';
+import { fs, getFs } from '@spinajs/fs';
 import { Log, Logger } from '@spinajs/log-common';
 import { QueueJob, Job } from '@spinajs/queue';
 
-@Job()
+@Job({ runAs: 'initiator' })
 export class LazyUploadJob extends QueueJob {
   @Logger('LazyUploadJob')
   protected Log: Log;
@@ -21,18 +21,13 @@ export class LazyUploadJob extends QueueJob {
   public DeleteAfterUpload: boolean;
 
   public async execute(progress: (p: number) => Promise<void>) {
-    this.Log.info(`COPY: ${this.Path}, fs: ${this.SourceFilesystem} dst: ${this.ToFilesystem}, deleteAfterUpload: ${this.DeleteAfterUpload}`);
+    this.Log.info(
+      { path: this.Path, sourceFs: this.SourceFilesystem, targetFs: this.ToFilesystem, deleteAfterUpload: this.DeleteAfterUpload },
+      'COPY: ${path}, fs: ${sourceFs} dst: ${targetFs}, deleteAfterUpload: ${deleteAfterUpload}',
+    );
 
-    const sFs = getFs(this.SourceFilesystem);
-    const tFs = getFs(this.ToFilesystem);
-
-    if (!sFs) {
-      throw new IOFail(`Filesystem ${this.SourceFilesystem} not exists, pleas check your configuration`);
-    }
-
-    if (!tFs) {
-      throw new IOFail(`Filesystem ${this.ToFilesystem} not exists, pleas check your configuration`);
-    }
+    const sFs = this.getFilesystem(this.SourceFilesystem);
+    const tFs = this.getFilesystem(this.ToFilesystem);
 
     this.Log.timeStart(`[COPY] ${this.Path}`);
 
@@ -47,8 +42,24 @@ export class LazyUploadJob extends QueueJob {
     await progress(100);
 
     const d = this.Log.timeEnd(`[COPY] ${this.Path}`);
-    this.Log.trace(`Copied ${this.Path} from ${this.SourceFilesystem} to ${this.ToFilesystem} in ${d}ms`);
+    this.Log.trace({ path: this.Path, sourceFs: this.SourceFilesystem, targetFs: this.ToFilesystem, ms: d }, 'Copied ${path} from ${sourceFs} to ${targetFs} in ${ms}ms');
 
     return 'finished';
+  }
+
+  protected getFilesystem(name: string) {
+    let provider: fs | undefined;
+
+    try {
+      provider = getFs(name);
+    } catch (err) {
+      throw new IOFail(`Filesystem ${name} not exists, pleas check your configuration`, err);
+    }
+
+    if (!provider) {
+      throw new IOFail(`Filesystem ${name} not exists, pleas check your configuration`);
+    }
+
+    return provider;
   }
 }

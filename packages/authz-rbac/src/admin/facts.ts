@@ -1,0 +1,115 @@
+import { AuthzConfigError, SYSTEM, isPermission, isPermissionGlob, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
+import type { AdminContext, Decision, FieldSet, Permission, PermissionRegistry, Principal, ResourceRef } from '@spinajs/authz';
+import { Injectable, Singleton } from '@spinajs/di';
+
+import { grantClosure, grantedPermissions, ladderAppliesAt, permissionRegistry, rankOf, roleClosure, roleIndex } from './role-index.js';
+
+/** What DefaultAdminGuard needs to know about the actor. */
+export abstract class RbacAdminFacts {
+  /** The actor holds every permission `role` grants (closure) at `scope`, unconditionally. */
+  abstract covers(actor: Principal, role: string, scope: ResourceRef, ctx: AdminContext): Promise<boolean>;
+  /** The actor's effective role on `ladder` at `scope`, or undefined when it holds none. */
+  abstract effectiveRole(actor: Principal, ladder: string, scope: ResourceRef, ctx: AdminContext): Promise<string | undefined>;
+}
+
+const unconditional = (d: Decision | undefined): boolean => d?.allowed === true && d.residual?.op === 'true';
+
+/**
+ * The permissions a grant gives, each with the field set it carries (undefined: every field), as the model
+ * compiles the grant (grantedPermissions); a matched permission without `fields: true` takes no field set.
+ */
+function given(registry: PermissionRegistry, permission: string, fields: FieldSet | undefined): { permission: Permission; fields: FieldSet | undefined }[] | undefined {
+  return grantedPermissions(registry, permission)?.map((def) => ({ permission: def.name, fields: def.fields === true ? fields : undefined }));
+}
+
+/**
+ * RbacAdminFacts from checks through ctx.authz. A grant asks for every permission it gives (`given`).
+ * Fails closed: any grant when no registry is reachable (not even a literal's implies are known then; the
+ * holder checks reject in that case), a grant whose permissions are unknown (an invalid or unregistered name,
+ * a glob that matches nothing), an undefined role in the closure, an implied role that bypasses
+ * restrict or cap rules, or a check refused as a configuration error (a permission whose types exclude the
+ * scope type) counts as not covered. Any other error of a check rejects. The implied roles of a ladder role
+ * the actor ranks at or above are not followed (grantClosure).
+ */
+@Singleton()
+@Injectable(RbacAdminFacts)
+export class CheckRbacAdminFacts extends RbacAdminFacts {
+  async covers(actor: Principal, role: string, scope: ResourceRef, ctx: AdminContext): Promise<boolean> {
+    const roles = await roleIndex(ctx);
+    const own = new Map<string, Promise<string | undefined>>();
+    const holds = async (ladder: string, name: string): Promise<boolean> => {
+      if (!ladderAppliesAt(roles, ladder, scope)) return false;
+      if (!own.has(ladder)) own.set(ladder, this.effectiveRole(actor, ladder, scope, ctx));
+      const mine = await own.get(ladder)!;
+      return mine !== undefined && rankOf(roles, ladder, name) >= 0 && rankOf(roles, ladder, mine) >= rankOf(roles, ladder, name);
+    };
+    // A `descendants` implied role is not held at the scope, but checks reach no lower.
+    const { defs, unknown, bypass } = await grantClosure(roles, role, holds);
+    if (unknown.length > 0 || bypass) return false;
+    // Per permission: the field sets its grants give; undefined = a grant without fields. An absent read or write
+    // inside a field set means every field, as the RBAC model compiles it.
+    const wanted = new Map<Permission, { read: string[]; write: string[] } | undefined>();
+    const registry = await permissionRegistry(ctx);
+    for (const def of defs) {
+      for (const g of def.grants) {
+        const permissions = registry ? given(registry, g.permission, g.fields) : undefined;
+        if (!permissions) return false;
+        for (const { permission, fields } of permissions) {
+          const prev = wanted.has(permission) ? wanted.get(permission) : { read: [], write: [] };
+          if (prev === undefined || fields === undefined) {
+            wanted.set(permission, undefined);
+            continue;
+          }
+          const hide = fields.hide ?? [];
+          wanted.set(permission, { read: unionFieldGlobs(prev.read, subtractFieldGlobs(fields.read ?? ['*'], hide)), write: unionFieldGlobs(prev.write, subtractFieldGlobs(fields.write ?? ['*'], hide)) });
+        }
+      }
+    }
+    if (wanted.size === 0) return true;
+    const perms = [...wanted.keys()];
+    try {
+      const decisions = new Map(await Promise.all(perms.map(async (permission) => [permission, await ctx.authz.check({ principal: actor, permission, resource: scope, fresh: true })] as const)));
+      if (!perms.every((p) => unconditional(decisions.get(p)))) return false;
+      // SYSTEM gets every field the engine lets anyone have (authz.fields.neverRead removed): the most a grant gives.
+      const most = await ctx.authz.checkMany(SYSTEM, perms, scope);
+      return perms.every((p) => {
+        const cap = most.get(p)?.fields;
+        const own = decisions.get(p)!.fields;
+        if (!cap) return false;
+        const set = wanted.get(p);
+        const read = set === undefined ? cap.read : subtractFieldGlobs(set.read, subtractFieldGlobs(set.read, cap.read));
+        const write = set === undefined ? cap.write : subtractFieldGlobs(set.write, subtractFieldGlobs(set.write, cap.write));
+        return subtractFieldGlobs(read, own.read).length === 0 && subtractFieldGlobs(write, own.write).length === 0;
+      });
+    } catch (e) {
+      if (e instanceof AuthzConfigError) return false;
+      throw e;
+    }
+  }
+
+  /**
+   * Decision.roles is filled for every outcome, so a check of any permission of the ladder answers;
+   * a glob grant offers the registered permissions it matches.
+   */
+  async effectiveRole(actor: Principal, ladder: string, scope: ResourceRef, ctx: AdminContext): Promise<string | undefined> {
+    const roles = await roleIndex(ctx);
+    const registry = await permissionRegistry(ctx);
+    const probes = (grant: string): readonly Permission[] => (isPermission(grant) ? [grant] : registry && isPermissionGlob(grant) ? registry.match(grant).map((d) => d.name) : []);
+    const tried = new Set<Permission>();
+    for (const name of roles.ladders.get(ladder)?.roles ?? []) {
+      for (const def of roleClosure(roles, name).defs) {
+        for (const permission of def.grants.flatMap((g) => probes(g.permission))) {
+          if (tried.has(permission)) continue;
+          tried.add(permission);
+          try {
+            return (await ctx.authz.check({ principal: actor, permission, resource: scope, fresh: true })).roles?.[ladder];
+          } catch (e) {
+            // Not checkable at this scope; try the next permission.
+            if (!(e instanceof AuthzConfigError)) throw e;
+          }
+        }
+      }
+    }
+    return undefined;
+  }
+}

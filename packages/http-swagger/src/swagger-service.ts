@@ -1,5 +1,5 @@
 import { AsyncService, Autoinject, DI, LazyInject, Singleton } from '@spinajs/di';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { UnexpectedServerError } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
 import { Controllers } from '@spinajs/http';
 import { Logger, Log } from '@spinajs/log';
@@ -57,6 +57,7 @@ export class SwaggerService extends AsyncService {
    */
   public invalidate(): void {
     this._spec = null;
+    this._buildPromise = null;
   }
 
   public async getSpec(): Promise<IOpenApiDocument | null> {
@@ -66,18 +67,28 @@ export class SwaggerService extends AsyncService {
     // Coalesce concurrent builds onto a single in-flight promise.
     if (!this._buildPromise) {
       this.Log.info('Building Swagger/OpenAPI documentation...');
-      this._buildPromise = this.buildSpec()
+      const build: Promise<IOpenApiDocument> = this.buildSpec()
         .then((spec) => {
-          this.Log.info(`Swagger documentation ready. ${Object.keys(spec.paths ?? {}).length} paths documented.`);
+          this.Log.info({ paths: Object.keys(spec.paths ?? {}).length }, 'Swagger documentation ready. ${paths} paths documented.');
+
+          // A build superseded by invalidate() is stale: serve it to its waiters, never cache it.
+          if (this._buildPromise === build) {
+            this._spec = spec;
+          } else if (this._spec === spec) {
+            this._spec = null;
+          }
+
           return spec;
         })
         .finally(() => {
-          this._buildPromise = null;
+          if (this._buildPromise === build) {
+            this._buildPromise = null;
+          }
         });
+      this._buildPromise = build;
     }
 
-    await this._buildPromise;
-    return this._spec;
+    return this._buildPromise;
   }
 
   /**
@@ -105,14 +116,14 @@ export class SwaggerService extends AsyncService {
     // controller's first bad method, and when these failures were only warned about, seven
     // log lines stood for thirteen broken arguments - and the twenty-one operations of the
     // controllers that failed silently vanished from a spec that still answered 200.
-    const failures: string[] = [];
+    const failures: { controller: string; error: string }[] = [];
 
     for (const controller of controllers) {
       try {
         const docCache = await this.DocCache.getCache(controller);
         builder.addController(controller, docCache);
       } catch (err) {
-        failures.push(`  - ${controller.name}: ${(err as Error)?.message ?? err}`);
+        failures.push({ controller: controller.name, error: (err as Error)?.message ?? String(err) });
       }
     }
 
@@ -120,9 +131,10 @@ export class SwaggerService extends AsyncService {
       // A controller that cannot be documented is a controller that is wrong - it is fixed,
       // not worked around. Omitting it would publish a spec that looks complete and is not,
       // which is precisely the failure this replaces.
-      const message = `Cannot build the OpenAPI spec: ${failures.length} controller(s) could not be documented.\n${failures.join('\n')}`;
-      this.Log.error(message);
-      throw new InvalidArgument(message);
+      this.Log.error({ count: failures.length, failures }, 'Cannot build the OpenAPI spec: ${count} controller(s) could not be documented: ${failures}');
+      throw new UnexpectedServerError(
+        `Cannot build the OpenAPI spec: ${failures.length} controller(s) could not be documented.\n${failures.map((f) => `  - ${f.controller}: ${f.error}`).join('\n')}`,
+      );
     }
 
     this._spec = builder.build();

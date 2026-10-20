@@ -3,6 +3,17 @@
 AMQP 0-9-1 ( RabbitMQ ) transport for the [`@spinajs/queue`](../queue) module. Lets you publish and
 consume queue messages ( jobs & events ) through an AMQP compatible broker.
 
+## Documentation
+
+Full documentation lives in [`docs/queue-amqp-transport`](../../docs/queue-amqp-transport/README.md):
+
+- [AMQP connection](../../docs/queue-amqp-transport/01-amqp-connection.md)
+- [Channel topology](../../docs/queue-amqp-transport/02-channel-topology.md)
+- [Publishing](../../docs/queue-amqp-transport/03-publishing.md)
+- [Retry and dead-letter](../../docs/queue-amqp-transport/04-retry-and-dead-letter.md)
+- [Extending the AMQP client](../../docs/queue-amqp-transport/05-extending-the-amqp-client.md)
+- [Client factory](../../docs/queue-amqp-transport/06-client-factory.md)
+
 ## Topology
 
 The transport maps the queue `channel` string onto AMQP primitives using a simple, STOMP compatible
@@ -37,7 +48,7 @@ const config = {
     connections: [
       {
         name: 'amqp',
-        transport: 'AmqpQueueClient',
+        service: 'AmqpQueueClient',
         host: 'localhost',
         port: 5672,
         login: 'guest',
@@ -55,8 +66,8 @@ const config = {
 };
 ```
 
-`host` may also be a full url ( `amqp://user:pass@host/vhost` ), in which case the discrete
-`port`/`login`/`password` fields are ignored.
+`host` may also be a full url ( `amqp://user:pass@host/vhost` ). Its port and credentials win;
+`port` and `login`/`password` are used only when the url has none.
 
 ## Retries
 

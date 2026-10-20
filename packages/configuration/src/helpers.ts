@@ -31,10 +31,11 @@ export function cfg<T>(path: string, defaultValue?: T): T {
  */
 export async function service<T>(path: string, type: Class<T>, options?: []): Promise<T> {
   // configuration errors propagate raw - only resolution errors below are wrapped
-  const { service: serviceName } = cfg<{ service: string }>(path);
+  const entry = cfg<string | { service: string }>(path);
+  const serviceName = typeof entry === 'string' ? entry : entry.service;
 
   try {
-    const types = getRegisteredTypes(type);
+    const types = getRegisteredTypes(type) ?? [];
     const t = types.find((x) => x.name === serviceName);
 
     if (!t) {
@@ -45,7 +46,7 @@ export async function service<T>(path: string, type: Class<T>, options?: []): Pr
   } catch (err) {
     throw new ResolveException(
       `Cannot resolve service from ${path}: ${(err as Error).message}. Check your configuration file at this path.`,
-      err,
+      err as Error,
     );
   }
 }

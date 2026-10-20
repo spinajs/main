@@ -349,4 +349,3 @@ export function formatSseEvent(target: SubscribeTarget, e: RunEvent): string {
 export const SCHEDULER_SSE_HEARTBEAT_MS = 15000;
 
 export const SCHEDULER_PERMISSIONS = { read: 'scheduler:read', run: 'scheduler:run', manage: 'scheduler:manage' } as const;
-export const SCHEDULER_RBAC = { resource: 'scheduler', read: 'readAny', run: 'updateAny', manage: 'deleteAny' } as const;

@@ -9,8 +9,9 @@ HTTP API and live Server-Sent Events stream for [`@spinajs/scheduler`](../schedu
 npm install @spinajs/scheduler @spinajs/scheduler-http
 ```
 
-The package configuration adds its controllers to `system.dirs.controllers` and grants every scheduler
-permission to `admin` through the `admin.scheduler` sub-role.
+The package configuration adds its controllers to `system.dirs.controllers`, declares the three `scheduler:*`
+permissions in `authz.permissions` and, for apps that load `@spinajs/authz-rbac`, grants all of them to `admin`
+through the `admin.scheduler` sub-role.
 
 ## Configuration
 
@@ -18,25 +19,34 @@ permission to `admin` through the `admin.scheduler` sub-role.
 |---|---|---|
 | `scheduler.http.sse.heartbeat` | `15000` | ms between `: ping` comments on open event streams; `0` disables |
 
-## Permissions (2.x `rbac-http`)
+## Permissions
 
-All routes require an authorized session (`AuthorizedPolicy`) and a grant on the rbac resource `scheduler`:
+Every route carries one `@Access` of `@spinajs/authz-http`, checked on the type-level resource `scheduler`
+(`SCHEDULER_PERMISSIONS` of `@spinajs/scheduler`). A request without an authenticated principal gets 401, a
+principal without the permission 403.
 
-| Tier | Grant | Routes |
+| Tier | Permission | Routes |
 |---|---|---|
-| read | `read:any` | lists, details, error groups, live events |
-| run | `update:any` | run now, cancel, retry, retry failed |
-| manage | `delete:any` | pause, resume, error status, prune |
+| read | `scheduler:read` | lists, details, error groups, live events |
+| run | `scheduler:run` | run now, cancel, retry, retry failed |
+| manage | `scheduler:manage` | pause, resume, error status, prune |
+
+The routes check exactly one permission each, so a role that runs schedules needs `scheduler:read` too to see them.
+Grant them through your authorization model, e.g. an RBAC role:
 
 ```ts
-rbac: {
-  grants: {
-    'scheduler-operator': { scheduler: { 'read:any': ['*'], 'update:any': ['*'] } },
+authz: {
+  rbac: {
+    roles: {
+      'scheduler-operator': { grants: ['scheduler:read', 'scheduler:run'] },
+    },
   },
 }
 ```
 
-Every mutating call records the caller as `triggeredBy` (`kind: 'user'`, or `'token'` for api-token requests).
+Every mutating call records the caller as `triggeredBy`: a user signed in with a session as `kind: 'user'`, a
+user's api token, or an agent token acting for a user, as `kind: 'token'` with that user's id, and a service
+principal as `kind: 'service'`. `name` is the user's `Login` (else `Email`). Other principals get 403.
 
 ## Endpoints
 
@@ -101,9 +111,3 @@ curl -N -H 'Accept: text/event-stream, application/json;q=0.5' -H 'Last-Event-ID
   wait for its watchdog.
 - The CLI follows the same stream: with `scheduler.cli.http.baseUrl` set, `scheduler:run --follow` and
   `scheduler:run:show --follow` read `/scheduler/runs/:id/events` and resume with `Last-Event-ID`.
-
-## Moving to authz-v3 (planned)
-
-This release targets 2.x `rbac-http`. Once authz-v3 is merged, the routes move to
-`@Access('scheduler:read' | 'scheduler:run' | 'scheduler:manage')` (`SCHEDULER_PERMISSIONS` of the core) instead of
-`@Policy(AuthorizedPolicy)` + `@Resource` + `@Permission`, and the grants move from `rbac.grants` to authz. Not done yet.

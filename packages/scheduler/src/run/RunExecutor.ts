@@ -6,7 +6,7 @@ import type { AbortReason, RunStatus, StructuredError } from '../contract.js';
 import { emitMessage, runJobId, ScheduledJobPayload } from '../emit/emit.js';
 import { QueueJobFailedError, RunAbortedError } from '../errors.js';
 import { resolveSchedulerConfig, ScheduleDefinition, SchedulerConfig } from '../interfaces.js';
-import { defined, jsonColumn } from '../models/converters.js';
+import { defined } from '../models/converters.js';
 import { RunAttemptModel } from '../models/RunAttemptModel.js';
 import { RunModel } from '../models/RunModel.js';
 import { RunStepModel } from '../models/RunStepModel.js';
@@ -14,7 +14,7 @@ import { automaticRetry, decideAfterFailure } from '../policy/retry.js';
 import { SchedulerSignals } from '../signals.js';
 import { LeaseStore } from '../store/LeaseStore.js';
 import { Clock, DbClock } from '../time/clock.js';
-import { safeJson, toStructuredError } from '../tracking/structured.js';
+import { jsonValue, toStructuredError } from '../tracking/structured.js';
 import { Heartbeat } from './Heartbeat.js';
 import type { ExecutionOutcome } from './outcome.js';
 import { RunContext } from './RunContext.js';
@@ -282,8 +282,8 @@ export class RunExecutor {
       plannedWeight: await this.plannedWeight(def.name),
       onStepFinished: (step, status, ms) => this.Signals.stepFinished(run, step, status, ms),
       // fenced like every other write of the owner: a reaped or re-claimed run refuses it
-      saveCheckpoint: (json) =>
-        this.Leases.finishRun(run.Id, run.Attempt, { Checkpoint: json, UpdatedAt: this.Clock.now() }),
+      saveCheckpoint: (value) =>
+        this.Leases.finishRun(run.Id, run.Attempt, { Checkpoint: value, UpdatedAt: this.Clock.now() }),
       onLeaseLost,
       resume: await loadResumeMap(run, def),
       discardCheckpoint,
@@ -419,7 +419,7 @@ export class RunExecutor {
     outcome = await this.withCancelFromRow(run, outcome);
     const d = this.decide(run, def, outcome, now, ctx.stepOf(outcome));
     const explicit = ctx.explicitResult;
-    const result = outcome.kind === 'ok' ? safeJson(explicit.set ? explicit.value : outcome.value) : undefined;
+    const result = outcome.kind === 'ok' ? jsonValue(explicit.set ? explicit.value : outcome.value) : undefined;
     const snap = ctx.snapshot();
     const finishedAt = d.status === 'retrying' ? null : now;
 
@@ -436,7 +436,7 @@ export class RunExecutor {
         Message: snap.Message,
         CurrentStep: null,
         Result: result,
-        Error: jsonColumn(d.error),
+        Error: d.error,
         LeaseOwner: null,
         LeaseUntil: null,
       }),

@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration";
 import { DI, IContainer, NewInstance } from "@spinajs/di";
-import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, ILogRule, ITargetsOption, LogTarget, Log, LogFilter, ILogFilterOptions, ILogTargetDesc, readPersistedLevel } from "@spinajs/log-common";
+import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, renderTemplate, ILogRule, ITargetsOption, LogTarget, Log, LogFilter, ILogFilterOptions, ILogTargetDesc, readPersistedLevel } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
 import { InternalLoggerProxy } from "@spinajs/internal-logger";
@@ -24,7 +24,7 @@ function globFor(pattern: string): RegExp {
 }
 
 function wrapWrite(this: Log, level: LogLevel) {
-  return (err: Error | string | object, message: string | any[], ...args: any[]) => {
+  return (err: Error | string | object, message?: string | any[], ...args: any[]) => {
     // Zero-cost gating: only parse a caller frame ( which constructs an Error )
     // when some target's layout references ${callsite}. Otherwise `vars` is just
     // this.Variables and no Error is ever built - mirroring NLog's StackTraceUsage.
@@ -34,12 +34,15 @@ function wrapWrite(this: Log, level: LogLevel) {
     if (err instanceof Error) {
       return this.write(createLogMessageObject(err, message, level, this.Name, vars, ...args));
     } else if (err !== null && typeof err === "object" && !Array.isArray(err)) {
-      // merging-object form: `err` is a bag of structured fields, `message` is the
-      // format string, the rest are printf args. Fields are spread into Variables
+      // merging-object form: `err` is a bag of structured fields, `message` is a
+      // `${field}` template ( see renderTemplate ), the rest are printf args. Fields are spread into Variables
       // ( so a nested `error` key still runs the serializer ).
       const fields = err as Record<string, unknown>;
-      const fmt = typeof message === "string" ? message : "";
-      return this.write(createLogMessageObject(null as any, fmt, level, this.Name, { ...vars, ...fields }, ...args));
+      const fmt = typeof message === "string" ? renderTemplate(message, fields, args.length !== 0) : "";
+      // core fields stay owned by the entry; a `logger` field would also make write() drop it
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { logger: _logger, level: _level, message: _message, ...entryFields } = fields;
+      return this.write(createLogMessageObject(null as any, fmt, level, this.Name, { ...vars, ...entryFields }, ...args));
     } else {
       const sErr = err as string;
       if (message) {
@@ -49,6 +52,14 @@ function wrapWrite(this: Log, level: LogLevel) {
       }
     }
   };
+}
+
+function resolveFilter(spec: ILogFilterOptions): LogFilter {
+  const filter = DI.resolve<LogFilter>(spec.type, [spec]);
+  if (!filter) {
+    throw new InvalidOption(`Log filter has unregistered type '${spec.type}'`);
+  }
+  return filter;
 }
 
 /**
@@ -107,7 +118,7 @@ export class FrameworkLogger extends Log {
     // WhenRepeatedFilter PREPENDED to the list so existing configs keep working.
     const configuredFilters: ILogFilterOptions[] = this.Options.filters ?? [];
     const filterSpecs: ILogFilterOptions[] = this.Options.whenRepeated ? [{ type: "WhenRepeatedFilter", ...this.Options.whenRepeated }, ...configuredFilters] : configuredFilters;
-    this.Filters = filterSpecs.map((f) => DI.resolve<LogFilter>(f.type, [f]));
+    this.Filters = filterSpecs.map((f) => resolveFilter(f));
 
     this.matchRulesToLogger();
     this.resolveLogTargets();
@@ -314,12 +325,17 @@ export class FrameworkLogger extends Log {
    * state ).
    */
   protected buildTargetDesc(def: ITargetsOption, ranges: { min: LogLevel; max: LogLevel }[], rule: ILogRule): ILogTargetDesc {
+    const instance = DI.resolve<LogTarget<ICommonTargetOptions>>(def.type, [def]);
+    if (!instance) {
+      throw new InvalidOption(`Log target ${def.name} has unregistered type '${def.type}'`);
+    }
+
     return {
-      instance: DI.resolve<LogTarget<ICommonTargetOptions>>(def.type, [def]),
+      instance,
       options: def,
       rule,
       ranges,
-      filters: (def.filters ?? []).map((spec) => DI.resolve<LogFilter>(spec.type, [spec])),
+      filters: (def.filters ?? []).map((spec) => resolveFilter(spec)),
     };
   }
 
@@ -450,7 +466,7 @@ export class FrameworkLogger extends Log {
   }
 }
 
-const logFactoryFunction = (container: IContainer, logName: string) => {
+const logFactoryFunction = (container: IContainer, logName: string, variables?: Record<string, unknown>, parent?: Log) => {
   if (Log.Loggers.has(logName)) {
     return Log.Loggers.get(logName);
   }
@@ -460,12 +476,12 @@ const logFactoryFunction = (container: IContainer, logName: string) => {
       return Log.InternalLoggers.get(logName);
     }
 
-    const internalLogger = container.resolve(InternalLoggerProxy, [logName]);
+    const internalLogger = container.resolve(InternalLoggerProxy, [logName, variables, parent]);
     Log.InternalLoggers.set(logName, internalLogger);
     return internalLogger;
   }
 
-  return container.resolve("__logImplementation__", [logName]);
+  return container.resolve("__logImplementation__", [logName, variables, parent]);
 };
 
 // register as string identifier to allow for

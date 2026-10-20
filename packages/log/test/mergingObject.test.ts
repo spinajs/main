@@ -61,6 +61,14 @@ describe("merging-object first argument", () => {
     expect(records[0].Variables.message).to.eq("checkout started");
   });
 
+  it("renders a ${field} template against the call's fields, escaped, before printf args", async () => {
+    const log = DI.resolve(Log, ["mo-template"]);
+    await log.info({ op: "login", why: "a b\n%s" }, "op ${op}${?ip} ip=${ip}${/ip} why=${why} %s", "done");
+
+    const records = sink().getRecords();
+    expect(records[0].Variables.message).to.eq('op login why="a b\\n%s" done');
+  });
+
   it("object-only call yields an empty message and merges fields", async () => {
     const log = DI.resolve(Log, ["mo-object-only"]);
     await log.info({ a: 1 });
@@ -69,6 +77,30 @@ describe("merging-object first argument", () => {
     expect(records.length).to.eq(1);
     expect(records[0].Variables.a).to.eq(1);
     expect(records[0].Variables.message).to.eq("");
+  });
+
+  it("keeps the core logger / level / message when fields use those names", async () => {
+    const log = DI.resolve(Log, ["mo-reserved"]);
+    await log.info({ logger: "other", level: "x", message: "y" }, "real");
+
+    const records = sink().getRecords();
+    expect(records.length).to.eq(1);
+    expect(records[0].Variables.logger).to.eq("mo-reserved");
+    expect(records[0].Variables.level).to.eq("INFO");
+    expect(records[0].Variables.message).to.eq("real");
+  });
+
+  it("applies variables passed at resolve time, and children inherit them", async () => {
+    const log = DI.resolve(Log, ["mo-vars", { region: "eu" }]);
+    await log.info("parent");
+    await log.child("db", { pool: "main" } as any).info("child");
+
+    const records = sink().getRecords();
+    expect(records.length).to.eq(2);
+    expect(records[0].Variables.region).to.eq("eu");
+    expect(records[1].Variables.logger).to.eq("mo-vars.db");
+    expect(records[1].Variables.region).to.eq("eu");
+    expect(records[1].Variables.pool).to.eq("main");
   });
 
   it("REGRESSION: Error-first call is unchanged", async () => {

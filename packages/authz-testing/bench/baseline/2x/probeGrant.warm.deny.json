@@ -1,0 +1,43 @@
+{
+  "name": "probeGrant.warm.deny",
+  "description": "known role, ungranted action (answers granted=false)",
+  "unit": "ns",
+  "iterations": 200000,
+  "warmup": 20000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 800,
+  "p95": 1600,
+  "p99": 2200,
+  "mean": 1001.9575,
+  "opsPerSec": 998046.3243201433,
+  "perRepeat": [
+    {
+      "p50": 800,
+      "p95": 1800,
+      "p99": 2500,
+      "mean": 1054.1015,
+      "opsPerSec": 948675.2461693679
+    },
+    {
+      "p50": 800,
+      "p95": 1600,
+      "p99": 2200,
+      "mean": 1001.9575,
+      "opsPerSec": 998046.3243201433
+    },
+    {
+      "p50": 800,
+      "p95": 1600,
+      "p99": 2100,
+      "mean": 990.4815,
+      "opsPerSec": 1009609.9725234646
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

@@ -7,6 +7,21 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
 import * as sinon from 'sinon';
 import _ from 'lodash';
+import { renderTemplate } from '@spinajs/log-common';
+
+/**
+ * The message a spied Log call would print, for both the plain `(message)` and the `(fields, template)` form.
+ */
+export function logText(call: sinon.SinonSpyCall): string {
+  const [first, second] = call.args;
+  if (typeof first === 'string') {
+    return first;
+  }
+  if (typeof second === 'string') {
+    return first instanceof Error ? second : renderTemplate(second, first ?? {});
+  }
+  return String(first);
+}
 
 export function mergeArrays(target: any, source: any) {
   if (_.isArray(target)) {
@@ -1028,6 +1043,8 @@ export class ConnectionConf extends FrameworkConfiguration {
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
       db: {
+        // relation.test.ts and model.test.ts stub tableInfo() for the tables they describe only.
+        StrictTableCheck: false,
         Connections: [
           {
             Driver: 'sqlite',

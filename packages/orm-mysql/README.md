@@ -83,12 +83,18 @@ collide, and the private key must be unencrypted.
 
 ## Documentation
 
-Full documentation lives in **[docs/](docs/)**.
+Full documentation lives in **[docs/orm-mysql](../../docs/orm-mysql/README.md)**.
 
 | | Page |
 | --- | --- |
-| 01 | [Configuration](docs/01-configuration.md) |
-| 02 | [Dialect notes](docs/02-dialect-notes.md) |
+| 01 | [MySQL driver](../../docs/orm-mysql/01-mysql-driver.md) |
+| 02 | [SSH tunnel](../../docs/orm-mysql/02-ssh-tunnel.md) |
+| 03 | [Transactions](../../docs/orm-mysql/03-transactions.md) |
+| 04 | [Inserts and generated keys](../../docs/orm-mysql/04-inserts-and-generated-keys.md) |
+| 05 | [Table reflection](../../docs/orm-mysql/05-table-reflection.md) |
+| 06 | [Schema, views and events](../../docs/orm-mysql/06-schema-views-and-events.md) |
+| 07 | [Set membership and literal quoting](../../docs/orm-mysql/07-set-membership-and-literals.md) |
+| 08 | [Customizing the dialect](../../docs/orm-mysql/08-customizing-the-dialect.md) |
 
 ## Development
 

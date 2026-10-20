@@ -21,43 +21,44 @@ export class RenderTemplateCommand extends CliCommand {
   protected Log: Log;
 
   public async execute(template: string, options: RenderOptions): Promise<void> {
-    this.Log.trace(`Rendering ${template}, options: ${JSON.stringify(options)}`);
+    this.Log.trace({ template, options }, 'Rendering ${template}, options: ${options}');
 
     try {
       const templates = await DI.resolve(Templates);
       let model = {};
 
       if (options.model && fs.existsSync(options.model)) {
-        this.Log.trace(`Found model file at ${options.model}, trying to load model data ... `);
+        this.Log.trace({ model: options.model }, 'Found model file at ${model}, trying to load model data ... ');
 
         const mText = fs.readFileSync(options.model, { encoding: 'utf-8' });
         model = JSON.parse(mText);
       }
 
       if (options && options.file) {
-        this.Log.trace(`Rendering template to file ${options.file} ...`);
+        this.Log.trace({ file: options.file }, 'Rendering template to file ${file} ...');
 
         const dir = path.dirname(options.file);
 
         if (!fs.existsSync(dir)) {
-          this.Log.trace(`Directory ${dir} not exits, creating ...`);
+          this.Log.trace({ dir }, 'Directory ${dir} not exits, creating ...');
 
           fs.mkdirSync(dir, { recursive: true });
         }
 
         await templates.renderToFile(template, model, options.file, options.lang);
 
-        this.Log.success(`Rendering template ${template} to file ${options.file} succeded !`);
+        this.Log.success({ template, file: options.file }, 'Rendering template ${template} to file ${file} succeded !');
         return;
       }
 
       const result = await templates.render(template, model, options.lang);
-      this.Log.success(`Rendering template ${template} succeded !`);
+      this.Log.success({ template }, 'Rendering template ${template} succeded !');
 
       // print out to console in raw format
       console.log(result);
     } catch (err) {
-      this.Log.error(`Cannot render template ${template}, reason: ${err.message}, stack: ${err.stack}`);
+      this.Log.error({ error: err, template }, 'Cannot render template ${template}');
+      process.exitCode = 1;
     }
   }
 }

@@ -2,7 +2,7 @@ import { JoinMethod, Op } from './enums.js';
 /* eslint-disable prettier/prettier */
 import { QueryBuilder, RawQuery } from './builders.js';
 import { SortOrder, WhereBoolean } from './enums.js';
-import { IQueryStatement, Wrap } from './statements.js';
+import { IQueryStatement, OuterColumn, Wrap } from './statements.js';
 import { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
 import { IOrmRelation } from './relations.js';
 import { OrmDriver } from './driver.js';
@@ -69,6 +69,12 @@ export interface ISupportedFeature {
    * the batch key backfill rather than getting wrong keys.
    */
   insertIdIsFirstOfBatch?: boolean;
+
+  /** Can two outermost transactions be open at once? `false` makes `OrmDriver.transaction()` queue them. Unset means true. */
+  concurrentTransactions?: boolean;
+
+  /** Has a JSON column type of its own, rather than storing `json()` columns as text. Unset reads as false. */
+  nativeJson?: boolean;
 }
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {
@@ -782,8 +788,8 @@ export interface IRelationDescriptor {
 
 export interface IModelStatic extends Constructor<ModelBase<unknown>> {
   where<T extends typeof ModelBase>(val: boolean): ISelectQueryBuilder<Array<InstanceType<T>>>;
-  where<T extends typeof ModelBase>(val: PartialArray<InstanceType<T>> | PickRelations<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   where<T extends typeof ModelBase>(func: WhereFunction<InstanceType<T>>): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  where<T extends typeof ModelBase>(val: PartialArray<InstanceType<T>> | PickRelations<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   where<T extends typeof ModelBase>(column: string, operator: Op, value: any): ISelectQueryBuilder<Array<InstanceType<T>>>;
   where<T extends typeof ModelBase>(column: string, value: any): ISelectQueryBuilder<Array<InstanceType<T>>>;
   where<T extends typeof ModelBase>(statement: Wrap): ISelectQueryBuilder<Array<InstanceType<T>>>;
@@ -1244,11 +1250,14 @@ export interface IWhereBuilder<T> {
 
   clone<P extends IWhereBuilder<any>>(parent: P): IWhereBuilder<T>;
 
+  /** False when every statement is a group with no condition inside, so the builder compiles to nothing. */
+  hasCondition(): boolean;
+
   when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this;
 
   where(val: boolean): this;
-  where(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   where(func: WhereFunction<T>): this;
+  where(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   where(func: Lazy<void>): this;
   where(column: string, operator: Op, value: any): this;
   where(column: string, value: any): this;
@@ -1256,8 +1265,8 @@ export interface IWhereBuilder<T> {
   where(column: string | boolean | WhereFunction<T> | Lazy<void> | RawQuery | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>> | Wrap, operator?: Op | any, value?: any): this;
 
   orWhere(val: boolean): this;
-  orWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   orWhere(func: WhereFunction<T>): this;
+  orWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   orWhere(func: Lazy<void>): this;
   orWhere(column: string, operator: Op, value: any): this;
   orWhere(column: string, value: any): this;
@@ -1265,8 +1274,8 @@ export interface IWhereBuilder<T> {
   orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>, operator?: Op | any, value?: any): this;
 
   andWhere(val: boolean): this;
-  andWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   andWhere(func: WhereFunction<T>): this;
+  andWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   andWhere(func: Lazy<void>): this;
   andWhere(column: string, operator: Op, value: any): this;
   andWhere(column: string, value: any): this;
@@ -1274,17 +1283,22 @@ export interface IWhereBuilder<T> {
   andWhere(column: string | boolean | Lazy<void> | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, operator?: Op | any, value?: any): this;
 
   whereObject(obj: Partial<ModelData<Unbox<T>>>): this;
-  whereNotNull(column: string): this;
-  whereNull(column: string): this;
+  whereNotNull(column: string | Wrap): this;
+  whereNull(column: string | Wrap): this;
   whereNot(column: string, val: unknown): this;
-  whereIn(column: string, val: unknown[] | ISelectQueryBuilder): this;
-  whereNotIn(column: string, val: unknown[] | ISelectQueryBuilder): this;
+  /** `NOT ( ... )` over the group the callback builds; an empty group negates to no row. */
+  whereNot(condition: WhereFunction<T>): this;
+  whereIn(column: string | Wrap, val: unknown[] | ISelectQueryBuilder): this;
+  whereNotIn(column: string | Wrap, val: unknown[] | ISelectQueryBuilder): this;
   whereExist<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;
   whereNotExists<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;
   whereBetween(column: string, val: unknown[]): this;
   whereNotBetween(column: string, val: unknown[]): this;
   whereInSet(column: string, val: unknown[]): this;
   whereNotInSet(column: string, val: unknown[]): this;
+  /** `left <op> right` over two columns; `right` may be `outer(column)`, a column of an enclosing query. */
+  whereColumn(left: string | Wrap, operator: Op, right: string | Wrap | OuterColumn): this;
+  whereStartsWith(column: string, prefix: string): this;
 
   // join-scoped conditions - land in relation JOIN ON clause instead of parent WHERE
   whereOnJoin(callback: WhereFunction<T>): this;
@@ -1379,7 +1393,10 @@ export interface IBuilder<T> extends PromiseLike<T> {
   execute(): Promise<T>;
 }
 
-export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }
+export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {
+  /** Adds `column = column + by` to the SET list; calls on one column add up. */
+  increment(column: string, by?: number): this;
+}
 
 export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
 
@@ -1394,6 +1411,8 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
   selectCount(column: string, as?: string): Promise<number>;
   sum(column: string, as?: string): this;
   avg(column: string, as?: string): this;
+  /** `condition` as the boolean column `alias` (`CASE WHEN ... THEN 1 ELSE 0 END`). */
+  selectCondition(alias: string, condition: WhereFunction<T>): this;
   setAlias(alias: string): this;
   setTable(table: string, alias?: string): this;
   distinct(): this;
@@ -1656,11 +1675,11 @@ export interface IBuilderMiddleware<T = any[]> {
 }
 
 /**
- * Hooks into the lifetime of every query builder. Both hooks run for EVERY builder type —
+ * Hooks into the lifetime of every query builder. The hooks run for EVERY builder type —
  * select, insert, update and delete.
  *
- * The two differ in what the query is guaranteed to contain, and that difference is
- * load-bearing rather than stylistic:
+ * The two required hooks differ in what the query is guaranteed to contain, and that
+ * difference is load-bearing rather than stylistic:
  *
  * - `afterQueryCreation` runs from the builder's CONSTRUCTOR. The model and the query context
  *   are set; nothing the caller does afterwards has happened yet — no `where()`, no
@@ -1671,9 +1690,22 @@ export interface IBuilderMiddleware<T = any[]> {
  *   (rbac stamps the owner column of an INSERT here, because a value written at construction
  *   would be overwritten by the caller's own `values()` call).
  *
- * A middleware that throws from either hook aborts the query.
+ * The optional `afterQueryExecution` runs once per builder right after the driver call, in the
+ * same order as `beforeQueryExecution`. When any middleware's optional `transactional` answers
+ * true and no transaction is in scope, the builder runs the before hooks, the statement and the
+ * after hooks inside one `driver.transaction()`, so a hook that throws also rolls the statement
+ * back. Inside a caller's transaction the caller's transaction is used as it is.
+ *
+ * A middleware that throws from any hook aborts the query.
  */
 export abstract class QueryMiddleware {
+  /**
+   * Position in the pipeline: lower runs first, ties keep registration order. Every hook
+   * follows it. authz scopes queries at 100 and intl-orm translates at 1000, so translation
+   * never runs on a query authz has not scoped yet.
+   */
+  public order = 0;
+
   /**
    * Called from the builder's constructor, before the caller has added anything to it.
    *
@@ -1691,6 +1723,25 @@ export abstract class QueryMiddleware {
    * @param query - the completed builder
    */
   abstract beforeQueryExecution(query: QueryBuilder): void | Promise<void>;
+
+  /**
+   * Called once per builder right after the driver returned, before result middlewares and
+   * hydration. Awaited in the same order as `beforeQueryExecution`; a hook runs only when every
+   * earlier one resolved.
+   *
+   * @param query - the executed builder
+   * @param result - the driver's raw result: rows for a select, the driver's write result otherwise
+   */
+  afterQueryExecution?(query: QueryBuilder, result: unknown): void | Promise<void>;
+
+  /**
+   * Whether this middleware needs the before hooks, the statement and the after hooks in one
+   * transaction. Asked with the completed builder before `beforeQueryExecution`, and only when
+   * no transaction is in scope on the builder's driver. Must answer synchronously.
+   *
+   * @param query - the completed builder
+   */
+  transactional?(query: QueryBuilder): boolean;
 }
 
 export abstract class ModelMiddleware {
@@ -1724,6 +1775,14 @@ export class ValueConverter implements IValueConverter {
  * Converter for DATETIME field (eg. mysql datetime)
  */
 export class DatetimeValueConverter extends ValueConverter { }
+
+/**
+ * The database's current instant as an SQL expression of the dialect, comparable with the datetime
+ * columns the ORM creates. Each driver registers its own.
+ */
+export abstract class NowExpression {
+  public abstract sql(): string;
+}
 
 /**
  * Converter for TIME field ( eq. mysql datetime into timespan HH:MM:SS )
@@ -1943,4 +2002,31 @@ export interface ITransactionContext {
    * by the first `save()` and discarded with the context, so nothing survives the commit.
    */
   IdentityMap?: IIdentityMap;
+
+  /** Callbacks queued by `OrmDriver.afterCommit`, run after the outermost commit. Owned by `OrmDriver`. */
+  afterCommit?: (() => void | Promise<void>)[];
+}
+/** SQL text with its `?` bindings, built by the `sql` tagged template. */
+export interface SqlFragment {
+  readonly sql: string;
+  readonly bindings: readonly unknown[];
+}
+
+/** Options of `deleteChunked`. */
+export interface DeleteChunkedOptions {
+  /** Extra condition every delete also checks. */
+  readonly where?: WhereFunction<unknown>;
+  /** Values per statement; default `IN_CHUNK`, or fewer when the driver binds fewer. */
+  readonly size?: number;
+}
+
+/** Options of `purgeBatch`. */
+export interface PurgeBatchOptions {
+  readonly table: string;
+  /** A unique column: the batch is selected by it, ordered by it, and deleted by it. */
+  readonly key: string;
+  /** The rows to purge; checked again by the delete, so a row that stopped matching in between stays. */
+  readonly where: WhereFunction<unknown>;
+  /** Default 500. */
+  readonly limit?: number;
 }

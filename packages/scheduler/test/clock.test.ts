@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { Clock, DbClock, DbTimeSource, FakeClock, SystemClock } from '../src/index.js';
+import { Clock, DbClock, DbTimeSource, FakeClock, SchedulerSystemClock } from '../src/index.js';
 
 describe('FakeClock', () => {
   it('starts at the given instant and fires timers on advance', async () => {
@@ -54,8 +54,8 @@ describe('DbClock', () => {
   });
 });
 
-describe('SystemClock', () => {
+describe('SchedulerSystemClock', () => {
   it('reports wall time', () => {
-    expect(Math.abs(new SystemClock().now() - Date.now())).to.be.lessThan(1000);
+    expect(Math.abs(new SchedulerSystemClock().now() - Date.now())).to.be.lessThan(1000);
   });
 });

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib/cjs",
+    "module": "commonjs"
+  },
+  "include": ["src/**/*"],
+  "references": [{ "path": "../authz/tsconfig.cjs.json" }, { "path": "../authz-http/tsconfig.cjs.json" }, { "path": "../teams/tsconfig.cjs.json" }, { "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../http/tsconfig.cjs.json" }, { "path": "../validation/tsconfig.cjs.json" }]
+}

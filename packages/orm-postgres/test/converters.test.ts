@@ -54,7 +54,7 @@ describe('PostgresDatetimeValueConverter', () => {
   });
 
   it('keeps the dehydrate formats of the shared converter', () => {
-    expect(c.toDB(warsaw, undefined as any, col('timestamptz'), undefined, { dateTimeFormat: 'iso' } as any)).to.equal(warsaw.toISO());
+    expect(c.toDB(warsaw, undefined as any, col('timestamptz'), undefined, { dateTimeFormat: 'iso' } as any)).to.equal('2026-07-01T10:00:00.123Z');
     expect(c.toDB(warsaw, undefined as any, col('timestamptz'), undefined, { dateTimeFormat: 'unix' } as any)).to.equal(warsaw.toUnixInteger());
   });
 

@@ -74,6 +74,14 @@ describe('URL signing – unit tests', function () {
       expect(url).to.include('X-Amz-Expires');
     });
 
+    it('should sign for the bucket of each provider that resolves it', async () => {
+      const first = await DI.resolve<S3BucketSigner>('S3UrlSigner', [{ bucket: 'bucket-one', s3Client }]);
+      const second = await DI.resolve<S3BucketSigner>('S3UrlSigner', [{ bucket: 'bucket-two', s3Client }]);
+
+      expect(await second.sign('k.txt')).to.include('bucket-two');
+      expect(await first.sign('k.txt')).to.include('bucket-one');
+    });
+
     it('should clamp expired until to 1 second minimum', async () => {
       const until = DateTime.now().minus({ hours: 1 });
       const url = await signer.sign('test-key.txt', until);
@@ -177,7 +185,7 @@ describe('URL signing – integration tests (fsS3)', function () {
         await p.getSignedUrl('signer-test.txt');
         expect.fail('Expected an error to be thrown');
       } catch (err) {
-        expect(err.message).to.include('no signer service configured');
+        expect((err as Error).message).to.include('no signer service configured');
       } finally {
         await p.rm('signer-test.txt');
       }
@@ -207,7 +215,7 @@ describe('URL signing – integration tests (fsS3)', function () {
         await p.getSignedUrl('does-not-exist-xyz.txt');
         expect.fail('Expected an error to be thrown');
       } catch (err) {
-        expect(err.message).to.include('does not exists');
+        expect((err as Error).message).to.include('does not exists');
       }
     });
   });
@@ -236,7 +244,7 @@ describe('URL signing – integration tests (fsS3)', function () {
         await p.getSignedUrl('cf-does-not-exist-xyz.txt');
         expect.fail('Expected an error to be thrown');
       } catch (err) {
-        expect(err.message).to.include('does not exists');
+        expect((err as Error).message).to.include('does not exists');
       }
     });
   });

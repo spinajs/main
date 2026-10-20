@@ -55,12 +55,17 @@ await DI.resolve(Orm);
 
 ## Documentation
 
-Full documentation lives in **[docs/](docs/)**.
+Full documentation lives in **[docs/orm-sqlite](../../docs/orm-sqlite/README.md)**.
 
 | | Page |
 | --- | --- |
-| 01 | [Configuration](docs/01-configuration.md) |
-| 02 | [Dialect notes](docs/02-dialect-notes.md) |
+| 01 | [Connection and driver](../../docs/orm-sqlite/01-connection.md) |
+| 02 | [Read handle pool](../../docs/orm-sqlite/02-read-pool.md) |
+| 03 | [Transactions](../../docs/orm-sqlite/03-transactions.md) |
+| 04 | [Schema and DDL](../../docs/orm-sqlite/04-schema-and-ddl.md) |
+| 05 | [Inserts, upserts and `RETURNING`](../../docs/orm-sqlite/05-inserts-and-upserts.md) |
+| 06 | [Query dialect](../../docs/orm-sqlite/06-query-dialect.md) |
+| 07 | [Extending the driver](../../docs/orm-sqlite/07-extending-the-driver.md) |
 
 ## Development
 

@@ -1,0 +1,43 @@
+{
+  "name": "probeGrant.depth3.fold-negated",
+  "description": "depth 3, every level holds read:own ['*', '!secret'] (four negated-glob lists unioned)",
+  "unit": "ns",
+  "iterations": 200000,
+  "warmup": 20000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 49600,
+  "p95": 94100,
+  "p99": 159200,
+  "mean": 56611.4165,
+  "opsPerSec": 17664.281549994426,
+  "perRepeat": [
+    {
+      "p50": 48900,
+      "p95": 92700,
+      "p99": 156800,
+      "mean": 55980.645,
+      "opsPerSec": 17863.316866034682
+    },
+    {
+      "p50": 49600,
+      "p95": 94100,
+      "p99": 159200,
+      "mean": 56611.4165,
+      "opsPerSec": 17664.281549994426
+    },
+    {
+      "p50": 50000,
+      "p95": 102100,
+      "p99": 173700,
+      "mean": 59603.5925,
+      "opsPerSec": 16777.51219442016
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

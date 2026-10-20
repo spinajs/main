@@ -1,0 +1,136 @@
+import { SocketException } from '@spinajs/http-socket-common';
+import type { IConnectionRuntime, ISocketServerConfig } from './interfaces.js';
+
+/**
+ * Wire size of a command payload: the UTF-8 length of its JSON form plus the bytes of every
+ * binary part (socket.io sends those as attachments, not as JSON).
+ */
+export function payloadSize(value: unknown): number {
+  let binary = 0;
+
+  const json = JSON.stringify(value, function (this: Record<string, unknown>, key: string, current: unknown) {
+    // `current` has already been through toJSON (a Buffer arrives as {type, data}), so binary
+    // parts are detected on the raw holder value.
+    const raw = this[key];
+    if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) {
+      binary += raw.byteLength;
+      return null;
+    }
+
+    return current;
+  });
+
+  return binary + (json === undefined ? 0 : Buffer.byteLength(json, 'utf8'));
+}
+
+export class TokenBucket {
+  protected tokens: number;
+  protected last: number;
+
+  constructor(protected readonly perSecond: number, protected readonly burst: number, protected readonly now: () => number = () => performance.now()) {
+    this.tokens = burst;
+    this.last = now();
+  }
+
+  public take(): boolean {
+    this.refill();
+
+    if (this.tokens >= 1) {
+      this.tokens -= 1;
+      return true;
+    }
+
+    return false;
+  }
+
+  public retryAfterMs(): number {
+    this.refill();
+    return this.tokens >= 1 ? 0 : Math.ceil(((1 - this.tokens) * 1000) / this.perSecond);
+  }
+
+  protected refill(): void {
+    const t = this.now();
+    this.tokens = Math.min(this.burst, this.tokens + ((t - this.last) * this.perSecond) / 1000);
+    this.last = t;
+  }
+}
+
+export function assertPayloadSize(payload: unknown, maxBytes: number): void {
+  let size: number;
+
+  try {
+    size = payloadSize(payload);
+  } catch (err) {
+    // BigInt and cyclic values cannot be serialized, so they could never be sent as a command payload
+    throw new SocketException('invalid_argument', 'payload cannot be serialized', { cause: err });
+  }
+
+  if (size > maxBytes) {
+    throw new SocketException('resource_exhausted', `payload of ${size} bytes exceeds the limit of ${maxBytes} bytes`, {
+      retryable: false,
+      details: { size, limit: maxBytes },
+    });
+  }
+}
+
+export function assertRate(bucket: TokenBucket): void {
+  if (!bucket.take()) {
+    throw new SocketException('resource_exhausted', 'rate limit exceeded', { retryAfterMs: bucket.retryAfterMs() });
+  }
+}
+
+/** Runs `work` holding one of `max` slots of the counter, refusing when none is free; the slot is given back when `work` settles. */
+export async function withSlot<T>(runtime: IConnectionRuntime, counter: 'inFlight' | 'eventsInFlight', noun: 'commands' | 'events', max: number, work: () => Promise<T>, retryAfterMs?: number): Promise<T> {
+  if (runtime[counter] >= max) {
+    throw new SocketException('resource_exhausted', `more than ${max} ${noun} in flight on this connection`, retryAfterMs === undefined ? undefined : { retryAfterMs });
+  }
+
+  runtime[counter]++;
+  try {
+    return await work();
+  } finally {
+    runtime[counter]--;
+  }
+}
+
+export function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason);
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    void promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
+
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+export function assertShutdownConfig(options: Pick<ISocketServerConfig, 'drainMs' | 'shutdownRetryAfterMs'>): void {
+  const { drainMs, shutdownRetryAfterMs } = options;
+
+  if (!(typeof drainMs === 'number' && drainMs >= 0 && drainMs <= MAX_TIMER_MS)) {
+    throw new RangeError(`http.socket.drainMs must be within [0, ${MAX_TIMER_MS}], got ${String(drainMs)}`);
+  }
+
+  if (!(typeof shutdownRetryAfterMs === 'number' && shutdownRetryAfterMs > 0 && Number.isFinite(shutdownRetryAfterMs))) {
+    throw new RangeError(`http.socket.shutdownRetryAfterMs must be a finite number above 0, got ${String(shutdownRetryAfterMs)}`);
+  }
+}
+
+/** How long the replies, stream `fail` frames and transports of a shutdown get to flush, and a started keyed command gets past `drainMs`. */
+export const SHUTDOWN_FLUSH_MS = 1_000;
+
+export const SHUTDOWN_OVERRUN =
+  'http.socket.drainMs ( ${drainMs} ms ) plus ${graceMs} ms of grace and flushing reaches http.shutdownTimeout ( ${shutdownTimeoutMs} ms ): the http server may destroy connections before their replies are written';
+
+/** The http server destroys every connection `http.shutdownTimeout` after it starts closing; a drain that may outlast that is cut short. */
+export function shutdownOverrun(drainMs: number, shutdownTimeoutMs: number): { drainMs: number; graceMs: number; shutdownTimeoutMs: number } | null {
+  const graceMs = 3 * SHUTDOWN_FLUSH_MS;
+  if (drainMs + graceMs < shutdownTimeoutMs) {
+    return null;
+  }
+
+  return { drainMs, graceMs, shutdownTimeoutMs };
+}

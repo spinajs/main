@@ -7,14 +7,14 @@ import { JobModel, JobStatus } from '@spinajs/queue';
 import type { RunStatus, StructuredError } from '../contract.js';
 import { QueueJobFailedError } from '../errors.js';
 import { resolveSchedulerConfig, SchedulerConfig } from '../interfaces.js';
-import { defined, jsonColumn } from '../models/converters.js';
+import { defined } from '../models/converters.js';
 import { RunModel } from '../models/RunModel.js';
 import { ScheduleRegistry } from '../registry/ScheduleRegistry.js';
 import { journalAttemptEnd } from '../run/end.js';
 import { RunEventWriter } from '../run/RunEventWriter.js';
 import { RunFinalizer } from '../run/RunFinalizer.js';
 import { parseDuration } from '../time/duration.js';
-import { safeJson, toStructuredError } from '../tracking/structured.js';
+import { jsonValue, toStructuredError } from '../tracking/structured.js';
 
 export const SCHEDULER_JOB_NAMESPACE = '5f0c5c2e-8f52-4a39-9d55-0b6f2c6f9a41';
 
@@ -78,7 +78,7 @@ export interface MirroredEnd {
   reason: 'queue' | 'emit-timeout';
   error: StructuredError | null;
   message: string;
-  result?: string | null;
+  result?: unknown;
 }
 
 /**
@@ -222,7 +222,7 @@ export class EmitMirror {
         reason: 'queue',
         error,
         message: `queue job ${job.Status} (${runJobKey(run)})`,
-        result: status === 'succeeded' ? safeJson(job.Result) : undefined,
+        result: status === 'succeeded' ? jsonValue(job.Result) : undefined,
       },
       now,
     );
@@ -239,7 +239,7 @@ export class EmitMirror {
         Progress: progress,
         Message: end.message,
         Result: end.result,
-        Error: jsonColumn(end.error) as never,
+        Error: end.error,
       }),
     )
       .where('Id', run.Id)

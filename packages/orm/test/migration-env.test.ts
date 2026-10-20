@@ -4,7 +4,7 @@ import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
 import { MIGRATION_DI_SOURCE, Migration, MigrationSource, Orm, OrmDriver, OrmException, OrmMigration } from '../src/index.js';
-import { ConnectionConf, FakeMysqlDriver, bootstrapAll, registerFakes, stubDb } from './misc.js';
+import { ConnectionConf, FakeMysqlDriver, bootstrapAll, registerFakes, stubDb, logText } from './misc.js';
 import '../src/bootstrap.js';
 import '@spinajs/log';
 
@@ -215,7 +215,7 @@ describe('Orm migration environments', () => {
     // migration declared for two environments
     const orm = await DI.resolve(Orm);
 
-    expect(warn.getCalls().some((c) => String(c.args[0]).includes('Two different migration classes')), 'expected the collision warning to fire').to.equal(true);
+    expect(warn.getCalls().some((c) => logText(c).includes('Two different migration classes')), 'expected the collision warning to fire').to.equal(true);
 
     const survivors = orm.Migrations.filter((m) => m.name === MigrationEnvTest_CollisionA_2026_07_29_10_03_00.name);
     expect(survivors).to.have.lengthOf(1);

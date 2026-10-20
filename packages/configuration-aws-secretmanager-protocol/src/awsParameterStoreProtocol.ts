@@ -2,7 +2,7 @@ import { ConfigVarProtocol } from '@spinajs/configuration-common';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { SSMClient, GetParameterCommand, GetParametersByPathCommand } from '@aws-sdk/client-ssm';
 import { Injectable, Singleton } from '@spinajs/di';
-import { assignNested, createSdkLogger, DEFAULT_CACHE_TTL, extractValue, parseAwsPath, parseBoolParam, resolveFallback, TtlCache, warnUnknownParams } from './utils.js';
+import { assignNested, createSdkLogger, DEFAULT_CACHE_TTL, extractWithFallback, parseAwsPath, parseBoolParam, resolveFallback, TtlCache, warnUnknownParams } from './utils.js';
 
 @Singleton()
 @Injectable(ConfigVarProtocol)
@@ -83,7 +83,7 @@ export class AwsParameterStoreVarProtocol extends ConfigVarProtocol {
           WithDecryption: withDecryption,
         });
         const response = await this.Client.send(command);
-        InternalLogger.info(`Obtained config value for ${id} from AWS Parameter store`, 'Configuration');
+        InternalLogger.info({ id }, 'Obtained config value for ${id} from AWS Parameter store', 'Configuration');
 
         const raw = response.Parameter?.Value;
         // StringList parameters are comma separated -> expose them as an array
@@ -101,12 +101,13 @@ export class AwsParameterStoreVarProtocol extends ConfigVarProtocol {
       throw err;
     }
 
-    if (Array.isArray(value)) {
-      return value;
+    if (jsonPath) {
+      const text = Array.isArray(value) ? value.join(',') : value;
+      return extractWithFallback(text, jsonPath, params, 'AwsParameterStoreVarProtocol', id) as string | number | boolean | object | undefined;
     }
 
-    if (jsonPath) {
-      return extractValue(value, jsonPath) as string | number | boolean | object | undefined;
+    if (Array.isArray(value)) {
+      return value;
     }
 
     // coalesce missing/empty values to empty string so config never keeps an undefined entry
@@ -146,7 +147,7 @@ export class AwsParameterStoreVarProtocol extends ConfigVarProtocol {
       nextToken = response.NextToken;
     } while (nextToken);
 
-    InternalLogger.info(`Obtained ${Object.keys(result).length} config value(s) for ${path}/* from AWS Parameter store`, 'Configuration');
+    InternalLogger.info({ count: Object.keys(result).length, path }, 'Obtained ${count} config value(s) for ${path}/* from AWS Parameter store', 'Configuration');
 
     return result;
   }

@@ -26,7 +26,7 @@ SpinaJS's DI + middleware conventions. It provides:
 - **`Timeline`** — a rolling ring of `RequestStats` buckets (default 60 x 1 min).
 - **`RouteStats`** — a bounded per method+route breakdown.
 - **controllers** — `/metrics` (Prometheus exposition) and a `/telemetry/*` JSON
-  API, each guarded by a policy named in configuration. Registered automatically;
+  API, each checked against `telemetry:read` through authz (see [Access](#access)). Registered automatically;
   the response DTOs carry schemas, so they show up in the generated OpenAPI
   document when `@spinajs/http-swagger` is installed.
 - **`HealthCheck`** — the abstract readiness probe backing `/telemetry/ready`.
@@ -38,8 +38,27 @@ SpinaJS's DI + middleware conventions. It provides:
 The registry is **isolated** (not `prom-client`'s global default), so multiple
 SpinaJS apps in one process — and repeated init in tests — stay independent.
 
+## Documentation
+
+Full documentation lives in **[docs/telemetry/](../../docs/telemetry/README.md)**; it takes precedence over the overview below.
+
+| # | Page |
+| --- | --- |
+| 01 | [Setup and configuration](../../docs/telemetry/01-setup-and-configuration.md) |
+| 02 | [Prometheus registry](../../docs/telemetry/02-prometheus-registry.md) |
+| 03 | [HTTP request metrics](../../docs/telemetry/03-http-request-metrics.md) |
+| 04 | [Customizing the request middleware](../../docs/telemetry/04-customizing-the-request-middleware.md) |
+| 05 | [Request statistics](../../docs/telemetry/05-request-statistics.md) |
+| 06 | [Perf bridge](../../docs/telemetry/06-perf-bridge.md) |
+| 07 | [Custom perf sinks](../../docs/telemetry/07-custom-perf-sinks.md) |
+| 08 | [Health and readiness](../../docs/telemetry/08-health-and-readiness.md) |
+| 09 | [Endpoints and OpenAPI](../../docs/telemetry/09-endpoints-and-openapi.md) |
+| 10 | [Endpoint access](../../docs/telemetry/10-endpoint-access.md) |
+| 11 | [Custom access policies](../../docs/telemetry/11-custom-access-policies.md) |
+| 12 | [Scrape token](../../docs/telemetry/12-scrape-token.md) |
+
 > Replacing `@spinajs/metrics`? Read
-> [`docs/migrations/2026-07-23-metrics-to-telemetry.md`](../../docs/migrations/2026-07-23-metrics-to-telemetry.md)
+> [HTTP request metrics](../../docs/telemetry/03-http-request-metrics.md)
 > first — the http metric series are renamed **and** their unit changed from
 > seconds to milliseconds, which takes dashboards down silently.
 
@@ -48,7 +67,9 @@ SpinaJS apps in one process — and repeated init in tests — stay independent.
 ## Quick start
 
 Install the package. The controllers, middleware, perf bridge and default
-process metrics are wired automatically; set the auth token and you are done.
+process metrics are wired automatically. Set the scrape token, load the package
+barrel, and give `service:telemetry` the `telemetry:read` permission (with
+`@spinajs/authz-rbac` the package config does that; see Roles).
 
 ```ts
 // configuration
@@ -61,40 +82,110 @@ process metrics are wired automatically; set the auth token and you are done.
 
 | Endpoint | Returns | Default access |
 | --- | --- | --- |
-| `GET /metrics` | Prometheus exposition text | token |
-| `GET /telemetry/stats` | `{ all, timeline }` — lifetime stats + rolling timeline | token |
-| `GET /telemetry/timeline?buckets=N` | The timeline alone, buckets annotated with their window | token |
-| `GET /telemetry/routes` | Per method+route request breakdown | token |
-| `GET /telemetry/perf` | Aggregated `Perf` spans and events | token |
+| `GET /metrics` | Prometheus exposition text | `telemetry:read` |
+| `GET /telemetry/stats` | `{ all, timeline }` — lifetime stats + rolling timeline | `telemetry:read` |
+| `GET /telemetry/timeline?buckets=N` | The timeline alone, buckets annotated with their window | `telemetry:read` |
+| `GET /telemetry/routes` | Per method+route request breakdown | `telemetry:read` |
+| `GET /telemetry/perf` | Aggregated `Perf` spans and events | `telemetry:read` |
 | `GET /telemetry/health` | Liveness — uptime, pid, node version, optional app version | public |
 | `GET /telemetry/ready` | Readiness — runs every registered `HealthCheck`, 503 when any is down | public |
 
-Guarded endpoints expect the token on the `x-metrics-token` header:
+The token is one way to hold `telemetry:read`. Send it on the `x-metrics-token`
+header, or as exactly `Authorization: Bearer <token>`:
 
 ```bash
 curl -H "x-metrics-token: $METRICS_TOKEN" http://localhost:8080/metrics
 ```
 
-`TelemetryTokenPolicy` is bypassed entirely when `configuration.isDevelopment`
-is set, so a local run needs no token at all.
+`/telemetry/health` and `/telemetry/ready` are public by default because kubelet
+probes and load balancers cannot send a header. They expose uptime, pid, the node
+version and — if you set `telemetry.health.version` — the app version. Give them
+an `'AccessPolicy'` slot and a permission if that is more than you want to publish.
 
-Every endpoint's policy is a config key, so access can be changed without code:
+### Access
+
+Authorization is the SpinaJS 3.0 authz layer (`@spinajs/authz`, `@spinajs/authz-http`).
+Every guarded endpoint requires the permission `telemetry:read`. A caller without
+credentials gets 401. A caller who is known but lacks the permission gets 403.
+
+Loading this package loads `@spinajs/authz-http`, whose `PrincipalMiddleware` stops the
+http server when the root authz domain fails to boot.
+
+Each endpoint has a slot in configuration:
 
 ```ts
 telemetry: {
   auth: {
+    domain: 'root',                     // authz domain the checks run in
     policies: {
-      metrics: 'TelemetryTokenPolicy',
-      health: 'PublicPolicy',   // probes cannot carry a token
+      metrics: 'AccessPolicy',          // check the permission below
+      health: 'PublicPolicy',           // a named BasePolicy decides instead
+    },
+    permissions: {
+      metrics: 'telemetry:read',        // one permission, or a list of which any one admits
     },
   },
 }
 ```
 
-`/telemetry/health` and `/telemetry/ready` are public by default because kubelet
-probes and load balancers cannot send a header. They expose uptime, pid, the node
-version and — if you set `telemetry.health.version` — the app version. Point them
-at `TelemetryTokenPolicy` if that is more than you want to publish.
+- `telemetry.auth.policies.<endpoint>`: `'AccessPolicy'` checks
+  `telemetry.auth.permissions.<endpoint>` through authz. Any other value names a
+  registered `BasePolicy`, such as `'PublicPolicy'`. A bad slot fails the whole
+  controller, probes included, so the app does not start; it never leaves a route open.
+- `telemetry.auth.permissions.<endpoint>`: the permission, or a list of
+  permissions of which any one admits. A permission nobody registered fails the boot.
+- `telemetry.auth.domain`: the domain the `'AccessPolicy'` slots check in. Default `'root'`.
+
+#### The scrape token
+
+A non-empty `telemetry.auth.token` becomes the service principal `service:telemetry`
+through `authz.http.services`. The header is `x-metrics-token`, or exactly
+`Authorization: Bearer <token>`. A wrong token gives no principal, so the request
+gets 401.
+
+- An explicit entry named `telemetry` in `authz.http.services` wins. The bridge then
+  ignores `telemetry.auth.token` and logs one line.
+- The bridge reads the token once, at bootstrap. A change, or a configuration reload,
+  needs a restart.
+- The bridge runs only when the app loads the package barrel (`import '@spinajs/telemetry'`).
+  Without it the token grants nothing.
+- The token authenticates `service:telemetry` on every route, not only the telemetry
+  ones. A route that only asks for a signed-in principal (e.g. `GET /user/access`) lets it
+  through.
+- With the token middleware of `@spinajs/authn-http` loaded, a Bearer scrape also costs an
+  access-token lookup and a rejected-token warning. Prefer `x-metrics-token` there.
+
+#### Roles
+
+The principal needs `telemetry:read` from an authz model. The config fragment of this
+package registers the permission `telemetry:read`. For `@spinajs/authz-rbac` it also adds:
+
+- the role `telemetry`, which grants it,
+- `authz.rbac.serviceRoles['service:telemetry'] = ['telemetry']`.
+
+Config arrays concatenate, so an app cannot remove that mapping by setting `[]`. Listing
+`telemetry` again only adds a harmless duplicate. An app whose `authz.rbac.stores.roles`
+omits `ConfigRoleStore` must define the `telemetry` role itself. Without RBAC, or without
+another model that grants `service:telemetry` the permission, the token gets 403.
+
+#### Development skip
+
+For a local run without credentials, set both:
+
+- `telemetry.auth.skipInDevelopment: true`, and
+- an explicit development env: `--env`, else `APP_ENV`, else `NODE_ENV`. A missing env
+  counts as production.
+
+The skip applies to `'AccessPolicy'` slots, decided once when the route registers, is off
+when `configuration.isProduction` is `true`, and logs a warning. The deprecated
+`TelemetryTokenPolicy` follows the same rule, checked on each request. The old
+`configuration.isDevelopment` bypass is gone.
+
+#### Deprecated
+
+`TelemetryTokenPolicy` still exists but is deprecated. It compares the token itself and
+knows nothing about authz, and answers 403 (not 401) for a missing token. Use the
+`'AccessPolicy'` slots and the service principal instead.
 
 ### Readiness checks
 
@@ -139,7 +230,7 @@ router.get('/metrics', metricsHandler(await DI.resolve(Metrics)));
 router.get('/telemetry/stats', statsHandler(await DI.resolve(TelemetryStore)));
 ```
 
-These are unguarded — the policy lives on the controllers, so an app wiring the
+These are unguarded — the access check lives on the controllers, so an app wiring the
 handlers by hand owns its own auth. `statsHandler` also reports `req_rate` /
 `err_rate` as whatever the last `/telemetry/stats` controller call left behind
 ( `0` if nobody has called it ), because only the controller derives them.
@@ -373,8 +464,11 @@ the `perf_*` histograms use `PERF_DURATION_BUCKETS_MS` (same, plus a leading `1`
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `telemetry.auth.token` | `''` | Expected value of the `x-metrics-token` header |
-| `telemetry.auth.policies.<endpoint>` | see below | Policy class name per endpoint |
+| `telemetry.auth.token` | `''` | Scrape token; becomes the principal `service:telemetry` (`x-metrics-token` or `Authorization: Bearer`). Read once at bootstrap |
+| `telemetry.auth.policies.<endpoint>` | see below | `'AccessPolicy'`, or the name of a registered `BasePolicy` |
+| `telemetry.auth.permissions.<endpoint>` | `'telemetry:read'` | Permission (or list, any one admits) an `'AccessPolicy'` slot checks |
+| `telemetry.auth.domain` | `'root'` | Authz domain the `'AccessPolicy'` slots check in |
+| `telemetry.auth.skipInDevelopment` | `false` | Skip the `'AccessPolicy'` checks; needs an explicit development env too |
 | `telemetry.collectDefaultMetrics` | `true` | Register `process_*` / `nodejs_*` metrics at bootstrap |
 | `telemetry.prefix` | `'http'` | Metric name prefix for the http metrics |
 | `telemetry.buckets` | `[5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]` | Duration histogram buckets ( ms ) |
@@ -390,9 +484,9 @@ the `perf_*` histograms use `PERF_DURATION_BUCKETS_MS` (same, plus a leading `1`
 | `telemetry.health.version` | unset | Version string reported by `/telemetry/health`; omitted from the response when unset |
 
 The `<endpoint>` keys are `metrics`, `stats`, `timeline`, `routes`, `perf`,
-`health` and `ready`. Policy defaults: `TelemetryTokenPolicy` for `metrics`,
-`stats`, `timeline`, `routes` and `perf`; `PublicPolicy` for `health` and
-`ready`.
+`health` and `ready`. Policy defaults: `'AccessPolicy'` for `metrics`,
+`stats`, `timeline`, `routes` and `perf` (permissions default to `telemetry:read`);
+`PublicPolicy` for `health` and `ready`.
 
 `telemetry.perf.enabled` and `telemetry.perf.maxNames` bound the **JSON** view
 only ( `InMemoryPerfSink` ). The `perf_*` Prometheus series come from a separate
@@ -479,4 +573,4 @@ all — use the `telemetry.prefix` / `telemetry.buckets` config keys.
   see [Cardinality](#cardinality) for the unmatched-path case, which is the one
   that bites without you doing anything wrong.
 - **Migrating from `@spinajs/metrics`?** See
-  [`docs/migrations/2026-07-23-metrics-to-telemetry.md`](../../docs/migrations/2026-07-23-metrics-to-telemetry.md).
+  [HTTP request metrics](../../docs/telemetry/03-http-request-metrics.md).

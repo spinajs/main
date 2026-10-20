@@ -3,9 +3,10 @@ import { META_ARGUMENT, META_COMMAND, META_OPTION } from './decorators.js';
 import { AsyncService, Autoinject, ClassInfo, DI } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log-common';
 import { Configuration } from '@spinajs/configuration';
-import { Command, Option, Argument } from 'commander';
+import { Command, Option, Argument, CommandOptions, InvalidArgumentError } from 'commander';
 import { ListFromFiles } from '@spinajs/reflection';
 import { createRequire } from 'module';
+import { stripFrameworkOptions } from './argv.js';
 
 export * from './interfaces.js';
 export * from './decorators.js';
@@ -25,6 +26,18 @@ function resolveCliVersion(): string {
   }
 }
 
+/**
+ * commander's `choices()` replaces any parser set before it, so validate the
+ * choice here and then run the parser.
+ */
+function parseWithChoices(choices: string[], parser: (value: string, previous: any) => unknown) {
+  return (value: string, previous: unknown) => {
+    if (!choices.includes(value)) {
+      throw new InvalidArgumentError(`Allowed choices are ${choices.join(', ')}.`);
+    }
+    return parser(value, previous);
+  };
+}
 
 export class Cli extends AsyncService {
   @Logger('CLI')
@@ -92,7 +105,7 @@ export class Cli extends AsyncService {
 
     // first pass: build each command in isolation, remembering its parent (if any)
     // so the command tree can be assembled afterwards regardless of iteration order.
-    const built: Array<{ name: string; command: Command; parent?: string }> = [];
+    const built: Array<{ name: string; command: Command; parent?: string; opts?: CommandOptions }> = [];
 
     // lazy, memoized command instances — resolved at most once, and only when
     // the command ( or a parent on its dispatch path ) is actually invoked.
@@ -100,23 +113,29 @@ export class Cli extends AsyncService {
 
     for (const cmd of commands ?? []) {
 
-      if (!cmd.type) {
-        this.Log.warn(`Command ${cmd.name} has no exported class. Make sure the file exports a CliCommand subclass`);
+      if (typeof cmd.type !== 'function') {
+        this.Log.warn({ command: cmd.name }, 'Command ${command} has no exported class. Make sure the file exports a CliCommand subclass');
         continue;
       }
 
-      this.Log.info(`Found command ${cmd.name}`);
-
       const cMeta = Reflect.getMetadata(META_COMMAND, cmd.type) as ICommand;
+
+      if (!cMeta) {
+        // every export of a command file is listed, helpers next to the command included
+        if (cmd.type.prototype instanceof CliCommand) {
+          this.Log.warn({ command: cmd.name }, 'Command ${command} is not marked as command. Use decorators to add description to command');
+        }
+        continue;
+      }
+
+      this.Log.info({ command: cmd.name }, 'Found command ${command}');
+
       const oMeta = Reflect.getMetadata(META_OPTION, cmd.type) as IOption[];
       const aMeta = Reflect.getMetadata(META_ARGUMENT, cmd.type) as IArgument[];
 
-      if (!cMeta) {
-        this.Log.warn(`Command ${cmd.name} is not marked as command. Use decorators to add description to command`);
-        continue;
-      }
-
-      const c = new Command(cMeta.nameAndArgs);
+      const [, name, args] = /([^ ]+) *(.*)/.exec(cMeta.nameAndArgs) ?? [];
+      const c = new Command(name);
+      if (args) c.arguments(args);
       c.description(this.translate(cMeta.description));
 
       // exitOverride / output config / suggestions are not inherited by
@@ -140,8 +159,11 @@ export class Cli extends AsyncService {
       oMeta?.forEach((o) => {
         const opt = new Option(o.flags, this.translate(o.description));
 
-        if (o.parser) opt.argParser(o.parser as (value: string, previous: unknown) => unknown);
         if (o.choices) opt.choices(o.choices);
+        if (o.parser) {
+          const parser = o.choices ? parseWithChoices(o.choices, o.parser) : o.parser;
+          opt.argParser(parser as (value: string, previous: unknown) => unknown);
+        }
         if (o.env) opt.env(o.env);
         if (o.conflicts) opt.conflicts(o.conflicts);
         if (o.implies) opt.implies(o.implies);
@@ -156,7 +178,7 @@ export class Cli extends AsyncService {
           // a required option can't meaningfully carry a default — the default
           // would satisfy the requirement and make it optional. drop it.
           if (defaultValue !== undefined) {
-            this.Log.warn(`Option ${o.flags} is required; ignoring its default value`);
+            this.Log.warn({ flags: o.flags }, 'Option ${flags} is required; ignoring its default value');
           }
         } else if (defaultValue !== undefined) {
           opt.default(defaultValue);
@@ -179,8 +201,11 @@ export class Cli extends AsyncService {
 
         const arg = new Argument(name, this.translate(a.description));
 
-        if (a.parser) arg.argParser(a.parser as (value: string, previous: unknown) => unknown);
         if (a.choices) arg.choices(a.choices);
+        if (a.parser) {
+          const parser = a.choices ? parseWithChoices(a.choices, a.parser) : a.parser;
+          arg.argParser(parser as (value: string, previous: unknown) => unknown);
+        }
         if (a.defaultValue !== undefined) arg.default(a.defaultValue);
 
         c.addArgument(arg);
@@ -190,7 +215,7 @@ export class Cli extends AsyncService {
       const getInstance = () => {
         if (!instance) {
           instance = Promise.resolve(DI.resolve(cmd.type) as CliCommand | Promise<CliCommand>).catch((err: Error) => {
-            this.Log.error(`Cannot resolve command ${cmd.name} ( ${cmd.file} ): ${err.message}`);
+            this.Log.error({ error: err, command: cmd.name, file: cmd.file }, 'Cannot resolve command ${command} ( ${file} )');
             throw err;
           });
         }
@@ -210,7 +235,7 @@ export class Cli extends AsyncService {
         await (await getInstance()).execute(...args);
       });
 
-      built.push({ name: cMeta.nameAndArgs.split(' ')[0], command: c, parent: cMeta.parent });
+      built.push({ name, command: c, parent: cMeta.parent, opts: cMeta.opts });
     }
 
     // second pass: assemble the command tree. children attach to their parent's
@@ -220,12 +245,12 @@ export class Cli extends AsyncService {
       if (b.parent) {
         const parent = byName.get(b.parent);
         if (parent) {
-          parent.addCommand(b.command);
+          parent.addCommand(b.command, b.opts);
           continue;
         }
-        this.Log.warn(`Parent command '${b.parent}' for '${b.name}' not found; registering at top level`);
+        this.Log.warn({ parent: b.parent, command: b.name }, 'Parent command ${parent} for ${command} not found; registering at top level');
       }
-      program.addCommand(b.command);
+      program.addCommand(b.command, b.opts);
     }
 
     // `onCreation` may customize a command ( extra options, help text ) and so
@@ -237,7 +262,7 @@ export class Cli extends AsyncService {
       parent.hook('preSubcommand', async (_thisCommand, subcommand) => {
         const get = lazyInstances.get(subcommand);
         if (get) {
-          (await get()).onCreation(subcommand);
+          await (await get()).onCreation(subcommand);
         }
       });
     };
@@ -247,7 +272,8 @@ export class Cli extends AsyncService {
     program.exitOverride();
     program.showHelpAfterError();
 
-    const argv = DI.resolve<string[]>('__cli_argv_provider__');
+    // the provider is registered by the bin ( args.ts ), not by the package entry
+    const argv = DI.resolve<string[] | null>('__cli_argv_provider__') ?? stripFrameworkOptions(process.argv);
 
     // nothing but `node script` → show help rather than silently doing nothing
     if (argv.slice(2).length === 0) {

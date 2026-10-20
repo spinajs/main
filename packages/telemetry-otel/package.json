@@ -1,5 +1,5 @@
 {
-  "version": "2.0.557",
+  "version": "3.0.0",
   "description": "OpenTelemetry tracing for SpinaJS: OTLP/HTTP trace export (highlight.io compatible) and a registry for long-lived keyed spans",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -24,7 +24,7 @@
     "test": "ts-mocha --exit -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
     "format": "prettier --write \"src/**/*.ts\"",
-    "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
+    "lint": "cd ../.. && npm run lint -- packages/telemetry-otel",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
   },
@@ -50,11 +50,11 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
-    "@spinajs/configuration": "2.0.557",
-    "@spinajs/configuration-common": "2.0.557",
-    "@spinajs/di": "2.0.557",
-    "@spinajs/exceptions": "2.0.557",
-    "@spinajs/log": "2.0.557",
+    "@spinajs/configuration": "3.0.0",
+    "@spinajs/configuration-common": "3.0.0",
+    "@spinajs/di": "3.0.0",
+    "@spinajs/exceptions": "3.0.0",
+    "@spinajs/log": "3.0.0",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/sdk-trace-base": "^2.0.0",
     "@opentelemetry/sdk-trace-node": "^2.0.0",

@@ -8,6 +8,18 @@ framework (logging, file paths, messages) to expand `${...}` variables.
 
 This package has no runtime dependency beyond `@spinajs/di`.
 
+## Documentation
+
+Full documentation lives in [docs/configuration-common](../../docs/configuration-common/README.md):
+
+- [Templating with `format()`](../../docs/configuration-common/01-templating.md)
+- [Built-in variables](../../docs/configuration-common/02-built-in-variables.md)
+- [Custom variables](../../docs/configuration-common/03-custom-variables.md)
+- [The `Configuration` service](../../docs/configuration-common/04-configuration-service.md)
+- [Configuration sources](../../docs/configuration-common/05-configuration-sources.md)
+- [Config var protocols](../../docs/configuration-common/06-config-var-protocols.md)
+- [Environment names](../../docs/configuration-common/07-environment-names.md)
+
 ## Installation
 
 ```bash
@@ -44,17 +56,19 @@ See [examples/01-format-basics.ts](examples/01-format-basics.ts).
 
 | Value kind | Placeholder | Behaviour |
 | --- | --- | --- |
-| string / number | `${x}` | inserted as-is (special replacement patterns like `$&` are kept literal) |
+| string / number / boolean | `${x}` | inserted as-is, including `0`, `false` and `''`; only `null` / `undefined` count as absent |
 | function | `${x:arg}` | called with `arg` (or `null`); the return value is inserted |
 | object | `${x:prop}` | reads `obj.prop`; if that property is itself a function it is called |
+
+Inserted values are literal: special replacement patterns like `$&` are never expanded.
 
 The special `message` field is **formatted recursively** before being
 interpolated, so it may contain its own `${...}` placeholders.
 
 ### Conditional blocks
 
-`${?var} ... ${/var}` renders the enclosed content only when `var` is truthy
-(present, not `null`, not `''`). The condition is evaluated before the inner
+`${?var} ... ${/var}` renders the enclosed content only when `var` is set
+(present, not `null`, not `''`, not `false`). The condition is evaluated before the inner
 variables are substituted.
 
 ```ts
@@ -161,7 +175,7 @@ imported is never registered. Two ways this happens:
    the directories configured under the relevant `system.dirs.*` keys, which
    runs the decorators for you. You usually do not call `DI.register` by hand.
 2. **Standalone / tests:** you must import the file yourself so the decorator
-   runs before the first `format()` (for variables) or before the configuration
+   runs before the `format()` calls that use it (for variables) or before the configuration
    module resolves protocols.
 
 ```ts

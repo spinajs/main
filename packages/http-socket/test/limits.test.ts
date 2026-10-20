@@ -1,0 +1,98 @@
+import 'mocha';
+import { expect } from 'chai';
+import { SocketException } from '@spinajs/http-socket-common';
+import { TokenBucket, assertPayloadSize, assertRate, payloadSize } from '../src/limits.js';
+
+describe('socket limit primitives', () => {
+  describe('payloadSize', () => {
+    it('counts the UTF-8 bytes of the JSON form', () => {
+      expect(payloadSize({ a: 1 })).to.equal(Buffer.byteLength('{"a":1}'));
+      // two quotes + a two-byte character
+      expect(payloadSize('ż')).to.equal(4);
+    });
+
+    it('counts binary parts by byte length, not by their JSON expansion', () => {
+      expect(payloadSize({ bin: Buffer.alloc(1000) })).to.equal(1000 + Buffer.byteLength('{"bin":null}'));
+      expect(payloadSize(new Uint8Array(10))).to.equal(10 + 4);
+      expect(payloadSize(new ArrayBuffer(8))).to.equal(8 + 4);
+    });
+
+    it('treats an absent payload as empty', () => {
+      expect(payloadSize(undefined)).to.equal(0);
+    });
+  });
+
+  describe('TokenBucket', () => {
+    let now = 0;
+    const clock = () => now;
+
+    beforeEach(() => {
+      now = 0;
+    });
+
+    it('lets a burst through and then refuses', () => {
+      const bucket = new TokenBucket(10, 2, clock);
+      expect(bucket.take()).to.be.true;
+      expect(bucket.take()).to.be.true;
+      expect(bucket.take()).to.be.false;
+    });
+
+    it('says how long until the next token', () => {
+      const bucket = new TokenBucket(10, 1, clock);
+      bucket.take();
+      expect(bucket.retryAfterMs()).to.equal(100);
+      now = 50;
+      expect(bucket.retryAfterMs()).to.equal(50);
+    });
+
+    it('refills at the configured rate, up to the burst', () => {
+      const bucket = new TokenBucket(10, 2, clock);
+      bucket.take();
+      bucket.take();
+      now = 100;
+      expect(bucket.take()).to.be.true;
+      expect(bucket.take()).to.be.false;
+      now = 10_000;
+      expect(bucket.take()).to.be.true;
+      expect(bucket.take()).to.be.true;
+      expect(bucket.take()).to.be.false;
+    });
+  });
+
+  describe('assertions', () => {
+    it('refuses an oversized payload as a non-retryable resource_exhausted', () => {
+      let caught: unknown;
+      try {
+        assertPayloadSize('x'.repeat(100), 10);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).to.be.instanceOf(SocketException);
+      expect((caught as SocketException).toWire()).to.deep.equal({
+        code: 'resource_exhausted',
+        message: 'payload of 102 bytes exceeds the limit of 10 bytes',
+        retryable: false,
+        details: { size: 102, limit: 10 },
+      });
+    });
+
+    it('lets a payload exactly at the limit through', () => {
+      expect(() => assertPayloadSize('x'.repeat(8), 10)).not.to.throw();
+    });
+
+    it('refuses an empty bucket with retryAfterMs', () => {
+      let now = 0;
+      const bucket = new TokenBucket(4, 1, () => now);
+      bucket.take();
+      let caught: unknown;
+      try {
+        assertRate(bucket);
+      } catch (err) {
+        caught = err;
+      }
+      expect((caught as SocketException).toWire()).to.deep.equal({ code: 'resource_exhausted', message: 'rate limit exceeded', retryable: true, retryAfterMs: 250 });
+      now = 250;
+      expect(() => assertRate(bucket)).not.to.throw();
+    });
+  });
+});

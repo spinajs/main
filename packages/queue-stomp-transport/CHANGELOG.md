@@ -21,4 +21,3 @@
 
 ### Changed
 - `npm test` runs unit tests only. The live-broker suite moved to `test/integration`.
-- `publishWithReceipt()` ( protected ) takes a log label instead of the message as its 4th argument.

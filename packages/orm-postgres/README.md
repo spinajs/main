@@ -2,6 +2,18 @@
 
 PostgreSQL driver for the SpinaJS ORM.
 
+## Documentation
+
+Full documentation lives in [`docs/orm-postgres`](../../docs/orm-postgres/README.md):
+
+- [Connection and pooling](../../docs/orm-postgres/01-connection-and-pooling.md)
+- [Transactions](../../docs/orm-postgres/02-transactions.md)
+- [Queries and inserts](../../docs/orm-postgres/03-queries-and-inserts.md)
+- [Schema DDL and reflection](../../docs/orm-postgres/04-schema-ddl-and-reflection.md)
+- [Quoting and parameters](../../docs/orm-postgres/05-quoting-and-parameters.md)
+- [Extending the driver](../../docs/orm-postgres/06-extending-the-driver.md)
+- [Customizing dialect compilers](../../docs/orm-postgres/07-customizing-dialect-compilers.md)
+
 ## Usage
 
 ```ts
@@ -48,34 +60,21 @@ import { Configuration } from '@spinajs/configuration';
 | `CREATE DATABASE IF NOT EXISTS` | supported | refused — postgres has no such clause |
 | `CREATE EVENT`, table history triggers, `CREATE TABLE ... LIKE` | MySQL syntax | unregistered — fail with a DI error naming the abstraction |
 | `DECIMAL` / `NUMERIC` / `BIGINT` in responses | driver-dependent | strings (node-postgres refuses to lose precision above 2^53); `ResponseSchemaTypes` says so |
-| `dateTime` / `timestamp` columns | `DATETIME` | `TIMESTAMPTZ(3)`; the driver writes and reads UTC instants (milliseconds; microseconds truncated), a `DateTime` read back is in the UTC zone, and every pooled session runs with `TimeZone = UTC`. Legacy `TIMESTAMP` columns are read as UTC, see [Upgrading `TIMESTAMP` columns](#upgrading-timestamp-columns-created-by-earlier-versions) |
-| `DATE` columns | calendar day | calendar day; a raw query returns it as a `Date` at UTC midnight (pg-types alone would use the process zone) |
+| `dateTime` / `timestamp` columns | `DATETIME` | `TIMESTAMPTZ(3)`; the driver writes and reads UTC instants (milliseconds; microseconds truncated), a `DateTime` read back is in the UTC zone, and every pooled session runs with `TimeZone = UTC`. `TIMESTAMP` (without time zone) columns are read as UTC |
+| `DATE` columns | calendar day | calendar day; a model writes the day of the value in its own zone, and a raw query returns it as a `Date` at UTC midnight (pg-types alone would use the process zone) |
 | Column defaults (`tableInfo`) | literal values | literal defaults become values of the column type; expression defaults (`gen_random_uuid()`, `CURRENT_TIMESTAMP`, sequences) stay on the server: a new model leaves the column unset and the insert writes `DEFAULT` |
-| Joined table references | `` `db`.`table` `` (sibling databases) | unqualified; join key columns quoted |
+| Joined table references | `` `db`.`table` `` (sibling databases) | qualified with `Options.Schema` when set, else unqualified |
 | `COUNT(*)` | number | `bigint`; `count()` / `selectCount()` return numbers |
 | Upsert target of `insert(InsertOrUpdate)` | `ON DUPLICATE KEY` (any unique key) | the primary key when the row carries it, else the one unique column it carries; a row carrying several unique columns needs `insert().onDuplicate(column)` |
 | JSON string value in a `jsonb` column | string | string; a string value that is itself valid JSON text (`"123"`) comes back parsed |
 | Explicit value into an identity key | moves `AUTO_INCREMENT` | does not move the identity; run `SELECT setval(pg_get_serial_sequence('"t"', 'Id'), (SELECT max("Id") FROM "t"))` after explicit keys |
 | Failed statement inside a transaction | transaction continues | transaction is aborted (`25P02`) until rollback; wrap recoverable statements in a nested `transaction()` (savepoint) |
-| `?` in raw SQL | placeholder | the first N `?` (N = bindings) become `$1..$N`, including jsonb `?` operators; with bindings, use `jsonb_exists()` / `jsonb_exists_any()` |
+| `?` in raw SQL | placeholder | the first N `?` (N = bindings) outside quoted literals and identifiers become `$1..$N`; `?\|` and `?&` stay operators, a bare jsonb `?` does not: with bindings, use `jsonb_exists()` |
 | `dropColumn()` | unquoted name | quoted, so mixed-case names are not folded to lower case |
 
 Transactions run on a dedicated pooled client with full savepoint support; all four
 standard isolation levels are accepted (`READ UNCOMMITTED` behaves as `READ COMMITTED`,
 postgres' documented, standard-permitted upgrade).
-
-### Upgrading `TIMESTAMP` columns created by earlier versions
-
-New `dateTime` / `timestamp` columns are `TIMESTAMPTZ(3)`. Existing `TIMESTAMP` (without time zone) columns keep
-working: the driver writes UTC into them and reads them as UTC. Rows written by earlier versions hold the wall time
-of the process that wrote them, so they read shifted by that zone's offset until converted. Convert each column
-once, naming the zone the old rows were written in (the app servers' `TZ`; `UTC` in most containers):
-
-    ALTER TABLE "orders" ALTER COLUMN "CreatedAt" TYPE TIMESTAMPTZ(3) USING "CreatedAt" AT TIME ZONE 'Europe/Warsaw';
-
-Do this in a migration (raw query), one statement per column. Rows written by this version into a still
-unconverted column are UTC wall time: if both kinds are mixed, convert before deploying this version, or split
-the rows by their insert time.
 
 ## Running integration tests
 
@@ -85,8 +84,9 @@ the rows by their insert time.
 
 One file: `npx ts-mocha -p tsconfig.json --config .mocharc.integration.json test/integration/<file>.test.ts`.
 
-Each suite creates its own schema `it_<suite>_<pid>_<random>` in database `orm_postgres_it` (created on first run)
-and drops it afterwards. The suites skip with a warning when the server is unreachable.
+Suites on `harness.ts` create their own schema `it_<suite>_<pid>_<random>` in database `orm_postgres_it` (created
+on first run); suites on `support.ts` create a throwaway database `orm_<suite>_<random>`. Both drop what they created
+afterwards, and skip with a warning when the server is unreachable.
 
 | Variable | Default |
 | --- | --- |
@@ -95,7 +95,7 @@ and drops it afterwards. The suites skip with a warning when the server is unrea
 | `ORM_TEST_POSTGRES_USER` / `_PASSWORD` | `postgres` / `postgres` |
 | `ORM_TEST_POSTGRES_DATABASE` | `orm_postgres_it` |
 | `ORM_TEST_POSTGRES_CONTAINER` | `spinajs-orm-test-postgres` (the restart test runs `docker restart` on it) |
-| `ORM_TEST_POSTGRES_REQUIRED` | unset; `1` fails instead of skipping (CI) |
+| `ORM_TEST_POSTGRES_REQUIRED` (or `ORM_TEST_REQUIRE_PG`) | unset; `1` fails instead of skipping (CI) |
 | `ORM_TEST_POSTGRES_KEEP_SCHEMA` | unset; `1` keeps each suite's schema for inspection |
 
 **The infrastructure suite restarts the container**, and the time suite changes the integration database's

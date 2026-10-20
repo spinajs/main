@@ -22,7 +22,7 @@ export class __mutex__ extends ModelBase<__mutex__> {
   @UpdatedAt()
   public Updated_at: DateTime;
 
-  constructor(data: Partial<__mutex__>) {
+  constructor(data?: Partial<__mutex__>) {
     super({
       Created_at: DateTime.now(),
       Updated_at: DateTime.now(),

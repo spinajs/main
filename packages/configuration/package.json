@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/configuration",
-  "version": "2.0.557",
+  "version": "3.0.0",
   "description": "framework configuration module",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -39,7 +39,7 @@
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
-    "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
+    "lint": "cd ../.. && npm run lint -- packages/configuration",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
   },
@@ -66,11 +66,11 @@
     "@types/ajv-merge-patch": "^4.1.2"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "2.0.557",
-    "@spinajs/di": "2.0.557",
-    "@spinajs/exceptions": "2.0.557",
-    "@spinajs/internal-logger": "2.0.557",
-    "@spinajs/util": "2.0.557",
+    "@spinajs/configuration-common": "3.0.0",
+    "@spinajs/di": "3.0.0",
+    "@spinajs/exceptions": "3.0.0",
+    "@spinajs/internal-logger": "3.0.0",
+    "@spinajs/util": "3.0.0",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5.1.0",

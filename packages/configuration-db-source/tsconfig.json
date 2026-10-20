@@ -8,10 +8,12 @@
   },
   "include": ["src/**/*","test/**/*"],
   "references": [
+    { "path": "../authz/tsconfig.json" },
     { "path": "../configuration-common/tsconfig.json" },
     { "path": "../di/tsconfig.json" },
     { "path": "../internal-logger/tsconfig.json" },
     { "path": "../orm/tsconfig.json" },
+    { "path": "../authz-testing/tsconfig.json" },
   ]
 }
 

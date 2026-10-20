@@ -9,6 +9,7 @@ import { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import * as sinon from 'sinon';
 import { StompQueueClient, describeWebSocketError } from '../src/connection.js';
+import '../src/connection-factory.js';
 
 chai.use(chaiAsPromised);
 
@@ -50,6 +51,10 @@ class FakeStompClient {
   }
 
   public unsubscribe(id: string, headers?: any) {
+    if (!this.connected) {
+      // stompjs dereferences its undefined STOMP handler while disconnected
+      throw new TypeError("Cannot read properties of undefined (reading 'unsubscribe')");
+    }
     this.unsubscribed.push({ id, headers: headers ?? {} });
   }
 
@@ -275,6 +280,30 @@ describe('stomp queue transport - unit', function () {
       expect(() => c.fake.onWebSocketClose(undefined)).to.not.throw();
     });
 
+    it('rejects when no host is configured', async () => {
+      const c = new TestableStompClient(options({ host: undefined }));
+      await expect(c.resolve()).to.be.rejectedWith(InvalidArgument);
+    });
+
+    it('rejects and deactivates when the credential provider is not registered', async () => {
+      const c = new TestableStompClient(options({ credentialProvider: 'NotRegisteredCredProvider' }));
+      const p = c.resolve();
+
+      await expect(c.fake.beforeConnect()).to.be.fulfilled;
+      await expect(p).to.be.rejectedWith(UnexpectedServerError, /credentials/);
+      expect(c.fake.deactivated).to.be.true;
+    });
+
+    it('honours a configured clientId in the shipped factory', async () => {
+      const stub = sinon.stub(StompQueueClient.prototype, 'resolve').resolves();
+      try {
+        const c = await DI.resolve(StompQueueClient, [options({ clientId: 'replica-1' })]);
+        expect(c.ClientId).to.eq('replica-1');
+      } finally {
+        stub.restore();
+      }
+    });
+
     it('hands stompjs a websocket factory instead of relying on a global WebSocket', async () => {
       const c = new TestableStompClient(options());
       const p = c.resolve();
@@ -380,30 +409,39 @@ describe('stomp queue transport - unit', function () {
       expect(c.fake.subscriptions.filter((s) => s.destination === '/queue/dup')).to.have.length(1);
     });
 
-    it('dispatches a message to every consumer sharing the channel', async () => {
+    it('delivers to every message class routed to the same channel and keeps the subscription until the last one leaves', async () => {
+      class EventA {}
+      class EventB {}
       const c = await connected();
-      const first = sinon.stub().resolves();
-      const second = sinon.stub().resolves();
-      await c.subscribe('/queue/shared', first);
-      await c.subscribe('/queue/shared', second);
+      const a = sinon.stub().resolves();
+      const b = sinon.stub().resolves();
+      await c.subscribe(EventA as any, a);
+      await c.subscribe(EventB as any, b);
 
-      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/shared')!;
-      const msg = brokerMessage(jobMessage());
-      sub.callback(msg);
+      const subs = c.fake.subscriptions.filter((s) => s.destination === '/topic/default');
+      expect(subs).to.have.length(1);
+
+      const msg = brokerMessage(qMessage({ Name: 'EventB' }));
+      subs[0].callback(msg);
       await tick();
-
-      expect(c.fake.subscriptions.filter((s) => s.destination === '/queue/shared')).to.have.length(1);
-      expect(first.calledOnce).to.be.true;
-      expect(second.calledOnce).to.be.true;
+      expect(a.calledOnce).to.be.true;
+      expect(b.calledOnce).to.be.true;
       expect(msg.ack.calledOnce).to.be.true;
+
+      c.unsubscribe(EventA as any);
+      expect(subs[0].unsubscribe.called).to.be.false;
+      c.unsubscribe(EventB as any);
+      expect(subs[0].unsubscribe.calledOnce).to.be.true;
     });
 
-    it('treats a failure in any consumer sharing the channel as a failed message', async () => {
+    it('treats a failure in any message class sharing the channel as a failed message', async () => {
+      class JobA {}
+      class JobB {}
       const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
-      await c.subscribe('/queue/shared', sinon.stub().resolves());
-      await c.subscribe('/queue/shared', sinon.stub().rejects(new Error('boom')));
+      await c.subscribe(JobA as any, sinon.stub().resolves());
+      await c.subscribe(JobB as any, sinon.stub().rejects(new Error('boom')));
 
-      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/shared')!;
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/topic/default')!;
       sub.callback(brokerMessage(jobMessage()));
       await tick();
 
@@ -749,6 +787,20 @@ describe('stomp queue transport - unit', function () {
       expect(retry.headers['correlation-id']).to.eq('job-xyz');
     });
 
+    it('nacks instead of acking when the broker never confirms the retry publish', async () => {
+      const c = await connected({ options: { receiptTimeout: 20 } });
+      c.fake.autoReceipt = false;
+      await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/job')!;
+      const msg = brokerMessage(jobMessage({ RetryCount: 2 } as any));
+      sub.callback(msg);
+      await new Promise<void>((res) => setTimeout(res, 50));
+
+      expect(msg.ack.called).to.be.false;
+      expect(msg.nack.calledOnce).to.be.true;
+    });
+
     it('dead-letters the job once retries are exhausted', async () => {
       const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
       await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
@@ -840,6 +892,17 @@ describe('stomp queue transport - unit', function () {
       expect(c.fake.unsubscribed[0].headers['activemq.subscriptionName']).to.eq('sub-1');
       expect(c.subs.has('/topic/durable')).to.be.false;
     });
+
+    it('forgets a durable subscription unsubscribed while disconnected and does not replay it', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/durable', sinon.stub().resolves(), 'sub-1', true);
+      c.fake.simulateDrop();
+
+      expect(() => c.unsubscribe('/topic/durable', true)).to.not.throw();
+
+      c.fake.simulateConnect();
+      expect(c.fake.subscriptions.filter((s) => s.destination === '/topic/durable')).to.have.length(1);
+    });
   });
 
   describe('readiness', () => {
@@ -917,6 +980,14 @@ describe('stomp queue transport - unit', function () {
       await c.dispose();
 
       await expect(emitP).to.be.rejectedWith(UnexpectedServerError);
+    });
+
+    it('rejects whenReady() calls still waiting at dispose time', async () => {
+      const c = new TestableStompClient(options());
+      const readyP = c.whenReady();
+      await c.dispose();
+
+      await expect(readyP).to.be.rejectedWith(UnexpectedServerError);
     });
   });
 

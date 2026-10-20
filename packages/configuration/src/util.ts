@@ -51,3 +51,11 @@ export function filterDirs(dir: string) {
   }
   return false;
 }
+
+type SchemaIds = { $id?: string; $configurationModule: string };
+
+/** How violations and refusals name a schema: its `$id`, else its `$configurationModule`. */
+export const schemaNameOf = (s: SchemaIds): string => s.$id ?? s.$configurationModule;
+
+/** The same object, or a copy with the same `$id`, as the cjs and the mjs build of one package give. */
+export const sameSchema = (a: SchemaIds, b: SchemaIds): boolean => a === b || (a.$id !== undefined && a.$id === b.$id);

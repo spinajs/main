@@ -25,7 +25,7 @@ export class AppConfig extends FrameworkConfiguration {
       },
       service: {
         // fetched from AWS Parameter Store
-        endpoint: 'aws-parameters://prod/service/endpoint',
+        endpoint: 'aws-parameters:///prod/service/endpoint',
       },
 
       // client options are passed straight to the AWS SDK clients (region, credentials, endpoint, ...)
@@ -82,7 +82,7 @@ Subtree expansion:
 
 ```ts
 // given /prod/app/db/host, /prod/app/db/port, /prod/app/key in Parameter Store
-{ app: 'aws-parameters://prod/app/*' }
+{ app: 'aws-parameters:///prod/app/*' }
 // resolves to:
 { app: { db: { host: '...', port: '...' }, key: '...' } }
 ```
@@ -112,3 +112,14 @@ aws: {
   parameterStore: { region: 'eu-central-1', cacheTtl: 0 },
 }
 ```
+
+## Documentation
+
+Full documentation lives in [`docs/configuration-aws-secretmanager-protocol/`](../../docs/configuration-aws-secretmanager-protocol/README.md):
+
+- [Secrets Manager protocol](../../docs/configuration-aws-secretmanager-protocol/01-secrets-manager-protocol.md)
+- [Parameter Store protocol](../../docs/configuration-aws-secretmanager-protocol/02-parameter-store-protocol.md)
+- [Fallbacks and failures](../../docs/configuration-aws-secretmanager-protocol/03-fallbacks-and-failures.md)
+- [Caching](../../docs/configuration-aws-secretmanager-protocol/04-caching.md)
+- [Replacing and extending the AWS protocols](../../docs/configuration-aws-secretmanager-protocol/05-replacing-and-extending-the-aws-protocols.md)
+- [Writing a custom protocol](../../docs/configuration-aws-secretmanager-protocol/06-writing-a-custom-protocol.md)

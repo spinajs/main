@@ -1,6 +1,6 @@
 import { Container, IContainer, Inject, NewInstance } from '@spinajs/di';
-import { IdentifierQuoter } from '@spinajs/orm';
-import { SqlJoinStatement, SqlLiteralQuoter } from '@spinajs/orm-sql';
+import { IdentifierQuoter, NowExpression, OrmDriver } from '@spinajs/orm';
+import { SqlDateTimeWrapper, SqlInStatement, SqlJoinStatement, SqlLiteralQuoter } from '@spinajs/orm-sql';
 import pg from 'pg';
 
 /**
@@ -41,17 +41,42 @@ export class PostgresLiteralQuoter extends SqlLiteralQuoter {
   }
 }
 
+/** A long list is bound as one array parameter; postgres infers the element type from the column. */
+@NewInstance()
+export class PostgresInStatement extends SqlInStatement {
+  protected listExpression(column: string): string {
+    return this._not ? `${column} <> ALL(?)` : `${column} = ANY(?)`;
+  }
+
+  protected listBinding(values: unknown[]): unknown {
+    return values;
+  }
+}
+
+/** The start of the current transaction, as for a column default. */
+export class PostgresNowExpression extends NowExpression {
+  public sql(): string {
+    return 'CURRENT_TIMESTAMP';
+  }
+}
+
 /**
- * A postgres connection is bound to one database, so a joined table is never qualified with it
- * (see PostgresTableAliasCompiler), and unquoted key columns would be folded to lower case.
+ * A connection cannot reach another database, so the shared `"<database>"."<table>"`
+ * spelling would be read as a schema named like the database. Joined tables are
+ * qualified with the configured schema instead, or left bare to follow search_path.
  */
 @NewInstance()
 export class PostgresJoinStatement extends SqlJoinStatement {
-  protected tableReference(_database: string | undefined, table: string, alias: string): string {
-    return `${this.Quoter.quote(table)} as ${this.Quoter.quote(alias)}`;
+  protected tableQualifier(driver: OrmDriver): string | undefined {
+    return driver.Options.Options?.Schema as string | undefined;
   }
+}
 
-  protected keyColumn(column: string | undefined): string {
-    return this.Quoter.quote(`${column}`);
+/** PostgreSQL has no `DATETIME()` function; a cast to TIMESTAMP is its spelling. */
+@NewInstance()
+export class PostgresDateTimeWrapper extends SqlDateTimeWrapper {
+  public wrap(): string {
+    const column = this._tableAlias ? `${this.Quoter.quote(this._tableAlias)}.${this.Quoter.quote(this._value as string)}` : this.Quoter.quote(this._value as string);
+    return `CAST(${column} AS TIMESTAMP)`;
   }
 }

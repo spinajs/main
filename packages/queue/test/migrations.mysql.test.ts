@@ -19,6 +19,8 @@ import '../src/migrations/Queue_2026_06_30_00_00_00.js';
 import '../src/migrations/Queue_2026_07_02_00_00_00.js';
 import '../src/migrations/Queue_2026_07_10_00_00_00.js';
 import '../src/migrations/Queue_2026_07_17_00_00_00.js';
+import '../src/migrations/Queue_2026_10_03_00_00_00.js';
+import '../src/migrations/Queue_2026_10_17_00_00_00.js';
 
 chai.use(chaiAsPromised);
 
@@ -51,12 +53,14 @@ function raw(cn: OrmDriver): IRawSqlDriver {
   return cn as unknown as IRawSqlDriver;
 }
 
-const EXPECTED_MIGRATIONS = ['Queue_2022_10_18_01_13_00', 'Queue_2026_06_30_00_00_00', 'Queue_2026_07_02_00_00_00', 'Queue_2026_07_10_00_00_00', 'Queue_2026_07_17_00_00_00'];
+const EXPECTED_MIGRATIONS = ['Queue_2022_10_18_01_13_00', 'Queue_2026_06_30_00_00_00', 'Queue_2026_07_02_00_00_00', 'Queue_2026_07_10_00_00_00', 'Queue_2026_07_17_00_00_00', 'Queue_2026_10_03_00_00_00', 'Queue_2026_10_17_00_00_00'];
 
 class MysqlQueueConf extends FrameworkConfiguration {
   protected onLoad() {
     return {
       db: {
+        // The suite drops queue_jobs and migrates by hand after the boot.
+        StrictTableCheck: false,
         DefaultConnection: 'queue',
         Connections: [
           {
@@ -101,10 +105,11 @@ interface IColumnRow {
   COLUMN_NAME: string;
   COLUMN_DEFAULT: string | null;
   IS_NULLABLE: string;
+  DATA_TYPE: string;
 }
 
 async function columnInfo(cn: OrmDriver): Promise<IColumnRow[]> {
-  return (await raw(cn).executeOnDb(`SELECT COLUMN_NAME, COLUMN_DEFAULT, IS_NULLABLE FROM information_schema.columns WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'queue_jobs'`, [DB], QueryContext.Select)) as IColumnRow[];
+  return (await raw(cn).executeOnDb(`SELECT COLUMN_NAME, COLUMN_DEFAULT, IS_NULLABLE, DATA_TYPE FROM information_schema.columns WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'queue_jobs'`, [DB], QueryContext.Select)) as IColumnRow[];
 }
 
 // SPINAJS_TEST_MYSQL_HOST unset -> whole suite is pending, never failing.
@@ -148,7 +153,7 @@ suite('queue migrations against MySQL (dialect regression: Status default across
 
   it('queue_jobs has the expected columns', async () => {
     const names = (await columnInfo(cn)).map((c) => c.COLUMN_NAME);
-    expect(names).to.include.members(['Status', 'Attempt', 'MaxAttempts', 'LastError', 'Phase', 'Message', 'UpdatedAt', 'FinishedAt']);
+    expect(names).to.include.members(['Status', 'Attempt', 'MaxAttempts', 'LastError', 'Phase', 'Message', 'InitiatorType', 'InitiatorId', 'UpdatedAt', 'FinishedAt']);
   });
 
   it('Status keeps its NOT NULL "created" default after MySQL MODIFY COLUMN', async () => {
@@ -157,6 +162,11 @@ suite('queue migrations against MySQL (dialect regression: Status default across
     // the regression the branch fixed: MySQL MODIFY COLUMN dropping the omitted default
     expect(status!.COLUMN_DEFAULT).to.equal('created');
     expect(status!.IS_NULLABLE).to.equal('NO');
+  });
+
+  it('Status ends as varchar, not a fixed enum', async () => {
+    const status = (await columnInfo(cn)).find((c) => c.COLUMN_NAME === 'Status');
+    expect(status!.DATA_TYPE).to.equal('varchar');
   });
 
   it('an insert that omits Status reads back Status = created (strict-mode safe)', async () => {

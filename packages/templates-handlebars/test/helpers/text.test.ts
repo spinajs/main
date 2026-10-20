@@ -1,4 +1,5 @@
 import { expect } from 'chai';
+import Handlebars from 'handlebars';
 import * as textHelpers from '../../src/helpers/text.js';
 
 // Mimics the options object Handlebars appends as the final argument to every helper call.
@@ -97,10 +98,12 @@ describe('Text Helpers', () => {
 
     it('should align text right', () => {
       expect(textHelpers.__textRight('hello', 10)).to.equal('     hello');
+      expect(textHelpers.__textRight(5 as any, 3)).to.equal('  5');
     });
 
     it('should center text', () => {
       expect(textHelpers.__textCenter('hello', 11)).to.equal('   hello   ');
+      expect(textHelpers.__textCenter(null as any, 2)).to.equal('  ');
     });
   });
 
@@ -110,9 +113,22 @@ describe('Text Helpers', () => {
       expect(textHelpers.stripHtml('<div class="test">World</div>')).to.equal('World');
     });
 
+    it('should leave no tag opener behind', () => {
+      for (const input of ['<scr<script>ipt>alert(1)', '<<b>script>alert(1)', 'x<script src=//e.vil', '<img src=x onerror=alert(1) ']) {
+        expect(textHelpers.stripHtml(input)).to.not.include('<');
+      }
+      expect(textHelpers.stripHtml('1 < 2')).to.equal('1  2');
+    });
+
     it('should escape HTML', () => {
-      expect(textHelpers.escapeHtml('<div>')).to.equal('&lt;div&gt;');
-      expect(textHelpers.escapeHtml('a & b')).to.equal('a &amp; b');
+      expect(String(textHelpers.escapeHtml('<div>'))).to.equal('&lt;div&gt;');
+      expect(String(textHelpers.escapeHtml('a & b'))).to.equal('a &amp; b');
+    });
+
+    it('should not escape twice inside double braces', () => {
+      const hb = Handlebars.create();
+      hb.registerHelper('escapeHtml', textHelpers.escapeHtml);
+      expect(hb.compile('{{escapeHtml x}}')({ x: '<b>' })).to.equal('&lt;b&gt;');
     });
   });
 

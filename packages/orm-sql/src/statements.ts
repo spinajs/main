@@ -1,4 +1,4 @@
-import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, IJoinStatementOptions, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
+import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER, IJoinStatementOptions, OrmDriver } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, NewInstance } from '@spinajs/di';
@@ -46,7 +46,7 @@ function _carryQuoter<T extends { Quoter: IdentifierQuoter }>(clone: T, source: 
  * Rebinding statements: {@link SqlWhereStatement} (`_builder`), {@link SqlInStatement}
  * (`_builder`), {@link SqlJoinStatement} (`_options.builder`), {@link SqlWhereQueryStatement}
  * (nested where-builder), {@link SqlExistsQueryStatement} (sub-select correlation),
- * {@link SqlInQueryStatement} (sub-select correlation and `_ownerBuilder`),
+ * {@link SqlInQueryStatement} (sub-select correlation and `_ownerBuilder`), {@link SqlColumnCompareStatement} (`_builder`), {@link SqlColumnConditionStatement} (nested where-builder),
  * {@link SqlLazyQueryStatement} (deferred evaluation context) and
  * {@link SqlWithRecursiveStatement} (`_query`, the owning query).
  *
@@ -122,6 +122,9 @@ export class SqlLazyQueryStatement extends LazyQueryStatement {
 
 @NewInstance()
 export class SqlWithRecursiveStatement extends WithRecursiveStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   /**
    * REBINDS to the builder it is handed. `_query` is the OWNING query — `withRecursive()`
    * passes `this` — and `build()` mutates it ( it pushes a join before compiling the recursive
@@ -129,7 +132,7 @@ export class SqlWithRecursiveStatement extends WithRecursiveStatement {
    * from and pushed joins into it.
    */
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): SqlWithRecursiveStatement {
-    return new SqlWithRecursiveStatement(this.container, this._name, (parent as SelectQueryBuilder) ?? this._query, this._rcKeyName, this._pkName);
+    return _carryQuoter(new SqlWithRecursiveStatement(this.container, this._name, (parent as SelectQueryBuilder) ?? this._query, this._rcKeyName, this._pkName), this);
   }
 
   public build(): IQueryStatementResult {
@@ -172,7 +175,8 @@ export class SqlWithRecursiveStatement extends WithRecursiveStatement {
     const additionalQuery = this._query.clone().clearRecursive().clearWhere().setAlias('$recursive$').toDB();
     const cte_columns = this._query
       .getColumns()
-      .map((c: ColumnStatement) => c.Column)
+      .map((c) => (c as ColumnStatement))
+      .map((c) => typeof c.Column === 'string' ? this.Quoter.quote(c.Column) : c.Column.Query)
       .join(',');
 
     return {
@@ -260,6 +264,14 @@ export class SqlWhereStatement extends WhereStatement {
       }
     }
 
+    if (this._value instanceof RawQuery) {
+      const target = column instanceof Wrap ? this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._builder.TableAlias]).wrap() : _columnWrap(this.Quoter, column as string, this._builder.TableAlias, this.IsAggregate);
+      return {
+        Bindings: [...this._value.Bindings],
+        Statements: [`${target} ${this._operator.toUpperCase()} ${this._value.Query}`],
+      };
+    }
+
     if (column instanceof Wrap) {
       const wrapper = this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._builder.TableAlias]);
       column = wrapper.wrap();
@@ -297,15 +309,49 @@ export class SqlWhereStatement extends WhereStatement {
   }
 }
 
+/**
+ * `left <op> right` over two columns. Each side is qualified by its query's alias, or by the table
+ * without one: in a correlated sub-query an unqualified name could bind to the inner table. An `outer()`
+ * side is resolved at build time through the correlation source, which a clone's EXISTS / IN rebinds.
+ */
+@NewInstance()
+export class SqlColumnCompareStatement extends ColumnCompareStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): SqlColumnCompareStatement {
+    return _carryQuoter(new SqlColumnCompareStatement(this._left, this._operator, this._right, (parent ?? this._builder) as WhereBuilder<any>), this);
+  }
+
+  public build(): IQueryStatementResult {
+    const right = this._right instanceof OuterColumn ? this.side(this._right.Column, outerBuilder(this._builder, this._right.Levels)) : this.side(this._right, this._builder);
+
+    return {
+      Bindings: [],
+      Statements: [`${this.side(this._left, this._builder)} ${this._operator.toUpperCase()} ${right}`],
+    };
+  }
+
+  private side(column: string | Wrap, builder: IWhereBuilder<any>): string {
+    const qualifier = qualifierOf(builder);
+    if (column instanceof Wrap) {
+      return this._builder.Container.resolve<WrapStatement>(column.Wrapper, [column.Column, qualifier]).wrap();
+    }
+
+    return _columnWrap(this.Quoter, column, qualifier);
+  }
+}
+
 @NewInstance()
 export class SqlJoinStatement extends JoinStatement {
   @Autoinject(IdentifierQuoter)
   public Quoter: IdentifierQuoter;
 
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
-    const Self = this.constructor as new (options: IJoinStatementOptions) => SqlJoinStatement;
+    // `this.constructor`, so a dialect subclass clones as itself, not as the MySQL spelling
+    const ctor = this.constructor as new (options: IJoinStatementOptions) => SqlJoinStatement;
     return _carryQuoter(
-      new Self({
+      new ctor({
         ...this._options,
         builder: (parent as SelectQueryBuilder) ?? this._options.builder,
       }),
@@ -313,14 +359,9 @@ export class SqlJoinStatement extends JoinStatement {
     );
   }
 
-  /** The FROM item of a joined table. MySQL may address sibling databases, so it qualifies. */
-  protected tableReference(database: string | undefined, table: string, alias: string): string {
-    return database ? `${this.Quoter.quote(database)}.${this.Quoter.quote(table)} as ${this.Quoter.quote(alias)}` : `${this.Quoter.quote(table)} as ${this.Quoter.quote(alias)}`;
-  }
-
-  /** A join key column; left unquoted here because the MySQL/SQLite suites pin that byte output. */
-  protected keyColumn(column: string | undefined): string {
-    return `${column}`;
+  /** What a joined table name is prefixed with; the database here, a dialect may name a schema or nothing. */
+  protected tableQualifier(driver: OrmDriver): string | undefined {
+    return driver.Options.Database;
   }
 
   public build(): IQueryStatementResult {
@@ -377,15 +418,25 @@ export class SqlJoinStatement extends JoinStatement {
     }
 
     if (sourceTableAlias) {
-      sourceTable = this.tableReference(sourceModelDriver.Options.Database, sourceTable, sourceTableAlias);
+      const sourceDb = this.tableQualifier(sourceModelDriver);
+      if (sourceDb) {
+        sourceTable = `${this.Quoter.quote(sourceDb)}.${this.Quoter.quote(sourceTable)} as ${this.Quoter.quote(sourceTableAlias)}`;
+      } else {
+        sourceTable = `${this.Quoter.quote(sourceTable)} as ${this.Quoter.quote(sourceTableAlias)}`;
+      }
     }
 
     if (joinTableAlias) {
-      joinTable = this.tableReference(joinModelDriver.Options.Database, joinTable, joinTableAlias);
+      const joinDb = this.tableQualifier(joinModelDriver);
+      if (joinDb) {
+        joinTable = `${this.Quoter.quote(joinDb)}.${this.Quoter.quote(joinTable)} as ${this.Quoter.quote(joinTableAlias)}`;
+      } else {
+        joinTable = `${this.Quoter.quote(joinTable)} as ${this.Quoter.quote(joinTableAlias)}`;
+      }
     }
 
-    const primaryKey = sourceTableAlias ? `${this.Quoter.quote(sourceTableAlias)}.${this.keyColumn(this._options.sourceTablePrimaryKey)}` : `${this.Quoter.quote(sourceTable)}.${this.keyColumn(this._options.sourceTablePrimaryKey)}`;
-    const foreignKey = joinTableAlias ? `${this.Quoter.quote(joinTableAlias)}.${this.keyColumn(this._options.joinTableForeignKey)}` : `${this.Quoter.quote(joinTable)}.${this.keyColumn(this._options.joinTableForeignKey)}`;
+    const primaryKey = `${this.Quoter.quote(sourceTableAlias ?? sourceTable)}.${this.Quoter.quote(this._options.sourceTablePrimaryKey as string)}`;
+    const foreignKey = `${this.Quoter.quote(joinTableAlias ?? joinTable)}.${this.Quoter.quote(this._options.joinTableForeignKey as string)}`;
 
     // Conditions supplied via the join callback (e.g. `.leftJoin(rel, b => b.where('Key', 'x'))`)
     // belong in the JOIN's ON clause, not the main WHERE — otherwise an outer
@@ -430,9 +481,9 @@ export class SqlJoinStatement extends JoinStatement {
     // so the outer join semantics are preserved
     if (this._options.onStatements) {
       const parts: string[] = [];
-      this._options.onStatements
-        .filter((x: WhereStatement) => !x.IsAggregate)
-        .forEach((x: WhereStatement) => {
+      (this._options.onStatements as WhereStatement[])
+        .filter((x) => !x.IsAggregate)
+        .forEach((x) => {
           const r = x.build();
           parts.push(...r.Statements);
           if (Array.isArray(r.Bindings)) {
@@ -458,13 +509,16 @@ export class SqlInStatement extends InStatement {
   @Autoinject(IdentifierQuoter)
   public Quoter: IdentifierQuoter;
 
+  /** Lists longer than this are bound as one parameter by a dialect that overrides {@link listExpression}. */
+  protected listThreshold = 1000;
+
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
-    return _carryQuoter(new SqlInStatement(this._column, this._val, this._not, (parent ?? this._builder) as SelectQueryBuilder), this);
+    const Statement = this.constructor as typeof SqlInStatement;
+    return _carryQuoter(new Statement(this._column, this._val, this._not, (parent ?? this._builder) as SelectQueryBuilder), this);
   }
 
   public build(): IQueryStatementResult {
-    const exprr = this._not ? 'NOT IN' : 'IN';
-    const column = _columnWrap(this.Quoter, this._column, this._builder.TableAlias);
+    const column = this._column instanceof Wrap ? this._builder.Container.resolve<WrapStatement>(this._column.Wrapper, [this._column.Column, this._builder.TableAlias]).wrap() : _columnWrap(this.Quoter, this._column, this._builder.TableAlias);
 
     // `IN ()` is a syntax error, so degenerate to a constant predicate with the same meaning:
     // nothing can be in an empty set, and everything is outside of it.
@@ -475,11 +529,71 @@ export class SqlInStatement extends InStatement {
       };
     }
 
+    const convert = this.valueConverter();
+    const values = this._val.map((v) => convert(v));
+    const single = values.length > this.listThreshold && values.every(isListScalar) ? this.listExpression(column) : null;
+
+    if (single !== null) {
+      return {
+        Bindings: [this.listBinding(values)],
+        Statements: [single],
+      };
+    }
+
     return {
-      Bindings: this._val,
-      Statements: [`${column} ${exprr} (${this._val.map(() => '?').join(',')})`],
+      Bindings: values,
+      Statements: [`${column} ${this._not ? 'NOT IN' : 'IN'} (${values.map(() => '?').join(',')})`],
     };
   }
+
+  /**
+   * The predicate for a list bound as ONE parameter, or `null` to keep `IN (?, ...)`. There is no
+   * portable spelling, so only dialects override it.
+   */
+  protected listExpression(_column: string): string | null {
+    return null;
+  }
+
+  protected listBinding(values: unknown[]): unknown {
+    return JSON.stringify(values);
+  }
+
+  /** Resolves the conversion `where()` applies once per column: the model's declared converter, else one chosen by the value's class. */
+  protected valueConverter(): (value: unknown) => unknown {
+    const container = this._builder.Container;
+    const descriptor = this._builder.Model ? extractModelDescriptor(this._builder.Model) : undefined;
+    // A wrapped column is compared as the wrapper's type, not the column's.
+    const declared = typeof this._column === 'string' ? descriptor?.Converters.get(this._column) : undefined;
+
+    if (declared) {
+      const columnDescriptor = descriptor!.Columns.find((c) => c.Name === this._column);
+      const converter = container.resolve<ValueConverter>(declared.Class);
+      return (value) => converter.toDB(value, null as any, columnDescriptor as any, null);
+    }
+
+    const converters = container.get<Map<string, any>>('__orm_db_value_converters__');
+    if (!converters) {
+      return (value) => value;
+    }
+
+    const byClass = new Map<string, ValueConverter>();
+    return (value) => {
+      const type = value !== null && value !== undefined ? (value as object).constructor.name : undefined;
+      if (!type || !converters.has(type)) {
+        return value;
+      }
+
+      if (!byClass.has(type)) {
+        byClass.set(type, container.resolve<ValueConverter>(converters.get(type)));
+      }
+      return byClass.get(type)!.toDB(value, null as any, null as any, null);
+    };
+  }
+}
+
+/** What survives a JSON array round trip unchanged, so a dialect can read it back as a bound list. */
+function isListScalar(value: unknown): boolean {
+  return typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value));
 }
 
 /**
@@ -522,6 +636,29 @@ export class SqlInSetStatement extends InSetStatement {
 
   public clone(): IQueryStatement {
     return _carryQuoter(new SqlInSetStatement(this._column, this._val, this._not, this._tableAlias!), this);
+  }
+}
+
+/** `col LIKE 'prefix%' ESCAPE '~'`; the dialect's LIKE decides whether case variants match. */
+@NewInstance()
+export class SqlStartsWithStatement extends StartsWithStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public build(): IQueryStatementResult {
+    return {
+      Bindings: [`${this.pattern()}%`],
+      Statements: [`${_columnWrap(this.Quoter, this._column, this._tableAlias)} LIKE ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'`],
+    };
+  }
+
+  /** The prefix with every wildcard of this dialect's LIKE escaped. */
+  protected pattern(): string {
+    return escapeLikeValue(this.prefix());
+  }
+
+  public clone(): IQueryStatement {
+    return _carryQuoter(new (this.constructor as new (column: string, prefix: string, tableAlias: string) => SqlStartsWithStatement)(this._column, this._prefix, this._tableAlias!), this);
   }
 }
 
@@ -614,6 +751,21 @@ export abstract class SqlDateTimeWrapper extends DateTimeWrapper {
   }
 }
 
+/** `CAST(col AS TEXT)`, which SQLite and PostgreSQL accept; MySQL and MSSQL register their own type. */
+@NewInstance()
+export class SqlTextWrapper extends TextWrapper {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public wrap(): string {
+    return `CAST(${_columnWrap(this.Quoter, this._value as string, this._tableAlias)} AS ${this.textType()})`;
+  }
+
+  protected textType(): string {
+    return 'TEXT';
+  }
+}
+
 @NewInstance()
 export class SqlColumnRawStatement extends ColumnRawStatement {
   public clone(): SqlColumnRawStatement {
@@ -628,6 +780,28 @@ export class SqlColumnRawStatement extends ColumnRawStatement {
   }
 }
 
+/** CASE WHEN, because T-SQL selects no predicate as a value; every dialect reads it as 1 or 0. */
+@NewInstance()
+export class SqlColumnConditionStatement extends ColumnConditionStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): SqlColumnConditionStatement {
+    return _carryQuoter(new SqlColumnConditionStatement(this._builder.clone((parent ?? this._builder.Parent ?? this._builder) as any), this._alias), this);
+  }
+
+  public build(): IQueryStatementResult {
+    const condition = new SqlWhereCompiler().where(this._builder);
+    // An empty group is no condition: every row has it.
+    const expression = condition.expression || '1 = 1';
+
+    return {
+      Bindings: condition.bindings,
+      Statements: [`CASE WHEN ${expression} THEN 1 ELSE 0 END AS ${this.Quoter.quote(this._alias)}`],
+    };
+  }
+}
+
 @NewInstance()
 export class SqlWhereQueryStatement extends WhereQueryStatement {
   /**
@@ -637,16 +811,25 @@ export class SqlWhereQueryStatement extends WhereQueryStatement {
    */
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent?: T): IQueryStatement {
     // TODO: fix this any cast !
-    return new SqlWhereQueryStatement(this._builder.clone((_parent ?? this._builder.Parent ?? this._builder) as any));
+    return new SqlWhereQueryStatement(this._builder.clone((_parent ?? this._builder.Parent ?? this._builder) as any), this._not);
   }
 
   public build() {
     const _compiler = new SqlWhereCompiler();
     const _result = _compiler.where(this._builder);
+    const empty = !_result.expression;
+
+    if (this._not) {
+      // An empty group is no condition, so its negation keeps no row.
+      return {
+        Bindings: _result.bindings,
+        Statements: [empty ? '1 = 0' : `NOT ( ${_result.expression} )`],
+      };
+    }
 
     return {
       Bindings: _result.bindings,
-      Statements: _result.expression && _result.expression !== '' ? [`( ${_result.expression} )`] : [],
+      Statements: empty ? [] : [`( ${_result.expression} )`],
     };
   }
 }

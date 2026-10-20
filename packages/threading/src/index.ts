@@ -14,48 +14,48 @@ export * from "./identity.js";
  */
 export const sleep = (duration: number) => _utilSleep(duration);
 
+// Tail of the queue per section name; entries never reject.
+const sections = new Map<string, Promise<void>>();
+
 /**
  *
- * Creates code critival section - it allows to only one instance
- * of callback executed at once in nodejs current thread
+ * Creates code critical section - it allows to only one instance
+ * of callback executed at once in nodejs current thread. Callers with the same
+ * name run one after another, in call order.
  *
  * Basic implementation using promises
  *
  * @param name name of critical section
  * @param callback function to execute
+ * @returns callback result; rejects with callback error
  */
-export const criticalSection = async <T>(name: string, callback: () => Promise<T>) => {
-  const log = DI.resolve('__log__', ['THREADING']) as Log;
+export const criticalSection = <T>(name: string, callback: () => Promise<T>): Promise<T> => {
+  const previous = sections.get(name) ?? Promise.resolve();
 
-  /**
-   * Get critical section mutex
-   */
-  const mutexes = DI.get<Map<string, Promise<void>>>('__mutex__');
-  let mutex = Promise.resolve();
+  const run = previous.then(async () => {
+    // logger is optional, @spinajs/log may not be loaded
+    const log = DI.resolve('__log__', ['THREADING']) as Log | null;
 
-  if (mutexes && mutexes.has(name)) {
-    mutex = mutexes.get(name)!;
-  }
-
-  // wait until mutex is released
-  await mutex;
-
-  // Start the critical section
-  mutex = (async () => {
     try {
-      log.trace(`Entering critical section ${name}`);
-      await callback();
-    } catch (err) {
-      // release mutex before rethrow error
-      DI.register(Promise.resolve()).asMapValue('__mutex__', name);
-      throw err;
+      log?.trace({ section: name }, 'Entering critical section ${section}');
+      return await callback();
     } finally {
-      log.trace(`Leaving critical section ${name}`);
+      log?.trace({ section: name }, 'Leaving critical section ${section}');
     }
-  })();
+  });
 
-  // add to registry
-  DI.register(mutex).asMapValue('__mutex__', name);
+  const tail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  sections.set(name, tail);
+  void tail.then(() => {
+    if (sections.get(name) === tail) {
+      sections.delete(name);
+    }
+  });
+
+  return run;
 };
 
 /**
@@ -66,11 +66,10 @@ export const criticalSection = async <T>(name: string, callback: () => Promise<T
  * @param name name of rate limit, internally it uses critical section to synchronize calls
  * @param callback function to limit executions
  * @param ms delay between calls in miliseconds
+ * @returns callback result
  */
 export const rateLimit = <T>(name: string, callback: () => T, ms: number) => {
-  return criticalSection(name, async () => {
-    await delay(ms, callback);
-  });
+  return criticalSection(name, () => delay(ms, callback));
 };
 
 /**

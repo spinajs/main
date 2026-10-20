@@ -1,11 +1,13 @@
-# `email`
+# `@spinajs/templates-xlsx`
 
-> TODO: description
+XLSX template renderer for `@spinajs/templates`, built on `xlsx-renderer` and `exceljs`.
 
-## Usage
-
+```sh
+npm install @spinajs/templates-xlsx
 ```
-const email = require('email');
 
-// TODO: DEMONSTRATE API
-```
+## Documentation
+
+- [Package overview](../../docs/templates-xlsx/README.md)
+- [Rendering XLSX files](../../docs/templates-xlsx/01-rendering-xlsx-files.md)
+- [Custom XLSX renderer](../../docs/templates-xlsx/02-custom-xlsx-renderer.md)

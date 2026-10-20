@@ -13,6 +13,17 @@ export * from './file-hasher.js';
 export * from './file-info.js';
 export * from './helpers.js';
 export * from './fp.js';
+export * from './paths.js';
+export * from './actions.js';
+
+/** DI key of the `Map<string, fs>` that fsService publishes every provider into, by name. */
+export const FILE_PROVIDER_INSTANCES = '__file_provider_instance__';
+
+/** The provider fsService published under `name`, or `undefined`. */
+export function publishedFs(name: string, container: IContainer = DI.RootContainer): fs | undefined {
+  const published = container.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
+  return published instanceof Map ? published.get(name) : undefined;
+}
 
 export class fsService extends AsyncService {
   @Logger('fs')
@@ -38,7 +49,8 @@ export class fsService extends AsyncService {
       providers.set(x.name, x);
     });
 
-    const rProviders = DI.RootContainer.Registry.getTypes(fs);
+    // getTypes() returns null when nothing is registered under the token
+    const rProviders = DI.RootContainer.Registry.getTypes(fs) ?? [];
 
     // order provider creation so that providers referencing other providers
     // ( eg. fsTemp backend via `provider` option ) are created after their dependency,
@@ -61,18 +73,21 @@ export class fsService extends AsyncService {
       }
 
       const fs = await DI.resolve<fs>(type, [cProvider.value]);
-      DI.register(fs).asMapValue('__file_provider_instance__', cProvider.value.name);
+      DI.register(fs).asMapValue(FILE_PROVIDER_INSTANCES, cProvider.value.name);
 
-      this.Logger.info(`File provider ${cProvider.value.name} registered, type: ${cProvider.value.service}`);
+      this.Logger.info(
+        { provider: cProvider.value.name, service: cProvider.value.service },
+        'File provider ${provider} registered, type: ${service}',
+      );
     }
   }
 }
 
 @Injectable(Bootstrapper)
-export class FsBootsrapper extends Bootstrapper {
+export class FsBootstrapper extends Bootstrapper {
   public bootstrap() {
     DI.register((_container: IContainer, name: string) => {
-      const provider = DI.get<Map<string, fs>>('__file_provider_instance__');
+      const provider = DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
 
       if(!provider) {
         throw new ResolveException(`No __file_provider_instance__ registered, make sure fs package is imported in your application and fsService is resolved.`);
@@ -88,3 +103,12 @@ export class FsBootsrapper extends Bootstrapper {
     }).as('__file_provider__');
   }
 }
+
+/**
+ * @deprecated misspelled, use {@link FsBootstrapper}
+ */
+export const FsBootsrapper = FsBootstrapper;
+/**
+ * @deprecated misspelled, use {@link FsBootstrapper}
+ */
+export type FsBootsrapper = FsBootstrapper;

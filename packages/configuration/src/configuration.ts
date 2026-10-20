@@ -6,7 +6,7 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 import { join, normalize, resolve } from 'path';
-import Ajv from 'ajv';
+import Ajv, { ErrorObject } from 'ajv';
 import _ from 'lodash';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
@@ -20,11 +20,11 @@ import {
   ConfigVarProtocol,
   ConfigVar,
 } from '@spinajs/configuration-common';
-import { Autoinject, Class, Container, Injectable, DI } from '@spinajs/di';
+import { Autoinject, Class, Container, IContainer, Injectable } from '@spinajs/di';
 
-import { InvalidConfiguration } from './exception.js';
-import { mapObject, mergeArrays, parseArgv, pickObjects, pickString } from './util.js';
-import config from './config/configuration.js';
+import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
+import { mapObject, mergeArrays, parseArgv, pickObjects, pickString, sameSchema, schemaNameOf } from './util.js';
+import config, { buildEnvironmentFlags } from './config/configuration.js';
 import './sources.js';
 
 import { default as ajvMergePath } from 'ajv-merge-patch';
@@ -33,6 +33,81 @@ import { default as ajvKeywords } from 'ajv-keywords';
 
 const PROTOCOL_REGEXP = /^([a-zA-Z0-9\-]+:\/\/)+(.+)$/gm;
 const COMMON_WEB_PROTOCOLS = ['http://', 'https://', 'ws://', 'wss://', 'ftp://', 'ftps://', 'file://', 'data://', 'blob://', 'mailto:'];
+
+// A Configuration whose check ran but which DI has not cached yet (the microtasks after resolve() returns), by container.
+const CHECKED = new WeakMap<IContainer, FrameworkConfiguration>();
+
+// The target of each lazy-var proxy load() builds, by proxy: copying a proxy property by property would load every var.
+const LAZY_TARGETS = new WeakMap<object, object>();
+
+// Set while Ajv validates the stored value in place: it writes coerced values back through the proxies.
+let keepUnresolvedVars = false;
+
+const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+// _.set skips these keys, but _.get resolves them, so merge() into `__proto__` would write to Object.prototype.
+function assertSafePath(path: string[] | string) {
+  const unsafe = _.toPath(path).find((s) => UNSAFE_PATH_SEGMENTS.has(s));
+  if (unsafe !== undefined) throw new InvalidArgument(`Configuration path '${_.toPath(path).join('.')}' contains the reserved segment '${unsafe}'`);
+}
+
+const isUnresolved = (v: unknown) => v instanceof ConfigVar && (v.get() ?? null) === null;
+
+function withLazyVars<T extends object>(obj: T): T {
+  const proxy = new Proxy(obj, {
+    get: (o: any, prop) => (o[prop] instanceof ConfigVar ? o[prop].get() : o[prop]),
+    set: (o: any, prop, value) => {
+      // A var that is not ready yet reads as null; its coercion ('' for a string) must not replace it for good.
+      if (!(keepUnresolvedVars && isUnresolved(o[prop]))) o[prop] = value;
+      return true;
+    },
+  });
+  LAZY_TARGETS.set(proxy, obj);
+  return proxy;
+}
+
+// A copy that validates as the stored value does: behind a copied lazy-var proxy only the vars the schema reads load,
+// and a class instance (a ConfigVar, one with #private fields a copy would lack) is kept by reference.
+function copyForCheck(value: unknown): unknown {
+  return _.cloneDeepWith(value, function copy(v: unknown): unknown {
+    const target = typeof v === 'object' && v !== null ? LAZY_TARGETS.get(v) : undefined;
+    if (target) return withLazyVars(_.cloneDeepWith(target, copy));
+    if (Object.prototype.toString.call(v) === '[object Object]' && !_.isPlainObject(v)) return v;
+    return undefined;
+  });
+}
+
+const decodePointer = (segment: string) => segment.replace(/~1/g, '/').replace(/~0/g, '~');
+
+// Ajv tags the sub-errors of a propertyNames check with `propertyName`; the check itself reports the key in `params`.
+const isNameError = (e: ErrorObject) => e.propertyName !== undefined;
+
+const keyOf = (e: ErrorObject) => {
+  const p = e.params as Record<string, unknown>;
+  return p.missingProperty ?? p.additionalProperty ?? p.propertyName;
+};
+
+function toViolations(module: string, schema: string, errors: ErrorObject[]): ConfigurationViolation[] {
+  const violations: ConfigurationViolation[] = [];
+
+  for (const e of errors) {
+    if (isNameError(e)) continue;
+
+    const segments = e.instancePath.split('/').filter((p) => p !== '').map(decodePointer);
+    const key = keyOf(e);
+    if (key !== undefined) segments.push(String(key));
+
+    let message = e.message ?? e.keyword;
+    if (e.keyword === 'propertyNames') {
+      const detail = errors.filter((n) => isNameError(n) && n.instancePath === e.instancePath && n.propertyName === key).map((n) => n.message ?? n.keyword);
+      message = `property name is invalid${detail.length ? `: ${detail.join(', ')}` : ''}`;
+    }
+
+    violations.push({ path: [module, ...segments].join('.'), schema, message });
+  }
+
+  return violations;
+}
 
 /**
  * HACK:
@@ -75,6 +150,11 @@ export class FrameworkConfiguration extends Configuration {
 
   protected ValidationSchemas: IConfigurationSchema[];
 
+  /** Schemas applied after boot that refused the loaded value, by schema; a read of their module throws. */
+  protected RefusedModules = new Map<string, { module: string[]; error: InvalidConfiguration }>();
+
+  private Loading = false;
+
   public get RootConfig() {
     return this.Config as IConfigLike;
   }
@@ -103,7 +183,31 @@ export class FrameworkConfiguration extends Configuration {
    * @param defaultValue - optional, if value at specified path not exists returns default value
    */
   public get<T>(path: string[] | string, defaultValue?: T): T {
-    return _.get(this.Config, path, defaultValue) as T;
+    if (this.RefusedModules.size !== 0) this.throwIfRefused(path);
+    const value = _.get(this.Config, path, defaultValue) as T;
+    if (value === null && defaultValue !== undefined && this.isUnresolvedVar(path)) return defaultValue;
+    return value;
+  }
+
+  private isUnresolvedVar(path: string[] | string) {
+    const segments = _.toPath(path);
+    if (segments.length === 0) return false;
+    const parent: unknown = segments.length === 1 ? this.Config : _.get(this.Config, segments.slice(0, -1));
+    const target = typeof parent === 'object' && parent !== null ? (LAZY_TARGETS.get(parent) as Record<string, unknown> | undefined) : undefined;
+    return target !== undefined && isUnresolved(target[segments[segments.length - 1]]);
+  }
+
+  // A schema applied after boot cannot fail the boot; reading the value it refused, or a part of it, must still fail.
+  private throwIfRefused(path: string[] | string) {
+    const segments = _.toPath(path);
+    // An empty path names no module (and reads nothing): it must not match every refused one.
+    if (segments.length === 0) return;
+    for (const { module, error } of this.RefusedModules.values()) {
+      const n = Math.min(module.length, segments.length);
+      if (_.isEqual(module.slice(0, n), segments.slice(0, n))) {
+        throw new InvalidConfiguration(error.message, error.validationExceptions, error.violations);
+      }
+    }
   }
 
   /**
@@ -114,7 +218,11 @@ export class FrameworkConfiguration extends Configuration {
    * @param value - value to set
    */
   public set(path: string[] | string, value: unknown) {
+    assertSafePath(path);
+    const schemas = this.schemasAt(path);
+    this.checkChange(schemas, path, (root) => _.set(root, path, copyForCheck(value)));
     this.Config = _.set(this.Config, path, value);
+    this.applySchemas(schemas);
   }
 
   /**
@@ -124,7 +232,11 @@ export class FrameworkConfiguration extends Configuration {
    * @param value - value to merge
    */
   public merge(path: string[] | string, value: unknown) {
+    assertSafePath(path);
+    const schemas = this.schemasAt(path);
+    this.checkChange(schemas, path, (root) => _.mergeWith(_.get(root, path), copyForCheck(value), mergeArrays));
     _.mergeWith(this.get(path), value, mergeArrays);
+    this.applySchemas(schemas);
   }
 
   public async resolve(): Promise<void> {
@@ -145,22 +257,17 @@ export class FrameworkConfiguration extends Configuration {
       }
 
       this.CustomConfigPaths.forEach((p) => {
-        InternalLogger.trace(`Custom config path at: ${p}`, 'Configuration');
+        InternalLogger.trace({ path: p }, 'Custom config path at: ${path}', 'Configuration');
       });
     }
 
     if (this.RunApp) {
-      InternalLogger.info(`Run app is ${this.RunApp}`, 'Configuration');
+      InternalLogger.info({ runApp: this.RunApp }, 'Run app is ${runApp}', 'Configuration');
     }
 
-    InternalLogger.info(`App base dir is ${this.AppBaseDir}`, 'Configuration');
+    InternalLogger.info({ appBaseDir: this.AppBaseDir }, 'App base dir is ${appBaseDir}', 'Configuration');
 
     this.initValidator();
-    this.applyAppDirs();
-
-    // add default configuration of this module
-    // so we dont need to import it
-    this.set('configuration', config);
 
     /**
      * Load and validate data from cfg sources
@@ -169,36 +276,65 @@ export class FrameworkConfiguration extends Configuration {
     this.loadSources();
     await this.load();
 
-    this.validate();
-    this.configure();
+    try {
+      this.validate();
+      this.configure();
+    } catch (e) {
+      // DI does not cache a Configuration whose resolve failed: a schema registered later must not be checked against it.
+      if (CHECKED.get(this.Container) === this) CHECKED.delete(this.Container);
+      throw e;
+    }
   }
 
   public async mergeSource(sType: Class<ConfigurationSource>) {
     const source = this.Container.resolve(sType);
     const sCfg = await source.Load(this);
+    const schemas = sCfg ? _.uniq(Object.keys(sCfg).flatMap((k) => this.schemasAt([k]))) : [];
+    this.checkChange(schemas, [], (root) => _.mergeWith(root, copyForCheck(sCfg), mergeArrays));
 
     this.Sources.push(source);
 
     if (sCfg) {
-      _.mergeWith(sCfg, mergeArrays);
+      _.mergeWith(this.Config, sCfg, mergeArrays);
     }
+    this.applySchemas(schemas);
   }
 
   /**
    * Reloads configuration data
    */
   public async load() {
+    const previous = this.Config;
+    this.Loading = true;
+    try {
+      await this.loadTree();
+      // resolve() checks the first load itself.
+      if (this.ValidationSchemas !== undefined) this.checkAll();
+    } catch (e) {
+      this.Config = previous;
+      throw e;
+    } finally {
+      this.Loading = false;
+    }
+  }
+
+  private async loadTree() {
     this.Config = {};
+    this.NamedEnv = this.Env ?? this.Container.get<NodeJS.ProcessEnv>('process.env')?.APP_ENV ?? process.env.NODE_ENV;
 
     // add env variables to config
-    const env = DI.get<NodeJS.ProcessEnv>('process.env');
+    const env = this.Container.get<NodeJS.ProcessEnv>('process.env');
+    const appEnv = this.Env ?? env?.APP_ENV ?? process.env.NODE_ENV ?? 'development';
     this.set('process.env', {
       ...process.env,
       ...env,
-      APP_ENV: this.Env ?? env?.APP_ENV ?? process.env.NODE_ENV ?? 'development',
+      APP_ENV: appEnv,
     });
 
-    InternalLogger.info(`APP_ENV set to ${this.get<string>('process.env.APP_ENV')}`, 'Configuration');
+    // Defaults of this module, which sources may override. The flags follow the APP_ENV that selects the config files.
+    _.mergeWith(this.Config, _.cloneDeep(config), { configuration: buildEnvironmentFlags({ APP_ENV: appEnv }) }, mergeArrays);
+
+    InternalLogger.info({ appEnv: this.get<string>('process.env.APP_ENV') }, 'APP_ENV set to ${appEnv}', 'Configuration');
 
     for (const source of this.Sources) {
       const rCfg = await source.Load(this);
@@ -216,11 +352,12 @@ export class FrameworkConfiguration extends Configuration {
      * eg. when custom modules have config and dont want to use files
      * eg. in webpack environment
      */
+    // Merged at the root: merge() writes nothing at a key no source defines.
     this.Container.resolve(Array.ofType<IConfigLike>('__configuration__')).forEach((c: IConfigLike) => {
-      Object.keys(c).forEach((k) => {
-        this.merge(k, c[`${k}`]);
-      });
+      _.mergeWith(this.Config, c, mergeArrays);
     });
+
+    this.applyAppDirs();
 
     // load config vars from various protocols
     await this.loadProtocolVars();
@@ -241,15 +378,7 @@ export class FrameworkConfiguration extends Configuration {
         return obj;
       }
 
-      return new Proxy(obj, {
-        get: (obj, prop) => {
-          if (obj[prop] instanceof ConfigVar) {
-            return obj[prop].get();
-          }
-
-          return obj[prop];
-        },
-      });
+      return withLazyVars(obj);
     };
 
     // omit system config prop couse dir dynamic loading.
@@ -264,7 +393,7 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   protected async loadProtocolVars() {
-    const configProtocols = await DI.resolve(Array.ofType(ConfigVarProtocol));
+    const configProtocols = await this.Container.resolve(Array.ofType(ConfigVarProtocol));
 
     if (!configProtocols || configProtocols.length === 0) {
       InternalLogger.warn(`No configuration protocols registered`, 'Configuration');
@@ -274,12 +403,50 @@ export class FrameworkConfiguration extends Configuration {
     // Build protocol map for O(1) lookup
     const protocolMap = new Map<string, ConfigVarProtocol>();
     configProtocols.forEach((p) => {
-      InternalLogger.info(`Registered configuration protocol: ${p.Protocol}`, 'Configuration');
+      InternalLogger.info({ protocol: p.Protocol }, 'Registered configuration protocol: ${protocol}', 'Configuration');
       protocolMap.set(p.Protocol, p);
     });
 
     // Build common web protocol prefix set for fast checking
     const webProtocolSet = new Set(COMMON_WEB_PROTOCOLS.map(p => p.toLowerCase()));
+
+    const resolveString = async (obj: { [key: string]: unknown }, key: string, val: string, currentPath: string[]) => {
+      // Quick check: does it contain ://?
+      const protocolIndex = val.indexOf('://');
+      if (protocolIndex === -1) {
+        return;
+      }
+
+      // Extract potential protocol (everything before ://)
+      const potentialProtocol = val.substring(0, protocolIndex + 3).toLowerCase();
+
+      // Skip common web protocols using Set lookup (O(1))
+      if (webProtocolSet.has(potentialProtocol)) {
+        return;
+      }
+
+      // Use regex only if we passed initial checks
+      PROTOCOL_REGEXP.lastIndex = 0;
+      const match = PROTOCOL_REGEXP.exec(val);
+      if (!match) {
+        return;
+      }
+
+      // O(1) protocol lookup using Map
+      const protocol = protocolMap.get(match[1]);
+
+      if (!protocol) {
+        InternalLogger.warn({ protocol: match[1] }, 'Protocol ${protocol} used in configuration is not registered.', 'Configuration');
+        return;
+      }
+
+      const fullPath = [...currentPath, key].join('.');
+      try {
+        obj[key] = await protocol.getVar(match[2], this.Config);
+      } catch (err) {
+        InternalLogger.error({ error: err, key: fullPath, protocol: protocol.Protocol, value: val }, 'Error loading configuration var for key ${key} using protocol ${protocol}, value: ${value}', 'Configuration');
+      }
+    };
 
     const iterate = async (obj: { [key: string]: unknown }, currentPath: string[] = []) => {
       if (!obj) {
@@ -287,7 +454,9 @@ export class FrameworkConfiguration extends Configuration {
       }
 
       if (Array.isArray(obj)) {
-        await Promise.all(obj.map((c, index) => iterate(c, [...currentPath, `[${index}]`])));
+        await Promise.all(
+          obj.map((c, index) => (typeof c === 'string' ? resolveString(obj, String(index), c, currentPath) : iterate(c, [...currentPath, `[${index}]`]))),
+        );
         return;
       }
 
@@ -295,45 +464,7 @@ export class FrameworkConfiguration extends Configuration {
       const objectEntries = pickObjects(obj);
 
       // Process strings in parallel
-      await Promise.all(
-        stringEntries.map(async ([key, val]) => {
-          // Quick check: does it contain ://? 
-          const protocolIndex = val.indexOf('://');
-          if (protocolIndex === -1) {
-            return;
-          }
-
-          // Extract potential protocol (everything before ://)
-          const potentialProtocol = val.substring(0, protocolIndex + 3).toLowerCase();
-
-          // Skip common web protocols using Set lookup (O(1))
-          if (webProtocolSet.has(potentialProtocol)) {
-            return;
-          }
-
-          // Use regex only if we passed initial checks
-          PROTOCOL_REGEXP.lastIndex = 0;
-          const match = PROTOCOL_REGEXP.exec(val);
-          if (!match) {
-            return;
-          }
-
-          // O(1) protocol lookup using Map
-          const protocol = protocolMap.get(match[1]);
-
-          if (!protocol) {
-            InternalLogger.warn(`Protocol ${match[1]} used in configuration is not registered.`, 'Configuration');
-            return;
-          }
-
-          const fullPath = [...currentPath, key].join('.');
-          try {
-            obj[key] = await protocol.getVar(match[2], this.Config);
-          } catch (err) {
-            InternalLogger.error(err as Error, `Error loading configuration var for key ${fullPath} using protocol ${protocol.Protocol}, value: ${val}`, 'Configuration');
-          }
-        }),
-      );
+      await Promise.all(stringEntries.map(([key, val]) => resolveString(obj, key, val, currentPath)));
 
       // Process nested objects in parallel
       await Promise.all(objectEntries.map(([key, val]) => iterate(val, [...currentPath, key])));
@@ -361,36 +492,137 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   protected validate() {
-    this.ValidationSchemas.forEach((s) => {
-      const config = this.get(s.$configurationModule);
+    this.checkAll();
 
-      if (!config) {
-        InternalLogger.warn(
-          `Cannot validate configuration for module ${s.$configurationModule}, configuration is not set`,
-          'Configuration',
-        );
-
-        return;
-      }
-
-      const result = this.Validator.validate(s, config);
-      if (!result) {
-        // @ts-ignore
-        this.Validator.errors.forEach((ve) => {
-          InternalLogger.error(
-            'Invalid configuration ! Message: %s, path: %s, keyword: %s, schemaPath: %s, configuration module: %s',
-            'Configuration',
-            ve.message,
-            ve.instancePath,
-            ve.keyword,
-            ve.schemaPath,
-            s.$configurationModule,
-          );
-        });
-
-        throw new InvalidConfiguration('Validation error', this.Validator.errors);
-      }
+    const container = this.Container;
+    CHECKED.set(container, this);
+    container.once('di.resolved.Configuration', () => {
+      if (CHECKED.get(container) === this) CHECKED.delete(container);
     });
+  }
+
+  /** The Configuration of `container` that has run its check but is not resolved (cached) yet. */
+  public static checkedIn(container: IContainer): FrameworkConfiguration | undefined {
+    return CHECKED.get(container);
+  }
+
+  private checkAll() {
+    this.ValidationSchemas = this.schemasOfLineage();
+    const errors: ErrorObject[] = [];
+    const violations: ConfigurationViolation[] = [];
+    for (const s of this.ValidationSchemas) {
+      const r = this.checkModule(s);
+      errors.push(...r.errors);
+      violations.push(...r.violations);
+    }
+    this.throwIfInvalid(errors, violations);
+    this.RefusedModules.clear();
+  }
+
+  // The registered schemas whose module is at, under or above `path`. None before the boot check, and none while load()
+  // rebuilds the tree: it checks the whole tree once it is complete.
+  private schemasAt(path: string[] | string): IConfigurationSchema[] {
+    if (this.ValidationSchemas === undefined || this.Loading) return [];
+    const target = _.toPath(path);
+    return this.schemasOfLineage().filter((s) => {
+      const module = _.toPath(s.$configurationModule);
+      const n = Math.min(module.length, target.length);
+      return _.isEqual(module.slice(0, n), target.slice(0, n));
+    });
+  }
+
+  // Runs `change` on a copy of the modules of `schemas` and throws when one of them would become invalid, so that a
+  // refused change is never applied.
+  private checkChange(schemas: IConfigurationSchema[], path: string[] | string, change: (root: Record<string, unknown>) => void) {
+    if (schemas.length === 0) return;
+    const top = _.minBy([_.toPath(path), ...schemas.map((s) => _.toPath(s.$configurationModule))], (p) => p.length) ?? [];
+    const root = (top.length === 0 ? copyForCheck(this.Config) : _.set({}, top, copyForCheck(_.get(this.Config, top)))) as Record<string, unknown>;
+    change(root);
+
+    const errors: ErrorObject[] = [];
+    const violations: ConfigurationViolation[] = [];
+    for (const s of schemas) {
+      const value = _.get(root, s.$configurationModule);
+      if (value === undefined || this.Validator.validate(s, value)) continue;
+      const r = this.failureOf(s);
+      errors.push(...r.errors);
+      violations.push(...r.violations);
+    }
+    this.throwIfInvalid(errors, violations);
+  }
+
+  // Fills the defaults and coercion of the modules a change that passed checkChange() reached.
+  private applySchemas(schemas: IConfigurationSchema[]) {
+    for (const s of schemas) {
+      const r = this.checkModule(s);
+      this.throwIfInvalid(r.errors, r.violations);
+      this.RefusedModules.delete(schemaNameOf(s));
+    }
+  }
+
+  /** Validates one module after boot; a refused module stays refused for reads until a later check passes. */
+  public validateModule(s: IConfigurationSchema) {
+    const key = schemaNameOf(s);
+    const r = this.checkModule(s);
+    try {
+      this.throwIfInvalid(r.errors, r.violations);
+    } catch (e) {
+      this.RefusedModules.set(key, { module: _.toPath(s.$configurationModule), error: e as InvalidConfiguration });
+      throw e;
+    }
+    this.RefusedModules.delete(key);
+  }
+
+  private throwIfInvalid(errors: ErrorObject[], violations: ConfigurationViolation[]) {
+    if (violations.length === 0) return;
+    violations.forEach((v) => InternalLogger.error({ path: v.path, schema: v.schema, violation: v.message }, 'Invalid configuration at ${path} ( schema ${schema} ): ${violation}', 'Configuration'));
+    throw new InvalidConfiguration(`Invalid configuration: ${violations.map((v) => `${v.path} ${v.message} ( schema ${v.schema} )`).join('; ')}`, errors, violations);
+  }
+
+  private checkModule(s: IConfigurationSchema): { errors: ErrorObject[]; violations: ConfigurationViolation[] } {
+    // Not this.get: a refused module is read here to check it again.
+    const config = _.get(this.Config, s.$configurationModule);
+
+    if (config === undefined) {
+      // An unconfigured module still gets its schema defaults, unless the schema needs values from the app.
+      const empty = {};
+      if (this.Validator.validate(s, empty)) {
+        _.set(this.Config, s.$configurationModule, empty);
+      } else {
+        InternalLogger.warn({ module: s.$configurationModule }, 'Cannot validate configuration for module ${module}, configuration is not set', 'Configuration');
+      }
+      return { errors: [], violations: [] };
+    }
+
+    // Ajv coerces and fills defaults in place, and evaluates `if` before `properties` coerces. Checking the stored value
+    // directly would rewrite a refused value (a null guard's null into 0) so that the next check of it passes; only a
+    // value whose copy passes gets its defaults and coercion.
+    if (this.Validator.validate(s, copyForCheck(config)) && this.validateInPlace(s, config)) {
+      return { errors: [], violations: [] };
+    }
+
+    return this.failureOf(s);
+  }
+
+  // The violations of the last failed this.Validator.validate(s, ...) call.
+  private failureOf(s: IConfigurationSchema): { errors: ErrorObject[]; violations: ConfigurationViolation[] } {
+    const errors: ErrorObject[] = this.Validator.errors ?? [];
+    const schema = schemaNameOf(s);
+    let violations = toViolations(s.$configurationModule, schema, errors);
+    if (violations.length === 0) {
+      // An invalid configuration must never pass, whatever shape Ajv reported.
+      violations = errors.map((e) => ({ path: [s.$configurationModule, ...e.instancePath.split('/').filter((p) => p !== '').map(decodePointer)].join('.'), schema, message: e.message ?? e.keyword }));
+    }
+    return { errors, violations };
+  }
+
+  private validateInPlace(s: IConfigurationSchema, config: unknown): boolean {
+    keepUnresolvedVars = true;
+    try {
+      return this.Validator.validate(s, config);
+    } finally {
+      keepUnresolvedVars = false;
+    }
   }
 
   protected initValidator() {
@@ -412,6 +644,9 @@ export class FrameworkConfiguration extends Configuration {
 
       // The option coerceTypes allows you to have your data types coerced to the types specified in your schema type keywords
       coerceTypes: true,
+
+      // allow rules across fields, eg. minimum: { $data: '1/min' }
+      $data: true,
     };
 
     // @ts-ignore
@@ -438,12 +673,17 @@ export class FrameworkConfiguration extends Configuration {
     // we use $configurationModule keyword to identify
     // to match config module with config schema
     this.Validator.addKeyword('$configurationModule');
+  }
 
-    /**
-     * load all registered configuration json schemas
-     * for config value validation
-     */
-    this.ValidationSchemas = this.Container.get<IConfigurationSchema>(Array.ofType('__configurationSchema__'), true);
+  // A child that registers a schema of its own must not hide the schemas of its ancestors.
+  private schemasOfLineage(): IConfigurationSchema[] {
+    const found: IConfigurationSchema[] = [];
+    for (let c: IContainer | undefined = this.Container; c; c = c.Parent) {
+      for (const s of (c.Cache.get('__configurationSchema__', false) ?? []) as IConfigurationSchema[]) {
+        if (!found.some((f) => sameSchema(f, s))) found.push(s);
+      }
+    }
+    return found;
   }
 
   protected dir(toJoin: string) {
@@ -458,8 +698,9 @@ export class FrameworkConfiguration extends Configuration {
       return;
     }
 
-    for (const prop of Object.keys(this.get(['system', 'dirs'], []))) {
-      this.get<string[]>(['system', 'dirs', prop]).push(this.dir(`/${this.RunApp}/${prop}`));
+    for (const prop of Object.keys(this.get(['system', 'dirs'], {}))) {
+      const dirs = this.get<unknown>(['system', 'dirs', prop]);
+      if (Array.isArray(dirs)) dirs.push(this.dir(`/${this.RunApp}/${prop}`));
     }
   }
 
@@ -472,7 +713,7 @@ export class FrameworkConfiguration extends Configuration {
       const subconfig = this.Config[`${prop}`] as IConfigurable;
 
       if (!subconfig) {
-        InternalLogger.warn(`Configuration for ${prop} not exists, check configuration file`, 'configuration');
+        InternalLogger.warn({ section: prop }, 'Configuration for ${section} not exists, check configuration file', 'configuration');
         continue;
       }
 

@@ -1,0 +1,384 @@
+import { DateTime } from 'luxon';
+import { _update, ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Hidden, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery, IDehydrateOptions, ModelDataWithRelationData } from '@spinajs/orm';
+import { UserMetadata, UserMetadataBase } from './UserMetadata.js';
+import { v4 as uuidv4 } from 'uuid';
+import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _is_object } from '@spinajs/util';
+import _ from 'lodash';
+
+export class UserQueryScopes implements QueryScope {
+  /**
+   *
+   * Finds users with specified metadata key and value. If user has more metadata and one of them is matching it will be included as well
+   *
+   * @param key metada key
+   * @param value metadata value
+   * @returns
+   */
+  public whereMetadata(this: ISelectQueryBuilder<User[]> & UserQueryScopes, key: string, value: any) {
+    const k = _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(key, 'key');
+    const v = _check_arg(_non_nil())(value, 'value');
+
+    return this.whereExist('Metadata', function () {
+      this.where('Key', k);
+      this.where('Value', v);
+    });
+  }
+
+  public whereUser(this: ISelectQueryBuilder<User[]> & UserQueryScopes, userOrEmail: User | string) {
+    const u = _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(userOrEmail, 'userOrEmail');
+
+    return this.where('Email', u instanceof User ? u.Email : userOrEmail);
+  }
+
+  public async checkIsBanned(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
+    const banned = await this.clearColumns()
+      .whereExist(
+        UserMetadata.query().where(function () {
+          this.where('Key', USER_COMMON_METADATA.USER_BAN_IS_BANNED);
+          this.where('Value', 'true');
+          this.where(new RawQuery('user_id = Id'));
+        }),
+      )
+      .selectCount();
+
+    return banned > 0;
+  }
+
+  public async checkIsActive(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
+    const active = await this.clearColumns().where('IsActive', true).selectCount();
+    return active > 0;
+  }
+
+  public notDeleted(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
+    return this.where({
+      DeletedAt: null as any,
+    });
+  }
+
+  /**
+   * Fetch users that are active and not deleted. Banned users are not excluded: the ban lives in metadata.
+   */
+  public isActiveUser(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
+    return this.where({
+      IsActive: true,
+      DeletedAt: null as any,
+    });
+  }
+
+  public whereEmail(this: ISelectQueryBuilder<User[]> & UserQueryScopes, email: string) {
+    email = _check_arg(_trim(), _non_empty(), _is_email())(email, 'email');
+
+    return this.where({
+      Email: email,
+    });
+  }
+
+  public whereLogin(this: ISelectQueryBuilder<User[]> & UserQueryScopes, login: string) {
+    login = _check_arg(_trim(), _non_empty())(login, 'login');
+
+    return this.where({
+      Login: login,
+    });
+  }
+
+  public whereUuid(this: ISelectQueryBuilder<User[]> & UserQueryScopes, uuid: string) {
+    uuid = _check_arg(_trim(), _is_uuid())(uuid, 'uuid');
+
+    return this.where({
+      Uuid: uuid,
+    });
+  }
+
+  /**
+   * Tries to get user by ONE OF:
+   *  - UUID
+   *  - EMAIL
+   *  - LOGIN
+   *  - ID
+   *
+   * @param identifier - login ,email, uuid or id
+   * @returns
+   */
+  public whereAnything(this: ISelectQueryBuilder<User[] | User> & UserQueryScopes, identifier: string | number) {
+    identifier = _check_arg(_or(_is_number(_gt(0)), _is_string(_trim(), _non_empty())))(identifier, 'identifier');
+
+    // NOTE: `_to_int()` used to sit in the check list above, and parseInt()
+    // happily turns "9f8e7d6c-…" into 9 — so every uuid ( or login ) starting
+    // with a digit was looked up as an Id and simply not found. Only a string
+    // that is a number END TO END may be treated as an id.
+    const id = typeof identifier === 'number' ? identifier : /^\d+$/.test(identifier) ? Number.parseInt(identifier, 10) : null;
+
+    return this.when(
+      id !== null,
+      function () {
+        this.where('Id', id);
+      },
+      function () {
+        this.where('Uuid', identifier).orWhere('Email', identifier).orWhere('Login', identifier);
+      },
+    );
+  }
+}
+
+/**
+ * Common user metadata keys
+ */
+export enum USER_COMMON_METADATA {
+  /** BAN RELATED META KEYS  */
+  USER_BAN_IS_BANNED = 'user:ban:is_banned',
+  USER_BAN_START_DATE = 'user:ban:start_date',
+  USER_BAN_DURATION = 'user:ban:duration',
+  USER_BAN_REASON = 'user:ban:reason',
+
+  /** USER GENERAL INFO */
+
+  USER_AVATAR = 'user:avatar',
+  USER_PHONE = 'user:phone',
+  USER_NEWSLETTER_ENABLED = 'user:newsletter:enabled',
+
+  /** 2fa token */
+
+  USER_2FA_TOKEN = 'user:2fa:token',
+
+  /** Reset password */
+
+  // is reset password in progress
+  USER_PWD_RESET = 'user:pwd:reset',
+  // start date of reset password
+  USER_PWD_RESET_START_DATE = 'user:pwd_reset:start_date',
+  // wait time for reset password
+  USER_PWD_RESET_WAIT_TIME = 'user:pwd_reset:wait_time',
+  // reset password token
+  USER_PWD_RESET_TOKEN = 'user:pwd_reset:token',
+  // reset password last succesyfull  attempt
+  USER_PWD_RESET_LAST_ATTEMPT = 'user:pwd_reset:last_attempt',
+
+  /**
+   * Set by `create()` on an account created without a password, burned when the
+   * invite is redeemed. It marks an account that has never been activated and is
+   * waiting for its owner to set the first password — which is the only case where a
+   * reset may touch an inactive user.
+   */
+  USER_INVITE_PENDING = 'user:invite:pending',
+
+  /** Login throttling */
+
+  // consecutive failed login attempts since the last success
+  USER_LOGIN_ATTEMPTS = 'user:login:attempts',
+  // ISO instant until which authentication is refused for this account
+  USER_LOGIN_LOCKED_UNTIL = 'user:login:locked_until',
+}
+
+/**
+ * Metadata that decides whether somebody gets INTO an account, and therefore must
+ * never travel out of one — not to the account owner and not to an administrator
+ * reading the record through the API.
+ *
+ * `user:pwd_reset:token` is the sharp one: it is a bearer credential for
+ * `POST /auth/password/reset`, and the reset can be requested for anybody without
+ * being logged in at all. Handing it back in a user payload turns "read a user"
+ * into "take over that user". Ban and lockout state are here for a smaller reason
+ * — they tell an attacker exactly how much of the throttle they have burned.
+ *
+ * Applied to {@link UserMetadataBase._hiddenKeys} by the rbac bootstrapper, so it
+ * covers every `dehydrateWithRelations` in every package. Keys that a client
+ * legitimately needs ( avatar, phone, ... ) are deliberately absent.
+ */
+export const USER_SECURITY_METADATA_KEYS: string[] = [USER_COMMON_METADATA.USER_2FA_TOKEN, USER_COMMON_METADATA.USER_PWD_RESET, USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, USER_COMMON_METADATA.USER_PWD_RESET_START_DATE, USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, USER_COMMON_METADATA.USER_PWD_RESET_LAST_ATTEMPT, USER_COMMON_METADATA.USER_INVITE_PENDING, USER_COMMON_METADATA.USER_BAN_IS_BANNED, USER_COMMON_METADATA.USER_BAN_START_DATE, USER_COMMON_METADATA.USER_BAN_DURATION, USER_COMMON_METADATA.USER_BAN_REASON, USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS, USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL];
+
+/**
+ * Key prefixes of account security state (2FA secrets, reset and invite tokens, throttle and ban
+ * state). The generic metadata API neither writes nor shows a key under them (design A12).
+ */
+export const USER_RESERVED_METADATA_PREFIXES: readonly string[] = Object.freeze(['2fa:', 'user:2fa:', 'user:pwd_reset:', 'user:pwd:', 'user:login:', 'user:ban:', 'user:invite:']);
+
+/**
+ * Whether a metadata key falls under {@link USER_RESERVED_METADATA_PREFIXES}.
+ *
+ * The database compares keys by its collation. MySQL's default ones ignore case, width,
+ * accents and invisible characters, so `2FA:Token`, `２fa:token` or `2fá:token` address the
+ * `2fa:token` row. The key is folded the same way before the prefix check. A collation may
+ * fold more than this; callers that address stored rows check the stored key as well.
+ */
+export function isReservedMetadataKey(key: string): boolean {
+  const folded = String(key)
+    .normalize('NFKD')
+    .replace(/[\p{M}\p{Default_Ignorable_Code_Point}]/gu, '')
+    .trim()
+    .toLowerCase();
+  return USER_RESERVED_METADATA_PREFIXES.some((prefix) => folded.startsWith(prefix));
+}
+
+/**
+ * `users.Password` of an account that has no password yet (an invited one). The column is NOT NULL and the
+ * ORM refuses an empty string there; no hash starts with '!', like authn-local's '!expired' marker.
+ */
+export const NO_PASSWORD = '!none';
+
+/** Login of the framework's system account. */
+export const SYSTEM_LOGIN = '__system__';
+
+/**
+ * Logins of the form `__name__` belong to accounts the framework seeds, so `create()` refuses them: a user who
+ * registered `__system__` would otherwise be the system account. NFKC folds the full-width underscore a database
+ * collation may treat as `_`.
+ */
+export function isReservedLogin(login: string): boolean {
+  return /^__.*__$/s.test(String(login).normalize('NFKC'));
+}
+
+/**
+ * Base model for users used by auth and ACL system
+ *
+ * To add / extend fields simply extend this model and register as default user model in ACL service
+ */
+@Connection('default')
+@Model('users')
+export class UserBase extends ModelBase<UserBase> {
+  public static readonly _queryScopes: UserQueryScopes = new UserQueryScopes();
+
+  public constructor(data?: Partial<User>) {
+    super(data);
+
+    this.Uuid = _check_arg(_default(uuidv4()))(this.Uuid, 'uuid');
+  }
+
+  /**
+   * Hidden so the internal row id never leaves the process: it would let a client predict user
+   * ids and count the users. `Uuid` is what identifies a user to the outside world.
+   */
+  @Primary()
+  @Hidden()
+  public Id!: number;
+
+  public Uuid!: string;
+
+  public Email!: string;
+
+  /**
+   * Hashed password for user. Never dehydrated, and never advertised on a response schema.
+   */
+  @Hidden()
+  public Password!: string;
+
+  /**
+   * Displayed name ( for others to see )
+   */
+  public Login!: string;
+
+  /**
+   * User creation date
+   */
+  @CreatedAt()
+  public CreatedAt!: DateTime<true>;
+
+  /**
+   * Registration date. User is registered when clicked confirmation link sended to provided email.
+   */
+  @DT()
+  public RegisteredAt!: DateTime<true>;
+
+  /**
+   * When the current password was set, from authn's events (`UserAccountSink`); null: none recorded. Hidden like
+   * `Password`: credential state, not profile data.
+   */
+  @DT()
+  @Hidden()
+  public PasswordSetAt!: DateTime;
+
+  /**
+   * User deletion date
+   */
+  @SoftDelete()
+  public DeletedAt!: DateTime;
+
+  @DT()
+  public LastLoginAt!: DateTime;
+
+  /**
+   * Account is fully active (eg. passed registration)
+   * Do not use it to ban users, active user still can have banned status
+   */
+  public IsActive!: boolean;
+
+  /**
+   * User additional information. Can be anything
+   *
+   * We use unsafe model couse its relation. It will only load meta related
+   * to owner user anyway
+   */
+  @HasMany(UserMetadataBase, {
+    foreignKey: 'user_id',
+  })
+  public Metadata!: MetadataRelation<UserMetadataBase, User>;
+
+  public get IsBanned(): boolean {
+    if (this.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED] !== true) {
+      return false;
+    }
+
+    const start = this.Metadata[USER_COMMON_METADATA.USER_BAN_START_DATE];
+    const duration = this.Metadata[USER_COMMON_METADATA.USER_BAN_DURATION];
+
+    // no start/duration recorded -> treat as a permanent ban
+    if (!start || duration === null || duration === undefined) {
+      return true;
+    }
+
+    const startDt = start instanceof DateTime ? start : DateTime.fromISO(String(start));
+    if (!startDt.isValid) {
+      return true;
+    }
+
+    // ban is still active only until start + duration (seconds) elapses
+    return startDt.plus({ seconds: Number(duration) }) > DateTime.now();
+  }
+
+  public dehydrateWithRelations(options?: IDehydrateOptions): ModelDataWithRelationData<this> {
+    const base = super.dehydrateWithRelations(options) as any as ModelDataWithRelationData<UserBase>;
+
+    // Every reserved prefix, fail safe, plus what an application adds to _hiddenKeys. This hides 2fa:enabled too:
+    // MFA status comes from authn's MFA routes.
+    if (base.Metadata) {
+      base.Metadata = base.Metadata.filter((m) => !isReservedMetadataKey(m.Key) && !UserMetadataBase._hiddenKeys.includes(m.Key)) as any;
+    }
+
+    return base as any;
+  }
+
+  // this.query(), not UserBase.query(): the receiver class must build the query so subclasses registered as RbacUserModel are honoured
+  public static getByLogin(login: string) {
+    login = _check_arg(_trim(), _non_empty())(login, 'login');
+
+    return this.query().whereLogin(login).first();
+  }
+
+  public static getByEmail(email: string) {
+    email = _check_arg(_trim(), _non_empty(), _is_email())(email, 'email');
+
+    return this.query().whereEmail(email).first();
+  }
+
+  public static getByUuid(uuid: string) {
+    uuid = _check_arg(_trim(), _is_uuid())(uuid, 'uuid');
+
+    return this.query().whereUuid(uuid).first();
+  }
+
+  /**
+   * Tries to get user by any identifier
+   *
+   * @param identifier login, email, id or uuid
+   * @returns
+   */
+  public static getByAnything(identifier: string | number) {
+    return this.query().whereAnything(identifier).first();
+  }
+}
+
+/**
+ * Class defined for ORM resource support
+ */
+@Connection('default')
+@Model('users')
+export class User extends UserBase {}

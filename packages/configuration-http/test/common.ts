@@ -1,3 +1,4 @@
+import type { AddressInfo } from 'node:net';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import chai from 'chai';
 import os from 'os';
@@ -9,10 +10,12 @@ import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
 import chaiThings from 'chai-things';
 import express from 'express';
-import { Injectable } from '@spinajs/di';
-import { BasePolicy, FileTypeEnum, Request as sRequest } from '@spinajs/http';
+import { DI, Injectable } from '@spinajs/di';
+import { FileTypeEnum, HttpServer } from '@spinajs/http';
 import { FileInfoService, IFileInfo } from '@spinajs/fs';
 import { ValidationFailed } from '@spinajs/validation';
+
+import configurationHttpConfig from '../src/config/configuration-http.js';
 
 // register models + migrations ( @Model / @Migration side effects )
 import { ConfigFileValidator, DbConfig } from '@spinajs/configuration-db-source';
@@ -23,12 +26,12 @@ chai.use(chaiSubset);
 chai.use(chaiLike);
 chai.use(chaiThings);
 
-// 9697 is unusable on at least one dev machine in this org: a bare Node http
-// server bound to it refuses/times out virtually every connection (~310ms
-// ETIMEDOUT), reproduced outside this test suite entirely - some local
-// service/security software is holding onto that exact port. Not a code bug;
-// picking a different port sidesteps it.
-export const PORT = 19697;
+// http.port is 0, so every start binds a free port and parallel runs never collide; requests read it back from the running server.
+export function appPort(): number {
+  const address = DI.get(HttpServer)?.Server?.address() as AddressInfo | null | undefined;
+  if (!address) throw new Error('no http server listening: call startApp() first');
+  return address.port;
+}
 
 export const UPLOAD_DIR = join(os.tmpdir(), 'spinajs-cfg-http-upload');
 export const FILES_DIR = join(os.tmpdir(), 'spinajs-cfg-http-files');
@@ -45,35 +48,19 @@ export function dir(path: string) {
 // Happy-Eyeballs dual-stack resolution (racing ::1 and 127.0.0.1) adds enough
 // jitter on some Windows dev machines to intermittently fail loopback
 // connections; connecting by IP literal skips that resolution entirely.
-export function req() {
-  return chai.request(`http://127.0.0.1:${PORT}/`);
-}
+type Verb = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
 /**
- * Bypasses the route-level AuthorizedPolicy / RbacPolicy, but ( unlike a pure
- * no-op ) establishes an identity in request storage. Model-level RBAC - the
- * `RbacModelPermissionMiddleware` query middleware that guards the `configuration`
- * resource - is NOT a route policy and cannot be bypassed here, so requests must
- * carry a role that actually holds the grant.
- *
- * Defaults to `admin` ( which inherits configuration management ) and user id 1; a test can
- * send `x-test-role` / `x-test-user-id` headers to assume a different role or user.
+ * Requests go out as `user` ( the `x-user` header the test principal source reads ); `null` sends no
+ * principal. Defaults to `admin`.
  */
-export class FakePolicy extends BasePolicy {
-  public isEnabled(): boolean {
-    return true;
-  }
-  public execute(req: sRequest): Promise<void> {
-    // RbacMiddleware ( a ServerMiddleware ) has already set a guest user; override
-    // it here, after that global middleware and before the action runs.
-    const role = (req.headers['x-test-role'] as string) ?? 'admin';
-    const userId = Number((req.headers['x-test-user-id'] as string) ?? 1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (req.storage as any).User = { Role: [role], PrimaryKeyValue: userId };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (req.storage as any).ActiveRole = role;
-    return Promise.resolve();
-  }
+export function req(user: string | null = 'admin') {
+  const agent = chai.request(`http://127.0.0.1:${appPort()}/`);
+  const as = (verb: Verb) => (url: string) => {
+    const r = agent[verb](url);
+    return user === null ? r : r.set('x-user', user);
+  };
+  return { get: as('get'), post: as('post'), put: as('put'), patch: as('patch'), delete: as('delete') };
 }
 
 /**
@@ -103,76 +90,69 @@ export function xlsx(content: string): Buffer {
   return Buffer.concat([Buffer.from('PK\u0003\u0004'), Buffer.from(content)]);
 }
 
+export function testConfig(): Record<string, unknown> {
+  return {
+    system: {
+      dirs: {
+        controllers: [],
+        schemas: [dir('./schemas')],
+      },
+    },
+    fs: {
+      defaultProvider: 'fs-temp',
+      providers: [
+        { service: 'fsNative', name: 'fs-temp', basePath: os.tmpdir() },
+        { service: 'fsNative', name: '__file_upload_default_provider__', basePath: UPLOAD_DIR },
+        { service: 'fsNative', name: FILES_FS, basePath: FILES_DIR },
+        { service: 'fsNative', name: '__fs_controller_cache__', basePath: join(os.tmpdir(), 'spinajs-cfg-http-cache') },
+        {
+          service: 'fsNative',
+          name: '__fs_http_response_templates__',
+          basePath: resolve(process.cwd(), '..', 'http', 'lib', 'views', 'responses'),
+        },
+        { service: 'fsNative', name: '__fs_http_templates__', basePath: os.tmpdir() },
+      ],
+    },
+    logger: {
+      targets: [{ name: 'Empty', type: 'ConsoleTarget' }],
+      rules: [{ name: '*', level: 'error', target: 'Empty' }],
+    },
+    http: {
+      port: 0,
+      cookie: {
+        secret: 'cfg-http-test-secret',
+      },
+      middlewares: [express.json({ limit: '5mb' }), express.urlencoded({ extended: true })],
+      AcceptHeaders: 1 | 2,
+    },
+    authz: {
+      permissions: configurationHttpConfig.authz.permissions,
+      // This in-memory configuration applies no schema defaults.
+      http: { services: [], explainRoute: { enabled: false, permission: 'authz:explain' }, links: { query: 'link', header: 'X-Authz-Link', cookie: null }, access: { domain: 'root' }, admin: { domain: 'root' } },
+    },
+    db: {
+      DefaultConnection: 'default',
+      // The whole config is replaced, so authz-orm's package default alias is restated.
+      Aliases: { authz: 'default' },
+      Connections: [
+        {
+          Driver: 'orm-driver-sqlite',
+          Filename: ':memory:',
+          Name: 'default',
+          Migration: {
+            Table: 'orm_migrations',
+            OnStartup: true,
+          },
+        },
+      ],
+    },
+  };
+}
+
 export class TestConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
-
-    this.Config = {
-      system: {
-        dirs: {
-          controllers: [dir('./../src/controllers')],
-          schemas: [dir('./schemas')],
-        },
-      },
-      fs: {
-        defaultProvider: 'fs-temp',
-        providers: [
-          { service: 'fsNative', name: 'fs-temp', basePath: os.tmpdir() },
-          { service: 'fsNative', name: '__file_upload_default_provider__', basePath: UPLOAD_DIR },
-          { service: 'fsNative', name: FILES_FS, basePath: FILES_DIR },
-          { service: 'fsNative', name: '__fs_controller_cache__', basePath: join(os.tmpdir(), 'spinajs-cfg-http-cache') },
-          { service: 'fsNative', name: '__fs_http_response_templates__', basePath: resolve(process.cwd(), '..', 'http', 'lib', 'views', 'responses') },
-          { service: 'fsNative', name: '__fs_http_templates__', basePath: os.tmpdir() },
-        ],
-      },
-      logger: {
-        targets: [{ name: 'Empty', type: 'ConsoleTarget' }],
-        rules: [{ name: '*', level: 'error', target: 'Empty' }],
-      },
-      http: {
-        port: PORT,
-        cookie: {
-          secret: 'cfg-http-test-secret',
-        },
-        middlewares: [
-          express.json({ limit: '5mb' }),
-          express.urlencoded({ extended: true }),
-        ],
-        AcceptHeaders: 1 | 2,
-      },
-      rbac: {
-        defaultRole: 'guest',
-        // mirrors the module's own grants ( @spinajs/configuration-http config ):
-        // configuration management lives in an admin sub-role that admin inherits.
-        grants: {
-          guest: {},
-          user: {},
-          'admin.configuration': {
-            configuration: {
-              'read:any': ['*'],
-              'update:any': ['*'],
-            },
-          },
-          admin: {
-            $extend: ['admin.configuration'],
-          },
-        },
-      },
-      db: {
-        DefaultConnection: 'default',
-        Connections: [
-          {
-            Driver: 'orm-driver-sqlite',
-            Filename: ':memory:',
-            Name: 'default',
-            Migration: {
-              Table: 'orm_migrations',
-              OnStartup: true,
-            },
-          },
-        ],
-      },
-    };
+    this.Config = testConfig();
   }
 }
 
@@ -202,17 +182,66 @@ export async function seed() {
   // Values are seeded in their canonical stored (string) form; Meta is stored as
   // JSON text. Numbers use type 'number', dates use ISO, booleans 'true'/'false'.
   await DbConfig.insert([
-    row({ Slug: 'app.name', Group: 'app', Type: 'string', Value: 'spinajs', Default: 'spinajs', Label: 'App name', Description: 'application name', Required: 1 }),
-    row({ Slug: 'app.maxUsers', Group: 'app', Type: 'number', Value: '10', Default: '5', Watch: 1, Meta: { min: 1, max: 100 } }),
+    row({
+      Slug: 'app.name',
+      Group: 'app',
+      Type: 'string',
+      Value: 'spinajs',
+      Default: 'spinajs',
+      Label: 'App name',
+      Description: 'application name',
+      Required: 1,
+    }),
+    row({
+      Slug: 'app.maxUsers',
+      Group: 'app',
+      Type: 'number',
+      Value: '10',
+      Default: '5',
+      Watch: 1,
+      Meta: { min: 1, max: 100 },
+    }),
     row({ Slug: 'app.debug', Group: 'app', Type: 'boolean', Value: 'false', Default: 'false' }),
-    row({ Slug: 'app.theme', Group: 'app', Type: 'oneOf', Value: 'dark', Default: 'dark', Meta: { oneOf: ['dark', 'light'] } }),
-    row({ Slug: 'app.features', Group: 'app', Type: 'manyOf', Value: JSON.stringify(['a', 'b']), Default: JSON.stringify([]), Meta: { manyOf: ['a', 'b', 'c'] } }),
+    row({
+      Slug: 'app.theme',
+      Group: 'app',
+      Type: 'oneOf',
+      Value: 'dark',
+      Default: 'dark',
+      Meta: { oneOf: ['dark', 'light'] },
+    }),
+    row({
+      Slug: 'app.features',
+      Group: 'app',
+      Type: 'manyOf',
+      Value: JSON.stringify(['a', 'b']),
+      Default: JSON.stringify([]),
+      Meta: { manyOf: ['a', 'b', 'c'] },
+    }),
     row({ Slug: 'app.startDate', Group: 'app', Type: 'date', Value: '2020-01-01', Default: '2020-01-01' }),
     row({ Slug: 'app.ratio', Group: 'app', Type: 'float', Value: '0.5', Default: '0.5', Meta: { min: 0, max: 1 } }),
-    row({ Slug: 'app.window', Group: 'app', Type: 'datetime-range', Value: '2020-01-01T00:00:00.000+00:00;2020-12-31T00:00:00.000+00:00', Default: '2020-01-01T00:00:00.000+00:00;2020-12-31T00:00:00.000+00:00' }),
-    row({ Slug: 'app.limits', Group: 'app', Type: 'json', Value: JSON.stringify({ perPage: 20 }), Default: JSON.stringify({ perPage: 20 }) }),
+    row({
+      Slug: 'app.window',
+      Group: 'app',
+      Type: 'datetime-range',
+      Value: '2020-01-01T00:00:00.000+00:00;2020-12-31T00:00:00.000+00:00',
+      Default: '2020-01-01T00:00:00.000+00:00;2020-12-31T00:00:00.000+00:00',
+    }),
+    row({
+      Slug: 'app.limits',
+      Group: 'app',
+      Type: 'json',
+      Value: JSON.stringify({ perPage: 20 }),
+      Default: JSON.stringify({ perPage: 20 }),
+    }),
     row({ Slug: 'app.broken', Group: 'app', Type: 'string', Value: 'x', Default: 'x' }),
-    row({ Slug: 'mail.from', Group: 'mail', Type: 'string', Value: 'noreply@spinajs.com', Default: 'noreply@spinajs.com' }),
+    row({
+      Slug: 'mail.from',
+      Group: 'mail',
+      Type: 'string',
+      Value: 'noreply@spinajs.com',
+      Default: 'noreply@spinajs.com',
+    }),
   ]);
 }
 
@@ -237,7 +266,10 @@ export async function seedFileEntries() {
   });
 
   await DbConfig.insert([
-    file({ Slug: 'tpl.offer', Meta: { file: { fs: FILES_FS, extensions: ['xlsx'], mimeTypes: [FileTypeEnum.xlsx], maxSize: 1024 } } }),
+    file({
+      Slug: 'tpl.offer',
+      Meta: { file: { fs: FILES_FS, extensions: ['xlsx'], mimeTypes: [FileTypeEnum.xlsx], maxSize: 1024 } },
+    }),
     file({ Slug: 'tpl.validated', Meta: { file: { fs: FILES_FS, validator: 'RejectingTemplateValidator' } } }),
     file({ Slug: 'tpl.unknownValidator', Meta: { file: { fs: FILES_FS, validator: 'NoSuchTemplateValidator' } } }),
     file({ Slug: 'tpl.pdfOnly', Meta: { file: { fs: FILES_FS } } }),

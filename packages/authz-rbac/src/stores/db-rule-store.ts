@@ -1,0 +1,279 @@
+import { AuthzAdminFailure, GLOBAL, principalKey } from '@spinajs/authz';
+import type { AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef, RuleDef } from '@spinajs/authz';
+import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { UniqueViolation } from '@spinajs/orm';
+import type { IWhereBuilder } from '@spinajs/orm';
+import { compareStrings, uniqueBy } from '@spinajs/util';
+
+import { AdminRuleStore } from '../admin/ports.js';
+import type { Page } from '../admin/ports.js';
+import { scopeFromColumns, scopeToColumns, subjectFromColumns, subjectToColumns } from './columns.js';
+import type { ScopeRefColumns } from './columns.js';
+import { requireTransaction } from './context.js';
+import { withDbRbacStore } from './db-store.js';
+import { pageWindow, requireScopeNode, whereLive } from './queries.js';
+import { RuleRecord, RuleSubjectRecord, fromDateTime, recordValues, toDateTime } from './records.js';
+import type { RuleFields, RuleSubjectFields } from './records.js';
+import { toRuleRows } from './rule-rows.js';
+import type { RuleSubjectList } from './rule-rows.js';
+import { bumpVersion, readVersion } from './version.js';
+
+/** `AuthzAdmin.list({ kind: 'rules' })` without the kind. */
+export interface RuleListQuery {
+  readonly scope?: ResourceRef;
+  readonly page?: { readonly limit: number; readonly offset: number };
+}
+
+/** An `authz_rule_subject` row as a subject of a rule's list. */
+export interface RuleSubjectRef {
+  readonly ruleId: string;
+  readonly list: RuleSubjectList;
+  readonly subject: AssignmentSubject;
+}
+
+/** What `forgetScope` deleted: the rules at the scope, and the list entries of other rules naming a subject set there. */
+export interface RuleForgetResult {
+  readonly rules: readonly RuleDef[];
+  readonly subjects: readonly RuleSubjectRef[];
+}
+
+/** The most rules one `list` call returns, with or without a page. */
+export const RULE_LIST_MAX_LIMIT = 1000;
+
+/**
+ * `RuleStore` over `authz_rule` and `authz_rule_subject`: scoped DB rules, check-only: the rule is its
+ * `definition`. It lives on the `authz` connection; writes run on the `AuthzTx` of `AuthzAdmin` and bump
+ * `authz_version` of the store's domain once per call. Registered by class name only; a domain uses it
+ * by registering it as `AdminRuleStore` and `RuleStore`.
+ */
+@PerChildInstance()
+@Injectable()
+@Inject(Container)
+export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
+  readonly name: string = 'DbRuleStore';
+
+  protected readonly maxListLimit: number = RULE_LIST_MAX_LIMIT;
+
+  constructor(protected readonly container: IContainer) {
+    super();
+  }
+
+  /**
+   * Live rules (`expires_at` null or after `at`) held at a node of `path` or at GLOBAL, which every
+   * path ends in; so an empty path gives the GLOBAL rules.
+   */
+  async forPath(path: readonly ResourceRef[], at: Date): Promise<readonly RuleDef[]> {
+    await this.ready();
+    const query = RuleRecord.query();
+    whereScopes(query, uniqueScopes([...path, GLOBAL]));
+    whereLive(query, at);
+
+    const rows = await query;
+    return this.rulesOf(rows.sort((a, b) => compareStrings(a.id, b.id)));
+  }
+
+  async version(): Promise<string> {
+    return readVersion(this.domain());
+  }
+
+  /** Expired rules too; null for an unknown id. */
+  async byId(id: string): Promise<RuleDef | null> {
+    await this.ready();
+    const row = await ruleById(id);
+    return row ? (await this.rulesOf([row]))[0] : null;
+  }
+
+  /** Inserts the rule, or replaces the one with its id (row and subject rows; the first `created_at` and `created_by` stay). */
+  async put(rule: Omit<RuleDef, 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<void> {
+    await this.ready();
+    const where = `${this.name}.put`;
+    requireTransaction(RuleRecord, tx, where);
+    const rows = toRuleRows(rule);
+    const { id, expires_at, ...columns } = rows.rule;
+    const values = { ...columns, expires_at: toDateTime(expires_at) };
+
+    if (await this.existingRule(id)) {
+      await RuleRecord.update(recordValues<RuleRecord>(values)).where('id', id);
+      await RuleSubjectRecord.destroy().where('rule_id', id);
+    } else {
+      try {
+        await RuleRecord.insert(recordValues<RuleRecord>({ id, ...values, created_by: principalKey(actor), created_at: toDateTime(this.now()) }));
+      } catch (err) {
+        if (!(err instanceof UniqueViolation)) throw err;
+        throw new AuthzAdminFailure('conflict', `${where}: another transaction wrote rule ${JSON.stringify(id)}; retry`, 'id', { cause: err });
+      }
+    }
+
+    await RuleSubjectRecord.insert(rows.subjects.map((s) => ({ ...s })));
+    await bumpVersion(tx, this.domain(), where);
+  }
+
+  /** What the columns cannot hold, refused before the batch transaction ({@link toRuleRows}). */
+  assertStorable(rule: Omit<RuleDef, 'source'>): void {
+    toRuleRows(rule);
+  }
+
+  /** `rule.delete` as {@link remove}. */
+  async delete(id: string, tx: AuthzTx): Promise<void> {
+    await this.remove(id, tx);
+  }
+
+  /** Deletes the rule and its subject rows and returns it; unknown id ⇒ `not_found`. */
+  async remove(id: string, tx: AuthzTx): Promise<RuleDef> {
+    await this.ready();
+    const where = `${this.name}.delete`;
+    requireTransaction(RuleRecord, tx, where);
+    const row = await ruleById(id);
+    if (!row) throw new AuthzAdminFailure('not_found', `Rule ${JSON.stringify(id)} does not exist`, 'id');
+
+    const [rule] = await this.rulesOf([row]);
+    await RuleSubjectRecord.destroy().where('rule_id', id);
+    await RuleRecord.destroy().where('id', id);
+    await bumpVersion(tx, this.domain(), where);
+    return rule;
+  }
+
+  /** `scope.forget` as {@link forgetScopeEntries}; returns the deleted rules. */
+  async forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly RuleDef[]> {
+    return (await this.forgetScopeEntries(scope, tx)).rules;
+  }
+
+  /**
+   * Deletes the rules AT `scope` (not below it; expired ones too) with their subject rows, and the
+   * `allow` entries of other rules that name a subject set living at `scope`, so a later scope with
+   * the same id is never allowed by them. GLOBAL and type-level refs are refused
+   * (`wrong_scope_type`).
+   */
+  async forgetScopeEntries(scope: ResourceRef, tx: AuthzTx): Promise<RuleForgetResult> {
+    await this.ready();
+    const where = `${this.name}.forgetScope`;
+    requireScopeNode(scope, where, 'only a scope node can be forgotten');
+    requireTransaction(RuleRecord, tx, where);
+    const columns = scopeToColumns(scope);
+
+    const ruleRows = await RuleRecord.query().where(columns).orderBy('id');
+    const rules = await this.rulesOf(ruleRows);
+    if (ruleRows.length > 0) {
+      const ids = ruleRows.map((r) => r.id);
+      await RuleSubjectRecord.destroy().whereIn('rule_id', ids);
+      await RuleRecord.destroy().whereIn('id', ids);
+    }
+
+    const setAtScope = { subject_type: columns.scope_type, subject_id: columns.scope_id };
+    const subjectRows = await RuleSubjectRecord.query().where(setAtScope).where('subject_role', '!=', '');
+    if (subjectRows.length > 0) await RuleSubjectRecord.destroy().where(setAtScope).where('subject_role', '!=', '');
+
+    await bumpVersion(tx, this.domain(), where);
+    return {
+      rules,
+      subjects: subjectRows.map((s) => ({ ruleId: s.rule_id, list: s.list as RuleSubjectList, subject: subjectFromColumns(s.subject_type, s.subject_id, s.subject_role) })),
+    };
+  }
+
+  /**
+   * Page for `AuthzAdmin.list` (kind `rules`), expired rules included, oldest first; `total` counts
+   * the unpaged result. At most {@link RULE_LIST_MAX_LIMIT} rows; a negative or fractional `limit`
+   * or `offset` is `invalid_page`.
+   */
+  async list(q: RuleListQuery = {}): Promise<{ items: readonly RuleDef[]; total: number }> {
+    await this.ready();
+    return this.select(q.scope, pageWindow(q.page, this.maxListLimit, `${this.name}.list`));
+  }
+
+  /** `AdminRuleStore.find`: with a page, as {@link list}; without one, every rule of the scope (one rule query). */
+  async find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<{ items: readonly RuleDef[]; total: number }> {
+    await this.ready();
+    return this.select(q.scope, page ? pageWindow(page, this.maxListLimit, `${this.name}.find`) : undefined);
+  }
+
+  /** Rules oldest first; `window` undefined reads every match in one rule query. */
+  private async select(scope: ResourceRef | undefined, window: { limit: number; offset: number } | undefined): Promise<{ items: readonly RuleDef[]; total: number }> {
+    const filtered = () => {
+      const query = RuleRecord.query();
+      if (scope) query.where(scopeToColumns(scope));
+      return query;
+    };
+
+    if (!window) {
+      const items = await this.rulesOf(await filtered().orderBy('created_at').orderBy('id'));
+      return { items, total: items.length };
+    }
+
+    const total = await filtered().selectCount();
+    if (window.limit === 0) return { items: [], total };
+
+    const query = filtered().orderBy('created_at').orderBy('id').take(window.limit);
+    if (window.offset > 0) query.skip(window.offset);
+
+    return { items: await this.rulesOf(await query), total };
+  }
+
+  protected existingRule(id: string): Promise<RuleRecord | undefined> {
+    return ruleById(id);
+  }
+
+  /** The rows as rules, with their subject rows read in one query. */
+  private async rulesOf(rows: readonly RuleFields[]): Promise<RuleDef[]> {
+    if (rows.length === 0) return [];
+
+    const subjects = new Map<string, RuleSubjectFields[]>();
+    for (const s of await RuleSubjectRecord.query().whereIn(
+      'rule_id',
+      rows.map((r) => r.id),
+    )) {
+      subjects.set(s.rule_id, [...(subjects.get(s.rule_id) ?? []), s]);
+    }
+
+    return rows.map((r) => rowToRule(r, subjects.get(r.id) ?? []));
+  }
+}
+
+/**
+ * A stored rule: `definition` plus the id, kind, scope and expiry columns, `source: 'db'`. `allow`
+ * and `subjects.refs` keep only the entries that still have a subject row, so what `forgetScope`
+ * removed is gone.
+ */
+function rowToRule(row: RuleFields, subjectRows: readonly RuleSubjectFields[]): RuleDef {
+  const def = row.definition as Partial<RuleDef>;
+  const held = new Set(subjectRows.map((s) => subjectKey(s.list, s)));
+  const keep = <T extends AssignmentSubject>(list: RuleSubjectList, xs: readonly T[]) => xs.filter((s) => held.has(subjectKey(list, subjectToColumns(s))));
+
+  return {
+    ...def,
+    ...(def.allow ? { allow: keep('allow', def.allow) } : {}),
+    ...(def.subjects?.refs ? { subjects: { ...def.subjects, refs: keep('refs', def.subjects.refs) } } : {}),
+    id: row.id,
+    kind: row.kind as RuleDef['kind'],
+    scope: scopeFromColumns(row.scope_type, row.scope_id),
+    expiresAt: fromDateTime(row.expires_at),
+    source: 'db',
+  };
+}
+
+function subjectKey(list: string, s: { subject_type: string; subject_id: string; subject_role: string }): string {
+  return JSON.stringify([list, s.subject_type, s.subject_id, s.subject_role]);
+}
+
+function uniqueScopes(refs: readonly ResourceRef[]): ScopeRefColumns[] {
+  return uniqueBy(refs.map(scopeToColumns), (c) => JSON.stringify([c.scope_type, c.scope_id]));
+}
+
+/** `(scope_type = ? AND scope_id IN (…)) OR …`, one group per type; row-value `IN` is not portable. */
+function whereScopes(query: IWhereBuilder<unknown>, scopes: readonly ScopeRefColumns[]): void {
+  const byType = new Map<string, string[]>();
+  for (const s of scopes) byType.set(s.scope_type, [...(byType.get(s.scope_type) ?? []), s.scope_id]);
+
+  query.where(function () {
+    for (const [type, ids] of byType) {
+      this.orWhere(function () {
+        this.where('scope_type', type).whereIn('scope_id', ids);
+      });
+    }
+  });
+}
+
+async function ruleById(id: string): Promise<RuleRecord | undefined> {
+  const [row] = await RuleRecord.query().where('id', id);
+  return row;
+}

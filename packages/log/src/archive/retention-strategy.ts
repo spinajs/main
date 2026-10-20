@@ -29,7 +29,7 @@ export abstract class LogRetentionStrategy {
     try {
       await this.prune(ctx);
     } catch (err) {
-      this.Logger.warn(`Log retention for target ${ctx.options.path} failed: ${(err as Error).message}`);
+      this.Logger.warn({ error: err, targetPath: ctx.options.path }, "Log retention for target ${targetPath} failed");
     }
   }
 }

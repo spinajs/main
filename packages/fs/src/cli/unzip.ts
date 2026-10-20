@@ -30,9 +30,10 @@ export class FsUnzipCommand extends CliCommand {
       const dstFs = options.dstFs ? _fs(options.dstFs)() : undefined;
       const out = await provider.unzip(src, dst, dstFs);
 
-      this.Log.success(`Extracted ${src} -> ${out} ( fs: ${options.dstFs ?? fsName} )`);
+      this.Log.success({ src, out, dstFs: options.dstFs ?? fsName }, 'Extracted ${src} -> ${out} ( fs: ${dstFs} )');
     } catch (err) {
-      this.Log.error(`Cannot unzip ${src} on ${fsName}: ${err.message}`);
+      this.Log.error({ error: err, src, fsName }, 'Cannot unzip ${src} on ${fsName}');
+      process.exitCode = 1;
     }
   }
 }

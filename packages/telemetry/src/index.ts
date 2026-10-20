@@ -1,5 +1,6 @@
 export * from './metrics.js';
 export * from './bootstrap.js';
+export * from './schema.js';
 export * from './InMemoryPerfSink.js';
 export * from './requestStats.js';
 export * from './timeline.js';
@@ -10,6 +11,9 @@ export * from './endpoints.js';
 export * from './PromMetricSink.js';
 export * from './policies/TelemetryTokenPolicy.js';
 export * from './policies/PublicPolicy.js';
+export * from './policies/TelemetryAccessPolicy.js';
+export * from './policies/development.js';
+export * from './service-token.js';
 export * from './responses.js';
 export * from './health.js';
 export * from './dto/index.js';

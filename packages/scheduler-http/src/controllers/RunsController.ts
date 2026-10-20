@@ -1,10 +1,10 @@
-import { BasePath, Body, Get, Header, HTTP_STATUS_CODE, Ok, Param, Policy, Post, Query, SseResponse } from '@spinajs/http';
-import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
+import { BasePath, Body, Get, Header, HTTP_STATUS_CODE, Ok, Param, Post, Query, SseResponse } from '@spinajs/http';
+import { Access } from '@spinajs/authz-http';
 import { parseSseEventId } from '@spinajs/scheduler';
 import type { RunStatus, RunTrigger } from '@spinajs/scheduler';
 
 import { compact, SchedulerControllerBase } from '../scheduler-controller.js';
-import { SCHEDULER_READ, SCHEDULER_RESOURCE, SCHEDULER_RUN } from '../permissions.js';
+import { SCHEDULER_READ, SCHEDULER_RUN } from '../permissions.js';
 import { DEFAULT_PAGE_SIZE, LAST_EVENT_ID_SCHEMA, MAX_PAGE_SIZE, RetryRunDto, RUN_ID_SCHEMA, RUN_STATUSES, RUN_TRIGGERS } from '../dto/requests.js';
 import { streamRunEvents } from '../sse/run-events.js';
 
@@ -13,8 +13,6 @@ import { streamRunEvents } from '../sse/run-events.js';
  * @tags Scheduler
  */
 @BasePath('scheduler/runs')
-@Policy(AuthorizedPolicy)
-@Resource(SCHEDULER_RESOURCE, SCHEDULER_READ)
 export class RunsController extends SchedulerControllerBase {
   /**
    * List runs
@@ -29,11 +27,11 @@ export class RunsController extends SchedulerControllerBase {
    * @param offset Number of runs to skip, default 0
    * @returns {Page} Runs on the requested page with the total count
    * @response 400 Invalid filter
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny on the scheduler resource required
+   * @response 401 Unauthorized — authenticated caller required
+   * @response 403 Forbidden — scheduler:read required
    */
   @Get('/')
-  @Permission(SCHEDULER_READ)
+  @Access(SCHEDULER_READ)
   public async list(
     @Query({ type: 'string', minLength: 1 }) schedule?: string,
     @Query({ type: 'string', enum: RUN_STATUSES }) status?: RunStatus,
@@ -53,12 +51,12 @@ export class RunsController extends SchedulerControllerBase {
    * @param id Run id
    * @returns {RunDetail} Run details
    * @response 400 Malformed run id
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny on the scheduler resource required
+   * @response 401 Unauthorized — authenticated caller required
+   * @response 403 Forbidden — scheduler:read required
    * @response 404 Run not found
    */
   @Get(':id')
-  @Permission(SCHEDULER_READ)
+  @Access(SCHEDULER_READ)
   public async show(@Param(RUN_ID_SCHEMA) id: string) {
     return new Ok(await this.Scheduler.getRun(id));
   }
@@ -71,13 +69,13 @@ export class RunsController extends SchedulerControllerBase {
    * @param id Run id
    * @response 202 {RunInfo} Cancellation requested; the run as it is now
    * @response 400 Malformed run id
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny on the scheduler resource required
+   * @response 401 Unauthorized — authenticated caller required
+   * @response 403 Forbidden — scheduler:run required
    * @response 404 Run not found
    * @response 409 The run already ended
    */
   @Post(':id/cancel')
-  @Permission(SCHEDULER_RUN)
+  @Access(SCHEDULER_RUN)
   public async cancel(@Param(RUN_ID_SCHEMA) id: string) {
     return new Ok(await this.Scheduler.cancel(id, { triggeredBy: this.triggeredBy() }), { StatusCode: HTTP_STATUS_CODE.ACCEPTED });
   }
@@ -91,13 +89,13 @@ export class RunsController extends SchedulerControllerBase {
    * @param id Run id
    * @response 202 {ISchedulerRunAccepted} Retry queued
    * @response 400 Malformed run id or body
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny on the scheduler resource required
+   * @response 401 Unauthorized — authenticated caller required
+   * @response 403 Forbidden — scheduler:run required
    * @response 404 Run not found
    * @response 409 The run is not in a retryable state
    */
   @Post(':id/retry')
-  @Permission(SCHEDULER_RUN)
+  @Access(SCHEDULER_RUN)
   public async retry(@Param(RUN_ID_SCHEMA) id: string, @Body() body: RetryRunDto) {
     const dto = body ?? new RetryRunDto();
     const result = await this.Scheduler.retry(id, {
@@ -123,12 +121,12 @@ export class RunsController extends SchedulerControllerBase {
    * @param lastEventId Seq of the last event the client received
    * @returns {SseResponse} Run event stream
    * @response 400 Malformed run id or Last-Event-ID
-   * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny on the scheduler resource required
+   * @response 401 Unauthorized — authenticated caller required
+   * @response 403 Forbidden — scheduler:read required
    * @response 404 Run not found
    */
   @Get(':id/events')
-  @Permission(SCHEDULER_READ)
+  @Access(SCHEDULER_READ)
   public async events(@Param(RUN_ID_SCHEMA) id: string, @Header('last-event-id', LAST_EVENT_ID_SCHEMA) lastEventId?: string) {
     const run = await this.Scheduler.getRun(id);
     const after = parseSseEventId(lastEventId) ?? 0;

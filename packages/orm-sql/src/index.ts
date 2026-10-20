@@ -1,15 +1,17 @@
 import { SqlTableAliasCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlOrderByQueryCompiler, SqlIndexQueryCompiler, SqlForeignKeyQueryCompiler, SqlGroupByCompiler, SqlDropTableQueryCompiler, SqlRawSchemaQueryCompiler, SqlDropViewQueryCompiler, SqlCreateDatabaseQueryCompiler, SqlDropDatabaseQueryCompiler } from './compilers.js';
 /* eslint-disable prettier/prettier */
 import { SqlDatetimeValueConverter, SqlSetConverter, SqlBooleanValueConverter, SqlTimeValueConverter } from './converters.js';
-import { SetValueConverter, GroupByStatement, DateTimeWrapper, DateWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from '@spinajs/orm';
-import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlInQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper, SqlLazyQueryStatement, SqlInSetStatement } from './statements.js';
+import { SetValueConverter, ColumnCompareStatement, ColumnConditionStatement, GroupByStatement, DateTimeWrapper, DateWrapper, TextWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, StartsWithStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from '@spinajs/orm';
+import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlInQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlColumnCompareStatement, SqlColumnConditionStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper, SqlTextWrapper, SqlLazyQueryStatement, SqlInSetStatement, SqlStartsWithStatement } from './statements.js';
 import { Perf } from '@spinajs/log-common';
+import { DateTime } from 'luxon';
 
 export * from './compilers.js';
 export * from './builders.js';
 export * from './statements.js';
 export * from './literals.js';
 export * from './views.js';
+export * from './converters.js';
 
 export abstract class SqlDriver extends OrmDriver {
   public abstract executeOnDb(stmt: string | object, params: any[], context: QueryContext): Promise<any[] | any>;
@@ -29,7 +31,23 @@ export abstract class SqlDriver extends OrmDriver {
   protected logQuery(expression: string, bindings: unknown[], builder: Builder<any>) {
     // `Log` is only assigned in OrmDriver.resolve(), so a driver used before it is
     // resolved has none. Logging must never be the thing that breaks a query.
-    this.Log?.trace({ sql: expression, bindings, context: String(builder.QueryContext), model: builder.Model?.name }, expression);
+    // The SQL is a printf arg: as the template its `${...}` would be read as placeholders, as a field it prints quoted.
+    this.Log?.trace({ sql: expression, bindings, context: String(builder.QueryContext), model: builder.Model?.name }, '%s', expression);
+  }
+
+  /**
+   * Raw fragments and direct `executeOnDb` calls bind what they are given; a Date or DateTime among
+   * those parameters is written the way the dialect stores a datetime column, so raw SQL compares with
+   * model-written values.
+   */
+  protected toDriverParams(params: unknown[] | undefined): unknown[] {
+    const isDate = (p: unknown) => p instanceof Date || DateTime.isDateTime(p);
+    if (!params || !params.some(isDate)) {
+      return params ?? [];
+    }
+
+    const converter = this.Container.resolve<DatetimeValueConverter>(DatetimeValueConverter);
+    return params.map((p) => (isDate(p) ? converter.toDB(p, null as any, null as any) : p));
   }
 
   public execute(builder: Builder<any>) {
@@ -38,17 +56,22 @@ export abstract class SqlDriver extends OrmDriver {
       const labels = { driver: String(this.Options.Driver ?? 'unknown'), context: String(builder.QueryContext) };
 
       if (Array.isArray(compiled)) {
-        // TODO: rethink this cast
-        return Promise.all(
-          compiled.map((c) => {
+        // Statements must run in order (e.g. CREATE TABLE before dependent INSERT);
+        // a pooled driver would otherwise spread them over connections concurrently.
+        return (async () => {
+          const results: unknown[] = [];
+          for (const c of compiled) {
             this.logQuery(c.expression!, c.bindings!, builder);
 
-            return Perf.measure('orm.query', () => this.executeOnDb(c.expression!, c.bindings!, builder.QueryContext), {
-              labels,
-              fields: { sql: c.expression, bindings: c.bindings },
-            });
-          }),
-        ) as any;
+            results.push(
+              await Perf.measure('orm.query', () => this.executeOnDb(c.expression!, c.bindings!, builder.QueryContext), {
+                labels,
+                fields: { sql: c.expression, bindings: c.bindings },
+              }),
+            );
+          }
+          return results;
+        })() as any;
       } else {
         this.logQuery(compiled.expression!, compiled.bindings!, builder);
 
@@ -58,7 +81,7 @@ export abstract class SqlDriver extends OrmDriver {
         });
       }
     } catch (err: any) {
-      this.Log.error(`Error during query execution: ${err.message}, ${err.stack}, model: ${builder.Model?.name}, context: ${builder.QueryContext}`);
+      this.Log.error({ error: err, model: builder.Model?.name, context: builder.QueryContext }, 'Error during query execution, model: ${model}, context: ${context}');
       throw err;
     }
   }
@@ -76,11 +99,14 @@ export abstract class SqlDriver extends OrmDriver {
     this.Container.register(SqlExistsQueryStatement).as(ExistsQueryStatement);
     this.Container.register(SqlInQueryStatement).as(InQueryStatement);
     this.Container.register(SqlColumnRawStatement).as(ColumnRawStatement);
+    this.Container.register(SqlColumnConditionStatement).as(ColumnConditionStatement);
     this.Container.register(SqlWhereQueryStatement).as(WhereQueryStatement);
+    this.Container.register(SqlColumnCompareStatement).as(ColumnCompareStatement);
     this.Container.register(SqlWithRecursiveStatement).as(WithRecursiveStatement);
     this.Container.register(SqlGroupByStatement).as(GroupByStatement);
     this.Container.register(SqlDateTimeWrapper).as(DateTimeWrapper);
     this.Container.register(SqlDateWrapper).as(DateWrapper);
+    this.Container.register(SqlTextWrapper).as(TextWrapper);
     this.Container.register(SqlLazyQueryStatement).as(LazyQueryStatement);
 
     this.Container.register(SqlSelectQueryCompiler).as(SelectQueryCompiler);
@@ -99,6 +125,7 @@ export abstract class SqlDriver extends OrmDriver {
     this.Container.register(SqlTimeValueConverter).as(TimeValueConverter);
     this.Container.register(SqlBooleanValueConverter).as(BooleanValueConverter);
     this.Container.register(SqlInSetStatement).as(InSetStatement);
+    this.Container.register(SqlStartsWithStatement).as(StartsWithStatement);
 
 
     this.Container.register(SqlRawSchemaQueryCompiler).as(RawSchemaQueryCompiler);

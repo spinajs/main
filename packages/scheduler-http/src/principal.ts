@@ -1,24 +1,36 @@
-import { AuthenticationFailed } from '@spinajs/exceptions';
+import type { Principal } from '@spinajs/authz';
+import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 import type { TriggeredBy } from '@spinajs/scheduler';
 
-export interface IPrincipalStorage {
-  User?: { Uuid?: string; Id?: number | string; Login?: string; Email?: string } | null;
-  // set by @spinajs/rbac-http-token, which this package does not depend on
-  TokenAuth?: { Uuid: string };
+function by(kind: TriggeredBy['kind'], principal: Principal): TriggeredBy {
+  // the user principal carries the user record as `identity`; opaque to authz
+  const identity = principal.identity as { Login?: unknown; Email?: unknown } | null | undefined;
+  const name = identity?.Login ?? identity?.Email;
+
+  return {
+    kind,
+    id: principal.id,
+    ...(typeof name === 'string' && name !== '' ? { name } : {}),
+  };
 }
 
-export function triggeredByFrom(storage: IPrincipalStorage | undefined): TriggeredBy {
-  const user = storage?.User;
-
-  if (!user) {
+export function triggeredByFrom(principal: Principal | null | undefined): TriggeredBy {
+  if (!principal || principal.authenticated !== true) {
     throw new AuthenticationFailed('no authenticated principal for a scheduler action');
   }
 
-  const name = user.Login ?? user.Email;
+  switch (principal.type) {
+    case 'user':
+      return by(principal.source === 'token' ? 'token' : 'user', principal);
+    case 'service':
+      return by('service', principal);
+    case 'agent':
+      // an agent token acts for its user: recorded as that user's token, like the user's own api token
+      if (principal.onBehalfOf?.type === 'user') {
+        return by('token', principal.onBehalfOf);
+      }
+      break;
+  }
 
-  return {
-    kind: storage?.TokenAuth ? 'token' : 'user',
-    id: String(user.Uuid ?? user.Id),
-    ...(name ? { name } : {}),
-  };
+  throw new Forbidden(`a ${principal.type} principal cannot trigger scheduler actions`);
 }

@@ -22,6 +22,7 @@ interface CacheEntry {
 export class TtlCache {
   private readonly entries = new Map<string, CacheEntry>();
   private readonly inFlight = new Map<string, Promise<unknown>>();
+  private generation = 0;
 
   constructor(private readonly now: () => number = () => Date.now()) {}
 
@@ -46,15 +47,20 @@ export class TtlCache {
       return pending;
     }
 
-    const promise = (async () => {
+    const generation = this.generation;
+    let promise!: Promise<unknown>;
+    promise = (async () => {
       try {
         const value = await factory();
-        if (ttl > 0) {
+        // a clear() during the fetch must not be undone by the stale result
+        if (ttl > 0 && generation === this.generation) {
           this.entries.set(key, { value, expiresAt: this.now() + ttl });
         }
         return value;
       } finally {
-        this.inFlight.delete(key);
+        if (this.inFlight.get(key) === promise) {
+          this.inFlight.delete(key);
+        }
       }
     })();
 
@@ -66,6 +72,7 @@ export class TtlCache {
    * Drops all cached values and in-flight references.
    */
   public clear(): void {
+    this.generation++;
     this.entries.clear();
     this.inFlight.clear();
   }
@@ -153,12 +160,12 @@ export function resolveFallback(params: URLSearchParams, source: string, id: str
   const message = err instanceof Error ? err.message : String(err);
 
   if (params.has('default')) {
-    InternalLogger.warn(`Could not resolve '${id}' (${err ? message : 'no value'}), using default value`, source);
+    InternalLogger.warn({ id, reason: err ? message : 'no value' }, 'Could not resolve ${id} (${reason}), using default value', source);
     return { handled: true, value: params.get('default') ?? '' };
   }
 
   if (params.get('optional') === 'true') {
-    InternalLogger.warn(`Could not resolve optional '${id}' (${message}), using empty string`, source);
+    InternalLogger.warn({ id, reason: message }, 'Could not resolve optional ${id} (${reason}), using empty string', source);
     return { handled: true, value: '' };
   }
 
@@ -178,7 +185,7 @@ export function warnUnknownParams(params: URLSearchParams, allowed: string[], so
   const allowedSet = new Set(allowed);
   for (const key of params.keys()) {
     if (!allowedSet.has(key)) {
-      InternalLogger.warn(`Unknown query parameter '${key}' for '${id}' (${source}), ignoring it`, source);
+      InternalLogger.warn({ key, id, source }, 'Unknown query parameter ${key} for ${id} (${source}), ignoring it', source);
     }
   }
 }
@@ -205,7 +212,7 @@ export function parseBoolParam(params: URLSearchParams, key: string, fallback: b
     return false;
   }
 
-  InternalLogger.warn(`Invalid value '${value ?? ''}' for query parameter '${key}', expected 'true' or 'false'; using ${String(fallback)}`, source);
+  InternalLogger.warn({ value, key, fallback }, "Invalid value ${value} for query parameter ${key}, expected 'true' or 'false'; using ${fallback}", source);
   return fallback;
 }
 
@@ -228,6 +235,10 @@ function getByPath(obj: unknown, path: string): unknown {
  * Used to turn flat Parameter Store hierarchies (`db/host`, `db/port`) into a nested config object.
  */
 export function assignNested(target: Record<string, unknown>, keys: string[], value: unknown): void {
+  // Parameter names are store contents: `/app/__proto__/x` must not reach Object.prototype.
+  if (keys.some((k) => k === '__proto__' || k === 'constructor' || k === 'prototype')) {
+    return;
+  }
   let node = target;
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
@@ -236,7 +247,12 @@ export function assignNested(target: Record<string, unknown>, keys: string[], va
     }
     node = node[key] as Record<string, unknown>;
   }
-  node[keys[keys.length - 1]] = value;
+  const last = keys[keys.length - 1];
+  // leaf/branch collision (/a/b and /a/b/c): the branch always wins, regardless of arrival order
+  if (typeof node[last] === 'object' && node[last] !== null && !Array.isArray(node[last])) {
+    return;
+  }
+  node[last] = value;
 }
 
 /**
@@ -264,6 +280,22 @@ export function extractValue(value: string | Buffer | undefined, jsonPath?: stri
     throw new Error(`Cannot extract '${jsonPath}': value is not valid JSON (${err instanceof Error ? err.message : String(err)})`);
   }
   return getByPath(parsed, jsonPath);
+}
+
+/**
+ * Extracts `jsonPath` from a fetched value, routing extraction failures (eg. invalid JSON) through
+ * the `?default=` / `?optional=true` fallback. A missing key resolves to an empty string.
+ */
+export function extractWithFallback(value: string | Buffer | undefined, jsonPath: string, params: URLSearchParams, source: string, id: string): unknown {
+  try {
+    return extractValue(value, jsonPath) ?? '';
+  } catch (err) {
+    const fallback = resolveFallback(params, source, id, err);
+    if (fallback.handled) {
+      return fallback.value;
+    }
+    throw err;
+  }
 }
 
 /**

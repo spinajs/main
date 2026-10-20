@@ -23,9 +23,14 @@ export abstract class BaseFileSource extends ConfigurationSource {
   }
 
   /**
-   * Walks from `startDir` up to the filesystem root, returning every directory that
-   * contains a `node_modules` folder, nearest first. Used to locate `@spinajs`
-   * package configs wherever the package manager happened to hoist them.
+   * Walks from `startDir` up, returning every directory that contains a `node_modules`
+   * folder, nearest first. Used to locate `@spinajs` package configs wherever the
+   * package manager happened to hoist them.
+   *
+   * The walk ends at the nearest workspace root: anything above it belongs to another
+   * project. A checkout nested in another one ( a git worktree under the main checkout )
+   * would otherwise load the outer checkout's package configs, and with them a second
+   * `@spinajs/di`. Without a workspace root it goes up to the filesystem root.
    */
   protected static nodeModulesAncestors(startDir: string): string[] {
     const found: string[] = [];
@@ -37,11 +42,24 @@ export abstract class BaseFileSource extends ConfigurationSource {
       }
 
       const parent = path.dirname(current);
-      if (parent === current) {
+      if (parent === current || BaseFileSource.isWorkspaceRoot(current)) {
         return found;
       }
 
       current = parent;
+    }
+  }
+
+  protected static isWorkspaceRoot(dir: string): boolean {
+    if (fs.existsSync(path.join(dir, 'pnpm-workspace.yaml'))) {
+      return true;
+    }
+
+    try {
+      const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8')) as { workspaces?: unknown };
+      return manifest.workspaces !== undefined;
+    } catch {
+      return false;
     }
   }
 
@@ -91,7 +109,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
       const hoistingRoot = BaseFileSource.findHoistingRoot(resolve(process.cwd()));
 
       if (hoistingRoot) {
-        InternalLogger.trace(`WORKSPACE_ROOT_PATH not set, detected hoisting root at ${hoistingRoot}`, 'Configuration');
+        InternalLogger.trace({ hoistingRoot }, 'WORKSPACE_ROOT_PATH not set, detected hoisting root at ${hoistingRoot}', 'Configuration');
         process.env.WORKSPACE_ROOT_PATH = hoistingRoot;
       }
     }
@@ -104,7 +122,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
 
       // other @spinajs modules paths
       //
-      // Every ancestor that actually has a node_modules is searched, nearest first,
+      // Every ancestor up to the workspace root that has a node_modules is searched, nearest first,
       // mirroring how Node itself resolves. Checking only cwd and its parent broke
       // npm/yarn workspaces: an app at <root>/packages/<app> has its dependencies
       // hoisted to <root>/node_modules, two levels up, so none of the @spinajs
@@ -210,7 +228,7 @@ export class JsFileSource extends BaseFileSource {
 
     async function _load(file: string) {
       try {
-        InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
+        InternalLogger.trace({ file }, 'Trying to load file ${file}', 'Configuration');
 
         let cfg = (await DI.__spinajs_require__(file)) as IConfigLike;
         // execute config func before merge with rest of configuration
@@ -228,7 +246,7 @@ export class JsFileSource extends BaseFileSource {
 
         return cfg;
       } catch (err) {
-        InternalLogger.error(err as Error, `error loading configuration file ${file}`, 'configuration');
+        InternalLogger.error({ error: err, file }, 'error loading configuration file ${file}', 'configuration');
         return {} as IConfigLike;      }
     }
   }
@@ -245,7 +263,7 @@ export class JsonFileSource extends BaseFileSource {
 
     function _load(file: string) {
       try {
-        InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
+        InternalLogger.trace({ file }, 'Trying to load file ${file}', 'Configuration');
 
         const cfg = JSON.parse(fs.readFileSync(file, 'utf-8')) as any;
 
@@ -258,7 +276,7 @@ export class JsonFileSource extends BaseFileSource {
         }
         return Promise.resolve(cfg);
       } catch (err) {
-        InternalLogger.error(err as Error, `error loading configuration file ${file}`, 'configuration');
+        InternalLogger.error({ error: err, file }, 'error loading configuration file ${file}', 'configuration');
         return Promise.resolve({} as IConfigLike);
       }
     } 

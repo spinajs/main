@@ -662,7 +662,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     const softDeleteColumn = this.TargetModelDescriptor!.SoftDelete?.DeletedAt;
     if (softDeleteColumn) {
       const { query } = createQuery(this.Relation.TargetModel, UpdateQueryBuilder);
-      const update = (query as UpdateQueryBuilder<unknown>).update({ [softDeleteColumn]: DateTime.now() });
+      const update = (query as UpdateQueryBuilder<unknown>).update({ [softDeleteColumn]: DateTime.utc() });
       update.where(this.Relation.ForeignKey, this.OwnerJoinValue);
       // Rows stamped by an earlier sync keep their original deletion time.
       update.whereNull(softDeleteColumn);

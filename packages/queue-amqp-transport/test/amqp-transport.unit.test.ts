@@ -7,6 +7,7 @@ import * as chai from 'chai';
 import { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import * as sinon from 'sinon';
+import { EventEmitter } from 'events';
 import { AmqpQueueClient } from '../src/connection.js';
 
 chai.use(chaiAsPromised);
@@ -15,8 +16,10 @@ chai.use(chaiAsPromised);
  * Minimal in-memory fake of the amqplib parts AmqpQueueClient uses, so the retry / dead-letter /
  * confirm / reconnect logic can be tested deterministically with no broker.
  */
-class FakeChannel {
+class FakeChannel extends EventEmitter {
   public asserts: { name: string; opts?: any }[] = [];
+  public deletedQueues: string[] = [];
+  public failAssertTimes = 0;
   public exchanges: { name: string; type: string; opts?: any }[] = [];
   public binds: { queue: string; exchange: string; key: string }[] = [];
   public published: { exchange: string; routingKey: string; content: Buffer; options: any }[] = [];
@@ -33,6 +36,10 @@ class FakeChannel {
     this.prefetchValue = n;
   }
   public async assertQueue(name: string, opts?: any) {
+    if (this.failAssertTimes > 0) {
+      this.failAssertTimes--;
+      throw new Error('assert failed');
+    }
     const q = name || `amq.gen-${++this.tag}`;
     this.asserts.push({ name: q, opts });
     return { queue: q };
@@ -65,6 +72,9 @@ class FakeChannel {
   public async cancel() {
     /* noop */
   }
+  public async deleteQueue(name: string) {
+    this.deletedQueues.push(name);
+  }
   public ack(msg: any) {
     this.acked.push(msg);
   }
@@ -84,10 +94,15 @@ class FakeConnection {
   public on(ev: string, cb: (...a: any[]) => void) {
     this.handlers.set(ev, cb);
   }
+  public nextChannelFailAsserts = 0;
   public async createConfirmChannel() {
     return this.confirmCh as any;
   }
+  // a fresh consume channel per connect, as with a real broker, so a dropped channel's deliveries stay apart
   public async createChannel() {
+    this.plainCh = new FakeChannel();
+    this.plainCh.failAssertTimes = this.nextChannelFailAsserts;
+    this.nextChannelFailAsserts = 0;
     return this.plainCh as any;
   }
   public async close() {
@@ -187,6 +202,91 @@ describe('amqp queue transport - unit', function () {
       expect(c.IsConnected).to.be.true;
       expect(c.con.consumers.has('/queue/work'), 'subscription should be replayed').to.be.true;
     });
+
+    it('survives a broker channel error and reconnects when the channel closes', async () => {
+      const c = await connected({ reconnectDelay: 10 });
+      await c.subscribe('/queue/work', sinon.stub().resolves());
+      const dead = c.con;
+
+      expect(() => dead.emit('error', new Error('PRECONDITION_FAILED'))).to.not.throw();
+      dead.emit('close');
+      expect(c.IsConnected).to.be.false;
+
+      await new Promise((r) => setTimeout(r, 40));
+      expect(c.IsConnected).to.be.true;
+      expect(c.con).to.not.eq(dead);
+      expect(c.con.consumers.has('/queue/work')).to.be.true;
+    });
+
+    it('closes the connection when replaying subscriptions fails during a reconnect', async () => {
+      const c = await connected({ reconnectDelay: 10 });
+      await c.subscribe('/queue/work', sinon.stub().resolves());
+
+      c.fake.nextChannelFailAsserts = 1;
+      c.fake.fire('close');
+      await new Promise((r) => setTimeout(r, 15));
+      expect(c.fake.closed, 'connection of the failed attempt should be closed').to.be.true;
+
+      await new Promise((r) => setTimeout(r, 40));
+      expect(c.IsConnected).to.be.true;
+    });
+
+    it('rejects buffered and later emits on dispose', async () => {
+      const c = await connected({ reconnectDelay: 1000 });
+      c.fake.fire('close');
+
+      const buffered = c.emit(jobMessage());
+      await c.dispose();
+
+      await expect(buffered).to.be.rejected;
+      await expect(c.emit(jobMessage())).to.be.rejected;
+    });
+  });
+
+  describe('subscriptions', () => {
+    it('runs the handler of every message class consuming the same channel', async () => {
+      class EventA {}
+      class EventB {}
+      const a = sinon.stub().resolves();
+      const b = sinon.stub().resolves();
+      const c = await connected();
+      await c.subscribe(EventA as any, a);
+      await c.subscribe(EventB as any, b);
+
+      deliver(c.con, [...c.con.consumers.keys()][0], qMessage());
+      await tick();
+
+      expect(c.con.consumers.size, 'one broker consumer per channel').to.eq(1);
+      expect(a.calledOnce).to.be.true;
+      expect(b.calledOnce).to.be.true;
+      expect(c.con.acked.length).to.eq(1);
+    });
+
+    it('deletes the durable subscription queue on unsubscribe with removeDurable', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/default', sinon.stub().resolves(), 'sub-1', true);
+
+      c.unsubscribe('/topic/default', true);
+      await tick();
+
+      expect(c.con.deletedQueues).to.deep.eq(['sub-1']);
+    });
+
+    it('acks a delivery on the channel it came from after a reconnect', async () => {
+      let finish!: () => void;
+      const c = await connected({ reconnectDelay: 10 });
+      await c.subscribe('/queue/work', () => new Promise<void>((r) => (finish = r)));
+      const first = c.con;
+      deliver(first, '/queue/work', jobMessage());
+
+      c.fake.fire('close');
+      await new Promise((r) => setTimeout(r, 40));
+      finish();
+      await tick();
+
+      expect(first.acked.length).to.eq(1);
+      expect(c.con.acked.length).to.eq(0);
+    });
   });
 
   describe('credentials', () => {
@@ -243,6 +343,12 @@ describe('amqp queue transport - unit', function () {
 
       const opts = c.connectUrl as Record<string, any>;
       expect(opts.heartbeat).to.eq(30);
+    });
+
+    it('carries options.heartbeat into the connect options', async () => {
+      const c = await connected({ host: 'broker', options: { heartbeat: 15 } });
+
+      expect((c.connectUrl as Record<string, any>).heartbeat).to.eq(15);
     });
 
     it('passes discrete login/password as connect options when host is not a url', async () => {
@@ -323,10 +429,22 @@ describe('amqp queue transport - unit', function () {
       expect(asserted!.opts.arguments['x-message-ttl']).to.eq(100);
       expect(asserted!.opts.arguments['x-dead-letter-routing-key']).to.eq('/queue/job');
 
-      const sent = c.con.sent.find((s) => s.queue === retryQ);
+      const sent = c.pub.published.find((s) => s.exchange === '' && s.routingKey === retryQ);
       expect(sent, 'message sent to retry queue').to.exist;
       expect(sent!.options.headers['x-retry-count']).to.eq(1);
       expect(c.con.acked.length).to.eq(1); // original acked
+    });
+
+    it('does not ack a failed job when the broker rejects its retry copy', async () => {
+      const c = await connected({ retryDelay: 100 });
+      await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
+      c.pub.failPublishTimes = 1;
+
+      deliver(c.con, '/queue/job', jobMessage({ RetryCount: 3 } as any));
+      await tick();
+
+      expect(c.con.acked.length).to.eq(0);
+      expect(c.con.nacked.length).to.eq(1);
     });
 
     it('retries up to the routing maxRetries when the job carries no RetryCount, then dead-letters', async () => {
@@ -336,15 +454,15 @@ describe('amqp queue transport - unit', function () {
       deliver(c.con, '/queue/retry-src', jobMessage({ Name: 'RetryRoutedJob' }));
       await tick();
 
-      const retry = c.con.sent.find((s) => s.queue === '/queue/retry-src.retry.100');
+      const retry = c.pub.published.find((s) => s.exchange === '' && s.routingKey === '/queue/retry-src.retry.100');
       expect(retry, 'first failure is retried').to.exist;
       expect(retry!.options.headers['x-retry-count']).to.eq(1);
-      expect(c.con.sent.some((s) => s.queue === '/queue/retry-dlq')).to.be.false;
+      expect(c.pub.published.some((s) => s.routingKey === '/queue/retry-dlq')).to.be.false;
 
       deliver(c.con, '/queue/retry-src', jobMessage({ Name: 'RetryRoutedJob' }), { 'x-retry-count': '1' });
       await tick();
 
-      expect(c.con.sent.some((s) => s.queue === '/queue/retry-dlq'), 'second failure dead-letters').to.be.true;
+      expect(c.pub.published.some((s) => s.routingKey === '/queue/retry-dlq'), 'second failure dead-letters').to.be.true;
     });
 
     it('prefers an explicit RetryCount on the job over the routing default', async () => {
@@ -354,8 +472,8 @@ describe('amqp queue transport - unit', function () {
       deliver(c.con, '/queue/retry-src', jobMessage({ Name: 'RetryRoutedJob', RetryCount: 0 } as any));
       await tick();
 
-      expect(c.con.sent.some((s) => s.queue.startsWith('/queue/retry-src.retry'))).to.be.false;
-      expect(c.con.sent.some((s) => s.queue === '/queue/retry-dlq')).to.be.true;
+      expect(c.pub.published.some((s) => s.routingKey.startsWith('/queue/retry-src.retry'))).to.be.false;
+      expect(c.pub.published.some((s) => s.routingKey === '/queue/retry-dlq')).to.be.true;
     });
 
     it('dead-letters a job once retries are exhausted', async () => {
@@ -365,11 +483,11 @@ describe('amqp queue transport - unit', function () {
       deliver(c.con, '/queue/job', jobMessage({ RetryCount: 2 } as any), { 'x-retry-count': '2' });
       await tick();
 
-      const dl = c.con.sent.find((s) => s.queue === '/queue/dlq');
+      const dl = c.pub.published.find((s) => s.routingKey === '/queue/dlq');
       expect(dl, 'sent to dead-letter queue').to.exist;
       expect(dl!.options.headers['x-error']).to.contain('boom');
       expect(c.con.acked.length).to.eq(1);
-      expect(c.con.sent.some((s) => s.queue.startsWith('/queue/job.retry'))).to.be.false;
+      expect(c.pub.published.some((s) => s.routingKey.startsWith('/queue/job.retry'))).to.be.false;
     });
 
     it('drops ( acks ) a job with no dead-letter queue once exhausted', async () => {
@@ -404,7 +522,7 @@ describe('amqp queue transport - unit', function () {
       deliver(c.con, '/queue/work', 'not-json{');
       await tick();
 
-      expect(c.con.sent.find((s) => s.queue === '/queue/dlq')).to.exist;
+      expect(c.pub.published.find((s) => s.routingKey === '/queue/dlq')).to.exist;
       expect(c.con.acked.length).to.eq(1);
     });
   });

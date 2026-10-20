@@ -38,6 +38,8 @@ export abstract class TemplateRenderer extends AsyncService implements IMappable
 
   protected Cache: Map<string, ITemplateCacheEntry> = new Map<string, ITemplateCacheEntry>();
 
+  protected Pending: Map<string, Promise<unknown>> = new Map<string, Promise<unknown>>();
+
   public abstract get Type(): string;
 
   public abstract get Extension(): string;
@@ -112,7 +114,7 @@ export abstract class TemplateRenderer extends AsyncService implements IMappable
       const s = await localStat(template);
       return `${s.mtimeMs}|${s.size}`;
     } catch (err) {
-      this.Log.warn(`Cannot stat template ${template}, serving cached version. ${err}`);
+      this.Log.warn({ error: err, template }, 'Cannot stat template ${template}, any cached version will be reused');
       return null;
     }
   }
@@ -150,9 +152,23 @@ export abstract class TemplateRenderer extends AsyncService implements IMappable
       return entry.compiled as T;
     }
 
-    const compiled = await compile();
-    this.Cache.set(key, { compiled, token });
+    // concurrent misses for one key share a single compilation
+    const pending = this.Pending.get(key);
+    if (pending) {
+      return (await pending) as T;
+    }
 
-    return compiled;
+    const compiling = (async () => {
+      const compiled = await compile();
+      this.Cache.set(key, { compiled, token });
+      return compiled;
+    })();
+
+    this.Pending.set(key, compiling);
+    try {
+      return await compiling;
+    } finally {
+      this.Pending.delete(key);
+    }
   }
 }

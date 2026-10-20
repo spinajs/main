@@ -5,6 +5,7 @@ import _ from 'lodash';
 
 import { ResponseFunction } from './interfaces.js';
 import { ResourceNotFound } from '@spinajs/exceptions';
+import { redactUrl } from './util/redact-url.js';
 
 /**
  * Express middleware that handles responses set in res.locals.response
@@ -14,7 +15,7 @@ import { ResourceNotFound } from '@spinajs/exceptions';
 export function __handle_response__() {
     return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
         if (!res.locals.response) {
-            next(new ResourceNotFound(`Resource not found ${req.method}:${req.originalUrl}`));
+            next(new ResourceNotFound(`Resource not found ${req.method}:${redactUrl(req.originalUrl)}`));
             return;
         }
 

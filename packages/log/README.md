@@ -8,6 +8,31 @@ sinks (Grafana Loki, OTLP), composable wrapper targets, a filter pipeline,
 ambient request-scoped context with trace correlation, and runtime level
 control.
 
+## Documentation
+
+Full documentation lives in **[docs/log/](../../docs/log/README.md)**; it takes precedence over the overview below.
+
+| # | Page |
+| --- | --- |
+| 01 | [Logging API](../../docs/log/01-logging-api.md) |
+| 02 | [Configuration and rules](../../docs/log/02-configuration-and-rules.md) |
+| 03 | [Layouts](../../docs/log/03-layouts.md) |
+| 04 | [Console, JSON and memory targets](../../docs/log/04-console-json-memory-targets.md) |
+| 05 | [File target](../../docs/log/05-file-target.md) |
+| 06 | [File rotation and retention](../../docs/log/06-file-rotation-and-retention.md) |
+| 07 | [Wrapper targets](../../docs/log/07-wrapper-targets.md) |
+| 08 | [Custom targets](../../docs/log/08-custom-targets.md) |
+| 09 | [Filters](../../docs/log/09-filters.md) |
+| 10 | [Custom filters](../../docs/log/10-custom-filters.md) |
+| 11 | [Structured logging and serializers](../../docs/log/11-structured-logging-and-serializers.md) |
+| 12 | [Async context and tracing](../../docs/log/12-async-context-and-tracing.md) |
+| 13 | [Runtime targets and levels](../../docs/log/13-runtime-targets-and-levels.md) |
+| 14 | [Bootstrap, flushing and shutdown](../../docs/log/14-bootstrap-flushing-and-shutdown.md) |
+| 15 | [Performance measurement](../../docs/log/15-performance-measurement.md) |
+| 16 | [Custom perf sinks](../../docs/log/16-custom-perf-sinks.md) |
+| 17 | [Replacing the logger](../../docs/log/17-replacing-the-logger.md) |
+| 18 | [Browser build](../../docs/log/18-browser-build.md) |
+
 ## Table of contents
 
 - [Which package do I import?](#which-package-do-i-import)
@@ -507,7 +532,7 @@ logger: {
 | `WhenRepeatedFilter` | `timeout` (s, default 10), `maxKeys` (default 1024) | collapses identical repeated entries within the window into one, appending `(xN)` when logging resumes |
 | `LevelFilter` | `min`, `max` (level names) | keeps only entries whose level is within `[min, max]` |
 | `MatchFilter` | `pattern`, `field` (default `message`), `mode` (`keep`/`drop`, default `keep`), `flags` | regex-match a variable; keep on match (or drop, in `drop` mode); an invalid pattern is a no-op |
-| `RateLimitFilter` | `limit`, `intervalSeconds`, `key` (optional variable) | fixed-window rate limit; drops overflow, per-key or global |
+| `RateLimitFilter` | `limit`, `intervalSeconds` (both required), `key` (variable or list), `logger` (name globs), `where` (variable values), `level` / `maxLevel`, `maxKeys`, `reportSuppressed` | fixed-window rate limit on the entries it is scoped to; drops overflow per bucket and notes ` (N suppressed)` on the next kept entry. See [docs/log/09-filters.md](../../docs/log/09-filters.md#ratelimitfilter) |
 
 Filters run **after** the near-zero-cost level gate, so disabled levels never
 reach them. The legacy `logger.whenRepeated` option still works (mapped to a

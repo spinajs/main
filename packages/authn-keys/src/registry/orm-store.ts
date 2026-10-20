@@ -1,0 +1,100 @@
+import { Autoinject, Injectable } from '@spinajs/di';
+import { Orm, rowsAffected } from '@spinajs/orm';
+import type { IdentityRef, KeyOwner, KeyRecord } from '@spinajs/authn/contracts';
+import { sameRef } from '@spinajs/authn/contracts';
+import { AuthnKey } from '../models/AuthnKey.js';
+import { DateTime } from 'luxon';
+import { decodeCeiling, decodePrincipalRef, encodeCeiling, encodePrincipalRef, KeyStore } from './store.js';
+
+function toRecord(row: AuthnKey): KeyRecord {
+  const createdBy = row.created_by ? decodePrincipalRef(row.created_by) : undefined;
+  const expiresAt = row.expires_at?.toJSDate();
+  const revokedAt = row.revoked_at?.toJSDate();
+  const lastUsedAt = row.last_used_at?.toJSDate();
+  return Object.freeze({
+    kid: row.kid,
+    owner: Object.freeze({ type: row.owner_type, id: row.owner_id }) as KeyOwner,
+    alg: row.alg,
+    jwk: Object.freeze(JSON.parse(row.jwk)),
+    thumbprint: row.thumbprint,
+    ...(row.name ? { name: row.name } : {}),
+    ...(row.scope ? { scope: decodeCeiling(row.scope) } : {}),
+    createdAt: row.created_at.toJSDate(),
+    ...(createdBy ? { createdBy } : {}),
+    ...(expiresAt ? { expiresAt } : {}),
+    ...(revokedAt ? { revokedAt } : {}),
+    ...(lastUsedAt ? { lastUsedAt } : {}),
+  }) as KeyRecord;
+}
+
+/** authn_key through the ORM (connection 'default', migration AuthnKeys_2026_10_02_00_00_00). */
+@Injectable(KeyStore)
+export class OrmKeyStore extends KeyStore {
+  /** The cli resolves only the command it runs, so without this the models are unbound and every query throws. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
+  private async taken(key: KeyRecord): Promise<boolean> {
+    const byKid = await AuthnKey.where('kid', key.kid);
+    const byThumb = await AuthnKey.where('thumbprint', key.thumbprint);
+    return byKid.length > 0 || byThumb.length > 0;
+  }
+
+  async insert(key: KeyRecord): Promise<'inserted' | 'duplicate'> {
+    if (await this.taken(key)) {
+      return 'duplicate';
+    }
+    const row = new AuthnKey({
+      kid: key.kid,
+      owner_type: key.owner.type,
+      owner_id: key.owner.id,
+      alg: key.alg,
+      jwk: JSON.stringify(key.jwk),
+      thumbprint: key.thumbprint,
+      scope: key.scope ? encodeCeiling(key.scope) : null,
+      name: key.name ?? null,
+      created_by: key.createdBy ? encodePrincipalRef(key.createdBy) : null,
+      created_at: DateTime.fromJSDate(key.createdAt),
+      ...(key.expiresAt ? { expires_at: DateTime.fromJSDate(key.expiresAt) } : {}),
+    });
+    try {
+      await row.insert();
+    } catch (e) {
+      // Drivers report a unique violation differently; a row that now exists means another insert won the race.
+      if (await this.taken(key)) {
+        return 'duplicate';
+      }
+      throw e;
+    }
+    return 'inserted';
+  }
+
+  async get(kid: string): Promise<KeyRecord | null> {
+    // A case-insensitive collation (MySQL's default) would also match another case of the kid.
+    const row = (await AuthnKey.where('kid', kid)).find((r) => r.kid === kid);
+    return row ? toRecord(row) : null;
+  }
+
+  async listByOwner(owner: IdentityRef): Promise<readonly KeyRecord[]> {
+    const rows = await AuthnKey.where({ owner_type: owner.type, owner_id: owner.id });
+    return rows.map(toRecord);
+  }
+
+  async revoke(owner: IdentityRef, kid: string, at: Date): Promise<'revoked' | 'already' | 'none'> {
+    const row = await this.get(kid);
+    if (!row || !sameRef(row.owner, owner)) {
+      return 'none';
+    }
+    if (row.revokedAt) {
+      return 'already';
+    }
+    const r = await AuthnKey.update({ revoked_at: DateTime.fromJSDate(at) })
+      .where('kid', kid)
+      .whereNull('revoked_at');
+    return rowsAffected(r) > 0 ? 'revoked' : 'already';
+  }
+
+  async touch(kid: string, at: Date): Promise<void> {
+    await AuthnKey.update({ last_used_at: DateTime.fromJSDate(at) }).where('kid', kid);
+  }
+}

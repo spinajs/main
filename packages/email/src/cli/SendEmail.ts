@@ -26,9 +26,9 @@ interface EmailOptions {
 @Option('-m, --model [model]', false, 'path to model data for template, in json format')
 @Option('-s, --subject [model]', true, 'subject')
 @Option('-ct, --content [content]', false, 'text content if template is not provided')
-@Option('-sd, --schedule-delay', false, 'email delay')
-@Option('-sc, --schedule-cron', false, 'send email with cron schedule')
-@Option('-sr, --schedule-repeat', false, 'How many times to send')
+@Option('-sd, --schedule-delay [delay]', false, 'email delay in milliseconds', undefined, Number)
+@Option('-sc, --schedule-cron [cron]', false, 'send email with cron schedule')
+@Option('-sr, --schedule-repeat [count]', false, 'How many times to send', undefined, Number)
 @Option('-df, --deferred', false, 'send email deferred ( send using queue & email srv')
 export class SendEmailCommand extends CliCommand {
   @Logger('email')
@@ -38,13 +38,13 @@ export class SendEmailCommand extends CliCommand {
   protected EmailSrv: EmailService;
 
   public async execute(options: EmailOptions): Promise<void> {
-    this.Log.trace(`Sending email with options options: ${JSON.stringify(options)}`);
+    this.Log.trace({ options }, 'Sending email with options options: ${options}');
 
     try {
       let model = {};
 
       if (options.model && fs.existsSync(options.model)) {
-        this.Log.trace(`Found model file at ${options.model}, trying to load model data ... `);
+        this.Log.trace({ modelFile: options.model }, 'Found model file at ${modelFile}, trying to load model data ... ');
 
         const mText = fs.readFileSync(options.model, { encoding: 'utf-8' });
         model = JSON.parse(mText);
@@ -71,9 +71,10 @@ export class SendEmailCommand extends CliCommand {
         await this.EmailSrv.send(email);
       }
 
-      this.Log.success(`Email send succesyfully to: ${options.to}, from: ${options.from}, subject: ${options.subject}`);
+      this.Log.success({ to: options.to, from: options.from, subject: options.subject }, 'Email send succesyfully to: ${to}, from: ${from}, subject: ${subject}');
     } catch (err) {
-      this.Log.error(`Cannot send email, reason: ${err.message}, stack: ${err.stack}`);
+      this.Log.error({ error: err }, 'Cannot send email');
+      throw err;
     }
   }
 }

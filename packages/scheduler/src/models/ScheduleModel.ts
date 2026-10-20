@@ -1,5 +1,5 @@
-import { Bool, Connection, Model, ModelBase, Primary } from '@spinajs/orm';
-import { EpochMs, JsonText } from './converters.js';
+import { Bool, Connection, Json, Model, ModelBase, Primary } from '@spinajs/orm';
+import { EpochMs } from './converters.js';
 
 @Connection('default')
 @Model('__scheduler')
@@ -7,7 +7,7 @@ export class ScheduleModel extends ModelBase {
   @Primary()
   public Name: string;
 
-  @JsonText()
+  @Json()
   public Definition: Record<string, unknown>;
 
   public DefinitionHash: string;
