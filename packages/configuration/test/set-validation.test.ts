@@ -2,6 +2,7 @@ import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI, IContainer } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
 
 import { NoSource } from './fixtures.js';
@@ -77,6 +78,17 @@ function sourceOf(values: Record<string, unknown>) {
 describe('configuration set, merge and reload validation', () => {
   afterEach(async () => {
     for (const c of booted.splice(0).reverse()) await c.dispose();
+  });
+
+  describe('prototype pollution', () => {
+    it('refuses set() and merge() through __proto__, constructor and prototype', async () => {
+      const config = await boot(() => ({ app: {} }));
+      for (const path of ['__proto__.polluted', ['app', '__proto__'], 'app.constructor.prototype', 'constructor']) {
+        expect(() => config.merge(path, { polluted: true })).to.throw(InvalidArgument);
+        expect(() => config.set(path, { polluted: true })).to.throw(InvalidArgument);
+      }
+      expect(({} as Record<string, unknown>).polluted).to.equal(undefined);
+    });
   });
 
   describe('set()', () => {

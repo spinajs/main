@@ -204,6 +204,13 @@ describe('crypto helpers', () => {
       expect(base32Decode(undefined)).to.be.null;
       expect(base32Decode(42)).to.be.null;
     });
+
+    it('strips padding in linear time', () => {
+      const started = performance.now();
+      expect(base32Decode('A' + '='.repeat(100_000) + 'A=')).to.be.null;
+      expect(base32Decode('MY' + '='.repeat(100_000))).to.be.null;
+      expect(performance.now() - started).to.be.below(500);
+    });
   });
 
   describe('randomToken', () => {

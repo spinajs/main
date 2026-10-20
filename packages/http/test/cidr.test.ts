@@ -20,6 +20,19 @@ describe('parseCidr', () => {
     expect(parseCidr('::ffff:10.0.0.1/104')).to.eq(null);
   });
 
+  it('reads the host bits of an embedded IPv4 suffix, and stays fast on long junk', () => {
+    expect(parseCidr('::10.0.0.0/104')).to.deep.eq({ network: '::10.0.0.0', prefix: 104, type: 'ipv6' });
+    expect(parseCidr('1:2:3:4:5:6:10.0.0.0/112')).to.deep.eq({ network: '1:2:3:4:5:6:10.0.0.0', prefix: 112, type: 'ipv6' });
+    expect(parseCidr('64:ff9b::192.0.2.0/120')).to.deep.eq({ network: '64:ff9b::192.0.2.0', prefix: 120, type: 'ipv6' });
+    expect(parseCidr('::10.0.0.1/104')).to.eq(null);
+    expect(parseCidr('1:2:3:4:5:6:10.0.1.0/112')).to.eq(null);
+    expect(parseCidr('64:ff9b::192.0.2.1/120')).to.eq(null);
+    const started = performance.now();
+    expect(parseCidr('1'.repeat(100_000) + '.1.1.1/8')).to.eq(null);
+    expect(parseCidr('::' + '1'.repeat(100_000))).to.eq(null);
+    expect(performance.now() - started).to.be.below(500);
+  });
+
   it('rejects malformed values and zone ids', () => {
     for (const value of [undefined, null, 42, '', 'localhost', '10.0.0.0/', '10.0.0.0/33', '::/129', '10.0.0.0/8/8', '10.0.0.0/-1', '10.0.0.0/08x', '10.0.0.0/0008', 'fe80::1%eth0', 'fe80::%eth0/64', '10.0.0.256']) {
       expect(parseCidr(value), String(value)).to.eq(null);

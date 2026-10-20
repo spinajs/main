@@ -10,11 +10,12 @@ function toBigInt(address: string, version: 4 | 6): bigint {
   if (version === 4) return address.split('.').reduce((n, part) => (n << 8n) | BigInt(Number(part)), 0n);
   let text = address;
   let tail: bigint[] = [];
-  const dotted = /(\d+\.\d+\.\d+\.\d+)$/.exec(text);
-  if (dotted) {
-    const v4 = toBigInt(dotted[1], 4);
+  // The address passed isIP, so a dot can only be in an embedded IPv4 suffix after the last ':'.
+  const dotted = text.slice(text.lastIndexOf(':') + 1);
+  if (dotted.includes('.')) {
+    const v4 = toBigInt(dotted, 4);
     tail = [v4 >> 16n, v4 & 0xffffn];
-    text = text.slice(0, -dotted[1].length) + 'x';
+    text = text.slice(0, -dotted.length) + 'x';
   }
   const [head, rest] = text.split('::');
   const groups = (s: string | undefined) => (s ? s.split(':').filter((g) => g !== 'x') : []);

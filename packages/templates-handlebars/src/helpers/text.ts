@@ -200,7 +200,9 @@ export function padRight(str: string, length: number, char: string = ' '): strin
  * Usage: {{stripHtml "<p>Hello</p>"}} → "Hello"
  */
 export function stripHtml(str: string): string {
-  return String(str || '').replace(/<[^>]*>/g, '');
+  // An unclosed `<` left by the first pass (e.g. `<script src=x`) would open a tag once the output
+  // is followed by markup containing `>` in an unescaped {{{ }}} context, so stray `<` go too.
+  return String(str || '').replace(/<[^>]*>/g, '').replace(/</g, '');
 }
 
 /**

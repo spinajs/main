@@ -58,4 +58,15 @@ describe('fingerprints', () => {
     expect(topInAppFrame('Error: x\n    at emit (node:events:518:28)\n    at internal/main.js:1:1')).to.eq(null);
     expect(topInAppFrame('Error: x\n    at async Job.run (file:///app/lib/Job.js:3:9)')).to.eq('Job.run (Job.js)');
   });
+
+  it('skips message lines with other line breaks, in linear time', () => {
+    const frame = '    at Job.run (/app/lib/Job.js:3:9)';
+    for (const br of ['\r', '\u2028', '\u2029']) {
+      expect(topInAppFrame(`Error: x\nat a (/app/lib/Message.js:1:1)${br}more\n${frame}`), JSON.stringify(br)).to.eq('Job.run (Job.js)');
+    }
+    expect(topInAppFrame(`Error: x\r\n${frame}\r\n`)).to.eq('Job.run (Job.js)');
+    const started = performance.now();
+    expect(topInAppFrame(`Error: x\nat ${'a (a'.repeat(30_000)}\rx\n${frame}`)).to.eq('Job.run (Job.js)');
+    expect(performance.now() - started).to.be.below(500);
+  });
 });

@@ -2,8 +2,6 @@
 // expands a `${name}` that a value brings into the message.
 const UNSAFE = /[$\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g;
 const PLAIN = /^[\p{L}\p{N}_.,:;/\\+@#~*!?&|()[\]<>'-]+$/u;
-const CONDITIONAL = /\$\{\?([a-zA-Z0-9_]+)\}(.*?)\$\{\/\1\}/gs;
-const PLACEHOLDER = /\$\{([^:}?/][^:}]*)\}/g;
 
 const has = (fields: Record<string, unknown>, name: string): boolean => {
   if (!Object.prototype.hasOwnProperty.call(fields, name)) {
@@ -60,13 +58,74 @@ export function renderTemplate(template: string, fields: Record<string, unknown>
   if (!template.includes("${")) {
     return template;
   }
-  return template
-    .replace(CONDITIONAL, (_, name: string, body: string) => (has(fields, name) ? body : ""))
-    .replace(PLACEHOLDER, (_, name: string) => {
-      if (!has(fields, name)) {
-        return "";
-      }
-      const s = renderValue(fields[name]);
-      return escapePercent ? s.replace(/%/g, "%%") : s;
-    });
+  const kept = replaceConditionals(template, (name, body) => (has(fields, name) ? body : ""));
+  return replacePlaceholders(kept, (name) => {
+    if (!has(fields, name)) {
+      return "";
+    }
+    const s = renderValue(fields[name]);
+    return escapePercent ? s.replace(/%/g, "%%") : s;
+  });
+}
+
+/**
+ * `text.replace(/\$\{\?([a-zA-Z0-9_]+)\}(.*?)\$\{\/\1\}/gs, (_, name, body) => fn(name, body))` in linear time: that
+ * regex rescans the rest of the text from every opening tag left unclosed.
+ */
+function replaceConditionals(text: string, fn: (name: string, body: string) => string): string {
+  const closes = new Map<string, number[]>();
+  for (const m of text.matchAll(/\$\{\/([a-zA-Z0-9_]+)\}/g)) {
+    const at = closes.get(m[1]);
+    if (at) at.push(m.index!);
+    else closes.set(m[1], [m.index!]);
+  }
+  if (closes.size === 0) {
+    return text;
+  }
+
+  // per name, the first close tag not yet passed; opening tags only move forward, so neither do these
+  const next = new Map<string, number>();
+  const open = /\$\{\?([a-zA-Z0-9_]+)\}/g;
+  let out = "";
+  let done = 0;
+  let m: RegExpExecArray | null;
+  while ((m = open.exec(text)) !== null) {
+    const name = m[1];
+    const at = closes.get(name);
+    if (!at) continue;
+    let k = next.get(name) ?? 0;
+    while (k < at.length && at[k] < open.lastIndex) k++;
+    next.set(name, k);
+    if (k === at.length) continue;
+    out += text.slice(done, m.index) + fn(name, text.slice(open.lastIndex, at[k]));
+    done = at[k] + name.length + 4;
+    open.lastIndex = done;
+  }
+  return out + text.slice(done);
+}
+
+/**
+ * `text.replace(/\$\{([^:}?/][^:}]*)\}/g, (_, name) => fn(name))` in linear time. A `${` whose name runs into a `:`
+ * or the end fails there, and so does every `${` before that point, so the scan resumes after it instead of
+ * rescanning from each one.
+ */
+function replacePlaceholders(text: string, fn: (name: string) => string): string {
+  let out = "";
+  let done = 0;
+  let i = text.indexOf("${");
+  while (i !== -1) {
+    const first = text[i + 2];
+    if (first === undefined || ":}?/".includes(first)) {
+      i = text.indexOf("${", i + 2);
+      continue;
+    }
+    let end = i + 3;
+    while (end < text.length && text[end] !== ":" && text[end] !== "}") end++;
+    if (text[end] === "}") {
+      out += text.slice(done, i) + fn(text.slice(i + 2, end));
+      done = end + 1;
+    }
+    i = text.indexOf("${", end);
+  }
+  return out + text.slice(done);
 }

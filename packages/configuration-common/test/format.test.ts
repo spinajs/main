@@ -206,4 +206,22 @@ describe('Variable forma test', () => {
   it('Should format against DI variables when custom vars are null', () => {
     expect(format(null, '${date}')).to.eq(DateTime.now().toFormat('dd/MM/yyyy'));
   });
+
+  it('Should close a conditional block at the first matching close tag only', () => {
+    const vars = { a: 1, b: 1 } as any;
+    expect(format(vars, '${?a}1${/a}2${/a}')).to.eq('12');
+    expect(format(vars, '${?a}${?a}x${/a}')).to.eq('x');
+    expect(format(vars, '<${?a}x${?b}y${/a}z${/b}>')).to.eq('<xyz>');
+    expect(format({ b: 1 } as any, '${?a}x${/b}${?b}y${/b}${/a}')).to.eq('');
+    expect(format({ a: 1 } as any, '${?b}x${/a}${?a}y${/b}${/a}')).to.eq('');
+    expect(format(vars, '${?a}open ${?b}done${/b}')).to.eq('open done');
+  });
+
+  it('Should format text with unclosed tags in linear time', () => {
+    const started = performance.now();
+    expect(format({ message: '${?0}' + '${?0}a'.repeat(20_000) } as any, '${message}')).to.eq('a'.repeat(20_000));
+    expect(format({ message: '${'.repeat(50_000) } as any, '[${message}]')).to.eq('[' + '${'.repeat(50_000) + ']');
+    expect(format(null, '${?a}'.repeat(50_000) + '${/b}')).to.eq('');
+    expect(performance.now() - started).to.be.below(1000);
+  });
 });

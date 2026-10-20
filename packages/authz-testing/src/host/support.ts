@@ -13,6 +13,16 @@ type Path = string | readonly string[];
 
 const segments = (path: Path): string[] => (Array.isArray(path) ? [...path] : (path as string).split('.').filter((s) => s !== ''));
 
+const UNSAFE_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+// `cur['__proto__']` is Object.prototype, which passes isRecord, so a write through it would pollute every object.
+function writableSegments(path: Path): string[] {
+  const segs = segments(path);
+  const unsafe = segs.find((s) => UNSAFE_SEGMENTS.has(s));
+  if (unsafe !== undefined) throw new Error(`TestConfiguration: path '${segs.join('.')}' contains the reserved segment '${unsafe}'`);
+  return segs;
+}
+
 /** In-memory Configuration over a plain object; paths are dotted strings or segment arrays. */
 export class TestConfiguration extends Configuration {
   private data: Record<string, unknown> = {};
@@ -31,7 +41,7 @@ export class TestConfiguration extends Configuration {
   }
 
   public set(path: string[] | string, value: unknown): void {
-    const segs = segments(path);
+    const segs = writableSegments(path);
     if (segs.length === 0) {
       this.data = isRecord(value) ? value : {};
       return;
@@ -50,7 +60,7 @@ export class TestConfiguration extends Configuration {
   }
 
   public unset(path: Path): void {
-    const segs = segments(path);
+    const segs = writableSegments(path);
     let cur: unknown = this.data;
     for (const seg of segs.slice(0, -1)) {
       if (!isRecord(cur)) return;

@@ -210,6 +210,14 @@ describe('authn-oidc config', () => {
       expect(() => resolveEndpoints({ preset: 'google' })).to.throw();
     });
 
+    it('trims a keycloak baseUrl in linear time, even on a long run of slashes not at the end', () => {
+      const started = performance.now();
+      const issuer = resolveIssuer({ preset: 'keycloak', baseUrl: 'https://kc.example.test' + '/'.repeat(100_000) + 'x', realm: 'corp' });
+      expect(performance.now() - started).to.be.below(250);
+      expect(issuer.endsWith('x/realms/corp')).to.eq(true);
+      expect(resolveIssuer({ preset: 'keycloak', baseUrl: 'https://kc.example.test/x' + '/'.repeat(100_000), realm: 'corp' })).to.eq('https://kc.example.test/x/realms/corp');
+    });
+
     it('ships one frozen preset per id, ID token presets with an issuer, github with endpoints', () => {
       expect(Object.keys(OIDC_PRESETS).sort()).to.deep.eq(['auth0', 'entra', 'github', 'google', 'keycloak', 'okta']);
       for (const [id, preset] of Object.entries(OIDC_PRESETS)) {

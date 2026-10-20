@@ -43,6 +43,14 @@ const LAZY_TARGETS = new WeakMap<object, object>();
 // Set while Ajv validates the stored value in place: it writes coerced values back through the proxies.
 let keepUnresolvedVars = false;
 
+const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+// _.set skips these keys, but _.get resolves them, so merge() into `__proto__` would write to Object.prototype.
+function assertSafePath(path: string[] | string) {
+  const unsafe = _.toPath(path).find((s) => UNSAFE_PATH_SEGMENTS.has(s));
+  if (unsafe !== undefined) throw new InvalidArgument(`Configuration path '${_.toPath(path).join('.')}' contains the reserved segment '${unsafe}'`);
+}
+
 const isUnresolved = (v: unknown) => v instanceof ConfigVar && (v.get() ?? null) === null;
 
 function withLazyVars<T extends object>(obj: T): T {
@@ -210,6 +218,7 @@ export class FrameworkConfiguration extends Configuration {
    * @param value - value to set
    */
   public set(path: string[] | string, value: unknown) {
+    assertSafePath(path);
     const schemas = this.schemasAt(path);
     this.checkChange(schemas, path, (root) => _.set(root, path, copyForCheck(value)));
     this.Config = _.set(this.Config, path, value);
@@ -223,6 +232,7 @@ export class FrameworkConfiguration extends Configuration {
    * @param value - value to merge
    */
   public merge(path: string[] | string, value: unknown) {
+    assertSafePath(path);
     const schemas = this.schemasAt(path);
     this.checkChange(schemas, path, (root) => _.mergeWith(_.get(root, path), copyForCheck(value), mergeArrays));
     _.mergeWith(this.get(path), value, mergeArrays);

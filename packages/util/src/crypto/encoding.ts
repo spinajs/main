@@ -68,7 +68,10 @@ export function base32Decode(text: unknown): Buffer | null {
   }
   let body = text;
   if (text.endsWith('=')) {
-    body = text.replace(/=+$/, '');
+    // A loop, not /=+$/: the regex rescans every earlier run of '=' to its end, quadratic on 'A=…=A='.
+    let end = text.length;
+    while (end > 0 && text.charCodeAt(end - 1) === 0x3d) end--;
+    body = text.slice(0, end);
     if (text.length % 8 !== 0 || body.length % 8 === 0) {
       return null;
     }

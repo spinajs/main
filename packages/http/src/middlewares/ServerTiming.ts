@@ -60,6 +60,6 @@ function formatEntry(e: IServerTimingEntry): string {
   // required when the description contains anything but ASCII identifiers.
   const parts = [e.name];
   if (typeof e.dur === 'number') parts.push(`dur=${e.dur}`);
-  if (e.desc) parts.push(`desc="${e.desc.replace(/"/g, '\\"')}"`);
+  if (e.desc) parts.push(`desc="${e.desc.replace(/[\\"]/g, '\\$&')}"`);
   return parts.join(';');
 }

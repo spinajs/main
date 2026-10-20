@@ -73,6 +73,13 @@ function githubEndpoints(host: string): OidcEndpoints {
 
 const fill = (template: string, values: Readonly<Record<string, string>>): string => template.replace(/\{(\w+)\}/g, (_, k: string) => values[k]);
 
+// A loop, not /\/+$/: that regex backtracks quadratically on a long run of slashes followed by another character.
+function trimTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === '/') end--;
+  return s.slice(0, end);
+}
+
 /** The issuer a source resolves to; throws for GitHub, which has none. Inputs are assumed checked by the config reader. */
 export function resolveIssuer(source: OidcProviderSource): string {
   switch (source.preset) {
@@ -83,7 +90,7 @@ export function resolveIssuer(source: OidcProviderSource): string {
     case 'entra':
       return fill(OIDC_PRESETS.entra.issuer!, { tenant: source.tenant.toLowerCase() });
     case 'keycloak':
-      return fill(OIDC_PRESETS.keycloak.issuer!, { baseUrl: source.baseUrl.replace(/\/+$/, ''), realm: source.realm });
+      return fill(OIDC_PRESETS.keycloak.issuer!, { baseUrl: trimTrailingSlashes(source.baseUrl), realm: source.realm });
     case 'auth0':
       return fill(OIDC_PRESETS.auth0.issuer!, { domain: source.domain });
     case 'okta':

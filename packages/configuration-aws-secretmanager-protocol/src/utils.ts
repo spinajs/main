@@ -235,6 +235,10 @@ function getByPath(obj: unknown, path: string): unknown {
  * Used to turn flat Parameter Store hierarchies (`db/host`, `db/port`) into a nested config object.
  */
 export function assignNested(target: Record<string, unknown>, keys: string[], value: unknown): void {
+  // Parameter names are store contents: `/app/__proto__/x` must not reach Object.prototype.
+  if (keys.some((k) => k === '__proto__' || k === 'constructor' || k === 'prototype')) {
+    return;
+  }
   let node = target;
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];

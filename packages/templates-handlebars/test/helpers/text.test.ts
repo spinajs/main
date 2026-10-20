@@ -113,6 +113,13 @@ describe('Text Helpers', () => {
       expect(textHelpers.stripHtml('<div class="test">World</div>')).to.equal('World');
     });
 
+    it('should leave no tag opener behind', () => {
+      for (const input of ['<scr<script>ipt>alert(1)', '<<b>script>alert(1)', 'x<script src=//e.vil', '<img src=x onerror=alert(1) ']) {
+        expect(textHelpers.stripHtml(input)).to.not.include('<');
+      }
+      expect(textHelpers.stripHtml('1 < 2')).to.equal('1  2');
+    });
+
     it('should escape HTML', () => {
       expect(String(textHelpers.escapeHtml('<div>'))).to.equal('&lt;div&gt;');
       expect(String(textHelpers.escapeHtml('a & b'))).to.equal('a &amp; b');

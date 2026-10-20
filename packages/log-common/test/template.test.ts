@@ -57,3 +57,29 @@ describe("renderValue", () => {
     expect(renderValue("a@b.pl")).to.equal("a@b.pl");
   });
 });
+
+describe("renderTemplate tag matching", () => {
+  const fields = { a: 1, b: "B" };
+
+  it("closes a conditional at the first matching close tag and leaves stray tags as text", () => {
+    expect(renderTemplate("${?a}1${/a}2${/a}", fields)).to.equal("12${/a}");
+    expect(renderTemplate("${?a}${?a}x${/a}", fields)).to.equal("${?a}x");
+    expect(renderTemplate("<${?a}x${?b}y${/a}z${/b}>", fields)).to.equal("<x${?b}yz${/b}>");
+    expect(renderTemplate("${?c}x${/a}${?a}y${/c}${/a}", fields)).to.equal("${/a}");
+    expect(renderTemplate("${?x} ${/x} ${b}", fields)).to.equal(" B");
+    expect(renderTemplate("${/a} ${?b}", fields)).to.equal("${/a} ${?b}");
+  });
+
+  it("takes a placeholder name up to the first } and skips one that runs into a :", () => {
+    expect(renderTemplate("${${a}", fields)).to.equal("");
+    expect(renderTemplate("${a ${b}", fields)).to.equal("");
+    expect(renderTemplate("${a:x ${b}", fields)).to.equal("${a:x B");
+  });
+
+  it("renders unclosed tags in linear time", () => {
+    const started = performance.now();
+    expect(renderTemplate("${?a}" + "${?a}x".repeat(30_000), {})).to.have.length(180_005);
+    expect(renderTemplate("${b".repeat(40_000) + ":}", fields)).to.equal("${b".repeat(40_000) + ":}");
+    expect(performance.now() - started).to.be.below(500);
+  });
+});

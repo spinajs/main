@@ -198,6 +198,16 @@ describe('utils', () => {
       assignNested(o, ['a', 'b'], 'leaf');
       expect(o).to.deep.eq({ a: { b: { c: 1 } } });
     });
+
+    it('Should skip parameter names that reach the prototype chain', () => {
+      const o: Record<string, unknown> = {};
+      assignNested(o, ['__proto__', 'polluted'], 1);
+      assignNested(o, ['a', '__proto__'], { polluted: 1 });
+      assignNested(o, ['constructor', 'prototype', 'polluted'], 1);
+      assignNested(o, ['b', 'prototype'], 1);
+      expect(({} as Record<string, unknown>).polluted).to.eq(undefined);
+      expect(Object.keys(o)).to.deep.eq([]);
+    });
   });
 
   describe('extractWithFallback', () => {
