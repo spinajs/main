@@ -2,7 +2,8 @@ import { createPrivateKey, createPublicKey } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 import { JwsSigner } from '@spinajs/authn/contracts';
 import type { JwsClaims, JwsKey, JwsSignOptions } from '@spinajs/authn/contracts';
-import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
+import { _is_string, _non_empty, _try_check_arg, isNonNegativeInt } from '@spinajs/util';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { decodeB64url, encodeB64url } from '../jwk/base64url.js';
 import { checkPublicJwk, isValidKid } from '../jwk/keys.js';
 import { signRaw } from '../jwk/signature.js';
@@ -23,29 +24,27 @@ interface SigningKey {
   readonly privateKey: KeyObject;
 }
 
-const isUint = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
-
 function signingKey(jwk: PrivateJwk): SigningKey {
   const where = `signing key ${JSON.stringify(jwk?.kid)}`;
   if (!isValidKid(jwk?.kid)) {
-    throw new Error(`${where}: kid must be 1-64 of [A-Za-z0-9._-]`);
+    throw new InvalidArgument(`${where}: kid must be 1-64 of [A-Za-z0-9._-]`);
   }
   const material = checkPublicJwk(jwk.kty === 'EC' ? { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y } : { kty: jwk.kty, crv: jwk.crv, x: jwk.x });
   if (!material) {
-    throw new Error(`${where}: not a valid Ed25519 or P-256 key`);
+    throw new InvalidArgument(`${where}: not a valid Ed25519 or P-256 key`);
   }
   if (decodeB64url(jwk.d)?.length !== 32) {
-    throw new Error(`${where}: d must be 32 bytes of base64url`);
+    throw new InvalidArgument(`${where}: d must be 32 bytes of base64url`);
   }
   let privateKey: KeyObject;
   try {
     privateKey = createPrivateKey({ key: { ...material.jwk, d: jwk.d }, format: 'jwk' });
   } catch {
-    throw new Error(`${where}: the private key does not load`);
+    throw new InvalidArgument(`${where}: the private key does not load`);
   }
   const derived = createPublicKey(privateKey).export({ format: 'jwk' });
   if (derived.x !== material.jwk.x || (material.jwk.kty === 'EC' && derived.y !== material.jwk.y)) {
-    throw new Error(`${where}: the public part does not match d`);
+    throw new InvalidArgument(`${where}: the public part does not match d`);
   }
   return { publicKey: Object.freeze({ ...material, kid: jwk.kid }) as JwsKey, privateKey };
 }
@@ -62,13 +61,13 @@ export class LocalJwsSigner extends JwsSigner {
     super();
     for (const jwk of privateJwks) {
       if (this.keys.has(jwk.kid)) {
-        throw new Error(`signing key ${JSON.stringify(jwk.kid)} appears twice`);
+        throw new InvalidArgument(`signing key ${JSON.stringify(jwk.kid)} appears twice`);
       }
       this.keys.set(jwk.kid, signingKey(jwk));
     }
     const current = opts.current ?? privateJwks[0]?.kid;
     if (current === undefined || !this.keys.has(current)) {
-      throw new Error(`no signing key ${JSON.stringify(current)}`);
+      throw new InvalidArgument(`no signing key ${JSON.stringify(current)}`);
     }
     this.current = current;
   }
@@ -77,19 +76,19 @@ export class LocalJwsSigner extends JwsSigner {
     const kid = opts.kid ?? this.current;
     const key = this.keys.get(kid);
     if (!key) {
-      throw new Error(`no signing key ${JSON.stringify(kid)}`);
+      throw new InvalidArgument(`no signing key ${JSON.stringify(kid)}`);
     }
     const [hasTyp] = _try_check_arg(_is_string(_non_empty()))(opts.typ, 'opts.typ');
     if (!hasTyp) {
-      throw new Error('a JWS needs a typ');
+      throw new InvalidArgument('a JWS needs a typ');
     }
-    if (typeof claims.iss !== 'string' || typeof claims.aud !== 'string' || !isUint(claims.iat) || !isUint(claims.exp) || claims.exp <= claims.iat) {
-      throw new Error('claims need string iss and aud, and integer iat < exp in Unix seconds');
+    if (typeof claims.iss !== 'string' || typeof claims.aud !== 'string' || !isNonNegativeInt(claims.iat) || !isNonNegativeInt(claims.exp) || claims.exp <= claims.iat) {
+      throw new InvalidArgument('claims need string iss and aud, and integer iat < exp in Unix seconds');
     }
     const header = JSON.stringify({ alg: key.publicKey.alg, kid, typ: opts.typ });
     const payload = JSON.stringify(claims);
     if (parseStrictJson(Buffer.from(payload, 'utf8'), ['iat', 'exp']) === undefined) {
-      throw new Error('claims must be JSON a strict verifier reads (no lone surrogates, no nesting deeper than 127)');
+      throw new InvalidArgument('claims must be JSON a strict verifier reads (no lone surrogates, no nesting deeper than 127)');
     }
     const input = `${encodeB64url(header)}.${encodeB64url(payload)}`;
     return `${input}.${encodeB64url(signRaw(key.publicKey.alg, key.privateKey, Buffer.from(input, 'ascii')))}`;

@@ -24,7 +24,7 @@ Add one ORM driver, for example `@spinajs/orm-sqlite` or `@spinajs/orm-postgres`
 | [HTTP message signatures](06-http-signatures.md) | `HttpSignatureStrategy` (`keys-httpsig`): an RFC 9421 subset with `Content-Digest`, per request |
 | [Replay protection](07-replay-protection.md) | `KeyNonceStore`, `DbKeyNonceStore`, `MemoryKeyNonceStore`: each assertion `jti` and signature nonce is accepted once |
 | [JWS and key material](08-jws-and-key-material.md) | `StrictJwsVerifier`, `LocalJwsSigner`, JWK checks, thumbprints, strict base64url and JSON, structured-field parsers |
-| [Custom key strategies](09-custom-key-strategies.md) | The helpers and protected hooks for writing or extending a strategy that verifies registered keys |
+| [Custom key strategies](09-custom-key-strategies.md) | `KeyStrategy`, the helpers and the protected hooks for writing or extending a strategy that verifies registered keys |
 
 ## Quick start
 

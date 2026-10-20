@@ -1,3 +1,4 @@
+import { UNSAFE_KEYS, deepFreeze } from '@spinajs/util';
 import { AuthzConfigError } from '../contracts/errors.js';
 import type { ResourceType } from '../contracts/principal.js';
 import type { ScopeAttributeSchema } from '../contracts/adapter.js';
@@ -5,7 +6,6 @@ import type { ScopeAttributeSchema } from '../contracts/adapter.js';
 const MAX_DEPTH = 32;
 // Every key and array element counts, so neither shared subtrees nor a list claiming a huge length can stall a merge.
 const MAX_VALUES = 10_000;
-const UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 type Obj = Record<string, unknown>;
 interface Walk {
@@ -190,11 +190,4 @@ function isPlainSafe(v: unknown): boolean {
 // defineProperty: never goes through an inherited setter.
 function define(o: Obj, k: string, value: unknown): void {
   Object.defineProperty(o, k, { value, enumerable: true, writable: true, configurable: true });
-}
-
-// Only for the fresh objects built here: no cycles, no foreign values.
-function deepFreeze<T>(v: T): T {
-  if (v === null || typeof v !== 'object' || Object.isFrozen(v)) return v;
-  for (const x of Object.values(v as object)) deepFreeze(x);
-  return Object.freeze(v);
 }

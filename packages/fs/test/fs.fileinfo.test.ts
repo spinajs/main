@@ -202,7 +202,7 @@ describe('fs fileinfo tests ( mocked exiftool )', function () {
     it('times out and kills the process', async () => {
         const config = DI.get(Configuration) as any;
         const original = config.get.bind(config);
-        sinon.stub(config, 'get').callsFake((path: string, def?: unknown) =>
+        sinon.stub(config, 'get').callsFake((path: unknown, def?: unknown) =>
             path === 'fs.fileInfo.timeout' ? 50 : original(path, def),
         );
 
@@ -216,7 +216,7 @@ describe('fs fileinfo tests ( mocked exiftool )', function () {
     it('uses the configured exiftool path', async () => {
         const config = DI.get(Configuration) as any;
         const original = config.get.bind(config);
-        sinon.stub(config, 'get').callsFake((path: string, def?: unknown) =>
+        sinon.stub(config, 'get').callsFake((path: unknown, def?: unknown) =>
             path === 'fs.fileInfo.exifToolPath' ? '/custom/exiftool' : original(path, def),
         );
 
@@ -269,7 +269,7 @@ describe('fs fileinfo tests ( mocked exiftool )', function () {
     it('appends configured exiftool args before the file spec', async () => {
         const config = DI.get(Configuration) as any;
         const original = config.get.bind(config);
-        sinon.stub(config, 'get').callsFake((path: string, def?: unknown) =>
+        sinon.stub(config, 'get').callsFake((path: unknown, def?: unknown) =>
             path === 'fs.fileInfo.args' ? ['-n', '-G'] : original(path, def),
         );
 

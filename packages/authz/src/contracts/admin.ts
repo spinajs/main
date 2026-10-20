@@ -1,3 +1,4 @@
+import { Exception } from '@spinajs/exceptions';
 import type { Assignment, AssignmentSubject, LinkDef, Policy, RuleDef } from './data.js';
 import type { Permission } from './permission.js';
 import type { Principal, PrincipalRef, ResourceRef } from './principal.js';
@@ -49,13 +50,15 @@ export interface AuthzAdminError {
 //        not_list_filterable, set_cycle, set_too_deep
 
 /** Thrown by write handlers, AdminGuard and AuthzCommandValidator; AuthzAdmin reports it as an AuthzAdminError. */
-export class AuthzAdminFailure extends Error {
+export class AuthzAdminFailure extends Exception {
   readonly code: string;
   readonly field?: string;
 
   constructor(code: string, message?: string, field?: string, options?: ErrorOptions) {
-    super(message ?? code, options);
+    // not `inner`: @spinajs/http spreads an error's own enumerable props into the response body
+    super(message ?? code);
     this.name = new.target.name;
+    if (options && 'cause' in options) Object.defineProperty(this, 'cause', { value: options.cause, writable: true, configurable: true });
     this.code = code;
     this.field = field;
   }
@@ -90,7 +93,7 @@ export abstract class AuthzAdmin {
   abstract list(actor: Principal, q: AuthzAdminQuery): Promise<{ items: readonly unknown[]; total: number }>;
 }
 
-export type AuthzAdminQuery = { readonly kind: 'assignments'; readonly scope?: ResourceRef; readonly subject?: AssignmentSubject; readonly role?: string; readonly includeExpired?: boolean; readonly page?: { limit: number; offset: number } } | { readonly kind: 'links' | 'rules' | 'policies'; readonly scope?: ResourceRef; readonly page?: { limit: number; offset: number } } | { readonly kind: 'attributes'; readonly scope: ResourceRef };
+export type AuthzAdminQuery = { readonly kind: 'assignments'; readonly scope?: ResourceRef; readonly subject?: AssignmentSubject; readonly role?: string; readonly includeExpired?: boolean; readonly page?: { limit: number; offset: number } } | { readonly kind: 'links' | 'rules' | 'policies'; readonly scope?: ResourceRef; readonly page?: { limit: number; offset: number } } | { readonly kind: 'attributes'; readonly scope: ResourceRef } | { readonly kind: 'holders'; readonly scope: ResourceRef; readonly permission: Permission; readonly expandSets?: boolean; readonly page?: { limit: number; offset: number } };
 
 /** One per command kind family; registered by the model that owns the data (RBAC: assignment, set, link, rule; ABAC: policy; core: scope). */
 export abstract class AuthzWriteHandler {

@@ -15,7 +15,7 @@ A check answers one question: may this principal do this action on this resource
 | Decision | The result: `allowed`, the `residual`, readable and writable `fields`, effective `roles`, the deny `reason`, `validUntil` and an optional `trace`. | `Decision` |
 | Domain | A child DI container with its own models and config. The root domain is `root` ([Domains](05-domains.md)). | `AuthzDomains` |
 
-`allowed: true` with a residual other than `TRUE` is a conditional allow: "yes, if the row matches". Pass the row (the `subject`) to get a definite answer ([Checking permissions](03-checking-permissions.md#conditional-allows)).
+`allowed: true` with a residual other than `TRUE` is a conditional allow: "yes, if the row matches". Pass the row (the `subject`) to get a definite answer ([Checking permissions](03-checking-permissions.md#conditional-allows)). `definite(decision)` is true only for an allow whose residual is `TRUE`.
 
 ## How it works
 

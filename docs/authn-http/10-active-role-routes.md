@@ -1,13 +1,13 @@
 # Active role routes
 
-`AuthnActiveRoleController` lets a session narrow its principal to one role the user holds, for example to act as `editor` instead of `admin`. The role becomes `ceiling.roles` of every later principal of that session, so [`@spinajs/authz`](../authz/README.md) grants at most what that role grants. The group is on while a `RoleSource` is registered (`RbacRoleSource` of [`@spinajs/users`](../users/14-role-switch-and-access-response.md)); otherwise every route answers 404.
+`AuthnActiveRoleController` lets a session narrow its principal to one role the user holds, for example to act as `editor` instead of `admin`. The role becomes `ceiling.roles` of every later principal of that session, so [`@spinajs/authz`](../authz/README.md) grants at most what that role grants. The group is on while a `RoleSource` (`RbacRoleSource` of [`@spinajs/users`](../users/14-role-switch-and-access-response.md)) and a `PrincipalFactory` are registered; otherwise every route answers 404.
 
 ## How it works
 
-1. `RoleSourceRegistered` (controller gate) answers 404 `not_found` while no `RoleSource` is registered.
-2. `POST /auth/active-role` reads `role` (2.x `Role`), a non-empty string of at most 256 characters. Otherwise 400 `invalid_role`.
+1. `RoleSourceRegistered` (controller gate) answers 404 `not_found` while no `RoleSource` or no `PrincipalFactory` is registered.
+2. `POST /auth/active-role` reads `role`, a non-empty string of at most 256 characters. Otherwise 400 `invalid_role`.
 3. It asks `RoleSource.rolesOf()` for the roles of the session's identity **without** the current narrowing, so a narrowed session can switch back. A role not in the list: 403 `role_not_held`.
-4. Unless the role entry has `requirePassword: false`, the request needs [fresh authentication](05-policies.md#fresh-authentication): a login within `authn.freshAuth.maxAgeSeconds`, or `password` (2.x `Password`) in the body. A wrong or throttled password: 401 login failure body without `Retry-After`.
+4. Unless the role entry has `requirePassword: false`, the request needs [fresh authentication](05-policies.md#fresh-authentication): a login within `authn.freshAuth.maxAgeSeconds`, or `password` in the body, checked in the handler through `freshAuthOrAnswer()`. A wrong or throttled password: 401 login failure body without `Retry-After`.
 5. `SessionIssuer.rotate()` gives the session a new id, then `SessionIssuer.set(handle, ACTIVE_ROLE_KEY, role)` stores the role.
 6. The answer is the principal built by `PrincipalFactory` with `ceiling: { roles: [role] }`, extended with kind `role-switch`, plus `ActiveRole`, and the new session cookie.
 7. On later requests `SessionPrincipalResolver` narrows the principal to `ceiling.roles = [ActiveRole]`.
@@ -44,12 +44,12 @@ sequenceDiagram
 | | |
 | --- | --- |
 | Policies | `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` |
-| Request body | `{ "role": string, "password"?: string }` (2.x: `Role`, `Password`) |
+| Request body | `{ "role": string, "password"?: string }` |
 | 200 | Principal summary plus extensions (kind `role-switch`) plus `"ActiveRole"`, `Set-Cookie` with the rotated session |
 | 400 | `invalid_role` |
 | 401 | login failure body (wrong or throttled password), or `unauthenticated` when the session ended meanwhile |
 | 403 | `role_not_held`, `fresh_auth_required`, `session_required`, `impersonating` |
-| 404 | `not_found`: no `RoleSource` |
+| 404 | `not_found`: no `RoleSource` or no `PrincipalFactory` |
 
 ## Configuration
 
@@ -62,7 +62,7 @@ sequenceDiagram
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `RoleSource` | optional autoinject; its registration switches the group on | `RbacRoleSource` (`@spinajs/users`) | your own | Extend `RoleSource` from `@spinajs/authn/contracts`, implement `rolesOf(principal)`, register `.as(RoleSource)`. See [`@spinajs/users`: role switch](../users/14-role-switch-and-access-response.md). |
-| `PrincipalFactory` | optional autoinject | `UserPrincipalFactory` (`@spinajs/users`) | | See [`@spinajs/users`: principal factory](../users/09-principal-factory.md). |
+| `PrincipalFactory` | optional autoinject; the group is off without it | `UserPrincipalFactory` (`@spinajs/users`) | | See [`@spinajs/users`: principal factory](../users/09-principal-factory.md). |
 
 ## Important behaviour
 

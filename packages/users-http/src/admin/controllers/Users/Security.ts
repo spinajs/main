@@ -1,5 +1,4 @@
 import { Autoinject, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { ResourceNotFound } from '@spinajs/exceptions';
@@ -55,7 +54,7 @@ export interface IAdminSessionEntry {
 }
 
 async function sessionIssuer(): Promise<SessionIssuer> {
-  if (!DI.RootContainer.hasRegistered(SessionIssuer as unknown as Class<SessionIssuer>)) {
+  if (!DI.RootContainer.hasImplementation(SessionIssuer)) {
     throw Object.assign(new ResourceNotFound('the admin session routes are off: no SessionIssuer is registered'), { error: 'not_found' });
   }
   return (await DI.resolve(SessionIssuer)) as SessionIssuer;

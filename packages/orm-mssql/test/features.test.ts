@@ -18,8 +18,8 @@ describe('mssql supported features', function () {
   });
 
   it('declares SQL Server parameter and VALUES row limits', () => {
-    expect(driver.supportedFeatures().maxBindParameters).to.eq(2098);
-    expect(driver.supportedFeatures().maxInsertRows).to.eq(1000);
+    expect(driver.MaxBindings).to.eq(2000);
+    expect(driver.MaxInsertRows).to.eq(1000);
   });
 
   it('splits a one-column insert at 1000 rows', () => {
@@ -31,13 +31,13 @@ describe('mssql supported features', function () {
     expect(insert.splitByDriverLimits().map((c) => c.Values.length)).to.deep.eq([1000, 1000, 500]);
   });
 
-  it('splits a three-column insert at 699 rows', () => {
+  it('splits a three-column insert at 666 rows', () => {
     const insert = driver
       .insert()
       .into('t')
       .values(Array.from({ length: 1500 }, (_, i) => ({ a: i, b: i, c: i })));
 
-    expect(insert.splitByDriverLimits().map((c) => c.Values.length)).to.deep.eq([699, 699, 102]);
+    expect(insert.splitByDriverLimits().map((c) => c.Values.length)).to.deep.eq([666, 666, 168]);
   });
 
   it('allows concurrent transactions', () => {

@@ -42,14 +42,14 @@ export interface LinkQuery {
 }
 
 /**
- * `LinkStore` over `authz_link` (design §6.1.6, §9.1). A link's grant is an ordinary assignment to
+ * `LinkStore` over `authz_link`. A link's grant is an ordinary assignment to
  * subject `link:<id>`, written through {@link DbAssignmentStore} in the same transaction. The token
  * exists only in `create`'s result; the row keeps its keyed hash.
  *
  * Version bumps: each write call bumps `authz_version` at least once in its transaction. The link
  * store bumps itself only when it makes no assignment write, so `create`, `revoke`, `forgetScope`
  * and an `update` without `expiresAt` bump exactly once; an `update` of `expiresAt` bumps once per
- * assignment of the link (once, unless L9 granted the link more).
+ * assignment of the link (once, unless the link was granted more roles through AuthzAdmin).
  *
  * Registered by class name only; a domain uses it by registering it as `AdminLinkStore` and `LinkStore`.
  */

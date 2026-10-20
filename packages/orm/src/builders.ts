@@ -6,7 +6,7 @@ import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
 import type { Op } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, LockTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, BooleanValueConverter } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, BooleanValueConverter } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement, ColumnCompareStatement, OuterColumn, ColumnConditionStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
@@ -420,10 +420,10 @@ export function sortOrderOf(order?: string | SortOrder | null): SortOrder {
   }
 
   if (normalized !== SortOrder.ASC && normalized !== SortOrder.DESC) {
-    throw new InvalidArgument(`Invalid sort order '${order as string}', expected ASC or DESC`);
+    throw new InvalidArgument(`Invalid sort order '${order}', expected ASC or DESC`);
   }
 
-  return normalized as SortOrder;
+  return normalized;
 }
 
 /**
@@ -774,7 +774,7 @@ export class JoinBuilder implements IJoinBuilder {
       };
     }
     else if (_.isObject(arg1)) {
-      options = arg1 as IJoinStatementOptions<R>;
+      options = arg1;
     } else {
       throw new InvalidArgument(`Invalid argument passed to innerJoin: ${arg1}`);
     }
@@ -998,10 +998,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
 
     if (typeof value === 'undefined') {
-      return _handleForTwo.call(this, column, operator);
+      return _handleForTwo(column, operator);
     }
 
-    return _handleForThree.call(this, column, operator, value);
+    return _handleForThree(column, operator, value);
 
     /**
      * handles for where("foo", 1).where(...) cases
@@ -1023,10 +1023,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       }
 
       if (sVal === null) {
-        return this.whereNull(c);
+        return self.whereNull(c);
       }
 
-      self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, this]));
+      self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, self]));
 
       return self;
     }
@@ -1054,17 +1054,17 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         const op = String(o).toLowerCase();
         // where(col, '=', null) => IS NULL ; where(col, '!=' / '<>', null) => IS NOT NULL
         if (op === SqlOperator.EQ) {
-          return this.whereNull(c);
+          return self.whereNull(c);
         }
         if (op === SqlOperator.NOT || op === SqlOperator.NOT_2) {
-          return this.whereNotNull(c);
+          return self.whereNotNull(c);
         }
         throw new InvalidArgument(`operator ${o} cannot be used with null value ( only =, !=, <> are allowed )`);
       }
 
       self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self]));
 
-      return this;
+      return self;
     }
   }
 
@@ -1095,13 +1095,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereNotNull(column: string): this {
+  public whereNotNull(column: string | Wrap): this {
     this.pushStatement(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this]));
 
     return this;
   }
 
-  public whereNull(column: string): this {
+  public whereNull(column: string | Wrap): this {
     this.pushStatement(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this]));
     return this;
   }
@@ -1574,7 +1574,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       }
     }
 
-    return relInstance!;
+    return relInstance;
   }
 
   // A nullish relation is a no-op, so routes with an optional `include` param
@@ -1629,7 +1629,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     // Everything that is not a string was handled above (constructor / array /
     // object), so the remaining value is a plain relation name.
-    this._getRelationInstance(relation as string).execute(callback);
+    // The relation runs the callback on its relation query, a SelectQueryBuilder.
+    this._getRelationInstance(relation as string).execute(callback as Parameters<IOrmRelation['execute']>[0]);
 
     return this;
   }
@@ -2208,8 +2209,8 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
         .map((c) => {
           return c.Column;
         })
-        .forEach((c: string) => {
-          binding.push(d[c]);
+        .forEach((c) => {
+          binding.push(d[c as string]);
         });
 
       self._values.push(binding);
@@ -2238,16 +2239,15 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
   }
 
   /**
-   * The payload as one builder per statement, each within the driver's `maxBindParameters` and
-   * `maxInsertRows`. A payload that fits one statement is this builder alone.
+   * The payload as one builder per statement, each within the driver's `MaxBindings` and
+   * `MaxInsertRows`. A payload that fits one statement is this builder alone.
    */
   public splitByDriverLimits(): InsertQueryBuilder[] {
-    const features = this._driver.supportedFeatures();
-    const maxBindings = features.maxBindParameters ?? Infinity;
+    const maxBindings = this._driver.MaxBindings;
     const perRow = Math.max(this._columns.length, 1);
     // raw ON CONFLICT / ON DUPLICATE KEY columns bind once per statement, not once per row
     const reserved = _.flatMap(this.DuplicateQueryBuilder?.getColumnsToUpdate() ?? [], (c: string | RawQuery) => (c instanceof RawQuery ? c.Bindings ?? [] : [])).length;
-    const rowsPerStatement = Math.min(features.maxInsertRows ?? Infinity, Math.floor((maxBindings - reserved) / perRow));
+    const rowsPerStatement = Math.min(this._driver.MaxInsertRows,Math.floor((maxBindings - reserved) / perRow));
 
     if (this._values.length <= rowsPerStatement) {
       return [this];
@@ -2305,6 +2305,7 @@ export class IndexQueryBuilder extends Builder {
   public Unique: boolean;
   public Table: string;
   public Columns: string[];
+  public Drop: boolean;
 
   constructor(container: Container, driver: OrmDriver) {
     super(container, driver);
@@ -2332,6 +2333,13 @@ export class IndexQueryBuilder extends Builder {
 
   public columns(colNames: string[]) {
     this.Columns = colNames;
+
+    return this;
+  }
+
+  /** Drops the index named by `name()` on `table()` instead of creating it. */
+  public drop() {
+    this.Drop = true;
 
     return this;
   }
@@ -2419,7 +2427,7 @@ export class ForeignKeyBuilder {
   }
 }
 
-const CASE_SENSITIVE_TYPES: ColumnType[] = [ColumnType.STRING, ColumnType.TEXT, ColumnType.TINY_TEXT, ColumnType.MEDIUM_TEXT, ColumnType.LONG_TEXT];
+const EXACT_TYPES: ColumnType[] = [ColumnType.STRING, ColumnType.TEXT, ColumnType.TINY_TEXT, ColumnType.MEDIUM_TEXT, ColumnType.LONG_TEXT];
 
 @NewInstance()
 @Inject(Container)
@@ -2433,7 +2441,7 @@ export class ColumnQueryBuilder {
   public Comment: string;
   public Charset: string;
   public Collation: string;
-  public CaseSensitive: boolean;
+  public Exact: boolean;
   public NotNull: boolean;
   public Type: ColumnType;
   public Args: any[];
@@ -2453,7 +2461,7 @@ export class ColumnQueryBuilder {
     this.AutoIncrement = false;
     this.NotNull = false;
     this.Collation = '';
-    this.CaseSensitive = false;
+    this.Exact = false;
     this.Comment = '';
     this.Unique = false;
     this.Unsigned = false;
@@ -2515,15 +2523,15 @@ export class ColumnQueryBuilder {
   }
 
   /**
-   * Compares the column's values exactly, with the dialect's binary collation: case and accent variants are
+   * Compares and orders values byte for byte, with the dialect's binary collation: case and accent variants are
    * different values. An explicit `collation()` wins. String and text columns only.
    */
-  public caseSensitive() {
-    if (!CASE_SENSITIVE_TYPES.includes(this.Type)) {
-      throw new InvalidArgument(`caseSensitive() applies to string and text columns only, column '${this.Name}' is ${this.Type}`);
+  public exact() {
+    if (!EXACT_TYPES.includes(this.Type)) {
+      throw new InvalidArgument(`exact() applies to string and text columns only, column '${this.Name}' is ${this.Type}`);
     }
 
-    this.CaseSensitive = true;
+    this.Exact = true;
 
     return this;
   }
@@ -2897,33 +2905,6 @@ export class AlterTableQueryBuilder extends QueryBuilder {
 
   public toDB(): ICompilerOutput[] {
     return this._container.resolve<AlterTableQueryCompiler>(AlterTableQueryCompiler, [this]).compile();
-  }
-}
-
-/**
- * Keeps other transactions from writing the table until the current transaction ends; they can still
- * read it. Each driver compiles it to its engine's lock, or to nothing where its transactions already
- * exclude other writers.
- */
-@NewInstance()
-export class LockTableQueryBuilder extends QueryBuilder<void> {
-  constructor(container: Container, driver: OrmDriver, name: string) {
-    super(container, driver, undefined);
-
-    this.setTable(name);
-    this.QueryContext = QueryContext.Schema;
-  }
-
-  public toDB(): ICompilerOutput[] {
-    return this._container.resolve<LockTableQueryCompiler>(LockTableQueryCompiler, [this]).compile();
-  }
-
-  protected _executeOnDriver(): Promise<void> {
-    if (this._driver.CurrentTransaction === undefined) {
-      return Promise.reject(new InvalidOperation(`lockTable(${this.Table}) holds its lock until the transaction ends, so it needs one: await it inside driver.transaction()`));
-    }
-
-    return super._executeOnDriver();
   }
 }
 
@@ -3312,14 +3293,6 @@ export class SchemaQueryBuilder {
     const builder = new AlterTableQueryBuilder(this.container, this.driver, name);
     callback.call(this, builder);
     return builder;
-  }
-
-  /**
-   * Keeps other transactions from writing `name` until the current transaction ends; they can still read it.
-   * Rejects with `InvalidOperation` when awaited outside a transaction.
-   */
-  public lockTable(name: string) {
-    return new LockTableQueryBuilder(this.container, this.driver, name);
   }
 
   public dropTable(name: string, schema?: string) {

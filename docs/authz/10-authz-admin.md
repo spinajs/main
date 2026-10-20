@@ -8,7 +8,7 @@ The core owns the bus, scope attributes and `scope.forget`. The models own their
 
 `DefaultAuthzAdmin.execute(actor, commands, opts)` (the sugar methods run one command through it):
 
-1. **Setup.** It resolves the domain's `AuthzService`, the `AdminGuard` named by `authz.admin.guard.service` and the `AuthzAdminBackend` named by `authz.admin.backend`. With no guard configured every call throws `AuthzConfigError`: it fails closed.
+1. **Setup.** On its first call it resolves the domain's `AuthzService`, the `AdminGuard` named by `authz.admin.guard.service`, the `AuthzAdminBackend` named by `authz.admin.backend` and the `authz.admin` keys, and keeps them; a setup that fails is retried on the next call. It publishes to, audits with and dates by the bus, audit and clock the domain's service booted with ([Domains](05-domains.md#services-and-extension-points)), so a later registration or config change does not reach it. With no guard configured every call throws `AuthzConfigError`: it fails closed.
 2. **Batch.** A batch longer than `authz.admin.maxBatch` fails with `invalid_batch`. Each command is deep-copied and frozen, so the command checked is the command applied, audited and evented.
 3. **Idempotency.** With `idempotencyKey`, a batch the backend already committed under `(domain, actor, key)` within 24 hours returns its stored results, unchanged.
 4. **Phase A, outside the transaction.** For each command: the `AuthzWriteHandler` of its kind runs `validate()`, every `AuthzCommandValidator` runs, then the handler's `permission()` names the permission and resource. `authz.admin.permissions` may map it to another permission. The actor must be allowed **unconditionally** and **fresh** (no cache), else `forbidden`.
@@ -60,7 +60,7 @@ sequenceDiagram
 
 Sugar methods: `assign`, `revoke`, `createLink` (returns `{ link, token }`; a replayed key fails with `conflict`, because the token is shown once), `revokeLink`, `setTags`, `putRule`, `deleteRule`, `putPolicy`, `deletePolicy`, `setScopeAttributes`, `forgetScope`. Each throws `AuthzAdminFailure` instead of returning a failed result.
 
-`list(actor, query)` reads for admin screens: `{ kind: 'assignments' | 'links' | 'rules' | 'policies' | 'attributes', scope?, ... }`. It checks `authz:<kind>.read` at the query's scope (mapped by `authz.admin.permissions` under `list.<kind>`), pages by `{ limit, offset }` (default 50, at most 500) and asks the `AuthzAdminReader` of the kind. Items never carry a link token or its hash.
+`list(actor, query)` reads for admin screens: `{ kind: 'assignments' | 'links' | 'rules' | 'policies' | 'attributes' | 'holders', scope?, ... }`. It checks `authz:<kind>.read` at the query's scope (mapped by `authz.admin.permissions` under `list.<kind>`), pages by `{ limit, offset }` (default 50, at most 500) and asks the `AuthzAdminReader` of the kind. Items never carry a link token or its hash. A `holders` query needs a `scope` and a `permission`; the RBAC reader refuses a page limit above 100 with `invalid_query` ([Holders](13-holders.md)).
 
 ## Permissions
 
@@ -84,7 +84,7 @@ The core registers none of these names. Declare them in `authz.permissions` and 
 | --- | --- | --- | --- | --- |
 | `authz.admin.guard.service` | `string` | unset: every call fails | a registered `AdminGuard` class name | The guard. authz-rbac ships `DefaultAdminGuard` and sets it in its config. |
 | `authz.admin.guard.privilegedPermission` | `string` | none | a permission name | Required unless both `preventSelfLockout` and `preventLastPrivilegedRemoval` are `false`. |
-| `authz.admin.guard.protectSystemRole` | `boolean \| null` | `true` | | Read by the guard; `null` counts as on. |
+| `authz.admin.guard.protectSystemRole` | `boolean \| null` | `true` | | Read by the guard; `null` counts as on. The four switches default to `true` in the core schema. |
 | `authz.admin.guard.preventEscalation` | `boolean \| null` | `true` | | Read by the guard. |
 | `authz.admin.guard.preventSelfLockout` | `boolean \| null` | `true` | | Read by the guard. |
 | `authz.admin.guard.preventLastPrivilegedRemoval` | `boolean \| null` | `true` | | Read by the guard. |
@@ -124,6 +124,18 @@ The guard's rules (escalation, self-lockout, last holder, system roles) and `kee
 | `WritableScopeAttributeStore` | `WritableScopeAttributeStore`, the domain's registration | none | `DbScopeAttributeStore` (authz-orm), `MemoryScopeAttributeStore` | Register one instance under this token and `ScopeAttributeStore`. |
 
 `forgetScopesInTx(container, scopes, tx, { actor, reason })` runs the `scope.forget` writes inside a transaction the caller owns, with no permission check, guard, version bump, publish or audit; authz-orm calls it when a resource row is deleted.
+
+### Writing a handler
+
+A handler gets the `AdminContext` that `AuthzAdmin` passes. These helpers keep handlers short:
+
+| Helper | Use |
+| --- | --- |
+| `adminContainer(ctx)`, `adminActor(ctx)` | The domain container and the actor. |
+| `requireAdminService(ctx, Token, who)` | Resolves a service from the domain container; throws `AuthzConfigError` naming `who` when the domain registers none. |
+| `optionalAdminService(ctx, Token)` | The same, `undefined` when none is registered. |
+| `readId`, `readRef`, `readScope`, `readNode`, `readPrincipal`, `readExpiry` | Copy a command field, or throw `AuthzAdminFailure` `invalid_command` naming the field. |
+| `invalid(field, message)` | Builds that `invalid_command` failure. |
 
 ### `AuthzCommandValidator`: custom implementation
 

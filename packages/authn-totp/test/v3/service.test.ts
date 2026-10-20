@@ -1,5 +1,6 @@
 import 'mocha';
 import assert from 'node:assert/strict';
+import { AuthnEventSink } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
 import { base32Decode, EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, FakeMfaStep, FakeStrategy, fakeSeedPort, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, parseOtpauth, RecordingEventSink, RecordingPrincipalFactory, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
 import { mfaKeyRingFrom } from '../../src/cipher/index.js';
@@ -446,6 +447,28 @@ describe('v3 service: TotpService', () => {
           { reset: true, existed: 'pending' },
           { reset: true, existed: 'none' },
         ],
+      );
+    });
+  });
+
+  describe('a failing audit sink', () => {
+    class FailingSink extends AuthnEventSink {
+      async publish(): Promise<void> {
+        throw new Error('sink down');
+      }
+    }
+
+    it('fails neither a confirm, a disable nor an admin reset that already changed the enrolment', async () => {
+      service = new TotpService({ step, sessions, authn, throttle, sinks: [new FailingSink(), events], maxAgeSeconds: 300 });
+      const { provisioning, recoveryCodes } = await enrol();
+      assert.strictEqual(recoveryCodes.length, 10);
+      clock.tick(30 * SECOND);
+      assert.deepStrictEqual(await service.disable(await session(), codeAt(provisioning), ctx()), { ok: true });
+      await enrol();
+      assert.deepStrictEqual(await service.adminReset(ADMIN, alice, ctx()), { reset: true });
+      assert.deepStrictEqual(
+        events.all().filter((e) => e.type.startsWith('mfa.')).map((e) => `${e.type}:${e.outcome}`),
+        ['mfa.enrol:success', 'mfa.disable:success', 'mfa.enrol:success', 'mfa.disable:success'],
       );
     });
   });

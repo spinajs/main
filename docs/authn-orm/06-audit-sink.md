@@ -18,7 +18,7 @@ The strategy packages resolve `Array.ofType(AuthnEventSink)` themselves or go th
 
 ## How it works
 
-1. Importing `@spinajs/authn-orm` runs `@Singleton()` and `@Injectable(AuthnEventSink)` on `DbAuthnAuditSink`. It is registered under `AuthnEventSink` and as itself.
+1. Importing `@spinajs/authn-orm` runs `@PerChildInstance()` and `@Injectable(AuthnEventSink)` on `DbAuthnAuditSink`. It is registered under `AuthnEventSink` and as itself.
 2. The `AuthnAudit` service of `@spinajs/authn` (not the model of the same name in this package) resolves every registered `AuthnEventSink` and calls `publish(e)` on each, concurrently, each bounded by `authn.audit.sinkTimeoutMs`.
 3. `DbAuthnAuditSink.publish(e)` turns `e.identity` and `e.actor` into `<type>:<id>` keys with `identityKey()`. A ref that does not fit the 100-character column leaves the column `NULL` and goes whole into `data` as `identityRef` or `actorRef`.
 4. It cuts free text to its column, by code points: `type` 32, `outcome` 8, `strategy` 64, `reason` 64, `ip` 64, `user_agent` 255, `session` 64.
@@ -61,7 +61,7 @@ Index `authn_audit_at` covers `at`; index `authn_audit_identity` covers `(identi
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Event sink | `AuthnEventSink`, resolved as a list; singleton; also registered as `DbAuthnAuditSink` | `DbAuthnAuditSink` | `LogAuthnAuditSink` (`@spinajs/authn`), `QueueAuthnEventSink` and `UserAccountSink` (`@spinajs/users`) | Add a sink with `@Injectable(AuthnEventSink)`. To replace this one, register your subclass and `DI.unregister(DbAuthnAuditSink)` before the list is first resolved. |
+| Event sink | `AuthnEventSink`, resolved as a list; per child container; also registered as `DbAuthnAuditSink` | `DbAuthnAuditSink` | `LogAuthnAuditSink` (`@spinajs/authn`), `QueueAuthnEventSink` and `UserAccountSink` (`@spinajs/users`) | Add a sink with `@Injectable(AuthnEventSink)`. To replace this one, register your subclass and `DI.unregister(DbAuthnAuditSink)` before the list is first resolved. |
 
 ### Event sink: custom implementation
 
@@ -71,10 +71,10 @@ Every registered sink gets every event, so a subclass registered next to `DbAuth
 import { DbAuthnAuditSink } from '@spinajs/authn-orm';
 import { AuthnEventSink } from '@spinajs/authn/contracts';
 import type { AuthnEvent } from '@spinajs/authn/contracts';
-import { DI, Injectable, Singleton } from '@spinajs/di';
+import { DI, Injectable, PerChildInstance } from '@spinajs/di';
 
 /** Keeps successful token and key uses out of authn_audit; every other event is stored. */
-@Singleton()
+@PerChildInstance()
 @Injectable(AuthnEventSink)
 export class QuietAuditSink extends DbAuthnAuditSink {
   public override async publish(e: AuthnEvent): Promise<void> {
@@ -132,20 +132,6 @@ export async function recentSignIns(userUuid: string): Promise<string[]> {
 
   return rows.map((r) => `${r.at.toISO()} ${r.outcome} from ${r.ip ?? 'an unknown address'}`);
 }
-```
-
-## Migration
-
-### `DbAuthnAuditSink` takes no driver
-
-The sink writes through the `AuthnAudit` model on the `default` connection and has no constructor arguments.
-
-```ts
-// Before
-const sink = new DbAuthnAuditSink(driver, { container });
-
-// After: set db.DefaultConnection; the sink awaits ormReady() itself
-const sink = new DbAuthnAuditSink();
 ```
 
 ## Related

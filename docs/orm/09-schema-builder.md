@@ -46,7 +46,7 @@ sequenceDiagram
 | `schema().createEvent(name, cb)` | `EventQueryBuilder` | `CREATE EVENT` |
 | `schema().dropEvent(name)` | `DropEventQueryBuilder` | `DROP EVENT` |
 | `schema().raw(query, bindings?)` | `RawSchemaQueryBuilder` | the given SQL, passed through |
-| `driver.index()` | `IndexQueryBuilder` | `CREATE [UNIQUE] INDEX` |
+| `driver.index()` | `IndexQueryBuilder` | `CREATE [UNIQUE] INDEX`, or `DROP INDEX` after `drop()` |
 | `driver.truncate(table)` | `TruncateTableQueryBuilder` | `TRUNCATE TABLE` |
 
 The optional `schema` argument of `dropTable`, `dropView` and `tableExists` qualifies the name with a schema or database, through `QueryBuilder.database()`.
@@ -105,7 +105,7 @@ Every modifier returns the column builder, except `default()`.
 | `primaryKey()` | Marks the column as (part of) the primary key. |
 | `comment(text)` | Column comment. |
 | `charset(name)`, `collation(name)` | Column character set and collation. |
-| `caseSensitive()` | The dialect's binary collation, so case and accent variants are different values: MySQL `CHARACTER SET '<charset>' COLLATE '<charset>_bin'` (`<charset>` is `charset()` or `utf8mb4`), PostgreSQL `COLLATE "C"`, MSSQL `COLLATE Latin1_General_100_BIN2` with a `string()` column written `NVARCHAR(n)`, SQLite nothing (its default `BINARY` is exact). An explicit `collation()` wins. String and text columns only: on any other column type it throws `InvalidArgument` naming the column. MySQL's `_bin` collations and MSSQL's `=` still ignore trailing blanks. |
+| `exact()` | Compares and orders the column byte for byte: the driver's binary collation. An explicit `collation()` wins. String and text columns only: on any other column type it throws `InvalidArgument` naming the column. See [Exact columns](#exact-columns). |
 | `default()` | Returns a `DefaultValueBuilder`; each of its methods returns the column builder. |
 
 | `DefaultValueBuilder` method | Default value |
@@ -143,14 +143,14 @@ Every modifier returns the column builder, except `default()`.
 | Method | `ColumnAlterationType` | Effect |
 | --- | --- | --- |
 | `addColumn()` | `Add` | Adds the column. This is the default mode. |
-| `modify()` | `Modify` | Changes the existing column's definition. |
-| `rename(newName)` | `Rename` | Renames the column; `OldName` keeps the name you passed to the column method. |
-| `after(column)` | n/a | Places the column after `column`. SQLite ignores it. |
+| `modify()` | `Modify` | Replaces the existing column's definition. See [Modifying a column](#modifying-a-column). |
+| `rename(newName)` | `Rename` | Renames the column; `OldName` keeps the name you passed to the column method. MSSQL throws `NotSupported`. |
+| `after(column)` | n/a | Places the column after `column`. MySQL only: SQLite ignores it, PostgreSQL logs a warning and appends, MSSQL throws `NotSupported`. |
 
 | `AlterTableQueryBuilder` method | Effect |
 | --- | --- |
 | `dropColumn(column)` | Drops the column; the name is quoted like every other identifier. Returns `void`. |
-| `rename(newTableName)` | Renames the table. Returns `void`. |
+| `rename(newTableName)` | Renames the table (`RENAME TO`; `sp_rename` on MSSQL). Returns `void`. |
 
 `default()` returns the column typed as `ColumnQueryBuilder`, which has no `addColumn()` or `modify()`. Set the mode first, or keep a reference to the column:
 
@@ -162,7 +162,29 @@ await connection.schema().alterTable('invoices', (table) => {
 });
 ```
 
-SQLite supports little beyond adding and renaming; see [SQLite `ALTER TABLE` limitations](../orm-sqlite/04-schema-and-ddl.md#alter-table-limitations).
+### Modifying a column
+
+`modify()` replaces the whole column definition, as MySQL's `MODIFY` does: restate `notNull()` and the default, or they are dropped. Each driver spells it its own way.
+
+| Driver | SQL | Limits |
+| --- | --- | --- |
+| MySQL | `ALTER TABLE t MODIFY <definition>` | none |
+| PostgreSQL | `ALTER COLUMN c TYPE <type> USING c::<type>`, then `SET` / `DROP NOT NULL` and `SET` / `DROP DEFAULT` | A type the old one has no cast to fails. |
+| MSSQL | `ALTER TABLE t ALTER COLUMN <definition>`, with `NULL` appended unless `notNull()` | `default()`, `unique()`, `primaryKey()` and `autoIncrement()` in a modify throw `NotSupported`. |
+| SQLite | Rebuilds the table in a transaction, keeping its rows, indexes and triggers | The modify must be alone in its `alterTable()`. Refused while foreign keys are enforced and another table references this one. See [SQLite `ALTER TABLE`](../orm-sqlite/04-schema-and-ddl.md#alter-table-limitations). |
+
+### Exact columns
+
+`exact()` declares the column so that comparison, `UNIQUE` and ordering go byte for byte: case and accent variants are different values. Use it for keys such as paths, tokens or external subject ids, where `Report.pdf` and `report.pdf` are two rows. An explicit `collation()` wins over the clause below. String and text columns only: on any other column type it throws `InvalidArgument` naming the column.
+
+| Driver | Clause |
+| --- | --- |
+| MySQL | `CHARACTER SET 'utf8mb4' COLLATE 'utf8mb4_bin'`; with `charset(name)`, `CHARACTER SET '<name>' COLLATE '<name>_bin'` |
+| PostgreSQL | `COLLATE "C"` |
+| MSSQL | `COLLATE Latin1_General_100_BIN2`, and a `string()` column is written `NVARCHAR(n)`: a binary collation on `VARCHAR` limits it to code page 1252 |
+| SQLite | none: `BINARY` is the default collation |
+
+MySQL's `_bin` collations and MSSQL's `=` still ignore trailing blanks. To compare a column that is not `exact()` byte for byte, use `SqlExpressions.equalsExactly()`; see [SQL helpers](17-sql-helpers.md#dialect-expressions).
 
 ### Indexes
 
@@ -174,6 +196,7 @@ SQLite supports little beyond adding and renaming; see [SQLite `ALTER TABLE` lim
 | `table(name)` | Table to index. |
 | `columns(names)` | Indexed columns, in order. |
 | `unique()` | `CREATE UNIQUE INDEX`. |
+| `drop()` | Drops the index named by `name()` instead of creating it. MySQL and MSSQL emit `DROP INDEX <name> ON <table>`; SQLite and PostgreSQL, where index names are schema-wide, `DROP INDEX <name>`. |
 
 ### Drop, truncate, clone, exists
 
@@ -186,16 +209,7 @@ SQLite supports little beyond adding and renaming; see [SQLite `ALTER TABLE` lim
 
 ### Locking a table
 
-`lockTable(name)` returns a `LockTableQueryBuilder`. Awaited inside a transaction, it keeps other
-transactions from writing the table until this one ends; plain reads go on. Awaited outside a
-transaction it rejects with `InvalidOperation`: the lock would end with the statement.
-
-| Driver | Statement |
-| --- | --- |
-| PostgreSQL | `LOCK TABLE "t" IN SHARE MODE` |
-| MySQL | ``SELECT COUNT(*) FROM `t` FOR UPDATE``: an exclusive lock on every row, because a shared one may land on a secondary index only and miss updates of other columns. Plain reads go on; other locking reads (`FOR SHARE`, `FOR UPDATE`) wait too. The next-key locks keep inserts out only under `REPEATABLE READ`, and DDL ends the transaction, so the lock with it. |
-| MSSQL | `SELECT COUNT(*) FROM [t] WITH (TABLOCK, HOLDLOCK)` |
-| SQLite | nothing: the driver holds this process's other writers while a transaction is open, and when another connection writes between this transaction's read and its write, one of the two fails with `SQLITE_BUSY` |
+There is no schema builder for a table lock. Inside a transaction, `driver.lockTableShared(table)` keeps other writers off the table until the transaction ends; see [Shared table lock](08-transactions.md#shared-table-lock).
 
 ## Views
 
@@ -251,13 +265,12 @@ transaction it rejects with `InvalidOperation`: the lock would end with the stat
 
 ## Dialect support
 
-Which statements and clauses work depends on the connection's driver. A compiler throws for what its engine lacks rather than emitting another dialect's SQL. `ISupportedFeature.events` is the only schema feature a driver declares; check the rest against this table.
+Which statements and clauses work depends on the connection's driver. A compiler throws for what its engine lacks rather than emitting another dialect's SQL. A driver declares two schema features in `ISupportedFeature`: `events`, and `nativeJson` (a JSON column type of its own; without it `json()` is stored as text). Check the rest against this table.
 
 | Feature | MySQL | SQLite | MSSQL |
 | --- | --- | --- | --- |
 | `createEvent` / `dropEvent` (`supportedFeatures().events`) | yes | throws `MethodNotImplemented` | throws `MethodNotImplemented` |
 | `createDatabase` / `dropDatabase` | yes | throws `NotSupported` | yes, `charset()` throws `NotSupported` |
-| `lockTable` | `FOR UPDATE` read of every row | sends nothing | `TABLOCK, HOLDLOCK` read |
 | View `orReplace()` | `OR REPLACE` | throws | `OR ALTER` |
 | View `ifNotExists()`, `temporary()` | throws | yes | throws |
 | View `algorithm()`, `security()` | yes | throws | throws |
@@ -273,8 +286,8 @@ See the dialect pages for the details: [MySQL](../orm-mysql/06-schema-views-and-
 | Service | Role | Default implementation | How to override |
 | --- | --- | --- | --- |
 | `DefaultValueBuilder<T>` | Builds the `DEFAULT` clause of a column; `ColumnQueryBuilder.default()` resolves it with the column as its owner. | `SqlDefaultValueBuilder` from `@spinajs/orm-sql` | Register a subclass against `DefaultValueBuilder` in the driver's container. |
-| Schema compilers (`TableQueryCompiler`, `AlterTableQueryCompiler`, `LockTableQueryCompiler`, `ColumnQueryCompiler`, `IndexQueryCompiler`, `CreateViewCompiler`, `EventQueryCompiler`, ...) | Turn a builder into SQL. | The `Sql*` compilers of `@spinajs/orm-sql`, overridden per dialect | See [Architecture](12-architecture.md) and [overriding a compiler](../orm-sql/02-query-compilers.md#services-and-extension-points). |
-| `ISupportedFeature` | `driver.supportedFeatures()`; `events` gates the event API. | Declared by each driver | Implement `supportedFeatures()` in a custom driver; see [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md#feature-flags). |
+| Schema compilers (`TableQueryCompiler`, `AlterTableQueryCompiler`, `ColumnQueryCompiler`, `IndexQueryCompiler`, `CreateViewCompiler`, `EventQueryCompiler`, ...) | Turn a builder into SQL. | The `Sql*` compilers of `@spinajs/orm-sql`, overridden per dialect | See [Architecture](12-architecture.md) and [overriding a compiler](../orm-sql/02-query-compilers.md#services-and-extension-points). |
+| `ISupportedFeature` | `driver.supportedFeatures()`; `events` gates the event API, `nativeJson` tells whether `json()` is a JSON type or text. | Declared by each driver | Implement `supportedFeatures()` in a custom driver; see [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md#feature-flags). |
 
 ## Important behaviour
 
@@ -290,7 +303,7 @@ See the dialect pages for the details: [MySQL](../orm-mysql/06-schema-views-and-
 ## Best practices
 
 - Call `connection.schema()` on the `OrmDriver` your migration's `up()` receives, so the statement runs on that connection and inside its migration transaction.
-- Guard dialect-specific statements with `connection.supportedFeatures().events` or a check on `connection.Options.Driver`, so one migration runs on every driver your project uses.
+- Write one migration for every driver: alter columns with `alterTable()` and `modify()`, drop indexes with `index().drop()`, and branch on `connection.supportedFeatures()` (`events`, `nativeJson`) rather than on `connection.Options.Driver`. A driver subclass registered under its own name reports the same features.
 - Use `increments('Id')` for a single auto-increment key; on SQLite an auto-increment column cannot be part of a composite key.
 - Add `unique()` to a column you upsert on. `InsertQueryBuilder.onDuplicate()` derives its conflict columns from unique columns, not from the primary key.
 - Use `schema().tableExists()` before creating objects a peer process might have created; the migration service does exactly this for its own tracking tables.
@@ -396,6 +409,28 @@ export class AddInvoiceDueDays_2026_10_02_09_00_00 extends OrmMigration {
   public async down(connection: OrmDriver): Promise<void> {
     await connection.schema().alterTable('invoices', (table) => {
       table.dropColumn('DueDays');
+    });
+  }
+}
+```
+
+### Widen a share-link token column and make it case-sensitive
+
+```ts sample
+import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
+
+@Migration('default')
+export class WidenShareToken_2026_10_05_09_00_00 extends OrmMigration {
+  public async up(connection: OrmDriver): Promise<void> {
+    // modify() replaces the definition: NOT NULL is restated. On SQLite this rebuilds the table.
+    await connection.schema().alterTable('share_links', (table) => {
+      table.string('Token', 128).notNull().exact().modify();
+    });
+  }
+
+  public async down(connection: OrmDriver): Promise<void> {
+    await connection.schema().alterTable('share_links', (table) => {
+      table.string('Token', 64).notNull().modify();
     });
   }
 }

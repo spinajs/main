@@ -4,10 +4,10 @@ import 'mocha';
 import { AuthzConfigError } from '@spinajs/authz';
 import type { ModelBase, QueryBuilder } from '@spinajs/orm';
 
-import { AccessResource, Owner, Self } from '../../src/index.js';
+import { AccessResource, Owner, Relation, Self } from '../../src/index.js';
 import type { PlanTermCompiler } from '../../src/plan/index.js';
 import { entryOf } from '../../src/registry.js';
-import { RelationOwnerTerm, RelationSelfTerm, planRow } from '../../src/lists/index.js';
+import { RelationColumnTerm, RelationOwnerTerm, RelationSelfTerm, planRow } from '../../src/lists/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 
@@ -16,7 +16,7 @@ const expect = chai.expect;
 type Resource = typeof ModelBase & { query(): QueryBuilder };
 const p = (type: string, id: string) => ({ type, id });
 
-describe('relation.owner / relation.self terms', function () {
+describe('relation.owner / relation.self / relation.column terms', function () {
   this.timeout(60000);
   let db: TestDb;
   let pg = false;
@@ -125,6 +125,53 @@ describe('relation.owner / relation.self terms', function () {
         }
         expect(() => owner.apply({ principals: [] }, where, row)).to.throw(AuthzConfigError, /no owner column/);
         expect(() => new RelationSelfTerm().apply({ principals: [] }, where, row)).to.throw(AuthzConfigError, /no self column/);
+      });
+
+      it('relation.column: the named relation like owner, with or without a type column', async () => {
+        const Task = (await db.define(
+          {
+            name: 'Task',
+            columns: { assignee_id: 'TEXT', reviewer_id: 'TEXT', reviewer_type: 'TEXT' },
+            rows: [
+              { id: 'a', assignee_id: 'alice', reviewer_id: 'bot', reviewer_type: 'agent' },
+              { id: 'b', assignee_id: 'bob', reviewer_id: 'bot', reviewer_type: 'user' },
+            ],
+            decorate: (c, proto) => {
+              AccessResource('task')(c);
+              Relation('assignee')(proto, 'assignee_id');
+              Relation('reviewer', { typeColumn: 'reviewer_type' })(proto, 'reviewer_id');
+            },
+          },
+          dialect,
+        )) as Resource;
+        const column = new RelationColumnTerm();
+        expect(await ids(Task, column, { relation: 'assignee', principals: [p('user', 'alice'), p('agent', 'bob')] })).to.deep.equal(['a']);
+        expect(await ids(Task, column, { relation: 'reviewer', principals: [p('agent', 'bot')] })).to.deep.equal(['a']);
+        expect(await ids(Task, column, { relation: 'reviewer', principals: [] })).to.deep.equal([]);
+      });
+
+      it('relation.column refuses malformed args, an undeclared relation and inherited object members', async () => {
+        const Task = (await db.define(
+          {
+            name: 'Task',
+            columns: { assignee_id: 'TEXT' },
+            decorate: (c, proto) => {
+              AccessResource('task')(c);
+              Owner()(proto, 'assignee_id');
+              Relation('assignee')(proto, 'assignee_id');
+            },
+          },
+          dialect,
+        )) as Resource;
+        const row = planRow(Task.query(), entryOf(Task)!);
+        const where = db.driver(dialect).select().from(db.table(Task));
+        const column = new RelationColumnTerm();
+        expect(row.relation('assignee')).to.deep.equal({ column: 'assignee_id' });
+        expect(() => column.apply({ principals: [] }, where, row)).to.throw(AuthzConfigError, /relation.column args/);
+        for (const name of ['missing', 'owner', 'constructor', 'toString']) {
+          if (name !== 'owner') expect(row.relation(name)).to.equal(undefined);
+          expect(() => column.apply({ relation: name, principals: [] }, where, row), name).to.throw(AuthzConfigError, new RegExp(`no column relation '${name}'`));
+        }
       });
     });
   }

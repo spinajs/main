@@ -53,7 +53,7 @@ describe('sqlite insert split by bound-parameter limit', function () {
   });
 
   it("declares SQLite's bound-parameter limit", () => {
-    expect(driver().supportedFeatures().maxBindParameters).to.eq(32766);
+    expect(driver().MaxBindings).to.eq(32766);
   });
 
   it('inserts 20 000 rows of two columns through several statements', async () => {

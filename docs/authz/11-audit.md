@@ -75,6 +75,8 @@ Select it with `authz: { audit: { service: 'SiemDecisionAudit' } }`. One sink se
 - **Auditing never fails a check.** A sink error is logged at `error` and dropped.
 - **Log lines are injection-safe.** `LogDecisionAudit` passes values as log fields, so user input cannot forge a field or a line.
 - **`summary()` and `covers()` checks are quiet**: they audit nothing, but a denial they cached is audited by the first audited check that reuses it.
+- **`inspect()` is never audited** ([Holders](13-holders.md#inspect)).
+- **Unattended queries show in the audit.** With `DbDecisionAudit`, `authz:audit-unattended` (`@spinajs/authz-orm`) counts the `authz_audit` rows with the reason `unattended` by resource type, the most frequent first. It reads the table on the `authz-audit` connection that `DbDecisionAudit` writes, and fails when the ORM has no such connection or the table does not exist.
 
 ## Related
 

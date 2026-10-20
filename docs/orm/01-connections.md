@@ -15,7 +15,7 @@
 5. `Orm` registers the `OrmConnection` factory in DI: `DI.resolve<OrmDriver>('OrmConnection', [name])` returns the driver stored under `name`, or `null`.
 6. `Orm` discovers migrations (see [Migrations](10-migrations.md)) and registers every class decorated with `@Model` into `Orm.Models`.
 7. `Orm` assigns `Orm.Migration` (a `MigrationRunner`), registers the default value converters, and runs the boot migration pass unless `MigrateOnStartup` is `false`.
-8. `Orm.reloadTableInfo()` binds each model to the driver named by its `@Connection`, reads the table's columns with `driver.tableInfo()` and merges them into the model descriptor. A model whose connection is not in `Orm.Connections` is skipped with a warning. A model whose table is missing (`tableInfo()` answers `null`) fails the boot when `db.StrictTableCheck` is on (the default): one `OrmException` names every such model, its table and its connection, for example `Missing tables (db.StrictTableCheck): model FsObjectRecord: table fs_object on connection authz-fs (main). Create them (run their migrations) or set db.StrictTableCheck to false`. With the key `false`, or in an `Orm` resolved with `MigrateOnStartup: false`, each one is logged as a warning and the model keeps only its decorator columns.
+8. `Orm.reloadTableInfo()` binds each model to the driver named by its `@Connection`, reads the table's columns with `driver.tableInfo()` and merges them into the model descriptor. A model whose connection is not in `Orm.Connections` is skipped with a warning. A model whose table is missing (`tableInfo()` answers `null`) fails the boot when `db.StrictTableCheck` is on (the default): one `OrmException` names every such model, its table and its connection, for example `Missing tables (db.StrictTableCheck): model PolicyRecord: table authz_policy on connection authz (main). Create them (run their migrations) or set db.StrictTableCheck to false`. With the key `false`, or in an `Orm` resolved with `MigrateOnStartup: false`, each one is logged as a warning and the model keeps only its decorator columns.
 9. `Orm` wires relation targets (an unknown target model throws `OrmException`), installs the model static methods, and runs the `data()` phase of the migrations applied in step 7.
 
 ```mermaid
@@ -149,6 +149,8 @@ Constructor options of `Orm`, passed through DI rather than read from configurat
 | `select<T>()`, `insert()`, `update<T>()`, `del<T>()`, `truncate(table)` | Query builders bound to this connection. See [Query builder](05-query-builder.md). |
 | `schema()`, `index()` | Schema and index builders. See [Schema builder](09-schema-builder.md). |
 | `transaction(cb, options?)`, `afterCommit(cb)` | Transactions; `cb` is a `TransactionCallback<R>`: `(driver: OrmDriver) => Promise<R>`. See [Transactions](08-transactions.md). |
+| `lockTableShared(table)` | Keeps other writers off `table` until the transaction in scope ends; readers go on. Throws `InvalidOperation` outside a transaction, `NotSupported` on a driver that does not implement it. See [Transactions](08-transactions.md#shared-table-lock). |
+| `MaxBindings`, `MaxInsertRows` | The server's parameters per statement and rows per `VALUES` list. `Infinity` unless the driver declares them: `MaxBindings` is `32766` on SQLite, `65535` on MySQL and PostgreSQL, `2000` on MSSQL; `MaxInsertRows` is `1000` on MSSQL. `InsertQueryBuilder` splits a multi-row insert to stay within both. See [SQL helpers](17-sql-helpers.md#batches). |
 | `startHealthCheck()`, `stopHealthCheck()`, `poolMetrics()`, `publishPoolMetrics()`, `observeAcquireSeconds(s)` | Health probe and metrics. See [Observability and resilience](13-observability-and-resilience.md). |
 
 `ISupportedFeature` tells the ORM what the dialect can do:
@@ -158,9 +160,8 @@ Constructor options of `Orm`, passed through DI rather than read from configurat
 | `events` | `boolean` | The database supports scheduled events. |
 | `insertReturning` | `boolean` | A plain `INSERT` can echo inserted rows with `RETURNING` / `OUTPUT`. |
 | `insertIdIsFirstOfBatch` | `boolean` (optional, default `false`) | The identity reported after a multi-row insert is the key of the first row, with the others contiguous. |
-| `maxBindParameters` | `number` (optional, default `Infinity`) | Most bound parameters one statement may carry. `InsertQueryBuilder` splits a multi-row insert to stay within it. SQLite `32766`, PostgreSQL `65535`, MSSQL `2098`, MySQL `Infinity`. |
-| `maxInsertRows` | `number` (optional, default `Infinity`) | Most rows one `INSERT ... VALUES` may carry. MSSQL `1000`. |
 | `concurrentTransactions` | `boolean` (optional, default `true`) | Two outermost transactions can be open at once. `false` (SQLite) makes `transaction()` queue outermost calls. |
+| `nativeJson` | `boolean` (optional, default `false`) | The database has a JSON column type of its own. Without it, `json()` columns are stored as text. `true` on MySQL and PostgreSQL. |
 
 Insert and update responses are normalized to `DbServerResponse` (`RowsAffected`, `LastInsertId`, `Returning`) by the connection's `ServerResponseMapper`. See [Architecture](12-architecture.md). To write a new driver, see [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md).
 
@@ -186,7 +187,7 @@ export async function bootstrapDatabase(): Promise<Orm> {
 - An unknown target in `db.Aliases` logs `Connection alias <alias> points at <name>, which does not exist; models and migrations on <alias> are skipped`, and boot continues. A package can therefore default an alias (`db.Aliases.authz: 'default'`) without breaking an app that has no `default` connection.
 - Model static methods (`where`, `get`, `query`, ...) throw `Not implemented` until `Orm.resolve()` completes. `Orm` installs them in step 9.
 - A model with no `@Connection`, or with a name missing from `Orm.Connections`, is left without a driver. `Orm` logs `Cannot find connection ... in connection list` and continues.
-- Every model a package registers by import is checked, used or not. An app importing `@spinajs/authz-fs` registers `FsObjectRecord`, so with `db.StrictTableCheck` on it needs the `fs_object` table (migration `AuthzFsObject_2026_10_01_00_00_00`) on the connection `db.Aliases['authz-fs']` names, or `db.StrictTableCheck: false`. The same holds for `authz_policy` (`@spinajs/authz-abac`, which authz-fs imports) and the authz-rbac tables on `db.Aliases.authz`. MSSQL cannot create `fs_object` yet, so an MSSQL app importing authz-fs sets the key to `false`.
+- Every model a package registers by import is checked, used or not. An app importing `@spinajs/authz-abac` registers `PolicyRecord`, so with `db.StrictTableCheck` on it needs the `authz_policy` table on the connection `db.Aliases.authz` names, or `db.StrictTableCheck: false`. The same holds for the record models of `@spinajs/authz-rbac` and `@spinajs/authz-orm` on the same alias.
 - `orm.reloadTableInfo()` called by hand only warns unless passed `{ strict: true }`. An app that migrates after the boot (`Migration.OnStartup` off, then `orm.Migration.up()`) sets `db.StrictTableCheck: false` and calls `orm.reloadTableInfo({ strict: true })` after its `up()`; it needs that call anyway for the columns of the new tables.
 - `Orm.Migration` is assigned inside `resolve()`. It is `undefined` on an unresolved `Orm`.
 - Each driver has its own child container. A registration in `driver.Container` affects only that connection.

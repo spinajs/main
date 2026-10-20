@@ -33,6 +33,7 @@ import type { IContainer } from '@spinajs/di';
 
 import { AuthzClock, AuthzContributor, AuthorizationModel, ChangeBus, DecisionAudit, RelationResolver, ResourceAdapter, ScopeAttributeStore, ScopeResolver, resourceKey } from '@spinajs/authz';
 import type { AuthzService, ResourceRef } from '@spinajs/authz';
+import { isPlainObject as isRecord } from '@spinajs/util';
 import type { BehaviourAuthz, BehaviourDomains, BehaviourHarness, HarnessSession, SetupContext } from '../behaviour/harness.js';
 import type { Facet, World } from '../behaviour/types.js';
 import { instantiateWorld } from '../behaviour/world.js';
@@ -79,8 +80,6 @@ class WorldAttributeStore extends ScopeAttributeStore {
     return '';
   }
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 // Plain objects and arrays are copied; anything else (functions, class instances) is kept as is.
 function copy<T>(value: T): T {

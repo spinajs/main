@@ -1,18 +1,17 @@
 import { randomUUID } from 'node:crypto';
 
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { Injectable, Singleton } from '@spinajs/di';
+import { Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { RawQuery, modelDriver, ormReady } from '@spinajs/orm';
+import { UniqueViolation, ormReady } from '@spinajs/orm';
 import { _between, _check_arg, _integer, _is_array, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
-import type { WhereBuilder } from '@spinajs/orm';
+import type { IWhereBuilder } from '@spinajs/orm';
 import type { DateTime } from 'luxon';
 
 import { identityKey } from '../identity.js';
 import { AuthnMfa } from '../models/AuthnMfa.js';
 import { AuthnRecoveryCode } from '../models/AuthnRecoveryCode.js';
-import { checkedMs, checkedText, dateOf, driverDialect, instant, isDuplicate, sha256hex } from '../support/sql.js';
-import type { Dialect } from '../support/sql.js';
+import { checkedMs, checkedText, dateOf, instant, sha256hex } from '../support/sql.js';
 import { columnValues } from '../support/values.js';
 
 /** Each retry means a parallel `remove` deleted the row between this call's insert and update. */
@@ -22,7 +21,7 @@ const RAW_MAX = 1024;
 
 /** One MFA step of an identity as stored. */
 export interface MfaRecord {
-  /** Cipher text exactly as `put` was given it; this store never encrypts or decrypts. */
+  /** Cipher text exactly as `putPending` was given it; this store never encrypts or decrypts. */
   readonly secretEnc: string;
   readonly keyId: string;
   readonly confirmedAt: Date | null;
@@ -40,26 +39,11 @@ function lastStepOf(value: unknown): number | null {
   return n;
 }
 
-/**
- * `secret_enc = ?` where the plain comparison is wrong: `secret_enc` is TEXT, which SQL Server cannot compare with
- * `=`, and MySQL compares under a case-blind collation by default. Undefined: the plain comparison is exact.
- */
-function exactSecretEnc(dialect: Dialect, value: string): RawQuery | undefined {
-  switch (dialect) {
-    case 'mssql':
-      return RawQuery.create('CAST([secret_enc] AS NVARCHAR(MAX)) = ?', [value]);
-    case 'mysql':
-      return RawQuery.create('CAST(`secret_enc` AS BINARY) = ?', [value]);
-    default:
-      return undefined;
-  }
-}
-
 const confirmed = (r: AuthnMfa): boolean => r.confirmed_at !== null && r.confirmed_at !== undefined;
 
-/** The columns `put` and `putPending` write: unconfirmed, no accepted time step. */
+/** The columns `putPending` writes: unconfirmed, no accepted time step. */
 function pending(secretEnc: string, keyId: string, createdAt: DateTime): Partial<AuthnMfa> {
-  return columnValues<AuthnMfa>({ secret_enc: secretEnc, key_id: keyId, confirmed_at: null, last_step: null, created_at: createdAt });
+  return columnValues<AuthnMfa>({ secret_enc: secretEnc, secret_hash: sha256hex(secretEnc), key_id: keyId, confirmed_at: null, last_step: null, created_at: createdAt });
 }
 
 /**
@@ -70,7 +54,7 @@ function pending(secretEnc: string, keyId: string, createdAt: DateTime): Partial
  * Without transactions (the sqlite driver shares one handle) `replaceRecoveryCodes` deletes and then inserts: two
  * parallel calls for one identity may leave both sets.
  */
-@Singleton()
+@PerChildInstance()
 @Injectable()
 export class DbMfaStore {
   public async get(id: IdentityRef, step: string): Promise<MfaRecord | null> {
@@ -89,30 +73,9 @@ export class DbMfaStore {
     };
   }
 
-  /** Stores (or replaces) the step: unconfirmed, no accepted time step, created now. */
-  public async put(id: IdentityRef, step: string, secretEnc: string, keyId: string): Promise<void> {
-    const identity = identityKey(id);
-    const name = stepName(step);
-    checkedText(secretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: secretEnc');
-    checkedText(keyId, 32, 'DbMfaStore: keyId');
-    const ms = checkedMs(new Date(), 'DbMfaStore.put: the clock');
-    await ormReady();
-
-    const fields = pending(secretEnc, keyId, instant(ms));
-    for (let i = 0; i < MAX_TRIES; i++) {
-      try {
-        await AuthnMfa.insert({ identity, step: name, ...fields });
-        return;
-      } catch (err) {
-        if (!isDuplicate(err)) throw err;
-      }
-      if ((await AuthnMfa.update(fields).where('identity', identity).where('step', name)).RowsAffected === 1) return;
-    }
-    throw new UnexpectedServerError(`DbMfaStore.put: the ${name} row kept changing under this call`);
-  }
-
   /**
-   * As `put`, but never overwrites a confirmed step: false means a confirmed row exists and nothing changed. The
+   * Stores the step unconfirmed, with no accepted time step and created now, replacing a pending one. A confirmed
+   * step is never overwritten: false means a confirmed row exists and nothing changed. The
    * replacing update is conditional on `confirmed_at IS NULL`, so a confirmation that lands first always wins.
    */
   public async putPending(id: IdentityRef, step: string, secretEnc: string, keyId: string): Promise<boolean> {
@@ -129,7 +92,7 @@ export class DbMfaStore {
         await AuthnMfa.insert({ identity, step: name, ...fields });
         return true;
       } catch (err) {
-        if (!isDuplicate(err)) throw err;
+        if (!(err instanceof UniqueViolation)) throw err;
       }
       if ((await AuthnMfa.update(fields).where('identity', identity).where('step', name).whereNull('confirmed_at')).RowsAffected === 1) return true;
       // No row updated: either it is confirmed, or a parallel remove deleted it and the insert is worth retrying.
@@ -152,10 +115,7 @@ export class DbMfaStore {
       .where('identity', identity)
       .where('step', name);
     if (expectedSecretEnc !== undefined) {
-      const exact = exactSecretEnc(driverDialect(modelDriver(AuthnMfa)), expectedSecretEnc);
-      q.whereNull('confirmed_at');
-      if (exact) q.where(exact);
-      else q.where('secret_enc', expectedSecretEnc);
+      q.whereNull('confirmed_at').where('secret_hash', sha256hex(expectedSecretEnc));
     }
     return (await q).RowsAffected === 1;
   }
@@ -166,7 +126,7 @@ export class DbMfaStore {
     const name = stepName(step);
     _check_arg(_is_number(_integer(), _between(0, Number.MAX_SAFE_INTEGER)))(timeStep, 'timeStep');
     await ormReady();
-    const older = function (this: WhereBuilder<unknown>) {
+    const older = function (this: IWhereBuilder<unknown>) {
       this.whereNull('last_step');
       this.orWhere('last_step', '<', timeStep);
     };

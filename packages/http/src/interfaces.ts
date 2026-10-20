@@ -4,6 +4,7 @@ import { fs, IFileInfo } from '@spinajs/fs';
 import formidable from 'formidable';
 import { CookieOptions } from 'express';
 import { IPerfScope } from '@spinajs/log';
+import type { ProxyTrust } from './middlewares/RealIp.js';
 
 /**
  * Accept header enum
@@ -271,6 +272,8 @@ export interface IActionLocalStoregeContext {
   responseEnd: Date;
   responseTime: number;
   realIp: string | undefined;
+  /** The proxy trust `RealIp` resolved `realIp` with; read it with `requestProxyTrust(req)`. */
+  proxyTrust?: ProxyTrust;
   /**
    * Phase markers contributed by middlewares / controllers, surfaced as the
    * `Server-Timing` response header when {@link ServerTiming} is enabled.

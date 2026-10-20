@@ -6,8 +6,8 @@ A command is a class that extends `CliCommand`, carries `@Command` and implement
 
 1. **Declaration.** `@Command` stores an `ICommand` under the `cli:command` metadata key (`META_COMMAND`) on the class and calls `DI.register(target).as('__cli_command__')`.
 2. **Discovery.** `Cli.resolve()` lists the file through `system.dirs.cli` ([Command discovery](05-command-discovery.md)). A listed class without `@Command` metadata is skipped with the warning `Command ... is not marked as command`.
-3. **Build.** `Cli.resolve()` creates `new Command(nameAndArgs)` from commander, applies the `ICommand` fields, adds the options and arguments ([Arguments and options](03-arguments-and-options.md)), and registers `preAction`, `postAction` and action handlers.
-4. **Tree.** Commands with `parent` are attached to the command whose name matches; the rest go to the top level.
+3. **Build.** `Cli.resolve()` creates a commander `Command` named after the first token of `nameAndArgs`, declares the rest of `nameAndArgs` as its arguments, applies the `ICommand` fields, adds the options and arguments ([Arguments and options](03-arguments-and-options.md)), and registers `preAction`, `postAction` and action handlers.
+4. **Tree.** Commands with `parent` are attached to the command whose name matches; the rest go to the top level. `opts` is passed to `addCommand`.
 5. **Dispatch.** When commander selects the command, its parent's `preSubcommand` hook calls `DI.resolve(<command class>)` once and calls `onCreation(command)`. The resolved instance is memoized for the run.
 6. **Execute.** Commander runs the `preAction` hooks, then `execute(...args, options, command)`, then the `postAction` hooks ([Lifecycle hooks](04-lifecycle-hooks.md)).
 7. **Errors.** A failing `DI.resolve()` logs `Cannot resolve command ${command} ( ${file} )` and rejects the run. An error thrown by `execute()` rejects `Cli.resolve()`.
@@ -34,7 +34,7 @@ export class RenameUserCommand extends CliCommand {
 
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
-| `@Command(nameAndArgs, description, opts?)` | class | `nameAndArgs`: command name; `description`; `opts`: commander `CommandOptions` (stored, not applied) | Marks the class as a command and registers it under `'__cli_command__'` |
+| `@Command(nameAndArgs, description, opts?)` | class | `nameAndArgs`: command name with optional arguments; `description`; `opts`: commander `CommandOptions` | Marks the class as a command and registers it under `'__cli_command__'` |
 | `@Command(config: ICommand)` | class | every field of `ICommand`, below | Same, with the full option set |
 
 `@Command` is independent of the order of `@Argument` and `@Option` on the same class.
@@ -43,9 +43,9 @@ export class RenameUserCommand extends CliCommand {
 
 | Field | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `nameAndArgs` | `string` | required | The command name. Its first space-separated token is the name `parent` matches against |
+| `nameAndArgs` | `string` | required | The command name, optionally followed by commander argument syntax (`'greet <name> [greeting]'`). The first space-separated token is the name `parent` matches against |
 | `description` | `string` | `''` in the positional form | Help description, translated |
-| `opts` | `CommandOptions` | `undefined` | Stored in the metadata; `Cli` does not pass it to commander, so `hidden` and `isDefault` have no effect |
+| `opts` | `CommandOptions` | `undefined` | Passed to commander's `addCommand`: `hidden` leaves the command out of the help list, `isDefault` runs it when its parent is invoked without a subcommand (a bare `spinajs` still prints help) |
 | `aliases` | `string[]` | none | Alternative names, eg. `['ls']` |
 | `summary` | `string` | none | Short text in the parent's command list, translated |
 | `usage` | `string` | generated | Usage line in help |
@@ -146,7 +146,7 @@ export class TenantSuspendCommand extends TenantCommand {
 }
 ```
 
-Keep each command in its own file: discovery takes one class per file ([Command discovery](05-command-discovery.md#important-behaviour)). The sample shows them together for brevity.
+Discovery finds every exported command of a file ([Command discovery](05-command-discovery.md#important-behaviour)), so the two commands can share one file. Keep `TenantCommand` outside the scanned directory: an undecorated `CliCommand` subclass there is skipped with the `not marked as command` warning.
 
 ### `CliCommand`: replace a shipped command's behaviour
 
@@ -173,10 +173,10 @@ DI.register(AuditedMigrateUpCommand).as(MigrateUpCommand);
 
 ## Important behaviour
 
-- Put only the command name in `nameAndArgs` and declare operands with `@Argument`. `Cli` passes the whole string to `new Command(...)`, which takes it as the name: `@Command('greet <name>', ...)` produces a command called `greet <name>` that `spinajs greet World` cannot invoke.
+- Arguments in `nameAndArgs` are declared before the `@Argument` ones and have no description. Use `@Argument` when the help should describe them.
 - Commands are resolved lazily. Unrelated commands are never instantiated, so a command whose `resolve()` throws breaks only its own invocation.
 - The parents on the dispatch path are resolved too: `spinajs db migrate` resolves `db` (its `onCreation` and hooks run) before `migrate`.
-- `@Option` and `@Argument` read inherited metadata with `Reflect.hasMetadata` and append to that array. A subclass of a decorated command that adds its own `@Option` or `@Argument` mutates the parent command's list, so both commands get the new option. Extend undecorated abstract bases instead.
+- A subclass of a decorated command inherits its options and arguments. `@Option` or `@Argument` on the subclass adds to a copy, so the parent command does not get them.
 - Two commands with the same name are both added; commander dispatches to the first one registered.
 - Command descriptions, summaries and help texts go through the [translator](07-cli-service.md#translation) once, when the tree is built.
 

@@ -2,9 +2,9 @@ import { randomBytes, randomUUID } from 'node:crypto';
 
 import { SecretStore } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { Injectable, Singleton } from '@spinajs/di';
+import { Injectable, PerChildInstance } from '@spinajs/di';
 import { ormReady } from '@spinajs/orm';
-import type { WhereBuilder } from '@spinajs/orm';
+import type { IWhereBuilder } from '@spinajs/orm';
 import { _check_arg, _finite, _gt, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import type { DateTime } from 'luxon';
 
@@ -26,7 +26,7 @@ const RAW_MAX = 1024;
  *
  * Two parallel `issue` calls for one identity and purpose may both leave a live row: each deletes, then inserts.
  */
-@Singleton()
+@PerChildInstance()
 @Injectable(SecretStore)
 export class DbSecretStore extends SecretStore {
   private calls = 0;
@@ -72,11 +72,10 @@ export class DbSecretStore extends SecretStore {
     const ms = checkedMs(now, 'DbSecretStore.purge: now');
     await ormReady();
     const t = instant(ms);
-    const done = function (this: WhereBuilder<unknown>) {
+    const done = function (this: IWhereBuilder<unknown>) {
       this.whereNotNull('used_at');
       this.orWhere('expires_at', '<=', t);
     };
-    // MSSQL pages with OFFSET … FETCH, which needs an ORDER BY.
     const ids = (await AuthnSecret.query().columns(['id']).where(done).orderBy('id').take(PURGE_BATCH)).map((r) => r.id);
     if (ids.length === 0) return 0;
     return (await AuthnSecret.destroy().whereIn('id', ids).where(done)).RowsAffected;

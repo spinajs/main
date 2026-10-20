@@ -1,9 +1,9 @@
 import { Connection, DateTime as DateTimeColumn, Model, ModelBase, Primary } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
-/** The connection name of the audit table; map it to a real connection with `db.Aliases`. */
-export const AUDIT_CONNECTION = 'authz-audit';
-export const AUDIT_TABLE = 'authz_audit';
+import { AUDIT_CONNECTION, AUDIT_TABLE } from './names.js';
+
+export { AUDIT_CONNECTION, AUDIT_TABLE };
 
 /** One `authz_audit` row: a `DecisionAudit` record. */
 @Connection(AUDIT_CONNECTION)

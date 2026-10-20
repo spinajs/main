@@ -7,7 +7,7 @@ A cleanup strategy decides which temp files are stale, deletes them, and owns th
 1. `fsTemp.resolve()` reads `cleanupStrategy` (default `MaxAgeTempCleanupStrategy`).
 2. It looks the name up among the classes registered under `TempCleanupStrategy` (`DI.RootContainer.Registry.getTypes(TempCleanupStrategy)`, matched on class name). No match throws `ResolveException`.
 3. It resolves the class. Strategies are `@NewInstance()`, so each temp provider gets its own instance and schedule.
-4. When `cleanup` is `true`, it calls `start(backend, options)`. `backend` is the raw backend provider; `options` is the whole temp provider entry, custom keys included.
+4. When `cleanup` is `true`, it calls `start(backend, options)`. `backend` is the backend provider; `options` is the whole temp provider entry, custom keys included.
 5. The schedule calls `safeCleanup(backend, options)`, which runs `cleanup()` and logs a warning instead of throwing.
 6. `fsTemp.dispose()` calls `stop()`.
 
@@ -122,6 +122,7 @@ export class SweepOnStartTempCleanupStrategy extends MaxAgeTempCleanupStrategy {
 - A strategy registered without `@NewInstance()` is a singleton: two temp providers would share one schedule, and the second `start()` would stop the first.
 - `start()` runs inside `fsTemp.resolve()`, so an exception there fails the whole `fsService` boot.
 - Both shipped strategies sweep the backend root only, not subdirectories.
+- Give an `fsNative` backend a `basePath`. Without one, the sweep lists the host root `/`, while `stat()` and `rm()` resolve those names against the current working directory.
 - `CronTempCleanupStrategy` logs a warning when `cleanupInterval` is also set, and ignores it.
 
 ## Best practices

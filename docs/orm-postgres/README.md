@@ -83,7 +83,9 @@ export async function countOpenOrders(): Promise<number> {
 | `ENUM` / `SET` columns | native types | `TEXT` (plus `CHECK (col IN (...))` for an enum) |
 | `DATETIME` / `DOUBLE` / `BLOB` / `JSON` | native names | `TIMESTAMPTZ(3)` / `DOUBLE PRECISION` / `BYTEA` / `JSONB` |
 | `UNSIGNED`, column `CHARACTER SET`, inline `COMMENT` | supported | dropped |
-| `MODIFY column` | one clause restates the column | `ALTER COLUMN ... TYPE / SET / DROP` actions |
+| `MODIFY column` | one clause restates the column | `ALTER COLUMN ... TYPE ... USING col::type / SET / DROP` actions |
+| `DROP INDEX` | `DROP INDEX i ON t` | `DROP INDEX "i"` |
+| `exact()` column | `utf8mb4_bin` | `COLLATE "C"` |
 | `CREATE DATABASE IF NOT EXISTS` | supported | throws `NotSupported` |
 | `CREATE EVENT`, table history, `CREATE TABLE ... LIKE` | MySQL syntax | not available |
 | `DECIMAL` / `NUMERIC` / `BIGINT` read back | driver-dependent | strings |

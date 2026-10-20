@@ -1,5 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { compactVerify, decodeProtectedHeader } from 'jose';
+import { isFiniteNumber } from '@spinajs/util';
+import { AuthenticationFailed } from '@spinajs/exceptions';
 
 import type { OidcSigningAlgorithm } from '../contracts.js';
 import type { OidcJwks } from '../jwks.js';
@@ -40,15 +42,13 @@ const sameText = (a: string, b: string): boolean => {
   return x.length === y.length && timingSafeEqual(x, y);
 };
 
-const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-
 /**
  * OIDC Core §3.1.3.7 (D10): signature with an allowed algorithm and a provider key, then iss, aud, azp, exp, iat, nbf,
  * nonce, sub and at_hash. Throws on any failure; the message names the check, never a token.
  */
 export async function validateIdToken(token: string, jwks: OidcJwks, r: IdTokenRules): Promise<IdTokenClaims> {
   const refuse = (what: string): never => {
-    throw new Error(`authn-oidc: ID token refused: ${what}`);
+    throw new AuthenticationFailed(`authn-oidc: ID token refused: ${what}`);
   };
   if (!COMPACT.test(token)) refuse('not a signed compact JWS');
 
@@ -80,9 +80,9 @@ export async function validateIdToken(token: string, jwks: OidcJwks, r: IdTokenR
 
   const now = r.now.getTime() / 1000;
   const skew = r.clockSkewSeconds;
-  if (!finite(c.exp) || c.exp + skew <= now) refuse('exp');
-  if (!finite(c.iat) || c.iat > now + skew) refuse('iat');
-  if (c.nbf !== undefined && (!finite(c.nbf) || c.nbf > now + skew)) refuse('nbf');
+  if (!isFiniteNumber(c.exp) || c.exp + skew <= now) refuse('exp');
+  if (!isFiniteNumber(c.iat) || c.iat > now + skew) refuse('iat');
+  if (c.nbf !== undefined && (!isFiniteNumber(c.nbf) || c.nbf > now + skew)) refuse('nbf');
 
   if (typeof c.nonce !== 'string' || !sameText(c.nonce, r.nonce)) refuse('nonce');
   if (typeof c.sub !== 'string' || c.sub.length === 0 || c.sub.length > MAX_SUBJECT) refuse('sub');

@@ -1,7 +1,7 @@
 import { Autoinject, Container, DI, SyncService } from "@spinajs/di";
 import _ from "lodash";
 import { format } from "./format.js";
-import { applySerializers } from "./serializers.js";
+import { applySerializers, type ISerializedError } from "./serializers.js";
 import { persistLevel, clearPersistedLevel } from "./persistence.js";
 
 export * from "./serializers.js";
@@ -124,7 +124,8 @@ export interface ILogRule {
 export interface ITargetsOption {
   name: string;
   type: string;
-  options?: ICommonTargetOptions;
+  /** Target-specific settings; each target defines its own shape ( eg. `IFileTargetOptions["options"]` ). */
+  options?: Record<string, any>;
 
   /**
    * When `false` the target is NOT instantiated at all ( its class is never
@@ -316,7 +317,8 @@ export interface IFileTargetOptions extends ICommonTargetOptions {
 }
 
 export interface ILogStaticVariables {
-  error: Error | undefined;
+  /** `createLogMessageObject` replaces the logged `Error` with its serialized record. */
+  error: ISerializedError | Error | undefined;
   level: string;
   logger: string;
   message: string;
@@ -411,7 +413,7 @@ export interface ILogTargetDesc {
   filters?: LogFilter[];
 }
 
-export function createLogMessageObject(err: Error | string, message: string | any[], level: LogLevel, logger: string, variables: any, ...args: any[]): ILogEntry {
+export function createLogMessageObject(err: Error | string, message: string | any[] | undefined, level: LogLevel, logger: string, variables: any, ...args: any[]): ILogEntry {
   // `log.error(err)` ( no message ) is a legal overload, and it used to render
   // an EMPTY `${message}`. Fall back to the error's own message so a bare
   // error-only call still says something.
@@ -432,7 +434,7 @@ export function createLogMessageObject(err: Error | string, message: string | an
   const theVars = {
     ...ctx,
     error: err instanceof Error ? err : undefined,
-    level: LogLevelStrings[`${level}`].toUpperCase(),
+    level: ((LogLevelStrings as Record<number, string>)[level] ?? String(level)).toUpperCase(),
     logger: lName,
     message: tMsg,
     ...variables,
@@ -446,9 +448,14 @@ export function createLogMessageObject(err: Error | string, message: string | an
   };
 }
 
+export const WARN_ONCE_MAX_KEYS = 1024;
+
 export abstract class Log extends SyncService {
   public static Loggers: Map<string, Log> = new Map();
   public static InternalLoggers: Map<string, Log> = new Map();
+
+  // Shared by every instance of a logger name: loggers are re-resolved per container, the warning is once per process.
+  protected static WarnedOnce: Set<string> = new Set();
 
   public Timers: Map<string, Date> = new Map<string, Date>();
   protected Targets: ILogTargetDesc[];
@@ -558,9 +565,12 @@ export abstract class Log extends SyncService {
       .then(() => Promise.all([...Log.Loggers.values()].map((l) => l.dispose())))
       .then(() => {
         Log.Loggers.clear();
+        Log.WarnedOnce.clear();
       })
       .then(() => {
-        return [...Log.InternalLoggers.values()].map((l) => l.dispose());
+        const internal = [...Log.InternalLoggers.values()];
+        Log.InternalLoggers.clear();
+        return Promise.all(internal.map((l) => l.dispose()));
       });
   }
 
@@ -591,7 +601,7 @@ export abstract class Log extends SyncService {
     return diff;
   }
 
-  public child(name: string, variables?: LogVariables): Log {
+  public child(name: string, variables?: Record<string, unknown>): Log {
     return DI.resolve(Log, [
       `${this.Name}.${name}`,
       {
@@ -641,6 +651,27 @@ export abstract class Log extends SyncService {
   public abstract success(err: Error, message: string, ...args: any[]): void;
   public abstract success(fields: object, message?: string, ...args: any[]): void;
   public abstract success(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  /**
+   * Writes the warning only the first time this process sees `key` on a logger of this name; returns whether it
+   * wrote. Up to {@link WARN_ONCE_MAX_KEYS} keys are remembered, oldest forgotten first; {@link Log.clearLoggers}
+   * forgets them all.
+   */
+  public warnOnce(key: string, message: string, ...args: any[]): boolean;
+  public warnOnce(key: string, err: Error, message: string, ...args: any[]): boolean;
+  public warnOnce(key: string, fields: object, message?: string, ...args: any[]): boolean;
+  public warnOnce(key: string, ...args: any[]): boolean {
+    const id = `${this.Name}\u0000${key}`;
+    if (Log.WarnedOnce.has(id)) {
+      return false;
+    }
+    (this.warn as (...a: unknown[]) => void)(...args);
+    if (Log.WarnedOnce.size >= WARN_ONCE_MAX_KEYS) {
+      Log.WarnedOnce.delete(Log.WarnedOnce.values().next().value as string);
+    }
+    Log.WarnedOnce.add(id);
+    return true;
+  }
 
   public abstract write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]>;
 

@@ -14,7 +14,7 @@ import { AUTHZ_ASSIGNMENT_TABLE, subjectFromColumns, subjectKeyOf } from '@spina
 import { v4 as uuidv4 } from 'uuid';
 import { join, normalize, resolve } from 'path';
 
-import { User } from '../src/index.js';
+import { User, rootAuthzAdmin } from '../src/index.js';
 import { create, getUsersByRole } from '../src/actions.js';
 import { TestConfiguration } from './common.test.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
@@ -105,6 +105,12 @@ describe('roles as GLOBAL assignments (H13)', function () {
 
       const read = await User.query().whereLogin('plain').firstOrFail();
       expect((read as unknown as { Role?: unknown }).Role).to.eq(undefined);
+    });
+  });
+
+  describe('rootAuthzAdmin', () => {
+    it('is the AuthzAdmin of the root AuthzService', async () => {
+      expect(await rootAuthzAdmin()).to.equal(await rootAdmin());
     });
   });
 

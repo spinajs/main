@@ -67,12 +67,12 @@ Use it with `Driver: 'orm-driver-sqlite-immediate'`.
 - `SupportedIsolationLevels` is `['SERIALIZABLE']`: `sqlite3` outside shared-cache mode serializes access to the file. Other levels are rejected, not ignored.
 - DDL is transactional in SQLite: `CREATE TABLE` and `ALTER TABLE` inside a rolled-back transaction are undone.
 - A failed `Transaction` statement is an `OrmException` with the `sqlite3` error in `inner` (see [Connection and driver](01-connection.md#errors)).
-- The driver never retries a statement, so the core's rule "no retries inside a transaction" holds trivially.
+- Statements inside a transaction are never retried; a `SQLITE_BUSY` there fails at once and the transaction rolls back.
 
 ## Best practices
 
 - Keep transactions short and awaited end to end: every other outermost transaction and every outside statement that needs the writer handle waits for the one that is open.
-- Use `BEGIN IMMEDIATE` for read-then-write transactions that compete with other processes on the same file.
+- Use `BEGIN IMMEDIATE` (`ImmediateSqliteDriver`) for read-then-write transactions that compete with other processes on the same file.
 - Nest with `transaction()` rather than raw `SAVEPOINT` SQL, so `afterCommit` callbacks and rollback of nested work stay correct.
 
 ## Patterns and antipatterns
@@ -85,7 +85,14 @@ await driver.transaction(async () => {
   await auditWriteStartedByAnotherRequest;
 });
 
-// Do: one transaction for work that belongs together
+// Don't: two transactions for work that belongs together; they run one after another and the
+// first commits even when the second fails
+await Promise.all([
+  driver.transaction(async () => driver.insert().into('ledger').values({ Amount: 10 })),
+  driver.transaction(async () => driver.insert().into('ledger').values({ Amount: -10 })),
+]);
+
+// Do: one transaction
 await driver.transaction(async () => {
   await driver.insert().into('ledger').values({ Amount: 10 });
   await driver.insert().into('ledger').values({ Amount: -10 });

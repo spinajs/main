@@ -48,7 +48,7 @@ Exports: `MfaKeyRing` (`current`, `encrypt`, `decrypt`), `mfaKeyRingFrom(options
 - Rotation is lazy. Rows keep the key they were written with until the user enrols again; `previous` must keep a key as long as any row uses it.
 - A row whose key is gone from the ring fails every login of that user with a server error. `completeMfa` answers it as a wrong code and audits `step_error`.
 - `TotpMfaStep` builds the ring once and keeps it. A new key takes effect after a restart.
-- The root entry imports only `@spinajs/authn-orm/cipher`, so building a key ring registers no DB service.
+- The root entry imports from `@spinajs/authn-orm` only the side-effect-free `@spinajs/authn-orm/cipher` and `@spinajs/authn-orm/identity`, so building a key ring registers no DB service.
 - Outside development and test, `@spinajs/authn` fails boot when a listed step stores secrets and `authn.mfa.encryptionKey` is missing.
 
 ## Best practices

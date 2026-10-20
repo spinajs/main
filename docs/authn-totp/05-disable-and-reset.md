@@ -20,10 +20,10 @@ Over HTTP, `POST user/mfa/disable` with `{ code, reauthPassword? }` calls it.
 
 1. `TotpMfaStep.enrolment(target)` reads the state before the reset: `'none'`, `'pending'` or `'confirmed'`.
 2. `TotpMfaStep.disable(target)` removes the enrolment and the recovery codes.
-3. It publishes `mfa.disable` with outcome `success`, `identity: target`, `actor` and `data: { reset: true, existed }`.
+3. It publishes through `AuthnAudit` `mfa.disable` with outcome `success`, `identity: target`, `actor` and `data: { reset: true, existed }`.
 4. It returns `{ reset: true }` when a confirmed or pending enrolment existed, else `{ reset: false }`.
 
-`adminReset` does **not** check who may reset whom. The caller applies the target guard first: `@spinajs/authn-http` mounts it as `POST authn/admin/users/:uuid/mfa-reset` behind the registered `CredentialAdminGuard` (`AuthzCredentialAdminGuard` of `@spinajs/users` checks `users:credentials`), and the `authn:mfa-reset` command runs it as the actor `{ type: 'system', id: 'cli' }`. See [CLI and QR codes](08-cli-and-qr.md).
+`adminReset` does **not** check who may reset whom. The caller applies the target guard first: `@spinajs/authn-http` mounts it, through the registered `MfaEnrolmentService`, as `POST authn/admin/users/:uuid/mfa-reset` behind the registered `CredentialAdminGuard` (`AuthzCredentialAdminGuard` of `@spinajs/users` checks `users:credentials`), and the `authn:mfa-reset` command runs it as the actor `{ type: 'system', id: 'cli' }`. See [CLI and QR codes](08-cli-and-qr.md).
 
 ```mermaid
 sequenceDiagram
@@ -64,12 +64,12 @@ sequenceDiagram
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Owner service | `TotpService` (class name), singleton | `TotpService` | none shipped | See [Wiring and testing](09-wiring-and-testing.md). |
-| Audit sinks | `Array.ofType(AuthnEventSink)` of `@spinajs/authn` | every registered sink | `DbAuthnAuditSink` of `@spinajs/authn-orm` | Register another `AuthnEventSink`, or pass `deps.sinks`. |
+| Owner service | `MfaEnrolmentService` (`@spinajs/authn/contracts`), singleton | `TotpService` | none shipped | See [Wiring and testing](09-wiring-and-testing.md). |
+| Audit | `AuthnAudit` of `@spinajs/authn/audit`, over every registered `AuthnEventSink` | `AuthnAudit` | `DbAuthnAuditSink` of `@spinajs/authn-orm` as a sink | Register another `AuthnEventSink`, or pass `deps.sinks` (published through `AuthnAudit.over(sinks)`). |
 
 ## Important behaviour
 
-- `adminReset` resolves only the step and the audit sinks, so a CLI process needs no `SessionIssuer`, `AuthnService` or throttle.
+- `adminReset` uses only the step and `AuthnAudit`. `SessionIssuer`, `AuthnService` and `AuthnThrottle` are optional injections, so a CLI process needs none of them.
 - `adminReset` never returns or logs a secret, a code or a recovery code.
 - A failed `disable` changes nothing: the enrolment and the codes stay.
 - A recovery code used to disable is spent, then removed with the rest.

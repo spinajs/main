@@ -81,7 +81,7 @@ export async function sendInvoiceNotice(customer: string, invoiceNo: string): Pr
 | Transport per connection | `EmailSender`, new instance per connection entry, picked by class name in `email.connections[].service` | none configured | `BlackHoleEmailSender`, `EmailSenderSmtp` ([`email-smtp-transport`](../email-smtp-transport/README.md)) | `@Injectable(EmailSender) @NewInstance()` class; see [02](02-transports.md) |
 | Password mailer | not registered here; `@spinajs/users` registers it as `PasswordMailer` | `EmailPasswordMailer` | your `PasswordMailer` | subclass and override `compose()`; see [08](08-password-mailer.md) |
 | Sent and failed events | queue events `EmailSent`, `EmailSendFailed` | routed to a black-hole queue | any queue connection | `queue.routing` plus `QueueService.consume()`; see [04](04-deferred-sending.md) |
-| Config schema bootstrapper | `Bootstrapper`, `LogBotstrapper` | registers the `email` config schema | none | not meant to be replaced |
+| Config schema bootstrapper | `Bootstrapper`, `EmailBootstrapper` (`LogBotstrapper` is a deprecated alias) | registers the `email` config schema | none | not meant to be replaced |
 
 ## Related packages
 
@@ -92,4 +92,4 @@ export async function sendInvoiceNotice(customer: string, invoiceNo: string): Pr
 - [`@spinajs/di`](../di/README.md): registration and lifetimes of `EmailService` and `EmailSender`.
 - [`@spinajs/templates`](../templates/README.md): renders `IEmail.template` inside the SMTP transport.
 - [`@spinajs/users`](../users/README.md): registers `EmailPasswordMailer` and sends lifecycle mails through `EmailService`.
-- [`@spinajs/authz`](../authz/README.md): with `authz-fs`, attachment reads are permission-checked as the sending principal.
+- [`@spinajs/authz-fs`](../authz-fs/README.md): a filesystem whose `authz.fs.<name>.mode` is `enforce` or `audit` checks `fs:read` on attachments as the sending principal.

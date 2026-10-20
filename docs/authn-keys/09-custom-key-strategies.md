@@ -1,6 +1,6 @@
 # Custom key strategies
 
-Extend a shipped strategy to add a rule, or write a new `AuthenticationStrategy` that verifies registered keys. The package exports the helpers its own three strategies use, so a custom one gets the same key lookup, equal-time failures, throttle keys and last-use stamps.
+Extend a shipped strategy to add a rule, or write a new strategy that verifies registered keys. The package exports `KeyStrategy`, the base of its three strategies, and the helpers they use, so a custom one gets the same key lookup, equal-time failures, throttle keys and last-use stamps.
 
 ## How it works
 
@@ -10,18 +10,19 @@ A key strategy follows the steps the shipped ones do:
 2. Refuse oversized input before parsing: `MAX_CREDENTIAL_LENGTH` is 8,192.
 3. Do every check that needs no key first.
 4. `usableKey(registry, kid, ctx)` returns `{ key }` for a key that is neither revoked nor expired at `ctx.now` (`isUsableKey`), or `{ key: null, reason, alg? }` with `reason` `invalid_credentials`, `revoked` or `expired`.
-5. With no usable key, run `dummyVerify(alg, data, signature)` and return `failure(reason)`. The failure then costs what a real verification costs (A02), and `reason` reaches audit only.
+5. With no usable key, run `unknownKeyWork(alg, data, signature)` (on `KeyStrategy`; `dummyVerify` outside it) and return `failure(reason)`. The failure then costs what a real verification costs (A02), and `reason` reaches audit only.
 6. `verifySignature(key, data, signature)` checks the signature with the key's own algorithm.
 7. Claim any single-use value in `KeyNonceStore` after the signature holds.
-8. `keySuccess(registry, key, method, ctx)` stamps `lastUsedAt` (when the registry is a `DefaultKeyRegistry`) and returns `{ ok: true, identity: owner, method, ceiling: key.scope }`.
+8. The protected `success(key, method, ctx)` of `KeyStrategy` calls `KeyRegistry.touch(kid, ctx.now)` when the registry implements it and returns `{ ok: true, identity: owner, method, ceiling: key.scope }`. A `touch` that throws is logged and the login still succeeds.
 
-`throttleKeys(credentials, ctx)` returns `keyThrottleKeys(kid, ctx)`: an `account` key `key:<kid>` and an `account-ip` key `key:<kid>|<ip>`. A kid that is not valid becomes `key:?`. Read the kid from the unverified credential: throttling runs before verification.
+`throttleKeys(credentials, ctx)` returns `keyThrottleKeys(kid, ctx)`: an `account` key `key:<kid>` and an `account-ip` key `key:<kid>|<ip>`. A kid that is not valid becomes `key:?`. Read the kid from the unverified credential: throttling runs before verification. The core drops the strategy's `account-ip` key and builds its own from each `account` key and `ctx.ip`.
+
+`KeyStrategy<D extends KeyStrategyDeps>` extends `AuthenticationStrategy`. It reads `authn.keys` through `@Config`, `@Autoinject`s `KeyRegistry` and a logger, and takes an optional `deps` object in its constructor, a seam for building a strategy with `new` in tests: `KeyStrategyDeps` has `registry` and `options` (complete `KeysOptions`, which bypass `authn.keys`). The shipped strategies extend it with their own deps: `JwsAssertionStrategyDeps` (`verifier`, `nonces`), `HttpSignatureStrategyDeps` (`nonces`), `KeyChallengeStrategyDeps` (`secrets`). Each field replaces what DI injects.
 
 | Helper | Signature | Purpose |
 | --- | --- | --- |
 | `usableKey` | `(registry, kid, ctx) => Promise<KeyLookup>` | Key lookup that refuses revoked and expired keys and reports why |
 | `isUsableKey` | `(key, now) => boolean` | Not revoked and before `expiresAt` |
-| `keySuccess` | `(registry, key, method, ctx) => Promise<StrategyOutcome>` | Success outcome plus the last-use stamp |
 | `failure` | `(reason) => StrategyOutcome` | `{ ok: false, reason }` |
 | `keyThrottleKeys` | `(kid \| null, ctx) => ThrottleKey[]` | Throttle keys from a kid |
 | `assertionIssuer` | `(owner) => string` | `<type>:<id>`, the `iss` of an assertion |
@@ -32,12 +33,12 @@ The protected members of the shipped strategies:
 
 | Member | On | Override to |
 | --- | --- | --- |
-| `unknownKeyWork(alg, data, signature)` | all three | Change the equal-time work for an unusable key; keep its cost equal to a real verification |
+| `registry` | `KeyStrategy` | Take the `KeyRegistry` from elsewhere; the default is `deps.registry`, else the injected one |
+| `success(key, method, ctx)` | `KeyStrategy` | Change the success outcome or the last-use stamp |
+| `unknownKeyWork(alg, data, signature)` | `KeyStrategy` | Change the equal-time work for an unusable key; keep its cost equal to a real verification |
 | `check(req, ctx)` | `HttpSignatureStrategy` | Add rules that need no key; return `null` to refuse |
 | `audience` | `JwsAssertionStrategy`, `KeyChallengeStrategy` | Read the audience from elsewhere; `resolve()` reads it at boot |
-| `options` | all three | Read `KeysOptions` from elsewhere |
-
-Each constructor also takes complete `KeysOptions` as its last argument, which bypasses `authn.keys`, for tests.
+| `options` | `KeyStrategy` | Read `KeysOptions` from elsewhere |
 
 ## Configuration
 
@@ -62,16 +63,15 @@ A new strategy gets its own `name` and credential kind, and its own entry in `au
 Tighten the signature window for payment routes by extending `HttpSignatureStrategy.check()`:
 
 ```ts sample
-import { Inject, Injectable } from '@spinajs/di';
-import { AuthenticationStrategy, KeyRegistry } from '@spinajs/authn/contracts';
+import { Injectable } from '@spinajs/di';
+import { AuthenticationStrategy } from '@spinajs/authn/contracts';
 import type { AuthnContext, SignedRequest } from '@spinajs/authn/contracts';
-import { HttpSignatureStrategy, KeyNonceStore } from '@spinajs/authn-keys';
+import { HttpSignatureStrategy } from '@spinajs/authn-keys';
 
 const PAYMENT_MAX_AGE_SECONDS = 10;
 
 /** A signature on /payments must be created within the last 10 seconds. */
 @Injectable(AuthenticationStrategy)
-@Inject(KeyRegistry, KeyNonceStore)
 export class PaymentsSignatureStrategy extends HttpSignatureStrategy {
   protected check(req: SignedRequest, ctx: AuthnContext) {
     const checked = super.check(req, ctx);
@@ -86,7 +86,8 @@ export class PaymentsSignatureStrategy extends HttpSignatureStrategy {
 
 ## Important behaviour
 
-- `keySuccess` stamps `lastUsedAt` only through a `DefaultKeyRegistry` (or a subclass). A `KeyRegistry` written from scratch gets no stamps.
+- The collaborators are `@Autoinject` properties, so a subclass needs no constructor and no `@Inject`.
+- `success()` stamps `lastUsedAt` only through a registry that implements the optional `touch`. `DefaultKeyRegistry` does; a `KeyRegistry` written from scratch without it gets no stamps.
 - A strategy registered with `@Injectable(AuthenticationStrategy)` runs only when `authn.strategies` lists it. The shipped class stays registered next to your subclass and does nothing unless listed.
 - A non-interactive strategy is counted only after a failure when the throttle supports `peek` (K5), so it must take only unguessable credentials: signatures or secrets of 128 bits or more.
 - Strategies verify only. Sessions, MFA, identity status and events belong to the authn core. See [How a login runs](../authn/01-authentication-flow.md).
@@ -94,7 +95,7 @@ export class PaymentsSignatureStrategy extends HttpSignatureStrategy {
 ## Best practices
 
 - Return `unsupported_credentials` only for another kind. For your own kind, every refusal is `invalid_credentials`, `revoked` or `expired`.
-- Call `dummyVerify` on every path that finds no usable key, with the key's algorithm when the lookup reports one.
+- Call `unknownKeyWork` (or `dummyVerify`) on every path that finds no usable key, with the key's algorithm when the lookup reports one.
 - Bind a signed value to a time window and claim it in `KeyNonceStore`, as the shipped strategies do. A signature alone can be replayed.
 
 ## Patterns and antipatterns
@@ -106,7 +107,7 @@ if (!found.key) return failure(found.reason);
 
 // Do: spend the same signature work first
 if (!found.key) {
-  dummyVerify(found.alg ?? 'EdDSA', data, signature);
+  this.unknownKeyWork(found.alg ?? 'EdDSA', data, signature);
   return failure(found.reason);
 }
 ```
@@ -116,10 +117,10 @@ if (!found.key) {
 ### Accept webhooks a partner signs with its registered key
 
 ```ts sample
-import { Inject, Injectable } from '@spinajs/di';
-import { AuthenticationStrategy, KeyRegistry } from '@spinajs/authn/contracts';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { AuthenticationStrategy } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
-import { KeyNonceStore, MAX_CREDENTIAL_LENGTH, decodeB64url, dummyVerify, failure, keySuccess, keyThrottleKeys, nonceKey, usableKey, verifySignature } from '@spinajs/authn-keys';
+import { KeyNonceStore, KeyStrategy, MAX_CREDENTIAL_LENGTH, decodeB64url, failure, keyThrottleKeys, nonceKey, usableKey, verifySignature } from '@spinajs/authn-keys';
 
 const WINDOW_SECONDS = 300;
 
@@ -132,15 +133,13 @@ interface WebhookCredentials {
 
 /** Credentials { kind: 'partner-webhook', kid, timestamp, signature, body }: the partner signs `<timestamp>.<body>`. */
 @Injectable(AuthenticationStrategy)
-@Inject(KeyRegistry, KeyNonceStore)
-export class PartnerWebhookStrategy extends AuthenticationStrategy {
+export class PartnerWebhookStrategy extends KeyStrategy {
   public readonly name = 'partner-webhook';
   public readonly kinds = ['partner-webhook'];
   public readonly interactive = false;
 
-  constructor(protected readonly registry: KeyRegistry, protected readonly nonces: KeyNonceStore) {
-    super();
-  }
+  @Autoinject(KeyNonceStore)
+  protected Nonces: KeyNonceStore;
 
   public throttleKeys(c: Credentials, ctx: AuthnContext): readonly ThrottleKey[] {
     const { kid } = c as WebhookCredentials;
@@ -163,16 +162,16 @@ export class PartnerWebhookStrategy extends AuthenticationStrategy {
     const raw = decodeB64url(signature) ?? Buffer.alloc(0);
     const found = await usableKey(this.registry, kid, ctx);
     if (!found.key) {
-      dummyVerify(found.alg ?? 'EdDSA', data, raw);
+      this.unknownKeyWork(found.alg ?? 'EdDSA', data, raw);
       return failure(found.reason);
     }
     if (!verifySignature(found.key, data, raw)) {
       return failure('invalid_credentials');
     }
-    if (!(await this.nonces.claim(nonceKey('sig', found.key.kid, signature), new Date((timestamp + WINDOW_SECONDS) * 1000), ctx.now))) {
+    if (!(await this.Nonces.claim(nonceKey('sig', found.key.kid, signature), new Date((timestamp + WINDOW_SECONDS) * 1000), ctx.now))) {
       return failure('invalid_credentials');
     }
-    return keySuccess(this.registry, found.key, 'partner-webhook', ctx);
+    return this.success(found.key, 'partner-webhook', ctx);
   }
 }
 ```

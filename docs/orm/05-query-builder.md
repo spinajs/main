@@ -76,7 +76,7 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `where(column, value)` | `column = ?` | `null` value emits `column IS NULL`. `undefined` or `NaN` throws `InvalidArgument`. |
 | `where(column, operator, value)` | `column <OP> ?` | `operator` is an `Op`: `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`, `<=>`, `like`, `rlike`, `regexp`. An unknown operator throws `InvalidArgument`. With `null`: `=` emits `IS NULL`, `!=` / `<>` emit `IS NOT NULL`, any other operator throws. |
 | `where({ Status: 'paid', Region: ['EU', 'US'], ClosedAt: null })` | `whereObject()` | Each key becomes `= ?`; an array becomes `whereIn()`; `null` becomes `whereNull()`; `undefined` keys are skipped. |
-| `where(function () { ... })` | `( ... )` | Nested group. `this` inside the callback is a new `WhereBuilder` on the same model and alias. |
+| `where(function () { ... })` | `( ... )` | Nested group. `this` inside the callback is a new `WhereBuilder` on the same model and alias. TypeScript types it as `IWhereBuilder<T>` without a `this:` annotation, also under `noImplicitThis`. |
 | `where(true)` / `where(false)` | `1 = 1` / `1 = 0` | Constants every dialect accepts (T-SQL has no `TRUE`/`FALSE`). |
 | `where(RawQuery.create(sql, bindings))` | `sql` verbatim | Columns are not quoted or qualified. |
 | `where(column, operator?, RawQuery.create(sql, bindings))` | `column <OP> sql` | The raw SQL stands in for the value: no `?`, no converter; its bindings follow. |
@@ -90,7 +90,7 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `orWhere(...)` / `andWhere(...)` | `OR` / `AND` before the next statement | Same argument forms as `where()`. The connector applies to the next statement only. |
 | `when(condition, callback, elseCallback?)` | | Runs `callback` (or `elseCallback`) with `this` set to the builder. |
 | `hasCondition()` | | `false` when the builder holds no statement, or only groups with nothing inside: it compiles to no condition. |
-| `whereNull(column)` / `whereNotNull(column)` | `IS NULL` / `IS NOT NULL` | |
+| `whereNull(column)` / `whereNotNull(column)` | `IS NULL` / `IS NOT NULL` | `column` is a name or a `Wrap`: `whereNull(Wrapper.Date('ClosedAt'))` tests the wrapped expression. |
 | `whereNot(column, value)` | `column != ?` | |
 | `whereNot(function () { ... })` | `NOT ( ... )` | `this` inside the callback is a new nested `WhereBuilder`, as for `where(function)`. A `NULL` inside the group makes the negation `NULL`, which keeps no row. An empty group compiles to `1 = 0`. |
 | `whereIn(column, values \| subQuery)` / `whereNotIn(...)` | `IN (?, ...)` / `IN ( SELECT ... )` | An empty array emits `1 = 0` (`whereIn`) or `1 = 1` (`whereNotIn`). A non-array, non-builder value throws `InvalidArgument`. Values are converted like `where()` values. PostgreSQL, SQLite and MSSQL bind a long list as one parameter; see [`@spinajs/orm-sql` statements](../orm-sql/03-statements.md). |
@@ -221,7 +221,7 @@ Joined columns are not selected unless a `queryCallback` or a `select(RawQuery)`
 | --- | --- | --- |
 | `InsertQueryBuilder` | `into(table, alias?)` | Sets the table. The second argument is passed to `setTable()` as the alias. |
 | | `values(row \| rows[])` | Sets the column list from the keys (the union of keys for an array) and appends one value row per object. |
-| | `splitByDriverLimits()` | The payload as one builder per statement within the driver's `maxBindParameters` and `maxInsertRows`; `[this]` when it fits one statement. Throws `OrmException` when a single row needs more parameters than the limit. |
+| | `splitByDriverLimits()` | The payload as one builder per statement within the driver's `MaxBindings` and `MaxInsertRows`; `[this]` when it fits one statement. Throws `OrmException` when a single row needs more parameters than the limit. |
 | | `orIgnore()` / `orReplace()` | Sets `Ignore` / `Replace`; the dialect emits its insert-or-ignore / replace form. |
 | | `onDuplicate(columns?)` | Upsert. Returns an `OnDuplicateQueryBuilder`. Without `columns`, a model-bound builder uses the model's unique columns. Sets `QueryContext.Upsert`. |
 | | `returning(columns)` | Asks the dialect to echo the inserted rows. Throws `NotSupported` when `supportedFeatures().insertReturning` is `false`. Sets `QueryContext.InsertReturning`. |
@@ -328,7 +328,7 @@ export class TenantMiddleware extends QueryMiddleware {
 - The soft-delete and archive filters are added to selects only. Updates and deletes built by `createQuery()` see deleted and archived rows.
 - `insert().into(table, x)` treats `x` as the table alias. Use `database()` for a schema.
 - `values()` resets the column list on each call and appends rows. Pass all rows to one `values([...])` call.
-- A multi-row insert larger than the driver's `maxBindParameters` or `maxInsertRows` runs as several statements, in order, inside one transaction: the caller's when one is open, otherwise its own. A failing statement rolls all of them back. The result sums `RowsAffected`, concatenates `Returning` in insert order and reports the last statement's `LastInsertId`. Query middlewares run once for the whole insert.
+- A multi-row insert larger than the driver's `MaxBindings` or `MaxInsertRows` runs as several statements, in order, inside one transaction: the caller's when one is open, otherwise its own. A failing statement rolls all of them back. The result sums `RowsAffected`, concatenates `Returning` in insert order and reports the last statement's `LastInsertId`. Query middlewares run once for the whole insert.
 - `returning()` must run before `onDuplicate()`: the duplicate builder copies the returning columns when it is created, and `onDuplicate()` sets `QueryContext.Upsert` either way.
 - For a belongsTo relation without a callback, `whereExist(relation)` and `whereNotExists(relation)` both add `<ForeignKey> IS NOT NULL`.
 - `getSort()` returns only the first sort. `SqliteOrderByCompiler` in `@spinajs/orm-sqlite` reads `getSort()`, so on SQLite only the first `ORDER BY` column reaches the SQL. See [`@spinajs/orm-sqlite`](../orm-sqlite/README.md).
@@ -413,7 +413,7 @@ await query.where('Status', 'cancelled');
 ### List a customer's overdue or large unpaid orders, newest first
 
 ```ts sample
-import { Connection, IWhereBuilder, Model, ModelBase, Primary, SortOrder } from '@spinajs/orm';
+import { Connection, Model, ModelBase, Primary, SortOrder } from '@spinajs/orm';
 
 @Connection('default')
 @Model('orders')
@@ -432,8 +432,8 @@ export class Order extends ModelBase<Order> {
 
 export async function ordersNeedingAttention(customerId: number, page: number): Promise<Order[]> {
   return await Order.where('CustomerId', customerId)
-    .where(function (this: IWhereBuilder<Order[]>) {
-      this.where('Status', 'overdue').orWhere(function (this: IWhereBuilder<Order[]>) {
+    .where(function () {
+      this.where('Status', 'overdue').orWhere(function () {
         this.where('Status', 'unpaid').where('Total', '>=', 1000);
       });
     })

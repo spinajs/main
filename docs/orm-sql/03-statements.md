@@ -73,6 +73,8 @@ The operator is uppercased. Column existence is checked earlier, in the core `Wh
 - A `query` option (a `RawQuery`) is emitted verbatim after the method.
 - Otherwise the source and join drivers are read from the model descriptors (or `builder.Driver` / `joinTableDriver`). Different driver classes throw `InvalidArgument('Cannot join models with different drivers. ...')`.
 - A builder without an alias gets `<sep><table><sep>` (the driver's `AliasSeparator`), so joined columns stay unique.
+- Both tables are prefixed with `tableQualifier(driver)`, which returns `driver.Options.Database`: `` `db`.`table` as `alias` ``. A dialect subclass overrides this protected method to return a schema, or `undefined` for no prefix. `PostgresJoinStatement` does this.
+- `clone()` builds an instance of the subclass it is called on, so a dialect subclass needs no `clone()` of its own.
 - The ON clause is `source.sourceTablePrimaryKey = join.joinTableForeignKey`, plus, joined with `AND`:
   - the `WHERE` of the join callback's sub-builder (built with `new SqlWhereCompiler()`), so a `LEFT JOIN` stays outer;
   - `whereOnJoin()` statements of a populated relation (`onStatements`).
@@ -143,7 +145,7 @@ export class DatesPostgresDriver extends PostgresOrmDriver {
 - `SqlInStatement` converts every value the way `SqlWhereStatement` does: through the model column's declared converter, else through the `__orm_db_value_converters__` entry named after the value's class, so a `Date` or `DateTime` becomes the dialect's datetime text. A list longer than `listThreshold` (1000) whose converted values are all strings and finite numbers is bound as ONE parameter when the dialect overrides `listExpression()` (and `listBinding()` for its shape): `= ANY(?)` / `<> ALL(?)` with an array on PostgreSQL, `IN (SELECT value FROM json_each(?))` with JSON text on SQLite, `IN (SELECT [value] FROM OPENJSON(?))` on MSSQL, where `listThreshold` is 200. MySQL and any list with another value type keep the expanded `IN (?, ...)`.
 - `SqlColumnMethodStatement` never alias-prefixes its column.
 - `SqlInStatement` resolves a `Wrap` column (`Wrapper.Text()`) the way `SqlWhereStatement` does and converts its values by their class only: the column's declared converter does not apply to the wrapped expression.
-- `SqlDateWrapper` and `SqlDateTimeWrapper` emit `DATE()` and `DATETIME()`. No shipped driver overrides them; check that your engine has these functions before using `Wrapper.Date()`.
+- `SqlDateWrapper` and `SqlDateTimeWrapper` emit `DATE()` and `DATETIME()`. The PostgreSQL driver replaces `SqlDateTimeWrapper` with `PostgresDateTimeWrapper` (`CAST(col AS TIMESTAMP)`); other drivers keep both. Check that your engine has these functions before using `Wrapper.Date()`.
 - Values in DML statements are always bound with `?`, never interpolated.
 
 ## Best practices

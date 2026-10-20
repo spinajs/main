@@ -45,7 +45,7 @@ Each of `pagination`, `order` and `filter` is one JSON-encoded query argument: `
 ### Create: `POST /users`
 
 1. `userActor(caller)` refuses anything but a signed-in user principal (`403`); `requireEveryUser(users:create)` refuses a conditional grant (`403`).
-2. `roleList()` normalises `Role` (one name or a list) to unique, trimmed names.
+2. `roleList()` (from `@spinajs/users`) normalises `Role` (one name or a list) to unique, trimmed names.
 3. `create()` of `@spinajs/users` creates the account **inactive** and without a password, grants the roles at GLOBAL through `AuthzAdmin` as the caller, and sends the owner an invite through authn's `PasswordService`. One refused role refuses the request; nothing is created.
 4. `UserAlreadyExists` becomes `409` with `parameter: [{ instancePath: '/Email', keyword: 'duplicate', ... }]` naming the clashing fields.
 5. `UserCreatedIncomplete` (a step after the role grants failed): the account exists, so the answer is still `200` with the account and `Incomplete: { resendInvite }`.
@@ -129,7 +129,7 @@ For every role of authz-rbac's `RoleStore` whose `assignable` is not `false`, it
 - A conditional `users:<action>` grant (for example `self`) works on `GET /users/:uuid`, `GET /users/byLogin/:login`, `PATCH /users/:uuid` and `DELETE /users/:uuid`, decided on the row. The list, create and restore refuse it.
 - Every row is read as `SYSTEM`; the list runs its query and count as `SYSTEM` after `requireEveryUser()`.
 - `Role` **replaces** the GLOBAL roles. Roles at other scopes are not touched. A list with the current roles plus one adds that one.
-- The update is not one transaction: the row is written first, then the role batch. The dry run before them catches every refusal `AuthzAdmin` can give in advance.
+- The update is not one transaction: the row is written first, then the role batch. The dry run before them catches every refusal `AuthzAdmin` can give in advance; if the batch still fails, the login and email are written back to their previous values and the error is returned.
 - A role-only change, and an `Email` or `Login` sent unchanged, need only `users:update`.
 - An `Email` or `Login` change of the caller's own account needs fresh authentication but not the credential admin guard (users' guard refuses one's own account).
 - `Metadata` is not accepted on `PATCH`; use the [metadata routes](04-user-metadata-routes.md).

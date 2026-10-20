@@ -8,7 +8,7 @@ import { MySqlOrmDriver } from '../src/index.js';
 
 class ProbeDriver extends MySqlOrmDriver {
   public probeOptions() {
-    return this.poolOptions();
+    return this.poolConfig();
   }
 
   public pin(pool: EventEmitter) {

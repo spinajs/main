@@ -36,7 +36,8 @@ Roles, ladders and permission definitions have no table. They are read from conf
 | `authz.rbac.ladders.<name>` | `{ roles[], resourceTypes? }` |
 | `authz.rbac.*` | `rules[]`, `defaultRoles`, `anonymousRoles`, `serviceRoles`, `groupPrincipal`, `cache`, `maxSetDepth`, `stores` |
 | `authz.abac.policies[]` | `Policy` objects (`authz/src/contracts/data.ts:63`) |
-| `authz.fs.<filesystem>` | `{ mode: off/audit/enforce, domain, metadata, stampOwner, resolver, inherit, signedUrl, policies, operations, list }` |
+| `authz.fs.<filesystem>` | `{ mode: off/audit/enforce, domain, stampOwner, list, signedUrl }` |
+| `authz.fsAcl` | `{ connection, relations }` |
 
 The RBAC schema is in
 [authz-rbac/src/stores/schema.ts:139-181](../../packages/authz-rbac/src/stores/schema.ts#L139-L181);
@@ -45,7 +46,7 @@ the grant schema at lines 25-40. A grant is a permission string, or:
 ```ts
 {
   permission: 'document:update',
-  relation: 'owner',                              // or 'self', resolved by a RelationResolver
+  relation: 'owner',                              // or 'self', a @Relation name, ...: resolved by a RelationResolver
   on: [{ type: 'project', id: '{principal.attributes.projectId}' }],
   fields: { read: [...], write: [...], hide: [...] },
   requiresTag: 'beta',
@@ -64,7 +65,7 @@ config change changes cache keys.
 - A `PermissionDef` carries `types`, `implies`, `fields`, `list` and `source`. Definitions come from
   config, from adapters and from models. The ORM adapter registers
   `<type>:read|create|update|delete` per resource model; authz-fs registers
-  `fs:read|stat|list|write|delete|share`.
+  `fs:read|stat|list|write|delete|share|manage`.
 - 3.0 has no `own`/`any` possession. "Own" is a grant with `relation: 'owner'` (or `'self'`), an
   `on` pattern, `fields`, `requiresTag` or `grantedAt`. `authz-convert` maps 2.x `verb:any` to a
   plain grant and `verb:own` to `relation:'owner'` (`'self'` for `selfResources`).
@@ -94,7 +95,7 @@ connection `authz` (`db.Aliases.authz`, default `default`). Full schema:
 | `tags` | str(512), default `''` | Stored as `,a,b,` |
 | `expires_at` | datetime | |
 | `granted_by` | str(100) | |
-| `source` | str(32), default `db` | `users.Role` for rows copied from 2.x |
+| `source` | str(32), default `db` | |
 | `created_at` | datetime | |
 
 Indexes: unique `authz_assignment_uq` on
@@ -118,15 +119,9 @@ Datetimes are luxon `DateTime` on a record and `Date` in the store API; the colu
 the expiry filters compare them with the `AuthzClock` instant bound as a parameter; `definition` and `attributes`
 are `@Json` columns; `authz_version.version` is `@Int64('string')`, the same text on every driver.
 
-Other authz-rbac migrations:
-
-- `AuthzRbacUserRoles_2026_10_01_00_01_00` (on `authz`) copies the 2.x comma list in `users.Role`,
-  read on `default`, into `$global` assignments with `source='users.Role'`.
-- `AuthzRbacDropUserRole_2026_10_01_00_02_00` (on `default`, where `users` is) drops `users.Role`. It
-  refuses while a role in the column has no live assignment on `authz`, and `down()` rebuilds the
-  column.
-- `admin/db/AuthzAdminIdempotency_2026_10_02_00_01_00` creates `authz_admin_idempotency`: PK
-  `(domain, actor, idem_key)`, `results`, `rows`, `expires_at`, `created_at`.
+The other authz-rbac migration, `admin/db/AuthzAdminIdempotency_2026_10_02_00_01_00`, creates
+`authz_admin_idempotency`: PK `(domain, actor, idem_key)`, `results`, `rows`, `expires_at`,
+`created_at`. No migration reads or alters a 2.x table: 3.0 starts from an empty database.
 
 ### authz-abac
 
@@ -151,10 +146,12 @@ Full schema of the ancestor and scope attribute tables:
 
 ### authz-fs
 
-`AuthzFsObject_2026_10_01_00_00_00.ts` creates **`fs_object`** on connection `authz-fs`
-(`db.Aliases['authz-fs']`, default `default`): PK `(fs, path)` declared `caseSensitive()`, `owner_type`,
-`owner_id`, `scope_type`, `scope_id`, `tags`, `created_at`, `updated_at`. Full schema:
-[authz-fs ORM file metadata store](../authz-fs/05-file-metadata-stores.md#schema).
+`AuthzFsAcl_2026_10_17_00_00_00.ts` creates **`fs_acl`** on the connection `authz.fsAcl.connection`
+names (default `default`): `id` (PK), `fs`, `path`, `path_hash` (SHA-256 hex of the path),
+`subject_key`, `relation`, `expires_at`, `granted_by`, `created_at`. `fs`, `path`, `path_hash`,
+`subject_key` and `relation` are `exact()` (the driver's binary collation, so case variants of a path are two
+rows). Unique key `(fs, path_hash, subject_key, relation)` and index `(fs, path_hash, relation)`; the hash
+keeps the key under every driver's limit. See [File ACL](../authz-fs/03-file-acl.md).
 
 ## Teams
 
@@ -199,7 +196,7 @@ RBAC read ports are in `authz-rbac/src/contracts.ts`, admin write ports in
 | `MembershipStore`, `AdminMembershipStore` | `DbMembershipStore` (default), `MemoryMembershipStore` |
 | `SubjectResolver` | `RbacSubjectResolver` |
 | `PolicyStore` (authz-abac) | `ConfigPolicyStore`, `DbPolicyStore`, `MemoryPolicyStore`; chosen by `authz.abac.stores` |
-| `FileMetadataStore` (authz-fs) | `OrmFileMetadataStore`, `S3ObjectMetadataStore` |
+| `FileAclStore` (authz-fs) | `OrmFileAclStore` |
 
 Defaults are in `authz-rbac/src/stores/defaults.ts`; override them with `authz.rbac.stores.*`.
 Core ports (`ResourceAdapter`, `ScopeResolver`, `RelationResolver`, `ScopeAttributeStore`,
@@ -219,7 +216,7 @@ flowchart TD
   G --> H{cache hit?}
   H -- yes --> R[Decision]
   H -- no --> I[ceiling]
-  I --> J[RBAC, ABAC, fs-inherit models]
+  I --> J[RBAC, ABAC models]
   J --> K[combine: deny-overrides]
   K --> L[AND ceiling, delegate decision, residual vs row, fields]
   L --> M[cache + audit]
@@ -259,15 +256,15 @@ adds an `AccessPolicy`. Options: `resource` (`fromParam`, `fromBody`, `fromQuery
 
 Related: `@Unscoped(reason)` skips scoping and is audited; `AuthzFieldsMiddleware` filters fields.
 
-`authz-http/src/api.ts` and `authz-orm/src/api.ts` hold `notImplemented` stubs of the decorators.
-The real ones are `authz-http/src/access/decorators.ts` and `authz-orm/src/decorators.ts`
-(re-exported from `authz-orm/src/index.ts`).
+The decorators live in `authz-http/src/access/decorators.ts` and `authz-orm/src/decorators.ts`,
+exported from each package's `src/index.ts`. `src/api.ts` holds only the contract types.
 
 ### 3. Service
 
-`AuthzService` (`authz/src/contracts/service.ts:12-33`) offers `check`, `can`, `assert` (throws
+`AuthzService` (`authz/src/contracts/service.ts`) offers `check`, `can`, `assert` (throws
 `AccessDenied`), `checkMany`, `checkAll`, `accessPlan`, `filter`, `filterNow`, `explain`,
-`summary`, `covers`, `preload`, `runAs`, `invalidate` and `admin()`. `DefaultAuthzService`
+`summary`, `covers`, `preload`, `runAs`, `invalidate` and `admin()`, and the optional `inspect`
+(unaudited, uncached, for admin tools) and `ancestors`. `DefaultAuthzService`
 (`authz/src/host/service.ts:106`) delegates to `Authorizer`.
 
 ### 4. Engine pipeline
@@ -328,6 +325,24 @@ grant, tag, provenance, threshold, residual.
 - A role with `deny: true` beats every permit (`role_denied`, `model/deny.ts`).
 - A grant's residual is its relation checks OR'd together, AND'd with its `on` patterns.
 
+**Summaries.** `RbacModel.summarize(principal, at)` feeds `summary` and `covers`. It lists the roles
+that hold at `at` after the ceiling and every permission a check would permit on some row. Each
+permission runs the pipeline, so an entry agrees with the votes: it is `conditional` unless every
+vote permits every row and denies none.
+
+- At `$global` a permission is judged on `{ type: T }` for each of its types, so type and glob
+  patterns and bare-type and scoped assignments count. It is listed when some type permits and does
+  not deny everything, and its `fields` are the union over the permitting types.
+- At any other `at` a permission is judged at `at`, if its types hold the type of `at`.
+- `fields` are those of every grant that permits some row (`RBAC_SUMMARY_STEPS`), not the vote's own
+  field rule, so an entry never shows fewer fields than the principal gets on a row.
+- `roles` lists only the assignments that hold at `at` (at `$global`, the GLOBAL ones), after
+  restrict and cap, each with its effective role. Permissions from bare-type or scoped assignments
+  appear without their roles. At a bare type, rules that apply per row are not run, so `roles` there
+  come before those rules.
+- A rule that would apply per row of a type-level probe is left out of that probe, and the probe's
+  permissions are listed as conditional. Rules only narrow, so nothing is lost.
+
 ## The ABAC model
 
 `AbacModel` (`authz-abac/src/model/model.ts:46`, `evaluate` at lines 193-278):
@@ -340,15 +355,14 @@ grant, tag, provenance, threshold, residual.
 
 ## Resource-level access
 
-There are no per-row ACL rows. Access to one resource comes from:
+The only per-row ACL is the file ACL (`fs_acl`). Access to one resource comes from:
 
 - an `authz_assignment` at that resource or at one of its ancestors. The engine walks
   `authz_resource_ancestor` for ORM models (`authz-orm/src/adapter.ts:62-86`) and path ancestors
   for files;
-- a relation check on a grant: `@Owner` and `@Self` columns on ORM models
-  (`authz-orm/src/relations.ts`), or the owner in `fs_object` (`authz-fs/src/metadata/owner.ts`);
-- `fs-inherit` (`authz-fs/src/inherit/index.ts`): permits `fs:<op>` when the principal holds
-  `<parent>:<action>` on the resolver's parent resource;
+- a relation check on a grant: `@Owner`, `@Self` and `@Relation` columns on ORM models
+  (`authz-orm/src/relations.ts`, [Column relations](./12-column-relations.md)), or `fs_acl` rows
+  through `FsAclRelation` (`authz-fs/src/acl/`);
 - a share link: an assignment to `link:<id>` at the link's scope.
 
 ## ORM enforcement
@@ -383,7 +397,8 @@ There are no per-row ACL rows. Access to one resource comes from:
 - A fresh check (`DecisionRequest.fresh`, or a permission with `consistency: 'fresh'`) reads neither
   L1 nor L2 and passes `fresh` to the models; `RbacModel` then reads assignments from the store past
   its request memo and `AssignmentCache` (`authz-rbac/src/model/cache.ts`), and the rows it reads
-  refresh both.
+  refresh both. An access plan of a `consistency: 'fresh'` permission skips the L1 plan memo, sets
+  `ListPlanRequest.fresh` for `listPlan`, and runs the models' nested checks fresh.
 
 ## Admin writes
 
@@ -418,9 +433,9 @@ Other routes in authz-http: `GET /user/access` (summary), `POST /user/access/che
 ## Other packages
 
 - **authz-queue**: `AuthzQueueHook` stamps `message.Initiator` (type, id, ceiling) on emit.
-  Handlers run as `UNATTENDED` unless `runAs` is `'initiator'` or `'system'`. `JobModel` is
-  registered as resource `job` with the initiator as owner, and every user gets `job:read` with
-  `relation: 'owner'`.
+  Handlers run as `UNATTENDED` unless `runAs` is `'initiator'` or `'system'`. The
+  `@spinajs/authz-queue/jobs` subpath registers `JobModel` as resource `job` with the initiator as
+  owner, and every user gets `job:read` with `relation: 'owner'`.
 - **Audit**: `DecisionAudit.record` takes kinds `deny`, `runAs`, `unscoped`, `explain`, `system`
   and `admin`. The default writes to the log (`host/audit.ts`); `authz-orm/src/audit/db-audit.ts`
   writes to `authz_audit`.

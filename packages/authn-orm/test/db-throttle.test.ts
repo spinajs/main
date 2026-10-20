@@ -213,7 +213,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('reads authn.throttle from its container when given no params', async () => {
-      const throttle = new DbAuthnThrottle(undefined, { container: db.container });
+      const throttle = await db.container.resolve(DbAuthnThrottle);
       const keys: ThrottleKey[] = [{ kind: 'account', value: 'from-config@example.test' }];
       await throttle.init();
       expect(throttle.params.login.account?.free).to.eq(2);
@@ -224,7 +224,7 @@ for (const kind of DB_KINDS) {
 
     it('keys rows with authn.audit.hashKey.secret from the configuration', async () => {
       const key: ThrottleKey = { kind: 'account', value: 'keyed@example.test' };
-      const fromConfig = new DbAuthnThrottle(undefined, { container: db.container });
+      const fromConfig = await db.container.resolve(DbAuthnThrottle);
       await fromConfig.init();
       const expected = createHmac('sha256', HASH_KEY).update('login|account|keyed@example.test', 'utf8').digest('base64url');
       expect(fromConfig.rowKey('login', key)).to.eq(expected);

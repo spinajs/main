@@ -31,7 +31,7 @@
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
-    "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
+    "lint": "cd ../.. && npm run lint -- packages/authz-testing",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
   },
@@ -56,6 +56,8 @@
     "@spinajs/authz": "3.0.0-alpha.0",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
+    "@spinajs/log-common": "2.0.549",
+    "@spinajs/util": "2.0.549",
     "fast-check": "^4.10.2"
   },
   "devDependencies": {

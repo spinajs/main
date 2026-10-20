@@ -1,6 +1,6 @@
 # Wiring and testing
 
-`TotpMfaStep` and `TotpService` take every dependency from DI on first use, unless you pass it to their constructor. Passing dependencies is how unit tests run them without a database, and how an app with per-child-container MFA steps points `TotpService` at the right steps.
+`TotpMfaStep` takes every dependency from DI on first use and `TotpService` through `@Autoinject` properties, unless you pass it to their constructor. Passing dependencies is how unit tests run them without a database, and how an app with per-child-container MFA steps points `TotpService` at the right steps.
 
 ## How it works
 
@@ -21,39 +21,41 @@
 
 ### `TotpService(deps?: TotpServiceDeps)`
 
-1. DI builds the service with no arguments (`@Injectable()`, under the name `TotpService`).
-2. Each dependency is resolved on first use, one by one, and kept. `adminReset` therefore needs only the step and the audit sinks.
+1. DI builds the service with no arguments (`@Injectable(MfaEnrolmentService)`). The container that builds it injects `AuthnAudit`, every registered `MfaStep`, and, as optional injections, `SessionIssuer`, `AuthnService` and `AuthnThrottle`.
+2. A dependency given in `deps` wins over the injected one. Each method uses only what it needs, so `adminReset` runs with the step and `AuthnAudit` alone; a call that needs a missing dependency throws.
 
-| Dependency | From `deps` | From DI when left out | When missing |
+| Dependency | From `deps` | Injected when left out | When missing |
 | --- | --- | --- | --- |
-| `step` | `TotpMfaStep` | the first `TotpMfaStep` among `DI.resolve(Array.ofType(MfaStep))` | `InvalidOperation`: `TotpService: no TotpMfaStep is registered` |
+| `step` | `TotpMfaStep` | the first `TotpMfaStep` among the injected `MfaStep`s | `InvalidOperation`: `TotpService: no TotpMfaStep is registered` |
 | `steps` | `MfaStep[]` | every registered `MfaStep` | `[]` |
-| `sessions` | `SessionIssuer` | the registered `SessionIssuer` | `InvalidOperation` |
-| `authn` | `AuthnService` | the registered `AuthnService` | `InvalidOperation` |
-| `throttle` | `AuthnThrottle` | the registered `AuthnThrottle` | `InvalidOperation` |
-| `sinks` | `AuthnEventSink[]` | every registered `AuthnEventSink` | `[]` |
+| `sessions` | `SessionIssuer` | the registered `SessionIssuer` (optional) | `InvalidOperation` |
+| `authn` | `AuthnService` | the registered `AuthnService` (optional) | `InvalidOperation` |
+| `throttle` | `AuthnThrottle` | the registered `AuthnThrottle` (optional) | `InvalidOperation` |
+| `sinks` | `AuthnEventSink[]`, published through `AuthnAudit.over(sinks)` | `AuthnAudit`, over every registered `AuthnEventSink` | |
 | `maxAgeSeconds` | `number` | `authn.freshAuth.maxAgeSeconds` | |
 
 3. `steps` is what "the identity is enrolled in no MFA step" checks against; see [Enrolment](02-enrolment.md).
+4. `enabled(steps)`, the `MfaEnrolmentService` check, is true when `authn.mfa.encryptionKey.secret` is set and `steps` holds a step whose class is `TotpMfaStep` itself, not a subclass. `deps` does not change it.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | TOTP step | `MfaStep`, singleton | `TotpMfaStep`, built by DI with no `deps` | | Construct `new TotpMfaStep(deps)` in tests, or pass one as `TotpServiceDeps.step`. |
-| Owner service | `TotpService`, singleton | `TotpService`, built by DI with no `deps` | | Construct `new TotpService(deps)` in tests or for per-container steps. |
+| Owner service | `MfaEnrolmentService`, singleton | `TotpService`, built by DI with no `deps` | | Construct `new TotpService(deps)` in tests or for per-container steps. |
 
 ## Important behaviour
 
-- `TotpService` looks up DI services in the root container (`DI`). An app that registers MFA steps per child container passes `steps` (and `step`) itself.
-- `@spinajs/authn-http` resolves `TotpService` by name from its own container and requires an instance of `TotpService`; it also requires a listed step that is an instance of `TotpMfaStep` named exactly `TotpMfaStep`. A renamed subclass turns its enrolment routes off (404).
-- Both classes keep what they resolved for their lifetime. A test that swaps a registration after the first call needs a new instance.
+- The singleton `TotpService` is built and injected in the container that owns its registration, the root after the package import. An app that registers MFA steps per child container passes `steps` (and `step`) itself.
+- `@spinajs/authn-http` injects the `MfaEnrolmentService` as optional and serves its routes while `enabled(steps)` is true for the steps of the configured MFA policy. A subclass of `TotpMfaStep` listed in `authn.mfa.steps` turns them off (404).
+- `TotpMfaStep` keeps what it resolved on its first call, and `TotpService` its injected properties, for their lifetime. A test that swaps a registration after that needs a new instance.
 - `@spinajs/authn-testing` has the helpers the package's own tests use: `totp(secret, at, options)` computes a code, `parseOtpauth(uri)` reads the secret and options of a URI, and `FakeClock` controls `Date.now()`.
 
 ## Best practices
 
 - In unit tests pass `identities: null` to `TotpMfaStep`, so the step never resolves an `IdentityStore` another test registered.
 - Pass `maxAgeSeconds` to `TotpService` in tests that check fresh auth, instead of changing the config.
+- `new TotpService(deps)` gets no `@Autoinject` properties: pass every dependency the calls under test need, `sinks` included, or the call throws `InvalidOperation`.
 
 ## Examples
 

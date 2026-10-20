@@ -12,10 +12,8 @@ import type { RbacAssignmentPlanArgs, RbacPlanRole } from './args.js';
 
 type Where = IWhereBuilder<unknown>;
 type Branch = 'direct' | 'ancestor' | 'global';
-type Relation = 'owner' | 'self';
 
 const GLOBAL_TYPE = '$global';
-const RELATIONS: readonly Relation[] = ['owner', 'self'];
 
 const qualified = (r: RbacPlanRole): boolean => r.scopeTypes !== undefined || r.tag !== undefined || r.relation !== undefined;
 
@@ -38,14 +36,14 @@ function principalsOf(args: RbacAssignmentPlanArgs): PrincipalRef[] {
 }
 
 /** The principals the row's relation column can name: any with a type column, else users only. */
-function fitting(row: PlanRow, name: Relation, principals: readonly PrincipalRef[]): PrincipalRef[] {
+function fitting(row: PlanRow, name: string, principals: readonly PrincipalRef[]): PrincipalRef[] {
   const columns = row.relation(name);
   if (!columns) return [];
   return columns.typeColumn !== undefined ? [...principals] : principals.filter((p) => p.type === 'user');
 }
 
 /** The row's relation column names one of `principals` (non-empty, from fitting()). */
-function relation(where: Where, row: PlanRow, name: Relation, principals: readonly PrincipalRef[]): void {
+function relation(where: Where, row: PlanRow, name: string, principals: readonly PrincipalRef[]): void {
   const { column, typeColumn } = row.relation(name)!;
   if (typeColumn === undefined) {
     where.whereIn(Wrapper.Text(column), [...new Set(principals.map((p) => p.id))]);
@@ -140,7 +138,7 @@ export function applyRbacAssignment(args: RbacAssignmentPlanArgs, where: Where, 
       });
     }
     // A relation reads only the row, so it stands next to the sub-query: one EXISTS per relation, ANDed with it.
-    for (const name of RELATIONS) {
+    for (const name of new Set(usable.flatMap((r) => (r.relation === undefined ? [] : [r.relation])))) {
       const related = usable.filter((r) => r.relation === name);
       const holders = fitting(row, name, principals);
       if (related.length === 0 || holders.length === 0) continue;

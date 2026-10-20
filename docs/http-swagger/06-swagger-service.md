@@ -9,19 +9,19 @@
 1. Returns `null` when `IsEnabled` is `false` (`http.swagger.enabled === false`).
 2. Returns the cached document when there is one.
 3. Otherwise starts `buildSpec()`, unless a build is already running; concurrent callers wait on the same promise. It logs `Building Swagger/OpenAPI documentation...` and, when done, the number of paths.
-4. Returns the cached document the build stored.
+4. Returns the document `buildSpec()` returned, and caches it unless `invalidate()` ran during the build.
 
 `SwaggerService.buildSpec()`:
 
 1. Takes `http.swagger`, or `{ enabled: true, title: 'API Documentation', version: '1.0.0' }` when the key is missing.
 2. Sets `basePath` to `http.swagger.basePath`, else `http.controllers.route.prefix`, else `''`.
-3. Resolves `OpenApiBuilder` with that config: `DI.resolve(OpenApiBuilder, [config])`.
+3. Resolves a new `OpenApiBuilder` with that config: `DI.resolve(OpenApiBuilder, [config])`.
 4. Reads `Controllers.Controllers` from `@spinajs/http`.
 5. For each controller, calls `SwaggerDocCache.getCache(controller)` and `OpenApiBuilder.addController()`. An error is recorded with the controller name, and the loop goes on.
-6. Any errors: logs them at `error` level and throws `InvalidArgument('Cannot build the OpenAPI spec: <n> controller(s) could not be documented.' + one line per controller)`. Nothing is cached, so the next call tries again.
+6. Any errors: logs them at `error` level and throws `UnexpectedServerError('Cannot build the OpenAPI spec: <n> controller(s) could not be documented.' + one line per controller)`. Nothing is cached, so the next call tries again.
 7. No errors: caches `OpenApiBuilder.build()` and returns it.
 
-`SwaggerService.invalidate()` drops the cached document; the next `getSpec()` builds again.
+`SwaggerService.invalidate()` drops the cached document and detaches a running build; the next `getSpec()` builds again.
 
 ```mermaid
 sequenceDiagram
@@ -54,14 +54,14 @@ sequenceDiagram
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `SwaggerService` | class `SwaggerService`, `@Singleton()`; resolved by type through `@Autoinject()` in `SwaggerController`, on first use | `SwaggerService` | none | Subclass and `DI.register(Sub).as(SwaggerService)` before the first request reaches `/docs`. Override `buildSpec()`, `getSpec()` or the `IsEnabled` getter |
-| `OpenApiBuilder` | class `OpenApiBuilder`, no lifetime decorator (singleton) | `OpenApiBuilder` | none | See [OpenAPI builder](07-openapi-builder.md) |
+| `OpenApiBuilder` | class `OpenApiBuilder`, `@NewInstance()` | `OpenApiBuilder` | none | See [OpenAPI builder](07-openapi-builder.md) |
 | `SwaggerDocCache` | class `SwaggerDocCache`, `@Singleton()` | `SwaggerDocCache` | none | See [Documentation cache](08-documentation-cache.md) |
 
 Members a subclass can use: `Log` (`http-swagger` logger), `ControllersService` (`Controllers`, lazy), `DocCache` (`SwaggerDocCache`), `SwaggerConfig` (`http.swagger`), `RoutePrefix` (`http.controllers.route.prefix`).
 
 ### `SwaggerService`: custom implementation
 
-Override `buildSpec()` to change the document once per build: stamp a release, set servers from the environment, drop internal paths. Call `super.buildSpec()` and change the object it returns **in place**: `getSpec()` serves the object the base class cached, not the value your override returns.
+Override `buildSpec()` to change the document once per build: stamp a release, set servers from the environment, drop internal paths. Call `super.buildSpec()` and change the object it returns, or return a new one: `getSpec()` serves and caches what your override returns.
 
 Override `IsEnabled` to switch the docs off by a rule rather than by config. Both routes then answer `404`.
 
@@ -99,8 +99,8 @@ DI.register(ReleaseSwaggerService).as(SwaggerService);
 - The first build runs on the first `getSpec()`, usually the first `GET /docs/swagger.json`. It is not part of the boot, so a broken controller does not stop the app; it fails the docs.
 - A failed build is not cached. Every request retries the full build and fails again until the controller is fixed.
 - `getSpec()` returns the cached object itself, not a copy. Whatever a caller changes on it is served from then on.
-- `invalidate()` during a running build is lost: the build finishes and caches its result.
-- `OpenApiBuilder` has no lifetime decorator, so `DI.resolve(OpenApiBuilder, [config])` returns the instance built on the first build. After `invalidate()` the next build adds to that builder's existing paths, tags and components, and the config given on the first build stays. Register a `@NewInstance()` builder to start from scratch each time; see [OpenAPI builder](07-openapi-builder.md#openapibuilder-custom-implementation).
+- `invalidate()` during a running build is not lost: callers already waiting get that build's result, but it is not cached, and the next `getSpec()` starts a new build.
+- `OpenApiBuilder` is `@NewInstance()`, so every build starts from an empty document with the current config. A replacement builder needs `@NewInstance()` too; see [OpenAPI builder](07-openapi-builder.md#openapibuilder-custom-implementation).
 - A controller added with `Controllers.add()` after the first build is not in the document until `invalidate()` runs.
 
 ## Best practices
@@ -112,13 +112,13 @@ DI.register(ReleaseSwaggerService).as(SwaggerService);
 ## Patterns and antipatterns
 
 ```ts
-// Don't: getSpec() keeps serving the original object, this copy is never seen
-public async buildSpec() {
-  const spec = await super.buildSpec();
-  return { ...spec, info: { ...spec.info, version: '2.0.0' } };
+// Don't: a new copy on every request; getSpec() runs per call, the build once
+public async getSpec() {
+  const spec = await super.getSpec();
+  return spec && { ...spec, info: { ...spec.info, version: '2.0.0' } };
 }
 
-// Do: change the cached object
+// Do: change the document once per build
 public async buildSpec() {
   const spec = await super.buildSpec();
   spec.info.version = '2.0.0';

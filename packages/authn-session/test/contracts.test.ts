@@ -9,6 +9,7 @@ import { DateTime } from 'luxon';
 import { AsyncService, DI_DESCRIPTION_SYMBOL } from '@spinajs/di';
 import type { IInjectDescriptor, IContainer } from '@spinajs/di';
 import type { IdentityRef } from '@spinajs/authn/contracts';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 import { SessionExpirationProvider, SessionProvider } from '../src/contracts.js';
 import type { ISession } from '../src/contracts.js';
@@ -218,7 +219,6 @@ const PUBLIC_EXPORTS = [
   'encodeSessionData',
   'peekingSessions',
   'sessionCookie',
-  'sessionCookieMaxAge',
   'sessionCookieName',
   'sessionCookieOptions',
   'sessionHandleOf',
@@ -309,7 +309,7 @@ describe('@spinajs/authn-session contracts', function () {
       expect(() => store.initial(session('p1', { State: 'pending' }))).to.throw(/pendingTtlSeconds/);
       let err: unknown;
       await store.save(session('p2', { State: 'pending' })).catch((e) => (err = e));
-      expect(err).to.be.instanceOf(Error);
+      expect(err).to.be.instanceOf(InvalidOperation);
       expect(await store.restore('p2')).to.eq(null);
     });
 
@@ -346,7 +346,7 @@ describe('@spinajs/authn-session contracts', function () {
         { name: 'truncate', modifiers: ['public', 'abstract'], params: [], decorators: [] },
         { name: 'applyInitialExpiration', modifiers: ['protected'], params: ['s'], decorators: [] },
         { name: 'applyRenewedExpiration', modifiers: ['protected'], params: ['s'], decorators: [] },
-        { name: 'isExpired', modifiers: ['protected'], params: ['s'], decorators: [] },
+        { name: 'isExpired', modifiers: ['public'], params: ['s'], decorators: [] },
       ]);
     });
 
@@ -358,7 +358,7 @@ describe('@spinajs/authn-session contracts', function () {
 
     it('imports only what the package may depend on', () => {
       const specs = ts.preProcessFile(readFileSync(SRC_FILE, 'utf8'), true, true).importedFiles.map((f) => f.fileName);
-      expect([...specs].sort()).to.deep.eq(['@spinajs/authn/contracts', '@spinajs/authn/register-schema', '@spinajs/configuration', '@spinajs/di', 'luxon']);
+      expect([...specs].sort()).to.deep.eq(['@spinajs/authn/contracts', '@spinajs/authn/register-schema', '@spinajs/configuration', '@spinajs/di', '@spinajs/exceptions', 'luxon']);
     });
 
     it('docs carry the rules a reader needs', () => {

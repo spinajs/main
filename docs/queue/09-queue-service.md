@@ -6,7 +6,7 @@
 
 1. `@spinajs/queue` registers `DefaultQueueService` with `@Injectable(QueueService)` when it is imported.
 2. `DI.resolve(QueueService)` (from `ev()`, your code, or another package) takes the last registration under `QueueService` and builds it once (singleton).
-3. While building it, DI injects `Configuration` (`@Config('queue')`), the connection `Map` (`@AutoinjectService('queue.connections', QueueClient)`), the retention service (`@AutoinjectService('queue.retention', JobRetentionService)`) and the `queue` logger. These need the `Configuration` already resolved.
+3. While building it, DI injects `Configuration` (`@Config('queue')`), the connection `Map` (`@AutoinjectService('queue.connections', QueueClient)`), the retention service (`@AutoinjectService('queue.retention', JobRetentionService, { optional: true })`, `undefined` without a `queue.retention` block) and the `queue` logger. These need the `Configuration` already resolved.
 4. `QueueService` extends `AsyncService`, so `DI.resolve(QueueService)` returns a promise.
 5. `emit()`, `consume()` and `stopConsuming()` call the protected `getConnectionsForMessage()` to pick connections; see [Connections and routing](02-connections-and-routing.md#how-it-works).
 6. `DefaultQueueService.dispose()` disposes the retention service, then every connection, then clears the `Map`.
@@ -131,7 +131,7 @@ export async function useRecordingQueue() {
 
 - **Every sender goes through `QueueService`.** The static `emit()`, `ev()` and `_ev()` all resolve it, so a replacement also sees messages emitted by other packages (`@spinajs/email`, `@spinajs/users`, `@spinajs/tasks`).
 - **Building the service needs the `Configuration` resolved**, because `@AutoinjectService` reads it synchronously. Resolve `Configuration` first, as the framework bootstrap does.
-- **`dispose()` does not wait for the connections.** It starts each connection's `dispose()` without awaiting it and clears the `Map` at once.
+- **`dispose()` waits for the connections.** It disposes them in parallel, logs each failure, and clears the `Map` once all have settled.
 - **Message hooks and tracking hooks live in `DefaultQueueService`.** A from-scratch implementation runs none of them unless it calls them itself; `runBeforeEmit()`, `runAroundHandle()` and `tracked()` are not exported.
 
 ## Best practices

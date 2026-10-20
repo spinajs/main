@@ -72,6 +72,7 @@ The userinfo `sub` must then equal the ID token's.
 - **Nothing here is configurable off.** The provider keys narrow the checks (`algorithms`, `clockSkewSeconds`, `requiredClaims`); none widens them.
 - **Development and test relax https and the cookie.** `http` URLs pass, and the flow cookie is `spinajs-oidc` without `Secure`. An unset env counts as production, so a staging host must set its env explicitly to get `http`.
 - **The cookie has no server key.** It grants nothing without the IdP's code; a changed cookie yields a state the IdP never saw.
+- **Errors are `@spinajs/exceptions` classes.** A refused callback, ID token, token key or link callback, and a login without a usable subject, throw `AuthenticationFailed`. A provider that answers badly (HTTP status, content type, size, discovery document, JWKS, token or userinfo response) or failed recently throws `UnexpectedServerError`. A bad call argument (an unknown provider name, a non-finite time, a URL the client refuses to fetch) throws `InvalidArgument`. The login and link routes turn each into the one failure answer.
 
 ## Limits in 3.0
 

@@ -18,7 +18,7 @@ The package needs a configured `@spinajs/queue` connection and `@spinajs/fs` pro
 | --- | --- |
 | [Lazy file upload](01-lazy-file-upload.md) | `HttpLazyFileUploader` on a `@File()` route: enqueues the copy and returns the file at once. |
 | [Upload job and worker](02-upload-job-and-worker.md) | `LazyUploadJob`, its queue routing, and the process that consumes it (`fs-lazy:process`). |
-| [Custom uploaders and jobs](03-custom-uploaders-and-jobs.md) | Extension points: per-route options, replacing the uploader in DI, your own uploader and job. |
+| [Custom uploaders and jobs](03-custom-uploaders-and-jobs.md) | Extension points: subclassing and replacing the uploader in DI, your own uploader and job. |
 
 ## Quick start
 

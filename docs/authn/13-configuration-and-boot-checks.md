@@ -72,7 +72,9 @@ Keys the schema validates for other packages:
 
 `authn.oidc.*` has its own schema in [`@spinajs/authn-oidc`](../authn-oidc/README.md).
 
-`authn.local` gets its defaults only when the app sets it, so an app without `authn-local` has no `authn.local` tree. The other objects are created with their defaults when unset.
+`authn.local` gets its defaults only when the app sets it, so an app without `authn-local` has no `authn.local` tree. The other objects are created with their defaults when unset. `authn-local` classes built with `deps` or `options` instead of the configuration fall back to `AUTHN_LOCAL_DEFAULTS`, which reads the schema defaults.
+
+`@spinajs/authn-http` ships two `logger.filters` entries, `RateLimitFilter`s on the `authn-http` logger's `CsrfOriginGuard` refusal lines (`event: 'authn-http.csrf-refused'`): one line per (Origin, own origin) pair a minute, 20 a minute in all. The guard logs every refusal; the filters decide how many are written. Config arrays concatenate, so they join the app's own filters. See [log filters](../log/09-filters.md#ratelimitfilter).
 
 ## Secrets
 
@@ -113,7 +115,6 @@ Messages name keys, never values. Set secrets (`authn.mfa.encryptionKey`, `authn
 - Without an app env, the secret checks are strict: a missing or public cookie secret fails the boot. [`@spinajs/authn-session`](../authn-session/README.md) reads the env the same way for the cookie. Set `APP_ENV` or `NODE_ENV` in every deployment.
 - `authn.audit` and `authn.throttle` refuse unknown keys, so a typo fails the boot instead of being dropped.
 - Switches that disable a protection (`authn.impersonation.requirePassword`, `requireMfa`, `authn.audit.hashIdentifiers`, `authn.local.reset.revokeTokens`, `authn.http.csrf.enabled`) take only `true` or `false`; `null` is refused rather than read as `false`.
-- No package detects 2.x `rbac.*` keys here. The authz detector fails the boot on the `rbac.*` root; see [the migration guide](../authz/migration-guide.md).
 
 ## Best practices
 

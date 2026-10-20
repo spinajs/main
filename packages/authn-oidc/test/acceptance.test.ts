@@ -23,9 +23,9 @@ import { fsService } from '@spinajs/fs';
 import { Orm, OrmDriver, QueryContext, modelDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
-import { AuthenticationStrategy, AuthnService, ExternalLoginHook, IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, AuthnService, ExternalLoginHook, IdentityLinkStore, NonceStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { ExternalSubject, IdentityRef } from '@spinajs/authn/contracts';
-import { AuthnNonce, DbIdentityLinkStore, DbNonceStore, NonceStore } from '@spinajs/authn-orm';
+import { AuthnNonce, DbIdentityLinkStore, DbNonceStore } from '@spinajs/authn-orm';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
 import { OidcController } from '../src/controllers/OidcController.js';
@@ -152,8 +152,8 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       idp = await FakeIdp.create(FAKE_ISSUER, ['RS256']);
       identities = new FakeIdentityStore();
       sessions = new MemorySessionIssuer();
-      links = new DbIdentityLinkStore();
-      const nonces = new DbNonceStore();
+      links = await dbContainer.resolve(DbIdentityLinkStore);
+      const nonces = await dbContainer.resolve(DbNonceStore);
       alice = identities.add({ login: 'alice@example.test', email: 'alice@example.test' });
 
       current.idp = idp;
@@ -165,7 +165,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
 
       // What the app's boot does: bootstrappers, then the core lists 'oidc:corp' among authn.strategies (N1's registry
       // instantiates the registered factory of that name).
-      await new OidcBootstrapper().bootstrap();
+      await (await DI.resolve(OidcBootstrapper)).bootstrap();
       const factory = (DI.getRegisteredTypes(AuthenticationStrategy) ?? []).find((t) => (t as { name?: string }).name === 'oidc:corp') as unknown as (c: IContainer) => Promise<AuthenticationStrategy>;
       expect(factory, 'the bootstrapper registers the oidc:corp strategy service').to.be.a('function');
       const strategy = await factory(DI.RootContainer);
@@ -273,7 +273,8 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       expect(done.status).to.eq(303);
       expect(done.headers.get('location')).to.eq('/');
       const signed = cookiesOf(done)[sessionName];
-      const rawId = cs.unsign(signed, COOKIE_SECRET);
+      expect(signed, 'express signed-cookie format').to.match(/^s:/);
+      const rawId = cs.unsign(signed.slice(2), COOKIE_SECRET);
       expect(rawId, 'a signed session cookie').to.be.a('string');
       expect((await sessions.restore(rawId as string))?.identity).to.deep.eq(alice);
       expect(cookiesOf(done)[flowName]).to.eq('');

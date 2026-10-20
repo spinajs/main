@@ -1,7 +1,10 @@
 import 'mocha';
 import { expect } from 'chai';
+import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
 import { ConnectionState, OrmDriver } from '@spinajs/orm';
 import { DateTime } from 'luxon';
+import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 
 import { AccessToken } from '../../src/models/AccessToken.js';
@@ -102,5 +105,21 @@ describe('v3 test database', () => {
 
     await shutdownV3Db();
     expect(connection.State).to.equal(ConnectionState.Disconnected);
+  });
+
+  // Asserted on the scan dir: a migration class an earlier suite imported stays registered and would mask a bad one.
+  it("scans this package's migrations when the process runs from another directory", async function () {
+    this.timeout(15000);
+    const cwd = process.cwd();
+    process.chdir(fileURLToPath(new URL('..', import.meta.url)));
+    try {
+      await bootV3Db();
+      const scanned = DI.get(Configuration)!.get<string[]>(['system', 'dirs', 'migrations']);
+
+      expect(scanned).to.include(fileURLToPath(new URL('../../src/migrations', import.meta.url)));
+    } finally {
+      process.chdir(cwd);
+      await shutdownV3Db();
+    }
   });
 });

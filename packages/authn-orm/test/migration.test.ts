@@ -65,6 +65,7 @@ const SCHEMA: Record<string, ColumnSpec[]> = {
     ['identity', 'string', 100, false],
     ['step', 'string', 32, false],
     ['secret_enc', 'text', null, false],
+    ['secret_hash', 'string', 64, false],
     ['key_id', 'string', 32, false],
     ['confirmed_at', 'datetime', null, true],
     ['last_step', 'bigint', null, true],
@@ -147,7 +148,7 @@ async function row(driver: OrmDriver, table: string, where: Record<string, unkno
 
 const identity = (over: Record<string, unknown> = {}) => ({ id: 'i1', identity_type: 'user', identity_id: 'u1', provider: 'google', subject: 's1', linked_at: NOW, ...over });
 const secret = (over: Record<string, unknown> = {}) => ({ id: 's1', identity: 'user:u1', purpose: 'reset', secret_hash: 'a'.repeat(64), expires_at: NOW, created_at: NOW, ...over });
-const mfa = (over: Record<string, unknown> = {}) => ({ identity: 'user:u1', step: 'totp', secret_enc: 'v1.x.y.z', key_id: 'k1', created_at: NOW, ...over });
+const mfa = (over: Record<string, unknown> = {}) => ({ identity: 'user:u1', step: 'totp', secret_enc: 'v1.x.y.z', secret_hash: 'h'.repeat(64), key_id: 'k1', created_at: NOW, ...over });
 const throttle = (over: Record<string, unknown> = {}) => ({ k: 'key-1', attempts: 1, last_attempt_at: NOW, next_allowed_at: NOW, updated_at: NOW, ...over });
 
 for (const kind of DB_KINDS) {

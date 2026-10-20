@@ -3,7 +3,7 @@ import type { AssignmentSubject, PrincipalRef, ResourceRef } from '@spinajs/auth
 
 import type { SubjectKey } from '../contracts.js';
 
-/** A subject as `authz_assignment` and `authz_rule_subject` store it (D-L2-7). */
+/** A subject as `authz_assignment` and `authz_rule_subject` store it. */
 export interface SubjectColumns {
   readonly subject_type: string;
   readonly subject_id: string;
@@ -60,7 +60,7 @@ export const SUBJECT_KEY_MAX_LENGTH = 200;
 const escapeKeyId = (id: string): string => id.replace(/%/g, '%25').replace(/#/g, '%23').replace(/\*/g, '%2A');
 
 /**
- * The one-column key of a subject (design §4.2): `type:id` for a principal (`user:*` for the wildcard subject),
+ * The one-column key of a subject: `type:id` for a principal (`user:*` for the wildcard subject),
  * `type:id#role` for a subject set. The type is escaped as the core `principalKey` does; the id escapes `%`, `#`
  * and `*`, so the first `#` after the `:` starts the role and no principal key equals a set key or a wildcard.
  */
@@ -70,6 +70,6 @@ export function subjectKeyOf(subject: AssignmentSubject): SubjectKey {
     // A set at node '*' is a set like any other, not a wildcard.
     return `${principalKey({ type: c.subject_type, id: escapeKeyId(c.subject_id) })}#${c.subject_role}`;
   }
-  // The bare id '*' is the wildcard subject (design §4.2) and stays literal.
+  // The bare id '*' is the wildcard subject and stays literal.
   return principalKey({ type: subject.type, id: subject.id === '*' ? '*' : escapeKeyId(subject.id) });
 }

@@ -6,12 +6,13 @@ The schema builder (`driver.schema()`, migrations) compiles through SQLite's own
 
 1. `driver.schema().createTable(name, cb)` builds a `TableQueryBuilder`. Its `toDB()` resolves `TableQueryCompiler` from the driver container: `SqliteTableQueryCompiler`.
 2. `SqliteTableQueryCompiler.compile()`:
-   1. With more than one primary-key column, it throws `OrmException('sqlite cannot auto-increment column <col>: it is part of the composite primary key of <table>')` if one of them is auto-increment, otherwise it clears `InlinePrimaryKey` on each.
-   2. Renders `CREATE [TEMPORARY] TABLE [IF NOT EXISTS] <table>` (inherited `_table()`).
-   3. Renders each column with `ColumnQueryCompiler`: `SqliteColumnCompiler`.
-   4. Appends `PRIMARY KEY (...)` for a composite key and the foreign keys from `ForeignKeyQueryCompiler`.
-   5. Returns one statement. `trackHistory()` is ignored.
-3. `driver.schema().alterTable(name, cb)` compiles with the shared `SqlAlterTableQueryCompiler`, which resolves `AlterColumnQueryCompiler` per column: `SqliteAlterColumnQueryCompiler`. See [`ALTER TABLE` limitations](#alter-table-limitations).
+   1. Throws `NotSupported('sqlite driver does not support history tables, ...')` when `trackHistory()` was called: the shared history compiler emits MySQL triggers.
+   2. With more than one primary-key column, it throws `OrmException('sqlite cannot auto-increment column <col>: it is part of the composite primary key of <table>')` if one of them is auto-increment, otherwise it clears `InlinePrimaryKey` on each.
+   3. Renders `CREATE [TEMPORARY] TABLE [IF NOT EXISTS] <table>` (inherited `_table()`).
+   4. Renders each column with `ColumnQueryCompiler`: `SqliteColumnCompiler`.
+   5. Appends `PRIMARY KEY (...)` for a composite key and the foreign keys from `ForeignKeyQueryCompiler`.
+   6. Returns one statement.
+3. `driver.schema().alterTable(name, cb)` compiles with the shared `SqlAlterTableQueryCompiler`, which resolves `AlterColumnQueryCompiler` per column: `SqliteAlterColumnQueryCompiler`. An `alterTable()` that modifies columns does not compile: `SqliteOrmDriver.execute()` rebuilds the table instead. See [`ALTER TABLE` limitations](#alter-table-limitations).
 4. Every statement runs as `QueryContext.Schema` on the writer handle.
 
 ### Type mapping
@@ -36,11 +37,11 @@ The schema builder (`driver.schema()`, migrations) compiles through SQLite's own
 
 ### Column modifiers
 
-Emitted in this order, each only when set: `UNSIGNED`, `CHARACTER SET '<x>'`, `COLLATE '<x>'`, `NOT NULL`, `DEFAULT ...`, `COMMENT '<x>'`, `PRIMARY KEY` (single-column key only), `AUTOINCREMENT`, `UNIQUE`.
+Emitted in this order, each only when set: `UNSIGNED`, `COLLATE '<x>'`, `NOT NULL`, `DEFAULT ...`, `PRIMARY KEY` (single-column key only), `AUTOINCREMENT`, `UNIQUE`.
 
-`caseSensitive()` emits nothing: a SQLite column compares with `BINARY` unless it declares another collation.
+`exact()` emits nothing: a SQLite column compares with `BINARY` unless it declares another collation.
 
-SQLite rejects `CHARACTER SET` in any position, and `COMMENT` after any constraint (`NOT NULL`, `DEFAULT`). Do not call `charset()` or `comment()` on SQLite columns.
+`charset()` and `comment()` emit nothing: SQLite has no column character sets and no column comments, so portable migrations that call them still run.
 
 ### Default values
 
@@ -48,7 +49,7 @@ SQLite rejects `CHARACTER SET` in any position, and `COMMENT` after any constrai
 
 | Call | Emits |
 | --- | --- |
-| `.default().value('draft')` | `DEFAULT 'draft'` (trimmed, not escaped) |
+| `.default().value('draft')` | `DEFAULT 'draft'` (trimmed, `'` doubled: `value("it's")` gives `DEFAULT 'it''s'`) |
 | `.default().value(0)` | `DEFAULT 0` |
 | `.default().date()` | `DEFAULT ((strftime('%Y-%m-%d', 'now')))` |
 | `.default().dateTime()` | `DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`: UTC ISO-8601 with milliseconds |
@@ -65,14 +66,25 @@ SQLite rejects two inline `PRIMARY KEY` constraints, so a key of several columns
 | Alteration | Emits | Notes |
 | --- | --- | --- |
 | `table.<type>(name)` / `.addColumn()` | `ALTER TABLE t ADD <body>` | Body from `SqliteAddColumnCompiler`. No `AFTER`; `.after(col)` is ignored. |
-| `.modify()` | nothing | Logs a `warn` on the `ORM` logger: `sqlite cannot MODIFY column <col> - skipping ...`. Type, `NOT NULL`, `DEFAULT` and `UNIQUE` changes are **not** applied. |
+| `.modify()` | a table rebuild | See [Modifying columns](#modifying-columns). |
 | `.rename(newName)` | ``ALTER TABLE t RENAME COLUMN `old` TO `new` `` | |
-| `table.dropColumn(name)` | ``ALTER TABLE t DROP COLUMN `name` `` | |
+| `table.dropColumn(name)` | ``ALTER TABLE t DROP COLUMN `name` `` | SQLite refuses to drop an indexed column: drop the index first with `driver.index().name(i).table(t).drop()`. |
 | `table.rename(newTable)` | ``ALTER TABLE t RENAME TO `new` `` | |
 
 - `ADD COLUMN` of a boolean drops the unconditional `NOT NULL` and keeps the `CHECK`. SQLite refuses to add a `NOT NULL` column without a non-null default to a table with rows; `.notNull().default().value(0)` still gives a non-nullable column.
 - `PRIMARY KEY` and `UNIQUE` are **not** stripped from `ADD COLUMN`: SQLite's own error (`Cannot add a PRIMARY KEY column`, `Cannot add a UNIQUE column`) surfaces. Recreate the table, or add a unique index with `driver.index()`.
-- A `.modify()` has no effect, so portable migrations that restate a column definition keep working. A constraint change needs a table-rebuild migration.
+
+### Modifying columns
+
+SQLite has no `ALTER COLUMN`. `SqliteOrmDriver.execute()` runs an `alterTable()` whose columns are all `.modify()` as a table rebuild, the [procedure SQLite documents](https://sqlite.org/lang_altertable.html#otheralter):
+
+1. `modifyByRebuild(builder)` refuses with `NotSupported` when the same `alterTable()` also adds, renames or drops a column, or renames the table. Put those in an `alterTable()` of their own.
+2. It opens `driver.transaction()` (a savepoint inside yours) and reads the table's `CREATE TABLE` from `sqlite_master`. A missing table throws `OrmException`.
+3. With `PRAGMA foreign_keys` on, it throws `NotSupported` when another table has a foreign key to this one: dropping the table would delete or reject the referencing rows.
+4. Each modified column's definition is replaced by the compiled `ColumnQueryCompiler` body plus the clauses of the old definition the builder does not restate: `PRIMARY KEY` unless `primaryKey()`, `UNIQUE` unless `unique()`, `COLLATE` unless `collation()`, `CHECK` unless the new body has one, and every `REFERENCES`. A column the table lacks throws `OrmException`; a generated column throws `NotSupported`.
+5. It creates `<table>__rebuild` with the new definitions and the old table constraints, copies every row with `INSERT INTO ... SELECT`, drops the old table, renames the new one, and re-creates the table's indexes and triggers from their stored SQL.
+
+Type, nullability and default come from the builder alone, as with MySQL's `MODIFY`: restate `notNull()` and `default()` or they are dropped. Compiled on its own (`builder.toDB()`), a modify throws `NotSupported`, because no single statement expresses the rebuild.
 
 ### Other DDL
 
@@ -80,14 +92,14 @@ SQLite rejects two inline `PRIMARY KEY` constraints, so a key of several columns
 | --- | --- | --- | --- |
 | `driver.truncate(t)`, `Model.truncate()` | `TruncateTableQueryCompiler` | `SqliteTruncateTableQueryCompiler` | `DELETE FROM t`; the `AUTOINCREMENT` counter is **not** reset |
 | `schema().tableExists(t, schema?)` | `TableExistsCompiler` | `SqliteTableExistsCompiler` | `SELECT name FROM sqlite_master WHERE type='table' AND name=? LIMIT 1`; `schema` is ignored |
-| `schema().lockTable(t)` | `LockTableQueryCompiler` | `SqliteLockTableQueryCompiler` | no statement; see [Locking a table](../orm/09-schema-builder.md#locking-a-table) |
+| `driver.lockTableShared(t)` | none, a driver method | `SqliteOrmDriver.lockTableShared()` | `DELETE FROM t WHERE 0` inside the transaction: takes the database's `RESERVED` lock; see [Shared table lock](../orm/08-transactions.md#shared-table-lock) |
 | `schema().createView(v, cb)` | `CreateViewCompiler` | `SqliteCreateViewCompiler` | `CREATE [TEMP] VIEW [IF NOT EXISTS] ...`; `orReplace()`, `algorithm()`, `security()`, `checkOption()` throw `MethodNotImplemented` |
 | `schema().createDatabase(d)` | `CreateDatabaseCompiler` | `SqliteCreateDatabaseQueryCompiler` | throws `NotSupported('sqlite does not support CREATE DATABASE, ...')` |
 | `schema().dropDatabase(d)` | `DropDatabaseCompiler` | `SqliteDropDatabaseQueryCompiler` | throws `NotSupported('sqlite does not support DROP DATABASE, delete the database file instead')` |
 | `schema().createEvent()`, `dropEvent()` | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | throw `MethodNotImplemented('orm-driver-sqlite has no native scheduled events')` |
 | `schema().cloneTable()` | `TableCloneQueryCompiler` | not registered | fails to resolve: SQLite has no `CREATE TABLE ... LIKE` |
-| `createTable(...).trackHistory()` | `TableHistoryQueryCompiler` | not registered, never called | no history table is created |
-| `driver.index()` | `IndexQueryCompiler` | shared `SqlIndexQueryCompiler` | `CREATE [UNIQUE] INDEX ...` |
+| `createTable(...).trackHistory()` | `TableQueryCompiler` | `SqliteTableQueryCompiler` | throws `NotSupported('sqlite driver does not support history tables, ...')` |
+| `driver.index()` | `IndexQueryCompiler` | `SqliteIndexQueryCompiler` | `CREATE [UNIQUE] INDEX ...`; after `drop()`, `` DROP INDEX `name` `` with no table, as index names are schema-wide |
 
 ## Configuration
 
@@ -105,10 +117,12 @@ All registered by `SqliteOrmDriver.resolve()` in the connection's child containe
 | --- | --- | --- | --- | --- |
 | Column body | `ColumnQueryCompiler`, new instance | `SqliteColumnCompiler` (exported) | `SqlColumnQueryCompiler` (MySQL spelling) | Subclass `SqliteColumnCompiler`; override `compile()`, `_booleanDefinition()` or `_defaultCompiler()`. |
 | `ADD COLUMN` body | `SqliteAddColumnCompiler` (class token), new instance; resolved by `SqliteAlterColumnQueryCompiler._columnDefinition()` | `SqliteAddColumnCompiler` (exported) | | Register a subclass `.as(SqliteAddColumnCompiler)`. |
-| Column alteration | `AlterColumnQueryCompiler`, new instance | `SqliteAlterColumnQueryCompiler` (exported) | `SqlAlterColumnQueryCompiler` | Subclass; override `_add()`, `_modify()`, `_rename()`, `_columnDefinition()`; return `null` to emit nothing. |
+| Column alteration | `AlterColumnQueryCompiler`, new instance | `SqliteAlterColumnQueryCompiler` (exported) | `SqlAlterColumnQueryCompiler` | Subclass; override `_add()`, `_rename()`, `_columnDefinition()`; return `null` to emit nothing. `_modify()` throws `NotSupported` and is reached only by compiling a modify on its own. |
+| Column modify | `SqliteOrmDriver.execute()`, protected `modifyByRebuild(builder)` | table rebuild | | Override `modifyByRebuild()` in a driver subclass. |
+| Index | `IndexQueryCompiler`, new instance | `SqliteIndexQueryCompiler` (exported) | `SqlIndexQueryCompiler` (`DROP INDEX ... ON t`) | Subclass; override `compile()` or `_drop()`. |
 | Table alteration | `AlterTableQueryCompiler`, new instance | `SqlAlterTableQueryCompiler` from `@spinajs/orm-sql` | | Subclass `SqlAlterTableQueryCompiler`. |
 | `CREATE TABLE` | `TableQueryCompiler`, new instance | `SqliteTableQueryCompiler` (exported) | `SqlTableQueryCompiler` | Subclass; override `compile()`, `_columns()`, `_foreignKeys()`, `_primaryKeys()`, `_table()`. |
-| Column default | `DefaultValueBuilder`, new instance | `SqlLiteDefaultValueBuilder` (**not exported**) | `SqlDefaultValueBuilder` from `@spinajs/orm-sql` (MySQL functions) | Extend `DefaultValueBuilder` from `@spinajs/orm`, implement `date()`, `dateTime()`, `value()`, `raw()`. |
+| Column default | `DefaultValueBuilder`, new instance | `SqlLiteDefaultValueBuilder` (exported) | `SqlDefaultValueBuilder` from `@spinajs/orm-sql` (MySQL functions) | Subclass `SqlLiteDefaultValueBuilder`, or extend `DefaultValueBuilder` from `@spinajs/orm` and implement `date()`, `dateTime()`, `value()`, `raw()`. |
 | Truncate | `TruncateTableQueryCompiler`, new instance | `SqliteTruncateTableQueryCompiler` (exported) | `SqlTruncateTableQueryCompiler` (`TRUNCATE TABLE`) | Subclass; constructor is `(container, builder)`. |
 | Table exists | `TableExistsCompiler`, new instance | `SqliteTableExistsCompiler` (exported) | | Subclass; override `compile()`. |
 | Views | `CreateViewCompiler`, new instance | `SqliteCreateViewCompiler` (exported) | | Override the clause hooks; see [View compiler hooks](../orm-sql/06-view-compiler-hooks.md). |
@@ -164,7 +178,7 @@ export class JsonSqliteDriver extends SqliteOrmDriver {
 
 ### Column default: custom implementation
 
-Store creation times as Unix seconds instead of ISO text. `SqlLiteDefaultValueBuilder` is not exported, so extend the abstract `DefaultValueBuilder`.
+Store creation times as Unix seconds instead of ISO text. Every method changes, so this extends the abstract `DefaultValueBuilder` rather than `SqlLiteDefaultValueBuilder`.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -211,18 +225,22 @@ export class EpochSqliteDriver extends SqliteOrmDriver {
 
 ### Column alteration: custom implementation
 
-Fail a migration that tries to `modify()` a column, instead of skipping it with a warning.
+Fail a migration that places a new column with `.after()`, instead of appending it silently.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { NotSupported } from '@spinajs/exceptions';
 import { AlterColumnQueryCompiler } from '@spinajs/orm';
 import { SqliteAlterColumnQueryCompiler, SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 @NewInstance()
 export class StrictAlterColumnCompiler extends SqliteAlterColumnQueryCompiler {
-  protected _modify(_definition: string): string | null {
-    throw new InvalidOperation(`sqlite cannot MODIFY column ${this.builder.Name}; write a table-rebuild migration`);
+  protected _add(definition: string): string | null {
+    if (this.builder.AfterColumn) {
+      throw new NotSupported(`sqlite cannot place column ${this.builder.Name} after ${this.builder.AfterColumn}`);
+    }
+
+    return super._add(definition);
   }
 }
 
@@ -238,31 +256,31 @@ export class StrictDdlSqliteDriver extends SqliteOrmDriver {
 
 ### `CREATE TABLE`: custom implementation
 
-Refuse `trackHistory()` loudly rather than create a table without history.
+Refuse to create a table without a primary key, so every model row can be addressed.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
-import { NotSupported } from '@spinajs/exceptions';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { ICompilerOutput, TableQueryCompiler } from '@spinajs/orm';
 import { SqliteOrmDriver, SqliteTableQueryCompiler } from '@spinajs/orm-sqlite';
 
 @NewInstance()
-export class NoHistoryTableCompiler extends SqliteTableQueryCompiler {
+export class KeyedTableCompiler extends SqliteTableQueryCompiler {
   public compile(): ICompilerOutput[] {
-    if (this.builder.TrackHistory) {
-      throw new NotSupported(`table ${this.builder.Table}: sqlite driver does not create history tables`);
+    if (!this.builder.Columns.some((c) => c.PrimaryKey)) {
+      throw new InvalidArgument(`table ${this.builder.Table} has no primary key`);
     }
 
     return super.compile();
   }
 }
 
-@Injectable('orm-driver-sqlite-no-history')
+@Injectable('orm-driver-sqlite-keyed')
 @NewInstance()
-export class NoHistorySqliteDriver extends SqliteOrmDriver {
+export class KeyedSqliteDriver extends SqliteOrmDriver {
   public resolve() {
     super.resolve();
-    this.Container.register(NoHistoryTableCompiler).as(TableQueryCompiler);
+    this.Container.register(KeyedTableCompiler).as(TableQueryCompiler);
   }
 }
 ```
@@ -304,19 +322,20 @@ The `ATTACH` must be on the handle that runs the check: inside a transaction, or
 ## Important behaviour
 
 - Foreign keys are compiled but **not enforced**: SQLite checks them only with `PRAGMA foreign_keys = ON`, per connection, and the driver never sends it. `ON DELETE CASCADE` does nothing until you enable it (see [Examples](#enforce-foreign-keys-on-every-connection)).
-- `CHARACTER SET` and `COMMENT` produce invalid SQLite DDL.
-- `value()` defaults are not escaped: `value("it's")` emits `DEFAULT 'it's'`, a syntax error.
+- `charset()` and `comment()` are dropped from the DDL.
 - `json` and `bit` columns get no declared type.
 - `truncate()` keeps the `AUTOINCREMENT` counter; new rows continue after the highest key ever used.
-- `trackHistory()` and `cloneTable()` have no SQLite implementation.
-- `.modify()` and `.after()` are silent no-ops apart from the `modify` warning.
-- An `alterTable()` with several alterations compiles to several statements, sent with `Promise.all`. Do not make one depend on another inside the same callback; use two `alterTable()` calls.
+- `trackHistory()` throws `NotSupported`; `cloneTable()` has no SQLite implementation.
+- `.after()` is ignored.
+- `.modify()` rebuilds the whole table: it copies every row and holds the database's write lock until the copy commits. Several modified columns in one `alterTable()` share one rebuild.
+- With foreign keys enforced, a table that another table references cannot be modified. Turn `PRAGMA foreign_keys` off for the migration, or rebuild both tables yourself.
+- An `alterTable()` with several alterations compiles to several statements, which `SqlDriver.execute()` sends one after another: dropped columns, the table rename, then the column changes. A statement that fails stops the rest, and the ones before it stay applied.
 
 ## Best practices
 
 - Declare booleans with `.notNull().default().value(0)` so they can be added to populated tables.
 - Use `@Primary({ generated: 'uuid' })` or `'assigned'` for composite keys.
-- Write SQLite-specific table rebuilds behind `@Migration('<connection>')` when a column constraint has to change.
+- Change a column's type, nullability or default with `.modify()` in an `alterTable()` of its own; the same migration then runs on MySQL, PostgreSQL and MSSQL.
 - Guard scheduled-event migrations with `driver.supportedFeatures().events`.
 - Reset the counter after a truncate when tests depend on key values: `DELETE FROM sqlite_sequence WHERE name = ?`.
 
@@ -331,11 +350,27 @@ table.boolean('IsArchived').notNull().default().value(0);
 ```
 
 ```ts
-// Don't: CHARACTER SET and COMMENT are MySQL-only and break CREATE TABLE on SQLite
-table.string('Title').charset('utf8mb4').comment('headline');
+// Don't: a modify shares its alterTable() with an add, so the rebuild refuses with NotSupported
+await connection.schema().alterTable('articles', (table) => {
+  table.string('Title', 300).notNull().modify();
+  table.string('Slug').addColumn();
+});
 
 // Do
-table.string('Title').notNull();
+await connection.schema().alterTable('articles', (table) => {
+  table.string('Title', 300).notNull().modify();
+});
+await connection.schema().alterTable('articles', (table) => {
+  table.string('Slug').addColumn();
+});
+```
+
+```ts
+// Don't: SQLite drops the comment, so it documents nothing there
+table.string('Title').comment('headline shown on the front page');
+
+// Do: keep the explanation next to the model or the migration
+table.string('Title').notNull(); // headline shown on the front page
 ```
 
 ## Examples
@@ -357,6 +392,31 @@ export class ArticlesAddIsPublished_2026_07_27_20_00_00 extends OrmMigration {
   public async down(connection: OrmDriver): Promise<void> {
     await connection.schema().alterTable('articles', (table) => {
       table.dropColumn('IsPublished');
+    });
+  }
+}
+```
+
+### Give a column a default on a populated table
+
+```ts sample
+import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
+
+@Migration('main')
+export class ArticlesStatusDefault_2026_08_02_09_00_00 extends OrmMigration {
+  public async up(connection: OrmDriver): Promise<void> {
+    // rebuilds articles: rows, indexes and triggers are kept
+    await connection.schema().alterTable('articles', (table) => {
+      // modify() lives on the alter-column builder, default() returns the base one: keep a reference
+      const status = table.string('Status', 16).notNull();
+      status.default().value('draft');
+      status.modify();
+    });
+  }
+
+  public async down(connection: OrmDriver): Promise<void> {
+    await connection.schema().alterTable('articles', (table) => {
+      table.string('Status', 16).notNull().modify();
     });
   }
 }

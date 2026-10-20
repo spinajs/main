@@ -65,10 +65,7 @@ export class AccessToken extends ModelBase<AccessToken> {
   /**
    * Absolute expiration. A row without one never validates (SR-08).
    *
-   * NOTE: declared optional rather than as a `DateTime | null` union - the
-   * `@DateTime()` decorator reads `design:type`, and a union is emitted as
-   * `Object`, which it rejects at decoration time. An optional property still
-   * emits `design:type = DateTime` while keeping the absence in the type.
+   * Optional, not `DateTime | null`: `@DateTime()` reads `design:type`, which a union emits as `Object`.
    */
   @DT()
   public ExpiresAt?: DateTime<true>;
@@ -102,12 +99,4 @@ export class AccessToken extends ModelBase<AccessToken> {
   public RevokedAt?: DateTime<true>;
 
   public LastUsedIp?: string;
-
-  /**
-   * True when the token has no expiration or one in the past (SR-08).
-   * TokenService decides expiry from `ctx.now`, not from this getter.
-   */
-  public get IsExpired(): boolean {
-    return !this.ExpiresAt || this.ExpiresAt <= DateTime.now();
-  }
 }

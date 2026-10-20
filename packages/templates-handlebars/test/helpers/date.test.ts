@@ -77,6 +77,14 @@ describe('Date Helpers', () => {
       expect(dateHelpers.dateAfter(testDate, testDate2)).to.be.false;
     });
 
+    it('should compare times on the same day', () => {
+      const morning = '2025-12-29T10:00:00.000Z';
+      const noon = '2025-12-29T12:00:00.000Z';
+      expect(dateHelpers.dateBefore(morning, noon)).to.be.true;
+      expect(dateHelpers.dateAfter(morning, noon)).to.be.false;
+      expect(dateHelpers.dateAfter(noon, morning)).to.be.true;
+    });
+
     it('should check if date is between two dates', () => {
       const midDate = '2025-12-30T10:30:00.000Z';
       expect(dateHelpers.dateBetween(midDate, testDate, testDate2)).to.be.true;
@@ -187,6 +195,11 @@ describe('Date Helpers', () => {
       const result = dateHelpers.unixTimestamp(OPT);
       expect(result).to.be.a('number');
       expect(result).to.be.greaterThan(0);
+    });
+
+    it('dateAdd and dateStartOf default the unit when unit arg is the options object', () => {
+      expect(dateHelpers.dateAdd(testDate, 2, OPT)).to.include('2025-12-31');
+      expect(dateHelpers.dateStartOf(testDate, OPT)).to.equal(dateHelpers.dateStartOf(testDate, 'day'));
     });
 
     it('dateDiff uses default unit (days) when unit arg is the options object', () => {

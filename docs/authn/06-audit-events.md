@@ -4,13 +4,15 @@ Every authentication fact (a login, a failed code, a throttle refusal, an impers
 
 ## How it works
 
-1. A core service (`DefaultAuthnService`, `AuthnImpersonationService`, `AccountLinkService`) or another authn package calls `AuthnAudit.publish(event)`.
+1. A core service (`DefaultAuthnService`, `AuthnImpersonationService`, `AccountLinkService`) or another authn package (`authn-local`, `authn-token`, `authn-keys`, `authn-totp`) injects `AuthnAudit` and calls `publish(event)`, or `publishIn(ctx, body)`, which stamps `at`, `ip` and `userAgent` from the `AuthnContext`. Every emitter goes through `AuthnAudit`; `@spinajs/authn/audit` exports it without registering anything.
 2. `AuthnAudit` makes one deep-frozen copy of the event (`frozenCopy`).
 3. It delivers the copy to every sink concurrently, each call bounded by `authn.audit.sinkTimeoutMs`.
 4. A sink that throws or times out is logged on the `authn-audit` log by its class name and the event type, never with the error message or event values. `publish` never rejects because of a sink.
 5. `publish` resolves when every sink has settled or timed out. A login waits for the slowest sink, not for the sum.
 
 The sinks are every `AuthnEventSink` registered in the container and its ancestors (`Array.chainOf`), resolved when `AuthnAudit` boots. With no sink, boot logs a warning.
+
+A sink failure after a state change (a stored token, a confirmed TOTP enrolment) never fails the request. `AuthnAudit.over(sinks, { sinkTimeoutMs, log })` gives the same delivery over explicit sinks, for services built with `new` in tests: the `sinks` deps of `authn-local` and `authn-totp`, the `audit` dep of `DefaultKeyRegistry`, the constructor argument of `DbTokenService`.
 
 ## The event
 
@@ -68,7 +70,7 @@ An unknown key under `authn.audit` fails the boot.
 
 `LogAuthnAuditSink` writes one line per event on the `authn-audit` log, `info` for a success and `warn` for a failure. It never writes `data` or the user agent. It hashes `identity`, `actor`, `ip` and `session` with `authn.audit.hashKey.secret`. A value holding `@` may be an email: it is hashed even with `hashIdentifiers: false`, and a `type`, `strategy` or `reason` holding `@` is written as `?`.
 
-`DbAuthnAuditSink` stores raw identity refs, IP and user agent in `authn_audit`; it does not hash. `QueueAuthnEventSink` re-emits the 2.x queue events such as `UserLogged` and `UserLoginFailed`.
+`DbAuthnAuditSink` stores raw identity refs, IP and user agent in `authn_audit`; it does not hash. `QueueAuthnEventSink` re-emits the user queue events such as `UserLogged` and `UserLoginFailed`.
 
 ### AuthnEventSink: custom implementation
 
@@ -125,4 +127,4 @@ class LoginCounter extends AuthnEventSink {
 
 - [Authentication flow](01-authentication-flow.md): the events of a login.
 - [`@spinajs/authn-orm`](../authn-orm/README.md): `DbAuthnAuditSink` and the `authn_audit` table.
-- [`@spinajs/users`](../users/README.md): the sinks that keep 2.x queue events working.
+- [`@spinajs/users`](../users/README.md): the sinks that re-emit authn events as user queue events.

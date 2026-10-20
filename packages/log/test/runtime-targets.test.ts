@@ -8,6 +8,7 @@ import { join, normalize, resolve } from "path";
 // side-effect import registers the built-in targets ( MemoryTarget, etc. ).
 import { Log } from "../src/index.js";
 import { ICommonTargetOptions, ILogEntry, LogTarget } from "@spinajs/log-common";
+import { InvalidOption } from "@spinajs/exceptions";
 
 function dir(path: string) {
   return resolve(normalize(join(process.cwd(), "test", path)));
@@ -182,5 +183,12 @@ describe("runtime targets - addTarget / removeTarget", () => {
     await log.info("a secret value");
 
     expect((t as any).Records.map((r: ILogEntry) => r.Variables.message)).to.deep.eq(["keep me"]);
+  });
+
+  it("rejects an unregistered target or filter type when it is attached", () => {
+    const log = DI.resolve(Log, ["rt-unregistered"]);
+
+    expect(() => log.addTarget({ name: "Ghost", type: "NoSuchTarget" })).to.throw(InvalidOption, "NoSuchTarget");
+    expect(() => log.addTarget({ name: "Ghost", type: "RtTarget" }, { filters: [{ type: "NoSuchFilter" } as any] })).to.throw(InvalidOption, "NoSuchFilter");
   });
 });

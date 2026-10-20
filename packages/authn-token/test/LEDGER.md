@@ -117,7 +117,7 @@ row 4 → "refuses an empty --expires instead of applying the default";
 row 5 → `authn:token-delete` "revokes the token whoever owns it and publishes token.revoke for the owner" (3.0 revokes, it does not delete the row);
 row 6 → "reports an unknown or already revoked token instead of rejecting";
 row 9 → `authn:token-delete-expired` "removes only expired and revoked tokens and prints the count" (the never-expiring fixture is a row without an expiry inserted through the model).
-`test/cli-orm-boot.test.ts` checks all three commands against `TokenCliCommand`.
+`test/cli-orm-boot.test.ts` checks that resolving each of the three commands boots the Orm.
 
 ## test/generator.test.ts
 
@@ -139,7 +139,7 @@ Status (N6): row 4's fixture sets `length: 48` (64 chars), so the test proves th
 | # | Line | Test | Class | Lane | Target | Status (N6) |
 |---|---|---|---|---|---|---|
 | 1 | 45 | AccessToken model > persists and loads a token with roles set and null expiry | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory). If N6 makes `ExpiresAt` NOT NULL, this row becomes a rewrite | done: kept in `test/model.test.ts`; `ExpiresAt` stays nullable |
-| 2 | 65 | AccessToken model > IsExpired is true for past ExpiresAt | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) | done: kept in `test/model.test.ts` |
+| 2 | 65 | AccessToken model > IsExpired is true for past ExpiresAt | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) | done: kept in `test/model.test.ts` as "keeps a past ExpiresAt" (the `IsExpired` getter is gone) |
 | 3 | 80 | AccessToken model > hides hash, ids and owner when dehydrated | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) | done: kept in `test/model.test.ts` |
 | 4 | 99 | AccessToken model > persists and loads the Profile column | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) | done: kept in `test/model.test.ts` |
 | 5 | 113 | AccessToken model > leaves Profile undefined for legacy rows | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) | done: kept in `test/model.test.ts` |

@@ -43,30 +43,8 @@ const MAP_TAG = 'Map';
 const SET_TAG = 'Set';
 
 /**
- * Object-graph twin of {@link sessionReviver}: turns the same tags back into the
- * same instances, but reads a value that is ALREADY a parsed object graph
- * instead of JSON text.
- *
- * It exists because a MySQL `json` column comes back from mysql2 already parsed.
- * Re-serializing that object only to hand it straight back to `JSON.parse` would
- * be a pure waste - and passing it to the decoder untransformed is worse than
- * wasteful: the payload's top level is the tagged wrapper
- * `{ dataType: 'Map', value: [...] }`, so without this walk `parsed instanceof Map`
- * is false and the session decodes as silently EMPTY.
- *
- * Kept byte-for-byte semantically equal to the reviver:
- *
- *  - `JSON.parse` calls its reviver bottom-up (children before parents), so the
- *    walk recurses into children BEFORE inspecting the node's own tag,
- *  - the DateTime tag is checked before the shared Map/Set tags, matching
- *    {@link sessionReviver}'s order,
- *  - properties are installed with `defineProperty` so a payload carrying a
- *    literal `__proto__` key becomes an own data property (what `JSON.parse`
- *    does) rather than mutating the result's prototype.
- *
- * Values that are already live instances (`Map` / `Set` / `DateTime`) are passed
- * through untouched: a caller may legitimately hand over data that never went
- * through a database at all.
+ * {@link sessionReviver} for an already-parsed object graph (a MySQL `json` column comes back parsed), walked bottom-up
+ * like `JSON.parse`; `defineProperty` keeps a literal `__proto__` key an own property. Live Map/Set/DateTime pass through.
  */
 function reviveSessionValue(value: unknown): unknown {
   if (value === null || typeof value !== 'object') {
@@ -123,34 +101,9 @@ export function encodeSessionData(data: Map<string, unknown>): string {
 }
 
 /**
- * Restores a session `Data` map from whatever a store hands back for the payload
- * written by {@link encodeSessionData}.
+ * Restores a session `Data` map from a JSON string or an already-parsed object (a MySQL `json` column). Anything else
+ * is a store defect and throws, rather than decoding as an empty, anonymous session.
  *
- * TWO representations reach this function, and both are legitimate:
- *
- *  - a **string** - what {@link encodeSessionData} produces, and what every
- *    text-ish column and every non-SQL store (redis, dynamodb) returns. Parsed
- *    with {@link sessionReviver}, the JSON.parse path.
- *  - an **object** - a MySQL `json` column, which mysql2 parses for us before
- *    the ORM ever sees it. Walked with {@link reviveSessionValue}: the value is
- *    already an object graph, so round-tripping it back through
- *    `JSON.stringify` + `JSON.parse` purely to reach the reviver would be
- *    pointless work on every single session read.
- *
- * Both branches are kept deliberately. `user_sessions.Data` is a `json` column,
- * but a driver or store that yields a string must keep decoding - and the
- * sqlite driver used by the tests is exactly that case.
- *
- * ANYTHING ELSE THROWS. The object branch is narrowed to a real object
- * (`!== null && typeof === 'object'`) rather than being the `else` of the string
- * test, because widening the parameter to `unknown` otherwise turns `null`,
- * `undefined` and a stray number into a silently EMPTY session: every request
- * carrying that session reads as authenticated-but-anonymous, and a store that
- * started handing back the wrong shape would log out its entire user base
- * without a single error line. A missing or malformed payload is a defect in the
- * store, not a session with no data, and it is raised as one.
- *
- * @param data - the serialized session data, as string or as parsed object
  * @throws `InvalidArgument` when `data` is neither a string nor a non-null object
  */
 export function decodeSessionData(data: string | unknown): Map<string, unknown> {

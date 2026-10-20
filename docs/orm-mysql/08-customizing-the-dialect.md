@@ -37,21 +37,22 @@ On top of [`SqlDriver.resolve()`](../orm-sql/01-sql-driver.md#what-sqldriverreso
 
 | Token | Implementation | Exported from `@spinajs/orm-mysql` | Page |
 | --- | --- | --- | --- |
-| `TableExistsCompiler` | `MySqlTableExistsCompiler` | no | [Table reflection](05-table-reflection.md) |
+| `TableExistsCompiler` | `MySqlTableExistsCompiler` | yes | [Table reflection](05-table-reflection.md) |
 | `ServerResponseMapper` | `MysqlServerResponseMapper` | yes | [Inserts](04-inserts-and-generated-keys.md) |
-| `InSetStatement` | `MySqlInSetStatement` | no | [Set membership](07-set-membership-and-literals.md) |
+| `InSetStatement` | `MySqlInSetStatement` | yes | [Set membership](07-set-membership-and-literals.md) |
 | `IdentifierQuoter` | `BacktickIdentifierQuoter` (`@spinajs/orm-sql`) | | [Set membership](07-set-membership-and-literals.md) |
-| `LiteralQuoter` | `MySqlLiteralQuoter` | no | [Set membership](07-set-membership-and-literals.md) |
-| `InsertQueryCompiler` | `MySqlInsertQueryCompiler` | no | [Inserts](04-inserts-and-generated-keys.md) |
+| `LiteralQuoter` | `MySqlLiteralQuoter` | yes | [Set membership](07-set-membership-and-literals.md) |
+| `InsertQueryCompiler` | `MySqlInsertQueryCompiler` | yes | [Inserts](04-inserts-and-generated-keys.md) |
 | `OnDuplicateQueryCompiler` | `SqlOnDuplicateQueryCompiler` | | [Inserts](04-inserts-and-generated-keys.md) |
-| `CreateViewCompiler` | `MySqlCreateViewCompiler` | no | [Schema](06-schema-views-and-events.md) |
+| `CreateViewCompiler` | `MySqlCreateViewCompiler` | yes | [Schema](06-schema-views-and-events.md) |
 | `ColumnQueryCompiler`, `AlterColumnQueryCompiler`, `AlterTableQueryCompiler` | `SqlColumnQueryCompiler`, `SqlAlterColumnQueryCompiler`, `SqlAlterTableQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `TableCloneQueryCompiler`, `TruncateTableQueryCompiler`, `TableHistoryQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTruncateTableQueryCompiler`, `SqlTableHistoryQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `SqlEventQueryCompiler`, `SqlDropEventQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | | [Schema](06-schema-views-and-events.md) |
+| `SqlExpressions` | `MySqlSqlExpressions` | yes | [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
 | `LimitQueryCompiler`, `RecursiveQueryCompiler` | `SqlLimitQueryCompiler`, `SqlWithRecursiveCompiler` | | [Query compilers](../orm-sql/02-query-compilers.md) |
 
-`Sql*` classes are exported from `@spinajs/orm-sql`. The `MySql*` classes marked "no" are not exported: to change one, extend the `Sql*` class it extends and re-implement its MySQL part, as the custom examples on each page do.
+`Sql*` classes are exported from `@spinajs/orm-sql`, the `MySql*` classes from `@spinajs/orm-mysql`: to change one, extend it and override only the part that differs.
 
 ## Configuration
 
@@ -74,19 +75,22 @@ db: {
 | --- | --- | --- | --- | --- |
 | MySQL driver | `'orm-driver-mysql'`; `@NewInstance()` per connection | `MySqlOrmDriver` | `MySqlSSHOrmDriver` (`'orm-driver-mysql-ssh'`) | Subclass; `@Injectable('orm-driver-mysql')` for all connections, or a new string for some. |
 | Dialect classes | the tokens above, in `driver.Container` | the table above | per-page alternatives | `this.Container.register(X).as(Token)` after `super.resolve()`. |
-| Driver hooks | `connect()`, `isRetryableError()`, `ping()`, `poolMetrics()`, `tableInfo()`, `supportedFeatures()`, `_begin()` and the other transaction primitives, `ResponseSchemaTypes`, `SupportedIsolationLevels` | `MySqlOrmDriver` | | Override in the subclass. See [MySQL driver](01-mysql-driver.md), [Transactions](03-transactions.md), [Table reflection](05-table-reflection.md). |
+| Driver hooks | `connect()`, `poolConfig()`, `isRetryableError()`, `lockTableShared()`, `ping()`, `poolMetrics()`, `tableInfo()`, `supportedFeatures()`, `_begin()` and the other transaction primitives, `ResponseSchemaTypes`, `SupportedIsolationLevels`, `MaxBindings` | `MySqlOrmDriver` | | Override in the subclass. See [MySQL driver](01-mysql-driver.md), [Transactions](03-transactions.md), [Table reflection](05-table-reflection.md). |
 
-### How other packages recognize a MySQL connection
+### What other packages read from the driver
 
-Some packages switch their SQL on the connection's dialect. They detect it in two ways, and a custom driver string breaks one of them:
+No shipped package checks the `Driver` string or the driver class. Packages that write raw SQL or migrations (`@spinajs/authz-orm`, `@spinajs/authz-rbac`, `@spinajs/authn-orm`, `@spinajs/users`, `@spinajs/authz-fs`, `@spinajs/session-provider-db`, `@spinajs/queue`) read what the driver provides, so a subclass under any string serves them as `MySqlOrmDriver` does:
 
-| Package | Detects MySQL by | A subclass under a new string |
+| Driver member | MySQL | Read by |
 | --- | --- | --- |
-| `@spinajs/session-provider-db` (`isMySqlDialect()`) | `Driver` is `orm-driver-mysql` or `orm-driver-mysql-ssh` | skips the MySQL-only session-table migration |
-| `@spinajs/authn-orm` (`driverDialect()`) | a class named `MySqlOrmDriver` in the prototype chain, then `mysql` in the `Driver` string | recognized |
-| `@spinajs/authz-fs` (binary collation migration) | a class named `MySqlOrmDriver` in the prototype chain | recognized |
+| `SqlExpressions` | `MySqlSqlExpressions`: `CAST(x AS CHAR[(n)])`, `LOCATE()`, `= CAST(? AS BINARY)` | raw SQL that renders lists, reads datetimes or compares bytes exactly; see [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
+| `supportedFeatures().nativeJson` | `true` | migrations that choose between a JSON column and text |
+| `lockTableShared(table)` | `SELECT COUNT(*) FROM <table> FOR UPDATE` | migrations that check rows before they change a table; see [Transactions](../orm/08-transactions.md#shared-table-lock) |
+| `MaxBindings` | `65535` | `insertChunked()`, `deleteChunked()`, `whereInGroups()`; see [SQL helpers](../orm/17-sql-helpers.md#batches) |
+| Error mapping (`mapMySqlError()`) | `errno` `1062` rejects with `UniqueViolation` | stores that treat a duplicate key as a lost race; see [Duplicate keys](../orm/17-sql-helpers.md#duplicate-keys) |
+| `exact()` on a column | `CHARACTER SET 'utf8mb4' COLLATE 'utf8mb4_bin'` | binary key columns; see [Schema builder](../orm/09-schema-builder.md#exact-columns) |
 
-Register a subclass under `'orm-driver-mysql'` (or `'orm-driver-mysql-ssh'`) when these packages share the connection.
+Override one of these in a subclass to change it for every package on the connection.
 
 ### Dialect classes: custom implementation
 

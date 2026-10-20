@@ -2,8 +2,8 @@ import 'mocha';
 import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
-import { InvalidArgument } from '@spinajs/exceptions';
-import { IdentifierQuoter, InSetStatement, SchemaQueryBuilder } from '@spinajs/orm';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { IdentifierQuoter, InSetStatement, SchemaQueryBuilder, WhereBoolean } from '@spinajs/orm';
 
 import { MySqlOrmDriver } from '../src/index.js';
 import { MySqlInSetStatement } from '../src/statements.js';
@@ -52,10 +52,23 @@ describe('mysql dialect', function () {
     expect(schema.alterTable('users', (table) => table.dropColumn('Role')).toDB()).to.deep.eq([{ bindings: [], expression: 'ALTER TABLE `users` DROP COLUMN `Role`' }]);
   });
 
-  it('locks a table with a locking read of every row', () => {
-    const schema = driver.Container.resolve(SchemaQueryBuilder, [driver]);
+  it('locks a table with a locking read of every row', async () => {
+    const sent: string[] = [];
+    driver.executeOnDb = (stmt: string) => (sent.push(stmt), Promise.resolve([]));
+    // a transaction context in scope is all assertInTransaction() checks
+    await (driver as any).TransactionStorage.run({ depth: 0 }, () => driver.lockTableShared('users'));
 
-    expect(schema.lockTable('users').toDB()).to.deep.eq([{ bindings: [], expression: 'SELECT COUNT(*) FROM `users` FOR UPDATE' }]);
+    expect(sent).to.deep.eq(['SELECT COUNT(*) FROM `users` FOR UPDATE']);
+  });
+
+  it('refuses lockTableShared outside a transaction', async () => {
+    const err = await driver.lockTableShared('users').then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(err).to.be.instanceOf(InvalidOperation);
+    expect((err as Error).message).to.eq('lockTableShared must run inside a transaction');
   });
 
   describe('set membership', () => {
@@ -94,6 +107,13 @@ describe('mysql dialect', function () {
     it('matches nothing for an empty value list, and everything for its negation', () => {
       expect(statement([]).build().Statements[0]).to.eq('(1 = 0)');
       expect(statement([], true).build().Statements[0]).to.eq('(1 = 1)');
+    });
+
+    it('keeps the OR connector when cloned', () => {
+      const original = statement(['admin']);
+      original.Boolean = WhereBoolean.OR;
+
+      expect(original.clone().Boolean).to.eq(WhereBoolean.OR);
     });
 
     it('refuses a value containing the set delimiter', () => {

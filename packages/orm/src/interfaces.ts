@@ -70,14 +70,11 @@ export interface ISupportedFeature {
    */
   insertIdIsFirstOfBatch?: boolean;
 
-  /** Most bound parameters one statement may carry. `InsertQueryBuilder` splits a multi-row insert to fit. Unset means no limit. */
-  maxBindParameters?: number;
-
-  /** Most rows one `INSERT ... VALUES` may carry. Unset means no limit. */
-  maxInsertRows?: number;
-
   /** Can two outermost transactions be open at once? `false` makes `OrmDriver.transaction()` queue them. Unset means true. */
   concurrentTransactions?: boolean;
+
+  /** Has a JSON column type of its own, rather than storing `json()` columns as text. Unset reads as false. */
+  nativeJson?: boolean;
 }
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {
@@ -782,8 +779,8 @@ export interface IRelationDescriptor {
 
 export interface IModelStatic extends Constructor<ModelBase<unknown>> {
   where<T extends typeof ModelBase>(val: boolean): ISelectQueryBuilder<Array<InstanceType<T>>>;
-  where<T extends typeof ModelBase>(val: PartialArray<InstanceType<T>> | PickRelations<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   where<T extends typeof ModelBase>(func: WhereFunction<InstanceType<T>>): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  where<T extends typeof ModelBase>(val: PartialArray<InstanceType<T>> | PickRelations<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   where<T extends typeof ModelBase>(column: string, operator: Op, value: any): ISelectQueryBuilder<Array<InstanceType<T>>>;
   where<T extends typeof ModelBase>(column: string, value: any): ISelectQueryBuilder<Array<InstanceType<T>>>;
   where<T extends typeof ModelBase>(statement: Wrap): ISelectQueryBuilder<Array<InstanceType<T>>>;
@@ -1250,8 +1247,8 @@ export interface IWhereBuilder<T> {
   when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this;
 
   where(val: boolean): this;
-  where(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   where(func: WhereFunction<T>): this;
+  where(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   where(func: Lazy<void>): this;
   where(column: string, operator: Op, value: any): this;
   where(column: string, value: any): this;
@@ -1259,8 +1256,8 @@ export interface IWhereBuilder<T> {
   where(column: string | boolean | WhereFunction<T> | Lazy<void> | RawQuery | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>> | Wrap, operator?: Op | any, value?: any): this;
 
   orWhere(val: boolean): this;
-  orWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   orWhere(func: WhereFunction<T>): this;
+  orWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   orWhere(func: Lazy<void>): this;
   orWhere(column: string, operator: Op, value: any): this;
   orWhere(column: string, value: any): this;
@@ -1268,8 +1265,8 @@ export interface IWhereBuilder<T> {
   orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>, operator?: Op | any, value?: any): this;
 
   andWhere(val: boolean): this;
-  andWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   andWhere(func: WhereFunction<T>): this;
+  andWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   andWhere(func: Lazy<void>): this;
   andWhere(column: string, operator: Op, value: any): this;
   andWhere(column: string, value: any): this;
@@ -1277,8 +1274,8 @@ export interface IWhereBuilder<T> {
   andWhere(column: string | boolean | Lazy<void> | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, operator?: Op | any, value?: any): this;
 
   whereObject(obj: Partial<ModelData<Unbox<T>>>): this;
-  whereNotNull(column: string): this;
-  whereNull(column: string): this;
+  whereNotNull(column: string | Wrap): this;
+  whereNull(column: string | Wrap): this;
   whereNot(column: string, val: unknown): this;
   /** `NOT ( ... )` over the group the callback builds; an empty group negates to no row. */
   whereNot(condition: WhereFunction<T>): this;
@@ -1575,11 +1572,6 @@ export abstract class DropEventQueryCompiler implements IQueryCompiler {
 
 @NewInstance()
 export abstract class AlterTableQueryCompiler implements IQueryCompiler {
-  public abstract compile(): ICompilerOutput[];
-}
-
-@NewInstance()
-export abstract class LockTableQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput[];
 }
 
@@ -2004,4 +1996,28 @@ export interface ITransactionContext {
 
   /** Callbacks queued by `OrmDriver.afterCommit`, run after the outermost commit. Owned by `OrmDriver`. */
   afterCommit?: (() => void | Promise<void>)[];
+}
+/** SQL text with its `?` bindings, built by the `sql` tagged template. */
+export interface SqlFragment {
+  readonly sql: string;
+  readonly bindings: readonly unknown[];
+}
+
+/** Options of `deleteChunked`. */
+export interface DeleteChunkedOptions {
+  /** Extra condition every delete also checks. */
+  readonly where?: WhereFunction<unknown>;
+  /** Values per statement; default `IN_CHUNK`, or fewer when the driver binds fewer. */
+  readonly size?: number;
+}
+
+/** Options of `purgeBatch`. */
+export interface PurgeBatchOptions {
+  readonly table: string;
+  /** A unique column: the batch is selected by it, ordered by it, and deleted by it. */
+  readonly key: string;
+  /** The rows to purge; checked again by the delete, so a row that stopped matching in between stays. */
+  readonly where: WhereFunction<unknown>;
+  /** Default 500. */
+  readonly limit?: number;
 }

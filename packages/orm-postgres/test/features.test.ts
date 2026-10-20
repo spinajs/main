@@ -14,8 +14,8 @@ describe('postgres supported features', function () {
   it('declares the wire protocol bound-parameter limit', async () => {
     const driver = await DI.resolve(PostgresOrmDriver, [{ Name: 'pg-features-test', Driver: 'orm-driver-postgres' } as any]);
 
-    expect(driver.supportedFeatures().maxBindParameters).to.eq(65535);
-    expect(driver.supportedFeatures().maxInsertRows).to.eq(undefined);
+    expect(driver.MaxBindings).to.eq(65535);
+    expect(driver.MaxInsertRows).to.eq(Infinity);
   });
 
   it('allows concurrent transactions', async () => {

@@ -6,7 +6,7 @@ import { requireTransaction } from './context.js';
 import { VersionRecord } from './records.js';
 import { AUTHZ_VERSION_TABLE } from './tables.js';
 
-/** `authz_version(domain) += 1` in the transaction of `tx`, creating the row at 1 (D-L2-3). */
+/** `authz_version(domain) += 1` in the transaction of `tx`, creating the row at 1. */
 export async function bumpVersion(tx: AuthzTx, domain: string, where = 'bumpVersion'): Promise<void> {
   const driver = requireTransaction(VersionRecord, tx, where);
   if ((await increment(driver, domain)) > 0) return;

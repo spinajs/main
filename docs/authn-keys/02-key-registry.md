@@ -6,7 +6,7 @@
 
 ### Register, `DefaultKeyRegistry.register(reg, ctx)`
 
-1. The owner is checked: `type` is `user`, `service` or `agent`, `id` is 1-64 characters. Anything else throws `TypeError`: a malformed owner is a programming error, not a credential.
+1. The owner is checked: `type` is `user`, `service` or `agent`, `id` is 1-64 characters. Anything else throws `InvalidArgument`: a malformed owner is a programming error, not a credential.
 2. `checkPublicJwk(reg.jwk, authn.keys.algorithms)` checks the key and keeps only its required members (see [JWS and key material](08-jws-and-key-material.md#how-it-works)). The `kid` defaults to the key's RFC 7638 thumbprint.
 3. The fields are checked. Any failure returns `{ ok: false, code: 'invalid_key' }`:
    - the key passes step 2 and its algorithm is in `authn.keys.algorithms`;
@@ -16,7 +16,7 @@
    - `scope`, when given, is a `Ceiling`: only `roles`, `permissions`, `resources` (`{ type, id? }[]`), `expiresAt` and `reason`.
 4. The registrant is checked:
    - A `user` key needs `reg.proof`: a signature by the new key over a `register` challenge issued to the same user. `proofHolds()` verifies it and then redeems the challenge. Failure returns `invalid_proof`. See [Challenge login](04-challenge-login.md).
-   - A `service` or `agent` key needs `reg.actor`, a `PrincipalRef` whose `<type>:<id>` fits 100 characters. It is stored as `createdBy`. Without one, `register` throws `TypeError`.
+   - A `service` or `agent` key needs `reg.actor`, a `PrincipalRef` whose `<type>:<id>` fits 100 characters. It is stored as `createdBy`. Without one, `register` throws `InvalidArgument`.
 5. `KeyStore.insert()` stores the record. A taken `kid` or thumbprint returns `duplicate`.
 6. The registry reads the stored record back, publishes a `key.register` success event and returns `{ ok: true, key }`.
 
@@ -54,7 +54,7 @@ The routes, their status codes and the fresh-auth rule belong to [`@spinajs/auth
 | `list(owner)` | Every key of the owner, revoked and expired ones included, through `KeyStore.listByOwner()`. |
 | `revoke(owner, kid, ctx, opts?)` | Sets `revokedAt = ctx.now` when the key exists and belongs to `owner` (same type and id). Returns `false` for an unknown or foreign key or a malformed `kid`. Revoking a revoked key returns `true`, keeps the first time, and publishes nothing. Otherwise publishes `key.revoke` with `data: { kid }` and `opts.actor`. |
 | `byId(kid)` | The record, revoked and expired ones included, or `null`. A malformed `kid` returns `null` without a store read. |
-| `touch(kid, at)` | Stamps `lastUsedAt`, at most once a minute per `kid` per registry instance. The strategies call it after a successful verification. |
+| `touch(kid, at)` | Stamps `lastUsedAt`, at most once a minute per `kid` per registry instance. Optional on the `KeyRegistry` contract; the key strategies call it after a successful verification when the registry implements it. |
 | `challenge(req, ctx)` | Issues a register or login challenge. See [Challenge login](04-challenge-login.md). |
 
 ### The CLI
@@ -90,7 +90,7 @@ The registry stores keys through `KeyStore`. The `authn_key` table is in [Key st
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Key registry | `KeyRegistry` (`@spinajs/authn/contracts`), singleton; also registered as `DefaultKeyRegistry` | `DefaultKeyRegistry`, injected with `KeyStore`, `SecretStore`, `AuthnThrottle` and every `AuthnEventSink` | none | Subclass `DefaultKeyRegistry`, decorate it `@Injectable(KeyRegistry)`, and import it after `@spinajs/authn-keys` |
+| Key registry | `KeyRegistry` (`@spinajs/authn/contracts`), singleton; also registered as `DefaultKeyRegistry` | `DefaultKeyRegistry`; `@Autoinject` properties for `KeyStore`, `SecretStore`, `AuthnThrottle` and `AuthnAudit` | none | Subclass `DefaultKeyRegistry`, decorate it `@Injectable(KeyRegistry)`, and import it after `@spinajs/authn-keys` |
 
 Override points of `DefaultKeyRegistry`:
 
@@ -98,26 +98,25 @@ Override points of `DefaultKeyRegistry`:
 | --- | --- |
 | `register`, `revoke`, `challenge` | Add a policy before or after the default, then call `super` |
 | `proofHolds(owner, key, proof)` | Change how a user's proof of possession is checked |
-| `publish(ctx, event)` | Change how `key.register` and `key.revoke` events reach the sinks |
+| `publish(ctx, body)` | Change how `key.register` and `key.revoke` events reach the sinks; the default calls `AuthnAudit.publishIn(ctx, body)` |
 | `options` | Read the options from somewhere other than `authn.keys` |
 
-The constructor's last parameter takes complete `KeysOptions` (from `keysOptionsOf()`) and bypasses the configuration, for tests.
+The constructor takes an optional `DefaultKeyRegistryDeps`, a seam for building the registry with `new` in tests. Each field replaces what DI injects: `store`, `secrets`, `throttle`, `audit` (an `AuthnAuditor`, such as `AuthnAudit.over(sinks)`) and `options` (complete `KeysOptions` from `keysOptionsOf()`, which bypass the configuration). The protected `maxStamped` (10,000) caps how many kids `touch` remembers.
 
 ### Key registry: custom implementation
 
 Keep `DefaultKeyRegistry` and add a policy. This one caps how many usable keys an owner holds:
 
 ```ts sample
-import { Inject, Injectable } from '@spinajs/di';
-import { AuthnEventSink, AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
+import { Injectable } from '@spinajs/di';
+import { KeyRegistry } from '@spinajs/authn/contracts';
 import type { AuthnContext, KeyRegisterResult, KeyRegistration } from '@spinajs/authn/contracts';
-import { DefaultKeyRegistry, KeyStore, isUsableKey } from '@spinajs/authn-keys';
+import { DefaultKeyRegistry, isUsableKey } from '@spinajs/authn-keys';
 
 const MAX_USABLE_KEYS = 5;
 
 /** Refuses a sixth usable key per owner, so a stolen session cannot pile up keys. */
 @Injectable(KeyRegistry)
-@Inject(KeyStore, SecretStore, AuthnThrottle, Array.ofType(AuthnEventSink))
 export class CappedKeyRegistry extends DefaultKeyRegistry {
   public async register(reg: KeyRegistration, ctx: AuthnContext): Promise<KeyRegisterResult> {
     const usable = (await this.list(reg.owner)).filter((key) => isUsableKey(key, ctx.now));
@@ -129,7 +128,7 @@ export class CappedKeyRegistry extends DefaultKeyRegistry {
 }
 ```
 
-Import the file after `@spinajs/authn-keys`: `@Injectable` registers at import time, and the last registration of `KeyRegistry` wins. The early return publishes no event; call `this.publish()` when your audit needs one.
+The collaborators are `@Autoinject` properties of `DefaultKeyRegistry`, so the subclass needs no constructor and no `@Inject`. Import the file after `@spinajs/authn-keys`: `@Injectable` registers at import time, and the last registration of `KeyRegistry` wins. The early return publishes no event; call `this.publish()` when your audit needs one.
 
 ## Important behaviour
 
@@ -139,9 +138,11 @@ Import the file after `@spinajs/authn-keys`: `@Injectable` registers at import t
 - `register` checks the key, then the proof, then uniqueness. A duplicate key with a bad proof gets `invalid_proof`, not `duplicate`.
 - A failed proof redeems nothing: the challenge stays usable until it expires.
 - `revoke` is owner-bound: an `authn-http` caller can only revoke its own keys, and gets the same 404 for a foreign kid as for an unknown one.
-- `touch` keeps its last stamp per registry instance, in memory. Each process writes `lastUsedAt` at most once a minute per key, so the column can lag by up to a minute.
+- `touch` keeps its last stamp per registry instance, in memory, for at most `maxStamped` (10,000) kids. Past that the least recently stamped kid is forgotten, which costs it one extra write. Each process writes `lastUsedAt` at most once a minute per key, so the column can lag by up to a minute.
+- A `touch` that throws is logged by the strategy and never fails the login.
 - Events carry no key material: `key.register` has `kid`, `thumbprint` and `alg`; `key.revoke` has `kid`.
-- `register` and `challenge` throw `TypeError` for a malformed owner or request, and a service or agent registration throws without an `actor`. These are bugs in the caller, never credential failures.
+- `register` and `challenge` throw `InvalidArgument` for a malformed owner or request, and a service or agent registration throws without an `actor`. These are bugs in the caller, never credential failures.
+- `challenge` throws `InvalidOption` when neither audience is set, and `UnexpectedServerError` when the `SecretStore` issues a secret that is not base64url of at least 128 bits.
 
 ## Best practices
 

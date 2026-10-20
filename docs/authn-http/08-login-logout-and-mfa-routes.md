@@ -2,15 +2,15 @@
 
 `AuthnLoginController` and `AuthnMfaController` log a user in with a password, complete a pending login with a second factor or a recovery code, report who is calling, and log out. They are always on. The password check runs in [`@spinajs/authn`](../authn/01-authentication-flow.md) and the strategy listed in `authn.strategies` (usually [`@spinajs/authn-local`](../authn-local/README.md)); the session comes from [`@spinajs/authn-session`](../authn-session/README.md).
 
-Key login (`POST /auth/keys/login`) answers the same way; it is on [Key routes](15-key-routes.md). OIDC login is in [`@spinajs/authn-oidc`](../authn-oidc/01-login-flow.md#http-routes).
+Key login (`POST /auth/keys/login`) answers the same way, through the same `completeLogin()` helper; it is on [Key routes](15-key-routes.md). OIDC login is in [`@spinajs/authn-oidc`](../authn-oidc/01-login-flow.md#http-routes).
 
 ## How it works
 
 ### Password login
 
 1. `POST /auth/login` reaches `AuthnLoginController.login()`. The route has no policy.
-2. A session the caller already holds (active or pending) is revoked through `SessionIssuer.revoke()` and audited as `session.revoke`, reason `login`.
-3. `login` and `password` are read from the JSON body (2.x names `Email` and `Password`), each a non-empty string of at most 1024 characters. Otherwise: 401 with the login failure body.
+2. `login` and `password` are read from the JSON body, each a non-empty string of at most `PASSWORD_HARD_CAP` (1024, from `@spinajs/authn/contracts`) characters. The controller hands them, or `null` when either is missing or malformed, to `completeLogin()`, which runs the rest.
+3. A session the caller already holds (active or pending) is revoked through `SessionIssuer.revoke()` and audited as `session.revoke`, reason `login`. Without credentials the answer is then 401 with the login failure body.
 4. `AuthnService.authenticate({ kind: 'password', login, password }, ctx)` runs with purpose `'login'` and `ctx.ip` from `ClientIp`.
 5. The result decides the answer:
    - `failure`: 401 login failure body, plus `Retry-After` when the reason is `throttled`. A revoked earlier session also gets its cookie cleared.
@@ -58,7 +58,7 @@ sequenceDiagram
 
 | | |
 | --- | --- |
-| Request body | `{ "login": string, "password": string }` (2.x: `Email`, `Password`) |
+| Request body | `{ "login": string, "password": string }` |
 | 200 | Principal summary plus extensions, `Set-Cookie` with the session, `Cache-Control: no-store` |
 | 200 (MFA) | `{ "MfaRequired": string[] }`, `Set-Cookie` with the pending session, `Cache-Control: no-store` |
 | 401 | Login failure body; `Retry-After` when throttled |

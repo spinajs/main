@@ -4,10 +4,9 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { AUTHN_CONFIGURATION_SCHEMA, AuthenticationStrategy, AuthnEventSink, AuthnService, ExternalLoginHook, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MfaStep, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthenticationStrategy, AuthnEventSink, AuthnService, ExternalLoginHook, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MemoryNonceStore, MfaStep, NonceStore, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
 import type { AuthenticationResult, Credentials, ExternalSubject, IdentityRef } from '@spinajs/authn';
 import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory } from '@spinajs/authn-testing';
-import { MemoryNonceStore, NonceStore } from '@spinajs/authn-orm';
 
 import { encodeFlow } from '../src/flow/cookie.js';
 import { AUTHN_OIDC_CONFIGURATION_SCHEMA } from '../src/options/schema.js';
@@ -15,6 +14,7 @@ import { OidcHttpClient } from '../src/http/client.js';
 import { OidcProviders, registerOidcStrategies } from '../src/providers.js';
 import { OidcLogin } from '../src/login.js';
 import { CoreOidcAccountLinks, OidcAccountLinks } from '../src/links.js';
+import { OidcController } from '../src/controllers/OidcController.js';
 import { FAKE_CLIENT_ID, FAKE_CLIENT_SECRET, FAKE_ISSUER, FakeIdp } from './support/fake-idp.js';
 
 const ORIGIN = 'https://app.example.test';
@@ -184,6 +184,20 @@ describe('authn-oidc under the core service', function () {
     expect(calls[0][1]).to.deep.include({ provider: 'oidc:corp', subject: 'kc-1' });
     expect((calls[0][1].claims as { groups?: string[] }).groups).to.deep.eq(['eng']);
     expect(calls[0][2]).to.eq(0, 'no session exists while the hook runs');
+  });
+
+  it('OidcController builds its OidcLogin once, with the AuthnService of the container that resolves it', async () => {
+    const c = await open({ jit: false, byVerifiedEmail: false });
+    class Probe extends OidcController {
+      public flow$(): Promise<OidcLogin> {
+        return this.login();
+      }
+    }
+    const controller = await c.child.resolve(Probe);
+    const [first, second] = await Promise.all([controller.flow$(), controller.flow$()]);
+    expect(first).to.eq(second);
+    expect(await controller.flow$()).to.eq(first);
+    expect((first as unknown as { d: { service: AuthnService } }).d.service).to.eq(c.service);
   });
 
   it("links and refuses to unlink the last credential through the core's AccountLinkService", async () => {

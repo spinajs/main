@@ -2,11 +2,9 @@
 
 `IntlModelRelation` is the relation that `translate(lang)` attaches to a select builder. At compile time it adds an `IntlModelMiddleware`, which reads `intl_resources` after hydration and writes the values into the models. Replace or subclass them to change how translations are looked up, eg. to add a fallback language.
 
-> `translate(lang)` passes its constructor arguments in the wrong order in the current source, so this relation fails before your override runs. See [Query translation](02-query-translation.md#important-behaviour).
-
 ## How it works
 
-1. [`translate(lang)`](02-query-translation.md) calls `container.resolve(IntlModelRelation, [...])` on the builder's container. `@Inject(Container)` puts the container first; the array follows.
+1. [`translate(lang)`](02-query-translation.md) calls `container.resolve(IntlModelRelation, [lang, builder, modelDescriptor, builder.Owner])` on the builder's container, only for a model with at least one `@Translate` column. `@Inject(Container)` puts the container first; the array follows.
 2. The constructor calls `NativeOrmRelation` with a fixed descriptor: `Name: 'Translations'`, `Type: RelationType.Many`, `TargetModel: IntlResource`, empty `ForeignKey` and `PrimaryKey`, `SourceModel: null`.
 3. `NativeOrmRelation` builds the relation query: it resolves the `IntlResource` connection and a `'SelectQueryBuilder'` owned by the relation. The constructor sets its source to `intl_resources` under the relation alias.
 4. `execute()` (inherited) runs no callback; `translate()` passes none.
@@ -14,7 +12,7 @@
 6. After the parent query hydrates its models, `IntlModelMiddleware.afterHydration(models)`:
    1. collects the first primary key column of each model; with none, returns `[]`;
    2. adds `whereIn('ResourceId', keys)`, `where('Resource', descriptor.Name)` and `where('Lang', lang)` to the relation query;
-   3. adds an inner middleware that, for each model, copies `Value` into the property named by `Column` and calls `setLanguage(lang)`;
+   3. adds an inner middleware that, for each model, copies `Value` into the property named by `Column` and calls `setLanguage(lang)` when the model has it;
    4. awaits the relation query.
 7. `IntlModelRelation.translate()` is empty, so the internal query is never translated itself.
 

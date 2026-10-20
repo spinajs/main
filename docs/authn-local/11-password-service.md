@@ -6,20 +6,20 @@
 
 1. Importing `@spinajs/authn-local` registers `LocalPasswordService` with `@Injectable(PasswordService)`.
 2. Callers resolve `PasswordService`: authn-http's password routes, `@spinajs/users`' actions, the CLI and your code.
-3. Each method resolves its collaborators from the container when it runs, not at construction. The service can therefore be resolved before the stores and sessions are ready.
+3. The collaborators are `@Autoinject` properties: the container that resolves the service fills them when it builds it. `SecretStore`, `PasswordMailer` and `TokenService` are optional and stay `undefined` when that container has no registration.
 
-| Collaborator | Resolved with | Used by | When missing |
+| Collaborator | Injected as | Used by | When missing |
 | --- | --- | --- | --- |
-| `IdentityStore` | `DI.resolve()` | reset, invite, expiry mail | Resolve error |
-| `PasswordCredentialStore` | `DI.resolve()` | change, set, reset, expiry | Resolve error |
-| `PasswordHasher` | `DI.resolve()` | change, set, reset | Resolve error |
-| `LocalPasswordPolicy` | `DI.resolve()` | change, set, reset, check, policy | Resolve error |
-| `SessionIssuer` | `DI.resolve()` | change, set, reset, expiry | Resolve error |
-| `AuthnThrottle` | `DI.resolve()` | change, reset | Resolve error |
-| `SecretStore` | `DI.resolve()` | reset, invite, expiry mail | Resolve error |
-| `PasswordMailer` | `DI.check()`, then `DI.resolve()` | reset, invite, expiry mail | No mail, no secret, a warning |
-| `TokenService` | `DI.check()`, then `DI.resolve()` | set, reset, admin expiry | No tokens to revoke |
-| `AuthnEventSink` list | `DI.check()`, then `Array.ofType` | every audited step | No events |
+| `IdentityStore` | `Identities` | reset, invite, expiry mail | The bare abstract class is injected; the first call that uses it fails |
+| `PasswordCredentialStore` | `Passwords` | change, set, reset, expiry | The same |
+| `PasswordHasher` | `Hasher` | change, set, reset | Registered by this package |
+| `LocalPasswordPolicy` | `Policy` | change, set, reset, check, policy | Registered by this package |
+| `SessionIssuer` | `Sessions` | change, set, reset, expiry | The bare abstract class is injected; the first call that uses it fails |
+| `AuthnThrottle` | `Throttle` | change, reset | The same |
+| `SecretStore` | `Secrets`, optional | reset, invite, expiry mail | `redeemReset()` throws `InvalidOperation`; so do `invite()` and the reset mails once a `PasswordMailer` is registered (the deferred part of `requestReset()` logs it) |
+| `PasswordMailer` | `Mailer`, optional | reset, invite, expiry mail | No mail, no secret, a warning |
+| `TokenService` | `Tokens`, optional | set, reset, admin expiry | No tokens to revoke |
+| `AuthnAudit` | `Audit` | every audited step | Never missing: a concrete class of `@spinajs/authn`, one per container; with no `AuthnEventSink` it logs a warning and publishes to nobody |
 
 | Method | Page |
 | --- | --- |
@@ -54,8 +54,8 @@ Protected methods meant for a subclass:
 | `verifiedHash(id, password)` | The stored hash the password matches, or `null`; one argon2 verify. |
 | `storePassword(id, password, expected?)` | Hashes and writes, as a compare-and-set when `expected` is given. |
 | `revokeTokensOf(id, ctx, actor?)` | Revokes tokens unless `revokeTokens` is `false`. |
-| `audit(ctx, event)` | Stamps `at`, `ip` and `userAgent` and publishes to every sink. |
-| `identities()`, `passwords()`, `hasher()`, `secrets()`, `mailer()`, `tokens()`, `sinks()`, `sessions()`, `throttle()`, `policyComponent()` | Collaborator lookups. |
+| `audit(ctx, body)` | Publishes through `auditor().publishIn(ctx, body)`, which stamps `at`, `ip` and `userAgent`. |
+| `identities()`, `passwords()`, `hasher()`, `secrets()`, `mailer()`, `tokens()`, `auditor()`, `sessions()`, `throttle()`, `policyComponent()` | Collaborator lookups: the `deps` field, else the injected property. |
 
 ### Password service: custom implementation
 
@@ -90,11 +90,12 @@ For a reaction to every password event, including reset and expiry, an [`AuthnEv
 
 ### Test seam
 
-`new LocalPasswordService(deps)` takes every collaborator from `deps` and never touches the container:
+`new LocalPasswordService(deps)` (`LocalPasswordServiceDeps`) takes every collaborator from `deps` and never touches the container. A setting left out of `deps` falls back to `AUTHN_LOCAL_DEFAULTS`, the schema defaults of `authn.local`:
 
 | `deps` field | Required | Default |
 | --- | --- | --- |
-| `identities`, `passwords`, `sessions`, `throttle`, `hasher`, `policy`, `sinks` | yes | |
+| `identities`, `passwords`, `sessions`, `throttle`, `hasher`, `policy` | yes | |
+| `sinks` | yes | published to through `AuthnAudit.over(sinks, { log })` |
 | `tokens` | yes | `null`: no tokens to revoke |
 | `secrets` | for reset and invite | missing: those flows throw `InvalidOperation` |
 | `mailer` | no | none: no mail, no secret |
@@ -105,10 +106,10 @@ For a reaction to every password event, including reset and expiry, an [`AuthnEv
 
 ## Important behaviour
 
-- **Collaborators are looked up on use,** so a missing store fails the first call that needs it, not the boot.
-- **Mailer, token service and sinks are optional;** the other collaborators are required by the flows that use them.
+- **Collaborators are injected when the service is built,** from the container that resolves it. Register an optional one (`SecretStore`, `PasswordMailer`, `TokenService`) before `PasswordService` is first resolved; a later registration does not reach a service already built.
+- **Secret store, mailer and token service are optional;** the other collaborators are required by the flows that use them. Without a `SecretStore` the reset and invite flows throw `InvalidOperation`.
 - **Deferred work runs in process.** `requestReset()` work is scheduled with `setImmediate`; a process that exits right after the answer can drop it. Call `drain()` before shutdown.
-- **Audit never fails a flow.** A failing sink is logged by its class and error name.
+- **Audit never fails a flow.** `AuthnAudit` runs every sink with a timeout and logs a sink that fails or times out by its class and error class.
 
 ## Best practices
 
@@ -118,15 +119,17 @@ For a reaction to every password event, including reset and expiry, an [`AuthnEv
 ## Patterns and antipatterns
 
 ```ts
-// Don't: resolving the collaborators in the constructor breaks an app where the stores boot later.
-constructor() {
-  super();
-  this.store = DI.get(PasswordCredentialStore)!;
-}
-
-// Do: override the lookup, which runs on use.
+// Don't: DI.resolve reads the root container, not the one that built the service.
 protected async passwords(): Promise<PasswordCredentialStore> {
   return DI.resolve(AuditedPasswordStore);
+}
+
+// Do: inject the replacement and return it from the lookup.
+@Autoinject(AuditedPasswordStore)
+protected Audited: AuditedPasswordStore;
+
+protected async passwords(): Promise<PasswordCredentialStore> {
+  return this.Audited;
 }
 ```
 

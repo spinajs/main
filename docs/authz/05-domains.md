@@ -1,6 +1,6 @@
 # Domains
 
-A domain is a child DI container with its own `AuthzService`, models, permissions and engine settings. Use one when a part of the app needs different models or rules than the rest, such as a file system that inherits access from its folders (B29). Most apps only use the root domain, `root`.
+A domain is a child DI container with its own `AuthzService`, models, permissions and engine settings. Use one when a part of the app needs different models or rules than the rest, such as a read-only archive (B29). Most apps only use the root domain, `root` (`ROOT_DOMAIN`).
 
 ## How it works
 
@@ -26,7 +26,7 @@ A domain is a child DI container with its own `AuthzService`, models, permission
 | `authz.domains.<name>.cache` | `object` | the parent's | as `authz.cache` | Overrides key by key. |
 | `authz.domains.<name>.audit` | `object` | the parent's | as `authz.audit` | Overrides key by key. |
 
-`authz.bus` and `authz.principals` come from the root only. A domain name matches `[A-Za-z0-9_.-]{1,64}` and is never `root`.
+`authz.bus` and `authz.principals` come from the root only. A domain name matches `DOMAIN_NAME_PATTERN` (`^[A-Za-z0-9_.-]{1,64}$`) and is never `root`.
 
 ```ts
 export default {
@@ -57,6 +57,19 @@ export default {
 | `container(name)` | `IContainer` | The container of a live domain. |
 | `service(name)` | `Promise<AuthzService>` | Boots (once) and returns the domain's service. |
 | `names()` | `string[]` | Live domain names, `root` first. |
+| `describe(container)` | `DomainIdentity \| undefined` | The domain a container is (`{ name, parent? }`); `undefined` for a container that is not a domain. |
+| `lineage(name)` | `string[]` | The domains from `root` down to `name`. Throws `AuthzConfigError` for a domain that does not exist. |
+
+Once a domain's service has booted, the host's `DefaultAuthzDomains` also gives what that service booted with. Before the boot, and for an unknown domain, each throws `AuthzConfigError`:
+
+| Method | Returns | Meaning |
+| --- | --- | --- |
+| `config(name)` | `DomainConfig` | The domain's config merged over its lineage, frozen. |
+| `audit(name)` | `DecisionAudit \| undefined` | The audit sink the service picked (`authz.audit.service`, else the last registration). |
+| `bus(name)` | `ChangeBus \| undefined` | The change bus the service picked (`authz.bus.service`, else the last registration). |
+| `clock(name)` | `AuthzClock` | The domain's own `AuthzClock` registration, else `SystemClock`. |
+
+Adapters use these instead of reading config or resolving services themselves, so they act with what the domain's service uses. `pickNamed(container, token, name, key, where)` picks a registration by class name, as the host does for `authz.audit.service` and `authz.bus.service`: without a name it returns the last registration, or `undefined`; an unknown name throws `AuthzConfigError` naming `key`.
 
 ## Important behaviour
 
@@ -113,4 +126,4 @@ The config above routes `read-only` next to `rbac` in the `archive` domain. With
 
 - [Host, boot and configuration](04-host-boot-and-configuration.md): what a domain boot does.
 - [Writing a model](08-writing-a-model.md): the model contract.
-- [`@spinajs/authz-fs`](../authz-fs/README.md): creates the domain a file system names and registers its `fs-inherit` and `fs-abac` models there.
+- [`@spinajs/authz-fs`](../authz-fs/README.md): `authz.fs.<name>.domain` names the domain whose service checks a file system.

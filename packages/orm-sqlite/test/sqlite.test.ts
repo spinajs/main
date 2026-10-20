@@ -701,6 +701,13 @@ describe('Sqlite model functions', function () {
     expect(auto!.Id).to.not.eq(42);
   });
 
+  it('batch inserts models that set different columns', async () => {
+    await SoftDeleteModel.insert([{ Val: 'a' }, {}] as any);
+
+    const all = await SoftDeleteModel.all();
+    expect(all.map((r) => r.Val)).to.deep.eq(['a', null]);
+  });
+
   it('soft-deleted rows are excluded by default and included with withDeleted()', async () => {
     await SoftDeleteModel.insert([{ Val: 'a' }, { Val: 'b' }, { Val: 'c' }]);
 

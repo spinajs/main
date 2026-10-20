@@ -29,7 +29,7 @@ export interface ImpliedRole {
   readonly role: string;
   readonly at: 'self-and-descendants' | 'descendants';
   readonly tags?: readonly string[];
-  readonly bypass?: readonly ('restrict' | 'cap')[]; // never the ceiling (D19)
+  readonly bypass?: readonly ('restrict' | 'cap')[]; // never the ceiling
 }
 
 export interface RoleDef {
@@ -81,7 +81,7 @@ export abstract class SubjectResolver {
   abstract subjects(p: Principal): Promise<readonly AssignmentSubject[]> | readonly AssignmentSubject[];
 }
 
-/** Port: the transitive closure of subject sets (design §4.3). */
+/** Port: the transitive closure of subject sets. */
 export abstract class MembershipStore {
   /** Sets every given member key belongs to, live at `at`, each with its membership expiry (none = never). */
   abstract setsOf(memberKeys: readonly string[], at: Date): Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]>;

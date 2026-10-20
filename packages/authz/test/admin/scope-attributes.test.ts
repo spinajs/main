@@ -454,7 +454,7 @@ describe('ScopeAttributeHandler', function () {
     expect(await rejection(d.admin.execute(alice, [set({ a: 1 }, d1)]))).to.be.instanceOf(AuthzConfigError);
   });
 
-  it('needs authz:scope.manage at the scope, which authz.admin.permissions may map', async () => {
+  it('needs authz:scope.manage at the scope', async () => {
     const { d, store } = await setup();
     expect(failed(await d.admin.execute(bob, [set({ policies: { level: 'gold' } })]))).to.deep.include({ code: 'forbidden' });
     expect(await store.rows(p1)).to.deep.equal({});
@@ -462,9 +462,13 @@ describe('ScopeAttributeHandler', function () {
     await d.admin.execute(alice, [set({ policies: { level: 'gold' } })]);
     const admin = d.audit.entries.filter((e) => e.kind === 'admin');
     expect(admin.map((e) => [e.permission, e.resource])).to.deep.equal([['authz:scope.manage', p1]]);
+  });
+
+  it('needs the permission authz.admin.permissions maps scope.* to', async () => {
     adminConfig({ permissions: { 'scope.*': { project: 'app:settings.manage' } } });
+    const { d } = await setup();
     await d.admin.execute(alice, [set({ policies: { level: 'silver' } })]);
-    expect(d.audit.entries.filter((e) => e.kind === 'admin').map((e) => e.permission)).to.deep.equal(['authz:scope.manage', 'app:settings.manage']);
+    expect(d.audit.entries.filter((e) => e.kind === 'admin').map((e) => e.permission)).to.deep.equal(['app:settings.manage']);
   });
 
   it('publishes scope:<type>:<id> and a ScopeAttributesChanged event', async () => {
@@ -556,6 +560,19 @@ describe('the attributes reader', function () {
       const e = failure(await rejection(reader.list({ kind: 'attributes', scope } as unknown as AuthzAdminQuery, ctx)));
       expect(e.code).to.equal('invalid_query');
       expect(e.field).to.equal('scope');
+    }
+  });
+
+  it('validates a holders query before it reaches a reader', async () => {
+    const d = await adminDomain();
+    for (const [q, field] of [
+      [{ kind: 'holders', permission: 'doc:read' }, 'scope'],
+      [{ kind: 'holders', scope: p1, permission: 'Not A Permission' }, 'permission'],
+      [{ kind: 'holders', scope: p1, permission: 'doc:read', expandSets: 'yes' }, 'expandSets'],
+    ] as const) {
+      const e = failure(await rejection(d.admin.list(alice, q as unknown as AuthzAdminQuery)));
+      expect(e.code).to.equal('invalid_query');
+      expect(e.field).to.equal(field);
     }
   });
 });

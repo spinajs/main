@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
-import '@spinajs/authz-queue';
+import '@spinajs/authz-queue/jobs';
 import { JobModel } from '@spinajs/queue';
 import { SYSTEM } from '@spinajs/authz';
 import type { AuthzService, Principal } from '@spinajs/authz';

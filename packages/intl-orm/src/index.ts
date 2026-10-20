@@ -1,5 +1,5 @@
 import { Container, DI, Inject, Injectable, NewInstance } from '@spinajs/di';
-import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, Orm, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation, ISelectQueryBuilder, NativeOrmRelation } from '@spinajs/orm';
+import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation, ISelectQueryBuilder, NativeOrmRelation } from '@spinajs/orm';
 import type { IModelStatic } from '@spinajs/orm';
 import type { Constructor } from '@spinajs/di';
 import { TranslationSource, guessLanguage, defaultLanguage, IIntlAsyncStorage } from '@spinajs/intl';
@@ -107,7 +107,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
             return (rd as any)['ResourceId'] === val[self._description.PrimaryKey[0]];
           });
 
-          relData.forEach((rd: IntlResource) => {
+          (relData as IntlResource[]).forEach((rd) => {
             if (self._owner && self._owner instanceof BelongsToRelation) {
               val[rd.Column] = rd.Value;
             } else {
@@ -115,7 +115,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
             }
           });
 
-          val.setLanguage(self._lang);
+          val.setLanguage?.(self._lang);
         });
       },
     };
@@ -137,26 +137,31 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
    * Cannot translate query that cames from translation middleware  !
    */
   if (this.Owner !== null && this.Owner instanceof IntlModelRelation) {
-    return;
+    return this;
   }
 
-  if (!this.Model) {
-    return;
+  if (!this.Model || (this as any).translated) {
+    return this;
   }
 
   (this as any).translated = true;
   const descriptor = extractModelDescriptor(this._model);
-  const relInstance = this._container.resolve(IntlModelRelation, [lang, this._container.get(Orm), this, descriptor, this._owner]);
-  relInstance.execute();
 
-  // translate all other relations automatically
+  // execute(), not executeOnQuery(): the latter runs the callback on this builder, not on the relation query
   this._relations.forEach((r) => {
-    r.executeOnQuery(function () {
+    r.execute(function () {
       (this as any).translate(lang);
     });
   });
 
-  this._relations.push(relInstance);
+  // a model without @Translate columns has no intl_resources rows and no setLanguage(),
+  // but its relations may still need translating
+  if (descriptor?.Columns.some((c) => c.Translate)) {
+    const relInstance = this._container.resolve(IntlModelRelation, [lang, this, descriptor, this._owner]);
+    relInstance.execute();
+    this._relations.push(relInstance);
+  }
+
   return this;
 };
 
@@ -184,8 +189,8 @@ export class IntlQueryMiddleware extends QueryMiddleware {
     if (typeof AsyncLocalStorage === 'function') {
       // if something has set to no translate
       // eg route decorator
-      const store = DI.get<IIntlAsyncStorage>(AsyncLocalStorage);
-      if (store && store.noTranslate === false) {
+      const store = DI.get<AsyncLocalStorage<IIntlAsyncStorage>>(AsyncLocalStorage)?.getStore();
+      if (store?.noTranslate === true) {
         return;
       }
     }
@@ -230,7 +235,7 @@ export class DbTranslationSource extends TranslationSource {
         return { [tt.Key]: tt.Value };
       });
 
-      return _.assign.apply(_, vals);
+      return Object.assign({}, ...vals);
     });
   }
 }

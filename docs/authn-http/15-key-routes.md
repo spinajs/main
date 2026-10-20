@@ -8,7 +8,7 @@
 
 1. `POST /auth/keys/challenge` with `{ "purpose": "register" }` from the user's own full session. The challenge is bound to the user.
 2. The client signs the challenge and sends `POST /user/keys` with the public JWK and `proof: { challengeId, signature }`.
-3. The route takes `reauthPassword` out of the body and runs [`assertFreshAuth()`](05-policies.md#fresh-authentication) in the handler.
+3. The route takes `reauthPassword` out of the body and runs [`assertFreshAuth()`](05-policies.md#fresh-authentication) in the handler through `freshAuthOrAnswer()`.
 4. The body is checked; then `KeyRegistry.register({ ...key, owner: { type: 'user', id } }, ctx)` verifies the key and the proof.
 5. The answer is the key entry.
 
@@ -16,7 +16,7 @@
 
 1. `POST /auth/keys/challenge` with `{ "purpose": "login", "kid" }`, anonymous. A challenge for an unknown kid looks the same as one for a known kid. Login challenges count against the client ip; a throttled one answers 429 with `Retry-After`.
 2. The client signs the challenge and sends `POST /auth/keys/login` with `{ keyId, challengeId, signature }`.
-3. The route works like [`POST /auth/login`](08-login-logout-and-mfa-routes.md#password-login): it ends a held session, calls `AuthnService.authenticate({ kind: 'key-challenge', ... }, ctx)`, and answers with the session cookie and the principal summary (extension kind `login`). Under the default MFA policy a key login asks for no second factor; a policy that asks for one gets 200 `{ "MfaRequired": [...] }` with the pending session cookie.
+3. The route runs the same `completeLogin()` as [`POST /auth/login`](08-login-logout-and-mfa-routes.md#password-login): it ends a held session, answers the login failure body for missing or malformed fields, calls `AuthnService.authenticate({ kind: 'key-challenge', ... }, ctx)`, and answers with the session cookie and the principal summary (extension kind `login`). Under the default MFA policy a key login asks for no second factor; a policy that asks for one gets 200 `{ "MfaRequired": [...] }` with the pending session cookie.
 
 Clients sign challenges as `@spinajs/authn-keys` defines them: the UTF-8 bytes of `spinajs-key-<purpose>:<nonce>:<audience>`, the raw signature as base64url, the challenge named by its unchanged `id`.
 

@@ -5,7 +5,7 @@ A model is a class that extends `AuthorizationModel` and votes on checks. RBAC a
 ## How it works
 
 1. **Register.** The app registers the model as `AuthorizationModel` before the domain boots ([Registration](#registration)).
-2. **Init.** At boot the host calls `init(ctx)` once per model instance, in the first domain that lists it. The model registers its permissions, native filters and relations there.
+2. **Init.** At boot the host calls `init(ctx)` once per model instance, in the first domain that lists it. The model registers its permissions, native filters and relations there. `ctx.container` is that domain's container: the model resolves what it needs (condition functions, `Configuration`, connections) there, not in root DI.
 3. **Route.** For each registered `(permission, type)` the host asks `applies(permission, type)`; the model joins the route only when it answers `true` and `capabilities.resourceTypes` allows the type. It is called again when `version()` changes.
 4. **Evaluate.** For a check, the engine calls `evaluate(req, ctx)` with the request and an `EvaluationContext`, within `authz.engine.modelTimeoutMs`. The model returns a `Vote`, or a promise of one.
 5. **Lists.** For a `list: true` permission, the engine calls `listSupport(permission, type)` at boot (rule 12) and `listPlan(req, ctx)` for each access plan.
@@ -83,7 +83,7 @@ Build filters with the exported helpers: `TRUE`, `FALSE`, `and(...)`, `or(...)`,
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `AuthorizationModel` | `AuthorizationModel`, every registration of the container chain | none in the core | `RbacModel` ([authz-rbac](../authz-rbac/README.md)), `AbacModel` ([authz-abac](../authz-abac/README.md)), `FsInheritModel` ([authz-fs](../authz-fs/README.md)) | Register your class; see above. A model in a child domain with the name of an ancestor's model replaces it there. |
+| `AuthorizationModel` | `AuthorizationModel`, every registration of the container chain | none in the core | `RbacModel` ([authz-rbac](../authz-rbac/README.md)), `AbacModel` ([authz-abac](../authz-abac/README.md)) | Register your class; see above. A model in a child domain with the name of an ancestor's model replaces it there. |
 | `Combinator` | `Combinator`, every registration of the container chain | the three built-ins | your own | See [Custom combining algorithm](#custom-combining-algorithm). |
 | `NativeFilter` | `NativeFilter`, every registration, or `ctx.registerNativeFilter()` in `init` | none | your own | A filter op `native:<name>` the core cannot express; `matches(args, subject, ref, ctx)` decides it on a row. Adapters that render lists must list the op in `compiles`. |
 

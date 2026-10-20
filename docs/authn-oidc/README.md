@@ -10,9 +10,9 @@ It does **not** issue sessions, store links or decide who may sign in: `@spinajs
 npm install @spinajs/authn-oidc
 ```
 
-It depends on `@spinajs/authn`, `@spinajs/authn-orm`, `@spinajs/authn-session` and `@spinajs/authn-http`. Import `@spinajs/authn-oidc` in the app entry: its bootstrapper registers the `oidc:<name>` strategies. The app also needs:
+It depends on `@spinajs/authn`, `@spinajs/authn-session` and `@spinajs/authn-http`. Import `@spinajs/authn-oidc` in the app entry: its bootstrapper registers the `oidc:<name>` strategies. The app also needs:
 
-- `NonceStore` and `IdentityLinkStore`: `@spinajs/authn-orm` registers `DbNonceStore` and `DbIdentityLinkStore` (tables `authn_nonce`, `authn_identity`).
+- `NonceStore` and `IdentityLinkStore`, contracts of `@spinajs/authn`. The package does not depend on `@spinajs/authn-orm`: import it in the app, and it registers `DbNonceStore` and `DbIdentityLinkStore` (tables `authn_nonce`, `authn_identity`).
 - `AuthnService` (`@spinajs/authn`) and `SessionIssuer` (`@spinajs/authn-session`).
 - `@spinajs/authn-http`, which restores the session, writes `ClientIp` for the throttle and guards the link routes against CSRF.
 - An `IdentityStore`, usually from `@spinajs/users`, for email matching and the core's status checks.

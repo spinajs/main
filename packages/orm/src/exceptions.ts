@@ -8,6 +8,11 @@ export class OrmException extends Exception {
   constructor(message?: string, public driver?: Partial<IDriverOptions>, public query?: string, public bindings? : any, public inner?: Error | unknown) {
     super(message, inner);
 
+    // Keep connection details and SQL out of serialized error bodies (e.g. the http error handler spreads own enumerable props).
+    for (const key of ['driver', 'query', 'bindings', 'inner'] as const) {
+      Object.defineProperty(this, key, { value: this[key], enumerable: false, writable: true, configurable: true });
+    }
+
     if (this.driver) {
       this.message = `Error during execution statement on connection ${this.driver.Name} at ${this.driver.User}@${this.driver.Host}, inner exception: ${this.inner ?? 'none'}, message: ${message}`;
     }

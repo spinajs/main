@@ -20,7 +20,6 @@ When each step runs:
 | `set` | `touch` | `renew()` for an active session, unchanged for a pending one |
 | `rotate` | `save` | copied from the old row |
 | `elevate` | `save` | `initial()` of the now active row, with the original `Creation` |
-| 2.x migration | `save` | the 2.x expiration, capped for a pending row; see [2.x session migration](10-2x-session-migration.md) |
 
 ### Shipped strategies
 
@@ -99,11 +98,11 @@ Keep settings of your own under a config path your app owns, as `terminals.closi
 ## Important behaviour
 
 - **Server-side only.** The cookie `@spinajs/authn-http` sends is a browser-session cookie with no `Max-Age`. The store enforces both timeouts; a browser that keeps the cookie gets `null` from `restore` once the row expired.
-- **`initial()` keeps an old `Creation` in check.** `SlidingCappedExpiration.initial()` is capped like `renew()`, because `elevate` and the 2.x migration give a row with an old `Creation` a fresh initial expiration.
+- **`initial()` keeps an old `Creation` in check.** `SlidingCappedExpiration.initial()` is capped like `renew()`, because `elevate` gives a row with an old `Creation` a fresh initial expiration.
 - **`AbsoluteExpiration.renew()` changes nothing**, so `touch` reports no change. The issuer still calls it on every request.
 - **Missing values expire at once.** A `ttl` or `maxLifetime` that is missing at runtime (set past the schema) makes `initial()` return `Creation` or earlier: the session is born expired instead of living forever. The same holds for a missing `pendingTtlSeconds`.
-- **A pending row needs its own expiration.** `applyInitialExpiration()` throws `Error('A pending session must carry its own expiration (authn.session.pendingTtlSeconds)')` for a pending row without one.
-- **Process clock.** The strategies and `SessionProvider.isExpired()` use `DateTime.now()` of the Node process, not the clock of a database.
+- **A pending row needs its own expiration.** `applyInitialExpiration()` throws `InvalidOperation('A pending session must carry its own expiration (authn.session.pendingTtlSeconds)')` for a pending row without one.
+- **Process clock.** The strategies and `SessionProvider.isExpired()` use `DateTime.now()` of the Node process, not the clock of a database. `isExpired()` is public: `DefaultSessionIssuer` judges a row with its store's `isExpired()`, so a store that overrides it is honoured by the issuer too.
 - **Rotation keeps the deadline.** `rotate` copies `Expiration`, so a role switch never extends a session.
 
 ## Best practices

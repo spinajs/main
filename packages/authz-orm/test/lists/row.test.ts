@@ -30,9 +30,9 @@ describe('the plan term contract and planRow()', function () {
   });
 
   it('the plan entry point holds the contract only, the same objects as the root', () => {
-    expect(Object.keys(contract).sort()).to.deep.equal(['PlanTermCompiler', 'RELATION_OWNER_OP', 'RELATION_SELF_OP']);
+    expect(Object.keys(contract).sort()).to.deep.equal(['PlanTermCompiler', 'RELATION_COLUMN_OP', 'RELATION_OWNER_OP', 'RELATION_SELF_OP']);
     expect(root.PlanTermCompiler).to.equal(contract.PlanTermCompiler);
-    expect([contract.RELATION_OWNER_OP, contract.RELATION_SELF_OP]).to.deep.equal(['relation.owner', 'relation.self']);
+    expect([contract.RELATION_OWNER_OP, contract.RELATION_SELF_OP, contract.RELATION_COLUMN_OP]).to.deep.equal(['relation.owner', 'relation.self', 'relation.column']);
   });
 
   it('describes the row of a query, on the query connection', async () => {

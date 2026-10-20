@@ -1,11 +1,10 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { SYSTEM, UNATTENDED } from '@spinajs/authz';
+import { AuthzDomains, SYSTEM, UNATTENDED } from '@spinajs/authz';
 import type { AuthzService, Principal } from '@spinajs/authz';
 import { QueueMessageHook, jobOptions } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
 import type { Initiator } from '../api.js';
-import { authzFor } from './service.js';
 import { InitiatorPrincipalFactory, reviveCeiling } from './initiator.js';
 
 // The engine reads a ceiling whose expiresAt is not a Date, or whose reason is empty, as deny-all; revival must not repair it.
@@ -25,6 +24,9 @@ export class AuthzQueueHook extends QueueMessageHook {
 
   @Autoinject(InitiatorPrincipalFactory)
   protected Initiators: InitiatorPrincipalFactory;
+
+  @Autoinject(AuthzDomains)
+  protected Domains: AuthzDomains;
 
   async beforeEmit(message: IQueueMessage): Promise<void> {
     // Whatever the caller put there is dropped: only the ambient principal may be named.
@@ -65,6 +67,6 @@ export class AuthzQueueHook extends QueueMessageHook {
   }
 
   protected async service(): Promise<AuthzService> {
-    return authzFor(this.Domain);
+    return this.Domains.service(this.Domain);
   }
 }

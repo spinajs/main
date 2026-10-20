@@ -71,7 +71,7 @@ Setting `pepper.secret` to `null` stops peppering new hashes. Keep the old peppe
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Hasher | `PasswordHasher`, singleton, `@Injectable(PasswordHasher)` on import; injected into `LocalPasswordStrategy`, resolved per call by `LocalPasswordService` | `Argon2PasswordHasher` | none shipped | `DI.register(MyHasher).as(PasswordHasher)` after importing `@spinajs/authn-local` and before the boot resolves the strategies. Subclass `Argon2PasswordHasher` and override `verify()` or `needsRehash()` to keep the argon2 path. |
+| Hasher | `PasswordHasher`, singleton, `@Injectable(PasswordHasher)` on import; injected into `LocalPasswordStrategy` and `LocalPasswordService` (`@Autoinject`) | `Argon2PasswordHasher` | none shipped | `DI.register(MyHasher).as(PasswordHasher)` after importing `@spinajs/authn-local` and before the boot resolves the strategies. Subclass `Argon2PasswordHasher` and override `verify()` or `needsRehash()` to keep the argon2 path. |
 
 `PasswordHasher` is an abstract `AsyncService` with three methods:
 
@@ -85,7 +85,7 @@ Setting `pepper.secret` to `null` stops peppering new hashes. Keep the old peppe
 
 - `hashWith(password, { argon2?, pepper? })`: a hash in the stored format under explicit argon2 cost or another pepper (`null`: none). For tests and data migrations; production code calls `hash()`.
 - `limiter`: the `ConcurrencyLimiter`, with `active`, `queued`, `peak` and `runs` counters.
-- A constructor seam: `new Argon2PasswordHasher({ maxConcurrent?, pepper? })` reads no configuration. `maxConcurrent` defaults to 8 there too.
+- A constructor seam: `new Argon2PasswordHasher({ maxConcurrent?, pepper? })` reads no configuration. `maxConcurrent` defaults to `AUTHN_LOCAL_DEFAULTS.hasher.maxConcurrent` there, the schema default (8).
 
 The stored-format helpers are exported: `pepperInput()`, `formatStored()`, `parseStored()`, and `EXPIRED_PASSWORD_MARKER` (`'!expired'`).
 

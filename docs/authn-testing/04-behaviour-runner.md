@@ -54,7 +54,7 @@ Each port is an optional member of `Harness`. The contract types come from `@spi
 | `service` | `AuthnService` | Log in, complete MFA, re-authenticate, build principals |
 | `seed` | `SeedPort` | Create users your identity store finds by login, with passwords hashed your way; set status flags |
 | `sessions` | `SessionIssuer` | Issue, restore, rotate, elevate and revoke sessions |
-| `sessionStorage` | `SessionStoragePort` | List storage keys; plant a 2.x session row |
+| `sessionStorage` | `SessionStoragePort` | List storage keys |
 | `throttle` | `ThrottlePort` | The throttle and the `ThrottleParams` it was built with |
 | `events` | `EventsPort` | Read and clear the published events |
 | `sinks` | `readonly EventsPort[]` | At least two sinks registered with `Array.ofType` (A21) |

@@ -12,11 +12,11 @@ At boot, in `fsS3.resolve()`:
 
 On each call to `signedUrl(path, { until?, disposition? })`:
 
-1. Throws `InvalidOperation` (`no signer service configured`) when the provider has no `signer`.
+1. `doSignedUrl` throws `InvalidOperation` (`no signer service configured`) when the provider has no `signer`.
 2. Calls `exists(path)` (one `HeadObject`). Throws `IOFail` (`does not exists`) when the object is missing.
 3. Returns `Signer.sign(path, until)`.
 
-`getSignedUrl(path, until?)` is `signedUrl(path, { until })`.
+`signedUrl(path, { until?, disposition? })` and `getSignedUrl(path, until?)` are base methods of `fs` checked as `share`: [middlewares](../fs/07-middlewares.md) run first, and `fsS3` implements the protected `doSignedUrl` through the configured signer. `getSignedUrl(path, until?)` is `signedUrl(path, { until })`.
 
 ```mermaid
 sequenceDiagram
@@ -66,8 +66,8 @@ fs: {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `S3UrlSigner` | names `'S3UrlSigner'` and `'S3BucketSigner'`; singleton (no lifetime decorator); resolved by name from `signer.service` in `fsS3.resolve()` | `S3BucketSigner` | `CloudFrontSigner`, your own | Subclass `S3BucketSigner` and override `sign()`, register it under its own name and set `signer.service` to it. `DI.register(MySigner).as('S3UrlSigner')` replaces it for every provider that names `S3UrlSigner`. |
-| `CloudFrontUrlSigner` | names `'CloudFrontUrlSigner'` and `'CloudFrontSigner'`; singleton; resolved the same way | `CloudFrontSigner` | `S3BucketSigner`, your own | Subclass `CloudFrontSigner` and override `sign()`, or `DI.register(MySigner).as('CloudFrontUrlSigner')`. |
+| `S3UrlSigner` | names `'S3UrlSigner'` and `'S3BucketSigner'`; `NewInstance`, one per provider; resolved by name from `signer.service` in `fsS3.resolve()` | `S3BucketSigner` | `CloudFrontSigner`, your own | Subclass `S3BucketSigner` and override `sign()`, register it under its own name and set `signer.service` to it. `DI.register(MySigner).as('S3UrlSigner')` replaces it for every provider that names `S3UrlSigner`. |
+| `CloudFrontUrlSigner` | names `'CloudFrontUrlSigner'` and `'CloudFrontSigner'`; `NewInstance`; resolved the same way | `CloudFrontSigner` | `S3BucketSigner`, your own | Subclass `CloudFrontSigner` and override `sign()`, or `DI.register(MySigner).as('CloudFrontUrlSigner')`. |
 | any signer | any DI name | none | a standalone class | Any class with `sign(path: string, until?: DateTime): Promise<string>` and a constructor taking the options object works: `fsS3` only calls `sign()`. |
 
 ### Shipped signers
@@ -82,11 +82,11 @@ Protected helpers for subclasses:
 - `S3UrlSigner.getExpiresInSeconds(until?)`: seconds until `until`, `900` without it, never below `1`.
 - `CloudFrontUrlSigner.getDateLessThan(until?)`: `until`, or now plus one hour, as an ISO string.
 
-The abstract `S3UrlSigner` and `CloudFrontUrlSigner` are **not** exported from `@spinajs/fs-s3`. Extend `S3BucketSigner` or `CloudFrontSigner`, which are, or write a standalone class.
+The abstract `S3UrlSigner` and `CloudFrontUrlSigner`, and the option types `IS3Config`, `IS3UrlSigner` and `ICloudfrontUrlSignerOptions`, are exported from `@spinajs/fs-s3`.
 
 ### Signer: one instance per bucket
 
-The shipped signers are singletons: the first provider that resolves a signer name fixes its `bucket`, `s3Client` and keys. Two buckets that both use `S3UrlSigner` get URLs for the first bucket. Register a `@NewInstance()` subclass and name it in every provider instead.
+The shipped signers are `@NewInstance()`: every provider gets its own signer with its own `bucket`, `s3Client` and keys. Keep `@NewInstance()` on a subclass, or the first provider that resolves it fixes the options for all of them.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -178,31 +178,30 @@ DI.register(ShortLivedS3Signer).as('S3UrlSigner');
 
 ## Important behaviour
 
+- **With `authz-fs` the effective `until` is capped.** It is `min(asked ?? now + defaultTtl, now + maxTtl, decision.validUntil)`: [Checks on file actions](../authz-fs/02-checks-on-file-actions.md).
 - **Each `signedUrl()` costs one `HeadObject`.** A page with 50 thumbnails sends 50 requests before signing.
 - **`disposition` is ignored** by both shipped signers.
-- **Shipped signers are singletons.** Providers that share a signer name share the first provider's options; see [Signer: one instance per bucket](#signer-one-instance-per-bucket).
 - **S3 presigned URLs last at most 7 days.** The presigner rejects a longer `until`.
 - **An `until` in the past** gives a 1-second S3 URL, and a CloudFront URL that is already expired. Neither signer throws.
 - **The CloudFront URL is not encoded.** `path` is appended to `domain` as is; keys with spaces or `?` produce broken URLs.
 - **The CloudFront signer does not check the distribution.** The URL works only when the distribution serves this bucket and trusts `publicKeyId`.
-- **`signer` config is typed for CloudFront.** The declared type lists `privateKey`, `publicKeyId` and `domain` as required, but an S3 signer needs only `service`.
 
 ## Best practices
 
 - Use `S3UrlSigner` for short-lived links to private files, `CloudFrontUrlSigner` for media served at volume through a CDN.
 - Pass an explicit `until` that matches the use: minutes for a download button, hours for a video session.
 - Keep `privateKey` out of committed config: read it from the environment or a secret store in your configuration class.
-- Give each bucket its own `@NewInstance()` signer name when two buckets sign.
+- Keep `@NewInstance()` on your own signers, so two buckets that sign do not share options.
 
 ## Patterns and antipatterns
 
 ```ts
 // Don't: signing on a provider without `signer` throws InvalidOperation on every call
-const url = await getFs('uploads').signedUrl!(key);
+const url = await getFs('uploads').signedUrl(key);
 
 // Do: configure a signer on the provider whose files you link to
 // { service: 'fsS3', name: 'uploads', bucket: 'acme-uploads', signer: { service: 'S3UrlSigner' } }
-const url = await getFs('uploads').signedUrl!(key, { until: DateTime.now().plus({ minutes: 15 }) });
+const url = await getFs('uploads').signedUrl(key, { until: DateTime.now().plus({ minutes: 15 }) });
 ```
 
 ## Examples
@@ -235,10 +234,6 @@ import { DateTime } from 'luxon';
 export async function playbackUrl(videoKey: string, durationSeconds: number) {
   const videos = getFs('videos');
   const until = DateTime.now().plus({ seconds: durationSeconds + 15 * 60 });
-
-  if (!videos.signedUrl) {
-    throw new Error('videos provider cannot sign URLs');
-  }
 
   return videos.signedUrl(videoKey, { until });
 }

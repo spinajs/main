@@ -95,7 +95,7 @@ describe('dynamodb session provider', function () {
       expect(item('t-identity').State).to.deep.equal({ S: 'active' });
     });
 
-    it('touch writes the renewed Expiration as epoch ms, the TTL attribute', async () => {
+    it('touch writes the renewed Expiration as epoch seconds, the TTL attribute', async () => {
       const store = await makeProvider(SLIDING);
       await store.truncate();
 
@@ -103,8 +103,8 @@ describe('dynamodb session provider', function () {
       const view = (await store.restore('t-ttl'))!;
       expect(await store.touch(view)).to.be.true;
 
-      expect(item('t-ttl').Expiration).to.deep.equal({ N: `${view.Expiration!.toMillis()}` });
-      expect(Number(item('t-ttl').Expiration.N)).to.be.greaterThan(DateTime.now().plus({ minutes: 59 }).toMillis());
+      expect(item('t-ttl').Expiration).to.deep.equal({ N: `${view.Expiration!.toMillis() / 1000}` });
+      expect(Number(item('t-ttl').Expiration.N)).to.be.greaterThan(DateTime.now().plus({ minutes: 59 }).toSeconds());
     });
 
     it('touch keeps a never-expiring row never-expiring and still writes its Data', async () => {
@@ -128,7 +128,7 @@ describe('dynamodb session provider', function () {
 
       await store.save(session({ SessionId: 't-lapsed', Expiration: DateTime.now().plus({ hours: 1 }) }));
       const view = (await store.restore('t-lapsed'))!;
-      item('t-lapsed').Expiration = { N: `${DateTime.now().minus({ seconds: 1 }).toMillis()}` };
+      item('t-lapsed').Expiration = { N: `${Math.floor(DateTime.now().minus({ seconds: 2 }).toSeconds())}` };
 
       expect(await store.touch(view)).to.be.false;
       expect(await store.restore('t-lapsed')).to.be.null;

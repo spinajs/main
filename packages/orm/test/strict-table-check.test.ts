@@ -173,7 +173,8 @@ describe('db.StrictTableCheck configuration schema', () => {
     const config = (await DI.resolve(Configuration)) as FrameworkConfiguration;
     expect(config.get('db.StrictTableCheck')).to.equal(true);
 
-    config.set(['db', 'StrictTableCheck'], 'no');
-    expect(() => config.validateModule(ORM_CONFIGURATION_SCHEMA)).to.throw(InvalidConfiguration, 'db.StrictTableCheck');
+    expect(() => config.set(['db', 'StrictTableCheck'], 'no')).to.throw(InvalidConfiguration, 'db.StrictTableCheck');
+    expect(config.get('db.StrictTableCheck')).to.equal(true);
+    expect(() => config.validateModule(ORM_CONFIGURATION_SCHEMA)).to.not.throw();
   });
 });

@@ -60,7 +60,6 @@ export class AccessGuardMiddleware extends QueryMiddleware {
   public order = 95;
 
   private readonly sites = new WeakMap<object, string>();
-  private readonly warned = new Set<string>();
 
   afterQueryCreation(query: QueryBuilder): void {
     if (!(query instanceof SelectQueryBuilder) || !entryOf(query.Model)) return;
@@ -81,8 +80,6 @@ export class AccessGuardMiddleware extends QueryMiddleware {
     const message = `authz-orm: a select of ${nameOf(query.Model)} (@AccessResource '${entry.type}') runs without .accessible(permission), .unscoped(reason) or runAs(SYSTEM)`;
     if (mode === 'throw') throw new AuthzConfigError(message);
     const site = this.sites.get(query) ?? 'unknown call site';
-    if (this.warned.has(site)) return;
-    this.warned.add(site);
-    ormLog().warn({ model: nameOf(query.Model), resourceType: entry.type, site }, 'authz-orm: a select of ${model} (@AccessResource ${resourceType}) runs without .accessible(permission), .unscoped(reason) or runAs(SYSTEM) (${site})');
+    ormLog().warnOnce(`unguarded-select:${site}`,{ model: nameOf(query.Model), resourceType: entry.type, site }, 'authz-orm: a select of ${model} (@AccessResource ${resourceType}) runs without .accessible(permission), .unscoped(reason) or runAs(SYSTEM) (${site})');
   }
 }

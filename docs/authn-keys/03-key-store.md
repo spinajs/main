@@ -16,6 +16,8 @@
 
 A row becomes a frozen `KeyRecord`: `jwk` is parsed from JSON, `scope` from JSON with its `expiresAt` back to a `Date`, `created_by` from `<type>:<id>`, and every datetime to a `Date`.
 
+`OrmKeyStore` injects `Orm`. The CLI resolves only the command it runs, so this injection is what boots the ORM and binds the `AuthnKey` model when the `authn:key-*` commands resolve `KeyRegistry`.
+
 `MemoryKeyStore` keeps the same contract in a `Map`. It stores frozen copies, so a caller cannot change a stored record.
 
 ## Schema

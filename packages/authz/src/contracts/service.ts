@@ -16,6 +16,8 @@ export abstract class AuthzService extends AsyncService {
   abstract check(req: CheckInput): Promise<Decision>;
   abstract can(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<boolean>;
   abstract assert(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<Decision>; // throws AccessDenied
+  /** A decision for introspection (admin tools), not an access attempt: never audited, reads and stores no decision cache, models read fresh. Never use it to guard an action: nothing it answers is audited or cached. */
+  inspect?(req: CheckInput): Promise<Decision>;
   abstract checkMany(principal: Principal, permissions: readonly Permission[], resource?: ResourceRef | object): Promise<ReadonlyMap<Permission, Decision>>;
   abstract checkAll(principal: Principal, requests: readonly { readonly permission: Permission; readonly resource: ResourceRef }[]): Promise<readonly Decision[]>;
   abstract accessPlan(principal: Principal, permission: Permission, type: ResourceType, env?: Readonly<Record<string, unknown>>): Promise<AccessPlan>;
@@ -23,6 +25,8 @@ export abstract class AuthzService extends AsyncService {
   abstract filterNow(principal: Principal, permission: Permission, type: ResourceType): ResourceFilter | undefined; // undefined => a model needs IO
   abstract explain(req: CheckInput): Promise<Decision>; // trace on, all models evaluated
   abstract summary(principal: Principal, at?: ResourceRef): Promise<AccessSummary>;
+  /** The path a check of `ref` walks: `[ref, ...ancestors, GLOBAL]`; null for an unknown resource. Optional: test doubles may leave it out. */
+  ancestors?(ref: ResourceRef): Promise<readonly ResourceRef[] | null>;
   /** Holder's combined permission set at `at` (all models, incl. ABAC) strictly contains target's; impersonation rule (B26). */
   abstract covers(holder: Principal, target: Principal, at?: ResourceRef): Promise<boolean>;
   abstract preload(principal: Principal): Promise<void>;
@@ -34,6 +38,17 @@ export abstract class AuthzService extends AsyncService {
 
 export type CheckInput = Omit<DecisionRequest, 'resource'> & { readonly resource?: ResourceRef | object };
 
+/** The root domain: the DI root container. */
+export const ROOT_DOMAIN = 'root';
+
+/** What AuthzDomains.create accepts as a domain name (a JSON schema / RegExp source). */
+export const DOMAIN_NAME_PATTERN = '^[A-Za-z0-9_.-]{1,64}$';
+
+export interface DomainIdentity {
+  readonly name: string;
+  readonly parent?: string;
+}
+
 // Root singleton; the implementation is the host's.
 export abstract class AuthzDomains {
   abstract create(name: string, parent?: string): IContainer; // child of 'root' by default
@@ -41,6 +56,10 @@ export abstract class AuthzDomains {
   // Async: a domain's models are registered after create(), and AuthzService is an AsyncService.
   abstract service(name: string): Promise<AuthzService>;
   abstract names(): readonly string[];
+  /** The domain a container belongs to; undefined for a container that is not a domain. */
+  abstract describe(container: IContainer): DomainIdentity | undefined;
+  /** Domain names from 'root' to `name`; throws AuthzConfigError for a domain that does not exist. */
+  abstract lineage(name: string): readonly string[];
 }
 
 export interface AccessSummary {

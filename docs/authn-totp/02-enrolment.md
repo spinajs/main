@@ -9,7 +9,7 @@ The owner of an account adds TOTP in two calls: `TotpService.begin` creates a se
 1. `TotpService` restores the session through `SessionIssuer.restore(session.id)`. A missing, ended or impersonated session gives `{ ok: false, code: 'no_session' }`. The identity always comes from the session, never from the caller.
 2. A pending session passes only while the identity is enrolled in no MFA step: neither TOTP nor any other `MfaStep` of the app. Otherwise `no_session`.
 3. It checks fresh auth with `isFresh(facts, ctx.now, authn.freshAuth.maxAgeSeconds)`. A stale active session passes when `reauth` is given and `AuthnService.reauthenticate` accepts it. A stale pending session is never re-authenticated. Failure: `not_fresh`.
-4. `TotpMfaStep.beginEnrolment(identity)` checks the identity with `identityKey` (throws `InvalidArgument` for a bad one) and draws a 20-byte random secret.
+4. `TotpMfaStep.beginEnrolment(identity)` checks the identity with `identityKey` of `@spinajs/authn-orm/identity` (throws `InvalidArgument` for a bad one) and draws a 20-byte random secret.
 5. `MfaKeyRing.encrypt` encrypts the secret under the current key; see [Encryption keys](07-encryption-keys.md).
 6. It builds the `otpauth://` URI with `issuer`, `algorithm`, `digits` and `period` of `authn.mfa.totp`. The label is the identity's email from `IdentityStore.display`, else its name, else `id.id`.
 7. `MfaSecretStore.put` writes a pending row, or replaces an earlier pending one. It never overwrites a confirmed row: then the step throws `TotpAlreadyEnrolled` and the service answers `enrolled`.
@@ -19,7 +19,7 @@ The owner of an account adds TOTP in two calls: `TotpService.begin` creates a se
 
 1. `TotpService` restores the session: any active or pending session that is not impersonated. Confirm needs no fresh auth.
 2. It reads the enrolment state with `TotpMfaStep.enrolment(identity)`. A pending session whose identity is enrolled in another MFA step answers `no_session`. `'confirmed'` answers `enrolled` and `'none'` answers `not_begun`; neither counts into the throttle.
-3. It counts the attempt into the `mfa` throttle under the keys `account` (`id`), `account-ip` (`id|ip`) and `ip`, the keys `AuthnService.completeMfa` uses. A refusal answers `{ ok: false, code: 'throttled', retryAfterSeconds }`.
+3. It counts the attempt into the `mfa` throttle under `identityThrottleKeys(identity, ctx)` of `@spinajs/authn/contracts`: `account` (`id`), `account-ip` (`id|ip`) and, with `ctx.ip`, `ip`, the keys `AuthnService.completeMfa` uses. A refusal answers `{ ok: false, code: 'throttled', retryAfterSeconds }`.
 4. `TotpMfaStep.confirmEnrolment(identity, code)` decrypts the pending secret and checks the code inside `window`. A wrong code throws `TotpInvalidCode`.
 5. `MfaSecretStore.acceptStep` spends the code's time step, so the same code cannot log in afterwards.
 6. `MfaSecretStore.confirm(id, 'totp', undefined, secretEnc)` confirms only the cipher text the code was checked against. A `begin` that replaced it in between throws `TotpEnrolmentChanged`; another confirmation that won throws `TotpAlreadyEnrolled`.
@@ -81,7 +81,7 @@ With `authn.mfa.policy.force` (or a role of `forceForRoles`), `DefaultMfaPolicy`
 
 ### HTTP routes
 
-`@spinajs/authn-http` mounts these routes over `TotpService`. They answer 404 unless `authn.mfa.steps` lists `TotpMfaStep`, `authn.mfa.encryptionKey.secret` is set and `TotpService` is registered. Status codes and bodies: [MFA enrolment routes](../authn-http/13-mfa-enrolment-routes.md).
+`@spinajs/authn-http` mounts these routes over the registered `MfaEnrolmentService`, which the root entry of this package registers as `TotpService`. They answer 404 unless `TotpService.enabled()` is true for the steps of the configured MFA policy: `authn.mfa.steps` lists `TotpMfaStep` itself, not a subclass, and `authn.mfa.encryptionKey.secret` is set. Status codes and bodies: [MFA enrolment routes](../authn-http/13-mfa-enrolment-routes.md).
 
 | Route | Body | Calls |
 | --- | --- | --- |
@@ -108,11 +108,11 @@ All keys: [Turning TOTP on](01-setup.md#configuration).
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Owner service | `TotpService` (class name), singleton | `TotpService` | none shipped | Construct it with `TotpServiceDeps` for tests or per-container steps; see [Wiring and testing](09-wiring-and-testing.md). |
-| Session lookup | `SessionIssuer`, from `@spinajs/authn-session` | `DefaultSessionIssuer` | | Resolved on first use; `deps.sessions` overrides it. |
-| Re-authentication | `AuthnService` of `@spinajs/authn` | `DefaultAuthnService` | | Used only for a stale active session with `reauth`; `deps.authn` overrides it. |
-| Throttle | `AuthnThrottle` of `@spinajs/authn` | the registered throttle | `DbAuthnThrottle` | `deps.throttle` overrides it. |
-| Audit sinks | `Array.ofType(AuthnEventSink)` | every registered sink | | `deps.sinks` overrides them. |
+| Owner service | `MfaEnrolmentService` (`@spinajs/authn/contracts`), singleton | `TotpService` | none shipped | Construct it with `TotpServiceDeps` for tests; see [Wiring and testing](09-wiring-and-testing.md). |
+| Session lookup | `SessionIssuer`, from `@spinajs/authn-session` | `DefaultSessionIssuer` | | Optional `@Autoinject`; `deps.sessions` overrides it. |
+| Re-authentication | `AuthnService` of `@spinajs/authn` | `DefaultAuthnService` | | Optional `@Autoinject`, used only for a stale active session with `reauth`; `deps.authn` overrides it. |
+| Throttle | `AuthnThrottle` of `@spinajs/authn` | the registered throttle | `DbAuthnThrottle` | Optional `@Autoinject`; `deps.throttle` overrides it. |
+| Audit | `AuthnAudit` of `@spinajs/authn/audit`, over every registered `AuthnEventSink` | `AuthnAudit` | | `deps.sinks` replaces it with `AuthnAudit.over(sinks)`. |
 
 ## Important behaviour
 

@@ -12,6 +12,9 @@ export interface PasswordPolicy {
   readonly description?: string;
 }
 
+/** Longer passwords never verify, so no strategy hashes them; HTTP routes cap their credential fields at it too (N3). */
+export const PASSWORD_HARD_CAP = 1024;
+
 /** A policy violation says nothing about the account, so the caller may show it. */
 export type PasswordViolation = 'too_short' | 'too_long' | 'rule' | 'blocklisted';
 

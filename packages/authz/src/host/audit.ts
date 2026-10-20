@@ -1,7 +1,7 @@
 import { Injectable, Singleton } from '@spinajs/di';
 import { DecisionAudit } from '../contracts/service.js';
 import { engineLog } from './log.js';
-import type { HostLog } from './log.js';
+import type { AuthzLog } from './log.js';
 
 type AuditRecord = Parameters<DecisionAudit['record']>[0];
 
@@ -30,10 +30,10 @@ function fields(e: AuditRecord): Record<string, unknown> {
 @Singleton()
 @Injectable(DecisionAudit)
 export class LogDecisionAudit extends DecisionAudit {
-  private log: HostLog | undefined;
+  private log: Pick<AuthzLog, 'warn' | 'info'> | undefined;
 
   /** `log` is for tests; DI constructs the class without arguments. */
-  constructor(log?: HostLog) {
+  constructor(log?: Pick<AuthzLog, 'warn' | 'info'>) {
     super();
     this.log = log;
   }

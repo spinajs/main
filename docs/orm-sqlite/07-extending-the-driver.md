@@ -37,29 +37,31 @@ sequenceDiagram
 | `TableQueryCompiler` | `SqliteTableQueryCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md) |
 | `TruncateTableQueryCompiler` | `SqliteTruncateTableQueryCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `TableExistsCompiler` | `SqliteTableExistsCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
-| `DefaultValueBuilder` | `SqlLiteDefaultValueBuilder` | **no** | [Schema and DDL](04-schema-and-ddl.md#default-values) |
-| `DatetimeValueConverter` | `IsoDatetimeValueConverter` (`@spinajs/orm-sql`): ISO 8601 UTC text | | [Converters](../orm-sql/05-value-converters-and-defaults.md) |
-| `NowExpression` | `SqliteNowExpression` | **no** | [Query dialect](06-query-dialect.md) |
+| `DefaultValueBuilder` | `SqlLiteDefaultValueBuilder` | yes | [Schema and DDL](04-schema-and-ddl.md#default-values) |
+| `DatetimeValueConverter` | `IsoDatetimeValueConverter`: ISO 8601 UTC text | no, from `@spinajs/orm-sql` | [Converters](../orm-sql/05-value-converters-and-defaults.md) |
+| `NowExpression` | `SqliteNowExpression` | yes | [Query dialect](06-query-dialect.md) |
 | `CreateDatabaseCompiler` | `SqliteCreateDatabaseQueryCompiler` (throws) | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `DropDatabaseCompiler` | `SqliteDropDatabaseQueryCompiler` (throws) | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `CreateViewCompiler` | `SqliteCreateViewCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `AlterTableQueryCompiler` | `SqlAlterTableQueryCompiler` (`@spinajs/orm-sql`) | | [Schema and DDL](04-schema-and-ddl.md) |
+| `IndexQueryCompiler` | `SqliteIndexQueryCompiler` | yes | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
+| `SqlExpressions` | `SqliteSqlExpressions` | yes | [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` (`@spinajs/orm-sql`, throw) | | [Schema and DDL](04-schema-and-ddl.md#other-ddl) |
 | `InsertQueryCompiler` | `SqliteInsertQueryCompiler` | yes | [Inserts and upserts](05-inserts-and-upserts.md) |
 | `OnDuplicateQueryCompiler` | `SqliteOnDuplicateQueryCompiler` | yes | [Inserts and upserts](05-inserts-and-upserts.md) |
 | `ServerResponseMapper` | `SqliteServerResponseMapper` | yes | [Inserts and upserts](05-inserts-and-upserts.md) |
-| `ModelToSqlConverter` | `SqliteModelToSqlConverter` | **no** | [Inserts and upserts](05-inserts-and-upserts.md#model-serialization) |
+| `ModelToSqlConverter` | `SqliteModelToSqlConverter` | yes | [Inserts and upserts](05-inserts-and-upserts.md#model-serialization) |
 | `OrderByQueryCompiler` | `SqliteOrderByCompiler` | yes | [Query dialect](06-query-dialect.md) |
-| `JoinStatement` | `SqlLiteJoinStatement` | **no** | [Query dialect](06-query-dialect.md) |
-| `InSetStatement` | `SqliteInSetStatement` | **no** | [Query dialect](06-query-dialect.md) |
-| `LimitQueryCompiler` | `SqlLimitQueryCompiler` (`@spinajs/orm-sql`) | | [Query dialect](06-query-dialect.md) |
+| `JoinStatement` | `SqlLiteJoinStatement` | yes | [Query dialect](06-query-dialect.md) |
+| `InSetStatement` | `SqliteInSetStatement` | yes | [Query dialect](06-query-dialect.md) |
+| `LimitQueryCompiler` | `SqliteLimitQueryCompiler` | yes | [Query dialect](06-query-dialect.md) |
 | `RecursiveQueryCompiler` | `SqlWithRecursiveCompiler` (`@spinajs/orm-sql`) | | [Query dialect](06-query-dialect.md) |
 | `IdentifierQuoter` | `BacktickIdentifierQuoter` (`@spinajs/orm-sql`) | | [Query dialect](06-query-dialect.md) |
 | `LiteralQuoter` | `SqlLiteralQuoter` (`@spinajs/orm-sql`) | | [Query dialect](06-query-dialect.md) |
 
 Every other token (`SelectQueryCompiler`, `WhereStatement`, `BooleanValueConverter`, ...) keeps the shared class `SqlDriver.resolve()` registered; see [What `SqlDriver.resolve()` registers](../orm-sql/01-sql-driver.md#what-sqldriverresolve-registers). `OrmDriver.resolve()` adds `StandardObjectToSqlConverter`, `JsonValueConverter`, `UuidConverter` and `UniversalValueConverter`.
 
-Not registered at all: `TableCloneQueryCompiler` (no `CREATE TABLE ... LIKE`) and `TableHistoryQueryCompiler`.
+Not registered at all: `TableCloneQueryCompiler` (no `CREATE TABLE ... LIKE`) and `TableHistoryQueryCompiler` (`SqliteTableQueryCompiler` refuses `trackHistory()` before it would be resolved).
 
 ## Configuration
 
@@ -91,31 +93,22 @@ What to extend for a replacement:
 
 | You change | Extend | Register as |
 | --- | --- | --- |
-| A clause the SQLite driver overrides and exports | that class, eg. `SqliteInsertQueryCompiler` | its token |
-| A clause the SQLite driver overrides but does not export (`DefaultValueBuilder`, `ModelToSqlConverter`, `JoinStatement`, `InSetStatement`) | the base from `@spinajs/orm` or `@spinajs/orm-sql`, re-implementing the SQLite part | its token |
+| A clause the SQLite driver overrides | that class, eg. `SqliteInsertQueryCompiler` | its token |
 | A clause SQLite takes from the shared layer | the `Sql*` class from `@spinajs/orm-sql` | its token |
 | How statements are sent, routed, opened | `SqliteOrmDriver` itself | (the driver string) |
 
 ### Driver class: custom implementation
 
-A reporting connection that orders by several columns, allows `RIGHT JOIN`, enforces foreign keys and waits longer for locks; registered under its own string and checked in a test.
+A reporting connection that enforces foreign keys and waits longer for locks; registered under its own string and checked in a test.
 
 ```ts sample
 import { DI, Injectable, NewInstance } from '@spinajs/di';
-import { JoinStatement, OrderByQueryCompiler, OrmDriver, QueryContext } from '@spinajs/orm';
-import { SqlJoinStatement, SqlOrderByQueryCompiler } from '@spinajs/orm-sql';
+import { OrmDriver, QueryContext } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 @Injectable('orm-driver-sqlite-reporting')
 @NewInstance()
 export class ReportingSqliteDriver extends SqliteOrmDriver {
-  public resolve() {
-    super.resolve();
-
-    this.Container.register(SqlOrderByQueryCompiler).as(OrderByQueryCompiler);
-    this.Container.register(SqlJoinStatement).as(JoinStatement);
-  }
-
   public async connect(): Promise<OrmDriver> {
     await super.connect();
 
@@ -172,7 +165,6 @@ export async function boot() {
 - `SqlJoinStatement.build()` refuses to join models whose drivers have different class names (`Cannot join models with different drivers`). Models on a subclass connection cannot be joined with models on a stock `orm-driver-sqlite` connection.
 - The replacement keeps the constructor signature of the class it replaces; builders pass fixed constructor arguments (see each page's services table).
 - A statement subclass must override `clone()`, or a cloned query turns it back into the parent class.
-- Four SQLite classes are not exported: `SqlLiteDefaultValueBuilder`, `SqliteModelToSqlConverter`, `SqlLiteJoinStatement`, `SqliteInSetStatement`. Replace them by extending their bases.
 - `@Injectable(...)` also registers the class under itself, so `DI.resolve(MySubclass)` works in tests.
 
 ## Best practices

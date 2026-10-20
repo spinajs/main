@@ -8,7 +8,7 @@ It does **not** issue JWTs and does **not** accept HMAC-signed or unsigned token
 
 1. [`@spinajs/authn-http`](../authn-http/README.md) turns `Authorization: Bearer <a.b.c>` into `{ kind: 'bearer', token }`. A three-part value whose JWS header `typ` is `authn.keys.assertion.typ` becomes a `jws-assertion` for [`@spinajs/authn-keys`](../authn-keys/README.md) instead.
 2. `JwtBearerStrategy.accepts` is `true` only while at least one issuer is configured, and only for a value of at most 8192 characters in compact JWT form (three base64url parts). An API token (`spt_…`) gets `false`, so `TokenStrategy` takes it.
-3. The core peeks at the throttle with `throttleKeys`: `account` is `jwt:` plus 32 hex characters of `SHA-256('authn-jwt-throttle:' + token)`, `account-ip` adds `|<ip>`. They come from a hash of the whole token, never from its claims.
+3. The core peeks at the throttle with `throttleKeys`: `account` is `jwt:` plus 32 hex characters of `SHA-256('authn-jwt-throttle:' + token)`, `account-ip` adds `|<ip>`; the core drops that one and builds its own from the `account` key and `ctx.ip`. They come from a hash of the whole token, never from its claims.
 4. `JwtBearerStrategy.verify`:
    1. `ctx.now` must be a valid `Date`, else `invalid_credentials`.
    2. It decodes the unverified `iss` and picks that issuer from `authn.jwt.issuers`. An unknown issuer fails with no key fetch.
@@ -91,9 +91,8 @@ authn: {
 }
 ```
 
-`JwtBearerStrategy.resolve()` fails boot when:
+`JwtBearerStrategy.resolve()` fails boot with `InvalidOperation` when `authn.jwt.issuers` is unset, which means the `@spinajs/authn` schema is not registered. It throws `InvalidOption`, naming the issuer's path, when:
 
-- `authn.jwt.issuers` is unset, which means the `@spinajs/authn` schema is not registered;
 - an issuer has an empty `audience`, a `clockSkewSeconds` outside 0 to 60, or a provider over 128 characters (an explicit one, or `jwt:` plus a long issuer);
 - two issuers share an issuer or a provider (explicit or derived);
 - a `jwksUri` is not a URL, or is plain `http:` to a host that is not loopback;

@@ -81,8 +81,8 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `Security` controller | Class key `Security`; singleton; mounted by the controller scan | `Security` | none | Subclass and `DI.register(Mine).as(Security)`; see [Controller overrides](10-controller-overrides.md). |
 | `AccountGuard` | Abstract class key; `@Autoinject` into `Security` | `DefaultAccountGuard` | yours | See [Account guard](08-account-guard.md). |
-| `CredentialAdminGuard` | authn contract; checked with `hasRegistered()`, resolved per call | users' `AuthzCredentialAdminGuard` | yours | `DI.register(Mine).as(CredentialAdminGuard)`; see [Host services](11-host-services.md). |
-| `SessionIssuer` | authn contract; checked with `hasRegistered()`, resolved per call | authn-session's issuer | yours | Without one the session routes answer `404`. |
+| `CredentialAdminGuard` | authn contract; checked with `hasImplementation()`, resolved per call | users' `AuthzCredentialAdminGuard` | yours | `DI.register(Mine).as(CredentialAdminGuard)`; see [Host services](11-host-services.md). |
+| `SessionIssuer` | authn contract; checked with `hasImplementation()`, resolved per call | authn-session's issuer | yours | Without one the session routes answer `404`. |
 | `AuthnAudit` | authn class; resolved per revoke | authn's | | Subscribe to its events to forward `session.revoke`. |
 | `FreshAuth` | authn-http policy; resolved per call | `FreshAuth` | | Configure `authn.freshAuth.maxAgeSeconds`. |
 

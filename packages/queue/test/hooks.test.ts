@@ -217,7 +217,7 @@ describe('queue message hooks', function () {
     const original = OuterHook.prototype.aroundHandle;
     OuterHook.prototype.aroundHandle = async function <T>(message: IQueueMessage, next: () => Promise<T>): Promise<T> {
       seen.push(message.Initiator);
-      return original.call(this, message, next);
+      return (await original.call(this, message, next)) as T;
     };
 
     try {

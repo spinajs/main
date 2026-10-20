@@ -4,12 +4,12 @@
 
 ## How it works
 
-1. `DbTokenService.create` and `DbTokenService.validate` resolve the provider on each call with `service('authn.token.generation', AccessTokenGenerationProvider)`: the registered class whose name is `authn.token.generation.service`. See [Config-selected services](../configuration/08-config-selected-services.md#service-and-_service).
+1. `DbTokenService` injects the provider into its `Generator` property with `@AutoinjectService('authn.token.generation', AccessTokenGenerationProvider)`: the registered class whose name is `authn.token.generation.service`, resolved once, when `DbTokenService` is built. `create` and `validate` both use it. See [Config-selected services](../configuration/08-config-selected-services.md#autoinjectservice).
 2. On create, `generate()` returns `{ Plaintext, Hash }`:
-   1. `checkTokenSize(prefix, length)` throws unless `length` is an integer of at least 32 and `prefix.length + ceil(length × 4 / 3)` is at most `MAX_TOKEN_LENGTH` (1024).
+   1. `checkTokenSize(prefix, length)` throws `InvalidOption` unless `length` is an integer of at least 32 and `prefix.length + ceil(length × 4 / 3)` is at most `MAX_TOKEN_LENGTH` (1024).
    2. `randomBytes(length)` from `node:crypto`, encoded base64url, after `authn.token.prefix`.
    3. `Hash` is `hash(Plaintext)`.
-3. `DbTokenService` then checks the plaintext: it must start with the prefix, the rest must be base64url of at least `ceil(length × 4 / 3)` characters, and the whole must fit in 1024 characters. Otherwise create throws and stores nothing.
+3. `DbTokenService` then checks the plaintext: it must start with the prefix, the rest must be base64url of at least `ceil(length × 4 / 3)` characters, and the whole must fit in 1024 characters. Otherwise create throws `UnexpectedServerError` and stores nothing.
 4. The row stores `Hash`; the caller gets `Plaintext`.
 5. On validate, `hash(raw)` of the presented token is looked up in the `Token` column.
 
@@ -31,7 +31,7 @@ authn: {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Token algorithm | `AccessTokenGenerationProvider`; singleton; `@Injectable(AccessTokenGenerationProvider)`; resolved by class name from the root container | `SecureRandomTokenProvider` | none | Register a subclass with `@Injectable(AccessTokenGenerationProvider)` and set `authn.token.generation.service` to its class name. |
+| Token algorithm | `AccessTokenGenerationProvider`; singleton; `@Injectable(AccessTokenGenerationProvider)`; resolved by class name when `DbTokenService` is built | `SecureRandomTokenProvider` | none | Register a subclass with `@Injectable(AccessTokenGenerationProvider)` and set `authn.token.generation.service` to its class name. |
 
 Exported helpers: `checkTokenSize(prefix, length)` and `MAX_TOKEN_LENGTH` (1024), the size rule every token must meet.
 
@@ -72,12 +72,12 @@ export class PepperedTokenProvider extends AccessTokenGenerationProvider {
 }
 ```
 
-Import the file in the app's bootstrap after `@spinajs/authn-token`, and set the config key before the first token is created or validated.
+Import the file in the app's bootstrap after `@spinajs/authn-token`, and set the config key before `TokenService` is first resolved.
 
 ## Important behaviour
 
 - **The hash is the lookup key.** Switching to a provider with another `hash()` makes every existing token unknown (`invalid_credentials`). Plan it as a token reset.
-- **Looked up per call.** `authn.token.generation.service` is read on every create and validate; the provider instance itself is a cached singleton.
+- **Picked once.** `authn.token.generation.service` is read when `DbTokenService` is built; a later change of the key does not switch the provider of a running service. A name that matches no registered provider fails that resolve with `ServiceNotFound`.
 - **Prefix and length are checked twice.** Once in the provider (`checkTokenSize`) and again on its output in `DbTokenService`, so a custom provider that ignores the config fails loudly instead of minting weak or oversized tokens.
 - **Boot check.** `TokenStrategy.resolve()` runs `checkTokenSize` at boot, so a prefix and length over 1024 characters stop the app, not the first request.
 - **`length` is a floor of entropy.** The schema refuses less than 32 bytes; per-request strategies need unguessable credentials because a parallel burst is verified in full before the throttle applies.

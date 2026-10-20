@@ -55,7 +55,6 @@ Indexes: `access_token_hash_idx` (unique, `Token`), `access_token_uuid_idx` (uni
 - **Hidden columns.** `dehydrate()` leaves out `Id`, `Token` and `user_id`, so a model serialised by mistake does not leak the hash or internal ids.
 - **Deleting a user deletes their tokens** through the foreign key cascade. The table needs the `users` table to exist first.
 - **`Kind` defaults to `pat`.** A model built without a valid kind gets `pat`; a row read from the database keeps its stored kind.
-- **`IsExpired` uses the process clock.** The getter compares with `DateTime.now()`; 3.0 code decides expiry from `ctx.now` instead.
 - **Rows without an expiry are never swept.** `deleteExpired` keeps them; they are refused on use as expired.
 
 ## Best practices
@@ -87,4 +86,3 @@ export async function liveTokensByKind(now = DateTime.now()): Promise<Record<str
 - [Issuing and revoking tokens](01-token-service.md): the only writer of the table.
 - [CLI commands](06-cli-commands.md): `authn:token-delete-expired` removes expired and revoked rows.
 - [`@spinajs/orm` migrations](../orm/10-migrations.md): how `@Migration` classes are found and run.
-- [Data migration from 2.x](../authz/migration-guide.md#7-data-migration): the rest of the 2.x upgrade.

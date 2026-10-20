@@ -4,7 +4,7 @@ import type { ICompilerOutput, IWhereBuilder } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 
-import { AUTHZ_ASSIGNMENT_TABLE, RbacAssignmentTerm, rbacPlanArgs } from '../../src/index.js';
+import { AUTHZ_ASSIGNMENT_TABLE, RbacAssignmentTerm, parseRbacPlanArgs, rbacPlanArgs } from '../../src/index.js';
 import type { RbacAssignmentPlanArgs } from '../../src/index.js';
 import { DB_KINDS, bootDb } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
@@ -16,7 +16,7 @@ const ANCESTOR = 'plan_ancestor';
 const HOUR = 3_600_000;
 const SUBJECT_KEY = /^([^:]+):([^#]+)(?:#(.+))?$/;
 
-type Relations = Partial<Record<'owner' | 'self', { column: string; typeColumn?: string }>>;
+type Relations = Partial<Record<string, { column: string; typeColumn?: string }>>;
 
 const args = (over: Partial<RbacAssignmentPlanArgs> = {}): RbacAssignmentPlanArgs => rbacPlanArgs({ subjects: ['user:alice'], roles: [{ role: 'editor' }], global: false, ...over });
 
@@ -136,6 +136,17 @@ for (const kind of DB_KINDS) {
       expect(await permit({ roles: member }, { owner: { column: 'owner_id', typeColumn: 'owner_type' } })).to.deep.equal([1]);
       expect(await permit({ subjects: ['user:*', 'team:t1#member'], roles: member })).to.deep.equal([]);
       expect(await permit({ roles: member }, {})).to.deep.equal([]);
+    });
+
+    it('a column relation other than owner ANDs the role with its own column', async () => {
+      const worker = [{ role: 'member', relation: 'assignee' }];
+      expect(await permit({ subjects: ['user:*', 'user:alice'], roles: worker }, { assignee: { column: 'owner_id' } })).to.deep.equal([1]);
+      expect(await permit({ subjects: ['user:*', 'user:alice'], roles: worker })).to.deep.equal([]);
+    });
+
+    it('parses a role entry with any relation name and refuses a non-string one', () => {
+      expect(parseRbacPlanArgs({ subjects: ['user:alice'], roles: [{ role: 'worker', relation: 'assignee' }], global: false }).roles).to.deep.equal([{ role: 'worker', relation: 'assignee' }]);
+      expect(() => parseRbacPlanArgs({ subjects: [], roles: [{ role: 'worker', relation: 1 }], global: false })).to.throw(/roles\[0\]\.relation must be a relation name/);
     });
 
     it('the deny form matches at the row, an ancestor or $global', async () => {

@@ -33,7 +33,7 @@ Callers resolve the `IdentityLinkStore` port of `@spinajs/authn`; this package r
 1. The store checks the identity as in `list`, then `external.provider` (1 to 128 characters), `external.subject` (1 to 255) and `external.email` (0 to 255, optional). A bad value throws `InvalidArgument`; nothing is truncated.
 2. It takes "now" from the Node clock and awaits `ormReady()`.
 3. `AuthnIdentity.insert()` writes a row with a random UUID `id`, `email_verified` = `external.emailVerified === true`, `attributes` `NULL` and `linked_at` = now.
-4. A duplicate `(provider, subject)` makes the unique index refuse the insert; the store rejects with `ResourceDuplicated`.
+4. A duplicate `(provider, subject)` makes the unique index refuse the insert (`UniqueViolation`); the store rejects with `ResourceDuplicated`.
 5. It resolves with the new `IdentityLink`.
 
 ### Unlink, `unlink(id)`, and touch, `touch(id, at?)`
@@ -75,7 +75,7 @@ Unique index `authn_identity_subject` covers `(provider, subject)`; index `authn
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Link store | `IdentityLinkStore`, singleton; also registered as `DbIdentityLinkStore` | `DbIdentityLinkStore` | none shipped | Register your class under `IdentityLinkStore` after this package is imported: a single resolve takes the last registration. Subclass `DbIdentityLinkStore` to keep the storage. |
+| Link store | `IdentityLinkStore`, per child container; also registered as `DbIdentityLinkStore` | `DbIdentityLinkStore` | none shipped | Register your class under `IdentityLinkStore` after this package is imported: a single resolve takes the last registration. Subclass `DbIdentityLinkStore` to keep the storage. |
 
 ### Link store: custom implementation
 
@@ -85,10 +85,10 @@ Subclass `DbIdentityLinkStore`, override the contract methods you need, and regi
 import { DbIdentityLinkStore } from '@spinajs/authn-orm';
 import { IdentityLinkStore } from '@spinajs/authn/contracts';
 import type { IdentityLink } from '@spinajs/authn/contracts';
-import { Injectable, Singleton } from '@spinajs/di';
+import { Injectable, PerChildInstance } from '@spinajs/di';
 
 /** Stamps last_used_at whenever a login finds a link, for the "last used" column of the account page. */
-@Singleton()
+@PerChildInstance()
 @Injectable(IdentityLinkStore)
 export class LastUsedLinkStore extends DbIdentityLinkStore {
   public override async find(provider: string, subject: string): Promise<IdentityLink | null> {
@@ -157,20 +157,6 @@ export async function linkDeployPipeline(issuer: string, subject: string): Promi
     throw err;
   }
 }
-```
-
-## Migration
-
-### `DbIdentityLinkStore` takes no driver
-
-The store writes through the `AuthnIdentity` model on the `default` connection and has no constructor arguments.
-
-```ts
-// Before
-const links = new DbIdentityLinkStore(driver, { container });
-
-// After: set db.DefaultConnection; the store awaits ormReady() itself
-const links = new DbIdentityLinkStore();
 ```
 
 ## Related

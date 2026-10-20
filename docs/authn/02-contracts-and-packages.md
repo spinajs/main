@@ -25,14 +25,29 @@ No `authn*` package imports `authz*` or `users*`. `@spinajs/authz` imports only 
 | Import | Holds | Side effects |
 | --- | --- | --- |
 | `@spinajs/authn` | Everything below, plus the services | Registers `DefaultAuthnService`, `DefaultMfaPolicy`, `MemoryAuthnThrottle`, `LogAuthnAuditSink` and `AuthnConfigBootstrapper` |
-| `@spinajs/authn/contracts` | The contracts, `Session`, `SessionKeys`, `isFresh`, `SYSTEM`, `UNATTENDED`, `principalKey`, `ceilingHash`, `backoffDelayMs` | None |
+| `@spinajs/authn/contracts` | The contracts, `Session`, `SessionKeys`, `isFresh`, `SYSTEM`, `UNATTENDED`, `principalKey`, `ceilingHash`, and the [shared constants and helpers](#shared-constants-and-helpers) | None |
 | `@spinajs/authn/schemas` | `AUTHN_CONFIGURATION_SCHEMA` | None |
 | `@spinajs/authn/register-schema` | Registers `AUTHN_CONFIGURATION_SCHEMA` at import | For modules that read `authn.*` and may load where the root never does |
 | `@spinajs/authn/env` | `authnAppEnv`, `authnEnvFellBack`, `isLenientAuthnEnv`, the throttle param checks | None |
 | `@spinajs/authn/mfa-enrolments` | `MfaEnrolments`, `MfaStepNotListed`, `MfaEnrolmentMismatch` | None |
 | `@spinajs/authn/store-throttle` | `StoreAuthnThrottle` | None |
+| `@spinajs/authn/nonces` | `MemoryNonceStore` | None |
+| `@spinajs/authn/audit` | `AuthnAudit`, `AuthnEventBody`, `AuthnAuditor` | None |
 
 A store package imports a subpath, not the root, when it must not register the core services.
+
+### Shared constants and helpers
+
+The satellite packages take these from `@spinajs/authn/contracts` instead of keeping copies:
+
+| Export | What |
+| --- | --- |
+| `AUTHN_FAILURE_BODY` | The 401 body of every authentication failure: `{ error: { code: 'E_AUTH_FAILED', message }, message }`. The login routes, re-authentication and the OIDC callback answer it. |
+| `PASSWORD_HARD_CAP` | 1024. A longer password never verifies; HTTP routes cap credential fields at it. |
+| `CLI_ACTOR`, `cliContext()` | The audit actor (`{ type: 'system', id: 'cli' }`) and context of every operator command. |
+| `identityThrottleKeys(id, ctx)` | The `account`, `account-ip` and `ip` keys of the `mfa` and `reauth` flows, shared by `AuthnService`, `PasswordService.change` and MFA enrolment. |
+| `sameRef(a, b)` | Same type and id. |
+| `BackoffParams`, `backoffDelayMs` | Re-exported from `@spinajs/util`. |
 
 ## Contracts and their implementations
 
@@ -48,6 +63,8 @@ A store package imports a subpath, not the root, when it must not register the c
 | `AuthnEventSink` | Receives every authentication event | `LogAuthnAuditSink` (core); `DbAuthnAuditSink` (authn-orm); `QueueAuthnEventSink`, `UserAccountSink` (users); `SseSessionEndSink` (authz-http) | [Audit events](06-audit-events.md) |
 | `IdentityLinkStore` | External subjects of an identity | `DbIdentityLinkStore` (authn-orm) | [Account linking](10-account-linking.md) |
 | `SecretStore` | Single-use secrets: reset, invite, key challenge | `DbSecretStore` (authn-orm) | [`@spinajs/authn-orm`](../authn-orm/README.md) |
+| `NonceStore` | Single-use values until they expire: an OIDC `state` | `MemoryNonceStore` (core, `@spinajs/authn/nonces`, not registered); `DbNonceStore` (authn-orm) | [Nonce store](../authn-orm/04-nonce-store.md) |
+| `MfaEnrolmentService` | The owner's enrolment in one MFA step and its admin reset, behind the `/user/mfa` routes | `TotpService` (authn-totp) | [`@spinajs/authn-totp`](../authn-totp/README.md) |
 | `PasswordService` | Change, reset, invite, expire a password | `LocalPasswordService` (authn-local) | [`@spinajs/authn-local`](../authn-local/README.md) |
 | `TokenService` | API and agent tokens | `DbTokenService` (authn-token) | [`@spinajs/authn-token`](../authn-token/README.md) |
 | `KeyRegistry`, `JwsVerifier`, `JwsSigner` | Public keys, strict JWS | `DefaultKeyRegistry` and the verifier (authn-keys) | [`@spinajs/authn-keys`](../authn-keys/README.md) |

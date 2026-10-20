@@ -3,7 +3,7 @@ import 'mocha';
 
 import * as authz from '../../src/index.js';
 import { AuthorizationModel, ResourceAdapter, FALSE, GLOBAL, TRUE, UNATTENDED, resourceKey } from '../../src/index.js';
-import type { AccessPlan, DecisionRequest, DenyReason, EvaluationContext, ListPlanRequest, ListSupport, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PlanTerm, Principal, ResourceRef, ResourceType, Vote } from '../../src/index.js';
+import type { AccessPlan, DecisionRequest, DenyReason, EvaluationContext, ListPlanRequest, ListSupport, ListSupportContext, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PlanTerm, Principal, ResourceRef, ResourceType, Vote } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -127,7 +127,7 @@ describe('list plan contracts', () => {
     >();
     yes<Equal<ListSupport, true | { readonly reason: string }>>();
     yes<Equal<ListPlanRequest, { readonly principal: Principal; readonly actor?: Principal; readonly permission: PermissionDef; readonly type: ResourceType; readonly env?: Readonly<Record<string, unknown>>; readonly fresh?: boolean }>>();
-    yes<Equal<Pick<AuthorizationModel, 'listSupport' | 'listPlan'>, { listSupport?: (permission: PermissionDef, type: ResourceType) => ListSupport; listPlan?: (req: ListPlanRequest, ctx: EvaluationContext) => Promise<ModelListPlan> }>>();
+    yes<Equal<Pick<AuthorizationModel, 'listSupport' | 'listPlan'>, { listSupport?: (permission: PermissionDef, type: ResourceType, ctx?: ListSupportContext) => ListSupport; listPlan?: (req: ListPlanRequest, ctx: EvaluationContext) => Promise<ModelListPlan> }>>();
     yes<Equal<Pick<ResourceAdapter, 'loadMany' | 'ancestorsMany'>, { loadMany?: (refs: readonly ResourceRef[]) => Promise<ReadonlyMap<string, unknown>>; ancestorsMany?: (refs: readonly ResourceRef[]) => Promise<ReadonlyMap<string, readonly ResourceRef[] | null>> }>>();
     expect(true).to.equal(true);
   });

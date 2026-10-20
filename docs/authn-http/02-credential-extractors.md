@@ -53,8 +53,8 @@ import { DI } from '@spinajs/di';
 import { CredentialExtractor } from '@spinajs/authn/contracts';
 import type { Credentials, SignedRequest } from '@spinajs/authn/contracts';
 
-/** Older mobile clients send their API token in `X-Auth-Token`. */
-export class LegacyAuthTokenExtractor extends CredentialExtractor {
+/** Mobile clients send their API token in `X-Auth-Token`. */
+export class XAuthTokenExtractor extends CredentialExtractor {
   // After Authorization (20), before x-api-key (30).
   public readonly order = 25;
 
@@ -64,7 +64,7 @@ export class LegacyAuthTokenExtractor extends CredentialExtractor {
   }
 }
 
-DI.register(LegacyAuthTokenExtractor).as(CredentialExtractor);
+DI.register(XAuthTokenExtractor).as(CredentialExtractor);
 ```
 
 `TokenPrincipalResolver` then resolves the `bearer` credential like one from `Authorization`.

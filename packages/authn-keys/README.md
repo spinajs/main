@@ -20,6 +20,12 @@ challenge-response login.
 
 `DefaultKeyRegistry` implements `KeyRegistry` over a `KeyStore`
 (`OrmKeyStore` by default, `MemoryKeyStore` for tests) and a `SecretStore`.
+The registry and the strategies get their dependencies through DI. Tests
+build them with `new`, passing the dependencies in one object, e.g.
+`new DefaultKeyRegistry({ store, secrets, throttle, options })` or
+`new HttpSignatureStrategy({ registry, nonces, options })`. `OrmKeyStore`
+and `DbKeyNonceStore` inject the `Orm`, so the `authn:key-*` commands bring
+the database up on their own.
 
 ## Challenges
 

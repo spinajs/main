@@ -5,7 +5,7 @@ import 'mocha';
 import { AuthzAdminFailure, AuthzConfigError, AuthzDomains, GLOBAL, principalKey } from '@spinajs/authz';
 import type { AuthzTx } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
-import { DI } from '@spinajs/di';
+import { Container, DI, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { OrmDriver, QueryContext, TransactionRequired } from '@spinajs/orm';
 
@@ -107,6 +107,34 @@ describe('store helpers', () => {
       domain = DI.resolve(AuthzDomains).create('l2_t3_domain');
       expect(storeDomain(domain)).to.eq('l2_t3_domain');
       expect(storeDomain(domain.child())).to.eq('l2_t3_domain');
+    });
+
+    it('refuses a container the AuthzDomains singleton cannot place instead of guessing root', async () => {
+      @Singleton()
+      class NoDomains extends AuthzDomains {
+        create(): IContainer {
+          throw new Error('unused');
+        }
+        container(): IContainer {
+          throw new Error('unused');
+        }
+        async service(): Promise<never> {
+          throw new Error('unused');
+        }
+        names(): readonly string[] {
+          return [];
+        }
+        describe(): undefined {
+          return undefined;
+        }
+        lineage(): readonly string[] {
+          return [];
+        }
+      }
+      const c = new Container();
+      c.register(NoDomains).as(AuthzDomains);
+      await c.resolve(AuthzDomains);
+      expect(() => storeDomain(c.child())).to.throw(AuthzConfigError, /not inside any authz domain/);
     });
   });
 

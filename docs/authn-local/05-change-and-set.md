@@ -50,7 +50,7 @@ sequenceDiagram
 4. Unless `authn.local.reset.revokeTokens` is `false`, `TokenService.revokeAllFor(id, ctx, { actor })` revokes every API and agent token. With no `TokenService` registered there is nothing to revoke.
 5. It answers `{ status: 'set' }`.
 
-`@spinajs/users` calls `set()` when it creates an account with a password, and [`authn:password`](10-cli-commands.md) calls it with the actor `{ type: 'service', id: 'cli' }`.
+`@spinajs/users` calls `set()` when it creates an account with a password, and [`authn:password`](10-cli-commands.md) calls it with the actor `CLI_ACTOR`, `{ type: 'system', id: 'cli' }`.
 
 ## Configuration
 

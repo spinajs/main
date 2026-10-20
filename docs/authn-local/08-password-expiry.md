@@ -81,7 +81,7 @@ export default {
 | Age source | `PasswordAgeSource`, `@Autoinject` with `optional: true` | `UserPasswordAgeSource` from `@spinajs/users` | your source | See [Password age source](09-password-age-source.md). |
 | Expiry | `PasswordService.expire()` | `LocalPasswordService` | | See [Password service](11-password-service.md). |
 
-A constructor seam reads no configuration: `new PasswordExpirationJob({ ages, passwords, service, enabled?, maxAgeDays?, log? })`. There `enabled` defaults to `false` and `maxAgeDays` to `31`.
+A constructor seam reads no configuration: `new PasswordExpirationJob({ ages, passwords, service, enabled?, maxAgeDays?, log? })`. There `enabled` and `maxAgeDays` fall back to `AUTHN_LOCAL_DEFAULTS.expiration`, the schema defaults (`false` and `31`).
 
 ## Important behaviour
 

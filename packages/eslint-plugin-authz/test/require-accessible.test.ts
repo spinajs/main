@@ -1,14 +1,15 @@
 import { fileURLToPath } from 'node:url';
-import { ESLintUtils } from '@typescript-eslint/utils';
+import { RuleTester } from '@typescript-eslint/rule-tester';
 
 import { requireAccessible } from '../src/rules/require-accessible.js';
 
 const fixtures = fileURLToPath(new URL('./fixtures', import.meta.url));
 
-// RuleTester registers its own describe/it with mocha.
-const ruleTester = new ESLintUtils.RuleTester({
-  parser: '@typescript-eslint/parser',
-  parserOptions: { project: './tsconfig.json', tsconfigRootDir: fixtures, sourceType: 'module' },
+// RuleTester finds mocha's describe/it as globals; only the teardown hook has another name.
+RuleTester.afterAll = after;
+
+const ruleTester = new RuleTester({
+  languageOptions: { parserOptions: { project: './tsconfig.json', tsconfigRootDir: fixtures } },
 });
 
 const imports = "import { SYSTEM, Note, SubTask, Task, authz, models, runAs } from './models';\n";

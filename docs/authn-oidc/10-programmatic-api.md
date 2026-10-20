@@ -27,10 +27,10 @@ The layers, from the outside in:
 | Configuration | `OidcConfig`, `OidcProviderConfig`, `OidcClientConfig`, `OidcProviderSource`, `OidcSecretRef`, `OidcTokenEndpointAuth`, `OidcAuthorizationParams`, `OidcReservedParam`, `OidcAppPath`, `OidcEntraTenantId`, `ConfiguredOidc`, `ConfiguredProvider`, `OidcOptions`, `OidcProviderOptions`, `BuildOidcOptionsExtra`, `buildOidcOptions`, `AUTHN_OIDC_CONFIGURATION_SCHEMA`, `AUTHN_OIDC_PROVIDER_SCHEMA`, `OIDC_RESERVED_PARAMS`, `OIDC_PROVIDER_NAME_PATTERN`, `OIDC_APP_PATH_PATTERN`, `OIDC_ENTRA_TENANT_PATTERN`, `OIDC_HOST_PATTERN`, `OIDC_SEGMENT_PATTERN` ([Provider configuration](02-provider-configuration.md)) |
 | Presets | `OidcPresetId`, `OIDC_PRESET_IDS`, `OidcPreset`, `OidcEndpoints`, `OIDC_PRESETS`, `DEFAULT_CLAIMS`, `resolveIssuer`, `resolveEndpoints` ([Presets](03-presets.md)) |
 | Claims | `OidcClaimPath`, `OidcClaimsMapping`, `OidcMappedClaims`, `OidcExternalSubject`, `readClaim`, `rawClaims`, `mapClaims`, `hasRequiredClaims`, `MAX_SUBJECT_LENGTH`, `MAX_EMAIL_LENGTH` ([Claims mapping](04-claims-mapping.md)) |
-| Registration | `OidcBootstrapper`, `OidcProviders`, `registerOidcStrategies`, `providerNamesOf`, `appEnvOf`, `OidcStrategyName` |
+| Registration | `OidcBootstrapper`, `OidcProviders`, `registerOidcStrategies`, `providerNamesOf`, `OidcStrategyName` |
 | Strategy | `OidcStrategy`, `OidcStrategyDeps`, `OidcCallbackPayload` |
 | Provider runtime | `OidcProvider`, `OidcStateStore`, `OidcEndpointSet`, `OidcCallbackQuery` |
-| Routes | `OidcLogin`, `OidcLoginDeps`, `OidcRequest`, `OidcAnswer`, `OIDC_FAILURE_BODY`, `requestOrigin`, `OriginFacts` |
+| Routes | `OidcLogin`, `OidcLoginDeps`, `OidcRequest`, `OidcAnswer`, `requestOrigin`, `OriginFacts` |
 | Flow cookie | `OidcFlow`, `OidcFlowSecrets`, `FlowCookie`, `newFlow`, `flowSecrets`, `encodeFlow`, `decodeFlow`, `flowIsLive`, `stateClaim`, `flowCookie`, `clearFlowCookie`, `flowCookieName`, `sessionBindingOf`, `sha256hex`, `codeChallengeOf`, `appPathOrNull`, `OIDC_FLOW_TTL_SECONDS`, `OIDC_FLOW_FUTURE_SKEW_SECONDS`, `OIDC_FLOW_COOKIE_BASE_NAME`, `OIDC_FLOW_COOKIE_MAX_LENGTH` |
 | Authorization request | `authorizationUrl`, `AuthorizationRequest` |
 | Tokens | `exchangeCode`, `CodeExchange`, `OidcTokenSet`, `validateIdToken`, `IdTokenRules`, `IdTokenClaims`, `atHashOf`, `fetchUserinfo`, `OidcSigningAlgorithm`, `OIDC_SIGNING_ALGORITHMS` ([Security guarantees](09-security.md)) |
@@ -82,7 +82,7 @@ Register the callback path you pass in `callbackPath` at the IdP, since it build
 ### Build a GitHub authorization URL without booting the app
 
 ```ts sample
-import { MemoryNonceStore } from '@spinajs/authn-orm';
+import { MemoryNonceStore } from '@spinajs/authn/nonces';
 import { FetchOidcHttpClient, OidcProvider, buildOidcOptions, flowCookie } from '@spinajs/authn-oidc';
 
 const options = buildOidcOptions(

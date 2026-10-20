@@ -2,7 +2,7 @@
 
 An AWS S3 file provider for [`@spinajs/fs`](../fs/README.md). Code that works with an `fs` provider reads and writes S3 objects without changes, by switching the provider name.
 
-It does **not** create a temporary filesystem for you: the `fs-temp-s3` provider it downloads into must be in your configuration. S3 has no directories, so directory operations are no-ops.
+Its package config ships the `fs-temp-s3` local filesystem it downloads into, in the OS temp directory. S3 has no directories, so directory operations are no-ops.
 
 ## Install
 
@@ -46,7 +46,7 @@ export class AppConfiguration extends FrameworkConfiguration {
           { service: 'fsNative', name: 'local', basePath: './data' },
           { service: 'fsS3', name: 'invoices', bucket: 'acme-invoices', createBucketIfNotExists: false },
 
-          // required by fsS3: local disk for downloads
+          // optional: replaces the shipped temp filesystem fsS3 downloads into
           { service: 'fsNative', name: 'fs-temp-s3-local', basePath: './data/temp-s3' },
           { service: 'fsTemp', name: 'fs-temp-s3', provider: 'fs-temp-s3-local', cleanup: true, cleanupInterval: 3600 * 1000, maxFileAge: 24 * 3600 },
         ],
@@ -72,7 +72,7 @@ export class InvoiceArchive {
 
 ## Related packages
 
-- [`@spinajs/fs`](../fs/README.md): the `fs` abstraction, `fsService` that creates providers, `fsTemp`, `FileInfoService` and `FsDecorator`.
+- [`@spinajs/fs`](../fs/README.md): the `fs` abstraction, `fsService` that creates providers, `fsTemp`, `FileInfoService` and `FsMiddleware`.
 - [`@spinajs/configuration`](../configuration/README.md): supplies `fs.s3.config` and the provider list.
 - [`@spinajs/di`](../di/README.md): registers `fsS3` and resolves the signer named in configuration.
 - [`@spinajs/fs-ftp`](../fs-ftp/README.md) and [`@spinajs/fs-onedrive`](../fs-onedrive/README.md): other remote providers behind the same `fs` API.

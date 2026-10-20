@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { IdentifierQuoter, Orm, OrmDriver, RawQuery } from '@spinajs/orm';
+import { IdentifierQuoter, Orm, OrmDriver, RawQuery, SqlExpressions } from '@spinajs/orm';
 
 import { NO_PASSWORD, USER_COMMON_METADATA, User } from '../models/User.js';
 
@@ -50,18 +50,6 @@ export async function usersMatchingLogin(login: string): Promise<User[]> {
     );
 }
 
-type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mssql' | 'other';
-
-function dialectOf(driver: OrmDriver): Dialect {
-  const registered = String(driver.Options?.Driver ?? '');
-  for (const d of ['sqlite', 'postgres', 'mysql', 'mssql'] as const) {
-    if (registered.includes(d)) {
-      return d;
-    }
-  }
-  return 'other';
-}
-
 /** @internal */
 export function quoted(driver: OrmDriver, column: string): string {
   return driver.Container.resolve(IdentifierQuoter).quote(column);
@@ -73,23 +61,10 @@ export interface Condition {
   readonly bindings: unknown[];
 }
 
-/**
- * `column = value` compared byte for byte. The default collations of MySQL (utf8mb4_0900_ai_ci) and SQL Server
- * (SQL_Latin1_General_CP1_CI_AS) ignore case, and SQL Server also trailing spaces; SQLite and Postgres compare
- * exactly. An unknown driver gets a plain `=`.
- *
- * @internal
- */
+/** @internal `column = value` compared byte for byte, whatever the column collation (MySQL's and SQL Server's defaults ignore case). */
 export function exactlyEquals(driver: OrmDriver, column: string, value: string): Condition {
-  const c = quoted(driver, column);
-  switch (dialectOf(driver)) {
-    case 'mysql':
-      return { sql: `${c} = CAST(? AS BINARY)`, bindings: [value] };
-    case 'mssql':
-      return { sql: `(${c} = ? COLLATE Latin1_General_BIN2 AND LEN(${c} + 'x') = LEN(? + 'x'))`, bindings: [value, value] };
-    default:
-      return { sql: `${c} = ?`, bindings: [value] };
-  }
+  const f = driver.Container.resolve(SqlExpressions).equalsExactly(quoted(driver, column), { sql: '?', bindings: [value] });
+  return { sql: f.sql, bindings: [...f.bindings] };
 }
 
 /** @internal Exactly the stored values `isNoPassword` answers true for. */

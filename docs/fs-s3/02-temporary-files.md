@@ -1,6 +1,6 @@
 # Temporary files
 
-S3 cannot append, unzip or hand out a local path, so `fsS3` downloads objects into a local temporary filesystem named `fs-temp-s3` and works on the copy. You must configure that filesystem.
+S3 cannot append, unzip or hand out a local path, so `fsS3` downloads objects into a local temporary filesystem named `fs-temp-s3` and works on the copy. The package config ships one.
 
 ## How it works
 
@@ -58,7 +58,7 @@ fs: {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `fs-temp-s3` | named provider in `__file_provider_instance__`, created by `fsService` from config; read lazily by `fsS3` on each access | none shipped in loaded config: you add an `fsTemp` over `fsNative` | any `fsTemp` cleanup strategy (`cleanupStrategy`), any local backend | Change the `fs-temp-s3` entry. To use a different name per S3 provider, redeclare `TempFs` with `@FileSystem('<name>')` in an `fsS3` subclass. |
+| `fs-temp-s3` | named provider in `__file_provider_instance__`, created by `fsService` from config; read lazily by `fsS3` on each access | the shipped `fsTemp` over `fsNative` (`fs-temp-s3-local`) | any `fsTemp` cleanup strategy (`cleanupStrategy`), any local backend | Change the `fs-temp-s3` entry. To use a different name per S3 provider, redeclare `TempFs` with `@FileSystem('<name>')` in an `fsS3` subclass. |
 
 ### Temporary filesystem: one per bucket
 
@@ -97,11 +97,12 @@ export class AppConfiguration extends FrameworkConfiguration {
 
 ## Important behaviour
 
-- **The shipped default is not loaded.** `packages/fs-s3/src/config.ts` declares `fs-temp-s3` and `fs-temp-s3-local`, but it compiles to `lib/mjs/config.js`, outside the `lib/*/config/` folders `@spinajs/configuration` scans. Declare both providers in your application config.
+- **A default is shipped.** The package config declares `fs-temp-s3-local` (`fsNative` at `<os temp dir>/spinajs-fs-temp-s3`) and `fs-temp-s3` over it, with hourly cleanup and a one-day `maxFileAge`. A provider with the same name in your application config replaces it.
 - **The backend must be local.** `download()` returns the temp path as a local path, and `upload()` reads it with `createReadStream`. An S3 or FTP backend breaks every flow on this page.
 - **`download()` leaves the file behind.** Delete it with `TempFs.rm()` when done, or rely on cleanup with a `maxFileAge` above your longest processing time.
 - **`append()` re-uploads the whole object.** It costs a full download and upload per call, and it replaces the object's metadata with freshly computed file info.
-- **`unzip()` and `zip()` without `dstFs` write to `fs-temp-s3`.** The results are temp files and get cleaned up; pass a `dstFs` to keep them.
+- **`unzip()` and `zip()` without `dstFs` write to `this.TempFs` (`fs-temp-s3`).** The results are temp files and get cleaned up; pass a `dstFs` to keep them.
+- **Temp fs calls made during an action run unchecked.** They happen inside the action frame, so [middlewares](../fs/07-middlewares.md#important-behaviour) see the outer action once and never the `fs-temp-s3` calls.
 - **Extracting straight into S3 is not supported.** `unzip()` needs a local-path destination filesystem.
 
 ## Best practices

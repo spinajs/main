@@ -4,6 +4,7 @@ import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { UniqueViolation } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
+import { compareStrings, uniqueBy } from '@spinajs/util';
 
 import { AdminRuleStore } from '../admin/ports.js';
 import type { Page } from '../admin/ports.js';
@@ -41,10 +42,10 @@ export interface RuleForgetResult {
 export const RULE_LIST_MAX_LIMIT = 1000;
 
 /**
- * `RuleStore` over `authz_rule` and `authz_rule_subject` (design §9.1): scoped DB rules, check-only:
- * the rule is its `definition`. It lives on the `authz` connection; writes run on the `AuthzTx` of
- * `AuthzAdmin` and bump `authz_version` of the store's domain once per call (B27). Registered by class
- * name only; a domain uses it by registering it as `AdminRuleStore` and `RuleStore`.
+ * `RuleStore` over `authz_rule` and `authz_rule_subject`: scoped DB rules, check-only: the rule is its
+ * `definition`. It lives on the `authz` connection; writes run on the `AuthzTx` of `AuthzAdmin` and bump
+ * `authz_version` of the store's domain once per call. Registered by class name only; a domain uses it
+ * by registering it as `AdminRuleStore` and `RuleStore`.
  */
 @PerChildInstance()
 @Injectable()
@@ -69,7 +70,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
     whereLive(query, at);
 
     const rows = await query;
-    return this.rulesOf(rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
+    return this.rulesOf(rows.sort((a, b) => compareStrings(a.id, b.id)));
   }
 
   async version(): Promise<string> {
@@ -233,7 +234,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
  * and `subjects.refs` keep only the entries that still have a subject row, so what `forgetScope`
  * removed is gone.
  */
-export function rowToRule(row: RuleFields, subjectRows: readonly RuleSubjectFields[]): RuleDef {
+function rowToRule(row: RuleFields, subjectRows: readonly RuleSubjectFields[]): RuleDef {
   const def = row.definition as Partial<RuleDef>;
   const held = new Set(subjectRows.map((s) => subjectKey(s.list, s)));
   const keep = <T extends AssignmentSubject>(list: RuleSubjectList, xs: readonly T[]) => xs.filter((s) => held.has(subjectKey(list, subjectToColumns(s))));
@@ -255,12 +256,7 @@ function subjectKey(list: string, s: { subject_type: string; subject_id: string;
 }
 
 function uniqueScopes(refs: readonly ResourceRef[]): ScopeRefColumns[] {
-  const seen = new Map<string, ScopeRefColumns>();
-  for (const r of refs) {
-    const c = scopeToColumns(r);
-    seen.set(JSON.stringify([c.scope_type, c.scope_id]), c);
-  }
-  return [...seen.values()];
+  return uniqueBy(refs.map(scopeToColumns), (c) => JSON.stringify([c.scope_type, c.scope_id]));
 }
 
 /** `(scope_type = ? AND scope_id IN (…)) OR …`, one group per type; row-value `IN` is not portable. */

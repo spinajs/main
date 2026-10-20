@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
-import { AUTHZ_CONNECTION, AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, compareDenyReasons, FALSE, GLOBAL, TRUE, and, or, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
-import { DI } from '@spinajs/di';
+import { AUTHZ_CONNECTION, AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, compareDenyReasons, FALSE, GLOBAL, TRUE, and, or, registeredFunctions, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
 import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { PolicyStore } from '../contracts.js';
@@ -20,7 +19,7 @@ export interface AbacModelOptions {
    * key a ConfigPolicyStore.
    */
   readonly stores?: readonly PolicyStore[];
-  /** Functions a policy condition may call, for the checks at load; default every ConditionFunction registered in root DI (the built-ins included). */
+  /** Functions a policy condition may call, for the checks at load; default every ConditionFunction the domain's container sees (the built-ins included). */
   readonly functions?: readonly ConditionFunction[];
   /** After a failed reload, the first retry waits this long (default 1000 ms), doubling up to 60 s. */
   readonly retryMs?: number;
@@ -87,7 +86,7 @@ export class AbacModel extends AuthorizationModel {
   async init(ctx: ModelInitContext): Promise<void> {
     refuseConnectionKey(this.name, ctx);
     this.registry = ctx.permissions;
-    if (!this.functions) this.parser = new DefaultConditionCompiler(await registeredFunctions());
+    if (!this.functions) this.parser = new DefaultConditionCompiler(await registeredFunctions(ctx.container));
     this.stores ??= storesFromConfig(this.name, ctx);
     // The registry is complete only after every model's init, so the index waits for the first applies().
     await this.load(false);
@@ -516,12 +515,6 @@ function fieldsOf(permits: readonly Entry[], denies: readonly Entry[]): FieldSet
     return unconditional.length > 0 ? unionFieldGlobs(...sets) : intersectFieldGlobs(sets);
   };
   return { read: pick('read'), write: pick('write'), ...(hide.length > 0 ? { hide } : {}) };
-}
-
-/** Every ConditionFunction registered in root DI; the built-ins when DI holds none. */
-async function registeredFunctions(): Promise<readonly ConditionFunction[]> {
-  const list = (await DI.resolve(Array.chainOf(ConditionFunction))) as readonly ConditionFunction[];
-  return list.length > 0 ? list : BUILTIN_CONDITION_FUNCTIONS;
 }
 
 /** The stores `authz.<model>.stores` names (design §8.3). */

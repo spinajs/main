@@ -133,11 +133,12 @@ All three are `0` before `connect()` and after `disconnect()`. The health check 
 - A failed `SET search_path` on a new client is logged at `warn` (`could not set search_path to <Schema> for <Name>`) and the client is still used, with the server's default `search_path`.
 - `Options.Schema` is quoted as an identifier: `Schema: 'Sales'` sets `search_path` to the case-sensitive schema `"Sales"`, not `sales`.
 - `ping()` takes a client from the pool. With every client checked out, a probe waits up to `Pool.AcquireTimeout` and then reports the connection unhealthy.
-- Every reconnect, from `withReconnect()` or from a failed health probe, calls `connect()`, which creates a new `pg.Pool` and assigns it to `Pool`. The previous pool is not ended: its idle clients stay open until `IdleTimeout` closes them. When the new pool cannot connect, `Pool` is `null` until the next successful reconnect, and statements in that window fail with an `OrmException` whose inner error is a `TypeError`.
+- Every reconnect, from `withReconnect()` or from a failed health probe, calls `connect()`, which first ends the previous pool and then creates a new `pg.Pool`. When the new pool cannot connect, `Pool` is `null` until the next successful reconnect; statements in that window fail with a retryable error (code `08003`), so `withReconnect()` keeps trying.
 - `pg` returns `NUMERIC`, `DECIMAL` and `BIGINT` values, `COUNT(*)` included, as strings. `ResponseSchemaTypes` declares this for JSON Schema generation; see [Queries and inserts](03-queries-and-inserts.md#response-types).
 - Every pooled session runs with `TimeZone=UTC`, so `now()`, `date_trunc()` and the text of a `timestamptz` are UTC. The pool passes `pg` its own `options`, which makes `pg` ignore the `PGOPTIONS` environment variable, so the driver puts `PGOPTIONS` in front: `PGOPTIONS='-c statement_timeout=5000'` gives `options: '-c statement_timeout=5000 -c TimeZone=UTC'`. `-c TimeZone=UTC` comes last and wins over a `TimeZone` in `PGOPTIONS`.
 - The pool parses `timestamp` (without time zone) as UTC, the wall clock the datetime converter writes into such a column; the global `pg.types` registry is not touched.
-- Database errors reach the caller as `OrmException` with the `pg` error as inner error. Read the SQLSTATE from the inner error's `code`, e.g. `23505` for a unique violation.
+- A unique or primary-key violation (`23505`) rejects with `UniqueViolation` (extends `ResourceDuplicated`), with `table`, `constraint` and the key `columns` from the `pg` error. Another class `23` failure rejects with `ConstraintViolation`: `kind` is `not_null` (`23502`), `foreign_key` (`23503`), `check` (`23514`) or `other`. See [Duplicate keys](../orm/17-sql-helpers.md#duplicate-keys).
+- Any other database error reaches the caller as `OrmException` with the `pg` error as inner error. Read the SQLSTATE from the inner error's `code`.
 
 ## Best practices
 
@@ -159,10 +160,10 @@ process.env.PGOPTIONS = '-c statement_timeout=5000';
 
 ```ts
 // Don't: reads the SQLSTATE from the wrapper; OrmException has no code
-catch (err) { if ((err as any).code === '23505') { /* ... */ } }
+catch (err) { if ((err as any).code === '23503') { /* ... */ } }
 
 // Do: the pg error is the inner error
-catch (err) { if ((err as OrmException).inner?.code === '23505') { /* ... */ } }
+catch (err) { if ((err as OrmException).inner?.code === '23503') { /* ... */ } }
 ```
 
 ## Examples
@@ -224,7 +225,8 @@ export async function postgresReadiness(): Promise<{ ready: boolean; waiting: nu
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { Orm, OrmException } from '@spinajs/orm';
+import { ResourceDuplicated } from '@spinajs/exceptions';
+import { Orm } from '@spinajs/orm';
 
 export async function registerEmail(email: string): Promise<'created' | 'taken'> {
   const orm = await DI.resolve(Orm);
@@ -234,8 +236,8 @@ export async function registerEmail(email: string): Promise<'created' | 'taken'>
     await driver.insert().into('subscribers').values({ email });
     return 'created';
   } catch (err) {
-    // pg puts the SQLSTATE on its own error, which OrmException carries as `inner`
-    if (err instanceof OrmException && (err.inner as { code?: string } | undefined)?.code === '23505') {
+    // SQLSTATE 23505; other constraint failures are ConstraintViolation
+    if (err instanceof ResourceDuplicated) {
       return 'taken';
     }
     throw err;

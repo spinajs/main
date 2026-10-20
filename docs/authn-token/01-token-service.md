@@ -8,8 +8,8 @@ Validation of a presented token (`validate`) is described in [API token authenti
 
 ### Create, `create(owner, opts, ctx)`
 
-1. `DbTokenService.resolve()` checks the token format: `authn.token.length` must be an integer of at least 32, and `authn.token.prefix` plus the base64url body must fit in 1024 characters. A failure throws `Error`.
-2. `ctx.now` must be a valid `Date`, or `create` throws `Error`. Every timestamp comes from `ctx.now`, never from the database clock.
+1. The protected `checkFormat()` checks the token format: `authn.token.length` must be an integer of at least 32, and `authn.token.prefix` plus the base64url body must fit in 1024 characters. A failure throws `InvalidOption`.
+2. `ctx.now` must be a valid `Date`, or `create` throws `InvalidOperation`. Every timestamp comes from `ctx.now`, never from the database clock.
 3. Every field of `opts` is checked as `unknown`, so a caller that bypasses the types gets a refusal, not a corrupt row:
    - `kind` must be `pat`, `service` or `agent`.
    - `kind: 'agent'` needs `scope.agent === true` and no `roles` or `profile`; any other kind must not set `scope.agent: true`.
@@ -19,11 +19,11 @@ Validation of a presented token (`validate`) is described in [API token authenti
    Any failure returns `{ ok: false, code: 'invalid_scope' }`.
 4. `expiresAt` must be a real `Date` strictly after `ctx.now` and at most `authn.token.maxTtlDays` ahead; for an agent token also at most `authn.token.agentMaxTtlMinutes` ahead. Otherwise the result is `{ ok: false, code: 'invalid_expiry' }`. Both caps are read at call time.
 5. `name` is trimmed and must be 1 to 128 characters, or `create` throws `InvalidArgument`.
-6. `TokenOwnerResolver.rowIdOf(owner)` finds the owner's row id. An unknown owner throws `Error`.
-7. When a `RoleSource` is registered, every requested role must be one the owner holds, or the result is `invalid_scope`. Without a `RoleSource`, the roles are stored as given.
-8. The `AccessTokenGenerationProvider` named by `authn.token.generation.service` mints `{ Plaintext, Hash }`. The plaintext must start with the prefix, carry at least the configured length of base64url and fit in 1024 characters, or `create` throws `Error` and stores nothing.
+6. `TokenOwnerResolver.rowIdOf(owner)` finds the owner's row id. An unknown owner throws `InvalidOperation`.
+7. When a `RoleSource` was injected, every requested role must be one the owner holds, or the result is `invalid_scope`. Without a `RoleSource`, the roles are stored as given.
+8. The `AccessTokenGenerationProvider` named by `authn.token.generation.service` mints `{ Plaintext, Hash }`. The plaintext must start with the prefix, carry at least the configured length of base64url and fit in 1024 characters, or `create` throws `UnexpectedServerError` and stores nothing.
 9. A new `AccessToken` row is inserted with the hash, never the plaintext.
-10. A `token.create` event goes to every `AuthnEventSink`.
+10. A `token.create` event goes through `AuthnAudit.publishIn` to every `AuthnEventSink`.
 11. The result is `{ ok: true, plaintext, record }`. The plaintext is never stored, logged or returned again.
 
 ```mermaid
@@ -35,7 +35,7 @@ sequenceDiagram
   participant R as RoleSource
   participant G as AccessTokenGenerationProvider
   participant DB as rbac_access_tokens
-  participant E as AuthnEventSink[]
+  participant E as AuthnAudit
   C->>S: create(owner, opts, ctx)
   S->>S: check kind, scope, roles, expiry, name
   S->>P: allowedProfiles(owner) (only with a profile)
@@ -79,7 +79,7 @@ Password resets call it when `authn.local.reset.revokeTokens` is on (the default
 
 Housekeeping behind `authn:token-delete-expired`. It is not part of the `TokenService` contract.
 
-1. `now` must be a valid `Date`, or it throws `Error`.
+1. `now` must be a valid `Date`, or it throws `InvalidOperation`.
 2. It selects the ids of rows with `ExpiresAt <= now`, and of revoked rows, through the model, so the cutoff is written in the column's format.
 3. It deletes them in batches of 500 ids and answers the count. Rows without an expiry are kept.
 
@@ -106,12 +106,13 @@ authn: {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Token service | `TokenService` (`@spinajs/authn/contracts`); singleton; `@Injectable(TokenService)` when the package loads | `DbTokenService` | none shipped | Subclass `DbTokenService` and register it with `@Injectable(TokenService)` after the import; a single resolve takes the last registration. |
-| Owner mapping | `TokenOwnerResolver`; injected into the constructor | `UsersTableTokenOwnerResolver` | none | See [Token owner resolver](08-token-owner-resolver.md). |
-| Profile policy | `TokenProfilePolicy`; injected into the constructor | `NoTokenProfilesPolicy` | none | See [Token profile policy](09-token-profile-policy.md). |
-| Owner status | `IdentityStore` (`@spinajs/authn/contracts`); injected into the constructor | none in this package | `@spinajs/users`' `UserIdentityStore` | Register one before `TokenService` is resolved; without it the constructor throws. |
-| Role check at create | `RoleSource` (`@spinajs/authn/contracts`); resolved per `create`, only when one is registered | none in this package | `@spinajs/users`' `RbacRoleSource` | `DI.register(Mine).as(RoleSource)`. |
-| Token algorithm | `AccessTokenGenerationProvider`, by the class name in `authn.token.generation.service` | `SecureRandomTokenProvider` | none | See [Token generation](07-token-generation.md). |
-| Audit | `Array.ofType(AuthnEventSink)`; resolved per event | none in this package | `@spinajs/authn-orm`'s `DbAuthnAuditSink`, the authn log sink | Register a sink with `@Injectable(AuthnEventSink)`. |
+| Owner mapping | `TokenOwnerResolver`; `@Autoinject` property `Owners`, checked | `UsersTableTokenOwnerResolver` | none | See [Token owner resolver](08-token-owner-resolver.md). |
+| Profile policy | `TokenProfilePolicy`; `@Autoinject` property `Profiles`, checked | `NoTokenProfilesPolicy` | none | See [Token profile policy](09-token-profile-policy.md). |
+| Owner status | `IdentityStore` (`@spinajs/authn/contracts`); `@Autoinject` property `Identities`, checked | none in this package | `@spinajs/users`' `UserIdentityStore` | Register one before `TokenService` is resolved; without it resolving `DbTokenService` fails. |
+| Role check at create | `RoleSource` (`@spinajs/authn/contracts`); optional `@Autoinject` property `Roles`, set only when one is registered when `DbTokenService` is resolved | none in this package | `@spinajs/users`' `RbacRoleSource` | `DI.register(Mine).as(RoleSource)` before `TokenService` is first resolved. |
+| Token algorithm | `AccessTokenGenerationProvider`, by the class name in `authn.token.generation.service`; `@AutoinjectService` property `Generator` | `SecureRandomTokenProvider` | none | See [Token generation](07-token-generation.md). |
+| Audit | `AuthnAudit` (`@spinajs/authn/audit`); `@Autoinject` property `Audit`, delivering to every `AuthnEventSink` | none in this package | `@spinajs/authn-orm`'s `DbAuthnAuditSink`, the authn log sink | Register a sink with `@Injectable(AuthnEventSink)`. |
+| ORM | `Orm`; `@Autoinject` property | `@spinajs/orm` | none | Resolving `DbTokenService` boots the ORM, so a CLI run that builds only this service can query `rbac_access_tokens`. |
 
 `DbTokenService` also has three methods outside the contract that shipped code finds by duck typing: `touch` (used by `TokenStrategy`), `revokeById` (used by `authn:token-delete`) and `deleteExpired` (used by `authn:token-delete-expired`). A replacement that drops them loses the last-use stamp and those two commands.
 
@@ -143,14 +144,14 @@ export class NotifyingTokenService extends DbTokenService {
 }
 ```
 
-The `@Inject(TokenOwnerResolver, TokenProfilePolicy, IdentityStore)` of `DbTokenService` is inherited, so the subclass needs no constructor.
+The collaborators are `@Autoinject` properties of `DbTokenService`, so the subclass inherits them and needs no constructor. The constructor takes one optional argument, an `AuthnAuditor` (for example `AuthnAudit.over(sinks)`) that receives the events instead of the container's `AuthnAudit`, for tests.
 
 ## Important behaviour
 
 - **Plaintext once.** Only the SHA-256 hex digest is stored, in a column hidden from `dehydrate()`. `TokenRecord`, events and logs never carry the plaintext or the hash.
 - **Expiry is mandatory.** There is no "never expires" token; `expiresAt` is required by the type and checked at run time. A non-finite cap (a broken config that skipped the schema) refuses every expiry.
-- **Refusals vs throws.** A bad kind, scope, role, profile or expiry is a result (`invalid_scope`, `invalid_expiry`). A bad name (`InvalidArgument`), an unknown owner, an invalid `ctx.now`, a broken generator or a database error throws.
-- **Events never undo a write.** `token.create` and `token.revoke` are published after the row is written. `DbTokenService` awaits each sink in turn; a sink that throws or cannot be built is logged, and the caller still gets the plaintext or `true`. A refused create and a failed revoke publish nothing.
+- **Refusals vs throws.** A bad kind, scope, role, profile or expiry is a result (`invalid_scope`, `invalid_expiry`). A bad name (`InvalidArgument`), an unknown owner or an invalid `ctx.now` (`InvalidOperation`), a token format outside the limits (`InvalidOption`), a broken generator (`UnexpectedServerError`) or a database error throws.
+- **Events never undo a write.** `token.create` and `token.revoke` are published after the row is written. `AuthnAudit` runs the sinks concurrently, each bounded by `authn.audit.sinkTimeoutMs`; a sink that fails or times out is logged, and the caller still gets the plaintext or `true`. A refused create and a failed revoke publish nothing.
 - **Revocation keeps the row.** `revoke` and `revokeAllFor` only set `RevokedAt`; `deleteExpired` removes the row later.
 - **`service` tokens.** In this package a `service` token behaves like a `pat`; the kind is stored and reported. Both belong to a user owner under the default resolver.
 - **Rotation.** There is no rotate call. Create the new token, deploy it, then revoke the old one; both work in between.

@@ -1,7 +1,8 @@
-import { GLOBAL, resourceKey } from '@spinajs/authz';
+import { GLOBAL } from '@spinajs/authz';
 import type { ModelListPlan, PlanTerm, Principal, ResourceType } from '@spinajs/authz';
-import { RELATION_OWNER_OP, RELATION_SELF_OP } from '@spinajs/authz-orm/plan';
-import type { RelationPlanArgs } from '@spinajs/authz-orm/plan';
+import { RELATION_COLUMN_OP, RELATION_OWNER_OP, RELATION_SELF_OP } from '@spinajs/authz-orm/plan';
+import type { RelationColumnPlanArgs, RelationPlanArgs } from '@spinajs/authz-orm/plan';
+import { compareStrings, sortedUnique, unique } from '@spinajs/util';
 
 import { RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs } from '../../plan/args.js';
 import type { RbacAssignmentPlanArgs, RbacPlanRole } from '../../plan/args.js';
@@ -17,15 +18,13 @@ import { WILDCARD_ID } from '../sets/resolver.js';
 
 type Holders = Pick<RbacAssignmentPlanArgs, 'subjects'>;
 
-const byCodePoint = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-const unique = (list: readonly string[]): string[] => [...new Set(list)];
 const everywhere = (l: LiveAssignment, type: ResourceType): boolean => l.scope.type === GLOBAL.type || (l.scope.type === type && l.scope.id == null);
 
 /**
- * The list plan of design §6.2 from the state after `cap` of the type-level request `{ type }`: `live` holds
+ * The list plan from the state after `cap` of the type-level request `{ type }`: `live` holds
  * the $global and type-level assignments (decided here), `scoped` the others (rbac.assignment terms),
- * `denied` the deny rows. Lane L8 decisions 6-9.
- * @throws Error where a list cannot be planned exactly (rules, a tag carried apart); L2 makes it deny-all model_error
+ * `denied` the deny rows.
+ * @throws Error where a list cannot be planned exactly (rules, a tag carried apart); the engine makes it deny-all model_error
  */
 export function rbacListPlan(s: RbacState): ModelListPlan {
   const { input, permission } = s;
@@ -45,13 +44,13 @@ export function rbacListPlan(s: RbacState): ModelListPlan {
   }
 
   const entries = new Map<string, RbacPlanRole>();
-  const add = (l: LiveAssignment, extra: { readonly scopeTypes?: readonly string[]; readonly tag?: string; readonly relation?: 'owner' | 'self' } = {}) => {
+  const add = (l: LiveAssignment, extra: { readonly scopeTypes?: readonly string[]; readonly tag?: string; readonly relation?: string } = {}) => {
     const scopeTypes = intersect(input.roles.get(l.assignment.role)?.scopeTypes, extra.scopeTypes);
     if (scopeTypes && scopeTypes.length === 0) return;
     const entry: RbacPlanRole = { role: l.assignment.role, ...(scopeTypes ? { scopeTypes } : {}), ...(extra.tag !== undefined ? { tag: extra.tag } : {}), ...(l.onlyBelow ? { descendantsOnly: true } : {}), ...(extra.relation ? { relation: extra.relation } : {}) };
     entries.set(JSON.stringify(entry), entry);
   };
-  const relations = new Set<'owner' | 'self'>();
+  const relations = new Set<string>();
   let all = false;
   const liveTags = new Set(s.live.flatMap((l) => l.tags));
 
@@ -69,10 +68,7 @@ export function rbacListPlan(s: RbacState): ModelListPlan {
         all = true;
         continue;
       }
-      for (const r of g.relations) {
-        if (r !== 'owner' && r !== 'self') throw new Error(`rbac: role '${g.role}' grants ${permission} with the relation '${r}', which lists do not support`);
-        relations.add(r);
-      }
+      for (const r of g.relations) relations.add(r);
     }
   }
 
@@ -81,10 +77,7 @@ export function rbacListPlan(s: RbacState): ModelListPlan {
       if (!admits(g, type) || (g.grantedAt && !g.grantedAt.includes(l.scope.type))) continue;
       if (g.relations) {
         // listSupport refuses a relation with requiresTag or grantedAt, so the relation is the only qualifier.
-        for (const r of g.relations) {
-          if (r !== 'owner' && r !== 'self') throw new Error(`rbac: role '${g.role}' grants ${permission} with the relation '${r}' at ${resourceKey(l.scope)}, which lists do not support`);
-          add(l, { relation: r });
-        }
+        for (const r of g.relations) add(l, { relation: r });
         continue;
       }
       const tag = g.requiresTag;
@@ -96,14 +89,21 @@ export function rbacListPlan(s: RbacState): ModelListPlan {
   }
 
   if (!all && entries.size === 0 && relations.size === 0) return Object.freeze({ kind: 'abstain' });
-  const denyRoles = unique(denying.map((l) => l.role)).sort(byCodePoint);
+  const denyRoles = sortedUnique(denying.map((l) => l.role));
   const deny: PlanTerm[] = denyRoles.length === 0 ? [] : [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, true), roles: denyRoles.map((role) => ({ role })), global: true }))];
   if (all) return finish(deny.length === 0 ? { kind: 'all' } : { kind: 'all', deny: Object.freeze(deny) });
-  const permit: PlanTerm[] = [...(entries.size > 0 ? [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, false, bound), roles: [...entries.values()], global: false }))] : []), ...[...relations].sort(byCodePoint).map((r) => term(r === 'owner' ? RELATION_OWNER_OP : RELATION_SELF_OP, relationArgs(input.request.principal)))];
+  const permit: PlanTerm[] = [...(entries.size > 0 ? [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, false, bound), roles: [...entries.values()], global: false }))] : []), ...[...relations].sort(compareStrings).map((r) => relationTerm(r, input.request.principal))];
   return finish({ kind: 'terms', permit: Object.freeze(permit), deny: Object.freeze(deny) });
 }
 
 const term = (op: string, args: unknown): PlanTerm => Object.freeze({ op, args });
+
+function relationTerm(relation: string, principal: Principal): PlanTerm {
+  if (relation === 'owner') return term(RELATION_OWNER_OP, relationArgs(principal));
+  if (relation === 'self') return term(RELATION_SELF_OP, relationArgs(principal));
+  const args: RelationColumnPlanArgs = { relation, principals: relationArgs(principal).principals };
+  return term(RELATION_COLUMN_OP, Object.freeze(args));
+}
 
 /** The principal and its companions, each once, as the relation resolvers of checks see them. */
 function relationArgs(principal: Principal): RelationPlanArgs {
@@ -147,7 +147,7 @@ function holders(s: RbacState, deny: boolean, bound?: (until: Date | undefined) 
       bound?.(nested.expiresAt);
       keys.push(subjectKeyOf(subject));
     } else {
-      // The resolver never yields a principal whose id is '*' (lane decision 1), so `{ type, id: '*' }` here is the wildcard.
+      // The resolver never yields a principal whose id is '*', so `{ type, id: '*' }` here is the wildcard.
       keys.push('set' in subject || subject.id === WILDCARD_ID ? subjectKeyOf(subject) : principalSubjectKey(subject));
     }
   }

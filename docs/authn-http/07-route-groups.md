@@ -5,7 +5,7 @@ The package mounts its routes from ten controllers in `lib/<cjs|mjs>/v3/controll
 ## How it works
 
 1. The shipped config adds the controllers directory to `system.dirs.controllers`; the [controller discovery](../http/03-controller-discovery.md) of `@spinajs/http` mounts every controller in it.
-2. A controller of an optional group carries a **gate policy** as its first controller-scope `@Policy`. Per request the gate checks that the group's service is registered.
+2. A controller of an optional group carries a **gate policy** as its first controller-scope `@Policy`. Per request the gate checks that the group's service is registered in the container the gate resolves from. Most gates are built with `serviceRegistered(service, message)`, which returns a `ServiceGate` subclass for one service.
 3. A gate that fails throws `ResourceNotFound`: **404** `{ "error": "not_found", "message": "..." }`. The controller scope is reported before the route scope, so an anonymous caller of a switched-off group also hears 404, not 401.
 4. An open group answers with its routes' own policies and field checks.
 
@@ -13,10 +13,10 @@ The package mounts its routes from ten controllers in `lib/<cjs|mjs>/v3/controll
 | --- | --- | --- | --- |
 | Login, logout, whoami, MFA completion | none | always on | [Login, logout and MFA routes](08-login-logout-and-mfa-routes.md) |
 | Own sessions | none | always on | [Session management routes](09-session-management-routes.md) |
-| Active role | `RoleSourceRegistered` | a registered `RoleSource` (`RbacRoleSource` of `@spinajs/users`) | [Active role routes](10-active-role-routes.md) |
+| Active role | `RoleSourceRegistered` | a registered `RoleSource` (`RbacRoleSource` of `@spinajs/users`) and a registered `PrincipalFactory` | [Active role routes](10-active-role-routes.md) |
 | Impersonation | `ImpersonationGuardRegistered` | a registered `ImpersonationGuard` (`AuthzImpersonationGuard` of `@spinajs/users`) | [Impersonation routes](11-impersonation-routes.md) |
 | Password | `PasswordServiceRegistered` | a registered `PasswordService` ([`@spinajs/authn-local`](../authn-local/README.md)) | [Password routes](12-password-routes.md) |
-| MFA enrolment | `TotpEnrolmentOn` | [`@spinajs/authn-totp`](../authn-totp/README.md)'s `TotpService` registered, its `TotpMfaStep` listed in `authn.mfa.steps`, and `authn.mfa.encryptionKey.secret` set | [MFA enrolment routes](13-mfa-enrolment-routes.md) |
+| MFA enrolment | `TotpEnrolmentOn` | a registered `MfaEnrolmentService` whose `enabled(steps)` is true for the steps of the configured MFA policy. For `TotpService` of [`@spinajs/authn-totp`](../authn-totp/README.md): `authn.mfa.steps` lists `TotpMfaStep` itself, not a subclass, and `authn.mfa.encryptionKey.secret` is set | [MFA enrolment routes](13-mfa-enrolment-routes.md) |
 | API tokens | `TokenServiceRegistered` | a registered `TokenService` ([`@spinajs/authn-token`](../authn-token/README.md)) | [API token routes](14-api-token-routes.md) |
 | Keys | `KeyRoutesOn` | a registered `KeyRegistry` ([`@spinajs/authn-keys`](../authn-keys/README.md)) and `authn.keys.challenge.audience` or `authn.keys.assertion.audience` set | [Key routes](15-key-routes.md) |
 | Credential admin | `CredentialAdminGuardRegistered`, plus a gate per route | a registered `CredentialAdminGuard` (`AuthzCredentialAdminGuard` of `@spinajs/users`); each route also needs its own service | [Credential admin routes](16-credential-admin-routes.md) |
@@ -90,7 +90,7 @@ Answers about an account, its session or its credentials carry `Cache-Control: n
 - Switching a group off is a registration decision, not a config flag. A group whose service is not registered answers 404 on every route.
 - Gates check the registration per request, so a service registered after boot switches its group on.
 - A route's own policies run in parallel with the gate. Routes that verify a password (`POST /user/tokens`, `POST /user/keys`, the admin routes) therefore do it in the handler, after the gate, never as a `FreshAuth` policy.
-- Request bodies accept the 2.x field names next to the 3.0 ones (`Email` for `login`, `Password` for `password`, and so on); each route page lists them.
+- Request bodies are read by their camelCase field names only (`login`, `password`, `role`, ...); each route page lists them.
 - The JSDoc of each route carries `@tags` and `@security` for [`@spinajs/http-swagger`](../http-swagger/README.md).
 
 ## Related

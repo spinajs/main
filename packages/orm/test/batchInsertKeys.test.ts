@@ -42,8 +42,14 @@ class PassthroughResponseMapper extends ServerResponseMapper {
 }
 
 class BatchInsertDriver extends FakeSqliteDriver {
+  constructor(options: any) {
+    super(options);
+    // MaxInsertRows is a readonly field fixed at construction; tests change the limit after the driver exists
+    Object.defineProperty(this, 'MaxInsertRows', { get: () => MAX_INSERT_ROWS ?? Infinity });
+  }
+
   public supportedFeatures() {
-    return { ...super.supportedFeatures(), insertReturning: false, insertIdIsFirstOfBatch: FIRST_ID, maxInsertRows: MAX_INSERT_ROWS };
+    return { ...super.supportedFeatures(), insertReturning: false, insertIdIsFirstOfBatch: FIRST_ID };
   }
 
   public async execute(builder: any): Promise<any> {

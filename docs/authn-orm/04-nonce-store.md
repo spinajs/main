@@ -1,6 +1,6 @@
 # Nonce store
 
-A nonce store answers "is this the first use of this value?" for single-use values that expire: a JWS `jti`, an HTTP signature nonce, an OIDC `state`. `NonceStore` is the contract, `DbNonceStore` keeps the claims in `authn_nonce` for every app instance, and `MemoryNonceStore` keeps them in one process.
+A nonce store answers "is this the first use of this value?" for single-use values that expire: a JWS `jti`, an HTTP signature nonce, an OIDC `state`. `NonceStore` is the contract (`@spinajs/authn/contracts`), `DbNonceStore` keeps the claims in `authn_nonce` for every app instance, and `MemoryNonceStore` (`@spinajs/authn/nonces`) keeps them in one process. This package re-exports both.
 
 ## Where it runs in the authn flow
 
@@ -51,9 +51,9 @@ The nonce store reads no key. Callers pick `expiresAt`, usually the end of the t
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Nonce store | `NonceStore` (this package), singleton; also registered as `DbNonceStore` | `DbNonceStore` | `MemoryNonceStore` (exported, not registered) | `DI.register(MemoryNonceStore).as(NonceStore)` for one process, or subclass `DbNonceStore` with `@Injectable(NonceStore)`. Register after this package is imported: a single resolve takes the last registration. |
+| Nonce store | `NonceStore` (`@spinajs/authn/contracts`), per child container; also registered as `DbNonceStore` | `DbNonceStore` | `MemoryNonceStore` (exported, not registered) | `DI.register(MemoryNonceStore).as(NonceStore)` for one process, or subclass `DbNonceStore` with `@Injectable(NonceStore)`. Register after this package is imported: a single resolve takes the last registration. |
 
-`NonceStore` is an abstract class of this package, not a contract of `@spinajs/authn`. `@spinajs/authn-keys` has its own `KeyNonceStore` contract with the same semantics; see [Where it runs in the authn flow](#where-it-runs-in-the-authn-flow).
+`@spinajs/authn-keys` has its own `KeyNonceStore` contract with the same semantics; see [Where it runs in the authn flow](#where-it-runs-in-the-authn-flow).
 
 ### Nonce store: custom implementation
 
@@ -61,11 +61,11 @@ Subclass `DbNonceStore`, override `claim`, call `super`, and register the subcla
 
 ```ts sample
 import { DbNonceStore, NonceStore } from '@spinajs/authn-orm';
-import { Injectable, Singleton } from '@spinajs/di';
+import { Injectable, PerChildInstance } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 
 /** Logs every replayed value, so a security alert can fire on a burst of replays. */
-@Singleton()
+@PerChildInstance()
 @Injectable(NonceStore)
 export class ReplayLoggingNonceStore extends DbNonceStore {
   @Logger('security')
@@ -137,20 +137,6 @@ import { DI } from '@spinajs/di';
 export function useInMemoryNonces(): void {
   DI.register(MemoryNonceStore).as(NonceStore);
 }
-```
-
-## Migration
-
-### `DbNonceStore` takes no driver
-
-The store writes through the `AuthnNonce` model on the `default` connection and has no constructor arguments.
-
-```ts
-// Before
-const nonces = new DbNonceStore(driver, { container });
-
-// After: set db.DefaultConnection; the store awaits ormReady() itself
-const nonces = new DbNonceStore();
 ```
 
 ## Related

@@ -131,6 +131,34 @@ describe('ORM intl tests', function () {
     expect(result.Text).to.eq('witaj');
   });
 
+  it('Should save translation from update data', async () => {
+    const result = await Test.where('Id', 1).first();
+
+    result.setLanguage('en_US');
+    await result.update({ Text: 'hello from data' });
+
+    expect((await Test.where('Id', 1).translate('en_US').first()).Text).to.eq('hello from data');
+    expect((await Test.where('Id', 1).first()).Text).to.eq('witaj');
+  });
+
+  it('Should not translate when store sets noTranslate', async () => {
+    const store = DI.resolve(AsyncLocalStorage);
+    const result = await store.run({ language: 'en_GB', noTranslate: true }, async () => {
+      return await Test.where('Id', 1).first();
+    });
+
+    expect(result.Text).to.eq('witaj');
+  });
+
+  it('Should query models without translated columns under non-default language', async () => {
+    const store = DI.resolve(AsyncLocalStorage);
+    const result = await store.run({ language: 'en_GB' }, async () => {
+      return await DI.resolve(DbTranslationSource).load();
+    });
+
+    expect(result['en_US']['hello world']).to.be.eq('bla bla');
+  });
+
   it('Should save translations automatically', async () => {
     let result = await Test.where('Id', 1).first();
 

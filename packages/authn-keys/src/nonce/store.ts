@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { Injectable } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { AuthnNonce } from '../models/AuthnNonce.js';
 
@@ -43,6 +44,10 @@ const PURGE_BATCH = 500;
 /** authn_nonce through the ORM: the primary key makes a claim atomic across processes. */
 @Injectable(KeyNonceStore)
 export class DbKeyNonceStore extends KeyNonceStore {
+  /** Binds the models when nothing else brought the Orm up. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   private claims = 0;
 
   async claim(key: string, expiresAt: Date, now: Date): Promise<boolean> {

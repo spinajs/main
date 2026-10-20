@@ -1,9 +1,12 @@
-import { AuthzAdminFailure, AuthzWriteHandler } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzWriteHandler, readId, readNode } from '@spinajs/authz';
 import type { AdminContext, AppliedRow, AuthzCommand, AuthzEvent, AuthzTx, Permission, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { LinkDef } from '../contracts.js';
-import { actorRef, assignmentStore, checkGrantable, event, linkGrants, linkStore, linkTags, plannedRemovals, quote, readAttributes, readFutureExpiry, readId, readNode, readOptionalTags, roleIndex } from './common.js';
+import { actorRef, assignmentStore, event, linkStore, linkTags, quote } from './common.js';
+import { checkGrantable, readAttributes, readFutureExpiry, readOptionalTags } from './fields.js';
+import { linkGrants, plannedRemovals } from './removals.js';
+import { roleIndex } from './role-index.js';
 import { refreshMemberships } from './membership.js';
 
 type Cmd<K extends AuthzCommand['kind']> = Extract<AuthzCommand, { kind: K }>;

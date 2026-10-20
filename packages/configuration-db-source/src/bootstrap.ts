@@ -44,7 +44,8 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     // persist & load exposed options as they get registered (eg. lazily resolved services).
     // before ORM is resolved there is no connection - those vars are handled by the
     // di.resolved.Orm handler below, so skip them here to avoid failing db calls.
-    DI.on('di.registered.__configuration_property__', (v: __dbCOnfigOptions) => {
+    DI.on('di.registered.__configuration_property__', (arg: unknown) => {
+      const v = arg as __dbCOnfigOptions;
       if (!v.options || !v.options.expose) {
         return;
       }
@@ -60,7 +61,8 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     });
 
     // register vals added before orm is resolved eg. at bootstrap phase
-    DI.once('di.resolved.Orm', (container: IContainer) => {
+    DI.once('di.resolved.Orm', (arg: unknown) => {
+      const container = arg as IContainer;
       const vars = container
         .get<__dbCOnfigOptions>(Array.ofType('__configuration_property__'))!
         .filter((x) => x.options)
@@ -170,7 +172,10 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       await this.saveConfigOptions(v);
 
       const stored = await asSystem(() => DbConfig.where('Slug', v.path).first(), this.authzDomain);
-      DI.get(Configuration)!.set(v.path, stored?.Value ?? v.options.defaultValue);
+      // the source skips rows an admin un-exposed, so their value must not reach the config here either
+      if (!stored || stored.Exposed) {
+        DI.get(Configuration)!.set(v.path, stored?.Value ?? v.options.defaultValue);
+      }
     } catch (err) {
       InternalLogger.error({ error: err, path: v.path }, 'Failed to sync exposed config option ${path} with db', LOG_CHANNEL);
     }
@@ -190,7 +195,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
     try {
       const result = await asSystem(() => DbConfig.select().whereIn('Slug', [...this.watchedSlugs]), this.authzDomain);
-      result.forEach((r) => {
+      result.filter((r) => Boolean(r.Exposed)).forEach((r) => {
         // Slug is the canonical config path (same value passed to @Config).
         // Group is display-only metadata and must not be part of the path.
         if (!isConfigValueEqual(cService.get(r.Slug), r.Value)) {

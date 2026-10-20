@@ -9,7 +9,7 @@
 3. It checks the result: it must be a `Session` instance, and it must not be an instance handed out before (a shared instance would give one session to every request). Either failure throws `Error`.
 4. `AuthnMiddleware` of `@spinajs/authn-http` puts the result in `req.storage.AuthnSession`. A session it gets as a plain object goes through `resolveSession` too.
 
-Which container counts: the one that resolves the issuer. `DefaultSessionIssuer`, `AuthnMiddleware` and the socket session source of `@spinajs/authn-http` are root singletons, so register in the root container: `DI.register(AppSession).as(Session)`. A child-container registration applies only to an issuer resolved in that child, such as `new MemorySessionIssuer({ container: child })` of `@spinajs/authn-testing`.
+Which container counts: the one that resolves the issuer. `DefaultSessionIssuer` is `@PerChildInstance()`: each container that resolves it builds its own, and that issuer builds sessions in its own container. `AuthnMiddleware` and the socket session source of `@spinajs/authn-http` are root singletons and use the root container's issuer, so register in the root container: `DI.register(AppSession).as(Session)`. A child-container registration applies only to an issuer resolved in that child, such as `new MemorySessionIssuer({ container: child })` of `@spinajs/authn-testing`.
 
 ## Services and extension points
 
@@ -51,7 +51,7 @@ DI.register(AppSession).as(Session);
 
 ## Best practices
 
-- Decode defensively in `sessionKey`: stored data may come from an older release or a 2.x row.
+- Decode defensively in `sessionKey`: stored data may come from an older release of your app.
 - Expose read-only getters; write through `SessionIssuer.set(handle, Cart.name, value)` so the write reaches the store.
 
 ## Patterns and antipatterns

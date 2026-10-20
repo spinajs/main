@@ -51,7 +51,7 @@ Created by `@spinajs/authn-orm`'s `AuthnInitial` migration on the `default` conn
 | `k` | `varchar(160)`, primary key | The store key, `jti:<hash>` or `sig:<hash>` |
 | `expires_at` | `datetime`, not null | The claim holds until this instant; after it the key may be claimed again |
 
-`@spinajs/authn-orm`'s `NonceStore` writes the same table. See [Nonce store](../authn-orm/04-nonce-store.md).
+`@spinajs/authn-orm`'s `DbNonceStore` (the `NonceStore` of `@spinajs/authn/contracts`) writes the same table. See [Nonce store](../authn-orm/04-nonce-store.md).
 
 ## Services and extension points
 
@@ -63,23 +63,21 @@ A custom store implements one method, `claim(key, expiresAt, now)`. It returns `
 
 ### Key nonce store: custom implementation
 
-`@spinajs/authn-orm`'s `DbNonceStore` has the same semantics, checks its arguments, waits for the ORM, and retries a claim that a purge raced. Delegate to it to keep one nonce store for the whole app:
+`NonceStore` (`@spinajs/authn/contracts`, re-exported by `@spinajs/authn-orm`) has the same semantics. Its database implementation, `DbNonceStore` in `@spinajs/authn-orm`, checks its arguments, waits for the ORM, and retries a claim that a purge raced. Delegate to it to keep one nonce store for the whole app:
 
 ```ts sample
-import { Inject, Injectable } from '@spinajs/di';
-import { NonceStore } from '@spinajs/authn-orm';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { NonceStore } from '@spinajs/authn/contracts';
 import { KeyNonceStore } from '@spinajs/authn-keys';
 
 /** Assertion jtis and signature nonces go through the app's one NonceStore. */
 @Injectable(KeyNonceStore)
-@Inject(NonceStore)
 export class SharedKeyNonceStore extends KeyNonceStore {
-  constructor(protected readonly nonces: NonceStore) {
-    super();
-  }
+  @Autoinject(NonceStore)
+  protected Nonces: NonceStore;
 
   public claim(key: string, expiresAt: Date, now: Date): Promise<boolean> {
-    return this.nonces.claim(key, expiresAt, now);
+    return this.Nonces.claim(key, expiresAt, now);
   }
 }
 ```
@@ -89,6 +87,7 @@ Import this file after `@spinajs/authn-keys` and `@spinajs/authn-orm`.
 ## Important behaviour
 
 - `DbKeyNonceStore` claims are atomic across processes: of many parallel claims of one key, exactly one returns `true`.
+- `DbKeyNonceStore` injects `Orm`, so resolving it boots the ORM and binds the `AuthnNonce` model even when nothing else did.
 - A claim can be taken again once it expires. By then the credential is past its own expiry plus the skew, so the strategy refuses it before it reaches the store.
 - `DbKeyNonceStore` rethrows the insert error when a purge removes the row between its steps, so the request fails instead of passing. `DbNonceStore` of `@spinajs/authn-orm` retries in that case.
 - `MemoryKeyNonceStore` is per process. Behind a load balancer, a replay sent to another instance passes. Use it only for tests and single-process apps.

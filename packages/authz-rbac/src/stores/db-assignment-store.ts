@@ -44,10 +44,9 @@ export const ASSIGNMENT_LIST_MAX_LIMIT = 1000;
 const TAG_RETRIES = 5;
 
 /**
- * `AssignmentStore` over `authz_assignment` (design §9.1), on the `authz` connection. Writes run
- * on the `AuthzTx` of `AuthzAdmin` and bump `authz_version` of the store's domain in that
- * transaction (B27). Registered by class name only; a domain uses it by registering it as
- * `AdminAssignmentStore` and `AssignmentStore`.
+ * `AssignmentStore` over `authz_assignment`, on the `authz` connection. Writes run on the `AuthzTx`
+ * of `AuthzAdmin` and bump `authz_version` of the store's domain in that transaction. Registered by
+ * class name only; a domain uses it by registering it as `AdminAssignmentStore` and `AssignmentStore`.
  */
 @PerChildInstance()
 @Injectable()

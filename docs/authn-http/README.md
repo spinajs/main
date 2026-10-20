@@ -63,7 +63,7 @@ The route answers 401 to an anonymous caller and to a session still waiting for 
 - [`@spinajs/authn-local`](../authn-local/README.md): the password strategy behind `POST /auth/login` and the `PasswordService` that switches the password routes on.
 - [`@spinajs/authn-token`](../authn-token/README.md): API tokens and JWT bearers; its `TokenService` switches the token routes on.
 - [`@spinajs/authn-keys`](../authn-keys/README.md): key assertions, HTTP signatures and challenge login; its `KeyRegistry` switches the key routes on.
-- [`@spinajs/authn-totp`](../authn-totp/README.md): the TOTP step and `TotpService` behind the MFA enrolment routes.
+- [`@spinajs/authn-totp`](../authn-totp/README.md): the TOTP step and `TotpService`, the `MfaEnrolmentService` behind the MFA enrolment routes. This package does not depend on it.
 - [`@spinajs/authn-oidc`](../authn-oidc/README.md): OIDC login routes built on this package's 401 body and cookie helpers.
 - [`@spinajs/authz-http`](../authz-http/README.md): turns `req.storage.AuthnPrincipal` into the authorization principal.
 - [`@spinajs/users`](../users/README.md): the identity store, `RoleSource`, `ImpersonationGuard`, `CredentialAdminGuard` and the `Access` answer extension.

@@ -13,7 +13,7 @@
 
 `DbMfaSecretStore` maps its port onto `DbMfaStore` this way:
 
-- Its `put` calls `putPending`, so a new enrolment never overwrites a confirmed one.
+- Its `put` calls `putPending`, so a new enrolment never overwrites a confirmed one. `DbMfaStore` itself has no `put`.
 - Its `confirm` without `expectedSecretEnc` reads the row and confirms only that cipher text, so a confirmed row answers `false`.
 - Every other method calls the `DbMfaStore` method of the same name.
 
@@ -21,18 +21,18 @@
 
 Every method first builds the identity key with `identityKey(id)` (`<type>:<id>`, at most 100 characters) and checks the step name (1 to 32 characters). A bad value throws `InvalidArgument`. Every method awaits `ormReady()` before its first statement.
 
-### Enrol, `put()` and `putPending()`
+### Enrol, `putPending()`
 
-1. `put(id, step, secretEnc, keyId)` checks `secretEnc` (non-empty) and `keyId` (1 to 32 characters) and takes "now" from the Node clock.
-2. It inserts an unconfirmed row: `confirmed_at` and `last_step` `NULL`, `created_at` now.
-3. On a duplicate `(identity, step)` it updates the row to the same unconfirmed values. A row deleted in between sends it back to step 2, up to 8 times; then it throws `UnexpectedServerError`.
-4. `putPending(id, step, secretEnc, keyId)` does the same, but its update also requires `confirmed_at IS NULL`. When no row changed and the row is confirmed, it resolves `false` and changes nothing; otherwise `true`.
+1. `putPending(id, step, secretEnc, keyId)` checks `secretEnc` (non-empty) and `keyId` (1 to 32 characters) and takes "now" from the Node clock.
+2. It inserts an unconfirmed row: `confirmed_at` and `last_step` `NULL`, `secret_hash` the hex SHA-256 of `secretEnc`, `created_at` now, and resolves `true`.
+3. On a duplicate `(identity, step)` (`UniqueViolation`) it updates the row to the same unconfirmed values where `confirmed_at IS NULL`, and resolves `true` when a row changed.
+4. When no row changed and the row is confirmed, it resolves `false` and changes nothing. A row deleted in between sends it back to step 2, up to 8 times; then it throws `UnexpectedServerError`.
 
 ### Confirm, `confirm(id, step, at?, expectedSecretEnc?)`
 
 1. Without `expectedSecretEnc`, it sets `confirmed_at` = `at` (default now) on the row and resolves `true` when the row exists.
-2. With `expectedSecretEnc`, the update also requires `confirmed_at IS NULL` and `secret_enc` equal to it. Of parallel confirmations exactly one resolves `true`.
-3. The comparison of `secret_enc` is exact on every driver: `CAST([secret_enc] AS NVARCHAR(MAX)) = ?` on MSSQL, ``CAST(`secret_enc` AS BINARY) = ?`` on MySQL, a plain `=` elsewhere. The dialect comes from `modelDriver(AuthnMfa)`.
+2. With `expectedSecretEnc`, the update also requires `confirmed_at IS NULL` and `secret_hash` equal to the SHA-256 of it. Of parallel confirmations exactly one resolves `true`.
+3. Comparing the hex hash keeps the match exact on every driver without casting the `text` column: SQL Server cannot compare `text` with `=`, and MySQL compares it case-blind by default.
 
 ### Accept a code, `acceptStep(id, step, timeStep)`
 
@@ -56,7 +56,7 @@ Every method first builds the identity key with `identityKey(id)` (`<type>:<id>`
 
 ### `DbMfaEnrolments`
 
-1. Importing the package registers `DbMfaEnrolments` under `MfaEnrolments` (`@Singleton()`, `@Injectable(MfaEnrolments)`). It gets `DbMfaStore` through `@Autoinject(DbMfaStore)`, or from its constructor argument.
+1. Importing the package registers `DbMfaEnrolments` under `MfaEnrolments` (`@PerChildInstance()`, `@Injectable(MfaEnrolments)`). It gets `DbMfaStore` through `@Autoinject(DbMfaStore)`, or from its constructor argument.
 2. `DefaultMfaPolicy` resolves every `MfaEnrolments` registration of the container lineage (`Array.chainOf(MfaEnrolments)`) and asks each one.
 3. `stepsOf(id)` calls `DbMfaStore.confirmedSteps(id)`; `stepNames()` calls `DbMfaStore.confirmedStepNames()`.
 4. A confirmed step that `authn.mfa.steps` does not list refuses the password login (`MfaStepNotListed`). A confirmed listed step that the step itself does not see refuses it too (`MfaEnrolmentMismatch`). A source that throws refuses the login.
@@ -83,11 +83,12 @@ See [`@spinajs/authn` MFA](../authn/04-mfa-policy-and-steps.md).
 | --- | --- | --- |
 | `identity` | `varchar(100)`, primary key part | `<type>:<id>` of the owner. |
 | `step` | `varchar(32)`, primary key part | The step name, for example `totp`. |
-| `secret_enc` | `text` | Cipher text exactly as `put` got it. |
+| `secret_enc` | `text` | Cipher text exactly as `putPending` got it. |
+| `secret_hash` | `varchar(64)` | Hex SHA-256 of `secret_enc`; `confirm` with `expectedSecretEnc` matches on it. |
 | `key_id` | `varchar(32)` | Id of the key that wrote `secret_enc`. |
 | `confirmed_at` | `datetime`, nullable | Set by `confirm`; `NULL` while enrolment is pending. |
 | `last_step` | `bigint`, nullable | The last accepted time step. PostgreSQL returns it as a string; `get` turns it into a number. |
-| `created_at` | `datetime` | Time of the last `put` or `putPending`. |
+| `created_at` | `datetime` | Time of the last `putPending` that wrote the row. |
 
 ### `authn_recovery_code`
 
@@ -104,8 +105,8 @@ Index `authn_recovery_code_owner` covers `identity`.
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| MFA store | `DbMfaStore` (registered as itself), singleton | `DbMfaStore` | none shipped | Subclass `DbMfaStore` and `DI.register(MyStore).as(DbMfaStore)` after this package is imported. |
-| Enrolment source | `MfaEnrolments`, singleton, resolved as the list of every registration in the lineage; also registered as `DbMfaEnrolments` | `DbMfaEnrolments` | other `MfaEnrolments` sources | Register another class with `@Injectable(MfaEnrolments)`: it is asked next to `DbMfaEnrolments`, not instead of it. `DbMfaEnrolments` injects `DbMfaStore`, or takes one as its constructor argument. |
+| MFA store | `DbMfaStore` (registered as itself), per child container | `DbMfaStore` | none shipped | Subclass `DbMfaStore` and `DI.register(MyStore).as(DbMfaStore)` after this package is imported. |
+| Enrolment source | `MfaEnrolments`, per child container, resolved as the list of every registration in the lineage; also registered as `DbMfaEnrolments` | `DbMfaEnrolments` | other `MfaEnrolments` sources | Register another class with `@Injectable(MfaEnrolments)`: it is asked next to `DbMfaEnrolments`, not instead of it. `DbMfaEnrolments` injects `DbMfaStore`, or takes one as its constructor argument. |
 | MFA secret store | `MfaSecretStore` (`@spinajs/authn-totp`) | `DbMfaSecretStore`, over `DbMfaStore`, after `import '@spinajs/authn-totp/db'` | `MemoryMfaSecretStore` | See [`@spinajs/authn` MFA](../authn-totp/README.md). |
 
 ### MFA store: custom implementation
@@ -152,11 +153,11 @@ The package also exports the AES-256-GCM cipher a step uses before it calls the 
 - Recovery codes are unsalted SHA-256, so a step must generate codes of at least 80 bits. Callers normalise a code (case, dashes) before they pass it.
 - On MySQL and MSSQL the default collations ignore case. `get`, `confirmedSteps` and `countRecoveryCodes` check identity and step exactly in Node, but the writes match by the collation; give the identity columns a binary collation there.
 - `get` throws `UnexpectedServerError` when `last_step` does not read as a safe integer.
-- `put` and `putPending` throw `UnexpectedServerError` when a parallel `remove` deletes the row 8 times in a row.
+- `putPending` throws `UnexpectedServerError` when a parallel `remove` deletes the row 8 times in a row.
 
 ## Best practices
 
-- Pass `expectedSecretEnc` to `confirm` when enrolment confirms a secret the user scanned: a parallel `put` that replaced it makes the confirmation fail instead of confirming the new secret.
+- Pass `expectedSecretEnc` to `confirm` when enrolment confirms a secret the user scanned: a parallel `putPending` that replaced it makes the confirmation fail instead of confirming the new secret.
 - Build the identity from `users.Uuid` exactly as stored (`{ type: 'user', id: Uuid }`): the cipher binds the secret to that key, so another spelling does not decrypt.
 - Reset a user's MFA through `TotpService.adminReset` of `@spinajs/authn-totp`: it removes the enrolment and the recovery codes together and returns no secret.
 
@@ -204,20 +205,6 @@ export async function startAuthenticatorEnrolment(userUuid: string, plainSecret:
   const mfa = await DI.resolve(DbMfaStore);
   return await mfa.putPending(user, 'totp', secretEnc, key.keyId);
 }
-```
-
-## Migration
-
-### `DbMfaStore` takes no driver
-
-The store writes through the `AuthnMfa` and `AuthnRecoveryCode` models on the `default` connection and has no constructor arguments. `confirm` with `expectedSecretEnc` picks its dialect from the driver of `AuthnMfa`.
-
-```ts
-// Before
-const mfa = new DbMfaStore(driver, { container });
-
-// After: set db.DefaultConnection; the store awaits ormReady() itself
-const mfa = new DbMfaStore();
 ```
 
 ## Related

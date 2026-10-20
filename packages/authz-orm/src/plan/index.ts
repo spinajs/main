@@ -6,10 +6,16 @@ import type { ISelectQueryBuilder, IWhereBuilder, RawQuery, Wrap } from '@spinaj
 
 export const RELATION_OWNER_OP = 'relation.owner';
 export const RELATION_SELF_OP = 'relation.self';
+export const RELATION_COLUMN_OP = 'relation.column';
 
 /** The args of relation.owner / relation.self: the row's owner (self) is one of these principals. */
 export interface RelationPlanArgs {
   readonly principals: readonly { readonly type: string; readonly id: string }[];
+}
+
+/** The args of relation.column: the row's column relation `relation` (`@Relation`) holds one of these principals. */
+export interface RelationColumnPlanArgs extends RelationPlanArgs {
+  readonly relation: string;
 }
 
 /** The row a plan term filters, seen from a where-group of the resource query. */
@@ -17,8 +23,8 @@ export interface PlanRow {
   readonly type: ResourceType;
   /** The row's id column cast to text: `whereIn(row.id, ids)` on the group, `outer(row.id)` in a sub-query. */
   readonly id: Wrap;
-  /** Columns of the row's `owner`/`self` relation, when the resource declares one. */
-  readonly relation: (name: 'owner' | 'self') => { readonly column: string; readonly typeColumn?: string } | undefined;
+  /** Columns of the row's relation `name` (owner, self, or a named column relation), when the resource declares one. */
+  readonly relation: (name: string) => { readonly column: string; readonly typeColumn?: string } | undefined;
   /** authz_resource_ancestor: resource_type, resource_id, ancestor_type, ancestor_id, depth. */
   readonly ancestorTable: string;
   /** The database's current instant: `where('expires_at', '>', row.now())`. */

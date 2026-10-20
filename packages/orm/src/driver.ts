@@ -4,7 +4,9 @@ import { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, Iso
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, Builder, RawQuery } from './builders.js';
 import { Int64ValueConverter, JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
+import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
+import { SqlExpressions } from './expressions.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, IConnectionResilienceOptions, isRetryableErrorCode } from './resilience.js';
 import { IPoolMetrics, ORM_METRIC_KEY_ACQUIRE_SECONDS, ORM_METRIC_KEY_CONNECTION_STATE, ORM_METRIC_KEY_POOL_IN_USE, ORM_METRIC_KEY_POOL_SIZE, ORM_METRIC_KEY_POOL_WAITING, ormGauge, ormHistogram, ormMetrics } from './metrics.js';
@@ -64,6 +66,12 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    * documentation lie for every other driver.
    */
   public readonly ResponseSchemaTypes: Readonly<Record<string, unknown>> = {};
+
+  /** Most bound parameters one statement may carry. Drivers set their server's limit. */
+  public readonly MaxBindings: number = Number.POSITIVE_INFINITY;
+
+  /** Most rows one `INSERT … VALUES` may list. Drivers set their server's limit. */
+  public readonly MaxInsertRows: number = Number.POSITIVE_INFINITY;
 
   /**
    * The transaction currently in scope on this async execution path, or `undefined` outside
@@ -129,6 +137,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     this.Container.register(UuidConverter).as(UuidConverter);
     this.Container.register(UniversalValueConverter).as(UniversalValueConverter);
     this.Container.register(Int64ValueConverter).as(Int64ValueConverter);
+    this.Container.register(SqlExpressions).as(SqlExpressions);
   }
 
   /**
@@ -545,6 +554,20 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     }
 
     return { result, afterCommit: ctx.afterCommit ?? [] };
+  }
+
+  /**
+   * Inside a transaction, keeps other writers off `table` until it ends; readers go on.
+   * Drivers implement it; the default throws `NotSupported`.
+   */
+  public async lockTableShared(table: string): Promise<void> {
+    throw new NotSupported(`driver ${this.Options.Driver} cannot lock table ${table}`);
+  }
+
+  protected assertInTransaction(operation: string): void {
+    if (!this.CurrentTransaction) {
+      throw new InvalidOperation(`${operation} must run inside a transaction`);
+    }
   }
 
   /**

@@ -7,11 +7,9 @@ The host is the DI side of the package: `DefaultAuthzService` boots one engine p
 `DefaultAuthzService.resolve()` runs once per domain container, when the service is first resolved:
 
 1. **Domain.** It resolves `AuthzDomains` and finds the domain of its container. A child domain first waits for its parent's service to boot.
-2. **Config.** It resolves `Configuration`. The configuration module validates `authz.*` against `AUTHZ_CONFIGURATION_SCHEMA` (AJV, defaults filled in). In the root domain it then:
-   - fails on any 2.x `rbac.*` key, naming each key and where it moved (`authz.config.rejectLegacyKeys: false` only warns);
-   - fails on `authz.admin.connection` and `authz.rbac.connection`, which `db.Aliases.authz` replaced.
+2. **Config.** It resolves `Configuration`. The configuration module validates `authz.*` against `AUTHZ_CONFIGURATION_SCHEMA` (AJV, defaults filled in).
 3. **Domain config.** `readDomainConfig()` merges the domain's keys over its ancestors' and over `AUTHZ_DEFAULTS` ([Domains](05-domains.md#configuration)).
-4. **Audit and bus.** It picks the `DecisionAudit` and `ChangeBus` classes named by `authz.audit.service` and `authz.bus.service`, else the last registration. It subscribes to the bus before any model initialises; changes published meanwhile are applied once the boot ends.
+4. **Audit and bus.** It picks the `DecisionAudit` and `ChangeBus` classes named by `authz.audit.service` and `authz.bus.service`, else the last registration (`pickNamed()`, [Domains](05-domains.md#services-and-extension-points)). It subscribes to the bus before any model initialises; changes published meanwhile are applied once the boot ends.
 5. **Collect.** From the container chain (`Array.chainOf`) it resolves every `AuthorizationModel`, `ResourceAdapter`, `ScopeResolver`, `RelationResolver`, `NativeFilter`, `Combinator` and `AuthzContributor`.
 6. **Models.** Level by level, root first, it drops the names a level's `disable` lists and adds the level's own models; a model whose name an ancestor level used replaces it in place.
 7. **Permissions.** It registers the parent's permissions, `authz.permissions` (or the domain's `permissions`), the permissions of adapters registered in its own container, then calls each model's `init(ctx)`. `init` runs once per model instance; other domains replay its registrations. The registry is then frozen ([Declaring permissions](02-permissions.md)).
@@ -43,7 +41,7 @@ A failed boot releases the models it claimed and throws. `dispose()` unsubscribe
 
 No package registers the RBAC or ABAC model for you. The app wires them in the domain's container before the domain's `AuthzService` first resolves, after `Configuration`:
 
-- RBAC: `registerRbac(DI.RootContainer, configuration)` from `@spinajs/authz-rbac` registers the stores, `RbacModel`, its contributor and `RbacService` ([Wiring the model](../authz-rbac/README.md#wiring-the-model)).
+- RBAC: `registerRbac(DI.RootContainer, configuration)` from `@spinajs/authz-rbac` registers the stores, `RbacModel`, its contributor, `RbacService` and an `RbacLinkResolver` as the `LinkResolver` ([Wiring the model](../authz-rbac/README.md#wiring-the-model)). authz-http resolves the `LinkResolver` from the root container, so share links open only when RBAC is registered there.
 - ABAC: an `AbacModel` registered as `AuthorizationModel`, with its `AbacContributor` ([`@spinajs/authz-abac`](../authz-abac/README.md)).
 - Your own: `@Injectable(AuthorizationModel)` in the root domain, or `container.register(...).as(AuthorizationModel)` on a child domain's container ([Writing a model](08-writing-a-model.md#registration)).
 
@@ -76,7 +74,6 @@ Config lives under `authz.*` (H3). The schema validates the keys below; other se
 | `authz.impersonation.protectedRoles` | `string[]` | `['admin']` | role names | Roles nobody may impersonate. Read by `@spinajs/users`. |
 | `authz.scopes.attributes.<type>` | `{ schema, defaults? } \| null` | none | a JSON schema | Scope attribute schema of a resource type ([Resource adapters and resolvers](09-adapters-and-resolvers.md#scope-attributes)). |
 | `authz.admin.*` | `object` | see [AuthzAdmin](10-authz-admin.md#configuration) | | The write API. |
-| `authz.config.rejectLegacyKeys` | `boolean` | `true` | | `false`: a 2.x `rbac.*` key only warns. |
 
 ```ts
 export default {
@@ -89,14 +86,13 @@ export default {
     audit: { denials: true, runAs: true, unscoped: true },
     bus: { service: 'QueueChangeBus' },
     principals: { anonymous: { enabled: true } },
-    config: { rejectLegacyKeys: true },
   },
 };
 ```
 
 ### The `authz` connection
 
-`AUTHZ_CONNECTION` (`'authz'`) is the ORM connection alias of every authz table. The packages that own tables map it to `default` in their config; an app points it elsewhere with `db: { Aliases: { authz: '<connection name>' } }`. `authz.rbac.connection` and `authz.admin.connection` fail boot with an `AuthzConfigError` that names `db.Aliases.authz`.
+`AUTHZ_CONNECTION` (`'authz'`) is the ORM connection alias of every authz table. The packages that own tables map it to `default` in their config; an app points it elsewhere with `db: { Aliases: { authz: '<connection name>' } }`. The stores read and write through ORM models bound to that alias, so they name no driver and no connection of their own.
 
 ## Services and extension points
 
@@ -105,6 +101,7 @@ export default {
 | `AuthzService` | `AuthzService`, `@PerChildInstance` | `DefaultAuthzService` | none | Not meant to be replaced. |
 | `AuthzConfigBootstrapper` | `Bootstrapper` | registers `AUTHZ_CONFIGURATION_SCHEMA` | none | The schema also registers at import (`registerConfigurationSchemaAtImport`). |
 | `AuthzContributor` | `AuthzContributor`, every registration of the container chain | `ConfigScopeAttributeSchemas` and the contributors of other packages | your own | `@Injectable(AuthzContributor)`; see [Resource adapters and resolvers](09-adapters-and-resolvers.md#contributors). |
+| `AuthzCliBase` | `@spinajs/authz/cli`, base class of CLI commands | none | the commands of `@spinajs/authz-rbac` and `@spinajs/authz-orm` | Extend it for an authz command of your own. It resolves what the command needs from the command's DI container when the command runs and runs the body as `SYSTEM`, so a failing authz boot is reported as one line with exit code 1. |
 
 ## Important behaviour
 
@@ -119,4 +116,4 @@ export default {
 - [Domains](05-domains.md): child domains and their config.
 - [Declaring permissions](02-permissions.md): the registry boot fills.
 - [`@spinajs/authz-convert`](../authz-convert/README.md): turns a 2.x `rbac.*` config into `authz.*`.
-- [The migration guide](migration-guide.md): every config key that moved in 3.0.
+- [The migration guide](migration-guide.md): every 2.x config key and where it went in 3.0.

@@ -1,6 +1,6 @@
 # Value conversion
 
-`MsSqlOrmDriver` registers `IsoDatetimeValueConverter` from `@spinajs/orm-sql`, so model datetime columns and `Date` / luxon `DateTime` values in queries and raw statements are written as ISO 8601 in UTC (`2024-05-01T08:30:00.000Z`) and read back as a `DateTime` in UTC. It also registers `MssqlModelDehydrator`, which the ORM never resolves.
+`MsSqlOrmDriver` registers `IsoDatetimeValueConverter` from `@spinajs/orm-sql`, so model datetime columns and `Date` / luxon `DateTime` values in queries and raw statements are written as ISO 8601 in UTC (`2024-05-01T08:30:00.000Z`) and read back as a `DateTime` in UTC.
 
 ## How it works
 
@@ -30,9 +30,29 @@
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Datetime conversion | `DatetimeValueConverter` (from `@spinajs/orm`), in the driver's child container | `IsoDatetimeValueConverter` (exported by `@spinajs/orm-sql`) | `SqlDatetimeValueConverter` | Extend `DatetimeValueConverter`, implement `toDB()` and `fromDB()`, register `.as(DatetimeValueConverter)` in a driver subclass after `super.resolve()`. |
-| Model dehydration | `ModelDehydrator` | `MssqlModelDehydrator` (not exported) | | Has no effect: the core resolves `StandardModelDehydrator` by class. To change `model.dehydrate()` on a connection, register a subclass `.as(StandardModelDehydrator)`. |
+| Datetime conversion | `DatetimeValueConverter` (from `@spinajs/orm`), in the driver's child container | `IsoDatetimeValueConverter` (exported by `@spinajs/orm-sql`) | `SqlDatetimeValueConverter` (registered by `SqlDriver`, replaced here) | Extend `DatetimeValueConverter`, implement `toDB()` and `fromDB()`, register `.as(DatetimeValueConverter)` in a driver subclass after `super.resolve()`. |
+| Model dehydration | `StandardModelDehydrator` (from `@spinajs/orm`), resolved by class | the shared `StandardModelDehydrator` | | To change `model.dehydrate()` on a connection, register a subclass `.as(StandardModelDehydrator)`. |
 | Per-column converters | `@Converter(...)` on a model property | | `JsonValueConverter`, `UuidConverter`, `UniversalValueConverter` (registered by `OrmDriver`) | See [Converters and hydration](../orm/04-converters-and-hydration.md). |
+
+### Datetime conversion: custom implementation
+
+Write datetimes as the UTC wall clock without an offset, `2024-05-01 08:30:00.000`, for example into `DATETIME2` columns that another application reads as text. `SqlDatetimeValueConverter` writes that format and reads values back in UTC; register it in place of the ISO converter:
+
+```ts sample
+import { Injectable, NewInstance } from '@spinajs/di';
+import { DatetimeValueConverter } from '@spinajs/orm';
+import { SqlDatetimeValueConverter } from '@spinajs/orm-sql';
+import { MsSqlOrmDriver } from '@spinajs/orm-mssql';
+
+@Injectable('orm-driver-mssql-wallclock')
+@NewInstance()
+export class WallClockMsSqlDriver extends MsSqlOrmDriver {
+  public resolve() {
+    super.resolve();
+    this.Container.register(SqlDatetimeValueConverter).as(DatetimeValueConverter);
+  }
+}
+```
 
 ### Model dehydration: custom implementation
 
@@ -68,8 +88,8 @@ export class ApiMsSqlDriver extends MsSqlOrmDriver {
 
 ## Important behaviour
 
+- **`Date` and `DateTime` are both written in UTC.** The same instant stored from either gives the same column value.
 - **A datetime string is parsed, not passed through.** `Model.update({ CreatedAt: '2024-05-01 08:30:00' })`, a model property and `whereIn('CreatedAt', [...])` on a model column go through `toDB()`, so an ISO 8601 or SQL-format string is written in the converter's format and any other string throws `InvalidArgument`. A string passed straight to a builder without a model column (`values({ CreatedAt: '2024-05-01' })`) is not converted and reaches the server as is.
-- **`MssqlModelDehydrator` is never used.** The ORM resolves `StandardModelDehydrator` by class, so the `ModelDehydrator` registration has no effect on `dehydrate()` or inserts.
 - **Boolean columns** use the shared `SqlBooleanValueConverter`; `mssql` binds JavaScript booleans as `BIT`.
 
 ## Best practices

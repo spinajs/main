@@ -1,4 +1,5 @@
-import { DI } from '@spinajs/di';
+import { Autoinject, Container } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { CliCommand, Command } from '@spinajs/cli';
 
@@ -10,9 +11,12 @@ export class ExpirePasswords extends CliCommand {
   @Logger('authn-local')
   protected Log: Log;
 
+  @Autoinject(Container)
+  protected Container: IContainer;
+
   public async execute(): Promise<void> {
     // Per call: the CLI boots only this command, so `--help` must not build services that can fail on a bad policy.
-    const job = await DI.resolve(PasswordExpirationJob);
+    const job = await this.Container.resolve(PasswordExpirationJob);
     const result = await job.run();
     if (result.idle === 'disabled') {
       this.Log.info('Password expiry is disabled (authn.local.expiration.enabled)');

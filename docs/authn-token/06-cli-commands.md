@@ -5,8 +5,8 @@ Three `spinajs` commands manage API tokens from a terminal or a scheduler: creat
 ## How it works
 
 1. The package config adds its `lib/<mjs|cjs>/cli` directory to `system.dirs.cli`, under `node_modules/@spinajs/authn-token` of `WORKSPACE_ROOT_PATH` (or the working directory) and one directory up. The `spinajs` bin finds the commands there; see [Command discovery](../cli/05-command-discovery.md).
-2. Every command extends `TokenCliCommand`, which injects `Orm`. The CLI resolves only the command it runs, so this injection is what connects the `AccessToken` model to the database.
-3. The command resolves `TokenService` and calls it with `ctx = { now: new Date(), purpose: 'request' }`.
+2. Every command extends `CliCommand` and injects `TokenService` with `@Autoinject`. The CLI resolves only the command it runs; `DbTokenService` (and `UsersTableTokenOwnerResolver`) inject `Orm`, so resolving the service is what boots the ORM and connects the `AccessToken` model to the database.
+3. `authn:token-create` calls the service with `ctx = { now: new Date(), purpose: 'request' }`; `authn:token-delete` with `cliContext()` from `@spinajs/authn/contracts`, which adds `userAgent: 'spinajs-cli'`.
 4. A failure sets `process.exitCode = 1` and logs an error on the `authn-token` logger; the commands never throw out of `execute`.
 
 ### `authn:token-create <ownerUuid>`
@@ -16,19 +16,19 @@ Three `spinajs` commands manage API tokens from a terminal or a scheduler: creat
 3. `--roles` is split on commas, trimmed, and empty entries dropped. A `--roles` that names no role is refused by the service (`invalid_scope`).
 4. It calls `TokenService.create({ type: 'user', id: ownerUuid }, …)`.
 5. On success it writes three lines to **standard output**: the token id and expiry, a warning that the token will not be shown again, and the plaintext. The logger gets only the token id and owner.
-6. A refusal logs `Token not created: <code>`. A thrown error logs its message only for validation errors; a database error is reported by class name and code, because its message can quote the new hash.
+6. A refusal logs `Token not created: <code>`. A thrown error logs its message only when it is one the service throws itself (`InvalidArgument`, `InvalidOption`, `InvalidOperation`, `UnexpectedServerError`); any other error, such as a database error, is reported by class name and code, because its message can quote the new hash.
 
 ### `authn:token-delete <uuid>`
 
-1. It calls `DbTokenService.revokeById(uuid, ctx, { actor: { type: 'system', id: 'cli' } })`: the token is revoked whoever owns it.
+1. It calls `DbTokenService.revokeById(uuid, cliContext(), { actor: CLI_ACTOR })`, with `CLI_ACTOR = { type: 'system', id: 'cli' }` from `@spinajs/authn/contracts`: the token is revoked whoever owns it.
 2. It logs `Token <uuid> revoked`, or a warning when the token is unknown or already revoked (exit code `0`).
-3. The row is revoked, not deleted; `authn:token-delete-expired` removes it later. A `TokenService` without `revokeById` fails the command.
+3. The row is revoked, not deleted; `authn:token-delete-expired` removes it later. A `TokenService` without `revokeById` fails the command with `InvalidOperation`.
 
 ### `authn:token-delete-expired`
 
 1. It calls `DbTokenService.deleteExpired(new Date())`.
 2. It logs the number of deleted rows: tokens expired at or before now, and revoked tokens. Rows without an expiry are kept.
-3. A `TokenService` without `deleteExpired` fails the command.
+3. A `TokenService` without `deleteExpired` fails the command with `InvalidOperation`.
 
 ## Decorators
 
@@ -55,27 +55,25 @@ npx spinajs authn:token-delete-expired
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Token commands base | `TokenCliCommand` (abstract, exported) | none | | Extend it for your own token commands; it injects `Orm` so the models work. |
 | Token service | `TokenService`, `@Autoinject` per command | `DbTokenService` | | See [Issuing and revoking tokens](01-token-service.md#services-and-extension-points). `authn:token-delete` needs `revokeById`, `authn:token-delete-expired` needs `deleteExpired`. |
 
-### Token commands base: custom command
+### Token service: custom command
 
-Write your own token command when operators need a task the shipped ones lack, such as revoking every token of a user during an incident. Extend `TokenCliCommand`, inject `TokenService`, and put the file in a directory listed in `system.dirs.cli`.
+Write your own token command when operators need a task the shipped ones lack, such as revoking every token of a user during an incident. Extend `CliCommand`, inject `TokenService`, and put the file in a directory listed in `system.dirs.cli`. Resolving `DbTokenService` boots the ORM, so the command needs no `Orm` of its own.
 
 ```ts sample
-import { TokenCliCommand } from '@spinajs/authn-token';
-import { TokenService } from '@spinajs/authn/contracts';
-import { Argument, Command } from '@spinajs/cli';
+import { CLI_ACTOR, TokenService, cliContext } from '@spinajs/authn/contracts';
+import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
 
 @Command('app:token-revoke-user', 'Revokes every API and agent token of a user')
 @Argument('userUuid', true, 'uuid of the user')
-export class RevokeUserTokens extends TokenCliCommand {
+export class RevokeUserTokens extends CliCommand {
   @Autoinject(TokenService)
   protected Tokens: TokenService;
 
   public async execute(userUuid: string): Promise<void> {
-    const count = await this.Tokens.revokeAllFor({ type: 'user', id: userUuid }, { now: new Date(), purpose: 'request' }, { actor: { type: 'system', id: 'cli' } });
+    const count = await this.Tokens.revokeAllFor({ type: 'user', id: userUuid }, cliContext(), { actor: CLI_ACTOR });
     process.stdout.write(`Revoked ${count} token(s)\n`);
   }
 }

@@ -5,11 +5,12 @@ import { authnAppEnv, checkThrottleParams, isLenientAuthnEnv } from '@spinajs/au
 import type { AuthnConfigSource } from '@spinajs/authn/env';
 import { StoreAuthnThrottle } from '@spinajs/authn/store-throttle';
 import type { AuthnContext, ThrottleFlow, ThrottleKey, ThrottleParams } from '@spinajs/authn/contracts';
-import { CONFIGURATION_CONTAINER_KEY, Config, Configuration } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { DI, IContainer, Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, Container, IContainer, Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
+import { deepFreeze, isNonEmptyString } from '@spinajs/util';
 import type { ThrottleStore } from '@spinajs/util';
 
 import { checkedMs } from '../support/sql.js';
@@ -22,8 +23,6 @@ let processKey: Buffer | undefined;
 export interface DbThrottleOptions {
   /** Overrides `authn.audit.hashKey.secret`; null: a random key of this process. */
   readonly hashKey?: string | null;
-  /** Where the Configuration comes from; default the root container. */
-  readonly container?: IContainer;
 }
 
 /**
@@ -43,7 +42,7 @@ export interface DbThrottleOptions {
  * The hash key check (`checkConfiguration`) runs when AuthnService resolves. A process that resolves this throttle
  * without it (a worker, a CLI command) keys rows with a random key of the process when the key is unset.
  */
-@Singleton()
+@PerChildInstance()
 @Injectable(AuthnThrottle)
 export class DbAuthnThrottle extends StoreAuthnThrottle {
   @Config('authn.throttle')
@@ -55,6 +54,9 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   @Logger('authn-orm')
   protected Log: Log;
 
+  @Autoinject(Container)
+  protected Container: IContainer;
+
   /** Complete params given to the constructor. */
   private readonly fixedParams: ThrottleParams | undefined;
   private loadedParams: ThrottleParams | undefined;
@@ -64,18 +66,14 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   private rows: DbThrottleStore | undefined;
 
   /**
-   * DI passes nothing: `authn.throttle` and `authn.audit.hashKey.secret` come from the container on first use
-   * (`init`). With `params` and no container nothing is read from the configuration: the hash key is
+   * DI passes nothing: `authn.throttle` and `authn.audit.hashKey.secret` come from the configuration of the resolving
+   * container on first use (`init`). With `params` nothing is read from the configuration: the hash key is
    * `options.hashKey`. The rows live on the connection of the `AuthnThrottle` model.
    */
   constructor(params?: ThrottleParams, private readonly options: DbThrottleOptions = {}) {
     super();
     if (params) checkThrottleParams(params);
-    if (options.container) {
-      // An instance built with `new` has no injected container, so @Config would read the root Configuration.
-      Object.defineProperty(this, CONFIGURATION_CONTAINER_KEY, { value: options.container, configurable: true, writable: true });
-    }
-    this.fromConfiguration = params === undefined || options.container !== undefined;
+    this.fromConfiguration = params === undefined;
     this.fixedParams = params;
     if (!this.fromConfiguration) {
       this.loadedParams = this.fixedParams;
@@ -99,8 +97,8 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
    */
   public async checkConfiguration(booting: AuthnConfigSource): Promise<void> {
     // A @Config read needs the container's Configuration resolved.
-    if (this.fromConfiguration) await (this.options.container ?? DI.RootContainer).resolve(Configuration);
-    if (isSecret(this.hashSecret())) return;
+    if (this.fromConfiguration) await this.configurationContainer().resolve(Configuration);
+    if (isNonEmptyString(this.hashSecret())) return;
     const env = authnAppEnv(booting);
     if (!isLenientAuthnEnv(env)) {
       throw new InvalidOption(`DbAuthnThrottle: authn.audit.hashKey.secret is not set; outside development and test (env ${JSON.stringify(env ?? 'unset')}) the throttle rows must be keyed with a secret of the app`);
@@ -173,16 +171,20 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
     return this.options.hashKey !== undefined || !this.fromConfiguration ? this.options.hashKey : this.ConfiguredHashSecret;
   }
 
+  private configurationContainer(): IContainer {
+    if (!this.Container) throw new InvalidOperation('DbAuthnThrottle: built without params and not by DI, so it has no configuration');
+    return this.Container;
+  }
+
   private async load(): Promise<void> {
-    const container = this.options.container ?? DI.RootContainer;
     if (this.fromConfiguration) {
       // A @Config read needs the container's Configuration resolved.
-      await container.resolve(Configuration);
+      await this.configurationContainer().resolve(Configuration);
       this.loadedParams = this.fixedParams ?? this.snapshotConfigured();
       const secret = this.hashSecret();
       this.hmacKey = hashKeyOf(secret);
-      if (!isSecret(secret)) {
-        warnOnce('DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle rows are keyed with a random key of this process: their counts end with the process and are not shared with other instances', () => this.Log);
+      if (!isNonEmptyString(secret)) {
+        this.Log.warnOnce('random-hash-key','DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle rows are keyed with a random key of this process: their counts end with the process and are not shared with other instances');
       }
     }
   }
@@ -194,27 +196,6 @@ function checkKey(key: ThrottleKey): void {
   }
 }
 
-let warned = false;
-
-function warnOnce(message: string, getLog: () => Log): void {
-  if (warned) return;
-  warned = true;
-  try {
-    getLog().warn(message);
-    return;
-  } catch {
-    // the logger getter resolves lazily and can fail without a registered Log: fall back to the console
-  }
-  console.warn(message);
-}
-
-function deepFreeze<T extends object>(o: T): T {
-  for (const v of Object.values(o)) if (v && typeof v === 'object') deepFreeze(v);
-  return Object.freeze(o);
-}
-
-const isSecret = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
-
 function hashKeyOf(secret: unknown): Buffer {
-  return isSecret(secret) ? Buffer.from(secret, 'utf8') : (processKey ??= randomBytes(32));
+  return isNonEmptyString(secret) ? Buffer.from(secret, 'utf8') : (processKey ??= randomBytes(32));
 }

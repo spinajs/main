@@ -7,13 +7,13 @@
 `listBySubject(subject, { includeImpersonations })`:
 
 1. `matching(subject, includeImpersonations)` builds a `FilterExpression`:
-   - `#subject = :key OR attribute_not_exists(#subject)`;
+   - `#subject = :key`;
    - with `includeImpersonations: true`, also `OR #impersonator = :key` on `ImpersonatorId`.
 
    `:key` is `principalKey(subject)`, for example `user:6f1c...`.
 2. `scan(input)` sends `ScanCommand` with `ConsistentRead: true` and follows `LastEvaluatedKey` until the last page.
-3. `matching` turns each item into a session with `toSession(item, true)`. Undecodable `Data` gives an empty `Data` and a `warn` log instead of an error. 2.x items (no `Subject`) are adapted from their `Data`.
-4. `matching` keeps only sessions whose `Subject` (or, with `includeImpersonations`, `Impersonator`) equals the subject. This step matches 2.x items, which the filter could only select as "no `Subject`".
+3. `matching` turns each item into a session with `toSession(item, true)`. Undecodable `Data` gives an empty `Data` and a `warn` log instead of an error. An item without a readable `Subject` is dropped.
+4. `matching` keeps only sessions whose `Subject` (or, with `includeImpersonations`, `Impersonator`) equals the subject, compared as `IdentityRef` after parsing the principal keys.
 5. `listBySubject` drops expired sessions.
 
 `deleteBySubject(subject, { includeImpersonations, except })`:
@@ -43,7 +43,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `matching(subject, includeImpersonations?): Promise<ISession[]>` | Protected method of the `SessionProvider` singleton. | Filtered consistent `Scan` + client-side match | none | Override; return every item of the subject, **expired ones included**, as `ISession`. `listBySubject` and `deleteBySubject` filter liveness themselves. |
 | `scan(input): Promise<Record<string, AttributeValue>[]>` | Protected; used by `matching` and `truncate`. | All pages of a `ScanCommand` with `ConsistentRead: true` | none | Override to add `Limit`, parallel `Segment`s or metrics. |
-| `toSession(item, lenient?)` | Protected; used by `restore` (strict) and `matching` (lenient). | 3.0 layout, 2.x items through `adaptLegacySession` | none | Override to read extra attributes; call `super.toSession()` first. |
+| `toSession(item, lenient?)` | Protected; used by `restore` (strict) and `matching` (lenient). | The item layout of [DynamoDB session store](01-dynamodb-session-store.md#schema) | none | Override to read extra attributes; call `super.toSession()` first. |
 
 Register the subclass with `@Injectable(SessionProvider)` and set `authn.session.service` to its class name ([Selecting the store](01-dynamodb-session-store.md#selecting-the-store)).
 
@@ -52,7 +52,6 @@ Register the subclass with `@Injectable(SessionProvider)` and set `authn.session
 Replace the scan with a `Query` on two global secondary indexes: one on `Subject`, one on `ImpersonatorId`. Read the trade-offs first:
 
 - **GSI reads are eventually consistent.** `ConsistentRead` is not allowed on a GSI. A session saved a moment before a ban can be missed, which the default scan guarantees against.
-- **2.x items have no `Subject`**, so a GSI never returns them. Switch only after every 2.x session has expired or been migrated.
 
 The sample creates the indexes on a new table (`createSessionTable`) and queries them (`matching`):
 
@@ -138,17 +137,14 @@ For an existing table, add the two indexes with `UpdateTable` or your infrastruc
 ## Important behaviour
 
 - **Every call reads the whole table.** A `Scan` filter is applied after the read, so read capacity grows with the table size, not with the subject's session count.
-- **Every 2.x item is read on every lookup.** The filter selects all items without `Subject`, and the owner is checked in Node. The cost disappears once 2.x items are migrated or deleted.
 - **Expired items are deleted too.** `deleteBySubject` removes the subject's expired items but does not count them.
 - **A concurrent logout is not counted.** An item that another call deleted first returns no `Attributes`, so it does not add to the count.
 - **`except` is a storage key**, compared with `SessionId`.
-- **A 2.x item is matched by `User` in its `Data`, never by its numeric `UserId`.**
 
 ## Best practices
 
 - Revoke through `SessionIssuer.revokeAll()`; it calls `deleteBySubject` with the right `except` key.
 - Watch the table's consumed read capacity: every revocation and every session list is a full scan.
-- Keep the default scan while 2.x sessions can still exist; it is the only lookup that reaches them.
 
 ## Patterns and antipatterns
 

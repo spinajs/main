@@ -6,10 +6,21 @@ import { RecordingAudit, testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 
 import { marksOf, setMarks } from '../src/marker.js';
-import { auditUnscoped, domainContainer, ormDomain, storageUnscoped } from '../src/host.js';
+import { auditUnscoped, domainConfig, domainContainer, ormDomain, storageUnscoped } from '../src/host.js';
 
 const expect = chai.expect;
 const tick = () => new Promise((r) => setImmediate(r));
+
+class NamedAudit extends RecordingAudit {
+  static last: NamedAudit | undefined;
+
+  constructor() {
+    super();
+    NamedAudit.last = this;
+  }
+}
+
+const lastNamed = (): NamedAudit | undefined => NamedAudit.last;
 
 describe('authz-orm host helpers', function () {
   this.timeout(30000);
@@ -52,16 +63,40 @@ describe('authz-orm host helpers', function () {
     });
   });
 
-  it('auditUnscoped records an unscoped entry when authz.audit.unscoped is on', async () => {
+  it('auditUnscoped records nothing when the booted domain has authz.audit.unscoped off', async () => {
+    const audit = new RecordingAudit();
+    testHost.registerInRoot(DecisionAudit, testHost.instance(audit));
+    testHost.config().set(['authz', 'audit', 'unscoped'], false);
+    await (await testHost.domains()).service('root');
+    await runWithPrincipal(SYSTEM, async () => auditUnscoped('root', SYSTEM, 'off', 'task'));
+    await tick();
+    expect(audit.of('unscoped')).to.have.length(0);
+  });
+
+  it("after the boot, the audit helpers use the service's boot config and audit, not later changes", async () => {
     const audit = new RecordingAudit();
     testHost.registerInRoot(DecisionAudit, testHost.instance(audit));
     await (await testHost.domains()).service('root');
+    testHost.config().set(['authz', 'audit', 'unscoped'], false);
+    testHost.registerInRoot(DecisionAudit, testHost.instance(new RecordingAudit()));
+    expect(domainConfig('root').audit.unscoped).to.equal(true);
     auditUnscoped('root', SYSTEM, 'export', 'task');
     await tick();
     expect(audit.of('unscoped')).to.deep.equal([{ kind: 'unscoped', principal: { type: SYSTEM.type, id: SYSTEM.id }, reason: 'export', resource: { type: 'task' } }]);
-    testHost.config().set(['authz', 'audit', 'unscoped'], false);
-    await runWithPrincipal(SYSTEM, async () => auditUnscoped('root', SYSTEM, 'again', 'task'));
+  });
+
+  it('before the boot, the audit helpers read the configuration and pick the audit as the host does', async () => {
+    NamedAudit.last = undefined;
+    testHost.registerInRoot(DecisionAudit, NamedAudit);
+    testHost.registerInRoot(DecisionAudit, testHost.instance(new RecordingAudit()));
+    testHost.config().set(['authz', 'audit', 'service'], 'NamedAudit');
+    auditUnscoped('root', SYSTEM, 'export', 'task');
     await tick();
-    expect(audit.of('unscoped')).to.have.length(1);
+    expect(lastNamed()?.of('unscoped')).to.have.length(1);
+    testHost.config().set(['authz', 'audit', 'unscoped'], false);
+    expect(domainConfig('root').audit.unscoped).to.equal(false);
+    auditUnscoped('root', SYSTEM, 'again', 'task');
+    await tick();
+    expect(lastNamed()?.of('unscoped')).to.have.length(1);
   });
 });

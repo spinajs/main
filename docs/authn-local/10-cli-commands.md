@@ -10,7 +10,7 @@ Two `spinajs` commands: `authn:password` sets the password of an identity, and `
 2. The password:
    - with `--generate`: `LocalPasswordPolicy.generate()`;
    - without it: the first line of standard input, with only the line ending removed. On a terminal it first prompts on standard error; the typed text is visible.
-3. `PasswordService.set(id, password, { now, purpose: 'request' }, { actor: { type: 'service', id: 'cli' } })`. Every session of the identity ends and, under `authn.local.reset.revokeTokens`, every token.
+3. `PasswordService.set(id, password, cliContext(), { actor: CLI_ACTOR })`, both from `@spinajs/authn/contracts`: the context carries `userAgent: 'spinajs-cli'`, and the actor is `{ type: 'system', id: 'cli' }`. Every session of the identity ends and, under `authn.local.reset.revokeTokens`, every token.
 4. A policy violation logs the violations and throws `InvalidArgument`: the command exits non-zero and the stored password is unchanged. The password is never echoed.
 5. On success it logs `Password set for <type> <id>`. With `--generate` it also writes the password once to standard output, never to the logger.
 
@@ -24,7 +24,7 @@ The password is never a command-line argument, which would stay in the shell his
    - `No PasswordAgeSource is registered; nothing was expired`;
    - `Passwords expired: <n>, already expired: <n>, failed: <n>`.
 
-Both commands resolve their services when they run, not when the CLI lists commands, so `spinajs --help` works with a broken policy config.
+Both commands inject the `Container` that resolves them and resolve their services from it when they run, not when the CLI lists commands, so `spinajs --help` works with a broken policy config.
 
 ## Configuration
 
@@ -38,8 +38,8 @@ Both commands resolve their services when they run, not when the CLI lists comma
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Password setting | `PasswordService`, resolved per run | `LocalPasswordService` | | See [Password service](11-password-service.md). |
-| Expiry job | `PasswordExpirationJob`, resolved per run | `PasswordExpirationJob` | | See [Password expiry](08-password-expiry.md). |
+| Password setting | `PasswordService`, resolved per run from the command's container | `LocalPasswordService` | | See [Password service](11-password-service.md). |
+| Expiry job | `PasswordExpirationJob`, resolved per run from the command's container | `PasswordExpirationJob` | | See [Password expiry](08-password-expiry.md). |
 
 The command classes (`SetUserPassword`, `ExpirePasswords`) are not exported from the package entry.
 

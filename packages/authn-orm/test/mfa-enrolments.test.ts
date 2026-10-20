@@ -54,8 +54,8 @@ for (const kind of DB_KINDS) {
     });
 
     it('reports the confirmed steps of an identity and of the store; an unconfirmed row does not count', async () => {
-      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
-      await store.put(BOB, 'totp', CIPHER, 'kid-a');
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
+      await store.putPending(BOB, 'totp', CIPHER, 'kid-a');
       expect(await source.stepsOf(ALICE)).to.deep.eq([]);
       expect(await source.stepNames()).to.deep.eq([]);
 

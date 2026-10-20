@@ -4,6 +4,7 @@ import { Autoinject, Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { _fileHash, FileInfoService, getFs } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
+import { Forbidden, ResourceDuplicated } from '@spinajs/exceptions';
 import { DataValidator, ValidationFailed } from '@spinajs/validation';
 import { configFileValidatorName, DbConfig, resolveConfigFileValidator } from '@spinajs/configuration-db-source';
 import type { IConfigFileCandidate, IConfigurationFileOptions } from '@spinajs/configuration-db-source';
@@ -43,7 +44,7 @@ export function configFileOptions(entry: DbConfig): IConfigurationFileOptions {
 /**
  * The upload pipeline of a file entry, without a route: a project composes
  * `accept` -> its own record step -> `commit`, and `discard`s an accepted file it could not record.
- * Rejections are `ConfigFileRejected` / `NotAFileEntry` (400); a misdeclared entry (unregistered
+ * Rejections are `ConfigFileRejected` / `NotAFileEntry` (400, also for a file entry without `meta.file.fs`); a misdeclared entry (unregistered
  * validator or provider, uncompilable slug schema) is a plain `Error` (500). `commit` throws
  * `ConfigWriteRefused` (403) when the update scope of the principal matched no row; reload the entry before retrying.
  */
@@ -120,15 +121,27 @@ export class ConfigFileUploads {
     this.validateStoredName(entry, fileName);
 
     const target = this.fileSystem(entry.Slug, options.fs);
-    // same name within the same second - uploading would overwrite the file the entry points at
+    const duplicated = () => new ConfigFileRejected(`File ${fileName} was uploaded a moment ago, try again`);
+    // same name within the same second - uploading would overwrite the file the entry points at.
+    // Fails fast; the exclusive upload below closes the race, unless the provider ignores `exclusive`
     if (await target.exists(fileName)) {
-      throw new ConfigFileRejected(`File ${fileName} was uploaded a moment ago, try again`);
+      throw duplicated();
     }
 
     const hash = await _fileHash(localPath);
     try {
-      await target.upload(localPath, fileName);
+      await target.upload(localPath, fileName, { exclusive: true });
     } catch (err) {
+      // the file belongs to the upload that won the race - do not remove it
+      if (err instanceof ResourceDuplicated) {
+        throw duplicated();
+      }
+
+      // refused before any IO (fs middleware): nothing of ours was written
+      if (err instanceof Forbidden) {
+        throw err;
+      }
+
       // a partial write must not survive as a file the caller cannot discard
       await target
         .rm(fileName)

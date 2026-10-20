@@ -1,3 +1,4 @@
+import { compareStrings } from '@spinajs/util';
 import { AuthzConfigError } from './errors.js';
 
 export interface FieldMatcher {
@@ -397,8 +398,6 @@ const redundant = (root: Node, g: Glob, target: Node, path: ReadonlySet<Node>, c
   };
   return visit(start(root), 0, false);
 };
-
-const compareStrings = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 // Least specific first; the same order the decision rule uses.
 const compareGlobs = (a: Glob, b: Glob): number => {

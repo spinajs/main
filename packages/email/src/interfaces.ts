@@ -26,6 +26,8 @@ export abstract class EmailSender extends AsyncService implements IMappableServi
   abstract send(email: IEmail): Promise<void>;
 
   public async resolve() {
+    await super.resolve();
+
     if (this.defaultTemplateFsName) {
       this.defaultTemplateFs = getFs(this.defaultTemplateFsName);
 

@@ -67,4 +67,49 @@ describe('fs s3 setMetadata', function () {
     await s3.setMetadata('missing.txt', { a: 'b' }).catch((e: unknown) => (error = e));
     expect(error).to.be.an('error');
   });
+
+  it('reads and replaces metadata under the normalised key', async () => {
+    await client.send(new PutObjectCommand({ Bucket: bucket, Key: 'norm/b.txt', Body: 'b' }));
+
+    await s3.setMetadata('/norm//b.txt', { 'authz-meta': 'n' });
+
+    expect((await client.send(new HeadObjectCommand({ Bucket: bucket, Key: 'norm/b.txt' }))).Metadata).to.deep.equal({ 'authz-meta': 'n' });
+    expect(await s3.getMetadata('norm/b.txt')).to.deep.equal({ 'authz-meta': 'n' });
+  });
+});
+
+describe('fs s3 without a server', function () {
+  const sent: { input: Record<string, unknown> }[] = [];
+  let replies: unknown[] = [];
+
+  function provider() {
+    const s3 = new fsS3({ name: 's3-stub', bucket: 'b' } as never);
+    Object.defineProperty(s3, 'Logger', { value: quiet });
+    Object.defineProperty(s3, 'S3', { value: { send: async (c: { input: Record<string, unknown> }) => (sent.push(c), replies.shift() ?? {}), destroy: () => undefined } });
+    return s3;
+  }
+
+  beforeEach(() => {
+    sent.length = 0;
+    replies = [];
+  });
+
+  it('metadata() returns IFileInfo fields from the lowercased string metadata', async () => {
+    replies = [{ Metadata: { height: '1080', mimetype: 'video/mp4', hash: 'h' } }];
+    const info = await provider().metadata('a.mp4');
+    expect(info.Height).to.equal(1080);
+    expect(info.MimeType).to.equal('video/mp4');
+    expect(info.hash).to.equal('h');
+  });
+
+  it('copy() URL-encodes the key in CopySource', async () => {
+    await provider().copy('docs/zażółć a+b.txt', 'c.txt');
+    expect(sent[0].input.CopySource).to.equal('b/docs/za%C5%BC%C3%B3%C5%82%C4%87%20a%2Bb.txt');
+  });
+
+  it('list() follows continuation tokens', async () => {
+    replies = [{ Contents: [{ Key: 'a' }], IsTruncated: true, NextContinuationToken: 't' }, { Contents: [{ Key: 'b' }], IsTruncated: false }];
+    expect(await provider().list('')).to.deep.equal(['a', 'b']);
+    expect(sent[1].input.ContinuationToken).to.equal('t');
+  });
 });

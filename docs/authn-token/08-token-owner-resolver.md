@@ -12,13 +12,13 @@
    - The default selects `Uuid` from `users` where `Id = user_id` and answers `{ type: 'user', id: Uuid }`, or `null`.
 4. `validate` fails the token (`invalid_credentials`) when `refOf` answers `null`; `revokeById` publishes its event without an identity.
 
-The default reads the `users` table directly on the `AccessToken` model's connection (`connection()`), so this package does not import `@spinajs/users`. Without an ORM connection, `connection()` throws.
+The default reads the `users` table directly, so this package does not import `@spinajs/users`. The protected `connection()` takes the `AccessToken` model's connection (`default` unless the model names another) from the injected `Orm`; when the ORM has no such connection it throws `InvalidOperation`.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Owner resolver | `TokenOwnerResolver`; singleton; `@Injectable(TokenOwnerResolver)` when the package loads; injected into `DbTokenService`'s constructor | `UsersTableTokenOwnerResolver` | none | Subclass `UsersTableTokenOwnerResolver` (override `rowIdOf`, `refOf` or the protected `connection()`) or `TokenOwnerResolver`, and register it with `@Injectable(TokenOwnerResolver)` before `TokenService` is first resolved. |
+| Owner resolver | `TokenOwnerResolver`; singleton; `@Injectable(TokenOwnerResolver)` when the package loads; injected into `DbTokenService`'s `Owners` property | `UsersTableTokenOwnerResolver` | none | Subclass `UsersTableTokenOwnerResolver` (override `rowIdOf`, `refOf` or the protected `connection()`) or `TokenOwnerResolver`, and register it with `@Injectable(TokenOwnerResolver)` before `TokenService` is first resolved. |
 
 ### Owner resolver: custom implementation
 
@@ -58,7 +58,7 @@ Your `IdentityStore.status` must then answer for `service` identities too, since
 
 - **`rowIdOf` and `refOf` must agree.** `refOf(rowIdOf(owner))` must give back the same owner; otherwise `revoke` and the audit name another identity than `validate` answers.
 - **Revocation is owner-bound through the resolver.** `revoke` matches the token's `user_id` against `rowIdOf(owner)`, so a resolver that maps two owners to one row lets each revoke the other's tokens.
-- **Checked at construction.** `DbTokenService` throws when the injected resolver lacks `rowIdOf` or `refOf`.
+- **Must be registered.** `DbTokenService` injects the resolver with the strict check (`{ check: true }`), so resolving it fails when no `TokenOwnerResolver` is registered.
 - **Agent tokens use the owner's row.** An agent token carries its owner's `user_id`; there is no separate agent row.
 
 ## Related

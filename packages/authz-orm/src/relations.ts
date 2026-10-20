@@ -1,9 +1,9 @@
-import { RelationResolver } from '@spinajs/authz';
+import { RelationResolver, resourceKey } from '@spinajs/authz';
 import type { Principal, ResourceRef, ResourceType } from '@spinajs/authz';
 import { ModelBase } from '@spinajs/orm';
 
-import { idText, refKey } from './ids.js';
-import { classesOf, entryOf, registeredTypes } from './registry.js';
+import { idText } from './ids.js';
+import { classesOf, entryOf, namedRelation, registeredTypes } from './registry.js';
 import { findRows } from './rows.js';
 
 type Row = ModelBase & Record<string, unknown>;
@@ -15,11 +15,13 @@ async function rowFor(type: ResourceType, ref: ResourceRef, subject: unknown): P
     const entry = entryOf(subject.constructor);
     if (entry?.type === type && idText((subject as Row)[entry.idColumn]) === String(ref.id)) return subject as Row;
   }
-  return ((await findRows([ref])).get(refKey(ref))?.row as Row | undefined) ?? null;
+  return ((await findRows([ref])).get(resourceKey(ref))?.row as Row | undefined) ?? null;
 }
 
 class ColumnRelation extends RelationResolver {
-  constructor(readonly type: ResourceType, readonly relation: 'owner' | 'self') {
+  readonly listable = true;
+
+  constructor(readonly type: ResourceType, readonly relation: string) {
     super();
   }
 
@@ -29,20 +31,21 @@ class ColumnRelation extends RelationResolver {
     if (row === null) return false;
     const entry = entryOf(row.constructor)!;
     if (this.relation === 'self') return principal.type === 'user' && entry.self !== undefined && idText(row[entry.self.column]) === principal.id;
-    const owner = entry.owner;
-    if (owner === undefined || idText(row[owner.column]) !== principal.id) return false;
-    // Without a type column the owner column holds user ids (design §5).
-    return owner.typeColumn === undefined ? principal.type === 'user' : row[owner.typeColumn] === principal.type;
+    const columns = this.relation === 'owner' ? entry.owner : namedRelation(entry, this.relation);
+    if (columns === undefined || idText(row[columns.column]) !== principal.id) return false;
+    // Without a type column the column holds user ids.
+    return columns.typeColumn === undefined ? principal.type === 'user' : row[columns.typeColumn] === principal.type;
   }
 }
 
-/** `owner` per type with an owner column, `self` per type with a self column. */
+/** `owner`, `self` and every `@Relation` name per type that has such a column. */
 export function ormRelations(): readonly RelationResolver[] {
   const out: RelationResolver[] = [];
   for (const type of registeredTypes()) {
     const entries = classesOf(type).map((c) => entryOf(c)!);
     if (entries.some((e) => e.owner !== undefined)) out.push(new ColumnRelation(type, 'owner'));
     if (entries.some((e) => e.self !== undefined)) out.push(new ColumnRelation(type, 'self'));
+    for (const name of new Set(entries.flatMap((e) => Object.keys(e.relations ?? {})))) out.push(new ColumnRelation(type, name));
   }
   return out;
 }

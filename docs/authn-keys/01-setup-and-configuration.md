@@ -14,7 +14,7 @@ Importing `@spinajs/authn-keys` registers the key registry, the stores, the JWS 
 3. The package's config file adds its `lib/<cjs|mjs>/cli` folder to `system.dirs.cli`, so the `spinajs` bin finds `authn:key-add`, `authn:key-list` and `authn:key-revoke`. It adds nothing else: the `authn.keys` defaults come from the `@spinajs/authn` schema.
 4. At boot, the authn core's `StrategyRegistry` reads `authn.strategies` and picks each listed strategy by class name. A registered strategy that is not listed never runs. See [Strategies](../authn/03-strategies.md).
 5. `JwsAssertionStrategy.resolve()` throws when `authn.keys.assertion.audience` is `null`. `KeyChallengeStrategy.resolve()` throws when both `authn.keys.challenge.audience` and `authn.keys.assertion.audience` are `null`. `HttpSignatureStrategy` needs no audience.
-6. Every class reads `authn.keys` through `@Config('authn.keys')` and passes it to `keysOptionsOf()`. That function checks the numeric ranges, freezes the result, and fills `challenge.audience` from `assertion.audience` when it is `null`. A value outside a range throws `Error('authn.keys.<block>.<key> must be an integer from <min> to <max>')`.
+6. Every class reads `authn.keys` through `@Config('authn.keys')` and passes it to `keysOptionsOf()`. That function checks the numeric ranges, freezes the result, and fills `challenge.audience` from `assertion.audience` when it is `null`. A value outside a range throws `InvalidOption('authn.keys.<block>.<key> must be an integer from <min> to <max>')`.
 
 ## Configuration
 
@@ -84,9 +84,9 @@ The registry and the strategies also resolve services this package does not regi
 | --- | --- | --- |
 | `DefaultKeyRegistry`, `KeyChallengeStrategy` | `SecretStore` | `DbSecretStore` in [`@spinajs/authn-orm`](../authn-orm/02-secret-store.md) |
 | `DefaultKeyRegistry` (login challenge throttle) | `AuthnThrottle` | `MemoryAuthnThrottle` in `@spinajs/authn`, `DbAuthnThrottle` in [`@spinajs/authn-orm`](../authn-orm/01-throttle.md) |
-| `DefaultKeyRegistry` (`key.register`, `key.revoke` events) | `AuthnEventSink`, as a list | see [Audit and events](../authn/06-audit-events.md) |
+| `DefaultKeyRegistry` (`key.register`, `key.revoke` events) | `AuthnAudit`, which delivers to every `AuthnEventSink` | `@spinajs/authn`, see [Audit and events](../authn/06-audit-events.md) |
 
-<!-- TODO(docs-hook): verify whether DefaultKeyRegistry's @Inject(AuthnThrottle) honours authn.throttle.service when several throttles are registered -->
+`DefaultKeyRegistry` injects `AuthnThrottle` with a plain `@Autoinject`, so it takes the last registration of `AuthnThrottle`, not the one `authn.throttle.service` names.
 
 ## Important behaviour
 

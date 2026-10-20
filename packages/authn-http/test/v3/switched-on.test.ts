@@ -24,11 +24,7 @@ interface Run {
   loaded: Snapshot;
   afterExplicitCall: Snapshot;
   n10: { body: unknown; functions: string[] };
-  /** Per colliding name: the barrel gives the 3.0 class of ./v3/index.js, not the api.ts stub. */
-  barrelIsV3: Record<string, boolean>;
   orders: { AuthnMiddleware: number };
-  bridgeExported: boolean;
-  tokenAuthMiddlewareExported: boolean;
   /** CJS only: loaded module files under v3/controllers; null in ESM, which lists no loaded modules. */
   loadedV3Controllers: string[] | null;
   /** The files of the shipped cli dir, loaded before the first snapshot as the CLI's scan loads them. */
@@ -40,13 +36,10 @@ interface Run {
 // Plain JS for the ESM and the CJS child: the built package, loaded as an app loads it.
 const ROUTE_ARG_NAMES = ['AuthnIdentityArg', 'AuthnSessionArg', 'AuthnSessionIdArg', 'AuthnSessionDataArg'];
 
-const COLLIDING = ['NotLoggedPolicy', 'NoTokenAuthPolicy', 'NoImpersonationPolicy', 'FromSession', 'SessionId'];
-
 const V3_CONTROLLERS = ['AuthnLoginController', 'AuthnMfaController', 'AuthnSessionsController', 'AuthnActiveRoleController', 'AuthnImpersonationController'];
 
 const BODY = `
   const ROUTE_ARGS = ${JSON.stringify(ROUTE_ARG_NAMES)};
-  const COLLIDING = ${JSON.stringify(COLLIDING)};
   const names = (di, t) => (di.DI.getRegisteredTypes(t) ?? []).map((x) => x.name);
   const snap = (di, http, contracts, pkg) => ({
     AuthnService: names(di, contracts.AuthnService),
@@ -64,12 +57,11 @@ const BODY = `
     body: pkg.AUTHN_FAILURE_BODY,
     functions: ['authnFailureResponse', 'authnSessionCookie', 'authnClearedSessionCookie'].filter((n) => typeof pkg[n] === 'function'),
   };
-  const barrelIsV3 = Object.fromEntries(COLLIDING.map((n) => [n, typeof pkg[n] === 'function' && pkg[n] === v3[n] && pkg[n] !== api[n]]));
   const orders = { AuthnMiddleware: new pkg.AuthnMiddleware().Order };
   const loadedV3Controllers = typeof require === 'function' ? Object.keys(require.cache).filter((f) => /[\\\\/]v3[\\\\/]controllers[\\\\/]/.test(f)) : null;
   const loadedAuthnRoot = typeof require === 'function' ? Object.keys(require.cache).filter((f) => /[\\\\/]authn[\\\\/]lib[\\\\/]cjs[\\\\/]/.test(f) && !/[\\\\/]contracts[\\\\/]/.test(f)) : null;
   await pkg.registerAuthnHttpV3();
-  console.log(JSON.stringify({ loaded, afterExplicitCall: snap(di, http, contracts, pkg), n10, barrelIsV3, orders, loadedV3Controllers, cliFiles, loadedAuthnRoot }));
+  console.log(JSON.stringify({ loaded, afterExplicitCall: snap(di, http, contracts, pkg), n10, orders, loadedV3Controllers, cliFiles, loadedAuthnRoot }));
 `;
 
 const ESM = `
@@ -80,8 +72,6 @@ const ESM = `
   const { readdirSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { pathToFileURL } = await import('node:url');
-  const v3 = await import(pathToFileURL(join(process.cwd(), 'lib', 'mjs', 'v3', 'index.js')).href);
-  const api = await import(pathToFileURL(join(process.cwd(), 'lib', 'mjs', 'api.js')).href);
   const cliDir = join(process.cwd(), 'lib', 'mjs', 'cli');
   const cliFiles = readdirSync(cliDir).filter((f) => f.endsWith('.js'));
   for (const f of cliFiles) await import(pathToFileURL(join(cliDir, f)).href);
@@ -96,8 +86,6 @@ const CJS = `
     const pkg = require('@spinajs/authn-http');
     const { readdirSync } = require('node:fs');
     const { join } = require('node:path');
-    const v3 = require(join(process.cwd(), 'lib', 'cjs', 'v3', 'index.js'));
-    const api = require(join(process.cwd(), 'lib', 'cjs', 'api.js'));
     const cliDir = join(process.cwd(), 'lib', 'cjs', 'cli');
     const cliFiles = readdirSync(cliDir).filter((f) => f.endsWith('.js'));
     for (const f of cliFiles) require(join(cliDir, f));
@@ -188,8 +176,7 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
         expect(r.afterExplicitCall).to.deep.eq(r.loaded);
       });
 
-      it('the barrel gives the implementations under the five colliding names; AuthnMiddleware runs at order 5', () => {
-        expect(r.barrelIsV3).to.deep.eq(Object.fromEntries(COLLIDING.map((n) => [n, true])));
+      it('AuthnMiddleware runs at order 5', () => {
         expect(r.orders).to.deep.eq({ AuthnMiddleware: 5 });
       });
 

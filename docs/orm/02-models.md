@@ -167,8 +167,8 @@ Multi-row `Model.insert([...])` backfills `auto` keys as follows:
 - A single row takes `LastInsertId`.
 - Several rows take `LastInsertId + index` only when all of these hold: the driver reports
   `insertIdIsFirstOfBatch`, the model has one `auto` key column, the insert behaviour is
-  `InsertBehaviour.None`, the batch ran as one statement (not split by `maxBindParameters` or
-  `maxInsertRows`), `LastInsertId` is a positive number, `RowsAffected` equals the row count, and
+  `InsertBehaviour.None`, the batch ran as one statement (not split by the driver's `MaxBindings` or
+  `MaxInsertRows`), `LastInsertId` is a positive number, `RowsAffected` equals the row count, and
   no row carried a key.
 - Otherwise no key is assigned. Re-select the rows or insert them one at a time.
 

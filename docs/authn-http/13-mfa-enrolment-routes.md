@@ -1,24 +1,24 @@
 # MFA enrolment routes
 
-`AuthnMfaEnrolmentController` lets a user enrol TOTP, confirm it, disable it and regenerate recovery codes, over the `TotpService` of [`@spinajs/authn-totp`](../authn-totp/README.md). Every route acts on the identity of the caller's own session. The group is on only while login actually asks for TOTP; otherwise every route answers 404.
+`AuthnMfaEnrolmentController` lets a user enrol TOTP, confirm it, disable it and regenerate recovery codes, over the registered `MfaEnrolmentService` of `@spinajs/authn/contracts`, which [`@spinajs/authn-totp`](../authn-totp/README.md) registers as `TotpService`. Every route acts on the identity of the caller's own session. The group is on only while login actually asks for the service's step; otherwise every route answers 404.
 
 ## How it works
 
-1. **Gate.** `TotpEnrolmentOn` answers 404 `not_found` unless all of these hold:
-   - a service is registered under the DI name `TotpService`;
-   - `authn.mfa.encryptionKey.secret` is set;
-   - the steps of the MFA policy (`authn.mfa.policy.service`) include `@spinajs/authn-totp`'s `TotpMfaStep` (that class, not a subclass);
-   - the registered `TotpService` is `@spinajs/authn-totp`'s class.
+1. **Gate.** `TotpEnrolmentOn` answers 404 `not_found` unless `mfaEnrolmentOn(container, policyService)` is true, asked per request:
+   - an `MfaEnrolmentService` is registered in the container;
+   - its `enabled(steps)` is true for the steps of the MFA policy (`authn.mfa.policy.service`).
+
+   For `TotpService` that means: the steps include `@spinajs/authn-totp`'s `TotpMfaStep` (that class, not a subclass), and `authn.mfa.encryptionKey.secret` is set.
 2. **Who may call.** `GET /user/mfa`, `POST /user/mfa/disable` and `POST /user/mfa/recovery-codes` need `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` and an active session. `POST /user/mfa` and `POST /user/mfa/confirm` also admit a pending session through `PendingMfaEnrolment`.
 3. **`PendingMfaEnrolment`** passes a pending session whose identity is enrolled in none of the configured steps and that the MFA policy does not refuse. Such a session comes from a forced enrolment (`authn.mfa.policy.force` or `forceForRoles`), where enrolling is the only way out. Otherwise it refuses with 403 `enrolment_closed`; the caller hears the 401 of the full-login group, which is declared first.
-4. **Fresh authentication.** Begin, disable and recovery-codes need a login within `authn.freshAuth.maxAgeSeconds` or the account password in `reauthPassword`. The field is removed from the body; `TotpService` verifies it for this request only, counted in the `reauth` throttle. A pending session sends no password.
-5. **Effect.** The route calls `TotpService.begin()`, `confirm()`, `disable()` or `regenerateRecoveryCodes()`; refusals map to answers as in [Errors](#errors).
+4. **Fresh authentication.** Begin, disable and recovery-codes need a login within `authn.freshAuth.maxAgeSeconds` or the account password in `reauthPassword`. `takeReauthPassword()` removes the field from the body, and `reauthCredentials()` turns it into password credentials with the email of `IdentityStore.display()`. A password over `PASSWORD_HARD_CAP` or an identity without an email is audited as a failed `reauth` and answers the login failure body. The service verifies the credentials only when the session is not fresh, counted in the `reauth` throttle. A pending session's password is ignored, unless it is over-long.
+5. **Effect.** The route calls `begin()`, `confirm()`, `disable()` or `regenerateRecoveryCodes()` of the `MfaEnrolmentService`; refusals map to answers as in [Errors](#errors).
 
 ```mermaid
 sequenceDiagram
   participant B as Browser
   participant C as AuthnMfaEnrolmentController
-  participant T as TotpService
+  participant T as MfaEnrolmentService (TotpService)
   B->>C: POST /user/mfa { reauthPassword? }
   C->>T: begin(handle, ctx, reauth)
   T-->>C: provisioning otpauth URI
@@ -57,9 +57,9 @@ Every answer carries `Cache-Control: no-store`.
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `authn.mfa.steps` | `{ name, service }[]` | | | Must list `TotpMfaStep` of `@spinajs/authn-totp` for the group to be on. |
-| `authn.mfa.encryptionKey.secret` | `string` | unset | | Must be set for the group to be on; encrypts TOTP secrets. |
-| `authn.mfa.policy.service` | `string` | `'DefaultMfaPolicy'` | registered `MfaPolicy` name | Policy whose `steps()` the gate and `GET /user/mfa` read. |
+| `authn.mfa.steps` | `{ name, service }[]` | | | With `TotpService`: must list `TotpMfaStep` of `@spinajs/authn-totp` for the group to be on. |
+| `authn.mfa.encryptionKey.secret` | `string` | unset | | With `TotpService`: must be set for the group to be on; encrypts TOTP secrets. |
+| `authn.mfa.policy.service` | `string` | `'DefaultMfaPolicy'` | registered `MfaPolicy` name | Policy whose `steps()` the gate passes to `enabled()` and `GET /user/mfa` reads. |
 | `authn.mfa.policy.force`, `authn.mfa.policy.forceForRoles` | `boolean`, `string[]` | `false`, `[]` | | Force enrolment at login; such pending sessions may call begin and confirm. |
 | `authn.freshAuth.maxAgeSeconds` | `integer` | `300` | `>= 1` | Freshness for begin, disable and recovery-codes. |
 
@@ -69,14 +69,14 @@ The MFA keys belong to [`@spinajs/authn`](../authn/04-mfa-policy-and-steps.md) a
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `TotpService` | DI name `'TotpService'`, resolved per call | `TotpService` (`@spinajs/authn-totp/service`) | | Not replaceable here: the gate requires the class of `@spinajs/authn-totp`. |
+| `MfaEnrolmentService` (abstract, `@spinajs/authn/contracts`) | optional autoinject; the gate checks its registration per request | `TotpService` of `@spinajs/authn-totp`, registered by its root entry | your own | Extend `MfaEnrolmentService`, implement `enabled(steps)`, the owner methods and `adminReset`, register it `.as(MfaEnrolmentService)`. |
 
 ## Important behaviour
 
 - **No secret leaks.** Only `POST /user/mfa` returns the provisioning URI and only confirm and recovery-codes return recovery codes, once.
 - **The session id is not rotated** by any enrolment route.
 - **Enrolling here does not finish a forced login.** A pending session that confirmed its enrolment completes the login through [`POST /auth/mfa/verify`](08-login-logout-and-mfa-routes.md) with a code of the new factor. Until then it reaches only begin and confirm.
-- **Importing `@spinajs/authn-http` does not load `@spinajs/authn-totp`.** The gate imports it lazily, so an app without TOTP does not register `TotpMfaStep`.
+- **`@spinajs/authn-http` does not depend on `@spinajs/authn-totp`.** It reaches enrolment only through the `MfaEnrolmentService` contract, so an app without TOTP does not register `TotpMfaStep`.
 
 ## Related
 

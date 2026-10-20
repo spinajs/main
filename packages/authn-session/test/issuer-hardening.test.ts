@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import { createHash } from 'node:crypto';
 import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
@@ -153,10 +154,13 @@ describe('DefaultSessionIssuer hardening', () => {
   });
 
   describe('pending state (A09 store part)', () => {
-    it('the shipped pendingTtlSeconds equals the schema default: 300 seconds', () => {
+    it('pendingTtlSeconds comes from the schema default, 300 seconds, not from the shipped config', async () => {
       const session = (AUTHN_CONFIGURATION_SCHEMA as unknown as { properties: { session: { properties: Record<string, { default?: unknown }> } } }).properties.session.properties;
       expect(session.pendingTtlSeconds.default).to.equal(300);
-      expect((shipped.authn.session as Record<string, unknown>).pendingTtlSeconds).to.equal(300);
+      expect(shipped.authn.session).to.not.have.property('pendingTtlSeconds');
+
+      await withSessionConfig({});
+      expect(DI.get(Configuration)!.get('authn.session.pendingTtlSeconds')).to.equal(300);
     });
 
     it('without a pendingTtlSeconds the schema filled, a pending session expires at once', async () => {

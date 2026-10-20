@@ -61,9 +61,15 @@ another format gets `unsupported_credentials` from `verify` and `[]` from
   token whose profile is no longer allowed fails). The default,
   `NoTokenProfilesPolicy`, allows none. The profile reaches the principal as
   `attributes.profile`.
-- `RoleSource` (optional): when one is registered, `create` refuses a role the
-  owner does not hold with `invalid_scope`. Without one, roles are stored as
-  given.
+- `RoleSource` (optional): when one is registered when DI builds the service,
+  `create` refuses a role the owner does not hold with `invalid_scope`. Without
+  one, roles are stored as given. It is injected once, so a `RoleSource`
+  registered after the service was built is not asked.
+
+`DbTokenService` takes these hooks, the `IdentityStore`, the `Orm` and the
+generation provider by property injection when it is built, so register them
+before `TokenService` is first resolved. Resolving it without a registered
+`IdentityStore`, `TokenOwnerResolver` or `TokenProfilePolicy` fails.
 
 ## Token roles (B24, B07)
 

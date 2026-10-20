@@ -15,10 +15,10 @@ function connection(): FakeSqliteDriver {
 
 const rows = (count: number) => Array.from({ length: count }, (_, i) => ({ a: `a${i}`, b: `b${i}`, c: `c${i}` }));
 
-function limitTo(features: { maxBindParameters?: number; maxInsertRows?: number }) {
+function limitTo(limits: { MaxBindings?: number; MaxInsertRows?: number }) {
   const driver = connection();
-  const base = driver.supportedFeatures();
-  sinon.stub(driver, 'supportedFeatures').returns({ ...base, ...features } as any);
+  Object.defineProperty(driver, 'MaxBindings', { value: limits.MaxBindings ?? Infinity });
+  Object.defineProperty(driver, 'MaxInsertRows', { value: limits.MaxInsertRows ?? Infinity });
 
   const executed: { stmt: string; params: unknown[] }[] = [];
   sinon.stub(driver, 'executeOnDb').callsFake(async (stmt: any, params: any) => {
@@ -42,7 +42,7 @@ describe('insert split by driver limits', () => {
   });
 
   it('splits 7 rows of 3 columns into statements of at most 10 bindings, in order, in one transaction', async () => {
-    const { driver, executed, transaction } = limitTo({ maxBindParameters: 10 });
+    const { driver, executed, transaction } = limitTo({ MaxBindings: 10 });
 
     const result = await driver.insert().into('t').values(rows(7));
 
@@ -57,7 +57,7 @@ describe('insert split by driver limits', () => {
   });
 
   it('keeps a payload that fits as one statement and opens no transaction', async () => {
-    const { driver, executed, transaction } = limitTo({ maxBindParameters: 9 });
+    const { driver, executed, transaction } = limitTo({ MaxBindings: 9 });
 
     await driver.insert().into('t').values(rows(3));
 
@@ -74,7 +74,7 @@ describe('insert split by driver limits', () => {
   });
 
   it("joins the caller's transaction instead of opening one", async () => {
-    const { driver, executed, transaction } = limitTo({ maxBindParameters: 10 });
+    const { driver, executed, transaction } = limitTo({ MaxBindings: 10 });
 
     await driver.transaction(async () => {
       await driver.insert().into('t').values(rows(7));
@@ -84,8 +84,8 @@ describe('insert split by driver limits', () => {
     expect(transaction.calledOnce).to.eq(true);
   });
 
-  it('caps the rows per statement at maxInsertRows', async () => {
-    const { driver, executed } = limitTo({ maxInsertRows: 2 });
+  it('caps the rows per statement at MaxInsertRows', async () => {
+    const { driver, executed } = limitTo({ MaxInsertRows: 2 });
 
     await driver.insert().into('t').values(rows(5));
 
@@ -93,7 +93,7 @@ describe('insert split by driver limits', () => {
   });
 
   it("reserves the bindings of an upsert's raw update columns", () => {
-    limitTo({ maxBindParameters: 9 });
+    limitTo({ MaxBindings: 9 });
     const plain = connection().insert().into('t').values(rows(3));
     const upsert = connection().insert().into('t').values(rows(3));
     upsert.onDuplicate('a').update([RawQuery.create('`b` = `b` + ?', [1])]);
@@ -104,7 +104,7 @@ describe('insert split by driver limits', () => {
   });
 
   it('refuses a row wider than the limit', () => {
-    limitTo({ maxBindParameters: 2 });
+    limitTo({ MaxBindings: 2 });
 
     expect(() => connection().insert().into('t').values(rows(1)).splitByDriverLimits()).to.throw(OrmException, 'bound parameters');
   });

@@ -97,8 +97,8 @@ The `reset` throttle is `authn.throttle.reset` in the [authn core](../authn/READ
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Secret store | `SecretStore`, resolved per call; required for reset and invite | `DbSecretStore` from [`@spinajs/authn-orm`](../authn-orm/02-secret-store.md) | your `SecretStore` | `DI.register(MyStore).as(SecretStore)`. `redeem()` must be constant time and single use. |
-| Mailer | `PasswordMailer`, resolved per mail; optional | `EmailPasswordMailer`, registered by `@spinajs/users` | your `PasswordMailer` | See [Password mailer](07-password-mailer.md). |
+| Secret store | `SecretStore`, optional `@Autoinject` of `LocalPasswordService`; required for reset and invite, which throw `InvalidOperation` without it | `DbSecretStore` from [`@spinajs/authn-orm`](../authn-orm/02-secret-store.md) | your `SecretStore` | `DI.register(MyStore).as(SecretStore)`. `redeem()` must be constant time and single use. |
+| Mailer | `PasswordMailer`, optional `@Autoinject` of `LocalPasswordService` | `EmailPasswordMailer`, registered by `@spinajs/users` | your `PasswordMailer` | See [Password mailer](07-password-mailer.md). |
 | Password service | `PasswordService` | `LocalPasswordService` | | See [Password service](11-password-service.md). |
 
 ## Important behaviour

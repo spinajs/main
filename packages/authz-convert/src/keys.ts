@@ -1,3 +1,4 @@
+import { isStringArray } from '@spinajs/util';
 import type { Findings } from './findings.js';
 import { RBAC_2X_ARRAYS, RBAC_2X_DEFAULTS } from './legacy.js';
 import { copy, firstNonData, getPath, isPlain, keyPath, setPath } from './values.js';
@@ -72,7 +73,7 @@ function asBoolean(v: unknown, at: string, f: Findings): boolean | undefined {
 }
 
 function asStrings(v: unknown, at: string, f: Findings): string[] | undefined {
-  if (Array.isArray(v) && v.every((s) => typeof s === 'string')) return [...(v as string[])];
+  if (isStringArray(v)) return [...v];
   f.refuse(`${at} must be an array of strings`);
   return undefined;
 }
@@ -362,7 +363,7 @@ function convertPassword(value: unknown, at: string, w: Writer, f: Findings, wit
   if (value.generator !== undefined) {
     w.data(`${at}.generator`, value.generator, 'authn.local.generator');
     const chars = isPlain(value.generator) ? value.generator.characters : undefined;
-    if (Array.isArray(chars) && chars.every((c) => typeof c === 'string')) w.set('authn.local.generator.characters', withPackage('password.generator.characters', chars as string[]));
+    if (isStringArray(chars)) w.set('authn.local.generator.characters', withPackage('password.generator.characters', chars));
   }
 
   const validation = value.validation;

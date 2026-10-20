@@ -7,12 +7,12 @@ A challenge is a one-time nonce the server issues and the client signs with its 
 ### Issue, `DefaultKeyRegistry.challenge(req, ctx)`
 
 1. The request names the purpose:
-   - `{ purpose: 'register', owner }`: `owner` must be a `user`, else `TypeError`. Services and agents register without a proof.
+   - `{ purpose: 'register', owner }`: `owner` must be a `user`, else `InvalidArgument`. Services and agents register without a proof.
    - `{ purpose: 'login', kid }`: when `ctx.ip` is set, the registry first calls `AuthnThrottle.attempt([{ kind: 'ip', value: ctx.ip }], 'login', ctx)`. A refusal returns `{ ok: false, retryAfterSeconds }` and stores nothing.
-   - Anything else throws `TypeError`.
+   - Anything else throws `InvalidArgument`.
 2. The challenge is stored for an identity: the user for `register`; for `login`, `loginChallengeIdentity(kid)`, which is `{ type: 'key', id: kid }` for a valid kid and `{ type: 'key', id: <SHA-256 hex of the input> }` otherwise. The registry does not look the kid up.
-3. The audience is `authn.keys.challenge.audience`, else `authn.keys.assertion.audience`. When both are `null`, `challenge` throws.
-4. `newChallengeRid()` makes a 16-character random id (`rid`). `SecretStore.issue(identity, 'key-challenge:<rid>', ttlSeconds)` returns the nonce. A nonce that is not base64url of at least 22 characters (128 bits) throws: the `SecretStore` is unfit for challenges.
+3. The audience is `authn.keys.challenge.audience`, else `authn.keys.assertion.audience`. When both are `null`, `challenge` throws `InvalidOption`.
+4. `newChallengeRid()` makes a 16-character random id (`rid`). `SecretStore.issue(identity, 'key-challenge:<rid>', ttlSeconds)` returns the nonce. A nonce that is not base64url of at least 22 characters (128 bits) throws `UnexpectedServerError`: the `SecretStore` is unfit for challenges.
 5. The result is `{ ok: true, challenge: { id: '<rid>.<nonce>', nonce, expiresAt } }`, with `expiresAt = ctx.now + ttlSeconds`.
 
 ### Sign, on the client
@@ -39,7 +39,7 @@ The answer is the raw 64-byte signature as unpadded base64url: Ed25519, or ECDSA
 4. No usable key, or an unreadable id: the strategy runs one dummy verification (`unknownKeyWork`) and returns `invalid_credentials`, `revoked` or `expired`. Only audit sees the difference.
 5. `verifyChallengeSignature(key, nonce, 'login', audience, signature)` checks the signature with the key's own algorithm. A bad signature returns `invalid_credentials` and redeems nothing.
 6. `SecretStore.redeem(loginChallengeIdentity(keyId), 'key-challenge:<rid>', nonce)` uses the challenge up. A used, expired or foreign challenge returns `invalid_credentials`.
-7. `keySuccess()` stamps `lastUsedAt` and returns the key owner as the identity, method `key-challenge`, and the key's `scope` as the ceiling.
+7. The protected `success()` of `KeyStrategy` calls `KeyRegistry.touch(kid, ctx.now)` when the registry implements it, and returns the key owner as the identity, method `key-challenge`, and the key's `scope` as the ceiling. A failed stamp is logged and never fails the login.
 
 The authn core then runs the MFA policy and issues a session, as for a password login. See [How a login runs](../authn/01-authentication-flow.md).
 
@@ -92,7 +92,7 @@ authn: {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Challenge login strategy | `AuthenticationStrategy`, picked by `service: 'KeyChallengeStrategy'` | `KeyChallengeStrategy` (`name: 'keys-challenge'`, `kinds: ['key-challenge']`, `interactive: true`) | none | Subclass it; see [Custom key strategies](09-custom-key-strategies.md) |
+| Challenge login strategy | `AuthenticationStrategy`, picked by `service: 'KeyChallengeStrategy'` | `KeyChallengeStrategy` (`name: 'keys-challenge'`, `kinds: ['key-challenge']`, `interactive: true`); extends `KeyStrategy`, `@Autoinject`s `KeyRegistry` and `SecretStore`, or takes them from `KeyChallengeStrategyDeps` | none | Subclass it; see [Custom key strategies](09-custom-key-strategies.md) |
 | Challenge storage | `SecretStore` (`@spinajs/authn/contracts`) | `DbSecretStore` in [`@spinajs/authn-orm`](../authn-orm/02-secret-store.md) | any `SecretStore` whose secrets are base64url of 128 bits or more | Register your own `SecretStore`; the registry refuses to issue a challenge with an unfit one |
 | Issuing | `KeyRegistry` | `DefaultKeyRegistry.challenge` | none | Override `challenge` in a subclass; see [Key registry](02-key-registry.md#services-and-extension-points) |
 

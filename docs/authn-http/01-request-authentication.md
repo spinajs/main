@@ -6,7 +6,7 @@ Three server middlewares find the caller of every request: `ClientIp` (order 1),
 
 1. **`ClientIp.before()`** writes `req.storage.ClientIp`: the socket address, or the client address behind trusted proxy hops only. Trust comes from `authn.http.trustProxy`, else `http.trustProxy` (through `proxyTrustOf()`). Every `AuthnContext.ip` the package builds comes from this value, never from Express's `req.ip`.
 2. **`CsrfOriginGuard.before()`** refuses a cross-origin unsafe request that carries the session cookie with 403, before any authentication. See [CSRF origin guard](04-csrf-origin-guard.md).
-3. **`AuthnMiddleware.authenticate()`** sets `req.storage.AuthnSession` and `req.storage.AuthnPrincipal` to `null`, then builds an `AuthnContext` with `ip`, `userAgent`, `now` and purpose `'request'`.
+3. **`AuthnMiddleware.authenticate()`** sets `req.storage.AuthnSession` and `req.storage.AuthnPrincipal` to `null`, then builds an `AuthnContext` with `contextOf(req, 'request')`: `ip` from `req.storage.ClientIp` and `userAgent`, each only when it is a string, `now` and purpose `'request'`.
 4. **`AuthnMiddleware.restoreSession()`** reads the session cookie (name from `authn.session.cookie`, see [`@spinajs/authn-session`](../authn-session/README.md)):
    - a raw cookie in `req.cookies` is unsigned with `http.cookie.secret` (`cookie-signature`);
    - an Express `s:`-signed cookie is taken from `req.signedCookies`;
@@ -102,7 +102,7 @@ A `trustProxy` entry that is no address or CIDR, and a malformed `publicOrigin`,
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `ClientIp` | `ServerMiddleware` list, `@Injectable(ServerMiddleware)`, `Order` 1 | `ClientIp` | | Subclass and `DI.register(MyClientIp).as(ClientIp)` before `HttpServer` resolves. |
-| `AuthnMiddleware` | `ServerMiddleware` list, registered by `registerAuthnHttpV3()` at package load, `Order` 5 | `AuthnMiddleware` | | Prefer adding an [extractor](02-credential-extractors.md) or a [resolver](03-principal-resolvers.md). Protected `restoreSession()`, `extract()`, `principalOf()` and `contextOf()` can be overridden in a subclass registered `.as(AuthnMiddleware)` before `HttpServer` resolves. |
+| `AuthnMiddleware` | `ServerMiddleware` list, registered by `registerAuthnHttpV3()` at package load, `Order` 5 | `AuthnMiddleware` | | Prefer adding an [extractor](02-credential-extractors.md) or a [resolver](03-principal-resolvers.md). Protected `authenticate()`, `restoreSession()`, `extract()` and `principalOf()` can be overridden in a subclass registered `.as(AuthnMiddleware)` before `HttpServer` resolves. |
 | `SessionIssuer` | autoinjected by `AuthnMiddleware` | `DefaultSessionIssuer` from `@spinajs/authn-session` | | See [`@spinajs/authn-session`](../authn-session/README.md). |
 | `CredentialExtractor` | `Array.ofType`, sorted by `order` once in `AuthnMiddleware.resolve()` | three shipped extractors | your own | See [Credential extractors](02-credential-extractors.md). |
 | `AuthnPrincipalResolver` | `Array.ofType`, sorted by `order` once in `AuthnMiddleware.resolve()` | three shipped resolvers | your own | See [Principal resolvers](03-principal-resolvers.md). |

@@ -157,7 +157,8 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 @NewInstance()
 export class NoCaseInStatement extends SqlInStatement {
   public build(): IQueryStatementResult {
-    if (this._val.length === 0) {
+    // a Wrap column (Wrapper.Text()) keeps the stock statement
+    if (this._val.length === 0 || typeof this._column !== 'string') {
       return super.build();
     }
 

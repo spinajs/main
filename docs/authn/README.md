@@ -71,7 +71,7 @@ export async function signIn(login: string, password: string, ip: string): Promi
 - [`@spinajs/authn-oidc`](../authn-oidc/README.md): OIDC and OAuth2 single sign-on, one `oidc:<provider>` strategy per provider.
 - [`@spinajs/authn-totp`](../authn-totp/README.md): `TotpMfaStep` and recovery codes.
 - [`@spinajs/authn-session`](../authn-session/README.md): `DefaultSessionIssuer`, the session cookie and expiration.
-- [`@spinajs/authn-orm`](../authn-orm/README.md): the database stores: `DbAuthnThrottle`, `DbAuthnAuditSink`, `DbIdentityLinkStore`, `DbSecretStore`, `DbMfaEnrolments`.
+- [`@spinajs/authn-orm`](../authn-orm/README.md): the database stores: `DbAuthnThrottle`, `DbAuthnAuditSink`, `DbIdentityLinkStore`, `DbSecretStore`, `DbNonceStore`, `DbMfaEnrolments`.
 - [`@spinajs/session-provider-db`](../session-provider-db/README.md), [`@spinajs/session-provider-redis`](../session-provider-redis/README.md), [`@spinajs/session-provider-dynamodb`](../session-provider-dynamodb/README.md): session stores for `authn-session`.
 - [`@spinajs/authn-testing`](../authn-testing/README.md): fakes, conformance suites and the behaviour rules for strategies and stores.
 - [`@spinajs/users`](../users/README.md): `IdentityStore`, `PasswordCredentialStore`, `PrincipalFactory`, the guards and the event sinks over the user model.

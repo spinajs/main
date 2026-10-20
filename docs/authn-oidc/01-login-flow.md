@@ -79,12 +79,12 @@ The answer must be HTTP 200 with a JSON object, `token_type` `Bearer` (any case)
 | --- | --- | --- |
 | Start succeeds | 302 to the provider, flow cookie set | 302 to the provider, flow cookie set |
 | Login succeeds | 200 HTML page that moves on to the return path; flow cookie cleared, session cookie set | 303 to the return path; same cookies |
-| Any failure | 303 to `authn.oidc.redirects.failure`, no reason in the URL; flow cookie cleared | 401 `{ "error": { "code": "E_AUTH_FAILED", "message": "login or password incorrect" } }`; flow cookie cleared |
+| Any failure | 303 to `authn.oidc.redirects.failure`, no reason in the URL; flow cookie cleared | 401 `{ "error": { "code": "E_AUTH_FAILED", "message": "login or password incorrect" }, "message": "login or password incorrect" }`; flow cookie cleared |
 | Throttled | as a failure, plus `Retry-After` | as a failure, plus `Retry-After` |
 
 - A request is a browser navigation when it sends `Sec-Fetch-Mode: navigate`, or an `Accept` header that lists `text/html`.
 - Every answer carries `Cache-Control: no-store`.
-- The 401 body equals the login route's body (`OIDC_FAILURE_BODY`), so a client cannot tell an OIDC failure from a wrong password.
+- The 401 body is the login route's body (`AUTHN_FAILURE_BODY` of `@spinajs/authn/contracts`), so a client cannot tell an OIDC failure from a wrong password.
 - The success page is a `<meta http-equiv="refresh">` page with `referrer` `no-referrer`. A `SameSite=Strict` session cookie does not travel on the cross-site redirect chain from the IdP, so the last hop starts on your site.
 - A core result `mfa_required` (a custom `MfaPolicy` that asks steps for `oidc` logins) sets the pending session cookie and moves on the same way. `DefaultMfaPolicy` asks no step for an `oidc` login: it requires steps for password logins only.
 
@@ -144,7 +144,7 @@ authn: {
 | --- | --- | --- | --- | --- |
 | Login routes | `OidcController`, found by the controller scan | `OidcController` | none | Not exported. Use `OidcLogin` from your own controller; see [Programmatic API](10-programmatic-api.md). |
 | Provider HTTP calls | `OidcHttpClient`, singleton | `FetchOidcHttpClient` | none shipped | See [Provider HTTP client](08-http-client.md). |
-| State store | `NonceStore` (`@spinajs/authn-orm`), singleton | `DbNonceStore` | `MemoryNonceStore` | See [Nonce store](../authn-orm/04-nonce-store.md). |
+| State store | `NonceStore` (`@spinajs/authn/contracts`), per child container | `DbNonceStore` (`@spinajs/authn-orm`) | `MemoryNonceStore` (`@spinajs/authn/nonces`) | See [Nonce store](../authn-orm/04-nonce-store.md). |
 | Core flow | `AuthnService` (`@spinajs/authn/contracts`) | `DefaultAuthnService` | none | See [`@spinajs/authn`](../authn/README.md). |
 | Session | `SessionIssuer` (`@spinajs/authn/contracts`) | from `@spinajs/authn-session` | session providers | See [Sessions](../authn-session/README.md). |
 

@@ -28,7 +28,7 @@ Related helpers:
 | `SIGNATURE_BYTES` | `64`, for both algorithms |
 | `decodeB64url(text)` / `encodeB64url(data)` | Strict unpadded base64url: one text form per value, `null` for anything else |
 | `parseStrictJson(bytes, uintKeys?)` | JSON as `serde_json` reads it, or `undefined` |
-| `isJsonObject(value)` | `true` for a non-array object |
+| `isJsonObject(value)` | `true` for a non-array object; deprecated, use `isPlainObject` from `@spinajs/util` |
 
 `parseStrictJson` refuses invalid UTF-8, lone surrogates (keys included), nesting deeper than 127, numbers beyond `f64`, and top-level `uintKeys` whose number is not written as a plain integer. A duplicate key keeps its last value. It never throws.
 
@@ -54,10 +54,10 @@ Success returns `{ ok: true, header, claims, key }`.
 
 `new LocalJwsSigner(privateJwks, { current? })` holds private JWKs the app loads, for example from a secret reference.
 
-1. Each JWK is checked: `kid` matches `isValidKid`, the public part passes `checkPublicJwk`, `d` is 32 bytes, the key loads, and the public part matches `d`. A failure throws, naming the `kid`.
-2. A `kid` given twice throws. `current` (default: the first key's `kid`) must be one of them.
+1. Each JWK is checked: `kid` matches `isValidKid`, the public part passes `checkPublicJwk`, `d` is 32 bytes, the key loads, and the public part matches `d`. A failure throws `InvalidArgument`, naming the `kid`.
+2. A `kid` given twice throws `InvalidArgument`. `current` (default: the first key's `kid`) must be one of them.
 3. `sign(claims, { typ, kid? })` signs with `kid` or the current key. It writes the header as `{"alg","kid","typ"}` in that order and the claims as `JSON.stringify` writes them, in your key order. EdDSA is deterministic, so the C8 golden tickets come out byte for byte.
-4. `sign` throws for an unknown `kid`, an empty `typ`, claims without string `iss` and `aud` and integer `iat < exp`, and claims a strict reader would refuse.
+4. `sign` throws `InvalidArgument` for an unknown `kid`, an empty `typ`, claims without string `iss` and `aud` and integer `iat < exp`, and claims a strict reader would refuse.
 5. `publicKeys()` returns the public `JwsKey`s, for a JWKS route or a verifier's key lookup.
 
 ## Configuration

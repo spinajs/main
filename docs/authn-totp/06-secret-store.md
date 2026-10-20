@@ -5,15 +5,15 @@
 ## How it works
 
 1. `MfaSecretStore` is an abstract class. No implementation is registered by the root entry.
-2. `import '@spinajs/authn-totp/db'` loads `DbMfaSecretStore`, decorated `@Singleton()` and `@Injectable(MfaSecretStore)`. It injects `DbMfaStore` of `@spinajs/authn-orm` and passes each call on to it.
+2. `import '@spinajs/authn-totp/db'` loads `DbMfaSecretStore`, decorated `@PerChildInstance()` and `@Injectable(MfaSecretStore)`. It injects `DbMfaStore` of `@spinajs/authn-orm` and passes each call on to it.
 3. `TotpMfaStep` resolves `MfaSecretStore` on first use (optional injection). With none registered, its first call throws `InvalidOperation` naming `MfaSecretStore` and `@spinajs/authn-totp/db`.
-4. Every store keys rows by `identityKey(id)` (`<type>:<id>`) and the step name (`totp`). Stores never encrypt or decrypt: they keep the cipher text `TotpMfaStep` hands them.
+4. Every store keys rows by `identityKey(id)` of `@spinajs/authn-orm/identity` (`<type>:<id>`) and the step name (`totp`). Stores never encrypt or decrypt: they keep the cipher text `TotpMfaStep` hands them.
 
 ### The contract
 
 | Method | Must do |
 | --- | --- |
-| `get(id, step)` | Return the `MfaRecord` (`secretEnc`, `keyId`, `confirmedAt`, `lastStep`, `createdAt`) or `null`. |
+| `get(id, step)` | Return the `MfaRecord` of `@spinajs/authn-orm`, re-exported as a type (`secretEnc`, `keyId`, `confirmedAt`, `lastStep`, `createdAt`), or `null`. |
 | `put(id, step, secretEnc, keyId)` | Insert an unconfirmed row, or replace an unconfirmed one (`lastStep` `null`, `createdAt` now), and return `true`. Never overwrite a confirmed row: return `false` and change nothing. |
 | `confirm(id, step, at?, expectedSecretEnc?)` | Set `confirmedAt` (default now) on an unconfirmed row that holds `expectedSecretEnc` when one is given. Return `true` only for the call that made the change: one atomic conditional write. |
 | `acceptStep(id, step, timeStep)` | Store `timeStep` when it is above `lastStep` and return `true`. Return `false` for a step at or below `lastStep`, and without a row. Atomic. |
@@ -23,9 +23,9 @@
 | `countRecoveryCodes(id)` | Count the unused codes. |
 | `removeRecoveryCodes(id)` | Delete every code of the identity. |
 
-### `identityKey(ref, maxLength = 100)`
+### Row key
 
-Returns `` `${ref.type}:${ref.id}` ``, the row key `DbMfaStore` uses. It throws `InvalidArgument` when `type` is empty or contains `:`, and when the key is longer than `maxLength` (the `identity` column holds 100 characters). It never truncates.
+`identityKey(ref, maxLength = 100)` of `@spinajs/authn-orm/identity`, a subpath that loads no migration or DB store, returns `` `${ref.type}:${ref.id}` ``, the row key `DbMfaStore` uses. It throws `InvalidArgument` when `type` is empty or contains `:`, and when the key is longer than `maxLength` (the `identity` column holds 100 characters). It never truncates.
 
 ## Schema
 
@@ -35,8 +35,8 @@ Returns `` `${ref.type}:${ref.id}` ``, the row key `DbMfaStore` uses. It throws 
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Secret store | `MfaSecretStore`, singleton | none; `DbMfaSecretStore` after `import '@spinajs/authn-totp/db'` | `MemoryMfaSecretStore` (in process, not registered) | `DI.register(MyStore).as(MfaSecretStore)` after the `/db` import and before the first TOTP call; or subclass `DbMfaSecretStore`. |
-| DB backend | `DbMfaStore` of `@spinajs/authn-orm`, singleton | `DbMfaStore` | | Replace it in `@spinajs/authn-orm`, or pass one to `new DbMfaSecretStore(db)`. |
+| Secret store | `MfaSecretStore`; `DbMfaSecretStore` is `@PerChildInstance()` | none; `DbMfaSecretStore` after `import '@spinajs/authn-totp/db'` | `MemoryMfaSecretStore` (in process, not registered) | `DI.register(MyStore).as(MfaSecretStore)` after the `/db` import and before the first TOTP call; or subclass `DbMfaSecretStore`. |
+| DB backend | `DbMfaStore` of `@spinajs/authn-orm`, `@PerChildInstance()` | `DbMfaStore` | | Replace it in `@spinajs/authn-orm`, or pass one to `new DbMfaSecretStore(db)`. |
 
 ### `DbMfaSecretStore`
 

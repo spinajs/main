@@ -8,7 +8,7 @@ The login runs inside `AuthnService.authenticate()` of the authn core. The steps
 
 1. A client posts `{ login, password }` to `POST /auth/login` ([`@spinajs/authn-http`](../authn-http/08-login-logout-and-mfa-routes.md)), or code calls `AuthnService.authenticate({ kind: 'password', login, password }, ctx)`.
 2. The core picks the strategies in `authn.strategies` that accept kind `password`: `LocalPasswordStrategy` when it is listed as `{ name: 'local', service: 'LocalPasswordStrategy' }`. A strategy that is not listed never runs.
-3. The core asks `LocalPasswordStrategy.throttleKeys(credentials, ctx)`. It answers an `account` key, the login normalised by `normalizeLogin()` (NFKC, trimmed, lower case), and an `account-ip` key. The core prefixes the account key with `login:`, rebuilds the `account-ip` key only when `ctx.ip` is set, and adds the `ip` key.
+3. The core asks `LocalPasswordStrategy.throttleKeys(credentials, ctx)`. It answers only an `account` key: the login normalised by `normalizeLogin()` (NFKC, trimmed, lower case). The core prefixes it with `login:`, builds the `account-ip` key itself when `ctx.ip` is set, and adds the `ip` key.
 4. The core calls `AuthnThrottle.attempt(keys, 'login')` **before** the password is checked. A refused attempt fails with `throttled` and a `Retry-After`, and no password is verified.
 5. `LocalPasswordStrategy.verify()` rejects bad input with one dummy argon2 verify:
    - a credential of another kind: `unsupported_credentials`, so the core tries the next strategy;

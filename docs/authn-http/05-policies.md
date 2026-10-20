@@ -36,7 +36,7 @@ They decide **who** may call, not **what** the caller may do. Permissions belong
 6. The password re-authenticates the session's identity with purpose `'reauth'`, counted in the `reauth` throttle. The login is the email from `IdentityStore.display(identity)`. A password over 1024 characters, an identity without an email, a wrong password or a throttled attempt: 401 with the [login failure body](17-answers-and-response-extensions.md#the-shared-401-body), without `Retry-After`.
 7. Success: passes; `assertFreshAuth` returns the verified credentials.
 
-`FreshAuth` removes `reauthPassword` from `req.body` and drops `req.rawBody` before the route runs, so the password never reaches the action, a model or a request log.
+`FreshAuth` takes the password with `takeReauthPassword(req)`: it removes `reauthPassword` from a plain-object `req.body` and drops `req.rawBody` before the route runs, so the password never reaches the action, a model or a request log.
 
 With a `maxAgeSeconds` stricter than `authn.freshAuth.maxAgeSeconds`, the password is verified through `AuthnService.reauthenticate()`; otherwise through `FreshAuthCheck.check()` of `@spinajs/authn`.
 
@@ -53,14 +53,14 @@ Both keys belong to [`@spinajs/authn`](../authn/13-configuration-and-boot-checks
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `Authenticated`, `NoSession`, `MfaSatisfied` | resolved by class from `@Policy`, default lifetime | the exported classes | | Subclass and `DI.register(Mine).as(Authenticated)` before `Controllers` resolves. |
-| `NotLoggedPolicy`, `NoTokenAuthPolicy`, `NoImpersonationPolicy`, `FreshAuth` | `@NewInstance()`: one instance per route | the exported classes | | As above. |
+| `Authenticated`, `NoSession`, `MfaSatisfied`, `NotLoggedPolicy`, `NoTokenAuthPolicy`, `NoImpersonationPolicy` | resolved by class from `@Policy`, default lifetime | the exported classes | | Subclass and `DI.register(Mine).as(Authenticated)` before `Controllers` resolves. |
+| `FreshAuth` | `@NewInstance()`: one instance per route | the exported class | | As above. |
 | `MfaPolicy` | named registration read from `authn.mfa.policy.service` | `DefaultMfaPolicy` from `@spinajs/authn` | your own | See [`@spinajs/authn`: MFA](../authn/04-mfa-policy-and-steps.md). |
 | `FreshAuthCheck`, `AuthnService`, `IdentityStore` | resolved per call by `assertFreshAuth` | from `@spinajs/authn` and `@spinajs/users` | | See [`@spinajs/authn`](../authn/README.md). |
 
 ## Important behaviour
 
-- **All policies of a route run at once.** A route that combines a group gate with `FreshAuth` would verify a password even while the gate answers 404. The package's own routes therefore call `assertFreshAuth()` inside the handler; do the same when a route has a gate policy.
+- **All policies of a route run at once.** A route that combines a group gate with `FreshAuth` would verify a password even while the gate answers 404. The package's own routes therefore run the check inside the handler (`freshAuthOrAnswer()`, over `assertFreshAuth()`, answering a failed re-authentication with the login failure body); do the same when a route has a gate policy.
 - **`FreshAuth` passes only session principals.** A per-request credential always looks fresh, so it is refused.
 - **`MfaSatisfied` treats an MFA policy refusal as `mfa_required`.** An enrolment the step list does not cover gives 403; any other policy error fails the request.
 - **No policy, no check.** A route without `Authenticated` is open to anonymous callers.

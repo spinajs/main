@@ -41,6 +41,8 @@ export * from './quoting.js';
 export * from './wrappers.js';
 export * from './helpers.js';
 export * from './model-driver.js';
+export * from './sql-helpers.js';
+export * from './expressions.js';
 export * from './fp.js';
 export * from './bootstrap.js';
 export * from './configuration-schema.js';

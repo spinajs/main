@@ -59,7 +59,7 @@ describe('dynamodb session provider: 3.0 item layout', function () {
     expect((await store.listBySubject(odd)).map((s) => s.SessionId)).to.deep.equal(['l-odd']);
   });
 
-  it('Creation persists as ISO text, Expiration as epoch ms (the TTL attribute), Data through the codec', async () => {
+  it('Creation persists as ISO text, Expiration as epoch seconds (the TTL attribute), Data through the codec', async () => {
     const store = await bootStore({ expiration: SLIDING });
     await store.truncate();
 
@@ -69,7 +69,7 @@ describe('dynamodb session provider: 3.0 item layout', function () {
 
     const item = fake.items.get('l-attrs')!;
     expect(DateTime.fromISO(item.Creation.S!).toMillis()).to.equal(creation.toMillis());
-    expect(item.Expiration).to.deep.equal({ N: `${expiration.toMillis()}` });
+    expect(item.Expiration).to.deep.equal({ N: `${expiration.toMillis() / 1000}` });
     expect(decodeSessionData(item.Data.S).get('k')).to.equal('v');
   });
 
@@ -82,7 +82,25 @@ describe('dynamodb session provider: 3.0 item layout', function () {
     expect(fake.ttlAttribute).to.equal('Expiration');
 
     await bootStore({ expiration: SLIDING });
-    expect(fake.sent.map((s) => s.command)).to.deep.equal(['DescribeTableCommand']);
+    expect(fake.sent.map((s) => s.command)).to.deep.equal(['DescribeTableCommand', 'DescribeTimeToLiveCommand']);
+  });
+
+  it('resolve() enables TTL on an existing table that has none', async () => {
+    await bootStore({ expiration: SLIDING });
+    fake.ttlAttribute = undefined;
+
+    await bootStore({ expiration: SLIDING });
+
+    expect(fake.ttlAttribute).to.equal('Expiration');
+  });
+
+  it('restore() returns null for an item without decodable Data', async () => {
+    const store = await bootStore({ expiration: SLIDING });
+    await store.truncate();
+    await store.save(session({ SessionId: 'l-bad', Expiration: DateTime.now().plus({ minutes: 5 }) }));
+    delete fake.items.get('l-bad')!.Data;
+
+    expect(await store.restore('l-bad')).to.be.null;
   });
 
   it('truncate removes every item and keeps the table and its TTL setting', async () => {

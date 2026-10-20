@@ -11,10 +11,10 @@
    1. `builder.toDB()` compiles to one `ICompilerOutput` or an array (multi-statement DDL). See [Query compilers](02-query-compilers.md).
    2. `logQuery()` writes the SQL at `trace` to the connection's own `orm-driver-<Name>` logger.
    3. `Perf.measure('orm.query', ...)` wraps `executeOnDb(expression, bindings, builder.QueryContext)`, labelled `driver` and `context`, with `sql` and `bindings` as fields.
-   4. An array is sent with `Promise.all`, one `executeOnDb()` per entry.
+   4. An array is sent one `executeOnDb()` per entry, sequentially and in order; the first failure stops the rest.
 5. **Result.** The promise resolves with what `executeOnDb()` returned for that `QueryContext` (rows or a status object). The builder hydrates models and runs after-hooks.
 
-Errors: a throw while compiling (inside `toDB()`) or logging is logged at `error` with the model name and query context, then re-thrown. A rejected `executeOnDb()` promise is returned as is, not logged here.
+Errors: a throw while compiling (inside `toDB()`) or logging is logged at `error` with the model name and query context, then re-thrown. A rejected `executeOnDb()` promise is not logged here and rejects as the driver rejected it: `UniqueViolation`, `ConstraintViolation` or `OrmException`; see [Duplicate keys](../orm/17-sql-helpers.md#duplicate-keys).
 
 ## Configuration
 
@@ -38,15 +38,18 @@ The SQL is the log message; bindings go to the structured `bindings` field only,
 
 | Member | Declared by | You implement | Purpose |
 | --- | --- | --- | --- |
-| `executeOnDb(stmt, params, context)` | `SqlDriver` | always | Send one statement with `?` placeholders; shape the result by `QueryContext`. |
+| `executeOnDb(stmt, params, context)` | `SqlDriver` | always | Send one statement with `?` placeholders; shape the result by `QueryContext`. Reject a unique or primary-key violation with `UniqueViolation`, another constraint failure with `ConstraintViolation`, anything else with `OrmException`. |
 | `connect()`, `disconnect()` | `OrmDriver` | always | Open and close the handle or pool. |
 | `ping()` | `OrmDriver` | always | Liveness probe for the health check. |
-| `supportedFeatures()` | `OrmDriver` | always | `{ events, insertReturning, insertIdIsFirstOfBatch? }`. |
+| `supportedFeatures()` | `OrmDriver` | always | `{ events, insertReturning, insertIdIsFirstOfBatch?, concurrentTransactions?, nativeJson? }`. |
 | `tableInfo(name, schema?)` | `OrmDriver` | always | Reflect a table into `IColumnDescriptor[]`, or `null` when it does not exist. |
 | `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` | `OrmDriver` | always | Transaction primitives. |
 | `resolve()` | `OrmDriver`, `SqlDriver` | always | Call `super.resolve()`, then register the dialect. |
 | `SupportedIsolationLevels` | `OrmDriver` | when transactions take an isolation level | Empty by default: every explicit level is rejected. |
 | `poolMetrics()`, `isRetryableError()` | `OrmDriver` | optional | Pool gauges; which errors `withReconnect()` retries. |
+| `lockTableShared(table)` | `OrmDriver` | optional | Keeps other writers off a table until the transaction ends. Call `assertInTransaction('lockTableShared')` first. The default throws `NotSupported`. |
+| `MaxBindings`, `MaxInsertRows` | `OrmDriver` | when the server has limits | Parameters per statement and rows per `VALUES` list; `InsertQueryBuilder`, `insertChunked()` and `deleteChunked()` stay under them. Default `Infinity`. |
+| `SqlExpressions` registration | `OrmDriver` registers the base | always | Register your subclass `.as(SqlExpressions)` in `resolve()`; the base throws `NotSupported` from every method. See [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions). |
 | `execute(builder)` | `SqlDriver` | no | Compile, log, measure, send. |
 | `logQuery(expression, bindings, builder)` | `SqlDriver` (protected) | optional | Override to log differently; it must never throw. |
 
@@ -65,7 +68,7 @@ The insert shape is a convention between your `executeOnDb()` and your `ServerRe
 
 ### What `SqlDriver.resolve()` registers
 
-All in the driver's own `this.Container`, after `OrmDriver.resolve()` registered `StandardModelToSqlConverter`, `StandardObjectToSqlConverter`, `JsonValueConverter`, `UuidConverter` and `UniversalValueConverter`.
+All in the driver's own `this.Container`, after `OrmDriver.resolve()` registered `StandardModelToSqlConverter`, `StandardObjectToSqlConverter`, `JsonValueConverter`, `UuidConverter`, `UniversalValueConverter` and the base `SqlExpressions`.
 
 | Token | Implementation |
 | --- | --- |
@@ -94,7 +97,7 @@ A driver that leaves one of these out makes that feature fail on first use rathe
 - Every registration is per connection. Two connections on different dialects coexist in one process because each driver owns its own child container.
 - A registration made after `super.resolve()` replaces the one `SqlDriver` made; one made before is replaced by it.
 - `execute()` is synchronous up to the returned promise: only compile errors land in its `catch`. Log database errors in `executeOnDb()` or wrap them in `OrmException`, as the shipped drivers do.
-- Multi-statement DDL (`ALTER TABLE` with several changes, table history, table clone) is sent with `Promise.all`. A pooled driver may run the statements on different connections in any order; do not rely on statement order unless your `executeOnDb()` serializes.
+- Multi-statement DDL (`ALTER TABLE` with several changes, table history, table clone) is sent sequentially in compile order. Outside a transaction a pooled driver may still use a different connection per statement.
 - `logQuery()` uses `this.Log?.trace(...)`: a driver used before `resolve()` has no logger and logs nothing instead of failing.
 - `Perf.measure('orm.query')` shares the `perf` logger with other spans. Route query logs by `orm-driver-<Name>`, not by `perf`.
 - The converters `SqlDriver` registers (`SqlDatetimeValueConverter`, `SqlBooleanValueConverter`, ...) are not exported from `@spinajs/orm-sql`. See [Value converters and default values](05-value-converters-and-defaults.md).

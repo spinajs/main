@@ -21,7 +21,7 @@ const TABLES = new Set<string>();
 /** The real driver with the server taken out: the reflection queries answer from TABLES. */
 class StrictMsSqlDriver extends MsSqlOrmDriver {
   public async executeOnDb(stmt: string, params: any[]): Promise<any> {
-    if (stmt.startsWith('SELECT * FROM INFORMATION_SCHEMA.COLUMNS') && TABLES.has(params[0] as string)) {
+    if (stmt.includes('FROM INFORMATION_SCHEMA.COLUMNS') && TABLES.has(params[0] as string)) {
       return [{ COLUMN_NAME: 'Id', DATA_TYPE: 'int', IS_NULLABLE: 'NO', COLUMN_DEFAULT: null }];
     }
 

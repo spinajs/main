@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import { principalKey } from '@spinajs/authz';
 import type { Ceiling, Decision, Permission, Principal, PrincipalRef, PrincipalType, ResourceRef, ResourceType } from '@spinajs/authz';
+import { isPlainObject as isObject } from '@spinajs/util';
 
 import type { FakeRow } from '../fakes/index.js';
 import { agentPrincipal } from '../principals.js';
@@ -93,6 +94,8 @@ export interface OrmModelSpec {
   readonly owner?: string;
   /** `@Parent(type, { nullable })` columns. */
   readonly parents?: readonly { readonly column: string; readonly type: ResourceType; readonly nullable?: boolean }[];
+  /** `@Relation(name)` columns. */
+  readonly relations?: readonly { readonly name: string; readonly column: string }[];
   /** Columns besides `id`. */
   readonly columns: readonly string[];
   readonly rows?: readonly FakeRow[];
@@ -116,22 +119,10 @@ export interface FsProviderSpec {
   readonly name: string;
   /** Files present at setup: path → content. */
   readonly files?: Readonly<Record<string, string>>;
-  /** Methods the provider has beyond the abstract `fs`, which no operation table maps. */
-  readonly extraMethods?: readonly string[];
-}
-
-/** An `FsPathResolver`: a path `<prefix><id>/…` of `fs` has the domain parent `{ type, id }`. */
-export interface FsResolverSpec {
-  /** The class name `authz.fs.<name>.resolver` refers to. */
-  readonly name: string;
-  readonly fs: string;
-  readonly prefix: string;
-  readonly type: ResourceType;
 }
 
 export interface FsWorld {
   readonly providers: readonly FsProviderSpec[];
-  readonly resolvers?: readonly FsResolverSpec[];
 }
 
 /** A `@Job(opts)` handler: it records `authz().current()` and checks each entry of `checks` as that principal. */
@@ -230,13 +221,13 @@ export interface OrmHandle {
   rows(model: string): Promise<readonly Readonly<Record<string, unknown>>[]>;
 }
 
-/** `{ fs }`: that filesystem as `getFs` returns it; `{ localFile }`: a local file outside every fs holding this content. */
-export type FsArg = string | number | null | readonly FsArg[] | { readonly fs: string } | { readonly localFile: string };
+/** `{ fs }`: that filesystem as `getFs` returns it; `{ localFile }`: a local file outside every fs holding this content; `{ exclusive }`: `upload` options, passed as they are. */
+export type FsArg = string | number | null | readonly FsArg[] | { readonly fs: string } | { readonly localFile: string } | { readonly exclusive: boolean };
 
 /** fs facet: methods of `getFs(name)` called in the current ALS; a stream result is drained or ended by the handle. */
 export interface FsHandle {
   call(fs: string, method: string, args: readonly FsArg[]): Promise<unknown>;
-  /** `getFs(name)` is the provider instance fsService created, not a guard. */
+  /** `getFs(name)` is the provider instance fsService created, with no wrapper around it. */
   isRaw(fs: string): boolean;
 }
 
@@ -399,8 +390,6 @@ const short = (v: unknown): string => {
   }
   return s.length > 300 ? `${s.slice(0, 299)}…` : s;
 };
-
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /**
  * `expected` is a pattern: an object matches when each of its keys matches; an array matches when each

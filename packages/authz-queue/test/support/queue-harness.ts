@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
-import { DefaultQueueService, Job, QueueClient, QueueJob, QueueService } from '@spinajs/queue';
+import { DefaultQueueService, Job, QueueClient, QueueJob, QueueMessageHook, QueueService, QueueTrackingHook } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
 import type { BehaviourHarness, HarnessSession, JobRun, JobSpec, QueueHandle, QueueMessage, QueuePeer } from '@spinajs/authz-testing';
 import { hostHarness, instantiateWorld, testHost } from '@spinajs/authz-testing';
@@ -11,6 +11,7 @@ import type { HostSetup } from '@spinajs/authz-testing';
 import { AuthorizationModel, AuthzClock, ChangeBus, DecisionAudit, RelationResolver, ResourceAdapter, ScopeResolver } from '@spinajs/authz';
 import type { AuthzService } from '@spinajs/authz';
 
+import { AuthzQueueHook, AuthzQueueTrackingHook } from '../../src/index.js';
 import { NodeBus, PeerQueueService } from './nodes.js';
 
 import { MemoryBroker, MemoryQueueClient } from './memory-client.js';
@@ -94,6 +95,14 @@ async function startPeer(host: HostSetup, connection: string): Promise<RunningPe
   };
 }
 
+// The hooks hold the AuthzDomains of the host that was installed when DI built them, and each case installs its own.
+function forgetHooks(): void {
+  DI.uncache(AuthzQueueHook);
+  DI.uncache(AuthzQueueTrackingHook);
+  DI.uncache(QueueMessageHook);
+  DI.uncache(QueueTrackingHook);
+}
+
 export function queueHarness(): BehaviourHarness {
   let seq = 0;
   let connection = '';
@@ -125,6 +134,7 @@ export function queueHarness(): BehaviourHarness {
 
     async extend(host, session: HarnessSession): Promise<Partial<HarnessSession>> {
       const authz = session.authz as unknown as AuthzService;
+      forgetHooks();
       const runs = new Map<string, JobRun>();
       const jobs = new Map<string, typeof QueueJob>();
 
@@ -180,6 +190,7 @@ export function queueHarness(): BehaviourHarness {
           DI.uncache(QueueClient);
           DI.uncache(MemoryQueueClient);
           DI.uncache(Orm);
+          forgetHooks();
         },
       };
     },

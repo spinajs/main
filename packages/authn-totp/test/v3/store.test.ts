@@ -4,27 +4,15 @@ import { createHash } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { DbMfaStore } from '@spinajs/authn-orm';
+import { DbMfaStore, identityKey } from '@spinajs/authn-orm';
 import { DbMfaSecretStore } from '../../src/db.js';
-import { identityKey, MemoryMfaSecretStore, MfaSecretStore } from '../../src/store/index.js';
+import { MemoryMfaSecretStore, MfaSecretStore } from '../../src/store/index.js';
 import { bootSqlite, clearMfaTables, rawQuery } from './support/sqlite.js';
 import type { SqliteDb } from './support/sqlite.js';
 
 const ALICE: IdentityRef = { type: 'user', id: '00000000-0000-4000-8000-000000000001' };
 const BOB: IdentityRef = { type: 'user', id: '00000000-0000-4000-8000-000000000002' };
 const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
-
-describe('v3 store: identityKey', () => {
-  it('is type:id', () => {
-    assert.strictEqual(identityKey(ALICE), 'user:00000000-0000-4000-8000-000000000001');
-    assert.strictEqual(identityKey({ type: 'service', id: 'a:b' }), 'service:a:b');
-  });
-
-  it('refuses an empty type or one holding ":"', () => {
-    assert.throws(() => identityKey({ type: '', id: 'x' }), InvalidArgument);
-    assert.throws(() => identityKey({ type: 'us:er', id: 'x' }), InvalidArgument);
-  });
-});
 
 interface StoreKind {
   readonly name: string;

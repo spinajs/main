@@ -1,18 +1,17 @@
-import { AuthzAdminFailure } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzDomains } from '@spinajs/authz';
 import { Config } from '@spinajs/configuration';
+import { Autoinject } from '@spinajs/di';
 import type { AuthzAdmin, AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, Principal, ResourceRef } from '@spinajs/authz';
 import { BadRequestResponse, BaseController, BasePath, Conflict, Del, ForbiddenResponse, Get, NotFound, Ok, Patch, Policy, Post, Put, Req } from '@spinajs/http';
 import type { Request, Response } from '@spinajs/http';
 import { IsAuthenticated } from '@spinajs/authz-http';
+import { isPlainObject } from '@spinajs/util';
 
 import '../schemas/provider.js';
 import { decodeCommand, decodeCommands } from '../routes/decode.js';
-import { domainAdmin } from '../routes/domain.js';
-import { readAssignmentsQuery, readPageQuery, readWriteOptions } from '../routes/query.js';
+import { readAssignmentsQuery, readHoldersQuery, readPageQuery, readWriteOptions } from '../routes/query.js';
 import type { QueryInput } from '../routes/query.js';
 import { adminErrorStatus, resultsStatus } from '../routes/status.js';
-
-const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 const PATCH_KEYS = ['tags', 'addTags', 'removeTags', 'expiresAt'] as const;
 const PATCH_KINDS = { tags: 'assignment.setTags', addTags: 'assignment.addTags', removeTags: 'assignment.removeTags' } as const;
@@ -41,7 +40,7 @@ function badRequest(message: string, field?: string): never {
 }
 
 function objectBody(body: unknown, what: string): Record<string, unknown> {
-  if (!isRecord(body)) badRequest(`the body must be ${what}`);
+  if (!isPlainObject(body)) badRequest(`the body must be ${what}`);
   return body;
 }
 
@@ -90,9 +89,12 @@ export class AuthzAdminController extends BaseController {
   @Config('authz.http.admin.domain')
   protected AdminDomain: string;
 
+  @Autoinject(AuthzDomains)
+  protected Domains: AuthzDomains;
+
   /** Runs a route on the domain's AuthzAdmin; an AuthzAdminFailure becomes its status with `{ error }`, anything else propagates. */
   protected async guarded(fn: (admin: AuthzAdmin) => Promise<Response>): Promise<Response> {
-    const admin = await domainAdmin(this.AdminDomain);
+    const admin = (await this.Domains.service(this.AdminDomain)).admin();
     try {
       return await fn(admin);
     } catch (e) {
@@ -148,6 +150,20 @@ export class AuthzAdminController extends BaseController {
   @Get('assignments')
   public async listAssignments(@Req() req: Request) {
     return this.list(req, () => readAssignmentsQuery(query(req)));
+  }
+
+  /**
+   * List holders
+   * Who holds a permission on a resource through role assignments on it, its ancestors or $global; each principal is verified by a fresh check.
+   * Query: `scope` (`<type>:<id>`), `permission`, `expandSets` (`true` or `false`), `limit`, `offset`.
+   * @response 200 {AuthzAdminPage} One page of holders
+   * @response 400 {AuthzAdminError} invalid_query: a malformed or missing query parameter
+   * @response 401 Unauthorized: a valid session or token is required
+   * @response 403 {AuthzAdminError} forbidden: the caller lacks authz:holders.read at the resource, or the resource is unknown
+   */
+  @Get('holders')
+  public async listHolders(@Req() req: Request) {
+    return this.list(req, () => readHoldersQuery(query(req)));
   }
 
   /**

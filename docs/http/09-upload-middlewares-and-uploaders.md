@@ -34,8 +34,8 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `FileUploadMiddleware` (abstract) | No list: each is resolved by the name or class in its descriptor; the class's own lifetime applies | `FileInfoMiddleware` (from `http.upload.middlewares`) | `FileValidationMiddleware`, `ZipFileTransformer`, `UnzipFileTransformer`, `AuthzUploadMiddleware` (`@spinajs/authz-fs`) | Extend it, implement `beforeUpload()`, register with `@Injectable()` (for string names) and list it in `options.middlewares` or `http.upload.middlewares`. Replace a shipped one with `DI.register(Mine).as(FileInfoMiddleware)`. |
-| `FormFileUploader` (abstract) | No list: resolved from `options.uploader` | `ImmediateFileUploader` (used for `options.fs`, not exported) | `HttpLazyFileUploader` (`@spinajs/http-lazy-file-uploader`) | Extend it, implement `upload()`, name it in `options.uploader`. |
+| `FileUploadMiddleware` (abstract) | No list: each is resolved by the name or class in its descriptor; the class's own lifetime applies | `FileInfoMiddleware` (from `http.upload.middlewares`) | `FileValidationMiddleware`, `ZipFileTransformer`, `UnzipFileTransformer`, `AuthzUploadMiddleware` ([`@spinajs/authz-fs`](../authz-fs/06-uploads-and-routes.md)) | Extend it, implement `beforeUpload()`, register with `@Injectable()` (for string names) and list it in `options.middlewares` or `http.upload.middlewares`. Replace a shipped one with `DI.register(Mine).as(FileInfoMiddleware)`. |
+| `FormFileUploader` (abstract) | No list: resolved from `options.uploader` | `ImmediateFileUploader` (used for `options.fs`) | `HttpLazyFileUploader` (`@spinajs/http-lazy-file-uploader`) | Extend it, implement `upload()`, name it in `options.uploader`. |
 
 ### Shipped middlewares
 
@@ -51,8 +51,8 @@ export default {
 | Rule | Type | Check |
 | --- | --- | --- |
 | `size.min`, `size.max` | `number` (bytes, inclusive) | `file.Size` |
-| `types` | `FileTypeEnum[]` | `Info.MimeType` equals one entry (case-insensitive); an entry ending in `/*` matches the category |
-| `proportions` | `FileProportions[]` (`'16:9'`, `'4:3'`, `'1:1'`, `'3:4'`, `'9:16'`, `'Free'`) | `Info.Width / Info.Height` within 1% of **every** listed ratio; `Free` is skipped |
+| `types` | `FileTypeEnum[]` | `Info.MimeType` equals one entry (case-insensitive); an entry ending in `/*` matches the category; `FileTypeEnum.any` (`*/*`) matches every type |
+| `proportions` | `FileProportions[]` (`'16:9'`, `'4:3'`, `'1:1'`, `'3:4'`, `'9:16'`, `'Free'`) | `Info.Width / Info.Height` within 1% of **any** listed ratio; `Free` matches every image |
 | `resolution.minWidth`, `maxWidth`, `minHeight`, `maxHeight` | `number` (pixels) | `Info.Width`, `Info.Height` |
 
 ### `FileUploadMiddleware`: custom implementation
@@ -151,13 +151,10 @@ export class InboxController extends BaseController {
 ## Important behaviour
 
 - Middlewares run in descriptor order, and every file passes one middleware before the next middleware starts.
-- `file.Provider` is the **target** provider (`options.fs`) during the middlewares, while the file itself is still in the upload directory. `ZipFileTransformer` and `UnzipFileTransformer` work on `file.Provider`, so they only work when `options.fs` is not set (the target is the upload directory).
-- `FileValidationMiddleware` with several `proportions` requires the image to match all of them; list one ratio per route.
-- `FileTypeEnum.any` (`'*/*'`) matches nothing in `FileValidationMiddleware`: the wildcard rule compares the category before `/*`, here `*`.
+- `file.Provider` is the default upload provider during the middlewares, where the temporary file is; it becomes the `options.fs` provider only for the copy step and the uploader.
 - `FileInfoMiddleware` only acts when the route sets `fileInfo: true`, even though it runs on every upload by default.
 - The DI cache is keyed by class **name**: an upload middleware and a data transformer both named `TestTransformer` collide.
 - An uploader is resolved per request with `[options]`. A singleton uploader (such as `HttpLazyFileUploader`, `@Injectable()` only) keeps the options of its first resolve; use one options set per uploader class, or make your uploader `@NewInstance()`.
-- `ImmediateFileUploader` is not exported from the package entry; it runs automatically for `options.fs`.
 
 ## Best practices
 
@@ -220,4 +217,4 @@ export class CoversController extends BaseController {
 - [File uploads](08-file-uploads.md): the full upload flow and `IUploadOptions`.
 - [`@spinajs/fs`](../fs/README.md): providers, `copy`, `zip`, `FileInfoService`.
 - [`@spinajs/http-lazy-file-uploader`](../http-lazy-file-uploader/README.md): an uploader that copies in a background job.
-- `@spinajs/authz-fs`: `AuthzUploadMiddleware`, a write-permission check on uploads.
+- [`@spinajs/authz-fs`](../authz-fs/06-uploads-and-routes.md): `AuthzUploadMiddleware`, a write-permission check on uploads.

@@ -43,7 +43,7 @@ Over HTTP, `POST user/mfa/recovery-codes` with `{ reauthPassword? }` calls it.
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Code storage | `MfaSecretStore`, singleton | `DbMfaSecretStore` | `MemoryMfaSecretStore` | Implement `replaceRecoveryCodes`, `redeemRecoveryCode`, `countRecoveryCodes`, `removeRecoveryCodes`; see [Secret store](06-secret-store.md). |
+| Code storage | `MfaSecretStore`; `DbMfaSecretStore` is `@PerChildInstance()` | `DbMfaSecretStore` | `MemoryMfaSecretStore` | Implement `replaceRecoveryCodes`, `redeemRecoveryCode`, `countRecoveryCodes`, `removeRecoveryCodes`; see [Secret store](06-secret-store.md). |
 
 ## Important behaviour
 

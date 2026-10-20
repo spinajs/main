@@ -100,6 +100,7 @@ An ABAC policy then uses it: `when: { not: { fn: 'weekday.in', args: { days: ['s
 - **A missing attribute fails closed.** A deny on `principal.attributes.dept eq 'ops'` also denies a principal with no `dept`, because UNKNOWN binds against the allow. To deny only ops, add `{ attr: 'principal.attributes.dept', null: false }` next to it.
 - **`scope.*` refs that resolve missing make the vote indeterminate** (B39): an unknown node, no ancestor of the type, an absent attribute. On a type-level request only `scope.$global.*` resolves; the rest needs the row (B19).
 - **`resource.*` keeps lists honest.** A permission declared `list: true` cannot be granted by a condition that reads `resource.*`: boot rule 12 and the admin write refuse it.
+- **Functions come from the domain's container.** A condition may call every `ConditionFunction` the domain's container sees: its own registrations and those of its ancestors, root included (`registeredFunctions(container)`; the built-ins when it sees none). ABAC policies and RBAC rule conditions are checked the same way. A function registered only in a child domain is unknown in the root.
 - **Functions see read-only views.** A function cannot change the principal or `env`; reading an uncacheable path through them makes the decision uncacheable.
 - **Function caches are bounded.** `ip.in` keeps at most 256 parsed range lists; `time.between` caches zone formatters.
 

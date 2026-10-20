@@ -28,7 +28,7 @@ Every route that authenticates someone answers with the same principal summary, 
 
 ### The shared 401 body
 
-`AUTHN_FAILURE_BODY` is frozen:
+`AUTHN_FAILURE_BODY` is defined in `@spinajs/authn/contracts` and re-exported by this package. It is frozen:
 
 ```json
 { "error": { "code": "E_AUTH_FAILED", "message": "login or password incorrect" }, "message": "login or password incorrect" }

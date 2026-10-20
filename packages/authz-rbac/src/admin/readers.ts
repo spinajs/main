@@ -1,9 +1,11 @@
-import { AuthzAdminFailure, AuthzAdminReader } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzAdminReader, readRef } from '@spinajs/authz';
 import type { AdminContext, AuthzAdminQuery, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { AssignmentSubject } from '../contracts.js';
-import { assignmentStore, isPlainObject, linkStore, quote, readRef, readSubject, ruleStore } from './common.js';
+import { assignmentStore, isPlainObject, linkStore, quote, ruleStore } from './common.js';
+import { readSubject } from './fields.js';
+import { listHolders } from './holders.js';
 import type { Page } from './ports.js';
 
 // AuthzAdmin passes a checked page; a direct caller gets the admin's default.
@@ -32,7 +34,7 @@ function asQuery<T>(read: () => T): T {
 @Singleton()
 @Injectable(AuthzAdminReader)
 export class RbacAdminReader extends AuthzAdminReader {
-  readonly kinds = ['assignments', 'links', 'rules'] as const;
+  readonly kinds = ['assignments', 'links', 'rules', 'holders'] as const;
 
   async list(q: AuthzAdminQuery, ctx: AdminContext): Promise<{ items: readonly unknown[]; total: number }> {
     switch (q.kind) {
@@ -51,6 +53,8 @@ export class RbacAdminReader extends AuthzAdminReader {
       }
       case 'rules':
         return (await ruleStore(ctx)).find({ scope: scopeOf(q) }, pageOf(q));
+      case 'holders':
+        return listHolders({ permission: q.permission, scope: asQuery(() => readRef(q.scope, 'scope')), expandSets: q.expandSets === true, page: pageOf(q) }, ctx);
       default:
         throw new AuthzAdminFailure('not_found', `RbacAdminReader does not answer ${quote(q.kind)}`, 'kind');
     }

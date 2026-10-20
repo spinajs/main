@@ -9,7 +9,7 @@ It is **not** used by the scan decorators, and it is not available in the `brows
 1. `new TypescriptCompiler(filename)` calls `ts.createProgram([filename], { module: NodeNext, target: Latest })` at once. No `tsconfig.json` is read. The path can be absolute or relative to the working directory, with `/` or `\`.
 2. `getClassMembers(className)` takes the program's source file for `filename`.
 3. It walks the file's top-level statements and stops at every `ClassDeclaration` named `className`.
-4. For each member of that class that is a `MethodDeclaration`, it stores the node under `method.name.text`.
+4. For each member of that class that is a `MethodDeclaration`, it stores the node under `method.name.text`, or under the source text of a computed name.
 5. It returns the `Map<string, any>`; the values are `ts.MethodDeclaration` nodes.
 
 ## API
@@ -27,7 +27,7 @@ What `getClassMembers()` returns for each kind of member:
 | `static` method | Yes, under its name |
 | `#private` method | Yes, under `#name` |
 | Overloaded method | Once; the last declaration, which is the implementation |
-| Computed name, eg. `[Symbol.iterator]()` | Yes, under the key `undefined` |
+| Computed name, eg. `[Symbol.iterator]()` | Yes, under its source text, eg. `[Symbol.iterator]` |
 | Constructor, property, getter, setter | No |
 | A class inside a `namespace`, function or class expression | Not found |
 
@@ -64,7 +64,7 @@ export class ActionSignatureReader extends TypescriptCompiler {
     const methods = this.getClassMembers(className) as Map<string, ts.MethodDeclaration>;
 
     return [...methods.entries()]
-      .filter(([name]) => typeof name === 'string' && !name.startsWith('#'))
+      .filter(([name]) => !name.startsWith('#') && !name.startsWith('['))
       .map(([name, method]) => ({
         name,
         parameters: method.parameters.map((p) => ({
@@ -102,7 +102,7 @@ for (const action of reader.getActions('InvoiceController')) {
 
 - Cast the result to `Map<string, ts.MethodDeclaration>` and use the `ts.is*()` guards on its nodes.
 - Run it at build or cache-generation time, not per request.
-- Skip keys that are not strings, or that start with `#`, when you list public methods.
+- Skip keys that start with `#` or `[` when you list public methods.
 
 ## Related
 

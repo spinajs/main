@@ -4,9 +4,9 @@ import { isIPv4 } from 'node:net';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { _is_string, _max_length, _reg_match, _try_check_arg } from '@spinajs/util';
+import { _is_string, _max_length, _reg_match, _try_check_arg, isPlainObject, toEpochMs } from '@spinajs/util';
 import { AuthenticationStrategy } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, ExternalSubject, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { createLocalJWKSet, createRemoteJWKSet, customFetch, decodeJwt, decodeProtectedHeader, jwtVerify } from 'jose';
@@ -64,7 +64,6 @@ const JWKS_TIMEOUT_MS = 5_000;
 const ALGORITHM_CURVES: Readonly<Record<string, string>> = { ES256: 'P-256', ES384: 'P-384', ES512: 'P-521', EdDSA: 'Ed25519' };
 const MIN_RSA_BITS = 2048;
 
-const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const codeOf = (err: unknown): unknown => (err as { code?: unknown } | null)?.code;
 
 function isLoopback(hostname: string): boolean {
@@ -87,7 +86,7 @@ function remoteKeys(url: URL, onFetchFailure: (err: unknown) => void): JWTVerify
 
   const fetchJwks: FetchImplementation = async (href, init) => {
     if (Date.now() < failedAt + JWKS_REFRESH_MS) {
-      throw new Error('JWKS fetch skipped after a recent failure');
+      throw new UnexpectedServerError('JWKS fetch skipped after a recent failure');
     }
     let response: Response;
     try {
@@ -96,7 +95,7 @@ function remoteKeys(url: URL, onFetchFailure: (err: unknown) => void): JWTVerify
       return failed(err);
     }
     if (response.status !== 200) {
-      return failed(new Error(`JWKS answered HTTP ${response.status}`));
+      return failed(new UnexpectedServerError(`JWKS answered HTTP ${response.status}`));
     }
     let body: string;
     let json: unknown;
@@ -107,7 +106,7 @@ function remoteKeys(url: URL, onFetchFailure: (err: unknown) => void): JWTVerify
       return failed(err);
     }
     if (!isPlainObject(json) || !Array.isArray(json.keys) || !json.keys.every(isPlainObject)) {
-      return failed(new Error('JWKS body is not a JSON Web Key Set'));
+      return failed(new UnexpectedServerError('JWKS body is not a JSON Web Key Set'));
     }
     return new Response(body, { status: 200 });
   };
@@ -162,29 +161,30 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
       // A shared provider would let one issuer claim the subjects, and so the links, of another. The schema cannot
       // judge it: a derived provider is not in the config, and uniqueItemProperties counts a missing provider as a value.
       if (providers.has(issuer.provider)) {
-        throw new Error(`${at}: provider ${issuer.provider} is used by another issuer`);
+        throw new InvalidOption(`${at}: provider ${issuer.provider} is used by another issuer`);
       }
       if (issuers.has(issuer.issuer)) {
-        throw new Error(`${at}: issuer ${issuer.issuer} is configured twice`);
+        throw new InvalidOption(`${at}: issuer ${issuer.issuer} is configured twice`);
       }
       issuers.set(issuer.issuer, issuer);
       providers.add(issuer.provider);
     });
     this.issuers = issuers;
+    await super.resolve();
   }
 
   protected issuerOf(o: ConfiguredIssuer, at: string): Issuer {
     // The schema is the gate; this floor holds for values that never went through it (jose skips the aud check without an audience).
     if (typeof o.audience !== 'string' || o.audience.length === 0) {
-      throw new Error(`${at}.audience must be a non-empty string`);
+      throw new InvalidOption(`${at}.audience must be a non-empty string`);
     }
     if (!(Number.isInteger(o.clockSkewSeconds) && o.clockSkewSeconds >= 0 && o.clockSkewSeconds <= 60)) {
-      throw new Error(`${at}.clockSkewSeconds must be an integer from 0 to 60`);
+      throw new InvalidOption(`${at}.clockSkewSeconds must be an integer from 0 to 60`);
     }
     const provider = o.provider ?? `jwt:${o.issuer}`;
     // The schema bounds an explicit provider; a derived one is the issuer plus a prefix.
     if (provider.length > MAX_PROVIDER) {
-      throw new Error(`${at}.provider must be at most ${MAX_PROVIDER} characters`);
+      throw new InvalidOption(`${at}.provider must be at most ${MAX_PROVIDER} characters`);
     }
     const algorithms = [...o.algorithms];
     const keys = o.jwksUri !== undefined ? this.remoteOf(o.jwksUri, o.issuer, at) : createLocalJWKSet({ keys: this.publicKeysOf(o.keys ?? [], algorithms, at) });
@@ -196,10 +196,10 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
     try {
       url = new URL(jwksUri);
     } catch {
-      throw new Error(`${at}.jwksUri must be a URL`);
+      throw new InvalidOption(`${at}.jwksUri must be a URL`);
     }
     if (!(url.protocol === 'https:' || (url.protocol === 'http:' && isLoopback(url.hostname)))) {
-      throw new Error(`${at}.jwksUri must use https (http only for a loopback host)`);
+      throw new InvalidOption(`${at}.jwksUri must use https (http only for a loopback host)`);
     }
     return remoteKeys(url, (err) => this.Log.warn({ error: err, issuer }, 'Could not fetch the JWKS of JWT issuer ${issuer}'));
   }
@@ -212,14 +212,14 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
       try {
         modulusLength = createPublicKey({ key: key as NodeJwk, format: 'jwk' }).asymmetricKeyDetails?.modulusLength;
       } catch {
-        throw new Error(`${atKey} is not a valid public JWK`);
+        throw new InvalidOption(`${atKey} is not a valid public JWK`);
       }
       if (key.kty === 'RSA' && !((modulusLength ?? 0) >= MIN_RSA_BITS)) {
-        throw new Error(`${atKey} is an RSA key under ${MIN_RSA_BITS} bits`);
+        throw new InvalidOption(`${atKey} is an RSA key under ${MIN_RSA_BITS} bits`);
       }
       const candidates = key.alg !== undefined ? [key.alg] : algorithms;
       if (!candidates.some((alg) => algorithmFits(alg, key.kty, key.crv))) {
-        throw new Error(`${atKey} fits none of the issuer's algorithms`);
+        throw new InvalidOption(`${atKey} fits none of the issuer's algorithms`);
       }
       return { ...key };
     });
@@ -271,8 +271,8 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
 
     try {
       // Checked here so the strategy fails closed whatever the jose version does with an invalid currentDate.
-      const now: number = Date.prototype.getTime.call(ctx.now);
-      if (!Number.isFinite(now)) {
+      const now = toEpochMs(ctx.now);
+      if (now === undefined) {
         return { ok: false, reason: 'invalid_credentials' };
       }
 

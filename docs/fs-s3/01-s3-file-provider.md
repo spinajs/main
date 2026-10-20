@@ -8,7 +8,7 @@
 2. `fsService.resolve()` (from `@spinajs/fs`) reads `fs.providers`, finds the type registered under `fs` whose class name equals the entry's `service` (`fsS3`), and calls `DI.resolve(fsS3, [entry])`.
 3. `@PerInstanceCheck()` makes DI create one `fsS3` per provider `name`: `fs.__checkInstance__()` compares the cached instance's `Name` with `entry.name`.
 4. `fsS3.resolve()` creates an `S3Client` from `fs.s3.config` and routes the AWS SDK logger to the `fs` logger. Credentials are masked in the debug log.
-5. `fsS3.ensureBucketExists()` sends `HeadBucketCommand`. On `NotFound` or HTTP 404 it sends `CreateBucketCommand`, unless `createBucketIfNotExists` is `false`, which throws `IOFail`. Any other error (403, network) is logged and rethrown.
+5. `fsS3.ensureBucketExists()` sends `HeadBucketCommand`. On `NotFound` or HTTP 404 it sends `CreateBucketCommand` (with `LocationConstraint` set to the client region outside `us-east-1`), unless `createBucketIfNotExists` is `false`, which throws `IOFail`. Any other error (403, network) is logged and rethrown.
 6. When the entry has a `signer`, `fsS3.resolve()` resolves it by name. See [Signed URLs](04-signed-urls.md).
 7. `fsService` publishes the instance under `__file_provider_instance__`; `@FileSystem('<name>')`, `getFs('<name>')` and `DI.resolve('__file_provider__', ['<name>'])` return it.
 
@@ -44,7 +44,7 @@ sequenceDiagram
 | `fs.providers[].signer` | `object` | none | see [Signed URLs](04-signed-urls.md) | Enables `signedUrl()` and `getSignedUrl()`. |
 | `fs.defaultProvider` | `string` | none, required by `fsService` | a provider name | Provider used when none is named. |
 
-The provider also needs `fs-temp-s3`; see [Temporary files](02-temporary-files.md).
+The provider also needs `fs-temp-s3`, which the package config ships; see [Temporary files](02-temporary-files.md).
 
 ```ts
 fs: {
@@ -68,25 +68,26 @@ fs: {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `fsS3` | `'fs'` and `fsS3`; `PerInstanceCheck`, one instance per provider `name`, created by `fsService` at boot | `fsS3` | other `fs` providers: `fsNative`, `fsTemp`, `@spinajs/fs-ftp`, `@spinajs/fs-onedrive` | Subclass it with `@Injectable('fs')` and `@PerInstanceCheck()` and set `service` to the subclass name. See [Custom S3 provider](05-custom-s3-provider.md). |
-| `FsDecorator` (from `@spinajs/fs`) | `Array.ofType(FsDecorator)`, applied by `fsService` after all providers exist | none | access guards, auditing wrappers | Applies to `fsS3` like to any provider; `getFs()` returns the decorated instance. |
+| `FsMiddleware` (from `@spinajs/fs`) | `Array.ofType(FsMiddleware)`, resolved on every top-level action | none | `AuthzFsMiddleware` (`@spinajs/authz-fs`), auditing middlewares | Applies to `fsS3` like to any provider; `getFs()` returns the `fsS3` instance itself. See [Middlewares](../fs/07-middlewares.md). |
 
 ## Operations
 
 | Method | S3 call | Behaviour |
 | --- | --- | --- |
-| `write(path, data, encoding?)` | `Upload` (multipart) | Stores `hash` (SHA-256) and `md5` metadata. Sets `ContentEncoding` to `encoding`. |
-| `writeStream(path, encodingOrStream?, encoding?)` | `Upload` with a `PassThrough` body | Returns the `PassThrough`. It emits `close` when the upload finished, and is destroyed with `IOFail` when the upload fails. Stores no hash metadata. |
-| `upload(srcPath, destPath?)` | `Upload` | `srcPath` must be an **absolute** local path. `destPath` defaults to `basename(srcPath)`. Stores file info and hashes; see [Object metadata](03-object-metadata.md). |
+| `write(path, data, encoding?)` | `Upload` (multipart) | Stores `hash` (SHA-256) and `md5` metadata. A string `data` is stored as bytes in `encoding` (default `utf8`). |
+| `writeStream(path, encodingOrStream?, encoding?)` | `Upload` with a `PassThrough` body | Returns the `PassThrough`, whose default string encoding is `encoding`. It emits `close` when the upload finished, and is destroyed with `IOFail` when the upload fails. Stores no hash metadata. |
+| `upload(srcPath, destPath?)` | `Upload` | `srcPath` must be an **absolute** local path. `destPath` defaults to `basename(srcPath)`. Sets `ContentType` to the detected `MimeType`. Stores file info and hashes; see [Object metadata](03-object-metadata.md). |
 | `read(path, encoding?)` | `GetObject` | Downloads to `fs-temp-s3`, reads, deletes the local copy. |
 | `readStream(path, encoding?)` | `GetObject` | Returns the response body. With `encoding`, pipes it through `iconv-lite` `decodeStream`. |
 | `download(path)` | `GetObject` | Writes to a `fs-temp-s3` temp path with the same extension and returns that local path. The caller deletes it. |
 | `append(path, data, encoding?)` | `GetObject` + `Upload` | Downloads, appends locally, uploads the whole file again. |
 | `exists(path)` | `HeadObject` | `false` on a `NotFound` error; any other error is rethrown. |
 | `stat(path)` | `HeadObject` | `IsFile: true`, `IsDirectory: false`, `Size` from `ContentLength`, `ModifiedTime` from `LastModified`, `Version` from `ETag`. |
-| `copy(path, dest, dstFs?)` | `CopyObject`, or download + `dstFs.upload()` | Without `dstFs`, a server-side copy in the same bucket. With `dstFs`, a download and an upload. |
+| `copy(path, dest, dstFs?)` | `CopyObject`, or download + `dstFs.upload()` | Without `dstFs`, a server-side copy in the same bucket; the key in `CopySource` is URL-encoded per segment. With `dstFs`, a download and an upload. |
 | `move(old, new, dstFs?)`, `rename(old, new)` | `copy()` then `rm()` | Two steps, not atomic. |
 | `rm(path)` | `DeleteObject` | Deletes one key. It does **not** delete a prefix. |
-| `list(path)` | `ListObjectsV2` with `Delimiter: '/'` | Full keys directly under the prefix `path`. |
+| `list(path)` | `ListObjectsV2` with `Delimiter: '/'` | Full keys directly under the prefix `path`, from every result page. `doList` adds the trailing `/` to a non-empty `path` itself. |
+| `hasEntries(path)` | `ListObjectsV2`, `MaxKeys: 1`, no delimiter | `true` when any key lives under `path/`, nested keys included. |
 | `metadata`, `getMetadata`, `setMetadata`, `hash` | `HeadObject`, `CopyObject` | See [Object metadata](03-object-metadata.md). |
 | `signedUrl`, `getSignedUrl` | signer | See [Signed URLs](04-signed-urls.md). |
 | `zip`, `unzip` | `GetObject` | Work on local copies; see [Temporary files](02-temporary-files.md). |
@@ -95,21 +96,20 @@ fs: {
 | `isDir()` | none | Always `false`. |
 | `tmppath()` | none | Throws `MethodNotImplemented`. Use `fs-temp-s3`. |
 | `resolvePath(path)` | none | Returns an absolute path unchanged; throws `MethodNotImplemented` for anything else. |
-| `dispose()` | none | Disposes `fs-temp-s3` and destroys the `S3Client`, so the process can exit. |
+| `dispose()` | none | Destroys the `S3Client`, so the process can exit. `fs-temp-s3` is a separate provider and is not disposed. |
 
 ## Important behaviour
 
 - **One AWS client config for all buckets.** Every `fsS3` provider reads `fs.s3.config`. Buckets in other accounts or regions need a subclass; see [Custom S3 provider](05-custom-s3-provider.md).
 - **A missing bucket is created by default.** Set `createBucketIfNotExists: false` in production, where the bucket and its policies come from infrastructure code.
-- **`CreateBucketCommand` carries no `LocationConstraint`.** Outside `us-east-1`, AWS can reject it; create the bucket outside the application.
-- **No `Content-Type` is set** by `write`, `writeStream` or `upload`. S3 stores its default, which browsers then receive from signed URLs.
-- **`ContentEncoding` is set to the Node encoding name** (`utf8`) passed to `write` or `writeStream`, not to an HTTP content coding.
-- **`list()` is shallow and unpaginated.** Keys under deeper prefixes and sub-prefixes are not returned, and only the first page (up to 1000 keys) is read.
-- **`copy()` without `dstFs` puts the key in `CopySource` unencoded.** Keys with spaces or non-ASCII characters can fail; `setMetadata()` encodes them.
-- **`stat()` has no creation or access time.** `CreationTime` and `AccessTime` are `DateTime.min()` with no arguments, which is `undefined`.
+- **No `Content-Type` is set** by `write` or `writeStream`. S3 stores its default, which browsers then receive from signed URLs. `upload()` sets the detected `MimeType` when file info found one.
+- **`isDir` is always `false` and `dirExists` always `true`.** A middleware's `ctx.isDir(target)` is `false` for every key, so `AuthzFsMiddleware` drops only that key's `fs_acl` rows on `rm` ([File ACL](../authz-fs/03-file-acl.md)).
+- **Calls inside an action are unchecked.** `read()` calls `download()`, `copy()` calls `dstFs.upload()` and the `fs-temp-s3` calls run inside the action frame, so middlewares see only the outer call.
+- **`list()` is shallow.** Keys under deeper prefixes and the sub-prefixes themselves are not returned.
+- **`stat()` has no creation or access time.** `CreationTime` and `AccessTime` are `undefined`.
 - **`stat().Version` is the ETag.** For multipart uploads it is not the content MD5; compare it only for equality.
+- **`upload(src, dest, { exclusive: true })` is a conditional write.** The check of every middleware runs first, before the conditional write. The provider then sends `IfNoneMatch: '*'`; the 412 or 409 that S3 returns for an existing key becomes `ResourceDuplicated`. An S3-compatible store without conditional writes may overwrite.
 - **Errors are AWS SDK errors.** A missing key on `read`, `stat` or `getMetadata` rejects with the SDK's `NotFound` or `NoSuchKey` error, not with an `@spinajs/exceptions` type.
-- **`dispose()` disposes the shared `fs-temp-s3`.** Disposing one `fsS3` stops temp cleanup for every other provider that uses it.
 
 ## Best practices
 

@@ -15,7 +15,6 @@ npm install @spinajs/session-provider-redis @spinajs/authn-session ioredis
 | Feature | What it does |
 | --- | --- |
 | [Redis session store](01-redis-session-store.md) | `RedisSessionStore`: selection by `authn.session.service`, the connection config, the key layout, save, restore, the compare-and-set touch, revocation by subject, truncate |
-| [2.x sessions and the boot sweep](02-legacy-session-sweep.md) | `sweepLegacy()`: indexes rows written by 2.x so a ban or password reset reaches them, and the rolling-upgrade window |
 | [Extending the Redis store](03-extending-the-redis-store.md) | Every extension point: the `SessionProvider` token, subclassing `RedisSessionStore`, the `createClient()` hook, the key layout hooks, the expiration strategy |
 
 ## Quick start
@@ -54,7 +53,7 @@ Importing `@spinajs/session-provider-redis` registers `RedisSessionStore`. `auth
 
 ## Related packages
 
-- [`@spinajs/authn`](../authn-session/README.md): the session contract, the issuer, ids, states and revocation this store serves.
+- [`@spinajs/authn-session`](../authn-session/README.md): the session contract, the issuer, ids, states and revocation this store serves.
 - [`@spinajs/session-provider-db`](../session-provider-db/README.md), [`@spinajs/session-provider-dynamodb`](../session-provider-dynamodb/README.md): the other shipped `SessionProvider` stores.
 - [`@spinajs/configuration`](../configuration/08-config-selected-services.md): how `@AutoinjectService` picks the store by name.
 - [`@spinajs/log`](../log/README.md): the `redis-session-store` logger the store writes to.

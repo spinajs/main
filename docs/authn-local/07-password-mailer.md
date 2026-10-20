@@ -5,9 +5,9 @@
 ## How it works
 
 1. A flow needs a mail: `requestReset()` (deferred), `invite()`, or `expire()` with `cause: 'aged'` or `sendReset: true`.
-2. `LocalPasswordService.mailer()` checks `DI.check(PasswordMailer)` and resolves it. None registered: a warning is logged, **no secret is issued**, and the event records the failure reason `no_mailer`.
+2. `LocalPasswordService.mailer()` answers the optional `@Autoinject(PasswordMailer)` property, set when a mailer was registered when the service was built. None: a warning is logged, **no secret is issued**, and the event records the failure reason `no_mailer`.
 3. `IdentityStore.display(id)` gives the recipient's `email` and `name`.
-4. `SecretStore.issue(id, purpose, ttlSeconds)` returns the raw secret.
+4. `SecretStore.issue(id, purpose, ttlSeconds)` returns the raw secret. Without a `SecretStore` this step throws `InvalidOperation`.
 5. `PasswordMailer.send(mail)` runs at once with a `PasswordMail`.
 
 | Field | Type | Meaning |
@@ -41,7 +41,7 @@ The default mailer's own keys (`email.password.*`) are on [Password mails](../em
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Mailer | `PasswordMailer`, resolved per mail; optional | `EmailPasswordMailer`, registered by `@spinajs/users`' `RbacBootstrapper` only when none is registered | your `PasswordMailer` | `DI.register(MyMailer).as(PasswordMailer)`. Registered before the users bootstrapper, it is kept; after, the last registration wins. Without `@spinajs/users`, register one yourself. |
+| Mailer | `PasswordMailer`, optional `@Autoinject` of `LocalPasswordService`, set when the service is built | `EmailPasswordMailer`, registered by `@spinajs/users`' `RbacBootstrapper` only when none is registered | your `PasswordMailer` | `DI.register(MyMailer).as(PasswordMailer)`. Registered before the users bootstrapper, it is kept; after, the last registration wins. Without `@spinajs/users`, register one yourself. |
 
 The contract for every implementation (SR-09):
 
@@ -100,7 +100,7 @@ export function useSmsMailer(sms: SmsGateway, staff: StaffDirectory): void {
 - **No mailer, no secret.** Without a registered `PasswordMailer`, reset and invite issue nothing and send nothing; the flows still answer as usual.
 - **The secret is issued right before `send()`** and exists nowhere else: `LocalPasswordService` never returns it, and its events never hold it.
 - **`url` is the reset URL for invites too.** Build the invite link from it, or ignore it and use your own page per `purpose`.
-- **The mailer is resolved per mail, not at boot.** An app without one boots; only the mails are skipped, each with a logged warning.
+- **The mailer is optional.** An app without one boots; only the mails are skipped, each with a logged warning. Register it before `PasswordService` is first resolved: the service takes it when it is built.
 
 ## Best practices
 

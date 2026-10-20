@@ -63,7 +63,7 @@ The `mfa` throttle budget, the pending session lifetime and `authn.mfa.policy` b
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | TOTP step | `MfaStep` (one of `Array.ofType(MfaStep)`), singleton; picked by `authn.mfa.steps[].service` | `TotpMfaStep` (`name: 'totp'`, `storesSecrets: true`) | none shipped | Construct it with `TotpMfaStepDeps`; see [Wiring and testing](09-wiring-and-testing.md). |
-| Secret store | `MfaSecretStore`, singleton | `DbMfaSecretStore` after `import '@spinajs/authn-totp/db'` | `MemoryMfaSecretStore` | See [Secret store](06-secret-store.md). |
+| Secret store | `MfaSecretStore`; `DbMfaSecretStore` is `@PerChildInstance()` | `DbMfaSecretStore` after `import '@spinajs/authn-totp/db'` | `MemoryMfaSecretStore` | See [Secret store](06-secret-store.md). |
 
 `TotpMfaStep` methods that login uses:
 

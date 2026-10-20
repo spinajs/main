@@ -11,9 +11,9 @@ Multipart requests are parsed with `formidable` into a local temporary directory
    - formidable error code 1009 (file too large) throws `EntityTooLargeException` (413);
    - any other parse error throws `Exception` (500).
 3. It takes the files of the form field named like the parameter. With `required: true` and no file, it throws `ValidationFailed` (400).
-4. It builds one `IUploadedFile` per file: `Size`, `Name` (client file name), `BaseName` (temporary file name), `Type` (MIME type sent by the client), `LastModifiedDate`, `Hash`, `OriginalFile` (the formidable file), and `Provider` = the file provider named in `options.fs`, or the default upload provider.
+4. It builds one `IUploadedFile` per file: `Size`, `Name` (client file name), `BaseName` (temporary file name), `Type` (MIME type sent by the client), `LastModifiedDate`, `Hash`, `OriginalFile` (the formidable file), and `Provider` = the default upload provider, where the temporary file is.
 5. **Middlewares.** It resolves the middlewares from `http.upload.middlewares` followed by `options.middlewares` and calls `beforeUpload(file, options)` on each file, middleware by middleware. The returned fields are merged into the file.
-6. **Copy.** When `options.fs` names another provider than the default upload provider, `ImmediateFileUploader` copies each file there and deletes the temporary copy.
+6. **Copy.** When `options.fs` names another provider than the default upload provider, `Provider` is set to that provider and `ImmediateFileUploader` copies each file there and deletes the temporary copy.
 7. **Uploader.** When `options.uploader` is set, that `FormFileUploader` uploads each file as well.
 8. Any failure in steps 5 to 7 deletes the temporary files and rethrows. Several failed uploads are reported together as one `IOFail`.
 9. The action receives an array when the parameter is typed as an array or declared with `@Files()`, otherwise the first file.
@@ -54,9 +54,9 @@ sequenceDiagram
 | `@File(options?)` | parameter | `IUploadOptions` | One uploaded file (or an array when the parameter type is an array). |
 | `@Files(options?)` | parameter | `IUploadOptions` | Always an array, even for one file. |
 | `@CsvFile(options?)` | parameter | `csv-parse` options, plus `Schema` (row JSON schema) and `DeleteFile` | Parsed, validated and hydrated rows. |
-| `@JsonFile(options?)` | parameter | `IUploadOptions`, plus `encoding` and `DeleteFile` | Intended: the parsed content of an uploaded JSON file. **No handler resolves for it** (see Important behaviour). |
+| `@JsonFile(options?)` | parameter | `IUploadOptions`, plus `encoding` and `DeleteFile` | The parsed content of an uploaded JSON file; malformed JSON gives `BadRequest` (400). |
 | `@FormField(schema?, options?)` | parameter | JSON schema; formidable options | One text field. |
-| `@Form(options?)` | parameter | see Important behaviour | All text fields as one object of the parameter type. |
+| `@Form(options?)` | parameter | `IFormOptions` (formidable options), used when this argument is the one that parses the form | All text fields as one object of the parameter type. |
 
 ### `IUploadOptions`
 
@@ -120,8 +120,8 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `FromFile`, `FromCSV`, `FromFormField`, `FromForm`, `FromJsonFile` | Class names, `@Injectable()` + `@NewInstance()`; `FromFormBase` is their abstract base | | | Subclass and `DI.register(Mine).as(FromFile)`, as for any [route argument](05-custom-route-arguments.md#replacing-a-built-in-route-argument). |
-| `FileUploadMiddleware` | Resolved by name or class from `http.upload.middlewares` and `options.middlewares` | `FileInfoMiddleware` | `FileValidationMiddleware`, `ZipFileTransformer`, `UnzipFileTransformer`, `AuthzUploadMiddleware` (`@spinajs/authz-fs`) | See [Upload middlewares and uploaders](09-upload-middlewares-and-uploaders.md). |
+| `FromFile`, `FromCSV`, `FromFormField`, `FromForm`, `FromJSONFile` | Class names, `@Injectable()` + `@NewInstance()`; `FromFormBase` is their abstract base | | | Subclass and `DI.register(Mine).as(FromFile)`, as for any [route argument](05-custom-route-arguments.md#replacing-a-built-in-route-argument). |
+| `FileUploadMiddleware` | Resolved by name or class from `http.upload.middlewares` and `options.middlewares` | `FileInfoMiddleware` | `FileValidationMiddleware`, `ZipFileTransformer`, `UnzipFileTransformer`, `AuthzUploadMiddleware` (`@spinajs/authz-fs`, [details](../authz-fs/06-uploads-and-routes.md)) | See [Upload middlewares and uploaders](09-upload-middlewares-and-uploaders.md). |
 | `FormFileUploader` | Resolved from `options.uploader` | `ImmediateFileUploader` for `options.fs` | `HttpLazyFileUploader` (`@spinajs/http-lazy-file-uploader`) | See [Upload middlewares and uploaders](09-upload-middlewares-and-uploaders.md). |
 | `__file_upload_default_provider__` | `fs` provider by name | `fsNative` at `os.tmpdir()` | any `fsNative` | Redefine the provider in `fs.providers`. |
 
@@ -129,9 +129,6 @@ export default {
 
 - Temporary files stay in the upload directory after a **successful** request unless an uploader or `options.fs` moved them. Delete or move what you keep, or clean the directory periodically.
 - `Name` and `Type` come from the client. Validate the content with `FileValidationMiddleware` and `Info`, not with `Type`.
-- `@JsonFile()` records `ParameterType.FromJSONFile` (`'FromJSONFile'`), but its handler class is named `FromJsonFile`, so the argument fails with `UnexpectedServerError` (500). Register the alias before the first request: `DI.register(FromJsonFile).as('FromJSONFile')`.
-- `@Form(options)` passes its options as the **schema** of the parameter, not as formidable options: an options object becomes a JSON schema for the form data. Call `@Form()` without arguments and put formidable options on the `@File()` of the same route.
-- A route mixing `@Param()` or `@Query()` with several form arguments can lose the shared parsed form: those handlers replace `IRouteCall.Payload`. A later form handler then parses the already-read request body again.
 - `@CsvFile()` takes `csv-parse` options typed as `CsvParseOptions`; pass `Schema` and `DeleteFile` in a variable, not an object literal, to get past the excess-property check.
 - The upload provider must be local (`fsNative`): formidable writes to disk before anything else runs.
 

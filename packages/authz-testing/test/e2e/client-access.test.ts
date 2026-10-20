@@ -1,7 +1,7 @@
 import 'mocha';
 
-import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, AuthzService, SYSTEM, runWithPrincipal } from '@spinajs/authz';
-import { AuthzAdminIdempotency_2026_10_02_00_01_00, AuthzRbac_2026_10_01_00_00_00, RBAC_SERVICE_NAME, RbacService, registerRbac } from '@spinajs/authz-rbac';
+import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, AuthzService, LinkResolver, SYSTEM, runWithPrincipal } from '@spinajs/authz';
+import { AuthzAdminIdempotency_2026_10_02_00_01_00, AuthzRbac_2026_10_01_00_00_00, RbacService, registerRbac } from '@spinajs/authz-rbac';
 import { CLIENT_ACCESS_FIXTURE, runClientAccessConformance, testHost } from '@spinajs/authz-testing';
 import type { ClientAccessApp } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
@@ -48,8 +48,7 @@ async function rootRegistrations(register: () => Promise<void>): Promise<() => v
       if (list?.length === 0) rootRegistry().delete(key);
       if (typeof entry === 'function' && entry.prototype !== undefined) DI.uncache(entry as Class<unknown>);
     }
-    for (const token of [AuthorizationModel, AuthzContributor, RbacService, AuthzAdminBackend] as Class<unknown>[]) DI.uncache(token);
-    DI.uncache(RBAC_SERVICE_NAME);
+    for (const token of [AuthorizationModel, AuthzContributor, RbacService, LinkResolver, AuthzAdminBackend] as Class<unknown>[]) DI.uncache(token);
   };
 }
 

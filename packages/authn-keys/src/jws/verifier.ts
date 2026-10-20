@@ -1,16 +1,15 @@
 import { Injectable } from '@spinajs/di';
 import { JwsVerifier } from '@spinajs/authn/contracts';
 import type { JwsClaims, JwsErrorCode, JwsHeader, JwsKey, JwsVerification, JwsVerifyOptions, KeyAlgorithm } from '@spinajs/authn/contracts';
+import { isNonNegativeInt, isPlainObject } from '@spinajs/util';
 import { decodeB64url } from '../jwk/base64url.js';
 import { publicKeyObject } from '../jwk/keys.js';
 import { SIGNATURE_BYTES, verifySignature } from '../jwk/signature.js';
-import { isJsonObject, parseStrictJson } from './json.js';
+import { parseStrictJson } from './json.js';
 
 const HEADER_MEMBERS = ['alg', 'kid', 'typ'];
 
 const fail = (code: JwsErrorCode): { readonly ok: false; readonly code: JwsErrorCode } => ({ ok: false, code });
-
-const isUint = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 
 /**
  * Compact JWS under the canvas C8 D4 rules (lane notes D3): the first failing check gives the code. The signature is
@@ -35,7 +34,7 @@ export class StrictJwsVerifier extends JwsVerifier {
     }
 
     const h = parseStrictJson(headerBytes);
-    if (!isJsonObject(h) || Object.keys(h).length !== HEADER_MEMBERS.length || !HEADER_MEMBERS.every((m) => typeof h[m] === 'string')) {
+    if (!isPlainObject(h) || Object.keys(h).length !== HEADER_MEMBERS.length || !HEADER_MEMBERS.every((m) => typeof h[m] === 'string')) {
       return fail('bad_header');
     }
     const header: JwsHeader = Object.freeze({ alg: h.alg as KeyAlgorithm, kid: h.kid as string, typ: h.typ as string });
@@ -52,11 +51,11 @@ export class StrictJwsVerifier extends JwsVerifier {
     }
 
     const payload = parseStrictJson(payloadBytes, ['iat', 'exp']);
-    if (!isJsonObject(payload)) {
+    if (!isPlainObject(payload)) {
       return fail('invalid_claims');
     }
     const { iss, aud, iat, exp } = payload;
-    if (typeof iss !== 'string' || typeof aud !== 'string' || !isUint(iat) || !isUint(exp) || exp <= iat || exp - iat > opts.maxLifetimeSeconds) {
+    if (typeof iss !== 'string' || typeof aud !== 'string' || !isNonNegativeInt(iat) || !isNonNegativeInt(exp) || exp <= iat || exp - iat > opts.maxLifetimeSeconds) {
       return fail('invalid_claims');
     }
     const claims = opts.claims(payload);

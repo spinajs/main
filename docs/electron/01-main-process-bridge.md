@@ -4,7 +4,7 @@ Importing `@spinajs/electron` in the main process registers three `ipcMain` chan
 
 ## How it works
 
-`exposeIpcBridge()` runs once, when the main entry is first imported, and logs `Electron main process exposed spinajs IPC bridge !` to the `ipc` logger.
+`exposeIpcBridge()` runs once, when the main entry is first imported, and logs `Electron main process exposed spinajs IPC bridge !` to the `ipc` logger. When no `Log` is registered yet (`@spinajs/log` not imported before `@spinajs/electron`), it skips that line.
 
 | Channel | Registered with | Main-side function | Renderer call |
 | --- | --- | --- | --- |
@@ -19,7 +19,7 @@ Importing `@spinajs/electron` in the main process registers three `ipcMain` chan
 3. `DI.resolve(service, resolveArgs)` resolves the service by its DI name in the root container. It creates the service if nothing resolved it yet, and awaits an async service.
 4. The method runs with `...args`; its awaited result goes back to the renderer.
 5. Errors:
-   - No registration under `service`: the call **resolves** with an `Error` (`no service named: <service> exists in DI container`).
+   - No registration under `service`: the call rejects (`no service named: <service> exists in DI container`).
    - `method` is not a function on the service: the call rejects (`not found in service named: <service>`).
    - The method throws or rejects: the call rejects with a new `Error` whose message ends in `cause: <original message>`.
 
@@ -39,7 +39,7 @@ Importing `@spinajs/electron` in the main process registers three `ipcMain` chan
 3. The method runs on that `OrmDriver` and its result goes back.
 4. Errors:
    - `Orm` not resolved yet, or no connection under that name: the call rejects.
-   - The driver method rejects: the call **resolves** with an `Error` whose `cause` is the driver error.
+   - The driver method rejects: the call rejects with a new `Error` (`callOnOrmConnection() failed, method: <method>, connection: <connection>`) whose `cause` is the driver error.
 
 ```mermaid
 sequenceDiagram
@@ -152,7 +152,7 @@ Giving the renderer proxy the same class name as the main service keeps the call
 - **`callSync` runs unattended.** Authz checks and scoped ORM queries inside it are denied.
 - **`callSync` never creates services.** It uses `DI.get()`. A service nobody resolved yet gives `no service named: <service> exists in DI container`.
 - **`callSync` needs a cloneable return value.** A method that returns a promise cannot answer a sync call. <!-- TODO(docs-hook): verify what the renderer receives when event.returnValue is set to a Promise -->
-- **Error shapes differ per channel.** An unknown service on `call` and a failing driver method on `callOnOrmConnection` resolve with an `Error` value; other failures reject. Check `result instanceof Error` on those two paths.
+- **Error shapes differ per channel.** Every failure on `call` and `callOnOrmConnection` rejects. On `callSync` main answers with an `Error` value, which the preload throws.
 - **Root container only.** Services are resolved with `DI.resolve()` / `DI.get()` on the root container, never a child container.
 - **Import order.** The bridge resolves the `ipc` logger at import. Import `@spinajs/log` before `@spinajs/electron`, so `Log` has its factory registered.
 - **Main process only.** The main entry imports `ipcMain` and `app`. Importing it anywhere else fails.

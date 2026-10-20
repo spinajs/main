@@ -67,7 +67,7 @@ Index `authn_secret_owner` covers `(identity, purpose)`.
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Secret store | `SecretStore`, singleton; also registered as `DbSecretStore` | `DbSecretStore` | `MemorySecretStore` (`@spinajs/authn-testing`) | Register your class under `SecretStore` after this package is imported: a single resolve takes the last registration. Subclass `DbSecretStore` to keep the storage. |
+| Secret store | `SecretStore`, per child container; also registered as `DbSecretStore` | `DbSecretStore` | `MemorySecretStore` (`@spinajs/authn-testing`) | Register your class under `SecretStore` after this package is imported: a single resolve takes the last registration. Subclass `DbSecretStore` to keep the storage. |
 
 `DbSecretStore` has the public `issue`, `redeem` and `purge`. Its protected `liveInNode(expiresAt, nowMs)` is marked `@internal`: an early exit before the claim, which decides in SQL.
 
@@ -79,13 +79,13 @@ Subclass `DbSecretStore`, override `issue` or `redeem`, call `super`, and regist
 import { DbSecretStore } from '@spinajs/authn-orm';
 import { SecretStore } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { Injectable, Singleton } from '@spinajs/di';
+import { Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 
 const KNOWN_PURPOSES = new Set(['reset', 'invite', 'email-confirm']);
 
 /** Refuses a purpose the app does not know, so a typo cannot issue a secret nobody redeems. */
-@Singleton()
+@PerChildInstance()
 @Injectable(SecretStore)
 export class KnownPurposeSecretStore extends DbSecretStore {
   public override async issue(identity: IdentityRef, purpose: string, ttlSeconds: number): Promise<string> {
@@ -162,22 +162,6 @@ export async function purgeSpentSecrets(): Promise<number> {
   }
   return removed;
 }
-```
-
-## Migration
-
-### `DbSecretStore` takes no driver
-
-The store writes through the `AuthnSecret` model on the `default` connection and has no constructor arguments. `StoreOptions` is no longer exported.
-
-```ts
-// Before
-import { DbSecretStore, StoreOptions } from '@spinajs/authn-orm';
-const secrets = new DbSecretStore(driver, { container });
-
-// After: the store awaits ormReady() itself; set db.DefaultConnection
-import { DbSecretStore } from '@spinajs/authn-orm';
-const secrets = new DbSecretStore();
 ```
 
 ## Related

@@ -1,3 +1,4 @@
+import { UnexpectedServerError } from '@spinajs/exceptions';
 import type { OidcTokenEndpointAuth } from '../contracts.js';
 import type { OidcHttpClient } from '../http/client.js';
 import { isNonEmptyString, isPlainObject } from '../support.js';
@@ -36,20 +37,20 @@ export async function exchangeCode(http: OidcHttpClient, x: CodeExchange): Promi
   }
   const { status, json } = await http.postForm(x.endpoint, form, headers);
   if (status !== 200 || !isPlainObject(json)) {
-    throw new Error(`authn-oidc: the token endpoint answered HTTP ${status}`);
+    throw new UnexpectedServerError(`authn-oidc: the token endpoint answered HTTP ${status}`);
   }
   const { access_token: accessToken, token_type: tokenType, id_token: idToken } = json;
   if (typeof tokenType !== 'string' || tokenType.toLowerCase() !== 'bearer') {
-    throw new Error('authn-oidc: the token endpoint answered no Bearer token');
+    throw new UnexpectedServerError('authn-oidc: the token endpoint answered no Bearer token');
   }
   if (!isNonEmptyString(accessToken) || accessToken.length > MAX_TOKEN_LENGTH) {
-    throw new Error('authn-oidc: the token endpoint answered no access token');
+    throw new UnexpectedServerError('authn-oidc: the token endpoint answered no access token');
   }
   if (!x.idToken) {
     return { accessToken };
   }
   if (!isNonEmptyString(idToken) || idToken.length > MAX_TOKEN_LENGTH) {
-    throw new Error('authn-oidc: the token endpoint answered no ID token');
+    throw new UnexpectedServerError('authn-oidc: the token endpoint answered no ID token');
   }
   return { accessToken, idToken };
 }

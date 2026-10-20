@@ -82,7 +82,7 @@ export declare abstract class LinkStore {
 export declare abstract class SubjectResolver {
     abstract subjects(p: Principal): Promise<readonly AssignmentSubject[]> | readonly AssignmentSubject[];
 }
-/** Port: the transitive closure of subject sets (design §4.3). */
+/** Port: the transitive closure of subject sets. */
 export declare abstract class MembershipStore {
     /** Sets every given member key belongs to, live at `at`, each with its membership expiry (none = never). */
     abstract setsOf(memberKeys: readonly string[], at: Date): Promise<readonly {

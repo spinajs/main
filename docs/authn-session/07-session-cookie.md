@@ -7,15 +7,17 @@ The session cookie carries the raw session id to the browser. This package build
 ### Build the cookie
 
 1. `sessionCookie(rawId, config, expiration?, env?)` returns `{ Name, Value: rawId, Options }`, the shape of the `Coockies` response option of `@spinajs/http`.
-2. `sessionCookieName(config, env)` gives the name: `config.name` (default `ssid`), prefixed `__Host-` when `hostPrefix` is on.
+2. `sessionCookieName(config, env)` gives the name: `config.name` (default `SESSION_COOKIE_BASE_NAME`, `ssid`), prefixed `__Host-` when `hostPrefix` is on.
 3. `sessionCookieOptions(config, maxAge, env)` builds the options:
    1. every key of `config` except `name` and `hostPrefix` is copied (`domain`, `path`, `priority` and other express options);
-   2. then the security flags are set over them: `httpOnly: true`, `secure` from the `secure` flag, `sameSite` from config or `'strict'`, `maxAge`;
+   2. then the security flags are set over them: `httpOnly: true`, `secure` from the `secure` flag, `sameSite` from config or the schema default `'strict'`, `maxAge`;
    3. with `hostPrefix` on: `secure: true`, `path: '/'`, and `domain` removed, as browsers require for the prefix.
 4. `sessionCookie` adds `signed: true`; `@spinajs/http` signs the value with `http.cookie.secret`.
 5. `maxAge` comes from `expiration` through `cookieMaxAge()`; with no `expiration` the cookie is a browser-session cookie. `@spinajs/authn-http` passes none, so its cookie has no `Max-Age` and the server enforces the timeouts.
 
 `clearSessionCookie(config, env)` returns the same name and flags with an empty value, `maxAge: 0` and `signed: false`.
+
+The builders accept a partial or empty `config`, for callers without a resolved configuration. A missing `name` or `sameSite` falls back on the default of the `authn.session.cookie` schema, the same value a resolved configuration carries.
 
 ### Flags and the app env
 
@@ -84,11 +86,10 @@ The builders are plain functions; there is nothing to register. Call them from y
 | `clearSessionCookie` | `(config?, env?) => ISessionCookieDescriptor` | The expired cookie that clears it on logout |
 | `sessionCookieName` | `(config?, env?) => string` | The name to read from `req.cookies` |
 | `sessionCookieOptions` | `(config?, maxAge?, env?) => Record<string, unknown>` | The options alone |
-| `cookieMaxAge` | `(expiration: DateTime \| undefined) => number \| undefined` | Milliseconds until `expiration`, never negative; `undefined` for none |
-| `sessionCookieMaxAge` | `(session: ISession) => number \| undefined` | `cookieMaxAge(session.Expiration)` |
+| `cookieMaxAge` | `(expiration: DateTime \| undefined) => number \| undefined` | Milliseconds until `expiration`, never negative; `undefined` for none. For a session's own deadline pass `session.Expiration` |
 | `appEnvOf` | `(config: Configuration) => string \| undefined` | The app env as authn reads it; `undefined` means production |
 | `assertSessionCookieSecret` | `(secret, env?) => void` | The boot check above |
-| `SESSION_COOKIE_BASE_NAME` | `'ssid'` | Default base name |
+| `SESSION_COOKIE_BASE_NAME` | `'ssid'` | Default base name, read from the schema default of `authn.session.cookie.name` |
 | `PUBLIC_DEFAULT_COOKIE_SECRET` | `'1234adreewD'` | The public secret `@spinajs/http` ships |
 | `ISessionCookieConfig`, `SessionCookieFlag`, `ISessionCookieDescriptor` | types | The `authn.session.cookie` shape, a flag value, the built cookie |
 

@@ -11,10 +11,10 @@
 
 | Token | MySQL registers | Emits |
 | --- | --- | --- |
-| `ColumnQueryCompiler` | `SqlColumnQueryCompiler` | `` `name` TYPE [UNSIGNED] [CHARACTER SET '...'] [COLLATE '...'] [NOT NULL] [DEFAULT ...] [AUTO_INCREMENT] [COMMENT '...'] [UNIQUE] `` |
-| `AlterTableQueryCompiler` | `SqlAlterTableQueryCompiler` | one `ALTER TABLE` per dropped column, rename and changed column |
+| `ColumnQueryCompiler` | `SqlColumnQueryCompiler` | `` `name` TYPE [UNSIGNED] [CHARACTER SET '...'] [COLLATE '...'] [NOT NULL] [DEFAULT ...] [AUTO_INCREMENT] [COMMENT '...'] [UNIQUE] ``; `exact()` fills the character set and collation, see below |
+| `AlterTableQueryCompiler` | `SqlAlterTableQueryCompiler` | one `ALTER TABLE` per dropped column (`` DROP COLUMN `c` ``), rename and changed column |
+| `IndexQueryCompiler` | `SqlIndexQueryCompiler` (from `SqlDriver`) | `` CREATE [UNIQUE] INDEX `i` ON `t` (...) ``, or `` DROP INDEX `i` ON `t` `` after `drop()` |
 | `AlterColumnQueryCompiler` | `SqlAlterColumnQueryCompiler` | `ADD <column> [AFTER x]`, `MODIFY <column>`, `RENAME COLUMN a TO b` |
-| `LockTableQueryCompiler` | `MySqlLockTableQueryCompiler` | `SELECT COUNT(*) FROM <table> FOR UPDATE`; exclusive, so the locks reach the clustered records even when the count scans a secondary index |
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | `date()`: `(CURRENT_DATE())`; `dateTime()`: `CURRENT_TIMESTAMP`; `value(v)`; `raw(q)` |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | `TRUNCATE TABLE <table>` |
 | `TableCloneQueryCompiler` | `SqlTableCloneQueryCompiler` | `CREATE [TEMPORARY] TABLE t LIKE src`, then for a deep clone `INSERT INTO t SELECT ...` |
@@ -23,7 +23,7 @@
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `SqlEventQueryCompiler`, `SqlDropEventQueryCompiler` | `CREATE EVENT ... ON SCHEDULE ...`, `DROP EVENT [IF EXISTS]` |
 | `LimitQueryCompiler`, `RecursiveQueryCompiler` | `SqlLimitQueryCompiler`, `SqlWithRecursiveCompiler` | `LIMIT ? [OFFSET ?]` (an offset alone writes `LIMIT 18446744073709551615 OFFSET ?`), `WITH RECURSIVE` |
 
-`caseSensitive()` on a column without `collation()` writes `CHARACTER SET '<charset>' COLLATE '<charset>_bin'`, where `<charset>` is the column's `charset()` or `utf8mb4`. With `collation()` the given collation is written instead. The `_bin` collations are PAD SPACE: `'a'` and `'a '` compare equal.
+`exact()` on a column without `collation()` writes `CHARACTER SET '<charset>' COLLATE '<charset>_bin'`, where `<charset>` is the column's `charset()` or `utf8mb4`. With `collation()` the given collation is written instead. The `_bin` collations are PAD SPACE: `'a'` and `'a '` compare equal.
 
 ### Column types
 
@@ -37,7 +37,7 @@
 | `date`, `dateTime`, `time`, `timestamp` | the same names |
 | `enum(name, values)` | `ENUM('a','b')` |
 | `set(name, values)` | `SET('a','b')` |
-| `json` | `JSON` |
+| `json` | `JSON` (`supportedFeatures().nativeJson` is `true`) |
 | `binary(name, n?)` | `BINARY(n)`, default `255` |
 | `uuid(name)` | `BINARY(16)`, written by `UuidConverter` |
 | `tinyblob`, `mediumblob`, `longblob` | the same names |
@@ -94,7 +94,7 @@ Server settings this page depends on: `event_scheduler = ON` for events; MySQL 8
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| View compiler | `CreateViewCompiler`; `@NewInstance() @Inject(Container)`, constructor `(container, builder)` | `MySqlCreateViewCompiler` (not exported) | | Extend `SqlCreateViewQueryCompiler` from `@spinajs/orm-sql`, override the hooks, register `.as(CreateViewCompiler)` after `super.resolve()`. |
+| View compiler | `CreateViewCompiler`; `@NewInstance() @Inject(Container)`, constructor `(container, builder)` | `MySqlCreateViewCompiler` | | Extend `MySqlCreateViewCompiler`, or `SqlCreateViewQueryCompiler` from `@spinajs/orm-sql`, override the hooks, register `.as(CreateViewCompiler)` after `super.resolve()`. |
 | Column compiler | `ColumnQueryCompiler`; constructor `(builder: ColumnQueryBuilder)` | `SqlColumnQueryCompiler` | | Extend `SqlColumnQueryCompiler`, override `compile()`; register `.as(ColumnQueryCompiler)`. `SqlTableQueryCompiler` resolves it once per column. |
 | Alter compilers | `AlterTableQueryCompiler`, `AlterColumnQueryCompiler` | `SqlAlterTableQueryCompiler`, `SqlAlterColumnQueryCompiler` | | Extend; `SqlAlterColumnQueryCompiler` has one hook per alteration type. See [Query compilers](../orm-sql/02-query-compilers.md). |
 | Default values | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | | Extend and override `date()` / `dateTime()`; register `.as(DefaultValueBuilder)`. |

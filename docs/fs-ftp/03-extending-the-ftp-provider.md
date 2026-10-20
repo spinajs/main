@@ -7,7 +7,9 @@ Subclass `fsFTP` to change how it connects, navigates or transfers files, regist
 1. `fsService` collects every class registered under `fs` with `DI.RootContainer.Registry.getTypes(fs)`.
 2. For each `fs.providers` entry it picks the class whose **class name** equals `service`. Your subclass named `fsFTPResilient` is selected by `service: 'fsFTPResilient'`.
 3. `DI.resolve(subclass, [config])` creates it with the entry as `Options` and awaits its `resolve()`. With `@PerInstanceCheck()`, each `name` gets one instance.
-4. The instance is published under its `name` and passed through the `FsDecorator`s, like any other provider.
+4. The instance is published under its `name` as it is, and the [middlewares](04-middlewares-on-the-ftp-provider.md) see it like any other provider.
+
+Override the protected `doX` hooks (`doDownload`, `doWriteStream`, ...), not the public methods: they are final, and the base constructor throws `InvalidOperation` for a subclass that overrides one.
 
 Registration happens when the module with `@Injectable('fs')` is imported. Import it before the application resolves `fsService`, in the same file that imports `@spinajs/fs-ftp` or in your application entry.
 
@@ -17,17 +19,18 @@ Registration happens when the module with `@Injectable('fs')` is imported. Impor
 | --- | --- | --- | --- | --- |
 | FTP provider class | `fs`, `@PerInstanceCheck()` (one instance per `name`), selected by class name from `service` | `fsFTP` | your subclasses; any other `fs` implementation | `@Injectable('fs')` + `@PerInstanceCheck()` on a subclass, then `service: '<ClassName>'` |
 | Root reset hook | `protected _restoreRootDir()` | `pwd`, then `cd ..` per segment | | Override to reconnect, log or use `cd /` |
-| Directory hook | `protected _setWorkingDir(path)` | `cd /<dirname(path)>`, or `cd .` for root files | | Override to prefix a base directory |
+| Directory hook | `protected _setWorkingDir(path)` | `cd /<dirname(path)>` (an absolute dirname as it is), or `cd .` for root files | | Override to prefix a base directory |
 | Directory creation hook | `protected _ensureDir(path)` | `Client.ensureDir(dirname(path))`, then `_setWorkingDir(path)` | | Override to skip creation or set permissions |
 | Connection | `public resolve()` | `new Client()`, `Client.access()`, progress logging | | Override, call `super.resolve()`, then tune `this.FtpClient` |
-| Shutdown | `public dispose()` (from `Service`), called by `DI.dispose()` for cached services | inherited no-op | | Override to `this.FtpClient.close()` |
-| Unsupported methods | `writeStream()`, `tmppath()`, `resolvePath()` | throw `MethodNotImplemented` | | Override with an implementation |
+| Shutdown | `public dispose()`, called by `DI.dispose()` for cached services | `this.FtpClient.close()` | | Override to add shutdown work, then call `super.dispose()` |
+| Unsupported methods | `doWriteStream()`, `tmppath()`, `resolvePath()` | throw `MethodNotImplemented` | | Override with an implementation |
+| Action hooks | protected `doDownload`, `doRead`, `doWrite`, `doUpload`, `doStat`, ... | `fsFTP` | | Override the hook; call `super.doX()` to keep the FTP behaviour |
 
 Protected members available to a subclass:
 
 | Member | Type | Meaning |
 | --- | --- | --- |
-| `Options` | `fsFTP['Options']` (public) | The provider's config entry; add your own keys to it |
+| `Options` | `IFtpConfig` (public) | The provider's config entry; add your own keys to it |
 | `FtpClient` | `Client` from `basic-ftp` | The connection; created in `resolve()` |
 | `TempFs` | `fs` | Getter for the provider named `fs-temp` |
 | `Logger` | `Log` | The `fs` logger |
@@ -38,15 +41,15 @@ Protected members available to a subclass:
 - `@Injectable('fs')` on `fsFTP` registers **only** `fsFTP`. A subclass without its own `@Injectable('fs')` is never found by `fsService`.
 - Selection uses the bare class name. Two classes with the same name under `fs` (in different modules) make the first registered one win; give subclasses unique names.
 - `@PerInstanceCheck()` relies on `fs.__checkInstance__()`, which compares `Name` with `creationOptions[0].name`. Keep `Name` returning `Options.name`.
-- Not every method calls the hooks. `stat()`, `isDir()`, `list()`, `mkdir()`, `rename()` and same-server `move()` and `copy()` talk to `FtpClient` directly; override them too when your hook must apply everywhere.
+- Not every method calls every hook. `list()`, `mkdir()` and `rename()` (and so same-server `move()`) call `_restoreRootDir()` but not `_setWorkingDir()`; override them too when a directory hook must apply everywhere.
 - Your subclass replaces nothing by itself: entries with `service: 'fsFTP'` keep using the stock class.
 
 ## Best practices
 
 - Call `super.resolve()` first in an overridden `resolve()`; it creates `FtpClient` and connects.
-- Read new config keys from `this.Options` and type them with an interface that extends `fsFTP['Options']`.
+- Read new config keys from `this.Options` and type them with an interface that extends `IFtpConfig`.
 - Keep every call to `FtpClient` sequential: one `basic-ftp` client runs one command at a time.
-- Wrap a provider (logging, guards, queues) with an [`FsDecorator`](04-decorating-the-ftp-provider.md) instead of a subclass when the change applies to every provider type.
+- Use an [`FsMiddleware`](04-middlewares-on-the-ftp-provider.md) instead of a subclass for cross-cutting checks (guards, auditing) that apply to every provider type. A middleware has `before` and `after` only: it cannot hold the IO, so serialising calls needs a subclass.
 
 ## Patterns and antipatterns
 
@@ -78,7 +81,7 @@ public async resolve() {
 
 ### Reconnect after the server drops an idle connection
 
-`basic-ftp` closes the client after a timeout or socket error, and `Client.access()` is the way to reopen it. Most methods call `_restoreRootDir()` first, so the check fits there.
+`basic-ftp` closes the client after a timeout or socket error, and `Client.access()` is the way to reopen it. Every method that talks to the server calls `_restoreRootDir()` first, so the check fits there.
 
 ```ts sample
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -113,7 +116,9 @@ export async function publishDailyReport(day: string, csv: string) {
 }
 ```
 
-### Close the connection on shutdown
+### Run your own work on shutdown
+
+`fsFTP.dispose()` closes the connection. Override it to add your own work and call `super.dispose()`.
 
 ```ts sample
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -123,9 +128,8 @@ import { fsFTP } from '@spinajs/fs-ftp';
 @PerInstanceCheck()
 export class fsFTPClosing extends fsFTP {
   public async dispose(): Promise<void> {
-    this.FtpClient?.close();
-    this.Logger.info({ provider: this.Name }, 'FTP connection of ${provider} closed');
     await super.dispose();
+    this.Logger.info({ provider: this.Name }, 'FTP connection of ${provider} closed');
   }
 }
 
@@ -136,47 +140,9 @@ process.once('SIGTERM', () => {
 });
 ```
 
-### Keep the file extension on download
-
-`fsFTP.download()` calls `TempFs.tmppath()` without an extension. Consumers that choose behaviour from the extension (file info, templates, image tools) need it.
-
-```ts sample
-import { extname, basename } from 'path';
-import { Injectable, PerInstanceCheck } from '@spinajs/di';
-import { fileInfo, getFs } from '@spinajs/fs';
-import { fsFTP } from '@spinajs/fs-ftp';
-
-@Injectable('fs')
-@PerInstanceCheck()
-export class fsFTPKeepExtension extends fsFTP {
-  public async download(p: string): Promise<string> {
-    const tmpName = this.TempFs.tmppath(extname(p));
-    const wStream = await this.TempFs.writeStream(tmpName);
-
-    await this._restoreRootDir();
-    await this._setWorkingDir(p);
-    await this.FtpClient.downloadTo(wStream, basename(p));
-
-    return tmpName;
-  }
-}
-
-// fs.providers entry: { service: 'fsFTPKeepExtension', name: 'ftp-media', host: 'media.example.com', user: 'cdn', password: '...' }
-
-export async function videoDuration(remotePath: string) {
-  const local = await getFs('ftp-media').download(remotePath);
-
-  try {
-    return (await fileInfo(local)).Duration;
-  } finally {
-    await getFs('fs-temp').rm(local);
-  }
-}
-```
-
 ### Add streaming uploads
 
-`fsFTP.writeStream()` throws. This subclass returns a `PassThrough` that `basic-ftp` uploads from, plus an `uploaded` promise that settles when the server confirms the transfer.
+`fsFTP.doWriteStream()` throws. This subclass returns a `PassThrough` that `basic-ftp` uploads from, plus an `uploaded` promise that settles when the server confirms the transfer.
 
 ```ts sample
 import { basename } from 'path';
@@ -192,7 +158,7 @@ export type FtpUploadStream = PassThrough & { uploaded: Promise<void> };
 @Injectable('fs')
 @PerInstanceCheck()
 export class fsFTPStreaming extends fsFTP {
-  public async writeStream(path: string, source?: BufferEncoding | NodeJS.ReadableStream, _encoding?: BufferEncoding): Promise<FtpUploadStream> {
+  protected async doWriteStream(path: string, source?: BufferEncoding | NodeJS.ReadableStream, _encoding?: BufferEncoding): Promise<FtpUploadStream> {
     const pass = new PassThrough();
 
     await this._restoreRootDir();
@@ -222,9 +188,94 @@ export async function backupDatabaseDump(localDump: string, day: string) {
 }
 ```
 
+### Serialize concurrent calls
+
+`basic-ftp` runs one command at a time and `fsFTP` does not queue. This subclass chains the hooks that talk to the server on one promise queue. A middleware cannot do this: it has `before` and `after` only and cannot hold the IO.
+
+Hooks call each other: `doRm` calls `stat()`, and `doUpload` with `{ exclusive: true }` calls `exists()`, which calls `stat()` (`doExists` itself is not queued). The queue runs a nested call directly when the `AsyncLocalStorage` holds this instance. Without it the inner call would wait for the outer one and never finish. For `doReadStream` the queue waits until the returned stream finishes; that hold has no timeout, so a stream nobody consumes blocks the queue.
+
+```ts sample
+import { AsyncLocalStorage } from 'async_hooks';
+import { finished } from 'stream/promises';
+import { Injectable, PerInstanceCheck } from '@spinajs/di';
+import { getFs, IFsUploadOptions, IStat } from '@spinajs/fs';
+import { fsFTP } from '@spinajs/fs-ftp';
+
+@Injectable('fs')
+@PerInstanceCheck()
+export class fsFTPQueued extends fsFTP {
+  protected Tail: Promise<unknown> = Promise.resolve();
+  protected readonly InsideQueue = new AsyncLocalStorage<fsFTPQueued>();
+
+  protected serialized<T>(task: () => Promise<T>, hold?: (result: T) => Promise<unknown>): Promise<T> {
+    if (this.InsideQueue.getStore() === this) {
+      return task();
+    }
+
+    const run = this.Tail.then(() => this.InsideQueue.run(this, task));
+    this.Tail = run.then(
+      (result) => (hold ? hold(result).catch(() => undefined) : undefined),
+      () => undefined,
+    );
+
+    return run;
+  }
+
+  protected doDownload(path: string): Promise<string> {
+    return this.serialized(() => super.doDownload(path));
+  }
+
+  protected doReadStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
+    return this.serialized(
+      () => super.doReadStream(path, encoding),
+      (stream) => finished(stream as NodeJS.ReadableStream & NodeJS.WritableStream),
+    );
+  }
+
+  protected doWrite(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+    return this.serialized(() => super.doWrite(path, data, encoding));
+  }
+
+  protected doAppend(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+    return this.serialized(() => super.doAppend(path, data, encoding));
+  }
+
+  protected doUpload(srcPath: string, destPath: string, options?: IFsUploadOptions): Promise<void> {
+    return this.serialized(() => super.doUpload(srcPath, destPath, options));
+  }
+
+  protected doStat(path: string): Promise<IStat> {
+    return this.serialized(() => super.doStat(path));
+  }
+
+  protected doList(path: string): Promise<string[]> {
+    return this.serialized(() => super.doList(path));
+  }
+
+  protected doMkdir(path: string): Promise<void> {
+    return this.serialized(() => super.doMkdir(path));
+  }
+
+  protected doRename(oldPath: string, newPath: string): Promise<void> {
+    return this.serialized(() => super.doRename(oldPath, newPath));
+  }
+
+  protected doRm(path: string): Promise<void> {
+    return this.serialized(() => super.doRm(path));
+  }
+}
+
+// fs.providers entry: { service: 'fsFTPQueued', name: 'ftp-partner', host: 'ftp.partner.example', user: 'reports', password: '...' }
+
+export async function publishAll(files: { name: string; body: string }[]) {
+  const ftp = getFs('ftp-partner');
+  await Promise.all(files.map((f) => ftp.write(`incoming/${f.name}`, f.body, 'utf-8')));
+}
+```
+
 ## Related
 
 - [FTP provider](01-ftp-provider.md): config keys, connection, `fs-temp`.
 - [File operations](02-file-operations.md): which methods call the hooks.
-- [Decorating the FTP provider](04-decorating-the-ftp-provider.md): wrap instances instead of subclassing.
+- [Middlewares on the FTP provider](04-middlewares-on-the-ftp-provider.md): check or observe every action instead of subclassing.
 - [`@spinajs/fs`](../fs/README.md): the abstract `fs` class, for a provider written from scratch.

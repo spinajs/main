@@ -5,6 +5,7 @@ The authorization core of SpinaJS. It answers one question: may this principal d
 It knows no model: RBAC and ABAC are plug-ins, and the app registers them. It does **not** authenticate (the principal comes from `@spinajs/authn`), does **not** read HTTP requests, and does **not** rewrite queries; adapters do that.
 
 - Moving a 2.x app: [the migration guide](./migration-guide.md). What is still open in `3.0.0-rc.1` is in [its section 11](./migration-guide.md#11-open-items-in-300-rc1).
+- Authentication (who is calling) is a separate family: [docs/authn](../authn/README.md).
 - A file-by-file map of the tables, stores and check pipeline of the whole family: [storage-and-check-flow.md](./storage-and-check-flow.md).
 
 ## Install
@@ -21,15 +22,17 @@ Importing the package registers the host (`AuthzService`, `AuthzDomains`), the d
 | --- | --- |
 | [How a check works](01-check-flow.md) | Concepts, the check pipeline end to end, combining algorithms and deny reasons. |
 | [Declaring permissions](02-permissions.md) | Naming, declaring and registering a permission so it can be granted and checked. |
-| [Checking permissions](03-checking-permissions.md) | `authz()`, every `AuthzService` method, conditional allows, batch checks, access plans, `summary` and `covers`. |
+| [Checking permissions](03-checking-permissions.md) | `authz()`, every `AuthzService` method, conditional allows, batch checks, access plans, `summary`, `covers` and the errors. |
 | [Host, boot and configuration](04-host-boot-and-configuration.md) | What a domain boot does, the boot checks, wiring the models and every `authz.*` key. |
-| [Domains](05-domains.md) | Child domains with their own models, permissions and settings. |
+| [Domains](05-domains.md) | Child domains with their own models, permissions and settings; what a booted domain exposes. |
 | [Caching and change propagation](06-caching-and-change-propagation.md) | L1 and L2 decision caches, invalidation over the `ChangeBus`, `authz.changed` pushes. |
 | [Conditions](07-conditions.md) | The JSON condition language, its compiler and custom condition functions. |
 | [Writing a model](08-writing-a-model.md) | The `AuthorizationModel` contract, list plans, native filters and custom combinators. |
 | [Resource adapters and resolvers](09-adapters-and-resolvers.md) | `ResourceAdapter`, `ScopeResolver`, `RelationResolver`, scope attributes and contributors. |
-| [AuthzAdmin](10-authz-admin.md) | The command bus for authorization writes: commands, permissions, guard, backend, events. |
+| [AuthzAdmin](10-authz-admin.md) | The command bus for authorization writes: commands, permissions, guard, backend, events, handler helpers. |
 | [Audit](11-audit.md) | `DecisionAudit`: denials, `runAs`, `SYSTEM`, `explain` and admin entries. |
+| [Column relations](12-column-relations.md) | `@Relation` columns that hold a principal, for single checks and `.accessible()` lists. |
+| [Holders](13-holders.md) | Who holds a permission on a resource: the `holders` admin query, `inspect()` and `ancestors()`. |
 
 ## Quick start
 
@@ -73,7 +76,7 @@ export async function approveInvoice(invoiceId: string): Promise<void> {
 - [`@spinajs/authz-http`](../authz-http/README.md): `@Access` route guards, principal sources, field filtering, `/user/access` and access-change events.
 - [`@spinajs/authz-http-admin`](../authz-http-admin/README.md): HTTP routes over [AuthzAdmin](10-authz-admin.md).
 - [`@spinajs/authz-queue`](../authz-queue/README.md): who started a job, `@Job({ runAs })`, and `QueueChangeBus` for several nodes.
-- [`@spinajs/authz-fs`](../authz-fs/README.md): access checks on file systems, with their own domains.
+- [`@spinajs/authz-fs`](../authz-fs/README.md): file checks (`AuthzFsMiddleware`) and the per-path file ACL (`fs_acl`).
 - [`@spinajs/authz-testing`](../authz-testing/README.md): fakes, harnesses, conformance suites and the behaviour fixtures B01-B46.
 - [`@spinajs/authz-convert`](../authz-convert/README.md): the `spinajs-authz-convert` tool that turns 2.x configs into `authz.*`.
 - [`@spinajs/eslint-plugin-authz`](../eslint-plugin-authz/README.md): flags list queries without `.accessible()` at edit time.

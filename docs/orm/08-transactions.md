@@ -47,6 +47,19 @@ sequenceDiagram
 
 Each of these becomes a savepoint when you call it inside your own `transaction()`. A transactional query middleware joins your transaction as it is, with no savepoint.
 
+### Shared table lock
+
+`driver.lockTableShared(table)` keeps other writers off `table` until the transaction in scope ends. Readers go on. Use it between a check and a change that relies on the check, such as a migration that verifies rows before it drops a column.
+
+| Driver | Statement |
+| --- | --- |
+| PostgreSQL | `LOCK TABLE <table> IN SHARE MODE` |
+| MySQL | `SELECT COUNT(*) FROM <table> FOR UPDATE`. `LOCK TABLES` would commit the open transaction, so it is a locking read of every row. Exclusive, because InnoDB may count through a secondary index and put shared locks on that index only, where an update of an unindexed column never looks. Plain reads go on; other locking reads (`FOR SHARE`, `FOR UPDATE`) wait too. The next-key locks keep inserts out only under `REPEATABLE READ` (the InnoDB default), and DDL ends the transaction and the lock with it. |
+| MSSQL | `SELECT COUNT(*) FROM <table> WITH (TABLOCK, HOLDLOCK)` |
+| SQLite | `DELETE FROM <table> WHERE 0`, which takes the database's `RESERVED` lock: every other writer waits, on any table |
+
+Outside a transaction it throws `InvalidOperation` (`lockTableShared must run inside a transaction`). A driver that does not override it throws `NotSupported`.
+
 ## Configuration
 
 `transaction()` takes an `ITransactionOptions` object. There are no configuration-file keys; migration transactions are configured in [Migrations](10-migrations.md).
@@ -68,6 +81,7 @@ await driver.transaction(async () => reserveStock(orderId), { isolation: 'SERIAL
 | `OrmDriver.transaction(cb, options?)` | Owns the transaction lifecycle: begin, commit or rollback, dispose, savepoints, `afterCommit` | Implemented on the abstract `OrmDriver` | Not overridden; a driver implements the primitives below. |
 | `OrmDriver.afterCommit(cb)` | Queues `cb` until the outermost commit; runs it at once outside a transaction | Implemented on `OrmDriver` | Not overridden. |
 | `OrmDriver.CurrentTransaction` | The `ITransactionContext` in scope on this async path, or `undefined` | Reads the driver's `AsyncLocalStorage` | Not overridden. |
+| `OrmDriver.lockTableShared(table)` | Keeps other writers off `table` until the transaction ends | Base throws `NotSupported`; each shipped driver overrides it | Override in a driver subclass; call `this.assertInTransaction('lockTableShared')` first. |
 | `ModelBase.transaction(cb, options?)` | Runs `cb` in a transaction on the model's connection | Static model mixin forwarding to the descriptor's driver | Not overridden. |
 | Transaction primitives `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` | Dialect SQL for each step; `_begin` acquires a pooled connection and stores it on `ITransactionContext.connection` | Each dialect driver | Implement them in a driver subclass and declare `SupportedIsolationLevels`. See [Architecture](12-architecture.md) and [`@spinajs/orm-sql`](../orm-sql/README.md). |
 

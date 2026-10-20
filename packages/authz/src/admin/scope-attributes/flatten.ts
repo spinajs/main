@@ -1,3 +1,4 @@
+import { UNSAFE_KEYS } from '@spinajs/util';
 import { AuthzAdminFailure } from '../../contracts/admin.js';
 import { AuthzConfigError } from '../../contracts/errors.js';
 import type { ScopeAttributeLeaf } from '../ports.js';
@@ -26,7 +27,6 @@ export function attributeKeyCount(paths: Iterable<string>): number {
 
 export type ScopeAttributeRows = Readonly<Record<string, ScopeAttributeLeaf>>;
 
-const UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;

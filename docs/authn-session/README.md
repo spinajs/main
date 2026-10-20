@@ -25,7 +25,6 @@ Add a persistent store for anything beyond one process: [`@spinajs/session-provi
 | [Session cookie](07-session-cookie.md) | `sessionCookie`, `clearSessionCookie` and the `authn.session.cookie` keys: name, `__Host-` prefix, `Secure`, `SameSite`, the signing secret check |
 | [Custom session class](08-custom-session-class.md) | Register a `Session` subclass so `restore` returns typed reads of your own session data |
 | [Extending the session issuer](09-extending-the-session-issuer.md) | Subclass `DefaultSessionIssuer` and register it as `SessionIssuer`; the protected hooks |
-| [2.x session migration](10-2x-session-migration.md) | How a session written by SpinaJS 2.x keeps working: lookup by raw id, re-keying under the hash, revocation of unmigrated rows |
 
 ## Quick start
 
@@ -35,12 +34,12 @@ Importing the package registers `DefaultSessionIssuer`, `MemorySessionStore` and
 authn: {
   session: {
     service: 'MemorySessionStore',
-    expiration: { service: 'SlidingCappedExpiration', ttl: 30, maxLifetime: 480 }, // minutes
-    pendingTtlSeconds: 300,
-    cookie: { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' },
+    expiration: { service: 'SlidingCappedExpiration' },
   },
 },
 ```
+
+Every other `authn.session` value comes from the defaults of the `authn` config schema: `expiration.ttl` 30 and `expiration.maxLifetime` 480 (minutes), `pendingTtlSeconds` 300, and the cookie `{ name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' }`.
 
 Logins issue sessions through `AuthnService`. Your code mostly lists and ends them:
 

@@ -14,10 +14,13 @@ declare module '@spinajs/http' {
 function extractLanguageFromRequest(req: sRequest, param: string) {
   if (req.query[param]) {
     return req.query[param] as string;
-  } else if (req.cookies[param]) {
+  } else if (req.cookies?.[param]) {
     return req.cookies[param];
-  } else if (req.headers[`x-${param}`]) {
-    return req.headers[`x-${param}`] as string;
+  }
+
+  const header = `x-${param}`.toLowerCase();
+  if (req.headers[header]) {
+    return req.headers[header] as string;
   }
 
   return null;
@@ -50,24 +53,21 @@ export class LangArgument extends RouteArgs {
   public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: sRequest) {
     const lang = extractLanguageFromRequest(req, this.LangQueryParameter);
 
-    if (!lang) {
-      return { CallData: callData, Args: this.defaultLocale };
-    }
-
     _validate(lang);
 
-    if (param.Options.allowedLanguages) {
-      if ((param.Options.allowedLanguages as string[]).indexOf(lang) === -1) {
-        throw new InvalidArgument(`Language not supported, allowed languages are ${param.Options.allowedLanguages.join(',')}`);
-      }
+    const language = lang || this.defaultLocale;
+    const allowed = param.Options?.allowedLanguages as string[] | undefined;
+
+    if (allowed && allowed.indexOf(language) === -1) {
+      throw new InvalidArgument(`Language not supported, allowed languages are ${allowed.join(',')}`);
     }
 
-    return { CallData: callData, Args: lang };
+    return { CallData: callData, Args: language };
   }
 }
 
 @Injectable(ServerMiddleware)
-export class IntHttpMiddleware extends ServerMiddleware {
+export class IntlHttpMiddleware extends ServerMiddleware {
   @Config('intl.queryParameter')
   protected LangQueryParameter!: string;
 
@@ -82,7 +82,7 @@ export class IntHttpMiddleware extends ServerMiddleware {
     this.Order = 1;
   }
 
-  public before(): (req: express.Request, res: express.Response, next: express.NextFunction) => void {
+  public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
     return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
       const lang = extractLanguageFromRequest(req, this.LangQueryParameter);
 
@@ -96,3 +96,8 @@ export class IntHttpMiddleware extends ServerMiddleware {
     return null;
   }
 }
+
+/** @deprecated misspelled name, use IntlHttpMiddleware */
+export const IntHttpMiddleware = IntlHttpMiddleware;
+/** @deprecated misspelled name, use IntlHttpMiddleware */
+export type IntHttpMiddleware = IntlHttpMiddleware;

@@ -69,6 +69,8 @@ what each fix changes for an app.
   `authz-http`, `authz-queue`, `authz-fs`, the test kits `authz-testing` and `authn-testing`, the
   converter `authz-convert`, and `http-socket-common`.
 - The five `rbac*` names get `npm deprecate` pointers at `3.0.0` final and nothing else (H25).
+- `@spinajs/eslint-plugin-authz` needs ESLint 9 or 10 and a flat config: add `authz.configs.recommended`
+  (a flat config object). `plugin:@spinajs/authz/recommended` and `.eslintrc` are gone.
 - Table names and migration class names do not change (`users`, `users_metadata`, `user_sessions`,
   `rbac_access_tokens`, `RBACInitial_2022_06_28_01_13_00`).
 - **Import these in the app entry**, before `Controllers` or `HttpServer` resolve; no other package
@@ -78,7 +80,7 @@ what each fix changes for an app.
   `/user/mfa` routes (`authn-http` no longer loads it), and `@spinajs/authz-orm`, `authz-queue`,
   `authz-fs` and `authn-oidc` when used.
 - **The app wires the RBAC and ABAC models**: `registerRbac(DI.RootContainer, configuration)` from
-  `@spinajs/authz-rbac`, then bind its `linkResolver` as authz-http's `LinkResolver`; for ABAC, register
+  `@spinajs/authz-rbac` (it also registers the share-link `LinkResolver`); for ABAC, register
   `new AbacModel()` and its `AbacContributor`. See `docs/authz/README.md`, "Wiring the models".
 - Build from source: run `npm run clean` after pulling. An incremental build keeps old 2.x controllers
   and config modules in `lib/`, which the loader and the controller scan would pick up.
@@ -122,12 +124,12 @@ what each fix changes for an app.
   may lie ahead of now or before the login. A value set at runtime past the schema that is not a finite
   number of 0 or more ends the impersonation.
 - `authz.queue.stampedInitiatorWarning`, `authz.orm.allowJit`, `authz.http.admin.domain`,
-  `telemetry.auth.permissions.*`, `telemetry.auth.domain` and `telemetry.auth.skipInDevelopment` are new.
-- **The authz tables live on ORM connection aliases.** Every authz table uses the alias `authz`, and
-  authz-fs's `fs_object` uses `authz-fs`. Map them to a connection with `db.Aliases.authz` and
-  `db.Aliases['authz-fs']`; both default to `default`. These keys are removed and fail boot with a message
-  that names the alias to set: `authz.rbac.connection`, `authz.admin.connection`, `authz.<model>.connection`
-  of an ABAC model (`authz.abac.connection`) and `authz.fsMetadata.connection`.
+  `authz.fsAcl.connection`, `authz.fsAcl.relations`, `fs.middlewareTimeoutMs`, `telemetry.auth.permissions.*`,
+  `telemetry.auth.domain` and `telemetry.auth.skipInDevelopment` are new.
+- **The authz tables live on the ORM connection alias `authz`.** Map it to a connection with `db.Aliases.authz`;
+  it defaults to `default`. authz-fs's `fs_acl` keeps its own key, `authz.fsAcl.connection`. These keys are
+  removed and fail boot with a message that names the alias to set: `authz.rbac.connection`,
+  `authz.admin.connection` and `authz.<model>.connection` of an ABAC model (`authz.abac.connection`).
 - `authz.rbac.maxPlanSubjects` is no longer read: a list term carries every subject. A value left set logs
   one warning.
 - `db.StrictTableCheck` (default `true`) is new: the `Orm` boot fails when a registered model's table is
@@ -178,12 +180,10 @@ what each fix changes for an app.
   and `dialectOf`, `castText`, `quoterOf`, `SqlDialect` and `storesConnection` are removed. In authz-rbac,
   `RbacAssignmentSql` / `rbacAssignmentSql` are `RbacAssignmentTerm` / `applyRbacAssignment`, and
   `sqliteDateTime` is removed.
-- **Stores take no connection options.** `DbPolicyStore`, `DbScopeAttributeStore` and
-  `OrmFileMetadataStore` have no constructor arguments (the `driver` argument and the
-  `DbScopeAttributeStoreOptions` / `OrmFileMetadataStoreOptions` types are gone): they read through ORM
-  models on the `authz` and `authz-fs` aliases. Also removed: `policyToRow` (now `policyToRecord`, and
-  `rowToPolicy` is `recordToPolicy`) from authz-abac, `parseAttributeLeaf` from authz, and
-  `AUTHZ_FS_METADATA_CONFIGURATION_SCHEMA` from authz-fs.
+- **Stores take no connection options.** `DbPolicyStore` and `DbScopeAttributeStore` have no constructor
+  arguments (the `driver` argument and the `DbScopeAttributeStoreOptions` type are gone): they read through ORM
+  models on the `authz` alias. Also removed: `policyToRow` (now `policyToRecord`, and `rowToPolicy` is
+  `recordToPolicy`) from authz-abac and `parseAttributeLeaf` from authz.
 
 ### Authentication
 
@@ -361,13 +361,15 @@ what each fix changes for an app.
   method: `packages/authz-rbac/bench/RESULTS.md`.
 - New tables: `authz_assignment`, `authz_rule`, `authz_rule_subject`, `authz_link`, `authz_version`,
   `authz_policy`, `authz_scope_attribute`, `authz_scope_attribute_version`, `authz_admin_idempotency`, `authz_audit` (optional),
-  `fs_object` (authz-fs owners), `authn_identity`, `authn_throttle`, `authn_audit`, `authn_secret`,
+  `fs_acl` (authz-fs file rights and owners), `authn_identity`, `authn_throttle`, `authn_audit`, `authn_secret`,
   `authn_mfa`, `authn_recovery_code`, `authn_nonce`, `authn_key`. The data migration moves TOTP
   secrets, resets and invites out of `users_metadata`, widens `user_sessions.SessionId` and drops
   `users.Role`. Section 7 of the migration guide has every migration and its checks.
 - MySQL and MSSQL default collations ignore case: give identity, subject, role and hash columns a binary
   collation. MSSQL cannot create the composite keys of `authz_scope_attribute` and
   `authz_admin_idempotency` yet.
+- `fs_acl` compares `fs` and `path` byte for byte (binary collation) and keys its unique index on `path_hash`, the
+  sha256 of the normalised path, so the key fits MySQL's and MSSQL's index limits with 512-character paths.
 - `@spinajs/orm` quotes join keys, MSSQL aliases, `ORDER BY` and `MERGE` columns and recursive CTE
   column lists with the driver's quoter.
 
@@ -489,8 +491,9 @@ password, a token or a reset code never comes back in a response or lands in a l
 - **Warning:** nodemailer's `logger` / `debug` options in a connection's `options` log whole message
   bodies, secrets included. Keep them off where reset or invite mails are sent.
 - `EmailService.send` reads every attachment through its filesystem (`provider`, else
-  `fs.defaultProvider`) before the transport, in the caller's async context: a filesystem guarded by
-  authz-fs checks `fs:read` as the sending principal. An unknown filesystem fails with `IOFail`. A
+  `fs.defaultProvider`) before the transport, in the caller's async context: a filesystem whose
+  `authz.fs.<name>.mode` is `enforce` or `audit` checks `fs:read` as the sending principal. An unknown filesystem
+  fails with `IOFail`. A
   refused read rethrows the `AccessDenied` unchanged (403 over http), is logged once, counts
   `email.send.failed`, and nothing is sent.
 - `IEmailAttachement.file`: the local file the service read; the transport sends it without reading
@@ -503,6 +506,60 @@ password, a token or a reset code never comes back in a response or lands in a l
   unattended, so a guarded attachment is refused.
 - Templates are still read by the transport. Give template filesystems, and the filesystems of
   `users.email.*.attachments`, no `authz.fs` entry: those mails often run without a user.
+
+### File systems (`@spinajs/fs`, `@spinajs/fs-s3`, `@spinajs/fs-ftp`, `@spinajs/fs-onedrive`, `@spinajs/authz-fs`)
+
+- **Custom providers implement protected hooks.** The public methods of `fs` (`read`, `write`, `copy`, `zip`, …) are
+  concrete in the base class, and its constructor throws `InvalidOperation` when a subclass overrides one (`resolvePath`,
+  `tmppath`, `tmpname`, `resolve` and `dispose` stay overridable). Rename each override to its hook; hooks receive
+  normalised paths. See `docs/fs/07-middlewares.md`.
+
+  ```ts
+  // 2.x
+  public async read(path: string, encoding?: BufferEncoding) { /* … */ }
+  // 3.0
+  protected async doRead(path: string, encoding?: BufferEncoding) { /* … */ }
+  ```
+
+- **Paths are normalised on every provider** (`normalizeFsPath` from `@spinajs/fs`, against `fs.BasePath`). A path that
+  climbs above the root, holds a NUL byte, is a drive or UNC path outside the base path, or has a segment holding `:`
+  or ending in `.` or a space (Win32 aliases) throws `InvalidArgument` (400) before any IO, with or without
+  middlewares. `fsNative` takes `BasePath` from `Options.basePath`, the working directory without one. Without a
+  `basePath`, an absolute path outside the working directory maps under it on POSIX (`/etc/passwd` is
+  `<cwd>/etc/passwd`) and, as a drive path, throws `InvalidArgument` on Windows.
+- `upload(srcPath, …)` reads the local `srcPath` unchecked by contract: middlewares check only the destination. Never
+  pass a user-controlled `srcPath`.
+- `FsMiddleware` (new) runs `before` and `after` every public file method of every provider, in ascending `order`.
+  Register it by class (`@Injectable(FsMiddleware)`): while a factory or an instance is registered, every file action
+  throws `InvalidOperation`. Middlewares are resolved on each action, so import order against `fsService` does not
+  matter. A middleware sees the targets (normalised path,
+  `file` or `dir`, access, role), the other arguments as `ctx.args`, and unchecked `ctx.exists()`, `ctx.isDir()` and
+  `ctx.hasEntries()` probes. Calls a provider makes inside an action skip middlewares. `fs.middlewareTimeoutMs`
+  (default 30000) bounds the `after` hooks of a `writeStream`.
+- `hasEntries(path)` (new) tells whether a directory holds anything; it is checked as `list`. On `fsS3` nested keys
+  count.
+- `upload(src, dest?, { exclusive: true })` (new) throws `ResourceDuplicated` when `dest` exists: atomic on `fsNative`
+  (`COPYFILE_EXCL`) and `fsS3` (`IfNoneMatch: '*'`), an `exists()` check on `fsFTP`, forwarded by `fsTemp`. The
+  options reach middlewares as `ctx.args[1]`, and every `before` runs first: authz-fs refuses an upload without
+  `fs:write` with `AccessDenied` whether or not `dest` exists. `@spinajs/configuration-http` stores config files this
+  way; a refused upload leaves a same-named file in place.
+- `signedUrl(path, { until, disposition })` and its alias `getSignedUrl(path, until)` exist on every provider; one
+  without signed URLs throws `MethodNotImplemented`.
+- `fsOneDrive` (`@spinajs/fs-onedrive`) implements no operation: its hooks are stubs that throw
+  `MethodNotImplemented`. On a filesystem with `authz.fs` enabled every create and `rm` is therefore refused before
+  the IO, because the `isDir` probe throws.
+- `zip()` without `dstFs` writes to `fs-temp` on `fsNative`, into itself on `fsTemp`, and to the provider's temp fs on
+  `fsS3` and `fsFTP`. `unzip() without `dstFs` extracts into the same provider on `fsNative` and `fsTemp`, into the temp fs on `fsS3`
+  and `fsFTP`.
+- **authz-fs checks through `AuthzFsMiddleware`** (order 100): `fs:<access>` on every path an action touches, under
+  the mode of that path's own filesystem. Per-file rights are rows of `fs_acl` (`fs`, `path`, subject, relation); a
+  row on a directory covers everything under it, and `rm` of a directory drops the rows under it (on `fsS3` every key
+  is a file). A relation becomes a permission only through an RBAC relation grant, eg.
+  `{ permission: 'fs:write', relation: 'editor', on: [{ type: 'fs', id: 'uploads' }] }`. With `stampOwner` the first
+  writer of a free path gets an `owner` row. `FsAcl` changes rows and asserts the new permission `fs:manage` on the
+  file and directory refs of the path. See `docs/authz-fs/README.md`.
+- `authz.fs.<name>` keys are `mode`, `domain`, `stampOwner`, `list` and `signedUrl`. `metadata`, `resolver`,
+  `inherit`, `policies` and `operations` fail boot. authz-fs builds no models and creates no domains.
 
 ### Electron (`@spinajs/electron`)
 
@@ -560,12 +617,20 @@ The v2 API is gone; no package in the repository used it. The full notes are in
 
 ## Notes for maintainers
 
+- Static analysis runs in the `analysis` job of `build.yml` after a build: `npm run lint` (one root
+  `eslint.config.mjs`, typed rules, `complexity` max 15), `npm run deps` (dependency-cruiser),
+  `npm run knip` (report only) and `npm run check:packages` (publint, attw). Lint and deps fail only on
+  new findings; old ones are in `eslint-suppressions.json` and `.dependency-cruiser-known-violations.json`.
+  Typed lint reads the built `lib/*.d.ts` of sibling packages, so build before linting locally.
 - authz-queue pins `@spinajs/queue`: the queue release must ship `hooks.js`, `hook-runner.js` and
   `jobOptions`.
 - authz-orm must load once per process; a second copy (another install, or its ESM and CJS builds
   together) throws when it loads.
 - Release gate 7 (speed) is open while the owner reviews its limits (plan §12 item 7). The full
   numbers are in `packages/authz-rbac/bench/RESULTS.md`; the other gates are tracked in the plan.
+- Release gate item 4 is a manual release step: run `AUTHZ_FS_S3=required npm test` in `packages/authz-fs` against
+  localstack, so authz-fs's B28 runs on fsNative, fsTemp and fsS3 and an unreachable localstack fails instead of
+  skipping the S3 suite.
 
 ---
 

@@ -36,6 +36,22 @@ export declare abstract class AuthnEventSink {
 }
 ```
 
+## src/contracts/cli.ts
+
+```ts
+import type { AuthnContext } from "./credentials.js";
+import type { PrincipalRef } from "./principal.js";
+/** The actor of every operator command, so the audit tells it apart from an owner acting on their own credentials. */
+export declare const CLI_ACTOR: PrincipalRef;
+export declare function cliContext(): AuthnContext;
+
+// values
+const CLI_ACTOR = Object.freeze({
+    type: "system",
+    id: "cli"
+});
+```
+
 ## src/contracts/credentials.ts
 
 ```ts
@@ -164,6 +180,31 @@ export declare abstract class CredentialExtractor {
     /** `req.headers` keys are lower case; `body` is set when the request has one. null: no credentials this extractor reads. */
     abstract extract(req: SignedRequest): Credentials | null;
 }
+```
+
+## src/contracts/failure.ts
+
+```ts
+declare const AUTHN_FAILURE: Readonly<{
+    code: "E_AUTH_FAILED";
+    message: "login or password incorrect";
+}>;
+/** The one 401 body of every authentication failure (A02): login, MFA completion, inline re-authentication and the OIDC callback. */
+export declare const AUTHN_FAILURE_BODY: Readonly<{
+    error: typeof AUTHN_FAILURE;
+    message: string;
+}>;
+export {};
+
+// values
+const AUTHN_FAILURE = Object.freeze({
+    code: "E_AUTH_FAILED",
+    message: "login or password incorrect"
+});
+const AUTHN_FAILURE_BODY = Object.freeze({
+    error: AUTHN_FAILURE,
+    message: AUTHN_FAILURE.message
+});
 ```
 
 ## src/contracts/fresh.ts
@@ -307,6 +348,9 @@ export * from "./jws.js";
 export * from "./extractor.js";
 export * from "./hooks.js";
 export * from "./fresh.js";
+export * from "./cli.js";
+export * from "./failure.js";
+export * from "./nonce.js";
 ```
 
 ## src/contracts/jws.ts
@@ -507,6 +551,8 @@ export declare abstract class KeyRegistry {
     }): Promise<boolean>;
     /** For verifiers. Returns revoked and expired keys too, so the reason can be audited; accept a key only without revokedAt and before expiresAt. */
     abstract byId(kid: string): Promise<KeyRecord | null>;
+    /** Optional: records the key's last use after a successful verification. A failure here never fails the login. */
+    touch?(kid: string, at: Date): Promise<void>;
     /**
      * POST /auth/keys/challenge (anonymous, login) and the registration proof (an authenticated user).
      * A login challenge first counts against the 'login' flow's IP key; a refusal stores nothing. Every challenge stands alone, stored under its own id (with SecretStore:
@@ -545,8 +591,9 @@ export declare abstract class IdentityLinkStore {
 
 ```ts
 import { AsyncService } from "@spinajs/di";
-import type { IdentityRef } from "./credentials.js";
-import type { AuthnFacts } from "./principal.js";
+import type { AuthnContext, Credentials, IdentityRef } from "./credentials.js";
+import type { AuthnFacts, PrincipalRef } from "./principal.js";
+import type { SessionHandle } from "./session.js";
 /** TotpMfaStep in authn-totp; later WebAuthn, email code. */
 export declare abstract class MfaStep {
     /** e.g. 'totp'. 'recovery' is reserved: completeMfa's step for recovery codes. */
@@ -584,6 +631,72 @@ export declare abstract class MfaPolicy extends AsyncService {
     /** Names of the steps still to pass; empty: no MFA for this login. */
     abstract required(id: IdentityRef, facts: Pick<AuthnFacts, "method" | "strategy">): Promise<readonly string[]>;
 }
+export type MfaBeginResult = {
+    readonly ok: true;
+    readonly provisioning: string;
+} | {
+    readonly ok: false;
+    readonly code: "no_session" | "not_fresh" | "enrolled";
+};
+/** `enrolled`: already enrolled, another confirmation won, or the codes could not be issued; the owner regenerates the codes. */
+export type MfaConfirmResult = {
+    readonly ok: true;
+    readonly recoveryCodes: readonly string[];
+} | {
+    readonly ok: false;
+    readonly code: "no_session" | "not_begun" | "invalid_code" | "enrolled" | "throttled";
+    readonly retryAfterSeconds?: number;
+};
+export type MfaDisableResult = {
+    readonly ok: true;
+} | {
+    readonly ok: false;
+    readonly code: "no_session" | "not_fresh" | "not_enrolled" | "invalid_code" | "throttled";
+    readonly retryAfterSeconds?: number;
+};
+export type MfaRegenerateResult = {
+    readonly ok: true;
+    readonly recoveryCodes: readonly string[];
+} | {
+    readonly ok: false;
+    readonly code: "no_session" | "not_fresh" | "not_enrolled";
+};
+/**
+ * The owner's enrolment in one MFA step and the admin reset of it, behind the 3.0 enrolment routes and the admin
+ * mfa-reset route; TotpService in authn-totp. The owner methods act on the identity of the restored session, never on
+ * one the caller names; refusals are results, not exceptions.
+ */
+export declare abstract class MfaEnrolmentService {
+    /** True while login asks for this service's step: `steps` (the configured MfaPolicy's) lists it and it can store its secrets. */
+    abstract enabled(steps: Iterable<MfaStep>): boolean;
+    /** Needs fresh auth or `reauth` (A13). */
+    abstract begin(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<MfaBeginResult>;
+    abstract confirm(session: SessionHandle, code: string, ctx: AuthnContext): Promise<MfaConfirmResult>;
+    /** `code` is a step code or a recovery code; needs fresh auth or `reauth` (A13). */
+    abstract disable(session: SessionHandle, code: string, ctx: AuthnContext, reauth?: Credentials): Promise<MfaDisableResult>;
+    /** Needs fresh auth or `reauth` (A13). */
+    abstract regenerateRecoveryCodes(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<MfaRegenerateResult>;
+    /** The caller applies the target guard (A25) first; never returns a secret (SR-10). `reset`: an enrolment or a pending one existed. */
+    abstract adminReset(actor: PrincipalRef, target: IdentityRef, ctx: AuthnContext): Promise<{
+        reset: boolean;
+    }>;
+}
+```
+
+## src/contracts/nonce.ts
+
+```ts
+/**
+ * Single-use values (assertion jti, HTTP signature nonces, OIDC state) until they expire. `MemoryNonceStore` (core) and
+ * `DbNonceStore` (authn-orm) implement it; authn-keys' `KeyNonceStore` has the same semantics, so it can delegate here.
+ */
+export declare abstract class NonceStore {
+    /**
+     * True exactly once while `key` is live: the first claim keeps it until `expiresAt`; an expired key may be claimed again. Keys over 160 chars throw.
+     * `expiresAt` at or before `now` is never live, so such a claim is always true: callers refuse expired tokens first.
+     */
+    abstract claim(key: string, expiresAt: Date, now: Date): Promise<boolean>;
+}
 ```
 
 ## src/contracts/password.ts
@@ -601,6 +714,8 @@ export interface PasswordPolicy {
     /** Copy to show next to the field; never validated against. */
     readonly description?: string;
 }
+/** Longer passwords never verify, so no strategy hashes them; HTTP routes cap their credential fields at it too (N3). */
+export declare const PASSWORD_HARD_CAP = 1024;
 /** A policy violation says nothing about the account, so the caller may show it. */
 export type PasswordViolation = "too_short" | "too_long" | "rule" | "blocklisted";
 /**
@@ -696,6 +811,9 @@ export declare abstract class PasswordService {
     /** Makes the current password unusable; the rest depends on the cause. */
     abstract expire(id: IdentityRef, opts: PasswordExpiry, ctx: AuthnContext): Promise<void>;
 }
+
+// values
+const PASSWORD_HARD_CAP = 1024;
 ```
 
 ## src/contracts/principal.ts
@@ -759,6 +877,7 @@ export interface Ceiling {
 export declare const SYSTEM: Principal;
 export declare const UNATTENDED: Principal;
 export declare const principalKey: (p: PrincipalRef) => string;
+export declare const sameRef: (a: PrincipalRef, b: PrincipalRef) => boolean;
 export declare const ceilingHash: (c: Ceiling | undefined) => string;
 
 // values
@@ -994,7 +1113,10 @@ export declare abstract class AuthenticationStrategy extends AsyncService {
 ## src/contracts/throttle.ts
 
 ```ts
-import type { AuthnContext } from "./credentials.js";
+import type { BackoffParams } from "@spinajs/util";
+import type { AuthnContext, IdentityRef } from "./credentials.js";
+export { backoffDelayMs } from "@spinajs/util";
+export type { BackoffParams } from "@spinajs/util";
 export interface ThrottleKey {
     readonly kind: "ip" | "account" | "account-ip" | "global" | (string & {});
     /** The caller passes the plain value; stores keep a keyed hash of it, since logins are personal data (SR-19). */
@@ -1021,11 +1143,6 @@ export declare abstract class AuthnThrottle {
         get<T>(path: string | string[]): T;
     }): void | Promise<void>;
 }
-export interface BackoffParams {
-    readonly free: number;
-    readonly baseDelayMs: number;
-    readonly maxDelayMs: number;
-}
 /** A key kind without params does not gate in that flow. */
 export interface ThrottleFlowParams {
     readonly account?: BackoffParams;
@@ -1043,8 +1160,8 @@ export interface ThrottleParams {
 export declare const THROTTLE_FLOWS: readonly ThrottleFlow[];
 /** Design §22.5 `authn.throttle`; the schema defaults equal it (test/boot/config-defaults.test.ts). */
 export declare const DEFAULT_THROTTLE_PARAMS: ThrottleParams;
-/** The wait after counted attempt n (1-based): 0 until n reaches free, then min(baseDelayMs × 2^(n − free), maxDelayMs). */
-export declare function backoffDelayMs(p: BackoffParams, n: number): number;
+/** The keys of the `mfa` and `reauth` flows: AuthnService, PasswordService.change and MFA enrolment share one budget (D14). */
+export declare function identityThrottleKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[];
 
 // values
 const THROTTLE_FLOWS = Object.freeze([
@@ -1195,4 +1312,19 @@ export declare abstract class TokenService {
     /** Hash lookup; checks revocation, expiry and the owner's status on every use (A14, A15). Bad tokens yield a failure; they are never thrown. */
     abstract validate(raw: string, ctx: AuthnContext): Promise<TokenValidation>;
 }
+```
+
+## Re-exported from other packages
+
+```ts
+// BackoffParams (@spinajs/util)
+export interface BackoffParams {
+    readonly free: number;
+    readonly baseDelayMs: number;
+    readonly maxDelayMs: number;
+}
+
+// backoffDelayMs (@spinajs/util)
+/** The wait after counted attempt n (1-based): 0 until n reaches free, then min(baseDelayMs × 2^(n − free), maxDelayMs). */
+export declare function backoffDelayMs(p: BackoffParams, n: number): number;
 ```

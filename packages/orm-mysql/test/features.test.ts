@@ -11,11 +11,11 @@ describe('mysql supported features', function () {
     DI.clearCache();
   });
 
-  it('declares no bound-parameter limit', async () => {
+  it('declares the prepared-statement bound-parameter limit', async () => {
     const driver = await DI.resolve(MySqlOrmDriver, [{ Name: 'mysql-features-test', Driver: 'orm-driver-mysql' } as any]);
 
-    expect(driver.supportedFeatures().maxBindParameters).to.eq(Infinity);
-    expect(driver.supportedFeatures().maxInsertRows).to.eq(undefined);
+    expect(driver.MaxBindings).to.eq(65535);
+    expect(driver.MaxInsertRows).to.eq(Infinity);
   });
 
   it('allows concurrent transactions', async () => {

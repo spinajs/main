@@ -346,18 +346,23 @@ export function _user_update(data?: Partial<User>) {
 /**
  * Activates a user account.
  * Sets `IsActive` to `true`, emits a {@link UserActivated} event, and sends the activation email.
+ * On an account that is already active it only drops a pending invite marker: no event, no mail.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
 export async function activate(identifier: number | string | User): Promise<User> {
   const u = await getUser(identifier);
 
-  await updateUser(u, { IsActive: true });
-
   // An account activated directly is no longer awaiting its invite - without this
   // the marker survives and the user's next ORDINARY reset takes the invite branch,
   // re-emitting UserActivated for an account that never stopped being active.
   await u.Metadata.delete(USER_COMMON_METADATA.USER_INVITE_PENDING);
+
+  if (u.IsActive) {
+    return u;
+  }
+
+  await updateUser(u, { IsActive: true });
 
   await ev(new UserActivated(u));
   await sendUserEmail(u, 'activated');

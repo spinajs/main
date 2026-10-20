@@ -1,6 +1,7 @@
 import type { Principal, ResourceRef, ResourceType } from './principal.js';
 import type { PermissionDef } from './permission.js';
 import type { DenyReason } from './decision.js';
+import type { RelationResolver } from './adapter.js';
 
 /** One condition on a row; an adapter that filters lists compiles it by `op` (authz-orm: a PlanTermCompiler). */
 export interface PlanTerm {
@@ -29,6 +30,11 @@ export type AccessPlan =
 
 /** Why a model cannot plan a permission on a type, or true. */
 export type ListSupport = true | { readonly reason: string };
+
+/** What listSupport may consult besides the permission and type. */
+export interface ListSupportContext {
+  relation(type: ResourceType, name: string): RelationResolver | undefined;
+}
 
 export interface ListPlanRequest {
   readonly principal: Principal;

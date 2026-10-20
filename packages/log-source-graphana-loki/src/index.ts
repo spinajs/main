@@ -13,6 +13,8 @@ import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder, TimeSpan } 
  * HTTP status codes worth retrying against Loki: rate limiting and transient
  * upstream / gateway failures.
  */
+const MAX_RETRY_DELAY_MS = 5000;
+
 const RETRYABLE_STATUS = new Set<number>([429, 502, 503, 504]);
 
 /**
@@ -83,14 +85,14 @@ export interface IGraphanaOptions extends ICommonTargetOptions {
     username: string;
     password: string;
   };
-  labels: {
+  labels?: {
     app: string;
   };
 }
 
 interface Stream {
   stream: {
-    app: string;
+    app?: string;
     level: string;
     logger: string;
   };
@@ -175,13 +177,13 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
       .addRetry({
         MaxRetryAttempts: 5,
         Delay: TimeSpan.fromSeconds(1),
-        MaxDelay: TimeSpan.fromSeconds(5),
+        MaxDelay: TimeSpan.fromMilliseconds(MAX_RETRY_DELAY_MS),
         BackoffType: BackoffType.Exponential,
         UseJitter: true,
         ShouldHandle: (o) => o.Error !== undefined && isRetryableLokiError(o.Error),
         DelayGenerator: ({ Outcome }) => {
           const ms = retryAfterMs(Outcome.Error);
-          return ms !== undefined ? TimeSpan.fromMilliseconds(ms) : undefined;
+          return ms !== undefined ? TimeSpan.fromMilliseconds(Math.min(ms, MAX_RETRY_DELAY_MS)) : undefined;
         },
       })
       .build();
@@ -217,11 +219,12 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
       return;
     }
 
-    data.Variables["n_timestamp"] = new Date().getTime() * 1000000;
+    // the entry object is shared with other targets, so stamp a copy
+    const entry: ILogEntry = { ...data, Variables: { ...data.Variables, n_timestamp: new Date().getTime() * 1000000 } };
 
     // fire-and-forget: Loki did not await the buffer write before either. A
     // size-triggered flush ( when the batch fills ) runs in the background.
-    void this.Queue.enqueue(data);
+    void this.Queue.enqueue(entry);
   }
 
   public forceFlush(): Promise<void> {
@@ -230,7 +233,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
 
   public async dispose() {
     // stop the flush timer and perform a final best-effort flush.
-    await this.Queue.shutdown();
+    await this.Queue?.shutdown();
   }
 
   /**
@@ -243,7 +246,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
   protected async send(batch: ILogEntry[]): Promise<void> {
     const streams: Map<string, Stream> = new Map<string, Stream>();
     const keyFor = (x: ILogEntry) => {
-      return [this.Options.labels.app, x.Variables.logger, x.Variables.level, ...Object.values(this.Options.labels)].join("-");
+      return [this.Options.labels?.app, x.Variables.logger, x.Variables.level, ...Object.values(this.Options.labels ?? {})].join("-");
     };
     const valFor = (x: ILogEntry) => [(x.Variables["n_timestamp"] as any).toString(), format(x.Variables, this.Options.layout)];
 
@@ -254,9 +257,9 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
       if (!stream) {
         streams.set(key, {
           stream: {
+            ...this.Options.labels,
             logger: x.Variables.logger,
             level: x.Variables.level,
-            ...this.Options.labels,
           },
           values: [valFor(x)],
         });
@@ -290,7 +293,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
         // retryable but exhausted: put the batch back at the front so the next
         // flush retries it. The queue enforces the maxQueue cap ( dropping the
         // oldest + onOverflow ) so the retry buffer never grows without bound.
-        this.Log.error(err, `Cannot write log messages to graphana target - retries exhausted, retaining entries for next flush.`);
+        this.Log.error({ error: err }, `Cannot write log messages to graphana target - retries exhausted, retaining entries for next flush.`);
         this.Queue.requeueFront(batch);
         return;
       }

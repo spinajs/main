@@ -1,5 +1,5 @@
 import { Container, IContainer, Inject, NewInstance } from '@spinajs/di';
-import { LockTableQueryCompiler, LockTableQueryBuilder, CreateViewQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, InsertQueryBuilder, TableAliasCompiler } from '@spinajs/orm';
+import { CreateViewQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, InsertQueryBuilder, TableAliasCompiler } from '@spinajs/orm';
 import { SqlCreateViewQueryCompiler, SqlInsertQueryCompiler } from '@spinajs/orm-sql';
 
 @NewInstance()
@@ -79,24 +79,5 @@ export class MySqlInsertQueryCompiler extends SqlInsertQueryCompiler {
     }
 
     return `INSERT${this._builder.Ignore ? ' IGNORE' : ''} INTO ${table}`;
-  }
-}
-
-/**
- * `LOCK TABLES` would commit the open transaction, so this is a locking read of every row: its next-key
- * locks keep writers out until commit under REPEATABLE READ (the InnoDB default). Exclusive, because
- * InnoDB may count through a secondary index and puts shared locks on that index only, where an update
- * of an unindexed column never looks; exclusive locks also reach the clustered records. Plain reads are
- * not locking reads and go on.
- */
-@NewInstance()
-@Inject(Container)
-export class MySqlLockTableQueryCompiler extends LockTableQueryCompiler {
-  constructor(protected container: Container, protected builder: LockTableQueryBuilder) {
-    super();
-  }
-
-  public compile(): ICompilerOutput[] {
-    return [{ bindings: [], expression: `SELECT COUNT(*) FROM ${this.container.resolve(TableAliasCompiler).compile(this.builder)} FOR UPDATE` }];
   }
 }

@@ -8,8 +8,9 @@ You reach the API in four ways: methods on a provider instance, static methods o
 
 1. You get a provider: `getFs('documents')`, `provider()` for the default one, `@FileSystem()` or `new URI('fs://documents/...')`. See [Providers and configuration](01-providers-and-configuration.md#getting-a-provider).
 2. You call an instance method, eg. `documents.write('a.txt', 'hello')`.
-3. The provider runs it against its backend. `fsNative` resolves the path inside its `basePath` first and wraps failures in `IOFail`. See [Local provider](03-local-provider.md).
-4. Cross-provider calls (`copy`, `move`, `zip`, `unzip` with a destination `fs`) end in `dstFs.upload(localPath, dest)` or `dstFs.writeStream(...)` on the destination.
+3. The base `fs` class normalises every path (see [Important behaviour](#important-behaviour)) and runs the registered [middlewares](07-middlewares.md) before the provider touches anything.
+4. The provider runs its protected `doX` hook against its backend. `fsNative` resolves the path inside its `basePath` first and wraps failures in `IOFail`. See [Local provider](03-local-provider.md).
+5. Cross-provider calls (`copy`, `move`, `zip`, `unzip` with a destination `fs`) end in `dstFs.upload(localPath, dest)` or `dstFs.writeStream(...)` on the destination.
 
 ## Instance API
 
@@ -30,7 +31,7 @@ You reach the API in four ways: methods on a provider instance, static methods o
 | `copy(path, dest, dstFs?)` | `Promise<void>` | Copies a file or directory, into `dstFs` when given. |
 | `move(oldPath, newPath, dstFs?)` | `Promise<void>` | Copies, then deletes the source. |
 | `rename(oldPath, newPath)` | `Promise<void>` | Renames within the provider. |
-| `upload(srcPath, destPath?)` | `Promise<void>` | Copies a **local** file or directory into the provider. `destPath` defaults to the source base name. |
+| `upload(srcPath, destPath?, options?)` | `Promise<void>` | Copies a **local** file or directory into the provider. `destPath` defaults to the source base name. With `{ exclusive: true }` an existing `destPath` throws `ResourceDuplicated` instead of being overwritten. Middlewares see `options` as `ctx.args[1]` and run before the provider's existence test: [Middlewares](07-middlewares.md#important-behaviour). |
 | `download(path)` | `Promise<string>` | Local path to the file. Local providers return the resolved path; remote ones download a copy first. |
 | `resolvePath(path)` | `string` | Full local path. |
 | `hash(path, algo?)` | `Promise<string>` | Hex digest from [`FileHasher`](09-file-hashing.md). Algorithm defaults to `fs.hasher.defaultAlgorithm` (`sha256`). |
@@ -39,7 +40,10 @@ You reach the API in four ways: methods on a provider instance, static methods o
 | `unzip(srcPath, destPath?, dstFs?)` | `Promise<string>` | Extracts an archive, returns the destination path. |
 | `tmpname(ext?)` | `string` | A UUID, with `ext` appended (`ext` includes the dot: `.pdf`). |
 | `tmppath(ext?)` | `string` | `tmpname(ext)` inside the provider's root. |
-| `signedUrl?(path, { until?, disposition? })` | `Promise<string>` | Optional. Time-limited public URL. `fsNative` and `fsTemp` do **not** implement it. |
+| `signedUrl(path, { until?, disposition? })` | `Promise<string>` | Time-limited public URL. A base method that throws `MethodNotImplemented` on providers without signed URLs (`fsNative`, `fsTemp`). |
+| `getSignedUrl(path, until?)` | `Promise<string>` | Alias of `signedUrl(path, { until })`. |
+| `hasEntries(path)` | `Promise<boolean>` | Something lives under `path`: a non-empty directory, or on a key store such as S3 any key with that prefix. |
+| `BasePath` | `string \| undefined` | The root that absolute paths are made relative to. `undefined` when the provider has none. |
 | `Name` / `ServiceName` | `string` | The provider `name`. |
 
 ## Static API on `fs`
@@ -98,22 +102,24 @@ Each helper resolves a provider with `provider(fileSystem)` and calls the instan
 ## Zip and unzip
 
 - `paths` is a path, or an array of paths and `[sourcePath, entryName]` tuples.
-- A plain path to a directory is added recursively; anything else is added as one file named after the **base name** of its path or `entryName`.
+- A plain path to a directory is added recursively; anything else is added as one file named after the **base name** of its path, or after `entryName` as given (folders included).
 - Every source must exist. Otherwise `zip()` throws one `IOFail` listing all missing paths.
-- `fsNative.zip()` writes to `dstFs`, or to the provider named `fs-temp` when you pass none. `fsTemp.zip()` writes to itself.
+- `fsNative.zip()` writes to `dstFs`, or to the provider named `fs-temp` when you pass none. `fsTemp.zip()` writes to itself; `fsS3` and `fsFTP` write to their temp fs.
 - `dstFile` defaults to `<uuid>.zip`.
 - `IZipResult` gives `fs` (the destination), `asFilePath()`, `asStream(encoding?)`, `asBase64()` and `unlink()`. The first three read the local path, so they need a destination with local paths.
-- `unlink()` is typed `void` but `fsNative` returns a promise from it: `await` it.
-- `unzip()` extracts into `dstFs` (or the same provider) at `destPath`, or a new UUID directory, and returns its resolved path.
+- `unlink()` returns a promise: `await` it.
+- `unzip()` extracts into `dstFs` (or the same provider; `fsS3` and `fsFTP` use their temp fs) at `destPath`, or a new UUID directory, and returns its resolved path.
 
 ## Important behaviour
 
+- Every action normalises its paths with `normalizeFsPath` against `fs.BasePath`, with or without middlewares. `..` above the root, a NUL byte and a drive or UNC path outside the base path throw `InvalidArgument`. See [Path normalisation](07-middlewares.md#path-normalisation).
 - `fsNative.write()` and `writeStream()` do **not** create missing parent directories; `write()` throws `IOFail`. `copy()`, `move()` and `upload()` create them.
 - `write()` flushes to disk (`fsync`) before it resolves.
 - `rm()` does not fail on a missing path.
 - `move()` across devices (`EXDEV`) falls back to copy and delete.
 - `copy()` to another provider uploads the resolved local source path, so the source provider must have local paths.
 - `writeStream(path, readStream)` destroys the write stream when the source stream errors.
+- `upload(..., { exclusive: true })` is atomic in `fsNative` (`COPYFILE_EXCL`, single files only) and `fsS3` (`IfNoneMatch: '*'`). `fsFTP` checks `exists()` first, so two clients can still race. A provider that ignores `options` overwrites.
 
 ## Best practices
 

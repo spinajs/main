@@ -21,7 +21,7 @@ Members a subclass can use or shadow:
 | `Signer` | protected, optional | Set in `resolve()` from `Options.signer`. |
 | `Logger` | protected, `@Logger('fs')` | Logs to the `fs` logger. |
 | `resolve()`, `dispose()` | public lifecycle | Override and call `super`. |
-| every `fs` method | public | Override to change one operation. |
+| every `doX` hook | protected | Override to change one operation. The public methods are final: the base constructor throws `InvalidOperation` for a subclass that overrides one. |
 
 ## Configuration
 
@@ -86,7 +86,7 @@ For one fixed second account, redeclare the property with another path instead: 
 
 ### S3 provider: set Content-Type on write
 
-`write()` sets no `Content-Type`, so browsers download every signed file as binary. This override adds it from the extension and keeps the `hash` and `md5` metadata that `hash()` depends on.
+`write()` sets no `Content-Type`, so browsers download every signed file as binary. This `doWrite` override adds it from the extension and keeps the `hash` and `md5` metadata that `hash()` depends on.
 
 ```ts sample
 import { Upload } from '@aws-sdk/lib-storage';
@@ -106,7 +106,7 @@ const CONTENT_TYPES: Record<string, string> = {
 @Injectable('fs')
 @PerInstanceCheck()
 export class fsS3Web extends fsS3 {
-  public async write(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+  protected async doWrite(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     const digest = (algorithm: string) => {
       const h = crypto.createHash(algorithm);
       return (typeof data === 'string' ? h.update(data, encoding ?? 'utf8') : h.update(data)).digest('hex');
@@ -117,7 +117,7 @@ export class fsS3Web extends fsS3 {
       params: {
         Bucket: this.Options.bucket,
         Key: path,
-        Body: data,
+        Body: typeof data === 'string' ? Buffer.from(data, encoding ?? 'utf8') : data,
         ContentType: CONTENT_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream',
         Metadata: { hash: digest('sha256'), md5: digest('md5') },
       },
@@ -160,7 +160,9 @@ export class fsS3Versioned extends fsS3 {
 - **The subclass must be imported before `fsService` resolves.** Decorators register the class when its module loads.
 - **`AwsConfig` is read once,** in `resolve()`, when the `S3Client` is created.
 - **`fsService` sorts providers only by their `provider` key.** `fs-temp-s3` is read lazily, so its position in the list does not matter.
-- **Overrides bypass base behaviour you do not repeat.** A `write()` override that omits the `hash` metadata makes `hash()` throw for those objects.
+- **Overrides bypass base behaviour you do not repeat.** A `doWrite` override that omits the `hash` metadata makes `hash()` throw for those objects.
+- **`doList` adds the trailing `/` to a non-empty path itself.** Paths reach the hooks normalised, without a trailing slash; an override of `doList` does the same.
+- **`doUpload` must keep `IfNoneMatch: '*'` for `exclusive`.** Without it `upload(..., { exclusive: true })` overwrites.
 
 ## Best practices
 
@@ -173,4 +175,4 @@ export class fsS3Versioned extends fsS3 {
 - [S3 file provider](01-s3-file-provider.md): what each base method does.
 - [Temporary files](02-temporary-files.md): redeclaring `TempFs`.
 - [Signed URLs](04-signed-urls.md): replacing the signer instead of the provider.
-- [`@spinajs/fs`](../fs/README.md): `fsService`, `FsDecorator` for wrapping every provider without subclassing.
+- [`@spinajs/fs`](../fs/README.md): `fsService`, and [`FsMiddleware`](../fs/07-middlewares.md) for checking or observing every provider without subclassing.

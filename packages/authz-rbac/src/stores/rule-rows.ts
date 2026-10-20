@@ -28,7 +28,7 @@ export interface RuleRows {
   readonly subjects: readonly RuleSubjectRow[];
 }
 
-/** varchar lengths of design §9.1, checked here so that every database refuses the same rules. */
+/** varchar lengths of the rule tables, checked here so that every database refuses the same rules. */
 const LEN = { id: 160, scopeType: 64, scopeId: 64, subjectType: 32, subjectId: 64, subjectRole: 128 } as const;
 
 /**

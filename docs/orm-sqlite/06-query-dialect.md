@@ -1,15 +1,15 @@
 # Query dialect
 
-How `SELECT`s and `WHERE` clauses come out on SQLite: one-column `ORDER BY`, no `RIGHT JOIN`, set membership with `instr`, backtick identifiers, `LIMIT ? OFFSET ?`. Everything not listed here is the shared `@spinajs/orm-sql` spelling; see [Query compilers](../orm-sql/02-query-compilers.md) and [Statements](../orm-sql/03-statements.md).
+How `SELECT`s and `WHERE` clauses come out on SQLite: `ORDER BY`, joins, set membership with `instr`, backtick identifiers, `LIMIT ? OFFSET ?`. Everything not listed here is the shared `@spinajs/orm-sql` spelling; see [Query compilers](../orm-sql/02-query-compilers.md) and [Statements](../orm-sql/03-statements.md).
 
 ## How it works
 
 1. A select builder compiles with the shared `SqlSelectQueryCompiler`. For each clause it resolves a token from the driver container.
-2. **`ORDER BY`**: `OrderByQueryCompiler` is `SqliteOrderByCompiler`. It reads `getSort()`, the **first** sort entry, and renders `` ORDER BY [`alias`.]`column` ASC|DESC ``. Later `order()` / `orderBy()` / `orderByDescending()` calls are dropped.
-3. **Joins**: `JoinStatement` is `SqlLiteJoinStatement`. Its constructor throws `NotSupported('join method RIGHT JOIN is not supported by sqlite driver')` for `JoinMethod.RIGHT` and `RIGHT_OUTER`; every other method builds like `SqlJoinStatement`.
+2. **`ORDER BY`**: `OrderByQueryCompiler` is `SqliteOrderByCompiler`. It reads `getSorts()` and renders every sort entry, in call order, as `` [`alias`.]`column` ASC|DESC ``, joined with `, `. Names are quoted with the `IdentifierQuoter`.
+3. **Joins**: `JoinStatement` is `SqlLiteJoinStatement`, which builds exactly like `SqlJoinStatement`. `RIGHT JOIN` works: the bundled SQLite is 3.44 and has it since 3.39.
 4. **Set membership**: `whereInSet(col, values)` / `whereNotInSet(...)` resolve `InSetStatement`: `SqliteInSetStatement`. Each value becomes `(instr(',' || IFNULL(col, '') || ',', ?) > 0)` with the binding `,value,`; several values are joined with `OR`; `whereNotInSet` negates each and joins with `AND`. An empty value list gives `(1 = 0)`, or `(1 = 1)` when negated. A value containing `,` throws `InvalidArgument`.
 5. **Prefix**: `whereStartsWith(col, prefix)` resolves `StartsWithStatement`: `SqliteStartsWithStatement`, `` `col` GLOB ? `` bound with each `*`, `?` and `[` of the prefix wrapped in brackets and `*` appended. `GLOB` is used because SQLite's `LIKE` ignores ASCII case whatever the column's collation; `GLOB` never does.
-6. **Limit**: `LimitQueryCompiler` is the shared `SqlLimitQueryCompiler`: ` LIMIT ?` for `take(n)`, ` OFFSET ?` for `skip(n)`, and ` LIMIT 18446744073709551615` for `skip()` without `take()`.
+6. **Limit**: `LimitQueryCompiler` is `SqliteLimitQueryCompiler`: ` LIMIT ?` for `take(n)`, ` OFFSET ?` for `skip(n)`, and ` LIMIT -1` (SQLite's "no limit") for `skip()` without `take()`.
 7. **Recursive CTEs**: `RecursiveQueryCompiler` is the shared `SqlWithRecursiveCompiler` (`WITH RECURSIVE recursive_cte(...) AS ( ... )`).
 8. **Quoting**: `IdentifierQuoter` is `BacktickIdentifierQuoter` (`` `name` ``, embedded backticks doubled; `quoteQualified('db.t')` gives `` `db`.`t` ``). `LiteralQuoter` is `SqlLiteralQuoter`: strings with doubled `'`, booleans as `1` / `0`, dates through the datetime converter. Literals are used where bindings cannot go, eg. view bodies.
 
@@ -31,57 +31,44 @@ All registered by `SqliteOrmDriver.resolve()` in the connection's child containe
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Sort clause | `OrderByQueryCompiler`, constructor `(builder: OrderByBuilder)` | `SqliteOrderByCompiler` (exported) | `SqlOrderByQueryCompiler` from `@spinajs/orm-sql`: every sort, quoted with `IdentifierQuoter` | Register `SqlOrderByQueryCompiler`, or subclass either. |
-| Join | `JoinStatement`, constructor `(options: IJoinStatementOptions)` | `SqlLiteJoinStatement` (**not exported**) | `SqlJoinStatement` (allows `RIGHT JOIN`) | Register `SqlJoinStatement` or a subclass of it; override `clone()` in a subclass. |
-| Set membership | `InSetStatement`, constructor `(column, values, not, tableAlias?)` | `SqliteInSetStatement` (**not exported**) | `SqlInSetStatement` (portable `LIKE`) | Extend `InSetStatement` from `@spinajs/orm`; implement `build()` and `clone()`. |
-| Limit / offset | `LimitQueryCompiler` | `SqlLimitQueryCompiler` | | Subclass `SqlLimitQueryCompiler`; override `compile()`. |
+| Sort clause | `OrderByQueryCompiler`, constructor `(builder: OrderByBuilder)` | `SqliteOrderByCompiler` (exported) | `SqlOrderByQueryCompiler` from `@spinajs/orm-sql` (direction copied as given) | Subclass `SqliteOrderByCompiler`; override `compile()`. |
+| Join | `JoinStatement`, constructor `(options: IJoinStatementOptions)` | `SqlLiteJoinStatement` (exported) | `SqlJoinStatement` | Subclass `SqlLiteJoinStatement`; override `clone()` in a subclass. |
+| Set membership | `InSetStatement`, constructor `(column, values, not, tableAlias?)` | `SqliteInSetStatement` (exported) | `SqlInSetStatement` (portable `LIKE`) | Subclass `SqliteInSetStatement`, or extend `InSetStatement` from `@spinajs/orm`; implement `build()` and `clone()`. |
+| Limit / offset | `LimitQueryCompiler` | `SqliteLimitQueryCompiler` (exported) | `SqlLimitQueryCompiler` (MySQL's `LIMIT 18446744073709551615`) | Subclass `SqliteLimitQueryCompiler`; override `compile()`. |
 | Recursive CTE | `RecursiveQueryCompiler` | `SqlWithRecursiveCompiler` | | Subclass and register. |
-| Identifiers | `IdentifierQuoter` | `BacktickIdentifierQuoter` from `@spinajs/orm-sql` | | Subclass `IdentifierQuoter` from `@spinajs/orm`, implement `quote()`; see [Identifier and literal quoting](../orm-sql/04-identifier-and-literal-quoting.md). Hard-coded backticks in `SqliteOrderByCompiler`, `SqliteInsertQueryCompiler` and `SqliteColumnCompiler` stay. |
+| Identifiers | `IdentifierQuoter` | `BacktickIdentifierQuoter` from `@spinajs/orm-sql` | | Subclass `IdentifierQuoter` from `@spinajs/orm`, implement `quote()`; see [Identifier and literal quoting](../orm-sql/04-identifier-and-literal-quoting.md). Hard-coded backticks in `SqliteInsertQueryCompiler` and `SqliteColumnCompiler` stay. |
 | Literals | `LiteralQuoter` | `SqlLiteralQuoter` | | Subclass; override `quoteString()`, `quoteBoolean()`, `quoteDate()`. |
 
 ### Sort clause: custom implementation
 
-Order by several columns on SQLite. The shared compiler renders every sort entry.
+Sort `NULL`s last in both directions, as PostgreSQL does for `ASC`. SQLite has `NULLS LAST` since 3.30.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
-import { OrderByQueryCompiler } from '@spinajs/orm';
-import { SqlOrderByQueryCompiler } from '@spinajs/orm-sql';
-import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+import { ICompilerOutput, OrderByQueryCompiler } from '@spinajs/orm';
+import { SqliteOrderByCompiler, SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
-@Injectable('orm-driver-sqlite-multisort')
 @NewInstance()
-export class MultiSortSqliteDriver extends SqliteOrmDriver {
-  public resolve() {
-    super.resolve();
-    this.Container.register(SqlOrderByQueryCompiler).as(OrderByQueryCompiler);
+export class NullsLastOrderByCompiler extends SqliteOrderByCompiler {
+  public compile(): ICompilerOutput {
+    const output = super.compile();
+    return { ...output, expression: (output.expression ?? '').replace(/ (ASC|DESC)(?=,|$)/g, ' $1 NULLS LAST') };
   }
 }
-```
 
-### Join: custom implementation
-
-The `sqlite3` package used here bundles SQLite 3.44, and `RIGHT JOIN` works since SQLite 3.39. Register the shared join statement to allow it.
-
-```ts sample
-import { Injectable, NewInstance } from '@spinajs/di';
-import { JoinStatement } from '@spinajs/orm';
-import { SqlJoinStatement } from '@spinajs/orm-sql';
-import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-
-@Injectable('orm-driver-sqlite-right-join')
+@Injectable('orm-driver-sqlite-nulls-last')
 @NewInstance()
-export class RightJoinSqliteDriver extends SqliteOrmDriver {
+export class NullsLastSqliteDriver extends SqliteOrmDriver {
   public resolve() {
     super.resolve();
-    this.Container.register(SqlJoinStatement).as(JoinStatement);
+    this.Container.register(NullsLastOrderByCompiler).as(OrderByQueryCompiler);
   }
 }
 ```
 
 ### Set membership: custom implementation
 
-Match set members case-insensitively, so `Admin` in the column matches `admin` in the query. `SqliteInSetStatement` is not exported, so extend `InSetStatement`.
+Match set members case-insensitively, so `Admin` in the column matches `admin` in the query. The whole expression changes, so this extends `InSetStatement` rather than `SqliteInSetStatement`.
 
 ```ts sample
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
@@ -124,59 +111,29 @@ export class NoCaseSetsSqliteDriver extends SqliteOrmDriver {
 }
 ```
 
-### Limit / offset: custom implementation
-
-SQLite rejects `LIMIT 18446744073709551615` with `SQLITE_MISMATCH: datatype mismatch`, so `skip()` without `take()` fails. SQLite reads `LIMIT -1` as "no limit".
-
-```ts sample
-import { Injectable, NewInstance } from '@spinajs/di';
-import { ICompilerOutput, LimitQueryCompiler } from '@spinajs/orm';
-import { SqlLimitQueryCompiler } from '@spinajs/orm-sql';
-import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-
-@NewInstance()
-export class SqliteNoLimitCompiler extends SqlLimitQueryCompiler {
-  public compile(): ICompilerOutput {
-    const output = super.compile();
-    return { ...output, expression: (output.expression ?? '').replace('LIMIT 18446744073709551615', 'LIMIT -1') };
-  }
-}
-
-@Injectable('orm-driver-sqlite-offset')
-@NewInstance()
-export class OffsetSqliteDriver extends SqliteOrmDriver {
-  public resolve() {
-    super.resolve();
-    this.Container.register(SqliteNoLimitCompiler).as(LimitQueryCompiler);
-  }
-}
-```
-
 ## Important behaviour
 
-- Only the first sort entry is rendered; the compiler does not use `IdentifierQuoter` (backticks are hard-coded) and does not handle `RawQuery` sorts.
-- `RIGHT JOIN` and `RIGHT OUTER JOIN` throw `NotSupported` when the join statement is created; `FULL OUTER JOIN` is not refused. The core's `populate()` uses `LEFT JOIN`.
-- `SqlLiteJoinStatement` has no `clone()`, so a cloned query carries a plain `SqlJoinStatement` and no longer refuses `RIGHT JOIN`.
+- Every sort entry is rendered, in call order; `RawQuery` sorts are not handled.
+- All join methods build as in `SqlJoinStatement`; the core's `populate()` uses `LEFT JOIN`.
 - Set membership never matches a `NULL` column, so `whereNotInSet` returns rows whose column is `NULL`.
-- `skip()` without `take()` fails with `SQLITE_MISMATCH` (see the limit sample above).
+- `skip()` without `take()` renders `LIMIT -1 OFFSET ?`.
 - `like` comparisons follow SQLite: case-insensitive for ASCII letters only.
 - `whereIn()` / `whereNotIn()` with more than 1000 strings or numbers binds the list as one JSON parameter, `` `col` IN (SELECT value FROM json_each(?)) ``, so a key list is not capped by the 32766-parameter limit.
 
 ## Best practices
 
-- Sort by one column on the stock driver, or register `SqlOrderByQueryCompiler` for the connections that need more.
+- Add a unique column as the last sort when paging, so rows with equal sort values keep their order between pages.
 - Use `whereInSet()` for `@Set()` columns; never a `LIKE '%value%'`, which matches prefixes and substrings.
-- Always pair `skip()` with `take()` on SQLite.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: on the stock SQLite driver the Title sort is silently dropped
-await Article.select().order('Views', SortOrder.DESC).order('Title', SortOrder.ASC);
-
-// Do: register SqlOrderByQueryCompiler (MultiSortSqliteDriver above), or sort in memory
+// Don't: sort in memory what the database can sort
 const rows = await Article.select().order('Views', SortOrder.DESC);
 rows.sort((a, b) => b.Views - a.Views || a.Title.localeCompare(b.Title));
+
+// Do: ORDER BY `Views` DESC, `Title` ASC
+await Article.select().order('Views', SortOrder.DESC).order('Title', SortOrder.ASC);
 ```
 
 ## Examples

@@ -75,10 +75,18 @@ export class RedisSessionStore extends SessionProvider {
 
   public async resolve() {
     this.Client = this.createClient();
+    this.Client.on('error', (err: Error) => this.Log.error(err, 'Redis connection error'));
   }
 
   public async dispose() {
-    this.Client?.disconnect();
+    if (!this.Client) {
+      return;
+    }
+    try {
+      await this.Client.quit();
+    } catch {
+      this.Client.disconnect();
+    }
   }
 
   public async restore(sessionId: string): Promise<ISession | null> {
@@ -236,7 +244,7 @@ export class RedisSessionStore extends SessionProvider {
     // Only keys this store owns (session rows and index sets); never a blind FLUSHDB.
     await this.scanSessionKeys(async (keys) => {
       await this.Client.del(...keys);
-    });
+    }, this.keyPatterns());
   }
 
   protected createClient(): Redis {
@@ -314,18 +322,30 @@ export class RedisSessionStore extends SessionProvider {
     }
   }
 
-  /** Runs `each` on every batch of this store's keys, with the connection keyPrefix stripped (the client adds it back). */
-  protected async scanSessionKeys(each: (keys: string[]) => Promise<void>): Promise<void> {
+  /** Patterns (without the connection keyPrefix) covering session rows and both kinds of index sets. */
+  protected keyPatterns(): string[] {
+    const any: IdentityRef = { type: '*', id: '*' };
+    return [...new Set([this.sessionKey('*'), this.indexKey('subject', any), this.indexKey('impersonator', any)])];
+  }
+
+  /** Runs `each` on every batch of keys matching `patterns`, with the connection keyPrefix stripped (the client adds it back). */
+  protected async scanSessionKeys(each: (keys: string[]) => Promise<void>, patterns: string[] = this.keyPatterns()): Promise<void> {
     const prefix = this.Client.options.keyPrefix ?? '';
-    let cursor = '0';
-    do {
-      // SCAN patterns and replies are not prefixed by ioredis.
-      const [next, keys] = await this.Client.scan(cursor, 'MATCH', `${prefix}session:*`, 'COUNT', 500);
-      cursor = next;
-      if (keys.length > 0) {
-        await each(keys.map((k) => (prefix && k.startsWith(prefix) ? k.slice(prefix.length) : k)));
-      }
-    } while (cursor !== '0');
+    // SCAN patterns and replies are not prefixed by ioredis; glob characters in the prefix must match literally.
+    const escapedPrefix = prefix.replace(/[\\*?[\]]/g, '\\$&');
+    const seen = new Set<string>();
+    for (const pattern of patterns) {
+      let cursor = '0';
+      do {
+        const [next, keys] = await this.Client.scan(cursor, 'MATCH', `${escapedPrefix}${pattern}`, 'COUNT', 500);
+        cursor = next;
+        const fresh = keys.filter((k) => !seen.has(k));
+        fresh.forEach((k) => seen.add(k));
+        if (fresh.length > 0) {
+          await each(fresh.map((k) => (prefix && k.startsWith(prefix) ? k.slice(prefix.length) : k)));
+        }
+      } while (cursor !== '0');
+    }
   }
 
   /**
@@ -346,7 +366,7 @@ export class RedisSessionStore extends SessionProvider {
       if (!lenient) {
         throw err;
       }
-      this.Log.warn(`Unreadable session value skipped`);
+      this.Log.warn(`Unreadable value of session ${sessionId} skipped`);
       return null;
     }
 
@@ -361,7 +381,7 @@ export class RedisSessionStore extends SessionProvider {
       if (!lenient) {
         throw err;
       }
-      this.Log.warn(`Session with undecodable Data read without its Data`);
+      this.Log.warn(`Session ${sessionId} has undecodable Data, read without its Data`);
       data = new Map();
     }
 

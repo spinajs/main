@@ -3,17 +3,24 @@ import { Client } from '@microsoft/microsoft-graph-client';
 
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, getFs, IStat, IZipResult } from '@spinajs/fs';
+import { fs, FileSystem, IFsUploadOptions, IStat, IZipResult } from '@spinajs/fs';
 import { Config } from '@spinajs/configuration';
 import { MethodNotImplemented } from '@spinajs/exceptions';
+import { PassThrough } from 'stream';
 
 export interface IOnedriveConfig {
   tenantId: string;
   clientId: string;
   clientSecret: string;
   name: string;
+  /** Graph drive id. Not read by `fsOneDrive`; reserved for subclasses that build drive paths. */
   drive: string;
   debug: boolean;
+}
+
+export interface IOnedriveEndpoints {
+  aad_endpoint: string;
+  graph_endpoint: string;
 }
 
 /**
@@ -31,11 +38,12 @@ export class fsOneDrive extends fs {
   protected Logger: Log;
 
   @Config('fs.onedrive')
-  protected Config: IOnedriveConfig;
+  protected Config: IOnedriveEndpoints;
 
   /**
-   * File system for temporary files
+   * File system for temporary files. Resolved lazily, so provider creation order does not matter.
    */
+  @FileSystem('fs-temp')
   protected TempFs: fs;
 
   protected OneDriveCredentials: ClientSecretCredential;
@@ -61,90 +69,91 @@ export class fsOneDrive extends fs {
   public async resolve() {
     await super.resolve();
 
-    this.OneDriveCredentials = new ClientSecretCredential(this.Options.tenantId, this.Options.clientId, this.Options.clientSecret);
+    this.OneDriveCredentials = new ClientSecretCredential(this.Options.tenantId, this.Options.clientId, this.Options.clientSecret, {
+      authorityHost: this.Config?.aad_endpoint,
+    });
 
     this.Client = Client.initWithMiddleware({
       debugLogging: this.Options.debug,
+      baseUrl: this.Config?.graph_endpoint ? new URL('v1.0', this.Config.graph_endpoint).href : undefined,
       authProvider: {
         getAccessToken: async () => {
-          const token = await this.OneDriveCredentials.getToken(fsOneDrive.GRAPH_SCOPE);
+          const token = await this.OneDriveCredentials.getToken((this.constructor as typeof fsOneDrive).GRAPH_SCOPE);
           return token?.token ?? '';
         },
       },
     });
-
-    this.TempFs = await getFs('fs-temp');
   }
 
   private notImplemented(method: string): never {
     throw new MethodNotImplemented(`fs onedrive provider does not implement '${method}' yet`);
   }
 
-  public async download(_path: string): Promise<string> {
+  protected async doDownload(_path: string): Promise<string> {
     return this.notImplemented('download');
   }
 
-  public async upload(_srcPath: string, _destPath?: string): Promise<void> {
+  protected async doUpload(_srcPath: string, _destPath: string, _options?: IFsUploadOptions): Promise<void> {
     return this.notImplemented('upload');
   }
 
-  public async read(_path: string, _encoding?: BufferEncoding): Promise<string | Buffer> {
+  protected async doRead(_path: string, _encoding?: BufferEncoding): Promise<string | Buffer> {
     return this.notImplemented('read');
   }
 
-  public async readStream(_path: string, _encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
+  protected async doReadStream(_path: string, _encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
     return this.notImplemented('readStream');
   }
 
-  public async write(_path: string, _data: string | Uint8Array, _encoding?: BufferEncoding): Promise<void> {
+  protected async doWrite(_path: string, _data: string | Uint8Array, _encoding?: BufferEncoding): Promise<void> {
     return this.notImplemented('write');
   }
 
-  public async writeStream(_path: string, _rStream?: BufferEncoding | NodeJS.ReadableStream, _encoding?: BufferEncoding): Promise<any> {
+  protected async doWriteStream(_path: string, _readStream?: NodeJS.ReadableStream | BufferEncoding, _encoding?: BufferEncoding): Promise<PassThrough> {
     return this.notImplemented('writeStream');
   }
 
-  public async append(_path: string, _data: string | Uint8Array, _encoding?: BufferEncoding): Promise<void> {
+  protected async doAppend(_path: string, _data: string | Uint8Array, _encoding?: BufferEncoding): Promise<void> {
     return this.notImplemented('append');
   }
 
-  public async exists(_path: string): Promise<boolean> {
+  protected async doExists(_path: string): Promise<boolean> {
     return this.notImplemented('exists');
   }
 
-  public async dirExists(_path: string): Promise<boolean> {
+  protected async doDirExists(_path: string): Promise<boolean> {
     return this.notImplemented('dirExists');
   }
 
-  public async copy(_path: string, _dest: string, _dstFs?: fs): Promise<void> {
+  protected async doCopy(_path: string, _dest: string, _dstFs?: fs): Promise<void> {
     return this.notImplemented('copy');
   }
 
-  public async move(_oldPath: string, _newPath: string, _dstFs?: fs): Promise<void> {
+  protected async doMove(_oldPath: string, _newPath: string, _dstFs?: fs): Promise<void> {
     return this.notImplemented('move');
   }
 
-  public async rename(_oldPath: string, _newPath: string): Promise<void> {
+  protected async doRename(_oldPath: string, _newPath: string): Promise<void> {
     return this.notImplemented('rename');
   }
 
-  public async rm(_path: string): Promise<void> {
+  protected async doRm(_path: string): Promise<void> {
     return this.notImplemented('rm');
   }
 
-  public async mkdir(_path: string): Promise<void> {
+  protected async doMkdir(_path: string): Promise<void> {
     return this.notImplemented('mkdir');
   }
 
-  public async stat(_path: string): Promise<IStat> {
+  protected async doStat(_path: string): Promise<IStat> {
     return this.notImplemented('stat');
   }
 
-  public async isDir(_path: string): Promise<boolean> {
+  protected async doIsDir(_path: string): Promise<boolean> {
     return this.notImplemented('isDir');
   }
 
-  public async list(_path: string): Promise<string[]> {
+  protected async doList(_path: string): Promise<string[]> {
     return this.notImplemented('list');
   }
 
@@ -152,11 +161,11 @@ export class fsOneDrive extends fs {
     return this.notImplemented('tmppath');
   }
 
-  public async zip(_path: string | (string | string[])[], _dstFs?: fs, _dstFile?: string): Promise<IZipResult> {
+  protected async doZip(_sources: string | (string | string[])[], _dstFs: fs, _dstFile: string): Promise<IZipResult> {
     return this.notImplemented('zip');
   }
 
-  public async unzip(_srcPath: string, _destPath?: string, _dstFs?: fs): Promise<string> {
+  protected async doUnzip(_srcPath: string, _destPath: string, _dstFs: fs): Promise<string> {
     return this.notImplemented('unzip');
   }
 

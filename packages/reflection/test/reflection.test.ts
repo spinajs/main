@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/await-thenable */
 /* eslint-disable @typescript-eslint/no-floating-promises */
-import {  ResolveFromFiles } from './../src/index.js';
+import { ListFromFiles, ReflectionException, ResolveFromFiles, TypescriptCompiler } from './../src/index.js';
 import { FrameworkConfiguration, Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
@@ -36,6 +36,8 @@ export class MockCfg extends FrameworkConfiguration {
           empty: [dir('./test-services/empty')],
           matcher: [dir('./test-services/matcher')],
           multiple: [dir('./test-services/multiple')],
+          default: [dir('./test-services/default')],
+          rejectasync: [dir('./test-services/rejectasync')],
         },
       },
       logger: {
@@ -55,6 +57,7 @@ export class MockCfg extends FrameworkConfiguration {
 describe('Reflection tests', () => {
   beforeEach(async () => {
     DI.clearCache();
+    DI.setESMModuleSupport();
     DI.register(MockCfg).as(Configuration);
 
     await DI.resolve(Configuration);
@@ -145,6 +148,67 @@ describe('Reflection tests', () => {
 
     const servs = await target.services;
     expect(servs[0].name).to.eq('FooServiceMixed');
+  });
+
+  it('Should skip a file when the type matcher names a missing export', async () => {
+    const target = {
+      services: [] as any[],
+    };
+
+    ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.matcher', (file, exportName) => `${file}${exportName}Missing`)(target, 'services');
+
+    expect(await target.services).to.be.an('array').that.have.length(0);
+  });
+
+  it('Should skip an async service whose resolve rejects', async () => {
+    const target = {
+      services: [] as any[],
+    };
+
+    ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.rejectasync')(target, 'services');
+
+    expect(await target.services).to.be.an('array').that.have.length(0);
+  });
+
+  it('Should list a default exported class', async () => {
+    const target = {
+      services: [] as any[],
+    };
+
+    ListFromFiles('/**/*.{ts,js}', 'system.dirs.default')(target, 'services');
+
+    const services = await target.services;
+    expect(services).to.have.length(1);
+    expect(services[0].name).to.eq('FooServiceDefault');
+  });
+
+  it('Should list every exported class of a file', async () => {
+    const target = {
+      services: [] as any[],
+    };
+
+    ListFromFiles('/**/*.{ts,js}', 'system.dirs.multiple')(target, 'services');
+
+    const services = await target.services;
+    expect(services.map((s: any) => s.name)).to.have.members(['Model1', 'Model2']);
+  });
+
+  it('Should reject with ReflectionException when configuration is not resolved', async () => {
+    DI.clearCache();
+
+    const target = {
+      services: [] as any[],
+    };
+
+    ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.singletons')(target, 'services');
+
+    await expect(target.services).to.be.rejectedWith(ReflectionException);
+  });
+
+  it('Should key computed method names by their source text', () => {
+    const members = new TypescriptCompiler(dir('./test-services/compiler/ComputedMembers.ts')).getClassMembers('ComputedMembers');
+
+    expect([...members.keys()]).to.have.members(['[Symbol.iterator]', 'list']);
   });
 
   // it('Should throw when class not found', () => {

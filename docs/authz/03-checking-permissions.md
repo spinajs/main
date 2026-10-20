@@ -18,6 +18,8 @@
 | `assert(principal, permission, resource?, subject?)` | `Promise<Decision>` | Guard an operation. Throws `AccessDenied` (a 403 `Forbidden` carrying `decision`) on a denial. |
 | `check(input)` | `Promise<Decision>` | Get the whole decision: fields, roles, reason, `validUntil`. |
 | `explain(input)` | `Promise<Decision>` | Debug a decision: every model is evaluated, caches are bypassed, `decision.trace` is set and the call is audited as `explain`. |
+| `inspect?(input)` | `Promise<Decision>` | Optional. A decision for admin tools, not an access attempt: never audited, reads and stores no decision cache, models read fresh. Never guard an action with it ([Holders](13-holders.md#inspect)). |
+| `ancestors?(ref)` | `Promise<ResourceRef[] \| null>` | Optional. The path a check of `ref` walks, `[ref, ...ancestors, GLOBAL]`; `null` for an unknown resource. |
 | `checkMany(principal, permissions, resource?)` | `Promise<Map<Permission, Decision>>` | Several permissions on one resource (which buttons to show). The resource is resolved once; the checks share one request cache. |
 | `checkAll(principal, requests)` | `Promise<Decision[]>` | Many `{ permission, resource }` pairs, in input order. See [Batch checks](#batch-checks). |
 | `accessPlan(principal, permission, type, env?)` | `Promise<AccessPlan>` | Filter a list before the query. An adapter renders the plan ([Access plans](#access-plans)). |
@@ -71,7 +73,7 @@ A model may permit "if the row matches", such as an `owner` grant. Checked on a 
 - `{ kind: 'none', reason }`: nothing could grant it. A list with no permit at all is a 403, not an empty list (H16).
 - `{ kind: 'filter', permit: 'all' | PlanTerm[], deny: PlanTerm[], within?, validUntil? }`: rows that match a permit term and no deny term, inside the ceiling's `within` resources.
 
-The permission must be declared `list: true` and `type` must be in its `types`, or the call throws `AuthzConfigError`. `SYSTEM` gets `permit: 'all'`. An `intersect` delegate gets `none` with `delegate`. The routed models' `listPlan()` answers combine under `deny-overrides` only. A plan without `env` is kept in the request cache, except for a `fresh` permission. `@spinajs/authz-orm` renders plans as query conditions; see [its docs](../authz-orm/README.md).
+The permission must be declared `list: true` and `type` must be in its `types`, or the call throws `AuthzConfigError`. `SYSTEM` gets `permit: 'all'`. An `intersect` delegate gets `none` with `delegate`. The routed models' `listPlan()` answers combine under `deny-overrides` only. A plan without `env` is kept in the request cache. A plan of a `fresh` permission neither reads nor stores that cache, passes `ListPlanRequest.fresh` to the models (RBAC reads assignments fresh), and runs a model's nested checks fresh. `@spinajs/authz-orm` renders plans as query conditions; see [its docs](../authz-orm/README.md).
 
 ## `summary` and `covers`
 
@@ -102,6 +104,7 @@ Other packages call the service for you. One line each; their docs hold the deta
 | Export | Use |
 | --- | --- |
 | `authz(domain?)` | The booted `AuthzService` of a domain, synchronously. |
+| `definite(decision)` | True only for an allow whose residual is `TRUE`. |
 | `currentPrincipal()` | The request store's principal, else `UNATTENDED`, without a service. |
 | `filterObject(fields, data)` | Keeps the fields of an object (or array) that `decision.fields.read` allows; values come back as `JSON.stringify` sees them. |
 | `compileFieldGlobs(globs)` | A matcher for field globs such as `['*', '!Password']`. |
@@ -111,13 +114,17 @@ Other packages call the service for you. One line each; their docs hold the deta
 
 ## Errors
 
-| Error | Extends | When |
-| --- | --- | --- |
-| `AccessDenied` | `Forbidden` (403) | `assert()` denied; `error.decision` holds the decision. |
-| `UnknownPermission` | `AuthzConfigError` | A check names an unregistered permission; an `implies` names one at boot. |
-| `AuthzConfigError` | `Error` | Wrong setup: the service is not booted, a glob instead of a name, a type outside `types`, a malformed request. |
-| `Unauthenticated` | `AuthenticationFailed` (401) | Exported for adapters that need a 401. |
-| `NeedsAsync` | `Error` | Exported; no core code path throws it. |
+The errors extend `@spinajs/exceptions` classes, so `@spinajs/http` maps them by class:
+
+| Error | Extends | HTTP | When |
+| --- | --- | --- | --- |
+| `AccessDenied` | `Forbidden` | 403 | `assert()` denied; `error.decision` holds the decision, which stays out of the error body. |
+| `Unauthenticated` | `AuthenticationFailed` | 401 | An anonymous request on a route `@Access` guards (authz-http). |
+| `AuthzConfigError` | `InvalidOption` | 500 | Wrong setup: the service is not booted, a misconfigured domain, model or decorator, a glob instead of a name, a type outside `types`, a malformed request, `runAs` without a reason. |
+| `UnknownPermission` | `AuthzConfigError` | 500 | A check names an unregistered permission; an `implies` names one at boot. |
+| `AuthzAdminFailure` | `Exception` | 500 unless the adapter answers it (authz-http-admin does, by `code`) | A refused admin command; carries `code` and `field` ([AuthzAdmin](10-authz-admin.md)). |
+
+`AuthzConfigError` and `AuthzAdminFailure` take the standard `{ cause }` option. The cause stays non-enumerable and `inner` stays unset, so it never reaches an HTTP error body.
 
 ## Important behaviour
 

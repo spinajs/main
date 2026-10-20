@@ -1,14 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { PostgresSqlExpressions } from './expressions.js';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { LockTableQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, NowExpression } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler } from '@spinajs/orm';
 import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler, IsoDatetimeValueConverter } from '@spinajs/orm-sql';
 import pg from 'pg';
-import { PostgresLockTableQueryCompiler, PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler } from './compilers.js';
-import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresInStatement, PostgresLiteralQuoter, PostgresNowExpression } from './statements.js';
+import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler, PostgresIndexQueryCompiler } from './compilers.js';
+import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresInStatement, PostgresLiteralQuoter, PostgresNowExpression, PostgresJoinStatement, PostgresDateTimeWrapper } from './statements.js';
 import { mapPostgresError } from './errors.js';
 import { ITableColumnInfo, IConstraintInfo } from './types.js';
 
 export * from './compilers.js';
+export * from './expressions.js';
 export * from './statements.js';
 export * from './errors.js';
 
@@ -41,8 +43,13 @@ export function toPositionalParameters(stmt: string): string {
  */
 export function toDriverStatement(stmt: string, params?: unknown[]): string {
   const count = params?.length ?? 0;
+  if (count === 0) {
+    return stmt;
+  }
+
+  // Quoted literals / identifiers and the jsonb operators `?|` `?&` are text, not placeholders.
   let i = 0;
-  return stmt.replace(/\?/g, (match) => (i < count ? `$${++i}` : match));
+  return stmt.replace(/'(?:[^']|'')*'|"(?:[^"]|"")*"|\?&|\?\|(?!\|)|\?/g, (match) => (match === '?' && i < count ? `$${++i}` : match));
 }
 
 const defaultParser = pg.types.getTypeParser as unknown as (oid: number, format?: string) => (value: string) => unknown;
@@ -100,6 +107,9 @@ export class PostgresOrmDriver extends SqlDriver {
    * READ COMMITTED, which is the standard-permitted upgrade, so it is not refused here.
    */
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
+
+  /** The wire protocol counts parameters in an Int16. */
+  public readonly MaxBindings = 65535;
 
   /**
    * pg hands NUMERIC/DECIMAL and BIGINT back as STRINGS: both can exceed 2^53, where a
@@ -161,6 +171,11 @@ export class PostgresOrmDriver extends SqlDriver {
       } else {
         // Taking the client explicitly, instead of letting `Pool.query` do it out of
         // sight, is what makes `orm_pool_acquire_seconds` a real number instead of zero.
+        if (!this.Pool) {
+          // A failed reconnect leaves no pool; 08003 ( connection does not exist ) lets withReconnect retry.
+          throw Object.assign(new Error('postgres pool is not connected'), { code: '08003' });
+        }
+
         const acquireStart = process.hrtime.bigint();
         const client = await this.Pool.connect();
         this.observeAcquireSeconds(Number(process.hrtime.bigint() - acquireStart) / 1e9);
@@ -215,9 +230,8 @@ export class PostgresOrmDriver extends SqlDriver {
       // With RETURNING every key comes back per row; the LAST_INSERT_ID batch walk is
       // MySQL's workaround for not having it.
       insertIdIsFirstOfBatch: false,
-      // the Bind message counts parameters in an Int16
-      maxBindParameters: 65535,
       concurrentTransactions: true,
+      nativeJson: true,
     };
   }
 
@@ -235,6 +249,8 @@ export class PostgresOrmDriver extends SqlDriver {
      */
     this.Container.register(DoubleQuoteIdentifierQuoter).as(IdentifierQuoter);
     this.Container.register(PostgresInStatement).as(InStatement);
+    this.Container.register(PostgresSqlExpressions).as(SqlExpressions);
+    this.Container.register(PostgresIndexQueryCompiler).as(IndexQueryCompiler);
     this.Container.register(PostgresOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
     this.Container.register(PostgresInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(PostgresColumnQueryCompiler).as(ColumnQueryCompiler);
@@ -248,6 +264,8 @@ export class PostgresOrmDriver extends SqlDriver {
     this.Container.register(PostgresLiteralQuoter).as(LiteralQuoter);
     this.Container.register(IsoDatetimeValueConverter).as(DatetimeValueConverter);
     this.Container.register(PostgresNowExpression).as(NowExpression);
+    this.Container.register(PostgresJoinStatement).as(JoinStatement);
+    this.Container.register(PostgresDateTimeWrapper).as(DateTimeWrapper);
 
     // Shared implementations that happen to be valid postgres, claimed explicitly.
     // DROP DATABASE IF EXISTS is among them: with this driver's quoter injected the
@@ -259,7 +277,6 @@ export class PostgresOrmDriver extends SqlDriver {
     this.Container.register(SqlTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
     this.Container.register(SqlWithRecursiveCompiler).as(RecursiveQueryCompiler);
     this.Container.register(SqlAlterTableQueryCompiler).as(AlterTableQueryCompiler);
-    this.Container.register(PostgresLockTableQueryCompiler).as(LockTableQueryCompiler);
 
     // No native scheduler in this engine, and nothing is simulated in its place.
     this.Container.register(UnsupportedEventQueryCompiler).as(EventQueryCompiler);
@@ -307,6 +324,11 @@ export class PostgresOrmDriver extends SqlDriver {
   }
 
   public async connect(): Promise<OrmDriver> {
+    // A reconnect replaces the pool; the dead one still holds its sockets and timers.
+    const previous = this.Pool;
+    this.Pool = null as any;
+    await previous?.end().catch(() => undefined);
+
     this.Pool = new pg.Pool(this.poolConfig());
 
     // An idle client's connection can die between checkouts; without a listener pg emits
@@ -351,6 +373,11 @@ export class PostgresOrmDriver extends SqlDriver {
     }
 
     return this;
+  }
+
+  public async lockTableShared(table: string): Promise<void> {
+    this.assertInTransaction('lockTableShared');
+    await this.schema().raw(`LOCK TABLE ${this.Container.resolve(IdentifierQuoter).quoteQualified(table)} IN SHARE MODE`);
   }
 
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {

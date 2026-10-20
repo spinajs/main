@@ -3,7 +3,7 @@ import { DI, Injectable, PerInstanceCheck, ResolveException } from '@spinajs/di'
 import { Log, Logger } from '@spinajs/log-common';
 import { WriteStream } from 'fs';
 import { PassThrough } from 'stream';
-import { fs, IFsTempOptions, IStat, IZipResult } from './interfaces.js';
+import { fs, IFsTempOptions, IFsUploadOptions, IStat, IZipResult } from './interfaces.js';
 import { MaxAgeTempCleanupStrategy, TempCleanupStrategy } from './temp-cleanup-strategy.js';
 import { getFs } from './helpers.js';
 
@@ -104,19 +104,23 @@ export class fsTemp extends fs {
     this.CleanupStrategy?.stop();
   }
 
-  public download(path: string): Promise<string> {
+  public get BasePath(): string | undefined {
+    return this.Provider?.BasePath;
+  }
+
+  protected doDownload(path: string): Promise<string> {
     return this.Provider.download(path);
   }
 
-  public upload(srcPath: string, destPath?: string): Promise<void> {
-    return this.Provider.upload(srcPath, destPath);
+  protected doUpload(srcPath: string, destPath: string, options?: IFsUploadOptions): Promise<void> {
+    return this.Provider.upload(srcPath, destPath, options);
   }
 
-  public async hash(path: string, algo?: string): Promise<string> {
+  protected doHash(path: string, algo?: string): Promise<string> {
     return this.Provider.hash(path, algo);
   }
 
-  public async metadata(path: string) {
+  protected doMetadata(path: string) {
     return this.Provider.metadata(path);
   }
 
@@ -124,66 +128,60 @@ export class fsTemp extends fs {
     return this.Provider.resolvePath(path);
   }
 
-  public read(path: string, encoding?: BufferEncoding): Promise<string | Buffer> {
+  protected doRead(path: string, encoding?: BufferEncoding): Promise<string | Buffer> {
     return this.Provider.read(path, encoding);
   }
 
-  public readStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
+  protected doReadStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
     return this.Provider.readStream(path, encoding);
   }
 
-  public write(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+  protected doWrite(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     return this.Provider.write(path, data, encoding);
   }
 
-  public writeStream(path: string, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
-  public writeStream(
-    path: string,
-    readStream: NodeJS.ReadableStream | BufferEncoding,
-    encoding?: BufferEncoding,
-  ): Promise<WriteStream | PassThrough>;
-  public writeStream(
-    path: string,
-    rStream?: BufferEncoding | NodeJS.ReadableStream,
-    encoding?: BufferEncoding,
-  ): Promise<WriteStream | PassThrough> {
+  protected doWriteStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding): Promise<WriteStream | PassThrough> {
     return this.Provider.writeStream(path, rStream as NodeJS.ReadableStream | BufferEncoding, encoding);
   }
 
-  public exists(path: string): Promise<boolean> {
+  protected doExists(path: string): Promise<boolean> {
     return this.Provider.exists(path);
   }
 
-  public dirExists(path: string): Promise<boolean> {
+  protected doDirExists(path: string): Promise<boolean> {
     return this.Provider.dirExists(path);
   }
 
-  public copy(path: string, dest: string, dstFs?: fs): Promise<void> {
+  protected doCopy(path: string, dest: string, dstFs?: fs): Promise<void> {
     return this.Provider.copy(path, dest, dstFs);
   }
 
-  public move(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
+  protected doMove(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
     return this.Provider.move(oldPath, newPath, dstFs);
   }
 
-  public rename(oldPath: string, newPath: string): Promise<void> {
+  protected doRename(oldPath: string, newPath: string): Promise<void> {
     return this.Provider.rename(oldPath, newPath);
   }
 
-  public rm(path: string): Promise<void> {
+  protected doRm(path: string): Promise<void> {
     return this.Provider.rm(path);
   }
 
-  public mkdir(path: string): Promise<void> {
+  protected doMkdir(path: string): Promise<void> {
     return this.Provider.mkdir(path);
   }
 
-  public stat(path: string): Promise<IStat> {
+  protected doStat(path: string): Promise<IStat> {
     return this.Provider.stat(path);
   }
 
-  public list(path: string): Promise<string[]> {
+  protected doList(path: string): Promise<string[]> {
     return this.Provider.list(path);
+  }
+
+  protected doHasEntries(path: string): Promise<boolean> {
+    return this.Provider.hasEntries(path);
   }
 
   // `ext` must be forwarded: callers such as fsS3.download() pass extname(path) so the
@@ -193,21 +191,21 @@ export class fsTemp extends fs {
     return this.Provider.tmppath(ext);
   }
 
-  public append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+  protected doAppend(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     return this.Provider.append(path, data, encoding);
   }
 
-  public zip(path: string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
-    // default archive destination to this temp fs, not the backend - keeps
-    // IZipResult.fs pointing at temp fs name and avoids hardcoded 'fs-temp' fallback
-    return this.Provider.zip(path, dstFs ?? this, dstFile);
+  // The base class defaults the destination to this temp fs (zipDestination), not the backend, so
+  // IZipResult.fs names the temp fs.
+  protected doZip(path: string | (string | string[])[], dstFs: fs, dstFile: string): Promise<IZipResult> {
+    return this.Provider.zip(path, dstFs, dstFile);
   }
 
-  public unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string> {
-    return this.Provider.unzip(srcPath, destPath, dstFs ?? this);
+  protected doUnzip(srcPath: string, destPath: string, dstFs: fs): Promise<string> {
+    return this.Provider.unzip(srcPath, destPath, dstFs);
   }
 
-  public isDir(path: string): Promise<boolean> {
+  protected doIsDir(path: string): Promise<boolean> {
     return this.Provider.isDir(path);
   }
 }

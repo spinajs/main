@@ -1,6 +1,6 @@
 # Extending the driver
 
-Every T-SQL behaviour of `@spinajs/orm-mssql` is a class registered in the connection's own DI container, or a method of `MsSqlOrmDriver`. Subclass the driver, override a method or register a different class after `super.resolve()`, and select the subclass per connection or for every MSSQL connection. Only `MsSqlOrmDriver`, `IMsSqlTransactionContext` and `toNamedParameters` are exported; a replacement extends the shared class from `@spinajs/orm-sql` or the abstract token from `@spinajs/orm`.
+Every T-SQL behaviour of `@spinajs/orm-mssql` is a class registered in the connection's own DI container, or a method of `MsSqlOrmDriver`. Subclass the driver, override a method or register a different class after `super.resolve()`, and select the subclass per connection or for every MSSQL connection. Only `MsSqlOrmDriver`, `MsSqlServerResponseMapper`, `IMsSqlTransactionContext` and `toNamedParameters` are exported; a replacement extends the shared class from `@spinajs/orm-sql` or the abstract token from `@spinajs/orm`.
 
 ## How it works
 
@@ -54,12 +54,14 @@ Methods a subclass overrides:
 
 | Method | Visibility | Stock behaviour | Page |
 | --- | --- | --- | --- |
-| `connect()`, `disconnect()`, `ping()` | public | `mssql` global pool; `SELECT 1` | [Connection and configuration](01-configuration.md) |
+| `connect()`, `disconnect()`, `ping()` | public | one `mssql.ConnectionPool` per connection; `SELECT 1` | [Connection and configuration](01-configuration.md) |
 | `executeOnDb(stmt, params, context)` | public | backticks stripped, `@p<n>` parameters, result shaped by context | [Executing statements](02-executing-statements.md) |
 | `isRetryableError(err)` | protected | not used: `executeOnDb()` does not retry | [Executing statements](02-executing-statements.md#retry-statements-after-a-dropped-connection) |
 | `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` | protected | `mssql.Transaction`, `SAVE TRANSACTION` | [Transactions](03-transactions.md) |
 | `SupportedIsolationLevels` | public property | all four | [Transactions](03-transactions.md) |
-| `supportedFeatures()` | public | `{ events: false, insertReturning: false, insertIdIsFirstOfBatch: false, maxBindParameters: 2098, maxInsertRows: 1000, concurrentTransactions: true }` | [Inserts and upserts](04-inserts-and-upserts.md) |
+| `supportedFeatures()` | public | `{ events: false, insertReturning: false, insertIdIsFirstOfBatch: false, concurrentTransactions: true, nativeJson: false }` | [Inserts and upserts](04-inserts-and-upserts.md) |
+| `lockTableShared(table)` | public | `SELECT COUNT(*) FROM <table> WITH (TABLOCK, HOLDLOCK)` inside the transaction | [Transactions](../orm/08-transactions.md#shared-table-lock) |
+| `MaxBindings`, `MaxInsertRows` | public property | `2000` parameters per statement (the server allows 2100), `1000` rows per `VALUES` list | [SQL helpers](../orm/17-sql-helpers.md#batches) |
 | `tableInfo(name, schema?)` | public | `INFORMATION_SCHEMA` queries | [Connection and configuration](01-configuration.md#important-behaviour) |
 | `resolve()` | public | registers the tokens below | this page |
 
@@ -73,7 +75,7 @@ Methods a subclass overrides:
 | `LiteralQuoter` | `MsSqlLiteralQuoter` | nothing | [Query dialect](05-query-dialect.md#literal-quoting-custom-implementation) |
 | `TableAliasCompiler` | `MsSqlTableAliasCompiler` | `SqlTableAliasCompiler` | [Query dialect](05-query-dialect.md) |
 | `LimitQueryCompiler` | `MsSqlLimitCompiler` | nothing | [Query dialect](05-query-dialect.md#paging-custom-implementation) |
-| `OrderByQueryCompiler` | `MsSqlOrderByCompiler` | `SqlOrderByQueryCompiler` | [Query dialect](05-query-dialect.md#sort-a-customer-list-by-last-and-first-name) |
+| `OrderByQueryCompiler` | `MsSqlOrderByCompiler` | `SqlOrderByQueryCompiler` | [Query dialect](05-query-dialect.md) |
 | `DeleteQueryCompiler` | `MsSqlDeleteQueryCompiler` | `SqlDeleteQueryCompiler` | [Query dialect](05-query-dialect.md) |
 | `InSetStatement` | `MsSqlInSetStatement` | `SqlInSetStatement` | [Query dialect](05-query-dialect.md) |
 | `InsertQueryCompiler` | `MsSqlInsertQueryCompiler` | `SqlInsertQueryCompiler` | [Inserts and upserts](04-inserts-and-upserts.md) |
@@ -81,22 +83,25 @@ Methods a subclass overrides:
 | `TableExistsCompiler` | `MsSqlTableExistsCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `TableQueryCompiler` | `MsSqlTableQueryCompiler` | `SqlTableQueryCompiler` | [Schema dialect](06-schema-dialect.md) |
 | `ColumnQueryCompiler` | `MsSqlColumnQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md#column-definition-custom-implementation) |
+| `AlterTableQueryCompiler` | `MsSqlAlterTableQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md#altering-tables) |
+| `AlterColumnQueryCompiler` | `MsSqlAlterColumnQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md#altering-tables) |
+| `SqlExpressions` | `MsSqlSqlExpressions` (exported) | the base `SqlExpressions`, which throws | [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
 | `CreateDatabaseCompiler` | `MsSqlCreateDatabaseQueryCompiler` | `SqlCreateDatabaseQueryCompiler` | [Schema dialect](06-schema-dialect.md) |
 | `DropDatabaseCompiler` | `MsSqlDropDatabaseQueryCompiler` | `SqlDropDatabaseQueryCompiler` | [Schema dialect](06-schema-dialect.md) |
 | `CreateViewCompiler` | `MsSqlCreateViewCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` (shared, claimed explicitly) | nothing | [Schema dialect](06-schema-dialect.md) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `DatetimeValueConverter` | `IsoDatetimeValueConverter` (`@spinajs/orm-sql`) | `SqlDatetimeValueConverter` | [Value conversion](07-value-conversion.md) |
+| `ServerResponseMapper` | `MsSqlServerResponseMapper` | nothing | [Inserts and upserts](04-inserts-and-upserts.md#insert-response-mapper-custom-implementation) |
 | `DefaultValueBuilder` | `MsSqlDefaultValueBuilder` | nothing | [Schema dialect](06-schema-dialect.md#column-defaults-custom-implementation) |
 | `NowExpression` | `MsSqlNowExpression` (`SYSDATETIMEOFFSET()`) | nothing | [Value conversion](07-value-conversion.md) |
-| `ModelDehydrator` | `MssqlModelDehydrator` (never resolved by the core) | nothing | [Value conversion](07-value-conversion.md) |
 
 Tokens the driver leaves **unregistered**, each a place to add your own:
 
 | Token | Effect while unregistered | Page |
 | --- | --- | --- |
-| `ServerResponseMapper` | model `insert()`, `save()` and upserts throw after the row is written | [Inserts and upserts](04-inserts-and-upserts.md#insert-response-mapper-custom-implementation) |
-| `AlterTableQueryCompiler`, `AlterColumnQueryCompiler`, `TableCloneQueryCompiler`, `TableHistoryQueryCompiler`, `RecursiveQueryCompiler` | the feature fails on first use | [Schema dialect](06-schema-dialect.md) |
+| `TableCloneQueryCompiler`, `RecursiveQueryCompiler` | the feature throws a `TypeError` on first use | [Schema dialect](06-schema-dialect.md) |
+| `TableHistoryQueryCompiler` | `trackHistory()` throws `MethodNotImplemented` in `MsSqlTableQueryCompiler` before it is resolved | [Schema dialect](06-schema-dialect.md) |
 
 ### A driver for tests: custom implementation
 
@@ -144,13 +149,13 @@ export class OfflineMsSqlDriver extends MsSqlOrmDriver {
 - **A subclass is not registered under the parent's string.** Give it its own `@Injectable('<string>')`, or register it explicitly.
 - **Keep constructor signatures.** Compilers are resolved with fixed arguments (the builder, sometimes the container first); a replacement must accept the same.
 - **A statement subclass must override `clone()`**, or a cloned query turns it back into the parent class. `MsSqlInSetStatement.clone()` copies its injected `Quoter` by hand, because a clone does not go through the container.
-- **The MSSQL classes are not exported.** Extend the shared `Sql*` class and re-implement the T-SQL part, as the examples do.
+- **The MSSQL compilers are not exported.** Extend the shared `Sql*` class and re-implement the T-SQL part, as the examples do.
 
 ## Best practices
 
 - Combine the fixes a deployment needs in one subclass and register it under `orm-driver-mssql`, so every connection gets them.
 - Name a per-connection subclass after its change (`orm-driver-mssql-reporting`).
-- Assert a registration in a test: `expect(driver.Container.resolve(ServerResponseMapper)).to.be.instanceOf(MsSqlServerResponseMapper)`.
+- Assert a registration in a test: `expect(driver.Container.resolve(OrderByQueryCompiler, [builder])).to.be.instanceOf(MyOrderByCompiler)`.
 
 ## Patterns and antipatterns
 
@@ -170,26 +175,25 @@ public resolve() {
 
 ## Examples
 
-### One production driver with every fix
+### One production driver with several changes
 
-Insert results, multi-column sorting and T-SQL column types, for every MSSQL connection. It keeps the driver's own column defaults (`MsSqlDefaultValueBuilder`): a `SqlDefaultValueBuilder` in their place would write `CURRENT_TIMESTAMP`, the server's local time, into DATETIMEOFFSET columns:
+Unicode string columns and a strict insert mapper, for every MSSQL connection. It keeps the driver's own column defaults (`MsSqlDefaultValueBuilder`): a `SqlDefaultValueBuilder` in their place would write `CURRENT_TIMESTAMP`, the server's local time, into DATETIMEOFFSET columns:
 
 ```ts sample
 import { DI, Injectable, NewInstance } from '@spinajs/di';
-import { ColumnQueryBuilder, ColumnQueryCompiler, DbServerResponse, OrderByQueryCompiler, ServerResponseMapper } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlOrderByQueryCompiler } from '@spinajs/orm-sql';
-import { MsSqlOrmDriver } from '@spinajs/orm-mssql';
+import { ColumnQueryBuilder, ColumnQueryCompiler, DbServerResponse, OrmException, ServerResponseMapper } from '@spinajs/orm';
+import { SqlColumnQueryCompiler } from '@spinajs/orm-sql';
+import { MsSqlOrmDriver, MsSqlServerResponseMapper } from '@spinajs/orm-mssql';
 
-export class ScopeIdentityResponseMapper extends ServerResponseMapper {
+export class StrictResponseMapper extends MsSqlServerResponseMapper {
   public read(data: any): DbServerResponse {
-    const row = Array.isArray(data) ? data[data.length - 1] : undefined;
-    const id = row ? row.ID : data?.LastInsertId;
+    const response = super.read(data);
 
-    return {
-      RowsAffected: Array.isArray(data) ? data.length : (data?.RowsAffected ?? 0),
-      LastInsertId: typeof id === 'number' ? id : 0,
-      Returning: [],
-    };
+    if (!Array.isArray(data) && response.RowsAffected === 0) {
+      throw new OrmException('insert wrote no row');
+    }
+
+    return response;
   }
 }
 
@@ -212,8 +216,7 @@ export class ProductionMsSqlDriver extends MsSqlOrmDriver {
   public resolve() {
     super.resolve();
 
-    this.Container.register(ScopeIdentityResponseMapper).as(ServerResponseMapper);
-    this.Container.register(SqlOrderByQueryCompiler).as(OrderByQueryCompiler);
+    this.Container.register(StrictResponseMapper).as(ServerResponseMapper);
     this.Container.register(UnicodeColumnCompiler).as(ColumnQueryCompiler);
   }
 }

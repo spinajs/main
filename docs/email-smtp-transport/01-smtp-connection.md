@@ -8,7 +8,7 @@ Each entry in `email.connections` with `service: 'EmailSenderSmtp'` becomes one 
 2. **Selection.** `EmailService` (from `@spinajs/email`) injects its `Senders` map with `@AutoinjectService('email.connections', EmailSender)`. For every connection entry, DI finds the `EmailSender` registration whose class name equals the entry's `service`, and resolves it with the whole entry as the constructor argument.
 3. **Construction.** `new EmailSenderSmtp(options)` stores the entry in `Options`. `ServiceName` returns `Options.name`, so the `Senders` map is keyed by connection name.
 4. **`EmailSender.resolve()`.** The base class reads `email.templateFs` and looks up that filesystem with `getFs()`. A name that is not registered throws `ResolveException`.
-5. **`EmailSenderSmtp.resolve()` builds the transporter options.** `host`, `port`, `secure` (from `ssl`) and `auth: { user, pass }` (from `user` and `password`) are merged with `Object.assign` with the entry's `options` object, which wins.
+5. **`EmailSenderSmtp.resolve()` builds the transporter options.** `host`, `port`, `secure` (from `ssl`) and, when `user` or `password` is set, `auth: { user, pass }` are merged with `Object.assign` with the entry's `options` object, which wins.
 6. **Logs and creates the transporter.** It logs `Creating connection to smtp: <user>@<host>:<port>` at `info`, then calls `nodemailer.createTransport(options)`.
 7. **Builds the send pipeline.** `buildSendPipeline()` creates the timeout and retry pipeline; see [Send resilience](03-send-resilience.md).
 8. **Verifies.** `Transporter.verify()` opens a connection, runs `EHLO`, TLS and authentication, and closes it. On failure it logs at `error` and throws `UnexpectedServerError('Cannot verify smtp connection <name> (<host>:<port>)')` with the `nodemailer` error as its cause.
@@ -88,7 +88,6 @@ export default {
 | A connection pool for bulk mail | `{ pool: true, maxConnections: 5, maxMessages: 100 }` |
 | DKIM signing | `{ dkim: { domainName: 'example.com', keySelector: 'mail', privateKey: '<PEM>' } }` |
 | OAuth2 instead of a password | `{ auth: { type: 'OAuth2', user: 'app@example.com', clientId: '...', clientSecret: '...', refreshToken: '...' } }` |
-| No authentication on a relay that offers `AUTH` | `{ auth: {} }` |
 | Socket timeouts | `{ connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 60000 }` |
 | A self-signed certificate on a dev server | `{ tls: { rejectUnauthorized: false } }` |
 
@@ -107,8 +106,7 @@ An `auth` object in `options` replaces the one built from `user` and `password` 
 - Every sender needs the filesystem named by `email.templateFs` at boot, even a sender that sends only text. The shipped default is `'email-templates'`: register an `fs` provider with that name, or set `email.templateFs` to `''`.
 - `service` is matched against the class name, not against a string token. A subclass is selected by its own class name.
 - `@NewInstance()`: two entries with `service: 'EmailSenderSmtp'` get two senders and two transporters. `DI.resolve(EmailSenderSmtp, [entry])` outside `EmailService` also builds and verifies a new one each time.
-- `auth` is always an object with `user` and `pass` keys, even when both are empty. A server that advertises `AUTH` then gets a login attempt with an empty user. Pass `options: { auth: {} }` to turn authentication off.
-- `options: { auth: null }` crashes `resolve()` with a `TypeError`: the connect log line reads `options.auth.user`. Use `{}`.
+- Without `user` and `password` no `auth` is passed, so the sender does not log in, even on a server that advertises `AUTH`.
 - The `info` connect log line includes the SMTP user name. The password is never logged.
 - The transporter is never closed. With `pool: true` the pooled sockets stay open until the process exits.
 
@@ -120,14 +118,6 @@ An `auth` object in `options` replaces the one built from `user` and `password` 
 - Turn on `pool: true` only for connections that send in bursts; a pool keeps sockets open.
 
 ## Patterns and antipatterns
-
-```ts
-// Don't: null crashes resolve() with a TypeError, the connect log line reads options.auth.user
-{ service: 'EmailSenderSmtp', name: 'relay', host: 'relay.internal', port: 25, options: { auth: null } }
-
-// Do: an empty auth object turns authentication off
-{ service: 'EmailSenderSmtp', name: 'relay', host: 'relay.internal', port: 25, options: { auth: {} } }
-```
 
 ```ts
 // Don't: resolve the sender by its token. DI picks the last EmailSender registration

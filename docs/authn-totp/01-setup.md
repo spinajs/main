@@ -12,7 +12,7 @@ An app turns TOTP on in three steps:
 
 What happens on first use:
 
-1. Importing the root entry registers `TotpMfaStep` as an `MfaStep` and `TotpService` under its class name. Nothing is read yet.
+1. Importing the root entry registers `TotpMfaStep` as an `MfaStep` and `TotpService` as the `MfaEnrolmentService` of `@spinajs/authn/contracts`. Nothing is read yet.
 2. The first call on `TotpMfaStep` resolves its dependencies once and keeps them: the `MfaSecretStore`, the key ring built by `mfaKeyRingFrom(authn.mfa.encryptionKey)`, the options of `authn.mfa.totp` and the optional `IdentityStore`.
 3. It fails with `InvalidOperation` when no `MfaSecretStore` is registered (the message names `@spinajs/authn-totp/db`), and with `InvalidOption` when `authn.mfa.encryptionKey.secret` is not set or a `authn.mfa.totp` value is out of range.
 
@@ -62,9 +62,9 @@ The package ships no table and no migration. `DbMfaSecretStore` writes `authn_mf
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| TOTP step | `MfaStep` (one of `Array.ofType(MfaStep)`), singleton; picked by `authn.mfa.steps[].service` | `TotpMfaStep` | none shipped | Keep the class: `@spinajs/authn-http` turns its enrolment routes off unless a step is an instance of `TotpMfaStep` named exactly `TotpMfaStep`. Pass dependencies through its constructor; see [Wiring and testing](09-wiring-and-testing.md). |
-| Owner service | `TotpService` (registered under its class name), singleton | `TotpService` | none shipped | `@spinajs/authn-http` resolves the DI name `TotpService` and requires an instance of `TotpService`. |
-| Secret store | `MfaSecretStore`, singleton | none until `import '@spinajs/authn-totp/db'`, then `DbMfaSecretStore` | `MemoryMfaSecretStore` (not registered) | `DI.register(MyStore).as(MfaSecretStore)`; see [Secret store](06-secret-store.md). |
+| TOTP step | `MfaStep` (one of `Array.ofType(MfaStep)`), singleton; picked by `authn.mfa.steps[].service` | `TotpMfaStep` | none shipped | Keep the class: `TotpService.enabled()` is true only when the listed steps include `TotpMfaStep` itself, not a subclass, so a subclass turns the `@spinajs/authn-http` enrolment routes off. Pass dependencies through its constructor; see [Wiring and testing](09-wiring-and-testing.md). |
+| Owner service | `MfaEnrolmentService` (`@spinajs/authn/contracts`), singleton | `TotpService` | none shipped | `@spinajs/authn-http` injects the `MfaEnrolmentService` and serves its routes while `enabled(steps)` is true for the configured MFA policy's steps. |
+| Secret store | `MfaSecretStore`; `DbMfaSecretStore` is `@PerChildInstance()` | none until `import '@spinajs/authn-totp/db'`, then `DbMfaSecretStore` | `MemoryMfaSecretStore` (not registered) | `DI.register(MyStore).as(MfaSecretStore)`; see [Secret store](06-secret-store.md). |
 
 ## Important behaviour
 

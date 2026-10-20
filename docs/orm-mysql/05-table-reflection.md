@@ -12,7 +12,7 @@
 2. **Columns.** `SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? AND TABLE_SCHEMA=? ORDER BY ORDINAL_POSITION`. The `ORDER BY` keeps the table's own column order.
 3. **Existence.** `` SHOW FULL TABLES FROM `<schema>` WHERE `Tables_in_<schema>`=? ``. No row: returns `null`, as every driver does for a missing table.
 4. **No columns.** Returns `null`.
-5. **Indexes.** For a base table, `` SHOW INDEXES FROM `<name>` ``. A view has no indexes; this step is skipped.
+5. **Indexes.** For a base table, `` SHOW INDEXES FROM `<name>` FROM `<schema>` ``. A view has no indexes; this step is skipped.
 6. **Map.** Each column becomes an `IColumnDescriptor`:
 
 | Field | Value |
@@ -65,7 +65,7 @@ Everything else returns `raw` unchanged: `null`, `undefined`, string defaults, e
 | Table reflection | `tableInfo(name, schema?)` on the driver (public) | `MySqlOrmDriver.tableInfo()` | | Override in a driver subclass; call `super.tableInfo()` and enrich the descriptors. |
 | Default parsing | `parseColumnDefault(raw, dataType)` (exported function) | numeric literals only | | Call it from your own `tableInfo()`; it has no registration. |
 | Response schema types | `ResponseSchemaTypes` (public, readonly, on the driver) | `decimal`, `newdecimal`, `numeric` as strings | | Redeclare the property in a driver subclass. |
-| Table-exists probe | `TableExistsCompiler`; `@NewInstance()`, constructor `(builder: TableExistsQueryBuilder)`; registered in `MySqlOrmDriver.resolve()` | `MySqlTableExistsCompiler` (not exported) | | Implement `TableExistsCompiler.compile()` and register `.as(TableExistsCompiler)` after `super.resolve()`. |
+| Table-exists probe | `TableExistsCompiler`; `@NewInstance()`, constructor `(builder: TableExistsQueryBuilder)`; registered in `MySqlOrmDriver.resolve()` | `MySqlTableExistsCompiler` | | Implement `TableExistsCompiler.compile()` and register `.as(TableExistsCompiler)` after `super.resolve()`. |
 
 ### Table reflection: custom implementation
 
@@ -162,7 +162,6 @@ export class StrictMigrationsMySqlDriver extends MySqlOrmDriver {
 
 - A missing table returns `null`, as on SQLite, PostgreSQL and MSSQL. Whether a model whose table is missing fails the `Orm` boot is decided by `db.StrictTableCheck`, the same on every driver; see [Connections](../orm/01-connections.md).
 - `NativeType` is `DATA_TYPE`, so a `BOOLEAN` column reflects as `tinyint` and gets no boolean converter by type. Mark it `@Bool()`.
-- `SHOW INDEXES FROM` is not qualified with the schema: `tableInfo(name, 'other_db')` takes `PrimaryKey` and `Unique` from the table of that name in the connection's own database.
 - Every column of a multi-column unique index reflects as `Unique: true`, although each column alone is not unique.
 - Reflection issues three queries per table at boot and runs them through `withReconnect()`.
 - `ResponseSchemaTypes` is keyed by `IColumnDescriptor.Type`, the lower-case `DATA_TYPE`.

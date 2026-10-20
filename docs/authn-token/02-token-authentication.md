@@ -66,7 +66,7 @@ sequenceDiagram
 - `account`: `token:` plus the first 32 hex characters of `SHA-256('authn-token-throttle:' + token)`.
 - `account-ip`: the same id plus `|` and `ctx.ip`.
 
-The keys never contain the token or its stored hash. The core only reads the throttle before verifying and counts after a failure, so parallel requests with a valid token never back off, while a repeated invalid token does (K5). The rules and the `login` flow limits are in [Throttling](../authn/05-throttling.md).
+The core drops the strategy's `account-ip` key and builds its own from the `account` key and `ctx.ip`, and turns the `account` key of a per-request strategy into `request:<id>|<ip>`. The keys never contain the token or its stored hash. The core only reads the throttle before verifying and counts after a failure, so parallel requests with a valid token never back off, while a repeated invalid token does (K5). The rules and the `login` flow limits are in [Throttling](../authn/05-throttling.md).
 
 ## Configuration
 
@@ -90,7 +90,7 @@ authn: {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Token strategy | `AuthenticationStrategy`; singleton; `@Injectable(AuthenticationStrategy)` when the package loads | `TokenStrategy` | none | Selected by `authn.strategies` through its class name. Subclass it, register with `@Injectable(AuthenticationStrategy)` and list your class name as the `service` of the `token` entry. |
-| Token service | `TokenService`, injected into the constructor | `DbTokenService` | none | See [Issuing and revoking tokens](01-token-service.md#services-and-extension-points). |
+| Token service | `TokenService`; `@Autoinject` property `Tokens`, checked | `DbTokenService` | none | See [Issuing and revoking tokens](01-token-service.md#services-and-extension-points). |
 | Last-use recorder | `TokenUseRecorder` interface, found by duck typing on the `TokenService` | `DbTokenService.touch` | none | Implement `touch(id, ctx, intervalSeconds)` on your `TokenService`. |
 
 ### Token strategy: custom implementation
@@ -118,7 +118,7 @@ export class OfficeTokenStrategy extends TokenStrategy {
 }
 ```
 
-Both `TokenStrategy` and the subclass are registered; only the class named in `authn.strategies` runs. The `@Inject(TokenService)` of `TokenStrategy` is inherited.
+Both `TokenStrategy` and the subclass are registered; only the class named in `authn.strategies` runs. The `@Autoinject(TokenService)` property of `TokenStrategy` is inherited, so the subclass needs no constructor.
 
 ## Important behaviour
 
@@ -131,7 +131,7 @@ Both `TokenStrategy` and the subclass are registered; only the class named in `a
 - **One read of the credential.** `verify`, `accepts` and `throttleKeys` read `credentials.token` once, so a getter cannot answer differently after the format check.
 - **A broken config fails the request.** A `bearer` value is matched against the prefix outside the error guard, so a refused `authn.token` section fails a token request instead of passing the value on.
 - **No events from the strategy.** `TokenStrategy.verify` and `DbTokenService.validate` publish nothing; the core publishes `token.use` for every success and failure, with the reason.
-- **Boot.** Resolving `TokenStrategy` resolves `DbTokenService`, which throws when no `IdentityStore` is registered. `TokenStrategy.resolve()` also fails boot on a prefix and length over 1024 characters.
+- **Boot.** Resolving `TokenStrategy` resolves `TokenService` with the strict check; `DbTokenService` in turn fails to resolve when no `IdentityStore`, `TokenOwnerResolver` or `TokenProfilePolicy` is registered. `TokenStrategy.resolve()` also fails boot on a prefix and length over 1024 characters.
 
 ## Best practices
 

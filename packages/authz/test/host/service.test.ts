@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { RecordingAudit, StaticModel, userPrincipal } from '@spinajs/authz-testing';
+import { RecordingAudit, StaticModel, TestLog, userPrincipal } from '@spinajs/authz-testing';
 import type { ModelCall, StaticModelOptions } from '@spinajs/authz-testing';
 
 import { DefaultAuthzAdmin, DefaultAuthzService, AuthzContributor, authz, requestScope, AuthorizationModel, AuthzAdmin, AuthzConfigError, ChangeBus, DecisionAudit, DecisionCache, LruDecisionCache, ResourceAdapter, SYSTEM, TRUE, UNATTENDED, UnknownPermission } from '@spinajs/authz';
@@ -211,15 +211,8 @@ describe('DefaultAuthzService', function () {
       setConfig(['authz', 'domains', 'c1'], { disable: ['aa'] });
       const d = await domains();
       d.create('c1');
-      const warned: string[] = [];
-      const original = console.warn;
-      console.warn = (...args: unknown[]) => void warned.push(args.map(String).join(' '));
-      try {
-        expect((await d.service('c1')).models()).to.deep.equal([a]);
-      } finally {
-        console.warn = original;
-      }
-      expect(warned.some((w) => w.includes('disable lists aa, which no ancestor domain registers'))).to.equal(true);
+      expect((await d.service('c1')).models()).to.deep.equal([a]);
+      expect(TestLog.messages('warn').some((w) => w.includes('disable lists aa, which no ancestor domain registers'))).to.equal(true);
     });
 
     it('inits a model listed by root and child once; its init permissions are checkable in the child', async () => {
@@ -255,6 +248,20 @@ describe('DefaultAuthzService', function () {
         .as(AuthorizationModel);
       await d.service('rd-domain');
       expect(seen).to.deep.equal([3, 'dflt']);
+    });
+
+    it('a model init gets the container of the domain that inits it', async () => {
+      let seen: IContainer | undefined;
+      class Seeing extends StaticModel {
+        init(ctx: ModelInitContext): void {
+          seen = ctx.container;
+        }
+      }
+      const d = await domains();
+      const own = d.create('ct-domain');
+      own.register(instance(new Seeing({ name: 'ct' }))).as(AuthorizationModel);
+      await d.service('ct-domain');
+      expect(seen).to.equal(own);
     });
   });
 

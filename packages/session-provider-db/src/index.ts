@@ -30,7 +30,7 @@ export class DbSessionStore extends SessionProvider {
   protected Log: Log;
 
   @Config('authn.session.db.cleanupInterval', {
-    defaultValue: 100000,
+    defaultValue: 10 * 60 * 1000,
   })
   protected CleanupInterval: number;
 
@@ -41,7 +41,9 @@ export class DbSessionStore extends SessionProvider {
       // An unhandled rejection here would end the process; the next tick retries.
       try {
         const count = await this.cleanupExpired();
-        this.Log.info({ count }, 'Cleaned up expired session, count: ${count}');
+        if (count > 0) {
+          this.Log.info({ count }, 'Cleaned up expired session, count: ${count}');
+        }
       } catch (err) {
         this.Log.error(err as Error, 'Expired session cleanup failed');
       }

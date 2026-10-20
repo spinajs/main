@@ -59,7 +59,7 @@ sequenceDiagram
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Role check at create | `RoleSource` (`@spinajs/authn/contracts`); resolved per `create` when a non-abstract registration exists | none in this package | `@spinajs/users`' `RbacRoleSource` | `DI.register(Mine).as(RoleSource)`; `rolesOf()` must answer `{ role }[]`. |
+| Role check at create | `RoleSource` (`@spinajs/authn/contracts`); optional `@Autoinject` property of `DbTokenService`, set when a `RoleSource` is registered when the service is built | none in this package | `@spinajs/users`' `RbacRoleSource` | `DI.register(Mine).as(RoleSource)` before `TokenService` is first resolved; `rolesOf()` must answer `{ role }[]`. |
 | Profile policy | `TokenProfilePolicy` | `NoTokenProfilesPolicy` (no profiles) | none | See [Token profile policy](09-token-profile-policy.md). |
 | Check-time role rules | `TokenRolePolicy` (`@spinajs/authz-rbac`) | `OwnRolesTokenRolePolicy` | yours | Configure `authz.token.rolePolicy.service`; see [`@spinajs/authz-rbac`](../authz-rbac/README.md). |
 

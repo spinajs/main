@@ -1,3 +1,4 @@
+import type { AddressInfo } from 'node:net';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import chai from 'chai';
 import os from 'os';
@@ -9,8 +10,8 @@ import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
 import chaiThings from 'chai-things';
 import express from 'express';
-import { Injectable } from '@spinajs/di';
-import { FileTypeEnum } from '@spinajs/http';
+import { DI, Injectable } from '@spinajs/di';
+import { FileTypeEnum, HttpServer } from '@spinajs/http';
 import { FileInfoService, IFileInfo } from '@spinajs/fs';
 import { ValidationFailed } from '@spinajs/validation';
 
@@ -25,12 +26,12 @@ chai.use(chaiSubset);
 chai.use(chaiLike);
 chai.use(chaiThings);
 
-// 9697 is unusable on at least one dev machine in this org: a bare Node http
-// server bound to it refuses/times out virtually every connection (~310ms
-// ETIMEDOUT), reproduced outside this test suite entirely - some local
-// service/security software is holding onto that exact port. Not a code bug;
-// picking a different port sidesteps it.
-export const PORT = 19697;
+// http.port is 0, so every start binds a free port and parallel runs never collide; requests read it back from the running server.
+export function appPort(): number {
+  const address = DI.get(HttpServer)?.Server?.address() as AddressInfo | null | undefined;
+  if (!address) throw new Error('no http server listening: call startApp() first');
+  return address.port;
+}
 
 export const UPLOAD_DIR = join(os.tmpdir(), 'spinajs-cfg-http-upload');
 export const FILES_DIR = join(os.tmpdir(), 'spinajs-cfg-http-files');
@@ -54,7 +55,7 @@ type Verb = 'get' | 'post' | 'put' | 'patch' | 'delete';
  * principal. Defaults to `admin`.
  */
 export function req(user: string | null = 'admin') {
-  const agent = chai.request(`http://127.0.0.1:${PORT}/`);
+  const agent = chai.request(`http://127.0.0.1:${appPort()}/`);
   const as = (verb: Verb) => (url: string) => {
     const r = agent[verb](url);
     return user === null ? r : r.set('x-user', user);
@@ -117,7 +118,7 @@ export function testConfig(): Record<string, unknown> {
       rules: [{ name: '*', level: 'error', target: 'Empty' }],
     },
     http: {
-      port: PORT,
+      port: 0,
       cookie: {
         secret: 'cfg-http-test-secret',
       },

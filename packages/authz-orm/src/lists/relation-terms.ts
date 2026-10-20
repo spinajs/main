@@ -3,10 +3,11 @@ import { Injectable, Singleton } from '@spinajs/di';
 import { Wrapper } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 
-import { PlanTermCompiler, RELATION_OWNER_OP, RELATION_SELF_OP } from '../plan/index.js';
+import { PlanTermCompiler, RELATION_COLUMN_OP, RELATION_OWNER_OP, RELATION_SELF_OP } from '../plan/index.js';
 import type { PlanRow } from '../plan/index.js';
 
 type Where = IWhereBuilder<unknown>;
+type Columns = { readonly column: string; readonly typeColumn?: string };
 
 interface PrincipalArg {
   readonly type: string;
@@ -21,7 +22,7 @@ function principalsOf(args: unknown, op: string): PrincipalArg[] {
   return list as PrincipalArg[];
 }
 
-function columnsOf(row: PlanRow, name: 'owner' | 'self'): { column: string; typeColumn?: string } {
+function columnsOf(row: PlanRow, name: 'owner' | 'self'): Columns {
   const rel = row.relation(name);
   if (rel === undefined) throw new AuthzConfigError(`authz-orm: relation.${name}: resource type '${row.type}' has no ${name} column (@${name === 'owner' ? 'Owner' : 'Self'}())`);
   return rel;
@@ -34,31 +35,34 @@ function idIn(where: Where, column: string, ids: readonly string[]): void {
 
 const userIds = (principals: readonly PrincipalArg[]): string[] => principals.filter((p) => p.type === 'user').map((p) => p.id);
 
-/** The row's owner is one of the principals (design §5): a user id, or a type and id with `typeColumn`. */
+/** The columns hold one of the principals: a user id, or a type and id with `typeColumn`. */
+function principalsMatch(where: Where, { column, typeColumn }: Columns, principals: readonly PrincipalArg[]): void {
+  if (typeColumn === undefined) {
+    idIn(where, column, userIds(principals));
+    return;
+  }
+  const byType = new Map<string, string[]>();
+  for (const p of principals) byType.set(p.type, [...(byType.get(p.type) ?? []), p.id]);
+  if (byType.size === 0) {
+    where.where(false);
+    return;
+  }
+  for (const [type, ids] of byType) {
+    where.orWhere(function () {
+      this.where(typeColumn, type);
+      idIn(this, column, ids);
+    });
+  }
+}
+
+/** The row's owner is one of the principals (design §5). */
 @Singleton()
 @Injectable(PlanTermCompiler)
 export class RelationOwnerTerm extends PlanTermCompiler {
   readonly op = RELATION_OWNER_OP;
 
   apply(args: unknown, where: IWhereBuilder<unknown>, row: PlanRow): void {
-    const principals = principalsOf(args, this.op);
-    const { column, typeColumn } = columnsOf(row, 'owner');
-    if (typeColumn === undefined) {
-      idIn(where, column, userIds(principals));
-      return;
-    }
-    const byType = new Map<string, string[]>();
-    for (const p of principals) byType.set(p.type, [...(byType.get(p.type) ?? []), p.id]);
-    if (byType.size === 0) {
-      where.where(false);
-      return;
-    }
-    for (const [type, ids] of byType) {
-      where.orWhere(function () {
-        this.where(typeColumn, type);
-        idIn(this, column, ids);
-      });
-    }
+    principalsMatch(where, columnsOf(row, 'owner'), principalsOf(args, this.op));
   }
 }
 
@@ -70,5 +74,20 @@ export class RelationSelfTerm extends PlanTermCompiler {
 
   apply(args: unknown, where: IWhereBuilder<unknown>, row: PlanRow): void {
     idIn(where, columnsOf(row, 'self').column, userIds(principalsOf(args, this.op)));
+  }
+}
+
+/** The row's column relation `relation` (`@Relation`) holds one of the principals. */
+@Singleton()
+@Injectable(PlanTermCompiler)
+export class RelationColumnTerm extends PlanTermCompiler {
+  readonly op = RELATION_COLUMN_OP;
+
+  apply(args: unknown, where: IWhereBuilder<unknown>, row: PlanRow): void {
+    const relation = (args as { relation?: unknown } | null)?.relation;
+    if (typeof relation !== 'string' || relation === '') throw new AuthzConfigError(`authz-orm: ${this.op} args must be { relation, principals: { type, id }[] }, got ${JSON.stringify(args)}`);
+    const columns = relation === 'owner' || relation === 'self' ? undefined : row.relation(relation);
+    if (columns === undefined) throw new AuthzConfigError(`authz-orm: ${this.op}: resource type '${row.type}' has no column relation '${relation}' (@Relation('${relation}'))`);
+    principalsMatch(where, columns, principalsOf(args, this.op));
   }
 }

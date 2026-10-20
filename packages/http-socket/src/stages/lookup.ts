@@ -20,7 +20,11 @@ export class LookupStage extends SocketCommandStage {
     }
 
     ctx.handler = handler;
-    ctx.armDeadline(handler.descriptor.Options.timeoutMs);
+    const timeoutMs = handler.descriptor.Options.timeoutMs;
+    // a non-positive timeoutMs means no server deadline; only the client's deadline expires a call on arrival
+    if (timeoutMs !== undefined && timeoutMs > 0) {
+      ctx.armDeadline(timeoutMs);
+    }
     return next();
   }
 }

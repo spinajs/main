@@ -15,8 +15,8 @@ describe('authz-fs permissions', () => {
     return r;
   };
 
-  it('declares the six fs permissions on fs, dir and file', () => {
-    expect(FS_PERMISSIONS.map((p) => p.name)).to.deep.equal(['fs:read', 'fs:stat', 'fs:list', 'fs:write', 'fs:delete', 'fs:share']);
+  it('declares the seven fs permissions on fs, dir and file', () => {
+    expect(FS_PERMISSIONS.map((p) => p.name)).to.deep.equal(['fs:read', 'fs:stat', 'fs:list', 'fs:write', 'fs:delete', 'fs:share', 'fs:manage']);
     for (const p of FS_PERMISSIONS) {
       expect(p.resource, p.name).to.equal('fs');
       expect(p.action, p.name).to.equal(p.name.slice(3));
@@ -37,7 +37,7 @@ describe('authz-fs permissions', () => {
     const r = registry();
     expect(r.all().map((d) => d.name)).to.have.members(FS_PERMISSIONS.map((p) => p.name));
     expect(r.require('fs:share').source).to.equal('adapter:fs');
-    expect(r.match('fs:*')).to.have.length(6);
+    expect(r.match('fs:*')).to.have.length(7);
     expect(r.types()).to.deep.equal(['dir', 'file', 'fs']);
   });
 
@@ -46,8 +46,8 @@ describe('authz-fs permissions', () => {
     expect(r.get('fs:read')?.implies).to.deep.equal(['fs:stat']);
     expect(r.get('fs:write')?.implies).to.deep.equal(['fs:stat']);
     expect(r.impliedBy('fs:stat')).to.deep.equal(['fs:read', 'fs:write']);
-    for (const name of ['fs:read', 'fs:list', 'fs:write', 'fs:delete', 'fs:share']) expect(r.impliedBy(name), name).to.deep.equal([]);
-    for (const name of ['fs:stat', 'fs:list', 'fs:delete', 'fs:share']) expect(r.get(name)?.implies, name).to.equal(undefined);
+    for (const name of ['fs:read', 'fs:list', 'fs:write', 'fs:delete', 'fs:share', 'fs:manage']) expect(r.impliedBy(name), name).to.deep.equal([]);
+    for (const name of ['fs:stat', 'fs:list', 'fs:delete', 'fs:share', 'fs:manage']) expect(r.get(name)?.implies, name).to.equal(undefined);
   });
 
   it('is what the adapter declares', () => {

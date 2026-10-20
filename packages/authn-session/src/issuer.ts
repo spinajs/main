@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
 import { _check_arg, _custom, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
-import { Autoinject, Container, Injectable } from '@spinajs/di';
+import { Autoinject, Container, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AutoinjectService, Config } from '@spinajs/configuration';
@@ -12,7 +12,7 @@ import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionHandle } fr
 import { SessionProvider } from './contracts.js';
 import type { ISession } from './contracts.js';
 import { UserSession } from './session.js';
-import { sameRef } from './match.js';
+import { refMatches } from './match.js';
 
 /** Client IP shown by `list`; set by the HTTP layer through `set` (the issuer takes no request context). */
 export const SESSION_IP_KEY = SessionKeys.Ip.name;
@@ -83,8 +83,6 @@ function pendingStepsOf(v: unknown): readonly string[] | null {
   return known.length > 0 ? Object.freeze(known) : null;
 }
 
-const isExpired = (s: ISession): boolean => !!s.Expiration && s.Expiration <= DateTime.now();
-
 function readStored(v: unknown): StoredFacts | null {
   const f = v as Partial<StoredFacts> | undefined;
   if (!f || typeof f.method !== 'string' || typeof f.strategy !== 'string' || (f.assurance !== 'aal1' && f.assurance !== 'aal2') || !Array.isArray(f.mfa) || typeof f.authenticatedAt !== 'number') {
@@ -93,6 +91,7 @@ function readStored(v: unknown): StoredFacts | null {
   return f as StoredFacts;
 }
 
+@PerChildInstance()
 @Injectable(SessionIssuer)
 export class DefaultSessionIssuer extends SessionIssuer {
   @AutoinjectService('authn.session', SessionProvider)
@@ -156,7 +155,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
     }
     // The store checked the row before the renewal; a renewal capped at Creation + maxLifetime can land in the past
     // (a lowered maxLifetime).
-    if (isExpired(session)) {
+    if (this.Store.isExpired(session)) {
       await this.Store.delete(session.SessionId);
       return null;
     }
@@ -231,7 +230,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
       return false;
     }
     for (const session of await this.Store.listBySubject(ref(subject))) {
-      if (sameRef(session.Subject, subject) && sessionHandleOf(session.SessionId) === handle) {
+      if (refMatches(session.Subject, subject) && sessionHandleOf(session.SessionId) === handle) {
         await this.Store.delete(session.SessionId);
         return true;
       }
@@ -243,7 +242,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
     const currentKey = opts?.current ? keyOf(opts.current) : null;
     const out: { handle: string; createdAt: Date; lastSeenAt: Date; ip?: string; userAgent?: string; current?: boolean }[] = [];
     for (const session of await this.Store.listBySubject(ref(subject))) {
-      if (session.State !== 'active' || !sameRef(session.Subject, subject)) {
+      if (session.State !== 'active' || !refMatches(session.Subject, subject)) {
         continue;
       }
       const lastSeen = session.Data.get(LAST_SEEN_KEY);
@@ -327,7 +326,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
     await this.Store.save(moved);
     // save gave it the initial expiration, capped at Creation + maxLifetime: a session already past that cap yields a
     // dead copy, so end both rows and refuse.
-    if (isExpired(moved)) {
+    if (this.Store.isExpired(moved)) {
       await this.Store.delete(moved.SessionId);
       await this.Store.delete(session.SessionId);
       throw new InvalidOperation('Unknown or expired session');

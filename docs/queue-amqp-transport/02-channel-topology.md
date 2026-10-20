@@ -19,7 +19,7 @@ The channel string is used as the exchange or queue name as is, slashes included
 
 1. `QueueService.consume(MessageClass, ...)` calls `subscribe(MessageClass, callback, subscriptionId, durable)`. A raw `subscribe('/queue/x', callback)` works too.
 2. `subscribe()` turns a message class into its channels with `getChannelForMessage()`, which reads `queue.routing`; see [Routing](#routing).
-3. For each channel it stores a subscription descriptor keyed by the channel. A channel already in the map is skipped with the warning `Channel <channel> already subscribed !`.
+3. For each channel it stores a subscription descriptor keyed by the channel, and for a topic with a `subscriptionId` by channel and `subscriptionId`. When the key is already in the map, the callback joins that descriptor: one broker consumer serves every message class on the queue and runs their callbacks in turn. The same message class (or a second raw `subscribe()` of the same channel) is skipped with the warning `Channel <channel> already subscribed !`.
 4. `startConsumer()` calls `assertSubscriptionQueue()`, which picks the queue:
 
    | Channel kind | `subscriptionId` | `durable` | Queue consumed | Queue options |
@@ -37,7 +37,7 @@ After a reconnect, `replaySubscriptions()` runs step 4 to 6 again for every stor
 
 ### Unsubscribe
 
-`unsubscribe(channelOrMessage)` removes the descriptor and cancels the consumer. The queue stays: a durable queue keeps collecting messages until the next `subscribe()` with the same `subscriptionId`. The `removeDurable` argument is ignored; delete a durable queue on the broker when you no longer need it.
+`unsubscribe(channelOrMessage, removeDurable?)` removes the callbacks of that message class (all callbacks for a raw channel). When none are left on a descriptor, it removes the descriptor and cancels the consumer. The queue stays unless `removeDurable` is `true`: a durable queue keeps collecting messages until the next `subscribe()` with the same `subscriptionId`. With `removeDurable`, the durable topic subscription queue is deleted after the consumer is cancelled.
 
 ### Routing
 
@@ -162,10 +162,10 @@ A queue that already exists with other arguments makes the broker close the chan
 
 ## Important behaviour
 
-- One subscription per channel per client. A second `subscribe()` to the same channel is skipped with a warning, even with another `subscriptionId` or another message class. `QueueService.consume()` filters deliveries by message name, so two message classes on one channel (eg. two unrouted events sharing `defaultTopicChannel`) make the second class unreachable, and its messages are acked by the first subscription's callback without running. Route each consumed message class to its own channel.
+- Message classes sharing a channel (eg. two unrouted events on `defaultTopicChannel`) share one consumer per queue. Every delivery runs the callback of each class; `QueueService.consume()` callbacks skip messages of other names. The message is acked once all callbacks resolve and failed when one rejects.
 - A topic subscription with a `subscriptionId` but `durable: false` uses a shared, auto-deleted queue. Every process using that `subscriptionId` competes for its messages, so each event reaches one of them. The queue is deleted when its last consumer leaves.
 - A transient topic subscription with no `subscriptionId` gets a fresh exclusive queue on each connect. Events published while the client is disconnected are lost for it.
-- A durable subscription queue is never deleted by the client. Messages pile up while nothing consumes them.
+- A durable subscription queue is deleted only by `unsubscribe(..., true)`. Otherwise messages pile up while nothing consumes them.
 - Work queues and exchanges are always declared `durable: true`. Whether a message survives a broker restart depends on its `Persistent` flag; see [Publishing](03-publishing.md).
 - `prefetch` applies per consumer on the consume channel. With the default `1`, a slow job blocks the next delivery to that consumer, but other consumers keep working.
 - Each queue or exchange is declared once per connection; the cache is cleared on reconnect so the declarations run again on the new channels.
@@ -180,7 +180,8 @@ A queue that already exists with other arguments makes the broker close the chan
 ## Patterns and antipatterns
 
 ```ts
-// Don't: both events fall back to defaultTopicChannel; only the first consumer runs
+// Don't: both events fall back to defaultTopicChannel; every consumer of that channel
+// receives, and filters out, all events published to it
 await queue.consume(OrderPlaced, onOrderPlaced);
 await queue.consume(OrderCancelled, onOrderCancelled);
 

@@ -13,7 +13,7 @@ const COLUMNS = new Map<string, Array<Record<string, unknown>>>([['present_t', [
 /** The real driver with the server taken out: it answers the two reflection queries from COLUMNS. */
 class MissingTableMsSqlDriver extends MsSqlOrmDriver {
   public async executeOnDb(stmt: string, params: any[]): Promise<any> {
-    return stmt.startsWith('SELECT * FROM INFORMATION_SCHEMA.COLUMNS') ? (COLUMNS.get(params[0] as string) ?? []) : [];
+    return stmt.includes('FROM INFORMATION_SCHEMA.COLUMNS') ? (COLUMNS.get(params[0] as string) ?? []) : [];
   }
 
   public async ping(): Promise<boolean> {

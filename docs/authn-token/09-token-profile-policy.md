@@ -15,7 +15,7 @@
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Profile policy | `TokenProfilePolicy`; singleton; `@Injectable(TokenProfilePolicy)` when the package loads; injected into `DbTokenService`'s constructor | `NoTokenProfilesPolicy` (answers `[]`) | none | Subclass `TokenProfilePolicy`, implement `allowedProfiles(owner)`, and register it with `@Injectable(TokenProfilePolicy)` before `TokenService` is first resolved. |
+| Profile policy | `TokenProfilePolicy`; singleton; `@Injectable(TokenProfilePolicy)` when the package loads; injected into `DbTokenService`'s `Profiles` property | `NoTokenProfilesPolicy` (answers `[]`) | none | Subclass `TokenProfilePolicy`, implement `allowedProfiles(owner)`, and register it with `@Injectable(TokenProfilePolicy)` before `TokenService` is first resolved. |
 
 ### Profile policy: custom implementation
 
@@ -44,7 +44,7 @@ export class ReportingTokenProfilePolicy extends TokenProfilePolicy {
 
 - **Asked at create and on every use.** Removing a profile from the answer ends every token pinned to it on its next request.
 - **A profile never widens.** It names a role the token is pinned to; authz-rbac still keeps only roles the owner holds.
-- **Checked at construction.** `DbTokenService` throws when the injected policy lacks `allowedProfiles`.
+- **Must be registered.** `DbTokenService` injects the policy with the strict check (`{ check: true }`); so resolving it fails when no `TokenProfilePolicy` is registered. Importing the package registers `NoTokenProfilesPolicy`.
 - **Not authz-rbac's `TokenRolePolicy.allowedProfiles`.** That method is a separate hook of authz-rbac; the create and validate paths here read only this policy.
 
 ## Related

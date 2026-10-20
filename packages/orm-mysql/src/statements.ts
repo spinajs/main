@@ -36,6 +36,7 @@ export class MySqlInSetStatement extends InSetStatement {
     // a hand-constructed clone never goes through the container, so the injected
     // quoter has to be carried over explicitly
     clone.Quoter = this.Quoter;
+    clone.Boolean = this.Boolean;
 
     return clone;
   }

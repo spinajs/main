@@ -2,7 +2,7 @@
 
 An FTP and FTPS file provider for `@spinajs/fs`. It ships one class, `fsFTP`, which implements the abstract `fs` API on top of the [`basic-ftp`](https://www.npmjs.com/package/basic-ftp) client, so code written against `fs` reads and writes an FTP server without changes.
 
-It does **not** support SFTP (SSH), streaming writes (`writeStream()`), temporary paths (`tmppath()`) or local path resolving (`resolvePath()` for relative paths). It does **not** reconnect: the connection opens once, when the provider resolves.
+It does **not** support SFTP (SSH), streaming writes (`writeStream()`), temporary paths (`tmppath()`) or local path resolving (`resolvePath()`). It does **not** reconnect: the connection opens once, when the provider resolves.
 
 ## Install
 
@@ -16,8 +16,8 @@ npm install @spinajs/fs-ftp
 | --- | --- |
 | [FTP provider](01-ftp-provider.md) | Configure `fsFTP` in `fs.providers`, how it connects at boot, and how code gets it by name |
 | [File operations](02-file-operations.md) | What each `fs` method does on FTP: working directory, temp downloads, cross-provider copy and move, zip, unsupported methods |
-| [Extending the FTP provider](03-extending-the-ftp-provider.md) | Subclass `fsFTP`, register it under the `fs` token, select it by `service`, override the path hooks |
-| [Decorating the FTP provider](04-decorating-the-ftp-provider.md) | Wrap every `fsFTP` instance with an `FsDecorator`: read-only guards, auditing, access control |
+| [Extending the FTP provider](03-extending-the-ftp-provider.md) | Subclass `fsFTP`, register it under the `fs` token, select it by `service`, override the `doX` and path hooks |
+| [Middlewares on the FTP provider](04-middlewares-on-the-ftp-provider.md) | How an `FsMiddleware` applies to `fsFTP`: read-only guards, auditing, access control, ordering against `AuthzFsMiddleware` |
 
 ## Quick start
 
@@ -59,7 +59,7 @@ export async function publishGreeting() {
 
 ## Related packages
 
-- [`@spinajs/fs`](../fs/README.md): the abstract `fs` API, `fsService`, `FsDecorator`, `getFs()`, `@FileSystem()` and the local providers `fsFTP` relies on.
+- [`@spinajs/fs`](../fs/README.md): the abstract `fs` API, `fsService`, `FsMiddleware`, `getFs()`, `@FileSystem()` and the local providers `fsFTP` relies on.
 - `@spinajs/fs-s3`, `@spinajs/fs-onedrive`: other remote providers registered under the same `fs` token.
 - `@spinajs/di`: the container `fsFTP` is registered in.
 - `@spinajs/log`: the `fs` logger `fsFTP` writes connection, command and progress messages to.

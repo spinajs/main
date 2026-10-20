@@ -76,6 +76,10 @@ export declare abstract class RelationResolver {
     abstract readonly relation: string;
     abstract holds(principal: Principal, ref: ResourceRef, subject?: unknown): boolean | Promise<boolean>;
 }
+export interface RelationResolver {
+    /** True when the resource adapter renders this relation in SQL (op `relation.column`), so list plans may use it. Only the ORM adapter's `relation.column` compiler renders it: a custom resolver must not set it unless an adapter renders its relation. */
+    readonly listable?: boolean;
+}
 /** Scope attributes as authz data: ctx.attributes(ref) = schema defaults ⊕ adapter/resolver attributes ⊕ store rows (store wins). */
 export interface ScopeAttributeSchema {
     readonly scopeType: ResourceType;
@@ -91,6 +95,7 @@ export declare abstract class ScopeAttributeStore {
 ## src/contracts/admin.ts
 
 ```ts
+import { Exception } from "@spinajs/exceptions";
 import type { Assignment, AssignmentSubject, LinkDef, Policy, RuleDef } from "./data.js";
 import type { Permission } from "./permission.js";
 import type { Principal, PrincipalRef, ResourceRef } from "./principal.js";
@@ -192,7 +197,7 @@ export interface AuthzAdminError {
     readonly field?: string;
 }
 /** Thrown by write handlers, AdminGuard and AuthzCommandValidator; AuthzAdmin reports it as an AuthzAdminError. */
-export declare class AuthzAdminFailure extends Error {
+export declare class AuthzAdminFailure extends Exception {
     readonly code: string;
     readonly field?: string;
     constructor(code: string, message?: string, field?: string, options?: ErrorOptions);
@@ -252,6 +257,15 @@ export type AuthzAdminQuery = {
 } | {
     readonly kind: "attributes";
     readonly scope: ResourceRef;
+} | {
+    readonly kind: "holders";
+    readonly scope: ResourceRef;
+    readonly permission: Permission;
+    readonly expandSets?: boolean;
+    readonly page?: {
+        limit: number;
+        offset: number;
+    };
 };
 /** One per command kind family; registered by the model that owns the data (RBAC: assignment, set, link, rule; ABAC: policy; core: scope). */
 export declare abstract class AuthzWriteHandler {
@@ -457,6 +471,8 @@ export interface Decision {
     readonly domain: string;
     readonly trace?: Trace;
 }
+/** A permit with nothing left to settle: a residual (a relation or a resource.* condition the subject did not settle) makes it no permit yet. */
+export declare function definite(decision: Decision): boolean;
 export interface TraceStep {
     readonly by: "core" | string;
     readonly step: string;
@@ -498,9 +514,9 @@ const UNKNOWN_DENY_PRIORITY = 500;
 ## src/contracts/errors.ts
 
 ```ts
-import { AuthenticationFailed, Forbidden } from "@spinajs/exceptions";
+import { AuthenticationFailed, Forbidden, InvalidOption } from "@spinajs/exceptions";
 import type { Decision } from "./decision.js";
-export declare class AuthzConfigError extends Error {
+export declare class AuthzConfigError extends InvalidOption {
     constructor(message?: string, options?: ErrorOptions);
 }
 export declare class UnknownPermission extends AuthzConfigError {
@@ -511,9 +527,6 @@ export declare class AccessDenied extends Forbidden {
 }
 export declare class Unauthenticated extends AuthenticationFailed {
     constructor(message?: string, inner?: Error | unknown);
-}
-export declare class NeedsAsync extends Error {
-    constructor(message?: string, options?: ErrorOptions);
 }
 ```
 
@@ -620,11 +633,6 @@ const FALSE = Object.freeze({
 });
 const SIMPLIFIED = new WeakSet<object>();
 const MISSING = Symbol("missing");
-const UNSAFE_SEGMENTS = new Set([
-    "__proto__",
-    "prototype",
-    "constructor"
-]);
 const filterHashTesting = {
     hash: (f: ResourceFilter): number | null => {
     },
@@ -640,6 +648,7 @@ const filterHashTesting = {
 
 ```ts
 export * from "./principal.js";
+export * from "./link.js";
 export * from "./resource.js";
 export * from "./errors.js";
 export * from "./permission.js";
@@ -655,22 +664,39 @@ export * from "./data.js";
 export * from "./admin.js";
 ```
 
+## src/contracts/link.ts
+
+```ts
+import type { Principal } from "./principal.js";
+/**
+ * Opens a share link (design §6.1.6): the principal of the link a bearer token belongs to, with
+ * `companion` (the request's own principal) speaking with it. An unknown, expired or revoked
+ * token must yield a link principal that denies everything (`ceiling.resources: []`, reason
+ * `link_invalid`), never null. The model that keeps links registers the implementation
+ * (authz-rbac's `registerRbac`); authz-http resolves it from the root container.
+ */
+export declare abstract class LinkResolver {
+    abstract principal(token: string, companion?: Principal): Promise<Principal>;
+}
+```
+
 ## src/contracts/model.ts
 
 ```ts
+import type { IContainer } from "@spinajs/di";
 import type { Principal, PrincipalType, ResourceRef, ResourceType } from "./principal.js";
 import type { Permission, PermissionDef, PermissionRegistry } from "./permission.js";
 import type { FilterOp, ResourceFilter } from "./filter.js";
 import type { DecisionRequest, Decision, FieldSet, TraceStep, Vote } from "./decision.js";
 import type { RelationResolver } from "./adapter.js";
-import type { ListPlanRequest, ListSupport, ModelListPlan } from "./plan.js";
+import type { ListPlanRequest, ListSupport, ListSupportContext, ModelListPlan } from "./plan.js";
 import type { ConditionCompiler } from "../conditions/contracts.js";
 export declare abstract class NativeFilter {
     abstract readonly op: `native:${string}`;
     abstract matches(args: unknown, subject: unknown, ref: ResourceRef, ctx: EvaluationContext): boolean | Promise<boolean>;
 }
 export interface NativeFilter {
-    /** True when `args` name every principal the op reads, so the op never reads `Decision.principal`: an intersect delegate's residual keeps it instead of stripping it (RFC E2-2). Such a filter must also key every `ctx.cache` memo by what its args name, because a kept leaf runs with the agent's evaluation context and cache. A compiler of the op (SQL) must not read the request principal either. */
+    /** True when `args` name every principal the op reads, so the op never reads `Decision.principal`: an intersect delegate's residual keeps it instead of stripping it. Such a filter must also key every `ctx.cache` memo by what its args name, because a kept leaf runs with the agent's evaluation context and cache. A compiler of the op (SQL) must not read the request principal either. */
     readonly principalInArgs?: boolean;
 }
 export interface ModelCapabilities {
@@ -684,6 +710,8 @@ export interface ModelCapabilities {
 }
 export interface ModelInitContext {
     readonly domain: string;
+    /** The domain's container: resolve what the model needs (ConditionFunctions, Configuration, connections) here, not in root DI. */
+    readonly container: IContainer;
     readonly config: <T>(path: string, dflt?: T) => T;
     readonly permissions: PermissionRegistry;
     registerPermissions(defs: readonly Omit<PermissionDef, "source">[]): void;
@@ -712,7 +740,7 @@ export declare abstract class AuthorizationModel {
     preload?(principal: Principal, ctx: EvaluationContext): Promise<void>;
     summarize?(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary>;
     /** List support for `permission` on `type`; absent means the model cannot plan lists. */
-    listSupport?(permission: PermissionDef, type: ResourceType): ListSupport;
+    listSupport?(permission: PermissionDef, type: ResourceType, ctx?: ListSupportContext): ListSupport;
     /** The list plan; called only when listSupport answered true. */
     listPlan?(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan>;
     invalidate?(tags: readonly string[]): void;
@@ -795,6 +823,7 @@ const PERMISSION_GLOB_PATTERN = Object.freeze(new RegExp(GLOB.source));
 import type { Principal, ResourceRef, ResourceType } from "./principal.js";
 import type { PermissionDef } from "./permission.js";
 import type { DenyReason } from "./decision.js";
+import type { RelationResolver } from "./adapter.js";
 /** One condition on a row; an adapter that filters lists compiles it by `op` (authz-orm: a PlanTermCompiler). */
 export interface PlanTerm {
     readonly op: string;
@@ -832,6 +861,10 @@ export type AccessPlan = {
 export type ListSupport = true | {
     readonly reason: string;
 };
+/** What listSupport may consult besides the permission and type. */
+export interface ListSupportContext {
+    relation(type: ResourceType, name: string): RelationResolver | undefined;
+}
 export interface ListPlanRequest {
     readonly principal: Principal;
     /** The acting principal under `inherit` delegation, as `DecisionRequest.actor`. */
@@ -884,6 +917,8 @@ export declare abstract class AuthzService extends AsyncService {
     abstract check(req: CheckInput): Promise<Decision>;
     abstract can(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<boolean>;
     abstract assert(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<Decision>;
+    /** A decision for introspection (admin tools), not an access attempt: never audited, reads and stores no decision cache, models read fresh. Never use it to guard an action: nothing it answers is audited or cached. */
+    inspect?(req: CheckInput): Promise<Decision>;
     abstract checkMany(principal: Principal, permissions: readonly Permission[], resource?: ResourceRef | object): Promise<ReadonlyMap<Permission, Decision>>;
     abstract checkAll(principal: Principal, requests: readonly {
         readonly permission: Permission;
@@ -894,6 +929,8 @@ export declare abstract class AuthzService extends AsyncService {
     abstract filterNow(principal: Principal, permission: Permission, type: ResourceType): ResourceFilter | undefined;
     abstract explain(req: CheckInput): Promise<Decision>;
     abstract summary(principal: Principal, at?: ResourceRef): Promise<AccessSummary>;
+    /** The path a check of `ref` walks: `[ref, ...ancestors, GLOBAL]`; null for an unknown resource. Optional: test doubles may leave it out. */
+    ancestors?(ref: ResourceRef): Promise<readonly ResourceRef[] | null>;
     /** Holder's combined permission set at `at` (all models, incl. ABAC) strictly contains target's; impersonation rule (B26). */
     abstract covers(holder: Principal, target: Principal, at?: ResourceRef): Promise<boolean>;
     abstract preload(principal: Principal): Promise<void>;
@@ -905,11 +942,23 @@ export declare abstract class AuthzService extends AsyncService {
 export type CheckInput = Omit<DecisionRequest, "resource"> & {
     readonly resource?: ResourceRef | object;
 };
+/** The root domain: the DI root container. */
+export declare const ROOT_DOMAIN = "root";
+/** What AuthzDomains.create accepts as a domain name (a JSON schema / RegExp source). */
+export declare const DOMAIN_NAME_PATTERN = "^[A-Za-z0-9_.-]{1,64}$";
+export interface DomainIdentity {
+    readonly name: string;
+    readonly parent?: string;
+}
 export declare abstract class AuthzDomains {
     abstract create(name: string, parent?: string): IContainer;
     abstract container(name: string): IContainer;
     abstract service(name: string): Promise<AuthzService>;
     abstract names(): readonly string[];
+    /** The domain a container belongs to; undefined for a container that is not a domain. */
+    abstract describe(container: IContainer): DomainIdentity | undefined;
+    /** Domain names from 'root' to `name`; throws AuthzConfigError for a domain that does not exist. */
+    abstract lineage(name: string): readonly string[];
 }
 export interface AccessSummary {
     readonly principal: PrincipalRef;
@@ -962,6 +1011,10 @@ export declare abstract class DecisionAudit {
         command?: unknown;
     }): void | Promise<void>;
 }
+
+// values
+const ROOT_DOMAIN = "root";
+const DOMAIN_NAME_PATTERN = "^[A-Za-z0-9_.-]{1,64}$";
 ```
 
 ## Re-exported from other packages

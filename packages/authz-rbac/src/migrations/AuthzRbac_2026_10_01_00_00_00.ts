@@ -2,7 +2,7 @@ import { AUTHZ_CONNECTION } from '@spinajs/authz';
 import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
 /**
- * The authz-rbac tables of design §9.1: assignments, the closure of subject sets, scoped check-only
+ * The authz-rbac tables: assignments, the closure of subject sets, scoped check-only
  * rules with their subject lists, share links and the per-domain version counter.
  */
 @Migration(AUTHZ_CONNECTION)

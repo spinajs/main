@@ -2,7 +2,8 @@ import { DI, Bootstrapper } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
-import { FileInfoService, FsBootsrapper, fsService } from '@spinajs/fs';
+import { FileInfoService, FsBootsrapper, fsService, getFs } from '@spinajs/fs';
+import { Forbidden, ResourceDuplicated } from '@spinajs/exceptions';
 import type { IUploadedFile } from '@spinajs/http';
 import { AuthzService, SYSTEM, authz } from '@spinajs/authz';
 import { DbConfig, resetSystemPrincipal } from '@spinajs/configuration-db-source';
@@ -251,6 +252,57 @@ describe('ConfigFileUploads', function () {
       expect(err).to.be.instanceOf(ConfigFileRejected);
       expect((err as Error).message).to.contain('a moment ago');
       expect(readdirSync(UPLOAD_DIR)).to.be.empty;
+    });
+
+    it('rejects, and keeps the other file, when a same-named upload lands between the check and the write', async () => {
+      const e = await entry('tpl.offer');
+      const provider = getFs(FILES_FS);
+      let stored = '';
+      // the other upload lands right after the exists() check; a provider honouring `exclusive` then refuses to overwrite
+      provider.exists = async (path: string) => {
+        stored = path;
+        writeFileSync(join(FILES_DIR, path), 'other');
+        return false;
+      };
+      provider.upload = (_src: string, _dst?: string, options?: { exclusive?: boolean }) =>
+        Promise.reject(options?.exclusive ? new ResourceDuplicated('exists') : new Error('not exclusive'));
+
+      try {
+        const err = await rejects(async () => uploads.accept(e, uploaded(xlsx('x'), 'offer.xlsx')));
+        expect(err).to.be.instanceOf(ConfigFileRejected);
+        expect((err as Error).message).to.contain('a moment ago');
+        expect(readFileSync(join(FILES_DIR, stored), 'utf8')).to.equal('other');
+      } finally {
+        delete (provider as Partial<typeof provider>).exists;
+        delete (provider as Partial<typeof provider>).upload;
+      }
+    });
+
+    it('rethrows a refused upload without removing a same-named file', async () => {
+      const e = await entry('tpl.offer');
+      const provider = getFs(FILES_FS);
+      let stored = '';
+      let removed = false;
+      provider.exists = async (path: string) => {
+        stored = path;
+        writeFileSync(join(FILES_DIR, path), 'other');
+        return false;
+      };
+      provider.upload = () => Promise.reject(new Forbidden('denied'));
+      provider.rm = async () => {
+        removed = true;
+      };
+
+      try {
+        const err = await rejects(async () => uploads.accept(e, uploaded(xlsx('x'), 'offer.xlsx')));
+        expect(err).to.be.instanceOf(Forbidden);
+        expect(removed).to.equal(false);
+        expect(readFileSync(join(FILES_DIR, stored), 'utf8')).to.equal('other');
+      } finally {
+        delete (provider as Partial<typeof provider>).exists;
+        delete (provider as Partial<typeof provider>).upload;
+        delete (provider as Partial<typeof provider>).rm;
+      }
     });
   });
 

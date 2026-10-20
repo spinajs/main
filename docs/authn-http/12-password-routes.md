@@ -35,7 +35,7 @@ sequenceDiagram
 ### Change while signed in
 
 1. `PATCH /user/password` with policies `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` and an active session (otherwise 403 `session_required`).
-2. The new password is checked; `oldPassword` (2.x `OldPassword`) missing: 401 login failure body.
+2. The new password is checked; `oldPassword` missing: 401 login failure body.
 3. `PasswordService.change(identity, oldPassword, password, handle, ctx)` runs with purpose `'reauth'`: the old password is the fresh authentication, counted in the `reauth` throttle.
    - `changed`: 200 with the **rotated** session cookie; every other session of the account ends, API tokens stay;
    - `rejected`: 400 `password_rejected` with `violations`;
@@ -53,12 +53,12 @@ Applied by `POST /auth/password/reset` and `PATCH /user/password` before the ser
 
 ## Routes
 
-| Method and path | Request body (2.x names) | 200 | Errors |
+| Method and path | Request body | 200 | Errors |
 | --- | --- | --- | --- |
 | `GET /auth/password/policy` | | `{ "minLength": number, "maxLength": number, "pattern"?: string, "description"?: string }` | 404 group off |
-| `POST /auth/password/reset-request` | `{ "login" }` (`Email`) | `{ "Ok": true }` | 400 `invalid_login`; 429 `throttled` with `Retry-After` |
-| `POST /auth/password/reset` | `{ "login", "secret", "password", "confirmPassword"? }` (`Email`, `Token`, `Password`, `ConfirmPassword`) | `{ "Ok": true }` | 400 `invalid_password`, `password_rejected`, `password_mismatch`; 401 login failure body |
-| `PATCH /user/password` | `{ "oldPassword", "password", "confirmPassword"? }` (`OldPassword`, `Password`, `ConfirmPassword`) | no data, rotated session cookie | 400 as above; 401; 403 `session_required`, `impersonating` |
+| `POST /auth/password/reset-request` | `{ "login" }` | `{ "Ok": true }` | 400 `invalid_login`; 429 `throttled` with `Retry-After` |
+| `POST /auth/password/reset` | `{ "login", "secret", "password", "confirmPassword"? }` | `{ "Ok": true }` | 400 `invalid_password`, `password_rejected`, `password_mismatch`; 401 login failure body |
+| `PATCH /user/password` | `{ "oldPassword", "password", "confirmPassword"? }` | no data, rotated session cookie | 400 as above; 401; 403 `session_required`, `impersonating` |
 
 The `password_rejected` body is `{ "error": "password_rejected", "message": "...", "violations": [...] }`; the violations name policy rules and say nothing about the account.
 
@@ -73,7 +73,7 @@ The `password_rejected` body is `{ "error": "password_rejected", "message": "...
 - **The reset request never tells whether an account exists.** Unknown accounts, mail failures and sends all answer `{ "Ok": true }`.
 - **`GET /auth/password/policy` is public**: the reset form needs it before there is a session.
 - **A reset ends every session of the account; a change ends every other one** and rotates the current one.
-- **Every string is capped at 1024 characters** before the service sees it.
+- **Every string is capped at `PASSWORD_HARD_CAP` (1024) characters** before the service sees it.
 - No answer and no error message carries a password, a secret or a login.
 
 ## Best practices

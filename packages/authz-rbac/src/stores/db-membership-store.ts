@@ -1,6 +1,7 @@
 import type { AuthzTx } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { sortedUnique } from '@spinajs/util';
 
 import { AdminMembershipStore } from '../admin/ports.js';
 import { latestPerSet } from '../membership/closure.js';
@@ -12,10 +13,9 @@ import { MembershipRecord, fromDateTime, recordValues, toDateTime } from './reco
 import type { MembershipFields } from './records.js';
 
 const toRow = (r: MembershipFields): MembershipRow => ({ memberKey: r.member_key, setKey: r.set_key, depth: r.depth, expiresAt: fromDateTime(r.expires_at) });
-const sorted = (keys: Iterable<string>): string[] => [...new Set(keys)].sort();
 
 /**
- * `MembershipStore` over `authz_subject_membership` (design §4.3), on the `authz` connection.
+ * `MembershipStore` over `authz_subject_membership`, on the `authz` connection.
  * The RBAC write handlers keep it right inside each AuthzAdmin batch; `authz:membership-rebuild` rewrites it.
  * Registered by class name; `authz.rbac.stores.membership` selects it.
  */
@@ -36,7 +36,7 @@ export class DbMembershipStore extends withDbRbacStore(AdminMembershipStore) {
 
   async membersOf(setKey: string, at: Date): Promise<readonly string[]> {
     await this.ready();
-    return sorted((await this.select('set_key', [setKey], at)).map((r) => r.member_key));
+    return sortedUnique((await this.select('set_key', [setKey], at)).map((r) => r.member_key));
   }
 
   async rowsOf(memberKeys: readonly string[]): Promise<readonly MembershipRow[]> {
@@ -46,12 +46,12 @@ export class DbMembershipStore extends withDbRbacStore(AdminMembershipStore) {
 
   async allMembersOf(setKeys: readonly string[]): Promise<readonly string[]> {
     await this.ready();
-    return sorted((await this.select('set_key', setKeys)).map((r) => r.member_key));
+    return sortedUnique((await this.select('set_key', setKeys)).map((r) => r.member_key));
   }
 
   async memberKeys(): Promise<readonly string[]> {
     await this.ready();
-    return sorted((await MembershipRecord.query().columns(['member_key'])).map((r) => r.member_key));
+    return sortedUnique((await MembershipRecord.query().columns(['member_key'])).map((r) => r.member_key));
   }
 
   async replace(memberKey: string, rows: readonly MembershipRow[], tx: AuthzTx): Promise<void> {

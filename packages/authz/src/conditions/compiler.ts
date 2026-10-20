@@ -1,5 +1,6 @@
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { UNSAFE_KEYS } from '@spinajs/util';
 
 import { ConditionCompiler, ConditionFunction } from './contracts.js';
 import type { Condition } from './contracts.js';
@@ -40,7 +41,6 @@ const NEEDS_SUBJECT = Symbol('needs-subject');
 const MISSING = Symbol('missing');
 type Resolved = unknown | typeof NEEDS_SUBJECT | typeof MISSING;
 
-const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
 /**
  * The core `ConditionCompiler` (design §5.9). `principal.*`, `actor.*`, `env.*` and `scope.*`
@@ -344,7 +344,7 @@ function readOwn(from: unknown, path: readonly string[]): unknown {
   try {
     let v = from;
     for (const segment of path) {
-      if (UNSAFE_SEGMENTS.has(segment) || v === null || typeof v !== 'object' || !Object.hasOwn(v, segment)) return MISSING;
+      if (UNSAFE_KEYS.has(segment) || v === null || typeof v !== 'object' || !Object.hasOwn(v, segment)) return MISSING;
       v = (v as Record<string, unknown>)[segment];
     }
     return v === undefined ? MISSING : v;

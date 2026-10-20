@@ -4,25 +4,26 @@ import { AutoinjectNamedService, Config, Configuration } from '@spinajs/configur
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 
-import { _is_object, _is_string, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject } from '@spinajs/util';
+import { asciiLower, isNonEmptyString, isPlainObject, uniqueBy } from '@spinajs/util';
 
-import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
+import type { AuthnEventType } from '../contracts/audit.js';
 import type { AuthenticationResult, AuthnContext, AuthnFailure, Credentials, ExternalSubject, IdentityRef, StrategyOutcome } from '../contracts/credentials.js';
 import { errorClass, isRef } from '../support/guards.js';
+import { restoreHandle, statusRefusal } from '../support/identity.js';
 import { IdentityStore } from '../contracts/identity.js';
-import type { IdentityStatus } from '../contracts/identity.js';
 import { IdentityLinkStore } from '../contracts/link.js';
 import { MfaPolicy } from '../contracts/mfa.js';
-import type { Session } from '../contracts/session-state.js';
 import { ExternalLoginHook } from '../contracts/hooks.js';
+import { sameRef } from '../contracts/principal.js';
 import type { AuthnFacts, Ceiling, Principal } from '../contracts/principal.js';
 import { AuthnService, PrincipalFactory } from '../contracts/service.js';
 import { SessionIssuer } from '../contracts/session.js';
 import type { SessionHandle } from '../contracts/session.js';
 import type { AuthenticationStrategy } from '../contracts/strategy.js';
-import { AuthnThrottle } from '../contracts/throttle.js';
+import { AuthnThrottle, identityThrottleKeys } from '../contracts/throttle.js';
 import type { ThrottleKey } from '../contracts/throttle.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
+import type { AuthnEventBody } from '../audit/authn-audit.js';
 import { mfaEnrolmentRefusal } from '../flow/mfa-enrolments.js';
 import { RECOVERY_STEP } from '../flow/default-mfa-policy.js';
 import { MFA_POLICY_SERVICE } from '../flow/select-policy.js';
@@ -37,7 +38,6 @@ import { checkAuthnSecrets } from './boot/secrets.js';
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
 type Failure = Extract<AuthenticationResult, { status: 'failure' }>;
 type Verified = Extract<StrategyOutcome, { ok: true }>;
-type EventBody = Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>;
 
 /** The answer of the first candidate that does not pass the credentials on, or why none gave one. */
 type Verification = { readonly s: AuthenticationStrategy; readonly outcome: StrategyOutcome } | { readonly s: AuthenticationStrategy; readonly broken: 'strategy_error' | 'strategy_contract'; readonly data?: Readonly<Record<string, unknown>> } | null;
@@ -62,30 +62,14 @@ interface Keyed {
   of(s: AuthenticationStrategy): readonly ThrottleKey[];
 }
 
-const dedupe = (keys: readonly ThrottleKey[]): ThrottleKey[] => {
-  const seen = new Set<string>();
-  return keys.filter((k) => {
-    const id = `${k.kind}\u0000${k.value}`;
-    if (seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
-};
+const dedupe = (keys: ThrottleKey[]): ThrottleKey[] => uniqueBy(keys, (k) => `${k.kind}\u0000${k.value}`);
 
 /** A strategy may answer these; anything else breaks the contract (D5). */
 const STRATEGY_FAILURES: ReadonlySet<string> = new Set<AuthnFailure>(['invalid_credentials', 'unsupported_credentials', 'expired', 'revoked', 'not_linked']);
 
 const KEY_KINDS: ReadonlySet<string> = new Set(['jws-assertion', 'http-signature']);
 
-const sameRef = (a: IdentityRef, b: IdentityRef): boolean => a.type === b.type && a.id === b.id;
-
-// ASCII letters only: toLowerCase maps some non-ASCII letters to ASCII ones (the Kelvin sign U+212A to "k").
-const foldAscii = (s: string): string => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
-
-const sameEmail = (stored: unknown, verified: string): boolean => isNonEmptyString(stored) && foldAscii(stored) === foldAscii(verified);
-
-/** Strategies vouch for these through their own record checks (revocation, expiry, owner status); D4b. */
-const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
+const sameEmail = (stored: unknown, verified: string): boolean => isNonEmptyString(stored) && asciiLower(stored) === asciiLower(verified);
 
 const fail = (reason: AuthnFailure): Failure => ({ status: 'failure', reason });
 
@@ -108,15 +92,6 @@ function checkOutcome(o: unknown): StrategyOutcome | null {
 }
 
 const validKeys = (v: unknown): v is readonly ThrottleKey[] => Array.isArray(v) && v.every((k) => isPlainObject(k) && isNonEmptyString(k.kind) && typeof k.value === 'string');
-
-/** The audit reason of a status that refuses the login, or null. */
-function refusal(st: IdentityStatus): string | null {
-  if (!st.exists) return 'unknown_identity';
-  if (st.deleted) return 'deleted';
-  if (st.banned) return 'banned';
-  if (!st.active) return 'inactive';
-  return null;
-}
 
 /**
  * The authentication flow of design §22.4. Every failure the caller sees is one of the AuthnFailure values (A02); the
@@ -180,9 +155,6 @@ export class DefaultAuthnService extends AuthnService {
   @Logger('authn-boot')
   protected Log: Log;
 
-  // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
-  private static readonly warned = new Set<string>();
-
   @Config('authn.linking')
   protected Linking!: Linking;
 
@@ -202,10 +174,9 @@ export class DefaultAuthnService extends AuthnService {
     await super.resolve();
   }
 
+  // Every child container with the same configuration repeats the boot checks; each warning is logged once per process.
   private warnOnce(message: string): void {
-    if (DefaultAuthnService.warned.has(message)) return;
-    DefaultAuthnService.warned.add(message);
-    this.Log.warn(message);
+    this.Log.warnOnce(message, message);
   }
 
   public strategies(): readonly AuthenticationStrategy[] {
@@ -215,14 +186,14 @@ export class DefaultAuthnService extends AuthnService {
   public async authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
     const candidates = this.Registry.candidates(c);
     if (candidates.length === 0) {
-      await this.audit(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials' });
+      await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials' });
       return fail('unsupported_credentials');
     }
     const only = candidates.length === 1 ? { strategy: candidates[0].name } : {};
 
     const keyed = this.keysFor(candidates, c, ctx);
     if ('error' in keyed) {
-      await this.audit(ctx, { type: this.eventOf(keyed.strategy), outcome: 'failure', strategy: keyed.strategy.name, reason: 'strategy_error', data: { error: keyed.error } });
+      await this.Auditor.publishIn(ctx, { type: this.eventOf(keyed.strategy), outcome: 'failure', strategy: keyed.strategy.name, reason: 'strategy_error', data: { error: keyed.error } });
       return fail('invalid_credentials');
     }
     // Per-request credentials count only their failures (K5): counted before verify, the requests a busy client has
@@ -241,7 +212,7 @@ export class DefaultAuthnService extends AuthnService {
   private async verified(candidates: readonly AuthenticationStrategy[], keyed: Keyed, c: Credentials, ctx: AuthnContext, only: { strategy?: string }): Promise<AuthenticationResult> {
     const v = await this.verifyWith(candidates, c, ctx);
     if (v === null) {
-      await this.audit(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials', ...only });
+      await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials', ...only });
       return fail('unsupported_credentials');
     }
     if ('broken' in v) return this.refuse(ctx, v.s, v.broken, 'invalid_credentials', v.data ? { data: v.data } : {});
@@ -255,17 +226,17 @@ export class DefaultAuthnService extends AuthnService {
   }
 
   public async completeMfa(pending: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult> {
-    const stored = await this.restore(pending);
+    const stored = await restoreHandle(this.Sessions, pending);
     if (!stored || stored.handle.state !== 'pending') {
-      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'not_pending' });
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'not_pending' });
       return fail('invalid_credentials');
     }
     const id = stored.identity;
     const about = { identity: id, strategy: stored.facts.strategy, ...(isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
-    const keys = this.identityKeys(id, ctx);
+    const keys = identityThrottleKeys(id, ctx);
     const gate = await this.Throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
-      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
+      await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return { status: 'failure', reason: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
 
@@ -273,24 +244,24 @@ export class DefaultAuthnService extends AuthnService {
     try {
       passed = await this.passMfa(id, stored.facts, step, response);
     } catch (err) {
-      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', ...policyRefusal(err, 'step_error'), ...about });
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', ...policyRefusal(err, 'step_error'), ...about });
       return fail('invalid_credentials');
     }
     if (passed !== true) {
-      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: passed === false ? 'invalid_code' : passed, ...about });
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: passed === false ? 'invalid_code' : passed, ...about });
       return fail('invalid_credentials');
     }
     // An account banned or deleted between the two steps must not get in.
     let refused: string | null;
     try {
-      refused = await this.statusRefusal(id);
+      refused = await statusRefusal(this.Identities, id);
       if (refused) await this.Sessions.revoke(stored.handle);
     } catch (err) {
-      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'store_error', data: { error: errorClass(err) }, ...about });
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'store_error', data: { error: errorClass(err) }, ...about });
       return fail('invalid_credentials');
     }
     if (refused) {
-      await this.audit(ctx, { type: 'login', outcome: 'failure', reason: refused, ...about });
+      await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'failure', reason: refused, ...about });
       return fail('invalid_credentials');
     }
 
@@ -304,37 +275,37 @@ export class DefaultAuthnService extends AuthnService {
       facts = rest;
       await this.Throttle.succeed(keys, 'mfa');
     } catch (err) {
-      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'session_error', data: { error: errorClass(err) }, ...about });
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'session_error', data: { error: errorClass(err) }, ...about });
       return fail('invalid_credentials');
     }
     const done = { identity: id, strategy: facts.strategy, ...(isNonEmptyString(facts.sessionHandle) ? { session: facts.sessionHandle } : {}) };
-    await this.audit(ctx, { type: 'mfa.verify', outcome: 'success', ...done });
-    await this.audit(ctx, { type: 'login', outcome: 'success', ...done });
+    await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'success', ...done });
+    await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'success', ...done });
     return { status: 'success', identity: id, facts, session };
   }
 
   public async reauthenticate(session: SessionHandle, c: Credentials, ctx: AuthnContext): Promise<boolean> {
-    const stored = await this.restore(session);
+    const stored = await restoreHandle(this.Sessions, session);
     if (!stored || stored.handle.state !== 'active') {
-      await this.audit(ctx, { type: 'reauth', outcome: 'failure', reason: 'not_active' });
+      await this.Auditor.publishIn(ctx, { type: 'reauth', outcome: 'failure', reason: 'not_active' });
       return false;
     }
     const id = stored.identity;
     const about = { identity: id, ...(isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
     // The target's password must not let an impersonator act as the target (M6).
     if (stored.facts.impersonator !== undefined) {
-      await this.audit(ctx, { type: 'reauth', outcome: 'failure', reason: 'impersonation', ...about });
+      await this.Auditor.publishIn(ctx, { type: 'reauth', outcome: 'failure', reason: 'impersonation', ...about });
       return false;
     }
     // A login method shows the user is present; a token or key the client holds does not.
     const candidates = this.Registry.candidates(c).filter((s) => s.interactive);
     if (candidates.length === 0) {
-      await this.audit(ctx, { type: 'reauth', outcome: 'failure', reason: 'unsupported_credentials', ...about });
+      await this.Auditor.publishIn(ctx, { type: 'reauth', outcome: 'failure', reason: 'unsupported_credentials', ...about });
       return false;
     }
-    const keys = this.identityKeys(id, ctx);
+    const keys = identityThrottleKeys(id, ctx);
     if (!(await this.Throttle.attempt(keys, 'reauth', ctx)).allowed) {
-      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
+      await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return false;
     }
 
@@ -346,16 +317,16 @@ export class DefaultAuthnService extends AuthnService {
       if (v === null) reason = 'unsupported_credentials';
       else if ('broken' in v) [reason, data] = [v.broken, v.data];
       else if (!v.outcome.ok) reason = v.outcome.reason;
-      else reason = (await this.isSessionIdentity(v.outcome, id)) ? await this.statusRefusal(id) : 'other_identity';
+      else reason = (await this.isSessionIdentity(v.outcome, id)) ? await statusRefusal(this.Identities, id) : 'other_identity';
       if (reason === null) await this.Throttle.succeed(keys, 'reauth');
     } catch (err) {
       [reason, data] = ['store_error', { error: errorClass(err) }];
     }
     if (reason !== null) {
-      await this.audit(ctx, { type: 'reauth', outcome: 'failure', reason, ...(data ? { data } : {}), ...strategy, ...about });
+      await this.Auditor.publishIn(ctx, { type: 'reauth', outcome: 'failure', reason, ...(data ? { data } : {}), ...strategy, ...about });
       return false;
     }
-    await this.audit(ctx, { type: 'reauth', outcome: 'success', ...strategy, ...about });
+    await this.Auditor.publishIn(ctx, { type: 'reauth', outcome: 'success', ...strategy, ...about });
     return true;
   }
 
@@ -411,7 +382,7 @@ export class DefaultAuthnService extends AuthnService {
     if (found.link && found.provisioned) await this.link(ctx, s, id, found.link);
     // Service and agent identities authenticate per request only (D12).
     if (s.interactive && id.type !== 'user') return this.refuse(ctx, s, 'non_user_session', 'invalid_credentials', { identity: id });
-    const refused = await this.statusRefusal(r.delegation?.onBehalfOf ?? id);
+    const refused = await statusRefusal(this.Identities, r.delegation?.onBehalfOf ?? id);
     if (refused) return this.refuse(ctx, s, refused, 'invalid_credentials', { identity: id });
     // Before the link by verified email, so a login a hook refuses leaves neither a session nor a new email link.
     if (s.interactive && r.external) {
@@ -425,7 +396,7 @@ export class DefaultAuthnService extends AuthnService {
     const extra = { ...(r.ceiling !== undefined ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(r.attributes !== undefined ? { attributes: r.attributes } : {}) };
     if (!s.interactive) {
       await this.Throttle.succeed(keys, 'login');
-      await this.audit(ctx, { type: this.eventOf(s), outcome: 'success', strategy: s.name, identity: id });
+      await this.Auditor.publishIn(ctx, { type: this.eventOf(s), outcome: 'success', strategy: s.name, identity: id });
       return { status: 'success', identity: id, facts, ...extra };
     }
 
@@ -442,13 +413,13 @@ export class DefaultAuthnService extends AuthnService {
     const issued: AuthnFacts = { ...facts, authenticatedAt: ctx.now };
     if (steps.length > 0) {
       const pending = await sessions.issue(id, issued, { pending: { steps } });
-      await this.audit(ctx, { type: 'mfa.challenge', outcome: 'success', strategy: s.name, identity: id, session: await this.handleOf(pending) });
+      await this.Auditor.publishIn(ctx, { type: 'mfa.challenge', outcome: 'success', strategy: s.name, identity: id, session: await this.handleOf(pending) });
       return { status: 'mfa_required', pending, steps };
     }
     const session = await sessions.issue(id, issued);
     const handle = await this.handleOf(session);
-    await this.audit(ctx, { type: 'login', outcome: 'success', strategy: s.name, identity: id, session: handle });
-    await this.audit(ctx, { type: 'session.issue', outcome: 'success', strategy: s.name, identity: id, session: handle });
+    await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'success', strategy: s.name, identity: id, session: handle });
+    await this.Auditor.publishIn(ctx, { type: 'session.issue', outcome: 'success', strategy: s.name, identity: id, session: handle });
     return { status: 'success', identity: id, facts: { ...facts, ...(handle !== undefined ? { sessionHandle: handle } : {}) }, session, ...extra };
   }
 
@@ -459,17 +430,11 @@ export class DefaultAuthnService extends AuthnService {
   private async runLoginHooks(id: IdentityRef, external: ExternalSubject): Promise<string | null> {
     try {
       const chain = (await this.Container.resolve(Array.chainOf(ExternalLoginHook))) as readonly ExternalLoginHook[];
-      // A resolve of the abstract base itself leaves an instance of it in the chain; it is no hook.
-      for (const hook of chain.filter((h) => h?.constructor !== ExternalLoginHook)) await hook.afterLogin(id, external);
+      for (const hook of chain) await hook.afterLogin(id, external);
       return null;
     } catch (err) {
       return errorClass(err);
     }
-  }
-
-  /** Only a subject of a type strategies vouch for skips the store, so an unknown type fails closed (D4, D4b). */
-  private async statusRefusal(subject: IdentityRef): Promise<string | null> {
-    return VOUCHED_TYPES.has(subject.type) ? null : refusal(await this.Identities.status(subject));
   }
 
   /**
@@ -500,12 +465,6 @@ export class DefaultAuthnService extends AuthnService {
     return verified !== undefined && sameRef(verified, id);
   }
 
-  private async restore(h: SessionHandle): Promise<Session | null> {
-    const [ok, id] = _try_check_arg(_is_object(), (s: SessionHandle) => s.id, _is_string(_non_empty()))(h, 'session');
-    if (!ok) return null;
-    return this.Sessions.restore(id);
-  }
-
   /**
    * A linked identity, or one found by verified email or provisioned (then `link` is the subject to link). Each way past
    * an existing link needs the global switch and the strategy's own switch for the provider (K6).
@@ -530,7 +489,7 @@ export class DefaultAuthnService extends AuthnService {
 
   private async link(ctx: AuthnContext, s: AuthenticationStrategy, id: IdentityRef, external: ExternalSubject): Promise<void> {
     await this.Links!.link(id, external);
-    await this.audit(ctx, { type: 'identity.link', outcome: 'success', strategy: s.name, identity: id, data: { provider: external.provider } });
+    await this.Auditor.publishIn(ctx, { type: 'identity.link', outcome: 'success', strategy: s.name, identity: id, data: { provider: external.provider } });
   }
 
   /**
@@ -568,18 +527,13 @@ export class DefaultAuthnService extends AuthnService {
     return { all: dedupe([...[...own.values()].flat(), ...shared]), of: (s) => dedupe([...(own.get(s) ?? []), ...shared]) };
   }
 
-  /** The keys of the `mfa` and `reauth` flows, shared with N3's PasswordService.change (D14). */
-  private identityKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
-    return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` }, ...(isNonEmptyString(ctx.ip) ? [{ kind: 'ip', value: ctx.ip }] : [])];
-  }
-
   private async throttled(ctx: AuthnContext, retryAfterSeconds: number, only: { strategy?: string }): Promise<Failure> {
-    await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...only });
+    await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...only });
     return { status: 'failure', reason: 'throttled', retryAfterSeconds };
   }
 
-  private async refuse(ctx: AuthnContext, s: AuthenticationStrategy, reason: string, answer: AuthnFailure, extra: Partial<EventBody> = {}): Promise<Failure> {
-    await this.audit(ctx, { type: this.eventOf(s), outcome: 'failure', strategy: s.name, reason, ...extra });
+  private async refuse(ctx: AuthnContext, s: AuthenticationStrategy, reason: string, answer: AuthnFailure, extra: Partial<AuthnEventBody> = {}): Promise<Failure> {
+    await this.Auditor.publishIn(ctx, { type: this.eventOf(s), outcome: 'failure', strategy: s.name, reason, ...extra });
     return fail(answer);
   }
 
@@ -591,10 +545,6 @@ export class DefaultAuthnService extends AuthnService {
 
   private async handleOf(h: SessionHandle): Promise<string | undefined> {
     return (await this.Sessions.restore(h.id))?.facts.sessionHandle;
-  }
-
-  private audit(ctx: AuthnContext, e: EventBody): Promise<void> {
-    return this.Auditor.publish({ ...e, at: ctx.now, ...(isNonEmptyString(ctx.ip) ? { ip: ctx.ip } : {}), ...(isNonEmptyString(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
   }
 
 }

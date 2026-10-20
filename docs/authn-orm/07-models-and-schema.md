@@ -111,10 +111,11 @@ Unique index `authn_identity_subject`: `(provider, subject)`. Index `authn_ident
 | `identity` | `varchar(100)`, primary key part; `string` | `<type>:<id>` of the owner. |
 | `step` | `varchar(32)`, primary key part; `string` | Step name. |
 | `secret_enc` | `text`; `string` | Cipher text, `v1.<iv>.<tag>.<ct>`. |
+| `secret_hash` | `varchar(64)`; `string` | Hex SHA-256 of `secret_enc`, which `confirm` compares instead of the `text` column. |
 | `key_id` | `varchar(32)`; `string` | Id of the encrypting key. |
 | `confirmed_at` | `datetime`, nullable; `DateTime` (optional) | Set by `confirm`. |
 | `last_step` | `bigint`, nullable; `number \| string \| null` | Last accepted time step; PostgreSQL returns it as a string. |
-| `created_at` | `datetime`; `DateTime` | Time of the last `put`. |
+| `created_at` | `datetime`; `DateTime` | Time of the last `putPending`. |
 
 ### `authn_recovery_code`
 
@@ -148,8 +149,6 @@ Indexes `authn_audit_at`: `at`; `authn_audit_identity`: `(identity, at)`.
 | --- | --- | --- | --- |
 | `AuthnInitial_2026_10_02_00_00_00` | `default` | Creates the seven tables and their indexes. | Drops the seven tables in reverse order. |
 
-No migration of this package reads 2.x `users_metadata`. 2.x TOTP enrolments, pending password resets and invites are not carried over: users enrol again and request a new link.
-
 `@spinajs/authn-keys` ships no migration for `authn_nonce`: its `DbKeyNonceStore` writes into the table this migration creates.
 
 ## Identity keys and time helpers
@@ -159,6 +158,8 @@ No migration of this package reads 2.x `users_metadata`. 2.x TOTP enrolments, pe
 | `identityKey(ref, maxLength = 100)` | `<type>:<id>`, the value of every `identity` and `actor` column. A type that is empty or contains `:`, or a key longer than `maxLength`, throws `InvalidArgument`; it never truncates. |
 | `parseIdentityKey(key)` | Splits at the first `:` into an `IdentityRef`; the id may contain more `:`. A key without a type throws `InvalidArgument`. |
 | `readInstant(value)` | A `Date` from a `DateTime`, a `Date` or text (SQL format, else ISO-8601; text without an offset is UTC). `null` and `undefined` give `undefined`. |
+
+`identityKey` and `parseIdentityKey` are also at `@spinajs/authn-orm/identity`, which loads no store, model or migration; `@spinajs/authn-totp` imports `identityKey` from there.
 
 ## Important behaviour
 
@@ -221,25 +222,6 @@ export async function usersWithTotp(): Promise<string[]> {
   return rows.map((r) => parseIdentityKey(r.identity)).filter((ref) => ref.type === 'user').map((ref) => ref.id);
 }
 ```
-
-## Migration
-
-### Stores take no driver and no `StoreOptions`
-
-`DbAuthnAuditSink`, `DbIdentityLinkStore`, `DbSecretStore`, `DbNonceStore` and `DbMfaStore` have no constructor arguments. `DbAuthnThrottle` takes `(params?, options?)` and `DbThrottleStoreOptions` has no `driver`. The `StoreOptions` type is no longer exported. Every store uses the connection its model names, `default`, and resolves the `Orm` through `ormReady()` from the root container.
-
-```ts
-// Before: a driver, or the Orm of a given container
-const audit = new DbAuthnAuditSink(driver);
-const secrets = new DbSecretStore(undefined, { container: tenantContainer });
-
-// After: point `default` at the database instead
-db: { DefaultConnection: 'main' }
-const audit = new DbAuthnAuditSink();
-const secrets = new DbSecretStore();
-```
-
-An app that passed a driver of another connection moves the `authn_*` tables to the connection named by `db.DefaultConnection`. Datetime columns are hydrated by the ORM converter, so a subclass that read them as dialect-specific text reads luxon `DateTime` values.
 
 ## Related
 

@@ -61,7 +61,7 @@ export default {
 - **`Origin` wins over fetch metadata.** A cross-site `Origin` is refused even with `Sec-Fetch-Site: same-origin`.
 - **Origins compare exactly.** Another port, scheme or a longer host is another origin; `Origin: null` is refused. Default ports are normalised.
 - **No usable `Host`** (absent, or with a path): only listed origins pass.
-- **Rate-limited warnings.** At most one warning per origin pair a minute and 20 lines a minute in all. The log names the origin and the own origin, never cookies.
+- **Rate-limited warnings.** The guard logs every refusal with `event: 'authn-http.csrf-refused'`. The package config ships two `RateLimitFilter` entries in `logger.filters`: at most one line per origin pair a minute and 20 lines a minute in all. The log names the origin and the own origin, never cookies. See [log filters](../log/09-filters.md#ratelimitfilter).
 - The guard also covers the OIDC link routes of [`@spinajs/authn-oidc`](../authn-oidc/01-login-flow.md#http-routes), which carry the session cookie.
 
 ## Best practices

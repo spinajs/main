@@ -1,8 +1,8 @@
 # The `require-accessible` rule
 
-`@spinajs/authz/require-accessible` reports a multi-row read of an `@AccessResource` model that runs without `.accessible(permission)`, `.unscoped(reason)` or an enclosing `runAs(...)`. Rule type: `problem`. It needs type information.
+`@spinajs/authz/require-accessible` reports a multi-row read of an `@AccessResource` model that runs without `.accessible(permission)`, `.unscoped(reason)` or an enclosing `runAs(...)`. Rule type: `problem`. It needs type information. It is the edit-time twin of the `@spinajs/authz-orm` runtime guard.
 
-**Why it matters.** `@spinajs/authz-orm` never filters a query on its own. A select without `.accessible()` returns every matching row, whatever the caller may read. The run-time guard throws only in the `test` env, warns in `development` and is off in production ([Access lists](../authz-orm/01-access-lists.md#important-behaviour)). The rule catches the leak in the editor and in CI, before it reaches production.
+**Why it matters.** `@spinajs/authz-orm` never filters a query on its own. A select without `.accessible()` returns every matching row, whatever the caller may read. The run-time guard throws only in the `test` env, warns in `development` and is off in production ([The runtime guard](../authz-orm/07-runtime-guard.md)). The rule catches the leak in the editor and in CI, before it reaches production.
 
 ## How it works
 
@@ -10,14 +10,26 @@ The rule visits every `CallExpression` (`requireAccessible.create()`).
 
 1. **Root.** The call must be `<Model>.<member>(...)`, where `<Model>` is an identifier (`Task`) or a member expression (`models.Task`). `this.where(...)` and computed members (`Task['where']`) are skipped.
 2. **Member filter.** `get` and `getOrFail` return at once (single-object loads). Members outside `QUERY_ROOTS`, `KEY_LIST_READS` and `READ_SHORTCUTS` are skipped, which includes writes such as `create`, `insert`, `update` and `destroy`.
-3. **Model.** `isAccessResourceClass()` resolves the type of `<Model>` and looks for `@AccessResource(...)` on the class or any class it extends. Names in the `resources` option count too ([ESLint setup](01-eslint-setup.md#configuration)).
+3. **Model.** `isAccessResourceClass()` resolves the type of `<Model>` and looks for `@AccessResource(...)` on the class or any class it extends. Names in the `resources` option count too ([Configuration](#configuration)).
 4. **`runAs` exemption.** When the call sits inside an arrow function or function expression passed as an argument to `runAs(...)` or `<anything>.runAs(...)`, the rule stops.
 5. **Shortcut reads.** A root in `READ_SHORTCUTS`, or `find` / `findOrFail` with anything but a one-element array literal, is reported as `unscopedShortcut`. These return a promise at once, so there is no builder to scope.
 6. **Builder chains.** For a root in `QUERY_ROOTS`, the rule collects the calls chained on it (`Task.where(...).populate(...).first()`):
-   - `where('<primary key>', value)` with no other `*where*` member in the chain is a single-object load: not reported;
+   - `where('<primary key>', value)` with no other `*where*` member in the chain is a single-object load: not reported. The primary key is the `@Primary()` property `primaryKeyOf()` finds;
    - the first `.accessible(` or `.unscoped(` ends the check: not reported;
    - the first executing member before any of them is reported as `unscopedQuery`;
    - a chain with no executing member is reported when its last call is directly `await`ed.
+
+## Configuration
+
+| Key | Type | Default | Allowed values | Meaning |
+| --- | --- | --- | --- | --- |
+| `resources` | `string[]` | `[]` | unique, non-empty class names | Classes to treat as `@AccessResource` models even when no decorator is visible, matched by class name. |
+
+```js
+rules: { '@spinajs/authz/require-accessible': ['error', { resources: ['User', 'JobModel'] }] }
+```
+
+Decorators do not survive into `.d.ts` files. A model a package ships compiled, such as `User` from `@spinajs/users` or `JobModel` from `@spinajs/authz-queue`, is found only when listed in `resources`. A listed class matches by name alone, whatever module it comes from. Wiring the options into `eslint.config.mjs`: [Flat config setup](01-flat-config-setup.md#examples).
 
 ## What it reports
 
@@ -30,10 +42,10 @@ The rule visits every `CallExpression` (`requireAccessible.create()`).
 
 Messages:
 
-| Message id | Text |
-| --- | --- |
-| `unscopedQuery` | `{{model}} is an @AccessResource model: this query reaches {{call}} without .accessible(permission), .unscoped(reason) or an enclosing runAs(SYSTEM, reason).` |
-| `unscopedShortcut` | `{{model}}.{{call}}() reads more than one primary key of an @AccessResource model with nothing to scope: call it inside runAs(SYSTEM, reason), or use {{model}}.query() with .accessible(permission).` |
+| Message id | Reported on | Text | Fix |
+| --- | --- | --- | --- |
+| `unscopedQuery` | The executing call, or the `await` of an unexecuted chain | `{{model}} is an @AccessResource model: this query reaches {{call}} without .accessible(permission), .unscoped(reason) or an enclosing runAs(SYSTEM, reason).` | Add `.accessible(permission)`, or `.unscoped(reason)` for a deliberate system read |
+| `unscopedShortcut` | The shortcut call | `{{model}}.{{call}}() reads more than one primary key of an @AccessResource model with nothing to scope: call it inside runAs(SYSTEM, reason), or use {{model}}.query() with .accessible(permission).` | Run it inside `runAs(SYSTEM, reason)`, or query with `.query()...accessible(permission)` |
 
 `{{model}}` is the source text of the model expression (`Task`, `models.Task`, an import alias `T`). `{{call}}` is `.first()`, `.then()`, `await` and so on. The rule reports at most once per root call.
 
@@ -51,7 +63,7 @@ Messages:
 | `const q = Task.where('a', 1); return q;` | The chain is neither executed nor awaited where it is built. |
 | `Note.where('a', 1).first()` | `Note` is not an access resource. |
 
-Single-object loads match what the run-time guard lets through (`isSingleObjectLoad()` in `@spinajs/authz-orm`). The route's check-before covers them: `@Access(...)` with `fromModel(...)`, or `authz().assert(me, permission, row)` ([the authz guide](../authz-orm/README.md)). The rule does **not** check that this check exists.
+Single-object loads match what the run-time guard lets through (`isSingleObjectLoad()` in `@spinajs/authz-orm`). The route's check-before covers them: `@Access(...)` with `fromModel(...)`, or `authz().assert(me, permission, row)` ([Single-object checks](../authz-orm/05-single-object-checks.md)). The rule does **not** check that this check exists.
 
 ## Important behaviour
 
@@ -61,13 +73,14 @@ Single-object loads match what the run-time guard lets through (`isSingleObjectL
 - **Only inline callbacks are exempt.** `runAs(SYSTEM, 'job', loadAll)` does not exempt the body of `loadAll`, declared elsewhere.
 - **`.accessible()` must come before the executing member.** `Task.where('a', 1).first().then(...)` is reported at `.first()`, whatever follows.
 - **The primary-key exemption is strict.** The column must be a string literal equal to the `@Primary()` property name. `Task.where('id', [1, 2])`, `Task.where('id', id).where('a', 1)` and `Task.findOrFail(ids)` are reported.
+- **A primary key declared only in a `.d.ts` base class is invisible**, and so is the one of a class listed in `resources`: `where('<pk>', id)` on such a model is reported. `get(id)` and `findOrFail([id])` are not.
 
 ## Suppressing the rule
 
 Fix the query first. In order of preference:
 
 1. Add `.accessible(permission)` when the caller's grants should decide the rows.
-2. Add `.unscoped(reason)` when every row is the intended answer, such as an export for an admin route that is checked before. `authz-orm` writes an `unscoped` audit entry with the reason.
+2. Add `.unscoped(reason)` when every row is the intended answer, such as an export for an admin route that is checked before. `authz-orm` writes an `unscoped` audit entry with the reason when `authz.audit.unscoped` is on.
 3. Wrap code that has no user (a job, a CLI command, a migration) in `authz().runAs(SYSTEM, reason, fn)`. `runAs` is audited too.
 
 An `eslint-disable` comment fits the cases the rule cannot see, and the run-time guard lets through. Always give the reason after `--`:
@@ -114,6 +127,14 @@ const picked = await Task.findOrFail(ids);
 
 // Do
 const picked = await Task.query().whereIn('id', ids).accessible('task:read');
+```
+
+```ts
+// Don't: count() runs at once, there is no builder to scope
+const total = await Task.count();
+
+// Do: a deliberate system read, with the reason in the audit
+const total = await authz().runAs(SYSTEM, 'nightly report', () => Task.count());
 ```
 
 ```ts
@@ -166,8 +187,28 @@ export async function doneTasks() {
 }
 ```
 
+### Paginate the caller's tasks
+
+```ts
+const page = await Task.where('project_id', projectId)
+  .accessible('task:read', { onNone: 'empty' })
+  .orderBy('created_at')
+  .take(50);
+```
+
+`onNone: 'empty'` returns no rows to a caller who can never hold `task:read`, instead of `AccessDenied`.
+
+### Export every archived task in a backup job
+
+```ts
+const archived = await Task.where('archived', true).unscoped('nightly backup export');
+```
+
+`.unscoped(reason)` needs a non-empty reason and is audited when `authz.audit.unscoped` is on.
+
 ## Related
 
-- [ESLint setup](01-eslint-setup.md): turn the rule on and set `resources`.
-- [Access lists](../authz-orm/01-access-lists.md): `.accessible()`, `.unscoped()` and the run-time guard (`AccessGuardMiddleware`).
-- [Using the service](../authz/03-checking-permissions.md): `authz().runAs(SYSTEM, reason, fn)`.
+- [Flat config setup](01-flat-config-setup.md): turn the rule on and set `resources`.
+- [Access lists](../authz-orm/01-access-lists.md): `.accessible()`, `.unscoped()` and `.within()`.
+- [The runtime guard](../authz-orm/07-runtime-guard.md): `AccessGuardMiddleware`, the run-time twin of this rule.
+- [Checking permissions](../authz/03-checking-permissions.md): `authz().runAs(SYSTEM, reason, fn)`.

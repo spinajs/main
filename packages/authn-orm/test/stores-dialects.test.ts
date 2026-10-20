@@ -3,7 +3,9 @@ import { FakeClock } from '@spinajs/authn-testing';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { ResourceDuplicated, UnexpectedServerError } from '@spinajs/exceptions';
 import '@spinajs/log';
-import { OrmException, QueryContext } from '@spinajs/orm';
+import { QueryContext } from '@spinajs/orm';
+import { mapMsSqlError } from '@spinajs/orm-mssql';
+import { mapMySqlError } from '@spinajs/orm-mysql';
 import { expect } from 'chai';
 import 'mocha';
 
@@ -24,7 +26,7 @@ const DIALECTS = [
     name: 'mysql',
     now: NOW_TEXT,
     later: '2026-06-01 10:01:00.000',
-    duplicate: () => new OrmException('Error executing orm command ', { Name: 'mysql' }, 'INSERT', [], Object.assign(new Error("Duplicate entry 'x' for key 'PRIMARY'"), { code: 'ER_DUP_ENTRY', errno: 1062 })),
+    duplicate: () => mapMySqlError(Object.assign(new Error("Duplicate entry 'x' for key 'PRIMARY'"), { code: 'ER_DUP_ENTRY', errno: 1062 }), { Name: 'mysql' }, 'INSERT', []),
     secretSelect: 'SELECT `id`,`identity`,`purpose`,`expires_at` FROM `authn_secret` WHERE `secret_hash` = ? AND `identity` = ? AND `purpose` = ? AND `used_at` IS NULL',
     secretClaim: 'UPDATE `authn_secret` SET `used_at` = ? WHERE `id` = ? AND `used_at` IS NULL AND `expires_at` > ?',
     secretPurge: 'SELECT `id` FROM `authn_secret` WHERE ( `used_at` IS NOT NULL OR `expires_at` <= ? ) ORDER BY `id` ASC LIMIT ?',
@@ -32,8 +34,8 @@ const DIALECTS = [
     noncePurge: 'SELECT `k` FROM `authn_nonce` WHERE `expires_at` <= ? ORDER BY `k` ASC LIMIT ?',
     acceptStep: 'UPDATE `authn_mfa` SET `last_step` = ? WHERE `identity` = ? AND `step` = ? AND ( `last_step` IS NULL OR `last_step` < ? )',
     redeemCode: 'UPDATE `authn_recovery_code` SET `used_at` = ? WHERE `identity` = ? AND `code_hash` = ? AND `used_at` IS NULL',
-    putPendingUpdate: 'UPDATE `authn_mfa` SET `secret_enc` = ?,`key_id` = ?,`confirmed_at` = ?,`last_step` = ?,`created_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL',
-    confirmExact: 'UPDATE `authn_mfa` SET `confirmed_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL AND CAST(`secret_enc` AS BINARY) = ?',
+    putPendingUpdate: 'UPDATE `authn_mfa` SET `secret_enc` = ?,`secret_hash` = ?,`key_id` = ?,`confirmed_at` = ?,`last_step` = ?,`created_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL',
+    confirmExact: 'UPDATE `authn_mfa` SET `confirmed_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL AND `secret_hash` = ?',
     confirmedSteps: 'SELECT `identity`,`step`,`confirmed_at` FROM `authn_mfa` WHERE `identity` = ? AND `confirmed_at` IS NOT NULL',
     confirmedStepNames: 'SELECT `step`,`confirmed_at` FROM `authn_mfa` WHERE `confirmed_at` IS NOT NULL',
   },
@@ -41,7 +43,7 @@ const DIALECTS = [
     name: 'mssql',
     now: '2026-06-01T10:00:00.000Z',
     later: '2026-06-01T10:01:00.000Z',
-    duplicate: () => Object.assign(new Error('Cannot insert duplicate key row.'), { name: 'RequestError', number: 2601 }),
+    duplicate: () => mapMsSqlError(Object.assign(new Error('Cannot insert duplicate key row.'), { name: 'RequestError', number: 2601 }), { Name: 'mssql' }, 'INSERT', []),
     secretSelect: 'SELECT [id],[identity],[purpose],[expires_at] FROM [authn_secret] WHERE [secret_hash] = ? AND [identity] = ? AND [purpose] = ? AND [used_at] IS NULL',
     secretClaim: 'UPDATE [authn_secret] SET [used_at] = ? WHERE [id] = ? AND [used_at] IS NULL AND [expires_at] > ?',
     secretPurge: 'SELECT [id] FROM [authn_secret] WHERE ( [used_at] IS NOT NULL OR [expires_at] <= ? ) ORDER BY [id] ASC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
@@ -49,8 +51,8 @@ const DIALECTS = [
     noncePurge: 'SELECT [k] FROM [authn_nonce] WHERE [expires_at] <= ? ORDER BY [k] ASC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
     acceptStep: 'UPDATE [authn_mfa] SET [last_step] = ? WHERE [identity] = ? AND [step] = ? AND ( [last_step] IS NULL OR [last_step] < ? )',
     redeemCode: 'UPDATE [authn_recovery_code] SET [used_at] = ? WHERE [identity] = ? AND [code_hash] = ? AND [used_at] IS NULL',
-    putPendingUpdate: 'UPDATE [authn_mfa] SET [secret_enc] = ?,[key_id] = ?,[confirmed_at] = ?,[last_step] = ?,[created_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL',
-    confirmExact: 'UPDATE [authn_mfa] SET [confirmed_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL AND CAST([secret_enc] AS NVARCHAR(MAX)) = ?',
+    putPendingUpdate: 'UPDATE [authn_mfa] SET [secret_enc] = ?,[secret_hash] = ?,[key_id] = ?,[confirmed_at] = ?,[last_step] = ?,[created_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL',
+    confirmExact: 'UPDATE [authn_mfa] SET [confirmed_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL AND [secret_hash] = ?',
     confirmedSteps: 'SELECT [identity],[step],[confirmed_at] FROM [authn_mfa] WHERE [identity] = ? AND [confirmed_at] IS NOT NULL',
     confirmedStepNames: 'SELECT [step],[confirmed_at] FROM [authn_mfa] WHERE [confirmed_at] IS NOT NULL',
   },
@@ -149,7 +151,7 @@ for (const d of DIALECTS) {
 
       expect(driver.executed.map((e) => e.context)).to.deep.eq([QueryContext.Insert, QueryContext.Update, QueryContext.Select, QueryContext.Insert]);
       expect(sql(driver.executed[1])).to.eq(d.putPendingUpdate);
-      expect(driver.executed[1].params.slice(0, 2)).to.deep.eq(['v1.new', 'kid-a']);
+      expect(driver.executed[1].params.slice(0, 3)).to.deep.eq(['v1.new', sha256hex('v1.new'), 'kid-a']);
       expect(driver.executed[1].params.slice(-2)).to.deep.eq([`user:${ALICE.id}`, 'totp']);
     });
 
@@ -185,14 +187,14 @@ for (const d of DIALECTS) {
       expect(driver.executed).to.have.length(24);
     });
 
-    it('DbMfaStore.confirm with an expected cipher text compares it exactly in one guarded update', async () => {
+    it('DbMfaStore.confirm with an expected cipher text compares its hash in one guarded update', async () => {
       const driver = orm.driver;
       driver.respond = () => ({ RowsAffected: 1 });
 
       expect(await new DbMfaStore().confirm(ALICE, 'totp', NOW, 'v1.expected')).to.eq(true);
 
       expect(driver.executed.map(sql)).to.deep.eq([d.confirmExact]);
-      expect(driver.executed[0].params).to.deep.eq([d.now, `user:${ALICE.id}`, 'totp', 'v1.expected']);
+      expect(driver.executed[0].params).to.deep.eq([d.now, `user:${ALICE.id}`, 'totp', sha256hex('v1.expected')]);
     });
 
     it('DbSecretStore.redeem refuses a row that matched only under a case-blind collation', async () => {

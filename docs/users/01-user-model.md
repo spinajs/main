@@ -68,10 +68,10 @@ Available on `User.query()`, `User.where(...)`, `User.update(...)` and `User.des
 | `user:ban:duration` | `USER_BAN_DURATION` | `ban()`, in seconds |
 | `user:ban:reason` | `USER_BAN_REASON` | `ban()` |
 | `user:avatar`, `user:phone`, `user:newsletter:enabled` | `USER_AVATAR`, `USER_PHONE`, `USER_NEWSLETTER_ENABLED` | your application |
-| `user:2fa:token` | `USER_2FA_TOKEN` | legacy; reserved |
-| `user:pwd:reset`, `user:pwd_reset:*` | `USER_PWD_RESET*` | legacy 2.x reset state; reserved |
+| `user:2fa:token` | `USER_2FA_TOKEN` | nothing in this monorepo; reserved |
+| `user:pwd:reset`, `user:pwd_reset:*` | `USER_PWD_RESET*` | nothing in this monorepo; reserved |
 | `user:invite:pending` | `USER_INVITE_PENDING` | `create()` without a password; removed on invite redeem, `activate()` and `deactivate()` |
-| `user:login:attempts`, `user:login:locked_until` | `USER_LOGIN_ATTEMPTS`, `USER_LOGIN_LOCKED_UNTIL` | legacy throttle state; reserved |
+| `user:login:attempts`, `user:login:locked_until` | `USER_LOGIN_ATTEMPTS`, `USER_LOGIN_LOCKED_UNTIL` | nothing in this monorepo; reserved |
 
 ### Reserved keys, logins and markers
 
@@ -86,7 +86,7 @@ Available on `User.query()`, `User.where(...)`, `User.update(...)` and `User.des
 
 ## Schema
 
-The migrations run on the `default` connection and are exported, so the ORM finds them by import.
+`RBACInitial_2022_06_28_01_13_00` creates both tables on the `default` connection. It is exported, so the ORM finds it by import.
 
 ### `users`
 
@@ -97,13 +97,12 @@ The migrations run on the `default` connection and are exported, so the ORM find
 | `Email` | `string(64)`, not null, unique | Email. |
 | `Password` | `string(128)`, not null | Hash or marker. |
 | `Login` | `string(64)`, not null, unique index `user_login_idx` | Login. |
-| `Role` | `string(256)`, not null | 2.x role column. `@spinajs/authz-rbac` copies it into role assignments and drops it (`AuthzRbacUserRoles_…`, `AuthzRbacDropUserRole_…`). |
 | `IsActive` | `boolean`, not null, default `0` | Active flag. |
 | `CreatedAt` | `datetime`, not null, default now | Creation time. |
 | `DeletedAt` | `datetime`, nullable | Soft delete time. |
 | `LastLoginAt` | `datetime`, nullable | Last login. |
-| `RegisteredAt` | `datetime`, nullable | Added by `RBACRegisteredAt_2026_07_28_00_00_00`; existing rows stay null. |
-| `PasswordSetAt` | `datetime`, nullable | Added by `UsersPasswordSetAt_2026_10_04_00_00_00`; rows holding a password get the migration time. |
+| `RegisteredAt` | `datetime`, nullable | Registration time. |
+| `PasswordSetAt` | `datetime`, nullable | When the current password was set. |
 
 ### `users_metadata`
 
@@ -120,8 +119,6 @@ The migrations run on the `default` connection and are exported, so the ORM find
 | Class | Effect |
 | --- | --- |
 | `RBACInitial_2022_06_28_01_13_00` | Creates both tables and their indexes. `down()` does nothing. |
-| `RBACRegisteredAt_2026_07_28_00_00_00` | Adds `users.RegisteredAt` unless the column exists. `down()` does nothing. |
-| `UsersPasswordSetAt_2026_10_04_00_00_00` | Adds `users.PasswordSetAt` unless it exists, then stamps the migration time on rows that hold a password (not a `!` marker, not empty). `down()` drops the column. |
 
 ## Services and extension points
 
@@ -157,7 +154,6 @@ export class HideInternalUserMetadata extends Bootstrapper {
 - An expired ban leaves `user:ban:is_banned` stored until `unban()` removes it. `IsBanned` is `false` for it and `ban()` accepts a new ban.
 - `dehydrateWithRelations()` also hides `2fa:enabled` (it is under a reserved prefix). MFA status comes from authn's MFA routes.
 - `UserMetadataBase` applies no access check. Callers such as users-http decide each row.
-- `RBACInitial` creates `users.Role` as `NOT NULL` with no default. Run the authz-rbac migrations after it, or inserts that omit `Role` fail.
 
 ## Best practices
 
@@ -210,4 +206,4 @@ export async function savePhone(uuid: string, phone: string): Promise<void> {
 - [User actions](03-user-actions.md): the functions that change account state.
 - [Metadata models](../orm/15-metadata-models.md): how the `Metadata` relation reads and writes.
 - [Scopes and builder extensions](../orm/16-scopes-and-builder-extensions.md): how `UserQueryScopes` is bound.
-- [Migrations](../orm/10-migrations.md): how the shipped migrations run.
+- [Migrations](../orm/10-migrations.md): how the shipped migration runs.

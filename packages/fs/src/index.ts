@@ -1,7 +1,7 @@
 import { Config, InvalidConfiguration } from '@spinajs/configuration';
 import { AsyncService, ResolveException, sortByDependencies } from '@spinajs/di';
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
-import { fs, FsDecorator, IFsConfiguration, IProviderConfiguration } from './interfaces.js';
+import { fs, IFsConfiguration, IProviderConfiguration } from './interfaces.js';
 import { Log, Logger } from '@spinajs/log-common';
 
 export * from './interfaces.js';
@@ -13,6 +13,17 @@ export * from './file-hasher.js';
 export * from './file-info.js';
 export * from './helpers.js';
 export * from './fp.js';
+export * from './paths.js';
+export * from './actions.js';
+
+/** DI key of the `Map<string, fs>` that fsService publishes every provider into, by name. */
+export const FILE_PROVIDER_INSTANCES = '__file_provider_instance__';
+
+/** The provider fsService published under `name`, or `undefined`. */
+export function publishedFs(name: string, container: IContainer = DI.RootContainer): fs | undefined {
+  const published = container.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
+  return published instanceof Map ? published.get(name) : undefined;
+}
 
 export class fsService extends AsyncService {
   @Logger('fs')
@@ -38,7 +49,8 @@ export class fsService extends AsyncService {
       providers.set(x.name, x);
     });
 
-    const rProviders = DI.RootContainer.Registry.getTypes(fs);
+    // getTypes() returns null when nothing is registered under the token
+    const rProviders = DI.RootContainer.Registry.getTypes(fs) ?? [];
 
     // order provider creation so that providers referencing other providers
     // ( eg. fsTemp backend via `provider` option ) are created after their dependency,
@@ -50,7 +62,6 @@ export class fsService extends AsyncService {
     );
 
     const list = ordered.map((value) => ({ name: value.name, value }));
-    const created: [IProviderConfiguration, fs][] = [];
 
     for (const cProvider of list) {
       const type = rProviders.find((x: any) => x.name === cProvider.value.service);
@@ -62,60 +73,21 @@ export class fsService extends AsyncService {
       }
 
       const fs = await DI.resolve<fs>(type, [cProvider.value]);
-      DI.register(fs).asMapValue('__file_provider_instance__', cProvider.value.name);
-      created.push([cProvider.value, fs]);
+      DI.register(fs).asMapValue(FILE_PROVIDER_INSTANCES, cProvider.value.name);
 
       this.Logger.info(
         { provider: cProvider.value.name, service: cProvider.value.service },
         'File provider ${provider} registered, type: ${service}',
       );
     }
-
-    // Only after every provider exists, so providers that looked up others by name
-    // in their own resolve() ( eg. fsTemp backends ) keep the raw instances.
-    await this.decorate(created);
-  }
-
-  protected async decorate(providers: [IProviderConfiguration, fs][]) {
-    const decorators = [...(await DI.resolve(Array.ofType(FsDecorator)))].sort((a, b) => a.order - b.order);
-
-    if (decorators.length === 0) {
-      return;
-    }
-
-    const names = decorators.map((d) => `${d.constructor.name}(${d.order})`).join(', ');
-
-    const decorated: [IProviderConfiguration, fs, fs][] = [];
-
-    for (const [config, raw] of providers) {
-      try {
-        decorated.push([config, raw, decorators.reduce((current, d) => d.decorate(current, config), raw)]);
-      } catch (err) {
-        // A decorator may be an access guard: never leave raw providers reachable through getFs().
-        const published = DI.get<Map<string, fs>>('__file_provider_instance__');
-        for (const [c] of providers) {
-          published?.delete(c.name);
-        }
-
-        throw new ResolveException(`Cannot decorate file provider ${config.name}: ${err instanceof Error ? err.message : String(err)}`, err instanceof Error ? err : undefined);
-      }
-    }
-
-    for (const [config, raw, instance] of decorated) {
-      DI.register(instance).asMapValue('__file_provider_instance__', config.name);
-
-      if (instance !== raw) {
-        this.Logger.info({ provider: config.name, decorators: names }, 'File provider ${provider} decorated with ${decorators}');
-      }
-    }
   }
 }
 
 @Injectable(Bootstrapper)
-export class FsBootsrapper extends Bootstrapper {
+export class FsBootstrapper extends Bootstrapper {
   public bootstrap() {
     DI.register((_container: IContainer, name: string) => {
-      const provider = DI.get<Map<string, fs>>('__file_provider_instance__');
+      const provider = DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
 
       if(!provider) {
         throw new ResolveException(`No __file_provider_instance__ registered, make sure fs package is imported in your application and fsService is resolved.`);
@@ -131,3 +103,12 @@ export class FsBootsrapper extends Bootstrapper {
     }).as('__file_provider__');
   }
 }
+
+/**
+ * @deprecated misspelled, use {@link FsBootstrapper}
+ */
+export const FsBootsrapper = FsBootstrapper;
+/**
+ * @deprecated misspelled, use {@link FsBootstrapper}
+ */
+export type FsBootsrapper = FsBootstrapper;

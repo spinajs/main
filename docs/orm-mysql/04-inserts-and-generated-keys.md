@@ -20,7 +20,7 @@ Errors: `returning(columns)` throws `NotSupported('driver orm-driver-mysql does 
 
 ### Contiguous keys for a batch
 
-`supportedFeatures()` returns `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, maxBindParameters: Infinity, concurrentTransactions: true }`. `insertIdIsFirstOfBatch` rests on InnoDB behaviour:
+`supportedFeatures()` returns `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true }`. `insertIdIsFirstOfBatch` rests on InnoDB behaviour:
 
 - `INSERT INTO t (...) VALUES (...), (...)` is a *simple insert*: the row count is known before execution. It is the only shape `InsertQueryBuilder` builds.
 - For a simple insert InnoDB reserves one contiguous block of N auto-increment values, and `LAST_INSERT_ID()` reports the first. Row k gets `LAST_INSERT_ID() + k`.
@@ -31,7 +31,7 @@ Errors: `returning(columns)` throws `NotSupported('driver orm-driver-mysql does 
 1. The driver reports `insertIdIsFirstOfBatch: true` (MySQL only).
 2. The model has exactly one primary key column, with `auto` generation.
 3. `InsertBehaviour` is `None`: `INSERT IGNORE`, `REPLACE` and `ON DUPLICATE KEY UPDATE` can skip or reuse rows.
-4. The batch ran as one statement. A driver subclass that sets `maxBindParameters` or `maxInsertRows` can split it, and the blocks of separate statements are not contiguous.
+4. The batch ran as one statement. A batch over `MaxBindings` (`65535` parameters) or `MaxInsertRows` is split, and the blocks of separate statements are not contiguous.
 5. `LastInsertId` is a finite number above `0`.
 6. `RowsAffected` equals the number of rows sent.
 7. No row carried an explicit key. With some keys supplied, InnoDB allocates values only for the others.
@@ -47,9 +47,9 @@ No keys of its own. `innodb_autoinc_lock_mode` is a server variable; the guarant
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Insert response mapper | `ServerResponseMapper` in the driver's child container; registered in `MySqlOrmDriver.resolve()`; resolved per insert | `MysqlServerResponseMapper` (exported) | | Extend `MysqlServerResponseMapper`, override `read(data, pkColumns?)`, register `.as(ServerResponseMapper)` after `super.resolve()` in a driver subclass. |
-| Insert compiler | `InsertQueryCompiler`; `@NewInstance()`, constructor `(container, builder)` | `MySqlInsertQueryCompiler` (not exported) | `SqlInsertQueryCompiler` (no `REPLACE`, `IGNORE`) | Extend `SqlInsertQueryCompiler` from `@spinajs/orm-sql`, override `into()`, register `.as(InsertQueryCompiler)`. |
+| Insert compiler | `InsertQueryCompiler`; `@NewInstance()`, constructor `(container, builder)` | `MySqlInsertQueryCompiler` | `SqlInsertQueryCompiler` (no `REPLACE`, `IGNORE`) | Extend `SqlInsertQueryCompiler` from `@spinajs/orm-sql`, override `into()`, register `.as(InsertQueryCompiler)`. |
 | Upsert clause compiler | `OnDuplicateQueryCompiler`; constructor `(builder: OnDuplicateQueryBuilder)` | `SqlOnDuplicateQueryCompiler` | | Extend it and override `compile()`, register `.as(OnDuplicateQueryCompiler)`. |
-| Feature flags | `supportedFeatures()` on the driver | `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, maxBindParameters: Infinity, concurrentTransactions: true }` | | Override in a driver subclass. Set `insertIdIsFirstOfBatch: false` for a server where the guarantee does not hold. |
+| Feature flags | `supportedFeatures()` on the driver | `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true }` | | Override in a driver subclass. Set `insertIdIsFirstOfBatch: false` for a server where the guarantee does not hold. |
 
 ### Insert response mapper: custom implementation
 
@@ -84,7 +84,7 @@ export class UpsertAwareMySqlDriver extends MySqlOrmDriver {
 
 ### Insert compiler: custom implementation
 
-`MySqlInsertQueryCompiler` is not exported, so extend the shared `SqlInsertQueryCompiler` and write the MySQL `into()` yourself. This one adds `HIGH_PRIORITY` to inserts on a reporting connection whose `MyISAM` tables are read constantly, so writes do not wait behind queued reads.
+Extend `MySqlInsertQueryCompiler`, or the shared `SqlInsertQueryCompiler` as here when you write the whole `into()` yourself. This one adds `HIGH_PRIORITY` to inserts on a reporting connection whose `MyISAM` tables are read constantly, so writes do not wait behind queued reads.
 
 ```ts sample
 import { Container, IContainer, Inject, Injectable, NewInstance } from '@spinajs/di';

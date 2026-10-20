@@ -17,9 +17,13 @@ export class ContainerCache {
   constructor(private container: IContainer) {
     this.cache = new Map<string, any[]>();
 
-    // add to cache container
-    // so we can inject container if needed
-    this.add(container, container);
+    this.addSelf();
+  }
+
+  // Under `Container` too, so a subclass instance is what `@Autoinject(Container)` gets.
+  private addSelf() {
+    this.add(this.container, this.container);
+    this.add('Container', this.container);
   }
 
   *[Symbol.iterator]() {
@@ -122,43 +126,39 @@ export class ContainerCache {
 
     // Fast path: return cached instance if it exists
     const parent = lookupParents && descriptor.resolver !== ResolveType.PerChildContainer;
+    const perInstanceCheck = descriptor.resolver === ResolveType.PerInstanceCheck;
     if (this.has(targetType, parent)) {
       const cached = this.get(targetType, parent);
 
-      if (descriptor.resolver === ResolveType.PerInstanceCheck) {
+      if (perInstanceCheck) {
+        const found = cached.find((x: unknown) => {
+          if (!(x as IInstanceCheck).__checkInstance__) {
+            // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+            throw new ResolveException(`service ${(x as any).constructor.name} is marked as PerInstanceCheck resolver, but no __checkInstance__ function is provided`);
+          }
+          return (x as IInstanceCheck).__checkInstance__(options);
+        });
+        if (found) {
+          return found;
+        }
+      } else {
+        const instance = Array.isArray(cached) ? cached[0] : cached;
 
-        if (cached) {
-          const found = cached.find((x: unknown) => {
-            if (!(x as IInstanceCheck).__checkInstance__) {
-              // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-              throw new ResolveException(`service ${(x as any).constructor.name} is marked as PerInstanceCheck resolver, but no __checkInstance__ function is provided`);
-            }
-            return (x as IInstanceCheck).__checkInstance__(options);
-          });
-          if (found) {
-            return found;
-          } else {
-            return factory();
+        // Resolving a collection ( Array.ofType(Base) ) over a type that already
+        // sits in the cache under its own key must still contribute it to the
+        // collection - otherwise the fast path returns early and the type is
+        // silently MISSING from the resolved array.
+        if (isTypedArray(sourceType) && getTypeName(targetType) !== sourceTypeKey) {
+          const collection = this.get(sourceTypeKey);
+          if (!this.has(sourceTypeKey)) {
+            this.add(sourceTypeKey, instance);
+          } else if (!collection.includes(instance)) {
+            collection.push(instance);
           }
         }
+
+        return instance;
       }
-
-      const instance = Array.isArray(cached) ? cached[0] : cached;
-
-      // Resolving a collection ( Array.ofType(Base) ) over a type that already
-      // sits in the cache under its own key must still contribute it to the
-      // collection - otherwise the fast path returns early and the type is
-      // silently MISSING from the resolved array.
-      if (isTypedArray(sourceType) && getTypeName(targetType) !== sourceTypeKey) {
-        const collection = this.get(sourceTypeKey);
-        if (!this.has(sourceTypeKey)) {
-          this.add(sourceTypeKey, instance);
-        } else if (!collection.includes(instance)) {
-          collection.push(instance);
-        }
-      }
-
-      return instance;
     }
 
     // For non-singletons, always create new instance
@@ -168,7 +168,13 @@ export class ContainerCache {
 
     // Check if creation is already in progress (async)
     if (this.resolutionPromises.has(keyName)) {
-      return this.resolutionPromises.get(keyName)!;
+      const pending = this.resolutionPromises.get(keyName)!;
+      if (perInstanceCheck) {
+        // the pending instance may have been built for other options, check again once it settles
+        const retry = () => this.getOrCreate(sourceType, targetType, factory, isSingleton, descriptor, options, lookupParents);
+        return pending.then(retry, retry);
+      }
+      return pending;
     }
 
     // Check if creation is already in progress (sync)
@@ -220,6 +226,12 @@ export class ContainerCache {
         const cached = this.get(sourceTypeKey);
         return isTypedArray(sourceType) ? cached : cached[0];
       } else {
+        if (perInstanceCheck) {
+          this.add(targetType, resolvedInstance);
+          emit(resolvedInstance);
+          return resolvedInstance;
+        }
+
         // Cache the instance if not already cached
         if (!this.has(targetType)) {
           this.add(targetType, resolvedInstance);
@@ -271,6 +283,6 @@ export class ContainerCache {
     this.cache.clear();
     this.resolutionPromises.clear();
     this.creatingKeys.clear();
-    this.add(this.container, this.container);
+    this.addSelf();
   }
 }

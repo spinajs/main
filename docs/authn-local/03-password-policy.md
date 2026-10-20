@@ -6,7 +6,7 @@
 
 **Check** (`check(password)`, also `PasswordService.check()`):
 
-1. Above 1024 code points (`PASSWORD_HARD_CAP`), it answers `['too_long']` at once, without the rule or the blocklist.
+1. Above 1024 code points (`PASSWORD_HARD_CAP`, from `@spinajs/authn/contracts`, re-exported by this package), it answers `['too_long']` at once, without the rule or the blocklist.
 2. It counts code points (`codePointLength()`): an emoji counts as one. Below `minLength` adds `too_short`, above `maxLength` adds `too_long`.
 3. When `authn.local.policy.rule` is set, the password string is validated against that JSON schema with Ajv. A mismatch adds `rule`.
 4. When a [blocklist](04-password-blocklist.md) is configured, `PasswordBlocklist.isBlocked(password)` runs. `true` adds `blocklisted`.
@@ -59,10 +59,10 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Policy | `LocalPasswordPolicy`, singleton, `@Injectable()` on import; injected into `LocalPasswordStrategy`, resolved per call by `LocalPasswordService` and `authn:password --generate` | `LocalPasswordPolicy` | none shipped | Subclass and `DI.register(MyPolicy).as(LocalPasswordPolicy)` before the boot resolves the strategies. Override the protected `checkSync()` for a synchronous rule (it also gates `generate()`), or `blocklist()`. |
+| Policy | `LocalPasswordPolicy`, singleton, `@Injectable()` on import; injected into `LocalPasswordStrategy` and `LocalPasswordService` (`@Autoinject`), resolved per run by `authn:password --generate` | `LocalPasswordPolicy` | none shipped | Subclass and `DI.register(MyPolicy).as(LocalPasswordPolicy)` before the boot resolves the strategies. Override the protected `checkSync()` for a synchronous rule (it also gates `generate()`), or `blocklist()`. |
 | Blocklist | `PasswordBlocklist`, by class name from `authn.local.policy.blocklist` | none | your `PasswordBlocklist` | See [Password blocklist](04-password-blocklist.md). |
 
-A constructor seam reads no configuration: `new LocalPasswordPolicy({ minLength?, maxLength?, rule?, description?, blocklist?, generator? })`. There `blocklist` is an instance, and `generator` fills missing fields from the defaults.
+A constructor seam reads no configuration: `new LocalPasswordPolicy({ minLength?, maxLength?, rule?, description?, blocklist?, generator? })`. There `blocklist` is an instance, and a missing `minLength`, `maxLength` or `generator` field falls back to `AUTHN_LOCAL_DEFAULTS`, the schema defaults of `authn.local`.
 
 ### Policy: custom implementation
 

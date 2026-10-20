@@ -277,8 +277,8 @@ export class SqlWhereCompiler implements IWhereCompiler {
       result: stmt.build(),
     }));
 
-    const nonLazyEntries = builder.Statements
-      .filter((x: WhereStatement) => !x.IsAggregate)
+    const nonLazyEntries = (builder.Statements as WhereStatement[])
+      .filter((x) => !x.IsAggregate)
       .filter((x) => !(x instanceof LazyQueryStatement))
       .map((stmt) => ({ boolean: stmt.Boolean, result: stmt.build() }));
 
@@ -331,7 +331,7 @@ export class SqlHavingCompiler implements IHavingCompiler {
   public having(builder: IWhereBuilder<unknown>) {
     const bindings: any[] = [];
 
-    const aggregates = builder.Statements.filter((x: WhereStatement) => x.IsAggregate).map((stmt) => ({ boolean: stmt.Boolean, result: stmt.build() }));
+    const aggregates = (builder.Statements as WhereStatement[]).filter((x) => x.IsAggregate).map((stmt) => ({ boolean: stmt.Boolean, result: stmt.build() }));
 
     return {
       bindings,
@@ -594,10 +594,19 @@ export class SqlIndexQueryCompiler extends IndexQueryCompiler {
   }
 
   public compile(): ICompilerOutput {
+    if (this._builder.Drop) {
+      return { bindings: [], expression: this._drop() };
+    }
+
     return {
       bindings: [],
       expression: `CREATE ${this._builder.Unique ? 'UNIQUE ' : ''}INDEX ${this.Quoter.quote(this._builder.Name)} ON ${this.Quoter.quote(this._builder.Table)} (${this._builder.Columns.map((c) => this.Quoter.quote(c)).join(',')});`,
     };
+  }
+
+  /** MySQL and MSSQL name the table; dialects with schema-wide index names override. */
+  protected _drop(): string {
+    return `DROP INDEX ${this.Quoter.quote(this._builder.Name)} ON ${this.Quoter.quote(this._builder.Table)}`;
   }
 }
 
@@ -727,9 +736,8 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
         return (this._builder.getColumns()[i] as ColumnStatement).Column;
       })
       .map((c) => {
-        // RawQuery columns carry raw SQL - preserve the existing (unescaped)
-        // backtick wrapping. String columns go through the identifier escaper.
-        return c instanceof RawQuery ? `\`${c.Query}\`` : this.Quoter.quote(c);
+        // RawQuery columns carry raw SQL and are emitted as is.
+        return c instanceof RawQuery ? c.Query : this.Quoter.quote(c);
       });
 
     if (columns.length === 0) {
@@ -843,6 +851,9 @@ export interface SqlAlterTableQueryCompiler { }
 @NewInstance()
 @Inject(Container)
 export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   constructor(protected container: Container, protected builder: AlterTableQueryBuilder) {
     super();
   }
@@ -852,22 +863,18 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
     let _outputs: ICompilerOutput[] = [];
 
     if (this.builder.DroppedColumns.length !== 0) {
-      const quoter = this.container.resolve(IdentifierQuoter);
       _outputs = _outputs.concat(
         this.builder.DroppedColumns.map((c) => {
           return {
             bindings: [] as any[],
-            expression: `${_table} DROP COLUMN ${quoter.quote(c)}`,
+            expression: `${_table} DROP COLUMN ${this.Quoter.quote(c)}`,
           };
         }),
       );
     }
 
     if (this.builder.NewTableName) {
-      _outputs.push({
-        bindings: [],
-        expression: `${_table} RENAME TO ${this.container.resolve(TableAliasCompiler).compile(this.builder, this.builder.NewTableName)}`,
-      });
+      _outputs.push(this._renameTable());
     }
 
     if (this.builder.Columns.length !== 0) {
@@ -896,6 +903,13 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
     }
 
     return _outputs;
+  }
+
+  protected _renameTable(): ICompilerOutput {
+    return {
+      bindings: [],
+      expression: `${this._table()} RENAME TO ${this.container.resolve(TableAliasCompiler).compile(this.builder, this.builder.NewTableName)}`,
+    };
   }
 
   protected _table() {
@@ -1023,11 +1037,10 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
 
       {
         bindings: [],
-        expression: `DELIMITER $$ 
-        CREATE TRIGGER ${hTriggerName}__insert_trigger BEFORE INSERT ON ${hTtblName} FOR EACH ROW 
+        expression: `CREATE TRIGGER ${hTriggerName}__insert_trigger BEFORE INSERT ON ${hTtblName} FOR EACH ROW 
         BEGIN 
           DECLARE rev INT;
-          SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE Id = NEW.Id);
+          SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE ${pKey.Name} = NEW.${pKey.Name});
           SET NEW.__revision__ = rev + 1; 
         END;`,
       },
@@ -1049,32 +1062,29 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
       // insert into history table & update __end__ date for all operations
       {
         bindings: [],
-        expression: `DELIMITER $$ 
-                     CREATE TRIGGER ${tblTriggerName}__insert_trigger AFTER INSERT ON ${tblName} FOR EACH ROW BEGIN 
+        expression: `CREATE TRIGGER ${tblTriggerName}__insert_trigger AFTER INSERT ON ${tblName} FOR EACH ROW BEGIN 
                         DECLARE rev INT;
-                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE Id = NEW.Id);
-                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev;
+                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE ${pKey.Name} = NEW.${pKey.Name});
+                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE ${pKey.Name} = NEW.${pKey.Name} AND __revision__ = rev;
                         INSERT INTO ${hTtblName} SELECT 'insert', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = NEW.${pKey.Name}; 
                     END;`,
       },
       {
         bindings: [],
-        expression: `DELIMITER $$ 
-                     CREATE TRIGGER ${tblTriggerName}__update_trigger AFTER UPDATE ON ${tblName} FOR EACH ROW BEGIN 
+        expression: `CREATE TRIGGER ${tblTriggerName}__update_trigger AFTER UPDATE ON ${tblName} FOR EACH ROW BEGIN 
                         DECLARE rev INT;
-                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE Id = NEW.Id);
-                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev;
+                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE ${pKey.Name} = NEW.${pKey.Name});
+                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE ${pKey.Name} = NEW.${pKey.Name} AND __revision__ = rev;
                         INSERT INTO ${hTtblName} SELECT 'update', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = NEW.${pKey.Name}; 
                       END;`,
       },
       {
         bindings: [],
-        expression: `DELIMITER $$ 
-                     CREATE TRIGGER ${tblTriggerName}__delete_trigger BEFORE DELETE ON ${tblName} FOR EACH ROW BEGIN 
+        expression: `CREATE TRIGGER ${tblTriggerName}__delete_trigger BEFORE DELETE ON ${tblName} FOR EACH ROW BEGIN 
                         DECLARE rev INT;
-                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE Id = NEW.Id);
-                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev;
-                        INSERT INTO ${hTtblName} SELECT 'delete', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = NEW.${pKey.Name}; 
+                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE ${pKey.Name} = OLD.${pKey.Name});
+                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE ${pKey.Name} = OLD.${pKey.Name} AND __revision__ = rev;
+                        INSERT INTO ${hTtblName} SELECT 'delete', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = OLD.${pKey.Name}; 
                      END;`,
       },
     ];
@@ -1235,14 +1245,14 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     };
   }
 
-  /** `charset()`, else utf8mb4 for a case-sensitive column without a collation: its binary collation names a character set. */
+  /** `charset()`, else utf8mb4 for an exact column without a collation: its binary collation names a character set. */
   protected charsetName(): string {
-    return this.builder.Charset || (this.builder.CaseSensitive && !this.builder.Collation ? 'utf8mb4' : '');
+    return this.builder.Charset || (this.builder.Exact && !this.builder.Collation ? 'utf8mb4' : '');
   }
 
-  /** `collation()`, else the binary collation of the character set for a case-sensitive column. */
+  /** `collation()`, else the binary collation of the character set for an exact column. */
   protected collationName(): string {
-    return this.builder.Collation || (this.builder.CaseSensitive ? `${this.charsetName()}_bin` : '');
+    return this.builder.Collation || (this.builder.Exact ? `${this.charsetName()}_bin` : '');
   }
 
   protected _defaultCompiler() {

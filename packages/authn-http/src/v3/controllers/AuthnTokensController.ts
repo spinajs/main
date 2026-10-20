@@ -3,13 +3,13 @@ import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Del, Get, Ok, Param, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { TokenService } from '@spinajs/authn/contracts';
-import type { Session } from '@spinajs/authn/contracts';
 
-import { isAuthnFailed, refused } from '../../policies/v3/errors.js';
-import { TOKEN_ID_CAP, badRequest, invalidExpiry, takeReauthPassword, tokenEntry, tokenNotFound, tokenRequestOf } from '../../token/fields.js';
+import { freshAuthOrAnswer, takeReauthPassword } from '../../policies/v3/fresh-auth.js';
+import { activeSessionOf } from '../../policies/v3/principal.js';
+import { TOKEN_ID_CAP, invalidExpiry, tokenEntry, tokenNotFound, tokenRequestOf } from '../../token/fields.js';
 import { TokenServiceRegistered } from '../../token/gate.js';
-import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, assertFreshAuth } from '../index.js';
-import { NO_STORE, authnFailureResponse } from '../responses.js';
+import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
+import { NO_STORE, badRequest } from '../responses.js';
 import { boundedString, contextOf } from '../routes.js';
 
 /**
@@ -37,7 +37,7 @@ export class AuthnTokensController extends BaseController {
   @Get('tokens')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async list(@Req() req: Request) {
-    const session = activeSession(req);
+    const session = activeSessionOf(req);
     const records = await (await this.service()).list(session.identity);
     const now = new Date();
     return new Ok(
@@ -61,17 +61,9 @@ export class AuthnTokensController extends BaseController {
   @Post('tokens')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async create(@Req() req: Request) {
-    const session = activeSession(req);
-    const password = takeReauthPassword(req);
-    try {
-      // In the handler, not as a FreshAuth policy: http runs every policy of a route at once, so the policy would verify
-      // a password while the gate answers 404.
-      await assertFreshAuth(this.Container, req, undefined, password);
-    } catch (err) {
-      // The thrown error's body carries a stack outside production; login's answer never does.
-      if (isAuthnFailed(err)) return authnFailureResponse();
-      throw err;
-    }
+    const session = activeSessionOf(req);
+    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+    if ('answer' in fresh) return fresh.answer;
     const parsed = tokenRequestOf(req);
     if ('answer' in parsed) return parsed.answer;
 
@@ -91,7 +83,7 @@ export class AuthnTokensController extends BaseController {
   @Del('tokens/:uuid')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async revoke(@Req() req: Request, @Param() uuid: string) {
-    const session = activeSession(req);
+    const session = activeSessionOf(req);
     const id = boundedString(uuid, TOKEN_ID_CAP);
     const revoked = id !== null && (await (await this.service()).revoke(session.identity, id, contextOf(req, 'request', session.handle)));
     if (!revoked) return tokenNotFound();
@@ -102,10 +94,4 @@ export class AuthnTokensController extends BaseController {
     // Per call: apps that list no token strategy register no TokenService.
     return await this.Container.resolve(TokenService);
   }
-}
-
-function activeSession(req: Request): Session {
-  const session = req.storage.AuthnSession;
-  if (session?.handle.state !== 'active') throw refused('session_required', 'this route needs a session');
-  return session;
 }

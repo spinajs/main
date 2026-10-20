@@ -24,7 +24,7 @@ The package exports the pieces `require-accessible` is built from. Use them to w
 | `requireAccessible` | rule module | The `require-accessible` rule, built with `ESLintUtils.RuleCreator`. |
 | `RequireAccessibleOptions` | interface | `{ resources?: readonly string[] }`. |
 | `RequireAccessibleMessageIds` | type | `'unscopedQuery' \| 'unscopedShortcut'`. |
-| `rules`, `configs` | objects | What ESLint reads ([ESLint setup](01-eslint-setup.md#exports-eslint-reads)). |
+| `rules`, `configs` | objects | What ESLint reads ([Flat config setup](01-flat-config-setup.md#exports)). |
 
 ## Important behaviour
 
@@ -44,7 +44,7 @@ import type { TSESTree } from '@typescript-eslint/utils';
 import type ts from 'typescript';
 import { QUERY_ROOTS, isAccessResourceClass } from '@spinajs/eslint-plugin-authz';
 
-const createRule = ESLintUtils.RuleCreator((name) => `https://lint.example.com/rules/${name}`);
+const createRule = ESLintUtils.RuleCreator<{ recommended: boolean; requiresTypeChecking: boolean }>((name) => `https://lint.example.com/rules/${name}`);
 
 const nameOf = (callee: TSESTree.Node): string | undefined =>
   callee.type === AST_NODE_TYPES.MemberExpression && !callee.computed && callee.property.type === AST_NODE_TYPES.Identifier ? callee.property.name : undefined;
@@ -53,7 +53,7 @@ export const noUnscoped = createRule({
   name: 'no-unscoped',
   meta: {
     type: 'problem',
-    docs: { description: 'Forbid .unscoped() on @AccessResource queries', recommended: 'error', requiresTypeChecking: true },
+    docs: { description: 'Forbid .unscoped() on @AccessResource queries', recommended: true, requiresTypeChecking: true },
     messages: { unscoped: '{{model}}: .unscoped() is not allowed here; use .accessible(permission).' },
     schema: [],
   },
@@ -80,7 +80,7 @@ export const noUnscoped = createRule({
         const symbol = checker.getTypeAtLocation(services.esTreeNodeToTSNodeMap.get(model)).getSymbol();
         if (!isAccessResourceClass(symbol, checker, new Set(), cache)) return;
 
-        context.report({ node, messageId: 'unscoped', data: { model: context.getSourceCode().getText(model) } });
+        context.report({ node, messageId: 'unscoped', data: { model: context.sourceCode.getText(model) } });
       },
     };
   },
@@ -90,11 +90,20 @@ export const noUnscoped = createRule({
 Ship the rule in a plugin of your own and turn it on for controller files only, next to `@spinajs/authz/require-accessible`:
 
 ```js
-// .eslintrc.cjs
-module.exports = {
-  extends: ['plugin:@spinajs/authz/recommended'],
-  overrides: [{ files: ['src/controllers/**/*.ts'], rules: { '@acme/no-unscoped': 'error' } }],
-};
+// eslint.config.mjs
+import { defineConfig } from 'eslint/config';
+import tseslint from 'typescript-eslint';
+import authz from '@spinajs/eslint-plugin-authz';
+import acme from '@acme/eslint-plugin';
+
+export default defineConfig(
+  {
+    files: ['src/**/*.ts'],
+    languageOptions: { parser: tseslint.parser, parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname } },
+  },
+  authz.configs.recommended,
+  { files: ['src/controllers/**/*.ts'], plugins: { '@acme': acme }, rules: { '@acme/no-unscoped': 'error' } },
+);
 ```
 
 ## Related

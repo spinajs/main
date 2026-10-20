@@ -1,18 +1,18 @@
 # Extending the session issuer
 
-`DefaultSessionIssuer` is registered as `SessionIssuer` and can be subclassed. Extend it to change what the issuer reports or records, such as the device list or the public session data, and keep its hashing, revocation and migration guarantees. Replace `SessionIssuer` entirely only when sessions do not live in a `SessionProvider` at all.
+`DefaultSessionIssuer` is registered as `SessionIssuer` and can be subclassed. Extend it to change what the issuer reports or records, such as the device list or the public session data, and keep its hashing and revocation guarantees. Replace `SessionIssuer` entirely only when sessions do not live in a `SessionProvider` at all.
 
 ## How it works
 
 1. Importing `@spinajs/authn-session` registers `DefaultSessionIssuer` with `@Injectable(SessionIssuer)`.
 2. Your subclass, decorated `@Injectable(SessionIssuer)`, registers a second implementation under the same token. A single resolve takes the last registration, so your class wins when its module loads after `@spinajs/authn-session`; importing `DefaultSessionIssuer` from it guarantees that.
-3. `AuthnService`, `AuthnMiddleware`, the routes of `@spinajs/authn-http` and `@spinajs/users` resolve `SessionIssuer`, a singleton of the root container. Register before the first of them resolves it.
+3. `DefaultSessionIssuer` is `@PerChildInstance()`, and a subclass inherits that lifetime: each container that resolves `SessionIssuer` builds one instance, which reads that container's `authn.session` (store, `pendingTtlSeconds`). `AuthnService`, `AuthnMiddleware`, the routes of `@spinajs/authn-http` and `@spinajs/users` resolve `SessionIssuer`. Register before the first of them resolves it.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Session issuer | `SessionIssuer` (from `@spinajs/authn/contracts`), singleton, root container | `DefaultSessionIssuer` | `MemorySessionIssuer` of `@spinajs/authn-testing` (tests) | Subclass `DefaultSessionIssuer` with `@Injectable(SessionIssuer)`; or implement `SessionIssuer` and `DI.register(MyIssuer).as(SessionIssuer)` |
+| Session issuer | `SessionIssuer` (from `@spinajs/authn/contracts`), `@PerChildInstance()`: one per container | `DefaultSessionIssuer` | `MemorySessionIssuer` of `@spinajs/authn-testing` (tests) | Subclass `DefaultSessionIssuer` with `@Injectable(SessionIssuer)`; or implement `SessionIssuer` and `DI.register(MyIssuer).as(SessionIssuer)` |
 
 Protected members of `DefaultSessionIssuer`:
 
@@ -24,14 +24,12 @@ Protected members of `DefaultSessionIssuer`:
 | `refresh(session)` | Records last-seen (at most once a minute) and calls `Store.touch`; runs on every non-peeking `restore` of an active session | Record more per-request data in the same write |
 | `publicData(session)` | The entries `Session.data` gets: all except `authn:` ones, plus the pending steps | Hide or add entries |
 | `factsOf(session, stored)` | Builds `AuthnFacts` from the stored facts, the row's impersonator and the handle | Rarely; its `stored` parameter type is not exported |
-| `handleOfRow(session)` | The handle of a row; the future handle for an unmigrated 2.x row | |
 | `need(h)` | Reads the row of a handle or throws `InvalidArgument` / `InvalidOperation` | |
 | `moveTo(session, data, over)` | The re-keying of `rotate` and `elevate` | |
-| `migrate(rawId)`, `migrateOnce(rawId)`, `Migrations` | The [2.x migration](10-2x-session-migration.md), shared by parallel callers in one process | |
 
 ### `DefaultSessionIssuer`: custom implementation
 
-Call `super` and adjust the result; do not re-implement the ordering of `moveTo`, `set` or `migrateOnce`, which carries the revocation guarantees.
+Call `super` and adjust the result; do not re-implement the ordering of `moveTo` or `set`, which carries the revocation guarantees.
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
@@ -55,7 +53,7 @@ Import the module in the app entry, before the HTTP server starts. `GET /user/se
 
 - **`peek` and `peekingSessions` belong to `DefaultSessionIssuer`.** An issuer that does not extend it ignores `peekingSessions`; socket revalidation then restores its sessions like a request does.
 - **The contract's guarantees are yours to keep** when you implement `SessionIssuer` from scratch: hashed storage, rotation on privilege change, `revoke` true once, owner-bound `revokeHandle`, pending sessions with no principal. `runSessionIssuerConformance()` of `@spinajs/authn-testing` checks them.
-- **One issuer per root.** The singleton built by the first resolve stays in the cache and in every object it was injected into; a registration after that has no effect on them.
+- **One issuer per container.** The instance a container builds on its first resolve stays in that container's cache and in every object it was injected into; a registration after that has no effect on them. A child container that resolves `SessionIssuer` gets its own instance, with the store and `pendingTtlSeconds` of its own `authn.session`.
 
 ## Best practices
 

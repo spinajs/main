@@ -6,10 +6,10 @@ The package ships `spinajs fs-*` commands that run any provider operation from a
 
 1. The package config adds its compiled `cli` directory to `system.dirs.cli`. `@spinajs/cli` discovers the commands there.
 2. You run `spinajs <command> <fs> ...`; the first argument is a provider name.
-3. The `spinajs` binary runs every `Bootstrapper`, `FsBootsrapper` included, and boots the configuration.
+3. The `spinajs` binary runs every `Bootstrapper`, `FsBootstrapper` included, and boots the configuration.
 4. Each command calls `ensureProviders()`: it resolves `fsService` when the `'__file_provider_instance__'` map does not exist yet.
 5. The command calls the matching helper or provider method, eg. `fs-cp` calls `_copy(src, dst, fs, dstFs)`.
-6. Results go to the `fs` logger. Errors are logged with `Log.error` and **not** rethrown.
+6. Results go to the `fs` logger. Errors are logged with `Log.error` and **not** rethrown; the command sets `process.exitCode` to `1`.
 
 ## Commands
 
@@ -78,6 +78,7 @@ export class FsDuCommand extends CliCommand {
       this.Log.info(`${path ?? '/'} ( fs: ${fsName} ): ${total} bytes`);
     } catch (err) {
       this.Log.error({ error: err, fsName }, 'Cannot measure ${fsName}');
+      process.exitCode = 1;
     }
   }
 
@@ -97,11 +98,11 @@ Compile it into a directory you add to `system.dirs.cli`, then run `spinajs fs-d
 
 ## Important behaviour
 
-- A failing command logs the error and returns normally, so `spinajs` exits with code `0`. Do not gate scripts on the exit code; a custom command can set `process.exitCode`, which `spinajs` honours.
-- `fs-hash` labels the digest with `sha256` when `--algo` is not given, even when `fs.hasher.defaultAlgorithm` hashes with another algorithm.
+- A failing command logs the error, sets `process.exitCode` to `1` and returns normally, so `spinajs` exits with code `1`. A custom command can set `process.exitCode` the same way.
+- `fs-hash` without `--algo` labels the digest with `fs.hasher.defaultAlgorithm`, or `sha256` when it is not set.
 - `fs-write --from-file` writes the bytes unchanged; `--encoding` applies to `--content` only.
 - `fs-download` on a local provider prints the existing path and copies nothing.
-- The commands go through decorated providers, so [provider decorators](07-provider-decorators.md) such as access guards apply.
+- The commands call the providers, so registered [middlewares](07-middlewares.md) (eg. `AuthzFsMiddleware`) apply to them.
 
 ## Best practices
 

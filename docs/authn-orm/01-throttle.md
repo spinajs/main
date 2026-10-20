@@ -21,10 +21,10 @@ The throttle is resolved as `AuthnThrottle`, so every caller below gets `DbAuthn
 
 ### Selection and setup
 
-1. Importing `@spinajs/authn-orm` runs `@Singleton()` and `@Injectable(AuthnThrottle)` on `DbAuthnThrottle`. It is registered under `AuthnThrottle` and as itself.
+1. Importing `@spinajs/authn-orm` runs `@PerChildInstance()` and `@Injectable(AuthnThrottle)` on `DbAuthnThrottle`. It is registered under `AuthnThrottle` and as itself.
 2. `DefaultAuthnService` takes the throttle named in `authn.throttle.service`. When the key is unset it takes the only registered throttle besides `MemoryAuthnThrottle`, which is `DbAuthnThrottle` once this package is imported.
 3. When the authn service resolves, it calls `DbAuthnThrottle.checkConfiguration(configuration)`. Without a hash key (`options.hashKey`, else `authn.audit.hashKey.secret`) it throws `InvalidOption`, unless the app env is development or test.
-4. The first `attempt`, `peek` or `succeed`, and every `purge`, call `init()`. It resolves `Configuration` from `options.container` (default the root container) and reads `authn.throttle` once: it drops `service`, `maxRows` and `memory`, checks the rest and deep-freezes it. It reads `authn.audit.hashKey.secret`; when that is unset it uses a random 32-byte key of the process and logs one warning to the `authn-orm` logger.
+4. The first `attempt`, `peek` or `succeed`, and every `purge`, call `init()`. It resolves `Configuration` from the container that resolved the throttle (`@Autoinject(Container)`) and reads `authn.throttle` once: it drops `service`, `maxRows` and `memory`, checks the rest and deep-freezes it. It reads `authn.audit.hashKey.secret`; when that is unset it uses a random 32-byte key of the process and logs one warning to the `authn-orm` logger.
 5. `DbAuthnThrottle.createStore({ resetAfterMs })` builds one `DbThrottleStore`, with `resetAfterMs` = `authn.throttle.resetAfterSeconds` × 1000.
 
 ### Attempt, `attempt(keys, flow, ctx)`
@@ -115,9 +115,8 @@ authn: {
 
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `params` | `ThrottleParams` | unset | Fixed backoff for every flow. Checked in the constructor. With `params` and no `options.container`, nothing is read from the configuration. |
+| `params` | `ThrottleParams` | unset | Fixed backoff for every flow. Checked in the constructor. With `params`, nothing is read from the configuration. Without it, the throttle needs the container DI injects: one built with `new` throws `InvalidOperation` on first use. |
 | `options.hashKey` | `string \| null` | unset | Overrides `authn.audit.hashKey.secret`. `null` or unset without a configuration: the random key of the process. |
-| `options.container` | `IContainer` | the root container | Where `Configuration` comes from. Given, `authn.throttle` (when `params` is unset) and the hash key are read from it. |
 
 `new DbThrottleStore(options)` takes `DbThrottleStoreOptions`:
 
@@ -141,7 +140,7 @@ The rows live in `authn_throttle`, through the `AuthnThrottle` model. See [Model
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Throttle | `AuthnThrottle`, singleton; also registered as `DbAuthnThrottle` | `DbAuthnThrottle` when `authn-orm` is imported and `authn.throttle.service` is unset | `MemoryAuthnThrottle` (`@spinajs/authn`), any `StoreAuthnThrottle` subclass | Name another class in `authn.throttle.service`, or subclass `DbAuthnThrottle` and override `createStore()`. |
+| Throttle | `AuthnThrottle`, per child container; also registered as `DbAuthnThrottle` | `DbAuthnThrottle` when `authn-orm` is imported and `authn.throttle.service` is unset | `MemoryAuthnThrottle` (`@spinajs/authn`), any `StoreAuthnThrottle` subclass | Name another class in `authn.throttle.service`, or subclass `DbAuthnThrottle` and override `createStore()`. |
 | Row store | Not in DI: `DbAuthnThrottle.createStore()` builds it | `DbThrottleStore` | A subclass of `DbThrottleStore` (the seam's return type) | Override `createStore(options)` and return your subclass. To use a store of another kind, extend `StoreAuthnThrottle` instead. |
 
 ### `DbAuthnThrottle` members
@@ -149,10 +148,10 @@ The rows live in `authn_throttle`, through the `AuthnThrottle` model. See [Model
 | Member | Visibility | Meaning |
 | --- | --- | --- |
 | `attempt(keys, flow, ctx)`, `peek(keys, flow, ctx)`, `succeed(keys, flow)` | public | The `AuthnThrottle` contract and `peek`, from `StoreAuthnThrottle`. |
-| `params` | public getter | The `ThrottleParams` in use. Throws `InvalidOption` before `init()`, unless the constructor got `params` and no `options.container`. |
+| `params` | public getter | The `ThrottleParams` in use. Throws `InvalidOption` before `init()`, unless the constructor got `params`. |
 | `init()` | public | Reads the configuration once; a failed read is retried on the next call. |
 | `checkConfiguration(configuration)` | public | Boot check of the hash key; see step 3 of [Selection and setup](#selection-and-setup). |
-| `rowKey(flow, key)` | public | The row id of a key. Throws `InvalidOption` before `init()`, unless the constructor got `params` and no `options.container`. |
+| `rowKey(flow, key)` | public | The row id of a key. Throws `InvalidOption` before `init()`, unless the constructor got `params`. |
 | `purge(now?)` | public | Deletes up to 500 stale rows; resolves with the count. |
 | `createStore(options)` | protected | Builds the `DbThrottleStore`. Override to wrap or replace it. |
 | `store()`, `keyId()`, `checkKeys()`, `nowMs()`, `throttleName` | protected | `StoreAuthnThrottle` seams; see [`packages/authn/src/throttle/README.md`](../../packages/authn/src/throttle/README.md). |
@@ -168,7 +167,7 @@ Subclass `DbAuthnThrottle` to keep the configuration and key hashing, and overri
 import { DbAuthnThrottle, DbThrottleStore } from '@spinajs/authn-orm';
 import type { DbThrottleStoreOptions } from '@spinajs/authn-orm';
 import { AuthnThrottle } from '@spinajs/authn/contracts';
-import { Injectable, Singleton } from '@spinajs/di';
+import { Injectable, PerChildInstance } from '@spinajs/di';
 import type { KeyedBackoffVerdict, ThrottleGate } from '@spinajs/util';
 
 /** Reports every refused attempt; the counting stays the base store's. */
@@ -185,7 +184,7 @@ class ReportingThrottleStore extends DbThrottleStore {
 }
 
 /** Name it in config: authn.throttle.service = 'ReportingDbThrottle'. */
-@Singleton()
+@PerChildInstance()
 @Injectable(AuthnThrottle)
 export class ReportingDbThrottle extends DbAuthnThrottle {
   protected override createStore(options: DbThrottleStoreOptions): DbThrottleStore {
@@ -272,40 +271,6 @@ export async function retryAfterSixthAttempt(login: string): Promise<number> {
 
   return sixth.allowed ? 0 : sixth.retryAfterSeconds; // 1
 }
-```
-
-## Migration
-
-### The throttle and its store take no driver
-
-`DbAuthnThrottle` and `DbThrottleStore` write through the `AuthnThrottle` model on the `default` connection. `DbThrottleStoreOptions` holds only `resetAfterMs`. The protected `DbThrottleStore` seams `claimKey`, `writeLive`, `insertOrTakeStale` and `undo` take no driver, and `StoreTimes`, `ClaimState` and `ClaimWrite` carry luxon `DateTime` values instead of column text.
-
-```ts
-// Before
-const throttle = new DbAuthnThrottle(driver, params, { hashKey });
-const store = new DbThrottleStore({ driver, resetAfterMs: 86_400_000 });
-
-// After: the rows live on the `default` connection; set db.DefaultConnection
-const throttle = new DbAuthnThrottle(params, { hashKey });
-const store = new DbThrottleStore({ resetAfterMs: 86_400_000 });
-```
-
-`new DbAuthnThrottle(driver)` without `params` used the built-in defaults and read no configuration. `new DbAuthnThrottle()` reads `authn.throttle`; pass `DEFAULT_THROTTLE_PARAMS` (`@spinajs/authn/contracts`) to keep the defaults without a configuration.
-
-A `DbThrottleStore` subclass that overrides the `@internal` seams drops the leading driver argument and compares `DateTime` values (`last`, `next`, `t.now`, `t.cutoff`) instead of strings.
-
-```ts
-// Before
-protected claimKey(db: OrmDriver, k: string, delay: (n: number) => number, state: ClaimState | undefined, t: StoreTimes, rest?: readonly string[]): Promise<Claimed>;
-protected writeLive(db: OrmDriver, w: ClaimWrite, n: number, t: StoreTimes): Promise<boolean>;
-protected insertOrTakeStale(db: OrmDriver, w: ClaimWrite, t: StoreTimes): Promise<boolean>;
-protected undo(db: OrmDriver, claims: readonly ClaimWrite[], t: StoreTimes): Promise<void>;
-
-// After
-protected claimKey(k: string, delay: (n: number) => number, state: ClaimState | undefined, t: StoreTimes, rest?: readonly string[]): Promise<Claimed>;
-protected writeLive(w: ClaimWrite, n: number, t: StoreTimes): Promise<boolean>;
-protected insertOrTakeStale(w: ClaimWrite, t: StoreTimes): Promise<boolean>;
-protected undo(claims: readonly ClaimWrite[], t: StoreTimes): Promise<void>;
 ```
 
 ## Related

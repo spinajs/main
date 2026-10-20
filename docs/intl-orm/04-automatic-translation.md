@@ -2,8 +2,6 @@
 
 `IntlQueryMiddleware` is a `QueryMiddleware` that calls [`translate(lang)`](02-query-translation.md) on model selects when the current language differs from `intl.defaultLocale`. With `@spinajs/intl-http` installed, a request with `?lang=en_GB` gets English model values without any `translate()` call in your code.
 
-> In the current source the `translate()` call it makes throws, so every model select under a non-default request language fails. See [Important behaviour](#important-behaviour).
-
 ## How it works
 
 1. Importing `@spinajs/intl-orm` registers `IntlQueryMiddleware` with `@Injectable(QueryMiddleware)`.
@@ -11,7 +9,7 @@
 3. `afterQueryCreation()` does nothing.
 4. `beforeQueryExecution(builder)` runs for every builder type and stops at the first check that fails:
    1. `DI.has(Configuration)` is false: no default language can be read, skip.
-   2. On Node (`AsyncLocalStorage` exists), `DI.get(AsyncLocalStorage)` is read and its `noTranslate` compared with `false`. See the bug note below.
+   2. On Node (`AsyncLocalStorage` exists), the current store of `DI.get(AsyncLocalStorage)` has `noTranslate === true`: skip.
    3. `builder.AllowTranslate === false`: skip.
    4. `builder.Model` is unset (raw builder): skip.
    5. The model has no `@Translate()` column and no relation: skip, as there is nothing to translate.
@@ -57,7 +55,7 @@ intl: {
 | --- | --- | --- | --- | --- |
 | `IntlQueryMiddleware` | `QueryMiddleware` list (`@Injectable(QueryMiddleware)`), also under its own class; singleton. Resolved with `Array.ofType(QueryMiddleware)` by every builder constructor, sorted by `order`. | `IntlQueryMiddleware` | none | Subclass it and override `beforeQueryExecution()`; register the subclass with `@Injectable(QueryMiddleware)`, then `DI.unregister(IntlQueryMiddleware)` and `DI.uncache(QueryMiddleware)` before the first query. Change `order` in the subclass to move it in the pipeline. |
 | `AllowTranslate` | Not in DI: augmented `ISelectQueryBuilder` property | `undefined` | none | Set `false` on one builder to skip it. |
-| `IIntlAsyncStorage` (`@spinajs/intl`) | The store of the DI `AsyncLocalStorage` | filled by `@spinajs/intl-http` per request | your own `store.run({ language })` | Run code in a store with `language` set to translate it outside HTTP. |
+| `IIntlAsyncStorage` (`@spinajs/intl`) | The store of the DI `AsyncLocalStorage` | filled by `@spinajs/intl-http` per request | your own `store.run({ language })` | Run code in a store with `language` set to translate it outside HTTP, or with `noTranslate: true` to keep its selects untranslated. |
 
 Members of `IntlQueryMiddleware`:
 
@@ -69,23 +67,16 @@ Members of `IntlQueryMiddleware`:
 
 ### `IntlQueryMiddleware`: custom implementation
 
-Replace it when you need to translate only models that have `@Translate` columns, or to honour `noTranslate` from the store. The stock middleware translates every model select and reads `noTranslate` from the wrong object. Call the setup function after `@spinajs/intl-orm` is imported and before the first query: `@Injectable` registers the stock class at import time, and the cached singleton keeps coming back until the list is uncached.
+Replace it when you need another skip rule, eg. to leave alone every query of a model without `@Translate` columns, populated relations included. The stock middleware calls `translate()` on every model select; for a model without `@Translate` columns that only translates its relations. Call the setup function after `@spinajs/intl-orm` is imported and before the first query: `@Injectable` registers the stock class at import time, and the cached singleton keeps coming back until the list is uncached.
 
 ```ts sample
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { DI, Injectable } from '@spinajs/di';
-import { IIntlAsyncStorage } from '@spinajs/intl';
 import { extractModelDescriptor, QueryBuilder, QueryMiddleware } from '@spinajs/orm';
 import { IntlQueryMiddleware } from '@spinajs/intl-orm';
 
 @Injectable(QueryMiddleware)
 export class TranslatableOnlyQueryMiddleware extends IntlQueryMiddleware {
   public beforeQueryExecution(builder: QueryBuilder): void {
-    const storage = DI.get<AsyncLocalStorage<IIntlAsyncStorage>>(AsyncLocalStorage)?.getStore();
-    if (storage?.noTranslate === true) {
-      return;
-    }
-
     const descriptor = builder.Model ? extractModelDescriptor(builder.Model) : null;
     if (!descriptor || !descriptor.Columns.some((c) => c.Translate)) {
       return;
@@ -103,9 +94,7 @@ export function useTranslatableOnlyMiddleware(): void {
 
 ## Important behaviour
 
-- **Throws under a non-default language in the current source.** The middleware calls `translate()`, which fails as described in [Query translation](02-query-translation.md#important-behaviour). With `@spinajs/intl-http`, any request whose language differs from `intl.defaultLocale` fails on its first model select.
-- **`noTranslate` is never honoured.** Step 4.2 reads `noTranslate` from the `AsyncLocalStorage` instance returned by `DI.get()`, not from its store, so the value is always `undefined`. The comparison is also `=== false`, the opposite of the flag's meaning in `IIntlAsyncStorage`.
-- **Every select of a model with a `@Translate` column or a relation is translated.** `IntlModelMiddleware` calls `setLanguage()` on each result, which models that do not extend `Translatable` lack; a model with neither is skipped (step 4.5).
+- Every select of a model with a `@Translate` column or a relation gets `translate()`; a model with neither is skipped (step 4.5). For a model without `@Translate` columns, `translate()` adds no `intl_resources` query and only translates the populated relations.
 - Inserts, updates and deletes are never translated. Saving in a language is [`Translatable.update()`](01-translatable-models.md)'s job.
 - `guessLanguage()` reads `DI.get(AsyncLocalStorage)`, which returns only an instance that something already resolved. `@spinajs/http` controllers resolve it; standalone code calls `DI.resolve(AsyncLocalStorage)` before `store.run()`.
 - On a runtime without `AsyncLocalStorage` (browser, Electron renderer), the store check is skipped and `guessLanguage()` returns `intl.defaultLocale`, so nothing is translated.
@@ -120,10 +109,13 @@ export function useTranslatableOnlyMiddleware(): void {
 ## Patterns and antipatterns
 
 ```ts
-// Don't: noTranslate is ignored by IntlQueryMiddleware, so this export is still translated
-await store.run({ language: 'en_GB', noTranslate: true }, () => Product.where('Id', '>', 0));
+// Don't: language is the only thing the job needs, yet every select in it is translated
+await store.run({ language: 'en_GB' }, () => exportProducts());
 
-// Do: opt the builder out
+// Do: keep the language and turn translation off for the whole store
+await store.run({ language: 'en_GB', noTranslate: true }, () => exportProducts());
+
+// Or opt one builder out
 const query = Product.where('Id', '>', 0);
 query.AllowTranslate = false;
 await query;
