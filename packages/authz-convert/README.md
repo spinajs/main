@@ -14,8 +14,8 @@ npx spinajs-authz-convert lib/mjs/config --out src/config/converted \
   layer per env suffix (`rbac.local.js` is env `local`). A dir that holds TypeScript sources is
   refused. Only the app's own files are read; 2.x package defaults are not.
 - `--out <dir>`: where the files go (default `./authz-convert-output`); existing files need `--force`.
-- `--db <file.json>`: rows exported from the 2.x database before the 3.0 migrations drop
-  `users.Role`: `{ "users": [{ "Id", "Login", "Role" }], "tokens": [{ "Id", "Roles", "ExpiresAt" }] }`
+- `--db <file.json>`: rows exported from the 2.x database (3.0 starts from an empty one and carries
+  none of them): `{ "users": [{ "Id", "Login", "Role" }], "tokens": [{ "Id", "Roles", "ExpiresAt" }] }`
   (role lists as arrays, JSON strings or comma lists). With it the converter marks package roles
   nobody holds `assignable: false` and lists users with several roles, roles the config does not
   define and tokens without expiry.

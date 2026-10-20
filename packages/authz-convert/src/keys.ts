@@ -146,11 +146,9 @@ export function convertKeys(layer: Plain, merged: Plain, f: Findings, common?: P
         else f.info('removed', "Removed: SYSTEM is a principal in 3.0; the role 'system' stays an ordinary role.", at);
         break;
 
-      case 'roleColumn': {
-        const column = asString(value, at, f);
-        if (column !== undefined) w.set('authz.rbac.migration.roleColumn', column);
+      case 'roleColumn':
+        f.info('removed', 'Removed: 3.0 starts from an empty database and reads no users.Role column; grant roles as assignments.', at);
         break;
-      }
 
       case 'roleSwitch': {
         if (!isPlain(value)) {

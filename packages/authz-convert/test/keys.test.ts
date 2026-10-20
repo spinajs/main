@@ -40,8 +40,8 @@ describe('convertKeys', () => {
       expect(run({ requireKnownRole: false }).out.authz).to.deep.equal({});
     });
 
-    it('keeps the role column for the users.Role copy migration', () => {
-      expect(run({ roleColumn: 'Roles' }).out.authz).to.deep.equal({ authz: { rbac: { migration: { roleColumn: 'Roles' } } } });
+    it('drops the role column: 3.0 reads no users.Role', () => {
+      expect(run({ roleColumn: 'Roles' }).out.authz).to.deep.equal({});
     });
 
     it('splits impersonation between authz (who) and authn (how), keeping the 2.x package part of the protected roles', () => {
