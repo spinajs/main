@@ -13,7 +13,7 @@ const orm = await resolveCliOrm(); // DI.resolve(Orm, [CLI_ORM_OPTIONS])
 
 1. `resolveCliOrm()` calls `DI.resolve(Orm, [CLI_ORM_OPTIONS])`.
 2. When no `Orm` exists yet, DI constructs one with `CLI_ORM_OPTIONS` as its `IOrmOptions` and runs `Orm.resolve()`.
-3. `Orm.resolve()` creates the connections, discovers migrations and assigns `orm.Migration`. It sees `MigrateOnStartup: false` and skips the boot pass (`orm.Migration.up(undefined, { force: false })`) and with it the `data()` phase. See [Migrations: the boot pass](../orm/10-migrations.md#the-boot-pass).
+3. `Orm.resolve()` creates the connections, discovers migrations and assigns `orm.Migration`. It sees `MigrateOnStartup: false` and skips the boot pass (`orm.Migration.up(undefined, { force: false })`) and with it the `data()` phase. See [Migrations: the boot pass](../orm/10-migrations.md#the-boot-pass). It also reads the models' tables leniently: a missing table is a warning, not the `db.StrictTableCheck` error, since on a fresh database the commands run before the migrations created the tables. `migrate-up` applies the check after a full run.
 4. When an `Orm` was already resolved in this process, DI returns that singleton and ignores the options.
 
 Without step 3, an ordinary `DI.resolve(Orm)` is a trap for a migration tool:
@@ -75,6 +75,7 @@ See [Customizing commands](08-customizing-commands.md#write-a-new-command-on-the
 - **No boot pass means no `data()` hooks.** A migration applied through the CLI `Orm` is never seeded; a later application boot finds it applied and seeds nothing.
 - **Everything else still resolves.** Connections are opened, so a configuration or network error still fails the command. `migrate-create` is the only command that resolves no `Orm`.
 - **`MigrateOnStartup: false` is not `force`.** `force` chooses whether `Migration.OnStartup` is honoured, and both its values run migrations. Only `MigrateOnStartup: false` runs none.
+- **The table check moves to `migrate-up`.** The CLI `Orm` boots on a database without tables; a full `migrate-up` then fails with exit code `1` when a registered model still has no table, which is what the application boot would do next.
 
 ## Best practices
 

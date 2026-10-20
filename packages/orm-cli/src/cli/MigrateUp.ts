@@ -1,6 +1,6 @@
 import { CliCommand, Command, Option } from '@spinajs/cli';
 import { Log, Logger } from '@spinajs/log-common';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmException, OrmMigration } from '@spinajs/orm';
 import { resolveCliOrm } from '../orm.js';
 
 export interface IMigrateUpCommandOptions {
@@ -31,6 +31,16 @@ export class MigrateUpCommand extends CliCommand {
     const orm = await resolveCliOrm();
     const executed = await orm.Migration.up(options.name, { fake: options.fake, connection: options.connection });
 
+    await this.reportRun(orm, executed, options);
+
+    // A run narrowed by --name or --connection says nothing about the tables of the migrations it left out.
+    if (!options.name && !options.connection) {
+      await this.checkModelTables(orm);
+    }
+  }
+
+  /** Logs what the run applied; an empty named run goes to `explainEmptyNamedRun()`. */
+  protected async reportRun(orm: Orm, executed: OrmMigration[], options: IMigrateUpCommandOptions): Promise<void> {
     if (executed.length > 0) {
       this.Log.success(
         { count: executed.length, migrations: executed.map((m) => m.constructor.name) },
@@ -55,6 +65,23 @@ export class MigrateUpCommand extends CliCommand {
     // here. `status()` reports exactly the connections that ARE configured, which makes "absent
     // from status" the reliable signal for the second case.
     await this.explainEmptyNamedRun(orm, options.name, options.connection);
+  }
+
+  /**
+   * The application boot this step precedes refuses a model whose table is missing (db.StrictTableCheck), so the
+   * step fails here, after the migrations it applied, rather than at the first start.
+   */
+  protected async checkModelTables(orm: Orm): Promise<void> {
+    try {
+      await orm.reloadTableInfo({ strict: orm.StrictTableCheck });
+    } catch (err) {
+      if (!(err instanceof OrmException)) {
+        throw err;
+      }
+
+      this.Log.error({ reason: err.message }, 'Migrations are applied, but the application will not boot: ${reason}');
+      process.exitCode = 1;
+    }
   }
 
   /**
