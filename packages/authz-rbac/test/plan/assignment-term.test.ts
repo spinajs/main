@@ -164,6 +164,14 @@ for (const kind of DB_KINDS) {
       expect(await permit({ subjects: [] })).to.deep.equal([]);
     });
 
+    it('more than 1000 subjects bind as one list parameter and still match', async () => {
+      const subjects = [...Array.from({ length: 1500 }, (_, i) => `user:filler${i}`), 'team:t1#member', 'user:alice'];
+      const out = filtered((where) => term.apply(args({ subjects }), where, row())).toDB() as ICompilerOutput;
+      expect(out.bindings ?? []).to.have.length.below(100);
+      expect(await permit({ subjects })).to.deep.equal([1, 3, 5]);
+      expect(await permit({ subjects, roles: [{ role: 'blocked' }], global: true })).to.deep.equal([1, 2, 5]);
+    });
+
     it('correlates every sub-query with the row, in a clone too', async () => {
       const q = (name: string): string => (kind === 'sqlite' ? '`' + name + '`' : '"' + name + '"');
       const deny = args({ roles: [{ role: 'blocked' }], global: true });
