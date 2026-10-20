@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { SecretStore } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Injectable, PerChildInstance } from '@spinajs/di';
-import { ormReady } from '@spinajs/orm';
+import { everyNthCall, ormReady } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import { _check_arg, _finite, _gt, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import type { DateTime } from 'luxon';
@@ -29,7 +29,7 @@ const RAW_MAX = 1024;
 @PerChildInstance()
 @Injectable(SecretStore)
 export class DbSecretStore extends SecretStore {
-  private calls = 0;
+  private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   public async issue(identity: IdentityRef, purpose: string, ttlSeconds: number): Promise<string> {
     const key = identityKey(identity);
@@ -88,7 +88,7 @@ export class DbSecretStore extends SecretStore {
   }
 
   private async purgeNowAndThen(nowMs: number): Promise<void> {
-    if (++this.calls % PURGE_EVERY === 0) {
+    if (this.purgeDue()) {
       await this.purge(new Date(nowMs));
     }
   }

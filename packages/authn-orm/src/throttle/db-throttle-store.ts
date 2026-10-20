@@ -1,6 +1,6 @@
 import { backoffDelayMs } from '@spinajs/authn/contracts';
 import type { BackoffParams } from '@spinajs/authn/contracts';
-import { UniqueViolation, ormReady } from '@spinajs/orm';
+import { UniqueViolation, everyNthCall, ormReady } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import type { KeyedBackoffVerdict, ThrottleGate, ThrottleLower, ThrottleStore } from '@spinajs/util';
 import type { DateTime } from 'luxon';
@@ -56,7 +56,7 @@ export interface DbThrottleStoreOptions {
  */
 export class DbThrottleStore implements ThrottleStore {
   private readonly resetAfterMs: number;
-  private attempts = 0;
+  private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   constructor(options: DbThrottleStoreOptions) {
     this.resetAfterMs = options.resetAfterMs;
@@ -64,7 +64,7 @@ export class DbThrottleStore implements ThrottleStore {
 
   public async attempt(_flow: string, gates: readonly ThrottleGate[], counted: readonly string[], nowMs: number): Promise<KeyedBackoffVerdict> {
     await ormReady();
-    if (++this.attempts % PURGE_EVERY === 0) {
+    if (this.purgeDue()) {
       await this.purge(nowMs);
     }
 

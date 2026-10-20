@@ -1,6 +1,6 @@
 import { NonceStore } from '@spinajs/authn/contracts';
 import { Injectable, PerChildInstance } from '@spinajs/di';
-import { UniqueViolation, ormReady } from '@spinajs/orm';
+import { UniqueViolation, everyNthCall, ormReady } from '@spinajs/orm';
 
 import { AuthnNonce } from '../models/AuthnNonce.js';
 import { checkedMs, checkedText, instant } from '../support/sql.js';
@@ -23,12 +23,12 @@ function checkClaim(key: string, expiresAt: Date, now: Date, owner: string): { e
 @PerChildInstance()
 @Injectable(NonceStore)
 export class DbNonceStore extends NonceStore {
-  private claims = 0;
+  private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   public async claim(key: string, expiresAt: Date, now: Date): Promise<boolean> {
     const { expiresMs, nowMs } = checkClaim(key, expiresAt, now, 'DbNonceStore');
     await ormReady();
-    if (++this.claims % PURGE_EVERY === 0) {
+    if (this.purgeDue()) {
       await this.purge(now);
     }
 

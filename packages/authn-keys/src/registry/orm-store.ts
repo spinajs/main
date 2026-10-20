@@ -1,5 +1,5 @@
 import { Autoinject, Injectable } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { Orm, rowsAffected } from '@spinajs/orm';
 import type { IdentityRef, KeyOwner, KeyRecord } from '@spinajs/authn/contracts';
 import { sameRef } from '@spinajs/authn/contracts';
 import { AuthnKey } from '../models/AuthnKey.js';
@@ -88,10 +88,10 @@ export class OrmKeyStore extends KeyStore {
     if (row.revokedAt) {
       return 'already';
     }
-    const r = (await AuthnKey.update({ revoked_at: DateTime.fromJSDate(at) })
+    const r = await AuthnKey.update({ revoked_at: DateTime.fromJSDate(at) })
       .where('kid', kid)
-      .whereNull('revoked_at')) as unknown as { RowsAffected?: number };
-    return (r?.RowsAffected ?? 1) > 0 ? 'revoked' : 'already';
+      .whereNull('revoked_at');
+    return rowsAffected(r) > 0 ? 'revoked' : 'already';
   }
 
   async touch(kid: string, at: Date): Promise<void> {
