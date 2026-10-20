@@ -143,7 +143,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       }
 
       register(configurationFor(connection) as unknown as Class<Configuration>, Configuration);
-      // The database in a child container, as authn-orm's own tests run it; the stores read it from there.
+      // The database in a child container, as authn-orm's own tests run it.
       dbContainer = DI.child();
       dbContainer.register(SqliteOrmDriver).as('orm-driver-sqlite');
       dbContainer.register(PostgresOrmDriver).as('orm-driver-postgres');
@@ -153,7 +153,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       identities = new FakeIdentityStore();
       sessions = new MemorySessionIssuer();
       links = new DbIdentityLinkStore();
-      const nonces = new DbNonceStore(undefined, { container: dbContainer });
+      const nonces = new DbNonceStore();
       alice = identities.add({ login: 'alice@example.test', email: 'alice@example.test' });
 
       current.idp = idp;

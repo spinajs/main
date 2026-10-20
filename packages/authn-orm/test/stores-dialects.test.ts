@@ -24,6 +24,7 @@ const DIALECTS = [
     name: 'mysql',
     type: FakeMySql,
     now: NOW_TEXT,
+    later: '2026-06-01 10:01:00.000',
     duplicate: () => new OrmException('Error executing orm command ', { Name: 'mysql' }, 'INSERT', [], Object.assign(new Error("Duplicate entry 'x' for key 'PRIMARY'"), { code: 'ER_DUP_ENTRY', errno: 1062 })),
     secretSelect: 'SELECT `id`,`identity`,`purpose`,`expires_at` FROM `authn_secret` WHERE `secret_hash` = ? AND `identity` = ? AND `purpose` = ? AND `used_at` IS NULL',
     secretClaim: 'UPDATE `authn_secret` SET `used_at` = ? WHERE `id` = ? AND `used_at` IS NULL AND `expires_at` > ?',
@@ -41,6 +42,7 @@ const DIALECTS = [
     name: 'mssql',
     type: FakeMsSql,
     now: '2026-06-01T10:00:00.000Z',
+    later: '2026-06-01T10:01:00.000Z',
     duplicate: () => Object.assign(new Error('Cannot insert duplicate key row.'), { name: 'RequestError', number: 2601 }),
     secretSelect: 'SELECT [id],[identity],[purpose],[expires_at] FROM [authn_secret] WHERE [secret_hash] = ? AND [identity] = ? AND [purpose] = ? AND [used_at] IS NULL',
     secretClaim: 'UPDATE [authn_secret] SET [used_at] = ? WHERE [id] = ? AND [used_at] IS NULL AND [expires_at] > ?',
@@ -103,23 +105,23 @@ for (const d of DIALECTS) {
     });
 
     it('DbNonceStore takes over an expired key after a duplicate insert', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = (_stmt, context) => {
         if (context === QueryContext.Insert) throw d.duplicate();
         if (context === QueryContext.Update) return { RowsAffected: 1 };
         return [];
       };
 
-      expect(await new DbNonceStore(driver).claim('jti:1', new Date(NOW.getTime() + 60_000), NOW)).to.eq(true);
+      expect(await new DbNonceStore().claim('jti:1', new Date(NOW.getTime() + 60_000), NOW)).to.eq(true);
 
       expect(driver.executed.map((e) => e.context)).to.deep.eq([QueryContext.Insert, QueryContext.Update]);
       expect(sql(driver.executed[1])).to.eq(d.nonceTakeover);
-      expect(driver.executed[1].params).to.deep.eq(['2026-06-01 10:01:00.000', 'jti:1', NOW_TEXT]);
+      expect(driver.executed[1].params).to.deep.eq([d.later, 'jti:1', d.now]);
     });
 
     it('DbNonceStore.purge pages an ordered batch of expired keys', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      expect(await new DbNonceStore(driver).purge(NOW)).to.eq(0);
+      const driver = orm.driver;
+      expect(await new DbNonceStore().purge(NOW)).to.eq(0);
       expect(driver.executed.map(sql)).to.deep.eq([d.noncePurge]);
     });
 
