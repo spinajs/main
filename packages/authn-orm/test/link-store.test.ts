@@ -39,7 +39,7 @@ for (const kind of DB_KINDS) {
     runLinkStoreConformance(
       async () => {
         await rawQuery(db.driver, 'DELETE FROM authn_identity', [], QueryContext.Delete);
-        return { links: new DbIdentityLinkStore(db.driver), seed: fakeSeedPort(new FakeIdentityStore(), new MemoryPasswordCredentialStore()) };
+        return { links: new DbIdentityLinkStore(), seed: fakeSeedPort(new FakeIdentityStore(), new MemoryPasswordCredentialStore()) };
       },
       { title: `link store conformance (${kind})`, timeoutMs: 30000 },
     );
@@ -70,7 +70,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('links with a uuid v4 id, the time of the call and no optional fields unless set', async () => {
-      const store = new DbIdentityLinkStore(db.driver);
+      const store = new DbIdentityLinkStore();
 
       const link = await store.link(ALICE, { provider: 'oidc:g', subject: 's-1' });
 
@@ -81,7 +81,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('stores the email, email_verified only when the provider says true, and no attributes', async () => {
-      const store = new DbIdentityLinkStore(db.driver);
+      const store = new DbIdentityLinkStore();
       const verified = await store.link(ALICE, { provider: 'oidc:g', subject: 'v', email: 'alice@example.test', emailVerified: true, claims: { a: 1 } });
       await store.link(ALICE, { provider: 'oidc:g', subject: 'u', email: 'alice@example.test' });
 
@@ -95,7 +95,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('rejects a duplicate (provider, subject) with ResourceDuplicated', async () => {
-      const store = new DbIdentityLinkStore(db.driver);
+      const store = new DbIdentityLinkStore();
       await store.link(ALICE, { provider: 'oidc:g', subject: 'taken' });
 
       const err = await rejection(store.link(BOB, { provider: 'oidc:g', subject: 'taken' }));
@@ -106,7 +106,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('touch sets lastUsedAt', async () => {
-      const store = new DbIdentityLinkStore(db.driver);
+      const store = new DbIdentityLinkStore();
       const link = await store.link(ALICE, { provider: 'oidc:g', subject: 's-1' });
       const later = new Date(T0.getTime() + 3_600_123);
 
@@ -119,7 +119,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('lists only the links of that identity', async () => {
-      const store = new DbIdentityLinkStore(db.driver);
+      const store = new DbIdentityLinkStore();
       const a1 = await store.link(ALICE, { provider: 'p1', subject: 'x' });
       clock.tick(1000);
       const a2 = await store.link(ALICE, { provider: 'p2', subject: 'x' });
@@ -130,14 +130,14 @@ for (const kind of DB_KINDS) {
     });
 
     it('unlink of an unknown id does nothing', async () => {
-      const store = new DbIdentityLinkStore(db.driver);
+      const store = new DbIdentityLinkStore();
       await store.link(ALICE, { provider: 'p1', subject: 'x' });
       await store.unlink('00000000-0000-4000-8000-000000000000');
       expect(await store.list(ALICE)).to.have.length(1);
     });
 
     it('throws InvalidArgument on values longer than their columns, never cutting them', async () => {
-      const store = new DbIdentityLinkStore(db.driver);
+      const store = new DbIdentityLinkStore();
       const cases: [IdentityRef, { provider: string; subject: string; email?: string }][] = [
         [
           { type: 't'.repeat(17), id: 'a' },
@@ -168,10 +168,11 @@ for (const kind of DB_KINDS) {
       expect(await rawQuery(db.driver, 'SELECT id FROM authn_identity')).to.deep.eq([]);
     });
 
-    it("resolves the Orm's default connection from its container when given no driver", async () => {
-      const store = new DbIdentityLinkStore(undefined, { container: db.container });
+    it('reads and writes on the connection of the AuthnIdentity model when DI builds it', async () => {
+      const store = await db.container.resolve(DbIdentityLinkStore);
       const link = await store.link(ALICE, { provider: 'p', subject: 's' });
-      expect(await new DbIdentityLinkStore(db.driver).find('p', 's')).to.deep.eq(link);
+      expect(await rawQuery(db.driver, 'SELECT id FROM authn_identity')).to.deep.eq([{ id: link.id }]);
+      expect(await store.find('p', 's')).to.deep.eq(link);
     });
   });
 }

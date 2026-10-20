@@ -11,6 +11,8 @@ import { createHash } from 'node:crypto';
 
 import { DbIdentityLinkStore, DbMfaStore, DbNonceStore, DbSecretStore } from '../src/index.js';
 import { FakeMsSql, FakeMySql, fake, sql } from './support/fake-drivers.js';
+import { bootFakeOrm } from './support/fake-orm.js';
+import type { FakeOrm } from './support/fake-orm.js';
 
 const ALICE: IdentityRef = { type: 'user', id: '0b6a3c1e-8a55-4c41-9f0e-4b1d2a7c9e10' };
 const NOW = new Date('2026-06-01T10:00:00.000Z');
@@ -55,6 +57,21 @@ const DIALECTS = [
 for (const d of DIALECTS) {
   describe(`task 3 store SQL on ${d.name} (compiled, no server)`, function () {
     this.timeout(30000);
+
+    let orm: FakeOrm;
+
+    before(async () => {
+      orm = await bootFakeOrm(d.name);
+    });
+
+    after(async () => {
+      await orm?.dispose();
+    });
+
+    beforeEach(() => {
+      orm.driver.executed = [];
+      orm.driver.respond = () => [];
+    });
 
     it('DbSecretStore.redeem reads expiry as text and claims with a guarded update', async () => {
       const driver = await fake(d.type, `n4-${d.name}`);
@@ -221,12 +238,11 @@ for (const d of DIALECTS) {
     });
 
     it('DbIdentityLinkStore.list keeps only rows of exactly that identity', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      driver.respond = () => [
-        { id: 'l1', identity_type: 'user', identity_id: ALICE.id.toUpperCase(), provider: 'oidc:g', subject: 'a', email: null, linked_text: NOW_TEXT, last_used_text: null },
-        { id: 'l2', identity_type: 'user', identity_id: ALICE.id, provider: 'oidc:g', subject: 'b', email: null, linked_text: NOW_TEXT, last_used_text: null },
+      orm.driver.respond = () => [
+        { id: 'l1', identity_type: 'user', identity_id: ALICE.id.toUpperCase(), provider: 'oidc:g', subject: 'a', email: null, linked_at: NOW_TEXT, last_used_at: null },
+        { id: 'l2', identity_type: 'user', identity_id: ALICE.id, provider: 'oidc:g', subject: 'b', email: null, linked_at: NOW_TEXT, last_used_at: null },
       ];
-      expect((await new DbIdentityLinkStore(driver).list(ALICE)).map((l) => l.id)).to.deep.eq(['l2']);
+      expect((await new DbIdentityLinkStore().list(ALICE)).map((l) => l.id)).to.deep.eq(['l2']);
     });
 
     it('DbMfaStore.get and countRecoveryCodes keep only rows of exactly that identity and step', async () => {
@@ -272,21 +288,19 @@ for (const d of DIALECTS) {
     });
 
     it('DbIdentityLinkStore.find refuses a subject that matched only under a case-blind collation', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      driver.respond = () => [{ id: 'l1', identity_type: 'user', identity_id: ALICE.id, provider: 'oidc:g', subject: 'ALICE', email: null, linked_text: NOW_TEXT, last_used_text: null }];
-      const store = new DbIdentityLinkStore(driver);
+      orm.driver.respond = () => [{ id: 'l1', identity_type: 'user', identity_id: ALICE.id, provider: 'oidc:g', subject: 'ALICE', email: null, linked_at: NOW_TEXT, last_used_at: null }];
+      const store = new DbIdentityLinkStore();
       expect(await store.find('oidc:g', 'alice')).to.eq(null);
       expect((await store.find('oidc:g', 'ALICE'))?.id).to.eq('l1');
     });
 
     it('DbIdentityLinkStore.link maps the driver duplicate error to ResourceDuplicated', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      driver.respond = () => {
+      orm.driver.respond = () => {
         throw d.duplicate();
       };
       let err: unknown;
       try {
-        await new DbIdentityLinkStore(driver).link(ALICE, { provider: 'p', subject: 's' });
+        await new DbIdentityLinkStore().link(ALICE, { provider: 'p', subject: 's' });
       } catch (e) {
         err = e;
       }

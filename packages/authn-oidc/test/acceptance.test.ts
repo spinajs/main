@@ -152,7 +152,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       idp = await FakeIdp.create(FAKE_ISSUER, ['RS256']);
       identities = new FakeIdentityStore();
       sessions = new MemorySessionIssuer();
-      links = new DbIdentityLinkStore(undefined, { container: dbContainer });
+      links = new DbIdentityLinkStore();
       const nonces = new DbNonceStore(undefined, { container: dbContainer });
       alice = identities.add({ login: 'alice@example.test', email: 'alice@example.test' });
 
@@ -217,6 +217,8 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       for (const type of [OidcHttpClient, NonceStore, IdentityLinkStore, SessionIssuer, AuthnService, ExternalLoginHook] as Class<unknown>[]) DI.uncache(type);
       HookLog.calls = [];
       await orm?.dispose();
+      // The app resolved an Orm in the root too; the models write on the latest one, so the next suite needs its own.
+      DI.uncache(Orm);
       if (database) {
         const admin = await pgAdmin();
         try {
