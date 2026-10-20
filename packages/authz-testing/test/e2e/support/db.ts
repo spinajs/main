@@ -12,6 +12,9 @@ import { unregisterResource } from '../../../../authz-orm/lib/mjs/registry.js';
 
 export type Dialect = 'sqlite' | 'postgres';
 
+/** Array.ofType of the @spinajs/di the tests resolve with, captured before a configuration load can re-patch it. */
+const { ofType, chainOf } = Array;
+
 export const POSTGRES = { Host: 'localhost', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres', Database: 'test' };
 
 export interface ModelSpec {
@@ -65,6 +68,8 @@ export class TestDb {
       await testHost.installHost();
       ownsInstall = true;
     }
+    // Restores Array.ofType/chainOf if loading the configuration pulled in a second copy of @spinajs/di.
+    Object.assign(Array, { ofType, chainOf });
     const cfg = testHost.config();
     const connections: unknown[] = [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' }];
     // The orm qualifies a joined Postgres table with the database name as its schema; a schema of
