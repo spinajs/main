@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn-http",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "HTTP integration for SpinaJS authentication",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -72,20 +72,20 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.0",
-    "@spinajs/authn-session": "3.0.0",
-    "@spinajs/cli": "3.0.0",
-    "@spinajs/configuration": "3.0.0",
-    "@spinajs/di": "3.0.0",
-    "@spinajs/exceptions": "3.0.0",
-    "@spinajs/http": "3.0.0",
-    "@spinajs/log": "3.0.0",
-    "@spinajs/util": "3.0.0",
+    "@spinajs/authn": "3.0.1",
+    "@spinajs/authn-session": "3.0.1",
+    "@spinajs/cli": "3.0.1",
+    "@spinajs/configuration": "3.0.1",
+    "@spinajs/di": "3.0.1",
+    "@spinajs/exceptions": "3.0.1",
+    "@spinajs/http": "3.0.1",
+    "@spinajs/log": "3.0.1",
+    "@spinajs/util": "3.0.1",
     "cookie-signature": "^1.2.2",
     "express": "^5.1.0"
   },
   "peerDependencies": {
-    "@spinajs/http-socket": "3.0.0"
+    "@spinajs/http-socket": "3.0.1"
   },
   "peerDependenciesMeta": {
     "@spinajs/http-socket": {
@@ -93,16 +93,16 @@
     }
   },
   "devDependencies": {
-    "@spinajs/authn-keys": "3.0.0",
-    "@spinajs/authn-local": "3.0.0",
-    "@spinajs/authn-orm": "3.0.0",
-    "@spinajs/authn-testing": "3.0.0",
-    "@spinajs/authn-token": "3.0.0",
-    "@spinajs/authn-totp": "3.0.0",
-    "@spinajs/fs": "3.0.0",
-    "@spinajs/http-socket": "3.0.0",
-    "@spinajs/orm": "3.0.0",
-    "@spinajs/orm-sqlite": "3.0.0",
+    "@spinajs/authn-keys": "3.0.1",
+    "@spinajs/authn-local": "3.0.1",
+    "@spinajs/authn-orm": "3.0.1",
+    "@spinajs/authn-testing": "3.0.1",
+    "@spinajs/authn-token": "3.0.1",
+    "@spinajs/authn-totp": "3.0.1",
+    "@spinajs/fs": "3.0.1",
+    "@spinajs/http-socket": "3.0.1",
+    "@spinajs/orm": "3.0.1",
+    "@spinajs/orm-sqlite": "3.0.1",
     "luxon": "^3.6.1",
     "socket.io-client": "^4.8.1"
   }
