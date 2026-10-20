@@ -126,7 +126,7 @@ describe('AuthnTokenScope migration', function () {
     await migration.up(connection);
 
     const row = await AccessToken.where('Uuid', uuid).firstOrFail();
-    expect(row.ExpiresAt!.toMillis()).to.equal(DateTime.fromISO(iso).plus({ days: 90 }).toMillis());
+    expect(row.ExpiresAt!.toMillis()).to.equal(DateTime.fromISO(iso, { zone: 'utc' }).plus({ days: 90 }).toMillis());
   });
 
   it('the test users table refuses a duplicate Uuid or Login, as RBACInitial does', async () => {
@@ -159,6 +159,7 @@ describe('AuthnTokenScope migration', function () {
     expect(await columns()).to.include.members(NEW_COLUMNS);
   });
 
+  // The migration adds whole UTC days, so across a DST change the result differs from local calendar days.
   it('back-fills a null ExpiresAt with CreatedAt + 90 days by default and keeps a set one', async () => {
     setMaxTtlDays(undefined);
     await migration.down(connection);
@@ -175,14 +176,14 @@ describe('AuthnTokenScope migration', function () {
 
     const openRow = await AccessToken.where('Uuid', open).firstOrFail();
     expect(openRow.CreatedAt.toMillis()).to.equal(createdAt.toMillis());
-    expect(openRow.ExpiresAt!.toMillis()).to.equal(createdAt.plus({ days: 90 }).toMillis());
+    expect(openRow.ExpiresAt!.toMillis()).to.equal(createdAt.toUTC().plus({ days: 90 }).toMillis());
 
     const setRow = await AccessToken.where('Uuid', set).firstOrFail();
     expect(setRow.ExpiresAt!.toMillis()).to.equal(kept.toMillis());
 
     // CreatedAt + 90 days lies in the past, so the token is simply expired
     const staleRow = await AccessToken.where('Uuid', stale).firstOrFail();
-    expect(staleRow.ExpiresAt!.toMillis()).to.equal(old.plus({ days: 90 }).toMillis());
+    expect(staleRow.ExpiresAt!.toMillis()).to.equal(old.toUTC().plus({ days: 90 }).toMillis());
     expect(staleRow.IsExpired).to.be.true;
   });
 
@@ -199,7 +200,7 @@ describe('AuthnTokenScope migration', function () {
     }
 
     const row = await AccessToken.where('Uuid', uuid).firstOrFail();
-    expect(row.ExpiresAt!.toMillis()).to.equal(createdAt.plus({ days: 7 }).toMillis());
+    expect(row.ExpiresAt!.toMillis()).to.equal(createdAt.toUTC().plus({ days: 7 }).toMillis());
   });
 
   it('refuses to run, changing nothing, when authn.token.maxTtlDays is not a finite positive number', async () => {
