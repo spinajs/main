@@ -1485,7 +1485,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
   },
 
   async create<T extends typeof ModelBase>(this: T, data: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
-    const entity = new (Function.prototype.bind.apply(this))(data);
+    const entity = new this(data) as InstanceType<T>;
     await (entity as ModelBase).insert();
     return entity;
   },
@@ -1508,7 +1508,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     let entity = (await query.first()) as any;
 
     if (!entity) {
-      entity = new (Function.prototype.bind.apply(this))(data);
+      entity = new this(data);
       await (entity as ModelBase).insert();
       return entity;
     }
@@ -1545,7 +1545,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
         }
       });
 
-      entity = new (Function.prototype.bind.apply(this))(toHydrate);
+      entity = new this(toHydrate);
       return entity;
     }
 

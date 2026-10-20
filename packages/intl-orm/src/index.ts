@@ -230,7 +230,7 @@ export class DbTranslationSource extends TranslationSource {
         return { [tt.Key]: tt.Value };
       });
 
-      return _.assign.apply(_, vals);
+      return Object.assign({}, ...vals);
     });
   }
 }

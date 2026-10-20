@@ -135,7 +135,10 @@ export class AuthzFsMiddleware extends FsMiddleware {
       await this.applyRows(ctx.action, plan);
     } catch (e) {
       const log = this.log;
-      (log.error ?? log.warn).call(log, { error: thrownError(e), action: ctx.action, paths: ctx.targets.map(where).join(', ') }, 'authz.fs: ${action} on ${paths} succeeded, but the file ACL was not updated');
+      const fields = { error: thrownError(e), action: ctx.action, paths: ctx.targets.map(where).join(', ') };
+      const message = 'authz.fs: ${action} on ${paths} succeeded, but the file ACL was not updated';
+      if (log.error) log.error(fields, message);
+      else log.warn(fields, message);
       throw e;
     }
     return ctx.action === 'list' && Array.isArray(result) ? this.listEach(plan, result) : result;

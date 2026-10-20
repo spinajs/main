@@ -30,7 +30,6 @@
     // to the 5.x behaviour this codebase compiles under ( ~600 errors otherwise,
     // mostly strictPropertyInitialization ). Lift them one by one when the code
     // is ready - do not remove casually.
-    "strictPropertyInitialization": false,
-    "strictBindCallApply": false
+    "strictPropertyInitialization": false
   }
 }

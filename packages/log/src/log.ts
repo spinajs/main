@@ -24,7 +24,7 @@ function globFor(pattern: string): RegExp {
 }
 
 function wrapWrite(this: Log, level: LogLevel) {
-  return (err: Error | string | object, message: string | any[], ...args: any[]) => {
+  return (err: Error | string | object, message?: string | any[], ...args: any[]) => {
     // Zero-cost gating: only parse a caller frame ( which constructs an Error )
     // when some target's layout references ${callsite}. Otherwise `vars` is just
     // this.Variables and no Error is ever built - mirroring NLog's StackTraceUsage.
