@@ -33,6 +33,9 @@
       ],
       "audit": [
         "lib/cjs/audit/index.d.ts"
+      ],
+      "plan": [
+        "lib/cjs/plan/index.d.ts"
       ]
     }
   },
