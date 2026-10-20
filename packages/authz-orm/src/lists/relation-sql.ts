@@ -2,10 +2,8 @@ import { AuthzConfigError, PlanTermSql } from '@spinajs/authz';
 import type { SqlFragment, SqlRowContext } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
+import { RELATION_OWNER_OP, RELATION_SELF_OP } from '../plan/index.js';
 import { castText } from './dialect.js';
-
-export const RELATION_OWNER_OP = 'relation.owner';
-export const RELATION_SELF_OP = 'relation.self';
 
 const NOTHING: SqlFragment = Object.freeze({ sql: '1 = 0', bindings: [] });
 
