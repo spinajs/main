@@ -75,6 +75,16 @@ export function sqlTime(ms: number, dialect: Dialect): string {
   return dialect === 'sqlite' ? at.toISO()! : at.toFormat('yyyy-MM-dd HH:mm:ss.SSS');
 }
 
+/** @internal The instant as a datetime column value, clamped to four-digit years like {@link sqlTime}. */
+export function instant(ms: number): DateTime {
+  return DateTime.fromMillis(Math.min(Math.max(ms, MIN_MS), MAX_MS), { zone: 'utc' });
+}
+
+/** @internal A hydrated datetime column as a Date; an invalid or missing value is an invalid Date. */
+export function dateOf(value: DateTime | null | undefined): Date {
+  return value ? value.toJSDate() : new Date(NaN);
+}
+
 /** @internal NaN when the text does not parse. */
 export function textMs(text: string): number {
   return readInstant(text)?.getTime() ?? NaN;

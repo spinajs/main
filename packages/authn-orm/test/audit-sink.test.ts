@@ -79,7 +79,7 @@ for (const kind of DB_KINDS) {
 
     beforeEach(async () => {
       await rawQuery(db.driver, 'DELETE FROM authn_audit', [], QueryContext.Delete);
-      sink = new DbAuthnAuditSink(db.driver);
+      sink = new DbAuthnAuditSink();
     });
 
     it('SR-11 the DB sink keeps login and impersonation rows', async () => {
@@ -148,8 +148,8 @@ for (const kind of DB_KINDS) {
       expect(await auditRows(db)).to.deep.eq([]);
     });
 
-    it("resolves the Orm's default connection from its container when given no driver", async () => {
-      await new DbAuthnAuditSink(undefined, { container: db.container }).publish({ type: 'logout', at: T0, outcome: 'success' });
+    it('writes on the connection of the AuthnAudit model when DI builds it', async () => {
+      await (await db.container.resolve(DbAuthnAuditSink)).publish({ type: 'logout', at: T0, outcome: 'success' });
       expect(await auditRows(db)).to.have.length(1);
     });
   });

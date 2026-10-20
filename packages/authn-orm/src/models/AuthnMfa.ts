@@ -5,10 +5,10 @@ import { DateTime } from 'luxon';
 @Connection('default')
 @Model('authn_mfa')
 export class AuthnMfa extends ModelBase<AuthnMfa> {
-  @Primary()
+  @Primary({ generated: 'assigned' })
   public identity: string;
 
-  @Primary()
+  @Primary({ generated: 'assigned' })
   public step: string;
 
   public secret_enc: string;

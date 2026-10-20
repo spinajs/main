@@ -3,12 +3,12 @@ import { randomUUID } from 'node:crypto';
 import { AuthnEventSink } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef, PrincipalRef } from '@spinajs/authn/contracts';
 import { Injectable, Singleton } from '@spinajs/di';
-import { OrmDriver } from '@spinajs/orm';
+import { ormReady } from '@spinajs/orm';
 
 import { identityKey } from '../identity.js';
-import { StoreConnection } from '../support/connection.js';
-import type { StoreOptions } from '../support/connection.js';
-import { checkedMs, cutText, sqlTime } from '../support/sql.js';
+import { AuthnAudit } from '../models/AuthnAudit.js';
+import { checkedMs, cutText, instant } from '../support/sql.js';
+import { columnValues } from '../support/values.js';
 
 function keyOrNull(ref: IdentityRef | PrincipalRef | undefined): string | null {
   if (!ref) return null;
@@ -35,14 +35,6 @@ function json(value: unknown): string {
 @Singleton()
 @Injectable(AuthnEventSink)
 export class DbAuthnAuditSink extends AuthnEventSink {
-  private readonly connection: StoreConnection;
-
-  /** DI passes nothing: the Orm's `'default'` connection is resolved on first use. */
-  constructor(driver?: OrmDriver, options: StoreOptions = {}) {
-    super();
-    this.connection = new StoreConnection('DbAuthnAuditSink', driver, options.container);
-  }
-
   public async publish(e: AuthnEvent): Promise<void> {
     const identity = keyOrNull(e.identity);
     const actor = keyOrNull(e.actor);
@@ -51,21 +43,23 @@ export class DbAuthnAuditSink extends AuthnEventSink {
       ...(e.actor && actor === null ? { actorRef: { type: e.actor.type, id: e.actor.id } } : {}),
     };
     const data = e.data === undefined && Object.keys(extra).length === 0 ? undefined : { ...(e.data ?? {}), ...extra };
-    const { driver, dialect } = await this.connection.get();
-    const row = {
-      id: randomUUID(),
-      at: sqlTime(checkedMs(e.at, 'DbAuthnAuditSink.publish: e.at'), dialect),
-      type: cutText(e.type, 32),
-      outcome: cutText(e.outcome, 8),
-      identity,
-      actor,
-      strategy: cutText(e.strategy, 64),
-      reason: cutText(e.reason, 64),
-      ip: cutText(e.ip, 64),
-      user_agent: cutText(e.userAgent, 255),
-      session: cutText(e.session, 64),
-      data: data === undefined ? null : json(data),
-    };
-    await driver.insert().into('authn_audit').values(row);
+    const at = instant(checkedMs(e.at, 'DbAuthnAuditSink.publish: e.at'));
+    await ormReady();
+    await AuthnAudit.insert(
+      columnValues<AuthnAudit>({
+        id: randomUUID(),
+        at,
+        type: cutText(e.type, 32),
+        outcome: cutText(e.outcome, 8),
+        identity,
+        actor,
+        strategy: cutText(e.strategy, 64),
+        reason: cutText(e.reason, 64),
+        ip: cutText(e.ip, 64),
+        user_agent: cutText(e.userAgent, 255),
+        session: cutText(e.session, 64),
+        data: data === undefined ? null : json(data),
+      }),
+    );
   }
 }

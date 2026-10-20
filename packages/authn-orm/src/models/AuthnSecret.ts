@@ -4,7 +4,7 @@ import { DateTime } from 'luxon';
 @Connection('default')
 @Model('authn_secret')
 export class AuthnSecret extends ModelBase<AuthnSecret> {
-  @Primary()
+  @Primary({ generated: 'assigned' })
   public id: string;
 
   public identity: string;
