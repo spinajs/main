@@ -49,6 +49,12 @@ Other keys: `authz.domains.<domain>.parent` (parent of a domain the package crea
 `default`; set `db.Aliases['authz-fs']` to keep file metadata in another database. The former key
 `authz.fsMetadata.connection` fails every domain boot with `AuthzConfigError`.
 
+Importing the package registers `FsObjectRecord` (and, through `@spinajs/authz-abac`, `PolicyRecord`)
+whether or not the app uses `OrmFileMetadataStore`. With `db.StrictTableCheck` on (the ORM default) the
+`Orm` boot fails until `fs_object` exists on the connection `db.Aliases['authz-fs']` names: apply the
+migrations first (`migrate-up`, or `Migration.OnStartup`), or set `db.StrictTableCheck: false`. MSSQL
+cannot create `fs_object` yet, so there only the second works.
+
 Every permission the effective operation table of a filesystem names (its `operations` and `inherit` keys
 included) is declared to the boot of its domain, so an unregistered one fails that boot.
 

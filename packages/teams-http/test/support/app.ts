@@ -116,6 +116,8 @@ class TeamsHttpTestConfiguration extends FrameworkConfiguration {
       teams: { invitations: { secret: INVITATION_SECRET } },
       queue: { default: 'teams-http-test-queue', connections: [{ service: 'BlackHoleQueueClient', name: 'teams-http-test-queue' }] },
       db: {
+        // No package migration is registered in this harness (system.dirs.migrations comes back empty), so the tables never exist.
+        StrictTableCheck: false,
         DefaultConnection: 'sqlite',
         Aliases: { authz: 'default' },
         Connections: [

@@ -43,6 +43,7 @@ export * from './helpers.js';
 export * from './model-driver.js';
 export * from './fp.js';
 export * from './bootstrap.js';
+export * from './configuration-schema.js';
 export * from './metadata.js';
 
 // NOTE: metadata.js is not exported from index to avoid circular dependency issues
