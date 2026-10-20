@@ -82,7 +82,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         dirs: {
           // The controller listing is memoized once per process ( `ListFromFiles`
           // in reflection ), so every http suite in this package has to ask for the
-          // same directories. No 2.x controller dir: the shipped config scans none.
+          // same directories.
           controllers: [dir('./../src/v3/controllers'), dir('./support')],
         },
       },

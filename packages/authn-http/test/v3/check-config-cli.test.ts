@@ -121,7 +121,7 @@ describe('authn:check-config (CLI)', function () {
     const r = await run(sound({ http: { cookie: { secret: PUBLIC_SECRET } } }), undefined);
     expect(r.lines.some((l) => l.startsWith('warning env: '))).to.eq(true);
     expect(r.lines.some((l) => l.startsWith('error secrets: http.cookie.secret is the public default'))).to.eq(true);
-    for (const l of r.lines) expect(l).to.match(/^(error|warning) (strategies|secrets|proxy|cors|env|mfa|legacy): \S/);
+    for (const l of r.lines) expect(l).to.match(/^(error|warning) (strategies|secrets|proxy|cors|env|mfa): \S/);
     expect(r.exitCode).to.eq(1);
     noSecretIn(r.lines);
   });

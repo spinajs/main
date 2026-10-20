@@ -317,7 +317,7 @@ describe('User model tests', function () {
 
   /**
    * The uniqueness check must run before `beforeCreate`: a middleware that writes
-   * to another system ( the legacy-user mirror is one ) must not fire for a
+   * to another system ( e.g. a user mirror ) must not fire for a
    * request that is about to be refused.
    */
   it('Should refuse a duplicate before running create middleware', async () => {

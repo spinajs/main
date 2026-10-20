@@ -16,7 +16,7 @@ import { columnValues } from '../support/values.js';
 const PURPOSE_MAX = 32;
 const PURGE_EVERY = 64;
 const PURGE_BATCH = 500;
-/** Far above any secret this store or 2.x issued; longer input is refused before hashing. */
+/** Far above any secret this store issues; longer input is refused before hashing. */
 const RAW_MAX = 1024;
 
 /**

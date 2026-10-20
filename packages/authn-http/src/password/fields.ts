@@ -9,19 +9,19 @@ import { bodyField, boundedString } from '../v3/routes.js';
 // Body fields and answers of the 3.0 password routes. Every string is capped at PASSWORD_HARD_CAP before a service sees
 // it; no answer and no error message carries a password, a secret or a login.
 
-/** The body of a reset request and of a successful reset, as 2.x answered both. */
+/** The body of a reset request and of a successful reset. */
 export const RESET_ACK: Readonly<{ Ok: true }> = Object.freeze({ Ok: true });
 
 export const resetAck = (): Ok => new Ok({ ...RESET_ACK }, { Headers: [NO_STORE] });
 
-/** The login of a reset request or redemption (2.x `Email`), or null. */
-export const loginField = (req: Request): string | null => boundedString(bodyField(req, 'login', 'Email'), PASSWORD_HARD_CAP);
+/** The login of a reset request or redemption, or null. */
+export const loginField = (req: Request): string | null => boundedString(bodyField(req, 'login'), PASSWORD_HARD_CAP);
 
-/** The single-use secret of a redemption (2.x `Token`), or null. */
-export const secretField = (req: Request): string | null => boundedString(bodyField(req, 'secret', 'Token'), PASSWORD_HARD_CAP);
+/** The single-use secret of a redemption, or null. */
+export const secretField = (req: Request): string | null => boundedString(bodyField(req, 'secret'), PASSWORD_HARD_CAP);
 
-/** The current password of a change (2.x `OldPassword`), or null. */
-export const oldPasswordField = (req: Request): string | null => boundedString(bodyField(req, 'oldPassword', 'OldPassword'), PASSWORD_HARD_CAP);
+/** The current password of a change, or null. */
+export const oldPasswordField = (req: Request): string | null => boundedString(bodyField(req, 'oldPassword'), PASSWORD_HARD_CAP);
 
 export const badRequest = (error: string, message: string): BadRequestResponse => new BadRequestResponse({ error, message }, { Headers: [NO_STORE] });
 
@@ -30,14 +30,13 @@ export const passwordRejected = (violations: readonly PasswordViolation[]): BadR
   new BadRequestResponse({ error: 'password_rejected', message: 'the new password does not meet the password policy', violations: [...violations] }, { Headers: [NO_STORE] });
 
 /**
- * The new password (2.x `Password`), checked against the optional confirmation (2.x `ConfirmPassword`), or the 400
- * answer. Longer than PASSWORD_HARD_CAP is the policy's `too_long`, answered without asking the service.
+ * The new `password`, checked against the optional `confirmPassword`, or the 400 answer. Longer than PASSWORD_HARD_CAP is the policy's `too_long`, answered without asking the service.
  */
 export function newPasswordField(req: Request): { password: string } | { answer: BadRequestResponse } {
-  const password = bodyField(req, 'password', 'Password');
+  const password = bodyField(req, 'password');
   if (typeof password !== 'string' || password === '') return { answer: badRequest('invalid_password', 'password must be a non-empty string') };
   if (password.length > PASSWORD_HARD_CAP) return { answer: passwordRejected(['too_long']) };
-  const confirm = bodyField(req, 'confirmPassword', 'ConfirmPassword');
+  const confirm = bodyField(req, 'confirmPassword');
   if (confirm !== undefined && confirm !== password) return { answer: badRequest('password_mismatch', 'the password and its confirmation differ') };
   return { password };
 }

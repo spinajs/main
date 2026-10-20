@@ -16,9 +16,8 @@ const { assignment, combine, extension, role } = fixtureDsl;
 
 const PERMISSIONS = ['users:create', 'users:read', 'users:update', 'users:delete', 'user:impersonate', 'public:read'];
 
-// The 2.x fixture with "own" grants as owner-relation grants. Role names admin2 and basic stand for the
-// local admin and user of the legacy $extend row. system holds only users:read here (legacy: everything), so
-// admin covers it and only the protected-role rule can refuse it.
+// "Own" access as owner-relation grants. Role names admin2 and basic stand for a local admin and user. system holds
+// only users:read here, so admin covers it and only the protected-role rule can refuse it.
 const ROLES = [
   role('system', ['users:read']),
   role('admin', ['users:create', 'users:read', 'users:update', 'users:delete', 'user:impersonate']),
@@ -38,7 +37,7 @@ const HELD: Record<string, string> = { sys: 'system', adm: 'admin', adm2: 'admin
 
 const DOMAIN = 'test';
 
-// The guard reads its domain and protected roles from config; system plays the legacy protected role.
+// The guard reads its domain and protected roles from config; system is the protected role.
 const guardConfig = (protectedRoles: readonly string[]) => ({ http: { access: { domain: DOMAIN } }, impersonation: { protectedRoles: [...protectedRoles] } });
 
 const worldWith = (roles: typeof ROLES, protectedRoles: readonly string[] = ['system']): World => ({
@@ -85,7 +84,7 @@ const guarded = (actor: string, target: string, expected: GuardAnswer): DoStep =
   },
 });
 
-// Rows 2-8 as T1 ported them (covers), then through the guard: usr, mod and sup lack user:impersonate.
+// Each case as `covers`, then through the guard: usr, mod and sup lack user:impersonate.
 const cases: Case[] = [
   { name: 'denies user → admin (privilege escalation)', world, steps: [covers('usr', 'adm', false), guarded('usr', 'adm', refused('forbidden'))] },
   { name: 'denies admin → admin (equal privileges count as escalation)', world, steps: [covers('adm', 'adm2', false), guarded('adm', 'adm2', refused('escalation'))] },

@@ -11,11 +11,11 @@ import { contextOf } from '../routes.js';
 
 /**
  * Password routes of the 3.0 layer over the PasswordService contract (design §22.7, §22.11; A04, A11, A30, A32). Off
- * (404) while no PasswordService is registered. Body fields, each also under its 2.x name:
+ * (404) while no PasswordService is registered. Body fields:
  *
- * - reset request: `login` (`Email`);
- * - reset: `login` (`Email`), `secret` (`Token`), `password` (`Password`), optional `confirmPassword` (`ConfirmPassword`);
- * - change: `oldPassword` (`OldPassword`), `password` (`Password`), optional `confirmPassword` (`ConfirmPassword`).
+ * - reset request: `login`;
+ * - reset: `login`, `secret`, `password`, optional `confirmPassword`;
+ * - change: `oldPassword`, `password`, optional `confirmPassword`.
  *
  * Every authentication failure (a wrong, used or expired secret, an unknown login, a wrong old password) answers the
  * login failure body (A02). A throttled reset redemption adds Retry-After as a throttled login does: its key is the

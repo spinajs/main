@@ -41,7 +41,7 @@ describe('authz.rbac.defaultRoles', () => {
     expect((await bootChild({}, AUTHZ_RBAC_CONFIGURATION_SCHEMA)).config.get(DEFAULT_ROLES_KEY)).to.equal(undefined);
   });
 
-  it('boots with a 2.x role name that holds an inner space', async () => {
+  it('boots with a role name that holds an inner space', async () => {
     expect((await bootChild(configured(['Stock editor']), AUTHZ_RBAC_CONFIGURATION_SCHEMA)).config.get(DEFAULT_ROLES_KEY)).to.deep.equal(['Stock editor']);
   });
 

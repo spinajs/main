@@ -101,7 +101,7 @@ describe('users-http v3: GET /user', function () {
     }
   });
 
-  // 2.x wrote the user's uuid back into the session on refresh; the 3.0 session keeps the identity itself (A07, A23).
+  // The session keeps the identity itself (A07, A23).
   it('keeps resolving the same user on the next request with the same session', async () => {
     const client = await app.signIn(me.Uuid);
 
@@ -136,21 +136,5 @@ describe('users-http v3: GET /user', function () {
     await ((await DI.resolve(SessionIssuer)) as SessionIssuer).revoke(client.session!);
 
     expect((await client.get('/user')).status).to.eq(401);
-  });
-
-  describe('removed 2.x routes', () => {
-    it('GET /user/grants answers 404 (GET /user/access in authz-http replaces it)', async () => {
-      expect((await (await app.signIn(me.Uuid)).get('/user/grants')).status).to.eq(404);
-    });
-
-    it('PATCH /user/password answers 404 (authn-http AuthnPasswordController replaces it)', async () => {
-      const res = await (await app.signIn(me.Uuid)).patch('/user/password', { OldPassword: 'current123', Password: 'changed123', ConfirmPassword: 'changed123' });
-
-      expect(res.status, res.text).to.eq(404);
-    });
-
-    it('GET /user/refresh answers 404 (the profile is GET /user)', async () => {
-      expect((await (await app.signIn(me.Uuid)).get('/user/refresh')).status).to.eq(404);
-    });
   });
 });

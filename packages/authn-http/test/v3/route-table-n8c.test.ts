@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, buildRoutePath } from '@spinajs/http';
@@ -9,13 +9,6 @@ import type { IControllerDescriptor } from '@spinajs/http';
 import shipped from '../../src/config/authn-http.js';
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src');
-
-/** The 2.x controller dirs the shipped config scans beside v3/controllers, and the controllers in them: none since N8b task 9. */
-const SCANNED_2X_DIRS: string[] = [];
-const SCANNED_2X_CONTROLLERS: string[] = [];
-
-/** Every 2.x credential controller 3.0 retires (`RETIRED_2X` of .authz-sdd/N8b-N8c-addendum.md). */
-const RETIRED_2X = ['LoginController', 'TwoFactorAuthController', 'SessionsController', 'ActiveRoleController', 'ImpersonationController', 'AccessTokenController', 'PasswordResetController', 'TwoFactorAuthUserController'];
 
 interface Mounted {
   controller: string;
@@ -37,40 +30,18 @@ async function routesOf(dir: string): Promise<Mounted[]> {
   return out;
 }
 
-const sourceFiles = (dir: string): string[] =>
-  readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? sourceFiles(join(dir, e.name)) : e.name.endsWith('.ts') ? [join(dir, e.name)] : []));
-
 const twice = (list: Mounted[]) => list.filter((m, i) => list.findIndex((x) => x.route === m.route) !== i).map((m) => `${m.route} (${m.controller})`);
-const controllersOf = (list: Mounted[]) => [...new Set(list.map((m) => m.controller))].sort();
 
-describe('the N8c controller swap (route table)', function () {
+describe('the controller route table', function () {
   this.timeout(30000);
 
-  it('the shipped config scans v3/controllers and the 2.x dirs that stay, nothing else', () => {
+  it('the shipped config scans v3/controllers, nothing else', () => {
     const dirs = shipped.system.dirs.controllers.map((d: string) => d.replace(/\\/g, '/'));
-    const expected = ['v3/controllers', ...SCANNED_2X_DIRS];
-    for (const dir of expected)
-      expect(
-        dirs.some((d: string) => d.endsWith(`/${dir}`)),
-        dir,
-      ).to.eq(true);
-    expect(dirs.filter((d: string) => !expected.some((dir) => d.endsWith(`/${dir}`)))).to.deep.eq([]);
+    expect(dirs.some((d: string) => d.endsWith('/v3/controllers')), 'v3/controllers').to.eq(true);
+    expect(dirs.filter((d: string) => !d.endsWith('/v3/controllers'))).to.deep.eq([]);
   });
 
-  it('the scanned 2.x dirs hold only the 2.x controllers that stay; the deleted ones are gone from the sources', async () => {
-    const scanned = (await Promise.all(SCANNED_2X_DIRS.map(routesOf))).flat();
-    expect(controllersOf(scanned)).to.deep.eq(SCANNED_2X_CONTROLLERS);
-    const defining = new RegExp(`class (${RETIRED_2X.join('|')})\\b`);
-    expect(sourceFiles(SRC).filter((f) => defining.test(readFileSync(f, 'utf8')))).to.deep.eq([]);
-  });
-
-  it('token/controllers and src/account are gone', async () => {
-    expect(existsSync(join(SRC, 'token', 'controllers')), 'token/controllers is gone').to.eq(false);
-    expect(existsSync(join(SRC, 'account')), 'src/account is gone').to.eq(false);
-  });
-
-  it('after N8c: the 3.0 controllers and the scanned 2.x ones register no method and path twice', async () => {
-    const after = [...(await routesOf('v3/controllers')), ...(await Promise.all(SCANNED_2X_DIRS.map(routesOf))).flat()];
-    expect(twice(after)).to.deep.eq([]);
+  it('the controllers register no method and path twice', async () => {
+    expect(twice(await routesOf('v3/controllers'))).to.deep.eq([]);
   });
 });

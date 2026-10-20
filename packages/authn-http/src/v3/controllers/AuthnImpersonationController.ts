@@ -56,8 +56,7 @@ export class AuthnImpersonationController extends BaseController {
 
   /**
    * Start impersonating
-   * Body `{ target, password? }`: `target` is a user id or `{ type, id }` (the 2.x `TargetUuid` and `Password` names
-   * work too). 400 for a malformed target, 401 with the login failure body when the password fails, 403 when refused.
+   * Body `{ target, password? }`: `target` is a user id or `{ type, id }`. 400 for a malformed target, 401 with the login failure body when the password fails, 403 when refused.
    * @security cookieAuth
    */
   @Post('impersonate')
@@ -65,12 +64,12 @@ export class AuthnImpersonationController extends BaseController {
   public async start(@Req() req: Request) {
     const session = req.storage.AuthnSession;
     if (!isSessionPrincipal(req.storage.AuthnPrincipal!) || session?.handle.state !== 'active') throw refused('session_required', 'impersonation needs a session');
-    const target = identityRefOf(bodyField(req, 'target', 'TargetUuid'), TARGET_CAP);
+    const target = identityRefOf(bodyField(req, 'target'), TARGET_CAP);
     if (!target) return new BadRequestResponse({ error: 'invalid_target', message: 'target must be a user id or { type, id }' });
 
     let reauth: Credentials | null;
     try {
-      reauth = await assertFreshAuth(this.Container, req, undefined, bodyField(req, 'password', 'Password'));
+      reauth = await assertFreshAuth(this.Container, req, undefined, bodyField(req, 'password'));
     } catch (err) {
       if (isAuthnFailed(err)) return authnFailureResponse();
       throw err;

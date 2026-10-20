@@ -27,8 +27,7 @@ async function refusal(p: Promise<unknown>): Promise<InvalidArgument> {
   return err as InvalidArgument;
 }
 
-// Ported from users legacy-v2/actions.test.ts rows 41, 42, 82-85 (B11, B12, B27, B43): grant and revoke are
-// AuthzAdmin.assign and revoke, create(user, roles?) writes GLOBAL assignments, no `User.Role`.
+// B11, B12, B27, B43: grant and revoke are AuthzAdmin.assign and revoke, create(user, roles?) writes GLOBAL assignments.
 describe('role grants through AuthzAdmin', function () {
   this.timeout(30000);
 
@@ -54,7 +53,7 @@ describe('role grants through AuthzAdmin', function () {
 
     expect(await globalRolesOf(TEST_USER_UUID)).to.include('editor');
 
-    // Changed (B11): a second assign of a held GLOBAL role is the idempotent no-op the 2.x `grant` was; asserted as "never two rows".
+    // B11: a second assign of a held GLOBAL role is an idempotent no-op; asserted as "never two rows".
     await admin.assign(SYSTEM, { subject, role: 'editor', scope: GLOBAL });
     expect((await globalRolesOf(TEST_USER_UUID)).filter((r) => r === 'editor')).to.have.lengthOf(1);
   });
@@ -79,7 +78,7 @@ describe('role grants through AuthzAdmin', function () {
     expect(roles, 'a duplicate would be checked twice by every downstream guard').to.have.lengthOf(2);
   });
 
-  // Changed (B12): roles are optional. An empty or blank list falls back to authz.rbac.defaultRoles instead of the 2.x "At least one role" refusal.
+  // B12: roles are optional. An empty or blank list falls back to authz.rbac.defaultRoles.
   it('Should fall back to the default roles for a role list that names no role', async () => {
     const { User: none } = await create({ Email: 'noroles@wp.pl', Login: 'noroles', Password: 'passw0rd123' }, []);
     const { User: blank } = await create({ Email: 'blankroles@wp.pl', Login: 'blankroles', Password: 'passw0rd123' }, ['  ', '']);
@@ -88,7 +87,7 @@ describe('role grants through AuthzAdmin', function () {
     expect(await globalRolesOf(blank.Uuid)).to.deep.eq(['user']);
   });
 
-  // Changed (B12, B43): the refusal is InvalidArgument from AuthzAdmin (errorCode unknown_role); its message no longer names rbac.grants.
+  // B12, B43: the refusal is InvalidArgument from AuthzAdmin (errorCode unknown_role).
   it('Should refuse a role that is not configured', async () => {
     const err = await refusal(create({ Email: 'bogus@wp.pl', Login: 'bogususer', Password: 'passw0rd123' }, ['not-a-role']));
 

@@ -218,7 +218,7 @@ describe('DbTokenService', function () {
       await v3Connection()
         .insert()
         .into(TABLE)
-        .values({ Uuid: uuid, Name: 'legacy', Token: sha256(plaintext), Roles: 'user', CreatedAt: DateTime.fromJSDate(at(-DAY)), user_id: rowIds.get(a.id) });
+        .values({ Uuid: uuid, Name: 'no expiry', Token: sha256(plaintext), Roles: 'user', CreatedAt: DateTime.fromJSDate(at(-DAY)), user_id: rowIds.get(a.id) });
 
       expect(await validate(plaintext)).to.deep.equal({ ok: false, reason: 'expired' });
       const listed = await tokens.list(a);

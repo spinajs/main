@@ -144,7 +144,7 @@ export class AuthnMiddleware extends ServerMiddleware {
   }
 
   /**
-   * The cookie as 2.x accepted it: signed by hand (http `_setCoockies`) in req.cookies, or `s:`-signed by express,
+   * The session cookie: signed by hand (http `_setCoockies`) in req.cookies, or `s:`-signed by express,
    * which cookie-parser verifies into req.signedCookies (false for a bad signature).
    */
   protected async restoreSession(req: Request): Promise<Session | null> {

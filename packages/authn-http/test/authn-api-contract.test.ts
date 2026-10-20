@@ -58,8 +58,6 @@ const LANE: Record<string, unknown> = {
   SessionId: LaneSessionId,
   FromSession: LaneFromSession,
 };
-// Since the N8c cutover the barrel keeps no 2.x code under an api.ts name.
-const KEPT_2X: string[] = [];
 const RUNTIME_EXPORTS = [...Object.keys(POLICIES), ...Object.keys(ROUTE_ARGS), ...Object.keys(MIDDLEWARES), 'AuthnPrincipalResolver', ...Object.keys(RESOLVERS)].sort();
 
 type ResolveResult = Promise<Principal | null | undefined>;
@@ -169,7 +167,7 @@ describe('authn-http api stubs (api.ts)', function () {
 
     it('the barrel exports every api name as the lane implementation, not the api.ts contract class (N8c)', () => {
       const b = barrel as unknown as Record<string, unknown>;
-      for (const n of RUNTIME_EXPORTS.filter((x) => !KEPT_2X.includes(x))) {
+      for (const n of RUNTIME_EXPORTS) {
         const stub = (api as Record<string, unknown>)[n];
         if (n in LANE) expect(b[n], n).to.eq(LANE[n]).and.not.eq(stub);
         else expect(b[n], n).to.eq(stub);

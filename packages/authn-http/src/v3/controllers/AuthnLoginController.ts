@@ -29,8 +29,7 @@ export class AuthnLoginController extends BaseController {
 
   /**
    * Login
-   * Body `{ login, password }` (the 2.x `Email` and `Password` names work too). Ends a session the caller already
-   * holds. Success: the session cookie and the principal summary with the login extensions. MFA required: 200
+   * Body `{ login, password }`. Ends a session the caller already holds. Success: the session cookie and the principal summary with the login extensions. MFA required: 200
    * `{ MfaRequired: [steps] }` with the pending session cookie. Any failure: 401 with one body, plus Retry-After when
    * throttled.
    * @security []
@@ -46,8 +45,8 @@ export class AuthnLoginController extends BaseController {
     const cleared: ICookie[] = held ? [authnClearedSessionCookie(this._cfg)] : [];
 
     // Over-long values never verify (N3), so they reach no strategy, no throttle and no log.
-    const login = boundedString(bodyField(req, 'login', 'Email'), PASSWORD_HARD_CAP);
-    const password = boundedString(bodyField(req, 'password', 'Password'), PASSWORD_HARD_CAP);
+    const login = boundedString(bodyField(req, 'login'), PASSWORD_HARD_CAP);
+    const password = boundedString(bodyField(req, 'password'), PASSWORD_HARD_CAP);
     if (login === null || password === null) return authnFailureResponse(undefined, cleared);
 
     // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.

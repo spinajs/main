@@ -49,14 +49,13 @@ export class AuthnActiveRoleController extends BaseController {
 
   /**
    * Switch the active role
-   * Body `{ role, password? }` (the 2.x `Role` and `Password` names work too). 400 for a malformed role, 403 for a
-   * role not held, 401 with the login failure body when the password fails (no Retry-After). Not while impersonating.
+   * Body `{ role, password? }`. 400 for a malformed role, 403 for a role not held, 401 with the login failure body when the password fails (no Retry-After). Not while impersonating.
    * @security cookieAuth
    */
   @Post('active-role')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async switch(@Req() req: Request) {
-    const role = boundedString(bodyField(req, 'role', 'Role'), ROLE_CAP);
+    const role = boundedString(bodyField(req, 'role'), ROLE_CAP);
     if (role === null) return new BadRequestResponse({ error: 'invalid_role', message: `role must be a non-empty string of at most ${ROLE_CAP} characters` });
     const session = this.own(req);
     const entry = (await this.held(session)).find((r) => r.role === role);
@@ -64,7 +63,7 @@ export class AuthnActiveRoleController extends BaseController {
     // Anything but an explicit false asks for the password.
     if (entry.requirePassword !== false) {
       try {
-        await assertFreshAuth(this.Container, req, undefined, bodyField(req, 'password', 'Password'));
+        await assertFreshAuth(this.Container, req, undefined, bodyField(req, 'password'));
       } catch (err) {
         if (isAuthnFailed(err)) return authnFailureResponse();
         throw err;

@@ -15,7 +15,7 @@ export function dir(path: string) {
 }
 
 /**
- * The role world of the admin suites: the 2.x fixture as authz-rbac roles. `admin` may manage
+ * The role world of the admin suites as authz-rbac roles. `admin` may manage
  * assignments and holds every `users:*` permission, so it may grant any role but `superadmin` (escalation)
  * and `system` (not assignable).
  */

@@ -102,21 +102,20 @@ function scopeOf(value: unknown): TokenScope | null {
 }
 
 /**
- * The create options of a POST /user/tokens body, or its 400 answer. Fields, the 2.x names in brackets: `name` (`Name`),
- * `expiresAt` (`ExpiresAt`, mandatory), optional `roles` (`Roles`), `profile` (`Profile`), `kind` (`pat` by default,
- * `service` or `agent`) and `scope` (`{ permissions?, resources?, agent? }`). TokenService checks the rest: the expiry
+ * The create options of a POST /user/tokens body, or its 400 answer. Fields: `name`, `expiresAt` (mandatory), optional
+ * `roles`, `profile`, `kind` (`pat` by default, `service` or `agent`) and `scope` (`{ permissions?, resources?, agent? }`). TokenService checks the rest: the expiry
  * against the caps, the roles against the owner's, the profile against TokenProfilePolicy, scope against kind.
  */
 export function tokenRequestOf(req: Request): { opts: TokenCreateOptions } | { answer: BadRequestResponse } {
-  const name = bodyField(req, 'name', 'Name');
+  const name = bodyField(req, 'name');
   if (typeof name !== 'string' || name.trim() === '' || name.length > NAME_CAP) return { answer: badRequest('invalid_name', `name must be a non-blank string of at most ${NAME_CAP} characters`) };
-  const expiresAt = expiryOf(bodyField(req, 'expiresAt', 'ExpiresAt'));
+  const expiresAt = expiryOf(bodyField(req, 'expiresAt'));
   if (expiresAt === null) return { answer: invalidExpiry() };
   const kind = bodyField(req, 'kind') ?? 'pat';
   if (typeof kind !== 'string' || !KINDS.includes(kind)) return { answer: badRequest('invalid_kind', `kind must be one of ${KINDS.join(', ')}`) };
-  const roles = rolesOf(bodyField(req, 'roles', 'Roles'));
+  const roles = rolesOf(bodyField(req, 'roles'));
   if (roles === null) return { answer: badRequest('invalid_roles', `roles must be a list of at most ${ROLES_MAX} role names of at most ${ROLE_CAP} characters`) };
-  const rawProfile = bodyField(req, 'profile', 'Profile');
+  const rawProfile = bodyField(req, 'profile');
   const profile = rawProfile === undefined ? undefined : boundedString(rawProfile, PROFILE_CAP);
   // An empty profile is refused, not read as none: that would mint an unpinned token where a pinned one was asked for.
   if (profile === null) return { answer: badRequest('invalid_profile', `profile must be a non-empty string of at most ${PROFILE_CAP} characters`) };
@@ -138,7 +137,7 @@ function scopeEntry(s: TokenScope): Record<string, unknown> {
   };
 }
 
-/** The wire shape of one token: 2.x names, ISO instants, absent values null. Never the plaintext or its hash. */
+/** The wire shape of one token: ISO instants, absent values null. Never the plaintext or its hash. */
 export function tokenEntry(r: TokenRecord, now: Date): Record<string, unknown> {
   return {
     Uuid: r.id,

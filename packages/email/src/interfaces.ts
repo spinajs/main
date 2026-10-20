@@ -216,7 +216,7 @@ export interface EmailConfiguration {
   attachments?: {
     /**
      * Default true: `send` reads every attachment through its filesystem as the sending principal, before the
-     * transport. False leaves the reading to the transport (2.x), which reads as whoever runs it.
+     * transport. False leaves the reading to the transport, which reads as whoever runs it.
      */
     check?: boolean;
   };

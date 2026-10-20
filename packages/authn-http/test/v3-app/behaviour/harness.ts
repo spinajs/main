@@ -278,13 +278,13 @@ export async function insertUserRow(uuid: string): Promise<void> {
   await tokenDb()
     .insert()
     .into('users')
-    .values({ Uuid: uuid, Email: `${uuid}@spinajs.test`, Password: 'not-a-hash', Login: uuid, Role: 'user', IsActive: 1 });
+    .values({ Uuid: uuid, Email: `${uuid}@spinajs.test`, Password: 'not-a-hash', Login: uuid, IsActive: 1 });
 }
 
 /** In-memory sqlite with authn-token's migrations and the columns of the users table it reads (no @spinajs/users). */
 async function bootTokenDb(): Promise<void> {
   for (const file of TOKEN_MODULES) await import(new URL(file, TOKEN_LIB).href);
-  // users' bootstrapper registers on import; the 2.x session store it brings shares no base with authn-session's.
+  // users' bootstrapper registers on import, and this harness runs without @spinajs/users.
   const users = (DI.getRegisteredTypes(Bootstrapper) ?? []).some((t) => t.name === 'RbacBootstrapper');
   const stores = DI.getRegisteredTypes(SessionProvider) ?? [];
   if (users || stores.length !== 1 || stores[0] !== MemorySessionStore) {
@@ -304,7 +304,6 @@ async function bootTokenDb(): Promise<void> {
       table.string('Email', 64).unique().notNull();
       table.string('Password', 128).notNull();
       table.string('Login', 64).notNull();
-      table.string('Role', 256).notNull();
       table.boolean('IsActive').notNull().default().value(0);
       table.dateTime('CreatedAt').notNull().default().dateTime();
       table.dateTime('DeletedAt');

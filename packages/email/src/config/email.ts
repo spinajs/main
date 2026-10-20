@@ -36,7 +36,7 @@ const email = {
 
     /**
      * true: send() reads attachments through their filesystems as the sending principal, before the transport.
-     * false: the transport reads them (2.x).
+     * false: the transport reads them.
      */
     attachments: {
       check: true,

@@ -630,7 +630,7 @@ export async function create(data: ICreateUserData, roles?: string[], actor: Pri
   }
 
   // Ahead of `beforeCreate` in particular: a request that is about to be refused must not first run
-  // middleware that writes to another system ( the legacy-user mirror is one ).
+  // middleware that writes to another system ( e.g. a user mirror ).
   assertNoProtectedMetadata(metadata);
   await assertUserUnique(login, email);
 
@@ -799,8 +799,8 @@ const actionContext = (): AuthnContext => ({ now: new Date(), purpose: 'request'
  * token. users then sends the 'passwordExpired' mail. {@link UserPasswordExpired} comes
  * from authn's event through `QueueAuthnEventSink`.
  *
- * Unlike 2.x the account stays active: authn lets only an active (or invited) account redeem a reset, and the mail asks
- * the owner to set a new password.
+ * The account stays active: authn lets only an active (or invited) account redeem a reset, and the mail asks the owner
+ * to set a new password.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  * @param actor - who expires it, for authn's audit; default SYSTEM

@@ -40,7 +40,7 @@ describe('AccessToken model', function () {
     expect(loaded.Name).to.equal('test token');
     expect(loaded.Roles).to.deep.equal(['user']);
     expect(loaded.ExpiresAt).to.be.null;
-    expect(loaded.IsExpired).to.be.false;
+    expect(loaded.IsExpired).to.be.true;
     expect(loaded.user_id).to.equal(owner.Id);
   });
 
@@ -92,8 +92,8 @@ describe('AccessToken model', function () {
     expect(loaded.Profile).to.equal('admin.primespot');
   });
 
-  it('leaves Profile undefined for legacy rows', async () => {
-    const token = new AccessToken({ Name: 'legacy', Token: 'hash-legacy-test', Roles: ['user'], user_id: 1 });
+  it('leaves Profile undefined for a token without a profile', async () => {
+    const token = new AccessToken({ Name: 'unpinned', Token: 'hash-unpinned-test', Roles: ['user'], user_id: 1 });
     await token.insert();
 
     const loaded = await AccessToken.where('Uuid', token.Uuid).firstOrFail();

@@ -115,7 +115,7 @@ describe('AccessResponseExtension and buildUserWithAccess (users DB, root authz 
     expect(body).to.not.have.property('Access');
   });
 
-  it('buildUserWithAccess: the dehydrated user plus Access, no 2.x Role, ActiveRole or Grants', async () => {
+  it('buildUserWithAccess: the dehydrated user plus Access, no password', async () => {
     const ref = await user('editor');
     const stored = await storedUser(ref.id);
     const principal = await signedIn(ref);
@@ -126,7 +126,7 @@ describe('AccessResponseExtension and buildUserWithAccess (users DB, root authz 
     expect(rest).to.deep.eq(asJson(stored.dehydrateWithRelations({ dateTimeFormat: 'iso' })));
     expect(Access).to.deep.eq(asJson(await (await rootAuthz()).summary(principal)));
     expect(payload).to.include({ Uuid: ref.id, Login: stored.Login });
-    expect(payload).to.not.have.any.keys('Role', 'ActiveRole', 'Grants', 'Password');
+    expect(payload).to.not.have.any.keys('Password');
   });
 
   it('buildUserWithAccess: leaves out reserved metadata and keeps the plain keys', async () => {

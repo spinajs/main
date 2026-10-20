@@ -207,7 +207,7 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
       expect(await globalRolesOf(ADMIN_UUID)).to.deep.eq(['admin']);
     });
 
-    // C1 regression: User.Role is gone, and the 2.x guard let the last admin lose `admin`.
+    // C1 regression: the last admin must not lose `admin`.
     it('refuses to take admin from the last account holding it', async () => {
       await unseedRoles(ADMIN2_UUID, ['admin']);
       config().set('authz.admin.guard.preventSelfLockout', false);

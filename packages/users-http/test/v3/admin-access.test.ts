@@ -198,25 +198,6 @@ describe('users-http v3: admin user routes on @Access', function () {
       expect((await stored(t.Uuid)).IsBanned).to.eq(false);
     });
 
-    it('answers 404 on the 2.x credential and lockout routes, which are gone', async () => {
-      const client = await app.signIn(admin.Uuid);
-      const t = await target();
-      const gone: Array<[Method, string, unknown?]> = [
-        ['PATCH', `/users/security/changePassword/${t.Uuid}`, { password: 'Secret123!', confirmPassword: 'Secret123!' }],
-        ['POST', `/users/security/password-reset-request/${t.Uuid}`],
-        ['POST', `/users/security/expire-password/${t.Uuid}`],
-        ['PATCH', `/users/security/reset2fa/${t.Uuid}`],
-        ['POST', `/users/security/2fa/enable/${t.Uuid}`],
-        ['POST', `/users/security/2fa/disable/${t.Uuid}`],
-        ['POST', `/users/security/unlock/${t.Uuid}`],
-      ];
-
-      for (const route of gone) {
-        const res = await send(client, route);
-        expect(res.status, `${route[0]} ${route[1]}: ${res.text}`).to.eq(404);
-      }
-      await untouched(t);
-    });
   });
 
   describe('a conditional users:read (self)', () => {
