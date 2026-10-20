@@ -1,0 +1,145 @@
+# Declaring actions
+
+A package makes an operation hookable by declaring it in `HookActions` and routing it through `Hooks.run`. Do this for operations whose callers need a rule or a notification: create, delete, change a password.
+
+## How it works
+
+1. You declare the action in `src/hooks.ts` with a module augmentation. This gives `InputOf` and `OutputOf` their types.
+2. The action injects `Hooks` and, at its entry point, calls `Hooks.run(action, input, impl, { mutable, refusable })`.
+3. `Hooks.run` runs the `before` hooks, then `impl` with the merged input, then the `after` hooks (or the `failed` hooks when `impl` throws). See [Writing a hook](01-writing-a-hook.md#how-it-works).
+4. The action maps `ActionRefused` and `ActionHookFailed` to its own answer.
+
+## Declaring an action
+
+Each package adds its actions to the `HookActions` interface, in its `src/hooks.ts`:
+
+```ts
+declare module '@spinajs/hooks' {
+  interface HookActions {
+    'orders.place': { input: PlaceInput; output: PlaceOutput };
+  }
+}
+```
+
+- The key is the action name. Use dotted names (`orders.place`, `orders.item.add`) so prefix patterns like `'orders.*'` work.
+- `input` is what hooks see. Leave out secrets such as plaintext passwords.
+- `output` is what `after` hooks see. A failure result (`status: 'failure'`) is an output, not an error.
+
+## Running an action
+
+```ts
+Hooks.run(action, input, impl, { mutable, refusable })
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `action` | The action name. |
+| `input` | The input object; hooks get a shallow copy. |
+| `impl` | `(input) => Promise<output>`. It receives the merged input. |
+| `opts.mutable` | The input keys a `before` hook may change. `[]` for none. |
+| `opts.refusable` | Default `true`. `false`: a refusal or an error in `before` is logged and `impl` runs anyway. |
+
+### The zero-cost path
+
+`run()` checks the cached match first. With no matching hook it returns `impl(input)` with the same input object and builds no context.
+
+`Hooks.has(action)` is `true` when at least one registered hook matches. Use it to skip work that only hooks need, such as assembling a large input.
+
+## Mapping errors
+
+`run()` can throw two errors of its own. Map both to the action's usual answer, so its callers see the shape they have today.
+
+| Error | Meaning | Fields |
+| --- | --- | --- |
+| `ActionRefused` | A `before` hook called `ctx.refuse`. | `action`, `code` |
+| `ActionHookFailed` | A `before` hook threw something else, timed out, or the run passed `hooks.maxDepth`. | `action`, `hook` (class name), `reason`: `'error'`, `'timeout'` or `'depth'` |
+
+- Map a refusal to a failure the caller already handles.
+- Where the action answers the same for every account (a reset request, say), answer the same when refused. Only the audit tells.
+- Audit the real reason: `hook:<code>` for a refusal, `hook_error` for `ActionHookFailed`.
+- An error thrown by `impl` is not mapped: the `failed` hooks see it and it is rethrown unchanged.
+
+## Security invariants
+
+A hook can narrow an action, never widen it.
+
+- Run the action's own security checks **before** `Hooks.run`.
+- Run again, on the values a hook changed, the checks that guard those values.
+- Declare in `mutable` only the keys you check again.
+- Revocations that follow from a security event (a ban, a deactivation, a delete, a password expiry revoking sessions, a back-channel logout, a token self-revocation) are not refusable. Pass `refusable: false` for an action that must complete.
+
+<!-- TODO(docs-hook): verify where the second invariant check belongs (inside impl, or between before and impl) -->
+
+## Example: a hookable action
+
+```ts sample
+import { Autoinject } from '@spinajs/di';
+import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
+
+declare module '@spinajs/hooks' {
+  interface HookActions {
+    'orders.place': {
+      input: { customerId: string; total: number; note?: string };
+      output: { id: string };
+    };
+  }
+}
+
+export type PlaceResult =
+  | { status: 'placed'; id: string }
+  | { status: 'refused'; code: string }
+  | { status: 'unavailable' };
+
+export class OrderService {
+  @Autoinject(Hooks)
+  protected Hooks: Hooks;
+
+  public async place(input: { customerId: string; total: number; note?: string }): Promise<PlaceResult> {
+    this.assertTotal(input.total);
+
+    try {
+      const out = await this.Hooks.run('orders.place', input, (merged) => this.insert(merged), {
+        mutable: ['note'],
+      });
+      return { status: 'placed', id: out.id };
+    } catch (e) {
+      if (e instanceof ActionRefused) {
+        return { status: 'refused', code: e.code };
+      }
+      if (e instanceof ActionHookFailed) {
+        return { status: 'unavailable' };
+      }
+      throw e;
+    }
+  }
+
+  protected assertTotal(total: number): void {
+    if (!(total > 0)) {
+      throw new Error('total must be positive');
+    }
+  }
+
+  protected async insert(input: { customerId: string; total: number; note?: string }): Promise<{ id: string }> {
+    return { id: `${input.customerId}-${Date.now()}` };
+  }
+}
+```
+
+Only `note` is mutable, so the `total` check before the hooks still holds afterwards. Had `total` been mutable, `insert` would call `assertTotal` again.
+
+## Important behaviour
+
+- Hook types are read at boot and instances resolve on the first matching run. The action injects `Hooks` like any service.
+- A hook that runs another action raises `depth`. The runner enforces `hooks.maxDepth`, so the action needs no loop guard.
+- Hook failures are logged with the hook class, the action and the error class, never the input.
+
+## Best practices
+
+- Put the `declare module` block in the package's `src/hooks.ts` and export the input and output types, so hook authors can import them.
+- Call `Hooks.run` once per action, around the whole operation.
+- Document the action name, its mutable keys, whether it is refusable and the refused answer, so hook authors know the contract.
+
+## Related
+
+- [Writing a hook](01-writing-a-hook.md): the contract hook authors implement.
+- [`@spinajs/di`](../di/README.md): `@Autoinject` for the `Hooks` service.
