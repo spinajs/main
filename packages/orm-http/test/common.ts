@@ -93,6 +93,8 @@ export class TestConfiguration extends FrameworkConfiguration {
         AcceptHeaders: 1 | 2,
       },
       db: {
+        // filters.test.ts registers filter_regression, which no migration creates.
+        StrictTableCheck: false,
         DefaultConnection: 'sqlite',
 
         Connections: [

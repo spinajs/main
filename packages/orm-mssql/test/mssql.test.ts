@@ -39,6 +39,8 @@ export class ConnectionConf extends FrameworkConfiguration {
           rules: [{ name: '*', level: 'trace', target: 'Empty' }],
         },
         db: {
+          // The tables come from Migration.up() after the boot; OnStartup is off.
+          StrictTableCheck: false,
           Connections: [
             {
               Driver: 'orm-driver-mssql',
