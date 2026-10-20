@@ -29,22 +29,25 @@ Every abstract token extends `QueryStatement`, which implements `TableAlias`, `B
 | Token | `@spinajs/orm-sql` class | Created by | SQL | Clone |
 | --- | --- | --- | --- | --- |
 | `WhereStatement` | `SqlWhereStatement` | `where(column, [op,] value)`, `whereNull`, `whereNotNull` | `` `alias`.`col` <OP> ? `` | rebinds `_builder`; a `RawQuery` value is inlined with its bindings instead of a `?` |
-| `WhereQueryStatement` | `SqlWhereQueryStatement` | `where(function () { ... })` | `( <nested where> )` | clones the nested `WhereBuilder` onto the parent |
+| `WhereQueryStatement` | `SqlWhereQueryStatement` | `where(function () { ... })`, `whereNot(function () { ... })` | `( <nested where> )`, `NOT ( <nested where> )`; an empty negated group is `1 = 0` | clones the nested `WhereBuilder` onto the parent, keeps the negation |
 | `LazyQueryStatement` | `SqlLazyQueryStatement` | `where(Lazy)`, correlated `EXISTS` | the callback's statements, built at compile time | rebinds `context` |
 | `RawQueryStatement` | `SqlRawStatement` | `where(RawQuery)` | the query verbatim | no builder |
 | `InStatement` | `SqlInStatement` | `whereIn`, `whereNotIn` with values | `` `col` [NOT] IN (?,?) ``; a dialect may bind a list longer than `listThreshold` as one parameter | rebinds `_builder`; `clone()` keeps the subclass |
 | `InQueryStatement` | `SqlInQueryStatement` | `whereIn`, `whereNotIn` with a sub-select | `` `col` [NOT] IN ( <sub-select> ) `` | clones the sub-select, re-correlates, rebinds the owner |
 | `ExistsQueryStatement` | `SqlExistsQueryStatement` | `whereExist`, `whereNotExists` | `[NOT] EXISTS ( <sub-select> )` | clones the sub-select, re-correlates |
+| `ColumnCompareStatement` | `SqlColumnCompareStatement` | `whereColumn()` | `` `a`.`x` <OP> `b`.`y` ``; an `outer()` side through the correlation source, a `Wrap` side through its wrapper | rebinds `_builder` |
 | `BetweenStatement` | `SqlBetweenStatement` | `whereBetween`, `whereNotBetween` | `` `col` [NOT] BETWEEN ? AND ? `` | no builder |
 | `InSetStatement` | `SqlInSetStatement` | `whereInSet`, `whereNotInSet` | see [Set membership](#set-membership) | no builder |
 | `StartsWithStatement` | `SqlStartsWithStatement` | `whereStartsWith` | `` `col` LIKE ? ESCAPE '~' ``, bound `escapeLikeValue(prefix) + '%'`; a dialect extends `pattern()` for its own wildcards | no builder; `clone()` keeps the subclass |
 | `ColumnStatement` | `SqlColumnStatement` | `select(column)`, `columns()` | `` `alias`.`col` as `name` ``, `*` | no builder |
 | `ColumnRawStatement` | `SqlColumnRawStatement` | `select(RawQuery)` | the query verbatim | no builder |
+| `ColumnConditionStatement` | `SqlColumnConditionStatement` | `selectCondition()` | `CASE WHEN <nested where> THEN 1 ELSE 0 END AS alias` | clones the nested `WhereBuilder` onto the parent |
 | `ColumnMethodStatement` | `SqlColumnMethodStatement` | `min`, `max`, `sum`, `avg`, `count` | `` COUNT(`col`) as `alias` `` | no builder |
 | `JoinStatement` | `SqlJoinStatement` | `innerJoin`, `leftJoin`, ..., `populate()` | see [Joins](#joins) | rebinds `_options.builder` |
 | `GroupByStatement` | `SqlGroupByStatement` | `groupBy()` | `` `col` `` or a raw expression | no builder |
 | `WithRecursiveStatement` | `SqlWithRecursiveStatement` | `withRecursive()`, `@Recursive` relations | the CTE members | rebinds `_query` |
 | `DateWrapper`, `DateTimeWrapper` | `SqlDateWrapper`, `SqlDateTimeWrapper` | `Wrapper.Date(col)`, `Wrapper.DateTime(col)` in `where()` | `` DATE(`alias`.`col`) ``, `` DATETIME(`alias`.`col`) `` | not cloned (a wrapper is resolved at build time) |
+| `TextWrapper` | `SqlTextWrapper`; `MySqlTextWrapper`, `MsSqlTextWrapper` in their drivers | `Wrapper.Text(col)` in `where()`, `whereIn()`, `whereNotIn()` | `` CAST(`alias`.`col` AS TEXT) ``, `AS CHAR` (MySQL), `AS NVARCHAR(4000)` (MSSQL) | not cloned (a wrapper is resolved at build time) |
 
 Constructor arguments of each token are listed in [Architecture](../orm/12-architecture.md#statement-classes).
 
@@ -77,6 +80,7 @@ The operator is uppercased. Column existence is checked earlier, in the core `Wh
 
 ### Sub-queries and deferred statements
 
+- `whereExist()`, `whereNotExists()`, `whereIn()` and `whereNotIn()` correlate a ready sub-query with the builder the call is made on (`correlateWith(this)`) when it has no correlation source. `SqlColumnCompareStatement` resolves `outer(column, levels)` with `outerBuilder()`: it follows that link `levels` times, each time from the query a nested group belongs to (`queryOf()`), and qualifies the column with `qualifierOf()` (the query's alias, else its table).
 - `SqlExistsQueryStatement` and `SqlInQueryStatement` compile their sub-select with `toDB()` at build time and take its bindings.
 - `SqlLazyQueryStatement.build()` clones its context builder, keeps its alias (only when it has one) and correlation source, clears columns, group by, joins and where, runs the callback on the clone and returns the clone's built statements.
 - `SqlWithRecursiveStatement.build()` compiles the anchor member (`clone().clearRecursive().clearJoins()`) and, after pushing a `RECURSIVE` join onto `recursive_cte`, the recursive member (`clone().clearRecursive().clearWhere().setAlias('$recursive$')`). `clearRecursive()` on both clones is what stops infinite recursion.
@@ -138,6 +142,7 @@ export class DatesPostgresDriver extends PostgresOrmDriver {
 - `SqlInStatement` with an empty array emits `1 = 0` (`1 = 1` for `NOT IN`), because `IN ()` is a syntax error.
 - `SqlInStatement` converts every value the way `SqlWhereStatement` does: through the model column's declared converter, else through the `__orm_db_value_converters__` entry named after the value's class, so a `Date` or `DateTime` becomes the dialect's datetime text. A list longer than `listThreshold` (1000) whose converted values are all strings and finite numbers is bound as ONE parameter when the dialect overrides `listExpression()` (and `listBinding()` for its shape): `= ANY(?)` / `<> ALL(?)` with an array on PostgreSQL, `IN (SELECT value FROM json_each(?))` with JSON text on SQLite, `IN (SELECT [value] FROM OPENJSON(?))` on MSSQL, where `listThreshold` is 200. MySQL and any list with another value type keep the expanded `IN (?, ...)`.
 - `SqlColumnMethodStatement` never alias-prefixes its column.
+- `SqlInStatement` resolves a `Wrap` column (`Wrapper.Text()`) the way `SqlWhereStatement` does and converts its values by their class only: the column's declared converter does not apply to the wrapped expression.
 - `SqlDateWrapper` and `SqlDateTimeWrapper` emit `DATE()` and `DATETIME()`. No shipped driver overrides them; check that your engine has these functions before using `Wrapper.Date()`.
 - Values in DML statements are always bound with `?`, never interpolated.
 

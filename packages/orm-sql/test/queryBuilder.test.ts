@@ -385,10 +385,10 @@ describe('Where query builder', () => {
 
   it('where true && where false', () => {
     let result = sqb().select('*').from('users').where(true).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE TRUE');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE 1 = 1');
 
     result = sqb().select('*').from('users').where(false).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE FALSE');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE 1 = 0');
   });
 
   it('Should convert date to sql', () => {
@@ -515,13 +515,13 @@ describe('Where query builder', () => {
       })
       .toDB();
 
-    // empty array => `IN ()` => match nothing (FALSE), NOT "no condition"
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE FALSE');
+    // empty array => `IN ()` => match nothing (1 = 0), NOT "no condition"
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE 1 = 0');
   });
 
-  it('whereIn with empty array compiles to FALSE ( B4b )', () => {
+  it('whereIn with empty array matches nothing ( B4b )', () => {
     const result = sqb().select('*').from('users').whereIn('id', []).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE FALSE');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE 1 = 0');
   });
 
   it('where(col, "=", null) compiles to IS NULL ( B6 )', () => {

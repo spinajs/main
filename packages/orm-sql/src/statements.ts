@@ -1,4 +1,4 @@
-import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
+import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, NewInstance } from '@spinajs/di';
@@ -46,7 +46,7 @@ function _carryQuoter<T extends { Quoter: IdentifierQuoter }>(clone: T, source: 
  * Rebinding statements: {@link SqlWhereStatement} (`_builder`), {@link SqlInStatement}
  * (`_builder`), {@link SqlJoinStatement} (`_options.builder`), {@link SqlWhereQueryStatement}
  * (nested where-builder), {@link SqlExistsQueryStatement} (sub-select correlation),
- * {@link SqlInQueryStatement} (sub-select correlation and `_ownerBuilder`),
+ * {@link SqlInQueryStatement} (sub-select correlation and `_ownerBuilder`), {@link SqlColumnCompareStatement} (`_builder`), {@link SqlColumnConditionStatement} (nested where-builder),
  * {@link SqlLazyQueryStatement} (deferred evaluation context) and
  * {@link SqlWithRecursiveStatement} (`_query`, the owning query).
  *
@@ -308,6 +308,39 @@ export class SqlWhereStatement extends WhereStatement {
   }
 }
 
+/**
+ * `left <op> right` over two columns. Each side is qualified by its query's alias, or by the table
+ * without one: in a correlated sub-query an unqualified name could bind to the inner table. An `outer()`
+ * side is resolved at build time through the correlation source, which a clone's EXISTS / IN rebinds.
+ */
+@NewInstance()
+export class SqlColumnCompareStatement extends ColumnCompareStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): SqlColumnCompareStatement {
+    return _carryQuoter(new SqlColumnCompareStatement(this._left, this._operator, this._right, (parent ?? this._builder) as WhereBuilder<any>), this);
+  }
+
+  public build(): IQueryStatementResult {
+    const right = this._right instanceof OuterColumn ? this.side(this._right.Column, outerBuilder(this._builder, this._right.Levels)) : this.side(this._right, this._builder);
+
+    return {
+      Bindings: [],
+      Statements: [`${this.side(this._left, this._builder)} ${this._operator.toUpperCase()} ${right}`],
+    };
+  }
+
+  private side(column: string | Wrap, builder: IWhereBuilder<any>): string {
+    const qualifier = qualifierOf(builder);
+    if (column instanceof Wrap) {
+      return this._builder.Container.resolve<WrapStatement>(column.Wrapper, [column.Column, qualifier]).wrap();
+    }
+
+    return _columnWrap(this.Quoter, column, qualifier);
+  }
+}
+
 @NewInstance()
 export class SqlJoinStatement extends JoinStatement {
   @Autoinject(IdentifierQuoter)
@@ -477,7 +510,7 @@ export class SqlInStatement extends InStatement {
   }
 
   public build(): IQueryStatementResult {
-    const column = _columnWrap(this.Quoter, this._column, this._builder.TableAlias);
+    const column = this._column instanceof Wrap ? this._builder.Container.resolve<WrapStatement>(this._column.Wrapper, [this._column.Column, this._builder.TableAlias]).wrap() : _columnWrap(this.Quoter, this._column, this._builder.TableAlias);
 
     // `IN ()` is a syntax error, so degenerate to a constant predicate with the same meaning:
     // nothing can be in an empty set, and everything is outside of it.
@@ -521,7 +554,8 @@ export class SqlInStatement extends InStatement {
   protected valueConverter(): (value: unknown) => unknown {
     const container = this._builder.Container;
     const descriptor = this._builder.Model ? extractModelDescriptor(this._builder.Model) : undefined;
-    const declared = descriptor?.Converters.get(this._column);
+    // A wrapped column is compared as the wrapper's type, not the column's.
+    const declared = typeof this._column === 'string' ? descriptor?.Converters.get(this._column) : undefined;
 
     if (declared) {
       const columnDescriptor = descriptor!.Columns.find((c) => c.Name === this._column);
@@ -709,6 +743,21 @@ export abstract class SqlDateTimeWrapper extends DateTimeWrapper {
   }
 }
 
+/** `CAST(col AS TEXT)`, which SQLite and PostgreSQL accept; MySQL and MSSQL register their own type. */
+@NewInstance()
+export class SqlTextWrapper extends TextWrapper {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public wrap(): string {
+    return `CAST(${_columnWrap(this.Quoter, this._value as string, this._tableAlias)} AS ${this.textType()})`;
+  }
+
+  protected textType(): string {
+    return 'TEXT';
+  }
+}
+
 @NewInstance()
 export class SqlColumnRawStatement extends ColumnRawStatement {
   public clone(): SqlColumnRawStatement {
@@ -723,6 +772,28 @@ export class SqlColumnRawStatement extends ColumnRawStatement {
   }
 }
 
+/** CASE WHEN, because T-SQL selects no predicate as a value; every dialect reads it as 1 or 0. */
+@NewInstance()
+export class SqlColumnConditionStatement extends ColumnConditionStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): SqlColumnConditionStatement {
+    return _carryQuoter(new SqlColumnConditionStatement(this._builder.clone((parent ?? this._builder.Parent ?? this._builder) as any), this._alias), this);
+  }
+
+  public build(): IQueryStatementResult {
+    const condition = new SqlWhereCompiler().where(this._builder);
+    // An empty group is no condition: every row has it.
+    const expression = condition.expression || '1 = 1';
+
+    return {
+      Bindings: condition.bindings,
+      Statements: [`CASE WHEN ${expression} THEN 1 ELSE 0 END AS ${this.Quoter.quote(this._alias)}`],
+    };
+  }
+}
+
 @NewInstance()
 export class SqlWhereQueryStatement extends WhereQueryStatement {
   /**
@@ -732,16 +803,25 @@ export class SqlWhereQueryStatement extends WhereQueryStatement {
    */
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent?: T): IQueryStatement {
     // TODO: fix this any cast !
-    return new SqlWhereQueryStatement(this._builder.clone((_parent ?? this._builder.Parent ?? this._builder) as any));
+    return new SqlWhereQueryStatement(this._builder.clone((_parent ?? this._builder.Parent ?? this._builder) as any), this._not);
   }
 
   public build() {
     const _compiler = new SqlWhereCompiler();
     const _result = _compiler.where(this._builder);
+    const empty = !_result.expression;
+
+    if (this._not) {
+      // An empty group is no condition, so its negation keeps no row.
+      return {
+        Bindings: _result.bindings,
+        Statements: [empty ? '1 = 0' : `NOT ( ${_result.expression} )`],
+      };
+    }
 
     return {
       Bindings: _result.bindings,
-      Statements: _result.expression && _result.expression !== '' ? [`( ${_result.expression} )`] : [],
+      Statements: empty ? [] : [`( ${_result.expression} )`],
     };
   }
 }

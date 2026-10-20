@@ -1,39 +1,31 @@
-import { AccessDenied, AuthzClock, FALSE, authz, currentPrincipal } from '@spinajs/authz';
-import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceType, SqlFragment } from '@spinajs/authz';
+import { AccessDenied, FALSE, authz, currentPrincipal } from '@spinajs/authz';
+import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceType } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { QueryMiddleware, RawQuery, SelectQueryBuilder } from '@spinajs/orm';
+import { QueryMiddleware, SelectQueryBuilder } from '@spinajs/orm';
 import type { IQueryStatement, IWhereBuilder, QueryBuilder } from '@spinajs/orm';
 
-import { auditUnscoped, domainContainer, ormDomain } from '../host.js';
+import { auditUnscoped, ormDomain } from '../host.js';
 import { marksOf } from '../marker.js';
 import type { AccessMarks } from '../marker.js';
+import type { PlanRow } from '../plan/index.js';
 import { entryOf } from '../registry.js';
 import type { ResourceEntry } from '../registry.js';
 import { AccessFieldMiddleware, accessColumn, accessField } from './access-field.js';
-import { rowContext } from './context.js';
-import { quoterOf } from './dialect.js';
-import { renderPlan, withinSql } from './render.js';
-import type { Rendered } from './render.js';
+import { applyWithin, planFilter } from './render.js';
+import { planRow } from './row.js';
 
 type Where = IWhereBuilder<unknown>;
 type Statements = { _statements: IQueryStatement[] };
-
-const NO_ROW: SqlFragment = Object.freeze({ sql: '1 = 0', bindings: [] });
-
-async function nowOf(domain: string): Promise<Date> {
-  const c = domainContainer(domain);
-  return c.hasRegistered(AuthzClock) ? ((await c.resolve(AuthzClock)) as AuthzClock).now() : new Date();
-}
 
 function denied(domain: string, principal: Principal, permission: Permission, type: ResourceType, reason: DenyReason): Decision {
   return Object.freeze({ allowed: false, permission, resource: Object.freeze({ type }), principal: Object.freeze({ type: principal.type, id: principal.id }), residual: FALSE, fields: Object.freeze({ read: Object.freeze([]), write: Object.freeze([]) }), roles: Object.freeze({}), reason, domain });
 }
 
 /**
- * The ORM joins where statements without grouping them, so `(caller) AND (plan)` needs the caller's
+ * The ORM joins where statements without grouping them, so `(caller) AND (filters)` needs the caller's
  * statements moved into one group first; HAVING statements stay where they are.
  */
-export function restrict(query: QueryBuilder, rendered: Extract<Rendered, { kind: 'sql' }>): void {
+export function restrict(query: QueryBuilder, apply: (where: Where) => void): void {
   const statements = (query as unknown as Statements)._statements;
   const isAggregate = (s: IQueryStatement) => (s as { IsAggregate?: boolean }).IsAggregate === true;
   const callers = statements.filter((s) => !isAggregate(s));
@@ -45,7 +37,7 @@ export function restrict(query: QueryBuilder, rendered: Extract<Rendered, { kind
       (this as unknown as Statements)._statements.push(...callers);
     } as never);
   }
-  where.where(RawQuery.create(rendered.sql, [...rendered.bindings]));
+  apply(where);
   statements.push(...aggregates);
 }
 
@@ -55,7 +47,6 @@ export interface ListRun {
   readonly service: AuthzService;
   readonly entry: ResourceEntry;
   readonly marks: AccessMarks;
-  readonly now: Date;
 }
 
 /** Plans `.accessible()` / `.withAccess()` at execution, for the principal the query runs as. */
@@ -74,30 +65,39 @@ export class AccessListMiddleware extends QueryMiddleware {
     const principal = currentPrincipal();
     if (marks.unscoped !== undefined) auditUnscoped(domain, principal, marks.unscoped, entry.type);
     if (marks.accessible === undefined && marks.withAccess === undefined && marks.within === undefined) return;
-    const run: ListRun = { domain, principal, service: authz(domain), entry, marks, now: await nowOf(domain) };
-    const row = rowContext(query, entry, run.now);
-    const filters: SqlFragment[] = [];
+    const run: ListRun = { domain, principal, service: authz(domain), entry, marks };
+    const row = planRow(query, entry);
+    const filters: ((where: Where) => void)[] = [];
     if (marks.accessible !== undefined) {
-      const rendered = renderPlan(await run.service.accessPlan(principal, marks.accessible, entry.type, marks.env), row);
-      if (rendered.kind === 'none') {
-        if (marks.onNone !== 'empty') throw new AccessDenied(denied(domain, principal, marks.accessible, entry.type, rendered.reason));
-        filters.push(NO_ROW);
-      } else if (rendered.kind === 'sql') filters.push(rendered);
+      const filter = planFilter(await run.service.accessPlan(principal, marks.accessible, entry.type, marks.env), row);
+      if (filter.kind === 'none') {
+        if (marks.onNone !== 'empty') throw new AccessDenied(denied(domain, principal, marks.accessible, entry.type, filter.reason));
+        filters.push((where) => where.where(false));
+      } else if (filter.kind === 'where') filters.push(filter.apply);
     }
-    for (const refs of marks.within ?? []) filters.push(withinSql(refs, row));
+    for (const refs of marks.within ?? []) filters.push((where) => applyWithin(where, refs, row));
     // One restrict: the caller's where becomes one group, ANDed with the plan and every .within().
-    if (filters.length > 0) restrict(query, { kind: 'sql', sql: filters.map((f) => `(${f.sql})`).join(' AND '), bindings: filters.flatMap((f) => [...f.bindings]) });
+    if (filters.length > 0) {
+      restrict(query, (where) => {
+        for (const apply of filters) {
+          where.where(function () {
+            apply(this);
+          });
+        }
+      });
+    }
     if (marks.withAccess !== undefined && query instanceof SelectQueryBuilder) await this.withAccess(query, run, row);
   }
 
-  protected async withAccess(query: SelectQueryBuilder, run: ListRun, row: ReturnType<typeof rowContext>): Promise<void> {
+  protected async withAccess(query: SelectQueryBuilder, run: ListRun, row: PlanRow): Promise<void> {
     const permissions = run.marks.withAccess ?? [];
-    const q = quoterOf(query.Driver);
     if (query.getColumns().length === 0) query.select('*');
     for (const [i, permission] of permissions.entries()) {
-      const r = renderPlan(await run.service.accessPlan(run.principal, permission, run.entry.type, run.marks.env), row);
-      const expr = r.kind === 'none' ? { sql: '0', bindings: [] as unknown[] } : r.kind === 'all' ? { sql: '1', bindings: [] as unknown[] } : { sql: `CASE WHEN ${r.sql} THEN 1 ELSE 0 END`, bindings: [...r.bindings] };
-      query.select(RawQuery.create(`${expr.sql} AS ${q(accessColumn(i))}`, expr.bindings));
+      const filter = planFilter(await run.service.accessPlan(run.principal, permission, run.entry.type, run.marks.env), row);
+      query.selectCondition(accessColumn(i), function () {
+        if (filter.kind === 'where') filter.apply(this);
+        else this.where(filter.kind === 'all');
+      });
     }
     query.middleware(new AccessFieldMiddleware(permissions, accessField()));
   }

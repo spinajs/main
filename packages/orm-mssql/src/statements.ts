@@ -1,7 +1,7 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, NowExpression, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
-import { _columnWrap, SqlInStatement, SqlLiteralQuoter, SqlStartsWithStatement } from '@spinajs/orm-sql';
+import { _columnWrap, SqlInStatement, SqlLiteralQuoter, SqlStartsWithStatement, SqlTextWrapper } from '@spinajs/orm-sql';
 
 /**
  * Membership test against a delimited `@Set()` column, MSSQL dialect.
@@ -101,5 +101,13 @@ export class MsSqlStartsWithStatement extends SqlStartsWithStatement {
 export class MsSqlNowExpression extends NowExpression {
   public sql(): string {
     return 'SYSDATETIMEOFFSET()';
+  }
+}
+
+/** NVARCHAR keeps non-latin ids intact; 4000 is the longest NVARCHAR that is not MAX. */
+@NewInstance()
+export class MsSqlTextWrapper extends SqlTextWrapper {
+  protected textType(): string {
+    return 'NVARCHAR(4000)';
   }
 }

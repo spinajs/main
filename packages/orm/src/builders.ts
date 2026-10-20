@@ -5,8 +5,9 @@ import { OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, LockTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from './interfaces.js';
-import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
+import type { Op } from './enums.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, LockTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, BooleanValueConverter } from './interfaces.js';
+import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement, ColumnCompareStatement, OuterColumn, ColumnConditionStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
 import { ModelBase } from './model.js';
@@ -962,9 +963,9 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       return this;
     }
 
-    // Support "where true || where false"
+    // TRUE and FALSE are no T-SQL; a comparison of two constants is valid in every dialect.
     if (_.isBoolean(column)) {
-      return this.where(RawQuery.create(column ? 'TRUE' : 'FALSE'));
+      return this.where(RawQuery.create(column ? '1 = 1' : '1 = 0'));
     }
 
     if (column instanceof RawQuery) {
@@ -977,7 +978,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       const builder = new WhereBuilder(this);
       column.call(builder);
 
-      self.pushStatement(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, self.TableAlias]));
+      self.pushStatement(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, false]));
       return this;
     }
 
@@ -1100,12 +1101,24 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereNot(column: string, val: any): this {
+  public whereNot(column: string | WhereFunction<T>, val?: any): this {
+    if (_.isFunction(column)) {
+      const builder = new WhereBuilder(this);
+      column.call(builder);
+      return this.pushStatement(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, true]));
+    }
+
     return this.where(column, SqlOperator.NOT, val);
   }
 
-  public whereIn(column: string, val: any[] | ISelectQueryBuilder): this {
+  public whereIn(column: string | Wrap, val: any[] | ISelectQueryBuilder): this {
     if (val instanceof SelectQueryBuilder) {
+      if (column instanceof Wrap) {
+        throw new InvalidArgument('whereIn(): a wrapped column takes a list of values, not a sub-query');
+      }
+      if (val.CorrelationSource === undefined) {
+        val.correlateWith(this as IWhereBuilder<any>);
+      }
       this.pushStatement(this._container.resolve<InQueryStatement>(InQueryStatement, [val, column, false, this]));
       return this;
     }
@@ -1124,8 +1137,14 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereNotIn(column: string, val: any[] | ISelectQueryBuilder): this {
+  public whereNotIn(column: string | Wrap, val: any[] | ISelectQueryBuilder): this {
     if (val instanceof SelectQueryBuilder) {
+      if (column instanceof Wrap) {
+        throw new InvalidArgument('whereIn(): a wrapped column takes a list of values, not a sub-query');
+      }
+      if (val.CorrelationSource === undefined) {
+        val.correlateWith(this as IWhereBuilder<any>);
+      }
       this.pushStatement(this._container.resolve<InQueryStatement>(InQueryStatement, [val, column, true, this]));
       return this;
     }
@@ -1160,6 +1179,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
    */
   protected buildExistsClause<R>(query: ISelectQueryBuilder | string, negated: boolean, callback?: WhereFunction<R>): this {
     if (typeof query !== 'string') {
+      // outer() in the sub-query names this builder; a clone re-correlates the same way.
+      if (query.CorrelationSource === undefined) {
+        query.correlateWith(this as IWhereBuilder<any>);
+      }
       this.pushStatement(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, negated]));
       return this;
     }
@@ -1214,6 +1237,14 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
+  public whereColumn(left: string | Wrap, operator: Op, right: string | Wrap | OuterColumn): this {
+    if (!isWhereOperator(operator)) {
+      throw new InvalidArgument(`operator ${operator} is invalid`);
+    }
+
+    return this.pushStatement(this._container.resolve<ColumnCompareStatement>(ColumnCompareStatement, [left, operator, right, this]));
+  }
+
   public whereStartsWith(column: string, prefix: string): this {
     this.pushStatement(this._container.resolve<StartsWithStatement>(StartsWithStatement, [column, prefix, this.TableAlias]));
     return this;
@@ -1224,6 +1255,66 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 }
+
+/** The query a where-builder belongs to: the parents of a nested group end at it. */
+export function queryOf(builder: IWhereBuilder<any>): QueryBuilder {
+  let current: unknown = builder;
+  while (current instanceof WhereBuilder && current.Parent !== undefined) {
+    current = current.Parent;
+  }
+
+  return current as QueryBuilder;
+}
+
+/**
+ * What a column of `builder` is qualified with: its query's alias, else the table. Read from the query, not
+ * the nested group, which copies the alias when it is created and misses a later `setAlias()`.
+ */
+export function qualifierOf(builder: IWhereBuilder<any>): string {
+  const query = queryOf(builder);
+  return query.TableAlias || query.Table;
+}
+
+/** The builder that `outer(column, levels)` names, seen from a statement of `builder`. */
+export function outerBuilder(builder: IWhereBuilder<any>, levels: number): IWhereBuilder<any> {
+  let target = builder;
+  for (let level = 1; level <= levels; level++) {
+    const source = (queryOf(target) as unknown as { CorrelationSource?: IWhereBuilder<any> }).CorrelationSource;
+    if (!source) {
+      throw new InvalidOperation(`outer(): the query is not a sub-query ${level} level(s) deep; attach it with whereExist() or whereIn()`);
+    }
+    target = source;
+  }
+
+  return target;
+}
+
+/** Reads the driver's value of a selectCondition() column as a boolean. */
+class BooleanColumnMiddleware implements IBuilderMiddleware<any> {
+  constructor(
+    private readonly alias: string,
+    private readonly converter: BooleanValueConverter,
+  ) {}
+
+  public afterQuery(data: any): any {
+    if (Array.isArray(data)) {
+      for (const row of data) {
+        if (row !== null && typeof row === 'object' && this.alias in row) {
+          row[this.alias] = this.converter.fromDB(row[this.alias], row, null);
+        }
+      }
+    }
+
+    return data;
+  }
+
+  public modelCreation(): ModelBase | null {
+    return null;
+  }
+
+  public async afterHydration(): Promise<void> {}
+}
+
 @Injectable(SelectQueryBuilder)
 export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /**
@@ -1646,6 +1737,18 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   public avg(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.AVG, as, this._tableAlias]));
+    return this;
+  }
+
+  /**
+   * Selects `condition` as the column `alias`. Rows read through the builder hold a boolean on every
+   * driver (its BooleanValueConverter); `asRaw()` keeps the driver's 1 / 0.
+   */
+  public selectCondition(alias: string, condition: WhereFunction<T>): this {
+    const builder = new WhereBuilder<T>(this as unknown as WhereBuilder<T>);
+    condition.call(builder);
+    this._columns.push(this._container.resolve<ColumnConditionStatement>(ColumnConditionStatement, [builder, alias]));
+    this.middleware(new BooleanColumnMiddleware(alias, this._container.resolve<BooleanValueConverter>(BooleanValueConverter)));
     return this;
   }
 

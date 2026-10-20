@@ -114,6 +114,7 @@ On top of `SqlDriver.resolve()`. "shared" means the `@spinajs/orm-sql` class, cl
 | `DatetimeValueConverter` | `IsoDatetimeValueConverter` | (SqlDriver) | `IsoDatetimeValueConverter` | `IsoDatetimeValueConverter` |
 | `NowExpression` | `SqliteNowExpression` | `MySqlNowExpression` | `MsSqlNowExpression` | `PostgresNowExpression` |
 | `InSetStatement` | `SqliteInSetStatement` | `MySqlInSetStatement` | `MsSqlInSetStatement` | (SqlDriver, portable `LIKE`) |
+| `TextWrapper` | (SqlDriver, `TEXT`) | `MySqlTextWrapper` (`CHAR`) | `MsSqlTextWrapper` (`NVARCHAR(4000)`) | (SqlDriver, `TEXT`) |
 | `JoinStatement` | `SqlLiteJoinStatement` (no `RIGHT JOIN`) | (SqlDriver) | (SqlDriver) | (SqlDriver) |
 | Other | `SqliteModelToSqlConverter` as `ModelToSqlConverter` | | `MssqlModelDehydrator` | |
 

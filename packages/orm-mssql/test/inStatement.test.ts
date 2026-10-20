@@ -41,4 +41,10 @@ describe('mssql whereIn', function () {
     expect(result.expression).to.contain('[id] IN (?,?,');
     expect(result.bindings).to.have.length(200);
   });
+
+  it('compiles an empty list and where(true / false) to comparisons T-SQL accepts', () => {
+    expect(compiled(driver.select().from('t').whereIn('id', [])).expression).to.contain('WHERE 1 = 0');
+    expect(compiled(driver.select().from('t').where(false)).expression).to.contain('WHERE 1 = 0');
+    expect(compiled(driver.select().from('t').where(true)).expression).to.contain('WHERE 1 = 1');
+  });
 });

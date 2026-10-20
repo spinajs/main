@@ -6,7 +6,7 @@ import type { ResourceRef } from '../contracts/principal.js';
 import { VoteFault, budget, copyData, deepFreeze, validDate } from './vote.js';
 import type { Budget } from './vote.js';
 
-/** Values copied from one model's plan: an RBAC term carries up to authz.rbac.maxPlanSubjects keys. */
+/** Values copied from one model's plan: an RBAC term carries every subject key of the principal, its sets included. */
 const MAX_PLAN_VALUES = 100_000;
 
 export interface PlanAnswer {

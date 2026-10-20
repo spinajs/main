@@ -69,12 +69,12 @@ All in the driver's own `this.Container`, after `OrmDriver.resolve()` registered
 
 | Token | Implementation |
 | --- | --- |
-| `WhereStatement`, `WhereQueryStatement`, `LazyQueryStatement` | `SqlWhereStatement`, `SqlWhereQueryStatement`, `SqlLazyQueryStatement` |
+| `WhereStatement`, `WhereQueryStatement`, `LazyQueryStatement`, `ColumnCompareStatement` | `SqlWhereStatement`, `SqlWhereQueryStatement`, `SqlLazyQueryStatement`, `SqlColumnCompareStatement` |
 | `InStatement`, `InQueryStatement`, `InSetStatement` | `SqlInStatement`, `SqlInQueryStatement`, `SqlInSetStatement` |
 | `ExistsQueryStatement`, `BetweenStatement`, `RawQueryStatement` | `SqlExistsQueryStatement`, `SqlBetweenStatement`, `SqlRawStatement` |
-| `ColumnStatement`, `ColumnRawStatement`, `ColumnMethodStatement` | `SqlColumnStatement`, `SqlColumnRawStatement`, `SqlColumnMethodStatement` |
+| `ColumnStatement`, `ColumnRawStatement`, `ColumnMethodStatement`, `ColumnConditionStatement` | `SqlColumnStatement`, `SqlColumnRawStatement`, `SqlColumnMethodStatement`, `SqlColumnConditionStatement` |
 | `JoinStatement`, `GroupByStatement`, `WithRecursiveStatement` | `SqlJoinStatement`, `SqlGroupByStatement`, `SqlWithRecursiveStatement` |
-| `DateWrapper`, `DateTimeWrapper` | `SqlDateWrapper`, `SqlDateTimeWrapper` |
+| `DateWrapper`, `DateTimeWrapper`, `TextWrapper` | `SqlDateWrapper`, `SqlDateTimeWrapper`, `SqlTextWrapper` |
 | `SelectQueryCompiler`, `InsertQueryCompiler`, `UpdateQueryCompiler`, `DeleteQueryCompiler` | `SqlSelectQueryCompiler`, `SqlInsertQueryCompiler`, `SqlUpdateQueryCompiler`, `SqlDeleteQueryCompiler` |
 | `OrderByQueryCompiler`, `GroupByQueryCompiler`, `TableAliasCompiler` | `SqlOrderByQueryCompiler`, `SqlGroupByCompiler`, `SqlTableAliasCompiler` |
 | `TableQueryCompiler`, `IndexQueryCompiler`, `ForeignKeyQueryCompiler` | `SqlTableQueryCompiler`, `SqlIndexQueryCompiler`, `SqlForeignKeyQueryCompiler` |

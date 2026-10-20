@@ -62,7 +62,7 @@ async function plan(rows: readonly Assignment[], opts: { principal?: Principal; 
   return m.listPlan({ principal: opts.principal ?? alice, permission: reg.require('doc:read'), type: 'doc', env: { now: NOW } }, ctx());
 }
 
-const assignmentTerm = (roles: readonly object[], over: Record<string, unknown> = {}) => ({ op: 'rbac.assignment', args: { subjects: ALICE, membership: false, memberKeys: [], roles, global: false, ...over } });
+const assignmentTerm = (roles: readonly object[], over: Record<string, unknown> = {}) => ({ op: 'rbac.assignment', args: { subjects: ALICE, roles, global: false, ...over } });
 
 describe('authz-rbac listPlan (design §6.2)', () => {
   it('abstains when nothing could grant it', async () => {
@@ -137,30 +137,20 @@ describe('authz-rbac listPlan (design §6.2)', () => {
     expect(await plan([row('v', 'viewer', P1), row('e', 'editor', P2), row('b', 'blocked', O1)], { principal: capped })).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'viewer' }])], deny: [assignmentTerm([{ role: 'blocked' }], { global: true })] });
   });
 
-  it('sets are explicit subjects until maxPlanSubjects, then the term reads the membership table', async () => {
+  it('sets are subjects of the term, nested ones too', async () => {
     const rows = [row('m', 'org.member', O1), row('s', 'viewer', P1, {}, { set: { role: 'org.member', scope: O1 } })];
     expect(await plan(rows)).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'viewer' }], { subjects: ['org:o1#org.member', ...ALICE] })], deny: [] });
-    expect(await plan(rows, { config: { maxPlanSubjects: 2 }, membership: new Closure({}) })).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'viewer' }], { membership: true, memberKeys: ALICE })], deny: [] });
     const nested = [row('n', 'viewer', P1, {}, { set: { role: 'org.member', scope: { type: 'org', id: 'o2' } } })];
     expect(await plan(nested, { membership: new Closure({ 'user:alice': ['org:o2#org.member'] }) })).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'viewer' }], { subjects: ['org:o2#org.member', ...ALICE] })], deny: [] });
   });
 
-  it('past maxPlanSubjects without a MembershipStore it throws: nothing maintains the membership table', async () => {
-    const rows = [row('m', 'org.member', O1), row('s', 'viewer', P1, {}, { set: { role: 'org.member', scope: O1 } }), row('b', 'blocked', P2, {}, { set: { role: 'org.member', scope: O1 } })];
-    let caught: unknown;
-    try {
-      await plan(rows, { config: { maxPlanSubjects: 2 } });
-    } catch (e) {
-      caught = e;
-    }
-    expect((caught as Error).message).to.contain('no MembershipStore');
-    const denyOnly = [row('m', 'org.member', O1), row('v', 'viewer'), row('b', 'blocked', P2, {}, { set: { role: 'org.member', scope: O1 } })];
-    caught = undefined;
-    try {
-      await plan(denyOnly, { config: { maxPlanSubjects: 2 } });
-    } catch (e) {
-      caught = e;
-    }
-    expect((caught as Error).message).to.contain('no MembershipStore');
+  it('many sets stay explicit subjects: there is no subject limit any more', async () => {
+    const sets = Array.from({ length: 600 }, (_, i): ResourceRef => ({ type: 'org', id: `o${i}` }));
+    const rows = [...sets.map((scope, i) => row(`m${i}`, 'org.member', scope)), ...sets.map((scope, i) => row(`s${i}`, 'viewer', P1, {}, { set: { role: 'org.member', scope } }))];
+    const result = await plan(rows, { config: { maxPlanSubjects: 2 } });
+    expect(result.kind).to.equal('terms');
+    const args = (result as unknown as { permit: readonly { args: Record<string, unknown> }[] }).permit[0].args;
+    expect(args.subjects).to.have.length(602);
+    expect(args).to.not.have.property('membership');
   });
 });

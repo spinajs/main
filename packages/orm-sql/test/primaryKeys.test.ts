@@ -128,7 +128,7 @@ describe('primary key predicates', () => {
     const q = sqb().select('*').from('composite_table');
     whereAnyPk(q, extractModelDescriptor(CompositeKeyModel)!, []);
 
-    expect(q.toDB().expression).to.equal('SELECT * FROM `composite_table` WHERE FALSE');
+    expect(q.toDB().expression).to.equal('SELECT * FROM `composite_table` WHERE 1 = 0');
   });
 
   it('whereNotAnyPk on a single-column key compiles to NOT IN', () => {

@@ -77,12 +77,13 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `where(column, operator, value)` | `column <OP> ?` | `operator` is an `Op`: `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`, `<=>`, `like`, `rlike`, `regexp`. An unknown operator throws `InvalidArgument`. With `null`: `=` emits `IS NULL`, `!=` / `<>` emit `IS NOT NULL`, any other operator throws. |
 | `where({ Status: 'paid', Region: ['EU', 'US'], ClosedAt: null })` | `whereObject()` | Each key becomes `= ?`; an array becomes `whereIn()`; `null` becomes `whereNull()`; `undefined` keys are skipped. |
 | `where(function () { ... })` | `( ... )` | Nested group. `this` inside the callback is a new `WhereBuilder` on the same model and alias. |
-| `where(true)` / `where(false)` | `TRUE` / `FALSE` | |
+| `where(true)` / `where(false)` | `1 = 1` / `1 = 0` | Constants every dialect accepts (T-SQL has no `TRUE`/`FALSE`). |
 | `where(RawQuery.create(sql, bindings))` | `sql` verbatim | Columns are not quoted or qualified. |
 | `where(column, operator?, RawQuery.create(sql, bindings))` | `column <OP> sql` | The raw SQL stands in for the value: no `?`, no converter; its bindings follow. |
 | `where('ExpiresAt', '>', driver.now())` | `ExpiresAt > <dialect now>` | `OrmDriver.now()` is the database's current instant: `CURRENT_TIMESTAMP` (PostgreSQL), `UTC_TIMESTAMP(3)` (MySQL), `SYSDATETIMEOFFSET()` (MSSQL), `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` (SQLite). On PostgreSQL that is the start of the current transaction, the same for every statement in it; the other dialects give the time of the statement. PostgreSQL rounds a value it stamps itself to the column's precision (`TIMESTAMPTZ(3)`: milliseconds), so it can lie up to half a millisecond after the clock. In raw SQL use `driver.now().Query`. |
 | `where(new Lazy(fn))` | statements `fn` adds | `Lazy` from `@spinajs/util`. `fn` runs at compile time against a clone of the query, with columns, joins, group-by and where cleared. |
 | `where(Wrapper.Date(column), operator?, value)` | dialect date wrap, eg. `DATE(column) >= ?` | `Wrapper.Date` / `Wrapper.DateTime` build a `Wrap`. Pass a value: a `Wrap` alone throws `InvalidArgument`. |
+| `where(Wrapper.Text(column), operator, value)`, `whereIn(Wrapper.Text(column), values)` | `CAST(column AS TEXT)`; `CHAR` on MySQL, `NVARCHAR(4000)` on MSSQL | Compares a column of any type with text. Values are bound unconverted. `whereIn()` / `whereNotIn()` with a wrapped column and a sub-query throw `InvalidArgument`. |
 | `where('Customer.Country', 'PL')` | condition inside the populated relation | A dotted column populates the relation and filters inside it. See [Relations](06-relations.md). |
 | `where('Customer', 7)` | `<ForeignKey> = ?` | A relation name resolves to the relation's foreign key. |
 | `where(null)` / `where(undefined)` (single argument) | nothing | No-op. |
@@ -90,9 +91,12 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `when(condition, callback, elseCallback?)` | | Runs `callback` (or `elseCallback`) with `this` set to the builder. |
 | `whereNull(column)` / `whereNotNull(column)` | `IS NULL` / `IS NOT NULL` | |
 | `whereNot(column, value)` | `column != ?` | |
-| `whereIn(column, values \| subQuery)` / `whereNotIn(...)` | `IN (?, ...)` / `IN ( SELECT ... )` | An empty array emits `FALSE` (`whereIn`) or `1 = 1` (`whereNotIn`). A non-array, non-builder value throws `InvalidArgument`. Values are converted like `where()` values. PostgreSQL, SQLite and MSSQL bind a long list as one parameter; see [`@spinajs/orm-sql` statements](../orm-sql/03-statements.md). |
+| `whereNot(function () { ... })` | `NOT ( ... )` | `this` inside the callback is a new nested `WhereBuilder`, as for `where(function)`. A `NULL` inside the group makes the negation `NULL`, which keeps no row. An empty group compiles to `1 = 0`. |
+| `whereIn(column, values \| subQuery)` / `whereNotIn(...)` | `IN (?, ...)` / `IN ( SELECT ... )` | An empty array emits `1 = 0` (`whereIn`) or `1 = 1` (`whereNotIn`). A non-array, non-builder value throws `InvalidArgument`. Values are converted like `where()` values. PostgreSQL, SQLite and MSSQL bind a long list as one parameter; see [`@spinajs/orm-sql` statements](../orm-sql/03-statements.md). |
 | `whereBetween(column, [from, to])` / `whereNotBetween(...)` | `BETWEEN ? AND ?` | |
-| `whereExist(subQuery \| relation, callback?)` / `whereNotExists(...)` | `EXISTS ( ... )` / `NOT EXISTS ( ... )` | A relation name dispatches to the `ExistsRelationHandler` of its type. See [Relations](06-relations.md). |
+| `whereExist(subQuery \| relation, callback?)` / `whereNotExists(...)` | `EXISTS ( ... )` / `NOT EXISTS ( ... )` | A relation name dispatches to the `ExistsRelationHandler` of its type. See [Relations](06-relations.md). A ready sub-query is correlated with the builder the call is made on (its `CorrelationSource`) unless it has one; `whereIn()` / `whereNotIn()` with a sub-query do the same. |
+| `whereColumn(left, operator, right)` | `left <OP> right` over two columns | Each side is a column name or a `Wrap`; `right` may be `outer(column, levels = 1)`. A side is qualified by its query's alias, or by the table when the query has none. |
+| `outer(column, levels = 1)` | a column of an enclosing query | The `right` of `whereColumn()` inside a sub-query given to `whereExist()`, `whereNotExists()`, `whereIn()` or `whereNotIn()`. `levels` 1 is the query the sub-query is attached to, 2 the query that one is attached to. Resolved when the query compiles, so it follows a later `setAlias()` and a `clone()`. Outside such a sub-query it throws `InvalidOperation`. |
 | `whereInSet(column, values)` / `whereNotInSet(...)` | dialect membership test on a `@Set()` column | `null`, `undefined` or a value containing `SET_DELIMITER` (`,`) throws `InvalidArgument`. |
 | `whereStartsWith(column, prefix)` | dialect prefix test | Every character of `prefix` is literal (`%`, `_`, `~`, and `[`, `*`, `?` where the dialect reads them). Case variants match only where the dialect's test follows a column collation that ignores case (MySQL, MSSQL); PostgreSQL and SQLite never match them. A prefix that is not a string throws `InvalidArgument` when the query compiles. |
 | `whereOnJoin(callback)` | conditions from `callback` | In a populated relation they go to the relation's `JOIN ... ON`; on a root query they act as `WHERE`. |
@@ -107,7 +111,7 @@ Take any `IWhereBuilder` or `IOrderByBuilder` and the model descriptor (`Model.g
 | Function | Emits |
 | --- | --- |
 | `wherePk(builder, descriptor, value)` | `pk = ?`, or `( a = ? AND b = ? )` for a composite key |
-| `whereAnyPk(builder, descriptor, values)` | `pk IN (...)`, or OR-ed tuples. Empty `values` emits `FALSE`. |
+| `whereAnyPk(builder, descriptor, values)` | `pk IN (...)`, or OR-ed tuples. Empty `values` emits `1 = 0`. |
 | `whereNotAnyPk(builder, descriptor, values)` | `pk NOT IN (...)`, or AND-ed negated tuples. Empty `values` adds nothing. |
 | `orderByPk(builder, descriptor, order)` | One `ORDER BY` term per key column. Returns `false` when the model has no primary key. |
 
@@ -121,6 +125,7 @@ Available on `SelectQueryBuilder`. `InsertQueryBuilder` shares `columns()` and `
 | --- | --- |
 | `select(column, alias?)` | Adds one column. On a model-bound builder, a column that is not a non-virtual descriptor column throws `InvalidArgument`. `'*'` is always accepted. |
 | `select(RawQuery)` | Adds a raw expression. |
+| `selectCondition(alias, function () { ... })` | Adds `CASE WHEN <group> THEN 1 ELSE 0 END AS alias`; `this` in the callback is a nested `WhereBuilder` of the query, so `outer()` in its sub-queries names the query. Rows read through the builder hold `true` / `false` (the driver's `BooleanValueConverter`), a model gets it as a property; `asRaw()` keeps the driver's `1` / `0`. An empty group is `true`. |
 | `select(new Map([[column, alias]]))` | Adds several aliased columns. Only non-virtual model columns are added, so on a builder with no model it adds nothing. |
 | `columns(names)` | Replaces the column list. |
 | `clearColumns()` | Empties the column list. |

@@ -517,8 +517,9 @@ deny that holds lists none. A policy can serve a list only when its condition re
 
 An adapter connects the engine to a kind of resource: it names the type of an object, loads it and
 supplies its ancestors and relations, so a single object is checked before access. An adapter that
-serves lists filters them its own way: the ORM adapter renders the access plan as SQL, each plan
-term through the `PlanTermSql` compiler registered for its op (`.accessible()`); authz-fs checks the
+serves lists filters them its own way: the ORM adapter applies the access plan to the query builder,
+each plan term through the `PlanTermCompiler` registered for its op (`@spinajs/authz-orm/plan`,
+`.accessible()`); authz-fs checks the
 directory, and with `list: 'each'` each entry too.
 
 ### HTTP (`@spinajs/authz-http`)
@@ -608,7 +609,8 @@ export class Folder extends ModelBase {
   is rewritten. A create is checked against the parent: `assert(me, 'task:create', { type: 'folder',
   id })`. Moving a row (writing a `@Parent` column) needs a check of the new parent too.
 - **Lists use one helper.** `Task.where(...).accessible('task:read')` adds one fixed `EXISTS` filter
-  over `authz_assignment`, `authz_subject_membership` and `authz_resource_ancestor`. The permission
+  over `authz_assignment` and `authz_resource_ancestor`; the principal's sets travel in the plan as
+  subject keys. The permission
   must be declared `list: true`: `authz: { permissions: { 'task:read': { list: true } } }` in the root
   domain, `authz.domains.<name>.permissions` in another. Boot refuses one that something can grant
   only by reading the row (boot rule 12). A principal that nothing could ever grant it to gets
@@ -616,6 +618,10 @@ export class Folder extends ModelBase {
   which then matches no row. The same helper works on update and delete
   builders. `.withAccess(['task:update', 'task:delete'])` adds `$access` to every row (key:
   `authz.orm.accessField`), equal to what `POST /user/access/checks` answers for that row.
+- **A list judges expiry by the database's clock.** The filter compares `expires_at` with the
+  database's current time, a check with `AuthzClock`, the application's. Where the two clocks differ,
+  a row whose assignment expires within the skew can be listed while a check of it denies, or the
+  reverse, until the skew has passed. Keep the database and application hosts on one time source.
 - **Every multi-row select on an `@AccessResource` model** calls `.accessible()`, `.unscoped(reason)`,
   or runs in `runAs(SYSTEM, reason)`. A select on exactly one primary-key value (`@FromModel`,
   `findOrFail(id)`) is a single-object load and is not flagged. In the `test` env anything else

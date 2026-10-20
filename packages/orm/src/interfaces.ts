@@ -2,7 +2,7 @@ import { JoinMethod, Op } from './enums.js';
 /* eslint-disable prettier/prettier */
 import { QueryBuilder, RawQuery } from './builders.js';
 import { SortOrder, WhereBoolean } from './enums.js';
-import { IQueryStatement, Wrap } from './statements.js';
+import { IQueryStatement, OuterColumn, Wrap } from './statements.js';
 import { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
 import { IOrmRelation } from './relations.js';
 import { OrmDriver } from './driver.js';
@@ -1277,14 +1277,18 @@ export interface IWhereBuilder<T> {
   whereNotNull(column: string): this;
   whereNull(column: string): this;
   whereNot(column: string, val: unknown): this;
-  whereIn(column: string, val: unknown[] | ISelectQueryBuilder): this;
-  whereNotIn(column: string, val: unknown[] | ISelectQueryBuilder): this;
+  /** `NOT ( ... )` over the group the callback builds; an empty group negates to no row. */
+  whereNot(condition: WhereFunction<T>): this;
+  whereIn(column: string | Wrap, val: unknown[] | ISelectQueryBuilder): this;
+  whereNotIn(column: string | Wrap, val: unknown[] | ISelectQueryBuilder): this;
   whereExist<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;
   whereNotExists<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;
   whereBetween(column: string, val: unknown[]): this;
   whereNotBetween(column: string, val: unknown[]): this;
   whereInSet(column: string, val: unknown[]): this;
   whereNotInSet(column: string, val: unknown[]): this;
+  /** `left <op> right` over two columns; `right` may be `outer(column)`, a column of an enclosing query. */
+  whereColumn(left: string | Wrap, operator: Op, right: string | Wrap | OuterColumn): this;
   whereStartsWith(column: string, prefix: string): this;
 
   // join-scoped conditions - land in relation JOIN ON clause instead of parent WHERE
@@ -1398,6 +1402,8 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
   selectCount(column: string, as?: string): Promise<number>;
   sum(column: string, as?: string): this;
   avg(column: string, as?: string): this;
+  /** `condition` as the boolean column `alias` (`CASE WHEN ... THEN 1 ELSE 0 END`). */
+  selectCondition(alias: string, condition: WhereFunction<T>): this;
   setAlias(alias: string): this;
   setTable(table: string, alias?: string): this;
   distinct(): this;
