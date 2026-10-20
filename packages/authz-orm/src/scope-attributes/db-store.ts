@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { AuthzConfigError, SCOPE_ATTRIBUTE_LIMITS, WritableScopeAttributeStore, principalKey, underPath, unflattenAttributes } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef, ScopeAttributeLeaf } from '@spinajs/authz';
-import { deleteFrom, ormReady } from '@spinajs/orm';
+import { ormReady } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import { requireTransaction, selectFrom } from '../records.js';
@@ -85,7 +85,7 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     const removed = existing.filter((p) => remove.some((r) => underPath(p, r)) || setPaths.some((s) => s !== p && (underPath(p, s) || underPath(s, p))));
     const replaced = setPaths.filter((p) => existing.includes(p));
     const doomed = [...new Set([...removed, ...replaced])];
-    if (doomed.length > 0) await deleteFrom(ScopeAttributeRecord).where(key).whereIn('path', doomed);
+    if (doomed.length > 0) await ScopeAttributeRecord.destroy().where(key).whereIn('path', doomed);
     const updated_at = DateTime.now();
     const updated_by = principalKey(actor).slice(0, BY_MAX);
     await ScopeAttributeRecord.insert(set.map(([path, v]) => ({ ...key, path, value_json: v, value_text: textOf(v), value_num: typeof v === 'number' && Math.abs(v) < NUM_MAX ? v : null, updated_by, updated_at })));
@@ -97,7 +97,7 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     const key = keyOf(ref);
     if (!fits(key)) return 0;
     await this.bump();
-    const { RowsAffected } = await deleteFrom(ScopeAttributeRecord).where(key);
+    const { RowsAffected } = await ScopeAttributeRecord.destroy().where(key);
     return RowsAffected;
   }
 

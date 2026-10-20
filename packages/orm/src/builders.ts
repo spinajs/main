@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { Container, Inject, NewInstance, Constructor, IContainer, DI, Injectable, isConstructor, Class } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation, NotSupported } from '@spinajs/exceptions';
-import { OrmException, OrmNotFoundException } from './exceptions.js';
+import { OrmConnectionMissing, OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
@@ -1870,6 +1870,19 @@ export class DeleteQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
     this._queryMiddlewares.forEach((x) => x.afterQueryCreation(this));
   }
 
+  protected _whereFloor?: number;
+
+  /** Refuses to execute until the caller adds a WHERE; constraints already present (middleware ones) do not count. */
+  public requireWhere(): this {
+    this._whereFloor = this._statements.length;
+    return this;
+  }
+
+  protected async _run(): Promise<IUpdateResult> {
+    assertNarrowed('DELETE', this.Table, this._statements, this._whereFloor);
+    return super._run();
+  }
+
   public toDB(): ICompilerOutput {
     return this._container.resolve<DeleteQueryCompiler>(DeleteQueryCompiler, [this]).compile();
   }
@@ -1990,8 +2003,29 @@ export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
     return this;
   }
 
+  protected _whereFloor?: number;
+
+  /** Refuses to execute until the caller adds a WHERE; constraints already present (middleware ones) do not count. */
+  public requireWhere(): this {
+    this._whereFloor = this._statements.length;
+    return this;
+  }
+
+  protected async _run(): Promise<IUpdateResult> {
+    assertNarrowed('UPDATE', this.Table, this._statements, this._whereFloor);
+    return super._run();
+  }
+
   public toDB(): ICompilerOutput {
     return this._container.resolve<UpdateQueryCompiler>(UpdateQueryCompiler, [this]).compile();
+  }
+}
+
+// Checked before the query middlewares run: one that adds its own WHERE (an ownership filter)
+// would otherwise pass a statement the caller never narrowed.
+function assertNarrowed(statement: string, table: string, statements: IQueryStatement[], floor?: number) {
+  if (floor !== undefined && statements.length <= floor) {
+    throw new OrmException(`Refusing an unbounded ${statement} on ${table}; narrow it with where(), or use truncate() to clear the table`);
   }
 }
 
@@ -3429,7 +3463,7 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
   const driver = DI.resolve<OrmDriver>('OrmConnection', [dsc.Connection]);
 
   if (!driver) {
-    throw new Error(`model ${model.name} have invalid connection ${dsc.Connection}, please check your db config file or model connection name`);
+    throw new OrmConnectionMissing(`model ${model.name} have invalid connection ${dsc.Connection}, please check your db config file or model connection name`, dsc.Connection!);
   }
 
   const cnt = driver.Container;

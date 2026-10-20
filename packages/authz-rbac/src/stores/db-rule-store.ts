@@ -2,7 +2,7 @@ import { AuthzAdminFailure, GLOBAL, principalKey } from '@spinajs/authz';
 import type { AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef, RuleDef } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { UniqueViolation, deleteFrom } from '@spinajs/orm';
+import { UniqueViolation } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 
 import { AdminRuleStore } from '../admin/ports.js';
@@ -94,7 +94,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
 
     if (await this.existingRule(id)) {
       await RuleRecord.update(recordValues<RuleRecord>(values)).where('id', id);
-      await deleteFrom(RuleSubjectRecord).where('rule_id', id);
+      await RuleSubjectRecord.destroy().where('rule_id', id);
     } else {
       try {
         await RuleRecord.insert(recordValues<RuleRecord>({ id, ...values, created_by: principalKey(actor), created_at: toDateTime(this.now()) }));
@@ -127,8 +127,8 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
     if (!row) throw new AuthzAdminFailure('not_found', `Rule ${JSON.stringify(id)} does not exist`, 'id');
 
     const [rule] = await this.rulesOf([row]);
-    await deleteFrom(RuleSubjectRecord).where('rule_id', id);
-    await deleteFrom(RuleRecord).where('id', id);
+    await RuleSubjectRecord.destroy().where('rule_id', id);
+    await RuleRecord.destroy().where('id', id);
     await bumpVersion(tx, this.domain(), where);
     return rule;
   }
@@ -155,13 +155,13 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
     const rules = await this.rulesOf(ruleRows);
     if (ruleRows.length > 0) {
       const ids = ruleRows.map((r) => r.id);
-      await deleteFrom(RuleSubjectRecord).whereIn('rule_id', ids);
-      await deleteFrom(RuleRecord).whereIn('id', ids);
+      await RuleSubjectRecord.destroy().whereIn('rule_id', ids);
+      await RuleRecord.destroy().whereIn('id', ids);
     }
 
     const setAtScope = { subject_type: columns.scope_type, subject_id: columns.scope_id };
     const subjectRows = await RuleSubjectRecord.query().where(setAtScope).where('subject_role', '!=', '');
-    if (subjectRows.length > 0) await deleteFrom(RuleSubjectRecord).where(setAtScope).where('subject_role', '!=', '');
+    if (subjectRows.length > 0) await RuleSubjectRecord.destroy().where(setAtScope).where('subject_role', '!=', '');
 
     await bumpVersion(tx, this.domain(), where);
     return {

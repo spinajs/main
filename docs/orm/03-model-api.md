@@ -51,7 +51,7 @@ Every method below is bound by `Orm`. Before `Orm` resolves, or on a class witho
 | `exists(pk)` | `Promise<boolean>` | Selects only the key columns of the row with this key. With `pk === null` it checks whether the table has any row. |
 | `insert(data, behaviour?)` | `Promise<IInsertResult>` | Inserts one model, one plain object or an array. See [Insert](#insert). |
 | `update(data)` | update builder | `UPDATE ... SET data`. Every value whose column has a converter (`@Json`, `@DateTime`, `@Int64`, `@Set`, `@Uuid`, ...) is converted the way `insert()` converts it; `null`, `undefined` and keys without a column are bound as they are. A `@DateTime` column accepts ISO 8601 and SQL-format (`YYYY-MM-DD HH:mm:ss`) strings; any other string makes `update(data)` throw `InvalidArgument` synchronously, before a builder exists. Chain a `where()`: an update without one throws `InvalidArgument` too, but that rejects when the builder is awaited. Throws `OrmException` when `data` is a `ModelBase`. |
-| `destroy(pk \| pk[])` | delete builder | `DELETE` by key, or `UPDATE ... SET DeletedAt = now` on a `@SoftDelete` model. Throws `OrmException` for `undefined`, `null` or `[]`. |
+| `destroy(pk? \| pk[])` | delete builder | `DELETE` by key, or `UPDATE ... SET DeletedAt = now` on a `@SoftDelete` model. Without a key, a builder to narrow with `where()`; executing it un-narrowed rejects with `OrmException`, a WHERE added by a query middleware does not count. Throws `OrmException` for `null` or `[]`. |
 | `truncate()` | truncate builder | Clears the table. |
 | `create(data)` | `Promise<model>` | `new Model(data)`, then `insert()`. |
 | `getOrCreate(pk, data?)` | `Promise<model>` | Looks up by `pk` (skipped when `null`) and by every `Unique` column with its value from `data`. Inserts `new Model(data)` when nothing matches. |
@@ -123,7 +123,6 @@ stores that must refuse a write outside their transaction.
 | `ormReady()` | Resolves the Orm unless one already created its connections; concurrent callers share one resolve. Await it before the first model call in a process that may not have booted the Orm (a cli command). |
 | `ormConnection(name)` | The driver of connection `name`, an alias from `db.Aliases` included. |
 | `modelDriver(Model)` | The driver `Model`'s queries run on; a transaction open on it is the one they join. Works inside migrations. |
-| `deleteFrom(Model)` | A `DeleteQueryBuilder` on `Model`'s table to narrow with `where()`; `Model.destroy()` takes primary keys only. |
 | `requireModelConnection(Model, driver)` | Returns `driver` when it is `Model`'s driver; throws `NotAnOrmDriver` or `ConnectionMismatch`. |
 | `requireModelTransaction(Model, driver)` | Returns `driver` when it is an `OrmDriver` with a transaction open in this async context on `Model`'s connection. Checks in this order: `NotAnOrmDriver`, `TransactionRequired`, the connection errors below, `ConnectionMismatch`. |
 
@@ -152,13 +151,13 @@ its connections and `OrmConnectionMissing` (with `connection`) when no connectio
 
 | Exception | Thrown by |
 | --- | --- |
-| `OrmException` | Invalid use: a missing descriptor or relation, `destroy()` without keys, `newest()` without `@CreatedAt`, `archive()` without `@Archived`, an array insert with a behaviour. Driver errors carry `driver`, `query`, `bindings` and `inner`. |
+| `OrmException` | Invalid use: a missing descriptor or relation, `destroy()` executed without keys or `where()`, `newest()` without `@CreatedAt`, `archive()` without `@Archived`, an array insert with a behaviour. Driver errors carry `driver`, `query`, `bindings` and `inner`. |
 | `OrmNotFoundException` | `getOrFail()`, `fresh()`, `refresh()` and any builder's `firstOrFail()` when no row matches. Extends `OrmException`. |
 | `NoRowsAffected` | `insertModel()`, `deleteModel()` and the `_insert()` / `_delete()` wrappers when the statement changed no row. Extends `OrmException`. |
 | `UniqueViolation` | Any statement that breaks a primary key or unique constraint, on every driver. Extends `ResourceDuplicated` from `@spinajs/exceptions`, not `OrmException`. Carries `table`, `constraint` and `columns` when the driver reports them, and the native error as `inner`; its message is the native message. |
 | `ConstraintViolation` | A NOT NULL, CHECK or FOREIGN KEY failure. Extends `OrmException`. `kind` is `'not_null'`, `'check'`, `'foreign_key'` or `'other'`; `table`, `constraint`, `columns` and `inner` as for `UniqueViolation`. |
 | `OrmNotResolved` | `ormConnection()`, `modelDriver()` and the helpers built on them before an Orm created its connections. Extends `OrmException`. |
-| `OrmConnectionMissing` | The same helpers when no connection or `db.Aliases` entry has the name; `connection` holds it. Extends `OrmException`. |
+| `OrmConnectionMissing` | The same helpers, and the model statics, when no connection or `db.Aliases` entry has the name; `connection` holds it. Extends `OrmException`. |
 | `NotAnOrmDriver`, `TransactionRequired`, `ConnectionMismatch` | `requireModelConnection()` / `requireModelTransaction()`. `ConnectionMismatch` carries `table`, `expected` (the model's connection) and `actual` (the given driver's). All extend `OrmException`. |
 
 ## Services and extension points
@@ -213,10 +212,11 @@ await payment.save();
 ```
 
 ```ts
-// Don't: destroy() refuses an unbounded delete and throws OrmException
+// Don't: destroy() without keys refuses to run un-narrowed and rejects with OrmException
 await Invoice.destroy();
 
-// Do
+// Do: narrow it, or clear the table on purpose
+await Invoice.destroy().where('Status', 'draft');
 await Invoice.truncate();
 ```
 

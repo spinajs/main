@@ -3,7 +3,7 @@ import 'mocha';
 
 import { AuthzConfigError } from '@spinajs/authz';
 import type { AuthzTx } from '@spinajs/authz';
-import { ConnectionMismatch, NotAnOrmDriver, OrmConnectionMissing, TransactionRequired, deleteFrom } from '@spinajs/orm';
+import { ConnectionMismatch, NotAnOrmDriver, OrmConnectionMissing, TransactionRequired } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
@@ -70,7 +70,7 @@ describe('authz-orm records', function () {
           ['project', 'p1', 1],
         ]);
         expect(rows.every((r) => r instanceof AncestorRecord && typeof r.depth === 'number')).to.equal(true);
-        const { RowsAffected } = await deleteFrom(AncestorRecord).where('resource_type', 'task').whereIn('ancestor_id', ['p1']);
+        const { RowsAffected } = await AncestorRecord.destroy().where('resource_type', 'task').whereIn('ancestor_id', ['p1']);
         expect(RowsAffected).to.equal(1);
       });
 
@@ -142,7 +142,7 @@ describe('authz-orm records', function () {
           expect(e.message).to.equal('AncestorRecord: no ORM connection answers to "authz"; set db.Aliases.authz');
           expect(e.cause).to.be.instanceOf(OrmConnectionMissing);
         }
-        expect(() => deleteFrom(AncestorRecord)).to.throw(OrmConnectionMissing);
+        expect(() => AncestorRecord.destroy()).to.throw(OrmConnectionMissing);
       } finally {
         db.orm.Connections.set('authz', authz);
       }

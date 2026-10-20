@@ -1,6 +1,5 @@
 import { DI } from '@spinajs/di';
 
-import { DeleteQueryBuilder, createQuery } from './builders.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { OrmDriver } from './driver.js';
 import { ConnectionMismatch, NotAnOrmDriver, OrmConnectionMissing, OrmException, OrmNotResolved, TransactionRequired } from './exceptions.js';
@@ -42,12 +41,6 @@ export function modelDriver(model: typeof ModelBase): OrmDriver {
   const descriptor = extractModelDescriptor(model);
   if (!descriptor) throw new OrmException(`${model.name} has no model descriptor; decorate it with @Model`);
   return connectionDriver(descriptor.Connection!, model.name);
-}
-
-/** A DELETE on `model`'s table for the caller to narrow; `Model.destroy()` takes primary keys only. */
-export function deleteFrom<M extends typeof ModelBase>(model: M): DeleteQueryBuilder<InstanceType<M>> {
-  modelDriver(model);
-  return createQuery(model, DeleteQueryBuilder).query as DeleteQueryBuilder<InstanceType<M>>;
 }
 
 function describe(value: unknown): string {

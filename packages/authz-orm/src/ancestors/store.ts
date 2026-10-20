@@ -1,6 +1,5 @@
 import { resourceKey } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
-import { deleteFrom } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { idLookup, idText, tableOf } from '../ids.js';
@@ -60,7 +59,7 @@ export async function readParents(driver: OrmDriver, refs: readonly ResourceRef[
 
 /** Deletes the rows whose resource is one of `refs`. */
 export async function deleteRowsOf(refs: readonly ResourceRef[]): Promise<void> {
-  for (const [type, ids] of groupIds(refs)) await deleteFrom(AncestorRecord).where('resource_type', type).whereIn('resource_id', ids);
+  for (const [type, ids] of groupIds(refs)) await AncestorRecord.destroy().where('resource_type', type).whereIn('resource_id', ids);
 }
 
 /** Replaces the rows of `nodes` with `closure` (nodes without an entry get none). */

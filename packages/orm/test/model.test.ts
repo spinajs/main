@@ -3,7 +3,7 @@ import './../src/bootstrap.js';
 import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator } from './../src/hydrators.js';
 import { ModelNoConnection } from './mocks/models/ModelNoConnection.js';
 import { ModelNoDescription } from './mocks/models/ModelNoDescription.js';
-import { SelectQueryBuilder } from './../src/builders.js';
+import { DeleteQueryBuilder, SelectQueryBuilder } from './../src/builders.js';
 import { Model1 } from './mocks/models/Model1.js';
 import { Configuration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
@@ -1415,18 +1415,33 @@ describe('General model tests', () => {
     expect(c).to.eq(0);
   });
 
-  it('static destroy() with no arguments should throw ( B4a )', async () => {
+  it('static destroy() with no arguments returns a delete that refuses to run un-narrowed ( B4a )', async () => {
     // @ts-ignore
     await db();
 
-    expect(() => (RawModel as any).destroy()).to.throw(/primary keys/);
+    const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(Promise.resolve({ RowsAffected: 0 }));
+
+    const query = (RawModel as any).destroy();
+    expect(query).to.be.instanceOf(DeleteQueryBuilder);
+    await expect(query).to.be.rejectedWith(/Refusing an unbounded DELETE/);
+    expect(execute.called).to.eq(false);
+  });
+
+  it('static destroy() with no arguments runs once narrowed with where() ( B4a )', async () => {
+    // @ts-ignore
+    await db();
+
+    const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(Promise.resolve({ RowsAffected: 1 }));
+
+    await (RawModel as any).destroy().where('Id', 1);
+    expect(execute.calledOnce).to.eq(true);
   });
 
   it('static destroy(null) should throw ( B4a )', async () => {
     // @ts-ignore
     await db();
 
-    expect(() => (RawModel as any).destroy(null)).to.throw(/primary keys/);
+    expect(() => (RawModel as any).destroy(null)).to.throw(/null primary key/);
   });
 
   it('_update fp helper should resolve a clean ( no-op ) model instead of rejecting ( B11 )', async () => {

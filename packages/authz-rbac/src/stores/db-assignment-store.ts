@@ -2,7 +2,7 @@ import { AuthzAdminFailure, principalKey } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { UniqueViolation, deleteFrom } from '@spinajs/orm';
+import { UniqueViolation } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import type { DateTime } from 'luxon';
 import { randomUUID } from 'node:crypto';
@@ -123,7 +123,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     const where = `${this.name}.revoke`;
     requireTransaction(AssignmentRecord, tx, where);
     await requireRow(id);
-    await deleteFrom(AssignmentRecord).where('id', id);
+    await AssignmentRecord.destroy().where('id', id);
     await bumpVersion(tx, this.domain(), where);
   }
 
@@ -304,7 +304,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
   private async deleteRows(tx: AuthzTx, where: string, rows: readonly AssignmentRecord[]): Promise<readonly Assignment[]> {
     if (rows.length > 0) {
-      await deleteFrom(AssignmentRecord).whereIn(
+      await AssignmentRecord.destroy().whereIn(
         'id',
         rows.map((r) => r.id),
       );

@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { AUTHZ_CONNECTION, AuthzConfigError } from '@spinajs/authz';
-import { OrmConnectionMissing, deleteFrom, extractModelDescriptor } from '@spinajs/orm';
+import { OrmConnectionMissing, extractModelDescriptor } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import * as rbac from '../../src/index.js';
@@ -40,8 +40,8 @@ describe('authz records', () => {
     expect(fromDateTime(null)).to.eq(null);
   });
 
-  it('leave ormReady and deleteFrom to @spinajs/orm', () => {
-    for (const name of ['ormReady', 'deleteFrom']) expect(rbac, name).to.not.have.property(name);
+  it('leave ormReady to @spinajs/orm', () => {
+    expect(rbac).to.not.have.property('ormReady');
   });
 });
 
@@ -92,8 +92,8 @@ for (const kind of DB_KINDS) {
       const [version] = await VersionRecord.where('domain', 'records');
       expect(version.version).to.eq('7');
 
-      await deleteFrom(RuleRecord).where('id', 'r1');
-      await deleteFrom(VersionRecord).where('domain', 'records');
+      await RuleRecord.destroy().where('id', 'r1');
+      await VersionRecord.destroy().where('domain', 'records');
       expect(await RuleRecord.where('id', 'r1')).to.deep.eq([]);
     });
 
@@ -111,7 +111,7 @@ for (const kind of DB_KINDS) {
       expect(updated.attributes).to.deep.eq({ a: 2 });
       expect(fromDateTime(updated.revoked_at)).to.deep.eq(at);
 
-      await deleteFrom(LinkRecord).where('id', 'l1');
+      await LinkRecord.destroy().where('id', 'l1');
     });
   });
 }

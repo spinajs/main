@@ -1,7 +1,6 @@
 import type { AuthzTx } from '@spinajs/authz';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { deleteFrom } from '@spinajs/orm';
 
 import { AdminMembershipStore } from '../admin/ports.js';
 import { latestPerSet } from '../membership/closure.js';
@@ -58,7 +57,7 @@ export class DbMembershipStore extends withDbRbacStore(AdminMembershipStore) {
   async replace(memberKey: string, rows: readonly MembershipRow[], tx: AuthzTx): Promise<void> {
     await this.ready();
     requireTransaction(MembershipRecord, tx, `${this.name}.replace`);
-    await deleteFrom(MembershipRecord).where('member_key', memberKey);
+    await MembershipRecord.destroy().where('member_key', memberKey);
     await MembershipRecord.insert(rows.map((r) => recordValues<MembershipRecord>({ member_key: memberKey, set_key: r.setKey, depth: r.depth, expires_at: toDateTime(r.expiresAt) })));
   }
 

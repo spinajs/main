@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { AuthzAdminFailure, AuthzConfigError, GLOBAL, parseCondition, principalKey } from '@spinajs/authz';
 import type { AuthzTx, Policy, PrincipalRef } from '@spinajs/authz';
-import { UniqueViolation, deleteFrom, ormReady } from '@spinajs/orm';
+import { UniqueViolation, ormReady } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import { PolicyStore } from '../../contracts.js';
@@ -42,7 +42,7 @@ export class DbPolicyStore extends PolicyStore {
     fits(checked);
     if (actor && principalKey(actor).length > POLICY_ACTOR_MAX_LENGTH) throw new AuthzConfigError(`DbPolicyStore: the actor key is longer than the created_by column (${POLICY_ACTOR_MAX_LENGTH})`);
     requirePolicyTransaction(tx, where);
-    await deleteFrom(PolicyRecord).where('id', checked.id);
+    await PolicyRecord.destroy().where('id', checked.id);
     try {
       await PolicyRecord.insert(policyToRecord(checked, actor, now) as Partial<PolicyRecord>);
     } catch (err) {
@@ -57,7 +57,7 @@ export class DbPolicyStore extends PolicyStore {
     // Only the id, so a row whose JSON no longer parses can still be deleted (load, version and policy reads refuse it).
     const [before] = await PolicyRecord.query().select('id').where('id', id);
     if (!before) return { affected: 0, tags: [] };
-    await deleteFrom(PolicyRecord).where('id', id);
+    await PolicyRecord.destroy().where('id', id);
     return { affected: 1, tags: policyTags(id) };
   }
 

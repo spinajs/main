@@ -1,6 +1,6 @@
 import { Injectable, Singleton } from '@spinajs/di';
 import type { ITransactionOptions, OrmDriver } from '@spinajs/orm';
-import { deleteFrom, ormReady } from '@spinajs/orm';
+import { ormReady } from '@spinajs/orm';
 import { AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError } from '@spinajs/authz';
 import type { AuthzTx, RememberedBatch } from '@spinajs/authz';
 
@@ -130,7 +130,7 @@ export class DbAuthzAdminBackend extends AuthzAdminBackend {
     const driver = recordDriver(AdminIdempotencyRecord);
     refuseNested(driver);
     await readTable(driver, AUTHZ_ADMIN_IDEMPOTENCY_TABLE, IDEMPOTENCY_MIGRATION, async () => {
-      await deleteFrom(AdminIdempotencyRecord).where('domain', domain).where('expires_at', '<=', now);
+      await AdminIdempotencyRecord.destroy().where('domain', domain).where('expires_at', '<=', now);
     });
     const [row] = await AdminIdempotencyRecord.query().where(id);
     if (!row || row.expires_at.toMillis() <= now.getTime()) return undefined;
@@ -145,7 +145,7 @@ export class DbAuthzAdminBackend extends AuthzAdminBackend {
     const existing = await readTable(d, AUTHZ_ADMIN_IDEMPOTENCY_TABLE, IDEMPOTENCY_MIGRATION, find);
     if (existing) {
       if (existing.expires_at.toMillis() > Date.now()) return 'exists';
-      await deleteFrom(AdminIdempotencyRecord).where(id);
+      await AdminIdempotencyRecord.destroy().where(id);
     }
     const row = { ...id, results: encode(batch.results), rows: encode(batch.rows), expires_at: toDateTime(expiresAt), created_at: toDateTime(new Date()) };
     try {

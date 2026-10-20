@@ -587,11 +587,11 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 
   /**
-   * Deletes model from db
+   * Deletes rows by primary key, or without one returns a DELETE to narrow with `where()`; executing it
+   * un-narrowed throws, `truncate()` clears the table. A SoftDelete model gets an UPDATE of DeletedAt instead.
    *
-   * @param pk - primary key
+   * @param pk - primary key or keys
    */
-
   public static destroy<T extends typeof ModelBase>(this: T, _pk?: any | any[]): DeleteQueryBuilder<InstanceType<T>> & T['_queryScopes'] {
     throw new Error('Not implemented');
   }
@@ -1472,15 +1472,16 @@ export const MODEL_STATIC_MIXINS = {
     return (await query.firstOrFail()) as unknown as Promise<InstanceType<T>>;
   },
 
-  destroy<T extends typeof ModelBase>(pks?: any | any[]): IWhereBuilder<InstanceType<T>> {
+  destroy<T extends typeof ModelBase>(pks?: any | any[]): DeleteQueryBuilder<InstanceType<T>> | UpdateQueryBuilder<InstanceType<T>> {
     const description = _descriptor(this)!;
 
-    if (pks === undefined || pks === null) {
-      throw new OrmException('Cannot destroy without primary keys ( unbounded DELETE/UPDATE ). Use truncate() to clear the whole table.');
+    // `undefined` is "no keys given"; a null key or an empty list is a caller bug, not "every row".
+    if (pks === null) {
+      throw new OrmException('Cannot destroy by a null primary key; to delete by a condition call destroy() without arguments and narrow it with where()');
     }
 
-    const data = Array.isArray(pks) ? pks : [pks];
-    if (data.length === 0) {
+    const data = pks === undefined ? undefined : Array.isArray(pks) ? pks : [pks];
+    if (data?.length === 0) {
       throw new OrmException('Cannot delete empty array of primary keys');
     }
 
@@ -1492,8 +1493,10 @@ export const MODEL_STATIC_MIXINS = {
       });
     }
 
-    if (pks) {
+    if (data) {
       whereAnyPk(query as unknown as IWhereBuilder<any>, description, data);
+    } else {
+      query.requireWhere();
     }
 
     return query;

@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, ConnectionMismatch, Model, ModelBase, NotAnOrmDriver, Orm, OrmConnectionMissing, OrmDriver, Primary, TransactionRequired, deleteFrom, modelDriver, ormConnection, ormReady, requireModelConnection, requireModelTransaction } from '@spinajs/orm';
+import { Connection, ConnectionMismatch, Model, ModelBase, NotAnOrmDriver, Orm, OrmConnectionMissing, OrmDriver, OrmException, Primary, TransactionRequired, modelDriver, ormConnection, ormReady, requireModelConnection, requireModelTransaction } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
@@ -102,7 +102,7 @@ describe('sqlite model driver helpers', function () {
     expect(err.message).to.eq('MdLost: no ORM connection answers to "md-lost"; add it to db.Connections or map it in db.Aliases');
     expect(err.connection).to.eq('md-lost');
     expect(() => ormConnection('nope')).to.throw(OrmConnectionMissing, /^no ORM connection answers to "nope"; add it to db.Connections or map it in db.Aliases$/);
-    expect(() => deleteFrom(MdLost)).to.throw(OrmConnectionMissing);
+    expect(() => MdLost.destroy()).to.throw(OrmConnectionMissing);
   });
 
   it('ormReady returns at once when an Orm created its connections', async () => {
@@ -110,16 +110,30 @@ describe('sqlite model driver helpers', function () {
     expect(modelDriver(MdDoc)).to.equal(driver('sqlite'));
   });
 
-  it('deleteFrom deletes the rows the caller narrows it to', async () => {
+  it('destroy() without keys deletes the rows the caller narrows it to', async () => {
     await MdDoc.insert([
       { Id: 1, Name: 'a' },
       { Id: 2, Name: 'b' },
     ]);
 
-    const result = await deleteFrom(MdDoc).where('Name', 'a');
+    const result = await MdDoc.destroy().where('Name', 'a');
 
     expect(result.RowsAffected).to.eq(1);
     expect((await MdDoc.all()).map((d) => d.Id)).to.deep.eq([2]);
+  });
+
+  it('destroy() without keys refuses to run un-narrowed; a null key or an empty key list throws at once', async () => {
+    await MdDoc.insert([{ Id: 1, Name: 'a' }]);
+
+    const err = await MdDoc.destroy().then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).to.be.instanceOf(OrmException);
+    expect((err as Error).message).to.eq('Refusing an unbounded DELETE on md_doc; narrow it with where(), or use truncate() to clear the table');
+    expect(() => MdDoc.destroy(null)).to.throw(OrmException, /null primary key/);
+    expect(() => MdDoc.destroy([])).to.throw(OrmException, /empty array of primary keys/);
+    expect((await MdDoc.all()).map((d) => d.Id)).to.deep.eq([1]);
   });
 
   it('requireModelTransaction returns the driver of a transaction on the model connection', async () => {

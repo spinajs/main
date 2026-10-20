@@ -1,5 +1,4 @@
 import { Argument, Command } from '@spinajs/cli';
-import { deleteFrom } from '@spinajs/orm';
 
 import { expectedRows, requireType } from '../../ancestors/full.js';
 import { AncestorRecord } from '../../ancestors/record.js';
@@ -17,7 +16,7 @@ export class AncestorsRebuildCommand extends AuthzOrmCliCommand {
           const driver = this.driverFor(t);
           const rows = await expectedRows(driver, t);
           await driver.transaction(async () => {
-            await deleteFrom(AncestorRecord).where('resource_type', t);
+            await AncestorRecord.destroy().where('resource_type', t);
             await AncestorRecord.insert(rows);
           });
           this.out(`${t}: ${rows.length} rows`);

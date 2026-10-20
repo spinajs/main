@@ -1,7 +1,7 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { OrmConnectionMissing, deleteFrom, modelDriver, ormReady } from '@spinajs/orm';
+import { OrmConnectionMissing, modelDriver, ormReady } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
@@ -127,7 +127,7 @@ async function tree(fs: string, path: string): Promise<FsObjectRecord[]> {
 async function deleteRows(rows: readonly FsObjectFields[]): Promise<void> {
   const byFs = new Map<string, string[]>();
   for (const r of rows) byFs.set(r.fs, [...(byFs.get(r.fs) ?? []), r.path]);
-  for (const [fs, paths] of byFs) await deleteFrom(FsObjectRecord).where({ fs }).whereIn('path', paths);
+  for (const [fs, paths] of byFs) await FsObjectRecord.destroy().where({ fs }).whereIn('path', paths);
 }
 
 function keyOf(fsName: string, path: string): { fs: string; path: string } {
