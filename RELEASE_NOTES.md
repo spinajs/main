@@ -36,6 +36,20 @@ what each fix changes for an app.
    The `Orm` boot now fails when a registered model's table is missing (`db.StrictTableCheck`, default
    `true`) and names each model, table and connection. Every `@spinajs/authz*`, `users*` and `authn*`
    package you import registers its models. `db.StrictTableCheck: false` restores the lenient behaviour.
+   **Migrate `default` and the `authz` connection in the same run** when `db.Aliases.authz` points
+   elsewhere: `spinajs migrate-up` without `--connection`, or `Migration.OnStartup` on both connections.
+   The runner orders pending migrations across connections, so `AuthzRbacUserRoles_2026_10_01_00_01_00`
+   (on `authz`) copies `users.Role` before `AuthzRbacDropUserRole_2026_10_01_00_02_00` (on `default`)
+   drops it. Run on `default` alone, the drop fails, changing nothing, while a role is not copied.
+9. **Check stored datetimes.** 3.0 writes and reads every datetime as a UTC instant: PostgreSQL sessions
+   run with `TimeZone=UTC`, MySQL with `time_zone = '+00:00'`, MSSQL with `useUTC`, and new columns are
+   zone-aware (ORM section below). 2.x wrote the local wall clock without an offset: SQLite text, PostgreSQL
+   `timestamp`, MySQL `DATETIME`. Unless every 2.x process ran with `TZ=UTC`, 3.0 reads those rows shifted
+   by the zone's offset at the time they were written. On SQLite, old `yyyy-MM-dd HH:mm:ss` rows and new
+   `yyyy-MM-ddTHH:mm:ss.SSSZ` rows compare and sort wrongly as text (a session's expiry, for example) until
+   the old rows are rewritten. Nothing migrates them for you: confirm that 2.x ran with `TZ=UTC`, or rewrite
+   the datetime columns before the first start (shift the values to UTC; on SQLite, write them as ISO 8601
+   with `Z`).
 
 ## BREAKING CHANGES
 
@@ -108,8 +122,16 @@ what each fix changes for an app.
   may lie ahead of now or before the login. A value set at runtime past the schema that is not a finite
   number of 0 or more ends the impersonation.
 - `authz.queue.stampedInitiatorWarning`, `authz.orm.allowJit`, `authz.http.admin.domain`,
-  `authz.fsMetadata.connection`, `telemetry.auth.permissions.*`, `telemetry.auth.domain` and
-  `telemetry.auth.skipInDevelopment` are new.
+  `telemetry.auth.permissions.*`, `telemetry.auth.domain` and `telemetry.auth.skipInDevelopment` are new.
+- **The authz tables live on ORM connection aliases.** Every authz table uses the alias `authz`, and
+  authz-fs's `fs_object` uses `authz-fs`. Map them to a connection with `db.Aliases.authz` and
+  `db.Aliases['authz-fs']`; both default to `default`. These keys are removed and fail boot with a message
+  that names the alias to set: `authz.rbac.connection`, `authz.admin.connection`, `authz.<model>.connection`
+  of an ABAC model (`authz.abac.connection`) and `authz.fsMetadata.connection`.
+- `authz.rbac.maxPlanSubjects` is no longer read: a list term carries every subject. A value left set logs
+  one warning.
+- `db.StrictTableCheck` (default `true`) is new: the `Orm` boot fails when a registered model's table is
+  missing (step 8 above).
 
 ### Authorization
 
@@ -149,6 +171,19 @@ what each fix changes for an app.
 - 2.x `UserRoleGranted` / `UserRoleRevoked` queue events are gone. `RoleAssigned` / `RoleRevoked` go to
   `AuthzEventSink`s; only `LogAuthzEventSink` ships, so register your own sink to put them on a queue.
 - Swagger shows `x-authz-permission` and `x-authz-resource` instead of `x-rbac-*`.
+- **Lists build ORM conditions, not SQL text.** A custom plan term extends `PlanTermCompiler` (authz-orm)
+  and adds conditions to a where builder; `PlanTermSql`, `SqlRowContext` and `SqlFragment` (authz) are
+  gone. In authz-orm, `renderPlan` is `planFilter`, `rowContext` is `planRow`, `withinSql` is
+  `applyWithin`, `RelationOwnerSql` / `RelationSelfSql` are `RelationOwnerTerm` / `RelationSelfTerm`,
+  and `dialectOf`, `castText`, `quoterOf`, `SqlDialect` and `storesConnection` are removed. In authz-rbac,
+  `RbacAssignmentSql` / `rbacAssignmentSql` are `RbacAssignmentTerm` / `applyRbacAssignment`, and
+  `sqliteDateTime` is removed.
+- **Stores take no connection options.** `DbPolicyStore`, `DbScopeAttributeStore` and
+  `OrmFileMetadataStore` have no constructor arguments (the `driver` argument and the
+  `DbScopeAttributeStoreOptions` / `OrmFileMetadataStoreOptions` types are gone): they read through ORM
+  models on the `authz` and `authz-fs` aliases. Also removed: `policyToRow` (now `policyToRecord`, and
+  `rowToPolicy` is `recordToPolicy`) from authz-abac, `parseAttributeLeaf` from authz, and
+  `AUTHZ_FS_METADATA_CONFIGURATION_SCHEMA` from authz-fs.
 
 ### Authentication
 
@@ -335,6 +370,42 @@ what each fix changes for an app.
   `authz_admin_idempotency` yet.
 - `@spinajs/orm` quotes join keys, MSSQL aliases, `ORDER BY` and `MERGE` columns and recursive CTE
   column lists with the driver's quoter.
+
+### ORM (`@spinajs/orm` and its drivers)
+
+- **Datetimes are UTC instants** (step 9 above). `toJSON()` and `dehydrate()` emit ISO 8601 in UTC with
+  `Z` (`2026-10-19T12:00:00.123Z`), also for numeric columns; 2.x emitted SQL text in the value's own zone.
+  The created, updated, soft-delete and archive timestamps use `DateTime.utc()`, and raw
+  `NOW()` or `CURRENT_TIMESTAMP` now give UTC.
+- **`dateTime()` and `timestamp()` create other column types**: PostgreSQL `TIMESTAMPTZ(3)` (was
+  `TIMESTAMP`), MySQL `DATETIME(3)` / `TIMESTAMP(3)`, MSSQL `DATETIMEOFFSET(3)` for both (MSSQL
+  `timestamp()` is no longer `rowversion`), SQLite `TEXT` as before. Existing columns are not altered.
+- **Constraint errors.** `UniqueViolation` (extends `ResourceDuplicated`, not `OrmException`) and
+  `ConstraintViolation` (an `OrmException` with `kind`: `not_null`, `check`, `foreign_key` or `other`) are
+  thrown by every driver. On SQLite a NOT NULL, CHECK or foreign key failure is no longer
+  `ResourceDuplicated`. On PostgreSQL, MySQL and MSSQL a duplicate was an `OrmException`, so
+  `catch (e) { if (e instanceof OrmException) … }` no longer catches it. MSSQL errors are wrapped: the
+  driver's error is at `err.inner` (`err.inner.number`).
+- **An update without a where clause throws `InvalidArgument`**, for static `Model.update(data)` and for
+  update builders. Add `.where(true)` to update every row. Deletes are unchanged.
+- `where(true)` and `where(false)` compile to `1 = 1` and `1 = 0` (were `TRUE` and `FALSE`).
+- `count()` returns a number on PostgreSQL (was a bigint string such as `"5"`).
+- **SQLite runs outermost transactions one at a time**, in call order (nested ones use savepoints). A
+  statement on the writer outside the open transaction waits until it ends.
+- **`@Json` writes `null` as SQL `NULL`** (was the text `'null'`). A static insert, query builder or
+  `Model.update` that gives `null` to a NOT NULL `@Json` column now fails with a `ConstraintViolation`.
+- Static `Model.update(data)` and `whereIn` values on a model column go through the column converters: a
+  value you stringified yourself for a `@Json` column is stringified twice.
+- `@Int64` is strict on write: only a bigint, a safe integer or a decimal integer string; anything else
+  throws `InvalidArgument`.
+- Attaching a sub-query that is already correlated with another query (`whereIn`, `whereNotIn`,
+  `whereExist`, `whereNotExists`) throws `InvalidArgument`; attach a `clone()` of it.
+- **Removed:** `MsSqlDatetimeValueConverter` (MSSQL registers orm-sql's `IsoDatetimeValueConverter`), and
+  `toUtcColumn` / `fromUtcColumn` from `@spinajs/authn-orm` and `@spinajs/authn-keys` (authn-orm exports
+  `readInstant`).
+- **Strict table check at boot:** `db.StrictTableCheck` (default `true`), see step 8 above.
+- **Configuration:** the search for package configs in ancestor `node_modules` directories stops at the
+  workspace root (a directory with `pnpm-workspace.yaml`, or a `package.json` with `workspaces`).
 
 ### DI (`@spinajs/di`)
 
