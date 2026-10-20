@@ -54,7 +54,7 @@ Importing `@spinajs/session-provider-redis` registers `RedisSessionStore`. `auth
 
 ## Related packages
 
-- [`@spinajs/authn`](../authn/README.md#sessions): the session contract, the issuer, ids, states and revocation this store serves.
+- [`@spinajs/authn`](../authn-session/README.md): the session contract, the issuer, ids, states and revocation this store serves.
 - [`@spinajs/session-provider-db`](../session-provider-db/README.md), [`@spinajs/session-provider-dynamodb`](../session-provider-dynamodb/README.md): the other shipped `SessionProvider` stores.
 - [`@spinajs/configuration`](../configuration/08-config-selected-services.md): how `@AutoinjectService` picks the store by name.
 - [`@spinajs/log`](../log/README.md): the `redis-session-store` logger the store writes to.

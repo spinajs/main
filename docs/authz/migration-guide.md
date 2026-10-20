@@ -390,7 +390,7 @@ Removed with no replacement (§11.5): `@Resource`, `@Permission`, `RbacPolicy`,
   `@UnfilteredInput(reason)`. This applies to `users-http` and `authn-http` routes too.
 - `PrincipalMiddleware` must run after the session middleware (Order 5).
 - New `authz.http.*` keys: `services` (header-token service principals), `links`, `explainRoute`,
-  `access.domain`. See [the authz README](./README.md#adapters).
+  `access.domain`. See [the authz-http docs](../authz-http/README.md).
 - Refusals have more than one body shape: `@Access` answers 403
   `{ error: 'forbidden', permission, resource, reason }`; authn-http policies answer
   `{ error: '<code>' }` (`unauthenticated`, `fresh_auth_required`, `session_required`, `impersonating`,
@@ -672,7 +672,7 @@ you any more. At the top of the app's entry, before `Controllers` or `HttpServer
   grant included), except that `authn-oidc`'s config adds its controllers to the scan, so an installed
   `authn-oidc` mounts `/auth/oidc/*`; its strategies still need the import.
 - Wire the RBAC model (and ABAC, if you use it) as
-  [the authz README](./README.md#wiring-the-models) shows. No package does it for you.
+  [Registering the shipped models](./04-host-boot-and-configuration.md#registering-the-shipped-models) shows. No package does it for you.
 
 ### Step 2: config
 
@@ -1038,7 +1038,7 @@ A token's role is never above its owner's role (B24, B07). See example g.
 
 ### L2: RBAC stores, migrations and CLI
 
-The config, tables, migrations and commands are in the [authz README](./README.md#the-rbac-model)
+The config, tables, migrations and commands are in the [authz-rbac docs](../authz-rbac/README.md)
 and in [section 7](#7-data-migration). What changes for an app:
 
 - The authz tables live on the ORM connection alias `authz`, whose default is `default`; map it with
@@ -1050,6 +1050,9 @@ and in [section 7](#7-data-migration). What changes for an app:
   options.
 - `DbPolicyStore` (authz-abac) reads and writes `authz_policy` on the `authz` connection;
   `new DbPolicyStore()` takes no arguments.
+- `DbScopeAttributeStore` (authz-orm) reads and writes `authz_scope_attribute` on the `authz`
+  connection; `new DbScopeAttributeStore()` takes no arguments, and `DbScopeAttributeStoreOptions` is
+  gone ([The `authz` connection and records](../authz-orm/03-authz-connection-and-records.md#migration)).
 - `users.Role` becomes `$global` assignments of `user:<Uuid>` (the design says `users.Id`; the code
   reads `authz.rbac.migration.idColumn`, default `Uuid`). The drop migration refuses an incomplete
   copy.
@@ -1070,7 +1073,7 @@ and in [section 7](#7-data-migration). What changes for an app:
 
 ### E1: `covers` and `summary` read model summaries
 
-The rules are in the [authz README](./README.md#using-the-service) (RFC L1-3). What an app sees:
+The rules are in [`summary` and `covers`](./03-checking-permissions.md#summary-and-covers) (RFC L1-3). What an app sees:
 
 - **A model you wrote must implement `summarize`.** Without it, `covers` is false in every domain that
   routes the model, and no one can impersonate through it.
@@ -1117,7 +1120,7 @@ it, write the routes you need on `@Access`.
 ### N1: authn core
 
 Config, boot checks and the old-key detector are in [section 3.4](#34-keys-that-other-config-files-own).
-The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an app sees:
+The flow is in the [authentication flow](../authn/01-authentication-flow.md). What an app sees:
 
 - **Class names.** `DefaultAuthnService`, `StrategyRegistry`, `DefaultMfaPolicy`,
   `MemoryAuthnThrottle`, `AuthnAudit`, `LogAuthnAuditSink`, `AccountLinkService`, `FreshAuthCheck` and
@@ -1250,7 +1253,7 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
 ### N7: keys (`authn-keys`)
 
 - Ed25519 and P-256 public keys only. The algorithm comes from the key record, never from a token. See
-  the [authn README](../authn/README.md#keys).
+  the [authn-keys docs](../authn-keys/README.md).
 - Challenge signing input, assertion `iss`, HTTP signature rules and the `authn.keys.*` keys are
   documented in `packages/authn-keys/README.md`.
 - A registered key needs `authn.keys.assertion.audience` for `keys-jws` and `authn.keys.challenge.audience`
@@ -1319,7 +1322,7 @@ session cookie builder. Clients that hard-code `ssid` need the same fix. For loc
 
 ### L1b: ladders, rules, tags, links
 
-No 2.x app needs these; the keys and a sample are in [the authz README](./README.md#the-rbac-model).
+No 2.x app needs these; the keys and a sample are in [the authz-rbac docs](../authz-rbac/README.md).
 What an app sees:
 
 - `ConfigRuleStore` reads `authz.rbac.rules` and is the default rules store. Rules in config with no
@@ -1327,7 +1330,7 @@ What an app sees:
 - A rule's `expiresAt` is a `Date` (in a JS or TS config file) or a date-time string with a zone, such
   as `2027-01-01T00:00:00Z`. A string without a zone fails boot.
 - `registerRbac(container, configuration)` wires the stores, the model and `RbacService`; the app calls
-  it ([Wiring the models](./README.md#wiring-the-models)). Bind its `linkResolver` as authz-http's
+  it ([Registering the shipped models](./04-host-boot-and-configuration.md#registering-the-shipped-models)). Bind its `linkResolver` as authz-http's
   `LinkResolver`, or share links open nothing.
 - An expired link comes back with its `expiresAt`, and the ceiling denies it (`link_invalid`).
 
@@ -1410,16 +1413,16 @@ list-filterable.
 
 ### N5: authn-totp
 
-The full description is in the [authn guide](../authn/README.md#the-totp-step-authn-totp).
+The full description is in the [authn-totp docs](../authn-totp/README.md).
 
 - **TOTP is opt-in.** The package lists no step and no key. Add `{ name: 'totp', service: 'TotpMfaStep' }`
   to `authn.mfa.steps`, set `authn.mfa.encryptionKey.secret` (64 hex characters, or base64 or
   base64url of 32 bytes), `import '@spinajs/authn-totp'` and `import '@spinajs/authn-totp/db'` once.
   Keep the old key in `authn.mfa.encryptionKey.previous` on rotation. The converter writes the step
   entry and leaves the key and the imports to you.
-- **Importing `@spinajs/authn-totp/db` runs the authn-orm data migration** (on an Orm that migrates at
-  start-up): 2.x TOTP secrets move into `authn_mfa`, and the 2.x `2fa:*`, `user:2fa:*`, `user:login:*`
-  and `user:pwd_reset:*` metadata is deleted.
+- **Importing `@spinajs/authn-totp/db` registers `DbMfaSecretStore`**, which keeps TOTP secrets in
+  `authn_mfa`. No migration carries 2.x TOTP secrets or deletes the 2.x `2fa:*`, `user:2fa:*`,
+  `user:login:*` and `user:pwd_reset:*` metadata: users enrol again ([section 7](#7-data-migration)).
 - With the `totp` step listed in `authn.mfa.steps`, a user with 2.x 2FA enabled never logs in with the
   password alone. **A user enrolled in a factor whose step is not listed cannot log in with a password
   at all** (Z8): the login gets the wrong-password answer, audited as `mfa_step_not_listed` (or
@@ -1502,7 +1505,7 @@ field and error code a client sees. For an app:
 
 ### C4: authz-http-admin
 
-`/authz/*` routes over `AuthzAdmin` ([the authz README](./README.md#authzadmin)). **An app with the
+`/authz/*` routes over `AuthzAdmin` ([AuthzAdmin](./10-authz-admin.md)). **An app with the
 package installed serves them.** The routes check only that the caller is signed in; every permission
 and guard check runs inside `AuthzAdmin`.
 
@@ -1606,7 +1609,7 @@ Known gaps an app may meet. None of them widens access.
 - **No queue sink for authz events.** `RoleAssigned` and `RoleRevoked` reach only the registered
   `AuthzEventSink`s, and only `LogAuthzEventSink` ships. A subscriber of the 2.x `UserRoleGranted` or
   `UserRoleRevoked` queue events needs an `AuthzEventSink` of the app's own that emits them.
-- **The app wires the RBAC and ABAC models** ([the authz README](./README.md#wiring-the-models)). No
+- **The app wires the RBAC and ABAC models** ([Registering the shipped models](./04-host-boot-and-configuration.md#registering-the-shipped-models)). No
   package registers them from config.
 - **`DefaultAdminGuard` without an `AccountStatusSource`** counts out-of-service holders for
   `last_holder` (with a warning). Apps on users get `UserAccountStatusSource`.

@@ -251,5 +251,5 @@ export async function devicesOf(userUuid: string): Promise<DeviceRow[]> {
 
 - [2.x sessions and the boot sweep](02-legacy-session-sweep.md): how 2.x rows join the index sets.
 - [Extending the Redis store](03-extending-the-redis-store.md): subclassing, the connection hook, custom expiration.
-- [`@spinajs/authn` sessions](../authn/README.md#sessions): ids, hashing, rotation and states the issuer applies before calling this store.
+- [`@spinajs/authn` sessions](../authn-session/README.md): ids, hashing, rotation and states the issuer applies before calling this store.
 - [Config-selected services](../configuration/08-config-selected-services.md#autoinjectservice): how `authn.session.service` picks the store.

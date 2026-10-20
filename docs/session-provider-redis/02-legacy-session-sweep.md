@@ -108,4 +108,4 @@ export async function sweepDuringUpgrade(): Promise<() => void> {
 ## Related
 
 - [Redis session store](01-redis-session-store.md): the 3.0 key layout and revocation the sweep feeds.
-- [`@spinajs/authn` sessions](../authn/README.md#sessions): how the issuer migrates a 2.x session to its hashed key on first use.
+- [`@spinajs/authn` sessions](../authn-session/README.md): how the issuer migrates a 2.x session to its hashed key on first use.

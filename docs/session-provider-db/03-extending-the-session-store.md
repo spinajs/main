@@ -255,6 +255,6 @@ export class TenantSessionStore extends DbSessionStore {}
 
 - [Database session store](01-db-session-store.md): the flows these hooks sit in.
 - [Session table and migrations](02-session-table-and-migrations.md): the table your extra migrations change.
-- [`@spinajs/authn` sessions](../authn/README.md#sessions): the issuer and the session contract.
+- [`@spinajs/authn` sessions](../authn-session/README.md): the issuer and the session contract.
 - [Migrations](../orm/10-migrations.md#ship-migrations-from-a-plugin-package): registering migrations from a package.
 - [`@spinajs/log`](../log/README.md): logger categories and rules.

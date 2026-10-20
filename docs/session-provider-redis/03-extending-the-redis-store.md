@@ -241,4 +241,4 @@ export class UpgradedRedisSessionStore extends RedisSessionStore {
 - [2.x sessions and the boot sweep](02-legacy-session-sweep.md): what `sweepLegacy()` does at boot.
 - [Config-selected services](../configuration/08-config-selected-services.md): how `@AutoinjectService` resolves the store and the strategy by name.
 - [Lifetimes](../di/04-lifetimes.md): why the store is one instance per container.
-- [`@spinajs/authn` sessions](../authn/README.md#sessions): the `SessionProvider` contract every store implements.
+- [`@spinajs/authn` sessions](../authn-session/README.md): the `SessionProvider` contract every store implements.

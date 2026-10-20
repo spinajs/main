@@ -75,7 +75,7 @@ Importing `@spinajs/session-provider-db` registers `DbSessionStore` and the four
 
 ## Related packages
 
-- [`@spinajs/authn`](../authn/README.md#sessions): the session contract, the issuer, ids, states and revocation this store serves.
+- [`@spinajs/authn`](../authn-session/README.md): the session contract, the issuer, ids, states and revocation this store serves.
 - [`@spinajs/orm`](../orm/README.md): models, [connections and aliases](../orm/01-connections.md) and [migrations](../orm/10-migrations.md) the store runs on.
 - [`@spinajs/orm-mysql`](../orm-mysql/README.md), [`@spinajs/orm-sqlite`](../orm-sqlite/README.md): drivers the migrations have dialect branches for.
 - [`@spinajs/session-provider-redis`](../session-provider-redis/README.md), [`@spinajs/session-provider-dynamodb`](../session-provider-dynamodb/README.md): the other shipped `SessionProvider` stores.

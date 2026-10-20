@@ -190,4 +190,4 @@ export class MeteredDynamoSessionStore extends DynamoDbSessionProvider {
 
 - [DynamoDB session store](01-dynamodb-session-store.md): the other store operations and the item layout.
 - [Client and table provisioning](02-client-and-table-provisioning.md): where the table and its indexes are created.
-- [`@spinajs/authn` sessions](../authn/README.md#sessions): `revokeAll` and session listing on top of these calls.
+- [`@spinajs/authn` sessions](../authn-session/README.md): `revokeAll` and session listing on top of these calls.

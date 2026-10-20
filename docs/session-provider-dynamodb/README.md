@@ -50,7 +50,7 @@ export async function signOutEverywhere(userUuid: string): Promise<number> {
 
 ## Related packages
 
-- [`@spinajs/authn`](../authn/README.md#sessions): session ids, states, expiration strategies and the `authn.session.*` keys this store shares.
+- [`@spinajs/authn`](../authn-session/README.md): session ids, states, expiration strategies and the `authn.session.*` keys this store shares.
 - `@spinajs/authn-session`: `SessionProvider`, `SessionIssuer`, `UserSession` and the session data codec this store builds on.
 - `@spinajs/session-provider-db` and `@spinajs/session-provider-redis`: the other shipped `SessionProvider` stores (SQL and Redis).
 - [`@spinajs/configuration`](../configuration/08-config-selected-services.md): `@AutoinjectService`, which selects the store by name from `authn.session.service`.

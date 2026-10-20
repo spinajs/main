@@ -44,7 +44,7 @@ sequenceDiagram
 | `authn.session.aws.configPath` | `string` | none | path to a JSON file | File read with `readFileSync` and `JSON.parse` on boot; its object is the client config. Wins over `config`. |
 | `authn.session.aws.readCapacityUnits` | `number` | `10` | positive integer | Provisioned read capacity, used only when the store creates the table. |
 | `authn.session.aws.writeCapacityUnits` | `number` | `10` | positive integer | Provisioned write capacity, used only when the store creates the table. |
-| `authn.session.expiration.service` | `string` | `'SlidingCappedExpiration'` | `AbsoluteExpiration`, `SlidingExpiration`, `SlidingCappedExpiration` | Strategy the store asks for initial and renewed expirations. See [`@spinajs/authn`](../authn/README.md#sessions). |
+| `authn.session.expiration.service` | `string` | `'SlidingCappedExpiration'` | `AbsoluteExpiration`, `SlidingExpiration`, `SlidingCappedExpiration` | Strategy the store asks for initial and renewed expirations. See [`@spinajs/authn`](../authn-session/README.md). |
 | `authn.session.expiration.ttl` | `number` | `30` | minutes, `>= 1` | Idle or absolute lifetime, per strategy. |
 | `authn.session.expiration.maxLifetime` | `number` | `480` | minutes, `>= 1` | Cap for `SlidingCappedExpiration`. |
 
@@ -94,7 +94,7 @@ An item with no `Subject` is a 2.x item. It is read through `adaptLegacySession(
 | Table provisioning | Protected `checkSessionTable()`, `createSessionTable()`, `updateTimeToLive()`, called by `resolve()`. | Provisioned table keyed by `SessionId`, TTL on `Expiration` | none | Override the three methods ([page](02-client-and-table-provisioning.md)). |
 | Subject lookup | Protected `matching()` and `scan()`, called by `listBySubject` and `deleteBySubject`. | Strongly consistent paged `Scan` with a filter | none | Override `matching` ([page](03-subject-lookup.md)). |
 | Item decoding | Protected `toSession(item, lenient)` and `instant(value)`. | 3.0 layout, 2.x items adapted | none | Override to read extra attributes; call `super.toSession()` first. |
-| `SessionExpirationProvider` | `@AutoinjectService('authn.session.expiration', ...)` on the `SessionProvider` base; consumed, not owned. | `SlidingCappedExpiration` | `AbsoluteExpiration`, `SlidingExpiration` | Set `authn.session.expiration.service`; see [`@spinajs/authn`](../authn/README.md#sessions). |
+| `SessionExpirationProvider` | `@AutoinjectService('authn.session.expiration', ...)` on the `SessionProvider` base; consumed, not owned. | `SlidingCappedExpiration` | `AbsoluteExpiration`, `SlidingExpiration` | Set `authn.session.expiration.service`; see [`@spinajs/authn`](../authn-session/README.md). |
 
 The protected members a subclass can read: `Table`, `AwsConfig`, `ConfigPath`, `ReadCapacityUnits`, `WriteCapacityUnits`, `DynamoDb` (the client, set in `resolve()`), `Log` (logger `dynamo-session-store`) and, from the base, `Expiration`.
 
@@ -226,5 +226,5 @@ Each `listBySubject` call scans the whole table; run such reports off-peak.
 
 - [Client and table provisioning](02-client-and-table-provisioning.md): how `resolve()` builds the client and the table.
 - [Subject lookup](03-subject-lookup.md): the scan behind `listBySubject` and `deleteBySubject`.
-- [`@spinajs/authn` sessions](../authn/README.md#sessions): ids, rotation, states and expiration strategies.
+- [`@spinajs/authn` sessions](../authn-session/README.md): ids, rotation, states and expiration strategies.
 - [`@spinajs/configuration` config-selected services](../configuration/08-config-selected-services.md): how `authn.session.service` picks the class.

@@ -206,5 +206,5 @@ export async function impersonatedBy(operatorUuid: string): Promise<string[]> {
 
 - [Session table and migrations](02-session-table-and-migrations.md): the columns this store reads and writes.
 - [Extending the session store](03-extending-the-session-store.md): subclassing and replacing it.
-- [`@spinajs/authn` sessions](../authn/README.md#sessions): ids, rotation, states and revocation, served by the issuer on top of this store.
+- [`@spinajs/authn` sessions](../authn-session/README.md): ids, rotation, states and revocation, served by the issuer on top of this store.
 - [Connections](../orm/01-connections.md): `db.Aliases` and `@Connection`.

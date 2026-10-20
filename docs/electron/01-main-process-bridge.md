@@ -65,7 +65,7 @@ The bridge reads no configuration keys. Its behaviour depends on keys of other p
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `authz.audit.runAs` | `boolean` | see [`@spinajs/authz`](../authz/README.md#config-authz) | | When on, every `call` and `callOnOrmConnection` (except calls to `Log`) writes one `runAs` audit entry with reason `electron-ipc`. |
+| `authz.audit.runAs` | `boolean` | see [`@spinajs/authz`](../authz/04-host-boot-and-configuration.md#configuration) | | When on, every `call` and `callOnOrmConnection` (except calls to `Log`) writes one `runAs` audit entry with reason `electron-ipc`. |
 
 ## Services and extension points
 
@@ -223,5 +223,5 @@ document.querySelector('#preview')!.innerHTML = html;
 
 - [Preload script](02-preload-script.md): the renderer side of these channels.
 - [Renderer service proxies](03-renderer-services.md): the proxies that call `Configuration`, `Intl`, `Templates` and `EmailService` over this bridge.
-- [`@spinajs/authz`](../authz/README.md#concepts): `SYSTEM`, `runAs` and unattended principals.
+- [`@spinajs/authz`](../authz/01-check-flow.md#concepts): `SYSTEM`, `runAs` and unattended principals.
 - [`@spinajs/di`](../di/README.md): how DI names and lifetimes decide what `DI.resolve(name)` returns.

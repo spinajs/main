@@ -2,8 +2,9 @@
 
 This page describes where permission data lives and how a check reaches a decision. It is a map of
 the current code, with file references, for people working on the authz packages. For
-configuration and usage, read [the authz guide](./README.md). For how the `Principal` is built,
-read [the authn internals page](../authn/storage-and-login-flow.md).
+configuration and usage, read [the authz docs](./README.md); the check flow for users is
+[How a check works](./01-check-flow.md). For how the `Principal` is built,
+read [the authn internals page](../authn/01-authentication-flow.md).
 
 Paths below are relative to `packages/`.
 
@@ -75,7 +76,8 @@ None of the authz tables declares foreign keys.
 ### authz-rbac
 
 [AuthzRbac_2026_10_01_00_00_00.ts](../../packages/authz-rbac/src/migrations/AuthzRbac_2026_10_01_00_00_00.ts),
-connection `authz` (`db.Aliases.authz`, default `default`).
+connection `authz` (`db.Aliases.authz`, default `default`). Full schema:
+[authz-rbac database storage](../authz-rbac/02-database-storage.md#schema).
 
 **`authz_assignment`** (lines 10-30) holds every grant of a role to a subject at a scope.
 
@@ -131,9 +133,14 @@ Other authz-rbac migrations:
 `AuthzAbac_2026_10_01_00_00_00.ts:11-29`, connection `authz`, creates **`authz_policy`**: `id` PK, `effect`,
 `permissions` (globs), `resource_types`, `principal_types`, `actor_types`, `scope_type`,
 `scope_id`, `condition`, `fields`, `reason`, `priority`, `expires_at`, `created_by`, `created_at`.
-Index on `(scope_type, scope_id)`.
+Index on `(scope_type, scope_id)`. Full schema:
+[authz-abac database policy store](../authz-abac/06-database-policy-store.md#schema).
 
 ### authz-orm
+
+Full schema of the ancestor and scope attribute tables:
+[the `authz` connection and records](../authz-orm/03-authz-connection-and-records.md#schema).
+
 
 | Table | Migration | Content |
 |---|---|---|
@@ -146,7 +153,8 @@ Index on `(scope_type, scope_id)`.
 
 `AuthzFsObject_2026_10_01_00_00_00.ts` creates **`fs_object`** on connection `authz-fs`
 (`db.Aliases['authz-fs']`, default `default`): PK `(fs, path)` declared `caseSensitive()`, `owner_type`,
-`owner_id`, `scope_type`, `scope_id`, `tags`, `created_at`, `updated_at`.
+`owner_id`, `scope_type`, `scope_id`, `tags`, `created_at`, `updated_at`. Full schema:
+[authz-fs ORM file metadata store](../authz-fs/05-file-metadata-stores.md#schema).
 
 ## Teams
 
@@ -346,12 +354,17 @@ There are no per-row ACL rows. Access to one resource comes from:
 ## ORM enforcement
 
 - [`AccessListMiddleware`](../../packages/authz-orm/src/lists/middleware.ts) turns
-  `.accessible(perm)` into an `accessPlan`, applied to the query builder by the registered
-  `PlanTermCompiler`s and AND'd with the caller's `where`; expiry is the database's now.
-  `.withAccess([...])` adds per-row access columns; `.within(refs)` restricts to those scopes.
-- [`AccessGuardMiddleware`](../../packages/authz-orm/src/guard/middleware.ts#L58-L86) throws in
+  `.accessible(perm)` into an `accessPlan`. `planFilter` (`lists/render.ts`) applies it to the query
+  builder through the registered `PlanTermCompiler`s (`plan/index.ts`): permit terms OR-ed, deny
+  terms under `whereNot()`, all built in a detached group, then AND'd with the caller's `where` by
+  `restrict()`. Expiry is the database's now (`PlanRow.now()`). `.withAccess([...])` adds one
+  `selectCondition()` boolean column per permission; `.within(refs)` is a correlated `whereExist()`
+  on `authz_resource_ancestor`. Details: [Access lists](../authz-orm/01-access-lists.md) and
+  [Plan term compilers](../authz-orm/02-plan-term-compilers.md).
+- [`AccessGuardMiddleware`](../../packages/authz-orm/src/guard/middleware.ts#L58-L88) throws in
   test and warns in development when an `@AccessResource` model is selected without
-  `.accessible`, `.unscoped` or SYSTEM. A single primary-key load is exempt.
+  `.accessible`, `.unscoped` or SYSTEM. A single primary-key load is exempt. The warning names the
+  first stack frame outside `di`, `util`, `orm`, any `orm-*` package, `authz` and `authz-orm`.
 
 ## Caching and invalidation
 
