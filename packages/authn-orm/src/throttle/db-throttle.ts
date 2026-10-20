@@ -1,6 +1,6 @@
 import { createHmac, randomBytes } from 'node:crypto';
 
-import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS } from '@spinajs/authn/contracts';
+import { AuthnThrottle } from '@spinajs/authn/contracts';
 import { authnAppEnv, checkThrottleParams, isLenientAuthnEnv } from '@spinajs/authn/env';
 import type { AuthnConfigSource } from '@spinajs/authn/env';
 import { StoreAuthnThrottle } from '@spinajs/authn/store-throttle';
@@ -10,7 +10,6 @@ import '@spinajs/authn/register-schema';
 import { DI, IContainer, Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { Orm, OrmDriver } from '@spinajs/orm';
 import type { ThrottleStore } from '@spinajs/util';
 
 import { checkedMs } from '../support/sql.js';
@@ -23,7 +22,7 @@ let processKey: Buffer | undefined;
 export interface DbThrottleOptions {
   /** Overrides `authn.audit.hashKey.secret`; null: a random key of this process. */
   readonly hashKey?: string | null;
-  /** Where the Orm and the Configuration come from; default the root container. */
+  /** Where the Configuration comes from; default the root container. */
   readonly container?: IContainer;
 }
 
@@ -56,7 +55,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   @Logger('authn-orm')
   protected Log: Log;
 
-  /** Complete params given to the constructor, or the §22.5 defaults when there is a driver and no container to read them from. */
+  /** Complete params given to the constructor. */
   private readonly fixedParams: ThrottleParams | undefined;
   private loadedParams: ThrottleParams | undefined;
   private readonly fromConfiguration: boolean;
@@ -65,20 +64,19 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   private rows: DbThrottleStore | undefined;
 
   /**
-   * DI passes nothing: the `'default'` connection, `authn.throttle` and `authn.audit.hashKey.secret` come from the
-   * container on first use (`init`). With a driver and no container nothing is read from the configuration:
-   * `params` default to §22.5 and the hash key to `options.hashKey`.
+   * DI passes nothing: `authn.throttle` and `authn.audit.hashKey.secret` come from the container on first use
+   * (`init`). With `params` and no container nothing is read from the configuration: the hash key is
+   * `options.hashKey`. The rows live on the connection of the `AuthnThrottle` model.
    */
-  constructor(private driver?: OrmDriver, params?: ThrottleParams, private readonly options: DbThrottleOptions = {}) {
+  constructor(params?: ThrottleParams, private readonly options: DbThrottleOptions = {}) {
     super();
     if (params) checkThrottleParams(params);
     if (options.container) {
       // An instance built with `new` has no injected container, so @Config would read the root Configuration.
       Object.defineProperty(this, CONFIGURATION_CONTAINER_KEY, { value: options.container, configurable: true, writable: true });
     }
-    // Fixed here: init() sets the driver later.
-    this.fromConfiguration = driver === undefined || options.container !== undefined;
-    this.fixedParams = params ?? (this.fromConfiguration ? undefined : DEFAULT_THROTTLE_PARAMS);
+    this.fromConfiguration = params === undefined || options.container !== undefined;
+    this.fixedParams = params;
     if (!this.fromConfiguration) {
       this.loadedParams = this.fixedParams;
       this.hmacKey = hashKeyOf(this.options.hashKey);
@@ -109,7 +107,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
     }
   }
 
-  /** Resolves the connection and the configuration; the first `attempt`, `peek` or `succeed` and every `purge` call it. */
+  /** Resolves the configuration; the first `attempt`, `peek` or `succeed` and every `purge` call it. */
   public async init(): Promise<void> {
     this.loading ??= this.load().catch((err: unknown) => {
       this.loading = undefined;
@@ -158,7 +156,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
 
   private async dbStore(): Promise<DbThrottleStore> {
     await this.init();
-    this.rows ??= this.createStore({ driver: this.driver!, resetAfterMs: this.params.resetAfterSeconds * 1000 });
+    this.rows ??= this.createStore({ resetAfterMs: this.params.resetAfterSeconds * 1000 });
     return this.rows;
   }
 
@@ -186,12 +184,6 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
       if (!isSecret(secret)) {
         warnOnce('DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle rows are keyed with a random key of this process: their counts end with the process and are not shared with other instances', () => this.Log);
       }
-    }
-    if (!this.driver) {
-      const orm = await container.resolve(Orm);
-      const driver = orm.Connections.get('default');
-      if (!driver) throw new InvalidOption("DbAuthnThrottle: the Orm has no 'default' connection");
-      this.driver = driver;
     }
   }
 }
