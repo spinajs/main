@@ -1,7 +1,7 @@
 import { AccessDenied, FALSE, authz, currentPrincipal } from '@spinajs/authz';
 import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceType } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { QueryMiddleware, SelectQueryBuilder } from '@spinajs/orm';
+import { QueryMiddleware, SelectQueryBuilder, WhereBuilder } from '@spinajs/orm';
 import type { IQueryStatement, IWhereBuilder, QueryBuilder } from '@spinajs/orm';
 
 import { auditUnscoped, ormDomain } from '../host.js';
@@ -23,9 +23,11 @@ function denied(domain: string, principal: Principal, permission: Permission, ty
 
 /**
  * The ORM joins where statements without grouping them, so `(caller) AND (filters)` needs the caller's
- * statements moved into one group first; HAVING statements stay where they are.
+ * statements moved into one group first; HAVING statements stay where they are. `apply` runs before the
+ * query changes, so a filter that throws leaves the query as the caller wrote it.
  */
 export function restrict(query: QueryBuilder, apply: (where: Where) => void): void {
+  const filters = detached(query, apply);
   const statements = (query as unknown as Statements)._statements;
   const isAggregate = (s: IQueryStatement) => (s as { IsAggregate?: boolean }).IsAggregate === true;
   const callers = statements.filter((s) => !isAggregate(s));
@@ -37,8 +39,14 @@ export function restrict(query: QueryBuilder, apply: (where: Where) => void): vo
       (this as unknown as Statements)._statements.push(...callers);
     } as never);
   }
+  statements.push(...filters.Statements, ...aggregates);
+}
+
+/** Conditions built in a group of `query` that is not attached to it yet. */
+function detached(query: QueryBuilder, apply: (where: Where) => void): Where {
+  const where = new WhereBuilder<unknown>(query as never);
   apply(where);
-  statements.push(...aggregates);
+  return where;
 }
 
 export interface ListRun {
@@ -76,6 +84,8 @@ export class AccessListMiddleware extends QueryMiddleware {
       } else if (filter.kind === 'where') filters.push(filter.apply);
     }
     for (const refs of marks.within ?? []) filters.push((where) => applyWithin(where, refs, row));
+    // Every condition is compiled before the first change to the query.
+    const access = marks.withAccess !== undefined && query instanceof SelectQueryBuilder ? await this.accessConditions(query, run, row) : undefined;
     // One restrict: the caller's where becomes one group, ANDed with the plan and every .within().
     if (filters.length > 0) {
       restrict(query, (where) => {
@@ -86,17 +96,25 @@ export class AccessListMiddleware extends QueryMiddleware {
         }
       });
     }
-    if (marks.withAccess !== undefined && query instanceof SelectQueryBuilder) await this.withAccess(query, run, row);
+    if (access !== undefined) this.withAccess(query as SelectQueryBuilder, run, access);
   }
 
-  protected async withAccess(query: SelectQueryBuilder, run: ListRun, row: PlanRow): Promise<void> {
+  /** One condition per `.withAccess()` permission, in order. */
+  protected async accessConditions(query: SelectQueryBuilder, run: ListRun, row: PlanRow): Promise<Where[]> {
+    const conditions: Where[] = [];
+    for (const permission of run.marks.withAccess ?? []) {
+      const filter = planFilter(await run.service.accessPlan(run.principal, permission, run.entry.type, run.marks.env), row);
+      conditions.push(detached(query, (where) => (filter.kind === 'where' ? filter.apply(where) : where.where(filter.kind === 'all'))));
+    }
+    return conditions;
+  }
+
+  protected withAccess(query: SelectQueryBuilder, run: ListRun, conditions: readonly Where[]): void {
     const permissions = run.marks.withAccess ?? [];
     if (query.getColumns().length === 0) query.select('*');
-    for (const [i, permission] of permissions.entries()) {
-      const filter = planFilter(await run.service.accessPlan(run.principal, permission, run.entry.type, run.marks.env), row);
+    for (const [i, condition] of conditions.entries()) {
       query.selectCondition(accessColumn(i), function () {
-        if (filter.kind === 'where') filter.apply(this);
-        else this.where(filter.kind === 'all');
+        this.Statements.push(...condition.Statements);
       });
     }
     query.middleware(new AccessFieldMiddleware(permissions, accessField()));
