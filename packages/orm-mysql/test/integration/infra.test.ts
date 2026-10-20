@@ -70,13 +70,7 @@ class InfraConf extends FrameworkConfiguration {
               Database: DATABASE,
               Pool: { Max: 2, IdleTimeout: 5000, AcquireTimeout: 5000 },
               Resilience: { HealthCheckInterval: 500, MaxRetries: 20, RetryDelay: 250, MaxRetryDelay: 2000 },
-              // OnStartup MUST be true. `Orm.resolve()` migrates and then calls
-              // `reloadTableInfo()` unconditionally, and the MySQL driver *throws*
-              // `Table <db>.<name> does not exist` for a missing table where the SQLite driver
-              // returns null. With OnStartup false the migration is skipped by design, so
-              // resolve() fails before the suite can migrate by hand. That driver
-              // inconsistency is deliberately NOT changed on this branch — see the I4
-              // changelog entry in docs/orm-analysis.md.
+              // OnStartup MUST be true - see the note in transaction.test.ts.
               // Same ledger as the transaction suite on purpose. `@Migration` registers into DI
               // at import time, so once mocha has loaded both integration files EVERY suite's
               // Migration.up() runs EVERY migration. Two ledgers would mean each migration is

@@ -136,7 +136,7 @@ Declare only what the engine guarantees: a wrong `insertIdIsFirstOfBatch` assign
 - `withReconnect()` reconnects with `this.connect()` between attempts and backs off per `Resilience` options. Return `false` from `isRetryableError()` inside a transaction: the statement would be replayed outside it.
 - `ITransactionContext.depth` is owned by the base class. A single-handle driver (SQLite) returns `{ depth: 0 }` from `_begin()` and does nothing in `_dispose()`.
 - `tableInfo()` must fill `NativeType`: the orphan-policy resolver treats an empty `NativeType` as unknown and refuses to act on that column.
-- Returning `null` from `tableInfo()` for a missing table lets migrations create it. `MySqlOrmDriver.tableInfo()` throws instead, which is why its tests set `Migration.OnStartup: true`.
+- `tableInfo()` must return `null` for a missing table, and never throw for one: `Orm.reloadTableInfo()` and the migration service read a missing table from the `null`, and `db.StrictTableCheck` turns it into the boot error.
 - Placeholder translation sees the whole statement text, quoted literals included. `PostgresOrmDriver` and `MsSqlOrmDriver` rewrite only as many `?` as there are bindings; a `?` beyond that count stays as text.
 - A multi-statement result is sent with `Promise.all`. If the engine needs DDL in order, serialize inside `executeOnDb()`.
 

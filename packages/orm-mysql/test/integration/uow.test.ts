@@ -65,9 +65,7 @@ export class UowIntegrationConf extends FrameworkConfiguration {
               Password: PASSWORD,
               Database: DATABASE,
               PoolLimit: POOL_LIMIT,
-              // OnStartup MUST be true here — see the note in transaction.test.ts:
-              // Orm.resolve() migrates and then immediately reloads table info, and the
-              // MySQL driver throws for a missing table where SQLite returns null.
+              // OnStartup MUST be true here - see the note in transaction.test.ts.
               // The SAME ledger the other two integration suites use. @Migration registers
               // globally on import and mocha loads every file into one process, so
               // Migration.up() here also sees theirs. With a private ledger it would find no
