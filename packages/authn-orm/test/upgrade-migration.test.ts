@@ -358,7 +358,7 @@ for (const kind of DB_KINDS) {
             secretRows: () => secretRows(db),
             metadataKeys: (u) => metadataKeys(db, u),
           },
-          secrets: new DbSecretStore(db.driver),
+          secrets: new DbSecretStore(),
         };
       },
       { facets: ['A32/migration'], claim: ['A32/migration'], title: `A32 upgrade (${kind})`, timeoutMs: 60000 },
@@ -444,7 +444,7 @@ for (const kind of DB_KINDS) {
         expect(ms(alice.expires_at)).to.eq(T0.getTime() + 3_540_000);
         expect(alice.used_at).to.eq(null);
 
-        const store = new DbSecretStore(db.driver);
+        const store = new DbSecretStore();
         expect(await store.redeem({ type: 'user', id: CAROL.Uuid }, 'reset', INVITE_C)).to.eq(false);
         expect(await store.redeem({ type: 'user', id: CAROL.Uuid }, 'invite', INVITE_C)).to.eq(true);
       });

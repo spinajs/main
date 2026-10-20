@@ -68,7 +68,7 @@ for (const kind of DB_KINDS) {
       async () => {
         await rawQuery(db.driver, 'DELETE FROM authn_secret', [], QueryContext.Delete);
         return {
-          secrets: new DbSecretStore(db.driver),
+          secrets: new DbSecretStore(),
           secretStorage: {
             rows: async () =>
               (await secretRows(db)).map((r) => ({
@@ -113,7 +113,7 @@ for (const kind of DB_KINDS) {
     it("issues and redeems N7's key-challenge secrets", async () => {
       expect(KID).to.have.length(64);
       expect(CHALLENGE).to.have.length(30);
-      const store = new DbSecretStore(db.driver);
+      const store = new DbSecretStore();
 
       const raw = await store.issue(KEY, CHALLENGE, 60);
 
@@ -126,7 +126,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('writes UTC wall-clock times', async () => {
-      await new DbSecretStore(db.driver).issue(ALICE, 'reset', 90);
+      await new DbSecretStore().issue(ALICE, 'reset', 90);
       const [row] = await secretRows(db);
       expect(readInstant(row.created_text)?.toISOString()).to.eq(T0.toISOString());
       expect(readInstant(row.expires_text)?.toISOString()).to.eq(new Date(T0.getTime() + 90_000).toISOString());
@@ -134,7 +134,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('throws InvalidArgument on a 33-char purpose and a 101-char identity', async () => {
-      const store = new DbSecretStore(db.driver);
+      const store = new DbSecretStore();
       const longId: IdentityRef = { type: 'user', id: 'x'.repeat(96) };
       expect(`user:${longId.id}`).to.have.length(101);
       await expectInvalid(store.issue(ALICE, 'p'.repeat(33), 60));
@@ -148,21 +148,21 @@ for (const kind of DB_KINDS) {
     });
 
     it('throws InvalidArgument on a ttl that is not a positive number', async () => {
-      const store = new DbSecretStore(db.driver);
+      const store = new DbSecretStore();
       for (const ttl of [0, -1, NaN, Infinity, '60' as unknown as number]) {
         await expectInvalid(store.issue(ALICE, 'reset', ttl));
       }
     });
 
     it('answers false for a raw value that is not a string', async () => {
-      const store = new DbSecretStore(db.driver);
+      const store = new DbSecretStore();
       await store.issue(ALICE, 'reset', 60);
       expect(await store.redeem(ALICE, 'reset', undefined as unknown as string)).to.eq(false);
       expect(await store.redeem(ALICE, 'reset', 42 as unknown as string)).to.eq(false);
     });
 
     it('lets exactly one of 20 parallel redeems of one secret win', async () => {
-      const store = new DbSecretStore(db.driver);
+      const store = new DbSecretStore();
       const raw = await store.issue(ALICE, 'reset', 60);
 
       const results = await Promise.all(Array.from({ length: 20 }, () => store.redeem(ALICE, 'reset', raw)));
@@ -171,7 +171,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('refuses an expired secret in SQL even when the Node check passes it', async () => {
-      const store = new NoNodeCheckSecretStore(db.driver);
+      const store = new NoNodeCheckSecretStore();
       const raw = await store.issue(ALICE, 'reset', 60);
       clock.tick(60_000);
 
@@ -182,7 +182,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('SR-09 a secret store row holds only the SHA-256 of the secret', async () => {
-      const store = new DbSecretStore(db.driver);
+      const store = new DbSecretStore();
       const raw = await store.issue(ALICE, 'invite', 60);
 
       const all = (await rawQuery(db.driver, 'SELECT * FROM authn_secret')) as Record<string, unknown>[];
@@ -195,7 +195,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('binds a secret to its identity and purpose in SQL', async () => {
-      const store = new DbSecretStore(db.driver);
+      const store = new DbSecretStore();
       const raw = await store.issue(ALICE, 'reset', 60);
       expect(await store.redeem(BOB, 'reset', raw)).to.eq(false);
       expect(await store.redeem(ALICE, 'invite', raw)).to.eq(false);
@@ -204,7 +204,7 @@ for (const kind of DB_KINDS) {
     });
 
     it('purges spent and expired rows only', async () => {
-      const store = new DbSecretStore(db.driver);
+      const store = new DbSecretStore();
       const spent = await store.issue(ALICE, 'reset', 3600);
       await store.redeem(ALICE, 'reset', spent);
       await store.issue(ALICE, 'invite', 30);
@@ -218,8 +218,8 @@ for (const kind of DB_KINDS) {
       expect(await store.redeem(BOB, 'reset', live)).to.eq(true);
     });
 
-    it("resolves the Orm's default connection from its container when given no driver", async () => {
-      const store = new DbSecretStore(undefined, { container: db.container });
+    it('reads and writes on the connection of the AuthnSecret model when DI builds it', async () => {
+      const store = await db.container.resolve(DbSecretStore);
       const raw = await store.issue(ALICE, 'reset', 60);
       expect(await secretRows(db)).to.have.length(1);
       expect(await store.redeem(ALICE, 'reset', raw)).to.eq(true);

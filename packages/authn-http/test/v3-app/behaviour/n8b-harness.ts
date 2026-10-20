@@ -176,7 +176,7 @@ export const passwordPart: LanePart = {
     for (const type of [PasswordService, l.LocalPasswordService, l.PasswordHasher, l.Argon2PasswordHasher, l.LocalPasswordPolicy]) DI.uncache(type as unknown as Class<unknown>);
     const db = tokenDb();
     for (const table of ['users_metadata', 'authn_secret', 'users']) await db.del().from(table);
-    passwordState = { identities: c.fakes.identities, mailer: new LaneMailer(), secrets: new (loaded(secretModule, 'authn-orm').DbSecretStore)(db) };
+    passwordState = { identities: c.fakes.identities, mailer: new LaneMailer(), secrets: new (loaded(secretModule, 'authn-orm').DbSecretStore)() };
   },
   async addPorts(c) {
     const l = loaded(local, 'authn-local');

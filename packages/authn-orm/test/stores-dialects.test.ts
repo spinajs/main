@@ -23,8 +23,9 @@ const DIALECTS = [
   {
     name: 'mysql',
     type: FakeMySql,
+    now: NOW_TEXT,
     duplicate: () => new OrmException('Error executing orm command ', { Name: 'mysql' }, 'INSERT', [], Object.assign(new Error("Duplicate entry 'x' for key 'PRIMARY'"), { code: 'ER_DUP_ENTRY', errno: 1062 })),
-    secretSelect: 'SELECT `id`,`identity`,`purpose`,CAST(expires_at AS CHAR) AS expires_text FROM `authn_secret` WHERE `secret_hash` = ? AND `identity` = ? AND `purpose` = ? AND `used_at` IS NULL',
+    secretSelect: 'SELECT `id`,`identity`,`purpose`,`expires_at` FROM `authn_secret` WHERE `secret_hash` = ? AND `identity` = ? AND `purpose` = ? AND `used_at` IS NULL',
     secretClaim: 'UPDATE `authn_secret` SET `used_at` = ? WHERE `id` = ? AND `used_at` IS NULL AND `expires_at` > ?',
     secretPurge: 'SELECT `id` FROM `authn_secret` WHERE ( `used_at` IS NOT NULL OR `expires_at` <= ? ) ORDER BY `id` ASC LIMIT ?',
     nonceTakeover: 'UPDATE `authn_nonce` SET `expires_at` = ? WHERE `k` = ? AND `expires_at` <= ?',
@@ -39,8 +40,9 @@ const DIALECTS = [
   {
     name: 'mssql',
     type: FakeMsSql,
+    now: '2026-06-01T10:00:00.000Z',
     duplicate: () => Object.assign(new Error('Cannot insert duplicate key row.'), { name: 'RequestError', number: 2601 }),
-    secretSelect: 'SELECT [id],[identity],[purpose],CONVERT(varchar(33), expires_at, 127) AS expires_text FROM [authn_secret] WHERE [secret_hash] = ? AND [identity] = ? AND [purpose] = ? AND [used_at] IS NULL',
+    secretSelect: 'SELECT [id],[identity],[purpose],[expires_at] FROM [authn_secret] WHERE [secret_hash] = ? AND [identity] = ? AND [purpose] = ? AND [used_at] IS NULL',
     secretClaim: 'UPDATE [authn_secret] SET [used_at] = ? WHERE [id] = ? AND [used_at] IS NULL AND [expires_at] > ?',
     secretPurge: 'SELECT [id] FROM [authn_secret] WHERE ( [used_at] IS NOT NULL OR [expires_at] <= ? ) ORDER BY [id] ASC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
     nonceTakeover: 'UPDATE [authn_nonce] SET [expires_at] = ? WHERE [k] = ? AND [expires_at] <= ?',
@@ -73,13 +75,13 @@ for (const d of DIALECTS) {
       orm.driver.respond = () => [];
     });
 
-    it('DbSecretStore.redeem reads expiry as text and claims with a guarded update', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+    it('DbSecretStore.redeem reads the expiry and claims with a guarded update', async () => {
+      const driver = orm.driver;
       driver.respond = (_stmt, context) => {
         if (context === QueryContext.Update) return { RowsAffected: 1 };
-        return [{ id: 'row-1', identity: `user:${ALICE.id}`, purpose: 'reset', expires_text: '2026-06-01 10:01:00.000' }];
+        return [{ id: 'row-1', identity: `user:${ALICE.id}`, purpose: 'reset', expires_at: '2026-06-01 10:01:00.000' }];
       };
-      const store = new DbSecretStore(driver);
+      const store = new DbSecretStore();
       const clock = new FakeClock(NOW);
       clock.install();
       try {
@@ -90,14 +92,14 @@ for (const d of DIALECTS) {
 
       expect(driver.executed.map(sql)).to.deep.eq([d.secretSelect, d.secretClaim]);
       expect(driver.executed[0].params).to.deep.eq([sha256hex('raw-secret'), `user:${ALICE.id}`, 'reset']);
-      expect(driver.executed[1].params).to.deep.eq([NOW_TEXT, 'row-1', NOW_TEXT]);
+      expect(driver.executed[1].params).to.deep.eq([d.now, 'row-1', d.now]);
     });
 
     it('DbSecretStore.purge pages an ordered batch of spent or expired rows', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      expect(await new DbSecretStore(driver).purge(NOW)).to.eq(0);
+      const driver = orm.driver;
+      expect(await new DbSecretStore().purge(NOW)).to.eq(0);
       expect(driver.executed.map(sql)).to.deep.eq([d.secretPurge]);
-      expect(driver.executed[0].params[0]).to.eq(NOW_TEXT);
+      expect(driver.executed[0].params[0]).to.eq(d.now);
     });
 
     it('DbNonceStore takes over an expired key after a duplicate insert', async () => {
@@ -194,15 +196,15 @@ for (const d of DIALECTS) {
     });
 
     it('DbSecretStore.redeem refuses a row that matched only under a case-blind collation', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = (_stmt, context) => {
         if (context === QueryContext.Update) return { RowsAffected: 1 };
-        return [{ id: 'row-1', identity: `USER:${ALICE.id.toUpperCase()}`, purpose: 'RESET', expires_text: '2026-06-01 10:01:00.000' }];
+        return [{ id: 'row-1', identity: `USER:${ALICE.id.toUpperCase()}`, purpose: 'RESET', expires_at: '2026-06-01 10:01:00.000' }];
       };
       const clock = new FakeClock(NOW);
       clock.install();
       try {
-        expect(await new DbSecretStore(driver).redeem(ALICE, 'reset', 'raw-secret')).to.eq(false);
+        expect(await new DbSecretStore().redeem(ALICE, 'reset', 'raw-secret')).to.eq(false);
       } finally {
         clock.uninstall();
       }
@@ -211,11 +213,12 @@ for (const d of DIALECTS) {
 
     it('DbSecretStore.redeem runs the same statements for an unknown identity as for a real one with a wrong secret', async () => {
       const redeemWrong = async (identity: IdentityRef) => {
-        const driver = await fake(d.type, `n4-${d.name}`);
+        const driver = orm.driver;
+        driver.executed = [];
         const clock = new FakeClock(NOW);
         clock.install();
         try {
-          expect(await new DbSecretStore(driver).redeem(identity, 'reset', 'wrong-secret')).to.eq(false);
+          expect(await new DbSecretStore().redeem(identity, 'reset', 'wrong-secret')).to.eq(false);
         } finally {
           clock.uninstall();
         }
@@ -232,8 +235,8 @@ for (const d of DIALECTS) {
     });
 
     it('DbSecretStore.redeem refuses an over-long input without a query', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      expect(await new DbSecretStore(driver).redeem(ALICE, 'reset', 'x'.repeat(1025))).to.eq(false);
+      const driver = orm.driver;
+      expect(await new DbSecretStore().redeem(ALICE, 'reset', 'x'.repeat(1025))).to.eq(false);
       expect(driver.executed).to.have.length(0);
     });
 
@@ -312,17 +315,27 @@ for (const d of DIALECTS) {
 describe('task 3 store times on mssql (compiled, no server)', function () {
   this.timeout(30000);
 
+  let orm: FakeOrm;
+
+  before(async () => {
+    orm = await bootFakeOrm('mssql');
+  });
+
+  after(async () => {
+    await orm?.dispose();
+  });
+
   it('DbSecretStore.redeem reads an expiry stamped in another offset as its instant', async () => {
-    const driver = await fake(FakeMsSql, 'n4-mssql');
+    const driver = orm.driver;
     driver.respond = (_stmt, context) => {
       if (context === QueryContext.Update) return { RowsAffected: 1 };
       // 09:30Z: expired at NOW, though its wall clock reads after NOW
-      return [{ id: 'row-1', identity: `user:${ALICE.id}`, purpose: 'reset', expires_text: '2026-06-01T11:30:00.0000000+02:00' }];
+      return [{ id: 'row-1', identity: `user:${ALICE.id}`, purpose: 'reset', expires_at: '2026-06-01T11:30:00.0000000+02:00' }];
     };
     const clock = new FakeClock(NOW);
     clock.install();
     try {
-      expect(await new DbSecretStore(driver).redeem(ALICE, 'reset', 'raw-secret')).to.eq(false);
+      expect(await new DbSecretStore().redeem(ALICE, 'reset', 'raw-secret')).to.eq(false);
     } finally {
       clock.uninstall();
     }
