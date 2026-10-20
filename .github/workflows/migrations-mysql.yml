@@ -7,7 +7,7 @@ name: queue migrations (mysql)
 
 on:
   push:
-    branches: [master]
+    branches: [2.x]
     paths:
       - 'packages/queue/**'
       - 'packages/orm/**'

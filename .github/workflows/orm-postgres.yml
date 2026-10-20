@@ -5,7 +5,7 @@ name: orm-postgres
 
 on:
   push:
-    branches: [master]
+    branches: [2.x]
     paths:
       - 'packages/orm/**'
       - 'packages/orm-sql/**'

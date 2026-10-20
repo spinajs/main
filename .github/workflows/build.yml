@@ -6,9 +6,9 @@ name: build
 # edited in a package without regenerating the lock fails here instead of at
 # publish time.
 #
-# On a push to master a second job then releases the whole monorepo: it bumps
+# On a push to 2.x a second job then releases the whole monorepo: it bumps
 # every workspace package one patch version in lockstep ( scripts/bump-all.mjs ),
-# commits the bump back to master with [skip ci], and publishes every package
+# commits the bump back to 2.x with [skip ci], and publishes every package
 # with scripts/publish-all.mjs. The bump is committed BEFORE publishing on
 # purpose - publish-all skips versions already on the registry, so a re-run of a
 # half-failed release finishes the remaining packages instead of bumping again
@@ -24,7 +24,7 @@ name: build
 
 on:
   push:
-    branches: [master]
+    branches: [2.x]
   pull_request:
   workflow_dispatch:
 
@@ -58,7 +58,7 @@ jobs:
         run: npm run build
 
   release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/2.x'
     needs: build
     runs-on: ubuntu-latest
 
@@ -68,7 +68,7 @@ jobs:
     # Releases queue up and are never cancelled - killing a run halfway through
     # publishing leaves the registry ahead of the repo.
     concurrency:
-      group: release-master
+      group: release-2x
       cancel-in-progress: false
 
     env:
@@ -115,7 +115,7 @@ jobs:
           fi
 
       # [skip ci] keeps this commit from triggering the workflow again. Pushing
-      # HEAD:master fails on a non-fast-forward if something landed on master in
+      # HEAD:2.x fails on a non-fast-forward if something landed on 2.x in
       # the meantime - re-run the job after the next build in that case.
       - name: commit version bump
         if: env.SKIP_BUMP != '1'
@@ -125,7 +125,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "release v${VERSION} [skip ci]"
-          git push origin HEAD:master
+          git push origin HEAD:2.x
 
+      # 2.x is the maintenance line; master publishes 3.x under `latest`.
       - name: publish to npm
-        run: node scripts/publish-all.mjs
+        run: node scripts/publish-all.mjs --tag latest-2
