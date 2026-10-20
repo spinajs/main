@@ -1121,9 +1121,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       if (column instanceof Wrap) {
         throw new InvalidArgument('whereIn(): a wrapped column takes a list of values, not a sub-query');
       }
-      if (val.CorrelationSource === undefined) {
-        val.correlateWith(this as IWhereBuilder<any>);
-      }
+      this.correlateSubQuery(val, 'whereIn');
       this.pushStatement(this._container.resolve<InQueryStatement>(InQueryStatement, [val, column, false, this]));
       return this;
     }
@@ -1145,11 +1143,9 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   public whereNotIn(column: string | Wrap, val: any[] | ISelectQueryBuilder): this {
     if (val instanceof SelectQueryBuilder) {
       if (column instanceof Wrap) {
-        throw new InvalidArgument('whereIn(): a wrapped column takes a list of values, not a sub-query');
+        throw new InvalidArgument('whereNotIn(): a wrapped column takes a list of values, not a sub-query');
       }
-      if (val.CorrelationSource === undefined) {
-        val.correlateWith(this as IWhereBuilder<any>);
-      }
+      this.correlateSubQuery(val, 'whereNotIn');
       this.pushStatement(this._container.resolve<InQueryStatement>(InQueryStatement, [val, column, true, this]));
       return this;
     }
@@ -1184,10 +1180,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
    */
   protected buildExistsClause<R>(query: ISelectQueryBuilder | string, negated: boolean, callback?: WhereFunction<R>): this {
     if (typeof query !== 'string') {
-      // outer() in the sub-query names this builder; a clone re-correlates the same way.
-      if (query.CorrelationSource === undefined) {
-        query.correlateWith(this as IWhereBuilder<any>);
-      }
+      this.correlateSubQuery(query, negated ? 'whereNotExists' : 'whereExist');
       this.pushStatement(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, negated]));
       return this;
     }
@@ -1209,6 +1202,19 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
 
     return this;
+  }
+
+  /**
+   * outer() in the sub-query names this builder; a clone re-correlates the same way. A sub-query
+   * already correlated with another query would keep answering for that one, so it is refused.
+   */
+  protected correlateSubQuery(query: ISelectQueryBuilder, method: string): void {
+    const source = query.CorrelationSource;
+    if (source === undefined) {
+      query.correlateWith(this as IWhereBuilder<any>);
+    } else if (queryOf(source) !== queryOf(this as IWhereBuilder<any>)) {
+      throw new InvalidArgument(`${method}(): the sub-query is already correlated with another query; attach a clone() of it`);
+    }
   }
 
   public whereBetween(column: string, val: any[]): this {

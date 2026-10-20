@@ -122,4 +122,36 @@ describe('sqlite whereColumn and outer()', function () {
     expect(() => driver().select().from('cc_parent').whereColumn('Id', '=', outer('Id')).toDB()).to.throw(InvalidOperation, /outer\(\): the query is not a sub-query 1 level\(s\) deep/);
     expect(() => outer('Id', 0)).to.throw(InvalidArgument, /levels must be a positive integer/);
   });
+
+  it('refuses a sub-query that is already correlated with another query', () => {
+    const first = driver().select().from('cc_parent', 'p');
+    const shared = children();
+    first.whereExist(shared);
+    const kinds = sub(driver().select().select('ParentRef').from('cc_mark', 'm').whereColumn('Kind', '=', outer('Kind')));
+    driver().select().from('cc_parent', 'p').whereIn('Id', kinds);
+    for (const attach of [
+      () => driver().select().from('cc_parent', 'q').whereExist(shared),
+      () => driver().select().from('cc_parent', 'q').whereNotExists(shared),
+      () => driver().select().from('cc_parent', 'q').whereIn('Id', kinds),
+      () => driver().select().from('cc_parent', 'q').whereNotIn('Id', kinds),
+    ]) {
+      expect(attach).to.throw(InvalidArgument, /already correlated with another query; attach a clone\(\) of it/);
+    }
+    expect(compiled(first).expression).to.contain('CAST(`p`.`Id` AS TEXT)');
+  });
+
+  it('a sub-query correlated with a query attaches anywhere in that query', async () => {
+    const query = driver().select().from('cc_parent', 'p');
+    const inner = children().correlateWith(query as never);
+    query.where(function () {
+      this.where('Kind', 'b').orWhere(function () {
+        this.whereExist(inner);
+      });
+    });
+    expect(await ids(query.asRaw())).to.deep.eq([1, 2, 3]);
+  });
+
+  it('whereNotIn() names itself when a wrapped column gets a sub-query', () => {
+    expect(() => driver().select().from('cc_parent').whereNotIn(Wrapper.Text('Id'), children())).to.throw(InvalidArgument, /^whereNotIn\(\): a wrapped column takes a list of values/);
+  });
 });
