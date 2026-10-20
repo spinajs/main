@@ -178,10 +178,10 @@ export function Route(callback: (controller: IControllerDescriptor, route: IRout
  * have information about this.
  */
 export function Type(type: any) {
-  return Route((_: IControllerDescriptor, route: IRoute, _target: any, _propertyKey: string | symbol, index: number | PropertyDescriptor ) => {
+  return Route((_: IControllerDescriptor, route: IRoute, _target: any, _propertyKey?: string | symbol, index?: number | PropertyDescriptor) => {
 
     if(typeof index !== 'number'){
-      throw new Error(`@Type decorator can be used only on method parameters. Invalid usage on ${_propertyKey.toString()} of ${_target.constructor.name}`);
+      throw new Error(`@Type decorator can be used only on method parameters. Invalid usage on ${String(_propertyKey)} of ${_target.constructor.name}`);
     }
 
     if (route.Parameters.has(index)) {
@@ -304,7 +304,7 @@ export function HandleException(exception: Constructor<Error> | Constructor<Erro
  * @param options - options passed to every policy in this group when it is resolved
  */
 export function Policy(policy: Constructor<BasePolicy> | string | (Constructor<BasePolicy> | string)[], ...options: any[]) {
-  return Route((controller: IControllerDescriptor, route: IRoute, _: any, _1: string | symbol, _2: number | PropertyDescriptor) => {
+  return Route((controller: IControllerDescriptor, route: IRoute, _: any, _1?: string | symbol, _2?: number | PropertyDescriptor) => {
     // toArray() checks Array.isArray, so a configuration key stays one policy
     // instead of being spread into its characters.
     const group = toArray<Constructor<BasePolicy> | string>(policy).map((p) => ({
@@ -325,7 +325,7 @@ export function Policy(policy: Constructor<BasePolicy> | string | (Constructor<B
 }
 
 export function Middleware(policy: Constructor<RouteMiddleware>, ...options: any[]) {
-  return Route((controller: IControllerDescriptor, route: IRoute, _: any, _1: string | symbol, _2: number | PropertyDescriptor) => {
+  return Route((controller: IControllerDescriptor, route: IRoute, _: any, _1?: string | symbol, _2?: number | PropertyDescriptor) => {
     const pDesc = {
       Options: options,
       Type: policy,

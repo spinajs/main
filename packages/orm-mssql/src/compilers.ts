@@ -36,7 +36,7 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
 
     const parent = this._builder.getParent() as InsertQueryBuilder;
 
-    const valueMap = parent.getColumns().map((c: ColumnStatement) => c.Column);
+    const valueMap = (parent.getColumns() as ColumnStatement[]).map((c) => c.Column);
     const bindings = this._builder.getColumnsToUpdate().map((c: string | RawQuery): any => {
       if (_.isString(c)) {
         return parent.Values[0][valueMap.indexOf(c)];
