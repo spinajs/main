@@ -209,6 +209,27 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q
   }
 
   /**
+   * Adds a member. In-memory only — persist with `sync()` / `save()`.
+   *
+   * @param member - model to add
+   * @param junction - many-to-many only: the junction row's own columns, written with the link
+   */
+  public add(member: R, junction?: ModelBase | object): void {
+    if (junction !== undefined) {
+      throw new OrmException(`relation ${this.Relation.Name} has no junction table, junction data is for many-to-many relations only`);
+    }
+
+    this.push(member);
+  }
+
+  /**
+   * The junction row linking `member` to the owner. Many-to-many only — `undefined` elsewhere.
+   */
+  public junction<J extends ModelBase = ModelBase>(_member: R): J | undefined {
+    return undefined;
+  }
+
+  /**
    * Delete all objects from relation ( alias for empty )
    */
   public async clear(): Promise<void> {
@@ -441,12 +462,42 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
 
   protected junctionModelDescriptor: IModelDescriptor | null;
 
+  /**
+   * Junction rows by member instance. Kept here, not on the target: through the identity map
+   * one target can sit in several owners' lists, each linked by its own junction row.
+   */
+  protected junctions = new Map<T, ModelBase>();
+
   constructor(owner: O, relation: IRelationDescriptor, objects?: T[]) {
     super(owner, relation, objects);
 
     if (relation.JunctionModel) {
       this.junctionModelDescriptor = extractModelDescriptor(this.Relation.JunctionModel);
     }
+  }
+
+  /**
+   * Adds a member, optionally with the junction row's own columns ( a junction model, or plain
+   * data it is built from ). `save()` writes them with the link; the two key columns are always
+   * the relation's.
+   */
+  public add(member: T, junction?: ModelBase | object): void {
+    this.push(member);
+
+    if (junction === undefined) {
+      return;
+    }
+
+    const JunctionModel = this.Relation.JunctionModel;
+    if (!JunctionModel) {
+      throw new OrmException(`manyToMany relation ${this.Relation.Name} has no junction model`);
+    }
+
+    this.junctions.set(member, junction instanceof JunctionModel ? junction : new JunctionModel(junction));
+  }
+
+  public junction<J extends ModelBase = ModelBase>(member: T): J | undefined {
+    return this.junctions.get(member) as J | undefined;
   }
 
 
@@ -551,7 +602,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
 
       const targetModelRelation = this.junctionRelationFor(f.constructor as Constructor<ModelBase>);
 
-      const junctionEntry = new this.Relation.JunctionModel!();
+      const junctionEntry = this.junctions.get(f) ?? new this.Relation.JunctionModel!();
       (junctionEntry as any)[sourceModelRelation.Name].Value = this.Owner;
       (junctionEntry as any)[targetModelRelation.Name].Value = f;
       await junctionEntry.insert(InsertBehaviour.InsertOrUpdate);
@@ -571,10 +622,17 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
 
     if (result) {
       this.length = 0;
+      this.junctions.clear();
 
-      // A junction row whose target row no longer exists resolves to a null Value — skip it
-      // rather than push null into the member list.
-      this.push(...result.map((r: any) => r[targetModelRelation.Name].Value).filter((v: any) => v !== null && v !== undefined));
+      for (const row of result as ModelBase[]) {
+        const member = (row as any)[targetModelRelation.Name].Value as T | null | undefined;
+
+        // A junction row whose target row no longer exists resolves to a null Value — skip it
+        // rather than push null into the member list.
+        if (member !== null && member !== undefined) {
+          this.add(member, row);
+        }
+      }
     }
 
     this.Populated = true;

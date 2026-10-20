@@ -71,6 +71,7 @@ const DEFAULT_CONNECTION_TIMEOUT_MS = 10000;
  */
 const DEFAULT_RECONNECT_DELAY_MS = 5000;
 const DEFAULT_HEARTBEAT_MS = 4000;
+const DEFAULT_PREFETCH = 1;
 
 /**
  * STOMP header carrying the number of times a job has already been retried.
@@ -111,6 +112,13 @@ interface IPendingEmit {
   reject: (err: unknown) => void;
 }
 
+interface IReadyWaiter {
+  resolve: () => void;
+  reject: (err: unknown) => void;
+}
+
+const DEFAULT_EMIT_RECONNECT_TIMEOUT_MS = 60000;
+
 @PerInstanceCheck()
 @Injectable(QueueClient)
 export class StompQueueClient extends QueueClient {
@@ -120,17 +128,21 @@ export class StompQueueClient extends QueueClient {
 
   protected PendingEmits: IPendingEmit[] = [];
 
-  // settlers waiting for the connection to come up ( see whenReady ), called with an error on dispose
-  protected ReadyWaiters: Array<(err?: unknown) => void> = [];
+  // settlers waiting for the connection to come up ( see whenReady ), rejected on dispose
+  protected ReadyWaiters: IReadyWaiter[] = [];
 
   protected Disposing = false;
+  protected PrefetchSize = DEFAULT_PREFETCH;
 
   /** Publisher-side resilience: retry each receipt-confirmed publish with backoff so a transient
    * broker hiccup / receipt timeout doesn't fail the emit. Duplicates are handled by consumer dedup. */
   protected EmitPipeline: ResiliencePipeline<void> = this.buildEmitPipeline();
 
   public get ClientId() {
-    return this.Options.clientId ?? this.Options.name;
+    const base = this.Options.clientId ?? this.Options.name;
+    // ActiveMQ refuses a second connection with the same client-id, so replicas need a stable per-instance suffix
+    const suffix = this.Options.options?.clientIdSuffix || process.env.QUEUE_INSTANCE_ID;
+    return suffix ? `${base}-${suffix}` : base;
   }
 
   /**
@@ -142,6 +154,10 @@ export class StompQueueClient extends QueueClient {
 
   protected get ReceiptTimeout(): number {
     return this.Options.receiptTimeout ?? this.Options.options?.receiptTimeout ?? DEFAULT_RECEIPT_TIMEOUT_MS;
+  }
+
+  protected get EmitReconnectTimeout(): number {
+    return this.Options.options?.emitReconnectTimeout ?? DEFAULT_EMIT_RECONNECT_TIMEOUT_MS;
   }
 
   /**
@@ -160,16 +176,19 @@ export class StompQueueClient extends QueueClient {
     return new Promise<void>((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
 
-      const waiter = (err?: unknown) => {
-        if (timer) {
-          clearTimeout(timer);
-        }
-
-        if (err) {
-          reject(err);
-        } else {
+      const waiter: IReadyWaiter = {
+        resolve: () => {
+          if (timer) {
+            clearTimeout(timer);
+          }
           resolve();
-        }
+        },
+        reject: (err) => {
+          if (timer) {
+            clearTimeout(timer);
+          }
+          reject(err);
+        },
       };
 
       if (timeoutMs) {
@@ -207,12 +226,29 @@ export class StompQueueClient extends QueueClient {
     return new WebSocket(this.Options.host, Stomp.Versions.default.protocolVersions()) as unknown as Stomp.IStompSocket;
   }
 
+  /** Reads `options.prefetch`; same key as queue-amqp-transport. */
+  protected readPrefetch(): number {
+    const raw = this.Options.options?.prefetch;
+    if (raw === undefined) {
+      return DEFAULT_PREFETCH;
+    }
+
+    const value = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+      throw new InvalidArgument(`Queue connection ${this.Options.name}: options.prefetch must be a positive integer, got ${JSON.stringify(raw)}`);
+    }
+
+    return value;
+  }
+
   public async resolve() {
     // createWebSocket() runs inside stompjs's un-awaited connect loop, where a throw would be
     // an unhandled rejection and leave this promise pending
     if (!this.Options.host) {
       throw new InvalidArgument(`Queue connection ${this.Options.name} has no host configured`);
     }
+
+    this.PrefetchSize = this.readPrefetch();
 
     this.Log.info({ host: this.Options.host, clientId: this.ClientId }, 'Connecting to STOMP queue at ${host} with client-id: ${clientId} ...');
 
@@ -318,13 +354,15 @@ export class StompQueueClient extends QueueClient {
       this.Client.onStompError = (frame) => {
         // Compliant brokers terminate the connection after an ERROR frame.
         // Bad login / passcode typically surfaces here.
-        this.Log.error({ brokerMessage: frame.headers['message'] }, 'Broker reported error: ${brokerMessage}');
+        const brokerMessage = frame.headers['message'] ?? '';
+        this.Log.error({ brokerMessage }, 'Broker reported error: ${brokerMessage}');
         this.Log.error({ details: frame.body }, 'Additional details: ${details}');
 
         if (!settled) {
           settled = true;
+          const hint = /already connected|InvalidClientID/i.test(brokerMessage) ? ` - client-id ${this.ClientId} is in use by another connection; give every replica a stable, unique QUEUE_INSTANCE_ID ( or options.clientIdSuffix )` : '';
           this.Client.deactivate();
-          reject(new UnexpectedServerError(`Cannot connect to queue server at ${this.Options.host}`, frame));
+          reject(new UnexpectedServerError(`Cannot connect to queue server at ${this.Options.host}: ${brokerMessage}${hint}`, frame));
         }
       };
 
@@ -367,7 +405,7 @@ export class StompQueueClient extends QueueClient {
     const waiters = this.ReadyWaiters;
     this.ReadyWaiters = [];
     for (const w of waiters) {
-      w(new UnexpectedServerError(`Queue connection ${this.Options.name} disposed before it became ready`));
+      w.reject(new UnexpectedServerError(`Queue connection ${this.Options.name} disposed before it became ready`));
     }
 
     if (!this.Client) {
@@ -480,7 +518,7 @@ export class StompQueueClient extends QueueClient {
    * Called on initial subscribe and replayed for every descriptor on reconnect.
    */
   protected applySubscription(desc: ISubscriptionDescriptor) {
-    const headers: Stomp.StompHeaders = { ack: 'client-individual', 'activemq.prefetchSize': '1' };
+    const headers: Stomp.StompHeaders = { ack: 'client-individual', 'activemq.prefetchSize': `${this.PrefetchSize}` };
 
     if (desc.subscriptionId) {
       headers.id = desc.subscriptionId;
@@ -509,14 +547,11 @@ export class StompQueueClient extends QueueClient {
           qMessage.CreatedAt = DateTime.fromISO(qMessage.CreatedAt as unknown as string);
         }
 
-        desc
-          .callback(qMessage)
-          .then(() => {
-            message.ack();
-          })
-          .catch((err) => {
-            this.handleFailedMessage(message, qMessage, desc, err);
-          });
+        // two-argument then: a failed settle must not be treated as a failed handler
+        desc.callback(qMessage).then(
+          () => this.settle(message, 'ack'),
+          (err) => this.handleFailedMessage(message, qMessage, desc, err),
+        );
       },
       headers,
     );
@@ -538,11 +573,11 @@ export class StompQueueClient extends QueueClient {
     // events are not retried or tracked - drop them
     if (qMessage.Type !== QueueMessageType.Job) {
       this.Log.warn({ channel: desc.channel, messageName: qMessage.Name, reason }, 'Event handler failed on channel ${channel}, dropping message ${messageName}. ${reason}');
-      message.ack();
+      this.settle(message, 'ack');
       return;
     }
 
-    const maxRetries = (qMessage as IQueueJob).RetryCount ?? 0;
+    const maxRetries = (qMessage as IQueueJob).RetryCount ?? this.getMaxRetriesForMessage(qMessage) ?? 0;
     const attempt = Number(message.headers?.[RETRY_COUNT_HEADER] ?? '0');
 
     if (attempt < maxRetries) {
@@ -572,12 +607,12 @@ export class StompQueueClient extends QueueClient {
       // ack the original only once the broker confirmed the rescheduled delivery to the same channel
       this.sendWithReceipt(desc.channel, message.body, headers)
         .then(() => {
-          message.ack();
+          this.settle(message, 'ack');
           this.Log.warn({ jobName: qMessage.Name, channel: desc.channel, attempt: nextAttempt, maxRetries, delay, reason }, 'Job ${jobName} failed on ${channel}, retry ${attempt}/${maxRetries} scheduled in ${delay}ms. ${reason}');
         })
         .catch((retryErr) => {
           this.Log.error({ error: retryErr, jobName: qMessage.Name, channel: desc.channel }, 'Failed to reschedule job ${jobName} on ${channel}, nacking instead');
-          message.nack();
+          this.settle(message, 'nack');
         });
 
       return;
@@ -606,7 +641,7 @@ export class StompQueueClient extends QueueClient {
       // retries are already exhausted here; nacking would just redeliver into another exhausted
       // cycle forever. Drop it ( ack ) with a loud warning so the source queue is unblocked.
       this.Log.warn({ channel, reason }, 'Message failed on channel ${channel}, retries exhausted and no dead-letter channel configured - dropping. ${reason}');
-      message.ack();
+      this.settle(message, 'ack');
       return;
     }
 
@@ -623,13 +658,33 @@ export class StompQueueClient extends QueueClient {
 
     this.sendWithReceipt(dlq, message.body, headers)
       .then(() => {
-        message.ack();
+        this.settle(message, 'ack');
         this.Log.warn({ channel, deadLetterChannel: dlq, reason }, 'Message failed on channel ${channel}, routed to dead-letter ${deadLetterChannel}. ${reason}');
       })
       .catch((dlqErr) => {
         this.Log.error({ error: dlqErr, deadLetterChannel: dlq }, 'Failed to route message to dead-letter ${deadLetterChannel}, nacking instead');
-        message.nack();
+        this.settle(message, 'nack');
       });
+  }
+
+  /**
+   * stompjs throws from ack() / nack() once the socket is gone. The broker redelivers an unsettled
+   * message after the reconnect anyway, so a failed settle is logged instead of escaping as an
+   * unhandled rejection.
+   */
+  protected settle(message: Stomp.IMessage, how: 'ack' | 'nack') {
+    try {
+      if (how === 'ack') {
+        message.ack();
+      } else {
+        message.nack();
+      }
+    } catch (err) {
+      this.Log.warn(
+        { error: err, how, destination: message.headers?.destination ?? '<unknown>', connection: this.Options.name },
+        'Cannot ${how} message on ${destination} ( ${connection} ), the broker will redeliver it',
+      );
+    }
   }
 
   /**
@@ -691,7 +746,23 @@ export class StompQueueClient extends QueueClient {
 
     const body = JSON.stringify(message);
 
-    return Promise.all(channels.map((c) => this.EmitPipeline.execute(() => this.publishWithReceipt(c, body, headers, message)))).then(() => undefined);
+    return Promise.all(channels.map((c) => this.EmitPipeline.execute(() => this.publishWhenConnected(c, body, headers, message)))).then(() => undefined);
+  }
+
+  /**
+   * A retry that runs after the socket dropped would otherwise hit stompjs' torn-down handler and fail the
+   * emit in milliseconds, long before the broker is back.
+   */
+  protected publishWhenConnected(channel: string, body: string, headers: Stomp.StompHeaders, message: IQueueMessage): Promise<void> {
+    if (this.Disposing) {
+      return Promise.reject(new UnexpectedServerError(`Queue connection ${this.Options.name} is disposing`));
+    }
+
+    if (this.Client?.connected) {
+      return this.publishWithReceipt(channel, body, headers, message);
+    }
+
+    return this.whenReady(this.EmitReconnectTimeout).then(() => this.publishWithReceipt(channel, body, headers, message));
   }
 
   /**
@@ -767,7 +838,7 @@ export class StompQueueClient extends QueueClient {
     this.ReadyWaiters = [];
 
     for (const w of waiters) {
-      w();
+      w.resolve();
     }
   }
 }

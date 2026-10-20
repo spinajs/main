@@ -49,7 +49,7 @@ PostgreSQL's Bind message counts parameters in an Int16, so the driver's `MaxBin
 
 #### Datetime values
 
-The driver registers `IsoDatetimeValueConverter` as `DatetimeValueConverter`. A `Date` or luxon `DateTime` written to a `dateTime` / `timestamp` column, bound in a `where()`, or passed as a raw binding to `executeOnDb()` is sent as ISO 8601 in UTC with `Z` (`2026-10-19T12:00:00.123Z`). PostgreSQL reads that text as the exact instant, whatever the zone of the Node process. A model property declared `@DateTime()` reads back as a luxon `DateTime` in the `UTC` zone.
+The driver registers `PostgresDatetimeValueConverter`, an `IsoDatetimeValueConverter`, as `DatetimeValueConverter`. A `Date` or luxon `DateTime` written to a `dateTime` / `timestamp` column, bound in a `where()`, or passed as a raw binding to `executeOnDb()` is sent as ISO 8601 in UTC with `Z` (`2026-10-19T12:00:00.123Z`). PostgreSQL reads that text as the exact instant, whatever the zone of the Node process. A model property declared `@DateTime()` reads back as a luxon `DateTime` in the `UTC` zone. Two exceptions: an unset (`undefined`) value stays unset, so the insert writes `DEFAULT`, and a value for a `date` column is written as its calendar day in its own zone (`2026-10-15`).
 
 ### Upsert
 
@@ -78,8 +78,8 @@ When `onDuplicate()` is called without columns on a model query, the conflict ta
 | `BIGINT`, `COUNT(*)` in a raw select | string, e.g. `'42'` | `bigint: { type: 'string' }` |
 | `INTEGER`, `SMALLINT`, `REAL`, `DOUBLE PRECISION` | number | |
 | `BOOLEAN` | boolean | |
-| `JSONB` | parsed object | |
-| `TIMESTAMPTZ`, `TIMESTAMP`, `DATE` | `Date` (`TIMESTAMP` read as UTC, `DATE` at local midnight) | |
+| `JSONB` | parsed value; `PostgresJsonValueConverter` keeps a JSON string value a string | |
+| `TIMESTAMPTZ`, `TIMESTAMP`, `DATE` | `Date` (`TIMESTAMP` read as UTC, `DATE` at UTC midnight) | `timestamptz: { type: 'string', format: 'date-time' }` |
 | `BYTEA` | `Buffer` | |
 
 On the request side these stay numbers; only response schemas change. `selectCount()` and `Model.count()` convert the count and resolve with a `number`.
@@ -99,7 +99,7 @@ On the request side these stay numbers; only response schemas change. `selectCou
 | Text wrapper | `TextWrapper` (registered by `SqlDriver`) | `SqlTextWrapper` (`CAST(col AS TEXT)`) | | Subclass and override `textType()`. |
 | `IN` list statement | `InStatement`, `@NewInstance()`, resolved per `whereIn()` | `PostgresInStatement` | `SqlInStatement` (always `IN (?,...)`) | Subclass; override `listExpression(column)`, `listBinding(values)` or the `listThreshold` field (`1000`). |
 | Database clock | `NowExpression`, resolved by `driver.now()` | `PostgresNowExpression` (`CURRENT_TIMESTAMP`) | | Subclass and override `sql()`, e.g. `clock_timestamp()` for the wall clock instead of the transaction start. Column defaults (`default().dateTime()`) do not resolve the token and keep `CURRENT_TIMESTAMP`. |
-| Datetime converter | `DatetimeValueConverter`, resolved per value | `IsoDatetimeValueConverter` (from `@spinajs/orm-sql`) | `SqlDatetimeValueConverter` (`yyyy-MM-dd HH:mm:ss.SSS`) | See [Value converters and default values](../orm-sql/05-value-converters-and-defaults.md). |
+| Datetime converter | `DatetimeValueConverter`, resolved per value | `PostgresDatetimeValueConverter` (extends `IsoDatetimeValueConverter` from `@spinajs/orm-sql`) | `SqlDatetimeValueConverter` (`yyyy-MM-dd HH:mm:ss.SSS`) | See [Value converters and default values](../orm-sql/05-value-converters-and-defaults.md). |
 
 ### `PostgresServerResponseMapper`: custom implementation
 

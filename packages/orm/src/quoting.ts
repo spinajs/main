@@ -40,6 +40,17 @@ export abstract class IdentifierQuoter {
   }
 }
 
+const LEGACY_BACKTICK_QUOTER = { quote: (name: string) => `\`${name}\``, quoteQualified: (name: string) => `\`${name}\`` } as IdentifierQuoter;
+
+/**
+ * The quoter of a builder's driver, for SQL the orm core writes as RawQuery text. A driver
+ * without one (the core's own fake drivers) keeps the backticks this text always had.
+ */
+export function quoterOf(builder: unknown): IdentifierQuoter {
+  const container = (builder as { Driver?: { Container?: { hasRegistered(s: unknown): boolean; resolve<T>(s: unknown): T } } } | undefined)?.Driver?.Container;
+  return container?.hasRegistered(IdentifierQuoter) ? container.resolve<IdentifierQuoter>(IdentifierQuoter) : LEGACY_BACKTICK_QUOTER;
+}
+
 /**
  * Writes a VALUE into SQL text the way one dialect spells literals.
  *

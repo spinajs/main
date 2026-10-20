@@ -9,21 +9,23 @@
 At class definition, `Task(taskName, description, opts)`:
 
 1. Trims `taskName` and `description` with `_check_arg(_trim(), _non_empty())`. An empty value throws `InvalidArgument` while the class is being defined.
-2. Replaces `descriptor.value` with an `async` wrapper around the original method.
+2. Merges `opts` over `DEFAULT_TASK_OPTIONS`.
+3. Records a `TaskDeclaration` for the method (see [Task declarations](#task-declarations)).
+4. Replaces `descriptor.value` with a wrapper that calls `runTask(declaration, this, args, { lock: true, rethrow: false })`.
 
-On every call of the decorated method, the wrapper:
+On every call of the decorated method, `runTask()`:
 
 1. Resolves a logger with `DI.resolve('__log__', ['TASKS'])` and logs `Executing task ...` at `info`.
 2. Calls `__task.getOrCreate(null, { Name, Description, State: 'stopped' })`. It finds the row by its unique `Name` column, or inserts it. An existing row keeps its stored `Description`. When the insert fails because another process inserted the same `Name` first, it reads that row instead.
-3. When `opts.taskStacking` is `false` or not set, calls `mutex_acquire({ Name: 'task-<name>', Tenant })` from `@spinajs/threading`, with a tenant generated for this run. When the result has `Locked: false`, it logs a warning and returns `undefined` without running the method. See [Task locking](02-task-locking.md).
-4. Sets `State = 'running'` and `LastRunAt = DateTime.now()` and saves the row with `task.update()`.
+3. When `taskStacking` is `false`, the default, takes the task lock: it skips the run when the task is already running in this process, calls `mutex_acquire({ Name: 'task-<name>', ttl: lockTtl })` from `@spinajs/threading`, and starts a heartbeat that renews the lock. When the lock is held elsewhere, it logs a warning and returns `undefined` without running the method. See [Task locking](02-task-locking.md).
+4. Sets `State = 'running'` and `LastRunAt = DateTime.now()` and saves the row with `task.update()`. When that save fails, it releases the lock before rethrowing.
 5. Calls the original method with the same `this` and arguments.
-6. On success, emits `TaskSuccess` with `TaskName` (the trimmed name) and logs at `success`. See [Task events](03-task-events.md).
-7. When the method or the `TaskSuccess` emit throws, logs at `error`, sets the result to `{ error: true, message: err.message }` and emits `TaskFailed` with `TaskName` and `Reason: err.message`.
-8. In a `finally` block, when step 3 took the lock, it calls `mutex_release()` with the same name and tenant. Then it sets `State = 'stopped'` and inserts a `__task_history` row with `TaskId`, `Result` and `Duration` in milliseconds. Errors in this step are logged as `Cannot finalize task` and swallowed.
-9. Returns the method's result, or the `{ error, message }` object from step 7.
+6. When the method throws, logs at `error` and sets the result to `{ error: true, message }`, where `message` is the error's `message`, or the thrown value as a string.
+7. Emits `TaskSuccess` with `TaskName` (the trimmed name) and logs at `success`, or emits `TaskFailed` with `TaskName` and `Reason: message`. See [Task events](03-task-events.md). An emit that throws is logged as `Cannot emit ...` and does not change the result.
+8. In a `finally` block, releases the lock taken in step 3 (stops the heartbeat, then `mutex_release()`), sets `State = 'stopped'` and inserts a `__task_history` row with `TaskId`, `Result` and `Duration` in milliseconds. Errors in this step are logged as `Cannot finalize task` and swallowed.
+9. Returns the method's result, or the `{ error, message }` object from step 6.
 
-An error in steps 2 to 4 is logged as `Cannot start task` and rethrown to the caller. That covers a missing `default` connection and a missing `Mutex` registration. An error thrown by `TaskFailed.emit()` in step 7 takes the same path, after step 8 has run.
+An error in steps 2 to 4 is logged as `Cannot start task` and rethrown to the caller. That covers a missing `default` connection and a missing `Mutex` registration.
 
 ```mermaid
 sequenceDiagram
@@ -35,8 +37,9 @@ sequenceDiagram
   participant Queue as QueueService
   Caller->>Wrapper: sendReminders()
   Wrapper->>DB: __task.getOrCreate(Name)
-  Wrapper->>Mutex: mutex_acquire('task-<name>') (taskStacking: false)
+  Wrapper->>Mutex: mutex_acquire('task-<name>', ttl) (taskStacking: false)
   Mutex-->>Wrapper: Locked
+  Wrapper->>Mutex: mutex_renew() every lockTtl / 3 while the method runs
   Wrapper->>DB: State = running, LastRunAt = now
   Wrapper->>Method: apply(this, args)
   Method-->>Wrapper: result or error
@@ -50,17 +53,24 @@ sequenceDiagram
 
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
-| `@Task(taskName, description, opts?)` | Method | `taskName: string` (stored in `__tasks.Name`, up to 64 characters, unique), `description: string` (stored in `__tasks.Description`, up to 128 characters), `opts: { taskStacking: boolean }` | Wraps the method as described above. The wrapper is `async`, so the method always returns a `Promise`. |
+| `@Task(taskName, description, opts?)` | Method, instance or static | `taskName: string` (stored in `__tasks.Name`, up to 64 characters, unique), `description: string` (stored in `__tasks.Description`, up to 128 characters), `opts: Partial<TaskOptions>` | Wraps the method as described above. The wrapper returns a `Promise`. |
 
-`opts` is optional; without it the task runs with `taskStacking: false`.
+`opts` is optional; missing options take their value from `DEFAULT_TASK_OPTIONS`.
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `taskStacking` | `boolean` | `false` | `false`: take the `task-<name>` mutex before the run and skip the run when it is held. `true`: no mutex; runs can overlap. |
+| `lockTtl` | `number` | `60000` | Lifetime of the task mutex in ms, renewed every `lockTtl / 3` while the task runs. `0`: the lock never expires. See [Task locking](02-task-locking.md#configuration). |
 
-The options type is exported as `TaskOptions`.
+The options type is exported as `TaskOptions`, the defaults as `DEFAULT_TASK_OPTIONS`.
 
 `@Task()` replaces the method's descriptor. Decorators listed above it in the source wrap the `@Task()` wrapper; decorators listed below it are wrapped by it.
+
+### Task declarations
+
+Every `@Task()` method is recorded as a `TaskDeclaration` when its class is defined: `name`, `description`, the merged `options`, the declaring class as `target` (the constructor itself for a static method), `isStatic`, `propertyKey` and the undecorated `method`. `getTaskDeclarations(name?)` returns the declarations of one task name, or all of them; `@spinajs/scheduler` uses them to schedule tasks by name.
+
+`runTask(declaration, thisArg, args, { lock, rethrow })` runs a declaration with the same bookkeeping as the decorated method. `lock: false` skips the task mutex, its heartbeat and the in-process guard, for a caller that holds a lock of its own. `rethrow: true` rejects with the method's error after the history row is written, instead of resolving with `{ error: true, message }`.
 
 ## Configuration
 
@@ -140,9 +150,8 @@ export async function startReportTasks(): Promise<ReportTasks> {
 
 - **Errors of the method are not rethrown.** A failed run resolves with `{ error: true, message }`; it never rejects. Check the result if the caller must react.
 - **A skipped run resolves with `undefined`.** When the mutex is held, nothing marks the call as skipped except the `warn` log line.
-- **A failed `TaskSuccess` emit counts as a failed run.** It is inside the same `try` as the method, so the run is reported again as `TaskFailed`.
-- **A failed `TaskFailed` emit rejects the call.** The lock is released and the history row is written first; the error is then logged as `Cannot start task` and rethrown.
-- **A run killed mid-way is not cleaned up.** When the process dies during the method, `State` stays `'running'`, no history row is written and the lock stays held; see [Task locking](02-task-locking.md#important-behaviour).
+- **A failed event emit does not change the run.** When `TaskSuccess.emit()` or `TaskFailed.emit()` throws (a queue outage), the error is logged and the call resolves with the run's result as usual: a run whose side effects already happened must not look like a failure a caller would retry.
+- **A run killed mid-way is not cleaned up.** When the process dies during the method, `State` stays `'running'` and no history row is written. The lock expires `lockTtl` after the last heartbeat; see [Task locking](02-task-locking.md#important-behaviour).
 - **`Description` is written once.** Changing the text in `@Task()` does not update an existing row.
 - **The name is trimmed everywhere.** The database row, the mutex name, the event `TaskName` and the log fields all use the trimmed `taskName`.
 - **The return value is stored as JSON.** `__task_history.Result` is a `@Json()` column, so return a JSON-serializable value.
@@ -151,6 +160,7 @@ export async function startReportTasks(): Promise<ReportTasks> {
 ## Best practices
 
 - Pass `opts` with an explicit `taskStacking`, so the locking choice is visible at the decorator.
+- Set `lockTtl` for tasks whose runs may pause the event loop for long stretches, so the heartbeat cannot fall behind.
 - Keep `taskName` short, stable and unique across the app: it is the `__tasks` key and the mutex name.
 - Return a small summary object (`{ sent: 12 }`), not the full data set: it is what the history stores.
 - Catch errors you can handle inside the method and return them in the result; the wrapper turns every other error into `{ error: true }`.
@@ -224,7 +234,7 @@ module.exports = {
 
 ## Related
 
-- [Task locking](02-task-locking.md): what `taskStacking: false` does and which `Mutex` to register.
+- [Task locking](02-task-locking.md): what `taskStacking: false` and `lockTtl` do, and which `Mutex` to register.
 - [Task events](03-task-events.md): `TaskSuccess` and `TaskFailed`.
 - [Task tables and migration](04-task-tables-and-migration.md): the rows step 2, 4 and 8 write.
 - [Configuration and rules](../log/02-configuration-and-rules.md): routing the `TASKS` logger.

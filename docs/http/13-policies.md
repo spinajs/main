@@ -17,7 +17,7 @@ A policy decides whether a route may run for the current request. Attach it with
 3. No scope left: the route runs.
 4. Calls `execute(req, route, controller)` on every remaining policy in parallel and waits for all of them.
 5. The route runs when **every** scope has **at least one** group whose **every** policy resolved.
-6. Otherwise it forwards the first rejection of the first failing scope, in declaration order, to the [error handler](11-error-handling.md).
+6. Otherwise it forwards one rejection of the first failing scope to the [error handler](11-error-handling.md): the first one that is not an `AuthenticationFailed`, else the first in declaration order. A refusal (403) from one group so wins over a missing credential (401) from another, whatever the decorator order.
 
 ```text
 @Policy(A)            controller scope:  A OR (B AND C)

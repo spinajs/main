@@ -63,7 +63,7 @@ Each entry of `queue.connections` that uses this transport:
 | `queue.connections[].host` | `string` | none, required | `ws://` or `wss://` URL | Broker WebSocket endpoint, eg. `ws://activemq:61614/ws`. |
 | `queue.connections[].login` | `string` | `undefined` | | STOMP `login` header. |
 | `queue.connections[].password` | `string` | `undefined` | | STOMP `passcode` header. |
-| `queue.connections[].clientId` | `string` | `undefined` | | `client-id` header. The shipped factory uses it when set, else `<app.name>-<APP_ENV>-<name>`; see [Client factory](05-client-factory-and-client-id.md). Built without the factory, it falls back to `name`. |
+| `queue.connections[].clientId` | `string` | `undefined` | | Base of the `client-id` header. The shipped factory uses it when set, else `<app.name>-<APP_ENV>-<name>`; see [Client factory](05-client-factory-and-client-id.md). Built without the factory, it falls back to `name`. |
 | `queue.connections[].credentialProvider` | `string` | `undefined` | a DI name of an `IQueueCredentialsProvider` | Fetch credentials before every connect; see [Credential providers](04-credential-providers.md). |
 | `queue.connections[].reconnectDelay` | `number` (ms) | `5000` | `>= 0`; `0` turns auto-reconnect off | Wait before reconnecting after a drop. |
 | `queue.connections[].heartbeatIncoming` | `number` (ms) | `4000` | `>= 0`; `0` turns it off | Heartbeat the client expects from the broker. |
@@ -75,8 +75,11 @@ Each entry of `queue.connections` that uses this transport:
 | `queue.connections[].defaultQueueChannel` | `string` | `undefined` | STOMP destination | Channel for jobs with no `queue.routing` entry. |
 | `queue.connections[].defaultTopicChannel` | `string` | `undefined` | STOMP destination | Channel for events with no `queue.routing` entry. |
 | `queue.connections[].defaultQueueDeadLetterChannel` | `string` | `undefined` | STOMP destination | Dead-letter channel when the route has none. |
-| `queue.connections[].options` | `object` | `{}` | any `stompjs` `StompConfig` key, plus `receiptTimeout` and `emitRetries` | Spread last into the `stompjs` config, so it overrides every value above. |
+| `queue.connections[].options` | `object` | `{}` | any `stompjs` `StompConfig` key, plus the keys below | Spread last into the `stompjs` config, so it overrides every value above. |
 | `queue.connections[].options.emitRetries` | `number` | `3` | `>= 0` | Publish retries after the first attempt; see [Publishing](02-publishing-messages.md). |
+| `queue.connections[].options.emitReconnectTimeout` | `number` (ms) | `60000` | `> 0` | How long a publish attempt that finds the connection down waits for the reconnect; see [Publishing](02-publishing-messages.md). |
+| `queue.connections[].options.prefetch` | `number` or numeric string | `1` | integer `>= 1` | `activemq.prefetchSize` of every subscription on the connection; see [Consuming](03-consuming-retries-and-dead-letters.md). Any other value rejects `resolve()` with `InvalidArgument`. |
+| `queue.connections[].options.clientIdSuffix` | `string` | env `QUEUE_INSTANCE_ID` | | Appended to the `client-id` as `<clientId>-<suffix>`; see [Client factory](05-client-factory-and-client-id.md). |
 
 `transport`, `type`, `port` and `queue` from `IQueueConnectionOptions` are not read by this transport.
 
@@ -164,7 +167,7 @@ export const config = {
 | --- | --- | --- |
 | `Connected` | `boolean` | `true` while the `stompjs` client is connected. |
 | `whenReady(timeoutMs?)` | `Promise<void>` | Resolves at once when connected, else on the next connect. With `timeoutMs`, rejects with `UnexpectedServerError` after that time. Rejects with `UnexpectedServerError` once `dispose()` has started. |
-| `ClientId` | `string` | The `client-id` sent to the broker: `clientId`, else `name`. |
+| `ClientId` | `string` | The `client-id` sent to the broker: `clientId`, else `name`, plus `-<options.clientIdSuffix>` or `-<QUEUE_INSTANCE_ID>` when one is set. |
 | `Name`, `ServiceName` | `string` | The connection `name`. |
 | `dispose()` | `Promise<void>` | Rejects every buffered emit and every pending `whenReady()` with `UnexpectedServerError`, refuses new emits, then awaits `client.deactivate()`. |
 | `describeWebSocketError(err)` | `string` | Exported helper: a one-line reason for a WebSocket error event, safe on circular socket objects. |
@@ -178,7 +181,8 @@ export const config = {
 - The default heartbeats (4 s both ways) suit ActiveMQ. RabbitMQ Web-STOMP does not support heartbeats over WebSocket; set `heartbeatIncoming` and `heartbeatOutgoing` to `0` there, or the broker drops the connection.
 - `@PerInstanceCheck()` matches instances by `name`. Two entries with the same `name` share one instance when built without the factory.
 - The shipped factory creates a new client on every resolve. `DI.get(StompQueueClient)` does not return it; get a connection with `QueueService.get(name)`.
-- An entry without `host`, or a credential provider that throws or is not registered at boot, rejects `resolve()`. A `createWebSocket()` override that throws still runs inside the un-awaited `stompjs` connect loop: the error is an unhandled promise rejection and `resolve()` never settles.
+- A broker `ERROR` frame at boot rejects `resolve()` with the broker's message. When ActiveMQ refuses a `client-id` already in use, the error says to give each replica a unique `QUEUE_INSTANCE_ID` or `options.clientIdSuffix`.
+- An entry without `host`, an invalid `options.prefetch`, or a credential provider that throws or is not registered at boot, rejects `resolve()`. A `createWebSocket()` override that throws still runs inside the un-awaited `stompjs` connect loop: the error is an unhandled promise rejection and `resolve()` never settles.
 - `stompjs` frames log at `trace` with the `client-id` and connection name; `debug: true` lifts them to `debug` so they show under a typical logger config.
 
 ## Best practices

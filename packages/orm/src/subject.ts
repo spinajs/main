@@ -49,7 +49,7 @@ export interface IRelationDelta {
 }
 
 /**
- * Junction rows to create and destroy for one manyToMany relation on one owner.
+ * Junction rows to create, update and destroy for one manyToMany relation on one owner.
  * `Added` holds target models because their keys may not exist yet; `RemovedKeys` holds
  * plain keys because those models are gone from the array.
  */
@@ -59,6 +59,12 @@ export interface IJunctionDelta {
   Owner: ModelBase;
   Added: ModelBase[];
   RemovedKeys: unknown[];
+
+  /** The junction row of a member, where the list holds one: its own columns go with the link. */
+  Junctions: Map<ModelBase, ModelBase>;
+
+  /** Members linked before whose junction row has changed columns. */
+  Changed: ModelBase[];
 }
 
 /**

@@ -131,9 +131,11 @@ export class Container extends EventEmitter implements IContainer {
       await this.disposePlainOwners(disposalErrors);
     }
 
+    // Reverse resolution order: a service resolved later may still use one resolved before it
+    // ( eg. a scheduler finishing its runs on the ORM connection ) while it disposes.
     // One instance can sit under several keys ( its own and an Array.ofType base ).
     const disposed = new Set<Service>();
-    for (const entry of this.cache) {
+    for (const entry of [...this.cache].reverse()) {
       if (entry.value instanceof Service && !disposed.has(entry.value)) {
         disposed.add(entry.value);
         try {

@@ -14,6 +14,8 @@ export class UowOrderTag extends ModelBase {
 
   public tag_id: number;
 
+  public Note: string;
+
   // The legacy `ManyToManyRelationList.update()` path instantiates the junction model and
   // finds its two sides by `relation.TargetModel === owner/target.constructor`, so both must
   // be declared here. `SubjectExecutor` does not need them — it writes junction rows

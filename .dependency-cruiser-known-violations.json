@@ -3815,6 +3815,71 @@
   {
     "type": "cycle",
     "from": "packages/orm/src/subject-executor.ts",
+    "to": "packages/orm/src/descriptor.ts",
+    "unresolvedTo": "./descriptor.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/orm/src/descriptor.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/orm/src/interfaces.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/orm/src/builders.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/orm/src/discrimination-middleware.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/orm/src/model.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/orm/src/unit-of-work.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "packages/orm/src/subject-executor.ts",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/orm/src/subject-executor.ts",
     "to": "packages/orm/src/exceptions.ts",
     "unresolvedTo": "./exceptions.js",
     "dependencyTypes": [
@@ -4757,45 +4822,6 @@
         ]
       }
     ]
-  },
-  {
-    "type": "dependency",
-    "from": "packages/authz-testing/bench/scenarios/01-probe-grant.ts",
-    "to": "../../../users/src/permission-service.js",
-    "unresolvedTo": "../../../users/src/permission-service.js",
-    "dependencyTypes": [
-      "unknown"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "not-to-unresolvable"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "packages/authz-testing/bench/scenarios/01-probe-grant.ts",
-    "to": "accesscontrol",
-    "unresolvedTo": "accesscontrol",
-    "dependencyTypes": [
-      "unknown"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "not-to-unresolvable"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "packages/authz-testing/bench/scenarios/02-orm-select.ts",
-    "to": "../../../users/src/decorators.js",
-    "unresolvedTo": "../../../users/src/decorators.js",
-    "dependencyTypes": [
-      "unknown"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "not-to-unresolvable"
-    }
   },
   {
     "type": "dependency",

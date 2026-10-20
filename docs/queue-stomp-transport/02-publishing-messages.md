@@ -17,7 +17,7 @@ You do not call `emit()` directly: `QueueService.emit()`, `QueueJob.emit()` and 
    - as a list: each entry's channel, without duplicates;
    - no route: `defaultQueueChannel` for a job, `defaultTopicChannel` for an event, with a warning log.
 4. It builds the STOMP headers (table below) and the body, `JSON.stringify(message)`.
-5. For every channel at once it runs `EmitPipeline.execute(() => publishWithReceipt(channel, body, headers, message))`.
+5. For every channel at once it runs `EmitPipeline.execute(() => publishWhenConnected(channel, body, headers, message))`. `publishWhenConnected()` rejects once `dispose()` has started, calls `publishWithReceipt()` when connected, and otherwise waits up to `options.emitReconnectTimeout` (default `60000` ms) in `whenReady()` before it does.
 6. `publishWithReceipt()` adds a `receipt` header with a new UUID, registers `client.watchForReceipt()`, publishes, and resolves when the receipt arrives. After `receiptTimeout` it rejects with `UnexpectedServerError('Timeout waiting for broker receipt while publishing to <channel> ( <name> )')`.
 7. `EmitPipeline`, built by `buildEmitPipeline()`, retries any failure of step 6 with exponential backoff and jitter. When the retries run out, `emit()` rejects with the last error.
 8. On the next connect, `flushPendingEmits()` publishes every buffered message through steps 3 to 7 and settles each buffered promise with the result.
@@ -193,7 +193,7 @@ export class TenantStompClient extends StompQueueClient {
 - Worst case, one `emit()` takes `(emitRetries + 1) × receiptTimeout` plus the backoff delays: about 21 s with the defaults.
 - A message emitted while disconnected is buffered with no limit and no timeout. Its promise stays pending until the next connect or until `dispose()`, which rejects it. With `reconnectDelay: 0` it stays pending.
 - Buffered messages are flushed concurrently on connect; their order on the broker is not guaranteed.
-- A socket that drops in the middle of a publish makes the attempt throw; the pipeline retries it, and the message is not moved to the buffer.
+- A socket that drops in the middle of a publish makes the attempt throw or time out; the pipeline's next attempt waits for the reconnect (up to `options.emitReconnectTimeout`) instead of failing at once. The message is not moved to the buffer.
 - `Priority: 0` and `ScheduleDelay: 0` are not sent: `0` means unset.
 - `getChannelForMessage()` falls back to `defaultQueueChannel` or `defaultTopicChannel`. When that default is not configured either, the frame has no usable destination; expect a broker error or a receipt timeout.
 

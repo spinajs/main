@@ -1,7 +1,10 @@
 /* eslint-disable prettier/prettier */
 import { DateTime } from 'luxon';
 import _ from 'lodash';
-import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from './builders.js';
+import { Class } from '@spinajs/di';
+import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, QueryBuilder, UpdateQueryBuilder } from './builders.js';
+import { extractModelDescriptor } from './descriptor.js';
+import type { OrmDriver } from './driver.js';
 import { OrmException } from './exceptions.js';
 import { IInsertResult, ISaveOptions, ISaveResult, OrphanPolicy, ServerResponseMapper } from './interfaces.js';
 import { assertAssignedKeys, generateClientSideKeys, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
@@ -24,7 +27,16 @@ export const DEFAULT_SAVE_CHUNK = 100;
  * savepoints rather than each opening their own.
  */
 export class SubjectExecutor {
-  constructor(protected options: ISaveOptions) {}
+  /**
+   * @param root - the connection the save's transaction is on. A model of another connection on
+   *        the same server is written through it, so the whole graph shares that transaction.
+   */
+  constructor(protected options: ISaveOptions, protected root?: OrmDriver) {}
+
+  protected query<T extends QueryBuilder>(model: Class<any>, builder: Class<T>) {
+    const connection = extractModelDescriptor(model)?.Connection;
+    return createQuery(model, builder, true, this.root && connection !== this.root.Options.Name ? this.root : undefined);
+  }
 
   public async execute(plan: ISortedPlan): Promise<ISaveResult> {
     const result: ISaveResult = {
@@ -33,6 +45,7 @@ export class SubjectExecutor {
       Deleted: 0,
       SoftDeleted: 0,
       JunctionInserted: 0,
+      JunctionUpdated: 0,
       JunctionDeleted: 0,
     };
 
@@ -77,7 +90,7 @@ export class SubjectExecutor {
     generateClientSideKeys(model, descriptor);
     assertAssignedKeys(model, descriptor);
 
-    const { query, container } = createQuery(model.constructor, InsertQueryBuilder);
+    const { query, container } = this.query(model.constructor, InsertQueryBuilder);
     const mapper = container.resolve(ServerResponseMapper);
 
     const needsKeyBack = pkColumns(descriptor).some((c) => pkGeneration(descriptor, c) === 'auto');
@@ -108,7 +121,7 @@ export class SubjectExecutor {
         continue;
       }
 
-      const { query } = createQuery(subject.Model.constructor, UpdateQueryBuilder);
+      const { query } = this.query(subject.Model.constructor, UpdateQueryBuilder);
       const update = (query as UpdateQueryBuilder<unknown>).update(payload);
       wherePk(update, subject.Descriptor, subject.Model.PrimaryKeyValue);
       await update;
@@ -165,8 +178,17 @@ export class SubjectExecutor {
    * now-known join column. The overwrite matters: `StandardModelToSqlConverter` already wrote
    * that column from the relation object, and for a target inserted moments ago that value was
    * `undefined` when the model was serialized.
+   *
+   * The pending keys go onto the model before it is serialized too: a key column no relation on
+   * the child manages ( a hasMany's foreign key without a back-reference ) is validated there, and
+   * a NOT NULL one would fail as missing.
    */
   protected insertPayload(subject: Subject): Record<string, unknown> {
+    const pending = subject.PendingForeignKeys.map((fk) => ({ column: fk.Column, value: (fk.Target as any)[fk.JoinColumn] }));
+    for (const { column, value } of pending) {
+      (subject.Model as any)[column] = value;
+    }
+
     const payload = subject.Model.toSql() as Record<string, unknown>;
 
     for (const fk of subject.DeferredForeignKeys) {
@@ -174,11 +196,9 @@ export class SubjectExecutor {
       delete payload[fk.Column];
     }
 
-    for (const fk of subject.PendingForeignKeys) {
-      const value = (fk.Target as any)[fk.JoinColumn];
+    for (const { column, value } of pending) {
       // eslint-disable-next-line security/detect-object-injection
-      payload[fk.Column] = value;
-      (subject.Model as any)[fk.Column] = value;
+      payload[column] = value;
     }
 
     return payload;
@@ -226,11 +246,13 @@ export class SubjectExecutor {
   }
 
   /**
-   * Creates and destroys junction rows.
+   * Creates, updates and destroys junction rows.
    *
-   * Rows are written column-first rather than through the junction model, so a junction model
-   * is not required to declare `@BelongsTo` on both sides — `ManyToManyRelationList.update()`
-   * does require that, and none of the existing junction fixtures satisfy it.
+   * Rows are written column-first rather than through the junction model's `insert()`, so a
+   * junction model is not required to declare `@BelongsTo` on both sides —
+   * `ManyToManyRelationList.update()` does require that, and none of the existing junction
+   * fixtures satisfy it. A junction model the relation holds for a member still supplies the
+   * row's own columns, through its `toSql()`.
    *
    * Inserts run before deletes so that re-linking the same pair inside one save cannot
    * momentarily violate a unique constraint on the junction table in the other order.
@@ -238,15 +260,12 @@ export class SubjectExecutor {
   protected async runJunctions(plan: ISortedPlan, result: ISaveResult): Promise<void> {
     for (const delta of plan.Junctions) {
       await this.insertJunctionRows(delta, result);
+      await this.updateJunctionRows(delta, result);
       await this.deleteJunctionRows(delta, result);
     }
   }
 
-  protected async insertJunctionRows(delta: IJunctionDelta, result: ISaveResult): Promise<void> {
-    if (delta.Added.length === 0) {
-      return;
-    }
-
+  protected junctionColumns(delta: IJunctionDelta): { sourceColumn: string; targetColumn: string } {
     const sourceColumn = delta.Descriptor.JunctionModelSourceModelFKey_Name;
     const targetColumn = delta.Descriptor.JunctionModelTargetModelFKey_Name;
 
@@ -254,18 +273,82 @@ export class SubjectExecutor {
       throw new OrmException(`manyToMany relation ${delta.Descriptor.Name} has no junction foreign-key column names`);
     }
 
+    return { sourceColumn, targetColumn };
+  }
+
+  protected async insertJunctionRows(delta: IJunctionDelta, result: ISaveResult): Promise<void> {
+    if (delta.Added.length === 0) {
+      return;
+    }
+
+    const { sourceColumn, targetColumn } = this.junctionColumns(delta);
     const ownerKey = delta.Owner.PrimaryKeyValue;
+    // A generated junction key is never carried over: the row is new even when its model came
+    // from another link.
+    const generated = pkColumns(delta.JunctionDescriptor).filter((c) => pkGeneration(delta.JunctionDescriptor, c) === 'auto');
 
-    for (const batch of this.chunked(delta.Added)) {
-      const values = batch.map((target) => ({
-        [sourceColumn]: ownerKey,
-        [targetColumn]: target.PrimaryKeyValue,
-      }));
+    const rows = delta.Added.map((target) => {
+      const junction = delta.Junctions.get(target);
+      const own = junction ? _.omit(junction.toSql() as Record<string, unknown>, generated) : {};
+      return { ...own, [sourceColumn]: ownerKey, [targetColumn]: target.PrimaryKeyValue };
+    });
 
-      const { query } = createQuery(delta.Descriptor.JunctionModel!, InsertQueryBuilder);
-      await query.values(values);
+    // `values()` takes the union of the rows' columns and binds undefined where a row lacks one,
+    // so rows with different columns go in separate statements.
+    for (const group of _.values(_.groupBy(rows, (row) => Object.keys(row).sort().join(',')))) {
+      for (const batch of this.chunked(group)) {
+        const { query } = this.query(delta.Descriptor.JunctionModel!, InsertQueryBuilder);
+        await query.values(batch);
 
-      result.JunctionInserted += values.length;
+        result.JunctionInserted += batch.length;
+      }
+    }
+
+    // Written, the junction models are rows: a later change of their columns is an UPDATE.
+    for (const target of delta.Added) {
+      const junction = delta.Junctions.get(target) as any;
+      if (junction) {
+        junction[sourceColumn] = ownerKey;
+        junction[targetColumn] = target.PrimaryKeyValue;
+        junction.takeSnapshot();
+      }
+    }
+  }
+
+  /**
+   * Writes the changed columns of kept links' junction rows - by the junction's own key when it
+   * has one, by the pair otherwise.
+   */
+  protected async updateJunctionRows(delta: IJunctionDelta, result: ISaveResult): Promise<void> {
+    if (delta.Changed.length === 0) {
+      return;
+    }
+
+    const { sourceColumn, targetColumn } = this.junctionColumns(delta);
+    const keys = [...pkColumns(delta.JunctionDescriptor), sourceColumn, targetColumn];
+
+    for (const target of delta.Changed) {
+      const junction = delta.Junctions.get(target)!;
+      const changed = junction.changeSet().map((c) => c.Column).filter((c) => !keys.includes(c));
+      if (changed.length === 0) {
+        continue;
+      }
+
+      const { query } = this.query(delta.Descriptor.JunctionModel!, UpdateQueryBuilder);
+      const update = (query as UpdateQueryBuilder<unknown>).update(_.pick(junction.toSql() as Record<string, unknown>, changed));
+
+      const pk = junction.PrimaryKeyValue;
+      const keyed = Array.isArray(pk) ? pk.every((v) => v !== null && v !== undefined) : pk !== null && pk !== undefined;
+      if (keyed) {
+        wherePk(update, delta.JunctionDescriptor, pk);
+      } else {
+        update.where(sourceColumn, delta.Owner.PrimaryKeyValue).where(targetColumn, target.PrimaryKeyValue);
+      }
+
+      await update;
+      junction.takeSnapshot();
+
+      result.JunctionUpdated += 1;
     }
   }
 
@@ -279,7 +362,7 @@ export class SubjectExecutor {
     const ownerKey = delta.Owner.PrimaryKeyValue;
 
     for (const batch of this.chunked(delta.RemovedKeys)) {
-      const { query } = createQuery(delta.Descriptor.JunctionModel!, DeleteQueryBuilder);
+      const { query } = this.query(delta.Descriptor.JunctionModel!, DeleteQueryBuilder);
       await (query as DeleteQueryBuilder<unknown>).where(sourceColumn, ownerKey).whereIn(targetColumn, batch);
 
       result.JunctionDeleted += batch.length;
@@ -331,7 +414,7 @@ export class SubjectExecutor {
     const payload = policy === OrphanPolicy.Nullify ? { [delta.Descriptor.ForeignKey]: null } : { [delta.TargetDescriptor.SoftDelete!.DeletedAt]: DateTime.utc() };
 
     for (const batch of this.chunked(delta.PrimaryKeys)) {
-      const { query } = createQuery(delta.Descriptor.TargetModel, UpdateQueryBuilder);
+      const { query } = this.query(delta.Descriptor.TargetModel, UpdateQueryBuilder);
       const update = (query as UpdateQueryBuilder<unknown>).update(payload);
       whereAnyPk(update, delta.TargetDescriptor, batch);
       await update;
@@ -346,7 +429,7 @@ export class SubjectExecutor {
 
   protected async deleteOrphans(delta: IOrphanDelta, result: ISaveResult): Promise<void> {
     for (const batch of this.chunked(delta.PrimaryKeys)) {
-      const { query } = createQuery(delta.Descriptor.TargetModel, DeleteQueryBuilder);
+      const { query } = this.query(delta.Descriptor.TargetModel, DeleteQueryBuilder);
       whereAnyPk(query as DeleteQueryBuilder<unknown>, delta.TargetDescriptor, batch);
       await query;
 

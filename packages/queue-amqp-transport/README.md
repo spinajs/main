@@ -69,6 +69,10 @@ const config = {
 `host` may also be a full url ( `amqp://user:pass@host/vhost` ). Its port and credentials win;
 `port` and `login`/`password` are used only when the url has none.
 
+## Retries
+
+A failed job is retried `RetryCount` times (set on the job), or, when the job has none, `routing.<Job>.maxRetries` times (the first routing entry that declares it applies), then moved to its dead-letter queue.
+
 ## Not yet supported
 
 Delayed / scheduled delivery ( `ScheduleDelay`, `ScheduleCron`, `SchedulePeriod`, `ScheduleRepeat` ) is

@@ -138,7 +138,7 @@ class TestableAmqpClient extends AmqpQueueClient {
 class ConnectionConf extends FrameworkConfiguration {
   protected onLoad(): unknown {
     return {
-      queue: { routing: {} },
+      queue: { routing: { RetryRoutedJob: { channel: '/queue/retry-src', deadLetterChannel: '/queue/retry-dlq', maxRetries: 1 } } },
       logger: {
         targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
@@ -445,6 +445,35 @@ describe('amqp queue transport - unit', function () {
 
       expect(c.con.acked.length).to.eq(0);
       expect(c.con.nacked.length).to.eq(1);
+    });
+
+    it('retries up to the routing maxRetries when the job carries no RetryCount, then dead-letters', async () => {
+      const c = await connected({ retryDelay: 100 });
+      await c.subscribe('/queue/retry-src', sinon.stub().rejects(new Error('boom')));
+
+      deliver(c.con, '/queue/retry-src', jobMessage({ Name: 'RetryRoutedJob' }));
+      await tick();
+
+      const retry = c.pub.published.find((s) => s.exchange === '' && s.routingKey === '/queue/retry-src.retry.100');
+      expect(retry, 'first failure is retried').to.exist;
+      expect(retry!.options.headers['x-retry-count']).to.eq(1);
+      expect(c.pub.published.some((s) => s.routingKey === '/queue/retry-dlq')).to.be.false;
+
+      deliver(c.con, '/queue/retry-src', jobMessage({ Name: 'RetryRoutedJob' }), { 'x-retry-count': '1' });
+      await tick();
+
+      expect(c.pub.published.some((s) => s.routingKey === '/queue/retry-dlq'), 'second failure dead-letters').to.be.true;
+    });
+
+    it('prefers an explicit RetryCount on the job over the routing default', async () => {
+      const c = await connected();
+      await c.subscribe('/queue/retry-src', sinon.stub().rejects(new Error('boom')));
+
+      deliver(c.con, '/queue/retry-src', jobMessage({ Name: 'RetryRoutedJob', RetryCount: 0 } as any));
+      await tick();
+
+      expect(c.pub.published.some((s) => s.routingKey.startsWith('/queue/retry-src.retry'))).to.be.false;
+      expect(c.pub.published.some((s) => s.routingKey === '/queue/retry-dlq')).to.be.true;
     });
 
     it('dead-letters a job once retries are exhausted', async () => {

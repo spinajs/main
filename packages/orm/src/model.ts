@@ -14,6 +14,7 @@ import { OrmDriver } from './driver.js';
 import { Relation, SingleRelation } from './relation-objects.js';
 import { baselineValue, createSnapshot, IModelChange, IModelSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
 import { UnitOfWork } from './unit-of-work.js';
+import { quoterOf } from './quoting.js';
 
 import { DI, isConstructor, IContainer, Constructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 
@@ -711,6 +712,67 @@ export class ModelBase<M = unknown> implements IModelBase {
     }) as ModelDataWithRelationData<this>;
   }
 
+  /**
+   * An unsaved copy - `save()` inserts it. It takes every column but the primary key and `omit`
+   * ( `@Hidden()` ones too, unlike `dehydrate()` ), and no snapshot.
+   *
+   * `relations` names populated hasMany / manyToMany relations to carry, dotted for depth
+   * ( `['Offers.Localisations', 'Comments']` ). hasMany members are cloned the same way.
+   * manyToMany members are not: the copy links the same targets, each with a clone of its
+   * junction row. belongsTo relations are not carried - their foreign key columns are.
+   *
+   * @param options - columns to leave out, relations to carry
+   */
+  public clone(options?: { omit?: string[]; relations?: string[] }): this {
+    const descriptor = this.ModelDescriptor!;
+    const skip = [...pkColumns(descriptor), ...(options?.omit ?? [])];
+    const copy = new (this.constructor as Constructor<this>)();
+
+    for (const column of descriptor.Columns) {
+      // eslint-disable-next-line security/detect-object-injection
+      const value = (this as any)[column.Name];
+      // a relation can be listed among the columns too ( seen with a @Filterable relation )
+      if (skip.includes(column.Name) || value === undefined || descriptor.Relations.has(column.Name)) {
+        continue;
+      }
+
+      // eslint-disable-next-line security/detect-object-injection
+      (copy as any)[column.Name] = value instanceof DateTime ? value : _.cloneDeep(value);
+    }
+
+    const paths = _.groupBy(options?.relations ?? [], (path) => path.split('.')[0]);
+    for (const [name, nested] of Object.entries(paths)) {
+      const relation = descriptor.Relations.get(name);
+      // eslint-disable-next-line security/detect-object-injection
+      const source = (this as any)[name] as Relation<ModelBase, ModelBase>;
+
+      if (!relation || (relation.Type !== RelationType.Many && relation.Type !== RelationType.ManyToMany)) {
+        throw new OrmException(`${descriptor.Name} has no hasMany or manyToMany relation ${name} to clone`);
+      }
+      if (source?.Populated !== true) {
+        throw new OrmException(`relation ${name} of ${descriptor.Name} is not populated, populate it before cloning`);
+      }
+
+      const deeper = nested.map((path) => path.split('.').slice(1).join('.')).filter((path) => path !== '');
+      if (relation.Type === RelationType.ManyToMany && deeper.length > 0) {
+        throw new OrmException(`relation ${name} of ${descriptor.Name} is many-to-many, its targets are linked, not cloned: ${deeper.join(', ')} cannot be carried`);
+      }
+
+      // eslint-disable-next-line security/detect-object-injection
+      const target = (copy as any)[name] as Relation<ModelBase, ModelBase>;
+      for (const member of source) {
+        if (relation.Type === RelationType.ManyToMany) {
+          target.add(member, source.junction(member)?.clone());
+        } else {
+          target.add(member.clone({ relations: deeper }));
+        }
+      }
+      target.Populated = true;
+    }
+
+    return copy;
+  }
+
   public toSql(onlyDirty?: boolean): Partial<this> {
     const vals = this.Container.resolve(ModelToSqlConverter).toSql(this) as Partial<this>;
 
@@ -832,7 +894,7 @@ export class ModelBase<M = unknown> implements IModelBase {
         query.orIgnore();
         break;
       case InsertBehaviour.InsertOrUpdate:
-        query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
+        query.onDuplicate(_upsertTarget(this, description)).update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
         break;
       case InsertBehaviour.InsertOrReplace:
         query.orReplace();
@@ -963,6 +1025,8 @@ export class ModelBase<M = unknown> implements IModelBase {
     this.ModelDescriptor!.Columns?.forEach((c) => {
       if (c.Uuid) {
         (this as any)[c.Name] = uuidv4();
+      } else if (c.DefaultValue instanceof RawQuery) {
+        // a server-side expression (postgres `gen_random_uuid()`, `CURRENT_TIMESTAMP`): left unset so the insert takes it
       } else {
         (this as any)[c.Name] = c.DefaultValue;
       }
@@ -1067,6 +1131,27 @@ function _canBackfillContiguousKeys(description: IModelDescriptor, rows: any[], 
   // auto-increment values only for the rows that omitted one, so index arithmetic would both
   // mis-key the generated rows and overwrite the supplied ones.
   return rows.every((v) => v instanceof ModelBase && (v.PrimaryKeyValue === null || v.PrimaryKeyValue === undefined));
+}
+
+/**
+ * ON CONFLICT needs one arbiter: the key when the row carries it, else the single unique
+ * column the row carries. Naming every unique column at once matches no single constraint on
+ * postgres or sqlite. With several unique columns there is nothing to choose, so the old
+ * default stays: MySQL's ON DUPLICATE KEY ignores the target and keeps working there.
+ */
+function _upsertTarget(row: any, description: IModelDescriptor): string[] | undefined {
+  const keys = pkColumns(description);
+  const has = (c: string) => row[c] !== undefined && row[c] !== null;
+  if (keys.every(has)) {
+    return keys;
+  }
+
+  const unique = description.Columns.filter((c) => c.Unique && !c.PrimaryKey && has(c.Name)).map((c) => c.Name);
+  if (unique.length > 1) {
+    return undefined;
+  }
+
+  return unique.length === 1 ? unique : keys;
 }
 
 function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuilder<any>, model: ModelBase) {
@@ -1211,7 +1296,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
         JoinQuery.leftJoin({
           joinModel: relationDescriptor.TargetModel,
           queryCallback: function () {
-            this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
+            this.select(new RawQuery(`${quoterOf(this).quote(this.TableAlias)}.*`));
           },
           // Both were omitted, so the join compiled to `$source$.undefined`. A belongsTo
           // joins the owner's ForeignKey to the target's PrimaryKey — the same derivation
@@ -1243,7 +1328,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
         junctionQuery.leftJoin({
           joinModel: relationDescriptor.TargetModel,
           queryCallback: function () {
-            this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
+            this.select(new RawQuery(`${quoterOf(this).quote(this.TableAlias)}.*`));
           },
           sourceTablePrimaryKey: relationDescriptor.JunctionModelTargetModelFKey_Name,
           joinTableForeignKey: relationDescriptor.ForeignKey,

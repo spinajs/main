@@ -1,4 +1,4 @@
-# Release notes — SpinaJS 3.0.0-rc.1: authentication and authorization
+# Release notes — SpinaJS 3.0.0: authentication and authorization
 
 > 3.0 splits `@spinajs/rbac` into three families: identity (`@spinajs/users*`), authentication
 > (`@spinajs/authn*`) and authorization (`@spinajs/authz*`). There is no compatibility mode, no
@@ -50,6 +50,22 @@ what each fix changes for an app.
    the old rows are rewritten. Nothing migrates them for you: confirm that 2.x ran with `TZ=UTC`, or rewrite
    the datetime columns before the first start (shift the values to UTC; on SQLite, write them as ISO 8601
    with `Z`).
+
+## Also in 3.0 (merged from 2.0.550 to 2.0.557)
+
+- New `@spinajs/scheduler` and `@spinajs/scheduler-http`. The HTTP API checks `scheduler:read`, `scheduler:run`
+  and `scheduler:manage` with `@Access`.
+- `OrmMutex`: one atomic acquire, `ttl` and `renew()`, a per-process default tenant (`threading.mutex.tenant`
+  overrides it), and expiry on the database clock. `@Task` releases its lock, renews it every `lockTtl / 3` and
+  excludes overlapping runs in one process.
+- Queue: a per-route `maxRetries` default for jobs without `RetryCount` (AMQP and STOMP). STOMP: configurable
+  prefetch, a client id suffix (`QUEUE_INSTANCE_ID`), and ActiveMQ Classic 6 delivery fixes.
+- ORM: `save()` across connections on one server, junction data on many-to-many `save()`, `clone()`, and
+  `DEFAULT` for an unset column whose default is a server expression.
+- PostgreSQL: `DATE` reads as UTC midnight, idle client errors no longer crash the process, column defaults are
+  parsed.
+- HTTP: `BufferResponse`; a policy refusal (403) wins over a missing credential (401) from another group;
+  `SseStream` closes when the client left before open.
 
 ## BREAKING CHANGES
 

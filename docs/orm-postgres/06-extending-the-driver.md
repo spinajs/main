@@ -98,7 +98,8 @@ Overridable members:
 | `DateTimeWrapper` | `PostgresDateTimeWrapper` (`CAST(col AS TIMESTAMP)`) | this package | [Queries and inserts](03-queries-and-inserts.md#compare-with-a-time-zone-aware-datetime-wrapper) |
 | `InStatement` | `PostgresInStatement` | this package | [Queries and inserts](03-queries-and-inserts.md#select) |
 | `NowExpression` | `PostgresNowExpression` (no lifetime decorator) | this package | [Queries and inserts](03-queries-and-inserts.md#select) |
-| `DatetimeValueConverter` | `IsoDatetimeValueConverter` | `@spinajs/orm-sql` | [Queries and inserts](03-queries-and-inserts.md#datetime-values) |
+| `DatetimeValueConverter` | `PostgresDatetimeValueConverter` | this package | [Queries and inserts](03-queries-and-inserts.md#datetime-values) |
+| `JsonValueConverter` | `PostgresJsonValueConverter` | this package | [Queries and inserts](03-queries-and-inserts.md#datetime-values) |
 | `DropDatabaseCompiler` | `SqlDropDatabaseQueryCompiler` | shared, claimed | |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | shared, claimed | |
 | `RecursiveQueryCompiler` | `SqlWithRecursiveCompiler` | shared, claimed | |

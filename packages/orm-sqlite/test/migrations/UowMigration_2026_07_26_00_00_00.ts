@@ -42,6 +42,8 @@ export class UowMigration_2026_07_26_00_00_00 extends OrmMigration {
       table.int('Id').primaryKey().autoIncrement().unique();
       table.int('order_id');
       table.int('tag_id');
+      // the link's own column, written with it by save()
+      table.string('Note');
     });
 
     await connection.schema().createTable('uow_node', (table) => {

@@ -6,10 +6,10 @@
 
 1. **Resolve.** `Orm.createConnections()` resolves the class registered under the entry's `Driver` string, `orm-driver-postgres`, with the entry as the constructor argument. The DI container then calls `PostgresOrmDriver.resolve()`, which runs `OrmDriver.resolve()` and `SqlDriver.resolve()` and registers the PostgreSQL dialect in the driver's own child container (see [Extending the driver](06-extending-the-driver.md#what-the-driver-registers)).
 2. **Connect.** `Orm` calls `PostgresOrmDriver.connect()`:
-   1. `connect()` creates `new pg.Pool(this.poolConfig())`. `poolConfig()` merges `Pool.*` over the defaults with `resolvedPoolOptions()` and returns `{ host, user, password, port, database, max, min, idleTimeoutMillis, connectionTimeoutMillis, options, types }`: `options` carries `-c TimeZone=UTC` and `types` parses `timestamp` as UTC (see [Important behaviour](#important-behaviour)).
+   1. `connect()` creates `new pg.Pool(this.poolConfig())`. `poolConfig()` merges `Pool.*` over the defaults with `resolvedPoolOptions()` and returns `{ host, user, password, port, database, max, min, idleTimeoutMillis, connectionTimeoutMillis, options, types }`: `options` carries `-c TimeZone=UTC` and `types` parses `timestamp` and `date` as UTC (see [Important behaviour](#important-behaviour)).
    2. It adds an `error` listener to the pool that logs `postgres pool connection error for <Name>` at `warn`. Without it, an idle client dying between checkouts would crash the process.
-   3. It takes one client and releases it, which verifies the server address and credentials.
-   4. When `Options.Schema` is set, it adds a `connect` listener that runs `SET search_path TO "<Schema>"` on every new pooled client, and runs the same statement once through `executeOnDb()` for the client that already exists.
+   3. It adds a `connect` listener that gives every new pooled client an `error` listener of its own, so a checked-out client whose socket dies does not crash the process (the statement in flight rejects instead), and, when `Options.Schema` is set, runs `SET search_path TO "<Schema>"` on it.
+   4. It takes one client and releases it, which verifies the server address and credentials.
    5. It sets the state to `Connected`. On any error it ends the pool, sets `Pool` to `null` and re-throws; `Orm` wraps the error in `OrmException('Failed to connect to database for connection <Name> ...')`.
 3. **Execute.** Every statement goes through `PostgresOrmDriver.executeOnDb(stmt, params, context)`:
    1. The inherited `toDriverParams()` writes `Date` and luxon `DateTime` bindings through the connection's `DatetimeValueConverter` (ISO 8601 in UTC); other values pass as given. `withReconnect()` wraps the attempt; see [Retries](#retries).

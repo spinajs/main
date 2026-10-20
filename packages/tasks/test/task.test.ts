@@ -10,14 +10,21 @@ import { DI } from '@spinajs/di';
 import '@spinajs/log';
 
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
-import { Mutex } from '@spinajs/threading';
+import { Mutex, mutex_acquire, mutex_get } from '@spinajs/threading';
 import { OrmMutex } from '@spinajs/orm-threading';
 import { QueueService } from '@spinajs/queue';
 import { TestTask } from './Tasks/TestTask.js';
 import { __task, __task_history } from '../src/index.js';
+import { DEFAULT_TASK_OPTIONS, getTaskDeclarations, runTask } from '../src/decorators.js';
 import '@spinajs/orm-sqlite';
 import { TestTask2 } from './Tasks/TestTask2.js';
 import { TestTask3 } from './Tasks/TestTask3.js';
+import { TestTaskNoOptions } from './Tasks/TestTaskNoOptions.js';
+import { TestTaskFailing } from './Tasks/TestTaskFailing.js';
+import { TestTaskHeartbeat } from './Tasks/TestTaskHeartbeat.js';
+import { TestTaskThrowsNull } from './Tasks/TestTaskThrowsNull.js';
+import { TestTaskValue } from './Tasks/TestTaskValue.js';
+import { TaskSuccess } from '../src/events/TaskSuccess.js';
 
 //const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -159,5 +166,132 @@ describe('Commands', function () {
     await new TestTask().execute(1);
 
     expect(emit.calledWithMatch({ Name: 'TaskSuccess', TaskName: 'TestTask' })).to.be.true;
+  });
+
+  describe('mutex', () => {
+    it('Should release the task mutex after a run', async () => {
+      await new TestTask().execute(1);
+
+      const m = await mutex_get('task-TestTask');
+      expect(m).to.not.be.undefined;
+      expect(m!.Locked).to.be.false;
+    });
+
+    it('Should release the task mutex when the task throws', async () => {
+      await new TestTaskFailing().execute();
+
+      const m = await mutex_get('task-TestTaskFailing');
+      expect(m!.Locked).to.be.false;
+    });
+
+    it('Should run a task declared without options', async () => {
+      await new TestTaskNoOptions().execute();
+
+      expect(await __task_history.all()).to.have.length(1);
+      expect((await mutex_get('task-TestTaskNoOptions'))!.Locked).to.be.false;
+    });
+
+    it('Should skip the run while another process holds the task mutex', async () => {
+      await mutex_acquire({ Name: 'task-TestTask', Tenant: 'other-replica' });
+
+      await new TestTask().execute(1);
+
+      expect(await __task_history.all()).to.have.length(0);
+    });
+
+    it('Should set the task lock ttl', async () => {
+      const run = new TestTaskHeartbeat().execute();
+      await sleep(300);
+
+      const m = await mutex_get('task-TestTaskHeartbeat');
+      expect(m!.LockedUntil).to.be.a('number');
+
+      await run;
+    });
+
+    it('Should keep the task lock while a long task runs', async () => {
+      const run = new TestTaskHeartbeat().execute();
+      await sleep(700);
+
+      const other = await mutex_acquire({ Name: 'task-TestTaskHeartbeat', Tenant: 'other-replica', ttl: 300 });
+
+      expect(other.Locked).to.be.false;
+      await run;
+    });
+  });
+
+  describe('task declarations', () => {
+    it('Should record a declaration per @Task method', () => {
+      const [decl] = getTaskDeclarations('TestTaskNoOptions');
+
+      expect(decl).to.include({
+        name: 'TestTaskNoOptions',
+        description: 'Task declared without options',
+        target: TestTaskNoOptions,
+        isStatic: false,
+        propertyKey: 'execute',
+      });
+      expect(decl.options).to.deep.equal(DEFAULT_TASK_OPTIONS);
+      expect(decl.method).to.not.equal(TestTaskNoOptions.prototype.execute);
+      expect(getTaskDeclarations('NoSuchTask')).to.deep.equal([]);
+    });
+
+    it('Should run without the task mutex and leave a foreign lock alone when lock is false', async () => {
+      await mutex_acquire({ Name: 'task-TestTaskNoOptions', Tenant: 'other-replica' });
+      const [decl] = getTaskDeclarations('TestTaskNoOptions');
+
+      await runTask(decl, new TestTaskNoOptions(), [], { lock: false, rethrow: true });
+
+      expect(await __task_history.all()).to.have.length(1);
+      const m = await mutex_get('task-TestTaskNoOptions');
+      expect(m).to.include({ Locked: true, Tenant: 'other-replica' });
+    });
+
+    it('Should write history and rethrow the error when rethrow is true', async () => {
+      const [decl] = getTaskDeclarations('TestTaskFailing');
+
+      await expect(runTask(decl, new TestTaskFailing(), [], { lock: false, rethrow: true })).to.be.rejectedWith('boom');
+
+      const [row] = await __task_history.all();
+      expect(row.Result).to.include({ error: true });
+    });
+
+    it('Should keep the decorated method resolving with the error result', async () => {
+      const result = await new TestTaskFailing().execute();
+
+      expect(result).to.deep.equal({ error: true, message: 'boom' });
+      expect(await __task_history.all()).to.have.length(1);
+    });
+
+    it('Should record the message of a non-Error throw', async () => {
+      const result = await new TestTaskThrowsNull().execute();
+
+      expect(result).to.deep.equal({ error: true, message: 'null' });
+      const [row] = await __task_history.all();
+      expect(row.Result).to.deep.equal({ error: true, message: 'null' });
+    });
+
+    describe('when TaskSuccess cannot be emitted', () => {
+      beforeEach(() => sinon.stub(TaskSuccess, 'emit').rejects(new Error('broker down')));
+      afterEach(() => sinon.restore());
+
+      it('Should return the value of a succeeded method and not rethrow', async () => {
+        const [decl] = getTaskDeclarations('TestTaskValue');
+
+        const result = await runTask(decl, new TestTaskValue(), [], { lock: false, rethrow: true });
+
+        expect(result).to.deep.equal({ sent: 3 });
+        const [row] = await __task_history.all();
+        expect(row.Result).to.deep.equal({ sent: 3 });
+      });
+
+      it('Should keep the decorated method resolving with the method value', async () => {
+        const result = await new TestTaskValue().execute();
+
+        expect(result).to.deep.equal({ sent: 3 });
+        expect(await __task_history.all()).to.have.length(1);
+        expect((await mutex_get('task-TestTaskValue'))!.Locked).to.be.false;
+      });
+    });
   });
 });

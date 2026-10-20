@@ -10,7 +10,7 @@ Importing `@spinajs/queue-stomp-transport` registers a factory under the `StompQ
 4. It uses `entry.clientId` when set, else builds the client id `<app.name>-<APP_ENV>-<entry.name>`:
    - `app.name` defaults to `'no-app'` here; `@spinajs/configuration`'s own config sets it to `'spinajs'`;
    - `APP_ENV` is the config value `process.env.APP_ENV`, which `Configuration` fills from `--env`, the `APP_ENV` variable, `NODE_ENV`, or `'development'`, and defaults to `'development'` here.
-5. It calls `new StompQueueClient({ ...entry, clientId })`.
+5. It calls `new StompQueueClient({ ...entry, clientId })`. The client appends `-<options.clientIdSuffix>`, else `-<QUEUE_INSTANCE_ID>` from the environment, when either is a non-empty string.
 6. It awaits `client.resolve()`, the first connect, and returns the client. A failed connect rejects the factory and with it the boot.
 
 With the defaults, a connection named `activemq` in an app with `app.name: 'orders'` running with `APP_ENV=production` connects as `orders-production-activemq`.
@@ -22,7 +22,9 @@ With the defaults, a connection named `activemq` in an app with `app.name: 'orde
 | `app.name` | `string` | `'spinajs'` (from `@spinajs/configuration`), `'no-app'` when unset | | First part of the client id. |
 | `process.env.APP_ENV` | `string` | `--env`, `APP_ENV`, `NODE_ENV`, else `'development'` | | Second part of the client id. |
 | `queue.connections[].name` | `string` | none, required | | Last part of the client id. |
-| `queue.connections[].clientId` | `string` | `undefined` | | Used as the client id as is, without the app and environment. |
+| `queue.connections[].clientId` | `string` | `undefined` | | Used as the client id base as is, without the app and environment. |
+| `queue.connections[].options.clientIdSuffix` | `string` | `undefined` | | Per-instance suffix: the client id becomes `<base>-<suffix>`. |
+| `QUEUE_INSTANCE_ID` (environment) | `string` | unset | | Suffix used when `options.clientIdSuffix` is not set. Give every replica a stable, unique value. |
 
 ```ts
 // config/app.ts
@@ -40,7 +42,7 @@ export default {
 
 ### Client factory: custom implementation
 
-Several replicas of one app with no `clientId` in their entry all connect with the same client id. A broker that enforces unique client ids, as ActiveMQ does, refuses every replica but the first. This factory honours an explicit `clientId` from the entry and otherwise adds the host name and process id.
+Several replicas of one app with no `clientId` and no suffix all connect with the same client id. A broker that enforces unique client ids, as ActiveMQ does, refuses every replica but the first. Setting `QUEUE_INSTANCE_ID` per replica is enough for most deployments; a custom factory is for ids derived some other way. This factory honours an explicit `clientId` from the entry and otherwise adds the host name and process id.
 
 ```ts sample
 import '@spinajs/queue-stomp-transport';
@@ -114,7 +116,7 @@ export const config = {
 
 - The factory bypasses the `@PerInstanceCheck()` cache: every resolve of the `StompQueueClient` key builds and connects a new client. `QueueService` resolves each entry once at boot and keeps the clients; get them with `QueueService.get(name)`.
 - Factory results are not tracked by the container. `DefaultQueueService.dispose()` disposes them; a client you resolve yourself is yours to dispose.
-- Two processes with the same `app.name`, `APP_ENV` and connection `name` and no `clientId` get the same client id. Use a [custom factory](#client-factory-custom-implementation) or a per-process `clientId` when you run replicas.
+- Two processes with the same `app.name`, `APP_ENV` and connection `name`, no `clientId` and no suffix get the same client id, and ActiveMQ refuses the second one. Set a stable, unique `QUEUE_INSTANCE_ID` (or `options.clientIdSuffix`) per replica, or use a [custom factory](#client-factory-custom-implementation).
 - The factory is registered at import time. A replacement registered before the package is imported is overridden by the shipped one.
 - A factory that resolves the class it is registered for through the container recurses into itself. Build the client with `new`.
 - A client built with `new` gets no constructor or property injection from DI. `StompQueueClient` reads its logger and `queue.routing` through lazy getters, so it works; `@Autoinject` properties of a subclass stay empty.

@@ -231,7 +231,8 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
           // The real @HasManyToMany descriptor, not the synthetic join one — see the
           // constructor doc. Falls back to the synthetic descriptor so a caller that does
           // not supply it keeps the previous ( broken but unchanged ) behaviour.
-          const list = new ManyToManyRelationList(d, self._relationDescriptor ?? self._description, relData);
+          const list = new ManyToManyRelationList<ModelBase, ModelBase>(d, self._relationDescriptor ?? self._description, []);
+          relData.forEach((rd) => list.add(rd, self.junctionOf(rd)));
           // See the note in HasManyRelationMiddleware: loaded-and-empty must be
           // distinguishable from never-loaded.
           list.Populated = true;
@@ -252,6 +253,23 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
     }
 
     return [];
+  }
+
+  /**
+   * The junction row a target arrived through, as a loaded junction model - hydrated and
+   * snapshotted like any row a query returns, so `save()` can tell a changed junction column.
+   */
+  private junctionOf(target: ModelBase): ModelBase | undefined {
+    const JunctionModel = this._relationDescriptor?.JunctionModel;
+    const row = (target as any).JunctionModel;
+    if (!JunctionModel || !row) {
+      return undefined;
+    }
+
+    const junction = DI.resolve<ModelBase>('__orm_model_factory__', [JunctionModel]);
+    junction.hydrate(row);
+    junction.takeSnapshot();
+    return junction;
   }
 
   private pickProps(source: any, except: string[]) {

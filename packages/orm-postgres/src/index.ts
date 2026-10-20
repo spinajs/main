@@ -1,18 +1,20 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { PostgresSqlExpressions } from './expressions.js';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler } from '@spinajs/orm';
-import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler, IsoDatetimeValueConverter } from '@spinajs/orm-sql';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, JsonValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler } from '@spinajs/orm';
+import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import pg from 'pg';
 import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler, PostgresIndexQueryCompiler } from './compilers.js';
 import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresInStatement, PostgresLiteralQuoter, PostgresNowExpression, PostgresJoinStatement, PostgresDateTimeWrapper } from './statements.js';
 import { mapPostgresError } from './errors.js';
 import { ITableColumnInfo, IConstraintInfo } from './types.js';
+import { PostgresDatetimeValueConverter, PostgresJsonValueConverter } from './converters.js';
 
 export * from './compilers.js';
 export * from './expressions.js';
 export * from './statements.js';
 export * from './errors.js';
+export * from './converters.js';
 
 export interface IPostgresTransactionContext extends ITransactionContext {
   connection: pg.PoolClient;
@@ -54,6 +56,7 @@ export function toDriverStatement(stmt: string, params?: unknown[]): string {
 
 const defaultParser = pg.types.getTypeParser as unknown as (oid: number, format?: string) => (value: string) => unknown;
 const parseTimestamptz = defaultParser(pg.types.builtins.TIMESTAMPTZ, 'text');
+const parseDate = defaultParser(pg.types.builtins.DATE, 'text');
 
 /**
  * Parses `timestamp` (without time zone) as UTC: the datetime converter writes UTC into such a
@@ -67,10 +70,68 @@ export function parseUtcTimestamp(value: string): unknown {
   return value.endsWith(' BC') ? parseTimestamptz(`${value.slice(0, -3)}+00 BC`) : parseTimestamptz(`${value}+00`);
 }
 
+/** Parses `date` as UTC midnight of its calendar day; pg's own parser takes local midnight, which read as UTC is the day before east of UTC. */
+export function parseUtcDate(value: string): unknown {
+  if (value === 'infinity' || value === '-infinity') {
+    return parseDate(value);
+  }
+
+  return value.endsWith(' BC') ? parseUtcTimestamp(`${value.slice(0, -3)} 00:00:00 BC`) : parseUtcTimestamp(`${value} 00:00:00`);
+}
+
+/** The pool's type parsers: `timestamp` and `date` as UTC, the rest as pg reads them ( `timestamptz` text carries its offset ). */
+export function utcTypeParser(oid: number, format?: string): (value: string) => unknown {
+  if (format !== 'binary' && oid === pg.types.builtins.TIMESTAMP) {
+    return parseUtcTimestamp;
+  }
+
+  if (format !== 'binary' && oid === pg.types.builtins.DATE) {
+    return parseUtcDate;
+  }
+
+  return defaultParser(oid, format);
+}
+
 // Per pool, not the global pg.types: that registry is shared with every other pg user in the process.
-const UTC_TYPES = {
-  getTypeParser: (oid: number, format?: string) => (oid === pg.types.builtins.TIMESTAMP && format !== 'binary' ? parseUtcTimestamp : defaultParser(oid, format)),
-} as unknown as pg.CustomTypesConfig;
+const UTC_TYPES = { getTypeParser: utcTypeParser } as unknown as pg.CustomTypesConfig;
+
+const QUOTED_LITERAL_DEFAULT = /^'((?:[^']|'')*)'::[a-z0-9_ ."]+$/i;
+const NUMERIC_LITERAL_DEFAULT = /^\(?-?\d+(\.\d+)?\)?$/;
+
+/**
+ * `column_default` is SQL text, and a new model copies `DefaultValue` into its properties.
+ * Scalar literals become values of the column type (int8/numeric stay strings, as node-postgres
+ * reads them); anything else is an expression only the server can evaluate, so it stays a
+ * RawQuery and the insert leaves the column to the server default.
+ */
+export function parseColumnDefault(raw: string | null | undefined, udtName: string): unknown {
+  if (raw === null || raw === undefined || /^NULL(::.+)?$/i.test(raw)) {
+    return null;
+  }
+
+  const quoted = QUOTED_LITERAL_DEFAULT.exec(raw);
+  const text = quoted ? quoted[1].replace(/''/g, "'") : NUMERIC_LITERAL_DEFAULT.test(raw) ? raw.replace(/[()]/g, '') : /^(true|false)$/i.test(raw) ? raw.toLowerCase() : undefined;
+
+  if (text !== undefined) {
+    switch (udtName) {
+      case 'varchar':
+      case 'bpchar':
+      case 'text':
+      case 'int8':
+      case 'numeric':
+        return text;
+      case 'int2':
+      case 'int4':
+      case 'float4':
+      case 'float8':
+        return Number(text);
+      case 'bool':
+        return text === 'true' || text === 't';
+    }
+  }
+
+  return RawQuery.create(raw);
+}
 
 export class PostgresServerResponseMapper extends ServerResponseMapper {
   public read(data: any, pkNames?: string[]) {
@@ -121,6 +182,7 @@ export class PostgresOrmDriver extends SqlDriver {
     decimal: { type: 'string' },
     numeric: { type: 'string' },
     bigint: { type: 'string' },
+    timestamptz: { type: 'string', format: 'date-time' },
   };
 
   public executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
@@ -262,7 +324,8 @@ export class PostgresOrmDriver extends SqlDriver {
     this.Container.register(PostgresTableAliasCompiler).as(TableAliasCompiler);
     this.Container.register(PostgresCreateViewCompiler).as(CreateViewCompiler);
     this.Container.register(PostgresLiteralQuoter).as(LiteralQuoter);
-    this.Container.register(IsoDatetimeValueConverter).as(DatetimeValueConverter);
+    this.Container.register(PostgresDatetimeValueConverter).as(DatetimeValueConverter);
+    this.Container.register(PostgresJsonValueConverter).as(JsonValueConverter);
     this.Container.register(PostgresNowExpression).as(NowExpression);
     this.Container.register(PostgresJoinStatement).as(JoinStatement);
     this.Container.register(PostgresDateTimeWrapper).as(DateTimeWrapper);
@@ -337,22 +400,25 @@ export class PostgresOrmDriver extends SqlDriver {
       this.Log?.warn({ error: err, connection: this.Options.Name }, 'postgres pool connection error for ${connection}');
     });
 
+    // search_path is a session setting, so it is set on each connection as the pool opens it; the
+    // listener is in place before the probe below, so no connection misses it.
+    const schema = this.Options.Options?.Schema as string | undefined;
+    this.Pool.on('connect', (c) => {
+      // The pool listens for errors only while a client is idle. A checked-out client whose
+      // socket dies emits 'error' too, and unhandled that kills the process; the statement in
+      // flight already rejects with the same error.
+      c.on('error', () => undefined);
+
+      if (schema) {
+        c.query(`SET search_path TO ${pgEscapeIdentifier(schema)}`).catch((err: Error) => {
+          this.Log?.warn({ error: err, schema, connection: this.Options.Name }, 'could not set search_path to ${schema} for ${connection}');
+        });
+      }
+    });
+
     try {
-      // Test the pool, and pin the schema when one is configured: search_path is a
-      // session setting, so it has to be set per connection as the pool opens them.
       const client = await this.Pool.connect();
       client.release();
-
-      const schema = this.Options.Options?.Schema as string | undefined;
-      if (schema) {
-        this.Pool.on('connect', (c) => {
-          c.query(`SET search_path TO ${pgEscapeIdentifier(schema)}`).catch((err: Error) => {
-            this.Log?.warn({ error: err, schema, connection: this.Options.Name }, 'could not set search_path to ${schema} for ${connection}');
-          });
-        });
-        // the test client above predates the listener
-        await this.executeOnDb(`SET search_path TO ${pgEscapeIdentifier(schema)}`, [], QueryContext.Schema);
-      }
 
       this.setState(ConnectionState.Connected);
       return this;
@@ -425,7 +491,7 @@ export class PostgresOrmDriver extends SqlDriver {
         Type: r.udt_name,
         MaxLength: -1,
         Comment: '',
-        DefaultValue: r.column_default,
+        DefaultValue: parseColumnDefault(r.column_default, r.udt_name),
         NativeType: r.udt_name,
         Unsigned: false,
         Nullable: r.is_nullable === 'YES',

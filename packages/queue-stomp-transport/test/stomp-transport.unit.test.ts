@@ -71,6 +71,9 @@ class FakeStompClient {
   }
 
   public publish(params: { destination: string; body: string; headers?: any }) {
+    if (!this.connected) {
+      throw new TypeError("Cannot read properties of undefined (reading 'publish')");
+    }
     this.published.push({ destination: params.destination, body: params.body, headers: params.headers ?? {} });
 
     const receipt = params.headers?.receipt;
@@ -129,6 +132,7 @@ class ConnectionConf extends FrameworkConfiguration {
           TestEventDurable: '/topic/durable',
           // job whose failures dead-letter to a per-route channel
           RoutedJob: { channel: '/queue/routed-src', deadLetterChannel: '/queue/routed-dlq' },
+          RetryRoutedJob: { channel: '/queue/retry-src', deadLetterChannel: '/queue/retry-dlq', maxRetries: 1 },
         },
       },
       logger: {
@@ -347,6 +351,41 @@ describe('stomp queue transport - unit', function () {
       expect(sub!.headers['activemq.prefetchSize']).to.eq('1');
     });
 
+    it('uses options.prefetch for activemq.prefetchSize', async () => {
+      const c = await connected({ options: { prefetch: 4 } });
+      await c.subscribe('/queue/work', sinon.stub().resolves());
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/work');
+      expect(sub!.headers['activemq.prefetchSize']).to.eq('4');
+    });
+
+    it('accepts a numeric string prefetch ( env / json config )', async () => {
+      const c = await connected({ options: { prefetch: '8' } });
+      await c.subscribe('/queue/work', sinon.stub().resolves());
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/work');
+      expect(sub!.headers['activemq.prefetchSize']).to.eq('8');
+    });
+
+    it('re-applies the configured prefetch on reconnect', async () => {
+      const c = await connected({ options: { prefetch: 3 } });
+      await c.subscribe('/queue/work', sinon.stub().resolves());
+      c.fake.subscriptions.length = 0;
+
+      c.fake.simulateDrop();
+      c.fake.simulateConnect();
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/work');
+      expect(sub!.headers['activemq.prefetchSize']).to.eq('3');
+    });
+
+    for (const bad of [0, -2, 1.5, 'many', null, '', '  ', '1e1', '0x10']) {
+      it(`rejects resolve() for an invalid prefetch ( ${String(bad)} )`, async () => {
+        const c = new TestableStompClient(options({ options: { prefetch: bad } }));
+        await expect(c.resolve()).to.be.rejectedWith(InvalidArgument, /prefetch/i);
+      });
+    }
+
     it('records a subscription made before connect and applies it on connect', async () => {
       const c = new TestableStompClient(options());
 
@@ -393,6 +432,20 @@ describe('stomp queue transport - unit', function () {
       expect(subs[0].unsubscribe.called).to.be.false;
       c.unsubscribe(EventB as any);
       expect(subs[0].unsubscribe.calledOnce).to.be.true;
+    });
+
+    it('treats a failure in any message class sharing the channel as a failed message', async () => {
+      class JobA {}
+      class JobB {}
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
+      await c.subscribe(JobA as any, sinon.stub().resolves());
+      await c.subscribe(JobB as any, sinon.stub().rejects(new Error('boom')));
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/topic/default')!;
+      sub.callback(brokerMessage(jobMessage()));
+      await tick();
+
+      expect(c.fake.published.some((p) => p.destination === '/queue/dlq')).to.be.true;
     });
 
     it('throws for a durable subscription without a subscription id', async () => {
@@ -478,10 +531,43 @@ describe('stomp queue transport - unit', function () {
     });
 
     it('rejects when the broker never confirms the publish ( receipt timeout )', async () => {
-      const c = await connected({ options: { receiptTimeout: 30 } });
+      const c = await connected({ options: { receiptTimeout: 30, emitRetries: 0 } });
       c.fake.autoReceipt = false;
 
       await expect(c.emit(qMessage())).to.be.rejectedWith(UnexpectedServerError, /receipt/i);
+    });
+
+    it('re-sends an emit whose receipt was lost to a connection drop once reconnected', async () => {
+      const c = await connected({ retryDelay: 10, options: { receiptTimeout: 30, emitRetries: 2 } });
+      c.fake.autoReceipt = false;
+
+      const outcome = c.emit(qMessage()).then(
+        () => 'sent',
+        (err) => err,
+      );
+      await tick();
+      c.fake.simulateDrop();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      c.fake.autoReceipt = true;
+      c.fake.simulateConnect();
+
+      expect(await outcome).to.eq('sent');
+    });
+
+    it('rejects an emit waiting for a reconnect when the client is disposed', async () => {
+      const c = await connected({ retryDelay: 10, options: { receiptTimeout: 30, emitRetries: 1 } });
+      c.fake.autoReceipt = false;
+
+      const outcome = c.emit(qMessage()).then(
+        () => 'sent',
+        (err) => err,
+      );
+      await tick();
+      c.fake.simulateDrop();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await c.dispose();
+
+      expect(await outcome).to.be.instanceOf(UnexpectedServerError);
     });
   });
 
@@ -499,6 +585,21 @@ describe('stomp queue transport - unit', function () {
       expect(handler.calledOnce).to.be.true;
       expect(msg.ack.calledOnce).to.be.true;
       expect(msg.nack.called).to.be.false;
+    });
+
+    it('does not treat an ack lost to a dropped socket as a job failure', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
+      const handler = sinon.stub().resolves();
+      await c.subscribe('/queue/ok', handler);
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/ok')!;
+      const msg = brokerMessage(jobMessage({ RetryCount: 2 } as any));
+      msg.ack.throws(new TypeError("Cannot read properties of undefined (reading 'ack')"));
+      sub.callback(msg);
+      await tick();
+
+      expect(handler.calledOnce).to.be.true;
+      expect(c.fake.published, 'a processed job must not be retried or dead-lettered').to.have.length(0);
     });
 
     it('drops ( acks ) a failed EVENT - events are not retried or dead-lettered', async () => {
@@ -576,6 +677,72 @@ describe('stomp queue transport - unit', function () {
   });
 
   describe('job retry ( RetryCount )', () => {
+    it('does not ack a failed job until the broker confirms the retry republish', async () => {
+      const c = await connected({ options: { receiptTimeout: 30 } });
+      await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/job')!;
+      c.fake.autoReceipt = false;
+
+      const msg = brokerMessage(jobMessage({ RetryCount: 2 } as any));
+      sub.callback(msg);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(msg.ack.called, 'acked before the retry was stored').to.be.false;
+      expect(msg.nack.calledOnce).to.be.true;
+      expect(c.fake.published.find((p) => p.destination === '/queue/job')!.headers.receipt).to.be.a('string');
+    });
+
+    it('does not ack a failed job until the broker confirms the dead-letter publish', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq', options: { receiptTimeout: 30 } });
+      await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/job')!;
+      c.fake.autoReceipt = false;
+
+      const msg = brokerMessage(jobMessage({ RetryCount: 0 } as any));
+      sub.callback(msg);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(msg.ack.called, 'acked before the dead letter was stored').to.be.false;
+      expect(msg.nack.calledOnce).to.be.true;
+    });
+
+    it('retries up to the routing maxRetries when the job carries no RetryCount, then dead-letters', async () => {
+      const c = await connected();
+      await c.subscribe('/queue/retry-src', sinon.stub().rejects(new Error('boom')));
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/retry-src')!;
+
+      const first = brokerMessage(jobMessage({ Name: 'RetryRoutedJob' }));
+      sub.callback(first);
+      await tick();
+
+      const retry = c.fake.published.find((p) => p.destination === '/queue/retry-src');
+      expect(retry, 'first failure is retried').to.exist;
+      expect(retry!.headers['x-retry-count']).to.eq('1');
+
+      const second = brokerMessage(jobMessage({ Name: 'RetryRoutedJob' }), { 'x-retry-count': '1' });
+      sub.callback(second);
+      await tick();
+
+      expect(second.ack.calledOnce).to.be.true;
+      const dlq = c.fake.published.find((p) => p.destination === '/queue/retry-dlq');
+      expect(dlq, 'second failure dead-letters').to.exist;
+      expect(dlq!.headers['x-retry-count']).to.eq('1');
+      expect(c.fake.published.filter((p) => p.destination === '/queue/retry-src'), 'no second republish').to.have.length(1);
+    });
+
+    it('prefers an explicit RetryCount on the job over the routing default', async () => {
+      const c = await connected();
+      await c.subscribe('/queue/retry-src', sinon.stub().rejects(new Error('boom')));
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/retry-src')!;
+
+      const msg = brokerMessage(jobMessage({ Name: 'RetryRoutedJob', RetryCount: 0 } as any));
+      sub.callback(msg);
+      await tick();
+
+      expect(c.fake.published.some((p) => p.destination === '/queue/retry-src'), 'no retry republish').to.be.false;
+      expect(c.fake.published.some((p) => p.destination === '/queue/retry-dlq')).to.be.true;
+    });
+
     it('reschedules a failed job to the same channel with an incremented retry header', async () => {
       const c = await connected();
       await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
@@ -760,6 +927,18 @@ describe('stomp queue transport - unit', function () {
       // already connected -> resolves immediately
       await expect(c.whenReady()).to.be.fulfilled;
     });
+
+    it('whenReady rejects when the client is disposed', async () => {
+      const c = new TestableStompClient(options());
+      const outcome = c.whenReady().then(
+        () => 'ready',
+        (err) => err,
+      );
+
+      await c.dispose();
+
+      expect(await outcome).to.be.instanceOf(UnexpectedServerError);
+    });
   });
 
   describe('credentials / unhandled messages', () => {
@@ -809,6 +988,43 @@ describe('stomp queue transport - unit', function () {
       await c.dispose();
 
       await expect(readyP).to.be.rejectedWith(UnexpectedServerError);
+    });
+  });
+
+  describe('client-id', () => {
+    afterEach(() => {
+      delete process.env.QUEUE_INSTANCE_ID;
+    });
+
+    it('uses the connection name when nothing else is set', async () => {
+      const c = await connected({ name: 'jobs-a' });
+      expect(c.ClientId).to.eq('jobs-a');
+    });
+
+    it('appends options.clientIdSuffix and sends it in the CONNECT headers', async () => {
+      const c = await connected({ name: 'jobs-b', clientId: 'app-prod-jobs', options: { clientIdSuffix: 'replica-2' } });
+      expect(c.ClientId).to.eq('app-prod-jobs-replica-2');
+      expect(c.fake.config.connectHeaders['client-id']).to.eq('app-prod-jobs-replica-2');
+    });
+
+    it('falls back to QUEUE_INSTANCE_ID for the suffix', async () => {
+      process.env.QUEUE_INSTANCE_ID = 'worker-1';
+      const c = await connected({ name: 'jobs-c' });
+      expect(c.ClientId).to.eq('jobs-c-worker-1');
+    });
+
+    it('ignores an empty QUEUE_INSTANCE_ID', async () => {
+      process.env.QUEUE_INSTANCE_ID = '';
+      const c = await connected({ name: 'jobs-d' });
+      expect(c.ClientId).to.eq('jobs-d');
+    });
+
+    it('explains a duplicate client-id refusal', async () => {
+      const c = new TestableStompClient(options({ name: 'jobs-e' }));
+      const p = c.resolve();
+      c.fake.onStompError({ headers: { message: 'Broker: localhost - Client: jobs-e already connected from tcp://172.18.0.1:50000' }, body: '' });
+
+      await expect(p).to.be.rejectedWith(UnexpectedServerError, /QUEUE_INSTANCE_ID/);
     });
   });
 });

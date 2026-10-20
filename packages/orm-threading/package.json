@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-threading",
-  "version": "2.0.549",
+  "version": "3.0.0",
   "description": "database-backed mutex for @spinajs/threading, stored in the __mutex__ table",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -26,13 +26,14 @@
     "watch": "tsc -b tsconfig.mjs.json -w",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
-    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "test": "ts-mocha -p tsconfig.json test/*.test.ts",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "cd ../.. && npm run lint -- packages/orm-threading",
     "preversion": "npm run lint",
-    "version": "npm run format && git add -A src"
+    "version": "npm run format && git add -A src",
+    "test:integration:mysql": "ts-mocha -p tsconfig.json --config .mocharc.integration.json test/integration/mutex.mysql.test.ts"
   },
   "files": [
     "lib/**/*"
@@ -51,15 +52,18 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
-    "@spinajs/configuration": "2.0.549",
-    "@spinajs/exceptions": "2.0.549",
-    "@spinajs/di": "2.0.549",
-    "@spinajs/log-common": "2.0.549",
-    "@spinajs/orm": "2.0.549",
-    "@spinajs/threading": "2.0.549",
-    "@spinajs/util": "2.0.549",
+    "@spinajs/configuration": "3.0.0",
+    "@spinajs/exceptions": "3.0.0",
+    "@spinajs/di": "3.0.0",
+    "@spinajs/log-common": "3.0.0",
+    "@spinajs/orm": "3.0.0",
+    "@spinajs/threading": "3.0.0",
+    "@spinajs/util": "3.0.0",
     "luxon": "^3.6.1"
   },
   "homepage": "https://github.com/spinajs/main#readme",
-  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
+  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
+  "devDependencies": {
+    "@spinajs/orm-mysql": "3.0.0"
+  }
 }

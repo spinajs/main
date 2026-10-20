@@ -13,6 +13,7 @@ export class ContainerCache {
   private resolutionPromises: Map<string, Promise<any>> = new Map();
   // Track keys currently being created synchronously
   private creatingKeys: Set<string> = new Set();
+  private pendingChecked: Map<string, { options?: unknown[]; promise: Promise<unknown> }[]> = new Map();
 
   constructor(private container: IContainer) {
     this.cache = new Map<string, any[]>();
@@ -124,20 +125,18 @@ export class ContainerCache {
       }
     };
 
+    const perInstanceCheck = descriptor.resolver === ResolveType.PerInstanceCheck;
+    if (perInstanceCheck && !isTypedArray(sourceType)) {
+      return this.getOrCreateChecked(targetType, factory, emit, options, lookupParents);
+    }
+
     // Fast path: return cached instance if it exists
     const parent = lookupParents && descriptor.resolver !== ResolveType.PerChildContainer;
-    const perInstanceCheck = descriptor.resolver === ResolveType.PerInstanceCheck;
     if (this.has(targetType, parent)) {
       const cached = this.get(targetType, parent);
 
       if (perInstanceCheck) {
-        const found = cached.find((x: unknown) => {
-          if (!(x as IInstanceCheck).__checkInstance__) {
-            // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-            throw new ResolveException(`service ${(x as any).constructor.name} is marked as PerInstanceCheck resolver, but no __checkInstance__ function is provided`);
-          }
-          return (x as IInstanceCheck).__checkInstance__(options);
-        });
+        const found = cached.find((x: unknown) => this.checkInstance(x, options));
         if (found) {
           return found;
         }
@@ -226,12 +225,6 @@ export class ContainerCache {
         const cached = this.get(sourceTypeKey);
         return isTypedArray(sourceType) ? cached : cached[0];
       } else {
-        if (perInstanceCheck) {
-          this.add(targetType, resolvedInstance);
-          emit(resolvedInstance);
-          return resolvedInstance;
-        }
-
         // Cache the instance if not already cached
         if (!this.has(targetType)) {
           this.add(targetType, resolvedInstance);
@@ -268,6 +261,71 @@ export class ContainerCache {
     }
   }
 
+  private checkInstance(instance: unknown, options?: unknown[]): boolean {
+    if (!(instance as IInstanceCheck).__checkInstance__) {
+      // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+      throw new ResolveException(`service ${(instance as any).constructor.name} is marked as PerInstanceCheck resolver, but no __checkInstance__ function is provided`);
+    }
+    return (instance as IInstanceCheck).__checkInstance__(options);
+  }
+
+  /**
+   * Every instance is cached, so each distinct option set resolves to one instance and is disposed
+   * with the container. A creation in flight has no instance to check yet, so concurrent
+   * resolutions share it only when their options are deep-equal.
+   */
+  private getOrCreateChecked<T>(
+    targetType: string | Class<any> | TypedArray<any>,
+    factory: () => Promise<T> | T,
+    emit: (instance: unknown) => void,
+    options?: unknown[],
+    lookupParents = true,
+  ): Promise<T> | T {
+    const keyName = getTypeName(targetType);
+    const cached: unknown[] = this.has(targetType, lookupParents) ? this.get(targetType, lookupParents) : [];
+    const found = cached.find((x) => this.checkInstance(x, options));
+    if (found) {
+      return found as T;
+    }
+
+    const pending = this.pendingChecked.get(keyName) ?? [];
+    const same = pending.find((p) => _.isEqual(p.options, options));
+    if (same) {
+      return same.promise as Promise<T>;
+    }
+
+    const store = (instance: T) => {
+      this.add(targetType, instance);
+      emit(instance);
+      return instance;
+    };
+
+    const created = factory();
+    if (!(created instanceof Promise)) {
+      return store(created);
+    }
+
+    const entry: { options?: unknown[]; promise: Promise<unknown> } = { options, promise: created };
+    const settle = () => {
+      const list = this.pendingChecked.get(keyName) ?? [];
+      const rest = list.filter((p) => p !== entry);
+      if (rest.length) this.pendingChecked.set(keyName, rest);
+      else this.pendingChecked.delete(keyName);
+    };
+    entry.promise = created.then(
+      (instance) => {
+        settle();
+        return store(instance);
+      },
+      (err) => {
+        settle();
+        throw err;
+      },
+    );
+    this.pendingChecked.set(keyName, [...pending, entry]);
+    return entry.promise as Promise<T>;
+  }
+
   /**
    * Get resolution statistics for monitoring
    */
@@ -283,6 +341,7 @@ export class ContainerCache {
     this.cache.clear();
     this.resolutionPromises.clear();
     this.creatingKeys.clear();
+    this.pendingChecked.clear();
     this.addSelf();
   }
 }

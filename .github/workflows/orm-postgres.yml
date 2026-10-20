@@ -1,0 +1,67 @@
+name: orm-postgres
+
+# Live PostgreSQL 16 integration suite for @spinajs/orm-postgres. Path-filtered like
+# migrations-mysql.yml; ORM_TEST_POSTGRES_REQUIRED makes an unreachable server a failure.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'packages/orm/**'
+      - 'packages/orm-sql/**'
+      - 'packages/orm-postgres/**'
+      - '.github/workflows/orm-postgres.yml'
+  pull_request:
+    paths:
+      - 'packages/orm/**'
+      - 'packages/orm-sql/**'
+      - 'packages/orm-postgres/**'
+      - '.github/workflows/orm-postgres.yml'
+  workflow_dispatch:
+
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      # ts-mocha resolves @spinajs/* to lib/mjs; this builds orm-postgres and its reference graph.
+      - name: build orm-postgres + deps (mjs)
+        run: npx tsc -b packages/orm-postgres/tsconfig.mjs.json
+
+      - name: unit suite
+        working-directory: packages/orm-postgres
+        run: npm test
+
+      - name: integration suite
+        working-directory: packages/orm-postgres
+        env:
+          ORM_TEST_POSTGRES_REQUIRED: '1'
+          # the restart test addresses the service container by id
+          ORM_TEST_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: npm run test:integration

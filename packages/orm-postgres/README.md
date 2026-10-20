@@ -54,12 +54,23 @@ import { Configuration } from '@spinajs/configuration';
 | Insert-or-ignore | `INSERT IGNORE` | `ON CONFLICT DO NOTHING` |
 | Offset without limit | `LIMIT 18446744073709551615` | bare `OFFSET` |
 | `ENUM` / `SET` columns | native types | `TEXT` (+ `CHECK (col IN (...))` for enum) |
-| `DATETIME` / `DOUBLE` / `BLOB` / `JSON` | native names | `TIMESTAMP` / `DOUBLE PRECISION` / `BYTEA` / `JSONB` |
+| `DOUBLE` / `BLOB` / `JSON` | native names | `DOUBLE PRECISION` / `BYTEA` / `JSONB` |
 | `UNSIGNED`, per-column `CHARACTER SET`, inline `COMMENT` | supported | dropped (no postgres spelling) |
 | `MODIFY column` | one clause restates the column | `ALTER COLUMN ... TYPE / SET / DROP` actions, MODIFY semantics kept (omitted NOT NULL / DEFAULT is dropped) |
 | `CREATE DATABASE IF NOT EXISTS` | supported | refused — postgres has no such clause |
 | `CREATE EVENT`, table history triggers, `CREATE TABLE ... LIKE` | MySQL syntax | unregistered — fail with a DI error naming the abstraction |
 | `DECIMAL` / `NUMERIC` / `BIGINT` in responses | driver-dependent | strings (node-postgres refuses to lose precision above 2^53); `ResponseSchemaTypes` says so |
+| `dateTime` / `timestamp` columns | `DATETIME` | `TIMESTAMPTZ(3)`; the driver writes and reads UTC instants (milliseconds; microseconds truncated), a `DateTime` read back is in the UTC zone, and every pooled session runs with `TimeZone = UTC`. `TIMESTAMP` (without time zone) columns are read as UTC |
+| `DATE` columns | calendar day | calendar day; a model writes the day of the value in its own zone, and a raw query returns it as a `Date` at UTC midnight (pg-types alone would use the process zone) |
+| Column defaults (`tableInfo`) | literal values | literal defaults become values of the column type; expression defaults (`gen_random_uuid()`, `CURRENT_TIMESTAMP`, sequences) stay on the server: a new model leaves the column unset and the insert writes `DEFAULT` |
+| Joined table references | `` `db`.`table` `` (sibling databases) | qualified with `Options.Schema` when set, else unqualified |
+| `COUNT(*)` | number | `bigint`; `count()` / `selectCount()` return numbers |
+| Upsert target of `insert(InsertOrUpdate)` | `ON DUPLICATE KEY` (any unique key) | the primary key when the row carries it, else the one unique column it carries; a row carrying several unique columns needs `insert().onDuplicate(column)` |
+| JSON string value in a `jsonb` column | string | string; a string value that is itself valid JSON text (`"123"`) comes back parsed |
+| Explicit value into an identity key | moves `AUTO_INCREMENT` | does not move the identity; run `SELECT setval(pg_get_serial_sequence('"t"', 'Id'), (SELECT max("Id") FROM "t"))` after explicit keys |
+| Failed statement inside a transaction | transaction continues | transaction is aborted (`25P02`) until rollback; wrap recoverable statements in a nested `transaction()` (savepoint) |
+| `?` in raw SQL | placeholder | the first N `?` (N = bindings) outside quoted literals and identifiers become `$1..$N`; `?\|` and `?&` stay operators, a bare jsonb `?` does not: with bindings, use `jsonb_exists()` |
+| `dropColumn()` | unquoted name | quoted, so mixed-case names are not folded to lower case |
 
 Transactions run on a dedicated pooled client with full savepoint support; all four
 standard isolation levels are accepted (`READ UNCOMMITTED` behaves as `READ COMMITTED`,
@@ -67,10 +78,25 @@ postgres' documented, standard-permitted upgrade).
 
 ## Running integration tests
 
-The integration suite expects the docker fixture from the repository root:
+    docker compose --profile test up -d postgres
+    npx tsc -b packages/orm-postgres/tsconfig.mjs.json
+    cd packages/orm-postgres && npm run test:integration
 
-```
-docker compose --profile test up -d postgres
-```
+One file: `npx ts-mocha -p tsconfig.json --config .mocharc.integration.json test/integration/<file>.test.ts`.
 
-It listens on port `15432` by default; override with `ORM_TEST_POSTGRES_PORT`.
+Suites on `harness.ts` create their own schema `it_<suite>_<pid>_<random>` in database `orm_postgres_it` (created
+on first run); suites on `support.ts` create a throwaway database `orm_<suite>_<random>`. Both drop what they created
+afterwards, and skip with a warning when the server is unreachable.
+
+| Variable | Default |
+| --- | --- |
+| `ORM_TEST_POSTGRES_HOST` | `127.0.0.1` |
+| `ORM_TEST_POSTGRES_PORT` | `15432` |
+| `ORM_TEST_POSTGRES_USER` / `_PASSWORD` | `postgres` / `postgres` |
+| `ORM_TEST_POSTGRES_DATABASE` | `orm_postgres_it` |
+| `ORM_TEST_POSTGRES_CONTAINER` | `spinajs-orm-test-postgres` (the restart test runs `docker restart` on it) |
+| `ORM_TEST_POSTGRES_REQUIRED` (or `ORM_TEST_REQUIRE_PG`) | unset; `1` fails instead of skipping (CI) |
+| `ORM_TEST_POSTGRES_KEEP_SCHEMA` | unset; `1` keeps each suite's schema for inspection |
+
+**The infrastructure suite restarts the container**, and the time suite changes the integration database's
+default `timezone` for its duration. Do not point the suites at a server you care about.

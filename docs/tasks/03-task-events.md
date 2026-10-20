@@ -5,7 +5,7 @@ Every finished run of a `@Task()` method emits a queue event: `TaskSuccess` when
 ## How it works
 
 1. After the method resolves, the `@Task()` wrapper calls `TaskSuccess.emit({ TaskName })`.
-2. When the method or that emit throws, it calls `TaskFailed.emit({ TaskName, Reason })`.
+2. When the method throws, it calls `TaskFailed.emit({ TaskName, Reason })` instead. An emit that throws is logged as `Cannot emit ...` and does not change the run's result.
 3. `QueueEvent.emit()` builds the message with `Type: 'EVENT'`, `CreatedAt: now` and `Name` set to the class name (`'TaskSuccess'` or `'TaskFailed'`), and passes it to `QueueService.emit()`.
 4. `DefaultQueueService` runs every `QueueMessageHook.beforeEmit()`, then looks up `queue.routing.<Name>` to pick the connection, and sends the message there.
 5. The connection's `QueueClient` picks the channel: `queue.routing.<Name>.channel`, or the connection's `defaultTopicChannel`.
@@ -32,11 +32,11 @@ Both classes are `@Event()` subclasses of `QueueEvent`, exported from `@spinajs/
 | Event | Fields | Emitted when |
 | --- | --- | --- |
 | `TaskSuccess` | `TaskName: string` | the method resolved and the run is reported as successful |
-| `TaskFailed` | `TaskName: string`, `Reason: string` | the method threw, or `TaskSuccess.emit()` threw |
+| `TaskFailed` | `TaskName: string`, `Reason: string` | the method threw |
 
 Every message also carries the standard fields `Name`, `Type` and `CreatedAt`; see [Events and jobs](../queue/01-events-and-jobs.md#message-fields).
 
-`TaskName` is the trimmed name passed to `@Task()`, the same as `__tasks.Name`. `Reason` is the thrown error's `message`.
+`TaskName` is the trimmed name passed to `@Task()`, the same as `__tasks.Name`. `Reason` is the thrown error's `message`, or the thrown value as a string when it has none.
 
 ## Configuration
 
@@ -108,11 +108,10 @@ DI.register(TaskHostHook).as(QueueMessageHook);
 ## Important behaviour
 
 - **Nothing is delivered by default.** Both events go to `BlackHoleQueueClient` until you route them elsewhere.
-- **The emit is awaited inside the run.** A slow transport delays the task's promise. A failing `TaskSuccess` emit turns the run into a `TaskFailed`.
-- **A failing `TaskFailed` emit rejects the task call**, after the lock is released and the history row is written.
+- **The emit is awaited inside the run.** A slow transport delays the task's promise.
+- **A failing emit is only logged.** The task call resolves with the run's result, and no other event is sent in its place: a run whose side effects already happened must not look like a failure a caller would retry.
 - **Events are fire-and-forget.** They are `QueueEvent`s, not jobs: no `queue_jobs` row, no retry, no result.
 - **Matching is by class name.** A consumer class must be named exactly `TaskFailed` or `TaskSuccess`; bundlers that rename classes break routing and delivery.
-- `Reason` is `undefined` when the method throws something without a `message`, such as a string.
 
 ## Best practices
 

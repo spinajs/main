@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authz-http-admin",
-  "version": "3.0.0-alpha.0",
+  "version": "3.0.0",
   "description": "Admin routes over the SpinaJS authorization management API",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -52,18 +52,18 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.0-alpha.0",
-    "@spinajs/authz-http": "3.0.0-alpha.0",
-    "@spinajs/configuration": "2.0.549",
-    "@spinajs/di": "2.0.549",
-    "@spinajs/http": "2.0.549",
-    "@spinajs/util": "2.0.549",
-    "@spinajs/validation": "2.0.549"
+    "@spinajs/authz": "3.0.0",
+    "@spinajs/authz-http": "3.0.0",
+    "@spinajs/configuration": "3.0.0",
+    "@spinajs/di": "3.0.0",
+    "@spinajs/http": "3.0.0",
+    "@spinajs/util": "3.0.0",
+    "@spinajs/validation": "3.0.0"
   },
   "devDependencies": {
-    "@spinajs/authz-testing": "3.0.0-alpha.0",
-    "@spinajs/fs": "2.0.549",
-    "@spinajs/http-swagger": "2.0.549",
-    "@spinajs/log": "2.0.549"
+    "@spinajs/authz-testing": "3.0.0",
+    "@spinajs/fs": "3.0.0",
+    "@spinajs/http-swagger": "3.0.0",
+    "@spinajs/log": "3.0.0"
   }
 }

@@ -7,7 +7,12 @@ import { randomBytes } from 'node:crypto';
 import pg from 'pg';
 import { PostgresOrmDriver } from '../../src/index.js';
 
-export const PG_SERVER = { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres' };
+export const PG_SERVER = {
+  Host: process.env.ORM_TEST_POSTGRES_HOST ?? '127.0.0.1',
+  Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432),
+  User: process.env.ORM_TEST_POSTGRES_USER ?? 'postgres',
+  Password: process.env.ORM_TEST_POSTGRES_PASSWORD ?? 'postgres',
+};
 
 export interface PgTestDb {
   name: string;
@@ -16,7 +21,7 @@ export interface PgTestDb {
   dispose(): Promise<void>;
 }
 
-const pgRequired = () => process.env.ORM_TEST_REQUIRE_PG === '1' || process.env.L2_REQUIRE_PG === '1';
+const pgRequired = () => process.env.ORM_TEST_POSTGRES_REQUIRED === '1' || process.env.ORM_TEST_REQUIRE_PG === '1' || process.env.L2_REQUIRE_PG === '1';
 
 export async function adminQuery(sql: string): Promise<void> {
   const client = new pg.Client({ host: PG_SERVER.Host, port: PG_SERVER.Port, user: PG_SERVER.User, password: PG_SERVER.Password, database: 'test', connectionTimeoutMillis: 3000 });

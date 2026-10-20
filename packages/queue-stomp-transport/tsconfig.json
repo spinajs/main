@@ -28,6 +28,12 @@
     },
     {
       "path": "../queue/tsconfig.json"
+    },
+    {
+      "path": "../orm/tsconfig.json"
+    },
+    {
+      "path": "../orm-sqlite/tsconfig.json"
     }
   ]
 }

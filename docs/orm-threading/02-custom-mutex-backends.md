@@ -1,43 +1,44 @@
 # Custom mutex backends
 
-Every lock goes through one DI token: the abstract `Mutex` class from `@spinajs/threading`. `OrmMutex` is one implementation of it. Extend `OrmMutex` to change one behaviour, such as a per-process tenant, or register your own `Mutex` subclass to keep locks somewhere else.
+Every lock goes through one DI token: the abstract `Mutex` class from `@spinajs/threading`. `OrmMutex` is one implementation of it. Extend `OrmMutex` to change one behaviour, such as how the default tenant is chosen, or register your own `Mutex` subclass to keep locks somewhere else.
 
 ## How it works
 
-1. A `mutex_*` helper (`mutex_acquire`, `mutex_release`, `mutex_create`, `mutex_delete`, `mutex_get`, `mutex_wait`) calls `DI.resolve(Mutex)` on the root container.
+1. A `mutex_*` helper (`mutex_acquire`, `mutex_renew`, `mutex_release`, `mutex_create`, `mutex_delete`, `mutex_get`, `mutex_wait`) calls `DI.resolve(Mutex)` on the root container.
 2. The container returns the instance of the **last** class registered as `Mutex`. Without a registration it builds the abstract `Mutex` itself, and the call fails with `TypeError: ... is not a function`.
 3. The instance is a singleton, cached under its concrete class name, unless the class carries another lifetime decorator.
 4. The helper calls the matching method on it.
 
 Classes that inject `Mutex` with `@Autoinject(Mutex)` take the same path.
 
-`OrmMutex` calls its own methods through `this`: `acquire()` uses `this.get()` and `this.create()`, and `wait()` uses `this.get()`. Overriding `get()` or `create()` also changes `acquire()` and `wait()`.
+`OrmMutex` calls its own methods through `this`: `acquire()` uses `this.tryLock()`, `this.get()` and `this.create()`, and `wait()` uses `this.get()`. Overriding `get()` or `create()` also changes `acquire()` and `wait()`. Every public method picks the name, tenant and ttl through the protected `nameOf()`, `tenantOf()` and `ttlOf()`, and reads the clock through `now()`; override those to change the defaults everywhere at once.
 
 ## Configuration
 
-`OrmMutex` subclasses inherit `app.name` (as `this.AppName`) and `threading.mutex.checkInterval` (as `this.MutexWaitInterval`); see [Database mutex](01-database-mutex.md#configuration). Add your own keys with `@Config` on the subclass.
+`OrmMutex` subclasses inherit `threading.mutex.tenant` (as `this.ConfiguredTenant`), `threading.mutex.ttl` (as `this.DefaultTtl`) and `threading.mutex.checkInterval` (as `this.MutexWaitInterval`); see [Database mutex](01-database-mutex.md#configuration). Add your own keys with `@Config` on the subclass.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `Mutex` | `Mutex` (abstract class, `@spinajs/threading`); singleton by default; resolved by type with `DI.resolve(Mutex)` on every helper call | none registered | `OrmMutex` (`@spinajs/orm-threading`); your subclass | Replace: `DI.register(MyMutex).as(Mutex)` before the first resolve. Extend: subclass `OrmMutex` and override any public method. |
-| `OrmMutex` | not registered by the package; you register it as `Mutex` | `OrmMutex` | `ProcessTenantMutex` (example below) | Override `acquire`, `release`, `create`, `delete`, `get` or `wait`. Protected members: `AppName` (`app.name`), `MutexWaitInterval` (`threading.mutex.checkInterval`). |
+| `OrmMutex` | not registered by the package; you register it as `Mutex` | `OrmMutex` | `PodTenantMutex` (example below) | Override `acquire`, `renew`, `release`, `create`, `delete`, `get` or `wait`, or the protected `tryLock`, `createIfMissing`, `isFree`, `now`, `nameOf`, `tenantOf` and `ttlOf`. Protected config members: `ConfiguredTenant` (`threading.mutex.tenant`), `DefaultTtl` (`threading.mutex.ttl`), `MutexWaitInterval` (`threading.mutex.checkInterval`). |
 
 ### `Mutex` contract
 
-A replacement implements all six abstract methods:
+A replacement implements all seven abstract methods:
 
 | Method | Must return |
 | --- | --- |
-| `acquire(options: MutexLockOptions): Promise<LockResult>` | `{ Locked: true, Mutex }` when `options.Tenant` now holds the lock, `{ Locked: false, ... }` otherwise. Creates the lock when missing. |
+| `acquire(options: MutexLockOptions): Promise<LockResult>` | `{ Locked: true, Mutex }` when `options.Tenant` now holds the lock, `{ Locked: false, ... }` otherwise. Creates the lock when missing. Honours `options.ttl` when the backend supports expiry. |
+| `renew(options: MutexLockOptions): Promise<boolean>` | `true` when `options.Tenant` still holds the lock, after moving its expiry to now + `ttl`. Never takes a lock. |
 | `release(options: MutexLockOptions, deleteOnClose?: boolean): Promise<boolean>` | `true` when the owner's lock was released (or deleted). |
 | `create(options: MutexLockOptions): Promise<MutexLock>` | The lock, created unlocked when missing. |
 | `delete(options: MutexLockOptions): Promise<boolean>` | `true` when the owner's lock was deleted. |
 | `get(name: string): Promise<MutexLock \| null>` | The lock, or `null`/`undefined` when missing. |
 | `wait(name: string, timeout?: number): Promise<boolean>` | `true` when the lock is free, `false` after `timeout` ms; `0` or no timeout waits forever. |
 
-`MutexLock` has `Name`, `Tenant`, `Locked`, `Created_at` and `Updated_at` (Luxon `DateTime`). `MutexLockOptions` has `Name` and an optional `Tenant`.
+`MutexLock` has `Name`, `Tenant`, `Locked`, an optional `LockedUntil` (epoch ms, `null` for never), `Created_at` and `Updated_at` (Luxon `DateTime`). `MutexLockOptions` has `Name`, an optional `Tenant` and an optional `ttl` in ms.
 
 ### When to register
 
@@ -45,60 +46,37 @@ Register before anything resolves `Mutex`: before the first `mutex_*` call and b
 
 The last registration wins. Registering a subclass after `DI.register(OrmMutex).as(Mutex)` replaces it for every later resolve.
 
-### `OrmMutex`: one tenant per process
+### `OrmMutex`: name the default tenant after the pod
 
-The stock default tenant is `app.name`, the same in every instance of the app. This subclass fills an empty `Tenant` with the host name and process id, so callers that pass no tenant, like `@spinajs/tasks`, lock per process. It reads a prefix from config with its own `@Config` key.
+The stock default tenant, `processIdentity()`, is unique per process but says little in a dashboard. This subclass uses the Kubernetes pod name when there is one, so `__mutex__.Tenant` shows which pod holds a lock. Every public method picks the tenant through `tenantOf()`, so one override covers `acquire`, `renew`, `release`, `create` and `delete`.
 
 ```ts sample
-import { hostname } from 'node:os';
-import { Config } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { LockResult, Mutex, MutexLock, MutexLockOptions, mutex_acquire } from '@spinajs/threading';
+import { Mutex, MutexLockOptions, mutex_acquire } from '@spinajs/threading';
 import { OrmMutex } from '@spinajs/orm-threading';
 
-export class ProcessTenantMutex extends OrmMutex {
-  @Config('threading.mutex.tenantPrefix', { defaultValue: 'node' })
-  protected TenantPrefix: string;
+export class PodTenantMutex extends OrmMutex {
+  protected tenantOf(options: MutexLockOptions): string {
+    const pod = process.env.POD_NAME?.trim();
 
-  protected withTenant(options: MutexLockOptions): MutexLockOptions {
-    if (options.Tenant && options.Tenant.trim() !== '') {
-      return options;
-    }
-
-    // The Tenant column is VARCHAR(32).
-    return { ...options, Tenant: `${this.TenantPrefix}:${hostname()}:${process.pid}`.slice(0, 32) };
-  }
-
-  public acquire(options: MutexLockOptions): Promise<LockResult> {
-    return super.acquire(this.withTenant(options));
-  }
-
-  public release(options: MutexLockOptions, deleteOnClose?: boolean): Promise<boolean> {
-    return super.release(this.withTenant(options), deleteOnClose);
-  }
-
-  public create(options: MutexLockOptions): Promise<MutexLock> {
-    return super.create(this.withTenant(options));
-  }
-
-  public delete(options: MutexLockOptions): Promise<boolean> {
-    return super.delete(this.withTenant(options));
+    // The Tenant column is VARCHAR(32); the tail of a pod name is the distinguishing part.
+    return options.Tenant?.trim() || (pod ? pod.slice(-32) : super.tenantOf(options));
   }
 }
 
-DI.register(ProcessTenantMutex).as(Mutex);
+DI.register(PodTenantMutex).as(Mutex);
 
 export async function tryLockMailQueue(): Promise<boolean> {
-  const lock = await mutex_acquire({ Name: 'mail-queue-drain' });
+  const lock = await mutex_acquire({ Name: 'mail-queue-drain', ttl: 60_000 });
   return lock.Locked;
 }
 ```
 
-`acquire()` calls `this.create()` internally; it receives options that already carry the tenant, so `withTenant()` returns them unchanged.
+Two processes in one pod would share the tenant and stop excluding each other; keep one app process per pod with this backend.
 
 ### `Mutex`: your own backend
 
-Replace `OrmMutex` when the database is the wrong place for locks: in unit tests, or in a single-process tool. This in-memory backend keeps the same contract, including re-entrant acquire by the same tenant.
+Replace `OrmMutex` when the database is the wrong place for locks: in unit tests, or in a single-process tool. This in-memory backend keeps the same contract, including re-entrant acquire by the same tenant. Its locks never expire, so `renew()` only reports whether the tenant still holds the lock.
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -124,6 +102,11 @@ export class InMemoryMutex extends Mutex {
     lock.Tenant = tenant;
     lock.Updated_at = DateTime.now();
     return { Locked: true, Mutex: { ...lock } };
+  }
+
+  public async renew(options: MutexLockOptions): Promise<boolean> {
+    const lock = this.locks.get(options.Name);
+    return !!lock && lock.Locked && lock.Tenant === this.tenantOf(options);
   }
 
   public async release(options: MutexLockOptions, deleteOnClose?: boolean): Promise<boolean> {
@@ -191,7 +174,7 @@ export async function secondWorkerIsBlocked(): Promise<boolean> {
 }
 ```
 
-Other backends, such as Redis, follow the same shape: implement the six methods, register the class as `Mutex`.
+Other backends, such as Redis, follow the same shape: implement the seven methods, register the class as `Mutex`.
 
 ## Important behaviour
 
@@ -203,7 +186,7 @@ Other backends, such as Redis, follow the same shape: implement the six methods,
 ## Best practices
 
 - Extend `OrmMutex` when you keep the `__mutex__` table; implement `Mutex` directly only for another store.
-- Override `acquire()` and `release()` together when you change how the tenant is chosen, or the owner check in `release()` will not match.
+- Change how the tenant is chosen by overriding `tenantOf()`, not `acquire()` alone, or the owner check in `renew()` and `release()` will not match.
 - In tests, register an in-memory `Mutex` instead of booting an ORM connection for code that only needs locking.
 
 ## Patterns and antipatterns
@@ -211,10 +194,10 @@ Other backends, such as Redis, follow the same shape: implement the six methods,
 ```ts
 // Don't: register after something already called mutex_acquire(); that call used whatever was registered then
 await mutex_acquire({ Name: 'warmup', Tenant: tenant });
-DI.register(ProcessTenantMutex).as(Mutex);
+DI.register(PodTenantMutex).as(Mutex);
 
 // Do: register in startup code, before the first lock
-DI.register(ProcessTenantMutex).as(Mutex);
+DI.register(PodTenantMutex).as(Mutex);
 await mutex_acquire({ Name: 'warmup', Tenant: tenant });
 ```
 

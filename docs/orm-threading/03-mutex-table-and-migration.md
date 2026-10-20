@@ -45,6 +45,7 @@ this.Config = _.merge(this.Config, {
 | `Name` | `VARCHAR(32)`, primary key, unique, not null | Lock name; the model's primary key. |
 | `Tenant` | `VARCHAR(32)`, not null | Current or last owner. |
 | `Locked` | `BOOLEAN`, not null, default `0` | `true` while the owner holds the lock. |
+| `LockedUntil` | `BIGINT`, null | Expiry as epoch milliseconds on the database clock. `NULL` never expires. Set by `acquire()` and `renew()`, cleared by `release()`. |
 | `Created_at` | `DATETIME`, not null, default current time | Set on insert; `@CreatedAt` on the model. |
 | `Updated_at` | `DATETIME`, not null, default current time | `@UpdatedAt` on the model. Set by every `OrmMutex.acquire()` and `release()`, and by an instance `update()`. |
 
@@ -56,6 +57,7 @@ this.Config = _.merge(this.Config, {
 | `Name` | `@Primary()` | `string` |
 | `Tenant` | none | `string` |
 | `Locked` | none | `boolean` |
+| `LockedUntil` | none | `number \| null` |
 | `Created_at` | `@CreatedAt()` | Luxon `DateTime` |
 | `Updated_at` | `@UpdatedAt()` | Luxon `DateTime` |
 
@@ -106,12 +108,14 @@ Each column gets its own `alterTable()` call, because the statements of one call
 - The table always lives on the `default` connection. Moving it means changing `db.DefaultConnection`, which moves every model bound to `default`.
 - Rolling back `Mutex_2024_12_03_11_41_00` drops the `__mutex__` table, and every lock in it.
 - A lock row stays after `release()`; only `release(options, true)` and `delete()` remove it.
+- A row with `Locked = true` and a `LockedUntil` in the past is free for `acquire()` and `wait()`, though nobody has rewritten it yet.
 - The model has no `Id` column; `Name` is the key, so `__mutex__.get(name)` finds a lock by name.
 
 ## Best practices
 
 - Read locks with `__mutex__` for dashboards and diagnostics; take and release them only through `Mutex`, so the owner check applies.
-- When you force-release locks, set `Updated_at` in the same update so the next cleanup sees the change.
+- When you force-release locks, set `Updated_at` and clear `LockedUntil` in the same update so the next cleanup sees the change.
+- Prefer a `ttl` on the locks themselves over a cleanup job: an expired lock frees itself.
 
 ## Examples
 
@@ -120,20 +124,21 @@ Each column gets its own `alterTable()` call, because the statements of one call
 ```ts sample
 import { __mutex__ } from '@spinajs/orm-threading';
 
-export async function heldLocks(): Promise<Array<{ name: string; owner: string; since: string }>> {
+export async function heldLocks(): Promise<Array<{ name: string; owner: string; since: string; until: string | null }>> {
   const locks = await __mutex__.where({ Locked: true });
 
   return locks.map((lock) => ({
     name: lock.Name,
     owner: lock.Tenant,
     since: lock.Updated_at.toISO() ?? '',
+    until: lock.LockedUntil === null ? null : new Date(Number(lock.LockedUntil)).toISOString(),
   }));
 }
 ```
 
 ### Release stale locks
 
-`OrmMutex` locks never expire. A cleanup job frees locks held longer than an hour. It relies on `Updated_at`, which `OrmMutex.acquire()` stamps when it takes a lock.
+Locks taken with `ttl: 0`, the default, never expire. A cleanup job frees locks held longer than an hour. It relies on `Updated_at`, which `OrmMutex.acquire()` stamps when it takes a lock; `renew()` does not stamp it, so leave locks with a `LockedUntil` to expire on their own.
 
 ```ts sample
 import { DateTime } from 'luxon';
@@ -143,8 +148,9 @@ export async function releaseStaleLocks(maxAgeMinutes = 60): Promise<number> {
   const cutoff = DateTime.now().minus({ minutes: maxAgeMinutes });
 
   const result = await __mutex__
-    .update({ Locked: false, Updated_at: DateTime.now() })
+    .update({ Locked: false, LockedUntil: null, Updated_at: DateTime.now() })
     .where({ Locked: true })
+    .whereNull('LockedUntil')
     .where('Updated_at', '<', cutoff);
 
   return result.RowsAffected;

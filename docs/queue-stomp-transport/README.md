@@ -75,11 +75,12 @@ export async function requestInvoice(orderId: string) {
 
 ## Running the package tests
 
-`test/stomp-transport.test.ts` needs a STOMP broker with a WebSocket connector on `ws://localhost:61614/ws`, eg. ActiveMQ Classic. `test/stomp-transport.unit.test.ts` runs without a broker, against a fake `stompjs` client.
+`npm test` runs the unit suites (`test/*.test.ts`) without a broker, against a fake `stompjs` client. `npm run test:integration` runs `test/integration` against ActiveMQ Classic 6.1 with a WebSocket connector on `ws://127.0.0.1:61614/ws` (override with `QUEUE_IT_STOMP_URL`); it skips itself when no broker answers, unless `QUEUE_IT_REQUIRE_BROKER=1`. Broker setup, replicas and ops notes: [`ACTIVEMQ.md`](../../packages/queue-stomp-transport/ACTIVEMQ.md).
 
 ```sh
-docker run -d --name activemq -p 61613:61613 -p 61614:61614 -p 8161:8161 apache/activemq-classic
+docker compose --profile test up -d activemq   # from the repo root
 npm test
+npm run test:integration
 ```
 
 ## Related packages

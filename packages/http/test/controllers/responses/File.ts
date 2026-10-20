@@ -1,4 +1,4 @@
-import { BaseController, BasePath, Get, FileResponse, ZipResponse, JsonFileResponse } from '../../../src/index.js';
+import { BaseController, BasePath, Get, FileResponse, ZipResponse, JsonFileResponse, BufferResponse } from '../../../src/index.js';
 
 @BasePath('files')
 export class File extends BaseController {
@@ -18,6 +18,11 @@ export class File extends BaseController {
       filename: 'test.txt',
       provider: 'test',
     });
+  }
+
+  @Get()
+  public buffer() {
+    return new BufferResponse(Buffer.from(Array.from({ length: 256 }, (_, i) => i)), 'image/png');
   }
 
   @Get()

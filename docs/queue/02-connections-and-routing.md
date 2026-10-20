@@ -50,6 +50,7 @@ Choosing the dead-letter channel, in `QueueClient.getDeadLetterChannelForMessage
 | `queue.routing.<Name>.connection` | `string` | `queue.default` | a connection name | Connection of the message |
 | `queue.routing.<Name>.channel` | `string` | connection's default channel | broker channel | Channel of the message |
 | `queue.routing.<Name>.deadLetterChannel` | `string` | connection's `defaultQueueDeadLetterChannel` | broker channel | Where the transport moves a message it gives up on |
+| `queue.routing.<Name>.maxRetries` | `number` | unset | integer `>= 0` | Retry count for a job emitted without `RetryCount`. An explicit `RetryCount`, `0` included, wins. In an array route, the first item of the connection that declares it applies. An invalid value is ignored with one warning per message name. `QueueService` and the STOMP and AMQP transports read it |
 
 Each transport decides which connection keys it reads; check its docs. `IQueueConnectionOptions` also declares optional `transport` and `type`; they are deprecated and nothing reads them.
 
@@ -93,6 +94,7 @@ export default {
 - **A string route never selects a connection.** It names a channel on `queue.default`. Use `{ connection, channel }` to send a message elsewhere.
 - **Routes are keyed by class name.** Renaming a message class silently drops its route; the message then goes to the default connection and channel, with a warning log.
 - **An array route splits by connection.** `[{ connection: 'a', channel: 'x' }, { connection: 'b', channel: 'y' }]` makes `a` use `x` and `b` use `y`. String items belong to `queue.default`.
+- **`maxRetries` fills in `RetryCount` on delivery, not on emit.** `QueueService` sets it on the hydrated job before it creates the job row, so `MaxAttempts` is `maxRetries + 1`; the transport reads the same route when the job fails. The message body still carries no `RetryCount`.
 - **A job routed to several connections is delivered once per connection**, with one `JobId` and so one job row. With `queue.deduplicate` on, a delivery that arrives after another one finished is skipped; deliveries that overlap both run.
 - **The shipped default sends everything to `BlackHoleQueueClient`.** Packages emit events (logins, sent mails) whether or not the app runs a broker; with the default, these vanish and `emit()` resolves.
 - **Two connections of the same transport class need distinct instances.** The class must be `@PerInstanceCheck()` or `@NewInstance()`; the shipped transports are. A singleton transport is built once, and every entry gets that one instance.

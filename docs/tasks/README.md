@@ -17,7 +17,7 @@ npm install @spinajs/tasks
 | Feature | What it does |
 | --- | --- |
 | [Task decorator](01-task-decorator.md) | `@Task(name, description, opts)`: the wrapper around a method, its flow, return value, logging and failure handling, and how to schedule a task |
-| [Task locking](02-task-locking.md) | `taskStacking` and the `Mutex` DI service: which backend guards overlapping runs, and how to plug in your own |
+| [Task locking](02-task-locking.md) | `taskStacking`, `lockTtl` and the `Mutex` DI service: how overlapping runs are skipped, how a crashed run's lock expires, and how to plug in your own backend |
 | [Task events](03-task-events.md) | `TaskSuccess` and `TaskFailed`: the shipped `queue.*` config, routing them to a real transport, and consuming them |
 | [Task tables and migration](04-task-tables-and-migration.md) | `__task` and `__task_history` models, the `__tasks` and `__task_history` tables, the shipped migration and history retention |
 
@@ -47,7 +47,7 @@ setInterval(() => void tasks.sendReminders(), 60 * 60 * 1000);
 
 ## Related packages
 
-- [`@spinajs/threading`](../threading/README.md): the abstract `Mutex` and the `mutex_acquire()` / `mutex_release()` helpers `@Task()` calls.
+- [`@spinajs/threading`](../threading/README.md): the abstract `Mutex` and the `mutex_acquire()` / `mutex_renew()` / `mutex_release()` helpers `@Task()` calls.
 - [`@spinajs/orm-threading`](../orm-threading/README.md): `OrmMutex`, the database-backed `Mutex` most apps register.
 - [`@spinajs/orm`](../orm/README.md): the models and the migration run on the `default` connection.
 - [`@spinajs/queue`](../queue/README.md): `TaskSuccess` and `TaskFailed` are `QueueEvent`s sent through `QueueService`.

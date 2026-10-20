@@ -1,0 +1,594 @@
+import { v4 as uuidv4 } from 'uuid';
+import { AsyncService, Autoinject, DI, IInstanceCheck, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Log, Logger } from '@spinajs/log-common';
+import type { IWhereBuilder } from '@spinajs/orm';
+import { QueueService } from '@spinajs/queue';
+import type { AbortReason, RunStatus, RunTrigger } from './contract.js';
+import { EmitMirror } from './emit/emit.js';
+import { RunAbortedError } from './errors.js';
+import type { ScheduleDefinition, SchedulerConfig } from './interfaces.js';
+import { RunModel } from './models/RunModel.js';
+import { ScheduleModel } from './models/ScheduleModel.js';
+import { OccurrencePlan, planOccurrence } from './policy/misfire.js';
+import { automaticRetry, decideAfterFailure } from './policy/retry.js';
+import { ScheduleRegistry } from './registry/ScheduleRegistry.js';
+import { abortWaitingRun } from './run/cancel.js';
+import { journalAttemptEnd } from './run/end.js';
+import { ExecutionHandle, RunExecutor } from './run/RunExecutor.js';
+import { RunEventWriter } from './run/RunEventWriter.js';
+import { RunFinalizer } from './run/RunFinalizer.js';
+import { SchedulerSignals } from './signals.js';
+import { DefinitionSync } from './store/DefinitionSync.js';
+import { LeaseStore, OccurrenceInput, RunExpiry } from './store/LeaseStore.js';
+import { defaultReplicaId } from './store/replica.js';
+import { Clock, DbClock, TimerHandle } from './time/clock.js';
+import { fireTime } from './time/occurrences.js';
+import { nextOccurrence } from './time/spec.js';
+import { toStructuredError } from './tracking/structured.js';
+
+export interface SchedulerInstanceOptions {
+  replicaId?: string;
+  autoStart?: boolean;
+  /**
+   * False when this instance only executes runs it is handed (`scheduler:run --local`): its definition
+   * sync then never orphans or rewrites schedule rows (see `DefinitionSyncOptions.owner`). Default true.
+   */
+  syncOwner?: boolean;
+}
+
+interface NewRun {
+  status: RunStatus;
+  trigger: RunTrigger;
+  scheduledAt: number | null;
+  now: number;
+  owned: boolean;
+  forced?: boolean;
+  reason?: string | null;
+  message?: string | null;
+  finished?: boolean;
+}
+
+const INSTANCES = new Set<Scheduler>();
+const SIGNAL_DRAIN_MAX_MS = 5000;
+const CLAIM_PAGE_SIZE = 50;
+
+const missedCount = (plan: OccurrencePlan) => (plan.skippedCapped ? `more than ${plan.skipped}` : String(plan.skipped));
+
+/** Schedulers resolved in this process and not stopped; the service wakes them and aborts local runs through them. */
+export function activeSchedulers(): Scheduler[] {
+  return [...INSTANCES];
+}
+
+/**
+ * The loop of one replica. Every tick reads database time once and uses it for every ownership
+ * decision of that tick. One instance per replica id (several in one process in tests).
+ */
+@PerInstanceCheck()
+@Injectable()
+export class Scheduler extends AsyncService implements IInstanceCheck {
+  @Logger('SCHEDULER')
+  protected Log: Log;
+
+  @Autoinject(ScheduleRegistry)
+  protected Registry: ScheduleRegistry;
+
+  @Autoinject(DefinitionSync)
+  protected Sync: DefinitionSync;
+
+  @Autoinject(DbClock)
+  protected Clock: DbClock;
+
+  @Autoinject(Clock)
+  protected Timers: Clock;
+
+  @Autoinject(RunEventWriter)
+  protected Events: RunEventWriter;
+
+  @Autoinject(RunFinalizer)
+  protected Finalizer: RunFinalizer;
+
+  @Autoinject(EmitMirror)
+  protected Mirror: EmitMirror;
+
+  @Autoinject(SchedulerSignals)
+  protected Signals: SchedulerSignals;
+
+  public readonly ReplicaId: string;
+  public Leases: LeaseStore;
+  protected Executor: RunExecutor;
+  protected config: SchedulerConfig;
+  protected active = new Map<string, ExecutionHandle>();
+  /** Active runs that hold no schedule lease (`Forced`). */
+  protected forced = new Set<string>();
+  protected timer: TimerHandle | undefined;
+  protected running = false;
+  protected stopping = false;
+  protected ticking: Promise<void> | undefined;
+  /** Database time of the last tick. */
+  protected lastTickAt: number | undefined;
+  /** Next occurrence of each `runOn: 'all'` schedule on this replica. */
+  protected localNext = new Map<string, number | null>();
+
+  constructor(public readonly Options: SchedulerInstanceOptions = {}) {
+    super();
+    this.ReplicaId = Options.replicaId ?? defaultReplicaId();
+  }
+
+  public __checkInstance__(creationOptions: unknown[]): boolean {
+    const other = (creationOptions?.[0] ?? {}) as SchedulerInstanceOptions;
+    return (other.replicaId ?? defaultReplicaId()) === this.ReplicaId;
+  }
+
+  public async resolve(): Promise<void> {
+    this.config = this.Registry.config;
+    this.Leases = DI.resolve(LeaseStore, [this.ReplicaId]);
+    this.Executor = DI.resolve(RunExecutor, [this.Leases]);
+    const now = await this.Clock.sync();
+    await this.Sync.sync(this.Registry.all(), now, { owner: this.Options.syncOwner !== false });
+    await this.resolveQueue();
+    INSTANCES.add(this);
+    await super.resolve();
+    if (this.config.enabled && this.Options.autoStart !== false) this.start();
+  }
+
+  public start(): void {
+    if (this.running) return;
+    this.running = true;
+    this.stopping = false;
+    INSTANCES.add(this);
+    this.schedule(0);
+  }
+
+  public wake(): void {
+    if (this.running && !this.stopping) this.schedule(0);
+  }
+
+  public tickOnce(): Promise<void> {
+    this.ticking ??= this.doTick().finally(() => (this.ticking = undefined));
+    return this.ticking;
+  }
+
+  public async idle(): Promise<void> {
+    while (this.active.size) await Promise.all([...this.active.values()].map((h) => h.done));
+  }
+
+  public abortLocal(runId: string, reason: AbortReason): boolean {
+    const h = this.active.get(runId);
+    if (!h) return false;
+    h.abort(reason);
+    return true;
+  }
+
+  public isRunningLocally(runId: string): boolean {
+    return this.active.has(runId);
+  }
+
+  public async stop(): Promise<void> {
+    if (this.stopping) return this.idle();
+    this.stopping = true;
+    this.running = false;
+    if (this.timer !== undefined) {
+      this.Timers.clearTimeout(this.timer);
+      this.timer = undefined;
+    }
+    await this.ticking?.catch(() => undefined);
+    for (const h of this.active.values()) h.abort('shutdown');
+    // each execution is bounded by shutdownGrace inside the executor
+    await this.idle();
+    // events of the last runs get a short chance to leave; a broker that hangs does not hold up the shutdown
+    await this.Signals.drain(Math.min(this.config?.shutdownGrace ?? SIGNAL_DRAIN_MAX_MS, SIGNAL_DRAIN_MAX_MS));
+    INSTANCES.delete(this);
+  }
+
+  public async dispose(): Promise<void> {
+    await this.stop();
+  }
+
+  /**
+   * DI disposes in reverse resolution order, so a queue service first resolved by an event send would
+   * be disposed before this loop and drop the events of runs that end in stop().
+   */
+  protected async resolveQueue(): Promise<void> {
+    try {
+      await DI.resolve(QueueService);
+    } catch (err) {
+      this.Log.warn(err as Error, 'queue service could not be resolved; scheduler events may be lost');
+    }
+  }
+
+  protected schedule(delayMs: number): void {
+    if (this.timer !== undefined) this.Timers.clearTimeout(this.timer);
+    this.timer = this.Timers.setTimeout(() => {
+      this.timer = undefined;
+      void this.timerTick();
+    }, delayMs);
+  }
+
+  protected async timerTick(): Promise<void> {
+    await this.tickOnce().catch((err) => this.Log.error(err as Error, 'scheduler tick failed'));
+    const delay = await this.nextDelay().catch(() => this.config.tick);
+    if (this.running && !this.stopping) this.schedule(delay);
+  }
+
+  /**
+   * Time until the next instant after the last tick: a fire time (also of a local `runOn: 'all'`
+   * occurrence), or a retry becoming claimable.
+   * Instants the last tick already saw are not counted, so an item that is due but blocked (a
+   * jitter window, a retry whose schedule lease another replica holds, a schedule this replica
+   * does not know) is retried at the normal tick rate instead of in a tight loop.
+   */
+  protected async nextDelay(): Promise<number> {
+    const tick = this.config.tick;
+    const since = this.lastTickAt;
+    if (since === undefined) return tick;
+    const defs = this.Registry.all();
+    const maxJitter = Math.max(0, ...defs.map((d) => d.jitterMs));
+    const [rows, retry] = await Promise.all([
+      ScheduleModel.where('Paused', false)
+        .where('Orphaned', false)
+        .whereNotNull('NextRunAt')
+        .where('NextRunAt', '>', since - maxJitter)
+        .where('NextRunAt', '<=', since + tick),
+      RunModel.where('Status', 'retrying').where('NextAttemptAt', '>', since).orderBy('NextAttemptAt').first(),
+    ]);
+    const instants: number[] = [];
+    for (const row of rows) {
+      const def = this.Registry.find(row.Name);
+      if (def && def.enabled && def.runOn === 'leader' && row.NextRunAt !== null)
+        instants.push(fireTime(def, row.NextRunAt));
+    }
+    if (typeof retry?.NextAttemptAt === 'number') instants.push(retry.NextAttemptAt);
+    for (const [name, due] of this.localNext) {
+      const def = this.Registry.find(name);
+      if (def && def.enabled && def.runOn === 'all' && due !== null) instants.push(fireTime(def, due));
+    }
+    const now = this.Clock.now();
+    const until = instants.filter((t) => t > since).map((t) => t - now);
+    return Math.max(0, Math.min(tick, ...until));
+  }
+
+  protected async doTick(): Promise<void> {
+    if (this.stopping) return;
+    const now = await this.Clock.sync();
+    this.lastTickAt = now;
+    await this.reapExpired(now);
+    await this.fireDue(now);
+    await this.claimQueued(now);
+    await this.fireLocal(now);
+    await this.Mirror.sync(now);
+  }
+
+  /** `runOn: 'all'`: every replica fires from its own in-memory next occurrence, without the schedule lease. */
+  protected async fireLocal(now: number): Promise<void> {
+    const local = this.Registry.all().filter((d) => d.runOn === 'all' && d.enabled);
+    if (local.length === 0) return;
+    const halted = new Set(
+      (
+        await ScheduleModel.query().whereIn(
+          'Name',
+          local.map((d) => d.name),
+        )
+      )
+        .filter((r) => r.Paused || r.Orphaned)
+        .map((r) => r.Name),
+    );
+
+    for (const def of local) {
+      if (this.stopping) return;
+      if (!this.localNext.has(def.name)) this.localNext.set(def.name, nextOccurrence(def.spec, now));
+      const due = this.localNext.get(def.name);
+      if (due === null || due === undefined || now < fireTime(def, due)) continue;
+      // local schedules never catch up: the next one is the first after now
+      this.localNext.set(def.name, nextOccurrence(def.spec, Math.max(due, now)));
+      // a paused occurrence is dropped, like a paused leader schedule's (resume re-anchors on now)
+      if (halted.has(def.name)) continue;
+
+      if ([...this.active.values()].some((h) => h.schedule === def.name)) {
+        await this.recordWithoutRunning(def, 'skipped', due, now, 'overlap', null);
+        continue;
+      }
+      const run = await this.createRun(def, {
+        status: 'running',
+        trigger: 'schedule',
+        scheduledAt: due,
+        now,
+        owned: true,
+        forced: true,
+      });
+      this.launch(run, def);
+    }
+  }
+
+  /**
+   * A non-forced local run holds its schedule's lease. Once that lease expires (a stalled heartbeat),
+   * the database lets this replica take it again, so only this check keeps a second run out.
+   */
+  protected holdsScheduleLocally(schedule: string): boolean {
+    for (const h of this.active.values()) {
+      if (h.schedule === schedule && !this.forced.has(h.runId)) return true;
+    }
+    return false;
+  }
+
+  /** Any run of the schedule in this process, forced or not. */
+  protected runsScheduleLocally(schedule: string): boolean {
+    for (const h of this.active.values()) if (h.schedule === schedule) return true;
+    return false;
+  }
+
+  /** Every path that claims a queued/retrying run for this process goes through this check first. */
+  protected mayClaimLocally(run: RunModel): boolean {
+    // e.g. reaped to `retrying` by another replica while the local executor is still in its grace period
+    if (this.active.has(run.Id)) return false;
+    // a manual run of a `runOn: 'all'` schedule is forced, but must not overlap this replica's own runs of it
+    if (this.Registry.find(run.Schedule)?.runOn === 'all') return !this.runsScheduleLocally(run.Schedule);
+    return run.Forced || !this.holdsScheduleLocally(run.Schedule);
+  }
+
+  /** Claims a queued or retrying run with the normal lease rules and executes it in this process. */
+  public async runLocally(runId: string): Promise<boolean> {
+    if (this.stopping) return false;
+    const now = await this.Clock.sync();
+    const run = await RunModel.where('Id', runId).first();
+    if (!run || (run.Status !== 'queued' && run.Status !== 'retrying')) return false;
+    const def = this.Registry.find(run.Schedule);
+    if (!def) return false;
+    if (run.CancelRequested && !this.active.has(run.Id)) {
+      await this.endCancelled(run, def, now);
+      return false;
+    }
+    if (!this.mayClaimLocally(run) || !(await this.Leases.claimRun(run, now))) return false;
+    this.launch(run, def);
+    return true;
+  }
+
+  protected async fireDue(now: number): Promise<void> {
+    const rows = await ScheduleModel.where('Paused', false)
+      .where('Orphaned', false)
+      .whereNotNull('NextRunAt')
+      .where('NextRunAt', '<=', now);
+    for (const row of rows) {
+      if (this.stopping) return;
+      const def = this.Registry.find(row.Name);
+      if (!def || !def.enabled || def.runOn !== 'leader' || row.NextRunAt === null) continue;
+      if (now < fireTime(def, row.NextRunAt)) continue;
+      await this.fireOccurrence(def, row.NextRunAt, now);
+    }
+  }
+
+  protected async fireOccurrence(def: ScheduleDefinition, expected: number, now: number): Promise<void> {
+    const plan = planOccurrence(def, expected, now);
+    const input: OccurrenceInput = { name: def.name, expectedNextRunAt: expected, nextRunAt: plan.next, now };
+
+    if (plan.kind === 'run' && !this.holdsScheduleLocally(def.name) && (await this.Leases.tryClaimOccurrence(input))) {
+      const message = plan.skipped ? `caught up; ${missedCount(plan)} earlier occurrence(s) were not run` : null;
+      const run = await this.createRun(def, {
+        status: 'running',
+        trigger: plan.trigger,
+        scheduledAt: plan.scheduledAt,
+        now,
+        owned: true,
+        message,
+      });
+      this.launch(run, def);
+      return;
+    }
+
+    await this.onNotClaimed(def, plan, input);
+  }
+
+  protected async onNotClaimed(def: ScheduleDefinition, plan: OccurrencePlan, input: OccurrenceInput): Promise<void> {
+    // a catch-up occurrence waits for the lease instead of being skipped
+    if (plan.kind === 'run' && plan.trigger === 'catch-up') return;
+    // the replica that advances NextRunAt owns the decision for this occurrence
+    if (!(await this.Leases.advanceOccurrence(input))) return;
+
+    if (plan.kind === 'misfire') {
+      const message = `missed ${missedCount(plan)} occurrence(s)`;
+      await this.recordWithoutRunning(def, 'misfired', plan.scheduledAt, input.now, 'misfire', message);
+      return;
+    }
+
+    const running = await this.runningRunId(def.name);
+    if (def.overlap === 'queue' && !(await this.hasQueued(def.name))) {
+      const run = await this.createRun(def, {
+        status: 'queued',
+        trigger: plan.trigger,
+        scheduledAt: plan.scheduledAt,
+        now: input.now,
+        owned: false,
+        reason: 'overlap',
+        message: running ? `queued behind run ${running}` : null,
+      });
+      await this.Events.write(run, 1, { type: 'status', status: 'queued', reason: 'overlap' });
+      return;
+    }
+
+    await this.recordWithoutRunning(def, 'skipped', plan.scheduledAt, input.now, 'overlap', running);
+  }
+
+  protected async hasQueued(schedule: string): Promise<boolean> {
+    return Number(await RunModel.count((b) => b.where('Schedule', schedule).where('Status', 'queued'))) > 0;
+  }
+
+  protected async runningRunId(schedule: string): Promise<string | null> {
+    const r = await RunModel.where('Schedule', schedule)
+      .where('Status', 'running')
+      .orderByDescending('StartedAt')
+      .first();
+    return r?.Id ?? null;
+  }
+
+  protected async recordWithoutRunning(
+    def: ScheduleDefinition,
+    status: 'skipped' | 'misfired',
+    scheduledAt: number,
+    now: number,
+    reason: string,
+    detail: string | null,
+  ): Promise<void> {
+    const message = status === 'skipped' && detail ? `run ${detail} was still in progress` : detail;
+    const run = await this.createRun(def, {
+      status,
+      trigger: 'schedule',
+      scheduledAt,
+      now,
+      owned: false,
+      reason,
+      message,
+      finished: true,
+    });
+    await this.Events.write(run, 1, { type: 'status', status, reason });
+    await this.Finalizer.finalized({ run, def, status, error: null, now, countsAsFailure: false });
+  }
+
+  protected createRun(def: ScheduleDefinition, o: NewRun): Promise<RunModel> {
+    return RunModel.create({
+      Id: uuidv4(),
+      Schedule: def.name,
+      Trigger: o.trigger,
+      TriggeredBy: null,
+      ParentRunId: null,
+      Params: null,
+      Status: o.status,
+      Reason: o.reason ?? null,
+      Attempt: 1,
+      MaxAttempts: automaticRetry(def)?.attempts ?? 1,
+      NextAttemptAt: null,
+      ScheduledAt: o.scheduledAt,
+      CreatedAt: o.now,
+      StartedAt: o.owned ? o.now : null,
+      FinishedAt: o.finished ? o.now : null,
+      UpdatedAt: o.now,
+      Progress: 0,
+      CurrentStep: null,
+      Message: o.message ?? null,
+      JobId: null,
+      LeaseOwner: o.owned ? this.Leases.ReplicaId : null,
+      LeaseUntil: o.owned ? o.now + this.Leases.LeaseTtl : null,
+      CancelRequested: false,
+      Forced: o.forced ?? false,
+      ResumeFrom: null,
+    });
+  }
+
+  protected async claimQueued(now: number): Promise<void> {
+    // oldest first, one claim attempt per schedule per tick keeps queued runs in order
+    const tried = new Set<string>();
+    // each page skips the schedules already paged, so one schedule's long queue cannot hide the others
+    const paged: string[] = [];
+    for (;;) {
+      const page = await this.dueRuns(now, paged);
+      for (const run of page) {
+        if (this.stopping) return;
+        // a handle still in its grace period ends the attempt itself first
+        if (run.CancelRequested && !this.active.has(run.Id)) {
+          await this.endCancelled(run, this.Registry.find(run.Schedule), now);
+          continue;
+        }
+        if (!run.Forced) {
+          if (tried.has(run.Schedule)) continue;
+          tried.add(run.Schedule);
+        }
+        if (!this.mayClaimLocally(run)) continue;
+        const def = this.Registry.find(run.Schedule);
+        if (!def) continue;
+        if (await this.Leases.claimRun(run, now)) this.launch(run, def);
+      }
+      if (page.length < CLAIM_PAGE_SIZE) return;
+      for (const run of page) if (!paged.includes(run.Schedule)) paged.push(run.Schedule);
+    }
+  }
+
+  protected async dueRuns(now: number, skipSchedules: string[]): Promise<RunModel[]> {
+    const due = RunModel.query()
+      .whereIn('Status', ['queued', 'retrying'])
+      .where(function (this: IWhereBuilder<unknown>) {
+        // a cancelled retry ends now, not when its backoff is over
+        this.whereNull('NextAttemptAt').orWhere('NextAttemptAt', '<=', now).orWhere('CancelRequested', true);
+      });
+    const query = skipSchedules.length ? due.whereNotIn('Schedule', skipSchedules) : due;
+    return await query.orderBy('CreatedAt').take(CLAIM_PAGE_SIZE);
+  }
+
+  /**
+   * A run cancelled while `running` that became claimable again (the cancel reached neither its
+   * holder nor the decision that made it `retrying`) ends here instead of starting another attempt.
+   */
+  protected async endCancelled(run: RunModel, def: ScheduleDefinition | undefined, now: number): Promise<void> {
+    await abortWaitingRun(run, now, { events: this.Events, finalizer: this.Finalizer, log: this.Log, def });
+  }
+
+  protected expiryDecision(
+    run: RunModel,
+    def: ScheduleDefinition | undefined,
+    now: number,
+  ): RunExpiry & { countsAsFailure: boolean } {
+    // a cancel the dead holder never saw: the user's decision, not a failure of the schedule
+    if (run.CancelRequested)
+      return { status: 'aborted', reason: 'cancelled', nextAttemptAt: null, countsAsFailure: false };
+    const f = decideAfterFailure({
+      retry: automaticRetry(def),
+      emit: !!def?.emit,
+      attempt: run.Attempt,
+      maxAttempts: run.MaxAttempts,
+      error: new RunAbortedError('lease-expired'),
+      abortReason: 'lease-expired',
+    });
+    if (f.status === 'retrying') {
+      return { status: 'retrying', reason: 'lease-expired', nextAttemptAt: now + f.delayMs, countsAsFailure: false };
+    }
+    return { status: f.status, reason: 'lease-expired', nextAttemptAt: null, countsAsFailure: f.countsAsFailure };
+  }
+
+  protected async reapExpired(now: number): Promise<void> {
+    const expired = await RunModel.where('Status', 'running').where('LeaseUntil', '<', now).take(50);
+    for (const run of expired) {
+      // a local run with a stalled heartbeat aborts itself once its heartbeat reports the lease lost
+      if (this.active.has(run.Id)) continue;
+      const def = this.Registry.find(run.Schedule);
+      const next = this.expiryDecision(run, def, now);
+      if (!(await this.Leases.expireRun(run, now, next))) continue;
+
+      const error =
+        next.reason === 'cancelled'
+          ? null
+          : toStructuredError(new RunAbortedError('lease-expired'), { attempt: run.Attempt, occurredAt: now });
+      await journalAttemptEnd(
+        run,
+        {
+          now,
+          status: next.status,
+          reason: next.reason,
+          error,
+          attemptStatus: next.status === 'retrying' ? 'failed' : next.status,
+        },
+        this.Events,
+        this.Log,
+      );
+      Object.assign(run, { Status: next.status, Reason: next.reason, NextAttemptAt: next.nextAttemptAt });
+      await this.Finalizer.finalized({
+        run,
+        def,
+        status: next.status,
+        error,
+        now,
+        countsAsFailure: next.countsAsFailure,
+        nextAttemptAt: next.nextAttemptAt,
+      });
+    }
+  }
+
+  protected launch(run: RunModel, def: ScheduleDefinition): void {
+    const handle = this.Executor.start(run, def);
+    this.active.set(run.Id, handle);
+    if (run.Forced) this.forced.add(run.Id);
+    void handle.done.finally(() => {
+      if (this.active.get(run.Id) === handle) {
+        this.active.delete(run.Id);
+        this.forced.delete(run.Id);
+      }
+      this.wake();
+    });
+  }
+}

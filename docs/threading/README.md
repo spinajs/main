@@ -14,7 +14,7 @@ npm install @spinajs/threading
 
 | Feature | What it does |
 | --- | --- |
-| [Named mutex](01-named-mutex.md) | `mutex_acquire`, `mutex_release`, `mutex_wait` and the other helpers: lock a named resource across processes through the registered `Mutex` |
+| [Named mutex](01-named-mutex.md) | `mutex_acquire`, `mutex_renew`, `mutex_release`, `mutex_wait` and the other helpers: lock a named resource across processes through the registered `Mutex`; `processIdentity()`, the default per-process owner |
 | [Mutex backends](02-mutex-backends.md) | The `Mutex` DI token: its contract, how it is resolved, and how to register, replace or extend a backend |
 | [Critical section and rate limit](03-critical-section-and-rate-limit.md) | `criticalSection` and `rateLimit`: queue callbacks by name inside one Node.js process |
 | [Delay and sleep](04-delay-and-sleep.md) | `delay` runs a callback after a timeout and returns its result; `sleep` waits |
@@ -31,7 +31,7 @@ import { OrmMutex } from '@spinajs/orm-threading';
 DI.register(OrmMutex).as(Mutex);
 
 export async function sendDailyDigest(send: () => Promise<void>): Promise<boolean> {
-  const lock = { Name: 'daily-digest', Tenant: `mailer-${process.pid}` };
+  const lock = { Name: 'daily-digest', ttl: 5 * 60 * 1000 };
 
   const result = await mutex_acquire(lock);
   if (!result.Locked) {
@@ -51,6 +51,6 @@ export async function sendDailyDigest(send: () => Promise<void>): Promise<boolea
 ## Related packages
 
 - [`@spinajs/orm-threading`](../orm-threading/README.md): `OrmMutex`, the database-backed `Mutex` implementation.
-- [`@spinajs/tasks`](../tasks/README.md): `@Task()` locks each run with `mutex_acquire()`; see [Task locking](../tasks/02-task-locking.md).
+- [`@spinajs/tasks`](../tasks/README.md): `@Task()` locks each run with `mutex_acquire()` and renews the lock while it runs; see [Task locking](../tasks/02-task-locking.md).
 - [`@spinajs/di`](../di/README.md): the container `Mutex`, the `__log__` factory and the critical section registry live in.
 - [`@spinajs/log`](../log/README.md): registers the `__log__` factory that `criticalSection` needs.

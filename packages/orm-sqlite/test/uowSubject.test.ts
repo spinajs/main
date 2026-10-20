@@ -91,12 +91,22 @@ describe('SubjectBuilder - traversal and classification', function () {
     expect(builder().build(new UowOrder({ Total: 1 })).Subjects.length).to.equal(1);
   });
 
-  it('does not descend into a hasMany that was never populated', () => {
-    const order = new UowOrder({ Total: 1 });
+  it('does not descend into a hasMany of a loaded model that was never populated', async () => {
+    await UowOrder.insert({ Total: 1 });
+    const order = await UowOrder.where({ Id: 1 }).first();
     order.Items.push(new UowOrderItem({ Sku: 'A', Qty: 1 }));
 
     expect(order.Items.Populated).to.equal(false);
     expect(builder().build(order).Subjects.length).to.equal(1);
+  });
+
+  it('descends into every hasMany of a model being inserted, and marks it populated', () => {
+    const order = new UowOrder({ Total: 1 });
+    order.Items.push(new UowOrderItem({ Sku: 'A', Qty: 1 }));
+
+    expect(order.Items.Populated).to.equal(false);
+    expect(builder().build(order).Subjects.length).to.equal(2);
+    expect(order.Items.Populated).to.equal(true);
   });
 
   it('descends into a hasMany once it is populated', async () => {
@@ -234,7 +244,8 @@ describe('SubjectBuilder - hasMany delta', function () {
   });
 
   it('produces no delta for a hasMany that was never populated', async () => {
-    const order = (await UowOrder.where({ Id: 1 }).first().catch(() => null)) ?? new UowOrder({ Total: 1 });
+    await UowOrder.insert({ Total: 1 });
+    const order = await UowOrder.where({ Id: 1 }).first();
     order.Items.push(new UowOrderItem({ Sku: 'X', Qty: 1 }));
 
     const subject = builder().build(order).find(order)!;
@@ -298,7 +309,7 @@ describe('SubjectBuilder - manyToMany junction delta', function () {
     expect(delta.RemovedKeys).to.deep.equal([]);
   });
 
-  it('reports an added existing tag as a junction insert and does not touch the tag row', async () => {
+  it('reports an added existing tag as a junction insert and does not collect the tag', async () => {
     const order = await seedOrderWithTags();
     await UowTag.insert({ Name: 'green' });
     const green = await UowTag.where({ Id: 3 }).first();
@@ -309,7 +320,7 @@ describe('SubjectBuilder - manyToMany junction delta', function () {
     const delta = set.Junctions.find((j: any) => j.Descriptor.Name === 'Tags')!;
 
     expect(delta.Added).to.deep.equal([green]);
-    expect(set.find(green)!.Operation).to.equal(SubjectOperation.None);
+    expect(set.find(green)).to.equal(undefined);
   });
 
   it('reports a brand new tag as both an insert subject and a junction insert', async () => {

@@ -1,6 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { StompQueueClient } from '../src/connection.js';
+import { StompQueueClient } from '../../src/connection.js';
+import { requireBroker, retryConnect, STOMP_LOGIN, STOMP_PASSWORD, STOMP_URL, waitFor } from './support/env.js';
 import _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import * as chai from 'chai';
@@ -15,9 +16,18 @@ chai.use(chaiAsPromised);
 const TestEventChannelName = `/topic/test-${DateTime.now().toMillis()}`;
 const TestJobChannelName = `/queue/test-${DateTime.now().toMillis()}`;
 const QUEUE_WAIT_TIME_MS = 1000;
+// fixed destination names would collect leftovers from earlier, aborted runs on the same broker
+const RunId = DateTime.now().toMillis();
+const DurableTopic = `/topic/durable-${RunId}`;
+const RoutedTopic = `/topic/routed-${RunId}`;
+const RoutedQueue = `/queue/routed-${RunId}`;
 
 export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
+}
+
+function delivered(...stubs: sinon.SinonStub[]): Set<number> {
+  return new Set(stubs.flatMap((s) => s.getCalls().map((c) => c.args[0].Seq)));
 }
 
 async function wait(amount: number) {
@@ -33,9 +43,9 @@ export class ConnectionConf extends FrameworkConfiguration {
     return {
       queue: {
         routing: {
-          TestEventDurable: '/topic/durable',
-          TestEventRouted: '/topic/routed',
-          TestJobRouted: '/queue/routed',
+          TestEventDurable: DurableTopic,
+          TestEventRouted: RoutedTopic,
+          TestJobRouted: RoutedQueue,
         },
       },
       logger: {
@@ -56,16 +66,18 @@ export class ConnectionConf extends FrameworkConfiguration {
 const qList: StompQueueClient[] = [];
 
 async function q(extra: Record<string, unknown> = {}) {
-  const q = await DI.resolve(StompQueueClient, [
+  const q = await retryConnect(() => DI.resolve(StompQueueClient, [
     {
-      host: 'ws://localhost:61614/ws',
-      name: `test-id-${DateTime.now().toMillis()}`,
+      host: STOMP_URL,
+      login: STOMP_LOGIN,
+      password: STOMP_PASSWORD,
+      name: `test-id-${DateTime.now().toMillis()}-${Math.round(Math.random() * 1e6)}`,
       debug: true,
       defaultQueueChannel: TestJobChannelName,
       defaultTopicChannel: TestEventChannelName,
       ...extra,
     },
-  ]);
+  ]));
 
   qList.push(q);
 
@@ -89,8 +101,8 @@ describe('stomp queue transport test', function () {
     qList.length = 0;
   });
 
-  after(() => {
-    process.exit(0);
+  before(async function () {
+    await requireBroker(this);
   });
 
   it('Should connect to queue server', async () => {
@@ -107,6 +119,12 @@ describe('stomp queue transport test', function () {
     ]);
 
     await expect(p).to.be.rejected;
+  });
+
+  it('Should reject bad credentials', async () => {
+    const p = DI.resolve(StompQueueClient, [{ host: STOMP_URL, login: STOMP_LOGIN, password: 'wrong', name: `bad-creds-${Date.now()}` }]);
+
+    await expect(p).to.be.rejectedWith(/Cannot connect/);
   });
 
   it('Should emit job', async () => {
@@ -189,13 +207,13 @@ describe('stomp queue transport test', function () {
 
     const s = sinon.stub().returns(Promise.resolve());
 
-    await c.subscribe('/topic/durable', s, 'test-durable', true);
+    await c.subscribe(DurableTopic, s, 'test-durable', true);
     await c.emit(message);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
     expect(s.calledOnce).to.be.true;
-    c.unsubscribe('/topic/durable');
+    c.unsubscribe(DurableTopic);
 
     await c.emit(message);
 
@@ -203,14 +221,16 @@ describe('stomp queue transport test', function () {
 
     expect(s.calledOnce).to.be.true;
 
-    await c.subscribe('/topic/durable', s, 'test-durable', true);
+    await c.subscribe(DurableTopic, s, 'test-durable', true);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
     expect(s.calledTwice).to.be.true;
   });
 
-  it('Should register on job multiple subscribers', async () => {
+  it('Should register on job multiple subscribers', async function () {
+    // 500 receipt-confirmed publishes; slow on a CPU-saturated Docker Desktop host
+    this.timeout(60000);
     const c1 = await q();
     const c2 = await q();
 
@@ -229,11 +249,10 @@ describe('stomp queue transport test', function () {
     await c1.subscribe(TestJobChannelName, s1);
     await c2.subscribe(TestJobChannelName, s2);
 
-    await Promise.all(Array.from({ length: 500 }, () => c1.emit(message)));
+    await Promise.all(Array.from({ length: 500 }, (_, Seq) => c1.emit({ ...message, Seq } as any)));
 
-    await wait(QUEUE_WAIT_TIME_MS * 2);
-
-    expect(s1.callCount + s2.callCount).to.eq(500);
+    // at-least-once: a publish whose receipt times out under load is re-sent, so count distinct messages
+    await waitFor(() => delivered(s1, s2).size === 500, 45000, '500 distinct jobs consumed');
   });
 
   it('Should register on event multiple subscribers', async () => {
@@ -265,7 +284,8 @@ describe('stomp queue transport test', function () {
     expect(s2.calledOnce).to.be.true;
   });
 
-  it('Should route job with routing table', async () => {
+  it('Should route job with routing table', async function () {
+    this.timeout(60000);
     const c1 = await q();
 
     const message = {
@@ -279,13 +299,11 @@ describe('stomp queue transport test', function () {
 
     const s1 = sinon.stub().returns(Promise.resolve());
 
-    await c1.subscribe('/queue/routed', s1);
+    await c1.subscribe(RoutedQueue, s1);
 
-    await Promise.all(Array.from({ length: 500 }, () => c1.emit(message)));
+    await Promise.all(Array.from({ length: 500 }, (_, Seq) => c1.emit({ ...message, Seq } as any)));
 
-    await wait(QUEUE_WAIT_TIME_MS * 2);
-
-    expect(s1.callCount).to.eq(500);
+    await waitFor(() => delivered(s1).size === 500, 45000, '500 distinct routed jobs consumed');
   });
 
   it('Should route event with routing table', async () => {
@@ -302,7 +320,7 @@ describe('stomp queue transport test', function () {
 
     const s = sinon.stub().returns(Promise.resolve());
 
-    await c.subscribe('/topic/routed', s);
+    await c.subscribe(RoutedTopic, s);
     await Promise.all([c.emit(message), c.emit(message), c.emit(message)]);
 
     await wait(QUEUE_WAIT_TIME_MS);

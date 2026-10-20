@@ -5,7 +5,7 @@ import { IRelationDescriptor, IModelStatic, ISelectQueryBuilder, RelationType } 
 import { RawQuery } from './builders.js';
 import type { WhereBuilder } from './builders.js';
 import { WhereFunction } from './types.js';
-import { IdentifierQuoter } from './quoting.js';
+import { IdentifierQuoter, quoterOf } from './quoting.js';
 
 /**
  * Strategy that builds the EXISTS / NOT EXISTS clause for one relation type.
@@ -42,14 +42,6 @@ function sourcePKeyRef(quoter: IdentifierQuoter, builder: WhereBuilder<any>, tDe
 function sourceColumnRef(quoter: IdentifierQuoter, builder: WhereBuilder<any>, tDesc: { TableName: string }, column: string): string {
   const sourceAlias = builder.TableAlias ?? tDesc.TableName;
   return `${quoter.quote(sourceAlias)}.${quoter.quote(column)}`;
-}
-
-/**
- * The quoter of the driver `query` compiles for. The correlation predicates are raw text, so
- * no SQL compiler quotes them on the way out.
- */
-function quoterOf(query: ISelectQueryBuilder): IdentifierQuoter {
-  return query.Container.resolve<IdentifierQuoter>(IdentifierQuoter);
 }
 
 /**

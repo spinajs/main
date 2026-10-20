@@ -9,6 +9,7 @@ import { DateTime } from 'luxon';
 import { expect } from 'chai';
 import '@spinajs/orm-sqlite';
 import * as sinon from 'sinon';
+import { Socket } from 'net';
 
 import '../../queue-stomp-transport/lib/mjs/connection.js';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
@@ -18,6 +19,23 @@ chai.use(chaiAsPromised);
 const TestEventChannelName = `/topic/test-${DateTime.now().toMillis()}`;
 const TestJobChannelName = `/queue/test-${DateTime.now().toMillis()}`;
 const QUEUE_WAIT_TIME_MS = 5 * 1000;
+
+// live-broker suite: same broker and env as packages/queue-stomp-transport/test/integration
+const STOMP_URL = process.env.QUEUE_IT_STOMP_URL ?? 'ws://127.0.0.1:61614/ws';
+
+function brokerReachable(): Promise<boolean> {
+  const url = new URL(STOMP_URL);
+  return new Promise((res) => {
+    const socket = new Socket();
+    const done = (ok: boolean) => {
+      socket.destroy();
+      res(ok);
+    };
+    socket.setTimeout(2000, () => done(false));
+    socket.once('error', () => done(false));
+    socket.connect(Number(url.port || 80), url.hostname, () => done(true));
+  });
+}
 
 export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
@@ -80,7 +98,9 @@ export class ConnectionConf extends FrameworkConfiguration {
         connections: [
           {
             service: 'StompQueueClient',
-            host: 'ws://localhost:61614/ws',
+            host: STOMP_URL,
+            login: process.env.QUEUE_IT_STOMP_LOGIN ?? 'spinajs',
+            password: process.env.QUEUE_IT_STOMP_PASSWORD ?? 'spinajs',
             name: `default-test-queue`,
             debug: true,
             defaultQueueChannel: TestJobChannelName,
@@ -146,6 +166,12 @@ async function q() {
 describe('jobs', function () {
   this.timeout(20000);
 
+  before(async function () {
+    if (!(await brokerReachable())) {
+      this.skip();
+    }
+  });
+
   beforeEach(async () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
@@ -157,9 +183,8 @@ describe('jobs', function () {
   afterEach(async () => {
     sinon.restore();
 
-    const queue = await q();
-
-    await queue.dispose();
+    const queue = DI.get(QueueService);
+    await queue?.dispose();
   });
 
   it('should connecto to queue server', async () => {

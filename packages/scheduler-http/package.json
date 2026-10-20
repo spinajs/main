@@ -1,0 +1,72 @@
+{
+  "name": "@spinajs/scheduler-http",
+  "version": "3.0.0",
+  "description": "HTTP API and Server-Sent Events live stream for @spinajs/scheduler",
+  "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/mjs/index.d.ts",
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.mjs.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "test": "ts-mocha -p tsconfig.json --exit \"test/**/*.test.ts\"",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/scheduler-http",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "scheduler",
+    "http",
+    "sse"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/authz": "3.0.0",
+    "@spinajs/authz-http": "3.0.0",
+    "@spinajs/configuration": "3.0.0",
+    "@spinajs/di": "3.0.0",
+    "@spinajs/exceptions": "3.0.0",
+    "@spinajs/http": "3.0.0",
+    "@spinajs/scheduler": "3.0.0",
+    "@spinajs/validation": "3.0.0"
+  },
+  "devDependencies": {
+    "@spinajs/authz-testing": "3.0.0",
+    "@spinajs/fs": "3.0.0",
+    "@spinajs/http-swagger": "3.0.0",
+    "@spinajs/orm": "3.0.0",
+    "@spinajs/orm-sqlite": "3.0.0"
+  }
+}

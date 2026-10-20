@@ -120,7 +120,30 @@ services:
       - -c
       - '/opt/mssql-tools18/bin/sqlcmd -S mssql -U sa -P "yourStrong(!)Password" -C -i /init/01-create-databases.sql'
 
+  activemq:
+    profiles: ['test']
+    # Classic, not Artemis: the STOMP transport sends Classic-only headers
+    # ( activemq.prefetchSize, activemq.subscriptionName, AMQ_SCHEDULED_* ).
+    image: apache/activemq-classic:6.1.4
+    container_name: spinajs-queue-test-activemq
+    restart: unless-stopped
+    mem_limit: 1536m
+    ports:
+      - '127.0.0.1:${QUEUE_TEST_STOMP_WS_PORT:-61614}:61614'
+      - '127.0.0.1:${QUEUE_TEST_ACTIVEMQ_CONSOLE_PORT:-8161}:8161'
+    volumes:
+      - activemq-data:/opt/apache-activemq/data
+      - ./scripts/docker/activemq/activemq.xml:/opt/apache-activemq/conf/activemq.xml:ro
+      - ./scripts/docker/activemq/credentials.properties:/opt/apache-activemq/conf/credentials.properties:ro
+    healthcheck:
+      test: ['CMD-SHELL', "bash -c 'exec 3<>/dev/tcp/127.0.0.1/61614' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
 volumes:
   mysql-data:
   postgres-data:
   mssql-data:
+  activemq-data:

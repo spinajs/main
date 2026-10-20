@@ -494,7 +494,7 @@ export class AmqpQueueClient extends QueueClient {
    * Handles a message whose consumer callback rejected.
    *
    * Events are fire-and-forget - logged and acked ( dropped ). Jobs are retried up to their
-   * RetryCount by re-publishing to a TTL "retry" queue that dead-letters back to the work queue
+   * RetryCount ( or the routing `maxRetries` when the job carries none ) by re-publishing to a TTL "retry" queue that dead-letters back to the work queue
    * after an exponential delay, then dead-lettered once retries are exhausted.
    */
   protected handleFailedMessage(msg: ConsumeMessage, qMessage: IQueueMessage, channel: string, err: unknown, consumeChannel: Channel = this.ConsumeChannel) {
@@ -507,7 +507,7 @@ export class AmqpQueueClient extends QueueClient {
       return;
     }
 
-    const maxRetries = (qMessage as IQueueJob).RetryCount ?? 0;
+    const maxRetries = (qMessage as IQueueJob).RetryCount ?? this.getMaxRetriesForMessage(qMessage) ?? 0;
     const attempt = Number(msg.properties.headers?.[RETRY_COUNT_HEADER] ?? 0);
 
     if (attempt < maxRetries) {
@@ -540,7 +540,7 @@ export class AmqpQueueClient extends QueueClient {
 
     this.settleMessage(consumeChannel, msg, true);
     this.Log.warn(
-      { jobName: qMessage.Name, channel: workQueue, attempt: nextAttempt, maxRetries: (qMessage as IQueueJob).RetryCount, delay, reason },
+      { jobName: qMessage.Name, channel: workQueue, attempt: nextAttempt, maxRetries: (qMessage as IQueueJob).RetryCount ?? this.getMaxRetriesForMessage(qMessage) ?? 0, delay, reason },
       'Job ${jobName} failed on ${channel}, retry ${attempt}/${maxRetries} scheduled in ${delay}ms. ${reason}',
     );
   }

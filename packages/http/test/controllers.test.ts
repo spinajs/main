@@ -307,6 +307,15 @@ describe('http & controller tests', function () {
     expect(response.header['content-length']).to.be.not.null;
   });
 
+  it('Should get an in-memory buffer with its mime type', async () => {
+    const response = await req().get('files/buffer').send();
+
+    expect(response).to.have.status(200);
+    expect(response.header['content-type']).to.eq('image/png');
+    expect(response.header['content-length']).to.eq('256');
+    expect(Buffer.compare(response.body, Buffer.from(Array.from({ length: 256 }, (_, i) => i)))).to.eq(0);
+  });
+
   it('@Ip returns the socket address, not a client-set X-Forwarded-For', async () => {
     const response = await req().get('extra/ip').set('Accept', 'application/json').set('X-Forwarded-For', '203.0.113.7, 10.0.0.1').send();
     expect(response).to.have.status(200);
@@ -357,6 +366,17 @@ describe('http & controller tests', function () {
   it('required query param rejects when absent (400)', async () => {
     const response = await req().get('extra/required').set('Accept', 'application/json').send();
     expect(response).to.have.status(400);
+  });
+
+  it('required body rejects a request without one (400)', async () => {
+    const response = await req().post('extra/requiredbody').set('Accept', 'application/json').send();
+    expect(response).to.have.status(400);
+  });
+
+  it('required body passes when present', async () => {
+    const response = await req().post('extra/requiredbody').set('Accept', 'application/json').send({ a: 1 });
+    expect(response).to.have.status(200);
+    expect(response.body.a).to.eq(1);
   });
 
   it('required query param passes when present', async () => {

@@ -301,6 +301,7 @@ export class PostgresColumnQueryCompiler extends SqlColumnQueryCompiler {
         return 'TIME';
       case 'dateTime':
       case 'timestamp':
+        // precision 3 because JS dates carry milliseconds
         return 'TIMESTAMPTZ(3)';
       case 'json':
         return 'JSONB';

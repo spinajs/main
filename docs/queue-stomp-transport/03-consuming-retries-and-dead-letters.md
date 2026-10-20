@@ -14,17 +14,17 @@ Subscribing:
    - `durable` without `subscriptionId` throws `InvalidArgument('subscriptionId cannot be empty if using durable subscriptions')`;
    - a channel this client already tracks for another message class gets the new handler added to its descriptor; no second broker subscription is made;
    - otherwise it records a descriptor (channel, handlers, id, durable) and, when connected, calls `applySubscription()`; when not connected, the descriptor waits for the next connect.
-3. `applySubscription(desc)` subscribes with the headers `ack: client-individual` and `activemq.prefetchSize: 1`, plus `id: <subscriptionId>` when given and `activemq.subscriptionName: <subscriptionId>` when durable.
+3. `applySubscription(desc)` subscribes with the headers `ack: client-individual` and `activemq.prefetchSize: <options.prefetch>` (default `1`), plus `id: <subscriptionId>` when given and `activemq.subscriptionName: <subscriptionId>` when durable.
 4. Every connect (`onConnect`) runs `applySubscription()` again for every tracked descriptor, because `stompjs` does not restore subscriptions after a drop.
 
 Receiving one message:
 
 1. The body is parsed as JSON. A body that does not parse goes to `handleUnparseableMessage()`, which dead-letters it to `defaultQueueDeadLetterChannel`.
 2. A string `CreatedAt` becomes a luxon `DateTime`.
-3. Every handler tracked for the channel runs. When all of them resolve, the message is acked.
+3. Every handler tracked for the channel runs. When all of them resolve, the message is acked. An ack that throws because the socket is gone is logged as a warning; the broker redelivers the message after the reconnect.
 4. When one rejects, `handleFailedMessage(message, qMessage, desc, err)` decides:
    - **event** (`Type !== 'JOB'`): logged as a warning and acked, so it is dropped;
-   - **job with retries left** (`x-retry-count` header, default `0`, is below `RetryCount`): the body is published again to the same channel with `x-retry-count` plus one, `persistent: true`, the original `priority` and `correlation-id`, and `AMQ_SCHEDULED_DELAY: retryBackoff(attempt)` when that is above `0`. The original is acked once the broker sends a receipt for that publish. When the publish throws or no receipt comes within `ReceiptTimeout`, the original is nacked;
+   - **job with retries left** (`x-retry-count` header, default `0`, is below `RetryCount`, or below the route's `maxRetries` when the job has no `RetryCount`): the body is published again to the same channel with `x-retry-count` plus one, `persistent: true`, the original `priority` and `correlation-id`, and `AMQ_SCHEDULED_DELAY: retryBackoff(attempt)` when that is above `0`. The original is acked once the broker sends a receipt for that publish. When the publish throws or no receipt comes within `ReceiptTimeout`, the original is nacked;
    - **job with no retries left**: `deadLetter()` with the channel from `getDeadLetterChannelForMessage()`.
 5. `deadLetter(message, dlq, channel, reason, attempt?)` publishes the body to `dlq` with `persistent: true`, `x-original-destination: <channel>`, `x-error: <err.message>` and `x-retry-count`, then acks the original once the broker sends a receipt. With no dead-letter channel it acks and drops the message with a warning. When the publish throws or no receipt comes within `ReceiptTimeout`, it nacks.
 
@@ -77,7 +77,9 @@ sequenceDiagram
 | `queue.routing.<Name>.deadLetterChannel` | `string` | `undefined` | STOMP destination | Dead-letter channel for this message class. |
 | `queue.connections[].defaultQueueDeadLetterChannel` | `string` | `undefined` | STOMP destination | Dead-letter channel when the route has none, and for unparseable bodies. Unset: such messages are dropped. |
 | `queue.connections[].retryDelay` | `number` (ms) | `0` | `>= 0` | Base of the exponential job retry delay; `0` retries at once. |
-| `RetryCount` on the job | `number` | `0` | `>= 0` | Retries after the first run; set per emit, eg. `GenerateInvoice.emit({ ..., RetryCount: 3 })`. |
+| `RetryCount` on the job | `number` | route's `maxRetries`, else `0` | `>= 0` | Retries after the first run; set per emit, eg. `GenerateInvoice.emit({ ..., RetryCount: 3 })`. |
+| `queue.routing.<Name>.maxRetries` | `number` | `undefined` | integer `>= 0` | Retries for a job emitted without `RetryCount`; see [Connections and routing](../queue/02-connections-and-routing.md). |
+| `queue.connections[].options.prefetch` | `number` | `1` | integer `>= 1` | Unacked messages ActiveMQ hands to each subscription of the connection. |
 
 ```ts
 // config/queue.ts
@@ -111,7 +113,7 @@ export default {
 | Retry delay | `protected retryBackoff(attempt): number` | `retryDelay × 2^(attempt − 1)` | | Override to cap, add jitter or use a fixed delay |
 | Dead-lettering | `protected deadLetter(message, dlq, channel, reason, attempt?)` | publish with `x-original-destination`, `x-error`, then ack | | Override to alert, add headers, or store the message elsewhere; call `super` |
 | Poison bodies | `protected handleUnparseableMessage(message, channel, err)` | dead-letter to `defaultQueueDeadLetterChannel` | | Override, eg. to pick a separate quarantine channel |
-| Subscription frame | `protected applySubscription(desc)` | `client-individual` ack, prefetch `1`, ActiveMQ durable name | | Override only with care: it also wires the parse, ack and failure handling |
+| Subscription frame | `protected applySubscription(desc)` | `client-individual` ack, prefetch from `options.prefetch`, ActiveMQ durable name | | Override only with care: it also wires the parse, ack and failure handling |
 | Dead-letter lookup | `public getDeadLetterChannelForMessage(message)` from `QueueClient` | route, then connection default | | Override in a subclass |
 
 Subclasses are registered as described in [Extending the STOMP client](06-extending-the-stomp-client.md).
@@ -197,12 +199,12 @@ export class AlertingStompClient extends StompQueueClient {
 ## Important behaviour
 
 - **One subscription per channel per connection.** Subscriptions are keyed by channel. Message classes routed to the same channel on one connection share one broker subscription: every message runs every class's handler, and `QueueService` skips the ones whose `Name` does not match. The subscription id and durability of the first `subscribe()` on the channel apply to all of them. `unsubscribe(MessageClass)` removes that class's handler and drops the broker subscription with the last one; `unsubscribe(channel)` drops it at once. When one handler rejects, the failure policy below applies to the message, and a retry runs every handler again.
-- Prefetch is `1` with `client-individual` acks: ActiveMQ sends the next message on a subscription only after the current one is acked. Handlers on one subscription run one at a time.
+- Prefetch defaults to `1` with `client-individual` acks: ActiveMQ sends the next message on a subscription only after the current one is acked, so handlers on one subscription run one at a time. With `options.prefetch: n`, up to `n` messages run at once. The value applies to every subscription on the connection; put job queues and event topics on separate connections when they need different values.
 - A retry is a new message: the original is acked after the broker confirms the retry publish with a receipt. A receipt that arrives after `ReceiptTimeout` leaves the retry on the broker and the nacked original is redelivered too: the job runs twice.
 - A retry keeps `priority` and `correlation-id` but drops the original `AMQ_SCHEDULED_*` headers, so a cron job does not schedule itself again on retry. It is always sent `persistent`.
 - A job routed to a `/topic/...` channel is retried on that topic: every subscriber gets the retry. Route jobs to `/queue/...` channels.
 - Events are never retried or dead-lettered. `queue.deduplicate` and job tracking in `QueueService` apply to jobs only.
-- The transport counts attempts in the `x-retry-count` header; `QueueService` counts them in the `queue_jobs` row and marks it `dead` when they run out. Both use `RetryCount`, so they agree.
+- The transport counts attempts in the `x-retry-count` header; `QueueService` counts them in the `queue_jobs` row and marks it `dead` when they run out. Both use `RetryCount`, or the route's `maxRetries` when the job has none, so they agree.
 - An unparseable body uses only `defaultQueueDeadLetterChannel`; route-level dead-letter channels do not apply because the message name is unknown.
 - When a publish to the retry or dead-letter channel throws or times out, the original is nacked and the broker's redelivery policy takes over.
 - A durable subscription is identified by ActiveMQ through `client-id` plus `activemq.subscriptionName`. The `client-id` comes from the [client factory](05-client-factory-and-client-id.md); keep `app.name`, `APP_ENV` and the connection `name` stable, or a restart creates a new durable subscription and the old one keeps collecting messages.

@@ -90,7 +90,7 @@ export async function countOpenOrders(): Promise<number> {
 | `DECIMAL` / `NUMERIC` / `BIGINT` read back | driver-dependent | strings |
 | `whereIn()` over 1000 values | `IN (?,...)` | `= ANY(?)`, one array binding |
 | `driver.now()` | dialect-specific | `CURRENT_TIMESTAMP` (transaction start) |
-| Datetime written | `yyyy-MM-dd HH:mm:ss.SSS` in UTC | ISO 8601 in UTC with `Z` (`IsoDatetimeValueConverter`) |
+| Datetime written | `yyyy-MM-dd HH:mm:ss.SSS` in UTC | ISO 8601 in UTC with `Z` (`PostgresDatetimeValueConverter`); a `date` column takes the calendar day |
 | Session time zone | server default | `TimeZone=UTC` on every pooled client |
 | Bound parameters per statement | each driver's `MaxBindings` | `65535`; larger inserts are split |
 | Duplicate key / constraint failure | mapped by each driver | `UniqueViolation` / `ConstraintViolation` by SQLSTATE |

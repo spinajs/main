@@ -10,7 +10,7 @@ Every delivery is acked manually. A handler that resolves acks the message. A fa
 4. The callback resolves: the message is acked on the channel it was delivered on (`settleMessage()`), even when a reconnect has replaced `ConsumeChannel` meanwhile.
 5. The callback rejects: `handleFailedMessage()` decides.
    - An event, or any message on a topic channel: logged as a warning and acked. No retry, no dead-letter.
-   - A job with `attempt < RetryCount`, where `attempt` is the `x-retry-count` header (`0` when missing): `retryJob()` runs, step 6.
+   - A job with `attempt < RetryCount` (or the route's `maxRetries` when the job has no `RetryCount`), where `attempt` is the `x-retry-count` header (`0` when missing): `retryJob()` runs, step 6.
    - A job with no retries left: `deadLetterRaw()` with `getDeadLetterChannelForMessage(message)`, step 7.
 6. `retryJob()` computes `delay = retryBackoff(attempt + 1)` and declares the retry queue `<work queue>.retry.<delay>`. It publishes the original body there on the confirm channel with `x-retry-count` set to `attempt + 1`, and acks the original once the broker confirmed the copy. When the TTL expires, the broker dead-letters the message back to the work queue through the default exchange. If declaring or publishing fails, the original is nacked without requeue.
 7. `deadLetterRaw()` with a dead-letter channel declares it as a durable queue, publishes the body with the extra headers below on the confirm channel, and acks the original once the broker confirmed it. If that fails, the original is nacked without requeue. With no dead-letter channel it logs a warning and acks: the message is dropped.
@@ -65,7 +65,8 @@ Retry and dead-letter messages keep the original headers, are `persistent` and h
 | `queue.connections[].retryDelay` | `number` (ms) | `0` | `>= 0` | Base of the job retry backoff. Also the base delay of emit retries; see [Publishing](03-publishing.md). |
 | `queue.connections[].defaultQueueDeadLetterChannel` | `string` | none | a work-queue channel | Dead-letter queue for jobs with no routed one, and for unparseable messages. Unset means drop. |
 | `queue.routing.<JobName>.deadLetterChannel` | `string` | none | a work-queue channel | Dead-letter queue for one job class. |
-| `RetryCount` on the job | `number` | `0` | `>= 0` | Retries after the first execution; set when emitting. |
+| `RetryCount` on the job | `number` | route's `maxRetries`, else `0` | `>= 0` | Retries after the first execution; set when emitting. |
+| `queue.routing.<Name>.maxRetries` | `number` | `undefined` | integer `>= 0` | Retries for a job emitted without `RetryCount`; see [Connections and routing](../queue/02-connections-and-routing.md). |
 
 ```ts
 // config/queue.ts
@@ -161,7 +162,7 @@ export const config = {
 
 - Retry and dead-letter copies go through the confirm channel and the original is acked only after the broker confirmed the copy. A reconnect between the two leaves both: the copy is on the broker and the original is redelivered, so the job can run once more.
 - A nack without requeue on a work queue with no `x-dead-letter-exchange` makes the broker discard the message. That happens when declaring a retry or dead-letter queue, or publishing the copy, fails.
-- `RetryCount` is read from the message body; the attempt count from the `x-retry-count` header. A job emitted without `RetryCount` is never retried.
+- `RetryCount` is read from the message body; the attempt count from the `x-retry-count` header. A job emitted without `RetryCount` is retried `queue.routing.<Name>.maxRetries` times, or never when the route sets none.
 - A job routed to a topic channel is treated as an event on failure: dropped, not retried.
 - Retries have no jitter. Jobs that failed together are retried together.
 - Every distinct delay creates a durable retry queue that stays on the broker. A custom `retryBackoff()` with random or continuous values creates many queues.

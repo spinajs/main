@@ -102,7 +102,7 @@ A view built from a select builder has its bindings inlined as PostgreSQL litera
 | `Name` | `column_name` |
 | `Type`, `NativeType` | `udt_name`: `int4`, `int8`, `varchar`, `text`, `numeric`, `bool`, `timestamp`, `jsonb`, ... |
 | `Nullable` | `is_nullable = 'YES'` |
-| `DefaultValue` | `column_default`, as PostgreSQL prints it (`nextval('users_id_seq'::regclass)`, `'draft'::text`) |
+| `DefaultValue` | `parseColumnDefault(column_default, udt_name)`: a literal as a value of the column type (`'draft'::text` → `'draft'`, `0` → `0`; `int8` and `numeric` stay strings), `null` for none, and any expression (`nextval('users_id_seq'::regclass)`, `CURRENT_TIMESTAMP`) as a `RawQuery`, which a new model leaves unset so the insert writes `DEFAULT` |
 | `PrimaryKey` | the column is in a `PRIMARY KEY` constraint |
 | `Unique` | the column is in a `UNIQUE` constraint, or is a primary key column |
 | `AutoIncrement` | `is_identity = 'YES'`, or the default starts with `nextval(` (`SERIAL`) |

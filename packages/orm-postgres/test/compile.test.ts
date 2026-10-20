@@ -231,6 +231,7 @@ describe('postgres SQL compilation', function () {
     it('maps MySQL type names to their postgres equivalents', () => {
       const stmt = createTable((table) => {
         table.dateTime('CreatedAt');
+        table.timestamp('Seen');
         table.double('Ratio');
         table.json('Payload');
         table.binary('Blob', 255);
@@ -238,6 +239,7 @@ describe('postgres SQL compilation', function () {
       });
 
       expect(stmt).to.contain('"CreatedAt" TIMESTAMPTZ(3)');
+      expect(stmt).to.contain('"Seen" TIMESTAMPTZ(3)');
       expect(stmt).to.contain('"Ratio" DOUBLE PRECISION');
       expect(stmt).to.contain('"Payload" JSONB');
       expect(stmt).to.contain('"Blob" BYTEA');
@@ -308,6 +310,16 @@ describe('postgres SQL compilation', function () {
         .toDB() as unknown as ICompilerOutput[];
 
       expect(result[0].expression).to.equal('ALTER TABLE "test" ADD COLUMN "Id2" INTEGER');
+    });
+
+    it('quotes a dropped column, so a mixed-case name is not folded', () => {
+      const result = schqb()
+        .alterTable('test', (table) => {
+          table.dropColumn('Gone');
+        })
+        .toDB() as unknown as ICompilerOutput[];
+
+      expect(result[0].expression).to.equal('ALTER TABLE "test" DROP COLUMN "Gone"');
     });
 
     it('spells MODIFY as ALTER COLUMN actions, restating NOT NULL and dropping an omitted default', () => {

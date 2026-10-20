@@ -3423,10 +3423,12 @@ export function _descriptor(model: Class<any>) {
  * @param model - source model for query
  * @param query - query class
  * @param injectModel - should inject model information into query, if not, query will return raw data
+ * @param via - runs the query on this connection instead of the model's own - one on the same server
+ *        ( see `IDriverOptions.SharedServer` ). The table stays qualified with the model's database.
  *
  * @returns
  */
-export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Class<T>, injectModel = true) {
+export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Class<T>, injectModel = true, via?: OrmDriver) {
   const dsc = _descriptor(model);
 
   if (!dsc) {
@@ -3437,11 +3439,13 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
     throw new OrmNotResolved(`${model.name}: the Orm has not created its connections yet; await ormReady() first`);
   }
 
-  const driver = DI.resolve<OrmDriver>('OrmConnection', [dsc.Connection]);
+  const own = DI.resolve<OrmDriver>('OrmConnection', [dsc.Connection]);
 
-  if (!driver) {
+  if (!own) {
     throw new OrmConnectionMissing(`model ${model.name} have invalid connection ${dsc.Connection}, please check your db config file or model connection name`, dsc.Connection!);
   }
+
+  const driver = via ?? own;
 
   const cnt = driver.Container;
   const models = DI.getRegisteredTypes<ModelBase>('__models__') ?? [];
@@ -3485,8 +3489,8 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
     (qr as unknown as SelectQueryBuilder).whereNull(dsc.Archived.ArchivedAt);
   }
 
-  if (driver.Options.Database) {
-    qr.database(driver.Options.Database);
+  if (own.Options.Database) {
+    qr.database(own.Options.Database);
   }
 
   return {

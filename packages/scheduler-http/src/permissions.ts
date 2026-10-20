@@ -1,0 +1,5 @@
+import { SCHEDULER_PERMISSIONS } from '@spinajs/scheduler';
+
+export const SCHEDULER_READ = SCHEDULER_PERMISSIONS.read;
+export const SCHEDULER_RUN = SCHEDULER_PERMISSIONS.run;
+export const SCHEDULER_MANAGE = SCHEDULER_PERMISSIONS.manage;
