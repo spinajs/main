@@ -8,8 +8,6 @@ import './jwt/JwtBearerStrategy.js';
 export * from './generation.js';
 export * from './models/AccessToken.js';
 export * from './migrations/RbacHttpTokenInitial_2026_08_11_01_00_00.js';
-export * from './migrations/RbacHttpTokenProfile_2026_08_21_00_00_00.js';
-export * from './migrations/AuthnTokenScope_2026_10_02_00_00_00.js';
 export * from './generator.js';
 export * from './service/index.js';
 export * from './strategy/TokenStrategy.js';

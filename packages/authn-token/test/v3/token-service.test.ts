@@ -212,7 +212,7 @@ describe('DbTokenService', function () {
       await refused(a, { name: 'no expiry', kind: 'pat' }, 'invalid_expiry');
       await refused(a, { name: 'null expiry', kind: 'pat', expiresAt: null }, 'invalid_expiry');
 
-      // A 2.x row the back-fill has not touched never validates.
+      // A row without an expiry never validates.
       const plaintext = `spt_${'l'.repeat(43)}`;
       const uuid = randomUUID();
       await v3Connection()

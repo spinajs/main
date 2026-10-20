@@ -1,29 +1,24 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { ConnectionState, IdentifierQuoter, OrmDriver } from '@spinajs/orm';
+import { ConnectionState, OrmDriver } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { v4 as uuidv4 } from 'uuid';
 
 import { AccessToken } from '../../src/models/AccessToken.js';
-import { AuthnTokenScope_2026_10_02_00_00_00 } from '../../src/migrations/AuthnTokenScope_2026_10_02_00_00_00.js';
+import { RbacHttpTokenInitial_2026_08_11_01_00_00 } from '../../src/migrations/RbacHttpTokenInitial_2026_08_11_01_00_00.js';
 import { bootV3Db, insertUserRow, shutdownV3Db } from './db.js';
 
-const NEW_COLUMNS = ['Scope', 'Kind', 'RevokedAt', 'LastUsedIp'];
-const MAX_TTL_PATH = ['authn', 'token', 'maxTtlDays'];
+const COLUMNS = ['Id', 'Uuid', 'Name', 'Token', 'Roles', 'Profile', 'ExpiresAt', 'CreatedAt', 'LastUsedAt', 'user_id', 'Scope', 'Kind', 'RevokedAt', 'LastUsedIp'];
 
-describe('AuthnTokenScope migration', function () {
+describe('RbacHttpTokenInitial migration', function () {
   this.timeout(15000);
 
   let connection: OrmDriver;
   let owner: number;
-  const migration = new AuthnTokenScope_2026_10_02_00_00_00();
-  let configuredMaxTtlDays: unknown;
+  const migration = new RbacHttpTokenInitial_2026_08_11_01_00_00();
 
   before(async () => {
     connection = await bootV3Db();
-    configuredMaxTtlDays = DI.get(Configuration)!.get(MAX_TTL_PATH);
     owner = await insertUserRow(uuidv4());
   });
 
@@ -35,25 +30,8 @@ describe('AuthnTokenScope migration', function () {
     return (await connection.tableInfo('rbac_access_tokens')).map((c) => c.Name);
   }
 
-  /**
-   * A row as 2.x wrote it, inserted while the new columns are dropped.
-   */
-  async function insert2xRow(createdAt: DateTime, expiresAt?: DateTime): Promise<string> {
-    const uuid = uuidv4();
-    await connection
-      .insert()
-      .into('rbac_access_tokens')
-      .values({ Uuid: uuid, Name: 'legacy', Token: uuid.replace(/-/g, '').padEnd(64, '0'), Roles: 'user', CreatedAt: createdAt, ExpiresAt: expiresAt ?? null, user_id: owner });
-    return uuid;
-  }
-
-  /** undefined puts the configured value back. */
-  function setMaxTtlDays(value: number | undefined): void {
-    DI.get(Configuration)!.set(MAX_TTL_PATH, value ?? configuredMaxTtlDays);
-  }
-
-  it('adds Scope, Kind, RevokedAt and LastUsedIp', async () => {
-    expect(await columns()).to.include.members(NEW_COLUMNS);
+  it('creates rbac_access_tokens with the 3.0 columns', async () => {
+    expect(await columns()).to.have.members(COLUMNS);
   });
 
   it('defaults Kind to pat for a row inserted without it', async () => {
@@ -85,50 +63,6 @@ describe('AuthnTokenScope migration', function () {
     expect(rows[0].Kind).to.equal('pat');
   });
 
-  it('down drops the columns through quoted identifiers', async () => {
-    const quote = (n: string) => connection.Container.resolve<IdentifierQuoter>(IdentifierQuoter).quote(n);
-    const driver = connection as unknown as { executeOnDb: (stmt: string, ...rest: unknown[]) => Promise<unknown> };
-    const original = driver.executeOnDb;
-    const statements: string[] = [];
-    driver.executeOnDb = function (stmt: string, ...rest: unknown[]) {
-      statements.push(String(stmt));
-      return original.call(this, stmt, ...rest);
-    };
-
-    try {
-      await migration.down(connection);
-    } finally {
-      driver.executeOnDb = original;
-      await migration.up(connection);
-    }
-
-    const drops = statements.filter((s) => /DROP COLUMN/i.test(s));
-    expect(drops).to.have.length(NEW_COLUMNS.length);
-    for (const column of NEW_COLUMNS) {
-      expect(
-        drops.some((s) => s.includes(`DROP COLUMN ${quote(column)}`)),
-        column,
-      ).to.equal(true);
-    }
-  });
-
-  it('back-fills a row whose CreatedAt is an ISO string written by the sqlite column default', async () => {
-    setMaxTtlDays(undefined);
-    await migration.down(connection);
-
-    const uuid = uuidv4();
-    const iso = '2026-01-15T10:20:30.000Z';
-    await connection
-      .insert()
-      .into('rbac_access_tokens')
-      .values({ Uuid: uuid, Name: 'iso', Token: uuid.replace(/-/g, '').padEnd(64, '1'), Roles: 'user', CreatedAt: iso, ExpiresAt: null, user_id: owner });
-
-    await migration.up(connection);
-
-    const row = await AccessToken.where('Uuid', uuid).firstOrFail();
-    expect(row.ExpiresAt!.toMillis()).to.equal(DateTime.fromISO(iso, { zone: 'utc' }).plus({ days: 90 }).toMillis());
-  });
-
   it('the test users table refuses a duplicate Uuid or Login, as RBACInitial does', async () => {
     const uuid = uuidv4();
     await insertUserRow(uuid);
@@ -148,86 +82,15 @@ describe('AuthnTokenScope migration', function () {
     expect(sameLogin, 'duplicate Login').to.be.instanceOf(Error);
   });
 
-  it('down removes the four columns', async () => {
+  it('down drops the table', async () => {
     await migration.down(connection);
     try {
-      expect(await columns()).to.not.include.any.members(NEW_COLUMNS);
+      expect(await connection.schema().tableExists('rbac_access_tokens')).to.equal(false);
     } finally {
       await migration.up(connection);
     }
 
-    expect(await columns()).to.include.members(NEW_COLUMNS);
-  });
-
-  // The migration adds whole UTC days, so across a DST change the result differs from local calendar days.
-  it('back-fills a null ExpiresAt with CreatedAt + 90 days by default and keeps a set one', async () => {
-    setMaxTtlDays(undefined);
-    await migration.down(connection);
-
-    const createdAt = DateTime.fromISO('2026-01-15T10:20:30.000');
-    const kept = DateTime.fromISO('2027-03-01T08:00:00.000');
-    const old = DateTime.now().minus({ days: 200 }).startOf('second');
-
-    const open = await insert2xRow(createdAt);
-    const set = await insert2xRow(createdAt, kept);
-    const stale = await insert2xRow(old);
-
-    await migration.up(connection);
-
-    const openRow = await AccessToken.where('Uuid', open).firstOrFail();
-    expect(openRow.CreatedAt.toMillis()).to.equal(createdAt.toMillis());
-    expect(openRow.ExpiresAt!.toMillis()).to.equal(createdAt.toUTC().plus({ days: 90 }).toMillis());
-
-    const setRow = await AccessToken.where('Uuid', set).firstOrFail();
-    expect(setRow.ExpiresAt!.toMillis()).to.equal(kept.toMillis());
-
-    // CreatedAt + 90 days lies in the past, so the token is simply expired
-    const staleRow = await AccessToken.where('Uuid', stale).firstOrFail();
-    expect(staleRow.ExpiresAt!.toMillis()).to.equal(old.toUTC().plus({ days: 90 }).toMillis());
-    expect(staleRow.IsExpired).to.be.true;
-  });
-
-  it('honours a configured authn.token.maxTtlDays', async () => {
-    await migration.down(connection);
-    const createdAt = DateTime.fromISO('2026-05-10T12:00:00.000');
-    const uuid = await insert2xRow(createdAt);
-
-    setMaxTtlDays(7);
-    try {
-      await migration.up(connection);
-    } finally {
-      setMaxTtlDays(undefined);
-    }
-
-    const row = await AccessToken.where('Uuid', uuid).firstOrFail();
-    expect(row.ExpiresAt!.toMillis()).to.equal(createdAt.toUTC().plus({ days: 7 }).toMillis());
-  });
-
-  it('refuses to run, changing nothing, when authn.token.maxTtlDays is not a finite positive number', async () => {
-    for (const bad of [Infinity, Number.NaN, 0, -1]) {
-      await migration.down(connection);
-      const uuid = await insert2xRow(DateTime.fromISO('2026-05-10T12:00:00.000'));
-
-      setMaxTtlDays(bad);
-      let err: unknown;
-      try {
-        err = await migration.up(connection).catch((e: unknown) => e);
-      } finally {
-        setMaxTtlDays(undefined);
-      }
-
-      try {
-        expect(err, String(bad)).to.be.instanceOf(Error);
-        expect((err as Error).message, String(bad)).to.match(/authn\.token\.maxTtlDays/);
-        expect(await columns(), String(bad)).to.not.include.any.members(NEW_COLUMNS);
-      } finally {
-        if (!(await columns()).includes('Scope')) {
-          await migration.up(connection);
-        }
-      }
-      const row = await AccessToken.where('Uuid', uuid).firstOrFail();
-      expect(row.ExpiresAt, String(bad)).to.not.equal(null);
-    }
+    expect(await columns()).to.have.members(COLUMNS);
   });
 });
 

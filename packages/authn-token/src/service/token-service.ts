@@ -393,7 +393,7 @@ export class DbTokenService extends TokenService {
       return fail('revoked');
     }
 
-    // A null expiry is a 2.x row the back-fill has not reached: expired, never eternal (SR-08).
+    // A null expiry is expired, never eternal (SR-08).
     const expiresAt = toDate(token.ExpiresAt);
     if (expiresAt === null || expiresAt.getTime() <= now) {
       return fail('expired');
@@ -496,7 +496,7 @@ export class DbTokenService extends TokenService {
       ...(t.Profile ? { profile: t.Profile } : {}),
       ...(scope ? { scope } : {}),
       createdAt,
-      // A 2.x row without expiry reads as expired at its creation.
+      // A row without expiry reads as expired at its creation.
       expiresAt: toDate(t.ExpiresAt) ?? createdAt,
       ...(lastUsedAt !== null ? { lastUsedAt } : {}),
       ...(t.LastUsedIp ? { lastUsedIp: t.LastUsedIp } : {}),
