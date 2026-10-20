@@ -1,4 +1,4 @@
-import { LockTableQueryCompiler, DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper } from '@spinajs/orm';
+import { LockTableQueryCompiler, DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
@@ -43,6 +43,17 @@ export function toNamedParameters(stmt: string, count: number): string {
     out = out.substring(0, idx) + `@p${i}` + out.substring(idx + 1);
   }
   return out;
+}
+
+/** `executeOnDb` already shapes an insert result; MSSQL has no RETURNING rows to read keys from. */
+export class MsSqlServerResponseMapper extends ServerResponseMapper {
+  public read(data: any): DbServerResponse {
+    return {
+      RowsAffected: data?.RowsAffected ?? 0,
+      LastInsertId: data?.LastInsertId ?? 0,
+      Returning: Array.isArray(data?.Returning) ? data.Returning : [],
+    };
+  }
 }
 
 @Injectable('orm-driver-mssql')
@@ -183,6 +194,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MsSqlNowExpression).as(NowExpression);
     this.Container.register(MsSqlInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(MsSqlDeleteQueryCompiler).as(DeleteQueryCompiler);
+    this.Container.register(MsSqlServerResponseMapper).as(ServerResponseMapper);
     this.Container.register(MssqlModelDehydrator).as(ModelDehydrator);
     this.Container.register(MsSqlTableAliasCompiler).as(TableAliasCompiler);
     this.Container.register(IsoDatetimeValueConverter).as(DatetimeValueConverter);
