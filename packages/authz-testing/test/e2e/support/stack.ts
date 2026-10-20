@@ -12,7 +12,7 @@ import { AuthzAudit_2026_10_01_00_00_00 } from '@spinajs/authz-orm/audit';
 import { TestDb } from './db.js';
 import type { Dialect } from './db.js';
 // authz-rbac's test database helpers import only libraries.
-import { createPgDatabase, dropPgDatabase, requirePostgres } from '../../../../authz-rbac/test/support/db.js';
+import { requirePostgres } from '../../../../authz-rbac/test/support/db.js';
 
 export const E2E_DIALECTS: readonly Dialect[] = ['sqlite', 'postgres'];
 
@@ -132,7 +132,6 @@ export interface E2eHarness extends BehaviourHarness {
  */
 export function e2eHarness(kind: Dialect): E2eHarness {
   let db: TestDb | undefined;
-  let database: string | undefined;
   let lane: E2eOrm | undefined;
   const need = <T>(v: T | undefined, what: string): T => v ?? (() => { throw new Error(`e2eHarness: ${what} (beforeAll did not run)`); })();
 
@@ -183,12 +182,7 @@ export function e2eHarness(kind: Dialect): E2eHarness {
       db = undefined;
       lane = undefined;
       activeDb = undefined;
-      try {
-        await open?.close();
-      } finally {
-        if (database) await dropPgDatabase(database);
-        database = undefined;
-      }
+      await open?.close();
     }
   }
 
@@ -198,8 +192,7 @@ export function e2eHarness(kind: Dialect): E2eHarness {
     model: (name) => need(lane, 'no orm lane').model(name),
     async beforeAll() {
       try {
-        if (kind === 'postgres') database = await createPgDatabase('authz_orm_e2e');
-        db = await TestDb.open({ postgres: kind === 'postgres', authz: kind, ...(database ? { database } : {}) });
+        db = await TestDb.open({ postgres: kind === 'postgres', authz: kind });
         activeDb = db;
         const driver = db.driver(kind);
         for (const m of [new AuthzRbac_2026_10_01_00_00_00(), new AuthzAdminIdempotency_2026_10_02_00_01_00(), new AuthzAbac_2026_10_01_00_00_00(), new AuthzScopeAttribute_2026_10_02_00_00_00(), new AuthzAudit_2026_10_01_00_00_00(), new AuthzResourceAncestor_2026_10_14_00_00_00()]) await m.up(driver);
