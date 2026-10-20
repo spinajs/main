@@ -264,7 +264,14 @@ export class Orm extends AsyncService {
     // migration pass: up() runs against a schema no model is wired to yet, data() against one
     // that is.
     // Not tied to Migration.OnStartup, which is off unless set: most deployments migrate through the CLI before the boot.
-    await this.reloadTableInfo({ strict: migrateOnStartup && this.StrictTableCheck });
+    try {
+      await this.reloadTableInfo({ strict: migrateOnStartup && this.StrictTableCheck });
+    } catch (err) {
+      // The caller never gets an Orm to dispose, and the open connections and health-check timers would keep the process alive.
+      await this.dispose().catch(() => undefined);
+      throw err;
+    }
+
     this.wireRelations();
     this.applyModelMixins();
 

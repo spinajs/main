@@ -134,6 +134,18 @@ describe('sqlite strict table check (db.StrictTableCheck)', function () {
     expect((err as Error).message).to.equal('Missing tables (db.StrictTableCheck): model StrictSqliteMissing: table strict_sqlite_missing on connection sqlite-strict. Create them (run their migrations) or set db.StrictTableCheck to false');
   });
 
+  it('disconnects the drivers and stops their health checks when the strict boot check fails', async () => {
+    Missing = defineMissing();
+    const disconnect = sinon.spy(SqliteOrmDriver.prototype, 'disconnect');
+    const stopHealthCheck = sinon.spy(SqliteOrmDriver.prototype, 'stopHealthCheck');
+
+    expect(await rejection(DI.resolve(Orm))).to.be.instanceOf(OrmException);
+
+    expect(connects.callCount).to.equal(1);
+    expect(stopHealthCheck.called).to.equal(true);
+    expect(disconnect.callCount).to.equal(1);
+  });
+
   it('boots when the migration pass created every table', async () => {
     const orm = await DI.resolve(Orm);
 
