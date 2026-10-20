@@ -1,5 +1,5 @@
 # Sourced by pre-push: the knowledge graph is rebuilt once per push, never per commit, merge or
-# checkout. The rebuilt graph lands in the working tree; pre-commit stages it into the next commit.
+# checkout. The rebuilt graph lands in the working tree; commit it with the next change.
 # Every rebuild also re-exports graphify-out/wiki, which no graphify rebuild regenerates.
 # Run output is appended to <git-dir>/graphify-hook.log.
 #   GRAPHIFY_SKIP_HOOK=1 git push ...   skip it, the same switch graphify's hooks honor
