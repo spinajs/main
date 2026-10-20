@@ -245,7 +245,7 @@ export class AuthnImpersonationService extends AsyncService {
   }
 
   /**
-   * The block; without one (a migrated 2.x session) the authentication time as the start, which never comes after it,
+   * The block; without one (a session issued with an impersonator but no block) the authentication time as the start, which never comes after it,
    * and no actor ceiling. A block whose start or actor ceiling cannot be read, or whose start lies ahead or before the
    * authentication by more than the clock skew allowed between instances, is null: nothing honest writes one. A clock
    * skew set past the schema that is not a finite number >= 0 gives null too.

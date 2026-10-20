@@ -197,7 +197,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
             // No `type`, so nothing is coerced: with coerceTypes a null would become false. String booleans (env values) are kept as given.
             hostPrefix: { enum: [true, false, 'auto', 'true', 'false'], default: 'auto' },
             secure: { enum: [true, false, 'auto', 'true', 'false'], default: 'auto' },
-            // What the 2.x cookie builder and express accept: booleans and any letter case.
+            // What the cookie writers (http and express) accept: booleans and any letter case.
             sameSite: { anyOf: [{ enum: [true, false] }, { type: 'string', pattern: '^([Ss][Tt][Rr][Ii][Cc][Tt]|[Ll][Aa][Xx]|[Nn][Oo][Nn][Ee])$' }], default: 'strict' },
           },
         },

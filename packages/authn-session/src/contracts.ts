@@ -5,11 +5,7 @@ import type { IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
 
 export interface ISession {
-  /**
-   * Storage key: sha256(raw id) as hex for a 3.0 session. A 2.x row keeps its raw
-   * id (a uuid v4) here until SessionIssuer.restore migrates it. Raw 3.0 ids never
-   * reach a store.
-   */
+  /** Storage key: sha256(raw id) as hex. Raw ids never reach a store. */
   SessionId: string;
 
   /** Owner; while impersonating, the target. Indexed. */
@@ -44,18 +40,13 @@ export abstract class SessionExpirationProvider {
   public abstract renew(session: ISession): DateTime | undefined;
 }
 
-/** Storage only: SessionIssuer hashes ids and runs the 2.x migration; a store keys rows by whatever SessionId it gets. */
+/** Storage only: SessionIssuer hashes ids; a store keys rows by whatever SessionId it gets. */
 export abstract class SessionProvider<T extends ISession = ISession> extends AsyncService {
   /** Shared by every store so expiration means the same everywhere. */
   @AutoinjectService('authn.session.expiration', SessionExpirationProvider)
   protected Expiration!: SessionExpirationProvider;
 
-  /**
-   * Takes a storage key. Missing or expired ⇒ null: an expired row is absent.
-   * A row written by 2.x comes back in the 3.0 shape: Subject from its Data entry
-   * 'User' (a users.Uuid), Impersonator from 'Impersonator', State 'active' only
-   * when 'Authorized' is true, else 'pending'; a 2.x row without 'User' is absent.
-   */
+  /** Takes a storage key. Missing or expired ⇒ null: an expired row is absent. */
   public abstract restore(sessionId: string): Promise<T | null>;
 
   /** Upsert. Persists `Expiration` verbatim; only a session without one gets the initial expiration. */
@@ -70,13 +61,11 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
   /**
    * Deletes the subject's sessions and returns how many. With includeImpersonations
    * also the sessions whose impersonator is the subject (SR-06). `except` is a
-   * storage key. Must also reach every 2.x row that restore has not migrated yet but
-   * would match once migrated (owner, and with includeImpersonations its 'Impersonator'),
-   * so a ban or reset right after the upgrade ends them (A08).
+   * storage key.
    */
   public abstract deleteBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean; except?: string }): Promise<number>;
 
-  /** Live sessions only: expired rows are left out. Same matching as deleteBySubject, 2.x rows included. */
+  /** Live sessions only: expired rows are left out. Same matching as deleteBySubject. */
   public abstract listBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean }): Promise<T[]>;
 
   public abstract truncate(): Promise<void>;

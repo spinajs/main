@@ -86,8 +86,6 @@ export interface SeedPort {
 export interface SessionStoragePort {
   /** Every storage key (ISession.SessionId) the lane's store holds, live or not yet swept. */
   storedKeys(): Promise<readonly string[]>;
-  /** A 2.x-shaped row: SessionId = rawId (uuid v4), Data User = user (users.Uuid), Authorized, Impersonator. */
-  seedLegacy(row: { rawId: string; user: string; authorized: boolean; creation: Date; impersonator?: string }): Promise<void>;
 }
 
 export interface BackoffParams {
@@ -226,7 +224,7 @@ export interface LifecyclePort {
 export type MetadataActor = 'owner' | 'admin';
 
 export interface MetadataPort {
-  /** Writes through the lane's guard-free internal path (the 2.x writer); returns the row id. */
+  /** Writes through the lane's guard-free internal path; returns the row id. */
   seedRaw(id: IdentityRef, key: string, value: unknown): Promise<string>;
   rawKeys(id: IdentityRef): Promise<readonly string[]>;
   /** The stored value of the raw row with that key (the one seedRaw wrote). */

@@ -1,4 +1,4 @@
-import { SessionProvider, UserSession, encodeSessionData, decodeSessionData, adaptLegacySession } from '@spinajs/authn-session';
+import { SessionProvider, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Injectable } from '@spinajs/di';
@@ -22,8 +22,7 @@ const rowsAffected = (result: unknown) => (result as IUpdateResult | undefined)?
 
 /**
  * Relational-db backed session store. Subject, Impersonator and State live in
- * their own indexed columns (principal keys); rows written by 2.x have none of
- * them and are adapted from their Data on every read.
+ * their own indexed columns (principal keys).
  */
 @Injectable(SessionProvider)
 export class DbSessionStore extends SessionProvider {
@@ -117,9 +116,7 @@ export class DbSessionStore extends SessionProvider {
       Data: encodeSessionData(session.Data),
     })
       .where('SessionId', session.SessionId)
-      .where(function () {
-        this.whereNull('State').orWhere('State', session.State);
-      })
+      .where('State', session.State)
       .where(function () {
         this.whereNull('Expiration').orWhere('Expiration', '>', now);
       });
@@ -139,7 +136,7 @@ export class DbSessionStore extends SessionProvider {
   /**
    * Live rows are deleted by key so the count is exact; a second DELETE by
    * Subject / ImpersonatorId then also ends 3.0 rows saved since the read
-   * (a rotation racing a ban). 2.x rows are found by decoding their Data.
+   * (a rotation racing a ban).
    */
   public async deleteBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean; except?: string }): Promise<number> {
     const targets = (await this.matching(subject, opts?.includeImpersonations)).filter((s) => s.SessionId !== opts?.except);
@@ -174,7 +171,7 @@ export class DbSessionStore extends SessionProvider {
     await DbSession.truncate();
   }
 
-  /** Rows of the subject, expired ones included: 3.0 rows through the indexed columns, 2.x rows (Subject NULL) by their Data. */
+  /** Rows of the subject, expired ones included. */
   protected async matching(subject: IdentityRef, includeImpersonations?: boolean): Promise<ISession[]> {
     const key = refKey(subject);
     const rows = await DbSession.where(function () {
@@ -183,18 +180,22 @@ export class DbSessionStore extends SessionProvider {
         this.orWhere('ImpersonatorId', key);
       }
     });
-    const legacy = await DbSession.where('Subject', null);
 
-    return [...rows, ...legacy].map((r) => this.toSession(r, true)).filter((s): s is ISession => !!s && belongsTo(s, subject, includeImpersonations));
+    return rows.map((r) => this.toSession(r, true)).filter((s): s is ISession => !!s && belongsTo(s, subject, includeImpersonations));
   }
 
   /**
-   * The 3.0 view of a row; null for a 2.x row without an owner. `lenient`
+   * The session of a row; null for a row without a readable Subject. `lenient`
    * (revocation and listing): a row whose Data does not decode keeps the owner
    * its columns give and an empty Data, so one bad row cannot make a
-   * revokeAll throw for everybody; a 2.x row then has no owner and is skipped.
+   * revokeAll throw.
    */
   protected toSession(row: DbSession, lenient = false): ISession | null {
+    const subject = refOf(row.Subject);
+    if (!subject) {
+      return null;
+    }
+
     let data: Map<string, unknown>;
     try {
       data = decodeSessionData(sessionDataFromColumn(row.Data));
@@ -205,22 +206,16 @@ export class DbSessionStore extends SessionProvider {
       this.Log.warn(`Session row with undecodable Data skipped in a subject lookup`);
       data = new Map();
     }
-    const session = new UserSession({
+
+    return new UserSession({
       SessionId: row.SessionId,
+      Subject: subject,
+      Impersonator: refOf(row.ImpersonatorId),
+      State: row.State === 'active' ? 'active' : 'pending',
       Creation: row.CreatedAt,
       Expiration: row.Expiration ?? undefined,
       Data: data,
     });
-
-    const subject = refOf(row.Subject);
-    if (!subject) {
-      return adaptLegacySession(session);
-    }
-
-    session.Subject = subject;
-    session.Impersonator = refOf(row.ImpersonatorId);
-    session.State = row.State === 'active' ? 'active' : 'pending';
-    return session;
   }
 
   private expirationEquals(a: DateTime | undefined, b: DateTime | undefined): boolean {

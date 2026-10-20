@@ -5,7 +5,7 @@ import { UserSession as Session, encodeSessionData, decodeSessionData } from '@s
 import type { ISession } from '@spinajs/authn-session';
 import { DateTime } from 'luxon';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
-import { bootStore, disposeStore, seedLegacyRow, sessionConnection } from './support.js';
+import { bootStore, disposeStore, sessionConnection } from './support.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -26,9 +26,7 @@ describe('db session provider', function () {
     await disposeStore();
   });
 
-  runSessionProviderConformance(conformanceFactory, {
-    seedLegacy: async (_provider, row) => seedLegacyRow(row),
-  });
+  runSessionProviderConformance(conformanceFactory);
 
   describe('DbSessionStore regressions', () => {
     it('reads the correctly-spelled authn.session.db.cleanupInterval config key (B2)', async () => {
@@ -164,19 +162,6 @@ describe('db session provider', function () {
       expect(after.Expiration!.toMillis()).to.equal(fixed.toMillis());
     });
 
-    it('SR-07 a 2.x row written after the upgrade has a NULL State, not a default that activates it', async () => {
-      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
-      await store.truncate();
-
-      const rawId = '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b';
-      const creation = DateTime.now().minus({ minutes: 1 });
-      await seedLegacyRow({ rawId, user: 'u-2fa', authorized: false, creation, expiration: creation.plus({ minutes: 30 }) });
-
-      const row = (await DbSession.where({ SessionId: rawId }).first()) as DbSession;
-      expect(row.State ?? null).to.equal(null);
-      expect((await store.restore(rawId))!.State).to.equal('pending');
-    });
-
     it('deleteBySubject counts only live rows, and also deletes the expired ones', async () => {
       const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
       await store.truncate();
@@ -194,8 +179,7 @@ describe('db session provider', function () {
 
       const conn = await sessionConnection();
       const exp = DateTime.now().plus({ minutes: 10 });
-      await conn.insert().into('user_sessions').values({ SessionId: '0b8f3c1e-2a4d-4e6f-9a1b-3c5d7e9f1a2b', CreatedAt: DateTime.now(), Expiration: exp, Data: '{not json', UserId: 1 });
-      await conn.insert().into('user_sessions').values({ SessionId: 'k-corrupt', CreatedAt: DateTime.now(), Expiration: exp, Data: '{not json', UserId: 1, Subject: 'user:u-1', State: 'active' });
+      await conn.insert().into('user_sessions').values({ SessionId: 'k-corrupt', CreatedAt: DateTime.now(), Expiration: exp, Data: '{not json', Subject: 'user:u-1', State: 'active' });
       await store.save(new Session({ SessionId: 'k-other', Subject: user('u-2'), State: 'active', Data: new Map() }));
 
       expect(await store.deleteBySubject(user('u-2'))).to.equal(1);
@@ -219,8 +203,7 @@ describe('db session provider', function () {
   // `user_sessions.Data` is a MySQL `json` column, and mysql2 hands a json column
   // back ALREADY PARSED - so the read path receives an object, not the string the
   // write path stored. sqlite (what these tests run on) has no json type and
-  // returns the text, and so does any deployed database that has not yet run the
-  // converging migration. Both shapes therefore reach `toSession` in the wild, and
+  // returns the text. Both shapes therefore reach `toSession` in the wild, and
   // both are pinned here.
   //
   // The failure this guards against is silent, not loud: the stored payload's top
@@ -236,7 +219,7 @@ describe('db session provider', function () {
     // ride along because they are the other two tagged types the codec emits.
     function payload() {
       return new Map<string, unknown>([
-        ['User', '72beaf78-0000-4000-8000-000000000001'],
+        ['Owner', '72beaf78-0000-4000-8000-000000000001'],
         ['TwoFactorPending', true],
         [
           'Preferences',
@@ -266,7 +249,7 @@ describe('db session provider', function () {
     function assertPayload(data: Map<string, unknown>, label: string) {
       expect(data, `${label}: must decode to a Map`).to.be.instanceOf(Map);
       expect(data.size, `${label}: entry count`).to.equal(5);
-      expect(data.get('User'), `${label}: User`).to.equal('72beaf78-0000-4000-8000-000000000001');
+      expect(data.get('Owner'), `${label}: Owner`).to.equal('72beaf78-0000-4000-8000-000000000001');
       expect(data.get('TwoFactorPending'), `${label}: TwoFactorPending`).to.equal(true);
 
       const prefs = data.get('Preferences') as Map<string, unknown>;

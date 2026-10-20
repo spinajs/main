@@ -26,13 +26,12 @@ describe('dynamodb session provider: 3.0 item layout', function () {
     expect(item.Subject).to.deep.equal({ S: 'user:77' });
     expect(item.ImpersonatorId).to.deep.equal({ S: 'user:admin' });
     expect(item.State).to.deep.equal({ S: 'active' });
-    expect(item).to.not.have.property('UserId');
 
     const restored = (await store.restore('l-77'))!;
     expect({ ...restored.Subject }).to.deep.equal(user('77'));
     expect({ ...restored.Impersonator }).to.deep.equal(user('admin'));
 
-    // A row without the attributes is a 2.x row: without them neither delete below would reach it.
+    // Both deletes below reach the item only through these attributes.
     expect(await store.deleteBySubject(user('admin'), { includeImpersonations: true })).to.equal(1);
     await store.save(session({ SessionId: 'l-78', Subject: user('77') }));
     expect(await store.deleteBySubject(user('77'))).to.equal(1);

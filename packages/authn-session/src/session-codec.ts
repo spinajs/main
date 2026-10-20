@@ -137,10 +137,9 @@ export function encodeSessionData(data: Map<string, unknown>): string {
  *    `JSON.stringify` + `JSON.parse` purely to reach the reviver would be
  *    pointless work on every single session read.
  *
- * Both branches are kept deliberately. `user_sessions.Data` is a `json` column
- * on fresh installs and on every install that has run the converging migration,
- * but a driver, a column type or a store that still yields a string must keep
- * decoding - and the sqlite driver used by the tests is exactly that case.
+ * Both branches are kept deliberately. `user_sessions.Data` is a `json` column,
+ * but a driver or store that yields a string must keep decoding - and the
+ * sqlite driver used by the tests is exactly that case.
  *
  * ANYTHING ELSE THROWS. The object branch is narrowed to a real object
  * (`!== null && typeof === 'object'`) rather than being the `else` of the string

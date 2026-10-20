@@ -592,7 +592,7 @@ export declare abstract class MfaPolicy extends AsyncService {
 import type { AuthnContext, IdentityRef } from "./credentials.js";
 import type { PrincipalRef } from "./principal.js";
 import type { SessionHandle } from "./session.js";
-/** What a client may show before a password is submitted (2.x IPasswordPolicy). */
+/** What a client may show before a password is submitted. */
 export interface PasswordPolicy {
     readonly minLength: number;
     readonly maxLength: number;
@@ -640,7 +640,7 @@ export type PasswordSetResult = {
 /** Why a password stops working. */
 export type PasswordExpiry = {
     /**
-     * Admin /authn/admin/users/:uuid/password-reset and the 2.x "expire password" action (A25): revokes every session, incl. those
+     * Admin /authn/admin/users/:uuid/password-reset and the "expire password" action (A25): revokes every session, incl. those
      * where it is the impersonator, and with authn.local.reset.revokeTokens every token (A30). The caller never receives a secret
      * (A10, SR-10) and applies the target guard.
      */
@@ -875,7 +875,7 @@ export declare class Session {
     get state(): SessionHandle["state"];
     get impersonator(): PrincipalRef | undefined;
     get activeRole(): string | undefined;
-    /** undefined without a block (a migrated 2.x session), null for one that cannot be read. */
+    /** undefined without a block, null for one that cannot be read. */
     get impersonation(): ImpersonationBlock | null | undefined;
     get ip(): string | undefined;
     get userAgent(): string | undefined;
@@ -923,10 +923,7 @@ export declare abstract class SessionIssuer {
             steps: readonly string[];
         };
     }): Promise<SessionHandle>;
-    /**
-     * Looks the session up by sha256(rawId); only a uuid v4 input falls back to a raw lookup, so a 2.x id is migrated
-     * on first use (A07) and a stored hash never works as an id (SR-18).
-     */
+    /** Looks the session up by sha256(rawId) (A07), so a stored hash never works as an id (SR-18). */
     abstract restore(rawId: string): Promise<Session | null>;
     /** New id, same data (fixation). */
     abstract rotate(h: SessionHandle): Promise<SessionHandle>;
@@ -1101,7 +1098,7 @@ export type TokenCreateOptions = {
     readonly kind: "pat" | "service";
     /** Become ceiling.roles. */
     readonly roles?: readonly string[];
-    /** 2.x Profile; authn-token checks it against the profiles the owner may pin a token to. */
+    /** A role name to pin the token to; authn-token checks it against the profiles the owner may pin a token to. */
     readonly profile?: string;
     readonly scope?: TokenScope & {
         readonly agent?: false;
@@ -1124,7 +1121,7 @@ export interface TokenRecord {
     readonly name: string;
     readonly kind: TokenKind;
     readonly roles?: readonly string[];
-    /** 2.x Profile: the one role the token is pinned to (§18.3(e)); a profile never widens. */
+    /** The one role the token is pinned to (§18.3(e)); a profile never widens. */
     readonly profile?: string;
     readonly scope?: TokenScope;
     readonly createdAt: Date;

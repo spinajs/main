@@ -248,7 +248,7 @@ describe('DefaultSessionIssuer', () => {
   });
 
   describe('set', () => {
-    for (const key of ['authn:facts', 'authn:pending', 'authn:anything', 'Subject', 'State', 'Impersonator', 'User', 'Authorized']) {
+    for (const key of ['authn:facts', 'authn:pending', 'authn:anything', 'Subject', 'State', 'Impersonator']) {
       it(`refuses the reserved key ${key}`, async () => {
         const { issuer } = await setup();
         const h = await issuer.issue(alice, facts());
@@ -309,7 +309,6 @@ describe('DefaultSessionIssuer', () => {
       const impersonation = await issuer.issue(carol, facts({ impersonator: { type: 'user', id: 'alice' } }));
       const carolOwn = await issuer.issue(carol, facts());
 
-      // 2.x deleteByUser(impersonatorId) reached only the impersonator's own sessions
       expect(await issuer.revokeAll(alice)).to.equal(1);
       expect(await issuer.restore(impersonation.id), 'a plain revokeAll keeps it').to.not.be.null;
 

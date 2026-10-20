@@ -180,7 +180,7 @@ describe('token service contract', () => {
       expect(docs.TokenValidation).to.contain('copied to attributes.profile');
       expect(docs.TokenValidation).to.contain("'out_of_scope' and no roles");
       expect(memberDocs('token.ts', 'TokenRecord').id).to.contain('Uuid');
-      for (const s of ['2.x Profile', '§18.3(e)', 'never widens']) expect(memberDocs('token.ts', 'TokenRecord').profile).to.contain(s);
+      for (const s of ['pinned to', '§18.3(e)', 'never widens']) expect(memberDocs('token.ts', 'TokenRecord').profile).to.contain(s);
       for (const s of ['reaches the principal as attributes.profile through StrategyOutcome.attributes and principalOf', '§18.3(e)']) expect(memberDocs('token.ts', 'TokenValidation').profile).to.contain(s);
     });
   });

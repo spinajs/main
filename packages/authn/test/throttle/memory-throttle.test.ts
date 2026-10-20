@@ -59,7 +59,7 @@ class Probe extends MemoryAuthnThrottle {
   }
 }
 
-/** 2.x shape (SR-05): reads the rows, awaits, then writes from the stale read. */
+/** Mutant (SR-05): reads the rows, awaits, then writes from the stale read. */
 class ReadModifyWrite extends MemoryAuthnThrottle {
   async attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext) {
     const read = FLOWS.map((f) => [f, new Map([...this.limiter(f).entries()].map(([k, r]) => [k, { ...r }]))] as const);
@@ -77,7 +77,7 @@ class ReadModifyWrite extends MemoryAuthnThrottle {
   }
 }
 
-/** 2.x shape (SR-03): only the account is limited. */
+/** Mutant (SR-03): only the account is limited. */
 class AccountOnly extends MemoryAuthnThrottle {
   constructor(p: ThrottleParams) {
     const strip = (f: ThrottleParams['login']) => ({ account: f.account });
@@ -87,7 +87,7 @@ class AccountOnly extends MemoryAuthnThrottle {
 
 const tuned = (over: Parameters<typeof throttleParams>[0]): KitParams => throttleParams(over);
 
-// The plan's SR tests, run on the real class and on the 2.x shaped mutants above.
+// The plan's SR tests, run on the real class and on the mutants above.
 
 async function sr03(make: Make, clock: FakeClock): Promise<void> {
   const t = make(DEFAULT_THROTTLE);

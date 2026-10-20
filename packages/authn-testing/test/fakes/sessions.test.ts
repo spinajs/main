@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import 'mocha';
 import { DI, NewInstance } from '@spinajs/di';
 import { Session } from '@spinajs/authn/contracts';
@@ -62,30 +62,6 @@ describe('MemorySessionIssuer', () => {
     assert.equal(row.handle, sha('authn-testing/handle\0' + sha(h.id)));
     assert.notEqual(row.handle, h.id);
     assert.notEqual(row.handle, sha(h.id));
-  });
-
-  it('migrates a 2.x raw uuid v4 on first use as aal1', async () => {
-    const rawId = randomUUID();
-    const creation = new Date(Date.now() - 60_000);
-    await s.storage.seedLegacy({ rawId, user: 'legacy-u', authorized: true, creation });
-    assert.deepEqual(await s.storage.storedKeys(), [rawId]);
-    const r = (await s.restore(rawId))!;
-    assert.deepEqual(r.identity, { type: 'user', id: 'legacy-u' });
-    assert.equal(r.facts.assurance, 'aal1');
-    assert.deepEqual(r.facts.mfa, []);
-    assert.equal(r.facts.authenticatedAt.getTime(), creation.getTime());
-    assert.deepEqual(await s.storage.storedKeys(), [sha(rawId)]);
-    assert.ok(await s.restore(rawId));
-  });
-
-  it('keeps a legacy impersonator and does not migrate non-uuid ids', async () => {
-    const rawId = randomUUID();
-    await s.storage.seedLegacy({ rawId, user: 'target', authorized: true, creation: new Date(), impersonator: 'admin' });
-    const r = (await s.restore(rawId))!;
-    assert.deepEqual(await s.revokeAll({ type: 'user', id: 'admin' }, { includeImpersonations: true }), 1);
-    assert.equal(r.identity.id, 'target');
-    await s.storage.seedLegacy({ rawId: 'not-a-uuid', user: 'x', authorized: true, creation: new Date() });
-    assert.equal(await s.restore('not-a-uuid'), null);
   });
 
   it('expires after the idle time and slides on restore, capped by the absolute time', async () => {
@@ -219,36 +195,6 @@ describe('MemorySessionIssuer', () => {
     assert.equal(await s.restore(a1.id), null);
     assert.equal(await s.revokeHandle(A, aRow.handle), false);
     assert.equal(await s.revokeHandle(B, bRow.handle), true);
-  });
-
-  it('does not migrate a v1 uuid', async () => {
-    const rawId = 'c232ab00-9414-11ec-b3c8-9f6bdeced846';
-    await s.storage.seedLegacy({ rawId, user: 'x', authorized: true, creation: new Date() });
-    assert.equal(await s.restore(rawId), null);
-    assert.deepEqual(await s.storage.storedKeys(), [rawId]);
-  });
-
-  it('restores an unauthorized legacy row as pending', async () => {
-    const rawId = randomUUID();
-    await s.storage.seedLegacy({ rawId, user: 'x', authorized: false, creation: new Date() });
-    assert.equal((await s.restore(rawId))!.handle.state, 'pending');
-  });
-
-  it('drops an expired legacy row without migrating it', async () => {
-    const rawId = randomUUID();
-    await s.storage.seedLegacy({ rawId, user: 'x', authorized: true, creation: new Date(Date.now() - 60 * 60_000) });
-    assert.equal(await s.restore(rawId), null);
-  });
-
-  it('keeps a legacy row handle stable across migration', async () => {
-    const rawId = randomUUID();
-    const u = { type: 'user', id: 'legacy-h' };
-    await s.storage.seedLegacy({ rawId, user: 'legacy-h', authorized: true, creation: new Date() });
-    const [before] = await s.list(u);
-    const r = (await s.restore(rawId))!;
-    assert.equal(r.facts.sessionHandle, before.handle);
-    assert.equal((await s.list(u))[0].handle, before.handle);
-    assert.equal(await s.revokeHandle(u, before.handle), true);
   });
 
   it('list leaves out pending sessions', async () => {

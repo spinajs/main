@@ -2,7 +2,7 @@ import type { AuthnContext, IdentityRef } from './credentials.js';
 import type { PrincipalRef } from './principal.js';
 import type { SessionHandle } from './session.js';
 
-/** What a client may show before a password is submitted (2.x IPasswordPolicy). */
+/** What a client may show before a password is submitted. */
 export interface PasswordPolicy {
   readonly minLength: number;
   readonly maxLength: number;
@@ -39,7 +39,7 @@ export type PasswordSetResult = { readonly status: 'set' } | { readonly status: 
 export type PasswordExpiry =
   | {
       /**
-       * Admin /authn/admin/users/:uuid/password-reset and the 2.x "expire password" action (A25): revokes every session, incl. those
+       * Admin /authn/admin/users/:uuid/password-reset and the "expire password" action (A25): revokes every session, incl. those
        * where it is the impersonator, and with authn.local.reset.revokeTokens every token (A30). The caller never receives a secret
        * (A10, SR-10) and applies the target guard.
        */
