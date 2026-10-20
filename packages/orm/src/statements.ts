@@ -127,8 +127,15 @@ export abstract class BetweenStatement extends QueryStatement {
 
   public abstract build(): IQueryStatementResult;
 }
+const WHERE_GROUP = Symbol.for('@spinajs/orm:WhereQueryStatement');
+
 @NewInstance()
 export abstract class WhereQueryStatement extends QueryStatement {
+  /** `instanceof` fails for a group from a second loaded copy of the ORM (cjs next to mjs); the registry symbol does not. */
+  public static isGroup(statement: unknown): statement is WhereQueryStatement {
+    return (statement as Record<symbol, unknown> | null | undefined)?.[WHERE_GROUP] === true;
+  }
+
   protected _builder: WhereBuilder<any>;
   protected _not: boolean;
 
@@ -144,6 +151,7 @@ export abstract class WhereQueryStatement extends QueryStatement {
 
   public abstract build(): IQueryStatementResult;
 }
+Object.defineProperty(WhereQueryStatement.prototype, WHERE_GROUP, { value: true });
 
 @NewInstance()
 export abstract class LazyQueryStatement extends QueryStatement {

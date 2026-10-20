@@ -908,7 +908,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
   /** Whether this builder compiles to any condition: a group with nothing in it compiles to none and is dropped. */
   public hasCondition(): boolean {
-    return this._statements.some((s) => !(s instanceof WhereQueryStatement) || s.Builder.hasCondition());
+    return this._statements.some((s) => !WhereQueryStatement.isGroup(s) || s.Builder.hasCondition());
   }
 
 
