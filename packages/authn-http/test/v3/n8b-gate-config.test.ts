@@ -4,6 +4,8 @@ import sinon from 'sinon';
 import { KeyRegistry, MfaEnrolmentService, MfaPolicy } from '@spinajs/authn/contracts';
 import type { MfaStep } from '@spinajs/authn/contracts';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+// The schemas entry, not the package root: the root registers a KeyRegistry, which opens the key routes.
+import { AUTHN_KEYS_CONFIGURATION_SCHEMA } from '@spinajs/authn-keys/schemas';
 import type { IContainer } from '@spinajs/di';
 import type { BasePolicy, IController, IRoute, Request } from '@spinajs/http';
 
@@ -12,7 +14,7 @@ import { KeyRoutesOn } from '../../src/keys/gate.js';
 import { TotpEnrolmentOn } from '../../src/mfa/index.js';
 import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
 
-const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
+const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_KEYS_CONFIGURATION_SCHEMA];
 const AUDIENCE = 'https://gate-config.example.test';
 
 /** `gate` built the way DI builds it from `container`: its Container and the container its `@Config` reads. */

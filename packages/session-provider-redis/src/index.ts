@@ -8,7 +8,7 @@ import { principalKey } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import '@spinajs/authn-session/register-schema';
 import { Logger, Log } from '@spinajs/log';
 
 /** The JSON value of `session:<SessionId>`. */

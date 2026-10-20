@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import '../register-schema.js';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';

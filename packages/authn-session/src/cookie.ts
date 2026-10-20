@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon';
 import { AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, isLenientAuthnEnv } from '@spinajs/authn/env';
-import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AUTHN_SESSION_CONFIGURATION_SCHEMA } from './schema.js';
 import type { Configuration } from '@spinajs/configuration-common';
 import { InvalidOption } from '@spinajs/exceptions';
 
@@ -16,7 +16,7 @@ export function cookieMaxAge(expiration: DateTime | undefined): number | undefin
 }
 
 // The builders take a partial or empty config (callers without a resolved configuration), so they fall back on the schema defaults.
-const COOKIE_SCHEMA = AUTHN_CONFIGURATION_SCHEMA.properties.session.properties.cookie.properties;
+const COOKIE_SCHEMA = AUTHN_SESSION_CONFIGURATION_SCHEMA.properties.cookie.properties;
 
 /** Base name of the session cookie, before any `__Host-` prefix. */
 export const SESSION_COOKIE_BASE_NAME: string = COOKIE_SCHEMA.name.default;

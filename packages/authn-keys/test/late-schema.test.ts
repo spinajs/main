@@ -45,7 +45,7 @@ function cliProcess(values: Record<string, unknown>): Record<string, any> {
 describe('authn.keys in a CLI process that imports the command after the Configuration resolved', function () {
   this.timeout(120000);
 
-  it('reads the authn.keys defaults of the authn schema through @Config', () => {
+  it('reads the authn.keys defaults of the authn and authn-keys schemas through @Config', () => {
     const r = cliProcess({});
     expect(r.error, r.message).to.eq(undefined);
     expect(r.options).to.deep.eq({
@@ -60,6 +60,6 @@ describe('authn.keys in a CLI process that imports the command after the Configu
     const r = cliProcess({ authn: { keys: { challenge: { ttlSeconds: 7200 } } } });
     expect(r.error).to.eq('InvalidConfiguration');
     expect(r.paths).to.deep.eq(['authn.keys.challenge.ttlSeconds']);
-    expect(r.message).to.contain('spinajs/authn.configuration.schema.json');
+    expect(r.message).to.contain('spinajs/authn-keys.configuration.schema.json');
   });
 });

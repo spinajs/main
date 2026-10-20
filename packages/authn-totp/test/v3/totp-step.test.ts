@@ -16,6 +16,7 @@ import type { MfaRecord } from '../../src/store/index.js';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpMfaStep } from '../../src/step/index.js';
 import type { TotpOptions } from '../../src/step/index.js';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AUTHN_TOTP_CONFIGURATION_SCHEMA } from '../../src/schema.js';
 import { boot, disposeBooted, readingFrom } from '../support/config-boot.js';
 import { TOTP_DEFAULTS, totpOpts } from './support/totp-defaults.js';
 
@@ -491,7 +492,7 @@ describe('v3 step: TotpMfaStep', () => {
   });
 
   it('refuses to work without an encryption key', async () => {
-    const { child } = await boot([AUTHN_CONFIGURATION_SCHEMA], {});
+    const { child } = await boot([AUTHN_CONFIGURATION_SCHEMA, AUTHN_TOTP_CONFIGURATION_SCHEMA], {});
     const step = readingFrom(new TotpMfaStep({ store, options: totpOpts(), identities: null }), child);
     try {
       await assert.rejects(step.beginEnrolment(ALICE), (e: Error) => e instanceof InvalidOption && /authn\.mfa\.encryptionKey/.test(e.message));

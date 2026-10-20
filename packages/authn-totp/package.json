@@ -10,6 +10,11 @@
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
     },
+    "./schemas": {
+      "types": "./lib/mjs/schema.d.ts",
+      "import": "./lib/mjs/schema.js",
+      "require": "./lib/cjs/schema.js"
+    },
     "./db": {
       "types": "./lib/mjs/db.d.ts",
       "import": "./lib/mjs/db.js",
@@ -23,6 +28,9 @@
   },
   "typesVersions": {
     "*": {
+      "schemas": [
+        "lib/cjs/schema.d.ts"
+      ],
       "db": [
         "lib/cjs/db.d.ts"
       ],

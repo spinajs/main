@@ -24,11 +24,12 @@ No `authn*` package imports `authz*` or `users*`. `@spinajs/authz` imports only 
 
 | Import | Holds | Side effects |
 | --- | --- | --- |
-| `@spinajs/authn` | Everything below, plus the services | Registers `DefaultAuthnService`, `DefaultMfaPolicy`, `MemoryAuthnThrottle`, `LogAuthnAuditSink` and `AuthnConfigBootstrapper` |
+| `@spinajs/authn` | Everything below except `@spinajs/authn/boot`, plus the services | Registers `DefaultAuthnService`, `DefaultMfaPolicy`, `MemoryAuthnThrottle`, `LogAuthnAuditSink` and `AuthnConfigBootstrapper` |
 | `@spinajs/authn/contracts` | The contracts, `Session`, `SessionKeys`, `isFresh`, `SYSTEM`, `UNATTENDED`, `principalKey`, `ceilingHash`, and the [shared constants and helpers](#shared-constants-and-helpers) | None |
 | `@spinajs/authn/schemas` | `AUTHN_CONFIGURATION_SCHEMA` | None |
 | `@spinajs/authn/register-schema` | Registers `AUTHN_CONFIGURATION_SCHEMA` at import | For modules that read `authn.*` and may load where the root never does |
 | `@spinajs/authn/env` | `authnAppEnv`, `authnEnvFellBack`, `isLenientAuthnEnv`, the throttle param checks | None |
+| `@spinajs/authn/boot` | The boot checks and their helpers: `checkAuthnConfig`, `checkAuthnSecrets`, `authnSecretFindings`, `safeMessage`, `secretStoringSteps`, `AUTHN_ENV_FALLBACK_WARNING`, `AUTHN_PUBLIC_COOKIE_SECRET`, and the `env` names | None |
 | `@spinajs/authn/mfa-enrolments` | `MfaEnrolments`, `MfaStepNotListed`, `MfaEnrolmentMismatch` | None |
 | `@spinajs/authn/store-throttle` | `StoreAuthnThrottle` | None |
 | `@spinajs/authn/nonces` | `MemoryNonceStore` | None |

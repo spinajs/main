@@ -1,6 +1,6 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import '../register-schema.js';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
 import { InvalidArgument, InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';

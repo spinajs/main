@@ -55,21 +55,13 @@ function refused(config: Json, instancePath: string): void {
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
-const TOTP_DEFAULTS = { issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 };
-const LOCAL_DEFAULTS = {
-  hasher: { maxConcurrent: 8 },
-  pepper: { secret: null, version: 1 },
-  policy: { minLength: 8, maxLength: 128, rule: null, blocklist: null },
-  generator: { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] },
-  reset: { ttlSeconds: 3600, url: '', revokeTokens: true },
-  invite: { ttlSeconds: 900 },
-  expiration: { enabled: false, maxAgeDays: 31 },
-};
-const SESSION_COOKIE_DEFAULTS = { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' };
-const SESSION_EXPIRATION_DEFAULTS = { ttl: 30, maxLifetime: 480 };
-const HTTP_DEFAULTS = { csrf: { enabled: true, allowedOrigins: [] } };
-const KEYS_DEFAULTS = { algorithms: ['EdDSA', 'ES256'], challenge: { ttlSeconds: 120, audience: null }, assertion: { typ: 'spinajs-client+jwt', audience: null, maxLifetimeSeconds: 300, skewSeconds: 30 }, httpSignature: { maxAgeSeconds: 300, skewSeconds: 30, requiredComponents: ['@method', '@target-uri', 'content-digest'] } };
-const TOKEN_DEFAULTS = { prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 };
+// The keys of authn.session, token, keys and http the authn schema keeps; the rest of each is a fragment of its package.
+const SESSION_DEFAULTS = { expiration: { maxLifetime: 480 } };
+const TOKEN_DEFAULTS = { prefix: 'spt_', headerName: 'x-api-key' };
+const KEYS_DEFAULTS = { assertion: { typ: 'spinajs-client+jwt' } };
+const CORE_HELD = ['session.expiration.maxLifetime', 'token.prefix', 'token.headerName', 'keys.assertion.typ', 'http.trustProxy'];
+const FRAGMENTS = ['local', 'session', 'jwt', 'mfa.totp', 'token', 'keys', 'http'];
+const inFragment = (path: string): boolean => !CORE_HELD.includes(path) && FRAGMENTS.some((f) => path === f || path.startsWith(`${f}.`));
 
 const LOGIN_ACCOUNT = { free: 5, baseDelayMs: 1000, maxDelayMs: 60000 };
 const THROTTLE_DEFAULTS = {
@@ -190,14 +182,12 @@ describe('authn.* configuration schema', () => {
     expect(warnings, JSON.stringify(warnings)).to.deep.eq([]);
   });
 
-  it('declares every key of the design §22.5 example', () => {
-    const missing = leaves(example())
-      .map(([p]) => p)
-      .filter((p) => !declared(p));
-    expect(missing).to.deep.eq([]);
-    // Two schemas on authn.oidc would report every violation twice; @spinajs/authn-oidc owns it.
+  it('declares every key of the design §22.5 example but those the fragments of the authn packages declare', () => {
+    const paths = leaves(example()).map(([p]) => p);
+    expect(paths.filter((p) => !inFragment(p) && !declared(p))).to.deep.eq([]);
+    // Two schemas on one key would report every violation twice.
+    expect(paths.filter((p) => inFragment(p) && declared(p))).to.deep.eq([]);
     expect(declared('oidc')).to.eq(false);
-    expect(declared('token.generation.service')).to.eq(true);
     expect(declared('config')).to.eq(false);
   });
 
@@ -205,7 +195,7 @@ describe('authn.* configuration schema', () => {
     it('accepts the design §22.5 example and keeps every value', () => {
       const r = check(example());
       expect(r.errors).to.deep.eq([]);
-      expect(r.config).to.deep.eq({ ...example(), audit: { ...example().audit, sinkTimeoutMs: 2000 }, keys: KEYS_DEFAULTS });
+      expect(r.config).to.deep.eq({ ...example(), audit: { ...example().audit, sinkTimeoutMs: 2000 } });
     });
 
     it('accepts the keys F0b put in the tree and keeps every value', () => {
@@ -223,12 +213,6 @@ describe('authn.* configuration schema', () => {
       expect(check({ throttle: { global: { free: 1000, baseDelayMs: 100, maxDelayMs: 1000 } } }).ok).to.eq(true);
     });
 
-    it('accepts a jwt issuer with jwksUri or with keys', () => {
-      const issuer = { issuer: 'https://id.example.com', audience: 'api', algorithms: ['EdDSA', 'ES256', 'RS256'], clockSkewSeconds: 30, subjectClaim: 'sub', provider: 'jwt:https://id.example.com' };
-      expect(check({ jwt: { issuers: [{ ...issuer, jwksUri: 'https://id.example.com/jwks' }] } }).errors).to.deep.eq([]);
-      expect(check({ jwt: { issuers: [{ ...issuer, keys: [{ kty: 'OKP', crv: 'Ed25519', x: 'abc' }] }] } }).errors).to.deep.eq([]);
-    });
-
     it('takes trustProxy as CIDRs or hops; 0 never becomes the null fallback and true never trusts everyone', () => {
       const proxy = (v: unknown) => check({ http: { trustProxy: v } });
       for (const v of [0, 2, null, ['10.0.0.0/8', 'loopback']]) {
@@ -243,34 +227,23 @@ describe('authn.* configuration schema', () => {
       refused({ http: { trustProxy: [''] } }, '/http/trustProxy/0');
     });
 
-    it('accepts the cookie values the cookie writers accept and keeps them as given', () => {
-      for (const cookie of [{ sameSite: true }, { sameSite: false }, { sameSite: 'Lax' }, { sameSite: 'STRICT' }, { sameSite: 'none' }, { secure: 'true' }, { secure: 'false' }, { hostPrefix: 'true' }, { secure: true, hostPrefix: false }]) {
-        const r = check({ session: { cookie: { ...cookie } } });
-        expect(r.errors, JSON.stringify(cookie)).to.deep.eq([]);
-        expect(r.config.session.cookie, JSON.stringify(cookie)).to.deep.include(cookie);
-      }
-    });
-
-    it('accepts the three TOTP algorithms', () => {
-      expect(check({ mfa: { totp: { algorithm: 'SHA256' } } }).errors).to.deep.eq([]);
-    });
-
-    it('takes tokens of at least 32 random bytes with a non-empty prefix (A14)', () => {
-      expect(check({ token: { length: 32, prefix: 'spt_' } }).errors).to.deep.eq([]);
-      refused({ token: { length: 31 } }, '/token/length');
+    it('takes a token prefix that is not empty and a header name', () => {
+      expect(check({ token: { prefix: 'spt_', headerName: 'x-key' } }).errors).to.deep.eq([]);
       refused({ token: { prefix: '' } }, '/token/prefix');
+      refused({ token: { headerName: '' } }, '/token/headerName');
+      refused({ keys: { assertion: { typ: '' } } }, '/keys/assertion/typ');
     });
 
     it('coerces a numeric string, as the app validator does', () => {
-      const r = check({ local: { hasher: { maxConcurrent: '4' } } });
+      const r = check({ impersonation: { maxMinutes: '4' } });
       expect(r.ok).to.eq(true);
-      expect(r.config.local.hasher.maxConcurrent).to.eq(4);
+      expect(r.config.impersonation.maxMinutes).to.eq(4);
     });
   });
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] }, keys: KEYS_DEFAULTS, http: HTTP_DEFAULTS, session: { expiration: SESSION_EXPIRATION_DEFAULTS, pendingTtlSeconds: 300, cookie: SESSION_COOKIE_DEFAULTS, hashIds: true } });
+      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [] }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 }, session: SESSION_DEFAULTS, token: TOKEN_DEFAULTS, keys: KEYS_DEFAULTS, http: {} });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -279,19 +252,17 @@ describe('authn.* configuration schema', () => {
     });
 
     it('fills the security floors inside objects that exist, and nothing else', () => {
-      const r = check({ local: { hasher: {}, policy: {}, reset: {} }, session: { cookie: {} }, token: {}, impersonation: {}, audit: {}, http: { csrf: {} } });
+      const r = check({ session: { expiration: {} }, token: {}, keys: { assertion: {} }, impersonation: {}, audit: {}, http: {} });
       expect(r.errors).to.deep.eq([]);
       expect(r.config).to.deep.eq({
-        local: LOCAL_DEFAULTS,
-        session: { expiration: SESSION_EXPIRATION_DEFAULTS, pendingTtlSeconds: 300, cookie: SESSION_COOKIE_DEFAULTS, hashIds: true },
+        session: SESSION_DEFAULTS,
         token: TOKEN_DEFAULTS,
-        jwt: { issuers: [] },
         keys: KEYS_DEFAULTS,
         impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 },
         audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 },
-        http: { csrf: { enabled: true, allowedOrigins: [] } },
+        http: {},
         strategies: [],
-        mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS },
+        mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [] },
         freshAuth: { maxAgeSeconds: 300 },
         linking: { jit: false, byVerifiedEmail: false },
         throttle: THROTTLE_DEFAULTS,
@@ -327,64 +298,10 @@ describe('authn.* configuration schema', () => {
       refused({ throttle: { memory: { maxRows: 10 } } }, '/throttle/memory');
     });
 
-    it('refuses an unknown sameSite and a non-auto secure or hostPrefix', () => {
-      refused({ session: { cookie: { sameSite: 'sometimes' } } }, '/session/cookie/sameSite');
-      refused({ session: { cookie: { sameSite: null } } }, '/session/cookie/sameSite');
-      refused({ session: { cookie: { sameSite: 1 } } }, '/session/cookie/sameSite');
-      refused({ session: { cookie: { secure: 'yes' } } }, '/session/cookie/secure');
-      refused({ session: { cookie: { secure: null } } }, '/session/cookie/secure');
-      refused({ session: { cookie: { hostPrefix: 'always' } } }, '/session/cookie/hostPrefix');
-    });
-
-    it('refuses unhashed session ids (SR-18)', () => {
-      refused({ session: { hashIds: false } }, '/session/hashIds');
-      refused({ session: { hashIds: 'false' } }, '/session/hashIds');
-    });
-
-    it('refuses a wrong type for maxConcurrent', () => {
-      refused({ local: { hasher: { maxConcurrent: 'eight' } } }, '/local/hasher/maxConcurrent');
-      refused({ local: { hasher: { maxConcurrent: { n: 8 } } } }, '/local/hasher/maxConcurrent');
-      refused({ local: { hasher: { maxConcurrent: 0 } } }, '/local/hasher/maxConcurrent');
-    });
-
-    it('refuses argon2 cost keys under local.hasher (H30)', () => {
-      for (const key of ['memoryCost', 'timeCost', 'parallelism', 'hashLength', 'saltLength', 'type']) {
-        const r = check({ local: { hasher: { service: 'Argon2PasswordHasher', [key]: 1 } } });
-        expect(r.ok, key).to.eq(false);
-        expect(r.errors.filter((e) => e.keyword === 'propertyNames').map((e) => [e.instancePath, e.params.propertyName])).to.deep.eq([['/local/hasher', key]]);
-      }
-    });
-
-    it('refuses short or zero lengths and lifetimes', () => {
-      refused({ local: { policy: { minLength: 0 } } }, '/local/policy/minLength');
-      refused({ local: { generator: { length: 0 } } }, '/local/generator/length');
-      refused({ local: { generator: { characters: [] } } }, '/local/generator/characters');
-      refused({ local: { reset: { ttlSeconds: 0 } } }, '/local/reset/ttlSeconds');
-      refused({ session: { pendingTtlSeconds: 0 } }, '/session/pendingTtlSeconds');
+    it('refuses zero lifetimes', () => {
       refused({ impersonation: { maxMinutes: 0 } }, '/impersonation/maxMinutes');
       refused({ impersonation: { clockSkewSeconds: 301 } }, '/impersonation/clockSkewSeconds');
       refused({ audit: { sinkTimeoutMs: 0 } }, '/audit/sinkTimeoutMs');
-    });
-
-    it('refuses algorithms outside the allow-lists', () => {
-      const issuer = { issuer: 'https://id.example.com', audience: 'api', jwksUri: 'https://id.example.com/jwks' };
-      refused({ jwt: { issuers: [{ ...issuer, algorithms: ['HS256'] }] } }, '/jwt/issuers/0/algorithms/0');
-      refused({ jwt: { issuers: [{ ...issuer, algorithms: ['none'] }] } }, '/jwt/issuers/0/algorithms/0');
-      refused({ keys: { algorithms: ['RS256'] } }, '/keys/algorithms/0');
-      refused({ mfa: { totp: { algorithm: '' } } }, '/mfa/totp/algorithm');
-      refused({ mfa: { totp: { algorithm: 'sha-256' } } }, '/mfa/totp/algorithm');
-    });
-
-    it('refuses a jwt issuer without keys, with both key sources, or with a skew over 60 s', () => {
-      const issuer = { issuer: 'https://id.example.com', audience: 'api', algorithms: ['EdDSA'] };
-      refused({ jwt: { issuers: [issuer] } }, '/jwt/issuers/0');
-      refused({ jwt: { issuers: [{ ...issuer, jwksUri: 'https://id.example.com/jwks', keys: [{ kty: 'OKP' }] }] } }, '/jwt/issuers/0');
-      refused({ jwt: { issuers: [{ ...issuer, jwksUri: 'https://id.example.com/jwks', clockSkewSeconds: 61 }] } }, '/jwt/issuers/0/clockSkewSeconds');
-    });
-
-    it('refuses key lifetimes over 300 s', () => {
-      refused({ keys: { assertion: { maxLifetimeSeconds: 301 } } }, '/keys/assertion/maxLifetimeSeconds');
-      refused({ keys: { httpSignature: { maxAgeSeconds: 301 } } }, '/keys/httpSignature/maxAgeSeconds');
     });
 
     it('refuses duplicate strategy or mfa step names', () => {
@@ -416,15 +333,8 @@ describe('authn.* configuration schema', () => {
     });
 
     it('refuses a secret ref without secret', () => {
-      refused({ local: { pepper: { version: 1 } } }, '/local/pepper');
-    });
-
-    it('refuses password length bounds outside 8–128 (A04)', () => {
-      refused({ local: { policy: { minLength: 7 } } }, '/local/policy/minLength');
-      refused({ local: { policy: { minLength: 129 } } }, '/local/policy/minLength');
-      refused({ local: { policy: { maxLength: 7 } } }, '/local/policy/maxLength');
-      refused({ local: { policy: { maxLength: 129 } } }, '/local/policy/maxLength');
-      expect(check({ local: { policy: { minLength: 12, maxLength: 64 } } }).ok).to.eq(true);
+      refused({ mfa: { encryptionKey: { previous: [] } } }, '/mfa/encryptionKey');
+      refused({ audit: { hashKey: {} } }, '/audit/hashKey');
     });
   });
 });

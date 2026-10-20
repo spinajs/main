@@ -3,6 +3,9 @@ import { expect } from 'chai';
 import { generateKeyPairSync } from 'node:crypto';
 import { Configuration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { AUTHN_JWT_CONFIGURATION_SCHEMA, AUTHN_TOKEN_CONFIGURATION_SCHEMA } from '../../src/schema.js';
+import { AuthnTokenConfigBootstrapper } from '../../src/bootstrap.js';
+import { registeredSchemasAfter } from '../support/registered-schemas.js';
 
 import authnToken from '../../src/config/authn-token.js';
 import { SecureRandomTokenProvider } from '../../src/generator.js';
@@ -10,7 +13,7 @@ import { JwtBearerStrategy } from '../../src/jwt/JwtBearerStrategy.js';
 import { TokenStrategy } from '../../src/strategy/TokenStrategy.js';
 import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
 
-const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
+const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_TOKEN_CONFIGURATION_SCHEMA, AUTHN_JWT_CONFIGURATION_SCHEMA];
 const bad = (authn: Record<string, unknown>) => violationsOf(SCHEMAS, { authn });
 
 const ISSUER = { issuer: 'https://id.example.com', audience: 'api', algorithms: ['ES256'], jwksUri: 'https://id.example.com/jwks' };
@@ -30,6 +33,17 @@ describe('authn.token and authn.jwt through the schema', () => {
   afterEach(disposeBooted);
 
   describe('defaults', () => {
+    it('AuthnTokenConfigBootstrapper registers the authn.token and authn.jwt fragments', () => {
+      expect([AUTHN_TOKEN_CONFIGURATION_SCHEMA.$configurationModule, AUTHN_JWT_CONFIGURATION_SCHEMA.$configurationModule]).to.deep.eq(['authn.token', 'authn.jwt']);
+      expect(registeredSchemasAfter(() => new AuthnTokenConfigBootstrapper().bootstrap())).to.include.members([AUTHN_TOKEN_CONFIGURATION_SCHEMA, AUTHN_JWT_CONFIGURATION_SCHEMA]);
+    });
+
+    it('with no user config, the effective authn.token and authn.jwt equal the defaults of the former single authn schema', async () => {
+      const { configuration } = await boot(SCHEMAS, {});
+      expect(configuration.get('authn.token')).to.deep.eq({ prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 });
+      expect(configuration.get('authn.jwt')).to.deep.eq({ issuers: [] });
+    });
+
     it('fills authn.token in whole', async () => {
       const { configuration } = await boot(SCHEMAS, {});
       expect(configuration.get('authn.token')).to.deep.include({ prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 });
@@ -90,6 +104,15 @@ describe('authn.token and authn.jwt through the schema', () => {
         [{ ...ISSUER, jwksUri: undefined }, 'authn.jwt.issuers.0'],
       ];
       for (const [issuer, path] of cases) expect(await bad(issuers(issuer)), path).to.include(path);
+    });
+
+    it("refuses 'none', both key sources and an issuer with neither; accepts either source alone", async () => {
+      expect(await bad(issuers({ ...ISSUER, algorithms: ['none'] }))).to.include('authn.jwt.issuers.0.algorithms.0');
+      expect(await bad(issuers({ ...ISSUER, keys: [{ kty: 'OKP' }] }))).to.include('authn.jwt.issuers.0');
+      expect(await bad(issuers({ ...ISSUER, jwksUri: undefined }))).to.include('authn.jwt.issuers.0');
+      const issuer = { ...ISSUER, algorithms: ['EdDSA', 'ES256', 'RS256'], clockSkewSeconds: 30, subjectClaim: 'sub', provider: 'jwt:https://id.example.com' };
+      expect(await bad(issuers(issuer))).to.deep.eq([]);
+      expect(await bad(issuers({ ...issuer, jwksUri: undefined, keys: [{ kty: 'OKP', crv: 'Ed25519', x: 'abc' }] }))).to.deep.eq([]);
     });
 
     it('refuses a repeated issuer', async () => {

@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { DI } from '@spinajs/di';
 import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { AUTHN_JWT_CONFIGURATION_SCHEMA } from '../../src/schema.js';
 import { AuthenticationStrategy } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, StrategyOutcome } from '@spinajs/authn/contracts';
 import { FakeClock, b64url, compactJws, generateKeyPair, signCompactJws, startJwksServer } from '@spinajs/authn-testing';
@@ -92,7 +93,7 @@ describe('JwtBearerStrategy', function () {
 
   /** Boots the issuers through the schema, as an app does, then the strategy. */
   async function make(issuers: unknown): Promise<JwtBearerStrategy> {
-    const { child } = await boot([AUTHN_CONFIGURATION_SCHEMA], { authn: { jwt: { issuers } } });
+    const { child } = await boot([AUTHN_CONFIGURATION_SCHEMA, AUTHN_JWT_CONFIGURATION_SCHEMA], { authn: { jwt: { issuers } } });
     const s = readingFrom(new JwtBearerStrategy(), child);
     await s.resolve();
     return s;
@@ -185,7 +186,7 @@ describe('JwtBearerStrategy', function () {
         return { ...jwk, kid: 'p' };
       };
       const rsaPrivate = () => generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ format: 'jwk' });
-      // Refused by AUTHN_CONFIGURATION_SCHEMA. A scalar of another type (a numeric issuer, a string skew) is coerced
+      // Refused by AUTHN_JWT_CONFIGURATION_SCHEMA. A scalar of another type (a numeric issuer, a string skew) is coerced
       // by the app validator and then judged as the coerced value, so it is not listed.
       const schemaRows: Array<[string, () => unknown]> = [
         ['issuers that are not an array', () => ({ issuer: ISSUER })],

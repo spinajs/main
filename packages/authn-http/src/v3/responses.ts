@@ -1,5 +1,5 @@
 import type { Configuration } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import '@spinajs/authn-session/register-schema';
 import { BadRequestResponse, Unauthorized } from '@spinajs/http';
 import type { ICookie, IResponseHeader } from '@spinajs/http';
 import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';

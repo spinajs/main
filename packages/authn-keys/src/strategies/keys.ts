@@ -1,7 +1,7 @@
 import { Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
-import '@spinajs/authn/register-schema';
+import '../register-schema.js';
 import { AuthenticationStrategy, KeyRegistry } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFailure, KeyAlgorithm, IdentityRef, KeyOwner, KeyRecord, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { isValidKid } from '../jwk/keys.js';

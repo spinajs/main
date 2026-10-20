@@ -1,6 +1,7 @@
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { AUTHN_JWT_CONFIGURATION_SCHEMA, AUTHN_TOKEN_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { join, normalize, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import chai from 'chai';
@@ -64,5 +65,5 @@ export function dropOwnCompiledDirs(cfg: Configuration): void {
 
 /** As the authn bootstrapper does in an app: the schema fills the authn defaults the code no longer carries. */
 export function registerAuthnSchema(): void {
-  DI.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+  for (const schema of [AUTHN_CONFIGURATION_SCHEMA, AUTHN_TOKEN_CONFIGURATION_SCHEMA, AUTHN_JWT_CONFIGURATION_SCHEMA]) DI.register(schema).asValue('__configurationSchema__');
 }

@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, PrincipalRef, TokenCreateOptions, TokenCreateResult, TokenRecord, TokenValidation } from '@spinajs/authn/contracts';
 import {
@@ -94,8 +95,9 @@ function withDefaults(value: unknown, defaults: unknown): unknown {
 
 /** The harness reads no schema through a Configuration, so it fills the schema defaults itself. */
 function schemaDefaultAt(parts: string[]): unknown {
-  let node = parts[0] === 'authn' ? (AUTHN_CONFIGURATION_SCHEMA as SchemaNode) : undefined;
-  for (const part of parts.slice(1)) node = node?.properties?.[part];
+  const local = parts[0] === 'authn' && parts[1] === 'local';
+  let node = local ? (AUTHN_LOCAL_CONFIGURATION_SCHEMA as SchemaNode) : parts[0] === 'authn' ? (AUTHN_CONFIGURATION_SCHEMA as SchemaNode) : undefined;
+  for (const part of parts.slice(local ? 2 : 1)) node = node?.properties?.[part];
   return schemaDefaults(node);
 }
 

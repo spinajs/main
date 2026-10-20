@@ -7,7 +7,7 @@ import { DbSession } from './models/DbSession.js';
 import { InsertBehaviour } from '@spinajs/orm';
 import type { IUpdateResult } from '@spinajs/orm';
 import { Config } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import '@spinajs/authn-session/register-schema';
 import { DateTime } from 'luxon';
 import { refKey, refOf, sessionDataFromColumn } from './session-row.js';
 

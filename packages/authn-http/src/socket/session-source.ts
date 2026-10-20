@@ -1,7 +1,7 @@
 import { Autoinject, Container, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
-import '@spinajs/authn/register-schema';
+import '@spinajs/authn-session/register-schema';
 import { AuthenticationFailed } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { SessionIssuer, resolveSession } from '@spinajs/authn/contracts';

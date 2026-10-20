@@ -23,7 +23,11 @@ export class AuthnCheckConfig extends CliCommand {
     await this.loadProviders();
     // Loaded here, not at module load: the cli dir ships scanned, and the @spinajs/authn root registers its services in
     // every process that imports it.
-    const { checkAuthnConfig } = await import('@spinajs/authn');
+    await import('@spinajs/authn');
+    // The authn.http and authn.session schemas, so the check covers those subtrees too.
+    await import('../register-schema.js');
+    await import('@spinajs/authn-session/register-schema');
+    const { checkAuthnConfig } = await import('@spinajs/authn/boot');
     const findings = await checkAuthnConfig(this.Container);
     if (findings.length === 0) {
       console.log('authn:check-config: no findings');

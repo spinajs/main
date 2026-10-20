@@ -3,6 +3,9 @@ import { expect } from 'chai';
 import { randomBytes } from 'node:crypto';
 import { AuthnService, AuthnThrottle, MfaEnrolmentService, MfaStep, SessionIssuer } from '@spinajs/authn/contracts';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AUTHN_TOTP_CONFIGURATION_SCHEMA } from '../../src/schema.js';
+import { AuthnTotpConfigBootstrapper } from '../../src/bootstrap.js';
+import { registeredSchemasAfter } from '../support/registered-schemas.js';
 import { FakeMfaStep } from '@spinajs/authn-testing';
 import { DI } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
@@ -14,7 +17,7 @@ import { TotpService } from '../../src/service/index.js';
 import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
 import { TOTP_DEFAULTS } from './support/totp-defaults.js';
 
-const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
+const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_TOTP_CONFIGURATION_SCHEMA];
 const bad = (authn: Record<string, unknown>) => violationsOf(SCHEMAS, { authn });
 const KEY = randomBytes(32).toString('hex');
 const OLD = randomBytes(32).toString('base64url');
@@ -23,6 +26,16 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
   afterEach(disposeBooted);
 
   describe('defaults', () => {
+    it('AuthnTotpConfigBootstrapper registers the authn.mfa.totp fragment', () => {
+      expect(AUTHN_TOTP_CONFIGURATION_SCHEMA.$configurationModule).to.eq('authn.mfa.totp');
+      expect(registeredSchemasAfter(() => new AuthnTotpConfigBootstrapper().bootstrap())).to.include(AUTHN_TOTP_CONFIGURATION_SCHEMA);
+    });
+
+    it('with no user config, the effective authn.mfa.totp equals the defaults of the former single authn schema', async () => {
+      const { configuration } = await boot(SCHEMAS, {});
+      expect(configuration.get('authn.mfa.totp')).to.deep.eq({ issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 });
+    });
+
     it('fills authn.mfa.totp and authn.freshAuth', async () => {
       const { configuration } = await boot(SCHEMAS, {});
       expect(configuration.get('authn.mfa.totp')).to.deep.eq({ ...TOTP_DEFAULTS });
@@ -43,6 +56,7 @@ describe('authn.mfa.totp, authn.mfa.encryptionKey and authn.freshAuth through th
     it('names the bad totp key', async () => {
       const cases: [Record<string, unknown>, string][] = [
         [{ issuer: '' }, 'authn.mfa.totp.issuer'],
+        [{ algorithm: '' }, 'authn.mfa.totp.algorithm'],
         [{ algorithm: 'sha-256' }, 'authn.mfa.totp.algorithm'],
         [{ algorithm: 'MD5' }, 'authn.mfa.totp.algorithm'],
         [{ digits: 5 }, 'authn.mfa.totp.digits'],

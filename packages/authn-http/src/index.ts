@@ -15,3 +15,5 @@ export * from './extractors/index.js';
 export { registerAuthnHttpV3 } from './v3/register.js';
 // For authn-oidc (N10): the one 401 body of a failed authentication and the session cookie helpers.
 export { AUTHN_FAILURE_BODY, authnFailureResponse, authnSessionCookie, authnClearedSessionCookie } from './v3/responses.js';
+export * from './schema.js';
+export * from './bootstrap.js';

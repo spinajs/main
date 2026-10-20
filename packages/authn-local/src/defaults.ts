@@ -1,7 +1,7 @@
-import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from './schema.js';
 import { frozenCopy } from '@spinajs/util';
 
-const local = AUTHN_CONFIGURATION_SCHEMA.properties.local.properties;
+const local = AUTHN_LOCAL_CONFIGURATION_SCHEMA.properties;
 
 /** The schema's `authn.local` defaults, for the `deps`/`options` seams that bypass the configuration. */
 export const AUTHN_LOCAL_DEFAULTS = frozenCopy({

@@ -7,9 +7,8 @@ import { DI } from '@spinajs/di';
 import { FakeMfaStep } from '@spinajs/authn-testing';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { AUTHN_ENV_FALLBACK_WARNING, AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, authnSecretFindings, isLenientAuthnEnv } from '../../src/index.js';
-import type { AuthnConfigFinding } from '../../src/index.js';
-import { secretStoringSteps } from '../../src/service/boot/secrets.js';
+import { AUTHN_ENV_FALLBACK_WARNING, AUTHN_PUBLIC_COOKIE_SECRET, authnAppEnv, authnSecretFindings, isLenientAuthnEnv, secretStoringSteps } from '../../src/service/boot/index.js';
+import type { AuthnConfigFinding } from '../../src/service/boot/index.js';
 import { buildCore } from '../behaviour/harness.js';
 import { TestLog, useTestLog } from '../audit/test-log.js';
 

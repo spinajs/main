@@ -1,5 +1,6 @@
 import type { IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration, resolveNamedService } from '@spinajs/configuration';
+import type { IConfigurationSchema } from '@spinajs/configuration';
 
 import { AuthenticationStrategy } from '../../contracts/strategy.js';
 import { MfaPolicy } from '../../contracts/mfa.js';
@@ -86,6 +87,18 @@ async function enrolmentFindings(container: IContainer, config: AuthnConfigSourc
 
 const schemaFindings = (e: InvalidConfiguration): AuthnConfigFinding[] => e.violations.map((v) => ({ topic: 'schema', level: 'error', message: `${v.path} ${v.message}` }));
 
+/** The authn schema and the authn.* fragments registered in the lineage of `container` by the authn packages loaded. */
+function authnSchemas(container: IContainer): IConfigurationSchema[] {
+  type Schema = IConfigurationSchema & { $id?: string };
+  const found: Schema[] = [AUTHN_CONFIGURATION_SCHEMA];
+  for (let c: IContainer | undefined = container; c; c = c.Parent) {
+    for (const s of (c.Cache.get('__configurationSchema__', false) ?? []) as Schema[]) {
+      if (s.$configurationModule.startsWith('authn.') && !found.some((f) => f === s || f.$id === s.$id)) found.push(s);
+    }
+  }
+  return found;
+}
+
 /**
  * authn:check-config: what the configuration of `container` gets wrong, by topic. It reports instead of throwing,
  * and covers what boot refuses (secrets, the throttle's checkConfiguration) and what boot accepts but an operator
@@ -102,14 +115,19 @@ export async function checkAuthnConfig(container: IContainer): Promise<AuthnConf
     if (e instanceof InvalidConfiguration) return schemaFindings(e);
     throw e;
   }
-  // In a CLI process the root Configuration resolves before @spinajs/authn is imported, so the schema was never applied.
+  // In a CLI process the root Configuration resolves before the authn packages are imported, so their schemas were never
+  // applied, or only logged what they refused.
   if (config instanceof FrameworkConfiguration) {
-    try {
-      config.validateModule(AUTHN_CONFIGURATION_SCHEMA);
-    } catch (e) {
-      if (e instanceof InvalidConfiguration) return schemaFindings(e);
-      throw e;
+    const refused: AuthnConfigFinding[] = [];
+    for (const schema of authnSchemas(container)) {
+      try {
+        config.validateModule(schema);
+      } catch (e) {
+        if (!(e instanceof InvalidConfiguration)) throw e;
+        refused.push(...schemaFindings(e));
+      }
     }
+    if (refused.length > 0) return refused;
   }
   const out: AuthnConfigFinding[] = [];
 

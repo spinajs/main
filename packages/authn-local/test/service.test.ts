@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import { AsyncService, Autoinject, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
@@ -587,6 +588,7 @@ describe('LocalPasswordService DI wiring', function () {
   before(async () => {
     DI.setESMModuleSupport();
     DI.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+    DI.register(AUTHN_LOCAL_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
     DI.register(ServiceTestConfiguration).as(Configuration);
     DI.register(FakeIdentityStore).as(IdentityStore);
     DI.register(MemoryPasswordCredentialStore).as(PasswordCredentialStore);

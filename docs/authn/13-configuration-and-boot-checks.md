@@ -1,18 +1,19 @@
 # Configuration and boot checks
 
-Every authentication package reads the `authn.*` root, and `@spinajs/authn` owns its schema: `AUTHN_CONFIGURATION_SCHEMA`. The schema fills the defaults and refuses bad values at boot. `DefaultAuthnService` adds the checks a schema cannot express, and `checkAuthnConfig` reports all of them without throwing.
+Every authentication package reads the `authn.*` root. `@spinajs/authn` owns `AUTHN_CONFIGURATION_SCHEMA`, and each package that owns a subtree ships a schema for it. The schemas fill the defaults and refuse bad values at boot. `DefaultAuthnService` adds the checks a schema cannot express, and `checkAuthnConfig` reports all of them without throwing.
 
 ## How it works
 
 1. `AuthnConfigBootstrapper` (a `Bootstrapper` the root entry registers) calls `registerConfigurationSchema(AUTHN_CONFIGURATION_SCHEMA)`. The configuration then validates the merged tree and fills the defaults.
 2. A module that reads `authn.*` but may load where the root entry never does (a directory scan, a CLI command) imports `@spinajs/authn/register-schema`, which registers the schema at import.
-3. `@spinajs/authn` ships a config file with the defaults of `strategies` (empty), `mfa.policy`, `throttle`, `freshAuth`, `linking`, `impersonation` and `audit`. It lists no strategy, no MFA step and no `throttle.service`: config arrays concatenate across files, and a config file loads whether or not its package is imported.
-4. When `DefaultAuthnService` resolves, it:
+3. Each package that owns a subtree registers its schema the same two ways: in its own bootstrapper, and from its `register-schema` module, which every module that reads the subtree imports. The owners are `authn-session` (`authn.session`), `authn-local` (`authn.local`), `authn-token` (`authn.token`, `authn.jwt`), `authn-keys` (`authn.keys`), `authn-totp` (`authn.mfa.totp`), `authn-http` (`authn.http`) and `authn-oidc` (`authn.oidc`). Each package exports its schema from its root and from a `./schemas` entry that has no side effects. A module of another package that reads `authn.session` imports `@spinajs/authn-session/register-schema`.
+4. `@spinajs/authn` ships a config file with the defaults of `strategies` (empty), `mfa.policy`, `throttle`, `freshAuth`, `linking`, `impersonation` and `audit`. It lists no strategy, no MFA step and no `throttle.service`: config arrays concatenate across files, and a config file loads whether or not its package is imported.
+5. When `DefaultAuthnService` resolves, it:
    1. logs a warning when no app env was set (see [App env](#app-env));
    2. runs `checkAuthnSecrets` and fails the boot on its errors;
    3. calls the throttle's `checkConfiguration` (a throw fails the boot);
    4. warns when the throttle has no `peek` and a per-request strategy is listed.
-5. `checkAuthnConfig(container)` returns `AuthnConfigFinding[]` (`topic`, `level`, `message`). `@spinajs/authn-http` serves it as the CLI command `authn:check-config`.
+6. `checkAuthnConfig(container)` (from `@spinajs/authn/boot`) returns `AuthnConfigFinding[]` (`topic`, `level`, `message`). It validates against the authn schema and every `authn.*` schema registered in the container lineage. `@spinajs/authn-http` serves it as the CLI command `authn:check-config`.
 
 ## Configuration
 
@@ -32,7 +33,7 @@ Keys of the core. The full table of each feature is on its page.
 | `authn.linking.jit`, `.byVerifiedEmail` | `boolean` | `false` | | [Account linking](10-account-linking.md#configuration) |
 | `authn.impersonation.*` | object | see page | | [Impersonation](11-impersonation-and-active-role.md#configuration) |
 
-Keys the schema validates for other packages:
+Keys of the other packages. Each is validated by the schema of the package in the last column, except the keys the authn schema keeps because a package reads them without depending on their owner: `authn.session.expiration.maxLifetime` (the impersonation service), `authn.token.prefix`, `authn.token.headerName` and `authn.keys.assertion.typ` (the `authn-http` extractors), and `authn.http.trustProxy` (`http-socket`).
 
 | Key | Type | Default | Allowed values | Read by |
 | --- | --- | --- | --- | --- |
@@ -68,11 +69,11 @@ Keys the schema validates for other packages:
 | `authn.http.publicOrigin` | `string \| null` | unset | `scheme://host[:port]` | [`authn-http`](../authn-http/README.md) |
 | `authn.http.trustProxy` | `string[] \| integer \| null` | unset | CIDRs or a hop count; `null` falls back to `http.trustProxy` | `authn-http`, `authn-oidc` |
 | `authn.http.csrf.enabled`, `.allowedOrigins` | `boolean`, `string[]` | `true`, `[]` | origins | `authn-http` |
-| `authn.http.routes.prefix` | `string` | unset | | Accepted by the schema; no package reads it |
+| `authn.http.routes.prefix` | `string` | unset | | Accepted by the `authn-http` schema; no package reads it |
 
 `authn.oidc.*` has its own schema in [`@spinajs/authn-oidc`](../authn-oidc/README.md).
 
-`authn.local` gets its defaults only when the app sets it, so an app without `authn-local` has no `authn.local` tree. The other objects are created with their defaults when unset. `authn-local` classes built with `deps` or `options` instead of the configuration fall back to `AUTHN_LOCAL_DEFAULTS`, which reads the schema defaults.
+A subtree is checked and gets its defaults only while its package is loaded, so an app without `authn-local` has no `authn.local` tree. With its package loaded, an object is created with its defaults when unset. `authn-local` classes built with `deps` or `options` instead of the configuration fall back to `AUTHN_LOCAL_DEFAULTS`, which reads the schema defaults.
 
 `@spinajs/authn-http` ships two `logger.filters` entries, `RateLimitFilter`s on the `authn-http` logger's `CsrfOriginGuard` refusal lines (`event: 'authn-http.csrf-refused'`): one line per (Origin, own origin) pair a minute, 20 a minute in all. The guard logs every refusal; the filters decide how many are written. Config arrays concatenate, so they join the app's own filters. See [log filters](../log/09-filters.md#ratelimitfilter).
 
@@ -95,7 +96,7 @@ Messages name keys, never values. Set secrets (`authn.mfa.encryptionKey`, `authn
 
 | Topic | Level | Finding |
 | --- | --- | --- |
-| `schema` | error | Each schema violation, by path and rule, never the value |
+| `schema` | error | Each violation of the authn schema or a registered `authn.*` schema, by path and rule, never the value |
 | `env` | warning | No app env set; the deployment counts as production |
 | `strategies` | warning, error | No strategy listed; a listed service that is not registered |
 | `secrets` | error, warning | The secret checks above |
@@ -109,6 +110,7 @@ Messages name keys, never values. Set secrets (`authn.mfa.encryptionKey`, `authn
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `AuthnConfigBootstrapper` | `Bootstrapper` | `AuthnConfigBootstrapper` | `@spinajs/authn/register-schema` | Import `register-schema` in a module that reads `authn.*` without the root entry |
+| Subtree schemas | `Bootstrapper` | `AuthnSessionConfigBootstrapper`, `AuthnLocalConfigBootstrapper`, `AuthnTokenConfigBootstrapper`, `AuthnKeysConfigBootstrapper`, `AuthnTotpConfigBootstrapper`, `AuthnHttpConfigBootstrapper` | Each package's `register-schema` module | Import the owner's `register-schema` in a module that reads its subtree |
 
 ## Important behaviour
 
@@ -127,7 +129,7 @@ Messages name keys, never values. Set secrets (`authn.mfa.encryptionKey`, `authn
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { checkAuthnConfig } from '@spinajs/authn';
+import { checkAuthnConfig } from '@spinajs/authn/boot';
 
 export async function assertAuthnConfig(): Promise<void> {
   const findings = await checkAuthnConfig(DI.RootContainer);
