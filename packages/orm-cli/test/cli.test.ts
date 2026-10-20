@@ -1239,6 +1239,22 @@ describe('migrate-create', () => {
  * A fresh database: the CLI Orm boots although no model has its table yet, a full migrate-up then fails when a
  * registered model still has none, and a narrowed run does not check.
  */
+function countReloads(orm: Orm) {
+  const original = orm.reloadTableInfo;
+  let calls = 0;
+  orm.reloadTableInfo = function (this: Orm, ...args: Parameters<Orm['reloadTableInfo']>) {
+    calls++;
+    return original.apply(this, args);
+  };
+
+  return {
+    count: () => calls,
+    restore: () => {
+      orm.reloadTableInfo = original;
+    },
+  };
+}
+
 describe('orm-cli migrate-up and db.StrictTableCheck', function () {
   this.timeout(20000);
 
@@ -1324,6 +1340,28 @@ describe('orm-cli migrate-up and db.StrictTableCheck', function () {
     await cmd.execute({ connection: CONNECTION_NAME });
 
     expect(process.exitCode).to.equal(0);
+  });
+
+  it('migrate-up --name does not check the tables', async () => {
+    const reloads = countReloads(orm);
+    const cmd = await DI.resolve(MigrateUpCommand);
+    await cmd.execute({ name: defined[0].name });
+
+    expect(reloads.count()).to.equal(0);
+    expect(process.exitCode).to.equal(0);
+    reloads.restore();
+  });
+
+  it('migrate-up does not reload the table info again when db.StrictTableCheck is false', async () => {
+    const reloads = countReloads(orm);
+    Object.defineProperty(orm, 'StrictTableCheck', { get: () => false, configurable: true });
+    const cmd = await DI.resolve(MigrateUpCommand);
+    await cmd.execute({});
+    delete (orm as any).StrictTableCheck;
+
+    expect(reloads.count()).to.equal(0);
+    expect(process.exitCode).to.equal(0);
+    reloads.restore();
   });
 
   it('migrate-up exits 0 once every registered model has its table', async () => {

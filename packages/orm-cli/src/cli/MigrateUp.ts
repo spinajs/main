@@ -35,7 +35,7 @@ export class MigrateUpCommand extends CliCommand {
 
     // A run narrowed by --name or --connection says nothing about the tables of the migrations it left out.
     if (!options.name && !options.connection) {
-      await this.checkModelTables(orm);
+      await this.checkModelTables(orm, options.fake);
     }
   }
 
@@ -71,7 +71,12 @@ export class MigrateUpCommand extends CliCommand {
    * The application boot this step precedes refuses a model whose table is missing (db.StrictTableCheck), so the
    * step fails here, after the migrations it applied, rather than at the first start.
    */
-  protected async checkModelTables(orm: Orm): Promise<void> {
+  protected async checkModelTables(orm: Orm, fake?: boolean): Promise<void> {
+    // The boot already warned about every missing table of a lenient configuration.
+    if (!orm.StrictTableCheck) {
+      return;
+    }
+
     try {
       await orm.reloadTableInfo({ strict: orm.StrictTableCheck });
     } catch (err) {
@@ -79,7 +84,7 @@ export class MigrateUpCommand extends CliCommand {
         throw err;
       }
 
-      this.Log.error({ reason: err.message }, 'Migrations are applied, but the application will not boot: ${reason}');
+      this.Log.error({ reason: err.message }, fake ? 'Migrations are recorded as applied ( --fake ), but the application will not boot: ${reason}' : 'Migrations are applied, but the application will not boot: ${reason}');
       process.exitCode = 1;
     }
   }
