@@ -64,6 +64,7 @@ export class RbacModel extends AuthorizationModel {
   private readonly warnedRoles = new Set<string>();
   private readonly warnedAssignments = new Set<string>();
   private readonly warnedListRules = new Set<string>();
+  private warnedMaxPlanSubjects = false;
   private storedRulesAt?: { readonly version: string; readonly rules: readonly RuleDef[] };
   /*
    * Role reload (§6.1.2 "compile on RoleStore version change"): every stale mark bumps roleMarks; the
@@ -107,6 +108,10 @@ export class RbacModel extends AuthorizationModel {
     const graph = compileRoles(roles, ladders, { extraEdges: this.extraEdges() });
     for (const ext of this.extensions) for (const filter of ext.nativeFilters?.() ?? []) ctx.registerNativeFilter(filter);
     const { rolesCheckMs, ...cache } = cacheConfig(ctx);
+    if (!this.warnedMaxPlanSubjects && ctx.config<unknown>('maxPlanSubjects', undefined) !== undefined) {
+      this.warnedMaxPlanSubjects = true;
+      this.log.warn({}, 'rbac: authz.rbac.maxPlanSubjects is no longer read; a list term carries every subject, so remove the key');
+    }
     const assignments = new AssignmentCache(this.opts.assignments, { ...cache, clock: this.clock(), model: this.name });
     this.loaded = { version, graph, registry: ctx.permissions, anonymousRoles: anonymousRoles(ctx, graph), serviceRoles: serviceRoles(ctx, graph), assignments, rolesCheckMs };
     this.grants = undefined;

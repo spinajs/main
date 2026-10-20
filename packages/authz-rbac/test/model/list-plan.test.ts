@@ -153,4 +153,16 @@ describe('authz-rbac listPlan (design §6.2)', () => {
     expect(args.subjects).to.have.length(602);
     expect(args).to.not.have.property('membership');
   });
+
+  it('warns once that authz.rbac.maxPlanSubjects is no longer read', async () => {
+    const warnings: string[] = [];
+    const m = new RbacModel({ roles: new MemoryRoleStore(ROLES), assignments: new MemoryAssignmentStore([]), log: { warn: (_fields: unknown, template: string) => void warnings.push(template) } as never });
+    const init = (config: Record<string, unknown>) => m.init(fakeModelInitContext({ model: 'rbac', permissions: registry(), config }));
+    await init({});
+    expect(warnings).to.deep.equal([]);
+    await init({ maxPlanSubjects: 2 });
+    await init({ maxPlanSubjects: 2 });
+    expect(warnings).to.have.length(1);
+    expect(warnings[0]).to.contain('authz.rbac.maxPlanSubjects');
+  });
 });
