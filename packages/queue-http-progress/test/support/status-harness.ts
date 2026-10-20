@@ -72,6 +72,8 @@ export function statusHarness(): BehaviourHarness {
       host.setConfig(['db'], {
         DefaultConnection: 'queue',
         Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'queue', Migration: MIGRATION }],
+        // Replacing db drops authz-orm's package default (authz: 'default'), which names no connection here.
+        Aliases: { authz: 'queue' },
       });
       host.setConfig(['logger'], { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
 

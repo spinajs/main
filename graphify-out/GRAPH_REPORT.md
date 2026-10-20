@@ -1,7 +1,7 @@
 # Graph Report - rv-refactor-authz-rbac-db-store-base  (2026-10-20)
 
 ## Corpus Check
-- 4637 files · ~3,040,392 words
+- 4637 files · ~3,040,429 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 439 file(s) not represented in the graph (top: (none) 376, .pug 41, .handlebars 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `8dc6e02d`
+- Built from commit: `348abff3`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -6193,7 +6193,7 @@ Nodes (3): repository, type, url
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Injectable()` connect `Injectable` to `totp-step.test.ts`, `JwtBearerStrategy.ts`, `db-link-store.test.ts`, `OrmDriver`, `durable-e2e.test.ts`, `TelemetryMiddleware`, `AuthzConfigError`, `InvalidArgument`, `orm/src/builders.ts`, `Users.ts`, `identity/sql.ts`, `authz-rbac/src/admin/common.ts`, `Authentication`, `packages_authz_lib_mjs_index`, `ref_spinajs_di`, `AmqpQueueClient`, `push.ts`, `Examples`, `MfaStep`, `SpineJsInternationalizationFromJson`, `ref_spinajs_authz`, `default-authn-service.ts`, `email.deferred.test.ts`, `HttpServer`, `validator.ts`, `credential-admin-guard.test.ts`, `queue/src/index.ts`, `Ok`, `Class`, `packages_authz_lib_mjs_index`, `uploads.test.ts`, `ConfigVarProtocol`, `notes.socket.ts`, `SocketHub`, `FileTarget`, `ref_spinajs_log_common`, `di/test/di.test.ts`, `packages_queue_lib_mjs_index`, `config-role-store.test.ts`, `SqsQueueClient`, `TelemetryAccessPolicy`, `FallbackGroupTarget`, `FrameworkConfiguration`, `adapter/index.ts`, `root.ts`, `BasePolicy`, `EmailSender`, `AuthnContext`, `authn-oidc/test/core.test.ts`, `BaseController`, `http/src/interfaces.ts`, `impersonation-guard.test.ts`, `ReauthTestStrategy`, `authn-audit.test.ts`, `TokenTestStrategy`, `Initiator`, `DefaultFileHasher`, `SocketClient`, `awsParameterStoreProtocol.ts`, `TableQueryBuilder`, `SocketServer`, `PerfSink`, `assignment-sql.test.ts`, `http-socket/src/interfaces.ts`, `AuthzAdmin`, `fs`, `access-config/index.ts`, `message`, `WhenRepeatedFilter`, `Features`, `metadata/orm-store.ts`, `parseSetKey`, `UserMetadataController`, `MsSqlOrmDriver`, `Configuration`, `principal-factory.test.ts`, `PugRenderer`, `QueueService`, `packages_authn_lib_mjs_contracts_index`, `ref_spinajs_di`, `SqlDriver`, `DefaultFileInfo`, `DbConfig`, `EmailSend`, `HandlebarsRenderer`, `upgrade-migration.test.ts`, `lib.ts`, `normalizeFsPath`, `authz-abac/test/admin/support.ts`, `invitations/service.ts`, `IntHttpMiddleware`, `.compileToFile`, `admin/assignments.ts`, `ConfigVar`, `TotpService`, `GraphanaLokiLogTarget`, `http-socket/src/args.ts`, `csrf-origin-guard.test.ts`, `authz-testing/test/di.test.ts`, `host/service.ts`, `User`, `ref_chai`, `real-ip.test.ts`, `PdfRenderer`, `FallbackGroupTarget`, `TaskFailed`, `http-swagger/src/access.ts`, `token/extension.ts`, `packages_authn_lib_mjs_contracts_index_identityref`, `Configuration`, `v3/k5-throttle.test.ts`, `InsertQueryBuilder`, `group-service.ts`, `StubRenderer`, `OtelTracing`, `fsOneDrive`, `Features`, `DbTokenService`, `autoinject-options.test.ts`, `DefaultEmailService`, `OrmNotFoundException`, `teamRef`, `packages_di_lib_mjs_index_icontainer`, `RendererOrmDriverBridge`, `TelemetryServiceTokenBootstrapper`, `DefaultAdminGuard`, `Csv`, `ThrowingRenderer`, `SocketDispatcher`, `IdentityRef`, `admin/rules.ts`, `sr16-env.test.ts`, `SchemaProvider`, `authn-local/test/kit-harness.ts`, `UserResourceAdapter`, `Long-lived spans`, `service/token-service.ts`, `authn-oidc/src/options/options.ts`, `CurrentUserArg`, `DbConfigSourceBotstrapper`, `sse.ts`, `queue-harness.ts`, `DbTranslationSource`, `InvitationMail`, `MemoryMembershipStore`, `DefaultAccountGuard`, `orm/src/interfaces.ts`?**
-  _High betweenness centrality (0.073) - this node is a cross-community bridge._
+  _High betweenness centrality (0.074) - this node is a cross-community bridge._
 - **What connects `@types/bunyan`, `@types/chai`, `@types/chai-as-promised` to the rest of the system?**
   _1703 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `model/evaluate.ts` be split into smaller, more focused modules?**
