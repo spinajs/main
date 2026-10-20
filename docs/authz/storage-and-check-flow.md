@@ -345,8 +345,9 @@ There are no per-row ACL rows. Access to one resource comes from:
 
 ## ORM enforcement
 
-- [`AccessListMiddleware`](../../packages/authz-orm/src/lists/middleware.ts#L61-L98) turns
-  `.accessible(perm)` into an `accessPlan` rendered as SQL and AND'd with the caller's `where`.
+- [`AccessListMiddleware`](../../packages/authz-orm/src/lists/middleware.ts) turns
+  `.accessible(perm)` into an `accessPlan`, applied to the query builder by the registered
+  `PlanTermCompiler`s and AND'd with the caller's `where`; expiry is the database's now.
   `.withAccess([...])` adds per-row access columns; `.within(refs)` restricts to those scopes.
 - [`AccessGuardMiddleware`](../../packages/authz-orm/src/guard/middleware.ts#L58-L86) throws in
   test and warns in development when an `@AccessResource` model is selected without

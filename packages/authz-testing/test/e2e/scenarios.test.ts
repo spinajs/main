@@ -83,9 +83,10 @@ for (const kind of E2E_DIALECTS) {
     });
 
     it('an expired assignment grants nothing; a live one with an expiry grants until then', async () => {
+      // Checks read the kit clock (NOW), lists the database's: the live assignment must be live for both.
       s = await open(
         harness,
-        stackWorld([assignment('a1', alice, 'viewer', ref('project', 'p1'), { expiresAt: new Date(NOW.getTime() - HOUR) }), assignment('a2', bob, 'viewer', ref('project', 'p2'), { expiresAt: new Date(NOW.getTime() + HOUR) })]),
+        stackWorld([assignment('a1', alice, 'viewer', ref('project', 'p1'), { expiresAt: new Date(NOW.getTime() - HOUR) }), assignment('a2', bob, 'viewer', ref('project', 'p2'), { expiresAt: new Date(Math.max(NOW.getTime(), Date.now()) + HOUR) })]),
         'expiry',
       );
       await agrees(s, alice, 'task:read', []);

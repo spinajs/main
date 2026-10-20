@@ -1,17 +1,17 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { AccessDenied, AuthorizationModel, PlanTermSql, SYSTEM, runWithPrincipal } from '@spinajs/authz';
+import { AccessDenied, AuthorizationModel, SYSTEM, runWithPrincipal } from '@spinajs/authz';
 import type { ListPlanRequest, ListSupport, ModelListPlan, PermissionDef, Principal, ResourceType } from '@spinajs/authz';
 import { StaticModel, testHost } from '@spinajs/authz-testing';
 import type { IContainer } from '@spinajs/di';
 import type { ModelBase } from '@spinajs/orm';
 
-import { AccessResource, Owner } from '../../src/index.js';
+import { AccessResource, Owner, PlanTermCompiler } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { createAncestorTable, dropAncestorTable } from '../support/ancestors.js';
-import { FlagSql } from '../support/flag-sql.js';
+import { FlagTerm } from '../support/flag-term.js';
 
 const expect = chai.expect;
 
@@ -47,7 +47,7 @@ describe('lists through the engine', function () {
   });
 
   beforeEach(async () => {
-    undo.push(testHost.registerInRoot(PlanTermSql, FlagSql));
+    undo.push(testHost.registerInRoot(PlanTermCompiler, FlagTerm));
     const cfg = testHost.config();
     cfg.set(['authz', 'domains', 'lists'], { permissions: { 'task:read': { types: ['task'], list: true }, 'task:update': { types: ['task'], list: true } }, combine: { default: { algorithm: 'deny-overrides', models: ['m1'] } }, cache: { maxEntries: 0 } });
     cfg.set(['authz', 'orm', 'domain'], 'lists');

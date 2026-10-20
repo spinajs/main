@@ -108,38 +108,49 @@ Permission names are compared exactly: `@AccessResource('task')` registers `task
 - `.unscoped(reason)` runs without a filter and writes an `unscoped` audit entry
   (`authz.audit.unscoped`).
 
-### Plan terms and `PlanTermSql`
+### Plan terms and `PlanTermCompiler`
 
 An access plan is a list of opaque terms (`{ op, args }`) from each model's `listPlan`. The adapter
-renders each term with the `PlanTermSql` registered for its `op` and combines them as
-`(permit OR …) AND NOT (deny OR …)`. A term with no compiler fails the query with `AuthzConfigError`.
+applies each term with the `PlanTermCompiler` registered for its `op`, each in a where group of its own,
+and combines the groups as `(permit OR …) AND NOT (deny OR …) AND within`. A term with no compiler, or
+a compiler that adds no condition, fails the query with `AuthzConfigError`.
 
-| op | Registered by | Renders |
+| op | Registered by | Adds |
 |---|---|---|
-| `relation.owner` | authz-orm | the `@Owner()` column (and its `typeColumn`) is one of `args.principals` |
-| `relation.self` | authz-orm | the `@Self()` column is one of the `user` principals in `args.principals` |
-| `rbac.assignment` | authz-rbac (`RbacAssignmentSql`) | the `EXISTS` over `authz_assignment` and `authz_resource_ancestor` |
+| `relation.owner` | authz-orm (`RelationOwnerTerm`) | the `@Owner()` column as text (and its `typeColumn`) is one of `args.principals` |
+| `relation.self` | authz-orm (`RelationSelfTerm`) | the `@Self()` column as text is one of the `user` principals in `args.principals` |
+| `rbac.assignment` | authz-rbac (`RbacAssignmentTerm`) | `EXISTS` over `authz_assignment` at the row, at an ancestor (`authz_resource_ancestor`) or at `$global` |
 
-A model that adds list support registers a compiler for each op its `listPlan` returns:
+A model that adds list support registers a compiler for each op its `listPlan` returns. The contract
+lives in `@spinajs/authz-orm/plan`, an entry point that loads nothing else of the adapter:
 
 ```ts
-import { PlanTermSql } from '@spinajs/authz';
-import type { SqlFragment, SqlRowContext } from '@spinajs/authz';
+import { PlanTermCompiler } from '@spinajs/authz-orm/plan';
+import type { PlanRow } from '@spinajs/authz-orm/plan';
+import { Injectable, Singleton } from '@spinajs/di';
+import type { IWhereBuilder } from '@spinajs/orm';
 
 @Singleton()
-@Injectable(PlanTermSql)
-export class TenantSql extends PlanTermSql {
-  readonly op = 'myapp.tenant';   // listPlan returns { op: 'myapp.tenant', args: { tenant: '42' } }
-  toSql(args: unknown, row: SqlRowContext): SqlFragment {
-    return { sql: `${row.rowColumn('tenant_id')} = ?`, bindings: [(args as { tenant: string }).tenant] };
+@Injectable(PlanTermCompiler)
+export class TenantTerm extends PlanTermCompiler {
+  readonly op = 'myapp.tenant'; // listPlan returns { op: 'myapp.tenant', args: { tenant: '42' } }
+
+  apply(args: unknown, where: IWhereBuilder<unknown>, _row: PlanRow): void {
+    where.where('tenant_id', (args as { tenant: string }).tenant);
   }
 }
 ```
 
-`SqlRowContext` gives the `type`, `rowId` (SQL yielding the row id as text), `rowColumn(column)`, the
-`ancestorTable`, the `owner`/`self` relation columns, `now` and the `dialect` (`sqlite`, `postgres`,
-`mysql`, `mssql`). The SQL must keep exactly the rows a check of each one would allow: boot rule 12
+`where` is a group of the resource query, so a column name there is the row's. `PlanRow` gives the
+`type`, `id` (the id column cast to text: `where.whereIn(row.id, ids)` on the group, `outer(row.id)` in a
+sub-query), the `owner`/`self` relation columns, the `ancestorTable`, `now()` (the database's current
+instant: `where('expires_at', '>', row.now())`) and `from(table, alias)`, a query on the row's connection
+that `whereExist()` correlates with the group it is called on. A term that matches no row adds
+`where(false)`. The condition must keep exactly the rows a check of each one would allow: boot rule 12
 guarantees that for the RBAC and ABAC plans, a custom model guarantees it for its own terms.
+
+Expiry in a list is the database's: `rbac.assignment` compares `expires_at` with `row.now()`, while a
+check uses `AuthzClock`. See [the authz README](../../docs/authz/README.md) for what a clock skew does.
 
 ## Per-row access
 
@@ -148,7 +159,7 @@ const rows = await Task.query().accessible('task:read').withAccess(['task:update
 // rows[i].$access = { 'task:update': true, 'task:delete': false }
 ```
 
-Each permission is one boolean column built from the same filter, so a page with its access is one
+Each permission is one boolean column built from the same filter (`selectCondition()`), so a page with its access is one
 query. Each permission must be `list: true`. `$access` is serialized with the row; rename it with
 `authz.orm.accessField`. A client may seed its cache from it: it equals what
 `POST /user/access/checks` answers.

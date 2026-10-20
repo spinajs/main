@@ -2,18 +2,18 @@ import * as chai from 'chai';
 import 'mocha';
 import sinon from 'sinon';
 
-import { AccessDenied, AuthzConfigError, DecisionAudit, PlanTermSql, runWithPrincipal } from '@spinajs/authz';
+import { AccessDenied, AuthzConfigError, DecisionAudit, runWithPrincipal } from '@spinajs/authz';
 import type { AccessPlan, AuthzService, Principal } from '@spinajs/authz';
 import { RecordingAudit, testHost } from '@spinajs/authz-testing';
 import { HasMany, Relation } from '@spinajs/orm';
 import type { ModelBase } from '@spinajs/orm';
 
-import { AccessResource } from '../../src/index.js';
+import { AccessResource, PlanTermCompiler } from '../../src/index.js';
 import { marksOf } from '../../src/marker.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { createAncestorTable, dropAncestorTable } from '../support/ancestors.js';
-import { FlagSql } from '../support/flag-sql.js';
+import { FlagTerm } from '../support/flag-term.js';
 
 const expect = chai.expect;
 
@@ -45,7 +45,7 @@ describe('.accessible() and .unscoped()', function () {
 
   beforeEach(async () => {
     audit = new RecordingAudit();
-    undo.push(testHost.registerInRoot(PlanTermSql, FlagSql), testHost.registerInRoot(DecisionAudit, testHost.instance(audit)));
+    undo.push(testHost.registerInRoot(PlanTermCompiler, FlagTerm), testHost.registerInRoot(DecisionAudit, testHost.instance(audit)));
     service = await (await testHost.domains()).service('root');
     plan = sinon.stub(service, 'accessPlan').resolves(green);
   });
