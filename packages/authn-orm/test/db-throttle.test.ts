@@ -7,10 +7,10 @@ import 'mocha';
 
 import { createHmac } from 'node:crypto';
 
-import { DbAuthnThrottle, ThrottleParams } from '../src/index.js';
+import { DbAuthnThrottle, ThrottleParams, readInstant } from '../src/index.js';
 import { DbThrottleStore } from '../src/throttle/db-throttle-store.js';
 import type { ClaimState, Claimed, DbThrottleStoreOptions, StoreTimes } from '../src/throttle/db-throttle-store.js';
-import { sqlTime, textMs } from '../src/support/sql.js';
+import { sqlTime } from '../src/support/sql.js';
 import { DB_KINDS, TestDb, bootDb, rawQuery } from './support/db.js';
 
 const IP = '192.0.2.10';
@@ -342,7 +342,7 @@ for (const kind of DB_KINDS) {
       const r = await row(db, ipK);
       expect(r?.attempts).to.eq(1);
       // attempt 1 after free 1 waits 4 s from the last attempt (T0 + 8 s)
-      expect(textMs(r!.next_text)).to.eq(T0.getTime() + 12000);
+      expect(readInstant(r!.next_text)?.getTime()).to.eq(T0.getTime() + 12000);
     });
 
     it('purge throws InvalidArgument on an invalid date', async () => {

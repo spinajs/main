@@ -1,12 +1,9 @@
 import { createHash } from 'node:crypto';
 
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
-import { OrmDriver, RawQuery } from '@spinajs/orm';
-import type { IUpdateResult } from '@spinajs/orm';
+import { OrmDriver } from '@spinajs/orm';
 import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
 import { DateTime } from 'luxon';
-
-import { readInstant } from '../models/time.js';
 
 /** @internal */
 export type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mssql' | 'other';
@@ -31,63 +28,27 @@ export function driverDialect(driver: OrmDriver): Dialect {
   return 'other';
 }
 
-/** @internal Undefined for an unknown dialect: read the column itself and pass it to {@link columnText}. */
-export function textColumn(dialect: Dialect, column: string, alias: string): RawQuery | undefined {
-  switch (dialect) {
-    case 'sqlite':
-    case 'postgres':
-      return RawQuery.create(`CAST(${column} AS TEXT) AS ${alias}`);
-    case 'mysql':
-      return RawQuery.create(`CAST(${column} AS CHAR) AS ${alias}`);
-    case 'mssql':
-      // style 127 keeps the offset of a DATETIMEOFFSET, so a value stamped in a non-UTC offset reads as its instant
-      return RawQuery.create(`CONVERT(varchar(33), ${column}, 127) AS ${alias}`);
-    default:
-      return undefined;
-  }
-}
-
-/** @internal Adds `column` to a select, as text where the dialect allows. */
-export function selectTime<Q extends { select(column: string | RawQuery): Q }>(dialect: Dialect, query: Q, column: string, alias: string): Q {
-  const text = textColumn(dialect, column, alias);
-  return text ? query.select(text) : query.select(column);
-}
-
-/** @internal The text form of a datetime selected with {@link selectTime}; null when the column is null. */
-export function columnText(dialect: Dialect, row: Record<string, unknown>, column: string, alias: string): string | null {
-  const value = textColumn(dialect, column, alias) ? row[alias] : row[column];
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'string' && textColumn(dialect, column, alias)) return value;
-  const at = readInstant(value as string | Date | DateTime);
-  return at ? sqlTime(at.getTime(), dialect) : String(value);
-}
-
 // Four-digit years keep the text form of a datetime ordered on sqlite, where the column holds text.
 export const MIN_MS = Date.UTC(1000, 0, 1);
 export const MAX_MS = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 
-/**
- * @internal The instant as the text the ORM writes for `dialect` (ISO-8601 UTC on SQLite, where columns hold
- * text and compare as text; UTC wall clock elsewhere), clamped to four-digit years.
- */
-export function sqlTime(ms: number, dialect: Dialect): string {
-  const at = DateTime.fromMillis(Math.min(Math.max(ms, MIN_MS), MAX_MS), { zone: 'utc' });
-  return dialect === 'sqlite' ? at.toISO()! : at.toFormat('yyyy-MM-dd HH:mm:ss.SSS');
-}
-
-/** @internal The instant as a datetime column value, clamped to four-digit years like {@link sqlTime}. */
+/** @internal The instant as a datetime column value, clamped to four-digit years. */
 export function instant(ms: number): DateTime {
   return DateTime.fromMillis(Math.min(Math.max(ms, MIN_MS), MAX_MS), { zone: 'utc' });
+}
+
+/**
+ * @internal {@link instant} as column text, for the migrations, which run on a bare driver: ISO-8601 on SQLite, where
+ * columns hold text and compare as text, the SQL format elsewhere.
+ */
+export function sqlTime(ms: number, dialect: Dialect): string {
+  const at = instant(ms);
+  return dialect === 'sqlite' ? at.toISO()! : at.toFormat('yyyy-MM-dd HH:mm:ss.SSS');
 }
 
 /** @internal A hydrated datetime column as a Date; an invalid or missing value is an invalid Date. */
 export function dateOf(value: DateTime | null | undefined): Date {
   return value ? value.toJSDate() : new Date(NaN);
-}
-
-/** @internal NaN when the text does not parse. */
-export function textMs(text: string): number {
-  return readInstant(text)?.getTime() ?? NaN;
 }
 
 /** @internal The time of a valid Date within four-digit years; anything else throws `InvalidArgument` naming `label`. */
@@ -98,9 +59,6 @@ export function checkedMs(value: unknown, label: string): number {
   }
   return ms;
 }
-
-/** @internal */
-export const rowsAffected = (r: unknown): number => (r as IUpdateResult | undefined)?.RowsAffected ?? 0;
 
 // sqlite: ResourceDuplicated; postgres: 23505; mysql: ER_DUP_ENTRY / 1062; mssql: 2627 (key) or 2601 (index).
 /** @internal */
