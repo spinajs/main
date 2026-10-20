@@ -5,7 +5,7 @@
 ## How it works
 
 1. **Construction.** `FrameworkConfiguration.loadSources()` resolves each source with `[RunApp, CustomConfigPaths, AppBaseDir, Env]`. The `BaseFileSource` constructor:
-   1. sets `process.env.WORKSPACE_ROOT_PATH` to the nearest ancestor of the working directory whose `node_modules/@spinajs` is not empty, when the variable is unset;
+   1. sets `process.env.WORKSPACE_ROOT_PATH` to the nearest ancestor of the working directory whose `node_modules/@spinajs` is not empty, up to the workspace root, when the variable is unset;
    2. builds `CommonDirs`, the search list below;
    3. sets `BasePath` to the nearest ancestor of the working directory that has a `node_modules` folder, or the working directory itself.
 2. **`Load(configuration)`** reads the environment with `getEnvironment(configuration)` (see [Environments](02-environments.md)), then calls `load()` twice:
@@ -24,12 +24,14 @@ In merge order; later directories win for scalars:
 | # | Directory | When |
 | --- | --- | --- |
 | 1 | `<cwd>/src/config` | always (package tests) |
-| 2 | `<dir>/node_modules/@spinajs/*/lib/<mjs\|cjs>/config` for every ancestor `<dir>` of the working directory that has `node_modules`, nearest first | always |
+| 2 | `<dir>/node_modules/@spinajs/*/lib/<mjs\|cjs>/config` for every ancestor `<dir>` of the working directory that has `node_modules`, nearest first, up to the workspace root | always |
 | 3 | `<WORKSPACE_ROOT_PATH>/node_modules/@spinajs/*/lib/<mjs\|cjs>/config` | when `WORKSPACE_ROOT_PATH` is set or detected |
 | 4 | `<cwd>/lib/config`, `<cwd>/dist/config`, `<cwd>/build/config`, `<cwd>/config` | always |
 | 5 | `<appBaseDir>/<app>/config` | when `app` and `appBaseDir` are set |
 | 6 | `<cwd>/apps/<app>/config`, `<cwd>/dist/apps/<app>/config`, `<cwd>/lib/apps/<app>/config`, `<cwd>/build/apps/<app>/config` | when `app` is set |
 | 7 | each `cfgCustomPaths` entry; relative ones resolve against `BasePath` | when set |
+
+The workspace root is the nearest ancestor, the working directory included, whose `package.json` declares `workspaces` or that holds a `pnpm-workspace.yaml`. Directories above it belong to another project and are not searched, so a checkout nested in another one (a git worktree inside the main checkout) does not load the outer checkout's packages. Without a workspace root the search goes up to the filesystem root.
 
 `mjs` is used when ESM mode is on (`DI.setESMModuleSupport()`), `cjs` otherwise. A directory that does not exist is skipped.
 
