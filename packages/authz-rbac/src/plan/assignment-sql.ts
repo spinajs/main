@@ -1,6 +1,7 @@
 import { PlanTermSql } from '@spinajs/authz';
 import type { PrincipalRef, SqlFragment, SqlRowContext } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
+import { sql } from '@spinajs/orm';
 
 import { parsePrincipalSubjectKey } from '../model/sets/keys.js';
 import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/assignment-row.js';
@@ -9,32 +10,9 @@ import { RBAC_ASSIGNMENT_PLAN_OP, parseRbacPlanArgs } from './args.js';
 import type { RbacAssignmentPlanArgs, RbacPlanRole } from './args.js';
 
 const GLOBAL_TYPE = '$global';
-const FALSE_SQL: SqlFragment = Object.freeze({ sql: '(1 = 0)', bindings: Object.freeze([]) });
+const FALSE_SQL: SqlFragment = Object.freeze(sql`(${sql.FALSE})`);
 
-const raw = (sql: string): SqlFragment => ({ sql, bindings: [] });
-const isFragment = (v: unknown): v is SqlFragment => typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof Date) && typeof (v as SqlFragment).sql === 'string' && Array.isArray((v as SqlFragment).bindings);
-
-/** A fragment is inlined, an array becomes `?, ?, …` (never empty here), anything else one `?`. */
-function sql(strings: TemplateStringsArray, ...values: unknown[]): SqlFragment {
-  let text = strings[0];
-  const bindings: unknown[] = [];
-  values.forEach((v, i) => {
-    if (isFragment(v)) {
-      text += v.sql;
-      bindings.push(...v.bindings);
-    } else if (Array.isArray(v)) {
-      text += v.map(() => '?').join(', ');
-      bindings.push(...v);
-    } else {
-      text += '?';
-      bindings.push(v);
-    }
-    text += strings[i + 1];
-  });
-  return { sql: text, bindings };
-}
-
-const join = (separator: string, list: readonly SqlFragment[]): SqlFragment => ({ sql: list.map((f) => f.sql).join(separator), bindings: list.flatMap((f) => f.bindings) });
+const { raw, join } = sql;
 
 /** As SqlDatetimeValueConverter writes a datetime on SQLite (local wall clock, no zone): text order is time order. */
 export function sqliteDateTime(d: Date): string {
@@ -88,8 +66,8 @@ function relationSql(row: SqlRowContext, name: 'owner' | 'self', principals: rea
     if (principals.length === 0) return undefined;
     const typeColumn = raw(row.rowColumn(columns.typeColumn));
     return sql`(${join(
-      ' OR ',
       principals.map((p) => sql`(${typeColumn} = ${p.type} AND ${column} = ${p.id})`),
+      ' OR ',
     )})`;
   }
   // Without a type column the relation names user principals only (overview, ResourceEntry.owner).
@@ -111,9 +89,9 @@ function roleClause(alias: string, roles: readonly RbacPlanRole[], branch: 'dire
       if (!relation) continue;
       conditions.push(relation);
     }
-    parts.push(sql`(${join(' AND ', conditions)})`);
+    parts.push(sql`(${join(conditions, ' AND ')})`);
   }
-  return parts.length === 0 ? undefined : sql`(${join(' OR ', parts)})`;
+  return parts.length === 0 ? undefined : sql`(${join(parts, ' OR ')})`;
 }
 
 /** The deny form of design §6.2 (one sub-query); positive here, the plan's consumer negates deny terms. */
@@ -138,7 +116,7 @@ export function rbacAssignmentSql(args: RbacAssignmentPlanArgs, row: SqlRowConte
   if (above) branches.push(sql`EXISTS (SELECT 1 FROM ${raw(row.ancestorTable)} authz_a JOIN ${table} authz_s ON authz_s.scope_type = authz_a.ancestor_type AND authz_s.scope_id = authz_a.ancestor_id WHERE authz_a.resource_type = ${row.type} AND authz_a.resource_id = ${id} AND ${holder('authz_s', args, now)} AND ${live('authz_s', now)} AND ${above})`);
   const global = args.global ? roleClause('authz_s', args.roles, 'global', row, principals) : undefined;
   if (global) branches.push(sql`EXISTS (SELECT 1 FROM ${table} authz_s WHERE authz_s.scope_type = ${GLOBAL_TYPE} AND ${holder('authz_s', args, now)} AND ${live('authz_s', now)} AND ${global})`);
-  return branches.length === 0 ? FALSE_SQL : sql`(${join(' OR ', branches)})`;
+  return branches.length === 0 ? FALSE_SQL : sql`(${join(branches, ' OR ')})`;
 }
 
 @Singleton()

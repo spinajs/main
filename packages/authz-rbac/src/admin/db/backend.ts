@@ -1,7 +1,7 @@
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
-import { OrmDriver } from '@spinajs/orm';
+import { OrmDriver, rowsAffected } from '@spinajs/orm';
 import type { ITransactionOptions } from '@spinajs/orm';
 import { AuthzAdminBackend, AuthzAdminFailure, AuthzConfigError } from '@spinajs/authz';
 import type { AuthzTx, RememberedBatch } from '@spinajs/authz';
@@ -116,8 +116,7 @@ function refuseNested(driver: OrmDriver): void {
 
 async function lockRow(d: OrmDriver, domain: string): Promise<boolean> {
   // MySQL counts matched rows here only because mysql2 sets CLIENT_FOUND_ROWS by default.
-  const out = (await d.update().in(VERSION_TABLE).update({ domain }).where({ domain })) as { RowsAffected?: number } | undefined;
-  return (out?.RowsAffected ?? 0) > 0;
+  return rowsAffected(await d.update().in(VERSION_TABLE).update({ domain }).where({ domain })) > 0;
 }
 
 /**

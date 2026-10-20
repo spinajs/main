@@ -1,13 +1,12 @@
 import { AuthzConfigError, PlanTermSql } from '@spinajs/authz';
 import type { SqlFragment, SqlRowContext } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
+import { sql } from '@spinajs/orm';
 
 import { castText } from './dialect.js';
 
 export const RELATION_OWNER_OP = 'relation.owner';
 export const RELATION_SELF_OP = 'relation.self';
-
-const NOTHING: SqlFragment = Object.freeze({ sql: '1 = 0', bindings: [] });
 
 interface PrincipalArg {
   readonly type: string;
@@ -30,7 +29,7 @@ function columnsOf(row: SqlRowContext, name: 'owner' | 'self'): { column: string
 
 function idIn(row: SqlRowContext, column: string, ids: readonly string[]): SqlFragment {
   const unique = [...new Set(ids)];
-  if (unique.length === 0) return NOTHING;
+  if (unique.length === 0) return sql.FALSE;
   return { sql: `${castText(row.dialect, row.rowColumn(column))} IN (${unique.map(() => '?').join(', ')})`, bindings: unique };
 }
 
@@ -52,7 +51,7 @@ export class RelationOwnerSql extends PlanTermSql {
       const match = idIn(row, column, ids);
       return { sql: `${row.rowColumn(typeColumn)} = ? AND ${match.sql}`, bindings: [type, ...match.bindings] };
     });
-    if (parts.length === 0) return NOTHING;
+    if (parts.length === 0) return sql.FALSE;
     if (parts.length === 1) return parts[0];
     return { sql: parts.map((x) => `(${x.sql})`).join(' OR '), bindings: parts.flatMap((x) => x.bindings) };
   }
