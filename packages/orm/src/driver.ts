@@ -110,6 +110,10 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    */
   public abstract supportedFeatures(): ISupportedFeature;
 
+  /**
+   * The table's columns, or `null` when the table does not exist. The declared type stays non-null so that callers
+   * probing a table they created compile unchanged; `Orm.reloadTableInfo()` reads a missing table from the `null`.
+   */
   public abstract tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]>;
 
   public resolve() {

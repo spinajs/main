@@ -15,7 +15,7 @@
 5. `Orm` registers the `OrmConnection` factory in DI: `DI.resolve<OrmDriver>('OrmConnection', [name])` returns the driver stored under `name`, or `null`.
 6. `Orm` discovers migrations (see [Migrations](10-migrations.md)) and registers every class decorated with `@Model` into `Orm.Models`.
 7. `Orm` assigns `Orm.Migration` (a `MigrationRunner`), registers the default value converters, and runs the boot migration pass unless `MigrateOnStartup` is `false`.
-8. `Orm.reloadTableInfo()` binds each model to the driver named by its `@Connection`, reads the table's columns with `driver.tableInfo()` and merges them into the model descriptor. A model whose connection is not in `Orm.Connections` is skipped with a warning.
+8. `Orm.reloadTableInfo()` binds each model to the driver named by its `@Connection`, reads the table's columns with `driver.tableInfo()` and merges them into the model descriptor. A model whose connection is not in `Orm.Connections` is skipped with a warning. A model whose table is missing (`tableInfo()` answers `null`) fails the boot when `db.StrictTableCheck` is on (the default): one `OrmException` names every such model, its table and its connection, for example `Missing tables (db.StrictTableCheck): model FsObjectRecord: table fs_object on connection authz-fs (main). Create them (run their migrations) or set db.StrictTableCheck to false`. With the key `false`, or in an `Orm` resolved with `MigrateOnStartup: false`, each one is logged as a warning and the model keeps only its decorator columns.
 9. `Orm` wires relation targets (an unknown target model throws `OrmException`), installs the model static methods, and runs the `data()` phase of the migrations applied in step 7.
 
 ```mermaid
@@ -35,7 +35,11 @@ sequenceDiagram
   Orm->>Configuration: get('db.DefaultConnection'), get('db.Aliases')
   Orm->>Runner: up(undefined, { force: false })
   Orm->>Driver: tableInfo(table) per model
-  Orm-->>App: resolved Orm
+  alt a table is missing and db.StrictTableCheck is on
+    Orm-->>App: OrmException (Missing tables ...)
+  else
+    Orm-->>App: resolved Orm
+  end
 ```
 
 ## Decorators
@@ -82,6 +86,7 @@ sequenceDiagram
 | `db.Connections[].Migration.Lock.StaleAfter` | `number` | `600000` | ms | Age after which a held lock is stolen. |
 | `db.DefaultConnection` | `string` | unset | a connection `Name` | Stores that driver under the extra name `default`. |
 | `db.Aliases` | `Record<string, string>` | `{}` | alias → connection `Name` | Stores an existing driver under extra names. |
+| `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fail `Orm.resolve()` when a registered model on a configured connection has no table. Checked after the boot migration pass whatever `Migration.OnStartup` says. `false` logs a warning per model instead. |
 | `system.dirs.migrations` | `string[]` | `[]` | directory paths | Directories scanned for migration files. See [Migrations](10-migrations.md). |
 
 How each driver applies `Pool.*` and `Options` is driver-specific: see [`@spinajs/orm-sqlite`](../orm-sqlite/README.md), [`@spinajs/orm-mysql`](../orm-mysql/README.md) and [`@spinajs/orm-mssql`](../orm-mssql/README.md).
@@ -114,7 +119,7 @@ Constructor options of `Orm`, passed through DI rather than read from configurat
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `IOrmOptions.MigrateOnStartup` | `boolean` | `true` | | `false` skips the boot migration pass and its `data()` phase. `Orm.Migration` is still assigned and usable. |
+| `IOrmOptions.MigrateOnStartup` | `boolean` | `true` | | `false` skips the boot migration pass and its `data()` phase, and turns the `db.StrictTableCheck` check into warnings (such a process runs before the migrations created the tables). `Orm.Migration` is still assigned and usable. |
 
 `Orm` is a DI singleton: options apply only to the resolve that constructs it. A later `DI.resolve(Orm, [options])` returns the existing instance and ignores the options.
 
@@ -122,7 +127,7 @@ Constructor options of `Orm`, passed through DI rather than read from configurat
 
 | Service | Role | Default implementation | How to override |
 | --- | --- | --- | --- |
-| `Orm` | Opens connections, registers models and migrations, runs the boot migration pass. Exposes `Connections`, `Models`, `Migrations`, `Migration`, `reloadTableInfo()`, `dispose()`. | `Orm` | Not overridden. Pass `IOrmOptions` on first resolve. |
+| `Orm` | Opens connections, registers models and migrations, runs the boot migration pass. Exposes `Connections`, `Models`, `Migrations`, `Migration`, `StrictTableCheck`, `reloadTableInfo(options?)`, `dispose()`. | `Orm` | Not overridden. Pass `IOrmOptions` on first resolve. |
 | `OrmDriver` | One database connection: executes builders, opens transactions, creates query builders, probes health. | Dialect drivers: `SqliteOrmDriver`, `MySqlOrmDriver`, `MySqlSSHOrmDriver`, `MsSqlOrmDriver`, `PostgresOrmDriver` | Register a driver class under the token named in `db.Connections[].Driver`. |
 | `OrmConnection` | DI factory returning the driver stored under a name, or `null`. | Registered by `Orm.resolve()` | Not overridden. |
 
@@ -181,6 +186,8 @@ export async function bootstrapDatabase(): Promise<Orm> {
 - An unknown target in `db.Aliases` logs `Connection alias <alias> points at <name>, which does not exist; models and migrations on <alias> are skipped`, and boot continues. A package can therefore default an alias (`db.Aliases.authz: 'default'`) without breaking an app that has no `default` connection.
 - Model static methods (`where`, `get`, `query`, ...) throw `Not implemented` until `Orm.resolve()` completes. `Orm` installs them in step 9.
 - A model with no `@Connection`, or with a name missing from `Orm.Connections`, is left without a driver. `Orm` logs `Cannot find connection ... in connection list` and continues.
+- Every model a package registers by import is checked, used or not. An app importing `@spinajs/authz-fs` registers `FsObjectRecord`, so with `db.StrictTableCheck` on it needs the `fs_object` table (migration `AuthzFsObject_2026_10_01_00_00_00`) on the connection `db.Aliases['authz-fs']` names, or `db.StrictTableCheck: false`. The same holds for `authz_policy` (`@spinajs/authz-abac`, which authz-fs imports) and the authz-rbac tables on `db.Aliases.authz`. MSSQL cannot create `fs_object` yet, so an MSSQL app importing authz-fs sets the key to `false`.
+- `orm.reloadTableInfo()` called by hand only warns unless passed `{ strict: true }`. An app that migrates after the boot (`Migration.OnStartup` off, then `orm.Migration.up()`) sets `db.StrictTableCheck: false` and calls `orm.reloadTableInfo({ strict: true })` after its `up()`; it needs that call anyway for the columns of the new tables.
 - `Orm.Migration` is assigned inside `resolve()`. It is `undefined` on an unresolved `Orm`.
 - Each driver has its own child container. A registration in `driver.Container` affects only that connection.
 
@@ -190,6 +197,7 @@ export async function bootstrapDatabase(): Promise<Orm> {
 - In a reusable package, bind models to a package-specific name (`@Connection('user-sessions')`) and let the application map it with `db.Aliases`.
 - Set `db.DefaultConnection` and use `@Connection('default')` for application models, so switching databases is a config change.
 - Resolve `Orm` with `MigrateOnStartup: false` in tools that inspect or repair migrations, as `@spinajs/orm-cli` does.
+- Apply migrations before the app starts (`migrate-up` in the deploy step, or `Migration.OnStartup`). With `db.StrictTableCheck` on, the boot names any table still missing.
 - Use `orm.Connections.get(name)` or `DI.resolve('OrmConnection', [name])` for raw queries; check the result for `undefined` / `null`.
 
 ## Patterns and antipatterns

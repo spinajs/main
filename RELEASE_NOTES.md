@@ -32,6 +32,10 @@ what each fix changes for an app.
    cookie sessions on other origins, in `authn.http.csrf.allowedOrigins`.
 6. **PostgreSQL:** `ALTER ROLE <role> SET jit = off` (or per database), version 12 or later.
 7. **Stop every 2.x node** before the first 3.0 node starts.
+8. **Apply the migrations before the first start** (`spinajs migrate-up`, or `Migration.OnStartup: true`).
+   The `Orm` boot now fails when a registered model's table is missing (`db.StrictTableCheck`, default
+   `true`) and names each model, table and connection. Every `@spinajs/authz*`, `users*` and `authn*`
+   package you import registers its models. `db.StrictTableCheck: false` restores the lenient behaviour.
 
 ## BREAKING CHANGES
 

@@ -24,6 +24,7 @@ spinajs migrate-up --fake                                       # record as appl
    - no entry: the migration is registered, but its connection is not configured here or it has no `@Migration()`. Logs an error, sets `process.exitCode = 1`;
    - applied: logs `already applied ... nothing to do`. Exit code `0`;
    - otherwise: logs a connection mismatch when `--connection` was given, then that the migration is failed or still pending. Sets `process.exitCode = 1`.
+7. Without `--name` and `--connection`, it calls `orm.reloadTableInfo({ strict: orm.StrictTableCheck })`. With `db.StrictTableCheck` on (the default), a registered model whose table is still missing logs `Migrations are applied, but the application will not boot: Missing tables (db.StrictTableCheck): ...` at error level (`Migrations are recorded as applied ( --fake ), but ...` with `--fake`) and sets `process.exitCode = 1`. The migrations stay applied. With the key `false`, the command skips the check: the boot already logged each missing table once as a warning.
 
 ```mermaid
 sequenceDiagram
@@ -39,6 +40,9 @@ sequenceDiagram
   alt empty result and --name
     Cmd->>R: status()
     Cmd->>Cmd: explainEmptyNamedRun() -> exitCode 1 unless applied
+  end
+  opt no --name and no --connection
+    Cmd->>Cmd: checkModelTables() -> exitCode 1 when a model has no table (db.StrictTableCheck)
   end
 ```
 
@@ -59,13 +63,14 @@ sequenceDiagram
 | Migrations applied, or nothing pending | `0` |
 | `--name` given and the migration is already applied | `0` |
 | `--name` given and the migration did not run (connection not configured, excluded by `--connection`, failed or still pending) | `1` |
+| A full run (no `--name`, no `--connection`) leaves a registered model without its table, with `db.StrictTableCheck` on | `1` |
 | Unknown `--name`, unknown `--connection`, a failed row on the connection, a migration that throws | `-1` (255 on POSIX), the error through the `CLI` logger |
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `MigrateUpCommand` | Class token `MigrateUpCommand`, singleton (no lifetime decorator); `@Command` also registers it under `'__cli_command__'`. `Cli` resolves it lazily, only when `migrate-up` is invoked | `MigrateUpCommand` | none shipped | `DI.register(MySub).as(MigrateUpCommand)` before `Cli` dispatches; override `execute()` or `explainEmptyNamedRun()`. See [Customizing commands](08-customizing-commands.md) |
+| `MigrateUpCommand` | Class token `MigrateUpCommand`, singleton (no lifetime decorator); `@Command` also registers it under `'__cli_command__'`. `Cli` resolves it lazily, only when `migrate-up` is invoked | `MigrateUpCommand` | none shipped | `DI.register(MySub).as(MigrateUpCommand)` before `Cli` dispatches; override `execute()`, `reportRun()`, `explainEmptyNamedRun()` or `checkModelTables()`. See [Customizing commands](08-customizing-commands.md) |
 | Migration service per connection | `db.Connections[].Migration.Service` (a DI token), resolved by the runner | `DefaultMigrationService` from `@spinajs/orm` | none shipped | Owned by `@spinajs/orm`; see [Migrations: services](../orm/10-migrations.md#services-and-extension-points). `migrate-up` uses whatever service the connection configures |
 
 ### `MigrateUpCommand`: refuse to migrate production without a confirmation

@@ -64,6 +64,10 @@ connections, models, value converters, `orm.Migration` — only the boot pass is
 opt-**in**: nothing changes for an application that resolves an Orm the ordinary way, and this
 package ships no configuration that would switch startup migrations off for anybody.
 
+The same Orm reads the models' tables without the `db.StrictTableCheck` error, so the commands work on a
+fresh database. A full `migrate-up` (no `--name`, no `--connection`) applies the check after its run and
+exits `1` when a registered model still has no table.
+
 Two consequences worth knowing:
 
 - `migrate-up --fake` means what it says on a `Migration.OnStartup` connection. A boot pass would

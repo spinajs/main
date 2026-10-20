@@ -18,7 +18,7 @@ export interface PgTestDb {
 
 const pgRequired = () => process.env.ORM_TEST_REQUIRE_PG === '1' || process.env.L2_REQUIRE_PG === '1';
 
-async function adminQuery(sql: string): Promise<void> {
+export async function adminQuery(sql: string): Promise<void> {
   const client = new pg.Client({ host: PG_SERVER.Host, port: PG_SERVER.Port, user: PG_SERVER.User, password: PG_SERVER.Password, database: 'test', connectionTimeoutMillis: 3000 });
   await client.connect();
 
@@ -65,6 +65,8 @@ export async function bootPostgres(suite: string): Promise<PgTestDb> {
             rules: [{ name: '*', level: 'error', target: 'Empty' }],
           },
           db: {
+            // Every suite creates its own table after the boot, in a database that never has the other suites' tables.
+            StrictTableCheck: false,
             Migration: { Startup: false },
             Connections: [{ Driver: 'orm-driver-postgres', Name: 'pg', ...PG_SERVER, Database: name, Migration: { OnStartup: false } }],
           },

@@ -62,6 +62,8 @@ export class FilterTestConfiguration extends FrameworkConfiguration {
         rules: [{ name: '*', level: 'error', target: 'Empty' }],
       },
       db: {
+        // The Orm boots only to compile queries; no table is created.
+        StrictTableCheck: false,
         DefaultConnection: 'sqlite',
         Connections: [
           {

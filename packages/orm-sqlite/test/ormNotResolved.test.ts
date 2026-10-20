@@ -24,7 +24,8 @@ async function freshProcess(body: string): Promise<Record<string, string>> {
     '  async resolve() {',
     '    await super.resolve();',
     "    this.Config.logger = { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] };",
-    "    this.Config.db = { Connections: [{ Name: 'sqlite', Driver: 'orm-driver-sqlite', Filename: ':memory:' }] };",
+    // StrictTableCheck off: the fixture model `doc` never gets a table.
+    "    this.Config.db = { StrictTableCheck: false, Connections: [{ Name: 'sqlite', Driver: 'orm-driver-sqlite', Filename: ':memory:' }] };",
     '  }',
     '}',
     'DI.register(Config).as(Configuration);',

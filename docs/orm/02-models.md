@@ -26,7 +26,8 @@ table itself when it starts.
    - gives a column with no converter the one registered in `__orm_db_value_converters__` under
      its lower-cased `NativeType`;
    - builds `descriptor.Schema` and `descriptor.ResponseSchema` (see
-     [JSON schema](11-json-schema.md)).
+     [JSON schema](11-json-schema.md));
+   - when `tableInfo()` answers `null` (no such table), leaves the descriptor's columns as the decorators made them and records the model; at the end it throws one `OrmException` for all of them when called strict (the boot does, under `db.StrictTableCheck`), or logs a warning per model. See [Connections](01-connections.md).
 6. `Orm.wireRelations()` resolves relation targets, and `applyModelMixins()` binds the static query
    API (`get`, `where`, `select`, ...) onto every registered model.
 

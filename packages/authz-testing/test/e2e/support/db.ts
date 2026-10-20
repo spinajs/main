@@ -77,7 +77,8 @@ export class TestDb {
     const pgOptions = process.env.PGOPTIONS;
     if (opts.postgres && opts.database === undefined) process.env.PGOPTIONS = `${pgOptions ?? ''} -c jit=off`.trim();
     cfg.set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
-    cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections, Aliases: { authz: opts.authz ?? 'sqlite' } });
+    // The e2e stack runs the authz migrations by hand after the boot, on the connection the case picks.
+    cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections, Aliases: { authz: opts.authz ?? 'sqlite' }, StrictTableCheck: false });
 
     const restoreConfig = () => {
       for (const [k, v] of Object.entries(before)) {

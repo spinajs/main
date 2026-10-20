@@ -376,9 +376,10 @@ authz: {
   boots, so import `@spinajs/authz-rbac` before the `Orm` resolves. When nothing resolved the `Orm` (a
   cli process boots only its command), the first store read or `DbAuthzAdminBackend` batch resolves it.
   Any migration run after the ORM booted that creates the authz tables (a test, or
-  `Migration.OnStartup: false` with a later in-process migration) must be followed by
-  `orm.reloadTableInfo()` before the stores read them.
-  `@spinajs/authz-abac`'s `DbPolicyStore` reads `PolicyRecord` under the same rules: import that package before the `Orm` resolves, and call `orm.reloadTableInfo()` after a migration run after boot.
+  `Migration.OnStartup: false` with a later in-process migration) needs `db.StrictTableCheck: false`
+  (the boot otherwise fails on the missing tables) and must be followed by
+  `orm.reloadTableInfo({ strict: true })` before the stores read them.
+  `@spinajs/authz-abac`'s `DbPolicyStore` reads `PolicyRecord` under the same rules: import that package before the `Orm` resolves, and call `orm.reloadTableInfo({ strict: true })` after a migration run after boot.
 - **Share link tokens.** A token is 32 random bytes in base64url. The table keeps only `v1:` and an
   HMAC-SHA256 of the token under `authz.rbac.links.secret`, which needs at least 32 characters. The
   store checks the key at first use, not at boot, and throws `AuthzConfigError` when it is missing.

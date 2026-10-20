@@ -452,7 +452,7 @@ export class MySqlOrmDriver extends SqlDriver {
     let indexInfo: IIndexInfo[] = [];
 
     if (!isView || isView.length === 0) {
-      throw new OrmException(`Table ${dbSchema}.${name} does not exist`);
+      return null as any;
     }
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
