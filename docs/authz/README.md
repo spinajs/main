@@ -607,7 +607,8 @@ export class Folder extends ModelBase {
   is rewritten. A create is checked against the parent: `assert(me, 'task:create', { type: 'folder',
   id })`. Moving a row (writing a `@Parent` column) needs a check of the new parent too.
 - **Lists use one helper.** `Task.where(...).accessible('task:read')` adds one fixed `EXISTS` filter
-  over `authz_assignment`, `authz_subject_membership` and `authz_resource_ancestor`. The permission
+  over `authz_assignment` and `authz_resource_ancestor`; the principal's sets travel in the plan as
+  subject keys. The permission
   must be declared `list: true`: `authz: { permissions: { 'task:read': { list: true } } }` in the root
   domain, `authz.domains.<name>.permissions` in another. Boot refuses one that something can grant
   only by reading the row (boot rule 12). A principal that nothing could ever grant it to gets

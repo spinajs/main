@@ -118,7 +118,7 @@ renders each term with the `PlanTermSql` registered for its `op` and combines th
 |---|---|---|
 | `relation.owner` | authz-orm | the `@Owner()` column (and its `typeColumn`) is one of `args.principals` |
 | `relation.self` | authz-orm | the `@Self()` column is one of the `user` principals in `args.principals` |
-| `rbac.assignment` | authz-rbac (`RbacAssignmentSql`) | the `EXISTS` over `authz_assignment`, `authz_subject_membership` and `authz_resource_ancestor` |
+| `rbac.assignment` | authz-rbac (`RbacAssignmentSql`) | the `EXISTS` over `authz_assignment` and `authz_resource_ancestor` |
 
 A model that adds list support registers a compiler for each op its `listPlan` returns:
 

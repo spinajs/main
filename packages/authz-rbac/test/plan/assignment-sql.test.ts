@@ -15,7 +15,7 @@ const expect = chai.expect;
 const NOW = new Date('2026-10-14T12:00:00.000Z');
 const OWNER = { column: 'owner_id' };
 const row = (dialect: SqlRowContext['dialect'] = 'postgres', relation: SqlRowContext['relation'] = (name) => (name === 'owner' ? OWNER : undefined)): SqlRowContext => ({ type: 'task', rowId: 'CAST(t.id AS TEXT)', rowColumn: (c) => `t.${c}`, ancestorTable: 'authz_resource_ancestor', relation, now: NOW, dialect });
-const args = (over: Partial<RbacAssignmentPlanArgs> = {}): RbacAssignmentPlanArgs => rbacPlanArgs({ subjects: ['user:alice'], membership: false, memberKeys: [], roles: [{ role: 'editor' }], global: false, ...over });
+const args = (over: Partial<RbacAssignmentPlanArgs> = {}): RbacAssignmentPlanArgs => rbacPlanArgs({ subjects: ['user:alice'], roles: [{ role: 'editor' }], global: false, ...over });
 
 const LIVE = (a: string) => `(${a}.expires_at IS NULL OR ${a}.expires_at > ?)`;
 const DIRECT = `EXISTS (SELECT 1 FROM authz_assignment authz_s WHERE authz_s.scope_type = ? AND authz_s.scope_id = CAST(t.id AS TEXT) AND authz_s.subject_key IN (?) AND ${LIVE('authz_s')} AND (authz_s.role IN (?)))`;
@@ -24,15 +24,16 @@ const ABOVE = `EXISTS (SELECT 1 FROM authz_resource_ancestor authz_a JOIN authz_
 describe('authz-rbac plan SQL (design §6.2)', () => {
   describe('args', () => {
     it('canonical: sorted, deduplicated, frozen', () => {
-      const a = rbacPlanArgs({ subjects: ['user:b', 'user:a', 'user:b'], membership: false, memberKeys: [], roles: [{ role: 'z' }, { role: 'a', scopeTypes: ['project', 'org'] }, { role: 'z' }], global: false });
-      expect(a).to.deep.equal({ subjects: ['user:a', 'user:b'], membership: false, memberKeys: [], roles: [{ role: 'a', scopeTypes: ['org', 'project'] }, { role: 'z' }], global: false });
+      const a = rbacPlanArgs({ subjects: ['user:b', 'user:a', 'user:b'], roles: [{ role: 'z' }, { role: 'a', scopeTypes: ['project', 'org'] }, { role: 'z' }], global: false });
+      expect(a).to.deep.equal({ subjects: ['user:a', 'user:b'], roles: [{ role: 'a', scopeTypes: ['org', 'project'] }, { role: 'z' }], global: false });
       expect(Object.isFrozen(a.roles)).to.equal(true);
     });
 
     it('parse refuses unknown keys and wrong types', () => {
       expect(() => parseRbacPlanArgs({ ...args(), extra: 1 })).to.throw('rbac.assignment: unknown args key(s) extra');
       expect(() => parseRbacPlanArgs({ ...args(), roles: [{ role: 'x', when: 1 }] })).to.throw('rbac.assignment: roles[0] has unknown key(s) when');
-      expect(() => parseRbacPlanArgs({ ...args(), membership: 'yes' })).to.throw('rbac.assignment: membership must be a boolean');
+      expect(() => parseRbacPlanArgs({ ...args(), global: 'yes' })).to.throw('rbac.assignment: global must be a boolean');
+      expect(() => parseRbacPlanArgs({ ...args(), membership: false, memberKeys: [] })).to.throw('rbac.assignment: unknown args key(s) membership, memberKeys');
       expect(parseRbacPlanArgs(JSON.parse(JSON.stringify(args())))).to.deep.equal(args());
     });
   });
@@ -60,12 +61,12 @@ describe('authz-rbac plan SQL (design §6.2)', () => {
       expect(rbacAssignmentSql(args(), row('sqlite')).bindings[2]).to.equal(NOW);
     });
 
-    it('deny: the single EXISTS shape of design §6.2 with the membership sub-query', () => {
-      const out = rbacAssignmentSql(args({ subjects: ['user:alice'], membership: true, memberKeys: ['user:alice'], roles: [{ role: 'blocked' }], global: true }), row('postgres'));
+    it('deny: the single EXISTS shape of design §6.2', () => {
+      const out = rbacAssignmentSql(args({ roles: [{ role: 'blocked' }], global: true }), row('postgres'));
       expect(out.sql).to.equal(
-        'EXISTS (SELECT 1 FROM authz_assignment authz_d WHERE (authz_d.subject_key IN (?) OR authz_d.subject_key IN (SELECT authz_m.set_key FROM authz_subject_membership authz_m WHERE authz_m.member_key IN (?) AND (authz_m.expires_at IS NULL OR authz_m.expires_at > ?))) AND authz_d.role IN (?) AND (authz_d.expires_at IS NULL OR authz_d.expires_at > ?) AND ((authz_d.scope_type = ? AND authz_d.scope_id = CAST(t.id AS TEXT)) OR EXISTS (SELECT 1 FROM authz_resource_ancestor authz_a WHERE authz_a.resource_type = ? AND authz_a.resource_id = CAST(t.id AS TEXT) AND authz_a.ancestor_type = authz_d.scope_type AND authz_a.ancestor_id = authz_d.scope_id) OR authz_d.scope_type = ?))',
+        'EXISTS (SELECT 1 FROM authz_assignment authz_d WHERE authz_d.subject_key IN (?) AND authz_d.role IN (?) AND (authz_d.expires_at IS NULL OR authz_d.expires_at > ?) AND ((authz_d.scope_type = ? AND authz_d.scope_id = CAST(t.id AS TEXT)) OR EXISTS (SELECT 1 FROM authz_resource_ancestor authz_a WHERE authz_a.resource_type = ? AND authz_a.resource_id = CAST(t.id AS TEXT) AND authz_a.ancestor_type = authz_d.scope_type AND authz_a.ancestor_id = authz_d.scope_id) OR authz_d.scope_type = ?))',
       );
-      expect(out.bindings).to.deep.equal(['user:alice', 'user:alice', NOW, 'blocked', NOW, 'task', 'task', '$global']);
+      expect(out.bindings).to.deep.equal(['user:alice', 'blocked', NOW, 'task', 'task', '$global']);
     });
 
     it('no role or no subject is FALSE', () => {
@@ -106,7 +107,6 @@ describe('authz-rbac plan SQL (design §6.2)', () => {
       db = await bootDb(this, 'sqlite', 'l8-plan-sql', { migrate: false });
       await run('CREATE TABLE task (id INTEGER PRIMARY KEY, title TEXT, owner_id TEXT)');
       await run("CREATE TABLE authz_assignment (id TEXT PRIMARY KEY, subject_key TEXT NOT NULL, role TEXT NOT NULL, scope_type TEXT NOT NULL, scope_id TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '', expires_at TEXT)");
-      await run('CREATE TABLE authz_subject_membership (member_key TEXT NOT NULL, set_key TEXT NOT NULL, depth INTEGER NOT NULL, expires_at TEXT, PRIMARY KEY (member_key, set_key))');
       await run('CREATE TABLE authz_resource_ancestor (resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, ancestor_type TEXT NOT NULL, ancestor_id TEXT NOT NULL, depth INTEGER NOT NULL, PRIMARY KEY (resource_type, resource_id, ancestor_type, ancestor_id))');
       for (const [id, owner] of [[1, 'alice'], [2, null], [3, null], [4, null], [5, 'bob']] as const) await run('INSERT INTO task (id, title, owner_id) VALUES (?, ?, ?)', [id, `t${id}`, owner]);
       const up = [
@@ -129,7 +129,6 @@ describe('authz-rbac plan SQL (design §6.2)', () => {
         ['a7', 'user:alice', 'member', 'project', 'p1', '', null],
       ];
       for (const r of rows) await run('INSERT INTO authz_assignment VALUES (?, ?, ?, ?, ?, ?, ?)', r);
-      await run('INSERT INTO authz_subject_membership VALUES (?, ?, ?, ?)', ['user:alice', 'team:t1#member', 1, null]);
     });
 
     after(async () => {
@@ -138,10 +137,6 @@ describe('authz-rbac plan SQL (design §6.2)', () => {
 
     it('explicit subjects: direct and ancestor grants, expiry honoured', async () => {
       expect(await ids(permit({ subjects: ['team:t1#member', 'user:alice'] }))).to.deep.equal([1, 3, 5]);
-    });
-
-    it('the membership sub-query finds the same sets', async () => {
-      expect(await ids(permit({ subjects: ['user:alice'], membership: true, memberKeys: ['user:alice'] }))).to.deep.equal([1, 3, 5]);
     });
 
     it('descendantsOnly, scopeTypes and tag', async () => {
@@ -160,15 +155,6 @@ describe('authz-rbac plan SQL (design §6.2)', () => {
       const denied = rbacAssignmentSql(args({ roles: [{ role: 'blocked' }], global: true }), sqlite);
       expect(await ids(denied)).to.deep.equal([1, 2, 5]);
       expect(await ids({ sql: `${allowed.sql} AND NOT ${denied.sql}`, bindings: [...allowed.bindings, ...denied.bindings] })).to.deep.equal([3]);
-    });
-
-    it('an expired membership drops its sets', async () => {
-      await run('UPDATE authz_subject_membership SET expires_at = ?', [past]);
-      try {
-        expect(await ids(permit({ subjects: ['user:alice'], membership: true, memberKeys: ['user:alice'] }))).to.deep.equal([1, 5]);
-      } finally {
-        await run('UPDATE authz_subject_membership SET expires_at = NULL');
-      }
     });
   });
 });
