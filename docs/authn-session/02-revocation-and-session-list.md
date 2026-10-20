@@ -8,8 +8,7 @@
 
 1. `revoke(h)` computes the storage key of `h.id`. A malformed handle (an id that is not a string of 1 to 128 characters) answers `false`.
 2. It calls `SessionProvider.delete(storageKey)`.
-3. When `h.id` is a uuid v4 (a 2.x id), it also deletes the row stored under the raw id, migrated or not.
-4. It answers `true` only when this call removed a row. The store's delete is one atomic operation, so of parallel revokes of one session exactly one gets `true`.
+3. It answers `true` only when this call removed a row. The store's delete is one atomic operation, so of parallel revokes of one session exactly one gets `true`.
 
 `POST /auth/logout` of `@spinajs/authn-http` calls `revoke` with the session of the cookie, pending sessions included, and clears the cookie with [`clearSessionCookie`](07-session-cookie.md).
 
@@ -38,7 +37,7 @@ sequenceDiagram
 ### End every session of an identity: `revokeAll(subject, opts?)`
 
 1. `revokeAll()` calls `SessionProvider.deleteBySubject(subject, { includeImpersonations, except })`. `except` is the storage key of `opts.except`.
-2. The store deletes every row whose `Subject` is the subject, and with `includeImpersonations: true` also every row whose `Impersonator` is the subject. Rows written by 2.x and not yet migrated match too.
+2. The store deletes every row whose `Subject` is the subject, and with `includeImpersonations: true` also every row whose `Impersonator` is the subject.
 3. It answers the number of live sessions deleted.
 
 Callers in the monorepo:
@@ -61,15 +60,14 @@ Callers in the monorepo:
 ### End one listed session: `revokeHandle(subject, handle)`
 
 1. `revokeHandle()` answers `false` for a handle that is not a string.
-2. It lists the subject's rows, as `list` does, and deletes every row whose `Subject` is the subject and whose handle equals `handle`.
-3. For a 2.x row it also deletes the hashed copy, so an interrupted migration leaves nothing behind.
-4. It answers `true` when it deleted at least one row.
+2. It lists the subject's rows, as `list` does, and deletes the first row whose `Subject` is the subject and whose handle equals `handle`.
+3. It answers `true` when it found that row, `false` otherwise.
 
 `DELETE /user/sessions/:handle` of `@spinajs/authn-http` calls it with the caller as subject. A handle of another user's session finds no row and answers `false`; the subject can never end a session it only impersonates from.
 
 ### Handles
 
-A handle is `sessionHandleOf(storageKey)`: sha256 hex of a domain-separated prefix plus the storage key. It is one-way from the storage key, which is one-way from the raw id. A handle is safe to show to the user, to log and to put in a URL; it cannot be turned back into a cookie or a store key. The same value is `AuthnFacts.sessionHandle` of the restored session and the `session` of authn audit events. An unmigrated 2.x row is listed under the handle of its future hashed key, so its handle does not change on migration.
+A handle is `sessionHandleOf(storageKey)`: sha256 hex of a domain-separated prefix plus the storage key. It is one-way from the storage key, which is one-way from the raw id. A handle is safe to show to the user, to log and to put in a URL; it cannot be turned back into a cookie or a store key. The same value is `AuthnFacts.sessionHandle` of the restored session and the `session` of authn audit events.
 
 ## Services and extension points
 
@@ -84,7 +82,7 @@ A handle is `sessionHandleOf(storageKey)`: sha256 hex of a domain-separated pref
 - **Count of live sessions.** `MemorySessionStore.deleteBySubject()` also removes matching expired rows, but counts only the live ones.
 - **Impersonation.** Revoking the impersonator with `includeImpersonations: true` reaches the session in which it acts as someone else, because the row indexes `Impersonator`.
 - **No IDOR.** `revokeHandle` checks the owner: the handle alone never ends a session.
-- **Deleting a user.** Call `revokeAll` before you delete a user. A session row references the subject by `IdentityRef`, not by a foreign key: a 3.0 row of `DbSessionStore` has a `NULL` `UserId`, so `ON DELETE CASCADE` does not reach it (see the `user_sessions` table of [`@spinajs/session-provider-db`](../session-provider-db/02-session-table-and-migrations.md)).
+- **Deleting a user.** Call `revokeAll` before you delete a user. A session row references the subject by `IdentityRef`, not by a foreign key, so no `ON DELETE CASCADE` reaches it (see the `user_sessions` table of [`@spinajs/session-provider-db`](../session-provider-db/02-session-table-and-migrations.md)).
 - **Revocation during a rotation.** A revocation that lands while `rotate`, `elevate` or `set` runs stays in force; see [Issuing and restoring sessions](01-issuing-and-restoring-sessions.md#important-behaviour).
 
 ## Best practices
@@ -96,10 +94,10 @@ A handle is `sessionHandleOf(storageKey)`: sha256 hex of a domain-separated pref
 ## Patterns and antipatterns
 
 ```ts
-// Don't: delete rows in the store directly; a raw id is never a store key, and 2.x rows are missed
+// Don't: delete rows in the store directly; a raw id is never a store key, so this deletes nothing
 await store.delete(rawIdFromCookie);
 
-// Do: go through the issuer, which hashes the id and reaches 2.x rows
+// Do: go through the issuer, which hashes the id
 await sessions.revoke({ id: rawIdFromCookie, state: 'active' });
 ```
 

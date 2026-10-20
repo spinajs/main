@@ -113,7 +113,6 @@ Messages name keys, never values. Set secrets (`authn.mfa.encryptionKey`, `authn
 - Without an app env, the secret checks are strict: a missing or public cookie secret fails the boot. [`@spinajs/authn-session`](../authn-session/README.md) reads the env the same way for the cookie. Set `APP_ENV` or `NODE_ENV` in every deployment.
 - `authn.audit` and `authn.throttle` refuse unknown keys, so a typo fails the boot instead of being dropped.
 - Switches that disable a protection (`authn.impersonation.requirePassword`, `requireMfa`, `authn.audit.hashIdentifiers`, `authn.local.reset.revokeTokens`, `authn.http.csrf.enabled`) take only `true` or `false`; `null` is refused rather than read as `false`.
-- No package detects 2.x `rbac.*` keys here. The authz detector fails the boot on the `rbac.*` root; see [the migration guide](../authz/migration-guide.md).
 
 ## Best practices
 

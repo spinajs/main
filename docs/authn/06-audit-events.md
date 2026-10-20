@@ -68,7 +68,7 @@ An unknown key under `authn.audit` fails the boot.
 
 `LogAuthnAuditSink` writes one line per event on the `authn-audit` log, `info` for a success and `warn` for a failure. It never writes `data` or the user agent. It hashes `identity`, `actor`, `ip` and `session` with `authn.audit.hashKey.secret`. A value holding `@` may be an email: it is hashed even with `hashIdentifiers: false`, and a `type`, `strategy` or `reason` holding `@` is written as `?`.
 
-`DbAuthnAuditSink` stores raw identity refs, IP and user agent in `authn_audit`; it does not hash. `QueueAuthnEventSink` re-emits the 2.x queue events such as `UserLogged` and `UserLoginFailed`.
+`DbAuthnAuditSink` stores raw identity refs, IP and user agent in `authn_audit`; it does not hash. `QueueAuthnEventSink` re-emits outcomes as queue user events such as `UserLogged` and `UserLoginFailed`.
 
 ### AuthnEventSink: custom implementation
 
@@ -125,4 +125,4 @@ class LoginCounter extends AuthnEventSink {
 
 - [Authentication flow](01-authentication-flow.md): the events of a login.
 - [`@spinajs/authn-orm`](../authn-orm/README.md): `DbAuthnAuditSink` and the `authn_audit` table.
-- [`@spinajs/users`](../users/README.md): the sinks that keep 2.x queue events working.
+- [`@spinajs/users`](../users/README.md): the sinks that turn authn events into queue user events.

@@ -8,7 +8,7 @@
 2. `DefaultSessionIssuer` resolves its store with `@AutoinjectService('authn.session', SessionProvider)`: the container reads `authn.session.service` and builds the registered `SessionProvider` with that class name. See [Config-selected services](../configuration/08-config-selected-services.md#autoinjectservice).
 3. The store is a singleton, cached by its concrete class name. `DI.resolve(RedisSessionStore)` and the issuer get the same instance when `authn.session.service` is `'RedisSessionStore'`; with a subclass selected, resolve the subclass instead.
 4. On the first resolve the container injects `Log` (`@Logger('redis-session-store')`), `RedisConfig` (`@Config('authn.session.redis')`) and `Expiration` (`@AutoinjectService('authn.session.expiration', SessionExpirationProvider)`, from `SessionProvider`), then awaits `resolve()`.
-5. `resolve()` calls `createClient()` and `sweepLegacy()`. Every other method reads `this.Client`.
+5. `resolve()` calls `createClient()` and stores the result in `this.Client`. Every other method reads `this.Client`.
 
 ## Configuration
 
@@ -51,10 +51,9 @@ Overridable members:
 | --- | --- | --- |
 | `resolve()`, `dispose()` | public | Add boot or shutdown steps; call `super` |
 | `restore`, `save`, `touch`, `delete`, `deleteBySubject`, `listBySubject`, `truncate` | public | Wrap the `SessionProvider` contract; call `super` to keep the atomicity and race handling |
-| `sweepLegacy()` | public | Skip or replace the [boot sweep](02-legacy-session-sweep.md) |
 | `createClient()` | protected | Build the connection |
 | `sessionKey()`, `indexKey()`, `indexSetsOf()` | protected | Change key names or which sets a row joins |
-| `toSession()`, `isStored30()`, `instant()` | protected | Read another stored shape |
+| `toSession()`, `instant()` | protected | Read another stored shape; keep returning `null` for a value without a readable `Subject` |
 | `lookup()`, `prune()`, `scanSessionKeys()`, `expireAt()`, `exec()`, `expirationEquals()` | protected | Low-level helpers the operations share |
 | `Log`, `RedisConfig`, `Client`, `Expiration` | protected fields | The logger, the raw config, the ioredis client, the expiration strategy |
 
@@ -89,7 +88,7 @@ export class AppConfiguration extends FrameworkConfiguration {
 
 ### Redis connection: `createClient()`
 
-Override `createClient()` to tune or observe the connection: an `error` listener that routes failures to the store's logger, a bounded retry, a connection name shown in `CLIENT LIST`. It runs once, in `resolve()`, before the boot sweep. Plain options such as TLS or Sentinel need no override: put them in `authn.session.redis`.
+Override `createClient()` to tune or observe the connection: an `error` listener that routes failures to the store's logger, a bounded retry, a connection name shown in `CLIENT LIST`. It runs once, in `resolve()`. Plain options such as TLS or Sentinel need no override: put them in `authn.session.redis`.
 
 ```ts sample
 import { Injectable } from '@spinajs/di';
@@ -119,10 +118,10 @@ The return type is `Redis`; an ioredis `Cluster` does not fit, and the store's `
 
 Use `authn.session.redis.keyPrefix` to separate applications, tenants or environments in one Redis. It applies to every command, the Lua script, `SCAN` and `truncate()`.
 
-Overriding `sessionKey()` or `indexKey()` is limited: `scanSessionKeys()` matches `session:*`, and `sweepLegacy()` cuts `'session:'.length` characters off each key, both without calling these methods. Keys outside `session:` are missed by `truncate()` and the sweep unless you override those two methods as well.
+Overriding `sessionKey()` or `indexKey()` is limited: `scanSessionKeys()` matches `session:*` without calling these methods. Keys outside `session:` are missed by `truncate()` unless you override `scanSessionKeys()` as well.
 
 ```ts
-// Don't: truncate() and the boot sweep still look under session:*, so they miss these keys.
+// Don't: truncate() still looks under session:*, so it misses these keys.
 protected sessionKey(sessionId: string): string {
   return `tenant-a:sess:${sessionId}`;
 }
@@ -217,28 +216,9 @@ export class MeteredRedisSessionStore extends RedisSessionStore {
 
 `deleteBySubject()` deletes through its own `MULTI`, not through `delete()`, so each session is counted once. `restore()` calls `delete()` for an expired row, so that cleanup is counted too.
 
-### Skip the boot sweep once no 2.x session can be left
-
-```ts sample
-import { Injectable } from '@spinajs/di';
-import { SessionProvider } from '@spinajs/authn-session';
-import { RedisSessionStore } from '@spinajs/session-provider-redis';
-
-/** For a deployment upgraded long ago: boot no longer scans every session key. */
-@Injectable(SessionProvider)
-export class UpgradedRedisSessionStore extends RedisSessionStore {
-  public async resolve(): Promise<void> {
-    this.Client = this.createClient();
-  }
-}
-```
-
-`resolve()` is replaced, not extended, so the sweep does not run; `sweepLegacy()` stays callable by hand. Do this only when every 2.x session has expired (their longest lifetime has passed since the upgrade).
-
 ## Related
 
 - [Redis session store](01-redis-session-store.md): the operations these overrides wrap.
-- [2.x sessions and the boot sweep](02-legacy-session-sweep.md): what `sweepLegacy()` does at boot.
 - [Config-selected services](../configuration/08-config-selected-services.md): how `@AutoinjectService` resolves the store and the strategy by name.
 - [Lifetimes](../di/04-lifetimes.md): why the store is one instance per container.
 - [`@spinajs/authn` sessions](../authn-session/README.md): the `SessionProvider` contract every store implements.

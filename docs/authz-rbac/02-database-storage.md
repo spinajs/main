@@ -62,11 +62,7 @@ sequenceDiagram
 | `authz.rbac.stores.rules` | `string[]` | `['ConfigRuleStore']` | `ConfigRuleStore`, `DbRuleStore` | Add `DbRuleStore` for rules written through `AuthzAdmin`. |
 | `authz.rbac.stores.links` | `string[]` | `['DbLinkStore']` | registered store class names | The share link store. |
 | `authz.admin.backend` | `string` | `'MemoryAuthzAdminBackend'` | `DbAuthzAdminBackend`, `MemoryAuthzAdminBackend` | `DbAuthzAdminBackend` writes through the DB stores. |
-| `authz.rbac.migration.roleColumn` | `string` | `'Role'` | a column name | The 2.x role column the `users.Role` migrations read. |
-| `authz.rbac.migration.idColumn` | `string` | `'Uuid'` | a column name | The `users` column that becomes the subject id `user:<id>`. |
 | `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | The `Orm` boot fails when a registered record's table is missing. |
-| `authz.rbac.connection` | none | none | none | Removed. Setting it fails boot with an `AuthzConfigError` that names `db.Aliases.authz`. |
-| `authz.admin.connection` | none | none | none | Removed. Setting it fails boot the same way. |
 
 ```ts sample
 const config = {
@@ -113,7 +109,7 @@ Every table lives on `authz`. Datetime columns hold UTC instants and are luxon `
 | `tags` | str(512), default `''` | Tags stored as `,a,b,`. |
 | `expires_at` | datetime, null | Expiry; null never expires. |
 | `granted_by` | str(100), null | Principal key of the actor. |
-| `source` | str(32), default `db` | `users.Role` for rows copied from 2.x. |
+| `source` | str(32), default `db` | Where the row came from; `DbAssignmentStore` writes `db`. |
 | `created_at` | datetime | Creation instant. |
 
 Indexes: unique `authz_assignment_uq` on `(subject_type, subject_id, subject_role, role, scope_type, scope_id)`; `authz_assignment_scope` on `(scope_type, scope_id, role)`; `authz_assignment_expires` on `expires_at`; `authz_assignment_subject` on `(subject_key, role)`.
@@ -194,11 +190,9 @@ Index `authz_admin_idempotency_expires` on `expires_at`.
 | Migration | Connection | Does |
 | --- | --- | --- |
 | `AuthzRbac_2026_10_01_00_00_00` | `authz` | Creates the six RBAC tables above. |
-| `AuthzRbacUserRoles_2026_10_01_00_01_00` | `authz` | Copies `users.<roleColumn>`, read on `default`, into `$global` assignments. |
-| `AuthzRbacDropUserRole_2026_10_01_00_02_00` | `default` | Drops `users.<roleColumn>` after checking the copy on `authz`. |
 | `AuthzAdminIdempotency_2026_10_02_00_01_00` | `authz` | Creates `authz_admin_idempotency`. |
 
-Migrate `default` and `authz` in one run, so the copy runs before the drop. The copy and drop rules, `lockTable`, `OrmConnectionMissing`, rollback and the MSSQL limit are in [the migration guide, section 7](../authz/migration-guide.md#7-data-migration).
+The migrations create tables only. None reads, copies or alters a 2.x table: 3.0 starts from an empty database, and roles are granted as assignments (`AuthzAdmin.assign`, or `authz:assign` from the [CLI](13-cli-commands.md)). See [the migration guide, section 7](../authz/migration-guide.md#7-data-migration).
 
 ## Services and extension points
 
@@ -252,14 +246,14 @@ export class ExpiringAssignmentStore extends DbAssignmentStore {
 
 ## Best practices
 
-- Point `db.Aliases.authz` at the database that holds `users` unless you need to split them; one database keeps the `users.Role` migrations simple.
+- Point `db.Aliases.authz` at the database that holds your `@AccessResource` tables: the list filter joins them with `authz_assignment` ([`@spinajs/authz-orm`](../authz-orm/03-authz-connection-and-records.md)).
 - Call `AuthzAdmin` outside your own `db.transaction()`: the backend refuses to nest, so the domain lock is never held until your commit.
 - Resolve the `Orm` (`await DI.resolve(Orm)`) before a write path runs in a script; a write before it fails with `AuthzConfigError`.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: the removed key fails boot
+// Don't: no package reads these keys, so the tables stay on 'default'
 authz: { rbac: { connection: 'authz-db' }, admin: { connection: 'authz-db' } }
 
 // Do: map the alias
@@ -306,7 +300,7 @@ await orm.reloadTableInfo({ strict: true });   // binds the records to the new t
 
 ## Migration
 
-`authz.rbac.connection`, `authz.admin.connection` and `DbAuthzAdminBackendOptions` are gone.
+`authz.rbac.connection`, `authz.admin.connection` and `DbAuthzAdminBackendOptions` are gone; the keys are no longer read. `authz.rbac.migration.roleColumn`, `authz.rbac.migration.idColumn`, the `users.Role` migrations (`AuthzRbacUserRoles_2026_10_01_00_01_00`, `AuthzRbacDropUserRole_2026_10_01_00_02_00`) and the `USER_ROLES_*` exports are gone too: grant roles as assignments.
 
 Before:
 

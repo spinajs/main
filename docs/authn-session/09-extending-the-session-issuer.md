@@ -1,6 +1,6 @@
 # Extending the session issuer
 
-`DefaultSessionIssuer` is registered as `SessionIssuer` and can be subclassed. Extend it to change what the issuer reports or records, such as the device list or the public session data, and keep its hashing, revocation and migration guarantees. Replace `SessionIssuer` entirely only when sessions do not live in a `SessionProvider` at all.
+`DefaultSessionIssuer` is registered as `SessionIssuer` and can be subclassed. Extend it to change what the issuer reports or records, such as the device list or the public session data, and keep its hashing and revocation guarantees. Replace `SessionIssuer` entirely only when sessions do not live in a `SessionProvider` at all.
 
 ## How it works
 
@@ -24,14 +24,12 @@ Protected members of `DefaultSessionIssuer`:
 | `refresh(session)` | Records last-seen (at most once a minute) and calls `Store.touch`; runs on every non-peeking `restore` of an active session | Record more per-request data in the same write |
 | `publicData(session)` | The entries `Session.data` gets: all except `authn:` ones, plus the pending steps | Hide or add entries |
 | `factsOf(session, stored)` | Builds `AuthnFacts` from the stored facts, the row's impersonator and the handle | Rarely; its `stored` parameter type is not exported |
-| `handleOfRow(session)` | The handle of a row; the future handle for an unmigrated 2.x row | |
 | `need(h)` | Reads the row of a handle or throws `InvalidArgument` / `InvalidOperation` | |
 | `moveTo(session, data, over)` | The re-keying of `rotate` and `elevate` | |
-| `migrate(rawId)`, `migrateOnce(rawId)`, `Migrations` | The [2.x migration](10-2x-session-migration.md), shared by parallel callers in one process | |
 
 ### `DefaultSessionIssuer`: custom implementation
 
-Call `super` and adjust the result; do not re-implement the ordering of `moveTo`, `set` or `migrateOnce`, which carries the revocation guarantees.
+Call `super` and adjust the result; do not re-implement the ordering of `moveTo` or `set`, which carries the revocation guarantees.
 
 ```ts sample
 import { Injectable } from '@spinajs/di';

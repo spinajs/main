@@ -71,7 +71,7 @@ A refusal ends the run with exit code `1` and no file. `ConversionError.problems
 | --- | --- |
 | `lockout-to-backoff`, `throttle-off`, `lockout-time` | `blockAfterAttempts` or `lockoutTime` set: 3.0 backs off and never locks. |
 | `require-known-role`, `system-role` | `requireKnownRole: false`, or a `systemRole` other than `system`. |
-| `mfa-key` | A TOTP step was written: set `authn.mfa.encryptionKey` before the migrations run. |
+| `mfa-key` | A TOTP step was written: set `authn.mfa.encryptionKey` (a secret reference). Outside development and test, boot refuses to start without it while a listed step stores secrets. |
 | `file-skipped` | A dot file, or an env file named `production` or `development`. |
 | `reads-env` | A config file reads environment variables. |
 | `self-relation`, `own-any-fields` | See [Grant and role conversion](04-grant-and-role-conversion.md#grant-rules). |
@@ -81,7 +81,7 @@ A refusal ends the run with exit code `1` and no file. `ConversionError.problems
 | `default-role` | `rbac.defaultRole` is not defined in the config files. |
 | `owner-relation` | An `:own` grant became relation `owner`; the model needs `@Owner()` (no `--src`, no model found, or no `@ResourceOwner()`). |
 | `scope-relation` | With `--src`, no `@OrmPermission` policy of that scope was found. |
-| `roles-together`, `roles-voided`, `held-unknown-role`, `token-no-expiry` | `--db` rows: users with several roles, role lists 2.x voided, held roles no config defines, tokens without expiry. |
+| `roles-together`, `roles-voided`, `held-unknown-role`, `token-no-expiry` | `--db` rows: users with several roles, role lists 2.x voided, held roles no config defines (or that match a defined role only in case), tokens without expiry. No 2.x token survives the upgrade, so `token-no-expiry` names the owners to tell. |
 | `trust-proxy` | Neither `http.trustProxy` nor `authn.http.trustProxy` is set. |
 | `cors-empty` | `http.cors.origins` is an empty list: 2.x answered every origin, 3.0 none. |
 | `cookie-secret` | `http.cookie.secret` is unset, the public 2.x default, or written in a config file instead of a secret reference. |

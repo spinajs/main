@@ -45,13 +45,13 @@ sequenceDiagram
 | 401 | login failure body (wrong or throttled `reauthPassword`) |
 | 403 | `fresh_auth_required`, `session_required`, `impersonating` |
 
-| Field (2.x name) | Rule |
+| Field | Rule |
 | --- | --- |
-| `name` (`Name`) | Non-blank string of at most 128 characters. |
-| `expiresAt` (`ExpiresAt`) | **Mandatory.** ISO 8601 instant with a zone (`Z` or `+hh:mm`), every field in range; at most `authn.token.maxTtlDays` ahead (an agent token `authn.token.agentMaxTtlMinutes`), checked by the service. |
+| `name` | Non-blank string of at most 128 characters. |
+| `expiresAt` | **Mandatory.** ISO 8601 instant with a zone (`Z` or `+hh:mm`), every field in range; at most `authn.token.maxTtlDays` ahead (an agent token `authn.token.agentMaxTtlMinutes`), checked by the service. |
 | `kind` | `pat` (default), `service` or `agent`. |
-| `roles` (`Roles`) | At most 64 role names of at most 128 characters; each must be a role the owner holds. |
-| `profile` (`Profile`) | Non-empty string of at most 128 characters that the profile policy offers. An empty string is refused, not read as "none". |
+| `roles` | At most 64 role names of at most 128 characters; each must be a role the owner holds. |
+| `profile` | Non-empty string of at most 128 characters that the profile policy offers. An empty string is refused, not read as "none". |
 | `scope` | `{ permissions?: string[], resources?: [{ type, id? }], agent?: boolean }`, no other keys, at most 1000 permissions and 1000 resources of at most 256 characters each. |
 
 ### `DELETE /user/tokens/:uuid`
@@ -63,7 +63,7 @@ sequenceDiagram
 
 ### Token entry
 
-`{ "Uuid", "Name", "Kind", "Roles", "Profile", "Scope", "CreatedAt", "ExpiresAt", "LastUsedAt", "LastUsedIp", "Expired" }`: the 2.x names, instants as ISO 8601 to the second, absent values `null`, `Roles` always a list. Never the plaintext or its hash. Every answer carries `Cache-Control: no-store`.
+`{ "Uuid", "Name", "Kind", "Roles", "Profile", "Scope", "CreatedAt", "ExpiresAt", "LastUsedAt", "LastUsedIp", "Expired" }`: instants as ISO 8601 to the second, absent values `null`, `Roles` always a list. Never the plaintext or its hash. Every answer carries `Cache-Control: no-store`.
 
 ## Configuration
 

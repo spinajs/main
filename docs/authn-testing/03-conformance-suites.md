@@ -89,7 +89,7 @@ Apply `ctx.config` in your factory. The store cases set these keys:
 | `runLinkStoreConformance` | `links`, `seed` | none in the store facet |
 | `runThrottleConformance` | `throttle` (`{ throttle, params }`) | `authn.throttle.*`; build the throttle from `throttleParams(ctx.config)` and report the same `params` |
 
-`sessionStorage` needs `storedKeys()` (every storage key the store holds) and `seedLegacy(row)` (plant a 2.x-shaped row with a raw UUID v4 id). `secretStorage.rows()` lists the stored rows with `identity`, `purpose`, `hash`, `expiresAt` and `usedAt`. For `seed`, `fakeSeedPort(new FakeIdentityStore(), new MemoryPasswordCredentialStore())` is enough when the store under test keeps no identities.
+`sessionStorage` needs `storedKeys()`: every storage key the store holds. `secretStorage.rows()` lists the stored rows with `identity`, `purpose`, `hash`, `expiresAt` and `usedAt`. For `seed`, `fakeSeedPort(new FakeIdentityStore(), new MemoryPasswordCredentialStore())` is enough when the store under test keeps no identities.
 
 ## Services and extension points
 

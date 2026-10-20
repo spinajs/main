@@ -67,7 +67,7 @@ export default {
 
 ## Database rows (`--db`)
 
-The converter never connects to the database. It reads a JSON file exported **before** the 3.0 migrations drop `users.Role`. The export queries are in the [migration guide](../authz/migration-guide.md#42-export-the-database-rows-first---db).
+The converter never connects to the database. It reads a JSON file exported from the 2.x database. 3.0 starts from an empty database and carries none of these rows, so export them before you leave 2.x. The export queries are in the [migration guide](../authz/migration-guide.md#42-export-the-database-rows-first---db).
 
 ```json
 {
@@ -105,7 +105,7 @@ The converter then checks each `:own` relation against the models (`owner-relati
 ## Best practices
 
 - Build the app first and point the converter at the compiled dir; a dir with `.ts` sources is refused.
-- Export the `--db` rows before running any 3.0 migration; once `users.Role` is dropped the role-holder checks have no data.
+- Export the `--db` rows from the 2.x database before the upgrade; the 3.0 database holds none of them, so the role-holder checks have no other source.
 - Pass `--src` so the warnings name the models that need `@Owner()` instead of every `:own` resource.
 - Write into an empty `--out` dir and diff it against the app's config, instead of `--force` into the config dir.
 - Treat exit code `2` as unfinished: the "Convert by hand" items may fail the boot.

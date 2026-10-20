@@ -1,6 +1,6 @@
 # Token storage and migrations
 
-API tokens live in the `rbac_access_tokens` table (the 2.x name is kept), mapped by the `AccessToken` model on the `default` connection. The package ships one migration, which creates the table in its 3.0 shape. 3.0 starts from an empty database: no migration upgrades a 2.x table.
+API tokens live in the `rbac_access_tokens` table, mapped by the `AccessToken` model on the `default` connection. The package ships one migration, which creates the table with every column.
 
 ## How it works
 
@@ -55,8 +55,8 @@ Indexes: `access_token_hash_idx` (unique, `Token`), `access_token_uuid_idx` (uni
 - **Hidden columns.** `dehydrate()` leaves out `Id`, `Token` and `user_id`, so a model serialised by mistake does not leak the hash or internal ids.
 - **Deleting a user deletes their tokens** through the foreign key cascade. The table needs the `users` table to exist first.
 - **`Kind` defaults to `pat`.** A model built without a valid kind gets `pat`; a row read from the database keeps its stored kind.
-- **`IsExpired` uses the process clock.** The getter compares with `DateTime.now()`; 3.0 code decides expiry from `ctx.now` instead.
-- **Rows without an expiry are never swept.** `deleteExpired` keeps them; they are refused on use as expired.
+- **`IsExpired` uses the process clock.** The getter is `true` for a row without `ExpiresAt` or with one at or before `DateTime.now()`. `DbTokenService` decides expiry from `ctx.now` instead.
+- **Rows without an expiry count as expired.** They are refused on use, and `deleteExpired` removes them.
 
 ## Best practices
 
@@ -85,6 +85,5 @@ export async function liveTokensByKind(now = DateTime.now()): Promise<Record<str
 ## Related
 
 - [Issuing and revoking tokens](01-token-service.md): the only writer of the table.
-- [CLI commands](06-cli-commands.md): `authn:token-delete-expired` removes expired and revoked rows.
+- [CLI commands](06-cli-commands.md): `authn:token-delete-expired` removes expired, revoked and expiry-less rows.
 - [`@spinajs/orm` migrations](../orm/10-migrations.md): how `@Migration` classes are found and run.
-- [Data migration from 2.x](../authz/migration-guide.md#7-data-migration): the rest of the 2.x upgrade.

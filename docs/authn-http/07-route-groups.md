@@ -90,7 +90,7 @@ Answers about an account, its session or its credentials carry `Cache-Control: n
 - Switching a group off is a registration decision, not a config flag. A group whose service is not registered answers 404 on every route.
 - Gates check the registration per request, so a service registered after boot switches its group on.
 - A route's own policies run in parallel with the gate. Routes that verify a password (`POST /user/tokens`, `POST /user/keys`, the admin routes) therefore do it in the handler, after the gate, never as a `FreshAuth` policy.
-- Request bodies accept the 2.x field names next to the 3.0 ones (`Email` for `login`, `Password` for `password`, and so on); each route page lists them.
+- Request bodies are read by their camelCase field names only (`login`, `password`, `secret`, `confirmPassword`, `oldPassword`, `role`, `target`, `name`, `expiresAt`, `roles`, `profile`). Any other key is ignored: a body with `Email` instead of `login` reads as a body without `login`.
 - The JSDoc of each route carries `@tags` and `@security` for [`@spinajs/http-swagger`](../http-swagger/README.md).
 
 ## Related

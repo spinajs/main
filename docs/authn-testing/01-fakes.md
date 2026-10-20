@@ -21,7 +21,7 @@ Time comes from two places. `ctx.now` (from `FakeClock.ctx()`) drives the thrott
 | `FakeIdentityStore` | `IdentityStore` | Identities in a map; finds by login or email, case-insensitive | `calls.findByLogin`, `calls.status`, `calls.provision` |
 | `MemoryPasswordCredentialStore` | `PasswordCredentialStore` | Hashes per identity, with an atomic compare-and-set | `writes` |
 | `MemorySecretStore` | `SecretStore` | Single-use secrets stored as SHA-256, one live secret per identity and purpose | `rows()` |
-| `MemorySessionIssuer` | `SessionIssuer` | Sessions keyed by the SHA-256 of the id, idle and absolute timeouts, pending sessions, 2.x id migration | `storage.storedKeys()` |
+| `MemorySessionIssuer` | `SessionIssuer` | Sessions keyed by the SHA-256 of the id, idle and absolute timeouts, pending sessions | `storage.storedKeys()` |
 | `MemoryLinkStore` | `IdentityLinkStore` | External links; `(provider, subject)` is unique | `links` |
 | `FakeMfaStep` | `MfaStep` | Six-digit codes, each accepted once; optional recovery codes | `verifyCalls` |
 | `EnrolledMfaPolicy` | `MfaPolicy` | Requires every configured step the identity is enrolled in | none |
@@ -77,7 +77,7 @@ Only `Date` is faked. Timers, `performance.now()` and `process.hrtime` stay real
 | `container` | `IContainer` | `DI.RootContainer` | Container that `restore` passes to `resolveSession` |
 
 - Ids are 16 random bytes in base64url; the store keys rows by their SHA-256. `facts.sessionHandle` and `list()` give a handle derived from that key, never the id or the key.
-- `restore()` of a UUID v4 that matches a raw-keyed row (planted with `storage.seedLegacy`) migrates the row to the hashed key on first use.
+- `restore()` looks a row up by the SHA-256 of the id only; an id equal to a stored key restores nothing.
 - `elevate()` refuses an active session; `set()` refuses the reserved keys `Subject`, `Impersonator`, `State` and `authn:facts`.
 - `revoke()` answers `true` only for the call that removed the row.
 

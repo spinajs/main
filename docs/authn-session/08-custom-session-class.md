@@ -51,7 +51,7 @@ DI.register(AppSession).as(Session);
 
 ## Best practices
 
-- Decode defensively in `sessionKey`: stored data may come from an older release or a 2.x row.
+- Decode defensively in `sessionKey`: stored data may come from an older release of your app.
 - Expose read-only getters; write through `SessionIssuer.set(handle, Cart.name, value)` so the write reaches the store.
 
 ## Patterns and antipatterns

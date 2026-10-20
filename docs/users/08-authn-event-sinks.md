@@ -1,6 +1,6 @@
 # Authn event sinks
 
-Two `AuthnEventSink`s that users registers so the `users` row and the 2.x user events follow what `@spinajs/authn` decides. `UserAccountSink` writes `PasswordSetAt` and activates invited accounts; `QueueAuthnEventSink` re-emits logins, password changes and impersonations as [user events](06-user-events.md). Add your own sink next to them to react to the same authn events.
+Two `AuthnEventSink`s that users registers so the `users` row and the user events follow what `@spinajs/authn` decides. `UserAccountSink` writes `PasswordSetAt` and activates invited accounts; `QueueAuthnEventSink` re-emits logins, password changes and impersonations as [user events](06-user-events.md). Add your own sink next to them to react to the same authn events.
 
 ## How it works
 
@@ -45,7 +45,7 @@ sequenceDiagram
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Account bookkeeping | `AuthnEventSink` list (`Array.chainOf`), singleton, `@Injectable(AuthnEventSink)` on import | `UserAccountSink` | | Keep it: `UserPasswordAgeSource` and invite activation depend on it. Subclass and override the protected `recordPasswordSet()` or `activateInvited()`, then `DI.unregister(UserAccountSink)` and register yours. |
-| 2.x user events | `AuthnEventSink` list, singleton | `QueueAuthnEventSink` | none, if no consumer needs the events | `DI.unregister(QueueAuthnEventSink)` to stop the events; subclass `publish()` to emit more. |
+| User events | `AuthnEventSink` list, singleton | `QueueAuthnEventSink` | none, if no consumer needs the events | `DI.unregister(QueueAuthnEventSink)` to stop the events; subclass `publish()` to emit more. |
 | Your reaction to authn events | `AuthnEventSink` list | | any number of sinks | `@Injectable(AuthnEventSink)` on your class; it runs next to the shipped ones. |
 
 ### Custom sink: stamp the last login time
@@ -107,7 +107,7 @@ Unregister before the first authn event resolves the sink list.
 - Invite activation is one conditional `UPDATE`. A `deactivate()` that dropped the marker first cannot be undone by a redeem that read the account a moment earlier.
 - `UserAccountSink` never throws; a lost `PasswordSetAt` write shows only as a warning in the `rbac` log, and that password then counts as old.
 - `QueueAuthnEventSink` maps `invite.redeem` to no event; `UserActivated` comes from `UserAccountSink`.
-- The 2.x `User2Fa*` events do not exist; MFA changes reach sinks as `mfa.enrol` and `mfa.disable`.
+- MFA changes have no queue event; they reach sinks as `mfa.enrol` and `mfa.disable`.
 
 ## Best practices
 

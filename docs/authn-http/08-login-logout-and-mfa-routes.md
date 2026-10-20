@@ -10,7 +10,7 @@ Key login (`POST /auth/keys/login`) answers the same way; it is on [Key routes](
 
 1. `POST /auth/login` reaches `AuthnLoginController.login()`. The route has no policy.
 2. A session the caller already holds (active or pending) is revoked through `SessionIssuer.revoke()` and audited as `session.revoke`, reason `login`.
-3. `login` and `password` are read from the JSON body (2.x names `Email` and `Password`), each a non-empty string of at most 1024 characters. Otherwise: 401 with the login failure body.
+3. `login` and `password` are read from the JSON body, each a non-empty string of at most 1024 characters. Otherwise: 401 with the login failure body.
 4. `AuthnService.authenticate({ kind: 'password', login, password }, ctx)` runs with purpose `'login'` and `ctx.ip` from `ClientIp`.
 5. The result decides the answer:
    - `failure`: 401 login failure body, plus `Retry-After` when the reason is `throttled`. A revoked earlier session also gets its cookie cleared.
@@ -58,7 +58,7 @@ sequenceDiagram
 
 | | |
 | --- | --- |
-| Request body | `{ "login": string, "password": string }` (2.x: `Email`, `Password`) |
+| Request body | `{ "login": string, "password": string }` |
 | 200 | Principal summary plus extensions, `Set-Cookie` with the session, `Cache-Control: no-store` |
 | 200 (MFA) | `{ "MfaRequired": string[] }`, `Set-Cookie` with the pending session, `Cache-Control: no-store` |
 | 401 | Login failure body; `Retry-After` when throttled |

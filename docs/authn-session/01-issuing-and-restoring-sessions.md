@@ -20,11 +20,10 @@
 
 1. `restore()` answers `null` for an id that is not a string, is empty, or is longer than 128 characters.
 2. It reads the row with `SessionProvider.restore(storageKeyOf(rawId))`. The store answers `null` for a missing or expired row.
-3. No row and a raw id shaped like a uuid v4: the issuer tries the [2.x migration](10-2x-session-migration.md).
-4. A row without readable authentication facts answers `null`.
-5. An active session is refreshed, unless the call runs inside `peekingSessions()`: the last-seen time is updated (at most once a minute) and `SessionProvider.touch()` renews the expiration through the strategy. A pending session is never refreshed.
-6. A session expired after the renewal (a migrated 2.x row past `maxLifetime`) is deleted and the answer is `null`.
-7. `resolveSession()` builds the class registered as `Session` (see [Custom session class](08-custom-session-class.md)) from the handle, the identity, the facts and the public data. The facts carry `sessionHandle`, a one-way value from the storage key (see [Revocation and the session list](02-revocation-and-session-list.md#handles)).
+3. A row without readable authentication facts answers `null`.
+4. An active session is refreshed, unless the call runs inside `peekingSessions()`: the last-seen time is updated (at most once a minute) and `SessionProvider.touch()` renews the expiration through the strategy. A pending session is never refreshed.
+5. A session expired after the renewal is deleted and the answer is `null`. This happens when the strategy caps the renewal at `Creation` + `maxLifetime` and that moment has passed, for example after `maxLifetime` was lowered.
+6. `resolveSession()` builds the class registered as `Session` (see [Custom session class](08-custom-session-class.md)) from the handle, the identity, the facts and the public data. The facts carry `sessionHandle`, a one-way value from the storage key (see [Revocation and the session list](02-revocation-and-session-list.md#handles)).
 
 ```mermaid
 sequenceDiagram
@@ -59,7 +58,7 @@ sequenceDiagram
 `rotate` and `elevate` both run the same move:
 
 1. Save the copy under the new storage key.
-2. A copy that is already expired (an old migrated 2.x row capped by `maxLifetime`) deletes both rows and throws `InvalidOperation`.
+2. A copy that is already expired deletes both rows and throws `InvalidOperation`. `save` caps the initial expiration of an elevated copy at `Creation` + `maxLifetime`, so a session older than `maxLifetime` cannot be elevated.
 3. Read the old row, then delete it. When the old row is gone (a logout or ban in the meantime) or another call deleted it first, the copy is deleted and the call throws `InvalidOperation('Unknown or expired session')`.
 4. Return the new handle. The caller sends the new cookie.
 
@@ -96,7 +95,7 @@ Exports used with the issuer:
 | --- | --- | --- |
 | `SESSION_IP_KEY` | `'Ip'` | Data key of the client IP; `@spinajs/authn-http` writes it with `set` after a login, `list` shows it |
 | `SESSION_USER_AGENT_KEY` | `'UserAgent'` | Data key of the client user agent, written and shown like `SESSION_IP_KEY` |
-| `SESSION_PENDING_STEPS_KEY` | `'authn:pendingSteps'` | In `restore(...).data` of a pending session only: the MFA steps it waits for, a frozen non-empty array. Absent for a migrated 2.x row. `set` refuses it |
+| `SESSION_PENDING_STEPS_KEY` | `'authn:pendingSteps'` | In `restore(...).data` of a pending session only: the MFA steps it waits for, a frozen non-empty array. Absent when the session was issued with no steps. `set` refuses it |
 | `storageKeyOf(rawId)` | sha256 hex of `rawId` | The key a store sees for a raw id |
 | `sessionHandleOf(storageKey)` | sha256 hex of a domain-separated storage key | The handle `list` shows and `AuthnFacts.sessionHandle` carries |
 | `peekingSessions(fn)` | `Promise` of `fn()` | Runs `fn` with every `DefaultSessionIssuer.restore()` in it working as `peek` |
@@ -105,7 +104,7 @@ Exports used with the issuer:
 
 - **Hashed ids.** A store holds only `sha256(rawId)`. A stored hash used as a cookie value is hashed again and finds nothing, so a leaked store row does not give a working cookie.
 - **Facts are the issuer's.** `AuthnFacts.sessionHandle` passed to `issue` is ignored; the handle is always derived from the storage key. The impersonator comes from the row, not from the stored facts.
-- **Reserved data keys.** `set` throws `InvalidArgument` for a key that starts with `authn:` and for `Subject`, `State`, `Impersonator`, `User` and `Authorized`. Data can therefore never change the subject, the state or the assurance of a session.
+- **Reserved data keys.** `set` throws `InvalidArgument` for a key that starts with `authn:` and for `Subject`, `State` and `Impersonator`. Data can therefore never change the subject, the state or the assurance of a session.
 - **Hidden entries.** `Session.data` holds every entry except those starting with `authn:`; a pending session also gets `SESSION_PENDING_STEPS_KEY`.
 - **Errors.** `rotate`, `elevate` and `set` throw `InvalidArgument('Malformed session handle')` for a handle whose id is not a string of 1 to 128 characters, and `InvalidOperation('Unknown or expired session')` for a missing or expired row. `elevate` throws `InvalidOperation('Only a pending session can be elevated')` for an active session. `restore` and `peek` never throw for a bad id; they answer `null`.
 - **Revocation wins.** `restore`, `set`, `rotate` and `elevate` write through update-only `touch` or check the old row before keeping a copy. A logout or ban that lands in parallel is never undone. Of parallel rotations or elevations of one session exactly one succeeds.

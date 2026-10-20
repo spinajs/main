@@ -8,9 +8,7 @@
 
 1. Importing `@spinajs/session-provider-redis` runs `@Injectable(SessionProvider)` on `RedisSessionStore`. It is registered under the `SessionProvider` token and as itself.
 2. `DefaultSessionIssuer` (from `@spinajs/authn-session`) declares `@AutoinjectService('authn.session', SessionProvider) Store`. When the issuer is built, the DI container reads `authn.session.service` and picks the registered `SessionProvider` whose class name equals that value.
-3. The container builds `RedisSessionStore` once (singleton) and awaits `RedisSessionStore.resolve()`:
-   - `createClient()` builds `new Redis(authn.session.redis ?? {})`;
-   - `sweepLegacy()` indexes rows written by 2.x (see [2.x sessions and the boot sweep](02-legacy-session-sweep.md)). The boot waits for Redis here.
+3. The container builds `RedisSessionStore` once (singleton) and awaits `RedisSessionStore.resolve()`, which calls `createClient()`: `new Redis(authn.session.redis ?? {})`. It sends no command, so the boot does not wait for Redis.
 4. `RedisSessionStore.dispose()` calls `Client.disconnect()`.
 
 ### Save, `save(session)`
@@ -27,15 +25,17 @@
 ### Restore, `restore(sessionId)`
 
 1. `GET session:<sessionId>`. No key returns `null`.
-2. `toSession()` parses the JSON and decodes `Data` with `decodeSessionData()`. A value that is not JSON, or `Data` that does not decode, **throws**.
-3. A row with a `Subject` gets `Subject`, `Impersonator` and `State` from its fields. A row without one (written by 2.x) goes through `adaptLegacySession()`; a 2.x row without a `User` entry returns `null`.
-4. An expired session (`Expiration <= now`) is deleted with `delete()` and returns `null`.
+2. `toSession()` parses the JSON. A value that is not JSON **throws**.
+3. A value without a readable `Subject` returns `null`.
+4. It decodes `Data` with `decodeSessionData()`. `Data` that does not decode **throws**.
+5. `Subject`, `Impersonator` and `State` come from the stored fields.
+6. An expired session (`Expiration <= now`) is deleted with `delete()` and returns `null`.
 
 ### Touch, `touch(session)`
 
 1. `SessionProvider.applyRenewedExpiration()` computes the new expiration. A `pending` session keeps its expiration.
 2. `GET session:<SessionId>` reads the row. The touch stops and returns `false` when the key is gone, the row is unreadable, its stored `State` differs from `session.State`, or it is expired.
-3. The store builds the next value from the stored JSON, replacing only `Expiration` and `Data`. A 2.x row keeps its 2.x shape.
+3. The store builds the next value from the stored JSON, replacing only `Expiration` and `Data`.
 4. A Lua script (`EVAL`) compares the key with the value read in step 2 and, only when it is unchanged, writes the next value and its `PEXPIREAT` (or `PERSIST`).
 5. A lost race (the key changed in between) goes back to step 2, 10 attempts in all. The tenth lost race throws `Error('Session touch lost 10 races in a row')`.
 6. It returns `true` when the expiration changed, `false` when it stayed the same. Every `false` and the throw put the old `Expiration` back on `session`.
@@ -75,7 +75,7 @@ sequenceDiagram
 
 1. `lookup()` reads the sets and rows as in revocation.
 2. Expired rows and stale members are deleted in one `MULTI`.
-3. It returns the live rows. `SessionId` is the storage key (the sha256 of the raw id for a 3.0 session), not the cookie value.
+3. It returns the live rows. `SessionId` is the storage key (the sha256 of the raw id), not the cookie value.
 
 ### Truncate, `truncate()`
 
@@ -129,7 +129,6 @@ Every key is written under `authn.session.redis.keyPrefix`; ioredis adds the pre
 | `session:<SessionId>` | string | The [session JSON](#session-key) | `PEXPIREAT` at `Expiration`; none when the session never expires |
 | `session:subject:<principalKey>` | set | `SessionId`s whose `Subject` is the principal | None; stale members are removed when met |
 | `session:impersonator:<principalKey>` | set | `SessionId`s whose `Impersonator` is the principal | None; stale members are removed when met |
-| `session:user:<UserId>` | set | 2.x index; 3.0 never reads it | Left as 2.x wrote it; `truncate()` deletes it |
 
 `<principalKey>` is `principalKey(ref)` from `@spinajs/authn/contracts`: the type with `%` escaped as `%25` and `:` as `%3A`, a `:`, then the id. `{ type: 'user', id: '42' }` is `user:42`.
 
@@ -137,14 +136,12 @@ Every key is written under `authn.session.redis.keyPrefix`; ioredis adds the pre
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `Subject` | `string` | Owner as a principal key; while impersonating, the target |
+| `Subject` | `string` | Owner as a principal key; while impersonating, the target. A value without a readable `Subject` reads as absent |
 | `Impersonator` | `string`, optional | The impersonating principal key |
 | `State` | `'active' \| 'pending'` | Any other stored value reads as `'pending'` |
 | `Creation` | ISO 8601 string | Issue time |
 | `Expiration` | ISO 8601 string, optional | Absent: never expires. A value that does not parse counts as already passed |
 | `Data` | `string` | `encodeSessionData(session.Data)`: JSON that keeps `Map`, `Set` and luxon `DateTime` values |
-
-A 2.x row has `UserId` instead of `Subject`, `Impersonator` and `State`; its identity lives in `Data`. See [2.x sessions and the boot sweep](02-legacy-session-sweep.md).
 
 ## Services and extension points
 
@@ -163,17 +160,16 @@ A 2.x row has `UserId` instead of `Subject`, `Impersonator` and `State`; its ide
 - **`save` is an upsert without a compare.** It overwrites whatever the key holds. Only `touch` is guarded.
 - **Revocation catches races.** `deleteBySubject` repeats until a pass finds nothing new, so a rotation that saves a new id during a ban is ended too.
 - **Index sets heal themselves.** A member whose row is gone, unreadable or owned by another subject is removed the next time `listBySubject` or `deleteBySubject` reads that set. Nothing scans the sets in the background.
-- **One bad row does not break revocation.** In lookups, the sweep and `touch`, an unparseable value is skipped with a warning, and undecodable `Data` reads as an empty map with the row's own `Subject` kept.
+- **One bad row does not break revocation.** In lookups, `save`, `delete` and `touch`, an unparseable value is skipped with a warning, and undecodable `Data` reads as an empty map with the row's own `Subject` kept.
 - **`restore` is strict.** A value that is not JSON, or `Data` that does not decode, throws out of `restore`, and so out of the issuer's restore.
-- **Every boot scans the whole prefix.** `resolve()` runs `sweepLegacy()`, which `SCAN`s every `session:*` key and `MGET`s each batch. Boot time grows with the number of stored sessions.
-- **A Redis outage fails the boot.** `resolve()` waits for the sweep; when Redis is unreachable, the sweep fails once ioredis gives up the command (`maxRetriesPerRequest`).
+- **A Redis outage does not fail the boot.** `resolve()` only builds the client. When Redis is unreachable, the first store call fails once ioredis gives up the command (`maxRetriesPerRequest`).
 - **Connection errors go to the console.** The client gets no `error` listener, so ioredis prints them as unhandled error events; they do not reach the `redis-session-store` logger.
 - **No Cluster.** `MULTI` spans keys in different hash slots, and `SCAN` reads one node.
-- **`truncate()` deletes every `session:*` key under the prefix,** including 2.x `session:user:*` sets. With an empty `keyPrefix` it also deletes `session:*` keys another application wrote to the same database.
+- **`truncate()` deletes every `session:*` key under the prefix.** With an empty `keyPrefix` it also deletes `session:*` keys another application wrote to the same database.
 
 ## Best practices
 
-- Set a `keyPrefix` (for example `'shop:'`) or a dedicated `db`, so `truncate()` and the boot sweep touch only this application's keys.
+- Set a `keyPrefix` (for example `'shop:'`) or a dedicated `db`, so `truncate()` touches only this application's keys.
 - Configure Redis with `maxmemory-policy noeviction` or a `volatile-*` policy. Under `allkeys-*` Redis can evict an index set, and a ban then misses the sessions that set listed.
 - Revoke through `deleteBySubject(subject, { includeImpersonations: true })` when banning a user, so the impersonations that user started end too.
 - Use `listBySubject()` for "signed-in devices" views; its `SessionId` values are storage keys, so never show or compare them with cookie values.
@@ -249,7 +245,6 @@ export async function devicesOf(userUuid: string): Promise<DeviceRow[]> {
 
 ## Related
 
-- [2.x sessions and the boot sweep](02-legacy-session-sweep.md): how 2.x rows join the index sets.
 - [Extending the Redis store](03-extending-the-redis-store.md): subclassing, the connection hook, custom expiration.
 - [`@spinajs/authn` sessions](../authn-session/README.md): ids, hashing, rotation and states the issuer applies before calling this store.
 - [Config-selected services](../configuration/08-config-selected-services.md#autoinjectservice): how `authn.session.service` picks the store.

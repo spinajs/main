@@ -27,7 +27,7 @@ Three `spinajs` commands manage API tokens from a terminal or a scheduler: creat
 ### `authn:token-delete-expired`
 
 1. It calls `DbTokenService.deleteExpired(new Date())`.
-2. It logs the number of deleted rows: tokens expired at or before now, and revoked tokens. Rows without an expiry are kept.
+2. It logs the number of deleted rows: tokens expired at or before now, tokens without an expiry, and revoked tokens.
 3. A `TokenService` without `deleteExpired` fails the command.
 
 ## Decorators

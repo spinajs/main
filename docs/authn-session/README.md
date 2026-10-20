@@ -25,7 +25,6 @@ Add a persistent store for anything beyond one process: [`@spinajs/session-provi
 | [Session cookie](07-session-cookie.md) | `sessionCookie`, `clearSessionCookie` and the `authn.session.cookie` keys: name, `__Host-` prefix, `Secure`, `SameSite`, the signing secret check |
 | [Custom session class](08-custom-session-class.md) | Register a `Session` subclass so `restore` returns typed reads of your own session data |
 | [Extending the session issuer](09-extending-the-session-issuer.md) | Subclass `DefaultSessionIssuer` and register it as `SessionIssuer`; the protected hooks |
-| [2.x session migration](10-2x-session-migration.md) | How a session written by SpinaJS 2.x keeps working: lookup by raw id, re-keying under the hash, revocation of unmigrated rows |
 
 ## Quick start
 

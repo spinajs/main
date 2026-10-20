@@ -242,6 +242,18 @@ const secrets = new DbSecretStore();
 
 An app that passed a driver of another connection moves the `authn_*` tables to the connection named by `db.DefaultConnection`. Datetime columns are hydrated by the ORM converter, so a subclass that read them as dialect-specific text reads luxon `DateTime` values.
 
+### `AuthnFromUserMetadata_2026_10_02_00_01_00` is removed
+
+The package ships only `AuthnInitial_2026_10_02_00_00_00`. No migration copies 2.x `users_metadata` rows (TOTP secrets, pending resets, invites) into the `authn_*` tables; 3.0 starts from an empty database.
+
+```ts
+// Before: the upgrade migration was exported and ran after the initial one
+import { AuthnFromUserMetadata_2026_10_02_00_01_00, AuthnInitial_2026_10_02_00_00_00 } from '@spinajs/authn-orm';
+
+// After: the initial migration only; users enrol MFA again and request new reset or invite links
+import { AuthnInitial_2026_10_02_00_00_00 } from '@spinajs/authn-orm';
+```
+
 ## Related
 
 - [`@spinajs/orm` Connections](../orm/01-connections.md): `db.DefaultConnection`, `db.StrictTableCheck` and `@Connection`.

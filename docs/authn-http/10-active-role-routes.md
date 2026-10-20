@@ -5,9 +5,9 @@
 ## How it works
 
 1. `RoleSourceRegistered` (controller gate) answers 404 `not_found` while no `RoleSource` is registered.
-2. `POST /auth/active-role` reads `role` (2.x `Role`), a non-empty string of at most 256 characters. Otherwise 400 `invalid_role`.
+2. `POST /auth/active-role` reads `role`, a non-empty string of at most 256 characters. Otherwise 400 `invalid_role`.
 3. It asks `RoleSource.rolesOf()` for the roles of the session's identity **without** the current narrowing, so a narrowed session can switch back. A role not in the list: 403 `role_not_held`.
-4. Unless the role entry has `requirePassword: false`, the request needs [fresh authentication](05-policies.md#fresh-authentication): a login within `authn.freshAuth.maxAgeSeconds`, or `password` (2.x `Password`) in the body. A wrong or throttled password: 401 login failure body without `Retry-After`.
+4. Unless the role entry has `requirePassword: false`, the request needs [fresh authentication](05-policies.md#fresh-authentication): a login within `authn.freshAuth.maxAgeSeconds`, or `password` in the body. A wrong or throttled password: 401 login failure body without `Retry-After`.
 5. `SessionIssuer.rotate()` gives the session a new id, then `SessionIssuer.set(handle, ACTIVE_ROLE_KEY, role)` stores the role.
 6. The answer is the principal built by `PrincipalFactory` with `ceiling: { roles: [role] }`, extended with kind `role-switch`, plus `ActiveRole`, and the new session cookie.
 7. On later requests `SessionPrincipalResolver` narrows the principal to `ceiling.roles = [ActiveRole]`.
@@ -44,7 +44,7 @@ sequenceDiagram
 | | |
 | --- | --- |
 | Policies | `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` |
-| Request body | `{ "role": string, "password"?: string }` (2.x: `Role`, `Password`) |
+| Request body | `{ "role": string, "password"?: string }` |
 | 200 | Principal summary plus extensions (kind `role-switch`) plus `"ActiveRole"`, `Set-Cookie` with the rotated session |
 | 400 | `invalid_role` |
 | 401 | login failure body (wrong or throttled password), or `unauthenticated` when the session ended meanwhile |

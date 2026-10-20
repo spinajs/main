@@ -8,12 +8,12 @@ It is **not** registered by this package. `@spinajs/users` registers it as authn
 
 1. `@spinajs/authn-local` issues a single-use secret and calls `PasswordMailer.send(mail)` with an `IPasswordMail`.
 2. `EmailPasswordMailer.send(mail)` throws when `mail.to.email` is missing.
-3. With a non-empty `mail.url`, it builds the link: `mail.url` with the query parameters `token=<secret>` and `email=<address>`, as 2.x `passwordResetUrl` did.
+3. With a non-empty `mail.url`, it builds the link: `mail.url` with the query parameters `token=<secret>` and `email=<address>`, which the redemption page reads.
 4. `compose()` builds the `IEmail`:
    - `connection`: `email.password.connection`, else `email.defaultConnection`; neither set throws `InvalidOperation`;
    - `subject`: `email.password.<purpose>.subject`, else `Reset your password` or `Set up your account`;
    - `tag`: `authn-password-reset` or `authn-password-invite`;
-   - `model`: `Token`, `ResetUrl`, `ExpiresInMinutes`, `IsInvite`, `Name`, `Email`, `Purpose` (the 2.x names);
+   - `model`: `Token`, `ResetUrl`, `ExpiresInMinutes`, `IsInvite`, `Name`, `Email`, `Purpose`;
    - `redact`: the secret and the link;
    - `from`, `lang` from `email.password` when set;
    - `template` from `email.password.<purpose>.template`, or else a short plain-text `text` body with the link (or the code when there is no link) and the lifetime in minutes.
@@ -61,7 +61,7 @@ export default {
 };
 ```
 
-A template gets the 2.x model: `Token`, `ResetUrl`, `ExpiresInMinutes`, `IsInvite`, `Name`, `Email`, `Purpose`.
+A template gets the model: `Token`, `ResetUrl`, `ExpiresInMinutes`, `IsInvite`, `Name`, `Email`, `Purpose`.
 
 ## Services and extension points
 
@@ -139,7 +139,7 @@ export async function sendReset(emails: EmailService, address: string, secret: s
 ## Important behaviour
 
 - **Never queued.** It calls `send()`, not `sendDeferred()`, so there is no queue retry: a send that fails after the transport's own retries fails the request.
-- **The link format is fixed**: `token` and `email` query parameters, so 2.x redemption pages keep working.
+- **The link format is fixed**: `token` and `email` query parameters; build the redemption page to read those two.
 - **Plain-text fallback.** Without a template the body is a short English text; set a template for any other language.
 - **Errors never carry the secret**, and have no `cause`.
 - **Template filesystems should have no `authz.fs` entry.** Reset and invite mails run without a user, so a guarded template read is refused.
@@ -147,7 +147,7 @@ export async function sendReset(emails: EmailService, address: string, secret: s
 ## Best practices
 
 - Set `email.password.connection` to a transactional connection, separate from bulk mail, so a throttled bulk sender does not delay resets.
-- Keep the 2.x model names in templates (`ResetUrl`, `ExpiresInMinutes`); add new values through a `compose()` override.
+- Use the shipped model names in templates (`ResetUrl`, `ExpiresInMinutes`); add new values through a `compose()` override.
 
 ## Related
 

@@ -15,38 +15,37 @@
 
 1. When `session.Expiration` is `undefined`, `SessionProvider.applyInitialExpiration()` asks the configured `SessionExpirationProvider` for the initial expiration. A `pending` session without an expiration throws `Error`: the issuer must set it from `authn.session.pendingTtlSeconds`.
 2. `DbSession.getOrNew({ SessionId })` loads the row or builds a new one.
-3. The store sets every column: `Subject`, `ImpersonatorId` and `State` as [principal keys](#principal-keys), `Data` through `encodeSessionData()`, `Expiration` (`NULL` for a never-expiring session), and `UserId` to `NULL`.
+3. The store sets every column: `Subject`, `ImpersonatorId` and `State` as [principal keys](#principal-keys), `Data` through `encodeSessionData()`, and `Expiration` (`NULL` for a never-expiring session).
 4. `insert(InsertBehaviour.InsertOrUpdate)` writes the row as an upsert.
 
 ### Restore, `restore(sessionId)`
 
 1. `DbSession.where({ SessionId }).first()` reads the row. No row returns `null`.
-2. `toSession()` decodes `Data` (a `Buffer` is read as UTF-8 text first). A row whose `Data` does not decode throws.
-3. A row with a `Subject` gets `Subject`, `Impersonator` and `State` from its columns. A row without one (written by 2.x) goes through `adaptLegacySession()`; a 2.x row without a `User` entry returns `null`.
-4. An expired session returns `null`. The row stays until the sweep deletes it.
+2. `toSession()` reads the `Subject` column. A row without a readable `Subject` returns `null`.
+3. It decodes `Data` (a `Buffer` is read as UTF-8 text first). A row whose `Data` does not decode throws.
+4. `Subject`, `Impersonator` and `State` come from their columns.
+5. An expired session returns `null`. The row stays until the sweep deletes it.
 
 ### Touch, `touch(session)`
 
 1. `SessionProvider.applyRenewedExpiration()` computes the new expiration. A `pending` session keeps its expiration.
-2. One `UPDATE` writes `Expiration` and `Data` where `SessionId` matches, the stored `State` is `NULL` or equals `session.State`, and the stored `Expiration` is `NULL` or in the future.
+2. One `UPDATE` writes `Expiration` and `Data` where `SessionId` matches, the stored `State` equals `session.State`, and the stored `Expiration` is `NULL` or in the future.
 3. When no row was updated, the store restores `session.Expiration` to its old value and returns `false`.
 4. Otherwise it returns `true` when the expiration changed, `false` when it stayed the same.
 
 ### Revocation, `deleteBySubject(subject, opts)`
 
-1. `matching()` reads the rows whose `Subject` equals the subject's principal key, plus those whose `ImpersonatorId` does when `includeImpersonations` is `true`.
-2. It also reads every row with `Subject IS NULL`, decodes it as a 2.x session and keeps those owned (or impersonated) by the subject. Undecodable rows are logged and skipped.
-3. The row keyed `opts.except` is left out.
-4. Live rows are deleted by key; the returned count is the number of rows that `DELETE` removed. Expired rows are deleted too, without being counted.
-5. A second `DELETE` by `Subject` (and `ImpersonatorId`) removes 3.0 rows saved after step 1, for example a rotation that raced the revocation.
+1. `matching()` reads the rows whose `Subject` equals the subject's principal key, plus those whose `ImpersonatorId` does when `includeImpersonations` is `true`. A row whose `Data` does not decode is logged and kept with an empty `Data`.
+2. The row keyed `opts.except` is left out.
+3. Live rows are deleted by key; the returned count is the number of rows that `DELETE` removed. Expired rows are deleted too, without being counted.
+4. A second `DELETE` by `Subject` (and `ImpersonatorId`) removes rows saved after step 1, for example a rotation that raced the revocation.
 
 `listBySubject(subject, opts)` uses the same `matching()` and returns the live sessions.
 
 ### Expired-session sweep, `cleanupExpired()`
 
-1. `DbSession.where('Expiration', '<=', now)` reads the expired rows.
-2. `DbSession.destroy(ids)` deletes them by primary key.
-3. It returns the count. The timer logs it at `info` level; a thrown error is logged at `error` level and the next tick tries again.
+1. `DbSession.destroy().where('Expiration', '<=', now)` deletes the expired rows in one `DELETE`.
+2. It returns that statement's `RowsAffected`. The timer logs it at `info` level; a thrown error is logged at `error` level and the next tick tries again.
 
 ```mermaid
 sequenceDiagram
@@ -116,7 +115,7 @@ this.Config = _.merge(this.Config, {
 | `touch(session)` | public | Update-only renewal; never re-creates a deleted row. |
 | `delete(sessionId)` | public | `true` only when this call removed the row. |
 | `deleteBySubject(subject, opts?)` | public | Revokes a subject's sessions; returns the live count. |
-| `listBySubject(subject, opts?)` | public | The subject's live sessions, 2.x rows included. |
+| `listBySubject(subject, opts?)` | public | The subject's live sessions. |
 | `truncate()` | public | Deletes every row through `DbSession.truncate()`. |
 | `cleanupExpired()` | public | Deletes expired rows; returns the count. |
 | `resolve()` / `dispose()` | public | Start and stop the sweep timer. |
@@ -127,20 +126,19 @@ this.Config = _.merge(this.Config, {
 ## Important behaviour
 
 - `restore()` throws when one row's `Data` does not decode. `deleteBySubject()` and `listBySubject()` do not: they log a warning and treat that row's `Data` as empty, so one bad row cannot block a revocation.
-- A stored `State` other than exactly `active` reads back as `pending` (fail closed). A 2.x row is `active` only when its `Data` entry `Authorized` is `true`.
-- `touch()` never extends a row that is expired, deleted, or stored in another `State`. A forged `active` view of a `pending` row returns `false` and changes nothing.
+- A stored `State` other than exactly `active` reads back as `pending` (fail closed).
+- A row with a `NULL` `Subject` is absent: `restore()` returns `null` and the subject lookups never read it.
+- `touch()` never extends a row that is expired, deleted, or stored in another `State`, a `NULL` `State` included. A forged `active` view of a `pending` row returns `false` and changes nothing.
 - `touch()` writes `Data` even when it returns `false` because the expiration did not change.
 - The store does not hash ids. It keys rows by whatever `SessionId` it gets; the issuer passes `sha256(rawId)`.
-- `save()` always writes `UserId = NULL`. The `ON DELETE CASCADE` of `UserId` therefore does not end 3.0 sessions; deleting a user must call `SessionIssuer.revokeAll()`.
+- `user_sessions` has no foreign key to `users`: deleting a user does not end its sessions. Call `SessionIssuer.revokeAll()` first.
 - A session with `Expiration` `NULL` never expires and the sweep never deletes it.
-- `cleanupExpired()` reads, then deletes. A row renewed between the two statements is still deleted.
-- Each `DbSessionStore` instance runs its own sweep. With several application instances, each sweeps the same table; the deletes are by key, so the overlap is harmless.
-- `deleteBySubject()` and `listBySubject()` read and decode every row with `Subject IS NULL` on each call. After the upgrade migration backfills the table, only rows written by 2.x instances during a rolling upgrade and undecodable rows stay in that set.
+- `cleanupExpired()` is one `DELETE` and loads no rows, so a large backlog costs no memory. A row renewed before the statement runs no longer matches and stays.
+- Each `DbSessionStore` instance runs its own sweep. With several application instances, each sweeps the same table; a row goes once, so the overlap is harmless.
 - The sweep logs one `info` line per tick, also when the count is `0`.
 
 ## Best practices
 
-- Bind `session-provider-connection` to the database that holds the `users` table: the create migration adds a foreign key to `users.Id`.
 - Revoke through `SessionIssuer.revokeAll()`, not `DbSessionStore.deleteBySubject()`: the issuer converts the `except` handle to the storage key.
 - Call `cleanupExpired()` from a maintenance job when the application runs with long or no sweep intervals.
 
@@ -150,7 +148,7 @@ this.Config = _.merge(this.Config, {
 // Don't: the store keys rows by sha256(rawId); a raw cookie value finds nothing.
 const session = await store.restore(cookieValue);
 
-// Do: the issuer hashes the id and migrates a 2.x row on first use.
+// Do: the issuer hashes the id.
 const session = await issuer.restore(cookieValue);
 ```
 

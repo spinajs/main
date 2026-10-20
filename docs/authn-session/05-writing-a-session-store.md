@@ -7,19 +7,18 @@ Write a `SessionProvider` when sessions must live in a backend the shipped store
 1. Subclass `SessionProvider` and decorate the class with `@Injectable(SessionProvider)`.
 2. Implement the seven abstract methods. Call the protected helpers for expiration: `applyInitialExpiration()` in `save`, `applyRenewedExpiration()` in `touch`, `isExpired()` on every read.
 3. Serialize `Data` with [`encodeSessionData` / `decodeSessionData`](06-session-data-codec.md), so `Map`, `Set` and luxon `DateTime` values survive.
-4. Pass every row you read through `adaptLegacySession()` when the backend may still hold rows written by SpinaJS 2.x.
-5. Import the module in the app entry and set `authn.session.service` to the class name.
-6. `DefaultSessionIssuer` resolves the store when it is first built and calls it from then on.
+4. Import the module in the app entry and set `authn.session.service` to the class name.
+5. `DefaultSessionIssuer` resolves the store when it is first built and calls it from then on.
 
 The rules every store keeps (the issuer's guarantees depend on them):
 
 | Method | Rule |
 | --- | --- |
-| `restore(sessionId)` | Missing or expired: `null`. Return the row through `adaptLegacySession()`; `null` from it means absent |
+| `restore(sessionId)` | Missing or expired: `null`. The shipped stores also answer `null` for a row without a readable `Subject` |
 | `save(session)` | Upsert. Call `applyInitialExpiration()` only when `session.Expiration === undefined`; otherwise persist `Expiration` verbatim |
 | `touch(session)` | Update-only: when the stored row is gone or expired, write nothing and answer `false`. Otherwise call `applyRenewedExpiration()`, write `Expiration` and `Data`, and answer whether the expiration changed. A compare-and-set or conditional write closes the race with a parallel delete |
 | `delete(sessionId)` | One atomic operation; `true` only for the call that removed the row |
-| `deleteBySubject(subject, opts)` | Match `Subject` (and `Impersonator` with `includeImpersonations: true`) by `type` and `id`; skip the `except` key; also reach unmigrated 2.x rows whose `Data` `User` (or `Impersonator`) is the subject's id; answer the number of live rows deleted |
+| `deleteBySubject(subject, opts)` | Match `Subject` (and `Impersonator` with `includeImpersonations: true`) by `type` and `id`; skip the `except` key; answer the number of live rows deleted |
 | `listBySubject(subject, opts)` | The same matching; live rows only |
 | `truncate()` | Delete every row |
 
@@ -43,9 +42,8 @@ authn: {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Session store | `SessionProvider`, singleton, selected by `authn.session.service` | `MemorySessionStore` | `DbSessionStore`, `RedisSessionStore`, `DynamoDbSessionProvider` | `@Injectable(SessionProvider)` on your class, imported before the issuer is first resolved; name it in config |
-| Row class | `UserSession`, `@NewInstance()` | `UserSession` | any object of the `ISession` shape | Return `UserSession` instances from `restore` so `adaptLegacySession()` keeps the prototype |
+| Row class | `UserSession`, `@NewInstance()` | `UserSession` | any object of the `ISession` shape | Return `UserSession` instances from `restore`, as the shipped stores do |
 | Data codec | functions `encodeSessionData`, `decodeSessionData` | | | Use them as they are; see [Session data codec](06-session-data-codec.md) |
-| 2.x adapter | function `adaptLegacySession()` | | | See [2.x session migration](10-2x-session-migration.md) |
 
 ### `SessionProvider`: custom implementation
 
@@ -55,7 +53,7 @@ A store over a key-value service. `KvClient` stands for your platform's client; 
 import { DateTime } from 'luxon';
 import { Autoinject, Injectable } from '@spinajs/di';
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { SessionProvider, UserSession, adaptLegacySession, decodeSessionData, encodeSessionData } from '@spinajs/authn-session';
+import { SessionProvider, UserSession, decodeSessionData, encodeSessionData } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
 
 /** The client of your key-value service. */
@@ -71,9 +69,9 @@ export abstract class KvClient {
 
 interface StoredRow {
   SessionId: string;
-  Subject?: IdentityRef;
+  Subject: IdentityRef;
   Impersonator?: IdentityRef;
-  State?: ISession['State'];
+  State: ISession['State'];
   Creation: number;
   Expiration?: number;
   Data: string;
@@ -144,18 +142,16 @@ export class KvSessionStore extends SessionProvider {
 
   protected live(raw: string): ISession | null {
     const row = JSON.parse(raw) as StoredRow;
-    const session = adaptLegacySession(
-      new UserSession({
-        SessionId: row.SessionId,
-        Subject: row.Subject,
-        Impersonator: row.Impersonator,
-        State: row.State,
-        Creation: DateTime.fromMillis(row.Creation),
-        Expiration: row.Expiration === undefined ? undefined : DateTime.fromMillis(row.Expiration),
-        Data: decodeSessionData(row.Data),
-      }),
-    );
-    return session && !this.isExpired(session) ? session : null;
+    const session = new UserSession({
+      SessionId: row.SessionId,
+      Subject: row.Subject,
+      Impersonator: row.Impersonator,
+      State: row.State,
+      Creation: DateTime.fromMillis(row.Creation),
+      Expiration: row.Expiration === undefined ? undefined : DateTime.fromMillis(row.Expiration),
+      Data: decodeSessionData(row.Data),
+    });
+    return this.isExpired(session) ? null : session;
   }
 
   protected serialize(s: ISession): string {
@@ -180,14 +176,13 @@ The example scans every key in `listBySubject`. A production store keeps a secon
 - **Revocation depends on `touch`.** A `touch` that writes a deleted row back undoes a logout or ban that raced a request. Use a conditional write.
 - **`delete` decides parallel rotations.** The issuer keeps a rotated copy only when its own `delete` of the old row answered `true`; a store that answers `true` twice lets two rotations of one session succeed.
 - **Pending rows.** `applyInitialExpiration()` throws for a pending row without `Expiration`; the issuer always gives one, so the error means the store lost the field.
-- **2.x rows.** A store that never held 2.x data can skip `adaptLegacySession()`. A store whose backend held 2.x rows must also match them in `deleteBySubject` and `listBySubject` by their `Data` entries, or a ban right after the upgrade misses them.
 - **Count.** `deleteBySubject` answers live rows; the count is what `DELETE /user/sessions` of `@spinajs/authn-http` returns as `Revoked`.
 
 ## Best practices
 
 - Run both conformance suites against your store:
   - `runSessionIssuerConformance()` of [`@spinajs/authn-testing`](../authn-testing/README.md) drives `DefaultSessionIssuer` over your store (the shipped stores run it).
-  - `runSessionProviderConformance()` checks the store contract directly. It lives in `packages/authn-session/test/conformance/session-provider-conformance.ts` and is not published; the shipped stores import it by relative path inside the monorepo.
+  - `runSessionProviderConformance(makeProvider)` checks the store contract directly. `makeProvider` gets an expiration config (`service`, `ttl`, `maxLifetime?`) and returns a ready store. It lives in `packages/authn-session/test/conformance/session-provider-conformance.ts` and is not published; the shipped stores import it by relative path inside the monorepo.
 - Keep `Data` opaque: never read or rewrite entries starting with `authn:`.
 - Keep the expiration logic in the strategy. A store that computes its own deadlines breaks the guarantee that every store expires a session at the same instant.
 
@@ -223,5 +218,4 @@ Loading `kv-session-store.js` runs `@Injectable(SessionProvider)`, which registe
 
 - [Session stores](04-session-stores.md): the contract and the shipped stores.
 - [Session data codec](06-session-data-codec.md): `Data` serialization.
-- [2.x session migration](10-2x-session-migration.md): `adaptLegacySession()` and what 2.x rows look like.
 - [Extending the session store (db)](../session-provider-db/03-extending-the-session-store.md), [Extending the Redis store](../session-provider-redis/03-extending-the-redis-store.md): subclassing a shipped store instead.

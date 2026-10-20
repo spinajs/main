@@ -1,6 +1,6 @@
 # `@spinajs/authn-token`
 
-API tokens (`spt_…`) and JWT bearer authentication behind the [`@spinajs/authn`](../authn/README.md) contracts. It ships `DbTokenService` (the `TokenService` over the `rbac_access_tokens` table), the `token` and `jwt` strategies, the token CLI and the token migrations.
+API tokens (`spt_…`) and JWT bearer authentication behind the [`@spinajs/authn`](../authn/README.md) contracts. It ships `DbTokenService` (the `TokenService` over the `rbac_access_tokens` table), the `token` and `jwt` strategies, the token CLI and the migration that creates the table.
 
 It does **not** serve HTTP routes: the token routes and the header extractors live in [`@spinajs/authn-http`](../authn-http/README.md). It does **not** issue JWTs; it only verifies JWTs from issuers you trust. It does **not** decide what a token may do: [authorization](../authz/README.md) applies the token's ceiling at check time.
 
@@ -69,7 +69,7 @@ export async function issueDeployToken(userUuid: string): Promise<string> {
 }
 ```
 
-The `AccessToken` model uses the ORM's `default` connection, and the table comes from the package's migrations; see [Token storage and migrations](05-token-storage.md). A client then sends `Authorization: Bearer spt_…` or `x-api-key: spt_…`. `authn-http` turns either header into a `bearer` credential and `TokenStrategy` verifies it.
+The `AccessToken` model uses the ORM's `default` connection, and the table comes from the package's migration; see [Token storage and migrations](05-token-storage.md). A client then sends `Authorization: Bearer spt_…` or `x-api-key: spt_…`. `authn-http` turns either header into a `bearer` credential and `TokenStrategy` verifies it.
 
 ## Related packages
 

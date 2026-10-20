@@ -3,28 +3,6 @@
 The Microsoft SQL Server dialect driver for [`@spinajs/orm`](../orm), built on
 [`@spinajs/orm-sql`](../orm-sql).
 
-## Known defect: inserts fail
-
-**This driver registers no `ServerResponseMapper`.** Every driver must — the shape of an insert
-response is dialect-specific and the base class has no default. Any path that reads an insert
-response therefore throws:
-
-```
-no ServerResponseMapper is registered for this connection. Every driver must register one:
-container.register(MyMapper).as(ServerResponseMapper)
-```
-
-That covers `Model.insert()`, `model.insert()`, `model.save()` and every upsert. It reproduces
-from this package's own suite — `npm test` gives **10 passing, 2 failing**, both with that
-message.
-
-The fix is a mapper reading the `SELECT SCOPE_IDENTITY() as ID` that `MsSqlInsertQueryCompiler`
-already appends to every insert, registered in `resolve()`. See
-[Inserts and upserts](../../docs/orm-mssql/04-inserts-and-upserts.md#insert-response-mapper-custom-implementation) for a working implementation.
-
-Until then, treat this driver as **read-capable only**. Selects, schema operations and
-transactions all work.
-
 ## Install
 
 ```bash

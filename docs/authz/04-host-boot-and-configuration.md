@@ -7,9 +7,7 @@ The host is the DI side of the package: `DefaultAuthzService` boots one engine p
 `DefaultAuthzService.resolve()` runs once per domain container, when the service is first resolved:
 
 1. **Domain.** It resolves `AuthzDomains` and finds the domain of its container. A child domain first waits for its parent's service to boot.
-2. **Config.** It resolves `Configuration`. The configuration module validates `authz.*` against `AUTHZ_CONFIGURATION_SCHEMA` (AJV, defaults filled in). In the root domain it then:
-   - fails on any 2.x `rbac.*` key, naming each key and where it moved (`authz.config.rejectLegacyKeys: false` only warns);
-   - fails on `authz.admin.connection` and `authz.rbac.connection`, which `db.Aliases.authz` replaced.
+2. **Config.** It resolves `Configuration`. The configuration module validates `authz.*` against `AUTHZ_CONFIGURATION_SCHEMA` (AJV, defaults filled in). Boot reads no `rbac.*` key.
 3. **Domain config.** `readDomainConfig()` merges the domain's keys over its ancestors' and over `AUTHZ_DEFAULTS` ([Domains](05-domains.md#configuration)).
 4. **Audit and bus.** It picks the `DecisionAudit` and `ChangeBus` classes named by `authz.audit.service` and `authz.bus.service`, else the last registration. It subscribes to the bus before any model initialises; changes published meanwhile are applied once the boot ends.
 5. **Collect.** From the container chain (`Array.chainOf`) it resolves every `AuthorizationModel`, `ResourceAdapter`, `ScopeResolver`, `RelationResolver`, `NativeFilter`, `Combinator` and `AuthzContributor`.
@@ -76,7 +74,6 @@ Config lives under `authz.*` (H3). The schema validates the keys below; other se
 | `authz.impersonation.protectedRoles` | `string[]` | `['admin']` | role names | Roles nobody may impersonate. Read by `@spinajs/users`. |
 | `authz.scopes.attributes.<type>` | `{ schema, defaults? } \| null` | none | a JSON schema | Scope attribute schema of a resource type ([Resource adapters and resolvers](09-adapters-and-resolvers.md#scope-attributes)). |
 | `authz.admin.*` | `object` | see [AuthzAdmin](10-authz-admin.md#configuration) | | The write API. |
-| `authz.config.rejectLegacyKeys` | `boolean` | `true` | | `false`: a 2.x `rbac.*` key only warns. |
 
 ```ts
 export default {
@@ -89,14 +86,13 @@ export default {
     audit: { denials: true, runAs: true, unscoped: true },
     bus: { service: 'QueueChangeBus' },
     principals: { anonymous: { enabled: true } },
-    config: { rejectLegacyKeys: true },
   },
 };
 ```
 
 ### The `authz` connection
 
-`AUTHZ_CONNECTION` (`'authz'`) is the ORM connection alias of every authz table. The packages that own tables map it to `default` in their config; an app points it elsewhere with `db: { Aliases: { authz: '<connection name>' } }`. `authz.rbac.connection` and `authz.admin.connection` fail boot with an `AuthzConfigError` that names `db.Aliases.authz`.
+`AUTHZ_CONNECTION` (`'authz'`) is the ORM connection alias of every authz table. The packages that own tables map it to `default` in their config; an app points it elsewhere with `db: { Aliases: { authz: '<connection name>' } }`. There is no `authz.rbac.connection` or `authz.admin.connection` key; the schema keeps unknown keys, so such a key is ignored.
 
 ## Services and extension points
 

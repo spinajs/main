@@ -18,8 +18,6 @@ A `UserProfileProvider` answers "everything we show about this user": the `User`
 | --- | --- | --- | --- | --- |
 | `users.user.profile` | `string \| { service: string, ...options }` | `'BasicProfileProvider'` | class name of a registered `UserProfileProvider` | Provider consumers get. An object passes its fields to the provider's constructor. |
 
-The 2.x key `rbac.user` maps to `users.user` (authz legacy key table).
-
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |

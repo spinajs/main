@@ -9,8 +9,8 @@
 1. `ImpersonationGuardRegistered` (controller gate): 404 `not_found` without an `ImpersonationGuard`.
 2. Route policies `[Authenticated, MfaSatisfied]`: a principal whose second factor passed, or whom the MFA policy requires none from.
 3. The principal must come from an active session: otherwise 403 `session_required`.
-4. `target` (2.x `TargetUuid`): a user id string or `{ type, id }`, each part at most 256 characters. Otherwise 400 `invalid_target`.
-5. [Fresh authentication](05-policies.md#fresh-authentication) through `assertFreshAuth()`, with `password` (2.x `Password`) from the body. A wrong or throttled password: 401 login failure body.
+4. `target`: a user id string or `{ type, id }`, each part at most 256 characters. Otherwise 400 `invalid_target`.
+5. [Fresh authentication](05-policies.md#fresh-authentication) through `assertFreshAuth()`, with `password` from the body. A wrong or throttled password: 401 login failure body.
 6. `AuthnImpersonationService.start(handle, target, ctx, reauthCredentials)` asks the guard and its own rules (`authn.impersonation.*`). Any refusal: 403 `impersonation_refused`; the service tells no reason.
 7. Success issues a **new session** for the impersonation. The answer is the target's principal (with `authn.impersonator`), extended with kind `impersonation`, and the new session cookie.
 
@@ -54,7 +54,7 @@ sequenceDiagram
 | | |
 | --- | --- |
 | Policies | `[Authenticated, MfaSatisfied]` |
-| Request body | `{ "target": string \| { "type": string, "id": string }, "password"?: string }` (2.x: `TargetUuid`, `Password`) |
+| Request body | `{ "target": string \| { "type": string, "id": string }, "password"?: string }` |
 | 200 | Target principal summary plus extensions (kind `impersonation`), `Set-Cookie` with the impersonation session; `{ "Active": false }` with a cleared cookie when the new session yields no principal |
 | 400 | `invalid_target` |
 | 401 | login failure body (wrong or throttled password) |

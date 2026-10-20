@@ -1,6 +1,6 @@
 # Session stores
 
-A session store keeps session rows. It is a `SessionProvider`: storage only. The issuer hashes ids, decides states and runs the 2.x migration; the store saves, reads, renews and deletes rows by the key it gets. Pick the store with `authn.session.service`.
+A session store keeps session rows. It is a `SessionProvider`: storage only. The issuer hashes ids and decides states; the store saves, reads, renews and deletes rows by the key it gets. Pick the store with `authn.session.service`.
 
 ## How it works
 
@@ -41,7 +41,7 @@ authn: {
 
 | Column | Type | Meaning |
 | --- | --- | --- |
-| `SessionId` | `string` | Storage key: sha256 hex of the raw id (64 characters). A 2.x row keeps its raw uuid v4 here until the issuer migrates it. A raw 3.0 id never reaches a store |
+| `SessionId` | `string` | Storage key: sha256 hex of the raw id (64 characters). A raw id never reaches a store |
 | `Subject` | `IdentityRef` (`{ type, id }`) | The owner; while impersonating, the target. Stores index it |
 | `Impersonator` | `IdentityRef`, optional | Set while impersonating. Stores index it, so revoking the impersonator reaches the session |
 | `State` | `'active' \| 'pending'` | A pending (pre-MFA) session yields no principal and is never extended |
@@ -62,12 +62,12 @@ The `SessionProvider` contract:
 
 | Method | Answers | Contract |
 | --- | --- | --- |
-| `restore(sessionId)` | `ISession \| null` | `null` for a missing or expired row. A 2.x row comes back in the 3.0 shape (see [2.x session migration](10-2x-session-migration.md)); a 2.x row without `User` is `null` |
+| `restore(sessionId)` | `ISession \| null` | `null` for a missing or expired row |
 | `save(session)` | `void` | Upsert. Stores `Expiration` as given; only a row without one gets `initial()` |
 | `touch(session)` | `boolean` | Update-only: writes `Expiration` and `Data` of a row that still exists, never re-creates a deleted one. Renews through `applyRenewedExpiration()`, so a pending row is never extended. `true` when the expiration changed and was written |
 | `delete(sessionId)` | `boolean` | One atomic operation; `true` only when this call removed the row |
-| `deleteBySubject(subject, { includeImpersonations?, except? })` | `number` | Deletes rows of `Subject`, and with `includeImpersonations` rows of `Impersonator`; `except` is a storage key to keep. Reaches unmigrated 2.x rows. Returns the count |
-| `listBySubject(subject, { includeImpersonations? })` | `ISession[]` | Live rows only, same matching as `deleteBySubject`, 2.x rows included |
+| `deleteBySubject(subject, { includeImpersonations?, except? })` | `number` | Deletes rows of `Subject`, and with `includeImpersonations` rows of `Impersonator`; `except` is a storage key to keep. Returns the count |
+| `listBySubject(subject, { includeImpersonations? })` | `ISession[]` | Live rows only, same matching as `deleteBySubject` |
 | `truncate()` | `void` | Deletes every row |
 
 Protected helpers for stores: `applyInitialExpiration(s)`, `applyRenewedExpiration(s)`, `isExpired(s)` and the injected `Expiration` strategy.
@@ -90,7 +90,7 @@ Protected helpers for stores: `applyInitialExpiration(s)`, `applyRenewedExpirati
 ## Best practices
 
 - Use `MemorySessionStore` only in tests and single-process tools. Any app behind a load balancer, or one that restarts while users are signed in, needs a shared store.
-- Select stores by name in config and inject `SessionIssuer` in your code, not a store class; the issuer adds hashing, the 2.x migration and the revocation guarantees.
+- Select stores by name in config and inject `SessionIssuer` in your code, not a store class; the issuer adds hashing and the revocation guarantees.
 - Read a store directly only for operations the issuer does not offer, such as a count of active sessions for a dashboard (`listBySubject`).
 
 ## Patterns and antipatterns

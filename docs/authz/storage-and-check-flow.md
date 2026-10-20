@@ -94,7 +94,7 @@ connection `authz` (`db.Aliases.authz`, default `default`). Full schema:
 | `tags` | str(512), default `''` | Stored as `,a,b,` |
 | `expires_at` | datetime | |
 | `granted_by` | str(100) | |
-| `source` | str(32), default `db` | `users.Role` for rows copied from 2.x |
+| `source` | str(32), default `db` | Where the row came from; `DbAssignmentStore` writes `db` |
 | `created_at` | datetime | |
 
 Indexes: unique `authz_assignment_uq` on
@@ -118,15 +118,10 @@ Datetimes are luxon `DateTime` on a record and `Date` in the store API; the colu
 the expiry filters compare them with the `AuthzClock` instant bound as a parameter; `definition` and `attributes`
 are `@Json` columns; `authz_version.version` is `@Int64('string')`, the same text on every driver.
 
-Other authz-rbac migrations:
-
-- `AuthzRbacUserRoles_2026_10_01_00_01_00` (on `authz`) copies the 2.x comma list in `users.Role`,
-  read on `default`, into `$global` assignments with `source='users.Role'`.
-- `AuthzRbacDropUserRole_2026_10_01_00_02_00` (on `default`, where `users` is) drops `users.Role`. It
-  refuses while a role in the column has no live assignment on `authz`, and `down()` rebuilds the
-  column.
-- `admin/db/AuthzAdminIdempotency_2026_10_02_00_01_00` creates `authz_admin_idempotency`: PK
-  `(domain, actor, idem_key)`, `results`, `rows`, `expires_at`, `created_at`.
+The other authz-rbac migration, `admin/db/AuthzAdminIdempotency_2026_10_02_00_01_00`, creates
+`authz_admin_idempotency`: PK `(domain, actor, idem_key)`, `results`, `rows`, `expires_at`,
+`created_at`. No authz-rbac migration reads or alters a 2.x table: 3.0 starts from an empty
+database, and roles are granted as assignments.
 
 ### authz-abac
 

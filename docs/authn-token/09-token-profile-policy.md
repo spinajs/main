@@ -1,6 +1,6 @@
 # Token profile policy
 
-`TokenProfilePolicy` lists the profiles an owner may pin a token to. A profile is one role name (the 2.x token `Profile`); a pinned token carries it as `attributes.profile`. The default, `NoTokenProfilesPolicy`, allows none, as in 2.x, so a token with a profile is refused until you register a policy.
+`TokenProfilePolicy` lists the profiles an owner may pin a token to. A profile is one role name, stored in the token's `Profile` column; a pinned token carries it as `attributes.profile`. The default, `NoTokenProfilesPolicy`, allows none, so a token with a profile is refused until you register a policy.
 
 ## How it works
 

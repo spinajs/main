@@ -7,7 +7,7 @@ Every part of the database session store can be swapped or extended without fork
 1. At import, `@Injectable(SessionProvider)` registers each store class under `SessionProvider` and under its own type. `DbSessionStore`, `MemorySessionStore`, `RedisSessionStore`, `DynamoDbSessionProvider` and your subclasses all sit side by side.
 2. When `DefaultSessionIssuer` is built, `@AutoinjectService('authn.session', SessionProvider)` reads `authn.session.service` and picks the registered class whose **class name** equals that value. The container builds it once (singleton) and calls its `resolve()`.
 3. The store's base class, `SessionProvider`, gets its expiration strategy the same way: `@AutoinjectService('authn.session.expiration', SessionExpirationProvider)` picks the class named by `authn.session.expiration.service`.
-4. `DbSession` and the migrations find their database through the ORM connection name `session-provider-connection`.
+4. `DbSession` and the create migration find their database through the ORM connection name `session-provider-connection`.
 
 A replacement class must be imported, so that its decorator runs, before the container builds `DefaultSessionIssuer`. Import it from your application's entry module.
 
@@ -19,7 +19,7 @@ A replacement class must be imported, so that its decorator runs, before the con
 | `DbSessionStore` hooks | protected members of the class | the shipped bodies | | Override `cleanupExpired()`, `toSession()`, `matching()`, `resolve()` / `dispose()`, or `CleanupInterval`. |
 | Expiration strategy | `SessionExpirationProvider`, singleton, by class name from `authn.session.expiration.service` | `SlidingCappedExpiration` | `AbsoluteExpiration`, `SlidingExpiration` | `@Injectable(SessionExpirationProvider)` on your class, then name it in config. |
 | Connection binding | ORM connection name `session-provider-connection` | none | any configured connection | `db.Aliases`, or a connection with that `Name`. |
-| Table migrations | `@Migration('session-provider-connection')`, registered in DI at import | the four shipped migrations | | Add your own migration on the same connection name, with a later timestamp. |
+| Table migrations | `@Migration('session-provider-connection')`, registered in DI at import | the shipped create migration | | Add your own migration on the same connection name, with a later timestamp. |
 | Log output | logger category `db-session-store` (`@Logger`) | the application's log rules | | Add a `logger.rules` entry for `db-session-store`. |
 
 ### Session store: subclass `DbSessionStore`
@@ -29,7 +29,7 @@ Subclass when the storage stays `user_sessions` but one behaviour changes. The m
 | Member | Override to |
 | --- | --- |
 | `cleanupExpired(): Promise<number>` | change what the sweep deletes, or report it elsewhere. |
-| `toSession(row, lenient)` | build the `ISession` differently, for example from extra columns. Keep returning `null` for a 2.x row without owner. |
+| `toSession(row, lenient)` | build the `ISession` differently, for example from extra columns. Keep returning `null` for a row without a readable `Subject`. |
 | `matching(subject, includeImpersonations)` | narrow or widen which rows a revocation or listing reaches. |
 | `resolve()` / `dispose()` | start or stop extra work. Call `super` to keep the sweep timer. |
 | `CleanupInterval` | fix the sweep period in code instead of config. |
@@ -54,15 +54,10 @@ export class AuditRetentionSessionStore extends DbSessionStore {
 
   public async cleanupExpired(): Promise<number> {
     const cutoff = DateTime.now().minus({ days: this.RetentionDays });
-    const old = await DbSession.where('Expiration', '<=', cutoff);
+    const { RowsAffected } = await DbSession.destroy().where('Expiration', '<=', cutoff);
 
-    if (old.length === 0) {
-      return 0;
-    }
-
-    await DbSession.destroy(old.map((s) => s.SessionId));
-    this.Log.info(`Deleted ${old.length} sessions past the audit retention`);
-    return old.length;
+    this.Log.info(`Deleted ${RowsAffected} sessions past the audit retention`);
+    return RowsAffected;
   }
 }
 
@@ -148,7 +143,7 @@ export const expirationConfig = {
 
 ### Connection binding
 
-`DbSession` and the four migrations name the connection `session-provider-connection`. Point it at the application database with `db.Aliases`, or give a connection that name. A separate database must also contain `users`, unless its engine does not enforce the foreign key of the create migration, as SQLite does by default.
+`DbSession` and the create migration name the connection `session-provider-connection`. Point it at the application database with `db.Aliases`, or give a connection that name. `user_sessions` references no other table, so a separate database needs nothing else.
 
 ```ts sample
 import { FrameworkConfiguration } from '@spinajs/configuration';
@@ -181,11 +176,9 @@ export class SessionTestConfiguration extends FrameworkConfiguration {
 }
 ```
 
-The migrations recognise dialects by the exact driver name: `orm-driver-mysql`, `orm-driver-mysql-ssh`, `orm-driver-postgres`, `orm-driver-sqlite`. A driver subclass registered under its own name gets no dialect branch; see [Session table and migrations](02-session-table-and-migrations.md#important-behaviour).
-
 ### Extra migrations
 
-Add your own migration on `session-provider-connection` to change `user_sessions`. Give it a timestamp later than `2026_10_02_00_00_00`, so it runs after the shipped ones.
+Add your own migration on `session-provider-connection` to change `user_sessions`. Give it a timestamp later than `2022_06_28_01_20_00`, so it runs after the shipped one.
 
 ```ts sample
 import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';

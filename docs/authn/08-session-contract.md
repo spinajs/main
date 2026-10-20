@@ -15,7 +15,7 @@
 | Method | Obligation |
 | --- | --- |
 | `issue(identity, facts, { pending? })` | A new session. With `pending: { steps }`, a pre-MFA session that yields no principal and expires after `authn.session.pendingTtlSeconds` |
-| `restore(rawId)` | Looks the session up by `sha256(rawId)`. Only a UUID v4 input falls back to a raw lookup, so a 2.x id is migrated on first use and a stored hash never works as an id |
+| `restore(rawId)` | Looks the session up by `sha256(rawId)` only, so a stored hash never works as an id |
 | `rotate(handle)` | New id, same data |
 | `elevate(handle, facts)` | `pending` to `active` at `aal2`, with a new id. Refuses an active session |
 | `set(handle, key, value)` | Writes one data entry. Never changes the subject, the impersonator or the state; the issuer refuses its reserved keys |
