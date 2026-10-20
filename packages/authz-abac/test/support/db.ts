@@ -117,7 +117,8 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string): P
       // Replaced, not merged: package configs must not add connections here.
       const config = this.Config as Record<string, unknown>;
       const db = (config.db ?? {}) as { Aliases?: Record<string, string> };
-      config.db = { ...db, DefaultConnection: name, Connections: connections, Aliases: { ...db.Aliases, authz: name } };
+      // authz_policy is created by hand after the boot (below).
+      config.db = { ...db, DefaultConnection: name, Connections: connections, Aliases: { ...db.Aliases, authz: name }, StrictTableCheck: false };
     }
   }
 

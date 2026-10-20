@@ -103,7 +103,8 @@ export class TestDb {
     if (database !== undefined) connections.push({ Driver: 'orm-driver-postgres', Name: 'postgres', ...POSTGRES, Database: database, Options: { Schema: database } });
     const before = { logger: cfg.get<unknown>('logger'), db: cfg.get<unknown>('db') };
     cfg.set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
-    cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections, Aliases: { authz: 'default' } });
+    // Suites create and drop the authz tables per test, after the boot (createAncestorTable, createScopeAttributeTables, define).
+    cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections, Aliases: { authz: 'default' }, StrictTableCheck: false });
 
     const restoreConfig = () => {
       for (const [k, v] of Object.entries(before)) {

@@ -35,7 +35,7 @@ export interface TestDb {
 }
 
 export interface BootOptions {
-  /** `Migration.OnStartup` of the connection; default true. */
+  /** `Migration.OnStartup` of the connection; default true. `false` also boots with db.StrictTableCheck off: those suites create or seed the authz tables after the boot. */
   migrate?: boolean;
   /** Also boot a second connection (`TestDb.second`). */
   second?: boolean;
@@ -43,7 +43,7 @@ export interface BootOptions {
   authzOnSecond?: boolean;
 }
 
-function configurationFor(connection: Record<string, unknown>, extra: Record<string, unknown>[], authz: string | undefined) {
+function configurationFor(connection: Record<string, unknown>, extra: Record<string, unknown>[], authz: string | undefined, strictTables: boolean) {
   return class TestDbConfiguration extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
@@ -51,7 +51,7 @@ function configurationFor(connection: Record<string, unknown>, extra: Record<str
       // replaced, not merged: package configs must not add connections here
       const config = this.Config as Record<string, unknown>;
       const db = (config.db ?? {}) as { Aliases?: Record<string, string> };
-      config.db = { ...db, DefaultConnection: connection.Name, Connections: [connection, ...extra], ...(authz ? { Aliases: { ...db.Aliases, authz } } : {}) };
+      config.db = { ...db, DefaultConnection: connection.Name, Connections: [connection, ...extra], StrictTableCheck: strictTables, ...(authz ? { Aliases: { ...db.Aliases, authz } } : {}) };
     }
   };
 }
@@ -137,7 +137,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
   const second = options.second ? [{ Name: secondName, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: options.authzOnSecond === true && migration.OnStartup } }] : [];
   // The test database boots as an app does, against the core schema.
   container.register(AUTHZ_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
-  container.register(configurationFor(connection, second, options.authzOnSecond ? secondName : undefined)).as(Configuration);
+  container.register(configurationFor(connection, second, options.authzOnSecond ? secondName : undefined, migration.OnStartup)).as(Configuration);
   container.register(SqliteOrmDriver).as('orm-driver-sqlite');
   container.register(PostgresOrmDriver).as('orm-driver-postgres');
 
