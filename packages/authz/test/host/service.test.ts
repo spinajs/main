@@ -137,13 +137,6 @@ describe('DefaultAuthzService', function () {
       expect(await rejection(svc.runAs(alice, 'job', async () => 1))).to.be.instanceOf(AuthzConfigError);
       expect(await rejection(svc.preload(alice))).to.be.instanceOf(AuthzConfigError);
     });
-
-    it('fails boot when a removed connection key is set, naming db.Aliases.authz', async () => {
-      setConfig('authz.admin.connection', 'main');
-      const err = await rejection(rootService());
-      expect(err).to.be.instanceOf(AuthzConfigError);
-      expect(err.message).to.contain('authz.admin.connection: removed').and.contain('db.Aliases.authz');
-    });
   });
 
   describe('models across domains', () => {

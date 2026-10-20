@@ -23,7 +23,6 @@ import { PermissionRegistryImpl } from '../engine/registry.js';
 import type { PermissionInput } from '../engine/registry.js';
 import { validateBoot } from '../engine/validate.js';
 import type { PermissionRefDecl, RelationRefDecl, ScopeRefDecl } from '../engine/validate.js';
-import { checkRemovedConnectionKeys } from './config/connection.js';
 import { configAt, readDomainConfig } from './config/domain-config.js';
 import type { DomainConfig } from './config/domain-config.js';
 import { AuthzContributor } from './contributor.js';
@@ -344,7 +343,6 @@ export class DefaultAuthzService extends AuthzService {
     // @Config reads only a resolved Configuration, and a domain container may register its own.
     await container.resolve(Configuration);
     const lineage = domains.lineage(name);
-    if (parent === undefined) checkRemovedConnectionKeys(this.Config);
     const cfg = readDomainConfig(this.Config, lineage);
     const disables = [...(parent?.disables ?? []), cfg.disable];
     const levels = lineage.map((n) => domains.container(n));
