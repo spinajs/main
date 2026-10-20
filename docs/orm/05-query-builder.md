@@ -91,6 +91,7 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `when(condition, callback, elseCallback?)` | | Runs `callback` (or `elseCallback`) with `this` set to the builder. |
 | `whereNull(column)` / `whereNotNull(column)` | `IS NULL` / `IS NOT NULL` | |
 | `whereNot(column, value)` | `column != ?` | |
+| `whereNot(function () { ... })` | `NOT ( ... )` | `this` inside the callback is a new nested `WhereBuilder`, as for `where(function)`. A `NULL` inside the group makes the negation `NULL`, which keeps no row. An empty group compiles to `1 = 0`. |
 | `whereIn(column, values \| subQuery)` / `whereNotIn(...)` | `IN (?, ...)` / `IN ( SELECT ... )` | An empty array emits `1 = 0` (`whereIn`) or `1 = 1` (`whereNotIn`). A non-array, non-builder value throws `InvalidArgument`. Values are converted like `where()` values. PostgreSQL, SQLite and MSSQL bind a long list as one parameter; see [`@spinajs/orm-sql` statements](../orm-sql/03-statements.md). |
 | `whereBetween(column, [from, to])` / `whereNotBetween(...)` | `BETWEEN ? AND ?` | |
 | `whereExist(subQuery \| relation, callback?)` / `whereNotExists(...)` | `EXISTS ( ... )` / `NOT EXISTS ( ... )` | A relation name dispatches to the `ExistsRelationHandler` of its type. See [Relations](06-relations.md). A ready sub-query is correlated with the builder the call is made on (its `CorrelationSource`) unless it has one; `whereIn()` / `whereNotIn()` with a sub-query do the same. |

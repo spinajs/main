@@ -130,10 +130,12 @@ export abstract class BetweenStatement extends QueryStatement {
 @NewInstance()
 export abstract class WhereQueryStatement extends QueryStatement {
   protected _builder: WhereBuilder<any>;
+  protected _not: boolean;
 
-  constructor(builder: WhereBuilder<any>) {
+  constructor(builder: WhereBuilder<any>, not = false) {
     super();
     this._builder = builder;
+    this._not = not;
   }
 
   public abstract build(): IQueryStatementResult;

@@ -781,16 +781,25 @@ export class SqlWhereQueryStatement extends WhereQueryStatement {
    */
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent?: T): IQueryStatement {
     // TODO: fix this any cast !
-    return new SqlWhereQueryStatement(this._builder.clone((_parent ?? this._builder.Parent ?? this._builder) as any));
+    return new SqlWhereQueryStatement(this._builder.clone((_parent ?? this._builder.Parent ?? this._builder) as any), this._not);
   }
 
   public build() {
     const _compiler = new SqlWhereCompiler();
     const _result = _compiler.where(this._builder);
+    const empty = !_result.expression;
+
+    if (this._not) {
+      // An empty group is no condition, so its negation keeps no row.
+      return {
+        Bindings: _result.bindings,
+        Statements: [empty ? '1 = 0' : `NOT ( ${_result.expression} )`],
+      };
+    }
 
     return {
       Bindings: _result.bindings,
-      Statements: _result.expression && _result.expression !== '' ? [`( ${_result.expression} )`] : [],
+      Statements: empty ? [] : [`( ${_result.expression} )`],
     };
   }
 }

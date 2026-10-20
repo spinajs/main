@@ -1277,6 +1277,8 @@ export interface IWhereBuilder<T> {
   whereNotNull(column: string): this;
   whereNull(column: string): this;
   whereNot(column: string, val: unknown): this;
+  /** `NOT ( ... )` over the group the callback builds; an empty group negates to no row. */
+  whereNot(condition: WhereFunction<T>): this;
   whereIn(column: string | Wrap, val: unknown[] | ISelectQueryBuilder): this;
   whereNotIn(column: string | Wrap, val: unknown[] | ISelectQueryBuilder): this;
   whereExist<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;

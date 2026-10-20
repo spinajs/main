@@ -978,7 +978,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       const builder = new WhereBuilder(this);
       column.call(builder);
 
-      self.pushStatement(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, self.TableAlias]));
+      self.pushStatement(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, false]));
       return this;
     }
 
@@ -1101,7 +1101,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereNot(column: string, val: any): this {
+  public whereNot(column: string | WhereFunction<T>, val?: any): this {
+    if (_.isFunction(column)) {
+      const builder = new WhereBuilder(this);
+      column.call(builder);
+      return this.pushStatement(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, true]));
+    }
+
     return this.where(column, SqlOperator.NOT, val);
   }
 

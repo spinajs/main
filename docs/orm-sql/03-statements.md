@@ -29,7 +29,7 @@ Every abstract token extends `QueryStatement`, which implements `TableAlias`, `B
 | Token | `@spinajs/orm-sql` class | Created by | SQL | Clone |
 | --- | --- | --- | --- | --- |
 | `WhereStatement` | `SqlWhereStatement` | `where(column, [op,] value)`, `whereNull`, `whereNotNull` | `` `alias`.`col` <OP> ? `` | rebinds `_builder`; a `RawQuery` value is inlined with its bindings instead of a `?` |
-| `WhereQueryStatement` | `SqlWhereQueryStatement` | `where(function () { ... })` | `( <nested where> )` | clones the nested `WhereBuilder` onto the parent |
+| `WhereQueryStatement` | `SqlWhereQueryStatement` | `where(function () { ... })`, `whereNot(function () { ... })` | `( <nested where> )`, `NOT ( <nested where> )`; an empty negated group is `1 = 0` | clones the nested `WhereBuilder` onto the parent, keeps the negation |
 | `LazyQueryStatement` | `SqlLazyQueryStatement` | `where(Lazy)`, correlated `EXISTS` | the callback's statements, built at compile time | rebinds `context` |
 | `RawQueryStatement` | `SqlRawStatement` | `where(RawQuery)` | the query verbatim | no builder |
 | `InStatement` | `SqlInStatement` | `whereIn`, `whereNotIn` with values | `` `col` [NOT] IN (?,?) ``; a dialect may bind a list longer than `listThreshold` as one parameter | rebinds `_builder`; `clone()` keeps the subclass |
