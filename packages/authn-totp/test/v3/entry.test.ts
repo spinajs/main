@@ -96,7 +96,6 @@ describe('v3 entry points: authn-orm is opt-in', function () {
   it('importing the root entry registers no authn-orm migration, DB default or MFA store', async () => {
     const r = await registrationsAfterImport(false);
     assert.ok(!r.migrations.includes('AuthnInitial_2026_10_02_00_00_00'), r.migrations.join());
-    assert.ok(!r.migrations.includes('AuthnFromUserMetadata_2026_10_02_00_01_00'), r.migrations.join());
     assert.ok(!r.throttles.includes('DbAuthnThrottle'), r.throttles.join());
     assert.ok(!r.sinks.includes('DbAuthnAuditSink'), r.sinks.join());
     assert.deepStrictEqual(r.stores, []);
@@ -105,7 +104,7 @@ describe('v3 entry points: authn-orm is opt-in', function () {
   it('importing @spinajs/authn-totp/db registers DbMfaSecretStore and loads authn-orm on purpose', async () => {
     const r = await registrationsAfterImport(true);
     assert.deepStrictEqual(r.stores, ['DbMfaSecretStore']);
-    assert.ok(r.migrations.includes('AuthnFromUserMetadata_2026_10_02_00_01_00'), r.migrations.join());
+    assert.ok(r.migrations.includes('AuthnInitial_2026_10_02_00_00_00'), r.migrations.join());
     assert.ok(r.throttles.includes('DbAuthnThrottle'), r.throttles.join());
   });
 

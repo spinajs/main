@@ -2,9 +2,9 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 
-import { OrmDriver, QueryContext } from '@spinajs/orm';
+import { MIGRATION_DESCRIPTION_SYMBOL, OrmDriver, QueryContext } from '@spinajs/orm';
 
-import { AuthzRbac_2026_10_01_00_00_00 } from '../../src/index.js';
+import { AuthzAdminIdempotency_2026_10_02_00_01_00, AuthzRbac_2026_10_01_00_00_00 } from '../../src/index.js';
 import { bootDb, DB_KINDS, DbKind, rawQuery, TestDb } from '../support/db.js';
 
 chai.use(chaiAsPromised);
@@ -85,7 +85,7 @@ const PRIMARY_KEYS: Record<string, string[]> = {
 
 const NATIVE_TYPES: Record<DbKind, Record<ColumnKind, string>> = {
   sqlite: { string: 'TEXT', text: 'TEXT', int: 'INTEGER', bigint: 'INTEGER', boolean: 'BOOLEAN', datetime: 'TEXT' },
-  postgres: { string: 'varchar', text: 'text', int: 'int4', bigint: 'int8', boolean: 'bool', datetime: 'timestamp' },
+  postgres: { string: 'varchar', text: 'text', int: 'int4', bigint: 'int8', boolean: 'bool', datetime: 'timestamptz' },
 };
 
 const NOW = new Date('2026-10-01T12:00:00.000Z');
@@ -140,6 +140,14 @@ const assignment = (over: Record<string, unknown> = {}) => {
   const r = { id: 'a1', subject_type: 'user', subject_id: 'u1', subject_role: '', role: 'editor', created_at: NOW, ...over };
   return { subject_key: r.subject_role ? `${r.subject_type}:${r.subject_id}#${r.subject_role}` : `${r.subject_type}:${r.subject_id}`, ...r };
 };
+
+describe('authz-rbac migrations', () => {
+  it('run on the authz connection', () => {
+    for (const m of [AuthzRbac_2026_10_01_00_00_00, AuthzAdminIdempotency_2026_10_02_00_01_00]) {
+      expect((m as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection, m.name).to.eq('authz');
+    }
+  });
+});
 
 for (const kind of DB_KINDS) {
   describe(`${MIGRATION} (${kind})`, function () {

@@ -41,7 +41,7 @@ describe('AncestorMiddleware', function () {
 
   before(async () => {
     pg = await TestDb.postgresReachable();
-    db = await TestDb.open({ postgres: pg });
+    db = await TestDb.open({ postgres: pg, other: true });
   });
 
   after(async () => {
@@ -186,6 +186,23 @@ describe('AncestorMiddleware', function () {
         }
         expect(err).to.be.instanceOf(AuthzConfigError);
         expect((err as Error).message).to.match(/transaction/);
+      });
+
+      it('refuses a write of a resource whose connection is not the one authz_resource_ancestor is on', async () => {
+        await db.useAuthz('other');
+        try {
+          let err: unknown;
+          try {
+            await Task.insert({ id: 5, title: 'x', project_id: 'p1' });
+          } catch (e) {
+            err = e;
+          }
+          expect(err).to.be.instanceOf(AuthzConfigError);
+          expect((err as Error).message).to.match(/^authz-orm: a insert of Task_\d+_\d+ \(resource 'task'\) runs on connection "(sqlite|postgres)", but authz_resource_ancestor is on connection "other" \(db\.Aliases\.authz\)$/);
+          expect((await db.rows(Task)).map((r) => Number(r.id))).to.not.include(5);
+        } finally {
+          await db.useAuthz(dialect);
+        }
       });
     });
   }

@@ -1,12 +1,12 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { AuthzClock, DecisionAudit, SYSTEM, authzStorage, runWithPrincipal } from '@spinajs/authz';
+import { DecisionAudit, SYSTEM, authzStorage, runWithPrincipal } from '@spinajs/authz';
 import { RecordingAudit, testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 
 import { marksOf, setMarks } from '../src/marker.js';
-import { auditUnscoped, domainConfig, domainContainer, domainNow, ormDomain, storageUnscoped } from '../src/host.js';
+import { auditUnscoped, domainConfig, domainContainer, ormDomain, storageUnscoped } from '../src/host.js';
 
 const expect = chai.expect;
 const tick = () => new Promise((r) => setImmediate(r));
@@ -98,15 +98,5 @@ describe('authz-orm host helpers', function () {
     auditUnscoped('root', SYSTEM, 'again', 'task');
     await tick();
     expect(lastNamed()?.of('unscoped')).to.have.length(1);
-  });
-
-  it("domainNow is the system time before the boot and the domain's clock after it", async () => {
-    const fixed = new Date('2030-01-01T00:00:00Z');
-    testHost.registerInRoot(AuthzClock, testHost.instance({ now: () => fixed }));
-    const before = Date.now();
-    const pre = domainNow('root').getTime();
-    expect(pre).to.be.within(before, Date.now());
-    await (await testHost.domains()).service('root');
-    expect(domainNow('root')).to.equal(fixed);
   });
 });

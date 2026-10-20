@@ -3,9 +3,8 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import { Orm, OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { SessionIssuer } from '@spinajs/authn/contracts';
-import { AbsoluteExpiration, DefaultSessionIssuer, SessionExpirationProvider, SessionProvider, SlidingCappedExpiration, SlidingExpiration, encodeSessionData } from '@spinajs/authn-session';
+import { AbsoluteExpiration, DefaultSessionIssuer, SessionExpirationProvider, SessionProvider, SlidingCappedExpiration, SlidingExpiration } from '@spinajs/authn-session';
 import _ from 'lodash';
-import { DateTime } from 'luxon';
 import { DbSessionStore } from '../src/index.js';
 import { DbSession } from '../src/models/DbSession.js';
 
@@ -82,36 +81,6 @@ export const disposeStore = shutdown;
 
 export async function sessionConnection(): Promise<OrmDriver> {
   return (await DI.resolve(Orm)).Connections.get('session-provider-connection')!;
-}
-
-/** A row as the 2.x store wrote it: raw uuid key, numeric UserId, identity only in Data, no 3.0 columns. */
-export interface LegacyRow {
-  rawId: string;
-  user?: string;
-  authorized: boolean;
-  impersonator?: string;
-  creation: DateTime;
-  expiration?: DateTime;
-}
-
-export async function seedLegacyRow(row: LegacyRow): Promise<void> {
-  const data = new Map<string, unknown>([['Logged', true]]);
-  if (row.user !== undefined) data.set('User', row.user);
-  data.set('Authorized', row.authorized);
-  if (row.impersonator) data.set('Impersonator', row.impersonator);
-
-  await (
-    await sessionConnection()
-  )
-    .insert()
-    .into('user_sessions')
-    .values({
-      SessionId: row.rawId,
-      CreatedAt: row.creation,
-      Expiration: row.expiration ?? null,
-      Data: encodeSessionData(data),
-      UserId: 1,
-    });
 }
 
 export async function storedKeys(): Promise<string[]> {

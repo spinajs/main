@@ -2,14 +2,15 @@ import { randomUUID } from 'node:crypto';
 
 import { IdentityLinkStore } from '@spinajs/authn/contracts';
 import type { ExternalSubject, IdentityLink, IdentityRef } from '@spinajs/authn/contracts';
-import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, ResourceDuplicated } from '@spinajs/exceptions';
-import { Orm, OrmDriver } from '@spinajs/orm';
+import { UniqueViolation, ormReady } from '@spinajs/orm';
 
-import { StoreConnection } from '../support/connection.js';
-import { checkedMs, checkedText, columnText, rowsAffected, selectTime, sqlTime, textMs } from '../support/sql.js';
+import { AuthnIdentity } from '../models/AuthnIdentity.js';
+import { checkedMs, checkedText, dateOf, instant } from '../support/sql.js';
+import { columnValues } from '../support/values.js';
 
-const TABLE = 'authn_identity';
+const LINK_COLUMNS = ['id', 'identity_type', 'identity_id', 'provider', 'subject', 'email', 'linked_at', 'last_used_at'];
 
 function identityParts(ref: IdentityRef): { type: string; id: string } {
   const type = checkedText(ref?.type, 16, 'DbIdentityLinkStore: identity type');
@@ -21,31 +22,20 @@ function identityParts(ref: IdentityRef): { type: string; id: string } {
 @PerChildInstance()
 @Injectable(IdentityLinkStore)
 export class DbIdentityLinkStore extends IdentityLinkStore {
-  @Autoinject(Orm)
-  protected Orm: Orm;
-
-  private readonly connection: StoreConnection;
-
-  /** DI passes nothing and injects the Orm of the resolving container; tests pass a driver. */
-  constructor(driver?: OrmDriver) {
-    super();
-    this.connection = new StoreConnection('DbIdentityLinkStore', driver, () => this.Orm);
-  }
-
   public async find(provider: string, subject: string): Promise<IdentityLink | null> {
-    const { driver } = await this.connection.get();
-    const rows = (await this.selectLinks(driver).where('provider', provider).where('subject', subject)) as Record<string, unknown>[];
+    await ormReady();
+    const rows = await AuthnIdentity.query().columns(LINK_COLUMNS).where('provider', provider).where('subject', subject);
     // MySQL and MSSQL default collations ignore case (and accents or trailing spaces): a subject differing only that
     // way must not sign in as another account.
     const exact = rows.find((r) => r.provider === provider && r.subject === subject);
-    return exact ? this.toLink(exact) : null;
+    return exact ? toLink(exact) : null;
   }
 
   public async list(identity: IdentityRef): Promise<readonly IdentityLink[]> {
     const { type, id } = identityParts(identity);
-    const { driver } = await this.connection.get();
-    const rows = (await this.selectLinks(driver).where('identity_type', type).where('identity_id', id).orderBy('linked_at')) as Record<string, unknown>[];
-    return rows.filter((r) => r.identity_type === type && r.identity_id === id).map((r) => this.toLink(r));
+    await ormReady();
+    const rows = await AuthnIdentity.query().columns(LINK_COLUMNS).where('identity_type', type).where('identity_id', id).orderBy('linked_at');
+    return rows.filter((r) => r.identity_type === type && r.identity_id === id).map(toLink);
   }
 
   /** A duplicate (provider, subject) rejects with `ResourceDuplicated` (the unique index decides). */
@@ -55,48 +45,40 @@ export class DbIdentityLinkStore extends IdentityLinkStore {
     const subject = checkedText(external.subject, 255, 'DbIdentityLinkStore: subject');
     const email = external.email === undefined || external.email === null ? undefined : checkedText(external.email, 255, 'DbIdentityLinkStore: email', true);
     const nowMs = checkedMs(new Date(), 'DbIdentityLinkStore.link: the clock');
-    const { driver } = await this.connection.get();
+    await ormReady();
 
     const linkId = randomUUID();
     try {
-      await driver
-        .insert()
-        .into(TABLE)
-        .values({ id: linkId, identity_type: type, identity_id: id, provider, subject, email: email ?? null, email_verified: external.emailVerified === true, attributes: null, linked_at: sqlTime(nowMs), last_used_at: null });
+      await AuthnIdentity.insert(columnValues<AuthnIdentity>({ id: linkId, identity_type: type, identity_id: id, provider, subject, email: email ?? null, email_verified: external.emailVerified === true, attributes: null, linked_at: instant(nowMs), last_used_at: null }));
     } catch (err) {
-      if (err instanceof ResourceDuplicated) throw new ResourceDuplicated(`DbIdentityLinkStore: (${provider}, subject) is already linked`, err);
+      if (err instanceof UniqueViolation) throw new ResourceDuplicated(`DbIdentityLinkStore: (${provider}, subject) is already linked`, err);
       throw err;
     }
     return { id: linkId, identity: { type, id }, provider, subject, ...(email !== undefined ? { email } : {}), linkedAt: new Date(nowMs) };
   }
 
   public async unlink(id: string): Promise<void> {
-    const { driver } = await this.connection.get();
-    await driver.del().from(TABLE).where('id', id);
+    await ormReady();
+    await AuthnIdentity.destroy().where('id', id);
   }
 
   /** Sets `last_used_at` (default now); true when the link exists. */
   public async touch(id: string, at: Date = new Date()): Promise<boolean> {
-    const t = sqlTime(checkedMs(at, 'DbIdentityLinkStore.touch: at'));
-    const { driver } = await this.connection.get();
-    return rowsAffected(await driver.update().in(TABLE).update({ last_used_at: t }).where('id', id)) === 1;
+    const ms = checkedMs(at, 'DbIdentityLinkStore.touch: at');
+    await ormReady();
+    const { RowsAffected } = await AuthnIdentity.update({ last_used_at: instant(ms) }).where('id', id);
+    return RowsAffected === 1;
   }
+}
 
-  private selectLinks(driver: OrmDriver) {
-    const q = driver.select().from(TABLE).select('id').select('identity_type').select('identity_id').select('provider').select('subject').select('email');
-    return selectTime(driver, selectTime(driver, q, 'linked_at', 'linked_text'), 'last_used_at', 'last_used_text');
-  }
-
-  private toLink(r: Record<string, unknown>): IdentityLink {
-    const lastUsed = columnText(r, 'last_used_text');
-    return {
-      id: String(r.id),
-      identity: { type: String(r.identity_type), id: String(r.identity_id) },
-      provider: String(r.provider),
-      subject: String(r.subject),
-      ...(r.email !== null && r.email !== undefined ? { email: String(r.email) } : {}),
-      linkedAt: new Date(textMs(columnText(r, 'linked_text') ?? '')),
-      ...(lastUsed !== null ? { lastUsedAt: new Date(textMs(lastUsed)) } : {}),
-    };
-  }
+function toLink(r: AuthnIdentity): IdentityLink {
+  return {
+    id: r.id,
+    identity: { type: r.identity_type, id: r.identity_id },
+    provider: r.provider,
+    subject: r.subject,
+    ...(r.email !== null && r.email !== undefined ? { email: r.email } : {}),
+    linkedAt: dateOf(r.linked_at),
+    ...(r.last_used_at ? { lastUsedAt: dateOf(r.last_used_at) } : {}),
+  };
 }

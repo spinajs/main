@@ -12,7 +12,7 @@ function dir(path: string) {
 
 /**
  * Identity keys only (`users.*`) and the roles over users' own resource types. Authentication keys (`authn.*`) come with
- * the authn packages; users ships none, and no 2.x `rbac.*` key.
+ * the authn packages; users ships none.
  */
 const usersConfig = {
   system: {

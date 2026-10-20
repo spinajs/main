@@ -7,7 +7,7 @@
 1. You call `driver.transaction(cb, options?)`, or `Model.transaction(cb, options?)`, which forwards to the driver of the model's connection.
 2. `OrmDriver.transaction()` checks `options.isolation` against `OrmDriver.SupportedIsolationLevels`. An unlisted level throws `OrmException` (`isolation level <level> not supported by driver <driver>`) before anything reaches the database.
 3. It reads the ambient context from the driver's `AsyncLocalStorage` (`OrmDriver.CurrentTransaction`).
-4. **No transaction in scope:** the driver's `_begin(options)` opens one and returns an `ITransactionContext` with `depth = 0`. The callback runs inside `AsyncLocalStorage.run(ctx, ...)` and receives the driver.
+4. **No transaction in scope:** on a driver whose `supportedFeatures().concurrentTransactions` is `false` (SQLite), the call first waits for the outermost transactions queued before it on this driver. Then the driver's `_begin(options)` opens one and returns an `ITransactionContext` with `depth = 0`. The callback runs inside `AsyncLocalStorage.run(ctx, ...)` and receives the driver.
 5. Every statement executed inside the callback reads the context and runs on the transaction's connection. Nothing is passed by hand.
 6. The callback resolves: `_commit(ctx)`. The callback or the commit throws: `_rollback(ctx)`, and the original error is rethrown. A failing rollback is swallowed so it cannot hide that error.
 7. `_dispose(ctx)` releases the connection, exactly once, on every path.
@@ -54,7 +54,7 @@ Each of these becomes a savepoint when you call it inside your own `transaction(
 | Driver | Statement |
 | --- | --- |
 | PostgreSQL | `LOCK TABLE <table> IN SHARE MODE` |
-| MySQL | `SELECT COUNT(*) FROM <table> FOR SHARE` (row and, under `REPEATABLE READ`, gap locks, which keep inserts out too) |
+| MySQL | `SELECT COUNT(*) FROM <table> FOR UPDATE`. `LOCK TABLES` would commit the open transaction, so it is a locking read of every row. Exclusive, because InnoDB may count through a secondary index and put shared locks on that index only, where an update of an unindexed column never looks. Plain reads go on; other locking reads (`FOR SHARE`, `FOR UPDATE`) wait too. The next-key locks keep inserts out only under `REPEATABLE READ` (the InnoDB default), and DDL ends the transaction and the lock with it. |
 | MSSQL | `SELECT COUNT(*) FROM <table> WITH (TABLOCK, HOLDLOCK)` |
 | SQLite | `DELETE FROM <table> WHERE 0`, which takes the database's `RESERVED` lock: every other writer waits, on any table |
 
@@ -99,9 +99,10 @@ await driver.transaction(async () => reserveStock(orderId), { isolation: 'SERIAL
 ## Important behaviour
 
 - **The context is per driver.** Each `OrmDriver` instance has its own `AsyncLocalStorage`. A query on another connection inside the callback does not join the transaction and is not rolled back with it.
-- **The callback's promise is the boundary.** Commit runs once the callback resolves. A statement you start but do not await can run after commit and dispose.
+- **The callback's promise is the boundary.** Commit runs once the callback resolves. A statement you start but do not await can run after commit and dispose. A continuation that outlives its transaction callback keeps that transaction's context, so on SQLite it bypasses the writer gate and can join a later transaction: await everything inside the callback.
 - **A builder joins when it executes, not when it is built.** Builders run when awaited; one created before `transaction()` and awaited inside the callback runs in the transaction.
 - **Nesting is savepoints, never a second transaction.** A failing nested call rolls back only its own work; catch its error to keep the outer transaction alive. An uncaught error unwinds every level.
+- **Drivers without concurrent transactions queue outermost calls.** When `supportedFeatures().concurrentTransactions` is `false` (SQLite), an outermost `transaction()` waits until the previous one on the same driver has committed or rolled back; calls run in call order. Nested calls are savepoints and never wait. The queue moves on before `afterCommit` callbacks run, so a callback may open a transaction of its own. A transaction callback that waits for work started on another async path of the same driver, where that work needs its own outermost transaction, never resolves.
 - **Savepoints assume sequential work.** Savepoint names come from an incrementing counter on the shared context, and `afterCommit` bookkeeping assumes savepoints of one transaction run one after another. Do not run nested `transaction()` or `save()` calls concurrently inside one transaction.
 - **`afterCommit` callbacks never run for rolled-back work.** A rollback of the outermost transaction, or a failed commit, drops every queued callback. A rolled-back savepoint drops the callbacks queued since it began. A released savepoint keeps them for the outermost commit.
 - **`afterCommit` errors are logged, not thrown.** A failing callback is logged on the driver's log and the next one still runs. `transaction()` still resolves with the callback's value.

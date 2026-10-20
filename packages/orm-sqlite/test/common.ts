@@ -31,6 +31,8 @@ export class ConnectionConf2 extends FrameworkConfiguration {
           rules: [{ name: '*', level: 'trace', target: 'Empty' }],
         },
         db: {
+          // In-memory database: the tables come from Migration.up() or test DDL after the Orm boots.
+          StrictTableCheck: false,
           Migration: {
             Startup: false,
           },
@@ -74,6 +76,8 @@ export class ConnectionConf extends FrameworkConfiguration {
         },
 
         db: {
+          // In-memory database: the tables come from Migration.up() or test DDL after the Orm boots.
+          StrictTableCheck: false,
           Connections: [
             {
               Driver: 'orm-driver-sqlite',

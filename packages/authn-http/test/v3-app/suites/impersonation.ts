@@ -139,15 +139,11 @@ export function impersonationSuite(): void {
     }
   });
 
-  it('takes the target as { type, id } and the 2.x TargetUuid', async () => {
+  it('takes the target as { type, id }', async () => {
     const admin = await seedUser();
     const c = await loggedInAal2(admin);
     const t1 = await seedUser();
     expect((await c.post('/auth/impersonate', { target: { type: 'user', id: t1.ref.id } })).status).to.eq(200);
-    const admin2 = await seedUser();
-    const d = await loggedInAal2(admin2);
-    const t2 = await seedUser();
-    expect((await d.post('/auth/impersonate', { TargetUuid: t2.ref.id })).status).to.eq(200);
   });
 
   it('requireMfa: an aal1 session is refused although no step is required of it', async () => {

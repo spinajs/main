@@ -385,7 +385,7 @@ describe('runAuthnBehaviour: execution', () => {
 
   it('runAuthnBehaviour binds the kit registry', async () => {
     const { ran } = await collect((bdd) => runAuthnBehaviour(['A07'], factory(), { bdd, facets: ['A07/store'] }));
-    assert.strictEqual(ran.length, 7);
+    assert.strictEqual(ran.length, 5);
     assert.ok(ran.every((x) => x.status === 'pending'));
   });
 });

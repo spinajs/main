@@ -34,9 +34,9 @@ describe('DefaultAuthzDomains accessors', function () {
   it('refuse a domain whose service has not booted, and an unknown domain', async () => {
     const d = await domains();
     d.create('a');
-    for (const get of [d.config, d.audit, d.bus, d.clock]) {
-      expect(() => get.call(d, 'a'), get.name).to.throw(AuthzConfigError, /"a" has no booted AuthzService/);
-      expect(() => get.call(d, 'nope'), get.name).to.throw(AuthzConfigError, /"nope" does not exist/);
+    for (const get of ['config', 'audit', 'bus', 'clock'] as const) {
+      expect(() => d[get]('a'), get).to.throw(AuthzConfigError, /"a" has no booted AuthzService/);
+      expect(() => d[get]('nope'), get).to.throw(AuthzConfigError, /"nope" does not exist/);
     }
   });
 

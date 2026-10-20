@@ -55,7 +55,7 @@ export class AuthorizationBearerExtractor extends CredentialExtractor {
 /**
  * The `authn.token.headerName` header (default `x-api-key`) ⇒ bearer, only for an `authn.token.prefix` token: the header
  * name is common, so any other value is someone else's key and gives no credentials. A malformed or repeated value ⇒
- * null. An opaque `Authorization` bearer gives null first, so a prefix token here still authenticates, as in 2.x.
+ * null. An opaque `Authorization` bearer gives null first, so a prefix token here still authenticates.
  */
 @PerChildInstance()
 export class ApiKeyHeaderExtractor extends CredentialExtractor {

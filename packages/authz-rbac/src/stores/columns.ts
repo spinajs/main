@@ -53,30 +53,6 @@ export function parsePrincipalKey(key: string | null | undefined): PrincipalRef 
   return { type: key.slice(0, at).replace(/%3A/g, ':').replace(/%25/g, '%'), id: key.slice(at + 1) };
 }
 
-const SQL_LOCAL = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?$/;
-
-/**
- * A datetime column as a `Date`. Postgres hands back a `Date`; SQLite hands back the text the ORM
- * wrote, the local wall clock without a zone, so it is read in the local zone like the ORM writes it.
- */
-export function toDate(value: unknown): Date | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value;
-
-  if (typeof value === 'string') {
-    const m = SQL_LOCAL.exec(value);
-    if (m) {
-      const ms = m[7] ? Number(m[7].padEnd(3, '0').slice(0, 3)) : 0;
-      return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6] ?? 0), ms);
-    }
-
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
-  }
-
-  throw new AuthzConfigError(`Unreadable datetime value ${JSON.stringify(value)}`);
-}
-
 /** `authz_assignment.subject_key` and the keys of `authz_subject_membership` hold this many characters. */
 export const SUBJECT_KEY_MAX_LENGTH = 200;
 

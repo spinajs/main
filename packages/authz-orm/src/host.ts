@@ -51,11 +51,6 @@ async function auditOf(domain: string): Promise<DecisionAudit | undefined> {
   return pickNamed(domainContainer(domain), DecisionAudit, domainConfig(domain).audit.service, AUTHZ_AUDIT_SERVICE_KEY, 'authz-orm');
 }
 
-/** The time on the domain's clock once its service has booted, else the system time. */
-export function domainNow(domain: string): Date {
-  return bootedDomains(domain)?.clock(domain).now() ?? new Date();
-}
-
 /** Fire and forget: auditing never fails the query. */
 export function recordAudit(domain: string, record: AuditRecord): void {
   auditOf(domain)

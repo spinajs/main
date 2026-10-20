@@ -99,6 +99,16 @@ describe('OrmResourceAdapter', function () {
         expect(await adapter.ancestors({ type: 'task' })).to.deep.equal([{ type: 'task' }, GLOBAL]);
       });
 
+      it('an id beyond the key column range is a missing row, not a failed query', async () => {
+        // INTEGER is 32-bit on Postgres, which fails the whole query on an out-of-range bind.
+        const far = '99999999999';
+        const out = await adapter.ancestorsMany!([{ type: 'task', id: '7' }, { type: 'task', id: far }]);
+        expect(out.get(`task:${far}`)).to.equal(null);
+        expect(out.get('task:7')).to.deep.equal([{ type: 'task', id: '7' }, { type: 'project', id: 'p1' }, { type: 'org', id: 'o1' }, GLOBAL]);
+        expect(await adapter.ancestors({ type: 'task', id: '-99999999999' })).to.equal(null);
+        expect([...(await adapter.loadMany!([{ type: 'task', id: '8' }, { type: 'task', id: far }])).keys()]).to.deep.equal(['task:8']);
+      });
+
       it('ancestorsMany answers a batch by resourceKey', async () => {
         const out = await adapter.ancestorsMany!([{ type: 'task', id: '7' }, { type: 'task', id: '8' }, { type: 'task', id: '9' }, { type: 'user', id: 'u1' }]);
         expect([...out.keys()].sort()).to.deep.equal(['task:7', 'task:8', 'task:9', 'user:u1']);

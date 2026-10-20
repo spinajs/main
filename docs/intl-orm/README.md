@@ -19,7 +19,7 @@ Install a dialect driver as well, eg. `@spinajs/orm-sqlite`.
 | [Translatable models](01-translatable-models.md) | Marks columns with `@Translate()` and loads or saves their values per language with the `Translatable` base model |
 | [Query translation](02-query-translation.md) | Adds `translate(lang)` to every select builder, a prototype extension that translates the whole result set |
 | [Translation relation](03-translation-relation.md) | `IntlModelRelation` and `IntlModelMiddleware`, the overridable relation behind `translate(lang)` |
-| [Automatic translation](04-automatic-translation.md) | `IntlQueryMiddleware`, a `QueryMiddleware` that translates model selects to the request language |
+| [Automatic translation](04-automatic-translation.md) | `IntlQueryMiddleware`, a `QueryMiddleware` that translates selects of models with `@Translate()` columns or relations to the request language |
 | [Database translation source](05-database-translation-source.md) | `DbTranslationSource`, a `TranslationSource` that loads `@spinajs/intl` phrases from `intl_translations` |
 | [Schema and migration](06-schema-and-migration.md) | The `intl_resources` and `intl_translations` tables, their models and the migration that creates them |
 

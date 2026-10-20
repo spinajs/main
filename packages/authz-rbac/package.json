@@ -30,7 +30,7 @@
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
-    "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
+    "lint": "cd ../.. && npm run lint -- packages/authz-rbac",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
   },
@@ -53,19 +53,21 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/authz": "3.0.0-alpha.0",
+    "@spinajs/authz-orm": "3.0.0-alpha.0",
     "@spinajs/cli": "2.0.549",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
     "@spinajs/orm": "2.0.549",
-    "@spinajs/util": "2.0.549"
+    "@spinajs/util": "2.0.549",
+    "luxon": "^3.6.1"
   },
   "devDependencies": {
     "@spinajs/authz-abac": "3.0.0-alpha.0",
-    "@spinajs/authz-orm": "3.0.0-alpha.0",
     "@spinajs/authz-testing": "3.0.0-alpha.0",
     "@spinajs/log": "2.0.549",
     "@spinajs/orm-postgres": "2.0.549",
-    "@spinajs/orm-sqlite": "2.0.549"
+    "@spinajs/orm-sqlite": "2.0.549",
+    "@types/luxon": "^3.6.1"
   }
 }

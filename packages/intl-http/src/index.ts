@@ -82,7 +82,7 @@ export class IntlHttpMiddleware extends ServerMiddleware {
     this.Order = 1;
   }
 
-  public before(): (req: express.Request, res: express.Response, next: express.NextFunction) => void {
+  public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
     return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
       const lang = extractLanguageFromRequest(req, this.LangQueryParameter);
 

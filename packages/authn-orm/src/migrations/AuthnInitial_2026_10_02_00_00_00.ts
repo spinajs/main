@@ -65,6 +65,7 @@ export class AuthnInitial_2026_10_02_00_00_00 extends OrmMigration {
       table.string('identity', 100).notNull().primaryKey();
       table.string('step', 32).notNull().primaryKey();
       table.text('secret_enc').notNull();
+      table.string('secret_hash', 64).notNull();
       table.string('key_id', 32).notNull();
       table.dateTime('confirmed_at');
       table.bigint('last_step');

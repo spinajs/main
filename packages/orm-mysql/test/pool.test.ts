@@ -88,6 +88,8 @@ async function fakeMySqlServer() {
     conn.serverHandshake({ protocolVersion: 10, serverVersion: '8.0.0', connectionId: clients.length + 1, statusFlags: 2, characterSet: 8, capabilityFlags: 0xffffff });
     conn.on('error', () => undefined);
     conn.on('query', () => conn.writeOk());
+    // mysql2's server emits a SET query (the driver's per-connection `SET time_zone`) as stmt_prepare, not query
+    conn.on('stmt_prepare', () => conn.writeOk());
     clients.push(conn);
   });
 

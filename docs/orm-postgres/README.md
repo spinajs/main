@@ -16,9 +16,9 @@ Importing the package registers `PostgresOrmDriver` under the driver string `orm
 
 | Feature | What it does |
 | --- | --- |
-| [Connection and pooling](01-connection-and-pooling.md) | Configuration keys, the `pg` pool, `search_path`, health probe, retries and pool metrics. |
+| [Connection and pooling](01-connection-and-pooling.md) | Configuration keys, the `pg` pool, the UTC session, `search_path`, health probe, retries, pool metrics and constraint errors. |
 | [Transactions](02-transactions.md) | One pooled client per transaction, all four isolation levels, savepoints for nesting. |
-| [Queries and inserts](03-queries-and-inserts.md) | The SQL a query compiles to: `LIMIT`/`OFFSET`, `ON CONFLICT` upserts, `RETURNING` keys, response types. |
+| [Queries and inserts](03-queries-and-inserts.md) | The SQL a query compiles to: `LIMIT`/`OFFSET`, long `IN` lists, `driver.now()`, `ON CONFLICT` upserts, `RETURNING` keys, split inserts, datetimes, response types. |
 | [Schema DDL and reflection](04-schema-ddl-and-reflection.md) | Column types, identity columns, `ALTER COLUMN`, databases, views, `tableInfo()`, unsupported DDL. |
 | [Quoting and parameters](05-quoting-and-parameters.md) | Double-quote identifiers, PostgreSQL literals, `?` to `$n` placeholder rewriting. |
 | [Extending the driver](06-extending-the-driver.md) | Subclass `PostgresOrmDriver`, replace it for every connection or one, every DI token it registers. |
@@ -63,9 +63,8 @@ export async function countOpenOrders(): Promise<number> {
   const orm = await DI.resolve(Orm);
   const driver = orm.Connections.get('main')!;
 
-  // COUNT(*) is a BIGINT; node-postgres returns it as a string, so convert it
-  const total = await driver.select().from('orders').where('status', 'open').selectCount();
-  return Number(total);
+  // SELECT COUNT(*) ... WHERE "status" = $1; selectCount() resolves with a number
+  return driver.select().from('orders').where('status', 'open').selectCount();
 }
 ```
 
@@ -81,7 +80,7 @@ export async function countOpenOrders(): Promise<number> {
 | Insert-or-ignore | `INSERT IGNORE` | `ON CONFLICT DO NOTHING` |
 | Offset without limit | `LIMIT 18446744073709551615` | bare `OFFSET` |
 | `ENUM` / `SET` columns | native types | `TEXT` (plus `CHECK (col IN (...))` for an enum) |
-| `DATETIME` / `DOUBLE` / `BLOB` / `JSON` | native names | `TIMESTAMP` / `DOUBLE PRECISION` / `BYTEA` / `JSONB` |
+| `DATETIME` / `DOUBLE` / `BLOB` / `JSON` | native names | `TIMESTAMPTZ(3)` / `DOUBLE PRECISION` / `BYTEA` / `JSONB` |
 | `UNSIGNED`, column `CHARACTER SET`, inline `COMMENT` | supported | dropped |
 | `MODIFY column` | one clause restates the column | `ALTER COLUMN ... TYPE ... USING col::type / SET / DROP` actions |
 | `DROP INDEX` | `DROP INDEX i ON t` | `DROP INDEX "i"` |
@@ -89,6 +88,12 @@ export async function countOpenOrders(): Promise<number> {
 | `CREATE DATABASE IF NOT EXISTS` | supported | throws `NotSupported` |
 | `CREATE EVENT`, table history, `CREATE TABLE ... LIKE` | MySQL syntax | not available |
 | `DECIMAL` / `NUMERIC` / `BIGINT` read back | driver-dependent | strings |
+| `whereIn()` over 1000 values | `IN (?,...)` | `= ANY(?)`, one array binding |
+| `driver.now()` | dialect-specific | `CURRENT_TIMESTAMP` (transaction start) |
+| Datetime written | `yyyy-MM-dd HH:mm:ss.SSS` in UTC | ISO 8601 in UTC with `Z` (`IsoDatetimeValueConverter`) |
+| Session time zone | server default | `TimeZone=UTC` on every pooled client |
+| Bound parameters per statement | each driver's `MaxBindings` | `65535`; larger inserts are split |
+| Duplicate key / constraint failure | mapped by each driver | `UniqueViolation` / `ConstraintViolation` by SQLSTATE |
 
 ## Testing
 

@@ -8,7 +8,7 @@ import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
 
-import { AUTHZ_TOKEN_CONFIGURATION_SCHEMA, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_GROUP_PRINCIPAL, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_MAX_PLAN_SUBJECTS, DEFAULT_MAX_SET_DEPTH, DEFAULT_ROLES_CHECK_SECONDS, RoleStore, compileGrants, compileImplies, compileLadders, compileRoles, ladderEdges } from '../../src/index.js';
+import { AUTHZ_TOKEN_CONFIGURATION_SCHEMA, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_GROUP_PRINCIPAL, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_MAX_SET_DEPTH, DEFAULT_ROLES_CHECK_SECONDS, RoleStore, compileGrants, compileImplies, compileLadders, compileRoles, ladderEdges } from '../../src/index.js';
 import type { RoleDef } from '../../src/index.js';
 import { AUTHZ_RBAC_CONFIGURATION_SCHEMA, AUTHZ_RBAC_GUARD_CONFIGURATION_SCHEMA, ConfigRoleStore, RBAC_STORE_DEFAULTS, RbacConfigBootstrapper, rbacStoreNames } from '../../src/stores/index.js';
 
@@ -84,7 +84,6 @@ const SAMPLE_8_2 = () => ({
   serviceRoles: { 'service:telemetry': ['telemetry'] },
   stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['ConfigRuleStore'], links: ['DbLinkStore'] },
   cache: { assignmentsTtlSeconds: 60 },
-  migration: { roleColumn: 'Role' },
 });
 
 const PW = ['project', 'org'];
@@ -429,7 +428,6 @@ describe('authz-rbac stores: authz.rbac schema', function () {
       anonymousRoles: [],
       serviceRoles: {},
       cache: { assignmentsTtlSeconds: DEFAULT_ASSIGNMENTS_TTL_SECONDS, maxSubjects: DEFAULT_MAX_CACHED_SUBJECTS, rolesCheckSeconds: DEFAULT_ROLES_CHECK_SECONDS },
-      maxPlanSubjects: DEFAULT_MAX_PLAN_SUBJECTS,
       maxSetDepth: DEFAULT_MAX_SET_DEPTH,
     });
   });
@@ -440,7 +438,6 @@ describe('authz-rbac stores: authz.rbac schema', function () {
       anonymousRoles: [],
       serviceRoles: {},
       cache: { assignmentsTtlSeconds: DEFAULT_ASSIGNMENTS_TTL_SECONDS, maxSubjects: DEFAULT_MAX_CACHED_SUBJECTS, rolesCheckSeconds: DEFAULT_ROLES_CHECK_SECONDS },
-      maxPlanSubjects: DEFAULT_MAX_PLAN_SUBJECTS,
       maxSetDepth: DEFAULT_MAX_SET_DEPTH,
     };
     for (const sample of [SAMPLE_8_2(), SAMPLE_8_5(), {}]) {
@@ -448,8 +445,8 @@ describe('authz-rbac stores: authz.rbac schema', function () {
     }
   });
 
-  it('accepts connection, migration.idColumn and keeps keys of other lanes', async () => {
-    const cfg = await configured({ connection: 'authz', migration: { roleColumn: 'Role', idColumn: 'Uuid' }, admin: { x: 1 }, future: { y: true }, stores: { roles: ['A'], policies: ['B'] } });
+  it('lets connection through to the boot check and keeps keys of other lanes', async () => {
+    const cfg = await configured({ connection: 'authz', admin: { x: 1 }, future: { y: true }, stores: { roles: ['A'], policies: ['B'] } });
     expect(cfg.admin).to.deep.equal({ x: 1 });
     expect(cfg.future).to.deep.equal({ y: true });
     expect((cfg.stores as Record<string, unknown>).policies).to.deep.equal(['B']);
@@ -481,8 +478,6 @@ describe('authz-rbac stores: authz.rbac schema', function () {
     await fails({ cache: { assignmentsTtlSeconds: -1 } }, 'cache.assignmentsTtlSeconds');
     await fails({ cache: { maxSubjects: 1.5 } }, 'cache.maxSubjects');
     await fails({ cache: { rolesCheckSeconds: -1 } }, 'cache.rolesCheckSeconds');
-    await fails({ migration: { roleColumn: '' } }, 'migration.roleColumn');
-    await fails({ connection: '' }, 'connection');
   });
 
   describe('role names follow ROLE_NAME_PATTERN, the one authz and users read too', () => {

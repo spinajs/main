@@ -30,7 +30,7 @@ export type RequireAccessibleMessageIds = 'unscopedQuery' | 'unscopedShortcut';
 
 type Chain = { call: TSESTree.CallExpression; name: string }[];
 
-const createRule = ESLintUtils.RuleCreator((name) => `https://github.com/spinajs/main/blob/master/packages/eslint-plugin-authz/README.md#${name}`);
+const createRule = ESLintUtils.RuleCreator<{ recommended: boolean; requiresTypeChecking: boolean }>((name) => `https://github.com/spinajs/main/blob/master/packages/eslint-plugin-authz/README.md#${name}`);
 
 const memberName = (node: TSESTree.MemberExpression): string | undefined => (!node.computed && node.property.type === AST_NODE_TYPES.Identifier ? node.property.name : undefined);
 
@@ -81,7 +81,7 @@ export const requireAccessible = createRule<[RequireAccessibleOptions], RequireA
     type: 'problem',
     docs: {
       description: 'Require .accessible(), .unscoped() or an enclosing runAs() on multi-row queries of @AccessResource models',
-      recommended: 'error',
+      recommended: true,
       requiresTypeChecking: true,
     },
     messages: {
@@ -119,7 +119,7 @@ export const requireAccessible = createRule<[RequireAccessibleOptions], RequireA
         const model = classOf(callee.object);
         if (!isAccessResourceClass(model, checker, extra, cache) || insideRunAs(node)) return;
 
-        const name = context.getSourceCode().getText(callee.object);
+        const name = context.sourceCode.getText(callee.object);
         if (!QUERY_ROOTS.has(root)) {
           if (KEY_LIST_READS.has(root) && isOneKeyList(node.arguments)) return;
           context.report({ node, messageId: 'unscopedShortcut', data: { model: name, call: root } });

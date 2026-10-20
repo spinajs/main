@@ -19,6 +19,11 @@
       "types": "./lib/mjs/audit/index.d.ts",
       "import": "./lib/mjs/audit/index.js",
       "require": "./lib/cjs/audit/index.js"
+    },
+    "./plan": {
+      "types": "./lib/mjs/plan/index.d.ts",
+      "import": "./lib/mjs/plan/index.js",
+      "require": "./lib/cjs/plan/index.js"
     }
   },
   "typesVersions": {
@@ -28,6 +33,9 @@
       ],
       "audit": [
         "lib/cjs/audit/index.d.ts"
+      ],
+      "plan": [
+        "lib/cjs/plan/index.d.ts"
       ]
     }
   },
@@ -50,7 +58,7 @@
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
-    "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
+    "lint": "cd ../.. && npm run lint -- packages/authz-orm",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
   },

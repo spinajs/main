@@ -14,13 +14,13 @@ MySQL has no `RETURNING`, so `MySqlOrmDriver` hands back generated keys through 
 3. **Send.** `executeOnDb()` runs it with `QueryContext.Insert` (or `Upsert` after `onDuplicate()`) and resolves `{ RowsAffected, LastInsertId, Returning: [] }` from `mysql2`'s `OkPacket`.
 4. **Map.** The model layer resolves `ServerResponseMapper` from the connection container: `MysqlServerResponseMapper.read(data)` returns `{ LastInsertId: data.LastInsertId ?? 0, RowsAffected: data.RowsAffected ?? 0, Returning: [] }`.
 5. **Key one row.** For a model with an `auto` primary key and no key set, `PrimaryKeyValue = LastInsertId`.
-6. **Key a batch.** For `Model.insert([a, b, c])`, every row gets `LastInsertId + index` when all six guards hold (next section). Otherwise no key is assigned.
+6. **Key a batch.** For `Model.insert([a, b, c])`, every row gets `LastInsertId + index` when all seven guards hold (next section). Otherwise no key is assigned.
 
-Errors: `returning(columns)` throws `NotSupported('driver orm-driver-mysql does not support RETURNING on INSERT')`. `Model.insert([...], behaviour)` with any behaviour other than `InsertBehaviour.None` throws `OrmException('insert behaviour is not supported with arrays')`.
+Errors: a duplicate primary or unique key without `orIgnore()`, `orReplace()` or `onDuplicate()` throws `UniqueViolation` ([Errors](01-mysql-driver.md#errors)). `returning(columns)` throws `NotSupported('driver orm-driver-mysql does not support RETURNING on INSERT')`. `Model.insert([...], behaviour)` with any behaviour other than `InsertBehaviour.None` throws `OrmException('insert behaviour is not supported with arrays')`.
 
 ### Contiguous keys for a batch
 
-`supportedFeatures()` returns `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true }`. `insertIdIsFirstOfBatch` rests on InnoDB behaviour:
+`supportedFeatures()` returns `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true }`. `MaxBindings` is `65535`, the server's prepared-statement limit. `mysql2`'s `query()` writes the bindings into the SQL text on the client, so the server never counts them and a batch is bounded in practice by the server's `max_allowed_packet`. `insertIdIsFirstOfBatch` rests on InnoDB behaviour:
 
 - `INSERT INTO t (...) VALUES (...), (...)` is a *simple insert*: the row count is known before execution. It is the only shape `InsertQueryBuilder` builds.
 - For a simple insert InnoDB reserves one contiguous block of N auto-increment values, and `LAST_INSERT_ID()` reports the first. Row k gets `LAST_INSERT_ID() + k`.
@@ -31,9 +31,10 @@ Errors: `returning(columns)` throws `NotSupported('driver orm-driver-mysql does 
 1. The driver reports `insertIdIsFirstOfBatch: true` (MySQL only).
 2. The model has exactly one primary key column, with `auto` generation.
 3. `InsertBehaviour` is `None`: `INSERT IGNORE`, `REPLACE` and `ON DUPLICATE KEY UPDATE` can skip or reuse rows.
-4. `LastInsertId` is a finite number above `0`.
-5. `RowsAffected` equals the number of rows sent.
-6. No row carried an explicit key. With some keys supplied, InnoDB allocates values only for the others.
+4. The batch ran as one statement. A batch over `MaxBindings` (`65535` parameters) or `MaxInsertRows` is split, and the blocks of separate statements are not contiguous.
+5. `LastInsertId` is a finite number above `0`.
+6. `RowsAffected` equals the number of rows sent.
+7. No row carried an explicit key. With some keys supplied, InnoDB allocates values only for the others.
 
 If any guard fails, no key is assigned. Re-select, or insert rows one at a time.
 
@@ -48,7 +49,7 @@ No keys of its own. `innodb_autoinc_lock_mode` is a server variable; the guarant
 | Insert response mapper | `ServerResponseMapper` in the driver's child container; registered in `MySqlOrmDriver.resolve()`; resolved per insert | `MysqlServerResponseMapper` (exported) | | Extend `MysqlServerResponseMapper`, override `read(data, pkColumns?)`, register `.as(ServerResponseMapper)` after `super.resolve()` in a driver subclass. |
 | Insert compiler | `InsertQueryCompiler`; `@NewInstance()`, constructor `(container, builder)` | `MySqlInsertQueryCompiler` | `SqlInsertQueryCompiler` (no `REPLACE`, `IGNORE`) | Extend `SqlInsertQueryCompiler` from `@spinajs/orm-sql`, override `into()`, register `.as(InsertQueryCompiler)`. |
 | Upsert clause compiler | `OnDuplicateQueryCompiler`; constructor `(builder: OnDuplicateQueryBuilder)` | `SqlOnDuplicateQueryCompiler` | | Extend it and override `compile()`, register `.as(OnDuplicateQueryCompiler)`. |
-| Feature flags | `supportedFeatures()` on the driver | `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true }` | | Override in a driver subclass. Set `insertIdIsFirstOfBatch: false` for a server where the guarantee does not hold. |
+| Feature flags | `supportedFeatures()` on the driver | `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true }` | | Override in a driver subclass. Set `insertIdIsFirstOfBatch: false` for a server where the guarantee does not hold. |
 
 ### Insert response mapper: custom implementation
 

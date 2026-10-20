@@ -1,25 +1,83 @@
 import _ from 'lodash';
 import { DateTime } from 'luxon';
 import { OrmException } from './exceptions.js';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter, IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
 
+/**
+ * Normalises a value a datetime converter accepts into a valid DateTime in UTC, or null for no value or
+ * an invalid date. Text without an offset is read as UTC, a number as unix seconds.
+ */
+export function toInstant(value: unknown, column?: string): DateTime | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  let dt: DateTime;
+  if (DateTime.isDateTime(value)) {
+    dt = value;
+  } else if (value instanceof Date) {
+    dt = DateTime.fromJSDate(value);
+  } else if (typeof value === 'number') {
+    dt = DateTime.fromSeconds(value);
+  } else if (typeof value === 'string') {
+    dt = DateTime.fromISO(value, { zone: 'utc' });
+    if (!dt.isValid) {
+      dt = DateTime.fromSQL(value, { zone: 'utc' });
+    }
+    if (!dt.isValid) {
+      throw new InvalidArgument(`column ${column}: "${value}" is not an ISO 8601 or SQL datetime`);
+    }
+  } else {
+    throw new InvalidArgument(`column ${column}: a ${(value as object).constructor?.name ?? typeof value} is not a datetime`);
+  }
+
+  return dt.isValid ? dt.toUTC() : null;
+}
+
+/**
+ * Reads a driver's datetime value (Date, DateTime, ISO or SQL text, unix seconds) as a DateTime in UTC; null for no
+ * value and for one that is not a valid datetime.
+ */
+export function instantFromDb(value: unknown): DateTime | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  let dt: DateTime;
+  if (DateTime.isDateTime(value)) {
+    dt = value.toUTC();
+  } else if (value instanceof Date) {
+    dt = DateTime.fromJSDate(value, { zone: 'utc' });
+  } else if (typeof value === 'number') {
+    dt = DateTime.fromSeconds(value, { zone: 'utc' });
+  } else {
+    const text = String(value);
+    dt = DateTime.fromISO(text, { zone: 'utc' });
+    if (!dt.isValid) {
+      dt = DateTime.fromSQL(text, { zone: 'utc' });
+    }
+  }
+
+  return dt.isValid ? dt : null;
+}
+
 export class JsonValueConverter extends ValueConverter {
-  /**
-   * Converts value to database type
-   *
-   * @param value - value to convert
-   */
+  /** `null` and `undefined` stay as they are, so a nullable column holds SQL NULL rather than the text `null`. */
   public toDB(value: any): any {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
     return JSON.stringify(value);
   }
 
-  /**
-   * Converts value from database type eg. mysql timestamp to DateTime
-   *
-   * @param value - value to convert
-   */
   public fromDB(value: any): any {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
     if (_.isObject(value) || _.isArray(value)) {
       return value;
     }
@@ -194,5 +252,83 @@ export class StandardObjectToSqlConverter extends ObjectToSqlConverter {
       });
 
     return obj;
+  }
+}
+
+export type Int64Mode = 'string' | 'number' | 'bigint';
+
+export interface IInt64ConverterOptions {
+  as: Int64Mode;
+}
+
+const INT64_TEXT = /^-?\d+$/;
+
+function exactInt64(value: unknown): bigint {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isInteger(value)) {
+      throw new OrmException(`int64 column holds a value that is not an integer: ${value}`);
+    }
+
+    if (!Number.isSafeInteger(value)) {
+      throw new OrmException(`int64 value ${value} arrived from the driver as an unsafe number and has lost precision`);
+    }
+
+    return BigInt(value);
+  }
+
+  if (typeof value === 'string' && INT64_TEXT.test(value.trim())) {
+    return BigInt(value.trim());
+  }
+
+  throw new OrmException(`int64 column holds a value that is not an integer: ${String(value)}`);
+}
+
+/**
+ * Reads a 64-bit integer column as one JS type whatever the driver returns: pg hands `int8` back
+ * as a string, sqlite3 and mysql2 as a number.
+ */
+export class Int64ValueConverter extends ValueConverter {
+  public toDB(value: unknown): string | number | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    if (typeof value === 'bigint') {
+      return value.toString();
+    }
+
+    if (typeof value === 'number' && Number.isSafeInteger(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string' && INT64_TEXT.test(value.trim())) {
+      return value.trim();
+    }
+
+    throw new InvalidArgument(`int64 value must be a safe integer, a decimal string or a bigint, got ${String(value)}`);
+  }
+
+  public fromDB(value: unknown, _rawData?: unknown, options?: IInt64ConverterOptions): string | number | bigint | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    const exact = exactInt64(value);
+
+    switch (options?.as ?? 'string') {
+      case 'bigint':
+        return exact;
+      case 'number':
+        if (exact > BigInt(Number.MAX_SAFE_INTEGER) || exact < BigInt(Number.MIN_SAFE_INTEGER)) {
+          throw new OrmException(`int64 value ${exact} is beyond Number.MAX_SAFE_INTEGER; declare the column @Int64('string') or @Int64('bigint')`);
+        }
+        return Number(exact);
+      default:
+        return exact.toString();
+    }
   }
 }

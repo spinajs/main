@@ -56,7 +56,7 @@ sequenceDiagram
 | `Model.query()` | `SelectQueryBuilder`, no column list | yes | model instances |
 | `Model.all(page?, perPage?)` | `select('*')`, plus `take(perPage).skip(page * perPage)` when `page >= 0` and `perPage > 0` | yes | model instances |
 | `Model.update(data)` | `UpdateQueryBuilder` with `update(data)`; a model instance as `data` throws `OrmException` | yes | driver result |
-| `Model.destroy(pks)` | `DeleteQueryBuilder` filtered by `whereAnyPk()`; an `UpdateQueryBuilder` setting `DeletedAt` for a `@SoftDelete` model | yes | driver result |
+| `Model.destroy(pks?)` | `DeleteQueryBuilder` filtered by `whereAnyPk()`; an `UpdateQueryBuilder` setting `DeletedAt` for a `@SoftDelete` model. Without `pks`, the same builder with `requireWhere()` and no condition | yes | driver result |
 | `createQuery(Model, BuilderClass, injectModel = true)` | any `QueryBuilder` subclass; returns `{ query, description, model, container }` | when `injectModel` is `true` | depends on the builder |
 | `driver.select<T>()` | `SelectQueryBuilder<T>` | no | raw rows typed `T` |
 | `driver.insert()` | `InsertQueryBuilder` | no | driver result |
@@ -76,22 +76,30 @@ Insert, update, delete and truncate builders resolve with whatever the dialect d
 | `where(column, value)` | `column = ?` | `null` value emits `column IS NULL`. `undefined` or `NaN` throws `InvalidArgument`. |
 | `where(column, operator, value)` | `column <OP> ?` | `operator` is an `Op`: `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`, `<=>`, `like`, `rlike`, `regexp`. An unknown operator throws `InvalidArgument`. With `null`: `=` emits `IS NULL`, `!=` / `<>` emit `IS NOT NULL`, any other operator throws. |
 | `where({ Status: 'paid', Region: ['EU', 'US'], ClosedAt: null })` | `whereObject()` | Each key becomes `= ?`; an array becomes `whereIn()`; `null` becomes `whereNull()`; `undefined` keys are skipped. |
-| `where(function () { ... })` | `( ... )` | Nested group. `this` inside the callback is a new `WhereBuilder` on the same model and alias. |
-| `where(true)` / `where(false)` | `TRUE` / `FALSE` | |
+| `where(function () { ... })` | `( ... )` | Nested group. `this` inside the callback is a new `WhereBuilder` on the same model and alias. TypeScript types it as `IWhereBuilder<T>` without a `this:` annotation, also under `noImplicitThis`. |
+| `where(true)` / `where(false)` | `1 = 1` / `1 = 0` | Constants every dialect accepts (T-SQL has no `TRUE`/`FALSE`). |
 | `where(RawQuery.create(sql, bindings))` | `sql` verbatim | Columns are not quoted or qualified. |
+| `where(column, operator?, RawQuery.create(sql, bindings))` | `column <OP> sql` | The raw SQL stands in for the value: no `?`, no converter; its bindings follow. |
+| `where('ExpiresAt', '>', driver.now())` | `ExpiresAt > <dialect now>` | `OrmDriver.now()` is the database's current instant: `CURRENT_TIMESTAMP` (PostgreSQL), `UTC_TIMESTAMP(3)` (MySQL), `SYSDATETIMEOFFSET()` (MSSQL), `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` (SQLite). On PostgreSQL that is the start of the current transaction, the same for every statement in it; the other dialects give the time of the statement. PostgreSQL rounds a value it stamps itself to the column's precision (`TIMESTAMPTZ(3)`: milliseconds), so it can lie up to half a millisecond after the clock. In raw SQL use `driver.now().Query`. |
 | `where(new Lazy(fn))` | statements `fn` adds | `Lazy` from `@spinajs/util`. `fn` runs at compile time against a clone of the query, with columns, joins, group-by and where cleared. |
 | `where(Wrapper.Date(column), operator?, value)` | dialect date wrap, eg. `DATE(column) >= ?` | `Wrapper.Date` / `Wrapper.DateTime` build a `Wrap`. Pass a value: a `Wrap` alone throws `InvalidArgument`. |
+| `where(Wrapper.Text(column), operator, value)`, `whereIn(Wrapper.Text(column), values)` | `CAST(column AS TEXT)`; `CHAR` on MySQL, `NVARCHAR(4000)` on MSSQL | Compares a column of any type with text. Values are bound unconverted. `whereIn()` / `whereNotIn()` with a wrapped column and a sub-query throw `InvalidArgument`. |
 | `where('Customer.Country', 'PL')` | condition inside the populated relation | A dotted column populates the relation and filters inside it. See [Relations](06-relations.md). |
 | `where('Customer', 7)` | `<ForeignKey> = ?` | A relation name resolves to the relation's foreign key. |
 | `where(null)` / `where(undefined)` (single argument) | nothing | No-op. |
 | `orWhere(...)` / `andWhere(...)` | `OR` / `AND` before the next statement | Same argument forms as `where()`. The connector applies to the next statement only. |
 | `when(condition, callback, elseCallback?)` | | Runs `callback` (or `elseCallback`) with `this` set to the builder. |
-| `whereNull(column)` / `whereNotNull(column)` | `IS NULL` / `IS NOT NULL` | |
+| `hasCondition()` | | `false` when the builder holds no statement, or only groups with nothing inside, at any depth: it compiles to no condition. Groups are told apart with `WhereQueryStatement.isGroup(statement)`, a `Symbol.for` brand, so a group built by a second loaded copy of `@spinajs/orm` (its CJS and ESM builds side by side) counts too. |
+| `whereNull(column)` / `whereNotNull(column)` | `IS NULL` / `IS NOT NULL` | `column` is a name or a `Wrap`: `whereNull(Wrapper.Date('ClosedAt'))` tests the wrapped expression. |
 | `whereNot(column, value)` | `column != ?` | |
-| `whereIn(column, values \| subQuery)` / `whereNotIn(...)` | `IN (?, ...)` / `IN ( SELECT ... )` | An empty array emits `FALSE` (`whereIn`) or `1 = 1` (`whereNotIn`). A non-array, non-builder value throws `InvalidArgument`. |
+| `whereNot(function () { ... })` | `NOT ( ... )` | `this` inside the callback is a new nested `WhereBuilder`, as for `where(function)`. A `NULL` inside the group makes the negation `NULL`, which keeps no row. An empty group compiles to `1 = 0`. |
+| `whereIn(column, values \| subQuery)` / `whereNotIn(...)` | `IN (?, ...)` / `IN ( SELECT ... )` | An empty array emits `1 = 0` (`whereIn`) or `1 = 1` (`whereNotIn`). A non-array, non-builder value throws `InvalidArgument`. Values are converted like `where()` values. PostgreSQL, SQLite and MSSQL bind a long list as one parameter; see [`@spinajs/orm-sql` statements](../orm-sql/03-statements.md). |
 | `whereBetween(column, [from, to])` / `whereNotBetween(...)` | `BETWEEN ? AND ?` | |
-| `whereExist(subQuery \| relation, callback?)` / `whereNotExists(...)` | `EXISTS ( ... )` / `NOT EXISTS ( ... )` | A relation name dispatches to the `ExistsRelationHandler` of its type. See [Relations](06-relations.md). |
+| `whereExist(subQuery \| relation, callback?)` / `whereNotExists(...)` | `EXISTS ( ... )` / `NOT EXISTS ( ... )` | A relation name dispatches to the `ExistsRelationHandler` of its type. See [Relations](06-relations.md). A ready sub-query is correlated with the builder the call is made on (its `CorrelationSource`) unless it has one; `whereIn()` / `whereNotIn()` with a sub-query do the same. A sub-query already correlated with another query throws `InvalidArgument`. `clone()` keeps the correlation, so clone the sub-query before its first attach and give each query its own copy. |
+| `whereColumn(left, operator, right)` | `left <OP> right` over two columns | Each side is a column name or a `Wrap`; `right` may be `outer(column, levels = 1)`. A side is qualified by its query's alias, or by the table when the query has none. |
+| `outer(column, levels = 1)` | a column of an enclosing query | The `right` of `whereColumn()` inside a sub-query given to `whereExist()`, `whereNotExists()`, `whereIn()` or `whereNotIn()`. `levels` 1 is the query the sub-query is attached to, 2 the query that one is attached to. Resolved when the query compiles, so it follows a later `setAlias()` and a `clone()`. Outside such a sub-query it throws `InvalidOperation`. |
 | `whereInSet(column, values)` / `whereNotInSet(...)` | dialect membership test on a `@Set()` column | `null`, `undefined` or a value containing `SET_DELIMITER` (`,`) throws `InvalidArgument`. |
+| `whereStartsWith(column, prefix)` | dialect prefix test | Every character of `prefix` is literal (`%`, `_`, `~`, and `[`, `*`, `?` where the dialect reads them). Case variants match only where the dialect's test follows a column collation that ignores case (MySQL, MSSQL); PostgreSQL and SQLite never match them. A prefix that is not a string throws `InvalidArgument` when the query compiles. |
 | `whereOnJoin(callback)` | conditions from `callback` | In a populated relation they go to the relation's `JOIN ... ON`; on a root query they act as `WHERE`. |
 | `clearWhere()` | | Drops every where statement. |
 
@@ -104,7 +112,7 @@ Take any `IWhereBuilder` or `IOrderByBuilder` and the model descriptor (`Model.g
 | Function | Emits |
 | --- | --- |
 | `wherePk(builder, descriptor, value)` | `pk = ?`, or `( a = ? AND b = ? )` for a composite key |
-| `whereAnyPk(builder, descriptor, values)` | `pk IN (...)`, or OR-ed tuples. Empty `values` emits `FALSE`. |
+| `whereAnyPk(builder, descriptor, values)` | `pk IN (...)`, or OR-ed tuples. Empty `values` emits `1 = 0`. |
 | `whereNotAnyPk(builder, descriptor, values)` | `pk NOT IN (...)`, or AND-ed negated tuples. Empty `values` adds nothing. |
 | `orderByPk(builder, descriptor, order)` | One `ORDER BY` term per key column. Returns `false` when the model has no primary key. |
 
@@ -118,13 +126,14 @@ Available on `SelectQueryBuilder`. `InsertQueryBuilder` shares `columns()` and `
 | --- | --- |
 | `select(column, alias?)` | Adds one column. On a model-bound builder, a column that is not a non-virtual descriptor column throws `InvalidArgument`. `'*'` is always accepted. |
 | `select(RawQuery)` | Adds a raw expression. |
+| `selectCondition(alias, function () { ... })` | Adds `CASE WHEN <group> THEN 1 ELSE 0 END AS alias`; `this` in the callback is a nested `WhereBuilder` of the query, so `outer()` in its sub-queries names the query. Rows read through the builder hold `true` / `false` (the driver's `BooleanValueConverter`), a model gets it as a property; `asRaw()` keeps the driver's `1` / `0`. An empty group is `true`. |
 | `select(new Map([[column, alias]]))` | Adds several aliased columns. Only non-virtual model columns are added, so on a builder with no model it adds nothing. |
 | `columns(names)` | Replaces the column list. |
 | `clearColumns()` | Empties the column list. |
 | `distinct()` | `SELECT DISTINCT`. Throws `InvalidOperation` when the column list is empty or starts with `*`. |
 | `min` / `max` / `sum` / `avg(column, as?)` | Adds an aggregate column. |
 | `count(column = '*', as = 'count')` | Replaces the column list with `COUNT(column) AS as`. |
-| `selectCount(column?, as?)` | Runs `count()` + `takeFirst()` + `asRaw()` and resolves with the number, or `0`. |
+| `selectCount(column?, as?)` | Runs `count()` + `takeFirst()` + `asRaw()` and resolves with the count as a `number` on every driver, or `0`. |
 | `asRaw<T>()` | Executes and resolves with the driver rows, skipping builder middlewares and hydration. |
 | `getColumns()` | The column statements. |
 
@@ -163,7 +172,8 @@ Available on `SelectQueryBuilder`. `InsertQueryBuilder` shares `columns()` and `
 | `populate(relation, callback?)` | Loads a relation. See [Relations](06-relations.md). |
 | `all()` | Executes; resolves with the full result. Useful for typing after scopes. |
 | `resultExists()` | Executes; `true` for a non-empty array or a non-null value. |
-| `clone()` | Independent copy with its own execution. Query middlewares do not run again. |
+| `clone()` | Independent copy with its own execution. Query middlewares do not run again. The copy keeps `CorrelationSource`, the query a sub-query is correlated with. |
+| `CorrelationSource` / `correlateWith(builder)` | The outer query this sub-query is correlated with, or `undefined`; set by `whereIn()`, `whereNotIn()`, `whereExist()` and `whereNotExists()`. |
 | `middleware(m)` | Adds an `IBuilderMiddleware`. |
 | `toDB()` | Compiles without executing. Returns `ICompilerOutput` (`expression`, `bindings`). |
 | `execute()` / `then()` / `catch()` / `finally()` | Run the query once; see step 5. |
@@ -212,6 +222,7 @@ Joined columns are not selected unless a `queryCallback` or a `select(RawQuery)`
 | --- | --- | --- |
 | `InsertQueryBuilder` | `into(table, alias?)` | Sets the table. The second argument is passed to `setTable()` as the alias. |
 | | `values(row \| rows[])` | Sets the column list from the keys (the union of keys for an array) and appends one value row per object. |
+| | `splitByDriverLimits()` | The payload as one builder per statement within the driver's `MaxBindings` and `MaxInsertRows`; `[this]` when it fits one statement. Throws `OrmException` when a single row needs more parameters than the limit. |
 | | `orIgnore()` / `orReplace()` | Sets `Ignore` / `Replace`; the dialect emits its insert-or-ignore / replace form. |
 | | `onDuplicate(columns?)` | Upsert. Returns an `OnDuplicateQueryBuilder`. Without `columns`, a model-bound builder uses the model's unique columns. Sets `QueryContext.Upsert`. |
 | | `returning(columns)` | Asks the dialect to echo the inserted rows. Throws `NotSupported` when `supportedFeatures().insertReturning` is `false`. Sets `QueryContext.InsertReturning`. |
@@ -221,7 +232,8 @@ Joined columns are not selected unless a `queryCallback` or a `select(RawQuery)`
 | `OnDuplicateQueryBuilder` | `update(columns \| RawQuery[])` | Columns to update on conflict. |
 | | `then()` / `execute()` / `toDB()` | Delegate to the insert builder. |
 | | `getColumn()`, `getColumnsToUpdate()`, `getReturning()`, `getParent()` | Read by compilers. |
-| `UpdateQueryBuilder` | `update(values)` / `in(table)` / `Value` | Values to set; table; current values. Plus every filtering method. |
+| `UpdateQueryBuilder` | `update(values)` / `increment(column, by = 1)` / `in(table)` / `Value` / `Increments` | Values to set; `column = column + ?` after them (calls on one column add up, `by` may be negative, a non-finite `by` or an empty column throws `InvalidArgument`); table; the set values; the increments. A column both set and incremented throws `InvalidArgument` when the query compiles. Plus every filtering method. |
+| `UpdateQueryBuilder`, `DeleteQueryBuilder` | `requireWhere()` | Refuses to execute until a filtering method adds a statement after this call. Statements already present, such as a query middleware's `afterQueryCreation` filter, do not count. Executing un-narrowed rejects with `OrmException` (`Refusing an unbounded DELETE on <table>; ...`) before `transactional()` and `beforeQueryExecution` run. |
 | `DeleteQueryBuilder` | filtering methods, `take(n)` | `take` limits the rows deleted where the dialect supports it. |
 
 ### Enums
@@ -304,6 +316,7 @@ export class TenantMiddleware extends QueryMiddleware {
 
 ## Important behaviour
 
+- `driver.now()` is the database's clock, a bound `Date` is the application's. Compare one stored column with one of them consistently: on hosts whose clocks drift apart the two disagree near a boundary.
 - A builder executes at most once. Awaiting it again resolves with the memoized result and runs no hook. Call `clone()` on a select for a second round trip.
 - `afterQueryCreation` runs inside the constructor, before `createQuery()` sets the table and before the caller's `where()` / `values()`. `beforeQueryExecution` and `afterQueryExecution` run for every builder that executes, schema builders included.
 - `clone()` does not run `afterQueryCreation` again. It copies the statements, which already carry the middleware constraints.
@@ -312,11 +325,13 @@ export class TenantMiddleware extends QueryMiddleware {
 - Query middlewares are resolved from the root DI container, so they apply to every connection.
 - `orWhere()` sets the connector of the next statement only. `where(a).where(b).orWhere(c).where(d)` compiles to `a AND b OR c AND d`, which SQL reads as `(a AND b) OR (c AND d)`.
 - `whereIn(column, [])` matches nothing, never everything. `whereObject()` maps an empty array the same way.
-- `Model.update(data)` adds no condition: without a `where()` it updates every row of the table.
-- `Model.destroy()` with no keys throws `OrmException`. On a `@SoftDelete` model it builds an `UPDATE` that sets `DeletedAt`.
+- An update without a `where()` throws `InvalidArgument` when it compiles, for `Model.update()` and `driver.update()` alike. Add `.where(true)` to update every row on purpose.
+- `Model.destroy()` with no keys returns a builder under `requireWhere()`: awaiting it before a `where()` rejects with `OrmException`. `destroy(null)` and `destroy([])` throw `OrmException` synchronously. On a `@SoftDelete` model it builds an `UPDATE` that sets `DeletedAt`; for a hard delete by condition use `createQuery(Model, DeleteQueryBuilder).query`.
+- `requireWhere()` counts statements, not conditions. An empty `where(function () {})` group counts and compiles to no condition, so the statement hits every row; `where(true)` counts too. `driver.del()` does not call `requireWhere()`.
 - The soft-delete and archive filters are added to selects only. Updates and deletes built by `createQuery()` see deleted and archived rows.
 - `insert().into(table, x)` treats `x` as the table alias. Use `database()` for a schema.
 - `values()` resets the column list on each call and appends rows. Pass all rows to one `values([...])` call.
+- A multi-row insert larger than the driver's `MaxBindings` or `MaxInsertRows` runs as several statements, in order, inside one transaction: the caller's when one is open, otherwise its own. A failing statement rolls all of them back. The result sums `RowsAffected`, concatenates `Returning` in insert order and reports the last statement's `LastInsertId`. Query middlewares run once for the whole insert.
 - `returning()` must run before `onDuplicate()`: the duplicate builder copies the returning columns when it is created, and `onDuplicate()` sets `QueryContext.Upsert` either way.
 - For a belongsTo relation without a callback, `whereExist(relation)` and `whereNotExists(relation)` both add `<ForeignKey> IS NOT NULL`.
 - `getSort()` returns only the first sort. `SqliteOrderByCompiler` in `@spinajs/orm-sqlite` reads `getSort()`, so on SQLite only the first `ORDER BY` column reaches the SQL. See [`@spinajs/orm-sqlite`](../orm-sqlite/README.md).
@@ -388,12 +403,16 @@ public beforeQueryExecution(query: QueryBuilder) {
 ```
 
 ```ts
-// Don't: Model.destroy() without keys throws "Cannot destroy without primary keys"
-await Order.destroy().where('Status', 'cancelled');
+// Don't: the tenant middleware's WHERE does not narrow it; this rejects with OrmException
+await Order.destroy();
 
-// Do: build the DELETE explicitly (a hard delete, even for @SoftDelete models)
-const { query } = createQuery(Order, DeleteQueryBuilder);
-await query.where('Status', 'cancelled');
+// Don't: an empty group counts as narrowed and compiles to no condition, deleting every order
+await Order.destroy().where(function () {
+  if (status) this.where('Status', status);
+});
+
+// Do: narrow it with a real condition
+await Order.destroy().where('Status', 'cancelled');
 ```
 
 ## Examples
@@ -401,7 +420,7 @@ await query.where('Status', 'cancelled');
 ### List a customer's overdue or large unpaid orders, newest first
 
 ```ts sample
-import { Connection, IWhereBuilder, Model, ModelBase, Primary, SortOrder } from '@spinajs/orm';
+import { Connection, Model, ModelBase, Primary, SortOrder } from '@spinajs/orm';
 
 @Connection('default')
 @Model('orders')
@@ -420,8 +439,8 @@ export class Order extends ModelBase<Order> {
 
 export async function ordersNeedingAttention(customerId: number, page: number): Promise<Order[]> {
   return await Order.where('CustomerId', customerId)
-    .where(function (this: IWhereBuilder<Order[]>) {
-      this.where('Status', 'overdue').orWhere(function (this: IWhereBuilder<Order[]>) {
+    .where(function () {
+      this.where('Status', 'overdue').orWhere(function () {
         this.where('Status', 'unpaid').where('Total', '>=', 1000);
       });
     })
@@ -508,6 +527,36 @@ export async function invoiceByNumber(invoiceNumber: string): Promise<Invoice> {
     (output: ICompilerOutput) => new InvoiceNotFound(`no invoice ${invoiceNumber} (${output.expression ?? ''})`),
   );
 }
+```
+
+## Migration
+
+### An update needs a `where()`
+
+`UpdateQueryBuilder` refuses to compile without a condition and rejects with `InvalidArgument`, for `Model.update(data)` and `driver.update()` alike. `driver.del()` is not checked; `Model.destroy()` without keys is, through `requireWhere()`.
+
+```ts
+// Before: updated every row
+await Order.update({ Exported: true });
+
+// After: say so
+await Order.update({ Exported: true }).where(true);
+```
+
+### A correlated sub-query belongs to one query
+
+`whereIn()`, `whereNotIn()`, `whereExist()` and `whereNotExists()` correlate a sub-query with the query they are called on. Attaching one sub-query to a second query throws `InvalidArgument`. `clone()` copies the correlation, so clone the sub-query before it is attached anywhere.
+
+```ts
+// Before: one builder shared by two queries
+const paid = Payment.query().select('InvoiceId').where('Status', 'paid');
+const open = Invoice.where('Status', 'open').whereIn('Id', paid);
+const late = Invoice.where('Status', 'late').whereIn('Id', paid);
+
+// After: each query gets its own uncorrelated copy
+const paid = Payment.query().select('InvoiceId').where('Status', 'paid');
+const open = Invoice.where('Status', 'open').whereIn('Id', paid.clone());
+const late = Invoice.where('Status', 'late').whereIn('Id', paid.clone());
 ```
 
 ## Related

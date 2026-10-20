@@ -44,11 +44,12 @@ export function isSingleObjectLoad(query: SelectQueryBuilder, entry: ResourceEnt
 }
 
 // The builder is built through DI and the ORM's statics, so their frames (and native ones such as the
-// middleware loop's Array.forEach) sit between this hook and the app.
-const INTERNAL = /[\\/](di|util|orm|orm-sql|orm-sqlite|orm-postgres|orm-mysql|orm-mssql|authz|authz-orm)[\\/](src|lib)[\\/]|node:internal|\(<anonymous>\)$|node_modules[\\/](typescript-mix|lodash)/;
+// middleware loop's Array.forEach) sit between this hook and the app. Any orm-* package counts as a
+// driver, so a new one needs no change here.
+const INTERNAL = /[\\/](di|util|orm(-[a-z0-9]+)?|authz|authz-orm)[\\/](src|lib)[\\/]|node:internal|\(<anonymous>\)$|node_modules[\\/](typescript-mix|lodash)/;
 
 /** The first stack frame outside the ORM and this package: the app line that built the query. */
-function callSite(stack: string | undefined): string {
+export function callSite(stack: string | undefined): string {
   const frames = (stack ?? '').split('\n').slice(1).map((l) => l.trim());
   return frames.find((f) => f.startsWith('at ') && !INTERNAL.test(f)) ?? 'unknown call site';
 }

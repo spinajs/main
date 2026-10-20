@@ -56,14 +56,14 @@ export class AccessToken extends ModelBase<AccessToken> {
   public Roles!: string[];
 
   /**
-   * The profile (a role name) this token is pinned to; null/undefined = legacy
-   * token, scoped by the union of its roles. Validated against
+   * The profile (a role name) this token is pinned to; absent for a token
+   * scoped by its roles alone. Validated against
    * `TokenProfilePolicy.allowedProfiles` at creation and on every request.
    */
   public Profile?: string;
 
   /**
-   * Absolute expiration. Null/absent = never expires.
+   * Absolute expiration. A row without one never validates (SR-08).
    *
    * Optional, not `DateTime | null`: `@DateTime()` reads `design:type`, which a union emits as `Object`.
    */

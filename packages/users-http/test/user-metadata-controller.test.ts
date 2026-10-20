@@ -429,7 +429,7 @@ describe('UserMetadataController', function () {
     describe('admin routes', () => {
       beforeEach(async () => {
         await plant(other, 'user:pwd_reset:token', 'reset-token');
-        await plant(other, 'user:2fa:token', 'legacy');
+        await plant(other, 'user:2fa:token', 'planted');
         await plant(other, 'user:ban:is_banned', false);
         await plant(other, 'user:login:attempts', '2');
       });

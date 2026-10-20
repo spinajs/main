@@ -3,7 +3,7 @@ import { sameRef } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import type { ISession } from './contracts.js';
 
-/** A row may lack the ref (a 2.x row, or no Impersonator), and then matches nothing. */
+/** A missing ref (a session without an Impersonator) matches nothing. */
 export const refMatches = (a: IdentityRef | undefined, b: IdentityRef): boolean => !!a && sameRef(a, b);
 
 /** Matching rule of deleteBySubject / listBySubject. */

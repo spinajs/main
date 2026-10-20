@@ -3,8 +3,6 @@ import 'mocha';
 import { Authorizer, AuthzConfigError, DefaultConditionCompiler, FALSE, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
 import type { DecisionRequest, EvaluationContext, Policy, Vote } from '@spinajs/authz';
 import { StaticModel, agentPrincipal, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
-import { DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
 
 import { AbacModel, ConfigPolicyStore, DbPolicyStore, MemoryPolicyStore, storesFromConfig } from '../../src/index.js';
 
@@ -341,34 +339,17 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       expect((error as Error).message).to.match(/authz\.abac\.stores names "Nope"/);
     });
 
-    it('DbPolicyStore takes its connection from the Orm of the domain container', async () => {
-      const reached = new Error('the domain connection');
-      class DomainOrm {
-        readonly Connections = new Map([
-          [
-            'policies',
-            {
-              select: () => {
-                throw reached;
-              },
-            },
-          ],
-        ]);
-      }
-      const domain = DI.RootContainer.child();
-      try {
-        domain.register(DomainOrm).as(Orm);
-        const [store] = storesFromConfig('abac', fakeModelInitContext({ config: { stores: ['DbPolicyStore'], connection: 'policies' }, container: domain }));
-        expect(await store.load().catch((e: unknown) => e)).to.equal(reached);
-      } finally {
-        await domain.dispose();
+    it('refuses authz.<name>.connection at init, naming db.Aliases.authz', async () => {
+      for (const name of ['abac', 'tenant-abac']) {
+        let error: unknown;
+        await new AbacModel({ name, stores: [] }).init(fakeModelInitContext({ permissions: registry(), config: { connection: 'reporting' } })).catch((e) => (error = e));
+        expect(error, name).to.be.instanceOf(AuthzConfigError);
+        expect((error as Error).message).to.equal(`authz.${name}.connection: removed; the authz tables use the ORM connection alias "authz", so set db.Aliases.authz to the connection name instead (default: "default")`);
       }
     });
 
     it('DbPolicyStore.put refuses a malformed policy or one that does not fit the columns (M6, M3)', async () => {
-      const store = new DbPolicyStore(() => {
-        throw new Error('never reached');
-      });
+      const store = new DbPolicyStore();
       const tx = { driver: {} };
       let error: unknown;
       await store.put({ id: 'p', effect: 'permit', permissions: [] }, undefined, tx).catch((e) => (error = e));

@@ -18,12 +18,16 @@ spinajs migrate-up --fake                                       # record as appl
    - `--connection` matches no configured connection or alias (`OrmException` naming it);
    - the connection holds a [failed](../orm/10-migrations.md#migration-states) migration;
    - a migration's `up()` throws.
-4. With a non-empty result, the command logs `Applied <n> migration(s): <names>` at `success` level, or `Recorded as applied ( --fake, nothing was executed ) ...` with `--fake`.
+4. `MigrateUpCommand.reportRun(orm, executed, options)` reports the result. With a non-empty result, it logs `Applied <n> migration(s): <names>` at `success` level, or `Recorded as applied ( --fake, nothing was executed ) ...` with `--fake`.
 5. With an empty result and no `--name`, it logs that nothing is pending (naming the connection when `--connection` was given). Exit code `0`.
 6. With an empty result and a `--name`, `MigrateUpCommand.explainEmptyNamedRun()` calls `orm.Migration.status()`, unfiltered, and finds the entry:
    - no entry: the migration is registered, but its connection is not configured here or it has no `@Migration()`. Logs an error, sets `process.exitCode = 1`;
    - applied: logs `already applied ... nothing to do`. Exit code `0`;
    - otherwise: logs a connection mismatch when `--connection` was given, then that the migration is failed or still pending. Sets `process.exitCode = 1`.
+7. Without `--name` and `--connection`, `MigrateUpCommand.checkModelTables(orm, fake)` checks the model tables:
+   - with [`db.StrictTableCheck`](../orm/01-connections.md#configuration) `false`, it returns at once: the CLI `Orm` boot already logged each missing table as a warning;
+   - otherwise it calls `orm.reloadTableInfo({ strict: true })`. A registered model whose table is still missing makes it log `Migrations are applied, but the application will not boot: Missing tables (db.StrictTableCheck): ...` at error level (`Migrations are recorded as applied ( --fake ), but ...` with `--fake`) and set `process.exitCode = 1`. The migrations stay applied;
+   - any other error from `reloadTableInfo()` is rethrown, and the command fails.
 
 ```mermaid
 sequenceDiagram
@@ -39,6 +43,9 @@ sequenceDiagram
   alt empty result and --name
     Cmd->>R: status()
     Cmd->>Cmd: explainEmptyNamedRun() -> exitCode 1 unless applied
+  end
+  opt no --name and no --connection
+    Cmd->>Cmd: checkModelTables() -> exitCode 1 when a model has no table (db.StrictTableCheck)
   end
 ```
 
@@ -59,18 +66,19 @@ sequenceDiagram
 | Migrations applied, or nothing pending | `0` |
 | `--name` given and the migration is already applied | `0` |
 | `--name` given and the migration did not run (connection not configured, excluded by `--connection`, failed or still pending) | `1` |
-| Unknown `--name`, unknown `--connection`, a failed row on the connection, a migration that throws | `-1` (255 on POSIX), the error through the `CLI` logger |
+| A full run (no `--name`, no `--connection`) leaves a registered model without its table, with `db.StrictTableCheck` on | `1` |
+| Unknown `--name`, unknown `--connection`, a failed row on the connection, a migration that throws, a table check that fails for another reason than a missing table | `-1` (255 on POSIX), the error through the `CLI` logger |
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `MigrateUpCommand` | Class token `MigrateUpCommand`, singleton (no lifetime decorator); `@Command` also registers it under `'__cli_command__'`. `Cli` resolves it lazily, only when `migrate-up` is invoked | `MigrateUpCommand` | none shipped | `DI.register(MySub).as(MigrateUpCommand)` before `Cli` dispatches; override `execute()` or `explainEmptyNamedRun()`. See [Customizing commands](08-customizing-commands.md) |
+| `MigrateUpCommand` | Class token `MigrateUpCommand`, singleton (no lifetime decorator); `@Command` also registers it under `'__cli_command__'`. `Cli` resolves it lazily, only when `migrate-up` is invoked | `MigrateUpCommand` | none shipped | `DI.register(MySub).as(MigrateUpCommand)` before `Cli` dispatches; override `execute()`, `reportRun()`, `explainEmptyNamedRun()` or `checkModelTables()`. See [Customizing commands](08-customizing-commands.md) |
 | Migration service per connection | `db.Connections[].Migration.Service` (a DI token), resolved by the runner | `DefaultMigrationService` from `@spinajs/orm` | none shipped | Owned by `@spinajs/orm`; see [Migrations: services](../orm/10-migrations.md#services-and-extension-points). `migrate-up` uses whatever service the connection configures |
 
 ### `MigrateUpCommand`: refuse to migrate production without a confirmation
 
-`execute()` is the whole command, and `explainEmptyNamedRun(orm, name, connection?)` decides how an empty named run is reported. This subclass adds a guard before the shipped behaviour.
+`execute()` runs the migrations and calls the hooks: `reportRun(orm, executed, options)` logs the result, `explainEmptyNamedRun(orm, name, connection?)` decides how an empty named run is reported, and `checkModelTables(orm, fake?)` checks the tables after a full run. This subclass adds a guard before the shipped behaviour.
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -104,6 +112,8 @@ Keep the subclass out of every `system.dirs.cli` directory: it inherits the `mig
 - **A named migration on an unconfigured connection exits `1`.** The runner only warns and returns `[]` there; the command checks `status()` to tell that apart from "already applied".
 - **`status()` in step 6 is not narrowed by `--connection`.** A migration on a connection the filter excluded still has an entry, so the command can say which connection it belongs to.
 - **`--connection` matches aliases.** The error message states the mismatch as a possibility, because the requested name and the reported connection can be two names for one driver.
+- **Only a full run checks the tables.** A run narrowed by `--name` or `--connection` left other migrations out, so it says nothing about their tables and never exits `1` for a missing one.
+- **A missing table does not undo the run.** `migrate-up` exits `1` after the migrations are applied (or recorded with `--fake`); fix the cause and run it again, or let the next boot name the table.
 - **A failed migration blocks the whole connection.** `migrate-up` throws until [`migrate-resolve`](04-resolving-failed-migrations.md) records its outcome.
 - **An interrupted migration does not block.** The next `migrate-up` re-runs it from the top, with a warning from the migration service. Check [`migrate-status`](03-migration-status.md) first.
 - **The blocking guarantee is best effort.** When the ORM fails to write the failure row too (dropped connection, locked table), it logs that error instead of raising it. The row then reads as `INTERRUPTED`, and the next `migrate-up` re-runs the migration instead of refusing. After an incident, check `migrate-status` instead of trusting a later successful run.
@@ -113,6 +123,7 @@ Keep the subclass out of every `system.dirs.cli` directory: it inherits the `mig
 - Run `migrate-status` before `migrate-up` in a deploy, and stop on a `FAILED` or `INTERRUPTED` line.
 - Use `--fake` only to bring the tracking table in line with a database changed by hand; it calls neither `up()` nor `data()`.
 - Pass `--name` together with `--connection` only when you know the migration's connection; otherwise leave `--connection` out.
+- Run the deploy step's `migrate-up` without `--name` and `--connection`, so a model left without its table fails the deploy instead of the first start.
 
 ## Patterns and antipatterns
 
@@ -144,7 +155,7 @@ async function migrateReporting(): Promise<void> {
   const up = await DI.resolve(MigrateUpCommand);
   await up.execute({ connection: 'reporting' });
 
-  // exitCode is 1 only for an empty named run; errors have already thrown
+  // a run narrowed by connection skips the table check; errors have already thrown
   process.exit(process.exitCode ?? 0);
 }
 

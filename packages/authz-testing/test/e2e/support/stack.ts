@@ -5,15 +5,14 @@ import { AUTHZ_ASSIGNMENT_TABLE, AuthzAdminIdempotency_2026_10_02_00_01_00, Auth
 import { hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, HarnessSession, HostSetup, OrmHandle, OrmModelSpec, OrmQuery, OrmResult, World } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
 import { DeleteQueryBuilder, ModelBase, Orm, createQuery } from '@spinajs/orm';
 
-import { AccessResource, AuthzResourceAncestor_2026_10_14_00_00_00, AuthzScopeAttribute_2026_10_02_00_00_00, Owner, Parent } from '@spinajs/authz-orm';
+import { AccessResource, AuthzResourceAncestor_2026_10_14_00_00_00, AuthzScopeAttribute_2026_10_02_00_00_00, Owner, Parent, Relation } from '@spinajs/authz-orm';
 import { AuthzAudit_2026_10_01_00_00_00 } from '@spinajs/authz-orm/audit';
 import { TestDb } from './db.js';
 import type { Dialect } from './db.js';
 // authz-rbac's test database helpers import only libraries.
-import { createPgDatabase, dropPgDatabase, requirePostgres } from '../../../../authz-rbac/test/support/db.js';
+import { requirePostgres } from '../../../../authz-rbac/test/support/db.js';
 
 export const E2E_DIALECTS: readonly Dialect[] = ['sqlite', 'postgres'];
 
@@ -32,12 +31,8 @@ const pk = (row: unknown): string => String((row as { id: unknown }).id);
 
 let activeDb: TestDb | undefined;
 
-/** DbAuthzAdminBackend over the DI root, where TestDb's Orm lives. */
-export class E2eAdminBackend extends DbAuthzAdminBackend {
-  constructor() {
-    super({ container: DI.RootContainer });
-  }
-}
+/** DbAuthzAdminBackend under the name the cases configure as authz.admin.backend. */
+export class E2eAdminBackend extends DbAuthzAdminBackend {}
 
 /** The `orm` lane of authz-testing (L5) over TestDb: one class per spec per case, rows inserted through the ORM as SYSTEM. */
 export class E2eOrm implements OrmHandle {
@@ -66,6 +61,7 @@ export class E2eOrm implements OrmHandle {
             if (s.type === undefined) return;
             AccessResource(s.type)(model);
             if (s.owner !== undefined) Owner()(proto, s.owner);
+            for (const r of s.relations ?? []) Relation(r.name)(proto, r.column);
             for (const p of s.parents ?? []) Parent(p.type, p.nullable ? { nullable: true } : undefined)(proto, p.column);
           },
         },
@@ -137,7 +133,6 @@ export interface E2eHarness extends BehaviourHarness {
  */
 export function e2eHarness(kind: Dialect): E2eHarness {
   let db: TestDb | undefined;
-  let database: string | undefined;
   let lane: E2eOrm | undefined;
   const need = <T>(v: T | undefined, what: string): T => v ?? (() => { throw new Error(`e2eHarness: ${what} (beforeAll did not run)`); })();
 
@@ -154,10 +149,9 @@ export function e2eHarness(kind: Dialect): E2eHarness {
       host.setConfig(['authz', 'orm', 'domain'], host.domain);
       c.register(testHost.instance(test.orm)).as(Orm);
       host.setConfig(['authz', 'rbac', 'stores'], { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], links: ['DbLinkStore'] });
-      host.setConfig(['authz', 'rbac', 'connection'], kind);
       host.setConfig(['authz', 'rbac', 'links', 'secret'], LINK_SECRET);
       host.setConfig(['authz', 'rbac', 'roles'], roleConfig((world.rbac?.roles ?? []) as readonly { name: string; source?: string }[]));
-      host.setConfig(['authz', 'admin'], { connection: kind, backend: 'E2eAdminBackend', guard: GUARD });
+      host.setConfig(['authz', 'admin'], { backend: 'E2eAdminBackend', guard: GUARD });
       const declared = new Set(world.permissions.map((p) => (typeof p === 'string' ? p : p.name)));
       for (const p of ADMIN_PERMISSIONS) if (!declared.has(p)) host.setConfig(['authz', 'domains', host.domain, 'permissions', p], {});
       c.register(E2eAdminBackend).as(AuthzAdminBackend);
@@ -169,7 +163,7 @@ export function e2eHarness(kind: Dialect): E2eHarness {
         for (const a of world.rbac.assignments ?? []) await insertAssignment(test, kind, a);
       }
       if (world.abac) {
-        const written = new DbPolicyStore(() => test.driver(kind));
+        const written = new DbPolicyStore();
         const abac = new AbacModel({ stores: [new ConfigPolicyStore(world.abac.policies), written] });
         c.register(testHost.instance(abac)).as(AuthorizationModel);
         c.register(testHost.instance(new AbacContributor(abac))).as(AuthzContributor);
@@ -189,12 +183,7 @@ export function e2eHarness(kind: Dialect): E2eHarness {
       db = undefined;
       lane = undefined;
       activeDb = undefined;
-      try {
-        await open?.close();
-      } finally {
-        if (database) await dropPgDatabase(database);
-        database = undefined;
-      }
+      await open?.close();
     }
   }
 
@@ -204,11 +193,12 @@ export function e2eHarness(kind: Dialect): E2eHarness {
     model: (name) => need(lane, 'no orm lane').model(name),
     async beforeAll() {
       try {
-        if (kind === 'postgres') database = await createPgDatabase('authz_orm_e2e');
-        db = await TestDb.open({ postgres: kind === 'postgres', ...(database ? { database } : {}) });
+        db = await TestDb.open({ postgres: kind === 'postgres', authz: kind });
         activeDb = db;
         const driver = db.driver(kind);
         for (const m of [new AuthzRbac_2026_10_01_00_00_00(), new AuthzAdminIdempotency_2026_10_02_00_01_00(), new AuthzAbac_2026_10_01_00_00_00(), new AuthzScopeAttribute_2026_10_02_00_00_00(), new AuthzAudit_2026_10_01_00_00_00(), new AuthzResourceAncestor_2026_10_14_00_00_00()]) await m.up(driver);
+        // The Orm read the table info before the tables existed.
+        await db.orm.reloadTableInfo();
         lane = new E2eOrm(db, kind);
         await base.beforeAll?.();
       } catch (e) {

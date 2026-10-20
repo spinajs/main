@@ -2,7 +2,7 @@ import { Redis, RedisOptions } from 'ioredis';
 import type { ChainableCommander } from 'ioredis';
 import { DateTime } from 'luxon';
 
-import { SessionProvider, UserSession, encodeSessionData, decodeSessionData, adaptLegacySession } from '@spinajs/authn-session';
+import { SessionProvider, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
 import { principalKey } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
@@ -11,12 +11,11 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn-session/register-schema';
 import { Logger, Log } from '@spinajs/log';
 
-/** The JSON value of `session:<SessionId>`. A 3.0 row has Subject; a 2.x row has UserId and its identity in Data. */
+/** The JSON value of `session:<SessionId>`. */
 interface IStoredSession {
-  Subject?: string;
+  Subject: string;
   Impersonator?: string;
-  State?: string;
-  UserId?: number;
+  State: string;
   Creation: string;
   Expiration?: string;
   Data: unknown;
@@ -61,9 +60,8 @@ function refOf(key: unknown): IdentityRef | undefined {
  *  - `session:subject:<principalKey>`, `session:impersonator:<principalKey>`:
  *    sets of SessionIds (SR-06); dead members are pruned when met
  *
- * 2.x rows (no Subject, indexed only in `session:user:<UserId>`) are added to
- * the new sets by the sweep that runs on resolve(). Liveness is always judged
- * with `isExpired` in Node; the Redis TTL only frees memory.
+ * Liveness is always judged with `isExpired` in Node; the Redis TTL only frees
+ * memory.
  */
 @Injectable(SessionProvider)
 export class RedisSessionStore extends SessionProvider {
@@ -78,7 +76,6 @@ export class RedisSessionStore extends SessionProvider {
   public async resolve() {
     this.Client = this.createClient();
     this.Client.on('error', (err: Error) => this.Log.error(err, 'Redis connection error'));
-    await this.sweepLegacy();
   }
 
   public async dispose() {
@@ -161,7 +158,7 @@ export class RedisSessionStore extends SessionProvider {
         return false;
       }
 
-      // The row keeps its own identity fields (and a 2.x row its 2.x shape).
+      // The row keeps its own identity fields.
       const next = JSON.stringify({ ...(JSON.parse(raw) as IStoredSession), Expiration: session.Expiration?.toISO() ?? undefined, Data: encodeSessionData(session.Data) });
       const written = await this.Client.eval(TOUCH_SCRIPT, 1, key, raw, next, session.Expiration ? String(session.Expiration.toMillis()) : '');
       if (Number(written) === 1) {
@@ -248,44 +245,6 @@ export class RedisSessionStore extends SessionProvider {
     await this.scanSessionKeys(async (keys) => {
       await this.Client.del(...keys);
     }, this.keyPatterns());
-  }
-
-  /**
-   * Adds every 2.x row (no Subject) to the subject / impersonator sets, so
-   * deleteBySubject and listBySubject reach it. Idempotent. Runs on
-   * resolve(); 2.x nodes that write rows after it (rolling upgrade) need it
-   * run again once they are gone.
-   *
-   * @returns how many 2.x rows were indexed
-   */
-  public async sweepLegacy(): Promise<number> {
-    let indexed = 0;
-
-    await this.scanSessionKeys(async (keys) => {
-      const rowPrefix = this.sessionKey('');
-      const ids = keys.filter((k) => k.startsWith(rowPrefix)).map((k) => k.slice(rowPrefix.length)).filter((id) => !id.includes(':'));
-      if (ids.length === 0) {
-        return;
-      }
-
-      const values = await this.Client.mget(...ids.map((id) => this.sessionKey(id)));
-      const rows = ids.map((id, i) => (values[i] && !this.isStored30(values[i]!) ? this.toSession(id, values[i]!, true) : null)).filter((row): row is ISession => !!row);
-      if (rows.length === 0) {
-        return;
-      }
-
-      const multi = this.Client.multi();
-      for (const row of rows) {
-        for (const set of this.indexSetsOf(row)) {
-          multi.sadd(set.key, row.SessionId);
-        }
-      }
-      await this.exec(multi);
-      indexed += rows.length;
-    }, [this.sessionKey('*')]);
-
-    this.Log.info({ count: indexed }, 'Indexed ${count} 2.x sessions by subject and impersonator');
-    return indexed;
   }
 
   protected createClient(): Redis {
@@ -389,20 +348,11 @@ export class RedisSessionStore extends SessionProvider {
     }
   }
 
-  protected isStored30(raw: string): boolean {
-    try {
-      return typeof (JSON.parse(raw) as IStoredSession | null)?.Subject === 'string';
-    } catch {
-      return false;
-    }
-  }
-
   /**
-   * The 3.0 view of a stored value; null for a 2.x row without an owner.
-   * `lenient` (lookups, the sweep, touch): an unparseable value is absent,
-   * and a row whose Data does not decode keeps the owner its fields give
-   * with an empty Data, so one bad row cannot make a revokeAll throw for
-   * everybody; a 2.x row then has no owner.
+   * The session of a stored value; null for a value without a readable Subject.
+   * `lenient` (lookups, touch): an unparseable value is absent, and a row whose
+   * Data does not decode keeps the owner its fields give with an empty Data, so
+   * one bad row cannot make a revokeAll throw.
    */
   protected toSession(sessionId: string, raw: string, lenient = false): ISession | null {
     let stored: IStoredSession;
@@ -419,6 +369,12 @@ export class RedisSessionStore extends SessionProvider {
       this.Log.warn(`Unreadable value of session ${sessionId} skipped`);
       return null;
     }
+
+    const subject = refOf(stored.Subject);
+    if (!subject) {
+      return null;
+    }
+
     try {
       data = decodeSessionData(stored.Data);
     } catch (err) {
@@ -429,22 +385,15 @@ export class RedisSessionStore extends SessionProvider {
       data = new Map();
     }
 
-    const session = new UserSession({
+    return new UserSession({
       SessionId: sessionId,
+      Subject: subject,
+      Impersonator: refOf(stored.Impersonator),
+      State: stored.State === 'active' ? 'active' : 'pending',
       Creation: DateTime.fromISO(stored.Creation),
       Expiration: stored.Expiration ? this.instant(stored.Expiration) : undefined,
       Data: data,
     });
-
-    const subject = refOf(stored.Subject);
-    if (!subject) {
-      return adaptLegacySession(session);
-    }
-
-    session.Subject = subject;
-    session.Impersonator = refOf(stored.Impersonator);
-    session.State = stored.State === 'active' ? 'active' : 'pending';
-    return session;
   }
 
   /** An Expiration that does not parse counts as already passed. */

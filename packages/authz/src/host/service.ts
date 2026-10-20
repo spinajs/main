@@ -23,7 +23,6 @@ import { PermissionRegistryImpl } from '../engine/registry.js';
 import type { PermissionInput } from '../engine/registry.js';
 import { validateBoot } from '../engine/validate.js';
 import type { PermissionRefDecl, RelationRefDecl, ScopeRefDecl } from '../engine/validate.js';
-import { checkLegacyKeys } from './config/legacy-keys.js';
 import { configAt, readDomainConfig } from './config/domain-config.js';
 import { AUTHZ_AUDIT_SERVICE_KEY, AUTHZ_BUS_SERVICE_KEY } from './config/defaults.js';
 import type { DomainConfig } from './config/domain-config.js';
@@ -101,13 +100,6 @@ export class DefaultAuthzService extends AuthzService {
   @Config('authz')
   protected Config: unknown;
 
-  @Config('authz.config.rejectLegacyKeys')
-  protected RejectLegacyKeys: boolean | undefined;
-
-  /** The 2.x section, read only to report its keys. */
-  @Config('rbac')
-  protected LegacyRbac: unknown;
-
   constructor(private readonly container: IContainer) {
     super();
   }
@@ -162,6 +154,11 @@ export class DefaultAuthzService extends AuthzService {
     return s.authorizer.check(this.withPrincipal(req), requestScope());
   }
 
+  async inspect(req: CheckInput): Promise<Decision> {
+    const s = this.state();
+    return s.authorizer.inspect(this.withPrincipal(req), requestScope());
+  }
+
   async can(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<boolean> {
     const s = this.state();
     return (await s.authorizer.check(input(principal, permission, resource, subject), requestScope())).allowed;
@@ -201,6 +198,10 @@ export class DefaultAuthzService extends AuthzService {
 
   async summary(principal: Principal, at?: ResourceRef): Promise<AccessSummary> {
     return this.state().authorizer.summary(principal, at, requestScope());
+  }
+
+  async ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null> {
+    return this.state().authorizer.ancestors(ref, requestScope());
   }
 
   async covers(holder: Principal, target: Principal, at?: ResourceRef): Promise<boolean> {
@@ -334,8 +335,6 @@ export class DefaultAuthzService extends AuthzService {
     // @Config reads only a resolved Configuration, and a domain container may register its own.
     await container.resolve(Configuration);
     const lineage = domains.lineage(name);
-    // Floor for a Configuration the schema never saw: only an explicit false turns the rejection off.
-    if (parent === undefined) checkLegacyKeys(this.LegacyRbac, this.RejectLegacyKeys !== false, this.log);
     const cfg = readDomainConfig(this.Config, lineage);
     const disables = [...(parent?.disables ?? []), cfg.disable];
     const levels = lineage.map((n) => domains.container(n));

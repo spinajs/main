@@ -139,7 +139,7 @@ describe('create(user, roles?)', function () {
       expect(await testHasher.verify((await User.query().whereLogin('pw').firstOrFail()).Password, 'passw0rd123')).to.eq(true);
     });
 
-    it('that breaks the policy refuses the create with the 2.x error, before anything is written', async () => {
+    it('that breaks the policy refuses the create with E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS, before anything is written', async () => {
       const err = await rejection(create({ Email: 'weak@spinajs.pl', Login: 'weak', Password: 'short' }));
 
       expect(err).to.be.instanceOf(InvalidArgument);

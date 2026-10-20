@@ -138,7 +138,6 @@ export async function dropPgDatabase(name: string): Promise<void> {
  */
 export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, options: BootOptions = {}): Promise<TestDb> {
   DI.setESMModuleSupport();
-
   const migration = { OnStartup: options.migrate ?? true };
   let database: string | undefined;
   let connection: Record<string, unknown>;

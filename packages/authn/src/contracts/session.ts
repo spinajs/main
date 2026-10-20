@@ -17,8 +17,7 @@ export abstract class SessionIssuer {
    */
   abstract issue(identity: IdentityRef, facts: AuthnFacts, opts?: { pending?: { steps: readonly string[] } }): Promise<SessionHandle>;
   /**
-   * Looks the session up by sha256(rawId); only a uuid v4 input falls back to a raw lookup, so a 2.x id is migrated
-   * on first use (A07) and a stored hash never works as an id (SR-18).
+   * Looks the session up by sha256(rawId) (A07), so a stored hash never works as an id (SR-18).
    */
   abstract restore(rawId: string): Promise<Session | null>;
   /** New id, same data (fixation). */

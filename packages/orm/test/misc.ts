@@ -1043,6 +1043,8 @@ export class ConnectionConf extends FrameworkConfiguration {
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
       db: {
+        // relation.test.ts and model.test.ts stub tableInfo() for the tables they describe only.
+        StrictTableCheck: false,
         Connections: [
           {
             Driver: 'sqlite',

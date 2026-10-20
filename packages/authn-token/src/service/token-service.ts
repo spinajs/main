@@ -317,8 +317,8 @@ export class DbTokenService extends TokenService {
   }
 
   /**
-   * Housekeeping: deletes tokens that expired at or before `now` and revoked ones; returns how many. Keeps rows
-   * without an expiry: rows written by 2.x may still sit in a database.
+   * Housekeeping: deletes tokens that expired at or before `now`, revoked ones and rows without an expiry, which never
+   * validate (SR-08); returns how many.
    */
   public async deleteExpired(now: Date): Promise<number> {
     const at = instant(now);
@@ -331,8 +331,8 @@ export class DbTokenService extends TokenService {
     // connection would convert it by value type only. A selected row cannot become live again, so deleting by id is
     // safe against concurrent writes. Only ids are read: a row that no longer hydrates must not stop the sweep.
     const doomed = await AccessToken.where(function () {
-      this.where(function () {
-        this.whereNotNull('ExpiresAt');
+      this.whereNull('ExpiresAt');
+      this.orWhere(function () {
         this.where('ExpiresAt', '<=', cutoff);
       });
       this.orWhere(function () {
@@ -382,7 +382,7 @@ export class DbTokenService extends TokenService {
       return fail('revoked');
     }
 
-    // A null expiry is a 2.x row the back-fill has not reached: expired, never eternal (SR-08).
+    // A null expiry is expired, never eternal (SR-08).
     const expiresAt = toDate(token.ExpiresAt);
     if (expiresAt === null || expiresAt.getTime() <= now) {
       return fail('expired');
@@ -485,7 +485,7 @@ export class DbTokenService extends TokenService {
       ...(t.Profile ? { profile: t.Profile } : {}),
       ...(scope ? { scope } : {}),
       createdAt,
-      // A 2.x row without expiry reads as expired at its creation.
+      // A row without expiry reads as expired at its creation.
       expiresAt: toDate(t.ExpiresAt) ?? createdAt,
       ...(lastUsedAt !== null ? { lastUsedAt } : {}),
       ...(t.LastUsedIp ? { lastUsedIp: t.LastUsedIp } : {}),

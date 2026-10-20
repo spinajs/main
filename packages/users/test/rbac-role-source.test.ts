@@ -19,7 +19,6 @@ import { bootUsersDb, registerUsersTestHost, seedUser } from './support/users-db
 chai.use(chaiAsPromised);
 
 const PASSWORD_KEY = ['authz', 'principals', 'roleSwitch', 'requirePassword'];
-const LEGACY_PASSWORD_KEY = ['rbac', 'roleSwitch', 'requirePassword'];
 
 const FACTS: AuthnFacts = { method: 'password', strategy: 'local', assurance: 'aal2', mfa: ['totp'], authenticatedAt: new Date('2026-10-01T10:00:00Z'), sessionHandle: 'h-1' };
 
@@ -139,19 +138,7 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
       expect(await flags(ref)).to.deep.eq({ member: true, support: true });
     });
 
-    for (const unset of [undefined, null]) {
-      for (const legacy of [false, [], ['support']]) {
-        it(`ignores a 2.x rbac.roleSwitch.requirePassword of ${JSON.stringify(legacy)} with the 3.0 key ${String(unset)}: every role asks for the password`, async () => {
-          const ref = await user('support', 'member');
-          await setConfig(PASSWORD_KEY, unset);
-          await setConfig(LEGACY_PASSWORD_KEY, legacy);
-
-          expect(await flags(ref)).to.deep.eq({ member: true, support: true });
-        });
-      }
-    }
-
-    it('flags exactly the roles of the 3.0 list, an empty list included', async () => {
+    it('flags exactly the roles of the list, an empty list included', async () => {
       const ref = await user('support', 'member');
 
       await setConfig(PASSWORD_KEY, ['member']);
@@ -161,7 +148,7 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
       expect(await flags(ref)).to.deep.eq({ member: false, support: false });
     });
 
-    it('rejects a malformed 3.0 key set at runtime, instead of reading it as no role needing the password', async () => {
+    it('rejects a malformed key set at runtime, instead of reading it as no role needing the password', async () => {
       const ref = await user('member');
       for (const bad of ['support', { support: true }, 5, [1]]) {
         await setConfig(PASSWORD_KEY, bad);
@@ -169,27 +156,11 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
       }
     });
 
-    it('takes a null 3.0 key as unset, a 2.x list beside it included', async () => {
+    it('takes a null key as unset', async () => {
       const ref = await user('support', 'member');
       await setConfig(PASSWORD_KEY, null);
 
-      expect(await flags(ref), 'alone').to.deep.eq({ member: true, support: true });
-
-      await setConfig(LEGACY_PASSWORD_KEY, ['member']);
-      expect(await flags(ref), 'with a 2.x list').to.deep.eq({ member: true, support: true });
-    });
-
-    it('ignores a malformed 2.x key, with the 3.0 key unset and with it set', async () => {
-      const ref = await user('member');
-      await setConfig(PASSWORD_KEY, undefined);
-
-      for (const bad of ['support', [''], [1], { support: true }]) {
-        await setConfig(LEGACY_PASSWORD_KEY, bad);
-        expect(await flags(ref), JSON.stringify(bad)).to.deep.eq({ member: true });
-      }
-
-      await setConfig(PASSWORD_KEY, []);
-      expect(await flags(ref)).to.deep.eq({ member: false });
+      expect(await flags(ref)).to.deep.eq({ member: true, support: true });
     });
   });
 

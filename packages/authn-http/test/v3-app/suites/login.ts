@@ -46,12 +46,6 @@ export function loginSuite(): void {
       expect(login[0].ctx).to.include({ ip, purpose: 'login' });
     });
 
-    it('accepts the 2.x field names Email and Password', async () => {
-      const u = await seedUser();
-      const res = await new Client().post('/auth/login', { Email: u.login, Password: u.password });
-      expect(res.status).to.eq(200);
-    });
-
     it('SR-16 the session cookie without any app env: __Host-ssid, Secure, HttpOnly, SameSite=Strict, Path=/, no Domain, no lifetime (D7)', async () => {
       expect(config().get('process.env.APP_ENV'), 'the configuration fell back on its own').to.eq('development');
       const u = await seedUser();

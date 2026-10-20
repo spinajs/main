@@ -41,7 +41,7 @@ const KINDS: StoreKind[] = [
     },
     make: async () => {
       await clearMfaTables(sqlite!.driver);
-      return new DbMfaSecretStore(new DbMfaStore(sqlite!.driver));
+      return new DbMfaSecretStore(new DbMfaStore());
     },
     codeHashes: async (_store, id) => ((await rawQuery(sqlite!.driver, 'SELECT code_hash FROM authn_recovery_code WHERE identity = ?', [identityKey(id)])) as { code_hash: string }[]).map((r) => r.code_hash),
   },
@@ -312,11 +312,7 @@ describe('v3 store: DbMfaSecretStore', () => {
 
   it('injects the DbMfaStore registered in DI', async () => {
     const driver = db.driver;
-    class TestDbMfaStore extends DbMfaStore {
-      constructor() {
-        super(driver);
-      }
-    }
+    class TestDbMfaStore extends DbMfaStore {}
     DI.register(TestDbMfaStore).as(DbMfaStore);
     DI.clearCache();
     try {

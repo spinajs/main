@@ -5,7 +5,7 @@
 ## How it works
 
 1. **Validate.** `OrmDriver.transaction(cb, options)` checks `options.isolation` against `SupportedIsolationLevels`. MySQL declares `READ UNCOMMITTED`, `READ COMMITTED`, `REPEATABLE READ` and `SERIALIZABLE`. Any other value throws `OrmException('isolation level <x> not supported by driver orm-driver-mysql')` before a connection is taken.
-2. **Begin.** `_begin(options)` calls `Pool.getConnection()`. With an isolation level it first runs `SET TRANSACTION ISOLATION LEVEL <level>` on that connection, then `connection.beginTransaction()`. It resolves an `IMySqlTransactionContext`: `{ connection, depth: 0 }`. A failure releases the connection and rejects.
+2. **Begin.** `_begin(options)` takes a connection with `acquire()`, which waits for the connection's `SET time_zone = '+00:00'` and fails when it failed (see [Dates and time zone](01-mysql-driver.md#dates-and-time-zone)). With an isolation level it first runs `SET TRANSACTION ISOLATION LEVEL <level>` on that connection, then `connection.beginTransaction()`. It resolves an `IMySqlTransactionContext`: `{ connection, depth: 0 }`. A failure releases the connection and rejects.
 3. **Run.** `transaction()` runs `cb` inside `TransactionStorage.run(ctx, ...)`, an `AsyncLocalStorage`. Every statement on this driver in that async path reaches `executeOnDb()`, finds the context, and runs on `ctx.connection`. The connection is not released after each statement.
 4. **Nest.** A `transaction()` call inside the callback takes a savepoint instead: `_savepoint()` runs `` SAVEPOINT `sp_<n>` `` on the same connection. Success runs `` RELEASE SAVEPOINT `sp_<n>` ``; a throw runs `` ROLLBACK TO SAVEPOINT `sp_<n>` `` and re-throws.
 5. **Finish.** The callback resolves: `_commit()` calls `connection.commit()`. It throws: `_rollback()` calls `connection.rollback()`; a rollback error is swallowed so the original error surfaces.
@@ -17,7 +17,7 @@ sequenceDiagram
   participant D as MySqlOrmDriver
   participant C as Pooled connection
   App->>D: transaction(cb, { isolation: 'SERIALIZABLE' })
-  D->>C: getConnection()
+  D->>C: acquire()
   D->>C: SET TRANSACTION ISOLATION LEVEL SERIALIZABLE
   D->>C: beginTransaction()
   App->>D: statements inside cb
@@ -69,7 +69,8 @@ export class CheckoutMySqlDriver extends MySqlOrmDriver {
 
 - Inside a transaction a statement is never retried. A lost connection fails the transaction; `isRetryableError()` returns `false` while a context is in scope.
 - `SET TRANSACTION ISOLATION LEVEL` applies to the next transaction on that connection only. The level does not leak to the next user of the pooled connection.
-- `_begin()` takes its connection directly from the pool: that wait is not in the `orm_pool_acquire_seconds` histogram, and it is not retried.
+- `_begin()` calls `acquire()` without timing it: that wait is not in the `orm_pool_acquire_seconds` histogram, and it is not retried. A connection whose `SET time_zone` failed is destroyed and `transaction()` rejects before the callback runs.
+- A table lock (`LockTableQueryBuilder`) inside the callback runs `SELECT COUNT(*) FROM <table> FOR UPDATE`, not `LOCK TABLES`, which would commit the open transaction. See [Schema, views and events](06-schema-views-and-events.md).
 - A transaction holds one pooled connection from begin to release. Open `Pool.Max` transactions at once and every other statement queues.
 - Savepoint names are written through `escapeIdentifier()` from `@spinajs/orm-sql`, because MySQL does not accept them as bound parameters.
 - MySQL commits implicitly before DDL. A `CREATE TABLE` inside the callback commits everything before it and cannot be rolled back.

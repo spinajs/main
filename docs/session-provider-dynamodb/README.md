@@ -15,7 +15,7 @@ npm install @spinajs/session-provider-dynamodb
 | Feature | What it does |
 | --- | --- |
 | [DynamoDB session store](01-dynamodb-session-store.md) | `DynamoDbSessionProvider`: config, item layout, every store operation, how to select, replace or subclass it. |
-| [Client and table provisioning](02-client-and-table-provisioning.md) | Builds the `DynamoDBClient` and creates the table with TTL on boot; the `createClient` and table hooks you override. |
+| [Client and table provisioning](02-client-and-table-provisioning.md) | Builds the `DynamoDBClient`, creates the table with TTL on boot and turns TTL on for an existing table; the `createClient` and table hooks you override. |
 | [Subject lookup](03-subject-lookup.md) | How `listBySubject` and `deleteBySubject` find a user's sessions with a consistent `Scan`, and how to swap it for an index `Query`. |
 
 ## Quick start
@@ -50,8 +50,8 @@ export async function signOutEverywhere(userUuid: string): Promise<number> {
 
 ## Related packages
 
-- [`@spinajs/authn`](../authn/README.md#sessions): session ids, states, expiration strategies and the `authn.session.*` keys this store shares.
-- `@spinajs/authn-session`: `SessionProvider`, `SessionIssuer`, `UserSession` and the session data codec this store builds on.
+- [`@spinajs/authn-session`](../authn-session/README.md): session ids, states, expiration strategies and the `authn.session.*` keys this store shares.
+- [`@spinajs/authn`](../authn/README.md): the `SessionIssuer` contract the issuer implements on top of this store.
 - `@spinajs/session-provider-db` and `@spinajs/session-provider-redis`: the other shipped `SessionProvider` stores (SQL and Redis).
 - [`@spinajs/configuration`](../configuration/08-config-selected-services.md): `@AutoinjectService`, which selects the store by name from `authn.session.service`.
 - [`@spinajs/di`](../di/04-lifetimes.md): the singleton lifetime the store gets from `@Injectable`.

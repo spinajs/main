@@ -33,7 +33,7 @@ describe('authn.session through the schemas', function () {
     expect(configuration.get('authn.session.expiration')).to.deep.eq({ service: 'AbsoluteExpiration', ttl: 5, maxLifetime: 480 });
   });
 
-  it('accepts the cookie values the 2.x cookie builder accepts and keeps them as given', async () => {
+  it('accepts the cookie values the cookie writers accept and keeps them as given', async () => {
     for (const cookie of [{ sameSite: true }, { sameSite: false }, { sameSite: 'Lax' }, { sameSite: 'STRICT' }, { sameSite: 'none' }, { secure: 'true' }, { secure: 'false' }, { hostPrefix: 'true' }, { secure: true, hostPrefix: false }]) {
       const configuration = await boot(SCHEMAS, { authn: { session: { cookie: { ...cookie } } } });
       expect(configuration.get('authn.session.cookie'), JSON.stringify(cookie)).to.deep.include(cookie);

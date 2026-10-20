@@ -70,24 +70,13 @@ export class DefaultJobRetentionService extends JobRetentionService {
     this.Log.info({ maxAge, interval }, 'Job retention enabled: purging jobs older than ${maxAge}ms every ${interval}ms');
   }
 
-  /**
-   * Deletes terminal ( or given ) jobs created before `olderThan`. The set is selected with the
-   * JobModel query scopes ( status + date ), then removed by id.
-   */
+  /** Deletes terminal ( or given ) jobs created before `olderThan`. */
   public async purgeJobs(olderThan: DateTime, statuses?: string[]): Promise<number> {
     return tracked(async () => {
-      const rows = await JobModel.query()
-        .columns(['Id'])
+      const result = await JobModel.destroy()
         .withStatus((statuses as JobStatus[]) ?? JOB_TERMINAL_STATUSES)
         .olderThan(olderThan);
-
-      const ids = rows.map((r) => r.Id);
-      if (ids.length === 0) {
-        return 0;
-      }
-
-      await JobModel.destroy(ids);
-      return ids.length;
+      return result.RowsAffected;
     });
   }
 }

@@ -32,7 +32,7 @@ WHEN MATCHED THEN UPDATE SET [Name] = ?
 WHEN NOT MATCHED THEN INSERT ([Email],[Name]) VALUES (?,?); SELECT SCOPE_IDENTITY() as ID;
 ```
 
-4. `executeOnDb()` returns the `[{ ID }]` row array (the `Upsert` context returns `recordset`).
+4. `executeOnDb()` returns the `[{ ID }]` row array (the `Upsert` context returns `recordset`). For a model upsert `MsSqlServerResponseMapper` reports the row count as `RowsAffected` and the last row's `ID` as `LastInsertId`, `0` when `MERGE` updated.
 
 ## Services and extension points
 
@@ -127,6 +127,7 @@ export class InsertMissingMsSqlDriver extends MsSqlOrmDriver {
 - **`InsertBehaviour.InsertOrReplace` throws** `OrmException('mssql insert or replace is not supported')` at compile time. Use `InsertBehaviour.InsertOrUpdate`.
 - **`MERGE` matches on every unique column**, joined with `AND`, against the inserted values. It works on a builder query without a model: `driver.insert().into('t').values({...}).onDuplicate('Email').update(['Name'])`.
 - **`SCOPE_IDENTITY()` is `NULL` after an update.** When `MERGE` updates, the identity row holds `ID: null`, and `MsSqlServerResponseMapper` reports `LastInsertId: 0`.
+- **Large batches are split.** `MaxBindings` is `2000` and `MaxInsertRows` `1000`, so a multi-row insert becomes several statements of at most 1000 rows and 2000 parameters, run in one transaction.
 
 ## Best practices
 

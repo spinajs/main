@@ -9,6 +9,5 @@ export * from './session-expiration.js';
 export * from './session-codec.js';
 export * from './cookie.js';
 export * from './issuer.js';
-export * from './legacy.js';
 export * from './schema.js';
 export * from './bootstrap.js';

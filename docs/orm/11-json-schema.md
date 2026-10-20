@@ -55,7 +55,7 @@ Then, in this order:
 5. A column comment becomes `description`.
 6. A nullable column gets `nullable: true`.
 
-Converters match by class name along the prototype chain, so a driver subclass such as orm-mssql's `MsSqlDatetimeValueConverter` counts. A converter declared by a decorator wins over the instance resolved for the column.
+Converters match by class name along the prototype chain, so a driver subclass such as orm-sql's `IsoDatetimeValueConverter` counts. A converter declared by a decorator wins over the instance resolved for the column.
 
 ### Relation properties
 
@@ -109,6 +109,7 @@ export class LedgerDriver extends SqlDriver {
 - Models registered after `ModelSchemaProvider.resolve()` ran are not in its map.
 - In this monorepo `@spinajs/http-swagger` is the consumer of `SchemaProvider`. Request validation reads `@Schema()` metadata and route argument schemas, not `ModelSchemaProvider`.
 - `@spinajs/http-swagger` publishes one component `<Name>` when both flavours agree. When they differ, the response keeps `<Name>` and the request becomes `<Name>Request`.
+- An `@Int64('number')` column is `{ type: 'integer' }` and an `@Int64('string')` or `@Int64('bigint')` column `{ type: 'string' }`, in both flavours and whatever the driver's `ResponseSchemaTypes` say about `bigint`.
 
 ## Best practices
 
@@ -216,5 +217,5 @@ export class ContractExporter {
 - [Connections](./01-connections.md): `OrmDriver` and the connection a model needs before its schema exists.
 - [Architecture](./12-architecture.md): where `ResponseSchemaTypes` sits among the driver extension points.
 - [`@spinajs/orm-mysql`](../orm-mysql/README.md): declares `DECIMAL` as `string` on responses.
-- [`@spinajs/orm-mssql`](../orm-mssql/README.md): registers `MsSqlDatetimeValueConverter`, which the datetime rule recognises.
+- [`@spinajs/orm-mssql`](../orm-mssql/README.md): registers `IsoDatetimeValueConverter`, which the datetime rule recognises.
 - [`@spinajs/orm-http`](../orm-http/README.md): uses models as route bodies and responses that the schemas describe.

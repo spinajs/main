@@ -156,11 +156,6 @@ export function passwordRoutesSuite(): void {
       expect(ctx.purpose).to.eq('login');
     });
 
-    it('takes the 2.x field name Email too', async () => {
-      await new Client().post('/auth/password/reset-request', { Email: 'me@example.test' });
-      expect(fake.of('requestReset')[0].args[0]).to.eq('me@example.test');
-    });
-
     it('answers the same status and body whatever the work does (LEDGER PasswordResetController 4, 5)', async () => {
       const known = await new Client().post('/auth/password/reset-request', { login: 'me@example.test' });
       fake.answer.requestReset = () => Promise.reject(new Error('mail queue down for ghost@example.test'));
@@ -201,12 +196,6 @@ export function passwordRoutesSuite(): void {
       const [login, secret, password, ctx] = fake.of('redeemReset')[0].args as [string, string, string, AuthnContext];
       expect([login, secret, password]).to.deep.eq(['me@example.test', 'kit-secret-123', 'Brand-New-Pass-1']);
       expect(ctx.ip).to.eq(await clientIp());
-    });
-
-    it('takes the 2.x field names Email, Token, Password and ConfirmPassword too', async () => {
-      const res = await new Client().post('/auth/password/reset', { Email: 'me@example.test', Token: 'tok-123', Password: 'Brand-New-Pass-1', ConfirmPassword: 'Brand-New-Pass-1' });
-      expect(res.status).to.eq(200);
-      expect(fake.of('redeemReset')[0].args.slice(0, 3)).to.deep.eq(['me@example.test', 'tok-123', 'Brand-New-Pass-1']);
     });
 
     it('rejects a mismatched confirmation before the secret is touched (LEDGER PasswordResetController 7)', async () => {
@@ -285,13 +274,6 @@ export function passwordRoutesSuite(): void {
       expect(cookie!.attrs.has('httponly')).to.eq(true);
       expect((await c.get('/auth')).status, 'the rotated session works').to.eq(200);
       expect((await new Client(before).get('/auth')).status, 'the old id is gone').to.eq(401);
-    });
-
-    it('takes the 2.x field names OldPassword, Password and ConfirmPassword too', async () => {
-      const c = await loggedIn(await seedUser());
-      const res = await c.patch('/user/password', { OldPassword: 'Old-Pass-1234', Password: 'Brand-New-Pass-1', ConfirmPassword: 'Brand-New-Pass-1' });
-      expect(res.status).to.eq(200);
-      expect(fake.of('change')[0].args.slice(1, 3)).to.deep.eq(['Old-Pass-1234', 'Brand-New-Pass-1']);
     });
 
     it('a wrong old password and a throttled change answer the login failure body without Retry-After (N3)', async () => {

@@ -202,7 +202,6 @@ const PUBLIC_EXPORTS = [
   'AbsoluteExpiration',
   'AuthnSessionConfigBootstrapper',
   'DefaultSessionIssuer',
-  'LEGACY_IDENTITY_KEYS',
   'MemorySessionStore',
   'PUBLIC_DEFAULT_COOKIE_SECRET',
   'SESSION_COOKIE_BASE_NAME',
@@ -214,14 +213,12 @@ const PUBLIC_EXPORTS = [
   'SlidingCappedExpiration',
   'SlidingExpiration',
   'UserSession',
-  'adaptLegacySession',
   'appEnvOf',
   'assertSessionCookieSecret',
   'clearSessionCookie',
   'cookieMaxAge',
   'decodeSessionData',
   'encodeSessionData',
-  'isLegacySessionId',
   'peekingSessions',
   'sessionCookie',
   'sessionCookieName',
@@ -371,18 +368,14 @@ describe('@spinajs/authn-session contracts', function () {
     it('docs carry the rules a reader needs', () => {
       const i = interfaceDocs('ISession');
       expect(i.SessionId).to.contain('sha256');
-      expect(i.SessionId).to.contain('2.x');
       expect(i.Subject).to.contain('impersonat');
       expect(i.Impersonator).to.contain('SR-06');
       expect(i.State).to.contain('pendingTtlSeconds');
       expect(docOf('SessionProvider', 'restore')).to.contain('absent');
-      expect(docOf('SessionProvider', 'restore')).to.contain('2.x');
       expect(docOf('SessionProvider', 'save')).to.contain('verbatim');
       expect(docOf('SessionProvider', 'touch')).to.contain('pending');
       expect(docOf('SessionProvider', 'deleteBySubject')).to.contain('impersonator');
-      expect(docOf('SessionProvider', 'deleteBySubject')).to.contain('2.x');
       expect(docOf('SessionProvider', 'deleteBySubject')).to.contain('storage key');
-      expect(docOf('SessionProvider', 'deleteBySubject')).to.contain("with includeImpersonations its 'Impersonator'");
       expect(docOf('SessionProvider', 'listBySubject')).to.contain('expired');
     });
   });
@@ -395,9 +388,7 @@ describe('@spinajs/authn-session contracts', function () {
       const noSubject: ISession = { SessionId: 'h', State: 'active', Creation: DateTime.now(), Data: new Map() };
       // @ts-expect-error State is only pending or active
       const revoked: ISession = { SessionId: 'h', Subject: alice, State: 'revoked', Creation: DateTime.now(), Data: new Map() };
-      // @ts-expect-error the 2.x numeric owner is gone
-      const legacy: ISession = { SessionId: 'h', Subject: alice, State: 'active', Creation: DateTime.now(), Data: new Map(), UserId: 1 };
-      expect([noSubject, revoked, legacy]).to.have.length(3);
+      expect([noSubject, revoked]).to.have.length(2);
     });
 
     it('SessionProvider members have the 3.0 types', () => {
@@ -427,15 +418,6 @@ describe('@spinajs/authn-session contracts', function () {
       }
       same<ReturnType<SessionProvider<Tagged>['restore']>, Promise<Tagged | null>>(true);
       same<ReturnType<SessionProvider<Tagged>['listBySubject']>, Promise<Tagged[]>>(true);
-    });
-
-    it('the 2.x numeric-owner members are gone', () => {
-      const p: SessionProvider = new MemoryStore();
-      // @ts-expect-error deleteByUser is replaced by deleteBySubject
-      const a = () => p.deleteByUser(1);
-      // @ts-expect-error listByUser is replaced by listBySubject
-      const b = () => p.listByUser(1);
-      expect([a, b]).to.have.length(2);
     });
 
     it('wrong shapes do not compile', () => {

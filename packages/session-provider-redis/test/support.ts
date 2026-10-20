@@ -1,11 +1,10 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { SessionIssuer } from '@spinajs/authn/contracts';
-import { AbsoluteExpiration, DefaultSessionIssuer, SessionExpirationProvider, SessionProvider, SlidingCappedExpiration, SlidingExpiration, encodeSessionData } from '@spinajs/authn-session';
+import { AbsoluteExpiration, DefaultSessionIssuer, SessionExpirationProvider, SessionProvider, SlidingCappedExpiration, SlidingExpiration } from '@spinajs/authn-session';
 import type { Redis } from 'ioredis';
 import RedisMock from 'ioredis-mock';
 import _ from 'lodash';
-import { DateTime } from 'luxon';
 import { RedisSessionStore } from '../src/index.js';
 
 let sessionOverrides: Record<string, unknown> = {};
@@ -72,37 +71,6 @@ export const disposeStore = shutdown;
 
 /** A client without key prefix over the same keyspace, to read and write keys as they are stored. */
 export const rawClient = (): Redis => new RedisMock() as unknown as Redis;
-
-/** A row as the 2.x store wrote it: raw uuid key, numeric UserId, identity only in Data, the id in `session:user:<UserId>`. */
-export interface LegacyRow {
-  rawId: string;
-  user?: string;
-  authorized: boolean;
-  impersonator?: string;
-  creation: DateTime;
-  expiration?: DateTime;
-}
-
-export async function writeLegacyRow(row: LegacyRow, keyPrefix = ''): Promise<void> {
-  const data = new Map<string, unknown>([['Logged', true]]);
-  if (row.user !== undefined) data.set('User', row.user);
-  data.set('Authorized', row.authorized);
-  if (row.impersonator) data.set('Impersonator', row.impersonator);
-
-  const client = rawClient();
-  const key = `${keyPrefix}session:${row.rawId}`;
-  await client.set(key, JSON.stringify({ UserId: 1, Creation: row.creation.toISO(), Expiration: row.expiration?.toISO(), Data: encodeSessionData(data) }));
-  if (row.expiration) {
-    await client.pexpireat(key, row.expiration.toMillis());
-  }
-  await client.sadd(`${keyPrefix}session:user:1`, row.rawId);
-}
-
-/** A 2.x row that was there when this node booted: written as 2.x did, then indexed by the boot sweep. */
-export async function seedLegacyRow(store: RedisSessionStore, row: LegacyRow): Promise<void> {
-  await writeLegacyRow(row);
-  await store.sweepLegacy();
-}
 
 /** Every session key in the keyspace (index sets left out), live or not yet evicted. */
 export async function storedKeys(): Promise<string[]> {

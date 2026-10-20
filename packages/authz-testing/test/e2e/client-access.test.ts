@@ -58,6 +58,8 @@ async function startClientApp(): Promise<ClientAccessApp> {
   const db = await TestDb.open();
   const driver = db.driver('sqlite');
   for (const m of [new AuthzRbac_2026_10_01_00_00_00(), new AuthzAdminIdempotency_2026_10_02_00_01_00(), new AuthzResourceAncestor_2026_10_14_00_00_00()]) await m.up(driver);
+  // The Orm read the table info before the tables existed.
+  await db.orm.reloadTableInfo();
   Doc = (await db.define({ name: 'Doc', columns: {}, decorate: (m) => AccessResource('doc')(m) })) as never;
   for (const id of CLIENT_ACCESS_FIXTURE.ids) await runWithPrincipal(SYSTEM, async () => void (await Doc.insert({ id })));
 
@@ -66,8 +68,8 @@ async function startClientApp(): Promise<ClientAccessApp> {
     'process.env.APP_ENV': 'test',
     'authz.permissions': { ...CLIENT_ACCESS_FIXTURE.permissions, 'authz:assignments.manage': { types: ['doc'] } },
     // Whole: the installed packages' defaults add ladders and service roles over roles the fixture's replace.
-    'authz.rbac': { roles: CLIENT_ACCESS_FIXTURE.roles, stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'] }, connection: 'sqlite' },
-    'authz.admin': { connection: 'sqlite', backend: 'E2eAdminBackend', guard: { service: 'DefaultAdminGuard', privilegedPermission: 'authz:assignments.manage' } },
+    'authz.rbac': { roles: CLIENT_ACCESS_FIXTURE.roles, stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'] } },
+    'authz.admin': { backend: 'E2eAdminBackend', guard: { service: 'DefaultAdminGuard', privilegedPermission: 'authz:assignments.manage' } },
     'authz.combine': { default: { algorithm: 'deny-overrides', models: ['rbac'] } },
     // startApp replaces the whole configuration with the package defaults, TestDb's connections included.
     db: cfg.get<unknown>('db'),

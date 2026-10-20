@@ -18,7 +18,7 @@ describe('real mocha', function () {
     });
     const out = `${r.stdout}\n${r.stderr}`;
     assert.strictEqual(r.status, 0, out);
-    assert.match(out, /15 passing/, out);
+    assert.match(out, /13 passing/, out);
     assert.match(out, /8 pending/, out);
     assert.match(out, /A07 a second login gets a new session id \[pending: missing http, http\.routes\.login, http\.routes\.whoami\]/, out);
     assert.match(out, /authn-testing pending: A07 a second login gets a new session id → http, http\.routes\.login, http\.routes\.whoami/, out);

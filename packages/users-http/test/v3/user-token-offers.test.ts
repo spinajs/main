@@ -77,7 +77,7 @@ const ROLES = '/user/tokens/roles';
 const PROFILES = '/user/tokens/profiles';
 
 /**
- * `GET /user/tokens/roles` and `/user/tokens/profiles` (2.x AccessTokenController, C5/N6 hand-off): what authn-http's
+ * `GET /user/tokens/roles` and `/user/tokens/profiles` (C5/N6 hand-off): what authn-http's
  * `POST /user/tokens` would accept from this caller, narrowed to what a token keeps at check time (`authz.token`).
  */
 describe('users-http v3: GET /user/tokens/roles and /user/tokens/profiles', function () {

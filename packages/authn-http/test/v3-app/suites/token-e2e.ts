@@ -85,7 +85,7 @@ export function tokenEndToEndSuite(): void {
       expect(seen.session, 'a token request opens no session').to.eq(null);
     });
 
-    it('a token without roles carries no role ceiling: the owner roles apply whole (middleware 1, legacy token)', async () => {
+    it('a token without roles carries no role ceiling: the owner roles apply whole (middleware 1)', async () => {
       const u = await user(['user']);
       const t = await mint(u.ref);
       const seen = await probe(bearer(t.plaintext));
@@ -155,7 +155,7 @@ export function tokenEndToEndSuite(): void {
       const plain = await mint(u.ref, { roles: ['user'] });
       const pinned = await mint(u.ref, { roles: ['user'], profile: 'editor' });
       const unpinned = (await probe(bearer(plain.plaintext))).principal!;
-      expect(unpinned.attributes, 'a legacy token reads as unpinned, not as some default').to.not.have.property('profile');
+      expect(unpinned.attributes, 'a token without a profile reads as unpinned, not as some default').to.not.have.property('profile');
       const stamped = (await probe(bearer(pinned.plaintext))).principal!;
       expect(stamped.attributes.profile).to.eq('editor');
       expect(stamped.ceiling, 'stamping the profile must not widen or drop the roles').to.deep.eq({ roles: ['user'] });
@@ -203,7 +203,7 @@ export function tokenEndToEndSuite(): void {
     });
   });
 
-  // BUG(T3): 2.x named a rejected token by uuid in its log. 3.0 audits only the reason and the ip, so a replayed
+  // BUG(T3): a rejected token is not named by its uuid; the audit has only the reason and the ip, so a replayed
   // expired or revoked token cannot be traced to a token or an owner (A21 bans secrets, not the public uuid).
   it.skip('a rejected expired token is named by its uuid in the audit event or the log (middleware 12, BUG(T3))', async () => {
     const u = await user();

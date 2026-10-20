@@ -8,7 +8,7 @@
     "authz-orm": ["src/api.ts"],
     "authz-http": ["src/api.ts"],
     "authz-queue": ["src/api.ts"],
-    "authz-fs": ["src/api.ts"],
+    "authz-fs": ["src/acl/store.ts"],
     "teams": ["src/api.ts"],
     "authz-testing": ["src/rebac.ts"],
     "authn": ["src/contracts/index.ts"],

@@ -1,7 +1,7 @@
 import { Argument, Command } from '@spinajs/cli';
 
 import { expectedRows, requireType } from '../../ancestors/full.js';
-import { AUTHZ_RESOURCE_ANCESTOR_TABLE, ROW_CHUNK, chunks } from '../../ancestors/table.js';
+import { AncestorRecord } from '../../ancestors/record.js';
 import { registeredTypes } from '../../registry.js';
 import { AuthzOrmCliCommand } from '../base.js';
 
@@ -13,11 +13,11 @@ export class AncestorsRebuildCommand extends AuthzOrmCliCommand {
       () => (type === undefined ? registeredTypes() : [requireType(type)]),
       async (types) => {
         for (const t of types) {
-          const driver = await this.driverFor(t);
+          const driver = this.driverFor(t);
           const rows = await expectedRows(driver, t);
           await driver.transaction(async () => {
-            await driver.del().from(AUTHZ_RESOURCE_ANCESTOR_TABLE).where('resource_type', t);
-            for (const part of chunks(rows, ROW_CHUNK)) await driver.insert().into(AUTHZ_RESOURCE_ANCESTOR_TABLE).values(part);
+            await AncestorRecord.destroy().where('resource_type', t);
+            await AncestorRecord.insert(rows);
           });
           this.out(`${t}: ${rows.length} rows`);
         }

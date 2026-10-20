@@ -94,7 +94,7 @@ Without it, `import { ElectronRendererLogger } from '@spinajs/electron'` resolve
 ## Related packages
 
 - [`@spinajs/di`](../di/README.md): every proxy is a DI registration; the bridge resolves services by their DI name.
-- [`@spinajs/authz`](../authz/README.md#concepts): IPC calls run as `SYSTEM` through `authz().runAs()`.
+- [`@spinajs/authz`](../authz/01-check-flow.md#concepts): IPC calls run as `SYSTEM` through `authz().runAs()`.
 - [`@spinajs/orm`](../orm/README.md): the main-process `Orm` owns the connections the renderer bridge talks to.
 - [`@spinajs/log`](../log/README.md): main-process loggers receive the renderer's log lines.
 - [`@spinajs/configuration`](../configuration/README.md): the main `Configuration` answers renderer `get()` calls and formats `${electron-path:...}`.

@@ -57,8 +57,8 @@ describe('database events', () => {
         .database('app')
         .ifNotExists()
         .every(1, 'WEEK')
-        .starts(DateTime.fromSQL('2026-03-13 23:00:00'))
-        .ends(DateTime.fromSQL('2027-03-13 23:00:00'))
+        .starts(DateTime.fromSQL('2026-03-13 23:00:00', { zone: 'utc' }))
+        .ends(DateTime.fromSQL('2027-03-13 23:00:00', { zone: 'utc' }))
         .preserve()
         .disabled()
         .comment(`friday's purge`)
@@ -71,7 +71,7 @@ describe('database events', () => {
   });
 
   it('compiles a one shot event at a point in time', () => {
-    const result = event((e) => e.at(DateTime.fromSQL('2026-01-01 00:00:00')).do(purge)).toDB();
+    const result = event((e) => e.at(DateTime.fromSQL('2026-01-01 00:00:00', { zone: 'utc' })).do(purge)).toDB();
 
     expect(result.expression).to.contain("ON SCHEDULE AT '2026-01-01 00:00:00.000'\n");
   });

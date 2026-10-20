@@ -1,12 +1,12 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, thrownError, unionFieldGlobs } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, HostLog, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, RuleDef, Vote } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ListSupportContext, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, HostLog, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, RuleDef, Vote } from '@spinajs/authz';
 
 import { AdminRuleStore } from '../admin/ports.js';
 import type { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from './cache.js';
 import { RBAC_SUMMARY_STEPS, createRbacExtensions, liveAssignments, rbacTables, rbacState, readRbacInput, runRbacPipeline } from './evaluate.js';
 import { effectiveRole } from './ladder/steps.js';
-import { DEFAULT_MAX_PLAN_SUBJECTS, rbacListPlan } from './list/plan.js';
+import { rbacListPlan } from './list/plan.js';
 import { rbacListSupport, ruleCanMatch } from './list/support.js';
 import { isDbRulesMarker, ruleStoreParts } from './rules/extension.js';
 import { unlessRowRules } from './rules/steps.js';
@@ -15,6 +15,7 @@ import { compileGrants } from './grants.js';
 import type { GrantIndex } from './grants.js';
 import { assignmentProblem, compileRoles } from './roles.js';
 import { RbacSubjectResolver, WILDCARD_ID, groupPrincipalConfig } from './sets/resolver.js';
+import { SetsExtension } from './sets/extension.js';
 import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
 import { isTokenRoleExtension, tokenRoleExtension } from '../token/extension.js';
 
@@ -44,7 +45,6 @@ interface Loaded {
   readonly serviceRoles: ReadonlyMap<string, readonly string[]>;
   readonly assignments: AssignmentCache;
   readonly rolesCheckMs: number;
-  readonly maxPlanSubjects: number;
 }
 
 const PROBLEM_TEXT: Readonly<Record<AssignmentProblem, string>> = {
@@ -65,6 +65,7 @@ export class RbacModel extends AuthorizationModel {
   private readonly warnedRoles = new Set<string>();
   private readonly warnedAssignments = new Set<string>();
   private readonly warnedListRules = new Set<string>();
+  private warnedMaxPlanSubjects = false;
   private storedRulesAt?: { readonly version: string; readonly rules: readonly RuleDef[] };
   /*
    * Role reload on a RoleStore version change: every stale mark bumps roleMarks; the
@@ -108,11 +109,12 @@ export class RbacModel extends AuthorizationModel {
     const graph = compileRoles(roles, ladders, { extraEdges: this.extraEdges() });
     for (const ext of this.extensions) for (const filter of ext.nativeFilters?.() ?? []) ctx.registerNativeFilter(filter);
     const { rolesCheckMs, ...cache } = cacheConfig(ctx);
+    if (!this.warnedMaxPlanSubjects && ctx.config<unknown>('maxPlanSubjects', undefined) !== undefined) {
+      this.warnedMaxPlanSubjects = true;
+      this.log.warn({}, 'rbac: authz.rbac.maxPlanSubjects is no longer read; a list term carries every subject, so remove the key');
+    }
     const assignments = new AssignmentCache(this.opts.assignments, { ...cache, clock: this.clock(), model: this.name });
-    const maxPlanSubjects = ctx.config<number>('maxPlanSubjects', DEFAULT_MAX_PLAN_SUBJECTS);
-    // An unvalidated configuration still gets here.
-    if (!Number.isInteger(maxPlanSubjects) || maxPlanSubjects < 1) throw new AuthzConfigError('authz.rbac.maxPlanSubjects must be a positive integer');
-    this.loaded = { version, graph, registry: ctx.permissions, anonymousRoles: anonymousRoles(ctx, graph), serviceRoles: serviceRoles(ctx, graph), assignments, rolesCheckMs, maxPlanSubjects };
+    this.loaded = { version, graph, registry: ctx.permissions, anonymousRoles: anonymousRoles(ctx, graph), serviceRoles: serviceRoles(ctx, graph), assignments, rolesCheckMs };
     this.grants = undefined;
     this.roleMarks = 0;
     this.rolesFreshAt = 0;
@@ -150,23 +152,25 @@ export class RbacModel extends AuthorizationModel {
   }
 
   /** At boot (boot rule 12) and per call: whether lists of `permission` on `type` can be planned. */
-  listSupport(permission: PermissionDef, type: ResourceType): ListSupport {
+  listSupport(permission: PermissionDef, type: ResourceType, ctx?: ListSupportContext): ListSupport {
     const { graph } = this.state();
     const grants = this.grantIndex();
     const { ladders, implies } = rbacTables(this.extensions, graph, grants);
     const { config } = ruleStoreParts(this.opts.rules);
-    return rbacListSupport({ graph, grants, ...(ladders ? { ladders } : {}), ...(implies ? { implies } : {}), rules: config?.all() ?? [] }, permission.name, type);
+    return rbacListSupport({ graph, grants, ...(ladders ? { ladders } : {}), ...(implies ? { implies } : {}), rules: config?.all() ?? [] }, permission.name, type, ctx?.relation);
   }
 
   /** The gathered input of the type-level request `{ type }`, through `cap`, as a list plan (rbacListPlan). */
   async listPlan(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan> {
     await this.freshRoles();
+    const supported = this.listSupport(req.permission, req.type, { relation: ctx.relation.bind(ctx) });
+    if (supported !== true) throw new Error(supported.reason);
     const request: DecisionRequest = { principal: req.principal, ...(req.actor ? { actor: req.actor } : {}), permission: req.permission.name, resource: { type: req.type }, ...(req.env ? { env: req.env } : {}), ...(req.fresh === true ? { fresh: true } : {}) };
     await this.refuseListRules(req.permission.name, req.type, ctx.now);
     const read = await readRbacInput(request, ctx, this.sources());
     // Every stored rule was checked above; the DB store's marker is not a rule.
     const input = { ...read, rowDependentRules: (read.rowDependentRules ?? []).filter((id) => !isDbRulesMarker(id)) };
-    return rbacListPlan(rbacState(input, 'cap'), { maxSubjects: this.state().maxPlanSubjects, membership: this.opts.membership !== undefined });
+    return rbacListPlan(rbacState(input, 'cap'));
   }
 
   /**
@@ -269,6 +273,17 @@ export class RbacModel extends AuthorizationModel {
   async inputAt(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<RbacInput> {
     await this.freshRoles();
     return readRbacInput({ principal, permission: ROLES_PROBE, resource: at }, ctx, this.sources());
+  }
+
+  /**
+   * For RbacService.subjectKeysOf: the principal's subjects and assignments at ctx.now, with the sets
+   * SetsExtension adds from them (direct memberships, nested sets), the roles reloaded first when stale.
+   */
+  async subjectsInput(principal: Principal, ctx: EvaluationContext): Promise<RbacInput> {
+    await this.freshRoles();
+    // The other extensions add no subjects, and rules would ask the context for attributes the service cannot give.
+    const extensions = this.extensions.filter((e) => e instanceof SetsExtension);
+    return readRbacInput({ principal, permission: ROLES_PROBE, resource: GLOBAL }, ctx, { ...this.sources(), extensions });
   }
 
   /** The link store of the options (share links). */

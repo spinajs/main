@@ -14,10 +14,10 @@ export class AncestorsVerifyCommand extends AuthzOrmCliCommand {
       () => (type === undefined ? undefined : [requireType(type)]),
       async (types) => {
         let failed = false;
-        const all = types ?? [...new Set([...registeredTypes(), ...(await listedTypes(await this.driverFor(registeredTypes()[0] ?? '')))])];
+        const all = types ?? [...new Set([...registeredTypes(), ...(await listedTypes())])];
         for (const t of all) {
-          const driver = await this.driverFor(t);
-          const d = diffRows(await expectedRows(driver, t), await actualRows(driver, t));
+          const driver = this.driverFor(t);
+          const d = diffRows(await expectedRows(driver, t), await actualRows(t));
           const lines = [...d.missing.map((x) => `missing ${x}`), ...d.extra.map((x) => `extra ${x}`), ...d.depth.map((x) => `depth ${x}`)];
           if (lines.length === 0) {
             this.out(`${t}: ok`);

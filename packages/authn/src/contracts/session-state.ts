@@ -91,7 +91,7 @@ export class Session {
     return this.get(SessionKeys.ActiveRole);
   }
 
-  /** undefined without a block (a migrated 2.x session), null for one that cannot be read. */
+  /** undefined without a block, null for one that cannot be read. */
   public get impersonation(): ImpersonationBlock | null | undefined {
     return this.get(SessionKeys.Impersonation);
   }

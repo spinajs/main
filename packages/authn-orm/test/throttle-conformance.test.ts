@@ -24,7 +24,7 @@ for (const kind of DB_KINDS) {
       async (ctx) => {
         await rawQuery(db.driver, 'DELETE FROM authn_throttle', [], QueryContext.Delete);
         const params = throttleParams(ctx.config);
-        return { throttle: { throttle: new DbAuthnThrottle(db.driver, params), params } };
+        return { throttle: { throttle: new DbAuthnThrottle(params), params } };
       },
       // A06 SR-05 makes 10,000 attempts; on a loaded shared postgres it can pass 300 s, and a timed-out case keeps
       // writing rows into the next cases.

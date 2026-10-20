@@ -16,7 +16,7 @@ The package ships a config file that appends its command directory to `system.di
 
 | Feature | What it does |
 | --- | --- |
-| [Applying migrations](01-applying-migrations.md) | `migrate-up`: applies pending migrations, all or one by name, on every connection or one, for real or `--fake` |
+| [Applying migrations](01-applying-migrations.md) | `migrate-up`: applies pending migrations, all or one by name, on every connection or one, for real or `--fake`; a full run exits `1` when a registered model still has no table |
 | [Rolling back migrations](02-rolling-back-migrations.md) | `migrate-down`: reverses the last applied batch, or everything with `--all` |
 | [Migration status](03-migration-status.md) | `migrate-status`: one line per migration per connection on stdout; exits `1` while anything is pending or failed, so it works as a deploy gate |
 | [Resolving failed migrations](04-resolving-failed-migrations.md) | `migrate-resolve`: records whether a failed or interrupted migration reached the database, which unblocks the connection |

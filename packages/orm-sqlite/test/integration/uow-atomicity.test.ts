@@ -42,6 +42,8 @@ export class UowIntegrationConf extends FrameworkConfiguration {
           rules: [{ name: '*', level: 'error', target: 'Empty' }],
         },
         db: {
+          // The tables are migrated by hand after the Orm boots; each file migrates only its own.
+          StrictTableCheck: false,
           Migration: { Startup: false },
           Connections: [
             {

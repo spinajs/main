@@ -3,7 +3,7 @@ import { DynamoDBClient, GetItemCommand, PutItemCommand, DeleteItemCommand, Upda
 import type { AttributeValue, DynamoDBClientConfig } from '@aws-sdk/client-dynamodb';
 import { DateTime } from 'luxon';
 
-import { SessionProvider, UserSession, encodeSessionData, decodeSessionData, adaptLegacySession } from '@spinajs/authn-session';
+import { SessionProvider, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
 import { principalKey } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
@@ -37,9 +37,6 @@ function refOf(key: unknown): IdentityRef | undefined {
   return { type: key.slice(0, at).replace(/%(25|3A)/g, (_, code: string) => (code === '25' ? '%' : ':')), id: key.slice(at + 1) };
 }
 
-/** DynamoDB TTL reads epoch seconds; values at or above this are 2.x epoch milliseconds. */
-const MS_THRESHOLD = 1e11;
-
 /** Fractional seconds keep the millisecond precision the session round-trips. */
 const toTtl = (d: DateTime) => `${d.toMillis() / 1000}`;
 
@@ -50,13 +47,11 @@ const isConditionFailure = (err: unknown) => (err as { name?: string } | null)?.
  * `SessionId`.
  *
  * Item attributes: `Subject`, `ImpersonatorId` (principal keys), `State`,
- * `Creation` (ISO), `Expiration` (epoch seconds, the TTL attribute; 2.x wrote epoch ms), `Data` (the
- * session codec). An item without `Subject` was written by 2.x (numeric
- * `UserId`, identity in Data) and is adapted on every read.
+ * `Creation` (ISO), `Expiration` (epoch seconds, the TTL attribute), `Data` (the
+ * session codec).
  *
  * deleteBySubject / listBySubject run a strongly consistent Scan filtered on
- * Subject / ImpersonatorId plus every 2.x item, which is matched client side.
- * Liveness is always judged with `isExpired` in Node.
+ * Subject / ImpersonatorId. Liveness is always judged with `isExpired` in Node.
  */
 @Injectable(SessionProvider)
 export class DynamoDbSessionProvider extends SessionProvider {
@@ -191,8 +186,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
 
   /**
    * One conditional UpdateItem of Expiration and Data: only an item that still
-   * exists, is live and is stored in the caller's State (SR-07). A 2.x item
-   * has no State and is never written; the issuer migrates it first.
+   * exists, is live and is stored in the caller's State (SR-07).
    */
   public async touch(session: ISession): Promise<boolean> {
     const current = session.Expiration;
@@ -289,13 +283,13 @@ export class DynamoDbSessionProvider extends SessionProvider {
     return new DynamoDBClient(cfg);
   }
 
-  /** Items of the subject, expired ones included: 3.0 items by their attributes, 2.x items (no Subject) by their Data. */
+  /** Items of the subject, expired ones included. */
   protected async matching(subject: IdentityRef, includeImpersonations?: boolean): Promise<ISession[]> {
     const names: Record<string, string> = { '#subject': 'Subject' };
-    let filter = '#subject = :key OR attribute_not_exists(#subject)';
+    let filter = '#subject = :key';
     if (includeImpersonations === true) {
       names['#impersonator'] = 'ImpersonatorId';
-      filter = '#subject = :key OR #impersonator = :key OR attribute_not_exists(#subject)';
+      filter = '#subject = :key OR #impersonator = :key';
     }
 
     const items = await this.scan({ FilterExpression: filter, ExpressionAttributeNames: names, ExpressionAttributeValues: { ':key': { S: principalKey(subject) } } });
@@ -323,12 +317,17 @@ export class DynamoDbSessionProvider extends SessionProvider {
   }
 
   /**
-   * The 3.0 view of an item; null for a 2.x item without an owner. `lenient`
-   * (revocation and listing): an item whose Data does not decode keeps the
-   * owner its attributes give and an empty Data, so one bad item cannot make
-   * a revokeAll throw for everybody; a 2.x item then has no owner.
+   * The session of an item; null for an item without a readable Subject.
+   * `lenient` (revocation and listing): an item whose Data does not decode
+   * keeps the owner its attributes give and an empty Data, so one bad item
+   * cannot make a revokeAll throw.
    */
   protected toSession(item: AttributeMap, lenient = false): ISession | null {
+    const subject = refOf(item.Subject?.S);
+    if (!subject) {
+      return null;
+    }
+
     let data: Map<string, unknown>;
     try {
       data = decodeSessionData(item.Data?.S);
@@ -340,22 +339,15 @@ export class DynamoDbSessionProvider extends SessionProvider {
       data = new Map();
     }
 
-    const session = new UserSession({
+    return new UserSession({
       SessionId: item.SessionId.S!,
+      Subject: subject,
+      Impersonator: refOf(item.ImpersonatorId?.S),
+      State: item.State?.S === 'active' ? 'active' : 'pending',
       Creation: DateTime.fromISO(item.Creation?.S ?? ''),
       Expiration: item.Expiration ? this.instant(item.Expiration) : undefined,
       Data: data,
     });
-
-    const subject = refOf(item.Subject?.S);
-    if (!subject) {
-      return adaptLegacySession(session);
-    }
-
-    session.Subject = subject;
-    session.Impersonator = refOf(item.ImpersonatorId?.S);
-    session.State = item.State?.S === 'active' ? 'active' : 'pending';
-    return session;
   }
 
   /** An Expiration that is not a number counts as already passed. */
@@ -364,7 +356,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
     if (!Number.isFinite(n)) {
       return DateTime.fromMillis(0);
     }
-    return DateTime.fromMillis(n >= MS_THRESHOLD ? n : Math.round(n * 1000));
+    return DateTime.fromMillis(Math.round(n * 1000));
   }
 
   protected expirationEquals(a: DateTime | undefined, b: DateTime | undefined): boolean {
@@ -430,7 +422,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
       );
     } catch (err) {
       // v3 names the error class in `err.name` (v2 used `err.code`).
-      if (err.name === 'ResourceNotFoundException') {
+      if (err instanceof Error && err.name === 'ResourceNotFoundException') {
         return null;
       }
 

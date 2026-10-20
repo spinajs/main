@@ -4,7 +4,7 @@ import { DateTime } from 'luxon';
 @Connection('default')
 @Model('authn_throttle')
 export class AuthnThrottle extends ModelBase<AuthnThrottle> {
-  @Primary()
+  @Primary({ generated: 'assigned' })
   public k: string;
 
   public attempts: number;

@@ -144,3 +144,64 @@ describe('Sqlite - read handle pool', function () {
     expect(d.poolMetrics()).to.deep.equal({ Size: 0, InUse: 0, Waiting: 0 });
   });
 });
+
+class WriterReadsDriver extends SqliteOrmDriver {
+  protected usesWriter(): boolean {
+    return true;
+  }
+}
+
+describe('Sqlite - read routing overridden by a subclass', function () {
+  this.timeout(20000);
+
+  let driver: SqliteOrmDriver;
+
+  before(() => {
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(WriterReadsDriver).as('orm-driver-sqlite-writer-reads');
+  });
+
+  beforeEach(async () => {
+    removeDbFiles();
+    driver = await DI.resolve<SqliteOrmDriver>('orm-driver-sqlite-writer-reads', [{ Driver: 'orm-driver-sqlite-writer-reads', Name: 'writer-reads', Filename: DB_FILE, Pool: { Max: 3 } }]);
+    await driver.connect();
+  });
+
+  afterEach(async () => {
+    await driver.disconnect();
+    removeDbFiles();
+  });
+
+  it('holds an outside select it routes to the writer until the open transaction ends', async () => {
+    await driver.executeOnDb('CREATE TABLE rp5 (Id INTEGER PRIMARY KEY, V TEXT)', [], QueryContext.Schema);
+    expect((driver as any).ReadPool).to.have.length(2);
+
+    let opened!: () => void;
+    const isOpen = new Promise<void>((resolve) => (opened = resolve));
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => (finish = resolve));
+
+    const tx = driver
+      .transaction(async () => {
+        await driver.executeOnDb('INSERT INTO rp5 (V) VALUES (?)', ['inside'], QueryContext.Insert);
+        opened();
+        await finished;
+        throw new Error('roll back');
+      })
+      .catch(() => undefined);
+    await isOpen;
+
+    let readDone = false;
+    const read = driver.executeOnDb('SELECT V FROM rp5', [], QueryContext.Select).then((rows) => {
+      readDone = true;
+      return rows;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(readDone, 'the select ran on the writer inside the open transaction').to.eq(false);
+
+    finish();
+    await tx;
+    expect(await read).to.deep.eq([]);
+  });
+});

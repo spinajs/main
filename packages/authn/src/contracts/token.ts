@@ -23,7 +23,7 @@ export type TokenCreateOptions = {
       readonly kind: 'pat' | 'service';
       /** Become ceiling.roles. */
       readonly roles?: readonly string[];
-      /** 2.x Profile; authn-token checks it against the profiles the owner may pin a token to. */
+      /** A role name to pin the token to; authn-token checks it against the profiles the owner may pin a token to. */
       readonly profile?: string;
       readonly scope?: TokenScope & { readonly agent?: false };
     }
@@ -45,7 +45,7 @@ export interface TokenRecord {
   readonly name: string;
   readonly kind: TokenKind;
   readonly roles?: readonly string[];
-  /** 2.x Profile: the one role the token is pinned to (§18.3(e)); a profile never widens. */
+  /** The one role the token is pinned to (§18.3(e)); a profile never widens. */
   readonly profile?: string;
   readonly scope?: TokenScope;
   readonly createdAt: Date;

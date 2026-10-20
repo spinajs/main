@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
 import 'mocha';
 import { fakeHash } from '@spinajs/authn-testing';
 
@@ -479,16 +478,6 @@ describe('AuthnImpersonationService', function () {
       assert.ok(nonEmptyString(e.session));
     });
 
-    it('still resolves a migrated 2.x session within its lifetime (R1)', async () => {
-      const { p, svc, a } = await boot();
-      const rawId = randomUUID();
-      const creation = new Date();
-      await p.sessions.storage.seedLegacy({ rawId, user: a.id, authorized: true, creation });
-      const s: SessionHandle = { id: rawId, state: 'active' };
-      assert.strictEqual((await svc.principalOf(s, ctx(new Date(creation.getTime() + 60 * MINUTE))))?.id, a.id);
-      assert.strictEqual(await svc.principalOf(s, ctx(new Date(creation.getTime() + 480 * MINUTE))), null);
-    });
-
     it('answers null for a pending, unknown or malformed session', async () => {
       const { p, svc, a } = await boot();
       const pending = await issue(p, a, {}, true);
@@ -955,11 +944,11 @@ describe('AuthnImpersonationService', function () {
       assert.strictEqual(events(p, 'impersonation.expire').length, 1);
     });
 
-    it('is one per container and does not collide with the 2.x ImpersonationService of authn-http', async () => {
-      // DI keys registrations and instances by class name; authn-http registers a class named ImpersonationService.
-      const Legacy = { ImpersonationService: class {} }.ImpersonationService;
-      const { p, svc } = await boot(undefined, { register: (c) => c.register(Legacy).asSelf() });
-      assert.ok(!((await p.child.resolve(Legacy)) instanceof AuthnImpersonationService));
+    it('is one per container and does not collide with another class named ImpersonationService', async () => {
+      // DI keys registrations and instances by class name.
+      const Other = { ImpersonationService: class {} }.ImpersonationService;
+      const { p, svc } = await boot(undefined, { register: (c) => c.register(Other).asSelf() });
+      assert.ok(!((await p.child.resolve(Other)) instanceof AuthnImpersonationService));
       assert.strictEqual(await p.child.resolve(AuthnImpersonationService), svc);
       const second = await buildCore();
       try {

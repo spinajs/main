@@ -38,7 +38,7 @@ async function failure(p: Promise<unknown>): Promise<Error> {
 describe('EmailPasswordMailer', () => {
   recordPerf();
 
-  it('sends a reset mail at once with the 2.x model names, the link, the tag and the secrets to redact', async () => {
+  it('sends a reset mail at once with the template model, the link, the tag and the secrets to redact', async () => {
     const { mailer, sender, emitted } = mailerWith();
     await mailer.send(aMail());
 

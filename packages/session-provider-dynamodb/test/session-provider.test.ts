@@ -1,13 +1,10 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { randomUUID } from 'node:crypto';
 import { UserSession as Session, decodeSessionData } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
 import { DateTime } from 'luxon';
-import { DynamoDbSessionProvider } from '../src/index.js';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
-import { bootStore, disposeStore, fake, storedKeys, writeLegacyRow } from './support.js';
-import type { LegacyRow } from './support.js';
+import { bootStore, disposeStore, fake, storedKeys } from './support.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -24,11 +21,6 @@ async function makeProvider(expiration: IConformanceExpiration) {
 const conformanceFactory = makeProvider as unknown as SessionProviderFactory;
 
 const session = (over: Partial<ISession>) => new Session({ Subject: user('u-1'), State: 'active', Expiration: DateTime.now().plus({ minutes: 10 }), Data: new Map<string, unknown>(), ...over });
-
-const legacy = (over: Partial<LegacyRow> = {}) => {
-  const creation = DateTime.now().minus({ minutes: 1 });
-  return { rawId: randomUUID(), user: 'u-legacy', authorized: true, creation, expiration: creation.plus({ minutes: 30 }), ...over };
-};
 
 const item = (id: string) => fake.items.get(id)!;
 const ids = (list: ISession[]) => list.map((s) => s.SessionId).sort();
@@ -52,17 +44,15 @@ describe('dynamodb session provider', function () {
     await disposeStore();
   });
 
-  runSessionProviderConformance(conformanceFactory, {
-    seedLegacy: async (provider, row) => writeLegacyRow(provider as unknown as DynamoDbSessionProvider, row),
-  });
+  runSessionProviderConformance(conformanceFactory);
 
   describe('DynamoDbSessionProvider regressions', () => {
     it("deleteBySubject removes only the target subject's sessions, matched on the Subject attribute (B4)", async () => {
       const store = await makeProvider(SLIDING);
       await store.truncate();
 
-      await store.save(session({ SessionId: 'b4-user1', Subject: user('1'), Data: new Map<string, unknown>([['User', 'uuid-1']]) }));
-      await store.save(session({ SessionId: 'b4-user2', Subject: user('2'), Data: new Map<string, unknown>([['User', 'uuid-2']]) }));
+      await store.save(session({ SessionId: 'b4-user1', Subject: user('1') }));
+      await store.save(session({ SessionId: 'b4-user2', Subject: user('2') }));
 
       await store.deleteBySubject(user('1'));
 
@@ -88,37 +78,6 @@ describe('dynamodb session provider', function () {
       expect(after.State).to.equal('pending');
       expect(after.Expiration!.toMillis()).to.equal(fixed.toMillis());
       expect(after.Data.has('authn:facts'), 'nothing of the forged view is written').to.be.false;
-    });
-
-    it('SR-07 touch with an active view never extends a 2.x item that never passed 2FA', async () => {
-      const store = await makeProvider(SLIDING);
-      await store.truncate();
-
-      const row = legacy({ authorized: false });
-      await writeLegacyRow(store, row);
-
-      const forged = session({ SessionId: row.rawId, Subject: user(row.user), State: 'active', Expiration: row.expiration });
-      forged.Data.set('Authorized', true);
-      expect(await store.touch(forged)).to.be.false;
-      const after = (await store.restore(row.rawId))!;
-      expect(after.State).to.equal('pending');
-      expect(after.Expiration!.toMillis()).to.equal(row.expiration.toMillis());
-    });
-
-    it('touch writes nothing to a 2.x item, whatever view it gets (the issuer migrates 2.x rows before any write)', async () => {
-      const store = await makeProvider(SLIDING);
-      await store.truncate();
-
-      const row = legacy({ user: 'u-2x', impersonator: 'admin' });
-      await writeLegacyRow(store, row);
-      const before = JSON.stringify(item(row.rawId));
-      const restored = (await store.restore(row.rawId))!;
-      restored.Data.set('User', 'someone-else');
-      restored.Data.delete('Impersonator');
-
-      expect(await store.touch(restored)).to.be.false;
-      expect(JSON.stringify(item(row.rawId))).to.equal(before);
-      expect(ids(await store.listBySubject(user('admin'), { includeImpersonations: true }))).to.deep.equal([row.rawId]);
     });
 
     it("touch never changes the stored Subject, ImpersonatorId or State, whatever the caller's view says", async () => {
@@ -275,20 +234,7 @@ describe('dynamodb session provider', function () {
       }
     });
 
-    it('one undecodable item fails neither listBySubject nor deleteBySubject for others', async () => {
-      const store = await makeProvider(SLIDING);
-      await store.truncate();
-      const creation = { S: DateTime.now().toISO()! };
-      fake.items.set('bad-json', { SessionId: { S: 'bad-json' }, UserId: { N: '1' }, Creation: creation, Data: { S: '{not json' } });
-      fake.items.set('no-data', { SessionId: { S: 'no-data' }, UserId: { N: '1' }, Creation: creation });
-      const good = legacy({ user: 'u-good' });
-      await writeLegacyRow(store, good);
-
-      expect(ids(await store.listBySubject(user('u-good')))).to.deep.equal([good.rawId]);
-      expect(await store.deleteBySubject(user('u-good'))).to.equal(1);
-    });
-
-    it('a 3.0 item whose Data does not decode keeps the owner its own attributes give', async () => {
+    it('an item whose Data does not decode keeps the owner its own attributes give', async () => {
       const store = await makeProvider(SLIDING);
       await store.truncate();
       await store.save(session({ SessionId: 'bad-data', Subject: user('u-bad') }));
@@ -310,15 +256,5 @@ describe('dynamodb session provider', function () {
       expect(await store.listBySubject(user('u-exp'))).to.deep.equal([]);
     });
 
-    it('a 2.x item is matched by the User in its Data, never by its numeric UserId', async () => {
-      const store = await makeProvider(SLIDING);
-      await store.truncate();
-      const row = legacy({ user: 'uuid-of-7' });
-      await writeLegacyRow(store, row);
-      expect(item(row.rawId).UserId).to.deep.equal({ N: '1' });
-
-      expect(await store.deleteBySubject(user('1'))).to.equal(0);
-      expect(await store.deleteBySubject(user('uuid-of-7'))).to.equal(1);
-    });
   });
 });

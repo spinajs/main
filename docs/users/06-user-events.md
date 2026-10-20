@@ -1,6 +1,6 @@
 # User events
 
-Queue events (`@spinajs/queue`) that tell other services what happened to an account: created, activated, banned, logged in, password changed, impersonated. The [user actions](03-user-actions.md) emit the lifecycle ones; [`QueueAuthnEventSink`](08-authn-event-sinks.md) re-emits authn's login, password and impersonation outcomes as the 2.x events.
+Queue events (`@spinajs/queue`) that tell other services what happened to an account: created, activated, banned, logged in, password changed, impersonated. The [user actions](03-user-actions.md) emit the lifecycle ones; [`QueueAuthnEventSink`](08-authn-event-sinks.md) re-emits authn's login, password and impersonation outcomes as user events.
 
 ## How it works
 
@@ -103,7 +103,7 @@ export async function upgradePlan(uuid: string, plan: string): Promise<User> {
 ## Important behaviour
 
 - By default nothing leaves the process for the routed events: their connection is a black hole. The unrouted ones go to `queue.default`.
-- `QueueService.consume(UserBanned, ...)` builds each delivered message with `DI.resolve(UserBanned)` and no arguments, then hydrates it from the payload. `UserEvent` and the shipped events take their user arguments as optional, and `UserEvent` is `@NewInstance()`, so each delivery gets its own instance. Your own subclass must accept a missing constructor argument too.
+- `QueueService.consume(UserBanned, ...)` builds each delivered message with `DI.resolve(UserBanned)` and no arguments, then hydrates it from the payload. No shipped event constructor dereferences a missing argument (`UserEvent`, `UserCreated` and the impersonation events take theirs as optional), and `UserEvent` is `@NewInstance()`, so each delivery gets its own instance. Your own subclass must accept a missing constructor argument too.
 - `UserCreated.Metadata` is always empty: metadata may hold credentials that must not ride a queue payload.
 - `UserLoginFailed` never carries the credentials that failed, only the error class and the audit reason.
 - `create()` with a password also produces `UserPasswordChanged`: authn's `set` event does not tell a create from an admin set.

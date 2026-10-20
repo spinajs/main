@@ -11,6 +11,7 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 /* eslint-disable prettier/prettier */
 
 export * from './compilers.js';
+export * from './errors.js';
 export * from './statements.js';
 export * from './builders.js';
 export * from './converters.js';
@@ -21,12 +22,12 @@ export * from './expressions.js';
 // orm-foundation; ConnectionState / IPoolMetrics are the connection-resilience additions from
 // orm-infra. QueryBuilder / TransactionCallback / ITransaction went with the old
 // `{ commit, rollback }` shape.
-import { DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, ColumnAlterationType } from '@spinajs/orm';
+import { DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, NowExpression, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, ColumnAlterationType } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
-import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, SqlLiteralQuoter, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
+import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, SqlLiteralQuoter, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler, IsoDatetimeValueConverter } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { SqlLiteJoinStatement, SqliteInSetStatement } from './statements.js';
-import { ResourceDuplicated } from '@spinajs/exceptions';
+import { SqlLiteJoinStatement, SqliteInSetStatement, SqliteInStatement, SqliteNowExpression, SqliteStartsWithStatement } from './statements.js';
+import { mapSqliteError } from './errors.js';
 import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
 import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders.js';
@@ -73,6 +74,14 @@ export class SqliteOrmDriver extends SqlDriver {
 
   private _readCursor = -1;
 
+  /** Resolves when the open transaction ends; `null` while none is open. */
+  private _writerGate: Promise<void> | null = null;
+
+  private _openWriterGate: (() => void) | null = null;
+
+  /** Writer-handle statements from outside any transaction that have not settled yet; they never reject. */
+  private _outsideStatements = new Set<Promise<unknown>>();
+
   /**
    * sqlite3 outside shared-cache mode serializes access to the database file, which is
    * SERIALIZABLE and nothing else. Any other requested level is rejected by the base class
@@ -87,17 +96,19 @@ export class SqliteOrmDriver extends SqlDriver {
   // `Perf.measure('orm.query', ...)` around SqlDriver.execute — its only caller is gone.
 
   /**
-   * Picks the handle for a query. Everything that mutates, changes schema, or runs inside a
-   * transaction stays on the single writer handle — scattering a transaction's statements across
-   * handles would run them outside the transaction, and a read handle cannot see uncommitted
-   * writes made on the writer.
+   * Whether a query runs on the writer handle. Everything that mutates, changes schema, or runs
+   * inside a transaction stays on the single writer handle — scattering a transaction's statements
+   * across handles would run them outside the transaction, and a read handle cannot see uncommitted
+   * writes made on the writer. `handleFor` and the writer gate in `executeOnDb` both follow it, so
+   * override this rather than `handleFor` to change the routing.
    */
-  protected handleFor(queryContext: QueryContext): sqlite3.Database {
-    if (this.ReadPool.length === 0 || queryContext !== QueryContext.Select) {
-      return this.Db;
-    }
+  protected usesWriter(queryContext: QueryContext): boolean {
+    return this.ReadPool.length === 0 || queryContext !== QueryContext.Select || this.TransactionStorage.getStore() !== undefined;
+  }
 
-    if (this.TransactionStorage.getStore()) {
+  /** Picks the handle for a query: the writer when `usesWriter` says so, otherwise the next read handle. */
+  protected handleFor(queryContext: QueryContext): sqlite3.Database {
+    if (this.usesWriter(queryContext)) {
       return this.Db;
     }
 
@@ -119,37 +130,37 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   /**
-   * Settles when the open outermost transaction ends; null while none is open. Every statement
-   * shares the writer handle, so anything sent on it while a transaction is open would run
-   * inside that transaction.
+   * Holds a writer-handle statement from outside the open transaction's async path until that
+   * transaction ends: on the one writer handle it would otherwise run inside the transaction and
+   * commit or roll back with it. The ones it lets through are tracked, so the next `BEGIN` waits
+   * for them.
    */
-  private _openTransaction: Promise<void> | null = null;
-
-  private _releaseTransaction: (() => void) | null = null;
-
-  protected async waitForOpenTransaction(): Promise<void> {
-    while (this._openTransaction) {
-      await this._openTransaction;
+  public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
+    if (this.TransactionStorage.getStore() !== undefined || !this.usesWriter(queryContext)) {
+      return this.runStatement(stmt, params, queryContext);
     }
+
+    if (this._writerGate !== null) {
+      return this._writerGate.then(() => this.executeOnDb(stmt, params, queryContext));
+    }
+
+    const running = this.runStatement(stmt, params, queryContext);
+    const settled: Promise<boolean> = running.then(
+      () => this._outsideStatements.delete(settled),
+      () => this._outsideStatements.delete(settled),
+    );
+    this._outsideStatements.add(settled);
+
+    return running;
   }
 
-  public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
+  /** Runs a statement on its handle, never held: the driver's own transaction statements use it directly. */
+  protected runStatement(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     if (!this.Db) {
       throw new Error('cannot execute sqlite statement, no db connection avaible');
     }
 
-    // BEGIN / COMMIT / ROLLBACK are sent outside the transaction's async scope by design
-    const outsideTransaction = queryContext !== QueryContext.Transaction && !this.TransactionStorage.getStore();
-
-    return this.withReconnect(async () => {
-      const handle = this.handleFor(queryContext);
-
-      if (outsideTransaction && handle === this.Db) {
-        await this.waitForOpenTransaction();
-      }
-
-      return this._executeOnDbOnce(handle, stmt, params, queryContext);
-    });
+    return this.withReconnect(() => this._executeOnDbOnce(this.handleFor(queryContext), stmt, params, queryContext));
   }
 
   /**
@@ -182,32 +193,21 @@ export class SqliteOrmDriver extends SqlDriver {
     return super.isRetryableError(err);
   }
 
-  protected toDbError(err: any, stmt: string, params: unknown[], queryContext: QueryContext): Error {
-    const isInsert = queryContext === QueryContext.Insert || queryContext === QueryContext.InsertReturning || queryContext === QueryContext.Upsert;
-
-    // sqlite3 reports every constraint as SQLITE_CONSTRAINT; only the message tells a duplicate
-    // key apart from NOT NULL, CHECK or FOREIGN KEY
-    if (isInsert && err?.code === 'SQLITE_CONSTRAINT' && /UNIQUE constraint failed/.test(err.message)) {
-      return new ResourceDuplicated(err.message, err);
-    }
-
-    return new OrmException(
-      `Failed to execute query`,
-      {
-        Host: this.Options.Host,
-        User: this.Options.User,
-        Name: this.Options.Name,
-      },
-      stmt,
-      params ? params.join(',') : 'none',
-      err,
-    );
-  }
-
   protected _executeOnDbOnce(handle: sqlite3.Database, stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
-    // Raw SQL bypasses the builder's value converters; sqlite3 would bind a Date as epoch milliseconds, never matching a stored datetime.
-    const queryParams = (params ?? []).map((p) => (p instanceof Date ? this.Container.resolve(DatetimeValueConverter).toDB(p, null as any, null as any) : p));
-    const self = this;
+    const queryParams = this.toDriverParams(params);
+    const fail = (reject: (reason: unknown) => void, err: unknown) =>
+      reject(
+        mapSqliteError(
+          err,
+          {
+            Host: this.Options.Host,
+            User: this.Options.User,
+            Name: this.Options.Name,
+          },
+          stmt,
+          params ? params.join(',') : 'none',
+        ),
+      );
 
     return new Promise((resolve, reject) => {
       switch (queryContext) {
@@ -215,7 +215,7 @@ export class SqliteOrmDriver extends SqlDriver {
         case QueryContext.Delete:
           handle.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: unknown) {
             if (err) {
-              reject(self.toDbError(err, stmt, params, queryContext));
+              fail(reject, err);
               return;
             }
 
@@ -230,7 +230,7 @@ export class SqliteOrmDriver extends SqlDriver {
         case QueryContext.InsertReturning:
           handle.all(stmt, ...queryParams, (err: unknown, rows: unknown) => {
             if (err) {
-              reject(self.toDbError(err, stmt, params, queryContext));
+              fail(reject, err);
               return;
             }
 
@@ -253,7 +253,7 @@ export class SqliteOrmDriver extends SqlDriver {
         case QueryContext.Insert:
           handle.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: unknown) {
             if (err) {
-              reject(self.toDbError(err, stmt, params, queryContext));
+              fail(reject, err);
               return;
             }
 
@@ -269,7 +269,7 @@ export class SqliteOrmDriver extends SqlDriver {
         default: {
           const done = (err: unknown) => {
             if (err) {
-              reject(self.toDbError(err, stmt, params, queryContext));
+              fail(reject, err);
               return;
             }
 
@@ -289,16 +289,11 @@ export class SqliteOrmDriver extends SqlDriver {
     });
   }
 
-  // The code alone is every constraint (NOT NULL, CHECK, FOREIGN KEY); a primary key reports the UNIQUE text too.
-  protected isUniqueViolation(err: unknown): boolean {
-    const e = err as { code?: unknown; message?: unknown } | undefined;
-    return e?.code === 'SQLITE_CONSTRAINT' && /UNIQUE constraint failed/.test(String(e.message));
-  }
-
   public supportedFeatures(): ISupportedFeature {
     // insertIdIsFirstOfBatch is false: sqlite3's `lastID` is the LAST rowid the statement
     // produced, not the first. SQLite does not need it — it gets every key from RETURNING.
-    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false };
+    // a second BEGIN on the one writer handle fails, so the core queues outermost transactions
+    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false };
   }
 
   public async ping(): Promise<boolean> {
@@ -426,10 +421,14 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqliteInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(SqliteTableExistsCompiler).as(TableExistsCompiler);
     this.Container.register(SqlLiteDefaultValueBuilder).as(DefaultValueBuilder);
+    this.Container.register(IsoDatetimeValueConverter).as(DatetimeValueConverter);
+    this.Container.register(SqliteNowExpression).as(NowExpression);
     this.Container.register(SqliteTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
     this.Container.register(SqliteModelToSqlConverter).as(ModelToSqlConverter);
     this.Container.register(SqliteServerResponseMapper).as(ServerResponseMapper);
     this.Container.register(SqliteInSetStatement).as(InSetStatement);
+    this.Container.register(SqliteInStatement).as(InStatement);
+    this.Container.register(SqliteStartsWithStatement).as(StartsWithStatement);
 
     // Overrides the shared SQL compilers inherited from SqlDriver.resolve() - sqlite has no
     // server side database to create or drop, so these refuse instead of emitting MySQL DDL.
@@ -456,23 +455,22 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(UnsupportedDropEventQueryCompiler).as(DropEventQueryCompiler);
   }
 
-  /**
-   * Outermost transactions run one at a time: with a single writer handle, a second BEGIN would
-   * land inside the open transaction. The slot is released in `_dispose()`, before `afterCommit`
-   * callbacks run, so a callback can open the next transaction.
-   */
-  protected async _begin(_options?: ITransactionOptions): Promise<ITransactionContext> {
-    // checked and claimed without an await in between, or two callers could both see it free
-    while (this._openTransaction) {
-      await this._openTransaction;
-    }
+  /** The statement that opens an outermost transaction, eg. `BEGIN IMMEDIATE TRANSACTION` in a subclass. */
+  protected beginStatement(_options?: ITransactionOptions): string {
+    return 'BEGIN TRANSACTION';
+  }
 
-    this._openTransaction = new Promise<void>((resolve) => (this._releaseTransaction = resolve));
+  protected async _begin(options?: ITransactionOptions): Promise<ITransactionContext> {
+    // closed before BEGIN is queued, so no outside statement can land between the two
+    this._writerGate = new Promise<void>((resolve) => (this._openWriterGate = resolve));
 
     try {
-      await this._sendBegin(_options);
+      // sqlite3 runs the statements of one handle in parallel, so an outside statement submitted
+      // before the gate closed could still run after BEGIN and join the transaction
+      await Promise.all(this._outsideStatements);
+      await this.runStatement(this.beginStatement(options), [], QueryContext.Transaction);
     } catch (err) {
-      this.releaseTransaction();
+      this.openWriterGate();
       throw err;
     }
 
@@ -481,20 +479,14 @@ export class SqliteOrmDriver extends SqlDriver {
     return { depth: 0 };
   }
 
-  /**
-   * The statement that opens an outermost transaction, separate from `_begin()` so a subclass
-   * can send eg. `BEGIN IMMEDIATE` without taking over the queue.
-   */
-  protected async _sendBegin(_options?: ITransactionOptions): Promise<void> {
-    await this.executeOnDb('BEGIN TRANSACTION', [] as any, QueryContext.Transaction);
-  }
-
+  // COMMIT and ROLLBACK run outside the transaction's async context: through executeOnDb they
+  // would wait for the very transaction they end.
   protected async _commit(_ctx: ITransactionContext): Promise<void> {
-    await this.executeOnDb('COMMIT', [] as any, QueryContext.Transaction);
+    await this.runStatement('COMMIT', [], QueryContext.Transaction);
   }
 
   protected async _rollback(_ctx: ITransactionContext): Promise<void> {
-    await this.executeOnDb('ROLLBACK', [] as any, QueryContext.Transaction);
+    await this.runStatement('ROLLBACK', [], QueryContext.Transaction);
   }
 
   // savepoint names cannot be bound parameters, so they are inlined through the identifier
@@ -512,14 +504,14 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   protected async _dispose(_ctx: ITransactionContext): Promise<void> {
-    this.releaseTransaction();
+    this.openWriterGate();
   }
 
-  private releaseTransaction() {
-    const release = this._releaseTransaction;
-    this._openTransaction = null;
-    this._releaseTransaction = null;
-    release?.();
+  private openWriterGate(): void {
+    const open = this._openWriterGate;
+    this._writerGate = null;
+    this._openWriterGate = null;
+    open?.();
   }
 
   /**

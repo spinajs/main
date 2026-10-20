@@ -5,9 +5,11 @@ import { DeleteQueryBuilder, InsertQueryBuilder, QueryMiddleware, UpdateQueryBui
 import type { QueryBuilder } from '@spinajs/orm';
 
 import { ormLog } from '../host.js';
+import { requireConnection } from '../records.js';
 import { entryOf, nameOf } from '../registry.js';
 import type { ModelClass, ResourceEntry } from '../registry.js';
 import { cleanupDeleted } from './cleanup.js';
+import { AncestorRecord } from './record.js';
 import { rebuildFrom, removeNodes } from './rebuild.js';
 import { insertedRefs, stillThere, targetRefs } from './targets.js';
 
@@ -55,6 +57,7 @@ export class AncestorMiddleware extends QueryMiddleware {
     if (work.transactional && query.Driver.CurrentTransaction === undefined) {
       throw new AuthzConfigError(`authz-orm: a ${work.kind} of ${nameOf(work.model)} (resource '${work.entry.type}') must run in a transaction so authz_resource_ancestor changes with it, and none could be opened on connection ${JSON.stringify(query.Driver.Options.Name)}`);
     }
+    requireConnection(AncestorRecord, query.Driver, `authz-orm: a ${work.kind} of ${nameOf(work.model)} (resource '${work.entry.type}')`);
     if (work.kind === 'update' || work.kind === 'delete') this.targets.set(query, await targetRefs(query as UpdateQueryBuilder<unknown>, work.model, work.entry));
   }
 

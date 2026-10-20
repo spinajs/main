@@ -13,7 +13,8 @@ export class SqlDefaultValueBuilder<T> extends DefaultValueBuilder<T> {
   }
 
   public dateTime(): T {
-    this.Query = RawQuery.create('CURRENT_TIMESTAMP');
+    // MySQL rejects a default whose precision differs from the column's DATETIME(3)
+    this.Query = RawQuery.create('CURRENT_TIMESTAMP(3)');
     return this.Owner;
   }
 

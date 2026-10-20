@@ -63,7 +63,7 @@ export class SlidingCappedExpiration extends SessionExpirationProvider {
   @Config('authn.session.expiration.maxLifetime')
   protected MaxLifetime!: number;
 
-  // Capped too: elevate and the 2.x migration give an old Creation a fresh initial expiration.
+  // Capped too: elevate gives an old Creation a fresh initial expiration.
   public initial(session: ISession): DateTime | undefined {
     return this.renew(session);
   }

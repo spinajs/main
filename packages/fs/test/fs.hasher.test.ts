@@ -121,7 +121,7 @@ describe('fs hasher tests', function () {
         const config = DI.get(Configuration) as any;
         // @Config getter calls config.get(path, defaultValue) - match by path only, delegate the rest
         const original = config.get.bind(config);
-        sinon.stub(config, 'get').callsFake((path: string, def?: unknown) =>
+        sinon.stub(config, 'get').callsFake((path: unknown, def?: unknown) =>
             path === 'fs.hasher.defaultAlgorithm' ? 'sha1' : original(path, def),
         );
 

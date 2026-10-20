@@ -89,12 +89,8 @@ export function activeDb(): TestDb {
   return current;
 }
 
-/** The backend reads Configuration and Orm from the test database's container (connection 'default'). */
-export class DbHarnessBackend extends DbAuthzAdminBackend {
-  constructor() {
-    super({ container: activeDb().container });
-  }
-}
+/** DbAuthzAdminBackend under the name the case configures as authz.admin.backend. */
+export class DbHarnessBackend extends DbAuthzAdminBackend {}
 
 /**
  * hostHarness over a booted test database (real migrations): ConfigRoleStore reading the world's
@@ -165,7 +161,7 @@ export function dbHarness(db: () => TestDb | undefined, opts: DbHarnessOptions =
         const declared = new Set(host.world.permissions.map((p) => (typeof p === 'string' ? p : p.name)));
         for (const p of ADMIN_PERMISSIONS) if (!declared.has(p)) host.setConfig(['authz', 'domains', host.domain, 'permissions', p], {});
         // As L9's harness: the world's config.admin over the authz-rbac guard defaults.
-        host.setConfig(['authz', 'admin'], { connection: 'default', ...adminConfig.authz.admin, ...(host.world.config?.admin as object | undefined), guard: { ...adminConfig.authz.admin.guard, ...((host.world.config?.admin as { guard?: object } | undefined)?.guard ?? {}) }, backend: 'DbHarnessBackend' });
+        host.setConfig(['authz', 'admin'], { ...adminConfig.authz.admin, ...(host.world.config?.admin as object | undefined), guard: { ...adminConfig.authz.admin.guard, ...((host.world.config?.admin as { guard?: object } | undefined)?.guard ?? {}) }, backend: 'DbHarnessBackend' });
       }
 
       const model = models.get(host);
@@ -179,7 +175,7 @@ export function dbHarness(db: () => TestDb | undefined, opts: DbHarnessOptions =
         ...(model ? { list: (principal: Principal, permission: Permission, type: ResourceType) => list(host, session, model, principal, permission, type) } : {}),
         ...(admin ? { admin: (session.authz as unknown as AuthzService).admin() } : {}),
         lane: {
-          store: { version: (domain: string) => readVersion(test.driver, domain) },
+          store: { version: (domain: string) => readVersion(domain) },
           rbacStore: {
             insertAssignment: (a: Assignment) => insertAssignment(test, a),
             linkRows: async () => (await test.driver.select().from(AUTHZ_LINK_TABLE)) as Record<string, unknown>[],

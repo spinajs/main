@@ -1,6 +1,6 @@
 # Extending the driver
 
-Every T-SQL behaviour of `@spinajs/orm-mssql` is a class registered in the connection's own DI container, or a method of `MsSqlOrmDriver`. Subclass the driver, override a method or register a different class after `super.resolve()`, and select the subclass per connection or for every MSSQL connection. Only `MsSqlOrmDriver`, `MsSqlServerResponseMapper`, `IMsSqlTransactionContext` and `toNamedParameters` are exported; a replacement extends the shared class from `@spinajs/orm-sql` or the abstract token from `@spinajs/orm`.
+Every T-SQL behaviour of `@spinajs/orm-mssql` is a class registered in the connection's own DI container, or a method of `MsSqlOrmDriver`. Subclass the driver, override a method or register a different class after `super.resolve()`, and select the subclass per connection or for every MSSQL connection. Only `MsSqlOrmDriver`, `MsSqlServerResponseMapper`, `MsSqlSqlExpressions`, `IMsSqlTransactionContext`, `toNamedParameters` and `mapMsSqlError` are exported; a replacement extends the shared class from `@spinajs/orm-sql` or the abstract token from `@spinajs/orm`.
 
 ## How it works
 
@@ -55,12 +55,12 @@ Methods a subclass overrides:
 | Method | Visibility | Stock behaviour | Page |
 | --- | --- | --- | --- |
 | `connect()`, `disconnect()`, `ping()` | public | one `mssql.ConnectionPool` per connection; `SELECT 1` | [Connection and configuration](01-configuration.md) |
+| `connectionConfig()` | protected | the `mssql.config` `connect()` passes, with `useUTC: true` | [Connection and configuration](01-configuration.md) |
 | `executeOnDb(stmt, params, context)` | public | backticks stripped, `@p<n>` parameters, result shaped by context | [Executing statements](02-executing-statements.md) |
 | `isRetryableError(err)` | protected | not used: `executeOnDb()` does not retry | [Executing statements](02-executing-statements.md#retry-statements-after-a-dropped-connection) |
 | `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` | protected | `mssql.Transaction`, `SAVE TRANSACTION` | [Transactions](03-transactions.md) |
 | `SupportedIsolationLevels` | public property | all four | [Transactions](03-transactions.md) |
-| `supportedFeatures()` | public | `{ events: false, insertReturning: false, insertIdIsFirstOfBatch: false, nativeJson: false }` | [Inserts and upserts](04-inserts-and-upserts.md) |
-| `isUniqueViolation(err)` | protected | `true` for error `number` `2627` or `2601`, which `execute()` turns into `ResourceDuplicated` | [Executing statements](02-executing-statements.md) |
+| `supportedFeatures()` | public | `{ events: false, insertReturning: false, insertIdIsFirstOfBatch: false, concurrentTransactions: true, nativeJson: false }` | [Inserts and upserts](04-inserts-and-upserts.md) |
 | `lockTableShared(table)` | public | `SELECT COUNT(*) FROM <table> WITH (TABLOCK, HOLDLOCK)` inside the transaction | [Transactions](../orm/08-transactions.md#shared-table-lock) |
 | `MaxBindings`, `MaxInsertRows` | public property | `2000` parameters per statement (the server allows 2100), `1000` rows per `VALUES` list | [SQL helpers](../orm/17-sql-helpers.md#batches) |
 | `tableInfo(name, schema?)` | public | `INFORMATION_SCHEMA` queries | [Connection and configuration](01-configuration.md#important-behaviour) |
@@ -79,6 +79,9 @@ Methods a subclass overrides:
 | `OrderByQueryCompiler` | `MsSqlOrderByCompiler` | `SqlOrderByQueryCompiler` | [Query dialect](05-query-dialect.md) |
 | `DeleteQueryCompiler` | `MsSqlDeleteQueryCompiler` | `SqlDeleteQueryCompiler` | [Query dialect](05-query-dialect.md) |
 | `InSetStatement` | `MsSqlInSetStatement` | `SqlInSetStatement` | [Query dialect](05-query-dialect.md) |
+| `InStatement` | `MsSqlInStatement` (`OPENJSON` above 200 values) | `SqlInStatement` | [Query dialect](05-query-dialect.md) |
+| `StartsWithStatement` | `MsSqlStartsWithStatement` | `SqlStartsWithStatement` | [Query dialect](05-query-dialect.md) |
+| `TextWrapper` | `MsSqlTextWrapper` (`NVARCHAR(4000)`) | `SqlTextWrapper` | [Query dialect](05-query-dialect.md) |
 | `InsertQueryCompiler` | `MsSqlInsertQueryCompiler` | `SqlInsertQueryCompiler` | [Inserts and upserts](04-inserts-and-upserts.md) |
 | `OnDuplicateQueryCompiler` | `MsSqlOnDuplicateQueryCompiler` | nothing | [Inserts and upserts](04-inserts-and-upserts.md#upsert-compiler-custom-implementation) |
 | `TableExistsCompiler` | `MsSqlTableExistsCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
@@ -92,9 +95,10 @@ Methods a subclass overrides:
 | `CreateViewCompiler` | `MsSqlCreateViewCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` (shared, claimed explicitly) | nothing | [Schema dialect](06-schema-dialect.md) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` | nothing | [Schema dialect](06-schema-dialect.md) |
-| `DatetimeValueConverter` | `MsSqlDatetimeValueConverter` | `SqlDatetimeValueConverter` | [Value conversion](07-value-conversion.md) |
+| `DatetimeValueConverter` | `IsoDatetimeValueConverter` (`@spinajs/orm-sql`) | `SqlDatetimeValueConverter` | [Value conversion](07-value-conversion.md) |
 | `ServerResponseMapper` | `MsSqlServerResponseMapper` | nothing | [Inserts and upserts](04-inserts-and-upserts.md#insert-response-mapper-custom-implementation) |
 | `DefaultValueBuilder` | `MsSqlDefaultValueBuilder` | nothing | [Schema dialect](06-schema-dialect.md#column-defaults-custom-implementation) |
+| `NowExpression` | `MsSqlNowExpression` (`SYSDATETIMEOFFSET()`) | nothing | [Query dialect](05-query-dialect.md) |
 
 Tokens the driver leaves **unregistered**, each a place to add your own:
 
@@ -148,7 +152,7 @@ export class OfflineMsSqlDriver extends MsSqlOrmDriver {
 - **Register after `super.resolve()`.** A registration made before it is overwritten.
 - **A subclass is not registered under the parent's string.** Give it its own `@Injectable('<string>')`, or register it explicitly.
 - **Keep constructor signatures.** Compilers are resolved with fixed arguments (the builder, sometimes the container first); a replacement must accept the same.
-- **A statement subclass must override `clone()`**, or a cloned query turns it back into the parent class. `MsSqlInSetStatement.clone()` copies its injected `Quoter` by hand, because a clone does not go through the container.
+- **A statement subclass must override `clone()`**, or a cloned query turns it back into the parent class. `MsSqlInSetStatement.clone()` copies its injected `Quoter` by hand, because a clone does not go through the container. Subclasses of `SqlJoinStatement`, `SqlInStatement` and `SqlStartsWithStatement` need no override: their `clone()` constructs `this.constructor`.
 - **The MSSQL compilers are not exported.** Extend the shared `Sql*` class and re-implement the T-SQL part, as the examples do.
 
 ## Best practices
@@ -177,12 +181,12 @@ public resolve() {
 
 ### One production driver with several changes
 
-Unicode string columns, `SYSDATETIME()` defaults and a strict insert mapper, for every MSSQL connection:
+Unicode string columns and a strict insert mapper, for every MSSQL connection. It keeps the driver's own column defaults (`MsSqlDefaultValueBuilder`): a `SqlDefaultValueBuilder` in their place would write `CURRENT_TIMESTAMP`, the server's local time, into DATETIMEOFFSET columns:
 
 ```ts sample
 import { DI, Injectable, NewInstance } from '@spinajs/di';
-import { ColumnQueryBuilder, ColumnQueryCompiler, DbServerResponse, DefaultValueBuilder, OrmException, RawQuery, ServerResponseMapper } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlDefaultValueBuilder } from '@spinajs/orm-sql';
+import { ColumnQueryBuilder, ColumnQueryCompiler, DbServerResponse, OrmException, ServerResponseMapper } from '@spinajs/orm';
+import { SqlColumnQueryCompiler } from '@spinajs/orm-sql';
 import { MsSqlOrmDriver, MsSqlServerResponseMapper } from '@spinajs/orm-mssql';
 
 export class StrictResponseMapper extends MsSqlServerResponseMapper {
@@ -204,19 +208,9 @@ export class UnicodeColumnCompiler extends SqlColumnQueryCompiler {
     this._statementsMappings.autoincrement = () => 'IDENTITY(1,1)';
     this._statementsMappings.string = (column: ColumnQueryBuilder) => `NVARCHAR(${column.Args[0] ?? 255})`;
     this._statementsMappings.boolean = () => 'BIT';
-  }
-}
-
-@NewInstance()
-export class SysDateTimeDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
-  public date(): T {
-    this.Query = RawQuery.create('CAST(GETDATE() AS DATE)');
-    return this.Owner;
-  }
-
-  public dateTime(): T {
-    this.Query = RawQuery.create('SYSDATETIME()');
-    return this.Owner;
+    // as the driver's own column compiler: instants keep their offset
+    this._statementsMappings.dateTime = () => 'DATETIMEOFFSET(3)';
+    this._statementsMappings.timestamp = () => 'DATETIMEOFFSET(3)';
   }
 }
 
@@ -228,7 +222,6 @@ export class ProductionMsSqlDriver extends MsSqlOrmDriver {
 
     this.Container.register(StrictResponseMapper).as(ServerResponseMapper);
     this.Container.register(UnicodeColumnCompiler).as(ColumnQueryCompiler);
-    this.Container.register(SysDateTimeDefaultValueBuilder).as(DefaultValueBuilder);
   }
 }
 

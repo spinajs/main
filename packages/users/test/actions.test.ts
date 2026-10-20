@@ -145,12 +145,7 @@ describe('User model tests', function () {
     expect(U).to.be.instanceOf(User);
   });
 
-  /**
-   * Regression: the model declared `RegisteredAt` and `create()` stamped it, but
-   * the initial migration never created the column — and the ORM writes only
-   * columns the table description reports, so the value was dropped silently on
-   * every single insert.
-   */
+  // The ORM writes only columns the table description reports, so a missing column drops the value silently.
   it('Should persist the registration date of a created user', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
@@ -326,7 +321,7 @@ describe('User model tests', function () {
 
   /**
    * The uniqueness check must run before `beforeCreate`: a middleware that writes
-   * to another system ( the legacy-user mirror is one ) must not fire for a
+   * to another system ( e.g. a user mirror ) must not fire for a
    * request that is about to be refused.
    */
   it('Should refuse a duplicate before running create middleware', async () => {

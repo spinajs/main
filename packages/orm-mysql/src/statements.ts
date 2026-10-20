@@ -1,6 +1,6 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
-import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult } from '@spinajs/orm';
-import { _columnWrap, SqlLiteralQuoter } from '@spinajs/orm-sql';
+import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, NowExpression } from '@spinajs/orm';
+import { _columnWrap, SqlLiteralQuoter, SqlTextWrapper } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 
 /**
@@ -52,5 +52,23 @@ export class MySqlLiteralQuoter extends SqlLiteralQuoter {
   // mysql reads a backslash inside a literal as an escape, so doubling quotes alone is not enough
   protected quoteString(value: string): string {
     return mysql.escape(value);
+  }
+}
+
+/**
+ * UTC whatever the session zone. A column default cannot call UTC_TIMESTAMP, so `default().dateTime()`
+ * stays CURRENT_TIMESTAMP(3), which is the same instant in the UTC session the driver opens.
+ */
+export class MySqlNowExpression extends NowExpression {
+  public sql(): string {
+    return 'UTC_TIMESTAMP(3)';
+  }
+}
+
+/** TEXT is no CAST target in MySQL. */
+@NewInstance()
+export class MySqlTextWrapper extends SqlTextWrapper {
+  protected textType(): string {
+    return 'CHAR';
   }
 }

@@ -27,7 +27,7 @@ describe('authz:membership-verify and authz:membership-rebuild (sqlite)', functi
       roles: await loadRoleIndex(roles, 'test'),
       assignments: db.container.resolve(DbAssignmentStore),
       memberships: db.container.resolve(DbMembershipStore),
-      backend: new DbAuthzAdminBackend({ container: db.container }),
+      backend: new DbAuthzAdminBackend(),
       maxDepth: 8,
     };
     // Rows written past AuthzAdmin, as an import would: the closure table stays empty.

@@ -1,14 +1,16 @@
 import { MsSqlSqlExpressions } from './expressions.js';
-import { DatetimeValueConverter, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, ServerResponseMapper, DbServerResponse, DefaultValueBuilder, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions } from '@spinajs/orm';
+import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
-import { SqlDriver, SqlTruncateTableQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
+import { IsoDatetimeValueConverter, SqlDriver, SqlTruncateTableQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import mssql from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
-import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler, MsSqlDefaultValueBuilder, MsSqlAlterTableQueryCompiler, MsSqlAlterColumnQueryCompiler } from './compilers.js';
-import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlLiteralQuoter } from './statements.js';
-import { MsSqlDatetimeValueConverter } from './converters.js';
+import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlDefaultValueBuilder, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler, MsSqlAlterTableQueryCompiler, MsSqlAlterColumnQueryCompiler } from './compilers.js';
+import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlInStatement, MsSqlLiteralQuoter, MsSqlNowExpression, MsSqlStartsWithStatement, MsSqlTextWrapper } from './statements.js';
+import { mapMsSqlError } from './errors.js';
+
+export * from './errors.js';
 
 export * from './expressions.js';
 
@@ -73,6 +75,7 @@ export function toNamedParameters(stmt: string, count: number): string {
   return out;
 }
 
+/** `executeOnDb` already shapes an insert result; MSSQL has no RETURNING rows to read keys from. */
 export class MsSqlServerResponseMapper extends ServerResponseMapper {
   public read(data: any): DbServerResponse {
     // An upsert resolves with the rows of `SELECT SCOPE_IDENTITY()`; ID is null when MERGE updated.
@@ -84,7 +87,7 @@ export class MsSqlServerResponseMapper extends ServerResponseMapper {
     return {
       RowsAffected: data?.RowsAffected ?? 0,
       LastInsertId: typeof data?.LastInsertId === 'number' ? data.LastInsertId : 0,
-      Returning: [],
+      Returning: Array.isArray(data?.Returning) ? data.Returning : [],
     };
   }
 }
@@ -117,12 +120,12 @@ export class MsSqlOrmDriver extends SqlDriver {
     const txContext = this.TransactionStorage.getStore() as IMsSqlTransactionContext | undefined;
     const req = txContext ? txContext.transaction.request() : this._connectionPool.request();
 
-    // No try/finally here any more: it only ever existed to bracket this driver's own
-    // timeStart/timeEnd logging, which master centralised into `Perf.measure('orm.query')`.
     finalQuery = toNamedParameters(finalQuery, params?.length ?? 0);
-    params?.forEach((value, index) => req.input(`p${index}`, value));
+    this.toDriverParams(params).forEach((value, index) => req.input(`p${index}`, value));
 
-    const result = await req.query(finalQuery);
+    const result = await req.query(finalQuery).catch((err: unknown) => {
+      throw mapMsSqlError(err, { Host: this.Options.Host, User: this.Options.User, Name: this.Options.Name }, stmt, params);
+    });
 
     switch (context) {
       case QueryContext.Update:
@@ -140,12 +143,6 @@ export class MsSqlOrmDriver extends SqlDriver {
       default:
         return result.recordset;
     }
-  }
-
-  /** 2627: a primary key or unique constraint; 2601: a unique index. */
-  protected isUniqueViolation(err: unknown): boolean {
-    const n = (err as { number?: unknown })?.number;
-    return n === 2627 || n === 2601;
   }
 
   public supportedFeatures(): ISupportedFeature {
@@ -167,6 +164,7 @@ export class MsSqlOrmDriver extends SqlDriver {
       // SCOPE_IDENTITY() reports the LAST identity generated in the scope, so a multi-row insert
       // cannot be walked forwards from it. MSSQL opts out of the batch key backfill.
       insertIdIsFirstOfBatch: false,
+      concurrentTransactions: true,
       nativeJson: false,
     };
   }
@@ -180,33 +178,39 @@ export class MsSqlOrmDriver extends SqlDriver {
     }
   }
 
+  protected connectionConfig(): mssql.config {
+    const options = this.Options.Options ?? {};
+
+    return {
+      user: this.Options.User,
+      password: this.Options.Password,
+      database: this.Options.Database,
+      server: this.Options.Host!,
+      port: this.Options.Port,
+      requestTimeout: options.RequestTimeout,
+      connectionTimeout: options.ConnectionTimeout,
+      options: {
+        trustServerCertificate: (options.TrustServerCertificate as boolean) ?? true,
+        cryptoCredentialsDetails: options.CryptoCredentialsDetails ? options.CryptoCredentialsDetails : {},
+        // set only when configured: an undefined key here would override mssql's own default
+        ...(options.Encrypt !== undefined ? { encrypt: options.Encrypt as boolean } : {}),
+        ...(options.InstanceName ? { instanceName: options.InstanceName as string } : {}),
+        // tedious's default, stated so that no config override brings local-zone Date bindings back
+        useUTC: true,
+      },
+      pool: {
+        max: this.resolvedPoolOptions().Max,
+        min: this.resolvedPoolOptions().Min,
+        idleTimeoutMillis: this.resolvedPoolOptions().IdleTimeout,
+        acquireTimeoutMillis: this.resolvedPoolOptions().AcquireTimeout,
+      },
+    };
+  }
+
   public async connect(): Promise<OrmDriver> {
     try {
-      const options = this.Options.Options ?? {};
-
       // A pool of its own: `mssql.connect()` hands every caller the one package-global pool.
-      this._connectionPool = new mssql.ConnectionPool({
-        user: this.Options.User,
-        password: this.Options.Password,
-        database: this.Options.Database,
-        server: this.Options.Host!,
-        port: this.Options.Port,
-        requestTimeout: options.RequestTimeout,
-        connectionTimeout: options.ConnectionTimeout,
-        options: {
-          trustServerCertificate: (options.TrustServerCertificate as boolean) ?? true,
-          cryptoCredentialsDetails: options.CryptoCredentialsDetails ? options.CryptoCredentialsDetails : {},
-          // set only when configured: an undefined key here would override mssql's own default
-          ...(options.Encrypt !== undefined ? { encrypt: options.Encrypt as boolean } : {}),
-          ...(options.InstanceName ? { instanceName: options.InstanceName as string } : {}),
-        },
-        pool: {
-          max: this.resolvedPoolOptions().Max,
-          min: this.resolvedPoolOptions().Min,
-          idleTimeoutMillis: this.resolvedPoolOptions().IdleTimeout,
-          acquireTimeoutMillis: this.resolvedPoolOptions().AcquireTimeout,
-        },
-      });
+      this._connectionPool = new mssql.ConnectionPool(this.connectionConfig());
 
       await this._connectionPool.connect();
 
@@ -235,14 +239,18 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MsSqlOrderByCompiler).as(OrderByQueryCompiler);
     this.Container.register(MsSqlTableQueryCompiler).as(TableQueryCompiler);
     this.Container.register(MsSqlColumnQueryCompiler).as(ColumnQueryCompiler);
+    this.Container.register(MsSqlDefaultValueBuilder).as(DefaultValueBuilder);
+    this.Container.register(MsSqlNowExpression).as(NowExpression);
     this.Container.register(MsSqlInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(MsSqlDeleteQueryCompiler).as(DeleteQueryCompiler);
     this.Container.register(MsSqlServerResponseMapper).as(ServerResponseMapper);
-    this.Container.register(MsSqlDefaultValueBuilder).as(DefaultValueBuilder);
     this.Container.register(MsSqlTableAliasCompiler).as(TableAliasCompiler);
-    this.Container.register(MsSqlDatetimeValueConverter).as(DatetimeValueConverter);
+    this.Container.register(IsoDatetimeValueConverter).as(DatetimeValueConverter);
     this.Container.register(MsSqlOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
     this.Container.register(MsSqlInSetStatement).as(InSetStatement);
+    this.Container.register(MsSqlInStatement).as(InStatement);
+    this.Container.register(MsSqlTextWrapper).as(TextWrapper);
+    this.Container.register(MsSqlStartsWithStatement).as(StartsWithStatement);
 
     // T-SQL spells database DDL its own way - no CHARACTER SET, no IF NOT EXISTS.
     this.Container.register(MsSqlCreateDatabaseQueryCompiler).as(CreateDatabaseCompiler);
@@ -260,8 +268,8 @@ export class MsSqlOrmDriver extends SqlDriver {
 
     // `TRUNCATE TABLE` is valid T-SQL, so the shared compiler is claimed explicitly.
     // `CREATE TABLE ... LIKE` and `WITH RECURSIVE` are NOT T-SQL and are left
-    // unregistered: the container then instantiates the abstract base, so those
-    // features throw a TypeError instead of reaching SQL Server as MySQL syntax.
+    // unregistered: those features fail with a DI error naming the abstraction
+    // instead of reaching SQL Server as MySQL syntax.
     this.Container.register(SqlTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
 
     // No native scheduler in this engine, and nothing is simulated in its place.

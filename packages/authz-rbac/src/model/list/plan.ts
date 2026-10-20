@@ -1,5 +1,7 @@
-import { GLOBAL, resourceKey } from '@spinajs/authz';
-import type { AssignmentSubject, ModelListPlan, PlanTerm, Principal, ResourceType } from '@spinajs/authz';
+import { GLOBAL } from '@spinajs/authz';
+import type { ModelListPlan, PlanTerm, Principal, ResourceType } from '@spinajs/authz';
+import { RELATION_COLUMN_OP, RELATION_OWNER_OP, RELATION_SELF_OP } from '@spinajs/authz-orm/plan';
+import type { RelationColumnPlanArgs, RelationPlanArgs } from '@spinajs/authz-orm/plan';
 import { compareStrings, sortedUnique, unique } from '@spinajs/util';
 
 import { RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs } from '../../plan/args.js';
@@ -14,16 +16,7 @@ import { usableVia } from '../sets/extension.js';
 import { principalSubjectKey } from '../sets/keys.js';
 import { WILDCARD_ID } from '../sets/resolver.js';
 
-export const DEFAULT_MAX_PLAN_SUBJECTS = 500;
-export const RELATION_OWNER_OP = 'relation.owner';
-export const RELATION_SELF_OP = 'relation.self';
-
-/** relation.owner / relation.self: the row's owner (self) is one of these principals; authz-orm compiles it. */
-export interface RelationPlanArgs {
-  readonly principals: readonly { readonly type: string; readonly id: string }[];
-}
-
-type Holders = Pick<RbacAssignmentPlanArgs, 'subjects' | 'membership' | 'memberKeys'>;
+type Holders = Pick<RbacAssignmentPlanArgs, 'subjects'>;
 
 const everywhere = (l: LiveAssignment, type: ResourceType): boolean => l.scope.type === GLOBAL.type || (l.scope.type === type && l.scope.id == null);
 
@@ -33,7 +26,7 @@ const everywhere = (l: LiveAssignment, type: ResourceType): boolean => l.scope.t
  * `denied` the deny rows.
  * @throws Error where a list cannot be planned exactly (rules, a tag carried apart); the engine makes it deny-all model_error
  */
-export function rbacListPlan(s: RbacState, opts: { readonly maxSubjects: number; readonly membership: boolean }): ModelListPlan {
+export function rbacListPlan(s: RbacState): ModelListPlan {
   const { input, permission } = s;
   const type = input.request.resource.type;
   if ((input.rules?.length ?? 0) > 0 || (input.rowDependentRules?.length ?? 0) > 0) throw new Error(`rbac: rules apply to ${permission} on ${JSON.stringify(type)}, so it is not list-filterable`);
@@ -51,13 +44,13 @@ export function rbacListPlan(s: RbacState, opts: { readonly maxSubjects: number;
   }
 
   const entries = new Map<string, RbacPlanRole>();
-  const add = (l: LiveAssignment, extra: { readonly scopeTypes?: readonly string[]; readonly tag?: string; readonly relation?: 'owner' | 'self' } = {}) => {
+  const add = (l: LiveAssignment, extra: { readonly scopeTypes?: readonly string[]; readonly tag?: string; readonly relation?: string } = {}) => {
     const scopeTypes = intersect(input.roles.get(l.assignment.role)?.scopeTypes, extra.scopeTypes);
     if (scopeTypes && scopeTypes.length === 0) return;
     const entry: RbacPlanRole = { role: l.assignment.role, ...(scopeTypes ? { scopeTypes } : {}), ...(extra.tag !== undefined ? { tag: extra.tag } : {}), ...(l.onlyBelow ? { descendantsOnly: true } : {}), ...(extra.relation ? { relation: extra.relation } : {}) };
     entries.set(JSON.stringify(entry), entry);
   };
-  const relations = new Set<'owner' | 'self'>();
+  const relations = new Set<string>();
   let all = false;
   const liveTags = new Set(s.live.flatMap((l) => l.tags));
 
@@ -75,10 +68,7 @@ export function rbacListPlan(s: RbacState, opts: { readonly maxSubjects: number;
         all = true;
         continue;
       }
-      for (const r of g.relations) {
-        if (r !== 'owner' && r !== 'self') throw new Error(`rbac: role '${g.role}' grants ${permission} with the relation '${r}', which lists do not support`);
-        relations.add(r);
-      }
+      for (const r of g.relations) relations.add(r);
     }
   }
 
@@ -87,10 +77,7 @@ export function rbacListPlan(s: RbacState, opts: { readonly maxSubjects: number;
       if (!admits(g, type) || (g.grantedAt && !g.grantedAt.includes(l.scope.type))) continue;
       if (g.relations) {
         // listSupport refuses a relation with requiresTag or grantedAt, so the relation is the only qualifier.
-        for (const r of g.relations) {
-          if (r !== 'owner' && r !== 'self') throw new Error(`rbac: role '${g.role}' grants ${permission} with the relation '${r}' at ${resourceKey(l.scope)}, which lists do not support`);
-          add(l, { relation: r });
-        }
+        for (const r of g.relations) add(l, { relation: r });
         continue;
       }
       const tag = g.requiresTag;
@@ -103,13 +90,20 @@ export function rbacListPlan(s: RbacState, opts: { readonly maxSubjects: number;
 
   if (!all && entries.size === 0 && relations.size === 0) return Object.freeze({ kind: 'abstain' });
   const denyRoles = sortedUnique(denying.map((l) => l.role));
-  const deny: PlanTerm[] = denyRoles.length === 0 ? [] : [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, true, opts), roles: denyRoles.map((role) => ({ role })), global: true }))];
+  const deny: PlanTerm[] = denyRoles.length === 0 ? [] : [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, true), roles: denyRoles.map((role) => ({ role })), global: true }))];
   if (all) return finish(deny.length === 0 ? { kind: 'all' } : { kind: 'all', deny: Object.freeze(deny) });
-  const permit: PlanTerm[] = [...(entries.size > 0 ? [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, false, opts, bound), roles: [...entries.values()], global: false }))] : []), ...[...relations].sort(compareStrings).map((r) => term(r === 'owner' ? RELATION_OWNER_OP : RELATION_SELF_OP, relationArgs(input.request.principal)))];
+  const permit: PlanTerm[] = [...(entries.size > 0 ? [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, false, bound), roles: [...entries.values()], global: false }))] : []), ...[...relations].sort(compareStrings).map((r) => relationTerm(r, input.request.principal))];
   return finish({ kind: 'terms', permit: Object.freeze(permit), deny: Object.freeze(deny) });
 }
 
 const term = (op: string, args: unknown): PlanTerm => Object.freeze({ op, args });
+
+function relationTerm(relation: string, principal: Principal): PlanTerm {
+  if (relation === 'owner') return term(RELATION_OWNER_OP, relationArgs(principal));
+  if (relation === 'self') return term(RELATION_SELF_OP, relationArgs(principal));
+  const args: RelationColumnPlanArgs = { relation, principals: relationArgs(principal).principals };
+  return term(RELATION_COLUMN_OP, Object.freeze(args));
+}
 
 /** The principal and its companions, each once, as the relation resolvers of checks see them. */
 function relationArgs(principal: Principal): RelationPlanArgs {
@@ -132,16 +126,13 @@ function intersect(a: readonly string[] | undefined, b: readonly string[] | unde
 }
 
 /**
- * The holders of a term: explicit keys while they are few (their membership expiry bounds the plan), else the
- * membership sub-query. Permits leave out sets no usable membership reaches and,
- * under a ceiling, nested sets; denies keep every live set.
+ * The holders of a term: the principal's keys and those of the sets it reaches, each set bounding the
+ * plan by its membership's expiry. Permits leave out sets no usable membership reaches and, under a
+ * ceiling, nested sets; denies keep every live set.
  */
-function holders(s: RbacState, deny: boolean, opts: { readonly maxSubjects: number; readonly membership: boolean }, bound?: (until: Date | undefined) => void): Holders {
-  const max = opts.maxSubjects;
+function holders(s: RbacState, deny: boolean, bound?: (until: Date | undefined) => void): Holders {
   const { subjects = [], memberships, nestedSets } = s.input;
-  const base: AssignmentSubject[] = [];
-  const sets: AssignmentSubject[] = [];
-  const ends: (Date | undefined)[] = [];
+  const keys: string[] = [];
   for (const subject of subjects) {
     const key = subjectKey(subject);
     const entry = 'set' in subject ? memberships?.get(key) : undefined;
@@ -149,26 +140,16 @@ function holders(s: RbacState, deny: boolean, opts: { readonly maxSubjects: numb
     if (entry) {
       const usable = usableVia(s, entry.via, deny);
       if (usable.length === 0) continue;
-      sets.push(subject);
-      ends.push(usable.every((m) => m.expiresAt) ? new Date(Math.max(...usable.map((m) => m.expiresAt!.getTime()))) : undefined);
+      bound?.(usable.every((m) => m.expiresAt) ? new Date(Math.max(...usable.map((m) => m.expiresAt!.getTime()))) : undefined);
+      keys.push(subjectKeyOf(subject));
     } else if (nested) {
       if (!deny && s.ceilingRoles !== undefined) continue;
-      sets.push(subject);
-      ends.push(nested.expiresAt);
+      bound?.(nested.expiresAt);
+      keys.push(subjectKeyOf(subject));
     } else {
-      base.push(subject);
+      // The resolver never yields a principal whose id is '*', so `{ type, id: '*' }` here is the wildcard.
+      keys.push('set' in subject || subject.id === WILDCARD_ID ? subjectKeyOf(subject) : principalSubjectKey(subject));
     }
   }
-  // The resolver never yields a principal whose id is '*', so `{ type, id: '*' }` here is the wildcard.
-  const baseKeys = unique(base.map((b) => ('set' in b || b.id === WILDCARD_ID ? subjectKeyOf(b) : principalSubjectKey(b))));
-  const explicit = unique([...baseKeys, ...sets.map(subjectKeyOf)]);
-  if (explicit.length <= max) {
-    if (bound) for (const end of ends) bound(end);
-    return { subjects: explicit, membership: false, memberKeys: [] };
-  }
-  if (!deny && s.ceilingRoles !== undefined) throw new Error(`rbac: ${explicit.length} subjects exceed authz.rbac.maxPlanSubjects (${max}) under a ceiling`);
-  if (baseKeys.length > max) throw new Error(`rbac: ${baseKeys.length} subjects exceed authz.rbac.maxPlanSubjects (${max})`);
-  // Without a MembershipStore nothing maintains authz_subject_membership; stale rows there would widen the list.
-  if (!opts.membership) throw new Error(`rbac: ${explicit.length} subjects exceed authz.rbac.maxPlanSubjects (${max}) and the model has no MembershipStore to read sets from`);
-  return { subjects: baseKeys, membership: true, memberKeys: baseKeys };
+  return { subjects: unique(keys) };
 }

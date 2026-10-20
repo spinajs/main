@@ -52,6 +52,8 @@ class ExistsConnectionConf extends FrameworkConfiguration {
           rules: [{ name: '*', level: 'trace', target: 'Empty' }],
         },
         db: {
+          // FakeMsSqlDriver has no database: tableInfo() reports every table missing.
+          StrictTableCheck: false,
           Connections: [{ Driver: 'orm-driver-mssql-exists-fake', Name: 'mssql-exists', Database: 'test' }],
         },
       },

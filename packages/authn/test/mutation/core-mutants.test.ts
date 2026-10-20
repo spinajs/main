@@ -8,7 +8,7 @@ import type { AuthenticationResult, AuthnContext, AuthnThrottle, Credentials, Id
 import { buildCore, coreHarness, coreHarnessOf, useHarnessLog } from '../behaviour/harness.js';
 import { Lockout, SuccessClearsIp } from './throttle-mutants.js';
 
-/** 2.x order (A05): verify first, count only what failed. */
+/** Mutant (A05): verify first, count only what failed. */
 class VerifyBeforeCount extends DefaultAuthnService {
   async authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
     const { Registry: registry, Throttle: throttle } = this;
@@ -21,7 +21,7 @@ class VerifyBeforeCount extends DefaultAuthnService {
   }
 }
 
-/** 2.x shape (SR-06): only the target's status ends an impersonation; the impersonator's ban is not seen. */
+/** Mutant (SR-06): only the target's status ends an impersonation; the impersonator's ban is not seen. */
 class IgnoresImpersonatorBan extends AuthnImpersonationService {
   async principalOf(session: SessionHandle, ctx: AuthnContext): Promise<Principal | null> {
     const actor = (await this.Sessions.restore(session.id))?.facts.impersonator;

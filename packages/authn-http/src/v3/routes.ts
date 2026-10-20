@@ -24,15 +24,11 @@ export type AnswerKind = 'login' | 'mfa' | 'role-switch' | 'impersonation' | 'wh
 // A client sends the user agent, so the stored copy is bounded.
 const USER_AGENT_CAP = 512;
 
-/** The first of `names` the JSON body carries. */
-export function bodyField(req: Request, ...names: string[]): unknown {
+/** The `name` field of a JSON object body. */
+export function bodyField(req: Request, name: string): unknown {
   const body: unknown = req.body;
   if (!isPlainObject(body)) return undefined;
-  for (const name of names) {
-    const value = body[name];
-    if (value !== undefined) return value;
-  }
-  return undefined;
+  return body[name];
 }
 
 /** A non-empty string of at most `cap` characters, else null. */
@@ -129,7 +125,7 @@ export async function answerFor(container: IContainer, kind: AnswerKind, princip
 }
 
 /**
- * The steps a pending session waits for; a migrated 2.x row keeps none, so the MFA policy `policyService`
+ * The steps a pending session waits for; for one issued with no steps the MFA policy `policyService`
  * (authn.mfa.policy.service) is asked as completeMfa asks it. A policy refusal over the stored enrolments gives no step:
  * MFA verify then answers its usual failure, whoami an empty list.
  */

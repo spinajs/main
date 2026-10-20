@@ -22,14 +22,14 @@ Every service below registers on that import (`@Injectable`), and `RbacBootstrap
 
 | Feature | What it does |
 | --- | --- |
-| [User model and metadata](01-user-model.md) | `User`, `UserBase`, `UserMetadata`, query scopes, reserved metadata keys, the `users` schema and migrations. |
+| [User model and metadata](01-user-model.md) | `User`, `UserBase`, `UserMetadata`, query scopes, reserved metadata keys, the `users` schema and its migration. |
 | [Custom user model](02-custom-user-model.md) | Swap the model class every users and authz lookup uses (`RBAC_USER_MODEL`, `userModel()`), add columns and scopes. |
 | [User actions](03-user-actions.md) | `create`, `activate`, `deactivate`, `ban`, `unban`, `deleteUser`, `expirePassword`, metadata and lookup helpers. |
 | [Create middleware](04-create-middleware.md) | `users.actions.create.beforeCreate` / `afterCreate`: functions that change a user while `create()` runs. |
 | [Lifecycle mails](05-lifecycle-mails.md) | `users.email.*` templates, `sendUserEmail()`, and the `PasswordMailer` users registers for authn-local. |
 | [User events](06-user-events.md) | `UserCreated`, `UserBanned`, `UserLogged` and the other queue events, who emits them, and where they are routed. |
 | [Identity and password stores](07-identity-and-password-stores.md) | `UserIdentityStore`, `UserPasswordStore`, `UserPasswordAgeSource`, `UserAccountStatusSource`: users as authn identities. |
-| [Authn event sinks](08-authn-event-sinks.md) | `UserAccountSink` and `QueueAuthnEventSink`: keep the `users` row and the 2.x events in step with authn. |
+| [Authn event sinks](08-authn-event-sinks.md) | `UserAccountSink` and `QueueAuthnEventSink`: keep the `users` row and the user events in step with authn. |
 | [Principal factory](09-principal-factory.md) | `UserPrincipalFactory` builds `user:<Uuid>` and `agent:<id>` principals for authn, jobs and CLI code. |
 | [Principal attribute providers](10-principal-attribute-providers.md) | `PrincipalAttributeProvider`: derive ABAC attributes from the user record. |
 | [Authz resources and relations](11-authz-resources-and-relations.md) | The `user` resource, the `self` and `owner` relations, the permissions and roles users ships. |
@@ -68,5 +68,5 @@ export async function onboardAndSuspend(): Promise<boolean> {
 - [`@spinajs/email`](../email/README.md): sends the lifecycle mails and provides `EmailPasswordMailer`.
 - [`@spinajs/queue`](../queue/README.md): carries the user events.
 - [`@spinajs/cli`](../cli/README.md): runs the `rbac:user-*` commands.
-- `@spinajs/users-http`: the HTTP routes over these actions (no docs folder yet).
-- `@spinajs/authz-rbac`: role assignments, `AccountStatusSource`, and the migrations that move the 2.x `users.Role` column into assignments (no docs folder yet).
+- [`@spinajs/users-http`](../users-http/README.md): the HTTP routes over these actions.
+- [`@spinajs/authz-rbac`](../authz-rbac/README.md): role assignments and `AccountStatusSource`.

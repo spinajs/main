@@ -20,9 +20,6 @@ import { UserMetadataController } from '../../src/controllers/UserMetadataContro
 import { TestConfiguration } from '../admin-common.js';
 import { ownedCache } from '../support/owned-cache.js';
 
-// Global-registry key the removed 2.x @Resource/@Permission decorators stored their descriptor under.
-const ACL_CONTROLLER_DESCRIPTOR = Symbol.for('ACL_CONTROLLER_DESCRIPTOR_SYMBOL');
-
 const controllerDescriptor = (instance: object): IControllerDescriptor => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, instance) as IControllerDescriptor;
 
 const routesOf = (instance: object): IRoute[] => [...controllerDescriptor(instance).Routes.values()];
@@ -121,7 +118,7 @@ describe('users-http v3: admin route contract', function () {
       expect(wrong, 'a write route must stay reachable for the any-case').to.deep.eq([]);
     });
 
-    /** The permission of each route: the 2.x verb (readAny → read, createAny → create, ...) on the `users` type. */
+    /** The permission of each route on the `users` type. */
     const PERMISSIONS: Record<string, string> = {
       'Users.list': 'users:read',
       'Users.assignableRoles': 'users:read',
@@ -140,7 +137,7 @@ describe('users-http v3: admin route contract', function () {
       'Profile.getUserProfile': 'users:read',
     };
 
-    it('every admin route checks one users permission, by the verb it had in 2.x', () => {
+    it('every admin route checks one users permission', () => {
       const seen: Record<string, string> = {};
 
       for (const { name, instance } of controllers) {
@@ -162,12 +159,6 @@ describe('users-http v3: admin route contract', function () {
         expect(route.Policies, method).to.have.length(1);
       }
     });
-
-    it('no admin route carries the 2.x @Permission or @Resource any more', () => {
-      for (const { name, instance } of controllers) {
-        expect(Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance), name).to.eq(undefined);
-      }
-    });
   });
 
   describe('every controller of the package', () => {
@@ -179,12 +170,11 @@ describe('users-http v3: admin route contract', function () {
       expect(declared.length, declared.join(', ')).to.eq(controllers.length + ownControllers.length);
     });
 
-    it('every route carries @Access, none is anonymous, and no 2.x @Permission descriptor is left', () => {
+    it('every route carries @Access and none is anonymous', () => {
       const wrong: string[] = [];
 
       for (const { name, instance } of [...controllers, ...ownControllers]) {
         expect(routesOf(instance).length, `${name} has routes`).to.be.greaterThan(0);
-        if (Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance) !== undefined) wrong.push(`${name}: 2.x @Permission descriptor`);
 
         for (const route of routesOf(instance)) {
           if (!ruleOf(instance, route)) wrong.push(`${name}.${String(route.Method)}: no @Access`);

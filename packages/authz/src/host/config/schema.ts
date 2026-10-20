@@ -10,8 +10,8 @@ const stringList = { type: 'array', items: { type: 'string' } };
 
 /**
  * A role name, in configuration and the users admin API alike. No leading digit or minus-digit and not true/false, so
- * coerceTypes cannot turn [5], [-1] or [true] into one; no edge whitespace, but an inner space stays (2.x roles such
- * as 'Stock editor').
+ * coerceTypes cannot turn [5], [-1] or [true] into one; no edge whitespace, but an inner space stays (roles such as
+ * 'Stock editor').
  */
 export const ROLE_NAME_PATTERN = '^(?!(?:true|false)$)(?!-?\\d)\\S(?:.*\\S)?$';
 /** The width of the role columns of authz_assignment and authz_rule_subject. */
@@ -128,7 +128,6 @@ const admin = {
   properties: {
     maxBatch: { type: 'integer', minimum: 1, default: ADMIN_DEFAULTS.maxBatch },
     backend: { ...className, default: ADMIN_DEFAULTS.backend },
-    connection: { type: 'string', minLength: 1, default: 'default' },
     // { [kind or 'family.*']: permission | { [scopeType or '*']: permission } }
     permissions: {
       type: 'object',
@@ -210,7 +209,6 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
     audit: audit(true),
     bus: { type: 'object', properties: { service: { type: 'string', minLength: 1 } } },
     admin,
-    config: { type: 'object', default: {}, properties: { rejectLegacyKeys: { type: 'boolean', default: D.config.rejectLegacyKeys } } },
   },
 };
 

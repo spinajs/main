@@ -12,7 +12,7 @@ import { Configuration } from '@spinajs/configuration';
 
 chai.use(chaiAsPromised);
 
-// Ported from users legacy-v2/user.test.ts rows 13 and 14 (B11, B12, H13): roles are GLOBAL assignments, not a `Role` column.
+// B11, B12, H13: roles are GLOBAL assignments.
 describe('User roles', function () {
   this.timeout(30000);
 
@@ -46,7 +46,7 @@ describe('User roles', function () {
     expect(user2.Id).to.eq(user.Id);
     expect(await globalRolesOf(user.Uuid)).to.deep.equal([]);
 
-    // Changed (H13, B11): the default roles come from create(), as GLOBAL assignments of authz.rbac.defaultRoles.
+    // H13, B11: the default roles come from create(), as GLOBAL assignments of authz.rbac.defaultRoles.
     const defaults = DI.get(Configuration)!.get<string[]>('authz.rbac.defaultRoles', []);
     const { User: created } = await create({ Email: 'created@test.pl', Login: 'created', Password: 'passw0rd123' });
     expect(await globalRolesOf(created.Uuid)).to.deep.equal(defaults);

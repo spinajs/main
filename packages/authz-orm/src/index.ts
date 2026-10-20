@@ -3,7 +3,8 @@ import './once.js';
 export * from './api.js';
 export * from './scope-attributes/index.js';
 export * from './schema.js';
-export { AccessResource, Parent, Owner, Self, registerAccessResource } from './decorators.js';
+export * from './plan/index.js';
+export { AccessResource, Parent, Owner, Self, Relation, registerAccessResource } from './decorators.js';
 export { reparent } from './ancestors/reparent.js';
 export { entryOf, classesOf, registeredTypes, typesAbove } from './registry.js';
 export type { ResourceEntry, ParentEntry } from './registry.js';
@@ -17,5 +18,5 @@ import './guard/middleware.js';
 export { AccessGuardMiddleware } from './guard/middleware.js';
 export { guardMode } from './guard/env.js';
 // Registers AuthzOrmContributor: the domain boot checks the resource connection.
-export { AuthzOrmContributor, checkResourceConnections, storesConnection } from './contributor.js';
+export { AuthzOrmContributor, checkResourceConnections } from './contributor.js';
 export * from './lists/index.js';

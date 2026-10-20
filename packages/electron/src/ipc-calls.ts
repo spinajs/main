@@ -79,7 +79,7 @@ export function callService(method: string, service: string, resolveArgs: any[],
       try {
         return await _s[method](...args);
       } catch (err) {
-        const msg = `call on __spinajsIpcBridge::call() failed, method: ${method}, on service: ${service}, cause: ${err.message}`;
+        const msg = `call on __spinajsIpcBridge::call() failed, method: ${method}, on service: ${service}, cause: ${err instanceof Error ? err.message : String(err)}`;
         log().error({ error: err, method, service }, "call on __spinajsIpcBridge::call() failed, method: ${method}, on service: ${service}");
 
         throw new Error(msg, {
@@ -114,7 +114,7 @@ export function callServiceSync(event: { returnValue: unknown }, method: string,
     try {
       event.returnValue = _s[method](...args);
     } catch (err) {
-      const msg = `call on __spinajsIpcBridge::call() failed, method: ${method}, no service named: ${service}, cause: ${err.message}`;
+      const msg = `call on __spinajsIpcBridge::call() failed, method: ${method}, no service named: ${service}, cause: ${err instanceof Error ? err.message : String(err)}`;
       log().error({ error: err, method, service }, "call on __spinajsIpcBridge::call() failed, method: ${method}, no service named: ${service}");
 
       // we return error, in render process preload we check & throw

@@ -10,7 +10,7 @@ import type { AuthzCommand, Principal, RememberedBatch } from '@spinajs/authz';
 import { DbScopeAttributeStore } from '@spinajs/authz-orm';
 import { AbacContributor, AbacModel, DbPolicyStore, PolicyStore } from '@spinajs/authz-abac';
 
-import { AuthzAdminIdempotency_2026_10_02_00_01_00, DbAuthzAdminBackend } from '../../../src/index.js';
+import { AuthzAdminIdempotency_2026_10_02_00_01_00, DbAuthzAdminBackend, VersionRecord } from '../../../src/index.js';
 import { P1, P2, config, failure, installHost, instance, ok, rbacDomain, rejection, resetHost, uninstallHost } from '../support.js';
 
 const expect = chai.expect;
@@ -24,6 +24,7 @@ const HOUR = 3600_000;
 
 const DB = {
   DefaultConnection: 'sqlite',
+  Aliases: { authz: 'default' },
   Connections: [
     { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { Table: 'orm_migrations', OnStartup: true } },
     { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'other' },
@@ -55,11 +56,21 @@ describe('DbAuthzAdminBackend on SQLite', function () {
   const idemRows = async () => (await db.select().from(IDEM)) as Record<string, unknown>[];
   const policyIds = async () => (await policies.load()).map((p) => p.id);
 
+  /** Runs `fn` with db.Aliases.authz pointing at connection `name`, as an app that maps it there. */
+  const onConnection = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+    const authz = orm.Connections.get('authz')!;
+    orm.Connections.set('authz', orm.Connections.get(name)!);
+    try {
+      return await fn();
+    } finally {
+      orm.Connections.set('authz', authz);
+    }
+  };
+
   before(async () => {
     await installHost();
     config().set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
     config().set('db', DB);
-    config().set(['authz', 'admin', 'connection'], 'default');
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     orm = (await DI.resolve(Orm)) as Orm;
     db = orm.Connections.get('default')!;
@@ -70,7 +81,7 @@ describe('DbAuthzAdminBackend on SQLite', function () {
         t.bigint('version').notNull();
       });
     }
-    policies = new DbPolicyStore(db);
+    policies = new DbPolicyStore();
   });
 
   after(async () => {
@@ -87,7 +98,6 @@ describe('DbAuthzAdminBackend on SQLite', function () {
 
   beforeEach(async () => {
     for (const t of [IDEM, ATTRS, POLICIES]) await db.del().from(t);
-    config().set(['authz', 'admin', 'connection'], 'default');
     dom = `d${++n}`;
     other = `e${n}`;
   });
@@ -162,17 +172,17 @@ describe('DbAuthzAdminBackend on SQLite', function () {
     });
 
     it('takes the domain lock with its first statement: an UPDATE of the authz_version row', async () => {
-      const sqlite = db as unknown as { executeOnDb(stmt: string, params: unknown[], ctx: unknown): Promise<unknown> };
-      const original = sqlite.executeOnDb;
+      const sqlite = db as unknown as { runStatement(stmt: string, params: unknown[], ctx: unknown): Promise<unknown> };
+      const original = sqlite.runStatement;
       const order: string[] = [];
-      sqlite.executeOnDb = function (this: unknown, stmt: string, params: unknown[], ctx: unknown) {
+      sqlite.runStatement = function (this: unknown, stmt: string, params: unknown[], ctx: unknown) {
         order.push(stmt);
         return original.call(this, stmt, params, ctx);
       };
       try {
         await backend.transaction('d1', async () => undefined);
       } finally {
-        sqlite.executeOnDb = original;
+        sqlite.runStatement = original;
       }
       const begin = order.findIndex((s) => /^BEGIN/i.test(s));
       expect(begin).to.be.greaterThan(-1);
@@ -219,32 +229,37 @@ describe('DbAuthzAdminBackend on SQLite', function () {
       expect(await attributes.rows(P2)).to.deep.equal({ b: 2 });
     });
 
-    it('runs on the connection authz.admin.connection names', async () => {
-      config().set(['authz', 'admin', 'connection'], 'other');
-      const e = await rejection(backend.transaction('d1', async () => undefined));
+    it('runs on the connection db.Aliases.authz names', async () => {
+      const e = await rejection(onConnection('other', () => backend.transaction('d1', async () => undefined)));
       expect(e).to.be.instanceOf(AuthzConfigError);
       expect(e.message).to.include('authz_version').and.include('AuthzRbac_2026_10_01_00_00_00');
-      config().set(['authz', 'admin', 'connection'], 'nope');
-      expect(await rejection(backend.transaction('d1', async () => undefined))).to.be.instanceOf(AuthzConfigError);
+      const authz = orm.Connections.get('authz')!;
+      orm.Connections.delete('authz');
+      try {
+        const missing = await rejection(backend.transaction('d1', async () => undefined));
+        expect(missing).to.be.instanceOf(AuthzConfigError);
+        expect(missing.message).to.include('db.Aliases.authz');
+      } finally {
+        orm.Connections.set('authz', authz);
+      }
     });
 
     it('a missing idempotency table names its migration', async () => {
-      config().set(['authz', 'admin', 'connection'], 'other');
-      const e = await rejection(backend.recall('d1', 'user:alice', 'k', new Date()));
+      const e = await rejection(onConnection('other', () => backend.recall('d1', 'user:alice', 'k', new Date())));
       expect(e).to.be.instanceOf(AuthzConfigError);
       expect(e.message).to.include(IDEM).and.include(AuthzAdminIdempotency_2026_10_02_00_01_00.name);
     });
 
     it('a failed read of a table that exists is passed on, not blamed on a migration', async () => {
       const down = new Error('connection lost');
-      const select = db.select;
-      db.select = (() => {
+      const where = VersionRecord.where;
+      VersionRecord.where = (() => {
         throw down;
-      }) as unknown as typeof db.select;
+      }) as unknown as typeof VersionRecord.where;
       try {
         expect(await rejection(backend.transaction(dom, async () => undefined))).to.equal(down);
       } finally {
-        db.select = select;
+        VersionRecord.where = where;
       }
     });
 

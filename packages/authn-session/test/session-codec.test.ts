@@ -5,18 +5,18 @@ import { encodeSessionData, decodeSessionData } from '../src/index.js';
 describe('Session data codec (encodeSessionData / decodeSessionData)', () => {
   it('round-trips primitive value types (string, number, boolean, null)', () => {
     const data = new Map<string, unknown>([
-      ['User', 'a-uuid'],
+      ['name', 'alice'],
       ['count', 7],
-      ['Authorized', true],
+      ['flag', true],
       ['nothing', null],
     ]);
 
     const restored = decodeSessionData(encodeSessionData(data));
 
     expect(restored).to.be.instanceOf(Map);
-    expect(restored.get('User')).to.equal('a-uuid');
+    expect(restored.get('name')).to.equal('alice');
     expect(restored.get('count')).to.equal(7);
-    expect(restored.get('Authorized')).to.equal(true);
+    expect(restored.get('flag')).to.equal(true);
     expect(restored.get('nothing')).to.equal(null);
   });
 

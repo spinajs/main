@@ -2,10 +2,12 @@ import { GLOBAL } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
 import { _check_arg, _one_of } from '@spinajs/util';
 
-import { checkFsName } from '../metadata/meta.js';
-import { normalizeFsPath } from './paths.js';
+import { normalizeFsPath } from '@spinajs/fs';
+import type { FsPathKind } from '@spinajs/fs';
 
-export type FsPathKind = 'file' | 'dir';
+import { checkFsName } from '../checks.js';
+
+export type { FsPathKind };
 export type FsRefType = 'fs' | FsPathKind;
 
 export const FS_RESOURCE_TYPES: readonly FsRefType[] = Object.freeze(['fs', 'dir', 'file'] as const);
@@ -70,8 +72,7 @@ export function fsRowOf(fsName: string, normalised: string, type: FsRefType): Fs
 }
 
 /**
- * `[self, parent dirs nearest first, fs, GLOBAL]`, null for a ref parseFsRef refuses. Resolver (domain)
- * parents are not ancestors; the fs-inherit model reads them (design §13). This does not know which
+ * `[self, parent dirs nearest first, fs, GLOBAL]`, null for a ref parseFsRef refuses. This does not know which
  * filesystems exist: an fs name no provider has still gets a chain.
  */
 export function fsAncestors(ref: ResourceRef): readonly ResourceRef[] | null {

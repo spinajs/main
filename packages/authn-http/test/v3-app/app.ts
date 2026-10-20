@@ -24,10 +24,9 @@ import { dropOwnCompiledDirs } from '../token-db-common.js';
 chai.use(chaiHttp);
 
 /**
- * The 3.0 account routes as N8c switches them on: registerAuthnHttpV3() on the root container, the 3.0 controllers
- * scanned instead of the 2.x account ones, kit fakes for the ports C1 and C3 supply. This mocha process loads neither
- * the package barrel nor @spinajs/users, so the 2.x middlewares are absent and authn-session's MemorySessionStore is
- * the only one registered.
+ * The account routes: registerAuthnHttpV3() on the root container, the v3 controllers scanned, kit fakes for the
+ * ports C1 and C3 supply. This mocha process loads neither the package barrel nor @spinajs/users, so authn-session's
+ * MemorySessionStore is the only session store registered.
  */
 
 // http.port is 0, so every start binds a free port and parallel runs never collide; startServer() reads it back.

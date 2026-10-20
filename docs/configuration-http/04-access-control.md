@@ -149,7 +149,7 @@ export async function readEntryFor(caller: Principal, slug: string): Promise<DbC
 ## Related
 
 - [Configuration API](01-configuration-api.md): the routes these checks guard.
-- [`@spinajs/authz`](../authz/README.md#config-authz): permission definitions, field sets and config merging.
-- [RBAC model](../authz/README.md#the-rbac-model) and [ABAC model](../authz/README.md#the-abac-model): role and policy syntax.
-- [ORM adapter](../authz/README.md#orm-spinajsauthz-orm): `registerAccessResource`, `.accessible()`, the ORM guard.
+- [`@spinajs/authz`](../authz/04-host-boot-and-configuration.md#configuration): permission definitions, field sets and config merging.
+- [RBAC model](../authz-rbac/README.md) and [ABAC model](../authz-abac/README.md): role and policy syntax.
+- [ORM adapter](../authz-orm/README.md): `registerAccessResource`, `.accessible()`, the ORM guard.
 - [`@spinajs/configuration-db-source`](../configuration-db-source/README.md): `requireSystemPrincipal()` and the watch poll.

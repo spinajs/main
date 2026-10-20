@@ -4,11 +4,11 @@ A `JobRetentionService` deletes old rows from `queue_jobs` on a timer, so the ta
 
 ## How it works
 
-1. `DefaultQueueService.Retention` is decorated `@AutoinjectService('queue.retention', JobRetentionService)`. When the queue is built, DI resolves the `JobRetentionService` registration whose class name equals `queue.retention.service`, with the whole `queue.retention` block as the constructor's `Options`. No `queue.retention` block: a warning is logged and `Retention` stays `undefined`.
+1. `DefaultQueueService.Retention` is decorated `@AutoinjectService('queue.retention', JobRetentionService, { optional: true })`. When the queue is built, DI resolves the `JobRetentionService` registration whose class name equals `queue.retention.service`, with the whole `queue.retention` block as the constructor's `Options`. No `queue.retention` block: the `Configuration` logger warns, `Retention` stays `undefined`, and the queue still builds.
 2. `JobRetentionService` extends `AsyncService`, so DI awaits its `resolve()`.
 3. `DefaultJobRetentionService.resolve()` starts the timer only when `enabled` is `true` and `maxAge` is set. The timer is `unref()`'d, so it never keeps the process alive.
 4. Every `interval` ms the timer calls `purgeJobs(now - maxAge, statuses)`. It logs the count when rows were removed, and logs errors without stopping the timer.
-5. `purgeJobs(olderThan, statuses?)` runs through the [tracking hooks](07-tracking-hooks.md): it selects the `Id`s of rows with a status in `statuses` (default `success`, `error`, `dead`) and `CreatedAt` before `olderThan`, deletes them with `JobModel.destroy(ids)`, and returns the count.
+5. `purgeJobs(olderThan, statuses?)` runs through the [tracking hooks](07-tracking-hooks.md): it deletes the rows with a status in `statuses` (default `success`, `error`, `dead`) and `CreatedAt` before `olderThan` in one `JobModel.destroy().withStatus(...).olderThan(...)`, and returns `RowsAffected`.
 6. `DefaultQueueService.dispose()` calls `Retention.dispose()`, which clears the timer.
 
 ## API

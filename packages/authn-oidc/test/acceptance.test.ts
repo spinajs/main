@@ -20,12 +20,12 @@ import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
-import { Orm, OrmDriver, QueryContext } from '@spinajs/orm';
+import { Orm, OrmDriver, QueryContext, modelDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { AuthenticationStrategy, AuthnService, ExternalLoginHook, IdentityLinkStore, NonceStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { ExternalSubject, IdentityRef } from '@spinajs/authn/contracts';
-import { DbIdentityLinkStore, DbNonceStore } from '@spinajs/authn-orm';
+import { AuthnNonce, DbIdentityLinkStore, DbNonceStore } from '@spinajs/authn-orm';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
 import { OidcController } from '../src/controllers/OidcController.js';
@@ -143,7 +143,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       }
 
       register(configurationFor(connection) as unknown as Class<Configuration>, Configuration);
-      // The database in a child container, as authn-orm's own tests run it; the stores read it from there.
+      // The database in a child container, as authn-orm's own tests run it.
       dbContainer = DI.child();
       dbContainer.register(SqliteOrmDriver).as('orm-driver-sqlite');
       dbContainer.register(PostgresOrmDriver).as('orm-driver-postgres');
@@ -217,6 +217,8 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       for (const type of [OidcHttpClient, NonceStore, IdentityLinkStore, SessionIssuer, AuthnService, ExternalLoginHook] as Class<unknown>[]) DI.uncache(type);
       HookLog.calls = [];
       await orm?.dispose();
+      // The app resolved an Orm in the root too; the models write on the latest one, so the next suite needs its own.
+      DI.uncache(Orm);
       if (database) {
         const admin = await pgAdmin();
         try {
@@ -287,7 +289,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       expect(done.status).to.eq(303);
       const again = await get(`/auth/oidc/corp/callback?${new URLSearchParams(query)}`, { [flowName]: flow });
       expect(again.status).to.eq(401);
-      const driver = orm.Connections.get('default')!;
+      const driver = modelDriver(AuthnNonce);
       const rows = (await raw(driver, `SELECT k FROM authn_nonce WHERE k LIKE 'oidc-state:%'`)) as { k: string }[];
       expect(rows.length).to.be.greaterThan(0);
     });

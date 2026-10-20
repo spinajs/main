@@ -12,8 +12,6 @@ export function accessField(): string {
   return typeof v === 'string' && v !== '' ? v : ACCESS_FIELD;
 }
 
-const truthy = (v: unknown): boolean => v === 1 || v === true || v === '1' || v === 1n;
-
 // dehydrate() emits descriptor columns only, so the answers ride on per-instance overrides.
 function attach(model: ModelBase, field: string, access: Readonly<Record<string, boolean>>): void {
   Object.defineProperty(model, field, { value: access, enumerable: true, configurable: true, writable: true });
@@ -49,7 +47,7 @@ export class AccessFieldMiddleware implements IBuilderMiddleware {
       }
       const access: Record<string, boolean> = {};
       this.permissions.forEach((p, i) => {
-        access[p] = truthy(raw[accessColumn(i)]);
+        access[p] = raw[accessColumn(i)] === true;
         delete raw[accessColumn(i)];
       });
       this.answers.push(Object.freeze(access));

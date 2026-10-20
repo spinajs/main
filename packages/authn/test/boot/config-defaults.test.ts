@@ -185,7 +185,7 @@ describe('AuthnConfigBootstrapper', () => {
       return child.resolve(Configuration);
     }
 
-    it('validates the merged 2.x interim shapes and the shipped defaults without an error', async () => {
+    it('validates the shipped defaults without an error', async () => {
       const c = await boot({});
       expect(c.get('authn.throttle.login.account')).to.deep.eq(BACKOFF);
       expect(c.get('authn.audit.sinkTimeoutMs')).to.eq(2000);

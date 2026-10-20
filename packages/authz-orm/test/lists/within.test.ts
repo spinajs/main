@@ -2,17 +2,17 @@ import * as chai from 'chai';
 import 'mocha';
 import sinon from 'sinon';
 
-import { AuthzConfigError, GLOBAL, PlanTermSql, runWithPrincipal } from '@spinajs/authz';
+import { AuthzConfigError, GLOBAL, runWithPrincipal } from '@spinajs/authz';
 import type { AccessPlan, AuthzService, Principal, ResourceRef } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import type { ModelBase } from '@spinajs/orm';
 
-import { AccessResource } from '../../src/index.js';
+import { AccessResource, PlanTermCompiler } from '../../src/index.js';
 import { marksOf } from '../../src/marker.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { createAncestorTable, dropAncestorTable, insertLinks } from '../support/ancestors.js';
-import { FlagSql } from '../support/flag-sql.js';
+import { FlagTerm } from '../support/flag-term.js';
 
 const expect = chai.expect;
 
@@ -57,7 +57,7 @@ describe('.within()', function () {
   });
 
   beforeEach(async () => {
-    undo.push(testHost.registerInRoot(PlanTermSql, FlagSql));
+    undo.push(testHost.registerInRoot(PlanTermCompiler, FlagTerm));
     service = await (await testHost.domains()).service('root');
     plan = sinon.stub(service, 'accessPlan').resolves(green);
   });

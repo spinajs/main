@@ -118,15 +118,3 @@ export function unflattenAttributes(rows: ScopeAttributeRows): Record<string, un
 
 /** Whether `path` is `prefix` or lies below it. */
 export const underPath = (path: string, prefix: string): boolean => path === prefix || path.startsWith(`${prefix}.`);
-
-/** The scalar a `value_json` column holds; anything else is an AuthzConfigError. */
-export function parseAttributeLeaf(json: string, where: string): ScopeAttributeLeaf {
-  let v: unknown;
-  try {
-    v = JSON.parse(json);
-  } catch (e) {
-    throw new AuthzConfigError(`${where}: value_json is not JSON`, { cause: e });
-  }
-  if (!isLeaf(v)) throw new AuthzConfigError(`${where}: value_json holds ${json}, not a scalar`);
-  return v;
-}

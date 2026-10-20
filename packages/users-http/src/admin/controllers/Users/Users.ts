@@ -47,7 +47,7 @@ const MAX_ROLES_PER_USER = 16;
 
 /**
  * A single role name, by the rule the configuration applies to role names: an
- * inner space is allowed (a 2.x role such as 'Stock editor'), a blank name or
+ * inner space is allowed (a role such as 'Stock editor'), a blank name or
  * edge whitespace is not.
  *
  * `minLength` alone accepts `' '` and `['  ', '']`, which reached `create()` as

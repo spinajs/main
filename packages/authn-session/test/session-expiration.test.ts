@@ -79,7 +79,7 @@ describe('Session expiration strategies', () => {
       closeTo(result, DateTime.now().plus({ minutes: 30 }));
     });
 
-    it('SR-session absolute timeout: initial never passes Creation + maxLifetime (elevate and the 2.x migration keep an old Creation)', async () => {
+    it('SR-session absolute timeout: initial never passes Creation + maxLifetime (elevate keeps an old Creation)', async () => {
       await withConfig({ service: 'SlidingCappedExpiration', ttl: 30, maxLifetime: 480 });
       const strategy = await DI.resolve(SlidingCappedExpiration);
 

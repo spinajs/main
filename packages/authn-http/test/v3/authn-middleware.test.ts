@@ -19,7 +19,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthenticationStrategy, AuthnService, AuthnThrottle, CredentialExtractor, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, PrincipalFactory, Session, SessionIssuer } from '@spinajs/authn';
 import type { AuthnContext, AuthnFacts, Credentials, IdentityRef, Principal, SignedRequest, StrategyOutcome } from '@spinajs/authn';
 import { DefaultSessionIssuer, MemorySessionStore, PUBLIC_DEFAULT_COOKIE_SECRET, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
-import type { ISession, ISessionCookieConfig } from '@spinajs/authn-session';
+import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeStrategy, RecordingPrincipalFactory, RecordingThrottle } from '@spinajs/authn-testing';
 
 import * as barrel from '../../src/index.js';
@@ -414,33 +414,6 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(await s.issuer.restore(own.id)).to.not.eq(null);
     });
 
-    const plant2x = (extra: [string, unknown][]) => {
-      const rawId = randomUUID();
-      const rows = (s.store as unknown as { Sessions: Map<string, ISession> }).Sessions;
-      rows.set(rawId, {
-        SessionId: rawId,
-        Creation: DateTime.now(),
-        Expiration: DateTime.now().plus({ minutes: 30 }),
-        Data: new Map<string, unknown>([['User', alice.id], ['Authorized', true], ['Logged', true], ...extra]),
-      } as unknown as ISession);
-      return { rawId, rows };
-    };
-
-    it('A07 a 2.x session row restores through DefaultSessionIssuer (lazy migration)', async () => {
-      const { rawId, rows } = plant2x([['ActiveRole', undefined]]);
-      const p = await principalWith({ Cookie: cookieOf(rawId) });
-      expect(p).to.include({ type: 'user', id: alice.id });
-      expect(p.ceiling).to.eq(undefined);
-      expect(rows.has(rawId), 'the raw row is migrated away').to.eq(false);
-    });
-
-    it('N8c a 2.x session row carrying an ActiveRole yields no principal and is revoked', async () => {
-      const { rawId, rows } = plant2x([['ActiveRole', 'user']]);
-      expect(await principalWith({ Cookie: cookieOf(rawId) })).to.eq(null);
-      expect(rows.has(rawId), 'the raw row is deleted').to.eq(false);
-      expect(rows.has(createHash('sha256').update(rawId).digest('hex')), 'no migrated copy').to.eq(false);
-    });
-
     it('a store error fails the request (500), never a silent anonymous', async () => {
       const h = await s.issuer.issue(alice, FACTS());
       const stub = sinon.stub(s.issuer, 'restore').rejects(new Error('store down'));
@@ -540,7 +513,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
         expect(await principalWith({ Authorization: authorization, 'X-Api-Key': good }), String(authorization)).to.eq(null);
       }
       expect(s.tokenStrategy.verifyCalls.map((c) => (c as { token: string }).token)).to.deep.eq([`${good} extra`, 'spt_bad!value', `${good}, Bearer ${good}`]);
-      expect((await principalWith({ Authorization: 'Bearer ', 'X-Api-Key': good }))?.id, 'an empty bearer is no credential, as in 2.x').to.eq(alice.id);
+      expect((await principalWith({ Authorization: 'Bearer ', 'X-Api-Key': good }))?.id, 'an empty bearer is no credential').to.eq(alice.id);
     });
 
     it('a malformed Authorization header reads as no credentials', async () => {
@@ -585,7 +558,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(s.throttle.attempts.length, 'nothing counted').to.eq(attempts);
     });
 
-    it('R1 an x-api-key value without authn.token.prefix gives no credentials; with an opaque bearer, our x-api-key authenticates (as 2.x)', async () => {
+    it('R1 an x-api-key value without authn.token.prefix gives no credentials; with an opaque bearer, our x-api-key authenticates', async () => {
       const attempts = s.throttle.attempts.length;
       expect(await principalWith({ 'X-Api-Key': 'telemetry-0123456789abcdef' })).to.eq(null);
       expect(await principalWith({ 'X-Api-Key': jwsOf('JWT') })).to.eq(null);
@@ -906,7 +879,7 @@ describe('AuthnMiddleware units', () => {
       expect(e.extract(sreq({ 'x-token': '' }))).to.eq(null);
     });
 
-    it('R1 x-api-key takes only values with authn.token.prefix, as the Authorization extractor and the 2.x middleware do', () => {
+    it('R1 x-api-key takes only values with authn.token.prefix, as the Authorization extractor does', () => {
       const e = extractor(ApiKeyHeaderExtractor);
       expect(e.extract(sreq({ 'x-api-key': 'opaque-key' }))).to.eq(null);
       expect(e.extract(sreq({ 'x-api-key': jwsOf('JWT') }))).to.eq(null);

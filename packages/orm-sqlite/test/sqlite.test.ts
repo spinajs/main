@@ -722,6 +722,16 @@ describe('Sqlite model functions', function () {
     expect(all.length).to.eq(3);
     expect(all.map((r) => r.Id)).to.include(2);
   });
+
+  it('destroy() without keys soft-deletes the rows the caller narrows it to and refuses to run un-narrowed', async () => {
+    await SoftDeleteModel.insert([{ Val: 'a' }, { Val: 'b' }, { Val: 'a' }]);
+
+    await expect(SoftDeleteModel.destroy()).to.be.rejectedWith('Refusing an unbounded UPDATE on soft_delete_test');
+    await SoftDeleteModel.destroy().where('Val', 'a');
+
+    expect((await SoftDeleteModel.all()).map((r) => r.Val)).to.deep.eq(['b']);
+    expect((await SoftDeleteModel.all().withDeleted()).length).to.eq(3);
+  });
 });
 
 describe('Sqlite queries', function () {
@@ -879,7 +889,7 @@ describe('Sqlite driver migrate with transaction', function () {
     const orm = await DI.resolve(Orm);
     const driver = orm.Connections.get('sqlite') as SqlDriver;
     const trSpy = sinon.spy(driver, 'transaction');
-    const exSpy = sinon.spy(driver, 'executeOnDb');
+    const exSpy = sinon.spy(driver as any, 'runStatement');
 
     await orm.Migration.up();
 
@@ -925,7 +935,7 @@ describe('Sqlite driver migrate with transaction', function () {
     const orm = await DI.resolve(Orm);
     const driver = orm.Connections.get('sqlite') as SqlDriver;
     const trSpy = sinon.spy(driver, 'transaction');
-    const exSpy = sinon.spy(driver, 'executeOnDb');
+    const exSpy = sinon.spy(driver as any, 'runStatement');
 
     try {
       await orm.Migration.up();

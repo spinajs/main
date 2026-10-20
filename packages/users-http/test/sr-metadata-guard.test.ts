@@ -17,12 +17,12 @@ import type { HttpClient, Res, UsersHttpApp } from './support/http-app.js';
 /**
  * Regression tests for SR-01 and SR-02 (design §23.3, plan §3c SEC1).
  *
- * Every case replays the 2.x attack through the metadata routes of a running app, as the owner (users' `user` role, on
+ * Every case replays an attack through the metadata routes of a running app, as the owner (users' `user` role, on
  * `/user/metadata`) or as an admin (users' `admin` role, on `/user/:uuid/metadata`), and must fail closed. The A12/api
  * facet of the authn kit runs over the same routes through a {@link MetadataPort} adapter.
  */
 
-/** The keys the 2.x authn-totp wrote; users has no constant for them. */
+/** Reserved `2fa:` keys; users has no constant for them. */
 const TWO_FA_KEYS = { TOKEN: '2fa:token', OTP: '2fa:otp', ENABLED: '2fa:enabled' } as const;
 
 type IdentityRef = Parameters<MetadataPort['seedRaw']>[0];
@@ -92,15 +92,15 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
     return actor === 'owner' ? { client: await app.signIn(user.Uuid), base: '/user/metadata' } : { client: adminClient, base: `/user/${user.Uuid}/metadata` };
   }
 
-  describe('replays of the 2.x attacks', () => {
+  describe('replays of the attacks', () => {
     it("SR-01 admin reads another user's reset token", async () => {
       const victim = await newUser();
       // The public POST /auth/password/reset-request runs this action. authn-local keeps the secret in its own
-      // store, so a reset token row is one a 2.x writer left behind.
+      // store, so a reset token row is one another writer planted.
       const requested = await ((await DI.resolve(PasswordService)) as PasswordService).requestReset(victim.Email, { now: new Date(), purpose: 'request' });
       expect(requested.status).to.eq('accepted');
       expect(await rowOf(victim, 'user:pwd_reset:token'), 'the reset request writes no secret to the metadata').to.not.exist;
-      const token = 'a-2x-reset-token-worth-stealing';
+      const token = 'a-reset-token-worth-stealing';
       await plant(victim, 'user:pwd_reset:token', token);
 
       expect((await adminClient.get(`/user/${victim.Uuid}/metadata/user:pwd_reset:token`)).status).to.eq(404);
@@ -133,7 +133,6 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
       await plant(owner, TWO_FA_KEYS.ENABLED, true);
       const client = await app.signIn(owner.Uuid);
 
-      // 2.x: POST /user/metadata {Key:'2fa:enabled', Value:false} turned 2FA off without the password
       expect((await client.post('/user/metadata', dto('2fa:enabled', false))).status).to.eq(400);
       expect((await client.post('/user/metadata', dto('2FA:Enabled', false))).status).to.eq(400);
 
@@ -155,9 +154,8 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
       const secret = await plant(target, '2fa:token', 'JBSWY3DPEHPK3PXP');
       const ban = await plant(target, 'user:ban:is_banned', true);
 
-      // 2.x: DELETE …/metadata/:id deleted any key, protected or not
       expect((await adminClient.del(`/user/${target.Uuid}/metadata/${secret.Id}`)).status).to.eq(404);
-      // 2.x served the banned owner; 3.0 refuses its session before the route runs.
+      // A banned owner's session is refused before the route runs.
       expect((await (await app.signIn(target.Uuid)).del(`/user/metadata/${ban.Id}`)).status).to.eq(401);
       // An owner who is not banned reaches the route, and the guard refuses the row.
       const lifted = await unbannedOwner();

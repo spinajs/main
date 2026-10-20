@@ -107,7 +107,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
             return (rd as any)['ResourceId'] === val[self._description.PrimaryKey[0]];
           });
 
-          relData.forEach((rd: IntlResource) => {
+          (relData as IntlResource[]).forEach((rd) => {
             if (self._owner && self._owner instanceof BelongsToRelation) {
               val[rd.Column] = rd.Value;
             } else {
@@ -205,6 +205,11 @@ export class IntlQueryMiddleware extends QueryMiddleware {
       return;
     }
 
+    const descriptor = extractModelDescriptor(builder.Model);
+    if (!(descriptor as { Translatable?: boolean } | undefined)?.Translatable && !descriptor?.Relations.size) {
+      return;
+    }
+
     // and translate only selects
     if (builder instanceof SQB && !(builder as any).translated) {
       const lang = guessLanguage();
@@ -230,7 +235,7 @@ export class DbTranslationSource extends TranslationSource {
         return { [tt.Key]: tt.Value };
       });
 
-      return _.assign.apply(_, vals);
+      return Object.assign({}, ...vals);
     });
   }
 }

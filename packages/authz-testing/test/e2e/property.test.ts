@@ -19,10 +19,11 @@ for (const kind of E2E_DIALECTS) {
     });
     after(() => harness.afterAll?.());
 
+    // A list compares expiry with the database's clock, a check with the world's: they must agree, so the world starts at the real now.
     it('holds for random worlds', async () => {
       let n = 0;
       await fc.assert(
-        fc.asyncProperty(arb.accessWorld(), async ({ world, users }) => {
+        fc.asyncProperty(arb.accessWorld({ now: new Date() }), async ({ world, users }) => {
           const title = `property ${++n}`;
           const session: HarnessSession = await harness.setup(world, { id: 'B06', part: 'accessible', case: title, title, facets: ['engine', 'rbac', 'orm'] } as SetupContext);
           try {

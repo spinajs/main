@@ -42,9 +42,8 @@ const caller = (): Principal => ({ type: 'user', id: uuidv4(), authenticated: tr
 
 const findSystemAccount = () => runAsSystem('system-user', () => userModel().select().where('Login', SYSTEM_LOGIN).firstOrFail());
 
-// Ported from users legacy-v2/system-user-factory.test.ts rows 1-4 (B09, B20). The 2.x OrmPermissionPolicy and AccessControl
-// setup becomes a query middleware that scopes the model to nothing outside SYSTEM. RbacSystemUserFactory is gone (R1a): the
-// cases drive the lookup it made, runAsSystem + userModel(), directly.
+// B09, B20: a query middleware scopes the model to nothing outside SYSTEM; the cases drive the system-account lookup,
+// runAsSystem + userModel(), directly.
 describe('runAsSystem lookup of the system account', function () {
   this.timeout(30000);
 
@@ -99,10 +98,10 @@ describe('runAsSystem lookup of the system account', function () {
   it('preserves the surrounding store rather than replacing it', async () => {
     const principal = caller();
     const store = DI.resolve(AsyncLocalStorage);
-    const legacy = new AppUserModel({ Id: 1 } as any);
+    const appUser = new AppUserModel({ Id: 1 } as any);
 
     const seen = await runWithPrincipal(principal, async () =>
-      store.run({ ...store.getStore(), User: legacy, ActiveRole: 'normal' }, async () => {
+      store.run({ ...store.getStore(), User: appUser, ActiveRole: 'normal' }, async () => {
         await findSystemAccount();
         return { principal: currentPrincipal(), store: store.getStore() as { User?: User; ActiveRole?: string } };
       }),
@@ -110,7 +109,7 @@ describe('runAsSystem lookup of the system account', function () {
 
     expect(seen.principal).to.eq(principal);
     expect(seen.principal.ceiling?.roles).to.deep.equal(['normal']);
-    expect(seen.store.User).to.eq(legacy);
+    expect(seen.store.User).to.eq(appUser);
     expect(seen.store.ActiveRole).to.eq('normal');
   });
 });

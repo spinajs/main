@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
-import { InvalidArgument, MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
 import { DatetimeValueConverter, ICompilerOutput, IdentifierQuoter, InSetStatement, OrmException, QueryContext, RawQuery, SchemaQueryBuilder, ServerResponseMapper } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import mssql from 'mssql';
@@ -44,6 +44,25 @@ describe('mssql dialect', function () {
     expect(quoter.quoteQualified('dbo.users')).to.eq('[dbo].[users]');
   });
 
+  it('locks a table with a shared table lock held to the end of the transaction', async () => {
+    const sent: string[] = [];
+    driver.executeOnDb = (stmt: string) => (sent.push(stmt), Promise.resolve([]));
+    // a transaction context in scope is all assertInTransaction() checks
+    await (driver as any).TransactionStorage.run({ depth: 0 }, () => driver.lockTableShared('users'));
+
+    expect(sent).to.deep.eq(['SELECT COUNT(*) FROM [users] WITH (TABLOCK, HOLDLOCK)']);
+  });
+
+  it('refuses lockTableShared outside a transaction', async () => {
+    const err = await driver.lockTableShared('users').then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(err).to.be.instanceOf(InvalidOperation);
+    expect((err as Error).message).to.eq('lockTableShared must run inside a transaction');
+  });
+
   /**
    * `CREATE TABLE ... LIKE` and `WITH RECURSIVE` are not T-SQL. This driver registers
    * neither, so they fail instead of reaching SQL Server as MySQL syntax.
@@ -52,6 +71,19 @@ describe('mssql dialect', function () {
     for (const abstraction of ['TableCloneQueryCompiler', 'RecursiveQueryCompiler']) {
       expect(driver.Container.hasRegistered(abstraction), `${abstraction} must not be inherited from the MySQL-flavoured base`).to.eq(false);
     }
+  });
+
+  it('writes datetimes as DATETIMEOFFSET(3), defaulting to SYSDATETIMEOFFSET()', () => {
+    const schema = driver.Container.resolve(SchemaQueryBuilder, [driver]);
+    const ddl = ([schema.createTable('t', (table) => {
+      table.dateTime('At').notNull().default().dateTime();
+      table.timestamp('Seen');
+      table.date('Day').default().date();
+    }).toDB()].flat() as ICompilerOutput[]).map((o) => o.expression).join(';');
+
+    expect(ddl).to.contain('[At] DATETIMEOFFSET(3) NOT NULL DEFAULT SYSDATETIMEOFFSET()');
+    expect(ddl).to.contain('[Seen] DATETIMEOFFSET(3)');
+    expect(ddl).to.contain('[Day] DATE DEFAULT CAST(SYSUTCDATETIME() AS DATE)');
   });
 
   it('refuses scheduled events, SQL Server Agent is not implemented', () => {
@@ -216,7 +248,7 @@ describe('mssql statements', function () {
     expect(out.match(/UNIQUE/g)).to.have.lengthOf(1);
     expect(out).to.contain('[Active] BIT DEFAULT 1');
     expect(out).to.contain('[Data] NVARCHAR(MAX)');
-    expect(out).to.contain('DEFAULT (CAST(GETDATE() AS DATE))');
+    expect(out).to.contain('DEFAULT CAST(SYSUTCDATETIME() AS DATE)');
   });
 
   it('refuses table features it has no T-SQL for', () => {
@@ -256,10 +288,10 @@ describe('mssql statements', function () {
     expect(() => schema().alterTable('t', (t) => t.int('A').modify().default().value(1)).toDB()).to.throw(NotSupported);
   });
 
-  it('writes a DateTime in UTC and keeps a string', () => {
+  it('writes a DateTime and a date string as UTC ISO', () => {
     const converter = driver.Container.resolve<DatetimeValueConverter>(DatetimeValueConverter);
 
-    expect(converter.toDB(DateTime.fromISO('2024-05-01T10:30:00', { zone: 'UTC+2' }), null as any, null as any)).to.eq('2024-05-01T08:30:00.000');
-    expect(converter.toDB('2024-05-01' as any, null as any, null as any)).to.eq('2024-05-01');
+    expect(converter.toDB(DateTime.fromISO('2024-05-01T10:30:00', { zone: 'UTC+2' }), null as any, null as any)).to.eq('2024-05-01T08:30:00.000Z');
+    expect(converter.toDB('2024-05-01' as any, null as any, null as any)).to.eq('2024-05-01T00:00:00.000Z');
   });
 });

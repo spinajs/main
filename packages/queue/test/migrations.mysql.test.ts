@@ -59,6 +59,8 @@ class MysqlQueueConf extends FrameworkConfiguration {
   protected onLoad() {
     return {
       db: {
+        // The suite drops queue_jobs and migrates by hand after the boot.
+        StrictTableCheck: false,
         DefaultConnection: 'queue',
         Connections: [
           {

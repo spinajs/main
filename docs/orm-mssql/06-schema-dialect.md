@@ -24,10 +24,10 @@ What each `TableQueryBuilder` method writes, and whether SQL Server accepts it:
 | `int`, `smallint`, `tinyint`, `bigint` | `INT`, `SMALLINT`, `TINYINT`, `BIGINT` | yes |
 | `bit` | `BIT` | yes |
 | `float`, `decimal`, `double` (`name, precision = 8, scale = 2`) | `FLOAT(8,2)`, `DECIMAL(8,2)`, `DOUBLE(8,2)` | `DECIMAL` only |
-| `string(name, length = 255)` | `VARCHAR(255)` | yes (not Unicode) |
+| `string(name, length = 255)` | `VARCHAR(255)`; `NVARCHAR(255)` with `exact()` | yes (Unicode only as `NVARCHAR`) |
 | `text`, `tinytext`, `mediumtext`, `longtext` | `NVARCHAR(MAX)` | yes |
-| `date`, `time`, `dateTime` | `DATE`, `TIME`, `DATETIME` | yes |
-| `timestamp` | `TIMESTAMP` | accepted, but it is a row version, not a date |
+| `date`, `time` | `DATE`, `TIME` | yes |
+| `dateTime`, `timestamp` | `DATETIMEOFFSET(3)` | yes |
 | `binary(name, size)`, `uuid` | `BINARY(size)`, `BINARY(16)` | yes |
 | `boolean` | `BIT` | yes |
 | `json` | `NVARCHAR(MAX)` | yes |
@@ -42,10 +42,10 @@ What each `TableQueryBuilder` method writes, and whether SQL Server accepts it:
 | `unique()` | `UNIQUE` on the column | yes |
 | `unsigned()`, `comment()` | nothing: T-SQL has neither | yes |
 | `charset()` | throws `NotSupported('mssql has no CHARACTER SET for a column, use collation() instead')` | |
-| `collation(name)` | `COLLATE name`, the name checked to be letters, digits and `_` | yes |
-| `exact()` | `COLLATE Latin1_General_BIN2` | yes; compares byte for byte. `=` still ignores trailing spaces: compare with `SqlExpressions.equalsExactly()` where they matter |
+| `collation(name)` | `COLLATE name`, unquoted; a name outside `[A-Za-z0-9_]` throws `InvalidArgument` | yes |
+| `exact()` | `COLLATE Latin1_General_100_BIN2`, unless `collation()` names one; a `string()` column becomes `NVARCHAR(n)`, since a binary collation on `VARCHAR` limits it to code page 1252 | yes; compares byte for byte. `=` still ignores trailing spaces: compare with `SqlExpressions.equalsExactly()` where they matter |
 | `default().value(v)` | `DEFAULT 'v'` for a string, `DEFAULT v` for a number | yes |
-| `default().date()`, `default().dateTime()` | `DEFAULT (CAST(GETDATE() AS DATE))`, `DEFAULT CURRENT_TIMESTAMP` | yes |
+| `default().date()`, `default().dateTime()` | `DEFAULT CAST(SYSUTCDATETIME() AS DATE)` (the UTC date), `DEFAULT SYSDATETIMEOFFSET()` | yes |
 | `default().raw(query)` | `DEFAULT <query>` | as written |
 
 ### Other schema statements
@@ -53,6 +53,7 @@ What each `TableQueryBuilder` method writes, and whether SQL Server accepts it:
 | Builder call | Class | T-SQL |
 | --- | --- | --- |
 | `schema().tableExists(name, database?)` | `MsSqlTableExistsCompiler` | `SELECT TOP(1) * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? [AND TABLE_CATALOG=?] ORDER BY TABLE_NAME`; `true` when a row comes back |
+| `driver.lockTableShared(name)`, inside a transaction | `MsSqlOrmDriver` | `SELECT COUNT(*) FROM [name] WITH (TABLOCK, HOLDLOCK)` |
 | `driver.index()...` | shared `SqlIndexQueryCompiler` | `CREATE [UNIQUE] INDEX [name] ON [table] ([cols]);` |
 | `driver.index().name(n).table(t).drop()` | shared `SqlIndexQueryCompiler` | `DROP INDEX [n] ON [t]` |
 | `schema().dropTable(name).ifExists()` | shared `SqlDropTableQueryCompiler` | `DROP TABLE IF EXISTS <table>` |
@@ -88,7 +89,7 @@ All in the driver's child container, registered by `MsSqlOrmDriver.resolve()`. T
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Column definition | `ColumnQueryCompiler`, new instance | `MsSqlColumnQueryCompiler` | `SqlColumnQueryCompiler` | Extend `SqlColumnQueryCompiler`; reassign entries of `this._statementsMappings` in the constructor. |
+| Column definition | `ColumnQueryCompiler`, new instance | `MsSqlColumnQueryCompiler` | `SqlColumnQueryCompiler` | Extend `SqlColumnQueryCompiler`; reassign entries of `this._statementsMappings` in the constructor, and override `charsetName()` / `collationName()` to change the character set and collation clauses. |
 | `CREATE TABLE` | `TableQueryCompiler`, new instance | `MsSqlTableQueryCompiler` | `SqlTableQueryCompiler` (adds history triggers, MySQL spelling) | Extend `SqlTableQueryCompiler`; override `compile()`, `_table()`, `_columns()` or `_foreignKeys()`. |
 | Column defaults | `DefaultValueBuilder`, new instance | `MsSqlDefaultValueBuilder` | `SqlDefaultValueBuilder` (`@spinajs/orm-sql`, `CURRENT_DATE()` is not T-SQL) | Extend `SqlDefaultValueBuilder`, decorate `@NewInstance()`, register `.as(DefaultValueBuilder)`. |
 | Table existence | `TableExistsCompiler`, new instance | `MsSqlTableExistsCompiler` | | Implement `TableExistsCompiler.compile()`; return a query that yields a row when the table exists. |
@@ -102,7 +103,7 @@ All in the driver's child container, registered by `MsSqlOrmDriver.resolve()`. T
 
 ### Column definition: custom implementation
 
-Write Unicode strings and `DATETIME2` datetimes. The MSSQL compiler is not exported, so this one extends the shared compiler and restates the T-SQL mappings it needs:
+Write Unicode strings, `BIT` booleans and `NVARCHAR(MAX)` for text and JSON. The MSSQL compiler is not exported, so this one extends the shared compiler and restates the T-SQL mappings it needs:
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -117,16 +118,24 @@ export class TsqlColumnQueryCompiler extends SqlColumnQueryCompiler {
 
     this._statementsMappings.autoincrement = () => 'IDENTITY(1,1)';
     this._statementsMappings.string = (column: ColumnQueryBuilder) => `NVARCHAR(${column.Args[0] ?? 255})`;
-    // extends the shared compiler, so the MSSQL text, json and exact() spellings are restated
+    // extends the shared compiler, so the MSSQL text, json, boolean and collation spellings are restated
     this._statementsMappings.text = () => 'NVARCHAR(MAX)';
     this._statementsMappings.longtext = () => 'NVARCHAR(MAX)';
     this._statementsMappings.json = () => 'NVARCHAR(MAX)';
-    this._statementsMappings.exact = () => 'COLLATE Latin1_General_BIN2';
     this._statementsMappings.boolean = () => 'BIT';
-    this._statementsMappings.dateTime = () => 'DATETIME2';
+    this._statementsMappings.collation = (name: string) => `COLLATE ${name}`;
     // T-SQL has no column comments; an empty entry is dropped from the definition
     this._statementsMappings.comment = () => '';
     this._statementsMappings.unsigned = () => '';
+  }
+
+  // T-SQL has no column character set: skip charset()
+  protected charsetName(): string {
+    return '';
+  }
+
+  protected collationName(): string {
+    return this.builder.Collation || (this.builder.Exact ? 'Latin1_General_100_BIN2' : '');
   }
 }
 
@@ -142,7 +151,7 @@ export class UnicodeMsSqlDriver extends MsSqlOrmDriver {
 
 ### Column defaults: custom implementation
 
-`SqlColumnQueryCompiler` turns the builder's `Value` into `DEFAULT '...'` or `DEFAULT n`, and its `Query` into `DEFAULT <sql>`. Replace the builder to change what `date()` and `dateTime()` write, for example the higher-precision `SYSDATETIME()`:
+`MsSqlDefaultValueBuilder` already writes `CAST(SYSUTCDATETIME() AS DATE)` for `date()` and `SYSDATETIMEOFFSET()` for `dateTime()`. Register your own to change a default; `SqlColumnQueryCompiler` turns its `Value` into `DEFAULT '...'` or `DEFAULT n`, and its `Query` into `DEFAULT <sql>`. This one takes `date()` from the server's local clock instead of UTC, so near midnight it is a day off the date the other dialects write:
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -154,11 +163,6 @@ import { MsSqlOrmDriver } from '@spinajs/orm-mssql';
 export class TsqlDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
   public date(): T {
     this.Query = RawQuery.create('CAST(GETDATE() AS DATE)');
-    return this.Owner;
-  }
-
-  public dateTime(): T {
-    this.Query = RawQuery.create('SYSDATETIME()');
     return this.Owner;
   }
 }
@@ -173,7 +177,7 @@ export class DefaultsMsSqlDriver extends MsSqlOrmDriver {
 }
 ```
 
-Then `table.dateTime('CreatedAt').notNull().default().dateTime()` writes `[CreatedAt] DATETIME NOT NULL DEFAULT SYSDATETIME()`.
+Then `table.date('Day').default().date()` writes `[Day] DATE DEFAULT CAST(GETDATE() AS DATE)`.
 
 ## Important behaviour
 
@@ -197,13 +201,13 @@ Then `table.dateTime('CreatedAt').notNull().default().dateTime()` writes `[Creat
 ## Patterns and antipatterns
 
 ```ts
-// Don't: LONGTEXT and MEDIUMINT are not T-SQL types
-table.longtext('Body');
+// Don't: MEDIUMINT and DOUBLE are not T-SQL types
 table.mediumint('Views');
+table.double('Ratio');
 
 // Do
-table.text('Body');
 table.int('Views');
+table.decimal('Ratio', 10, 4);
 ```
 
 ## Examples

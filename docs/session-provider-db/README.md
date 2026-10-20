@@ -1,8 +1,8 @@
 # `@spinajs/session-provider-db`
 
-A relational database session store for `@spinajs/authn-session`. `DbSessionStore` implements `SessionProvider` over one table, `user_sessions`, through `@spinajs/orm`, and ships the migrations that create and upgrade that table.
+A relational database session store for `@spinajs/authn-session`. `DbSessionStore` implements `SessionProvider` over one table, `user_sessions`, through `@spinajs/orm`, and ships the migration that creates that table.
 
-It does **not** issue, hash or rotate session ids, and it does not set cookies: `DefaultSessionIssuer` in `@spinajs/authn-session` does that and calls this store for storage. It runs on MySQL / MariaDB, PostgreSQL and SQLite. MSSQL is **not** supported: the session id migration fails there (see [Session table and migrations](02-session-table-and-migrations.md#important-behaviour)).
+It does **not** issue, hash or rotate session ids, and it does not set cookies: `DefaultSessionIssuer` in `@spinajs/authn-session` does that and calls this store for storage. It runs on MySQL / MariaDB, PostgreSQL and SQLite.
 
 ## Install
 
@@ -16,8 +16,8 @@ Add one ORM driver, for example `@spinajs/orm-mysql`.
 
 | Feature | What it does |
 | --- | --- |
-| [Database session store](01-db-session-store.md) | `DbSessionStore`: selection by `authn.session.service`, save, restore, touch, revocation by subject, the expired-session sweep, 2.x rows |
-| [Session table and migrations](02-session-table-and-migrations.md) | The `user_sessions` table, the `DbSession` model, the `session-provider-connection` name and the four migrations |
+| [Database session store](01-db-session-store.md) | `DbSessionStore`: selection by `authn.session.service`, save, restore, touch, revocation by subject, the expired-session sweep |
+| [Session table and migrations](02-session-table-and-migrations.md) | The `user_sessions` table, the `DbSession` model, the `session-provider-connection` name and the creating migration |
 | [Extending the session store](03-extending-the-session-store.md) | Every extension point: the `SessionProvider` token, subclassing `DbSessionStore`, the expiration strategy, the connection binding, extra migrations, the log category |
 
 ## Quick start
@@ -71,12 +71,12 @@ export async function activeDeviceCount(userUuid: string): Promise<number> {
 }
 ```
 
-Importing `@spinajs/session-provider-db` registers `DbSessionStore` and the four migrations. `authn.session.service: 'DbSessionStore'` makes the session issuer use it; `db.Aliases` points the store's connection name at the main database, which must also hold the `users` table.
+Importing `@spinajs/session-provider-db` registers `DbSessionStore` and its migration. `authn.session.service: 'DbSessionStore'` makes the session issuer use it; `db.Aliases` points the store's connection name at the main database.
 
 ## Related packages
 
-- [`@spinajs/authn`](../authn/README.md#sessions): the session contract, the issuer, ids, states and revocation this store serves.
+- [`@spinajs/authn-session`](../authn-session/README.md): the session contract, the issuer, ids, states and revocation this store serves.
 - [`@spinajs/orm`](../orm/README.md): models, [connections and aliases](../orm/01-connections.md) and [migrations](../orm/10-migrations.md) the store runs on.
-- [`@spinajs/orm-mysql`](../orm-mysql/README.md), [`@spinajs/orm-sqlite`](../orm-sqlite/README.md): drivers the migrations run on; each spells the column changes its own way.
+- [`@spinajs/orm-mysql`](../orm-mysql/README.md), [`@spinajs/orm-sqlite`](../orm-sqlite/README.md): drivers the migration runs on; each maps the column types its own way.
 - [`@spinajs/session-provider-redis`](../session-provider-redis/README.md), [`@spinajs/session-provider-dynamodb`](../session-provider-dynamodb/README.md): the other shipped `SessionProvider` stores.
-- [`@spinajs/users`](../users/README.md): creates the `users` table that `user_sessions.UserId` references.
+- [`@spinajs/users`](../users/README.md): ends a user's sessions through `SessionIssuer.revokeAll()` on a ban or deletion; `user_sessions` has no foreign key to `users`.

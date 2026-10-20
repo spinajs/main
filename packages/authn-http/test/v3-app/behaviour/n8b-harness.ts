@@ -5,9 +5,9 @@ import type { Class } from '@spinajs/di';
 import { AuthnEventSink, AuthnService, CredentialAdminGuard, KeyRegistry, MfaPolicy, MfaStep, PasswordService, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnEvent, AuthnFacts, CredentialAdminAction, IdentityRef, Principal } from '@spinajs/authn/contracts';
 import { FakeImpersonationGuard, totpFromProvisioning } from '@spinajs/authn-testing';
-import type { FakeIdentityStore, Harness, HarnessContext, HarnessFactory, HttpRoutes, LegacyUser, PortName, SecretRowView } from '@spinajs/authn-testing';
+import type { FakeIdentityStore, Harness, HarnessContext, HarnessFactory, HttpRoutes, PortName } from '@spinajs/authn-testing';
 import type { LocalPasswordService, PasswordMail } from '@spinajs/authn-local';
-import type { AuthnFromUserMetadata_2026_10_02_00_01_00, DbMfaStore, DbSecretStore } from '@spinajs/authn-orm';
+import type { DbMfaStore, DbSecretStore } from '@spinajs/authn-orm';
 import type { TotpService } from '@spinajs/authn-totp/service';
 
 import { bind } from '../app.js';
@@ -26,9 +26,8 @@ import type { HarnessLane, StrategyEntry } from './harness.js';
  * deferred work. Modules are imported dynamically, so the suites that run before this one see no strategy service;
  * the route groups with and without each package boot in their own processes (test/v3/route-groups-boot.test.ts).
  *
- * Boot the lane once per process: registrations outlive shutdownN8bApp, among them the A32 upgrade migration, which a
- * second boot would run on a database without users_metadata. Suites after auth-password.test.ts also keep its
- * recording PasswordService registered beneath authn-local's.
+ * Boot the lane once per process: registrations outlive shutdownN8bApp. Suites after auth-password.test.ts also keep
+ * its recording PasswordService registered beneath authn-local's.
  */
 
 export interface PartCase {
@@ -96,8 +95,7 @@ interface PasswordState {
 
 let local: typeof import('@spinajs/authn-local') | undefined;
 let secretModule: { DbSecretStore: new (...args: ConstructorParameters<typeof DbSecretStore>) => DbSecretStore } | undefined;
-let utc: { fromUtcColumn(v: string | null | undefined): Date | undefined } | undefined;
-let upgrade: { AuthnFromUserMetadata_2026_10_02_00_01_00: new () => AuthnFromUserMetadata_2026_10_02_00_01_00 } | undefined;
+let time: { readInstant(v: string | null | undefined): Date | undefined } | undefined;
 let passwordState: PasswordState | undefined;
 let passwordBound = false;
 
@@ -108,22 +106,10 @@ function loaded<T>(value: T | undefined, what: string): T {
 
 const passwordNow = (): PasswordState => loaded(passwordState, 'the password part');
 
-async function seedLegacy(fakes: AppFakes, users: readonly LegacyUser[]): Promise<void> {
-  const db = tokenDb();
-  for (const u of users) {
-    await db.insert().into('users').values({ Uuid: u.Uuid, Email: u.Email, Login: u.Login, Password: 'x'.repeat(20), Role: 'user', IsActive: u.IsActive });
-    const [row] = (await db.select().from('users').where('Uuid', u.Uuid)) as { Id: number }[];
-    for (const m of u.metadata) await db.insert().into('users_metadata').values({ Key: m.Key, Type: m.Type, Value: m.Value, user_id: row.Id });
-    // C1's IdentityStore over these rows: invite-pending while 2.x saw user:invite:pending as true.
-    const invitePending = u.metadata.some((m) => m.Key === 'user:invite:pending' && m.Value === 'true');
-    fakes.identities.add({ id: u.Uuid, login: u.Login, email: u.Email, status: { active: u.IsActive, invitePending } });
-  }
-}
-
-async function secretRows(): Promise<SecretRowView[]> {
-  const { fromUtcColumn } = loaded(utc, 'authn-orm');
+async function secretRows(): Promise<{ identity: string; purpose: string; secret_hash: string; expires_at: Date; used_at: Date | null }[]> {
+  const { readInstant } = loaded(time, 'authn-orm');
   const rows = (await tokenDb().select().from('authn_secret').orderBy('id')) as Record<string, string | null>[];
-  return rows.map((r) => ({ identity: r.identity!, purpose: r.purpose!, secret_hash: r.secret_hash!, expires_at: fromUtcColumn(r.expires_at)!, created_at: fromUtcColumn(r.created_at)!, used_at: fromUtcColumn(r.used_at) ?? null }));
+  return rows.map((r) => ({ identity: r.identity!, purpose: r.purpose!, secret_hash: r.secret_hash!, expires_at: readInstant(r.expires_at)!, used_at: readInstant(r.used_at) ?? null }));
 }
 
 /** authn-orm's `<type>:<id>` identity column; the id may hold more colons. */
@@ -132,20 +118,14 @@ function identityOf(key: string): IdentityRef {
   return { type: key.slice(0, at), id: key.slice(at + 1) };
 }
 
-async function metadataKeys(uuid: string): Promise<string[]> {
-  const db = tokenDb();
-  const [user] = (await db.select().from('users').where('Uuid', uuid)) as { Id: number }[];
-  return ((await db.select().from('users_metadata').where('user_id', user.Id)) as { Key: string }[]).map((r) => r.Key);
-}
-
-/** authn-local (LocalPasswordStrategy, LocalPasswordService, argon2) with authn-orm's DbSecretStore and the N4 upgrade migration. */
+/** authn-local (LocalPasswordStrategy, LocalPasswordService, argon2) with authn-orm's DbSecretStore. */
 export const passwordPart: LanePart = {
   name: 'password',
   async beforeDb() {
     local = await import('@spinajs/authn-local');
     await ormModule('migrations/AuthnInitial_2026_10_02_00_00_00.js');
     secretModule = await ormModule('secrets/db-secret-store.js');
-    utc = await ormModule('models/utc.js');
+    time = await ormModule('models/time.js');
     if (!passwordBound) {
       passwordBound = true;
       bind(local.PasswordMailer, 'N8bPasswordMailer', () => passwordNow().mailer);
@@ -154,29 +134,16 @@ export const passwordPart: LanePart = {
       DI.register(N8bInviteActivation).as(AuthnEventSink);
     }
   },
-  async boot() {
-    // Imported after the boot: on startup there are no 2.x tables yet, and each A32 case runs it by itself.
-    upgrade = await ormModule('migrations/AuthnFromUserMetadata_2026_10_02_00_01_00.js');
-    await tokenDb()
-      .schema()
-      .createTable('users_metadata', (table) => {
-        table.int('Id').primaryKey().autoIncrement();
-        table.string('Key', 255).notNull();
-        table.enum('Type', ['number', 'float', 'string', 'json', 'boolean', 'datetime']).notNull();
-        table.text('Value');
-        table.int('user_id').notNull();
-      });
-  },
   strategies: [{ name: 'local', service: 'LocalPasswordStrategy' }],
   supportedConfig: ['authn.local.reset.revokeTokens', 'authn.local.reset.ttlSeconds', 'authn.local.invite.ttlSeconds'],
   routes: PASSWORD_ROUTES,
-  ports: ['password', 'passwordStore', 'outbox', 'secrets', 'secretStorage', 'migration'],
+  ports: ['password', 'passwordStore', 'outbox', 'secrets', 'secretStorage'],
   async open(c) {
     const l = loaded(local, 'authn-local');
     for (const type of [PasswordService, l.LocalPasswordService, l.PasswordHasher, l.Argon2PasswordHasher, l.LocalPasswordPolicy]) DI.uncache(type as unknown as Class<unknown>);
     const db = tokenDb();
-    for (const table of ['users_metadata', 'authn_secret', 'users']) await db.del().from(table);
-    passwordState = { identities: c.fakes.identities, mailer: new LaneMailer(), secrets: new (loaded(secretModule, 'authn-orm').DbSecretStore)(db) };
+    for (const table of ['authn_secret', 'users']) await db.del().from(table);
+    passwordState = { identities: c.fakes.identities, mailer: new LaneMailer(), secrets: new (loaded(secretModule, 'authn-orm').DbSecretStore)() };
   },
   async addPorts(c) {
     const l = loaded(local, 'authn-local');
@@ -208,12 +175,6 @@ export const passwordPart: LanePart = {
           await service.drain();
           return state.mailer.secretFor(id, purpose);
         },
-      },
-      migration: {
-        seedLegacy: (users) => seedLegacy(c.fakes, users),
-        run: () => new (loaded(upgrade, 'the upgrade migration').AuthnFromUserMetadata_2026_10_02_00_01_00)().up(tokenDb()),
-        secretRows,
-        metadataKeys,
       },
     };
   },
@@ -372,7 +333,7 @@ export const totpPart: LanePart = {
     for (const table of ['authn_mfa', 'authn_recovery_code']) await db.del().from(table);
     laneEvents.length = 0;
     const undo = [setConfig('authn.mfa.steps', MFA_STEPS), setConfig('authn.mfa.encryptionKey', MFA_ENCRYPTION_KEY)];
-    totpState = { db: new t.DbMfaStore(db), failing: false, provisioning: new Map(), recoveryCodes: new Map(), undo };
+    totpState = { db: new t.DbMfaStore(), failing: false, provisioning: new Map(), recoveryCodes: new Map(), undo };
   },
   async addPorts() {
     const state = totpNow();

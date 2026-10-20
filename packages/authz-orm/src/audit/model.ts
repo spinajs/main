@@ -12,10 +12,7 @@ export class AuthzAuditEntry extends ModelBase<AuthzAuditEntry> {
   @Primary({ generated: 'uuid' })
   public id!: string;
 
-  /**
-   * UTC wall time without an offset (the orm writes a DateTime in its own zone). Read back, it is a
-   * DateTime in the local zone: `at.setZone('utc', { keepLocalTime: true })` gives the instant.
-   */
+  /** The instant of the decision; read back as a DateTime in UTC. */
   @DateTimeColumn()
   public at!: DateTime;
 

@@ -73,7 +73,7 @@ describe('users-http v3: @CurrentUser() route arg', function () {
 
   it('refuses a user principal whose account was deleted with 401', async () => {
     const user = await app.seedUser({ login: 'arg-deleted' });
-    await User.query().Driver.update().in('users').update({ DeletedAt: DateTime.now().toSQL({ includeOffset: false }) }).where('Uuid', user.Uuid);
+    await User.query().Driver.update().in('users').update({ DeletedAt: DateTime.utc() }).where('Uuid', user.Uuid);
 
     await expect(extract(userPrincipal(user.Uuid))).to.be.rejectedWith(AuthenticationFailed);
   });

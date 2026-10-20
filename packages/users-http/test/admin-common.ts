@@ -15,7 +15,7 @@ export function dir(path: string) {
 }
 
 /**
- * The role world of the admin suites: the 2.x fixture as authz-rbac roles. `admin` may manage
+ * The role world of the admin suites as authz-rbac roles. `admin` may manage
  * assignments and holds every `users:*` permission, so it may grant any role but `superadmin` (escalation)
  * and `system` (not assignable).
  */
@@ -132,8 +132,6 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
         admin: {
           backend: 'DbAuthzAdminBackend',
-          // These suites may resolve their Configuration before authz's bootstrapper registers the core schema.
-          connection: 'default',
           guard: {
             service: 'DefaultAdminGuard',
             privilegedPermission: 'users:update',
@@ -197,6 +195,7 @@ export class TestConfiguration extends FrameworkConfiguration {
 
       db: {
         DefaultConnection: 'sqlite',
+        Aliases: { authz: 'default' },
         Connections: [
           {
             Driver: 'orm-driver-sqlite',

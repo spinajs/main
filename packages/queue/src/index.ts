@@ -1,4 +1,4 @@
-import { InvalidArgument, ConnectionNotFound } from '@spinajs/exceptions';
+import { InvalidArgument, ConnectionNotFound, toError } from '@spinajs/exceptions';
 import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IJobProgressMeta, QueueMessage, QueueService, JobRetentionService, isJob } from './interfaces.js';
@@ -51,7 +51,7 @@ export class DefaultQueueService extends QueueService {
    * Started / stopped by DI on injection / disposal. May be undefined if retention
    * is not configured.
    */
-  @AutoinjectService('queue.retention', JobRetentionService)
+  @AutoinjectService('queue.retention', JobRetentionService, { optional: true })
   protected Retention?: JobRetentionService;
 
   public async dispose() {
@@ -59,7 +59,7 @@ export class DefaultQueueService extends QueueService {
       try {
         await this.Retention.dispose();
       } catch (err) {
-        this.Log.error(err, 'Cannot dispose job retention service');
+        this.Log.error(toError(err), 'Cannot dispose job retention service');
       }
     }
 

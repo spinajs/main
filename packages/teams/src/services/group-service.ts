@@ -8,7 +8,7 @@ import { DateTime } from 'luxon';
 
 import { GROUP_MEMBER_ROLE, GroupService } from '../api.js';
 import type { CreateGroupInput, GroupView, MemberEntry, MoveGroupInput, Page, Paged, TeamSubject, UpdateGroupInput } from '../api.js';
-import { asSystem, assertAllowed, execute, teamsDriver } from '../host.js';
+import { asSystem, assertAllowed, execute } from '../host.js';
 import { deleteInvitations } from '../invitations/rows.js';
 import { groupLineage, groupParent, liveGroup, liveTeam } from '../lookup.js';
 import { Group } from '../models/Group.js';
@@ -95,11 +95,10 @@ export class DefaultGroupService extends GroupService {
     const before = { team_id: group.team_id, parent_id: group.parent_id ?? null };
     const after = { team_id: target.id, parent_id: parent?.id ?? null };
 
-    const driver = await teamsDriver();
     // Both @Parent columns in one transaction: authz-orm rewrites the closure of every moved row.
     const write = (from: typeof before, next: typeof after) =>
       asSystem(() =>
-        driver.transaction(async () => {
+        Group.transaction(async () => {
           if (from.team_id !== next.team_id)
             await Group.update({ team_id: next.team_id }).whereIn(
               'id',

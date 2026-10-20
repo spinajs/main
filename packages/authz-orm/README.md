@@ -15,23 +15,25 @@ import '@spinajs/authz-orm';   // registers the adapter, the write middleware an
 
 Migrations: `AuthzResourceAncestor_2026_10_14_00_00_00` (`authz_resource_ancestor`),
 `AuthzScopeAttribute_2026_10_02_00_00_00` (`authz_scope_attribute`), `AuthzAudit_2026_10_01_00_00_00`
-(`authz_audit`). The ancestor table lives on the connection of the authz stores
-(`authz.rbac.connection`, else `authz.admin.connection`, else the default), which must be the database
+(`authz_audit`). The ancestor and scope-attribute tables live on the connection of the authz stores, the
+ORM alias `authz` (`db.Aliases.authz`, which this package's config maps to `default`), which must be the database
 of the resource tables: the list filter joins them with `authz_assignment` (and, for `@Parent`,
 `authz_resource_ancestor`), and a delete forgets the row's scopes through the same driver. The domain boot
 refuses every `@AccessResource` model on another connection (`AuthzConfigError` naming each model and its
-connection), with or without `@Parent`.
+connection), with or without `@Parent`. A write of such a model, and `authz:ancestors-verify` or
+`authz:ancestors-rebuild` for its type, fail the same way before they touch a row.
 
 ## Declaring resources
 
 ```ts
-import { AccessResource, Owner, Parent, Self, registerAccessResource } from '@spinajs/authz-orm';
+import { AccessResource, Owner, Parent, Relation, Self, registerAccessResource } from '@spinajs/authz-orm';
 
 @AccessResource('task')
 export class Task extends ModelBase {
   @Parent('project') public project_id: number;
   @Parent('sprint')  public sprint_id: number;    // a second parent: both chains are ancestors
   @Owner()           public owner_id: string;     // relation 'owner'
+  @Relation('assignee') public assignee_id: string; // relation 'assignee'
 }
 
 @AccessResource('folder')
@@ -43,7 +45,11 @@ export class Folder extends ModelBase {
 // a model your package does not own
 registerAccessResource(DbConfig, 'configuration');
 // the initiator can be any principal type: the owner holds when type and id both match
-registerAccessResource(JobModel, 'job', { owner: { column: 'InitiatorId', typeColumn: 'InitiatorType' } });
+// named column relations: a column name, or { column, typeColumn }; one call carries all options
+registerAccessResource(JobModel, 'job', {
+  owner: { column: 'InitiatorId', typeColumn: 'InitiatorType' },
+  relations: { reviewer: { column: 'ReviewerId', typeColumn: 'ReviewerType' } },
+});
 ```
 
 - `@Parent(type)` names the parent's resource type; the column holds the parent's id. Int and uuid
@@ -51,6 +57,11 @@ registerAccessResource(JobModel, 'job', { owner: { column: 'InitiatorId', typeCo
 - `@Owner()` is read from the row whenever it is needed; it is never copied, so it cannot go stale.
   Without options it matches `user` principals only; `@Owner({ typeColumn: 'owner_type' })` compares
   the principal's type with that column too, for rows owned by any principal type.
+- `@Relation(name, { typeColumn? })` declares a column relation like `owner`, for example `Task.assignee_id`.
+  Grant it with `{ permission: 'task:read', relation: 'assignee' }`; it works for single checks and for
+  `list: true` permissions (`.accessible()` renders `relation.column`). Without `typeColumn` the column
+  holds `user` ids. `owner` and `self` cannot be declared with it. A relation that lives in no column is
+  a role assigned on the resource. See [column relations](../../docs/authz/12-column-relations.md).
 - `@Self()` marks the column that equals the principal id (`self`, for `user` principals);
   `@spinajs/users` uses its own resolver for `user`.
 - Each `@AccessResource` type gets the permissions `<type>:read`, `<type>:create`, `<type>:update` and
@@ -108,38 +119,50 @@ Permission names are compared exactly: `@AccessResource('task')` registers `task
   (`authz.audit.unscoped`), with the audit and config the domain's service booted with. Before that boot
   they are read from the configuration and picked the way the host picks them.
 
-### Plan terms and `PlanTermSql`
+### Plan terms and `PlanTermCompiler`
 
 An access plan is a list of opaque terms (`{ op, args }`) from each model's `listPlan`. The adapter
-renders each term with the `PlanTermSql` registered for its `op` and combines them as
-`(permit OR …) AND NOT (deny OR …)`. A term with no compiler fails the query with `AuthzConfigError`.
+applies each term with the `PlanTermCompiler` registered for its `op`, each in a where group of its own,
+and combines the groups as `(permit OR …) AND NOT (deny OR …) AND within`. A term with no compiler, or
+a compiler that adds no condition, fails the query with `AuthzConfigError`.
 
-| op | Registered by | Renders |
+| op | Registered by | Adds |
 |---|---|---|
-| `relation.owner` | authz-orm | the `@Owner()` column (and its `typeColumn`) is one of `args.principals` |
-| `relation.self` | authz-orm | the `@Self()` column is one of the `user` principals in `args.principals` |
-| `rbac.assignment` | authz-rbac (`RbacAssignmentSql`) | the `EXISTS` over `authz_assignment`, `authz_subject_membership` and `authz_resource_ancestor` |
+| `relation.owner` | authz-orm (`RelationOwnerTerm`) | the `@Owner()` column as text (and its `typeColumn`) is one of `args.principals` |
+| `relation.self` | authz-orm (`RelationSelfTerm`) | the `@Self()` column as text is one of the `user` principals in `args.principals` |
+| `relation.column` | authz-orm (`RelationColumnTerm`) | the column of the `@Relation` named in `args.relation` (and its `typeColumn`) holds one of `args.principals` |
+| `rbac.assignment` | authz-rbac (`RbacAssignmentTerm`) | `EXISTS` over `authz_assignment` at the row, at an ancestor (`authz_resource_ancestor`) or at `$global` |
 
-A model that adds list support registers a compiler for each op its `listPlan` returns:
+A model that adds list support registers a compiler for each op its `listPlan` returns. The contract
+lives in `@spinajs/authz-orm/plan`, an entry point that loads nothing else of the adapter:
 
 ```ts
-import { PlanTermSql } from '@spinajs/authz';
-import type { SqlFragment, SqlRowContext } from '@spinajs/authz';
+import { PlanTermCompiler } from '@spinajs/authz-orm/plan';
+import type { PlanRow } from '@spinajs/authz-orm/plan';
+import { Injectable, Singleton } from '@spinajs/di';
+import type { IWhereBuilder } from '@spinajs/orm';
 
 @Singleton()
-@Injectable(PlanTermSql)
-export class TenantSql extends PlanTermSql {
-  readonly op = 'myapp.tenant';   // listPlan returns { op: 'myapp.tenant', args: { tenant: '42' } }
-  toSql(args: unknown, row: SqlRowContext): SqlFragment {
-    return { sql: `${row.rowColumn('tenant_id')} = ?`, bindings: [(args as { tenant: string }).tenant] };
+@Injectable(PlanTermCompiler)
+export class TenantTerm extends PlanTermCompiler {
+  readonly op = 'myapp.tenant'; // listPlan returns { op: 'myapp.tenant', args: { tenant: '42' } }
+
+  apply(args: unknown, where: IWhereBuilder<unknown>, _row: PlanRow): void {
+    where.where('tenant_id', (args as { tenant: string }).tenant);
   }
 }
 ```
 
-`SqlRowContext` gives the `type`, `rowId` (SQL yielding the row id as text), `rowColumn(column)`, the
-`ancestorTable`, the `owner`/`self` relation columns, `now` and `expressions`, the connection's SQL for what
-dialects spell differently (`castText`, `contains`). The SQL must keep exactly the rows a check of each one would allow: boot rule 12
+`where` is a group of the resource query, so a column name there is the row's. `PlanRow` gives the
+`type`, `id` (the id column cast to text: `where.whereIn(row.id, ids)` on the group, `outer(row.id)` in a
+sub-query), the columns of a relation (`owner`, `self` or an `@Relation` name), the `ancestorTable`, `now()` (the database's current
+instant: `where('expires_at', '>', row.now())`) and `from(table, alias)`, a query on the row's connection
+that `whereExist()` correlates with the group it is called on. A term that matches no row adds
+`where(false)`. The condition must keep exactly the rows a check of each one would allow: boot rule 12
 guarantees that for the RBAC and ABAC plans, a custom model guarantees it for its own terms.
+
+Expiry in a list is the database's: `rbac.assignment` compares `expires_at` with `row.now()`, while a
+check uses `AuthzClock`. See [the authz README](../../docs/authz/README.md) for what a clock skew does.
 
 ## Per-row access
 
@@ -148,7 +171,7 @@ const rows = await Task.query().accessible('task:read').withAccess(['task:update
 // rows[i].$access = { 'task:update': true, 'task:delete': false }
 ```
 
-Each permission is one boolean column built from the same filter, so a page with its access is one
+Each permission is one boolean column built from the same filter (`selectCondition()`), so a page with its access is one
 query. Each permission must be `list: true`. `$access` is serialized with the row; rename it with
 `authz.orm.accessField`. A client may seed its cache from it: it equals what
 `POST /user/access/checks` answers.
@@ -230,15 +253,17 @@ without a principal), with a count, the most frequent first. It reads `authz_aud
 The import does not register it as the `DecisionAudit`: without `authz.audit.service` the host takes
 the last one registered, so loading the module would silently replace the log audit.
 
-`at` holds UTC time without an offset, whatever the server's time zone, so rows from hosts in other
-zones compare and the hour repeated when daylight saving ends sorts right. Through the model it reads
-back as a luxon `DateTime` in the local zone; `at.setZone('utc', { keepLocalTime: true })` gives the
-instant.
+`at` is the instant of the decision, stored in UTC; through the model it reads back as a luxon `DateTime` in UTC.
 
 ## Scope attributes
 
 `DbScopeAttributeStore` keeps `authz_scope_attribute`, written through `AuthzAdmin`
-(`scope.setAttributes`, `scope.replaceAttributes`).
+(`scope.setAttributes`, `scope.replaceAttributes`). `new DbScopeAttributeStore()` takes no options:
+it reads and writes on the alias `authz`, and a write runs only inside the `AuthzAdmin` transaction on
+that connection (`AuthzConfigError` otherwise). A read resolves the Orm first when nothing has (a cli
+process). Register the one instance under both `ScopeAttributeStore` and `WritableScopeAttributeStore`.
+Every write first updates the single row of `authz_scope_attribute_version`; its row lock queues
+concurrent writers of the same database.
 
 ## Config
 

@@ -1,15 +1,13 @@
-import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 import { NonceStore } from '@spinajs/authn/contracts';
-import { ResourceDuplicated } from '@spinajs/exceptions';
-import { Orm, OrmDriver } from '@spinajs/orm';
+import { Injectable, PerChildInstance } from '@spinajs/di';
+import { UniqueViolation, everyNthCall, ormReady } from '@spinajs/orm';
 
-import { StoreConnection } from '../support/connection.js';
-import { checkedMs, checkedText, rowsAffected, sqlTime } from '../support/sql.js';
+import { AuthnNonce } from '../models/AuthnNonce.js';
+import { checkedMs, checkedText, instant } from '../support/sql.js';
 
 export { NonceStore } from '@spinajs/authn/contracts';
 export { MemoryNonceStore } from '@spinajs/authn/nonces';
 
-const TABLE = 'authn_nonce';
 const KEY_MAX = 160;
 const PURGE_EVERY = 64;
 const PURGE_BATCH = 500;
@@ -25,38 +23,28 @@ function checkClaim(key: string, expiresAt: Date, now: Date, owner: string): { e
 @PerChildInstance()
 @Injectable(NonceStore)
 export class DbNonceStore extends NonceStore {
-  @Autoinject(Orm)
-  protected Orm: Orm;
-
-  private readonly connection: StoreConnection;
-  private claims = 0;
-
-  /** DI passes nothing and injects the Orm of the resolving container; tests pass a driver. */
-  constructor(driver?: OrmDriver) {
-    super();
-    this.connection = new StoreConnection('DbNonceStore', driver, () => this.Orm);
-  }
+  private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   public async claim(key: string, expiresAt: Date, now: Date): Promise<boolean> {
     const { expiresMs, nowMs } = checkClaim(key, expiresAt, now, 'DbNonceStore');
-    const { driver } = await this.connection.get();
-    if (++this.claims % PURGE_EVERY === 0) {
+    await ormReady();
+    if (this.purgeDue()) {
       await this.purge(now);
     }
 
-    const t = sqlTime(nowMs);
-    const expires = sqlTime(expiresMs);
+    const t = instant(nowMs);
+    const expires = instant(expiresMs);
     for (let i = 0; i < MAX_TRIES; i++) {
       try {
-        await driver.insert().into(TABLE).values({ k: key, expires_at: expires });
+        await AuthnNonce.insert({ k: key, expires_at: expires });
         return true;
       } catch (err) {
-        if (!(err instanceof ResourceDuplicated)) throw err;
+        if (!(err instanceof UniqueViolation)) throw err;
       }
-      if (rowsAffected(await driver.update().in(TABLE).update({ expires_at: expires }).where('k', key).where('expires_at', '<=', t)) === 1) {
+      if ((await AuthnNonce.update({ expires_at: expires }).where('k', key).where('expires_at', '<=', t)).RowsAffected === 1) {
         return true;
       }
-      const live = (await driver.select().from(TABLE).select('k').where('k', key).where('expires_at', '>', t)) as unknown[];
+      const live = await AuthnNonce.query().columns(['k']).where('k', key).where('expires_at', '>', t);
       if (live.length > 0) return false;
     }
     return false;
@@ -64,10 +52,12 @@ export class DbNonceStore extends NonceStore {
 
   /** Deletes up to one batch of expired keys; returns how many went. */
   public async purge(now: Date = new Date()): Promise<number> {
-    const t = sqlTime(checkedMs(now, 'DbNonceStore.purge: now'));
-    const { driver } = await this.connection.get();
-    const keys = ((await driver.select().from(TABLE).select('k').where('expires_at', '<=', t).orderBy('k').take(PURGE_BATCH)) as { k: string }[]).map((r) => r.k);
+    const ms = checkedMs(now, 'DbNonceStore.purge: now');
+    await ormReady();
+    const t = instant(ms);
+    // MSSQL pages with OFFSET … FETCH, which needs an ORDER BY.
+    const keys = (await AuthnNonce.query().columns(['k']).where('expires_at', '<=', t).orderBy('k').take(PURGE_BATCH)).map((r) => r.k);
     if (keys.length === 0) return 0;
-    return rowsAffected(await driver.del().from(TABLE).whereIn('k', keys).where('expires_at', '<=', t));
+    return (await AuthnNonce.destroy().whereIn('k', keys).where('expires_at', '<=', t)).RowsAffected;
   }
 }

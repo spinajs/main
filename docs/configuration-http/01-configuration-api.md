@@ -181,4 +181,4 @@ export class ReportSettings {
 - [Value validation](02-value-validation.md): the checks `PATCH` runs.
 - [Access control](04-access-control.md): permissions, field sets and row checks of every route.
 - [`@spinajs/configuration-db-source`](../configuration-db-source/README.md): entry types, `exposeOptions` and the watch poll.
-- [`@spinajs/authz` HTTP adapter](../authz/README.md#http-spinajsauthz-http): `@Access`, `fields: 'filter'`, 401 / 403 bodies.
+- [`@spinajs/authz` HTTP adapter](../authz-http/README.md): `@Access`, `fields: 'filter'`, 401 / 403 bodies.
