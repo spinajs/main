@@ -48,7 +48,7 @@ for (const kind of DB_KINDS) {
       await rawQuery(db.driver, 'DELETE FROM authn_recovery_code', [], QueryContext.Delete);
       clock = new FakeClock(T0);
       clock.install();
-      store = new DbMfaStore(db.driver);
+      store = new DbMfaStore();
     });
 
     afterEach(() => {
@@ -281,8 +281,8 @@ for (const kind of DB_KINDS) {
       expect([...(await store.confirmedStepNames())].sort()).to.deep.eq(['email', 'totp']);
     });
 
-    it("resolves the Orm's default connection from its container when given no driver", async () => {
-      const viaContainer = new DbMfaStore(undefined, { container: db.container });
+    it('reads and writes on the connection of the AuthnMfa model when DI builds it', async () => {
+      const viaContainer = await db.container.resolve(DbMfaStore);
       await viaContainer.put(ALICE, 'totp', CIPHER, 'kid-a');
       expect((await store.get(ALICE, 'totp'))?.secretEnc).to.eq(CIPHER);
     });

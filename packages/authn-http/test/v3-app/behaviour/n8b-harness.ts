@@ -372,7 +372,7 @@ export const totpPart: LanePart = {
     for (const table of ['authn_mfa', 'authn_recovery_code']) await db.del().from(table);
     laneEvents.length = 0;
     const undo = [setConfig('authn.mfa.steps', MFA_STEPS), setConfig('authn.mfa.encryptionKey', MFA_ENCRYPTION_KEY)];
-    totpState = { db: new t.DbMfaStore(db), failing: false, provisioning: new Map(), recoveryCodes: new Map(), undo };
+    totpState = { db: new t.DbMfaStore(), failing: false, provisioning: new Map(), recoveryCodes: new Map(), undo };
   },
   async addPorts() {
     const state = totpNow();

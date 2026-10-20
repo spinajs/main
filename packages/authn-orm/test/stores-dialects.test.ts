@@ -10,7 +10,7 @@ import 'mocha';
 import { createHash } from 'node:crypto';
 
 import { DbIdentityLinkStore, DbMfaStore, DbNonceStore, DbSecretStore } from '../src/index.js';
-import { FakeMsSql, FakeMySql, fake, sql } from './support/fake-drivers.js';
+import { sql } from './support/fake-drivers.js';
 import { bootFakeOrm } from './support/fake-orm.js';
 import type { FakeOrm } from './support/fake-orm.js';
 
@@ -22,7 +22,6 @@ const sha256hex = (s: string): string => createHash('sha256').update(s, 'utf8').
 const DIALECTS = [
   {
     name: 'mysql',
-    type: FakeMySql,
     now: NOW_TEXT,
     later: '2026-06-01 10:01:00.000',
     duplicate: () => new OrmException('Error executing orm command ', { Name: 'mysql' }, 'INSERT', [], Object.assign(new Error("Duplicate entry 'x' for key 'PRIMARY'"), { code: 'ER_DUP_ENTRY', errno: 1062 })),
@@ -40,7 +39,6 @@ const DIALECTS = [
   },
   {
     name: 'mssql',
-    type: FakeMsSql,
     now: '2026-06-01T10:00:00.000Z',
     later: '2026-06-01T10:01:00.000Z',
     duplicate: () => Object.assign(new Error('Cannot insert duplicate key row.'), { name: 'RequestError', number: 2601 }),
@@ -126,9 +124,9 @@ for (const d of DIALECTS) {
     });
 
     it('DbMfaStore.acceptStep and redeemRecoveryCode decide in one guarded update', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = () => ({ RowsAffected: 1 });
-      const store = new DbMfaStore(driver);
+      const store = new DbMfaStore();
 
       expect(await store.acceptStep(ALICE, 'totp', 58_000_000)).to.eq(true);
       expect(await store.redeemRecoveryCode(ALICE, 'code-1')).to.eq(true);
@@ -139,7 +137,7 @@ for (const d of DIALECTS) {
     });
 
     it('DbMfaStore.putPending retries the insert when a parallel remove deleted the row', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       let inserts = 0;
       driver.respond = (_stmt, context) => {
         if (context === QueryContext.Insert && inserts++ === 0) throw d.duplicate();
@@ -147,7 +145,7 @@ for (const d of DIALECTS) {
         return [];
       };
 
-      expect(await new DbMfaStore(driver).putPending(ALICE, 'totp', 'v1.new', 'kid-a')).to.eq(true);
+      expect(await new DbMfaStore().putPending(ALICE, 'totp', 'v1.new', 'kid-a')).to.eq(true);
 
       expect(driver.executed.map((e) => e.context)).to.deep.eq([QueryContext.Insert, QueryContext.Update, QueryContext.Select, QueryContext.Insert]);
       expect(sql(driver.executed[1])).to.eq(d.putPendingUpdate);
@@ -156,19 +154,19 @@ for (const d of DIALECTS) {
     });
 
     it('DbMfaStore.putPending is false and writes nothing more when the re-read finds the row confirmed', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = (_stmt, context) => {
         if (context === QueryContext.Insert) throw d.duplicate();
         if (context === QueryContext.Update) return { RowsAffected: 0 };
-        return [{ identity: `user:${ALICE.id}`, step: 'totp', secret_enc: 'v1.old', key_id: 'kid-a', last_step: null, confirmed_text: NOW_TEXT, created_text: NOW_TEXT }];
+        return [{ identity: `user:${ALICE.id}`, step: 'totp', secret_enc: 'v1.old', key_id: 'kid-a', last_step: null, confirmed_at: NOW_TEXT, created_at: NOW_TEXT }];
       };
 
-      expect(await new DbMfaStore(driver).putPending(ALICE, 'totp', 'v1.new', 'kid-a')).to.eq(false);
+      expect(await new DbMfaStore().putPending(ALICE, 'totp', 'v1.new', 'kid-a')).to.eq(false);
       expect(driver.executed.map((e) => e.context)).to.deep.eq([QueryContext.Insert, QueryContext.Update, QueryContext.Select]);
     });
 
     it('DbMfaStore.putPending throws UnexpectedServerError after MAX_TRIES rounds', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = (_stmt, context) => {
         if (context === QueryContext.Insert) throw d.duplicate();
         if (context === QueryContext.Update) return { RowsAffected: 0 };
@@ -177,7 +175,7 @@ for (const d of DIALECTS) {
 
       let err: unknown;
       try {
-        await new DbMfaStore(driver).putPending(ALICE, 'totp', 'v1.new', 'kid-a');
+        await new DbMfaStore().putPending(ALICE, 'totp', 'v1.new', 'kid-a');
       } catch (e) {
         err = e;
       }
@@ -188,13 +186,13 @@ for (const d of DIALECTS) {
     });
 
     it('DbMfaStore.confirm with an expected cipher text compares it exactly in one guarded update', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = () => ({ RowsAffected: 1 });
 
-      expect(await new DbMfaStore(driver).confirm(ALICE, 'totp', NOW, 'v1.expected')).to.eq(true);
+      expect(await new DbMfaStore().confirm(ALICE, 'totp', NOW, 'v1.expected')).to.eq(true);
 
       expect(driver.executed.map(sql)).to.deep.eq([d.confirmExact]);
-      expect(driver.executed[0].params).to.deep.eq([NOW_TEXT, `user:${ALICE.id}`, 'totp', 'v1.expected']);
+      expect(driver.executed[0].params).to.deep.eq([d.now, `user:${ALICE.id}`, 'totp', 'v1.expected']);
     });
 
     it('DbSecretStore.redeem refuses a row that matched only under a case-blind collation', async () => {
@@ -251,44 +249,44 @@ for (const d of DIALECTS) {
     });
 
     it('DbMfaStore.get and countRecoveryCodes keep only rows of exactly that identity and step', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       const other = `user:${ALICE.id.toUpperCase()}`;
       driver.respond = (stmt) =>
         stmt.includes('authn_recovery_code')
           ? [{ identity: other }, { identity: `user:${ALICE.id}` }]
-          : [{ identity: other, step: 'totp', secret_enc: 'v1.x', key_id: 'k', last_step: null, confirmed_text: null, created_text: NOW_TEXT }];
-      const store = new DbMfaStore(driver);
+          : [{ identity: other, step: 'totp', secret_enc: 'v1.x', key_id: 'k', last_step: null, confirmed_at: null, created_at: NOW_TEXT }];
+      const store = new DbMfaStore();
       expect(await store.get(ALICE, 'totp')).to.eq(null);
       expect(await store.countRecoveryCodes(ALICE)).to.eq(1);
     });
 
     it('DbMfaStore.confirmedSteps keeps only confirmed rows of exactly that identity', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = () => [
         { identity: `user:${ALICE.id.toUpperCase()}`, step: 'webauthn', confirmed_at: NOW },
         { identity: `user:${ALICE.id}`, step: 'totp', confirmed_at: NOW },
         { identity: `user:${ALICE.id}`, step: 'sms', confirmed_at: null },
       ];
-      expect(await new DbMfaStore(driver).confirmedSteps(ALICE)).to.deep.eq(['totp']);
+      expect(await new DbMfaStore().confirmedSteps(ALICE)).to.deep.eq(['totp']);
       expect(driver.executed.map(sql)).to.deep.eq([d.confirmedSteps]);
       expect(driver.executed[0].params).to.deep.eq([`user:${ALICE.id}`]);
     });
 
     it('DbMfaStore.confirmedStepNames keeps step names that differ only in case, once each, and only of confirmed rows', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
+      const driver = orm.driver;
       driver.respond = () => [
         { step: 'totp', confirmed_at: NOW },
         { step: 'TOTP', confirmed_at: NOW },
         { step: 'totp', confirmed_at: NOW },
         { step: 'sms', confirmed_at: null },
       ];
-      expect(await new DbMfaStore(driver).confirmedStepNames()).to.deep.eq(['totp', 'TOTP']);
+      expect(await new DbMfaStore().confirmedStepNames()).to.deep.eq(['totp', 'TOTP']);
       expect(driver.executed.map(sql)).to.deep.eq([d.confirmedStepNames]);
     });
 
     it('DbMfaStore.redeemRecoveryCode refuses an over-long input without a query', async () => {
-      const driver = await fake(d.type, `n4-${d.name}`);
-      expect(await new DbMfaStore(driver).redeemRecoveryCode(ALICE, 'x'.repeat(1025))).to.eq(false);
+      const driver = orm.driver;
+      expect(await new DbMfaStore().redeemRecoveryCode(ALICE, 'x'.repeat(1025))).to.eq(false);
       expect(driver.executed).to.have.length(0);
     });
 
