@@ -1,9 +1,7 @@
 import type { InvitationView } from '../api.js';
-import { teamsDriver } from '../host.js';
 import { TeamInvitation } from '../models/TeamInvitation.js';
+import { TeamInvitationUse } from '../models/TeamInvitationUse.js';
 import { dateOf } from '../views.js';
-
-export const INVITATION_USES_TABLE = 'team_invitation_uses';
 
 export function toInvitationView(i: TeamInvitation): InvitationView {
   return Object.freeze({
@@ -26,6 +24,6 @@ export function toInvitationView(i: TeamInvitation): InvitationView {
 export async function deleteInvitations(where: { readonly team_id: string } | { readonly group_id: string }): Promise<void> {
   const ids = ((await TeamInvitation.query().where(where)) as TeamInvitation[]).map((i) => i.id);
   if (ids.length === 0) return;
-  await (await teamsDriver()).del().from(INVITATION_USES_TABLE).whereIn('invitation_id', ids);
+  await TeamInvitationUse.destroy().whereIn('invitation_id', ids);
   await TeamInvitation.destroy(ids);
 }

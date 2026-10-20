@@ -3,9 +3,6 @@ import type { AuthzCommand, AuthzCommandResult, Permission, Principal, ResourceR
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { InvalidOperation } from '@spinajs/exceptions';
-import { Orm } from '@spinajs/orm';
-import type { OrmDriver } from '@spinajs/orm';
 
 /** The domain authz-orm keeps the teams' ancestors in. */
 export async function teamsDomain(): Promise<string> {
@@ -24,12 +21,6 @@ export async function domainContainer(): Promise<IContainer> {
   const domain = await teamsDomain();
   if (domain === 'root') return DI.RootContainer;
   return (await DI.resolve(AuthzDomains)).container(domain);
-}
-
-export async function teamsDriver(): Promise<OrmDriver> {
-  const driver = ((await DI.resolve(Orm)) as Orm).Connections.get('default');
-  if (!driver) throw new InvalidOperation('@spinajs/teams: no ORM connection named default');
-  return driver;
 }
 
 export const asSystem = <T>(fn: () => Promise<T>): Promise<T> => runWithPrincipal(SYSTEM, fn);
