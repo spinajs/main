@@ -101,6 +101,18 @@ describe('LinkPrincipalSource (B38 http)', function () {
     expect(calls).to.deep.eq([]);
   });
 
+  it('a token longer than 512 characters yields the link principal that denies everything, without asking the resolver', async () => {
+    for (const req of [app.request().get(`/links?link=${'t'.repeat(513)}`), app.request().get('/links').set('X-Authz-Link', 't'.repeat(513))]) {
+      const { principal } = (await req.set('x-user', 'alice')).body as { principal: Record<string, unknown> };
+      expect(principal).to.deep.include({ type: 'link', id: 'unresolved', companions: [{ type: 'user', id: 'alice' }] });
+      expect(principal.ceiling).to.deep.eq({ resources: [], reason: 'link_invalid' });
+    }
+    expect(calls).to.deep.eq([]);
+
+    await app.request().get(`/links?link=${'t'.repeat(512)}`);
+    expect(calls.map((c) => c.token.length)).to.deep.eq([512]);
+  });
+
   it('without a token the other sources decide', async () => {
     const res = await app.request().get('/links').set('x-user', 'alice');
 

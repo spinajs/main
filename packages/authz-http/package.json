@@ -64,7 +64,8 @@
     "@spinajs/http": "3.0.4",
     "@spinajs/log": "3.0.4",
     "@spinajs/orm": "3.0.4",
-    "@spinajs/util": "3.0.4"
+    "@spinajs/util": "3.0.4",
+    "@spinajs/validation": "3.0.4"
   },
   "peerDependencies": {
     "@spinajs/authn": "3.0.4"
