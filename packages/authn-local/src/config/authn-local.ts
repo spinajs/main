@@ -27,6 +27,9 @@ const authnLocal = {
          * takes 64 MiB, so small hosts lower this, never the cost (H30).
          */
         maxConcurrent: 8,
+
+        /** Operations that may wait for a slot; beyond it hash and verify fail with HasherBusy. */
+        maxQueue: 64,
       },
 
       /**

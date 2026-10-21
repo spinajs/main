@@ -1,5 +1,10 @@
 import { _check_arg, _gte, _integer, _is_number } from '@spinajs/util';
 
+/** Thrown at once when every slot is busy and the queue is full; callers answer "try again shortly". */
+export class HasherBusy extends Error {
+  public name = 'HasherBusy';
+}
+
 /** Runs at most `max` tasks at once; the rest wait in FIFO order. */
 export class ConcurrencyLimiter {
   private _active = 0;
@@ -7,7 +12,11 @@ export class ConcurrencyLimiter {
   private _runs = 0;
   private readonly _queue: (() => void)[] = [];
 
-  constructor(public readonly max: number) {
+  /** Without `maxQueue` waiters are not bounded. */
+  constructor(
+    public readonly max: number,
+    public readonly maxQueue: number = Infinity,
+  ) {
     _check_arg(_is_number(_integer(), _gte(1)))(max, 'max');
   }
 

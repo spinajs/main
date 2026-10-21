@@ -28,6 +28,7 @@ export interface PepperConfig {
 
 export interface Argon2PasswordHasherOptions {
   readonly maxConcurrent?: number;
+  readonly maxQueue?: number;
   readonly pepper?: PepperConfig;
 }
 

@@ -651,7 +651,6 @@ describe('DefaultAuthnService', function () {
         { ok: true, method: 'token', identity: { type: 'user', id: 'u' }, external: { provider: 'p', subject: 's' } },
         { ok: true, method: '', identity: { type: 'user', id: 'u' } },
         { ok: false, reason: 'made_up' as never },
-        { ok: false, reason: 'throttled' },
       ];
       for (const o of outcomes) {
         const p = await boot([strategy('odd', { verify: () => o })]);
@@ -671,6 +670,21 @@ describe('DefaultAuthnService', function () {
       const p = await boot([strategy('exp', { verify: () => ({ ok: false, reason: 'expired' }) })]);
       failure(await p.service.authenticate(bearer('x'), ctx()), 'expired');
       assert.ok(p.events.all().some((e) => e.outcome === 'failure' && e.reason === 'expired' && e.strategy === 'exp'));
+    });
+
+    it('passes a strategy throttled answer through with its retryAfterSeconds and audits it', async () => {
+      const p = await boot([strategy('busy', { verify: () => ({ ok: false, reason: 'throttled', retryAfterSeconds: 1 }) })]);
+      assert.strictEqual(failure(await p.service.authenticate(bearer('x'), ctx()), 'throttled').retryAfterSeconds, 1);
+      assert.ok(p.events.all().some((e) => e.outcome === 'failure' && e.reason === 'throttled' && e.strategy === 'busy'));
+    });
+
+    it('answers a strategy throttled without a usable retryAfterSeconds as 1', async () => {
+      for (const retryAfterSeconds of [undefined, 0, -3, 1.5, Number.NaN]) {
+        const p = await boot([strategy('busy', { verify: () => ({ ok: false, reason: 'throttled', ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }) }) })]);
+        assert.strictEqual(failure(await p.service.authenticate(bearer('x'), ctx()), 'throttled').retryAfterSeconds, 1, String(retryAfterSeconds));
+        await p.dispose();
+        parts = undefined;
+      }
     });
   });
 

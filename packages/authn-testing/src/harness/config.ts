@@ -27,7 +27,7 @@ export interface ConfigOverrides {
   readonly authn?: DeepPartial<{
     strategies: readonly { name: string; service: string }[];
     local: {
-      hasher: { maxConcurrent: number };
+      hasher: { maxConcurrent: number; maxQueue: number };
       pepper: { secret: string | null; version: number };
       policy: { minLength: number; maxLength: number; rule: object | null; blocklist: readonly string[] | null };
       reset: { ttlSeconds: number; revokeTokens: boolean };

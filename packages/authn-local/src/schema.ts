@@ -13,10 +13,11 @@ export const AUTHN_LOCAL_CONFIGURATION_SCHEMA = {
       type: 'object',
       default: {},
       description: 'No argon2 cost keys: the cost is the library default (H30).',
-      propertyNames: { enum: ['service', 'maxConcurrent'] },
+      propertyNames: { enum: ['service', 'maxConcurrent', 'maxQueue'] },
       properties: {
         service: { type: 'string', minLength: 1 },
         maxConcurrent: { type: 'integer', minimum: 1, default: 8, description: 'Argon2 operations at once; the rest queue.' },
+        maxQueue: { type: 'integer', minimum: 0, default: 64, description: 'Operations that may wait for a free slot; beyond it a hash or verify fails with HasherBusy.' },
       },
     },
     pepper: {
