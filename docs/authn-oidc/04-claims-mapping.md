@@ -23,7 +23,7 @@ The claims mapping turns the IdP's claims into the `OidcExternalSubject` that th
 | `email` | the first source, ID token then userinfo, where the claim is a string | `email` when 1 to 255 characters; else no email. |
 | `emailVerified` | the same source as `email` | `emailVerified: true` only for a boolean `true`; `false` for anything else. Absent when there is no email. |
 | `name` | the merged claims | `claims.name` when a string of at most 255 characters. |
-| `groups` | the merged claims | `claims.groups`: a string becomes one group, an array keeps its string items. Absent when unmapped, missing or of another type. |
+| `groups` | the merged claims | `claims.groups`: a string becomes one group, an array keeps its string items of at most 255 characters. Absent when unmapped, missing, of another type or longer than 256 items. |
 
 The mapped subject:
 

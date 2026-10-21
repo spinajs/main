@@ -1,3 +1,43 @@
+# Release notes — authn, authz and their services: shared input field schemas and downstream validation
+
+> Branch `feat/hard-val1` (HARD-VAL1). Docs: `docs/authn/14-input-field-schemas.md`, `docs/authz/15-input-field-schemas.md`,
+> `docs/authz-http/04-principal-sources.md`, `docs/authz-queue/04-queue-change-bus.md`, `docs/authz-rbac/04-assigning-roles.md`,
+> `docs/authz-rebac/03-tuple-stores.md`, `docs/authn-oidc/04-claims-mapping.md`.
+
+## New behavior
+
+- `@spinajs/authn` (`@spinajs/authn/schemas`) and `@spinajs/authz` export shared field schemas: fragments without `$id`
+  (`loginField`, `tokenIdField`, `sessionHandleField`, `mfaStepField`, `idField`, `permissionField`, `linkTokenField`, ...),
+  `bodyOf(required, properties, id)` (closed objects), `fieldSchema(id, field)`, `AUTHN_FIELD_SCHEMAS` / `AUTHZ_FIELD_SCHEMAS`
+  (ids prefixed `authn.` / `authz.`) and `isValidField(schema, value)`, a non-coercing check without a container.
+  `@spinajs/authz` exports `PERMISSION_MAX_LENGTH` (256).
+- authz-http: a link token longer than 512 characters gets the link principal that denies everything, without asking the
+  `LinkResolver`; a service header longer than 1024 characters authenticates no service.
+- Security-critical services check their input again, each in its existing failure style:
+  `LocalPasswordService.requestReset` and `requestCode` (login over 1024: `accepted`, no lookup or mail),
+  `redeemVerification` (secret over 1024: `invalid`, audited `malformed`), `LocalPasswordStrategy` and `EmailCodeStrategy`
+  (login over 1024: `invalid_credentials`), `DbTokenService.validate` (over 1024), `revoke` and `revokeById` (id over 64),
+  `DefaultSessionIssuer.revokeHandle` (over 128), `completeMfa` and `stepUp` (step over 64, response over 65536:
+  `invalid_credentials`, audited `mfa.verify` `malformed`).
+- authz: `AuthzAdmin.execute` refuses a `reason` over 512 and an `idempotencyKey` over 128 characters (`invalid_batch`),
+  `readId` an id over 160 (`invalid_command`); `isPermission` is false past 256 characters.
+- authz-rbac `DbAssignmentStore`: role over 128, scope type or id over 64 (`invalid_command`) and tags over 512 characters
+  as stored (`invalid_tags`) are refused before the database.
+- authz-rebac `DbTupleStore.write` refuses a tuple the namespaces of a `RebacModel` over the store cannot hold
+  (`AuthzConfigError`); `RebacModel.init` binds them with the new `DbTupleStore.checkAgainst`.
+- authz-queue: a received change with more than 1000 tags or a tag over 256 characters is dropped; a published one past
+  those caps goes out as `tags: ['*']`.
+- authn-oidc: a group longer than 255 characters is dropped, and more than 256 groups leave `claims.groups` absent.
+
+## Breaking changes
+
+- `authz.http.services[].token` takes at most 1024 characters; a longer configured token fails the configuration check.
+- Permission names longer than 256 characters are no longer permissions (`isPermission` false, `parsePermission` throws).
+
+## Dependencies
+
+- `@spinajs/authn` depends on `ajv`; `@spinajs/authz-http` on `@spinajs/validation`.
+
 # Release notes — authn-http, authn-oidc: fresh re-authentication that refreshes the session
 
 > Branch `feat/ory-flow-4`. Docs: `docs/authn/09-fresh-authentication.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`,

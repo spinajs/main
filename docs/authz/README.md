@@ -34,6 +34,7 @@ Importing the package registers the host (`AuthzService`, `AuthzDomains`), the d
 | [Column relations](12-column-relations.md) | `@Relation` columns that hold a principal, for single checks and `.accessible()` lists. |
 | [Holders](13-holders.md) | Who holds a permission on a resource: the `holders` admin query, `inspect()` and `ancestors()`. |
 | [Installing without authn](14-installing-without-authn.md) | `@spinajs/principal`, what each package re-exports, and running authz-http without `@spinajs/authn`. |
+| [Input field schemas](15-input-field-schemas.md) | The shared field schemas, `bodyOf`, `isValidField`, and where authz checks its input again. |
 
 ## Quick start
 

@@ -29,6 +29,7 @@ npm install @spinajs/authn
 | [Impersonation and the active role](11-impersonation-and-active-role.md) | `AuthnImpersonationService`, `ImpersonationGuard`, the role switch and `authn.impersonation.*` |
 | [Integration hooks](12-integration-hooks.md) | `ExternalLoginHook`, `AuthnResponseExtension`, `RoleSource`, `SessionStartHook`, `CredentialAdminGuard`, `CredentialExtractor` |
 | [Configuration and boot checks](13-configuration-and-boot-checks.md) | `AUTHN_CONFIGURATION_SCHEMA`, every `authn.*` key, the secret and env checks, `checkAuthnConfig` |
+| [Input field schemas](14-input-field-schemas.md) | The shared field schemas, `bodyOf`, `isValidField` and the services that check their input again |
 
 ## Quick start
 

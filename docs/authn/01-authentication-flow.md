@@ -159,9 +159,9 @@ Audit reasons the core writes:
 | --- | --- | --- |
 | `authenticate` | `login`, `token.use`, `key.use` | `unsupported_credentials`, `strategy_error`, `strategy_contract`, the strategy's own reason, `not_linked`, `non_user_session`, `unknown_identity`, `deleted`, `banned`, `inactive`, `hook_error`, `policy_error`, `mfa_step_not_listed`, `mfa_enrolment_mismatch`, `store_error` |
 | `authenticate`, `completeMfa`, `stepUp`, `reauthenticate` | `throttle.block` | `throttled` |
-| `completeMfa` | `mfa.verify` | `not_pending`, `no_steps`, `unknown_step`, `not_enrolled`, `no_recovery_step`, `invalid_code`, `step_error`, `store_error`, `session_error` |
+| `completeMfa` | `mfa.verify` | `not_pending`, `malformed`, `no_steps`, `unknown_step`, `not_enrolled`, `no_recovery_step`, `invalid_code`, `step_error`, `store_error`, `session_error` |
 | `completeMfa` | `login` | `unknown_identity`, `deleted`, `banned`, `inactive` |
-| `stepUp` | `mfa.verify` | `not_active`, `impersonation`, `no_steps`, `unknown_step`, `not_enrolled`, `no_recovery_step`, `invalid_code`, `step_error`, `store_error`, the status reasons, `session_error` |
+| `stepUp` | `mfa.verify` | `not_active`, `impersonation`, `malformed`, `no_steps`, `unknown_step`, `not_enrolled`, `no_recovery_step`, `invalid_code`, `step_error`, `store_error`, the status reasons, `session_error` |
 | `reauthenticate` | `reauth` | `not_active`, `impersonation`, `unsupported_credentials`, `other_identity`, the strategy's own reason, the status reasons, `store_error` |
 
 An error thrown by a strategy, a store or a hook is audited by its class name only (`data.error`). Its message may echo the credential.
