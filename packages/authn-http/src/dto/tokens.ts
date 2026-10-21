@@ -71,7 +71,9 @@ export class AuthnTokenUpdateBody extends AuthnInput {
   public readonly expiresAt?: string;
 }
 
-@Schema(bodyOf(['token'], { token: tokenSecretField }, 'authn.TokenRevokeBody'))
+/** RFC 7009's request: `token_type_hint` is taken and ignored, as the route revokes access tokens only. */
+@Schema(bodyOf(['token'], { token: tokenSecretField, token_type_hint: { type: 'string', maxLength: 64 } }, 'authn.TokenRevokeBody'))
 export class AuthnTokenRevokeBody extends AuthnInput {
   public readonly token: string;
+  public readonly token_type_hint?: string;
 }

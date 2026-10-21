@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { AUTHN_FAILURE_BODY, PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
 import { Client, events, loggedIn, loggedInAal2, passwordStrategy, resetRecorders, roles, seedUser, sessionSetCookie, step, throttle } from '../app.js';
 import type { Res } from '../app.js';
+import { FREE, backoffOn } from './ip-gate.js';
 
 /** The uniform login failure (A02): 401, the one body, no-store, no Retry-After. */
 export function expectUniformFailure(res: Res, label: string): void {
@@ -36,9 +37,9 @@ export function accountInputSuite(): void {
       ['an unknown field', { login: 'a', password: 'p', extra: 1 }],
     ];
     for (const [label, body] of BODIES) {
-      it(`answers the uniform failure for ${label}, and counts and verifies nothing`, async () => {
+      it(`answers the uniform failure for ${label}, counted against the client ip only, verifying nothing`, async () => {
         expectUniformFailure(await new Client().post('/auth/login', body), label);
-        expect(throttle.attempts).to.have.length(0);
+        expect(throttle.attempts.map((x) => [x.flow, x.keys.map((k) => k.kind)])).to.deep.eq([['login', ['ip']]]);
         expect(passwordStrategy.verifyCalls).to.have.length(0);
       });
     }
@@ -48,6 +49,23 @@ export function accountInputSuite(): void {
       const res = await new Client().post('/auth/login', { login: u.login, password: u.password, remember: true });
       expectUniformFailure(res, 'unknown field');
       expect(sessionSetCookie(res)).to.eq(undefined);
+    });
+
+    describe('behind the IP throttle gate (V8)', () => {
+      let restore: () => void;
+      beforeEach(() => {
+        restore = backoffOn();
+      });
+      afterEach(() => restore());
+
+      it('invalid bodies count against the ip: after the free limit even the right password answers the throttled failure, unverified', async () => {
+        const u = await seedUser();
+        for (let i = 0; i < FREE; i++) expectUniformFailure(await new Client().post('/auth/login', { login: u.login }), `invalid ${i + 1}`);
+        const res = await new Client().post('/auth/login', { login: u.login, password: u.password });
+        expect([res.status, res.headers['retry-after']]).to.deep.eq([401, '60']);
+        expect(res.body).to.deep.eq(AUTHN_FAILURE_BODY);
+        expect(passwordStrategy.verifyCalls).to.have.length(0);
+      });
     });
 
     it('ends the session the caller held, as any failed login does', async () => {

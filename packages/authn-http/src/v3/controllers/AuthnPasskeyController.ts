@@ -14,7 +14,8 @@ import { notFound } from '../../policies/v3/errors.js';
 import { serviceRegistered } from '../../policies/v3/groups.js';
 import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
 import { OnInvalidInput, byField, invalid, unknownField } from '../../validation/answers.js';
-import { failedLogin, uniformFailure } from '../../validation/login.js';
+import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { failedLogin, throttledLogin, uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { tooManyRequests } from '../../password/fields.js';
@@ -111,6 +112,7 @@ export class AuthnPasskeyController extends BaseController {
    * @security []
    */
   @Post('auth/passkeys/login')
+  @IpThrottle('login', throttledLogin)
   @OnInvalidInput(failedLogin)
   public async login(@Body({ required: true }) body: AuthnPasskeyLoginBody, @ClientContext() client: AuthnClientContext) {
     return completeLogin(this.Container, this.Sessions, this._cfg, client, { kind: 'webauthn', challengeId: body.challengeId, response: body.response });

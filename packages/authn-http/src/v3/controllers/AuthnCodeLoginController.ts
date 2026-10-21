@@ -7,7 +7,8 @@ import { ClientContext } from '../../args/authn.js';
 import { AuthnCodeLoginBody, AuthnCodeRequestBody } from '../../dto/code-login.js';
 import { CodeLoginRegistered, invalidLogin, tooManyRequests } from '../../password/index.js';
 import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
-import { failedLogin } from '../../validation/login.js';
+import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { failedLogin, throttledLogin } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { AcceptedResponse, NO_STORE } from '../responses.js';
 import { completeLogin, contextOf } from '../routes.js';
@@ -41,6 +42,7 @@ export class AuthnCodeLoginController extends BaseController {
    */
   @Post('auth/code/request')
   @BotCheck('code_request')
+  @IpThrottle('reset', (retryAfter) => tooManyRequests('too many code requests, try again later', retryAfter))
   @OnInvalidInput(byField({ login: invalidLogin }, unknownField))
   public async request(@Body({ required: true }) body: AuthnCodeRequestBody, @ClientContext() client: AuthnClientContext) {
     try {
@@ -61,6 +63,7 @@ export class AuthnCodeLoginController extends BaseController {
    * @security []
    */
   @Post('auth/code/login')
+  @IpThrottle('login', throttledLogin)
   @OnInvalidInput(failedLogin)
   public async login(@Body({ required: true }) body: AuthnCodeLoginBody, @ClientContext() client: AuthnClientContext) {
     return completeLogin(this.Container, this.Sessions, this._cfg, client, { kind: 'email-code', login: body.login, code: body.code });

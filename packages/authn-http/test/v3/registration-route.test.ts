@@ -318,8 +318,9 @@ describe('POST /auth/register (FEAT-4)', () => {
     it('answers 400 and asks nobody for a missing, blank, non-string or over-long login or email', async () => {
       const w = world();
       const bad: unknown[] = [undefined, null, 'x', [], {}, { ...BODY, login: '' }, { ...BODY, login: 7 }, { ...BODY, login: 'x'.repeat(256) }, { ...BODY, email: '' }, { ...BODY, email: ['a@b.c'] }, { ...BODY, email: 'x'.repeat(255) }, { ...BODY, email: 'no-at-sign' }, { login: BODY.login, password: BODY.password }];
-      for (const body of bad) {
-        const res = answerOf(await callRoute(w.controller, 'register', w.request(body)));
+      // One ip each: IpThrottle counts every refused body against its client's ip.
+      for (const [i, body] of bad.entries()) {
+        const res = answerOf(await callRoute(w.controller, 'register', w.request(body, `192.0.2.${100 + i}`)));
         expect(res.status, JSON.stringify(body)).to.eq(400);
         expect(res.noStore).to.eq(true);
       }

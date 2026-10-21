@@ -6,6 +6,7 @@ import { ClientContext } from '../../args/authn.js';
 import { AuthnVerifyBody } from '../../dto/verification.js';
 import { AddressVerificationRegistered, tooManyRequests } from '../../password/index.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
+import { IpThrottle } from '../../middleware/ip-throttle.js';
 import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
@@ -51,6 +52,7 @@ export class AuthnVerificationController extends BaseController {
    * @security []
    */
   @Post('auth/verify')
+  @IpThrottle('reset', (retryAfter) => tooManyRequests('too many verification attempts, try again later', retryAfter))
   @OnInvalidInput(byField({ secret: invalidSecret }, unknownField))
   public async verify(@Body({ required: true }) body: AuthnVerifyBody, @ClientContext() client: AuthnClientContext) {
     const result = await this.Passwords!.redeemVerification!(body.secret, contextOf(client, 'request'));

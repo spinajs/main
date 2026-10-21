@@ -25,7 +25,8 @@ import {
 import { KeyRoutesOn } from '../../keys/gate.js';
 import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
 import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
-import { failedLogin, uniformFailure } from '../../validation/login.js';
+import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { failedLogin, throttledLogin, uniformFailure } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE } from '../responses.js';
@@ -133,6 +134,7 @@ export class AuthnKeysController extends BaseController {
    * @security []
    */
   @Post('auth/keys/challenge')
+  @IpThrottle('login', challengeThrottled)
   @OnInvalidInput(byField({ purpose: invalidPurpose, kid: invalidKid }, unknownField))
   public async challenge(@Body({ required: true }) body: AuthnKeyChallengeBody, @ClientContext() client: AuthnClientContext) {
     const registry = await this.registry();
@@ -160,6 +162,7 @@ export class AuthnKeysController extends BaseController {
    * @security []
    */
   @Post('auth/keys/login')
+  @IpThrottle('login', throttledLogin)
   @OnInvalidInput(failedLogin)
   public async login(@Body({ required: true }) body: AuthnKeyLoginBody, @ClientContext() client: AuthnClientContext) {
     return completeLogin(this.Container, this.Sessions, this._cfg, client, { kind: 'key-challenge', keyId: body.keyId, challengeId: body.challengeId, signature: body.signature });

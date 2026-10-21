@@ -3,7 +3,9 @@ import type { ErrorStage, IController, IControllerDescriptor, IOnErrorDescriptor
 import type { IContainer } from '@spinajs/di';
 import { DataValidator, ValidationFailed } from '@spinajs/validation';
 
+import { AuthnIpThrottleMiddleware } from '../../src/middleware/ip-throttle.js';
 import { clientOf } from '../../src/v3/client.js';
+import { fakeContainer, readingFrom } from './config-boot.js';
 
 let validator: DataValidator | undefined;
 
@@ -86,15 +88,25 @@ async function handled(err: unknown, stage: ErrorStage, handlers: readonly IOnEr
 export const withParams = (req: Request, params: Record<string, string>): Request => Object.assign(req, { params: { ...(req.params as object | undefined), ...params } });
 
 /**
- * Calls `method` of `controller` as its route does: the arguments from `req` (a body DTO validated, strict for authn.*
- * schemas), then the action, an error of either going through the route's and the controller's `@OnError` handlers.
- * Policies and route middlewares do not run.
+ * Calls `method` of `controller` as its route does: the IP throttle gate, the arguments from `req` (a body DTO
+ * validated, strict for authn.* schemas), then the action, an error of each going through the route's and the
+ * controller's `@OnError` handlers. Policies and the other route middlewares do not run.
  */
 export async function callRoute(controller: IController, method: string, req: Request, container?: IContainer): Promise<unknown> {
   const v = await validatorOf();
   const { route, descriptor } = routeOf(controller, method);
   const handlers = [...(route.ErrorHandlers ?? []), ...(descriptor.ErrorHandlers ?? [])];
   const ctx = { req, route, controller, container: container ?? (controller as unknown as { Container: IContainer }).Container };
+  try {
+    for (const m of route.Middlewares ?? []) {
+      if (m.Type !== AuthnIpThrottleMiddleware) continue;
+      const gate = readingFrom(new AuthnIpThrottleMiddleware(...(m.Options as ConstructorParameters<typeof AuthnIpThrottleMiddleware>)), fakeContainer({}));
+      Object.assign(gate, { Container: ctx.container });
+      await gate.onBefore(req);
+    }
+  } catch (err) {
+    return handled(err, 'middleware', handlers, ctx);
+  }
   const params = [...route.Parameters.values()].sort((a, b) => a.Index - b.Index);
   let args: unknown[];
   try {

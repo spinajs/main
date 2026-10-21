@@ -20,6 +20,7 @@ import { AUTHN_FAILURE_BODY, PASSWORD_HARD_CAP } from '../../../src/v3/index.js'
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
 import { Client, bind, clearLog, guard, logLines, loggedIn, loggedInAal2, rebuildServer, seedUser, sessionSetCookie, step, switchHooksOn, tokens } from '../app.js';
 import type { Res } from '../app.js';
+import { FREE, backoffOn } from './ip-gate.js';
 import { mountedRoutes } from './route-table.js';
 
 export const PASSWORD_ROUTES_V3 = ['GET /auth/password/policy', 'POST /auth/password/reset-request', 'POST /auth/password/reset', 'PATCH /user/password'];
@@ -392,6 +393,33 @@ export function passwordRoutesSuite(): void {
     answers.push(await c.patch('/user/password', { oldPassword: marks.old, password: marks.next }));
     const seen = [...answers.map((r) => `${r.text} ${JSON.stringify(r.headers)} ${r.setCookie.join(' ')}`), ...logLines()].join('\n');
     for (const [name, value] of Object.entries(marks)) expect(seen, name).to.not.include(value);
+  });
+
+  describe('the IP throttle gate (V8)', () => {
+    let restore: () => void;
+    beforeEach(() => {
+      restore = backoffOn();
+    });
+    afterEach(() => restore());
+
+    it('invalid bodies from one ip count against it: after the free limit 429, and a refused request is never validated', async () => {
+      for (let i = 0; i < FREE; i++) {
+        const res = await new Client().post('/auth/password/reset-request', {});
+        expect([res.status, (res.body as { error?: unknown }).error], `invalid body ${i + 1}`).to.deep.eq([400, 'invalid_login']);
+      }
+      const refused = await new Client().post('/auth/password/reset-request', {});
+      expect([refused.status, (refused.body as { error?: unknown }).error], 'not invalid_login: the body was not read').to.deep.eq([429, 'throttled']);
+      expect(refused.headers['retry-after']).to.eq('60');
+      const valid = await new Client().post('/auth/password/reset-request', { login: 'me@example.test' });
+      expect(valid.status).to.eq(429);
+      expect(fake.of('requestReset')).to.deep.eq([]);
+    });
+
+    it('a reset redemption, a credential route, answers the throttled login failure body with Retry-After', async () => {
+      for (let i = 0; i < FREE; i++) expectFailureBody(await new Client().post('/auth/password/reset', { login: 'a', secret: 7, password: 'Brand-New-Pass-1' }));
+      expectFailureBody(await new Client().post('/auth/password/reset', { login: 'a', secret: 's', password: 'Brand-New-Pass-1' }), '60');
+      expect(fake.of('redeemReset')).to.deep.eq([]);
+    });
   });
 
   it('the four password routes are mounted once', async () => {

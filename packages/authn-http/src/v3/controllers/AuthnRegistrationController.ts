@@ -11,6 +11,7 @@ import { ClientContext } from '../../args/authn.js';
 import { AuthnRegistrationBody, IDENTIFIER_CAP } from '../../dto/registration.js';
 import { mismatchOf, newPasswordRefused, passwordMismatch, passwordRejected, tooManyRequests } from '../../password/fields.js';
 import { IdentityRegistrarRegistered } from '../../policies/v3/groups.js';
+import { IpThrottle } from '../../middleware/ip-throttle.js';
 import { OnInvalidInput, byField, invalid, unknownField } from '../../validation/answers.js';
 import type { AuthnClientContext } from '../client.js';
 import { AcceptedResponse, NO_STORE } from '../responses.js';
@@ -44,6 +45,7 @@ export class AuthnRegistrationController extends BaseController {
    */
   @Post('auth/register')
   @BotCheck('register')
+  @IpThrottle('register', (retryAfter) => tooManyRequests('too many registrations, try again later', retryAfter))
   @OnInvalidInput(
     byField(
       {

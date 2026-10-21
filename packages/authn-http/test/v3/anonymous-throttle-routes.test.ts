@@ -90,7 +90,7 @@ describe('anonymous routes with an ip throttle', () => {
   describe('POST /auth/verify', () => {
     function world() {
       const passwords = new StubPasswords();
-      const controller = wire(new AuthnVerificationController(), new Map());
+      const controller = wire(new AuthnVerificationController(), new Map<unknown, unknown>([[AuthnThrottle, new RefusingThrottle()]]));
       Object.assign(controller, { Passwords: passwords });
       return { controller, passwords };
     }

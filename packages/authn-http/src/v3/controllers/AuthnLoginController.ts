@@ -13,7 +13,8 @@ import { AuthnLoginBody } from '../../dto/login.js';
 import { unauthenticated } from '../../policies/v3/errors.js';
 import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../schema.js';
 import { OnInvalidInput } from '../../validation/answers.js';
-import { failedLogin } from '../../validation/login.js';
+import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { failedLogin, throttledLogin } from '../../validation/login.js';
 import type { AuthnClientContext } from '../client.js';
 import { NO_STORE, authnClearedSessionCookie } from '../responses.js';
 import { runLogoutExtensions } from '../logout-extension.js';
@@ -57,6 +58,7 @@ export class AuthnLoginController extends BaseController {
    */
   @Post('login')
   @BotCheck('login')
+  @IpThrottle('login', throttledLogin)
   @OnInvalidInput(failedLogin)
   public async login(@Body({ required: true }) body: AuthnLoginBody, @ClientContext() client: AuthnClientContext) {
     return completeLogin(this.Container, this.Sessions, this._cfg, client, { kind: 'password', login: body.login, password: body.password });
