@@ -1,4 +1,5 @@
 import { expect } from 'chai';
+import { CSRF_REFUSED_BODY } from '@spinajs/http';
 
 import { AUTHN_FAILURE_BODY, PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
 import { Client, events, loggedIn, loggedInAal2, passwordStrategy, resetRecorders, roles, seedUser, sessionSetCookie, step, throttle } from '../app.js';
@@ -77,6 +78,49 @@ export function accountInputSuite(): void {
       expect(sessionSetCookie(res)?.value).to.eq('');
       expect((await new Client(held!).get('/auth')).status).to.eq(401);
       expect(events.ofType('session.revoke').map((e) => e.reason)).to.deep.eq(['login']);
+    });
+  });
+
+  describe('the CSRF guard runs before the IP gate and validation (V6)', () => {
+    const EVIL = 'https://evil.example.net';
+
+    function expectCsrfRefusal(res: Res, label: string): void {
+      expect(res.status, `${label}: ${res.text}`).to.eq(403);
+      expect(res.body, label).to.deep.eq(CSRF_REFUSED_BODY);
+    }
+
+    it('refuses a cross-origin login whatever the body: never the uniform failure, nothing counted or verified', async () => {
+      const u = await seedUser();
+      for (const body of [{ login: u.login }, { login: u.login, password: u.password }, { login: 123, password: 'p', extra: 1 }]) {
+        expectCsrfRefusal(await new Client().post('/auth/login', body, { Origin: EVIL }), JSON.stringify(body));
+      }
+      expect(throttle.attempts).to.have.length(0);
+      expect(passwordStrategy.verifyCalls).to.have.length(0);
+    });
+
+    it('refuses a cross-origin reauth carrying the session cookie before its body is read', async () => {
+      const u = await seedUser();
+      const c = await loggedIn(u);
+      throttle.attempts.length = 0;
+      expectCsrfRefusal(await c.post('/auth/reauth', { password: 42 }, { Origin: EVIL }), 'reauth');
+      expectCsrfRefusal(await c.post('/auth/reauth', { password: u.password }, { Origin: EVIL }), 'reauth with the password');
+      expect(throttle.attempts).to.have.length(0);
+    });
+
+    describe('with the ip held by the IP gate', () => {
+      let restore: () => void;
+      beforeEach(() => {
+        restore = backoffOn();
+      });
+      afterEach(() => restore());
+
+      it('a cross-origin login still answers the CSRF refusal, not the throttled failure', async () => {
+        for (let i = 0; i < FREE; i++) expectUniformFailure(await new Client().post('/auth/login', { login: 'a' }), `invalid ${i + 1}`);
+        expect((await new Client().post('/auth/login', { login: 'a' })).headers['retry-after']).to.eq('60');
+        const res = await new Client().post('/auth/login', { login: 'a' }, { Origin: EVIL });
+        expectCsrfRefusal(res, 'held ip');
+        expect(res.headers['retry-after']).to.eq(undefined);
+      });
     });
   });
 
