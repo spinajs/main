@@ -128,6 +128,12 @@ export default {
 
 ## Important behaviour
 
+- The `before` hook gets a **shallow** copy of the input, and `after` hooks get the live output. Only top-level keys are protected: a hook can still change nested data inside a non-mutable key (`ctx.input.user.Email = ...`) or inside the output, by reference. Do not mutate nested non-mutable data.
+- `depth` and `hooks.maxDepth` count runs started from inside a hook. A run started by an action's own `impl` (`users.create` calling `authn.password.invite`) starts again at depth `1`.
+- Factory registrations (`register(() => hook).as(ActionHook)`) are called when `Hooks` boots, so a factory must not resolve services that inject `Hooks`. Class registrations are resolved lazily.
+- With `refusable: false`, a `before` hook that times out is abandoned but still holds its `ctx`. Edits it makes to `ctx.input` after the timeout can still reach the merge. Keep `before` hooks fast and cancel their own work.
+- Hook instances are resolved one by one in `before` order. If a later hook fails to resolve, the `before` of earlier hooks has already run. A hook that has only `after` or `failed` and fails to resolve is logged and skipped; it never fails the action.
+- A refusal counts only when made through `ctx.refuse` in that run. An `ActionRefused` thrown any other way (built by hand, or coming from a nested run) is treated as a hook error.
 - With no matching hook, an action pays a lookup: `impl` gets the same input object and no context is built.
 - A `before` hook sees a shallow copy of the input. Assign to top-level keys; nested objects are shared with the caller.
 - A hook on `authn.login` runs before the throttle and before the password check, so a refusal there is fast. It must not branch on whether an account exists; use `authn.login.identified` for account-dependent rules. The input of `authn.login` carries no identity.
@@ -142,6 +148,14 @@ export default {
 - Pick refusal codes as stable lowercase identifiers (`order.over_limit`); they become audit reasons.
 
 ## Patterns and antipatterns
+
+```ts
+// Don't: user is not mutable, and the shallow copy still shares it with the caller
+ctx.input.user.Email = ctx.input.user.Email.toLowerCase();
+
+// Do: change a mutable key, by assigning a new value
+ctx.input.data = { ...ctx.input.data, Email: ctx.input.data.Email.toLowerCase() };
+```
 
 ```ts
 // Don't: the input can hold a password

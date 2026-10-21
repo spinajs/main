@@ -127,6 +127,8 @@ Only `note` is mutable, so the `total` check before the hooks still holds afterw
 
 ## Important behaviour
 
+- Hooks get a shallow copy of the input and the live output. Only top-level keys are protected: a hook can change nested data inside a non-mutable key, or inside the output, by reference. Do not rely on nested data being untouched, and re-check invariants inside `impl`.
+- A run started by your own `impl` starts again at depth `1`. `hooks.maxDepth` limits only runs started from inside a hook.
 - Hook types are read at boot and instances resolve on the first matching run. The action injects `Hooks` like any service.
 - A hook that runs another action raises `depth`. The runner enforces `hooks.maxDepth`, so the action needs no loop guard.
 - Hook failures are logged with the hook class, the action and the error class, never the input.
