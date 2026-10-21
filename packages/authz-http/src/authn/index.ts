@@ -1,1 +1,1 @@
-export { SseSessionEndSink } from '../client-access/sse.js';
+export * from './session-end-sink.js';
