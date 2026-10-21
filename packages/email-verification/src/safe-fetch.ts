@@ -21,7 +21,13 @@ export class ResponseTooLarge extends Error {
 @Injectable()
 export class SafeFetch {
   public async get(url: string, options: SafeFetchOptions): Promise<FetchedText> {
-    if (new URL(url).protocol !== 'https:') {
+    let protocol: string;
+    try {
+      protocol = new URL(url).protocol;
+    } catch {
+      throw new InvalidArgument('invalid URL');
+    }
+    if (protocol !== 'https:') {
       throw new InvalidArgument('only https URLs are fetched');
     }
     const res = await fetch(url, { method: 'GET', redirect: 'manual', headers: options.headers, signal: AbortSignal.timeout(options.timeoutMs) });
@@ -39,7 +45,7 @@ async function readCapped(res: Response, maxBytes: number): Promise<string> {
     if (done) break;
     size += value.byteLength;
     if (size > maxBytes) {
-      await reader.cancel();
+      await reader.cancel().catch(() => undefined);
       throw new ResponseTooLarge(`response is larger than ${maxBytes} bytes`);
     }
     parts.push(value);

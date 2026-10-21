@@ -159,6 +159,7 @@ export function storeContract(title: string, makeStore: () => Promise<EmailVerif
         const seen: string[][] = [];
         do {
           seen.push(domainsOf(await store.loadLists(), 'block', 'src'));
+          await sleep(0);
         } while (!settled || seen.length < 5);
         await writing;
         seen.push(domainsOf(await store.loadLists(), 'block', 'src'));
