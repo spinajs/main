@@ -60,4 +60,6 @@ describe('N8a behaviour rules over HTTP (test/v3-app)', function () {
   runAuthnBehaviour(['A33'], laneHttpHarness(webauthnLane), { title: 'authn-http: A33 passkeys', claim: ['A33/http'] });
 
   runAuthnBehaviour(['A34'], httpHarness, { title: 'authn-http: A34 step-up', facets: ['A34/http'], claim: ['A34/http'] });
+
+  runAuthnBehaviour(['A37'], httpHarness, { title: 'authn-http: A37 action hooks', facets: ['A37/core'], claim: ['A37/core'] });
 });

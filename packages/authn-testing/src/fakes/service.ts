@@ -1,6 +1,8 @@
 import { AuthnService } from '@spinajs/authn/contracts';
 import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/authn/ip-key';
+import { ActionHookFailed, ActionRefused } from '@spinajs/hooks';
 import type { Hooks } from '@spinajs/hooks';
+import type { AuthnLoginIdentifiedInput } from '@spinajs/authn';
 import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 
 export interface FakeAuthnServiceDeps {
@@ -38,7 +40,7 @@ type Peek = (keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext
  * The authentication flow over the contracts, for lanes that need a `service` port before N1's AuthnService:
  * route by credential kind, count the attempt (strategy keys + ip) before verify (a per-request strategy over a throttle
  * with `peek`: peek before verify and count failures only, K5), audit every failure with its real reason, answer
- * status refusals as invalid_credentials, link or provision external subjects, run the external login hooks before
+ * status refusals as invalid_credentials, link or provision external subjects, run `authn.login.identified` before
  * any session, issue a pending session when MFA is required, elevate on completeMfa, reissue on stepUp, and re-authenticate without
  * touching the session. A fake, not N1's implementation: unlike the core it links before the status check.
  */
@@ -164,12 +166,25 @@ export class FakeAuthnService extends AuthnService {
       return failure(refused === 'unverified_address' ? 'unverified_address' : 'invalid_credentials');
     }
     if (s.interactive && this.d.hooks) {
-      throw new Error('not implemented: FakeAuthnService authn.login.identified');
+      const input: AuthnLoginIdentifiedInput = { identity: id, strategy: s.name, method: r.method, ...(r.external ? { external: r.external } : {}), attributes: { ...r.attributes }, ctx };
+      try {
+        return await this.d.hooks.run('authn.login.identified', input, (i) => this.admit(s, r, id, keys, ctx, i.attributes), { mutable: ['attributes'] });
+      } catch (err) {
+        const reason = err instanceof ActionRefused ? `hook:${err.code}` : err instanceof ActionHookFailed ? 'hook_error' : null;
+        if (reason === null) throw err;
+        await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, reason });
+        return failure('invalid_credentials');
+      }
     }
+    return this.admit(s, r, id, keys, ctx, r.attributes);
+  }
+
+  /** The login past its status check; `attributes` are those a hook may have replaced. */
+  private async admit(s: AuthenticationStrategy, r: Extract<StrategyOutcome, { ok: true }>, id: IdentityRef, keys: readonly ThrottleKey[], ctx: AuthnContext, attributes: Readonly<Record<string, unknown>> | undefined): Promise<AuthenticationResult> {
     await this.d.throttle.succeed(keys, 'login');
     const external = r.external ? { external: { provider: r.external.provider, ...(typeof r.external.sid === 'string' && r.external.sid.length > 0 ? { sid: r.external.sid } : {}) } } : {};
     const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[], ...external };
-    const extra = { ...(r.ceiling ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(r.attributes ? { attributes: r.attributes } : {}) };
+    const extra = { ...(r.ceiling ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(attributes && (r.attributes || Object.keys(attributes).length > 0) ? { attributes } : {}) };
     if (!s.interactive) {
       await this.audit(ctx, { type: 'token.use', outcome: 'success', strategy: s.name, identity: id });
       return { status: 'success', identity: id, facts, ...extra };

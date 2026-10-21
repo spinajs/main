@@ -1,5 +1,5 @@
-import { ExternalLoginHook, ImpersonationGuard, RoleSource } from '@spinajs/authn/contracts';
-import type { ExternalSubject, IdentityRef, Principal } from '@spinajs/authn/contracts';
+import { ImpersonationGuard, RoleSource } from '@spinajs/authn/contracts';
+import type { IdentityRef, Principal } from '@spinajs/authn/contracts';
 import type { GuardPort, RolesPort } from '../harness/ports.js';
 
 type DenyCode = 'forbidden' | 'protected_role' | 'escalation';
@@ -42,21 +42,5 @@ export class FakeRoleSource extends RoleSource implements RolesPort {
 
   async rolesOf(principal: Principal): Promise<readonly Role[]> {
     return this.roles.get(principal.id) ?? [];
-  }
-}
-
-export class RecordingExternalLoginHook extends ExternalLoginHook {
-  readonly calls: { identity: IdentityRef; external: ExternalSubject }[] = [];
-  private error: Error | null = null;
-
-  failWith(error: Error | null): void {
-    this.error = error;
-  }
-
-  async afterLogin(identity: IdentityRef, external: ExternalSubject): Promise<void> {
-    this.calls.push({ identity, external });
-    if (this.error) {
-      throw this.error;
-    }
   }
 }
