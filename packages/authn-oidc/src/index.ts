@@ -19,4 +19,4 @@ export { OIDC_ID_TOKEN_KEY, OidcLogoutExtension } from './logout-extension.js';
 export * from './providers.js';
 export * from './bootstrap.js';
 export * from './origin.js';
-export * from './hooks.js';
+export type { AuthnLogoutBackchannelInput } from './hooks.js';
