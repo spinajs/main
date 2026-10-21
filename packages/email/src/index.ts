@@ -9,6 +9,8 @@ import { EmailSend } from './jobs/EmailSend.js';
 import { redirectRecipients } from './redirect.js';
 import { hasSecrets, redactError } from './redact.js';
 import { downloadAttachment } from './attachments.js';
+// Registers MjmlRenderer wherever email is: the authn mails are .mjml templates.
+import '@spinajs/templates-mjml';
 
 export * from './interfaces.js';
 export * from './attachments.js';
