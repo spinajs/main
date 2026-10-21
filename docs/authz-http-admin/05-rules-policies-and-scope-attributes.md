@@ -6,7 +6,7 @@ Routes that store RBAC rules and ABAC policies as rows, and edit the attributes 
 
 | Route | Command | Body | Query |
 | --- | --- | --- | --- |
-| `GET /authz/rules` | `list({ kind: 'rules' })` | none | `scope`, `limit`, `offset` |
+| `GET /authz/rules` | `list({ kind: 'rules' })` | none | `scope`, `limit`, `offset` or `after` |
 | `PUT /authz/rules/:id` | `rule.put` | a rule (`AuthzRuleBody`) | `reason`, `idempotencyKey`, `dryRun` |
 | `DELETE /authz/rules/:id` | `rule.delete` | none | `reason`, `idempotencyKey`, `dryRun` |
 | `GET /authz/policies` | `list({ kind: 'policies' })` | none | `scope`, `limit`, `offset` |

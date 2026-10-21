@@ -31,13 +31,16 @@ $sp2$$argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `authn.local.hasher.maxConcurrent` | `integer` | `8` | `>= 1` | Argon2 operations at once (hash, verify and dummy verify); the rest wait in FIFO order. Each takes 64 MiB. |
+| `authn.local.hasher.maxConcurrent` | `integer` | `max(1, UV_THREADPOOL_SIZE - 1)`: 3 with the Node.js pool of 4 | `>= 1` | Argon2 operations at once (hash, verify and dummy verify); the rest wait in FIFO order. Each takes 64 MiB. |
+| `authn.local.hasher.maxQueue` | `integer` | `64` | `>= 0` | Operations that may wait for a free slot. Beyond it, `hash()` and `verify()` reject with `HasherBusy` at once. |
 | `authn.local.hasher.service` | `string` | not set | | Accepted by the schema; no code reads it. The hasher is chosen by DI registration. |
 | `authn.local.pepper.secret` | `string \| null` | `null` | a non-empty secret reference, or `null` | The current pepper. `null`: no pepper. An empty string is refused. |
 | `authn.local.pepper.version` | `integer` | `1` | `1` to `999999999` | Written into every new hash as `$sp<version>$`. |
 | `authn.local.pepper.previous` | `{ secret, version }[]` | `[]` | each `version` unique and different from `pepper.version` | Older peppers. Hashes made under them still verify and are rehashed on the next login. |
 
 No key sets the argon2 cost (memory, time, parallelism). Small hosts lower `maxConcurrent`, never the cost.
+
+Argon2 runs on the libuv thread pool, which `UV_THREADPOOL_SIZE` sizes (default 4, at most 1024). The default `maxConcurrent` leaves one thread free for the file system, DNS and other crypto work. Raise `UV_THREADPOOL_SIZE` in the process environment before Node.js starts, and the default follows: 7 with `UV_THREADPOOL_SIZE=8`. A `maxConcurrent` above the pool size only queues work inside the pool, behind the same threads.
 
 `pepper.secret` is a reference the configuration resolves, never an inline value. See [Config var protocols](../configuration/05-config-var-protocols.md).
 
@@ -85,7 +88,7 @@ Setting `pepper.secret` to `null` stops peppering new hashes. Keep the old peppe
 
 - `hashWith(password, { argon2?, pepper? })`: a hash in the stored format under explicit argon2 cost or another pepper (`null`: none). For tests and data migrations; production code calls `hash()`.
 - `limiter`: the `ConcurrencyLimiter`, with `active`, `queued`, `peak` and `runs` counters.
-- A constructor seam: `new Argon2PasswordHasher({ maxConcurrent?, pepper? })` reads no configuration. `maxConcurrent` defaults to `AUTHN_LOCAL_DEFAULTS.hasher.maxConcurrent` there, the schema default (8).
+- A constructor seam: `new Argon2PasswordHasher({ maxConcurrent?, maxQueue?, pepper? })` reads no configuration. `maxConcurrent` defaults to `defaultMaxConcurrent()` there, and `maxQueue` to `AUTHN_LOCAL_DEFAULTS.hasher.maxQueue` (64).
 
 The stored-format helpers are exported: `pepperInput()`, `formatStored()`, `parseStored()`, and `EXPIRED_PASSWORD_MARKER` (`'!expired'`).
 
@@ -125,9 +128,11 @@ DI.register(LegacyImportHasher).as(PasswordHasher);
 ## Important behaviour
 
 - **The cost is fixed.** argon2id at the argon2 library defaults: 64 MiB, `t=3`, `p=4`. A test pins the stored prefix `$argon2id$v=19$m=65536,t=3,p=4$`, so a library upgrade that changes the defaults fails CI.
-- **Peak memory is `maxConcurrent` × 64 MiB.** With the default 8, that is 512 MiB of argon2 work at once.
+- **Peak memory is `maxConcurrent` × 64 MiB.** With the default 3, that is 192 MiB of argon2 work at once.
 - **Every operation shares one cap.** Hashes, verifies and dummy verifies all queue in the same `ConcurrencyLimiter`. Under load, logins wait their turn instead of running out of memory.
 - **The queue is FIFO and fair.** A finishing task hands its slot to the oldest waiter, never to a newcomer.
+- **The queue is bounded.** When `maxConcurrent` operations run and `maxQueue` wait, the next `hash()` or `verify()` rejects with `HasherBusy` without starting any work. A flood of logins can no longer pile up unbounded argon2 jobs and their memory.
+- **A busy hasher is a `throttled` login.** `LocalPasswordStrategy` turns `HasherBusy` into `{ ok: false, reason: 'throttled', retryAfterSeconds: 1 }`; the core answers a `throttled` failure with `Retry-After: 1`. No other code sees the error. A rehash that finds the hasher busy is skipped and logged; the login still succeeds.
 - **Failed checks cost the same as real ones (A02).** An unparseable value, an expired password and an unknown pepper version run a dummy verify.
 - **`verify()` never throws on a bad stored value.** It answers `false`.
 - **The pepper changes the argon2 input.** A hash under one pepper does not verify under another with the same version.
@@ -136,7 +141,9 @@ DI.register(LegacyImportHasher).as(PasswordHasher);
 
 ## Best practices
 
-- Size `maxConcurrent` to the memory you can give argon2: a 1 GiB container with other work needs a lower value than 8.
+- Size `maxConcurrent` to the memory you can give argon2 and to `UV_THREADPOOL_SIZE`: a 1 GiB container with other work may need a value below the default.
+- Keep `maxQueue` small enough that a queued login still finishes before the client gives up: at about 50 ms per verify, 64 waiters on 3 slots is about a second.
+- Code that calls the hasher itself (a custom strategy, a migration script) must handle `HasherBusy`, or catch it and retry after a short wait.
 - Watch `limiter.queued` and `limiter.peak` under load: a long queue means logins are waiting for argon2, not the database.
 - Rotate the pepper by adding a version, never by changing the secret of an existing version.
 

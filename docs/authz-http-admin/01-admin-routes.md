@@ -16,7 +16,7 @@ Use it to drive an admin UI or a script over HTTP with the same answers an in-pr
 5. `AuthzAdmin` validates, checks the actor's permission, runs the guard and applies the batch in one transaction. See [AuthzAdmin](../authz/10-authz-admin.md).
 6. The route answers:
    - a write: `{ results }` with `200` when every command succeeded, else the status of the failed command (`resultsStatus`);
-   - a list: `{ items, total }` with `200`;
+   - a list: `{ items, total, next? }` with `200`;
    - an `AuthzAdminFailure` thrown on the way: `{ error: { code, message, field? } }` with the status of its code (`adminErrorStatus`).
    Any other error propagates to the http error handling.
 
@@ -43,6 +43,7 @@ sequenceDiagram
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authz.http.admin.domain` | `string` | `'root'` | a non-empty domain name | The authz domain whose `AuthzAdmin` the routes use. |
+| `authz.http.admin.basePath` | `string` | not set, the routes mount under `authz` | a non-empty path without the route prefix | Where `commands`, `assignments`, `holders`, `links`, `rules`, `policies` and `scopes/:type/:id/attributes` mount. They move together. |
 | `system.dirs.controllers` | `string[]` | the package's `lib/mjs/controllers` or `lib/cjs/controllers` | | Set by the package config; it is how http finds `AuthzAdminController`. |
 
 ```ts
@@ -89,7 +90,9 @@ The permission is the default one; `AuthzAdmin` checks it at the resource in the
 
 `assignment.revokeWhere`, `set.addMember`, `set.removeMember` and `scope.forget` have no route of their own; send them through [`POST /authz/commands`](02-command-batches.md).
 
-The paths sit under the app's route prefix (`http.controllers.route.prefix`) when one is set.
+The paths sit under the app's route prefix (`http.controllers.route.prefix`) when one is set. With `authz.http.admin.basePath: 'internal/authz'` every `/authz` above reads `/internal/authz` (`/api/internal/authz` under the prefix `api`). Pass the same value as the second argument of `describeAuthzAdminDocument(doc, basePath)` so the [OpenAPI document](06-openapi-documentation.md) keeps its bodies and query parameters.
+
+To change the permission or the guard of a route instead of its path, subclass `AuthzAdminController`, give it its own `@BasePath`, and register it with `DI.register(Mine).as(AuthzAdminController)`; see [Moving a controller to another path](../http/02-controllers-and-routing.md#moving-a-controller-to-another-path).
 
 ### Permissions
 
@@ -115,6 +118,7 @@ authz: {
 | `subject` query | `<type>:<id>` (a principal) or `set:<role>@<type>:<id>` (the holders of a role at a scope). |
 | `includeExpired`, `dryRun` query | `true` or `false`. |
 | `limit`, `offset` query | non-negative integers; `AuthzAdmin` defaults the one you leave out and may refuse a value, such as `limit=0`. |
+| `after` query | the `next` of the previous page, taken as is. It replaces `offset`: both together, or an empty `after`, answer `400 invalid_query` on `after`. `/authz/policies` takes no `after`. |
 | `reason`, `idempotencyKey` query | text, on the single-command write routes. `POST /authz/commands` takes them in the body. |
 | expiry dates in a body | ISO 8601 date-time with `Z` or an offset, such as `2027-01-01T00:00:00Z`. Seconds and fraction are optional. `null` clears the expiry. |
 
@@ -125,7 +129,7 @@ A query key given twice (`role=a&role=b`) answers `400 invalid_query`.
 | Answer | Body |
 | --- | --- |
 | A write | `{ results: AuthzCommandResult[] }`, one entry per command up to the first failure. A success entry is `{ ok: true, kind, id?, token?, affected }`; the failed one is `{ ok: false, kind, error: { code, message, field? } }`. |
-| A list | `{ items, total }`; `total` counts the matching rows before paging. |
+| A list | `{ items, total, next? }`; `total` counts the matching rows before paging. `next` is there when more rows follow a first or `after` page; pass it as `after` to read them. See [Keyset paging](#keyset-paging). |
 | A refused request | `{ error: { code, message, field? } }`, when the failure came before any command ran. |
 
 | Status | Codes |
@@ -138,6 +142,21 @@ A query key given twice (`role=a&role=b`) answers `400 invalid_query`.
 | `409` | `conflict`: the row changed or exists already |
 
 An unknown error code maps to `400`.
+
+### Keyset paging
+
+The list routes for assignments, holders, links and rules page by cursor as well as by `offset`. A page with more rows after it carries `next`, an opaque string. Send it back as `after` to read the following page:
+
+```
+GET /authz/assignments?scope=project:p1&limit=100
+GET /authz/assignments?scope=project:p1&limit=100&after=MjAyNi0xMC0wMVQxMjowMDowMC4wMDBafGE0Mg
+```
+
+- The cursor names the last row read, in `(created_at, id)` order (holders: its subject key), so a row added or removed between two reads never repeats or skips a row you already have. Rows added later appear on a later page.
+- The last page has no `next`. A page read with `offset` has none either: `offset` paging works as before.
+- `total` still counts every matching row, whatever `after` is.
+- A cursor the store did not issue answers `400` with `invalid_page` on `page.after`. Do not build or edit one.
+- A custom `AuthzAdminReader` or store that cannot page by cursor returns no `next`.
 
 ## Services and extension points
 

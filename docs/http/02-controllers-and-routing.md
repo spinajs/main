@@ -30,7 +30,7 @@ A controller is a class that extends `BaseController`; each decorated method is 
 
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
-| `@BasePath(path)` | class | `path`: string, no leading slash | URL segment for every route of the controller. Without it: the class name in lower case (`UsersController` → `userscontroller`). |
+| `@BasePath(path)` | class | `path`: string, no leading slash; or `{ config, default }` | URL segment for every route of the controller. With `{ config, default }` the segment is the value of the configuration key `config`, read when the routes are built, and `default` while the key is unset. Without the decorator: the class name in lower case (`UsersController` → `userscontroller`). |
 | `@Get(path?, schema?)` | method | `path`: route path; `schema`: `{ [paramName]: JSONSchema }` | `GET` route. |
 | `@Post(path?, schema?)` | method | same | `POST` route. |
 | `@Put(path?, schema?)` | method | same | `PUT` route. |
@@ -58,6 +58,8 @@ Decorator order does not matter: every decorator writes into the same descriptor
 | `@BasePath('/')` + `@Get('health')` | `/health` |
 | no `@BasePath` on `UsersController` + `@Get('list')` | `/userscontroller/list` |
 | `http.controllers.route.prefix: 'api/v1'` | `/api/v1` before any of the above |
+| `@BasePath({ config: 'x.base', default: 'a/b' })` + `@Get('list')`, `x.base` unset | `/a/b/list` |
+| the same, `x.base: 'admin/b'` | `/admin/b/list` |
 
 Write paths without a leading slash: `@Get('/list')` produces `/users//list`. Express path syntax applies (`:id`, `{*rest}`).
 
@@ -125,6 +127,46 @@ DI.register(AppProfilesController).as(ProfilesController);
 ```
 
 Without the registration both classes mount, the loader logs a warning, and Express route order decides which one answers.
+
+### Moving a controller to another path
+
+A package controller that declares `@BasePath({ config, default })` mounts at `default` until the app sets the key:
+
+```ts
+@BasePath({ config: 'authz.http.admin.basePath', default: 'authz' })
+export class AuthzAdminController extends BaseController { /* … */ }
+```
+
+```ts
+export default {
+  authz: { http: { admin: { basePath: 'internal/authz' } } },
+};
+```
+
+- The key is read through `Configuration.get` every time `BaseController.BasePath` is read, so the route builder and the OpenAPI builder agree. `http.controllers.route.prefix` still comes first: `api` plus `internal/authz` mounts at `/api/internal/authz/...`.
+- Slashes at both ends of the value are dropped. A value that is not a non-empty string throws `RouteRegistrationException` when the controller is built.
+- `IControllerDescriptor.BasePath` keeps the default and `BasePathConfig` holds the key; read `controller.BasePath` for the path that is mounted.
+- A subclass that declares a plain `@BasePath('own')` leaves the key behind. A subclass that declares nothing inherits the key.
+
+The shipped admin keys are `authn.http.admin.basePath` (default `authn/admin/users`, [credential admin routes](../authn-http/16-credential-admin-routes.md#configuration)) and `authz.http.admin.basePath` (default `authz`, [admin routes](../authz-http-admin/01-admin-routes.md#configuration)).
+
+#### Controllers without a config key
+
+A package controller whose `@BasePath` is a plain string has no key. Until it gets one, subclass it with your own `@BasePath` and register the subclass in place of the original, as in [Overriding a package controller](#overriding-a-package-controller):
+
+```ts
+import { DI } from '@spinajs/di';
+import { BasePath } from '@spinajs/http';
+import { ProfilesController } from '@spinajs/some-package';
+
+@BasePath('internal/profiles')
+export class InternalProfilesController extends ProfilesController {}
+
+// Before DI.resolve(Controllers): only InternalProfilesController mounts.
+DI.register(InternalProfilesController).as(ProfilesController);
+```
+
+The subclass inherits every route, policy and middleware, so the move changes nothing else. Without the `DI.register` call both classes mount, one at each path.
 
 ### `Controllers`: custom implementation
 

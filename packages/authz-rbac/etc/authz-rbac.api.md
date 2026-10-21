@@ -94,6 +94,7 @@ export interface AssignmentsAdminQuery {
     readonly page?: {
         limit: number;
         offset: number;
+        after?: string;
     };
 }
 export interface LinksAdminQuery {
@@ -102,6 +103,7 @@ export interface LinksAdminQuery {
     readonly page?: {
         limit: number;
         offset: number;
+        after?: string;
     };
 }
 export interface RulesAdminQuery {
@@ -110,6 +112,7 @@ export interface RulesAdminQuery {
     readonly page?: {
         limit: number;
         offset: number;
+        after?: string;
     };
 }
 /** Who holds `permission` at `scope`, through which assignment. */
@@ -121,6 +124,7 @@ export interface HoldersAdminQuery {
     readonly page?: {
         limit: number;
         offset: number;
+        after?: string;
     };
 }
 declare module "@spinajs/authz" {

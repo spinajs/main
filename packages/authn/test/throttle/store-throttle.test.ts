@@ -99,11 +99,21 @@ describe('StoreAuthnThrottle', () => {
       const t = new Recording(PARAMS);
       const now = new Date('2026-10-01T12:00:00.000Z');
       assert.deepStrictEqual(await t.attempt(keys, 'login', ctx(now)), { allowed: false, retryAfterSeconds: 3 });
-      assert.deepStrictEqual(await t.peek(keys, 'mfa', ctx(now)), { allowed: true });
+      assert.deepStrictEqual(await t.peek(keys, 'mfa', ctx(now)), { allowed: true, clean: false }, 'a store that does not report clean is not clean');
       assert.deepStrictEqual(t.recording.calls, [
         { op: 'attempt', flow: 'login', gates: [{ id: 'login:account:alice', backoff: ACCOUNT }, { id: 'login:ip:192.0.2.1', backoff: IP }], counted: ['login:account-ip:alice|192.0.2.1'], nowMs: now.getTime() },
         { op: 'peek', flow: 'mfa', gates: [{ id: 'mfa:account:alice', backoff: ACCOUNT }, { id: 'mfa:ip:192.0.2.1', backoff: IP }], nowMs: now.getTime() },
       ]);
+    });
+
+    it('passes on the clean a store reports with its peek verdict', async () => {
+      const t = new Recording(PARAMS);
+      for (const clean of [true, false]) {
+        t.recording.peek = async () => ({ allowed: true, clean }) as KeyedBackoffVerdict;
+        assert.deepStrictEqual(await t.peek(keys, 'login', ctx(new Date())), { allowed: true, clean });
+      }
+      t.recording.peek = async () => ({ allowed: false, retryAfterSeconds: 4 });
+      assert.deepStrictEqual(await t.peek(keys, 'login', ctx(new Date())), { allowed: false, retryAfterSeconds: 4 });
     });
 
     it('succeeds in one store call, and not at all for reset', async () => {
@@ -161,7 +171,7 @@ describe('StoreAuthnThrottle', () => {
       const t = new FlakyParams();
       await assert.rejects(t.peek(keys, 'login', ctx(new Date())), InvalidOperation);
       fail = false;
-      assert.deepStrictEqual(await t.peek(keys, 'login', ctx(new Date())), { allowed: true });
+      assert.deepStrictEqual(await t.peek(keys, 'login', ctx(new Date())), { allowed: true, clean: false });
     });
 
     it('rejects a ctx without a valid now and an unknown flow before the store is called', async () => {

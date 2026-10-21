@@ -1,4 +1,4 @@
-# authz bench: harness and 2.x baseline
+# authz bench: harness, 2.x baseline and 3.x baseline
 
 ## Run it
 
@@ -24,6 +24,60 @@ also import `accesscontrol`, `@spinajs/orm`, `@spinajs/orm-sqlite` and
 `@spinajs/configuration`, which authz-testing does not declare; they resolve through workspace
 hoisting. `bench/tsconfig.json` is for editors and `tsc -p bench/tsconfig.json --noEmit`;
 `npm run bench` type-checks through the package's own `tsconfig.json`.
+
+## Run the 3.x scenarios
+
+| scenario | file | what one call times |
+|---|---|---|
+| `check.warm` | `check-warm.ts` | `AuthzService.check` for `admin` over a 4-role chain (3 `$extend` levels); the permission lives in the bottom role |
+| `checkMany.30.warm` | `check-many-30.ts` | `AuthzService.checkMany` of 30 permissions, 20 granted and 10 denied |
+| `session.restore.memory` | `session-restore.ts` | `DefaultSessionIssuer.restore` of an active session over `MemorySessionStore` |
+| `session.restore.sqlite` | `session-restore.ts` | the same over `DbSessionStore` on in-memory sqlite |
+| `token.validate.sqlite` | `token-validate.ts` | `DbTokenService.validate` of a valid personal access token over in-memory sqlite |
+
+```
+npm run bench -w @spinajs/authz-testing -- --repeats=5                        # all five
+npm run bench -w @spinajs/authz-testing -- --files=check --repeats=5          # check.warm, checkMany.30.warm
+npm run bench -w @spinajs/authz-testing -- --files=session                    # both session.restore.*
+npm run bench -w @spinajs/authz-testing -- --filter=token.validate.sqlite
+```
+
+`--files` is a substring of the scenario file name (`check`, `session`, `token`); `--filter` is a
+substring of the scenario name. Every run exits 0 and prints one row per scenario; a scenario
+whose `verify()` fails stops the run with exit 1.
+
+Compare a run with the committed baseline (from `packages/authz-testing`, after the run wrote
+`bench/out/`):
+
+```
+node -e "const fs=require('fs');for(const f of fs.readdirSync('bench/baseline/3x')){if(!fs.existsSync('bench/out/'+f))continue;const a=require('./bench/baseline/3x/'+f),b=require('./bench/out/'+f);console.log(f.padEnd(30),'p50 '+(b.p50/a.p50).toFixed(2)+'x','p99 '+(b.p99/a.p99).toFixed(2)+'x')}"
+```
+
+What is in each number, and what is left out:
+
+- `check.warm`, `checkMany.30.warm`: the real `DefaultAuthzService` and authz-rbac's `RbacModel`
+  with config roles and in-memory assignments, resource `GLOBAL`. The decision cache is off
+  (`cache.maxEntries: 0`), so a call evaluates the model every time and the number is not a map
+  lookup. The audit sink is a no-op, so denied permissions do not pay for a log line. This
+  answers a decision, not an attribute list, so the gate reference row is `probeGrant.depth3`
+  (see "Which row is the gate reference").
+- `session.restore.*`: includes everything `restore` does on the request path, the store read
+  and the `touch` write that every restore issues today (PERF-1 removes the idle write). The session table sits on its own sqlite connection,
+  as in `DbSessionStore`'s tests. The store is booted through the real configuration and ORM.
+- `token.validate.sqlite`: one token row read and one `users` row read per call. Owner status
+  comes from an in-memory `IdentityStore`: the real one is `@spinajs/users`, which this package
+  must not import. The `users` table is created by the scenario with the columns the owner
+  resolver reads.
+- Time is wall-clock per call. sqlite rows are dominated by the ORM and the driver, and they
+  swing with machine load (see the 3.x baseline machine note).
+
+The runner shares one process and the global DI between scenarios. `_authz-host.ts` and
+`_authn-boot.ts` (skipped by the runner, they start with `_`) boot and dispose their state per
+scenario; a new scenario that touches the global DI must do the same in `teardown`.
+
+To refresh the baseline: run all five with `--repeats=5` on a quiet machine, copy
+`bench/out/*.json` to `bench/baseline/3x/`, and update the numbers and machine note in "3.x
+baseline" below.
 
 ## Add a scenario (X1: the 3.0 side)
 
@@ -217,6 +271,60 @@ Either way X1 states which row it used and runs 3.0 on the same shape.
   the same session; the 2.x rows are the reference, not `nostore`.
 
 The `build` rows are the only ones that resolve a 10 % difference on this machine.
+
+## 3.x baseline (PERF-4.c)
+
+The reference for PERF-1, PERF-2, PERF-3 and the other 3.x performance gates. The raw data is
+`bench/baseline/3x/*.json` (same shape as `baseline/2x`: every repeat plus the environment).
+
+### Machine
+
+- CPU: 12th Gen Intel Core i7-12700KF (20 logical cores), 96 GB RAM, Windows 11 (10.0.26200),
+  Node v24.14.1, run from Git Bash on the dev workstation.
+- Date: 2026-10-21.
+- Measured: the 3.0.1 sources (base commit `fc5927bc`) with the five PERF-4 scenarios on top
+  (branch `feat/ory-perf-4`). One full run: `npm run bench -w @spinajs/authz-testing -- --repeats=5`
+  (5 repeats, scale 1, headline = median over the repeats).
+- **Not idle**: the CPU sat at 100 % with about 175 node processes alive (other agents building
+  and testing) before and after the run. The in-memory rows (`check.warm`, `session.restore.memory`)
+  repeat within about 6 %. The two sqlite rows do not: their per-repeat p50 spans 8.2 to 20.0 ms
+  (session) and 13.9 to 24.6 ms (token), because every statement waits for a CPU slice. Read them
+  as upper bounds. Before claiming a sqlite improvement against this baseline (PERF-1, token
+  validation), run the baseline tree and the candidate tree back to back in one session, or rerun
+  this baseline on an idle machine and replace the JSON.
+
+### Numbers (microseconds, median of 5 repeats)
+
+| scenario | p50 | p95 | p99 | mean | ops/s | iterations | per-repeat p50 |
+|---|---:|---:|---:|---:|---:|---:|---|
+| check.warm | 105.8 | 254.9 | 569.9 | 149.8 | 6,677 | 100,000 | 103.9 / 105.8 / 107.1 / 109.7 / 105.7 |
+| checkMany.30.warm | 2779.9 | 6569.0 | 12973.0 | 3493.9 | 286 | 10,000 | 2843.7 / 2779.9 / 2841.4 / 2750.8 / 2608.1 |
+| session.restore.memory | 17.6 | 36.9 | 117.4 | 24.4 | 40,927 | 50,000 | 17.8 / 17.3 / 17.2 / 17.7 / 17.6 |
+| session.restore.sqlite | 10810.2 | 31552.0 | 47778.0 | 14032.3 | 71 | 5,000 | 10810.2 / 8172.6 / 10139.7 / 19966.2 / 12537.7 |
+| token.validate.sqlite | 20796.4 | 55092.0 | 74606.0 | 23805.1 | 42 | 5,000 | 24174.2 / 20796.4 / 18790.9 / 13881.4 / 24621.9 |
+
+Warm-up is a tenth of the iterations (check.warm: 10,000). With 5,000 to 10,000 iterations the
+p99 of `checkMany.30.warm`, `session.restore.sqlite` and `token.validate.sqlite` rests on 50 to
+100 tail samples per repeat; trust p50 and mean over p99 for those.
+
+### Gate table
+
+Thresholds are recorded here and not enforced by PERF-4; the features named in the last column
+enforce them.
+
+| gate | scenario | threshold | recorded p50 / p99 (us) | met at baseline | enforced by |
+|---|---|---|---|---|---|
+| warm `check` p99 <= 2 x 2.x `probeGrant.depth3` p99 | `check.warm` | 5.4 us (2 x 2.7 us; the 2.x figure moves with the session, rerun it for a real comparison) | 105.8 / 569.9 | no | none yet; HOOK-5 checks for no regression |
+| `checkMany(30)` warm <= 1 ms | `checkMany.30.warm` | 1000 us | 2779.9 / 12973.0 | no | none yet; HOOK-5 checks for no regression |
+| session restore <= 1 ms warm | `session.restore.memory` | 1000 us | 17.6 / 117.4 | yes | PERF-1 (no gate extra on the memory store) |
+| session restore <= 1 ms warm | `session.restore.sqlite` | 1000 us | 10810.2 / 47778.0 | no | PERF-1 |
+| token validation <= 1 ms warm | `token.validate.sqlite` | 1000 us | 20796.4 / 74606.0 | no | PERF-3 |
+| PERF-1 gate extra: sqlite restore p50 improves >= 40 % | `session.restore.sqlite` | p50 <= 6486 us | 10810.2 / n/a | n/a | PERF-1 |
+| PERF-2 gate extra: token validate p50 improves >= 30 % | `token.validate.sqlite` | p50 <= 14557 us | 20796.4 / n/a | n/a | PERF-2 |
+| PERF-3 gate extra: cached token validate warm p50 <= 0.3 ms | `token.validate.sqlite` | p50 <= 300 us | 20796.4 / n/a | n/a | PERF-3 |
+
+The sqlite thresholds in the percentage rows move with the machine load; recompute them from a
+baseline taken in the same session as the candidate.
 
 ## Notes and caveats
 

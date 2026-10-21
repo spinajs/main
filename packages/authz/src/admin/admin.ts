@@ -162,7 +162,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     await this.one(actor, { kind: 'scope.forget', scope }, opts);
   }
 
-  async list(actor: Principal, query: AuthzAdminQuery): Promise<{ items: readonly unknown[]; total: number }> {
+  async list(actor: Principal, query: AuthzAdminQuery): Promise<{ items: readonly unknown[]; total: number; next?: string }> {
     const env = await this.env();
     assertActor(actor, env.where, 'list');
     const readers = await this.readers(env.where);
@@ -174,9 +174,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
 
     const reader = readers.get(qn.kind);
     if (!reader) throw new AuthzAdminFailure('not_found', `no AuthzAdminReader answers query kind ${q(qn.kind)}`, 'kind');
-    const out: unknown = await reader.list(qn, ctx);
-    if (!isObject(out) || !Array.isArray(out.items) || typeof out.total !== 'number' || !Number.isInteger(out.total) || out.total < 0) throw new AuthzConfigError(`${env.where}: ${className(reader)}.list() must return { items, total }, got ${q(out)}`);
-    return { items: out.items as unknown[], total: out.total };
+    return readerAnswer(await reader.list(qn, ctx), env.where, reader);
   }
 
   /** One command through run(); a failed result throws its error. */
@@ -448,6 +446,15 @@ function appliedOf(out: unknown, kind: string, where: string): Applied {
   return out as unknown as Applied;
 }
 
+/** What a reader returned, checked: `{ items, total }`, and a `next` only when it is a cursor. */
+function readerAnswer(out: unknown, where: string, reader: AuthzAdminReader): { items: readonly unknown[]; total: number; next?: string } {
+  if (!isObject(out) || !Array.isArray(out.items) || typeof out.total !== 'number' || !Number.isInteger(out.total) || out.total < 0) throw new AuthzConfigError(`${where}: ${className(reader)}.list() must return { items, total }, got ${q(out)}`);
+  const next = out.next;
+  if (next === undefined) return { items: out.items as unknown[], total: out.total };
+  if (typeof next !== 'string' || next === '') throw new AuthzConfigError(`${where}: ${className(reader)}.list() returned a next that is not a non-empty string: ${q(next)}`);
+  return { items: out.items as unknown[], total: out.total, next };
+}
+
 function assertActor(actor: unknown, where: string, what: string): asserts actor is Principal {
   if (!isObject(actor) || typeof actor.type !== 'string' || typeof actor.id !== 'string') throw new AuthzConfigError(`${where}: AuthzAdmin.${what} needs a principal as the actor, got ${q(actor)}`);
 }
@@ -485,7 +492,7 @@ function readQuery(query: unknown, readers: ReadonlyMap<string, unknown>): Authz
     if (!isPermission(query.permission)) bad(`permission must be a permission name, got ${q(query.permission)}`, 'permission');
     if (query.expandSets !== undefined && typeof query.expandSets !== 'boolean') bad(`expandSets must be a boolean, got ${q(query.expandSets)}`, 'expandSets');
   }
-  let page: { limit: number; offset: number } = { ...DEFAULT_PAGE };
+  let page: { limit: number; offset: number; after?: string } = { ...DEFAULT_PAGE };
   if (query.page !== undefined) {
     const p = query.page;
     if (!isObject(p)) return bad(`page must be { limit, offset }, got ${q(p)}`, 'page');
@@ -493,7 +500,10 @@ function readQuery(query: unknown, readers: ReadonlyMap<string, unknown>): Authz
     const offset = p.offset ?? DEFAULT_PAGE.offset;
     if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1) bad(`page.limit must be an integer >= 1, got ${q(limit)}`, 'page.limit');
     if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) bad(`page.offset must be an integer >= 0, got ${q(offset)}`, 'page.offset');
-    page = { limit: Math.min(limit as number, MAX_LIMIT), offset: offset as number };
+    const after = p.after;
+    if (after !== undefined && (typeof after !== 'string' || after === '')) bad(`page.after must be a non-empty string, got ${q(after)}`, 'page.after');
+    if (after !== undefined && (offset as number) > 0) bad('page.after replaces page.offset: give one of them', 'page.after');
+    page = { limit: Math.min(limit as number, MAX_LIMIT), offset: offset as number, ...(after === undefined ? {} : { after: after as string }) };
   }
   return { ...(copyOf(query) as object), page } as unknown as AuthzAdminQuery;
 }

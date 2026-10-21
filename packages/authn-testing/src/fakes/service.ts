@@ -133,7 +133,7 @@ export class FakeAuthnService extends AuthnService {
   private async settle(s: AuthenticationStrategy, r: StrategyOutcome, keys: readonly ThrottleKey[], ctx: AuthnContext): Promise<AuthenticationResult> {
     if (!r.ok) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, reason: r.reason });
-      return failure(r.reason);
+      return r.reason === 'throttled' ? throttled(Number.isInteger(r.retryAfterSeconds) && r.retryAfterSeconds! > 0 ? r.retryAfterSeconds! : 1) : failure(r.reason);
     }
     const id = r.identity ?? (r.external ? await this.linkedIdentity(s, r.external) : null);
     if (!id) {

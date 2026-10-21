@@ -38,7 +38,8 @@ Keys of the other packages. Each is validated by the schema of the package in th
 | Key | Type | Default | Allowed values | Read by |
 | --- | --- | --- | --- | --- |
 | `authn.local.hasher.service` | `string` | unset | | [`authn-local`](../authn-local/README.md) |
-| `authn.local.hasher.maxConcurrent` | `integer` | `8` | ≥ 1 | `authn-local` |
+| `authn.local.hasher.maxConcurrent` | `integer` | `max(1, UV_THREADPOOL_SIZE - 1)` | ≥ 1 | `authn-local` |
+| `authn.local.hasher.maxQueue` | `integer` | `64` | ≥ 0 | `authn-local` |
 | `authn.local.pepper.secret` | `string \| null` | `null` | non-empty | `authn-local` |
 | `authn.local.pepper.version` | `integer` | `1` | 1 to 999999999 | `authn-local` |
 | `authn.local.pepper.previous` | `{ secret, version }[]` | unset | Versions unique and unlike `version` | `authn-local` |

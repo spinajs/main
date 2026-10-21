@@ -22,11 +22,11 @@ const authnLocal = {
       // No code reads `hasher.service`: `@Injectable(PasswordHasher)` selects
       // Argon2PasswordHasher.
       hasher: {
-        /**
-         * Argon2 operations at once (hash and verify); the rest queue. Each
-         * takes 64 MiB, so small hosts lower this, never the cost (H30).
-         */
-        maxConcurrent: 8,
+        // `maxConcurrent` (argon2 operations at once, 64 MiB each) is not set here:
+        // unset, it is UV_THREADPOOL_SIZE - 1, at least 1. Small hosts lower it, never the cost (H30).
+
+        /** Operations that may wait for a slot; beyond it hash and verify fail with HasherBusy. */
+        maxQueue: 64,
       },
 
       /**

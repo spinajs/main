@@ -71,7 +71,7 @@ export interface TestAbacPolicy {
 }
 
 type RoleSet = { readonly role: string; readonly scope: ResourceRef };
-type Page = { limit: number; offset: number };
+type Page = { limit: number; offset: number; after?: string };
 
 /** The core's commands and the RBAC and ABAC ones, as AuthzCommand is with both models installed. */
 export type TestAdminCommand =

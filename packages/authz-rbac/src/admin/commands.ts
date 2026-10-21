@@ -97,19 +97,19 @@ export interface AssignmentsAdminQuery {
   readonly subject?: AssignmentSubject;
   readonly role?: string;
   readonly includeExpired?: boolean;
-  readonly page?: { limit: number; offset: number };
+  readonly page?: { limit: number; offset: number; after?: string };
 }
 
 export interface LinksAdminQuery {
   readonly kind: 'links';
   readonly scope?: ResourceRef;
-  readonly page?: { limit: number; offset: number };
+  readonly page?: { limit: number; offset: number; after?: string };
 }
 
 export interface RulesAdminQuery {
   readonly kind: 'rules';
   readonly scope?: ResourceRef;
-  readonly page?: { limit: number; offset: number };
+  readonly page?: { limit: number; offset: number; after?: string };
 }
 
 /** Who holds `permission` at `scope`, through which assignment. */
@@ -118,7 +118,7 @@ export interface HoldersAdminQuery {
   readonly scope: ResourceRef;
   readonly permission: Permission;
   readonly expandSets?: boolean;
-  readonly page?: { limit: number; offset: number };
+  readonly page?: { limit: number; offset: number; after?: string };
 }
 
 declare module '@spinajs/authz' {

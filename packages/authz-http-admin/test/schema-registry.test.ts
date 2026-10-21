@@ -76,7 +76,7 @@ describe('authz-http-admin command schema registry', () => {
 
   it('documents the registered commands in the OpenAPI batch body', () => {
     const empty: { paths: object; components?: { schemas: Record<string, unknown> } } = { paths: {} };
-    const doc = describeAuthzAdminDocument(empty, { ...AUTHZ_ADMIN_SCHEMAS, AuthzAdminBatch: registryWith(FakeCommandSchemas).batch() });
+    const doc = describeAuthzAdminDocument(empty, 'authz', { ...AUTHZ_ADMIN_SCHEMAS, AuthzAdminBatch: registryWith(FakeCommandSchemas).batch() });
     expect(kindsOf(doc.components?.schemas.AuthzAdminBatch)).to.include('fake.set');
   });
 

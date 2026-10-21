@@ -90,4 +90,9 @@ export type StrategyOutcome =
        */
       readonly attributes?: Readonly<Record<string, unknown>>;
     }
-  | { readonly ok: false; readonly reason: AuthnFailure };
+  | {
+      readonly ok: false;
+      readonly reason: AuthnFailure;
+      /** Only with reason 'throttled' (a strategy short of capacity, not a backoff): seconds the client should wait; the service answers 1 when absent. */
+      readonly retryAfterSeconds?: number;
+    };

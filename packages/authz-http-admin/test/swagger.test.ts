@@ -111,13 +111,26 @@ describe('authz-http-admin swagger', function () {
 
   it('documents the query parameters with their encodings', () => {
     const query = (path: string, method: string) => Object.fromEntries(doc.paths[path][method].parameters.filter((p: any) => p.in === 'query').map((p: any) => [p.name, p]));
-    expect(Object.keys(query('/authz/assignments', 'get'))).to.have.members(['scope', 'subject', 'role', 'includeExpired', 'limit', 'offset']);
+    expect(Object.keys(query('/authz/assignments', 'get'))).to.have.members(['scope', 'subject', 'role', 'includeExpired', 'limit', 'offset', 'after']);
     expect(query('/authz/assignments', 'get').scope.description).to.match(/<type>:<id>/);
     expect(query('/authz/assignments', 'get').subject.description).to.match(/set:<role>@<type>:<id>/);
     expect(Object.keys(query('/authz/rules/{id}', 'put'))).to.have.members(['reason', 'idempotencyKey', 'dryRun']);
     expect(query('/authz/rules/{id}', 'put').dryRun.schema.type).to.eq('boolean');
     const holders = query('/authz/holders', 'get');
     expect([holders.scope.required, holders.permission.required, holders.expandSets.required]).to.deep.eq([true, true, false]);
+  });
+
+  it('documents the after cursor on the keyset-paged lists and next in the page schema', () => {
+    interface Described {
+      readonly paths: Record<string, { get: { parameters: readonly { in: string; name: string }[] } }>;
+      readonly components: { schemas: Record<string, { properties: Record<string, { type: string }>; required: readonly string[] }> };
+    }
+    const described = doc as Described;
+    const query = (path: string) => described.paths[path].get.parameters.filter((p) => p.in === 'query').map((p) => p.name);
+    for (const path of ['/authz/assignments', '/authz/holders', '/authz/links', '/authz/rules']) expect(query(path), path).to.include('after');
+    expect(query('/authz/policies')).to.not.include('after');
+    expect(described.components.schemas.AuthzAdminPage.properties.next.type).to.eq('string');
+    expect(described.components.schemas.AuthzAdminPage.required).to.deep.eq(['items', 'total']);
   });
 
   it('lists every route of the controller in AUTHZ_ADMIN_ROUTES', () => {
@@ -133,7 +146,7 @@ describe('authz-http-admin swagger', function () {
     expect(bodyOf('/authz/links', 'post')).to.eq('#/components/schemas/AuthzLinkCreate');
     expect(bodyOf('/authz/links/{id}', 'patch')).to.eq('#/components/schemas/AuthzLinkPatch');
     expect(bodyOf('/authz/links/{id}', 'delete')).to.eq(undefined);
-    expect(query('/authz/links', 'get')).to.have.members(['scope', 'limit', 'offset']);
+    expect(query('/authz/links', 'get')).to.have.members(['scope', 'limit', 'offset', 'after']);
     for (const [path, method] of [
       ['/authz/links', 'post'],
       ['/authz/links/{id}', 'patch'],

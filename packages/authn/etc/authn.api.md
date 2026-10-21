@@ -161,6 +161,8 @@ export type StrategyOutcome = {
 } | {
     readonly ok: false;
     readonly reason: AuthnFailure;
+    /** Only with reason 'throttled' (a strategy short of capacity, not a backoff): seconds the client should wait; the service answers 1 when absent. */
+    readonly retryAfterSeconds?: number;
 };
 ```
 
@@ -1123,6 +1125,14 @@ export interface ThrottleKey {
     readonly value: string;
 }
 export type ThrottleFlow = "login" | "mfa" | "reset" | "reauth";
+/** `clean`: no live row holds any of the keys, so a success has nothing to lower or clear and `succeed` may be skipped. */
+export type PeekVerdict = {
+    readonly allowed: true;
+    readonly clean: boolean;
+} | {
+    readonly allowed: false;
+    readonly retryAfterSeconds: number;
+};
 /** Backoff, never a lock (H31). MemoryAuthnThrottle (core), DbAuthnThrottle (authn-orm). */
 export declare abstract class AuthnThrottle {
     /**

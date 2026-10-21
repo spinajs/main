@@ -62,7 +62,7 @@ describe('authz-abac pinned shapes', () => {
 
 describe('authz-abac admin commands (declared in AuthzCommandMap)', () => {
   type DCommand = { readonly kind: 'policy.put'; readonly policy: Omit<Policy, 'source'> } | { readonly kind: 'policy.delete'; readonly id: string };
-  type DQuery = { readonly kind: 'policies'; readonly scope?: ResourceRef; readonly page?: { limit: number; offset: number } };
+  type DQuery = { readonly kind: 'policies'; readonly scope?: ResourceRef; readonly page?: { limit: number; offset: number; after?: string } };
   type Opts = { readonly reason?: string; readonly idempotencyKey?: string; readonly dryRun?: boolean };
 
   interface DPolicy {

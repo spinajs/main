@@ -16,7 +16,7 @@ export interface PolicyDeleteCommand {
 export interface PoliciesAdminQuery {
   readonly kind: 'policies';
   readonly scope?: ResourceRef;
-  readonly page?: { limit: number; offset: number };
+  readonly page?: { limit: number; offset: number; after?: string };
 }
 
 declare module '@spinajs/authz' {

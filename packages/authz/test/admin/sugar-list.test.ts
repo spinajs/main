@@ -332,6 +332,41 @@ describe('DefaultAuthzAdmin sugar methods and list', function () {
       }
       expect(((await rejection(d.admin.list(alice, { kind: 'attributes' } as unknown as AuthzAdminQuery))) as AuthzAdminFailure).field).to.equal('scope');
     });
+
+    it('hands page.after to the reader without an offset, and answers the next the reader returns', async () => {
+      class Paging extends AuthzAdminReader {
+        readonly kinds = ['policies'] as const;
+        async list(): Promise<{ items: readonly unknown[]; total: number; next?: string }> {
+          return { items: ['a'], total: 2, next: 'bmV4dA' };
+        }
+      }
+      const d = await domain((c) => c.register(Paging).as(AuthzAdminReader));
+
+      expect(await d.admin.list(alice, { kind: 'policies', page: { limit: 1, offset: 0, after: 'abc' } })).to.deep.equal({ items: ['a'], total: 2, next: 'bmV4dA' });
+      await d.admin.list(alice, { kind: 'assignments', page: { limit: 5, offset: 0, after: 'abc' } });
+      expect((FakeReader.calls[0].q as { page: unknown }).page).to.deep.equal({ limit: 5, offset: 0, after: 'abc' });
+    });
+
+    it('refuses page.after together with an offset, and an empty or non-string cursor', async () => {
+      const d = await domain();
+      for (const page of [{ limit: 5, offset: 1, after: 'abc' }, { limit: 5, offset: 0, after: '' }, { limit: 5, offset: 0, after: 7 }]) {
+        const e = await rejection(d.admin.list(alice, { kind: 'assignments', page } as unknown as AuthzAdminQuery));
+        expect((e as AuthzAdminFailure).code, JSON.stringify(page)).to.equal('invalid_query');
+        expect((e as AuthzAdminFailure).field, JSON.stringify(page)).to.equal('page.after');
+      }
+      expect(FakeReader.calls).to.deep.equal([]);
+    });
+
+    it('refuses a reader answer whose next is not a non-empty string', async () => {
+      class BadNext extends AuthzAdminReader {
+        readonly kinds = ['policies'] as const;
+        async list(): Promise<{ items: readonly unknown[]; total: number }> {
+          return { items: [], total: 0, next: 5 } as unknown as { items: readonly unknown[]; total: number };
+        }
+      }
+      const d = await domain((c) => c.register(BadNext).as(AuthzAdminReader));
+      expect(await rejection(d.admin.list(alice, { kind: 'policies' }))).to.be.instanceOf(AuthzConfigError);
+    });
   });
 
   describe('task 1 review fixes', () => {

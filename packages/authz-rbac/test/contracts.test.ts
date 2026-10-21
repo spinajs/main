@@ -262,7 +262,7 @@ describe('authz-rbac pinned shapes', () => {
 
 describe('authz-rbac admin commands (declared in AuthzCommandMap)', () => {
   type DSubject = PrincipalRef | { readonly set: { readonly role: string; readonly scope: ResourceRef } };
-  type DPage = { limit: number; offset: number };
+  type DPage = { limit: number; offset: number; after?: string };
   type DCommand =
     | { readonly kind: 'assignment.grant'; readonly subject: AssignmentSubject; readonly role: string; readonly scope: ResourceRef; readonly tags?: readonly string[]; readonly expiresAt?: Date | null; readonly replaceLadder?: boolean }
     | { readonly kind: 'assignment.revoke'; readonly id: string }

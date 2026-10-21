@@ -9,12 +9,13 @@ import type { DateTime } from 'luxon';
 import { randomUUID } from 'node:crypto';
 
 import { AdminAssignmentStore } from '../admin/ports.js';
-import type { AssignmentQuery, Page } from '../admin/ports.js';
+import type { AssignmentQuery, ListResult, Page } from '../admin/ports.js';
 import { rowToAssignment } from './assignment-row.js';
 import { SUBJECT_KEY_MAX_LENGTH, scopeToColumns, subjectKeyOf, subjectToColumns } from './columns.js';
 import { requireTransaction } from './context.js';
 import { withDbRbacStore } from './db-store.js';
-import { pageWindow, requireScopeNode, whereLive } from './queries.js';
+import { applyWindow, pageWindow, requireScopeNode, trimWindow, whereLive } from './queries.js';
+import type { ListWindow } from './queries.js';
 import { AssignmentRecord, recordValues, toDateTime } from './records.js';
 import type { AssignmentFields } from './records.js';
 import { normaliseTags, parseTags } from './tags.js';
@@ -33,7 +34,7 @@ export interface AssignmentListQuery {
   readonly subject?: AssignmentSubject;
   readonly role?: string;
   readonly includeExpired?: boolean;
-  readonly page?: { readonly limit: number; readonly offset: number };
+  readonly page?: { readonly limit: number; readonly offset: number; readonly after?: string };
 }
 
 /** The columns `authz_assignment_uq` keys a grant by. */
@@ -223,8 +224,11 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
    * Filtered page for `AuthzAdmin.list` (kind `assignments`), oldest first; `total` counts the unpaged
    * result. At most {@link ASSIGNMENT_LIST_MAX_LIMIT} rows, with or without a page; a negative or
    * fractional `limit` or `offset` is `invalid_page`.
+   * `page.after` (the `next` of an earlier page) continues behind that row instead of skipping `offset`
+   * rows; a cursor this list did not issue, or one with an `offset`, is `invalid_page`. `next` is set
+   * when more rows follow and the page has no `offset`.
    */
-  async list(q: AssignmentListQuery, at: Date): Promise<{ items: readonly Assignment[]; total: number }> {
+  async list(q: AssignmentListQuery, at: Date): Promise<ListResult<Assignment>> {
     await this.ready();
     return this.select(q, at, pageWindow(q.page, this.maxListLimit, `${this.name}.list`));
   }
@@ -233,7 +237,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
    * `AdminAssignmentStore.find` with `q.at` as now. With a page, as {@link list}; without one, every
    * match in one query: AuthzAdmin's guard reads that as the full set (escalation, self-lockout).
    */
-  async find(q: AssignmentQuery, page?: Page): Promise<{ items: readonly Assignment[]; total: number }> {
+  async find(q: AssignmentQuery, page?: Page): Promise<ListResult<Assignment>> {
     await this.ready();
     const { at, ...filter } = q;
     return this.select(filter, at, page ? pageWindow(page, this.maxListLimit, `${this.name}.find`) : undefined);
@@ -249,7 +253,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
   }
 
   /** The filtered rows, oldest first; `window` undefined reads every match in one query. */
-  private async select(q: Omit<AssignmentListQuery, 'page'>, at: Date, window: { limit: number; offset: number } | undefined): Promise<{ items: readonly Assignment[]; total: number }> {
+  private async select(q: Omit<AssignmentListQuery, 'page'>, at: Date, window: ListWindow | undefined): Promise<ListResult<Assignment>> {
     const filtered = () => {
       const query = AssignmentRecord.query();
       whereFilter(query, q);
@@ -265,10 +269,9 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     const total = await filtered().selectCount();
     if (window.limit === 0) return { items: [], total };
 
-    const query = filtered().orderBy('created_at').orderBy('id').take(window.limit);
-    if (window.offset > 0) query.skip(window.offset);
+    const { rows, next } = trimWindow(await applyWindow(filtered().orderBy('created_at').orderBy('id'), window), window);
 
-    return { items: (await query).map(rowToAssignment), total };
+    return { items: rows.map(rowToAssignment), total, ...(next === undefined ? {} : { next }) };
   }
 
   protected async existingRow(key: AssignmentKey): Promise<AssignmentRecord | undefined> {

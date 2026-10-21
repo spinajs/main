@@ -410,15 +410,15 @@ describe('MemoryAuthnThrottle', function () {
     it('refuses while a delay holds and counts nothing', async () => {
       const t = new Probe(SHORT).noSweep();
       const keys = pwKeys(ALICE.login, IP_A);
-      expectAllowed(await t.peek(keys, 'login', ctx()));
+      assert.deepStrictEqual(await t.peek(keys, 'login', ctx()), { allowed: true, clean: true });
       assert.strictEqual(t.rowCount, 0, 'a peek stores nothing');
       expectAllowed(await t.attempt(keys, 'login', ctx()));
       const rows = t.dump();
       for (let i = 0; i < 5; i++) expectRefused(await t.peek(keys, 'login', ctx()), 2);
-      expectAllowed(await t.peek(pwKeys(ALICE.login, IP_A), 'mfa', ctx()), 'flows peek apart');
+      assert.deepStrictEqual(await t.peek(pwKeys(ALICE.login, IP_A), 'mfa', ctx()), { allowed: true, clean: true }, 'flows peek apart');
       assert.strictEqual(t.dump(), rows, 'a peek changes no row');
       clock.tick(2000);
-      expectAllowed(await t.peek(keys, 'login', ctx()));
+      assert.deepStrictEqual(await t.peek(keys, 'login', ctx()), { allowed: true, clean: false }, 'the rows are live past their delay');
       expectAllowed(await t.attempt(keys, 'login', ctx()), 'the peeks took no slot');
     });
 
@@ -426,7 +426,7 @@ describe('MemoryAuthnThrottle', function () {
       const t = new Probe(tuned({ authn: { throttle: { login: { account: { free: 1, baseDelayMs: 600_000, maxDelayMs: 600_000 } } } } }), { maxRows: 4 }).noSweep();
       for (const v of ['a', 'b', 'c', 'd']) expectAllowed(await t.attempt([{ kind: 'account', value: v }], 'login', ctx()));
       const fresh: ThrottleKey[] = [{ kind: 'account', value: 'e' }];
-      expectAllowed(await t.peek(fresh, 'login', ctx()));
+      assert.deepStrictEqual(await t.peek(fresh, 'login', ctx()), { allowed: true, clean: true });
       assert.strictEqual((await t.attempt(fresh, 'login', ctx())).allowed, false);
       expectRefused(await t.peek([{ kind: 'account', value: 'a' }], 'login', ctx()), 600);
     });

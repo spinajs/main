@@ -76,7 +76,8 @@ function listPath(q: AuthzAdminQuery): string {
   }
   if (q.page) {
     params.set('limit', String(q.page.limit));
-    params.set('offset', String(q.page.offset));
+    if (q.page.after === undefined) params.set('offset', String(q.page.offset));
+    else params.set('after', q.page.after);
   }
   const qs = params.toString();
   return `/authz/${q.kind}${qs ? `?${qs}` : ''}`;

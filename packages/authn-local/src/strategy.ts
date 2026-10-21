@@ -6,10 +6,12 @@ import { AuthenticationStrategy, IdentityStore, PasswordCredentialStore } from '
 import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 
 import { PasswordHasher } from './hasher.js';
+import { HasherBusy } from './limiter.js';
 import { isLoginLength, LocalPasswordPolicy } from './policy.js';
 
 const INVALID: StrategyOutcome = { ok: false, reason: 'invalid_credentials' };
 const UNSUPPORTED: StrategyOutcome = { ok: false, reason: 'unsupported_credentials' };
+const BUSY: StrategyOutcome = { ok: false, reason: 'throttled', retryAfterSeconds: 1 };
 
 const isPasswordKind = (c: Credentials) => c !== null && typeof c === 'object' && c.kind === 'password';
 
@@ -92,7 +94,18 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
     return [{ kind: 'account', value: normalizeLogin(login) }];
   }
 
-  public async verify(c: Credentials, _ctx: AuthnContext): Promise<StrategyOutcome> {
+  public async verify(c: Credentials, ctx: AuthnContext): Promise<StrategyOutcome> {
+    try {
+      return await this.check(c, ctx);
+    } catch (err) {
+      if (err instanceof HasherBusy) {
+        return BUSY;
+      }
+      throw err;
+    }
+  }
+
+  protected async check(c: Credentials, _ctx: AuthnContext): Promise<StrategyOutcome> {
     const hasher = await this.hasher();
     const fields = passwordFields(c);
 

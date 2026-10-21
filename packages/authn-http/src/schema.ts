@@ -23,6 +23,12 @@ export const AUTHN_HTTP_CONFIGURATION_SCHEMA = {
         allowedOrigins: { type: 'array', default: [], items: { type: 'string', pattern: ORIGIN_PATTERN }, description: 'Besides the same origin, which is always allowed.' },
       },
     },
+    admin: {
+      type: 'object',
+      properties: {
+        basePath: { type: 'string', minLength: 1, description: 'Where the credential admin routes mount, without the global route prefix. Unset: authn/admin/users.' },
+      },
+    },
     routes: {
       type: 'object',
       properties: {

@@ -42,12 +42,13 @@ describe('authn.keys through the schema', () => {
         challenge: { ttlSeconds: 120, audience: null },
         assertion: { typ: 'spinajs-client+jwt', audience: null, maxLifetimeSeconds: 300, skewSeconds: 30 },
         httpSignature: { maxAgeSeconds: 300, skewSeconds: 30, requiredComponents: ['@method', '@target-uri', 'content-digest'] },
+        signer: null,
       });
     });
 
     it('fills the whole block, equal to the test fixture', async () => {
       const { configuration } = await boot(SCHEMAS, {});
-      expect(configuration.get('authn.keys')).to.deep.eq({ ...TEST_KEYS_CONFIG });
+      expect(configuration.get('authn.keys')).to.deep.eq({ ...TEST_KEYS_CONFIG, signer: null });
     });
 
     it('keeps a configured value and fills the rest of its block', async () => {

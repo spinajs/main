@@ -24,6 +24,7 @@ export interface PoliciesAdminQuery {
     readonly page?: {
         limit: number;
         offset: number;
+        after?: string;
     };
 }
 declare module "@spinajs/authz" {

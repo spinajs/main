@@ -4,7 +4,7 @@ import type { Permission, PrincipalRef, ResourceRef } from '@spinajs/authz';
 // cannot import authz-rbac or authz-abac, so this declares structural copies of their commands for the tests.
 type Subject = PrincipalRef | { readonly set: { readonly role: string; readonly scope: ResourceRef } };
 type RoleSet = { readonly role: string; readonly scope: ResourceRef };
-type Page = { limit: number; offset: number };
+type Page = { limit: number; offset: number; after?: string };
 type TagsCommand = { readonly kind: 'assignment.setTags' | 'assignment.addTags' | 'assignment.removeTags'; readonly id: string; readonly tags: readonly string[] };
 type ListQuery = { readonly kind: 'links' | 'rules' | 'policies'; readonly scope?: ResourceRef; readonly page?: Page };
 

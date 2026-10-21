@@ -31,6 +31,7 @@ import { LocalPasswordStrategy } from '../src/strategy.js';
 /** The ConfigOverrides keys this harness applies; any other key makes a case pending (or fail when claimed). */
 const SUPPORTED = [
   'authn.local.hasher.maxConcurrent',
+  'authn.local.hasher.maxQueue',
   'authn.local.pepper.secret',
   'authn.local.pepper.version',
   'authn.local.policy.minLength',

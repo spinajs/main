@@ -1,3 +1,40 @@
+# Release notes — authz: keyset pagination and the fs_acl path index
+
+## New behavior
+
+- The admin lists page by cursor as well as by offset. `AuthzAdmin.list` takes `page: { limit, after }`
+  for assignments, links, rules and holders, and answers `{ items, total, next? }`. `next` is set when
+  more rows follow a first or `after` page and is absent on the last page. A page read with `offset`
+  works as before and gets no `next`. The RBAC stores read the rows behind the cursor in
+  `(created_at, id)` order instead of skipping `offset` rows, so a deep page costs what the first one does;
+  `total` is still counted for every page. Holders page by subject key.
+- `GET /authz/assignments`, `/holders`, `/links` and `/rules` take `after`, the `next` of the previous
+  page. It replaces `offset`; both together, an empty `after` and an `after` on `/authz/policies` answer
+  `400 invalid_query`. A cursor the store did not issue answers `400 invalid_page`. See
+  `docs/authz-http-admin/01-admin-routes.md`.
+- A custom `AuthzAdminReader` that cannot page by cursor needs no change: it ignores `after` and returns
+  no `next`. A custom store behind the RBAC reader may return `next` from `find`.
+
+## Before you upgrade
+
+- Run the new `@spinajs/authz-fs` migration `AuthzFsAclPathIndex_2026_10_21_00_00_00`. It adds the index
+  `fs_acl_fs_path` on `(fs, path)`, which the prefix reads of `deleteTree` and `moveTree` use. It creates
+  an index only; the `fs_acl` table and its rows are untouched. `moveTree` still rewrites the moved rows
+  one by one in a transaction.
+
+# Release notes — authn: no per-request writes on the token and key path
+
+## New behavior
+
+- `DefaultAuthnService` no longer waits for the audit sinks on a successful `token.use` or `key.use`:
+  it publishes them with the new `AuthnAudit.publishDetached`. Failure events are still awaited.
+  `AuthnAudit.settled()` resolves when the detached deliveries have settled; `AuthnAudit.dispose()`
+  awaits it. A test that reads a sink right after a token or key success should `await audit.settled()`.
+- `PeekableThrottle.peek` resolves the new `PeekVerdict`: an allowed peek carries `clean`. When no live
+  throttle row holds the keys, a token or key success skips `succeed`, so a credential with no failures
+  on record writes nothing to the throttle. `DbThrottleStore.peek` stays one `SELECT`. A custom
+  `PeekableThrottle` must return `clean`; `false` keeps the old behaviour.
+
 # Release notes — SpinaJS 3.0.0: authentication and authorization
 
 > 3.0 splits `@spinajs/rbac` into three families: identity (`@spinajs/users*`), authentication
@@ -358,6 +395,12 @@ what each fix changes for an app.
   only. `AccountGuard` replaces `rbac.admin.roleGuard`. The full list: `packages/users-http/README.md`.
 - Answers that carry a secret (`POST /user/tokens`, recovery codes, `POST /authz/links`, ...) send
   `Cache-Control: no-store`.
+- The admin routes can move to their own prefix, so a reverse proxy can fence them off:
+  `authn.http.admin.basePath` (credential admin, default `authn/admin/users`) and
+  `authz.http.admin.basePath` (authz admin, default `authz`). Both are unset by default, so no path
+  changes. They rest on `@BasePath({ config, default })` in `@spinajs/http`. A controller without a
+  key is moved by subclassing it with its own `@BasePath` and `DI.register(Mine).as(Theirs)`; see
+  `docs/http/02-controllers-and-routing.md`.
 
 ### Databases
 
@@ -649,7 +692,7 @@ models extend by module augmentation. `@spinajs/authz` no longer exports the RBA
   those packages. Without them their parameters are `never`.
 - `AuthzAdmin.list()` accepts any query kind a registered `AuthzAdminReader` claims.
 - `@spinajs/authz-http-admin`: the batch body schema is built from `AuthzCommandSchemaSource`
-  contributions. `describeAuthzAdminDocument(doc, schemas?)` takes the schemas to document, and
+  contributions. `describeAuthzAdminDocument(doc, basePath?, schemas?)` takes the schemas to document, and
   `AuthzAdminSchemaProvider.schemas()` returns them with every registered source.
 - `@spinajs/authz-testing` carries structural copies (`TestAssignment`, `TestRuleDef`, `TestAbacPolicy`,
   `TestAdminCommand`, `TestAdminQuery`, ...); the kit's `AdminHttpHandle` takes `TestAdminCommand` and
@@ -820,3 +863,18 @@ status so tracking no longer depends on a DB default.
 - Renderers no longer mutate the caller's model object during rendering.
 - Render timing log entries report real durations (a timer-key bug made handlebars
   always report 0 ms).
+
+---
+
+# Release notes — argon2 limiter safety (`@spinajs/authn-local`)
+
+## New behavior
+
+- The hasher queue is bounded. `authn.local.hasher.maxQueue` (default **64**) is the number of hash and
+  verify operations that may wait for a slot. Beyond it they reject with `HasherBusy` at once, and the
+  local strategy answers the login with a `throttled` failure and `Retry-After: 1`.
+- `authn.local.hasher.maxConcurrent` has no fixed default any more: unset, it is
+  `max(1, UV_THREADPOOL_SIZE - 1)`, so 3 with the Node.js thread pool of 4 (it was 8). Apps that rely on 8
+  must set it, and should raise `UV_THREADPOOL_SIZE` with it.
+- A strategy may answer `{ ok: false, reason: 'throttled', retryAfterSeconds }` when it is short of
+  capacity; the core passes the wait on. The argon2 cost stays pinned; the schema still refuses cost keys.

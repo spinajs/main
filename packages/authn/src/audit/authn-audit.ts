@@ -28,6 +28,7 @@ const stamped = (ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, body: Auth
 
 class SinkDelivery implements AuthnAuditor {
   private readonly pipeline: ResiliencePipeline<void>;
+  private readonly detached = new Set<Promise<void>>();
 
   constructor(
     readonly sinks: readonly AuthnEventSink[],
@@ -44,6 +45,17 @@ class SinkDelivery implements AuthnAuditor {
 
   public publishIn(ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, body: AuthnEventBody): Promise<void> {
     return this.publish(stamped(ctx, body));
+  }
+
+  public publishDetached(ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, body: AuthnEventBody): void {
+    const delivery: Promise<void> = this.publishIn(ctx, body)
+      .catch((err: unknown) => this.log().warn({ eventType: body.type, errorClass: errorClass(err) }, 'AuthnAudit: a detached ${eventType} event was dropped (${errorClass})'))
+      .finally(() => this.detached.delete(delivery));
+    this.detached.add(delivery);
+  }
+
+  public async settled(): Promise<void> {
+    await Promise.all([...this.detached]);
   }
 
   // Logs the error class only: a sink's error message can echo event values.
@@ -108,6 +120,23 @@ export class AuthnAudit extends AsyncService {
   /** Publishes `body` stamped with the context's `now`, `ip` and `userAgent`. Never rejects because of a sink. */
   public publishIn(ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, body: AuthnEventBody): Promise<void> {
     return this.publish(stamped(ctx, body));
+  }
+
+  /** Fire-and-forget: sink errors and timeouts are logged as by `publishIn`; returns at once. */
+  public publishDetached(ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, body: AuthnEventBody): void {
+    this.assertResolved();
+    this.delivery.publishDetached(ctx, body);
+  }
+
+  /** Resolves when every detached delivery started so far has settled. For tests and graceful shutdown. */
+  public settled(): Promise<void> {
+    return this.Resolved ? this.delivery.settled() : Promise.resolve();
+  }
+
+  /** Waits for the detached deliveries, each bounded by `sinkTimeoutMs`, so a shutdown does not drop their events. */
+  public override async dispose(): Promise<void> {
+    await this.settled();
+    await super.dispose();
   }
 
   private assertResolved(): void {

@@ -1,5 +1,5 @@
 import { backoffDelayMs } from '@spinajs/authn/contracts';
-import type { BackoffParams } from '@spinajs/authn/contracts';
+import type { BackoffParams, PeekVerdict } from '@spinajs/authn/contracts';
 import { UniqueViolation, everyNthCall, ormReady } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import type { KeyedBackoffVerdict, ThrottleGate, ThrottleLower, ThrottleStore } from '@spinajs/util';
@@ -93,11 +93,24 @@ export class DbThrottleStore implements ThrottleStore {
     return { allowed: true };
   }
 
-  public async peek(_flow: string, gates: readonly ThrottleGate[], nowMs: number): Promise<KeyedBackoffVerdict> {
-    if (gates.length === 0) return { allowed: true };
+  /**
+   * One SELECT of the live rows of the gates: refuses as `attempt` would for a delay, else `clean` when there are
+   * none. A success lowers or clears only rows an attempt writes next to its account gate, so a clean peek needs no
+   * `succeed`.
+   */
+  public async peek(_flow: string, gates: readonly ThrottleGate[], nowMs: number): Promise<PeekVerdict> {
+    if (gates.length === 0) return { allowed: true, clean: true };
     await ormReady();
-    const waitMs = await this.blockedWait(gates.map((g) => g.id).sort(), this.times(nowMs));
-    return waitMs > 0 ? this.refuse(waitMs) : { allowed: true };
+    const t = this.times(nowMs);
+    const live = await AuthnThrottle.query()
+      .columns(['k', 'next_allowed_at'])
+      .whereIn(
+        'k',
+        gates.map((g) => g.id),
+      )
+      .where(this.isLive(t));
+    const waitMs = Math.max(0, ...live.map((r) => this.waitOf(r, t)));
+    return waitMs > 0 ? this.refuse(waitMs) : { allowed: true, clean: live.length === 0 };
   }
 
   /** Lowers by the largest count it consumed: rows carry no run, so a `by` row older than its target is taken off too. */
@@ -230,13 +243,14 @@ export class DbThrottleStore implements ThrottleStore {
       .columns(['k', 'next_allowed_at'])
       .whereIn('k', [...ks])
       .where('next_allowed_at', '>', t.now);
-    let waitMs = 0;
-    for (const r of rows) {
-      const ms = (r.next_allowed_at?.toMillis() ?? NaN) - t.nowMs;
-      // A delaying row whose datetime does not read still delays.
-      waitMs = Math.max(waitMs, Number.isFinite(ms) && ms > 0 ? ms : FAIL_CLOSED_MS);
-    }
-    return waitMs;
+    // SQL found each row delaying, so one that reads as not delaying still delays.
+    return Math.max(0, ...rows.map((r) => this.waitOf(r, t) || FAIL_CLOSED_MS));
+  }
+
+  // A row whose datetime does not read is taken to delay.
+  private waitOf(r: Pick<AuthnThrottle, 'next_allowed_at'>, t: StoreTimes): number {
+    const ms = (r.next_allowed_at?.toMillis() ?? NaN) - t.nowMs;
+    return Number.isFinite(ms) ? Math.max(0, ms) : FAIL_CLOSED_MS;
   }
 
   /** Rows of `ks` that are not stale; stale and missing rows both count as zero. */
@@ -261,7 +275,7 @@ export class DbThrottleStore implements ThrottleStore {
     };
   }
 
-  private refuse(waitMs: number): KeyedBackoffVerdict {
+  private refuse(waitMs: number): Extract<KeyedBackoffVerdict, { allowed: false }> {
     return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) };
   }
 
