@@ -122,7 +122,8 @@ function world(config: Record<string, unknown> = { 'authn.http.registration.noti
   ]);
   const container = { resolve: async (type: unknown) => services.get(type) } as unknown as IContainer;
   const controller = readingFrom(new AuthnRegistrationController(), fakeContainer(config));
-  (controller as unknown as { Container: IContainer }).Container = container;
+  Object.assign(controller, { Container: container });
+  Object.defineProperty(controller, '_log', { value: { warn: () => undefined } });
 
   const request = (body: unknown, ip: string = IP): Request => ({ body, headers: { 'user-agent': 'mocha' }, storage: { ClientIp: ip } }) as unknown as Request;
   return { controller, registrar, passwords, throttle, events, request };

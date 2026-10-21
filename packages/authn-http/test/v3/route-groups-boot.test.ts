@@ -85,7 +85,7 @@ const N8B_ROUTES: Record<Group, string[]> = {
   admin: ['POST /authn/admin/users/:uuid/password-reset', 'POST /authn/admin/users/:uuid/mfa-reset', 'DELETE /authn/admin/users/:uuid/sessions', 'DELETE /authn/admin/users/:uuid/tokens'],
 };
 
-const V3_CONTROLLERS = ['AuthnActiveRoleController', 'AuthnCredentialAdminController', 'AuthnImpersonationController', 'AuthnJwksController', 'AuthnKeysController', 'AuthnLoginController', 'AuthnMfaController', 'AuthnMfaEnrolmentController', 'AuthnPasskeyController', 'AuthnPasswordController', 'AuthnSessionsController', 'AuthnTokenRevocationController', 'AuthnTokensController', 'AuthnVerificationController'];
+const V3_CONTROLLERS = ['AuthnActiveRoleController', 'AuthnCredentialAdminController', 'AuthnImpersonationController', 'AuthnJwksController', 'AuthnKeysController', 'AuthnLoginController', 'AuthnMfaController', 'AuthnMfaEnrolmentController', 'AuthnPasskeyController', 'AuthnPasswordController', 'AuthnRegistrationController', 'AuthnSessionsController', 'AuthnTokenRevocationController', 'AuthnTokensController', 'AuthnVerificationController'];
 
 interface Case {
   mode: 'esm' | 'cjs';
