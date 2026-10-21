@@ -178,6 +178,10 @@ export class MemorySessionIssuer extends SessionIssuer {
     return false;
   }
 
+  async revokeByExternal(_provider: string, _sid: string): Promise<number> {
+    throw new Error('not implemented: MemorySessionIssuer.revokeByExternal');
+  }
+
   async list(subject: IdentityRef, opts?: { current?: SessionHandle }): Promise<readonly { handle: string; createdAt: Date; lastSeenAt: Date; ip?: string; userAgent?: string; current?: boolean }[]> {
     const currentKey = opts?.current ? sha256hex(opts.current.id) : null;
     const now = Date.now();

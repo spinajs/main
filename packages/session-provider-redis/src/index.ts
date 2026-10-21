@@ -240,6 +240,10 @@ export class RedisSessionStore extends SessionProvider {
     return live;
   }
 
+  public async deleteByExternalKey(_externalKey: string): Promise<number> {
+    throw new Error('not implemented: RedisSessionStore.deleteByExternalKey');
+  }
+
   public async truncate(): Promise<void> {
     // Only keys this store owns (session rows and index sets); never a blind FLUSHDB.
     await this.scanSessionKeys(async (keys) => {

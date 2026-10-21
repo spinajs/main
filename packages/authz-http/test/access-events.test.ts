@@ -85,6 +85,9 @@ class ListOnlySessions extends SessionIssuer {
   public revokeHandle(): never {
     throw new Error('unused');
   }
+  public revokeByExternal(): never {
+    throw new Error('unused');
+  }
   public async list(subject: IdentityRef) {
     ListOnlySessions.asked.push(subject);
     return (ListOnlySessions.live[subject.id] ?? []).map((handle) => ({ handle, createdAt: new Date(0), lastSeenAt: new Date(0) }));

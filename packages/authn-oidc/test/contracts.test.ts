@@ -397,7 +397,7 @@ describe('authn-oidc contracts', () => {
     it('OidcConfig, OidcMappedClaims and OidcExternalSubject are exactly the chosen shapes', () => {
       same<OidcConfig, { readonly providers: Readonly<Record<string, OidcProviderConfig>>; readonly redirects?: { readonly success?: OidcAppPath; readonly failure?: OidcAppPath } }>(true);
       same<OidcMappedClaims, { readonly name?: string; readonly groups?: readonly string[]; readonly raw: Readonly<Record<string, unknown>> }>(true);
-      same<OidcExternalSubject, { readonly provider: OidcStrategyName; readonly subject: string; readonly email?: string; readonly emailVerified?: boolean; readonly claims: OidcMappedClaims }>(true);
+      same<OidcExternalSubject, { readonly provider: OidcStrategyName; readonly subject: string; readonly email?: string; readonly emailVerified?: boolean; readonly claims: OidcMappedClaims; readonly sid?: string }>(true);
       const asCore: ExternalSubject = { provider: 'oidc:corp', subject: 's', claims: { raw: {} } } satisfies OidcExternalSubject;
       // @ts-expect-error the provider is the strategy name 'oidc:<name>'
       const wrongProvider: OidcExternalSubject = { provider: 'corp', subject: 's', claims: { raw: {} } };

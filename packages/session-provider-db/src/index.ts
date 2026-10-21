@@ -192,6 +192,10 @@ export class DbSessionStore extends SessionProvider {
     return (await this.matching(subject, opts?.includeImpersonations)).filter((s) => !this.isExpired(s));
   }
 
+  public async deleteByExternalKey(_externalKey: string): Promise<number> {
+    throw new Error('not implemented: DbSessionStore.deleteByExternalKey');
+  }
+
   public async truncate(): Promise<void> {
     await DbSession.truncate();
   }

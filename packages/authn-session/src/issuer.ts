@@ -52,6 +52,11 @@ const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex');
 
 export const storageKeyOf = (rawId: string): string => sha256hex(rawId);
 
+/** ISession.ExternalKey of a session issued from `provider` with IdP session id `sid`. */
+export const externalKeyOf = (_provider: string, _sid: string): string => {
+  throw new Error('not implemented: externalKeyOf');
+};
+
 const PEEKING = new AsyncLocalStorage<true>();
 
 /**
@@ -265,6 +270,10 @@ export class DefaultSessionIssuer extends SessionIssuer {
       });
     }
     return out;
+  }
+
+  public async revokeByExternal(_provider: string, _sid: string): Promise<number> {
+    throw new Error('not implemented: DefaultSessionIssuer.revokeByExternal');
   }
 
   protected factsOf(session: ISession, stored: StoredFacts): AuthnFacts {

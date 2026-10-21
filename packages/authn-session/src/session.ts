@@ -113,6 +113,10 @@ export class MemorySessionStore extends SessionProvider<ISession> {
     return [...this.Sessions.values()].filter((s) => !this.isExpired(s) && belongsTo(s, subject, opts?.includeImpersonations));
   }
 
+  public async deleteByExternalKey(_externalKey: string): Promise<number> {
+    throw new Error('not implemented: MemorySessionStore.deleteByExternalKey');
+  }
+
   public async truncate(): Promise<void> {
     this.Sessions = new Map<string, ISession>();
   }

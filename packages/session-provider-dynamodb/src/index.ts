@@ -271,6 +271,10 @@ export class DynamoDbSessionProvider extends SessionProvider {
     return (await this.matching(subject, opts?.includeImpersonations)).filter((s) => !this.isExpired(s));
   }
 
+  public async deleteByExternalKey(_externalKey: string): Promise<number> {
+    throw new Error('not implemented: DynamoDbSessionProvider.deleteByExternalKey');
+  }
+
   /** Deletes every item and keeps the table: a deleted table stays DELETING for a while and cannot be recreated at once. */
   public async truncate(): Promise<void> {
     const items = await this.scan({ ProjectionExpression: '#id', ExpressionAttributeNames: { '#id': 'SessionId' } });

@@ -45,6 +45,8 @@ export interface AuthnFacts {
   readonly impersonator?: PrincipalRef;
   /** Hashed session id, never the raw one. */
   readonly sessionHandle?: string;
+  /** The external login the session came from; `sid` is the IdP session id that back-channel logout names. */
+  readonly external?: { readonly provider: string; readonly sid?: string };
 }
 
 export interface Ceiling {

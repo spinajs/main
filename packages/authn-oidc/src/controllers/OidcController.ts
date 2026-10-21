@@ -114,6 +114,11 @@ export class OidcController extends BaseController {
     return new OidcResponse(await login.unlink(provider, this.requestOf(req)));
   }
 
+  @Post(':provider/backchannel-logout')
+  public async backchannelLogout(@Param() _provider: string, @Req() _req: Request): Promise<OidcResponse> {
+    throw new Error('not implemented: OidcController.backchannelLogout');
+  }
+
   protected requestOf(req: Request): OidcRequest {
     const storage = (req as unknown as { storage?: { ClientIp?: string; AuthnSession?: { handle: SessionHandle } | null } }).storage;
     const userAgent = req.get('user-agent');
