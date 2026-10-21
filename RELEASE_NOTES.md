@@ -1,3 +1,18 @@
+# Release notes — authz-http: validated inputs of the access checks and explain routes
+
+> Docs: `docs/authz-http/07-client-access-api.md`, `docs/authz-http/09-explain.md`.
+
+## New behavior
+
+- `POST /user/access/checks` validates the list through a route schema (`ACCESS_CHECKS_SCHEMA`, at most 100 entries) and each entry against `CLIENT_CHECK_SCHEMA`, which caps `object.type` at 64, `object.id` at 160, `permission` at 256 and `context.field` at 128 characters. An entry over a cap is answered `false` with `invalid_request`, as any malformed entry.
+- `GET /authz/explain` caps `principal`, `resource` and `permission` at 256 characters and validates `format`; the schemas appear in the OpenAPI document of both routes.
+- New exports: `AccessChecks()`, `ACCESS_CHECKS_SCHEMA`, `CLIENT_CHECK_SCHEMA`, `ExplainQueryArg()`, `EXPLAIN_QUERY_PROPERTIES`, `AccessDomain()` and `AccessDomainArg`.
+
+## Changed answers
+
+- A `permission` of `GET /authz/explain` that does not match the name pattern now answers the standard validation 400 (`{ parameter, details, message }`) instead of an `InvalidArgument` body. The status is unchanged.
+
+
 # Release notes â€” http, validation: route error handlers, per-path body limits, strict schema ids
 
 > Branch `feat/hard-val0`. Docs: `docs/http/11-error-handling.md`, `docs/http/04-route-arguments.md`,
