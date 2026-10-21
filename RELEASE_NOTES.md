@@ -27,6 +27,41 @@ own strict mode; to set both, move Ajv's value to `validation.strict.ajvStrict`.
   the 5mb default. New exports: `createBodyLimitMiddleware`, `parseBodyLimit`, `IBodyLimitRule`.
 - `@spinajs/validation`: `DataValidator.isStrict()`, the protected `StrictValidator` and `createAjv()`, and the exported
   `DEFAULT_STRICT_ID_PREFIXES`.
+# Release notes — http, http-bot, authn-http: bot checks (captcha) on routes
+
+> Branch `feat/hard-bot`. Docs: `docs/http/23-bot-check.md`, `docs/http-bot/README.md`, `docs/authn-http/23-bot-checks.md`.
+
+## New behavior
+
+- `@spinajs/http`: `@BotCheck(name)` guards a route or a controller with the check `http.bot.checks.<name>`. It runs
+  as the route middleware `BotCheckMiddleware` after the policies and before the route arguments are extracted. The
+  client sends the provider token in `x-bot-token` (`http.bot.header`); a token over 2048 characters counts as missing.
+- A check runs only when `http.bot.enabled` and the check's `enabled` are both true. Both are off by default; then no
+  verifier is built and the route behaves as before.
+- Verifiers are `BotVerifier` services named in `http.bot.verifiers` (`{ service, name, ...options }`, resolved with
+  `@AutoinjectService`). An enabled check whose `verifier` or `fallback` names no entry fails the boot with
+  `InvalidOption`.
+- Answers (`BotCheckFailed` mapped by `BotCheckFailedResponse`, all `Cache-Control: no-store`): 400
+  `{ error: 'bot_check_failed', reason: 'missing' | 'failed', next? }`, where `next` names the check's `fallback`
+  verifier after a failed token; 503 `{ error: 'bot_check_unavailable' }` with `Retry-After: 30` when the verifier is
+  unavailable and `onUnavailable` is `refuse` (the default). With `onUnavailable: 'allow'` the request goes on and a
+  warning is logged at most once a minute per check. The client may name the fallback verifier in `x-bot-verifier`
+  (`http.bot.verifierHeader`) when it sends the fallback's token.
+- New package `@spinajs/http-bot`: `RecaptchaV3Verifier` (score, action, hostname and token age) and
+  `RecaptchaV2Verifier` (hostname and token age) over Google's `siteverify`. The call is https only, follows no
+  redirect, has a timeout (`timeoutMs`, default 3000) and reads at most 64 KiB. A wrong or missing secret is
+  `unavailable` and logged at error level; the secret is never logged. No new npm dependency (global `fetch`).
+- `@spinajs/authn-http`: `@BotCheck` on `POST /auth/login` (`login`), `POST /auth/register` (`register`),
+  `POST /auth/password/reset-request` (`password_reset`), `POST /auth/code/request` (`code_request`) and
+  `POST /auth/passkeys/challenge` (`passkey_challenge`). The shipped config lists each check with `enabled: false`,
+  `verifier: 'recaptcha-v3'` and `action` equal to the check name. A refused request makes no throttle attempt and
+  writes no audit event. On login a bot refusal answers the 400 above, not the uniform 401 (A02 is unchanged once the
+  check passes).
+
+## Upgrade notes
+
+- Nothing changes until you set `http.bot.enabled: true`, configure a verifier and turn a check on.
+- A cross-origin client needs `x-bot-token` (and `x-bot-verifier`) in `http.cors.allowedHeaders`.
 
 # Release notes — authn-http, authn-oidc: fresh re-authentication that refreshes the session
 

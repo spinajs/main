@@ -3,7 +3,7 @@ import '@spinajs/authn/register-schema';
 import '../../register-schema.js';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BaseController, BasePath, Get, HTTP_STATUS_CODE, Ok, Post, Redirect, Req } from '@spinajs/http';
+import { BaseController, BasePath, BotCheck, Get, HTTP_STATUS_CODE, Ok, Post, Redirect, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 import { SessionIssuer } from '@spinajs/authn/contracts';
@@ -48,6 +48,7 @@ export class AuthnLoginController extends BaseController {
    * @security []
    */
   @Post('login')
+  @BotCheck('login')
   public async login(@Req() req: Request) {
     // Over-long values never verify (N3), so they reach no strategy, no throttle and no log.
     const login = boundedString(bodyField(req, 'login'), PASSWORD_HARD_CAP);

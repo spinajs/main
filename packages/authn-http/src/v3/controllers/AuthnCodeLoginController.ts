@@ -1,6 +1,6 @@
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BaseController, BasePath, Policy, Post, Req } from '@spinajs/http';
+import { BaseController, BasePath, BotCheck, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { PasswordService, SessionIssuer } from '@spinajs/authn/contracts';
 
@@ -37,6 +37,7 @@ export class AuthnCodeLoginController extends BaseController {
    * @security []
    */
   @Post('auth/code/request')
+  @BotCheck('code_request')
   public async request(@Req() req: Request) {
     const login = loginField(req);
     if (login === null) return badRequest('invalid_login', `login must be a non-empty string of at most ${PASSWORD_HARD_CAP} characters`);

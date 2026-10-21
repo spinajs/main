@@ -66,6 +66,7 @@
     { "path": "packages/http-socket/tsconfig.cjs.json"},
     { "path": "./packages/fs-ftp/tsconfig.cjs.json" },
     { "path": "./packages/fs-onedrive/tsconfig.cjs.json" },
+    { "path": "./packages/http-bot/tsconfig.cjs.json" },
     { "path": "./packages/http-lazy-file-uploader/tsconfig.cjs.json" },
     { "path": "./packages/log-otlp/tsconfig.cjs.json" },
     { "path": "./packages/queue-amqp-transport/tsconfig.cjs.json" },

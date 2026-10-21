@@ -1,6 +1,6 @@
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BaseController, BasePath, Conflict, Del, Get, NotFound, Ok, Param, Policy, Post, Req } from '@spinajs/http';
+import { BaseController, BasePath, BotCheck, Conflict, Del, Get, NotFound, Ok, Param, Policy, Post, Req } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { AuthnService, PasskeyService, SessionIssuer } from '@spinajs/authn/contracts';
 import type { Credentials, PasskeyCeremony, PasskeyEntry } from '@spinajs/authn/contracts';
@@ -76,6 +76,7 @@ export class AuthnPasskeyController extends BaseController {
    * @security []
    */
   @Post('auth/passkeys/challenge')
+  @BotCheck('passkey_challenge')
   public async challenge(@Req() req: Request) {
     const passkeys = await this.passkeys();
     const session = req.storage.AuthnSession;
