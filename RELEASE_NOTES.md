@@ -358,6 +358,12 @@ what each fix changes for an app.
   only. `AccountGuard` replaces `rbac.admin.roleGuard`. The full list: `packages/users-http/README.md`.
 - Answers that carry a secret (`POST /user/tokens`, recovery codes, `POST /authz/links`, ...) send
   `Cache-Control: no-store`.
+- The admin routes can move to their own prefix, so a reverse proxy can fence them off:
+  `authn.http.admin.basePath` (credential admin, default `authn/admin/users`) and
+  `authz.http.admin.basePath` (authz admin, default `authz`). Both are unset by default, so no path
+  changes. They rest on `@BasePath({ config, default })` in `@spinajs/http`. A controller without a
+  key is moved by subclassing it with its own `@BasePath` and `DI.register(Mine).as(Theirs)`; see
+  `docs/http/02-controllers-and-routing.md`.
 
 ### Databases
 
