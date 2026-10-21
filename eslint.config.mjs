@@ -39,6 +39,8 @@ export default defineConfig(
       '@typescript-eslint/await-thenable': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_', destructuredArrayIgnorePattern: '^_' }],
       'security/detect-unsafe-regex': 'off',
+      // Flags the open endpoints of existing controllers (login, metrics) and many test fixtures; opt in per package once they carry @AllowAnonymous.
+      '@spinajs/authz/require-access': 'off',
     },
   },
   {
