@@ -1,0 +1,47 @@
+import * as chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
+import { Configuration } from '@spinajs/configuration';
+import { boot, shutdown } from './support.js';
+
+chai.use(chaiAsPromised);
+const expect = chai.expect;
+
+const config = (options: Record<string, unknown>) => boot(Configuration, options);
+
+describe('emailVerification schema', () => {
+  afterEach(shutdown);
+
+  it('fills every default', async () => {
+    const cfg = await config({});
+    expect(cfg.get('emailVerification.store')).to.eq('MemoryEmailVerificationStore');
+    expect(cfg.get('emailVerification.verifiers')).to.deep.eq([{ service: 'ListVerifier' }, { service: 'DnsVerifier' }]);
+    expect(cfg.get('emailVerification.onError')).to.eq('allow');
+    expect(cfg.get('emailVerification.refuseCode')).to.eq('email_domain_refused');
+    expect(cfg.get('emailVerification.dns.ttl.negative')).to.eq(3600);
+    expect(cfg.get('emailVerification.rdap.ttl.positive')).to.eq(2592000);
+    expect(cfg.get('emailVerification.lists.sources')).to.have.length(1);
+    expect(cfg.get('emailVerification.orm.connection')).to.eq('email-verification-connection');
+  });
+
+  it('fills defaults inside a list source', async () => {
+    const cfg = await config({ lists: { sources: [{ name: 'mine', url: 'https://example.com/l.txt', kind: 'block' }] } });
+    expect(cfg.get('emailVerification.lists.sources')).to.deep.eq([{ name: 'mine', url: 'https://example.com/l.txt', kind: 'block', format: 'lines' }]);
+    expect(cfg.get('emailVerification.lists.refreshSeconds')).to.eq(30);
+  });
+
+  it('refuses an unknown onError', async () => {
+    await expect(config({ onError: 'maybe' })).to.be.rejected;
+  });
+
+  it('refuses a list source over http', async () => {
+    await expect(config({ lists: { sources: [{ name: 'x', url: 'http://example.com/l', kind: 'block' }] } })).to.be.rejected;
+  });
+
+  it('refuses a list source named admin', async () => {
+    await expect(config({ lists: { sources: [{ name: 'admin', url: 'https://example.com/l', kind: 'block' }] } })).to.be.rejected;
+  });
+
+  it('refuses an http provider URL without {domain}', async () => {
+    await expect(config({ http: { providers: [{ name: 'p', url: 'https://api.example/check', resultPath: 'x' }] } })).to.be.rejected;
+  });
+});
