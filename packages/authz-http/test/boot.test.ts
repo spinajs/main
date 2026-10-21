@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { DI } from '@spinajs/di';
-import { DefaultAuthzService } from '@spinajs/authz';
+import { AuthzService, DefaultAuthzService } from '@spinajs/authz';
 import type { AuthzContribution } from '@spinajs/authz';
 import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
 import { testHost } from '@spinajs/authz-testing';
@@ -77,6 +77,27 @@ describe('root domain boot', function () {
 
       expect(err).to.be.instanceOf(Error);
       expect(server.stop.calledOnce).to.eq(true);
+    } finally {
+      testHost.config().unset(['authz', 'permissions']);
+    }
+  });
+
+  it('boots and serves a request when the app resolved AuthzService before the server listened', async () => {
+    DI.uncache(PrincipalMiddleware);
+    await testHost.resetRoot();
+    testHost.config().set(['authz', 'permissions'], { 'file:read': {} });
+    try {
+      // DI hands back the cached instance itself, not a promise, from now on.
+      await DI.resolve(AuthzService);
+      const middleware = (await DI.resolve(PrincipalMiddleware)) as PrincipalMiddleware;
+      const server = { stop: sinon.stub().resolves() };
+      DI.RootContainer.emit('http.server.listening', server);
+
+      const outcome = await new Promise<unknown>((done) => middleware.before()({ storage: {}, headers: {}, query: {} } as never, {} as never, (err?: unknown) => done(err ?? 'next')));
+      await new Promise((r) => setImmediate(r));
+
+      expect(outcome).to.eq('next');
+      expect(server.stop.called).to.eq(false);
     } finally {
       testHost.config().unset(['authz', 'permissions']);
     }

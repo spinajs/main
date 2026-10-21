@@ -83,7 +83,8 @@ export class PrincipalMiddleware extends ServerMiddleware {
 
   /** The root AuthzService, booted once; `authz()` works in actions after it. */
   protected rootService(): Promise<AuthzService> {
-    this.authz ??= (DI.resolve(AuthzService) as Promise<AuthzService>).catch((err: unknown) => {
+    // DI.resolve answers the cached instance itself, not a promise, once the app resolved AuthzService first.
+    this.authz ??= (async () => (await DI.resolve(AuthzService)) as AuthzService)().catch((err: unknown) => {
       this.authz = undefined;
       throw err;
     });
