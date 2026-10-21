@@ -192,7 +192,7 @@ export class OidcBackchannelLogout {
 
   /** The IdP already ended the session, so a hook observes the revocation and cannot keep it (refusable: false). */
   protected async revokeHooked(provider: string, claims: LogoutTokenClaims, ctx: AuthnContext): Promise<void> {
-    if (!this.d.hooks) return this.revoke(provider, claims);
+    if (!this.d.hooks?.has(AUTHN_LOGOUT_BACKCHANNEL)) return this.revoke(provider, claims);
     await this.d.hooks.run(AUTHN_LOGOUT_BACKCHANNEL, { provider, ...(claims.sid !== undefined ? { sid: claims.sid } : {}), ctx: hookView(ctx) }, () => this.revoke(provider, claims), { mutable: [], refusable: false });
   }
 

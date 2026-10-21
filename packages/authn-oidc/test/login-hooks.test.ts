@@ -1,5 +1,6 @@
 /** authn-oidc's actions under the core's real service and the real hooks runner. */
 import 'mocha';
+import * as sinon from 'sinon';
 import { expect } from 'chai';
 import { randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
@@ -217,5 +218,21 @@ describe('authn-oidc action hooks', function () {
     expect(Object.keys(input).sort()).to.deep.eq(['ctx', 'provider', 'sid']);
     expect(input.provider).to.eq(STRATEGY);
     expect(input.sid).to.eq('idp-1');
+  });
+
+  it('with no hook registered, the back-channel logout never calls the runner', async () => {
+    const w = await open(() => []);
+    const alice = w.identities.add({ login: 'alice' });
+    await w.links.link(alice, { provider: STRATEGY, subject: 'kc-alice' });
+    const a1 = await w.login('kc-alice', 'idp-1');
+    const run = sinon.spy(DefaultHooks.prototype, 'run');
+    try {
+      const res = await w.controller.backchannelLogout('corp', request({ logout_token: await logoutToken(w.idp, { sid: 'idp-1' }) }));
+      expect(answerOf(res).status).to.eq(200);
+      expect(await w.sessions.restore(a1.id)).to.eq(null);
+      expect(run.callCount).to.eq(0);
+    } finally {
+      run.restore();
+    }
   });
 });

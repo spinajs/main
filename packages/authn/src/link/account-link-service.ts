@@ -95,6 +95,7 @@ export class AccountLinkService extends AsyncService {
       if (guard.refused !== undefined || !holder) return await this.refuse(ctx, 'identity.link', guard.refused ?? 'not_active', holder);
       if (!isPlainObject(external) || !isNonEmptyString(external.provider) || !isNonEmptyString(external.subject)) return await this.refuse(ctx, 'identity.link', 'invalid_subject', holder);
       const h = holder;
+      if (!this.Hooks.has('authn.link')) return await this.linkTo(h, external, ctx);
       return await this.Hooks.run('authn.link', { session: hookView(session), external: hookView(external), ctx: hookView(ctx) }, () => this.linkTo(h, external, ctx), { mutable: [] });
     } catch (err) {
       const stopped = hookRefusalOf(err, 'authn.link');
@@ -120,6 +121,7 @@ export class AccountLinkService extends AsyncService {
       holder = guard.holder;
       if (guard.refused !== undefined || !holder) return await this.refuse(ctx, 'identity.unlink', guard.refused ?? 'not_active', holder);
       const h = holder;
+      if (!this.Hooks.has('authn.unlink')) return await this.unlinkFrom(h, linkId, ctx);
       return await this.Hooks.run('authn.unlink', { session: hookView(session), linkId, ctx: hookView(ctx) }, () => this.unlinkFrom(h, linkId, ctx), { mutable: [] });
     } catch (err) {
       const stopped = hookRefusalOf(err, 'authn.unlink');

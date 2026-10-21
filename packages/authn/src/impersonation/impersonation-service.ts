@@ -155,23 +155,20 @@ export class AuthnImpersonationService extends AsyncService {
       if (refused) return await this.refuseStart(ctx, refused.reason, about, refused.data);
 
       const targetRef = refOf(target);
-      return await this.Hooks.run(
-        'authn.impersonation.start',
-        { session: hookView(session), target: hookView(targetRef), ctx: hookView(ctx) },
-        async () => {
-          issued = await this.Sessions.issue(targetRef, { ...ownFacts(stored.facts), impersonator: actor });
-          await this.Sessions.set(issued, IMPERSONATION_BLOCK, { startedAt: ctx.now.toISOString(), ...(actorCeiling ? { actorRoles: [...(actorCeiling.roles ?? [])] } : {}) });
-          const now = await this.Sessions.restore(issued.id);
-          // A parallel start, or an endFor of the actor, ended the old session first.
-          if (!(await this.Sessions.revoke(stored.handle))) {
-            await this.Sessions.revoke(issued);
-            return this.refuseStart(ctx, 'revoked', about);
-          }
-          await this.Auditor.publishIn(ctx, { type: 'impersonation.start', outcome: 'success', identity: targetRef, actor, ...(now ? this.handleOf(now) : {}) });
-          return { ok: true, session: issued };
-        },
-        { mutable: [] },
-      );
+      const swap = async (): Promise<ImpersonationStart> => {
+        issued = await this.Sessions.issue(targetRef, { ...ownFacts(stored.facts), impersonator: actor });
+        await this.Sessions.set(issued, IMPERSONATION_BLOCK, { startedAt: ctx.now.toISOString(), ...(actorCeiling ? { actorRoles: [...(actorCeiling.roles ?? [])] } : {}) });
+        const now = await this.Sessions.restore(issued.id);
+        // A parallel start, or an endFor of the actor, ended the old session first.
+        if (!(await this.Sessions.revoke(stored.handle))) {
+          await this.Sessions.revoke(issued);
+          return this.refuseStart(ctx, 'revoked', about);
+        }
+        await this.Auditor.publishIn(ctx, { type: 'impersonation.start', outcome: 'success', identity: targetRef, actor, ...(now ? this.handleOf(now) : {}) });
+        return { ok: true, session: issued };
+      };
+      if (!this.Hooks.has('authn.impersonation.start')) return await swap();
+      return await this.Hooks.run('authn.impersonation.start', { session: hookView(session), target: hookView(targetRef), ctx: hookView(ctx) }, swap, { mutable: [] });
     } catch (err) {
       const stopped = hookRefusalOf(err, 'authn.impersonation.start');
       if (stopped) return this.refuseStart(ctx, stopped.reason, about, stopped.data);
@@ -196,24 +193,21 @@ export class AuthnImpersonationService extends AsyncService {
       if (refused) return await this.end(ctx, stored, 'impersonation.end', `impersonator_${refused}`);
 
       // Not refusable: going back to one's own session ends a privilege, which a hook must not keep.
-      return await this.Hooks.run(
-        'authn.impersonation.stop',
-        { session: hookView(session), ctx: hookView(ctx) },
-        async () => {
-          issued = await this.Sessions.issue(refOf(impersonator), ownFacts(stored.facts));
-          const { actorCeiling } = live.block;
-          // No role is stored as '', which activeRoleCeiling narrows to no role as it did the actor's malformed value.
-          if (actorCeiling) await this.Sessions.set(issued, ACTIVE_ROLE_KEY, actorCeiling.roles?.[0] ?? '');
-          const now = await this.Sessions.restore(issued.id);
-          if (!(await this.Sessions.revoke(stored.handle))) {
-            await this.Sessions.revoke(issued);
-            return this.refuseStop(ctx, 'revoked', about);
-          }
-          await this.Auditor.publishIn(ctx, { type: 'impersonation.end', outcome: 'success', identity: refOf(stored.identity), actor: refOf(impersonator), ...(now ? this.handleOf(now) : {}) });
-          return issued;
-        },
-        { mutable: [], refusable: false },
-      );
+      const swap = async (): Promise<SessionHandle | null> => {
+        issued = await this.Sessions.issue(refOf(impersonator), ownFacts(stored.facts));
+        const { actorCeiling } = live.block;
+        // No role is stored as '', which activeRoleCeiling narrows to no role as it did the actor's malformed value.
+        if (actorCeiling) await this.Sessions.set(issued, ACTIVE_ROLE_KEY, actorCeiling.roles?.[0] ?? '');
+        const now = await this.Sessions.restore(issued.id);
+        if (!(await this.Sessions.revoke(stored.handle))) {
+          await this.Sessions.revoke(issued);
+          return this.refuseStop(ctx, 'revoked', about);
+        }
+        await this.Auditor.publishIn(ctx, { type: 'impersonation.end', outcome: 'success', identity: refOf(stored.identity), actor: refOf(impersonator), ...(now ? this.handleOf(now) : {}) });
+        return issued;
+      };
+      if (!this.Hooks.has('authn.impersonation.stop')) return await swap();
+      return await this.Hooks.run('authn.impersonation.stop', { session: hookView(session), ctx: hookView(ctx) }, swap, { mutable: [], refusable: false });
     } catch (err) {
       if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
       return this.refuseStop(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClass(err) });

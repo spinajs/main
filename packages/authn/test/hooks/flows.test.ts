@@ -4,6 +4,7 @@ import * as sinon from 'sinon';
 import { fakeHash } from '@spinajs/authn-testing';
 import type { Configuration } from '@spinajs/configuration';
 import type { IContainer } from '@spinajs/di';
+import { DefaultHooks } from '@spinajs/hooks';
 import type { ActionHook } from '@spinajs/hooks';
 import { RecordingActionHook, mutatingHook, refusingHook } from '@spinajs/hooks/testing';
 
@@ -268,6 +269,26 @@ describe('action hooks: authn flows', function () {
       );
       assert.deepStrictEqual(Object.keys(recorder.calls[0].input as object).sort(), ['ctx', 'external', 'session']);
       assert.deepStrictEqual(Object.keys(recorder.calls[2].input as object).sort(), ['ctx', 'linkId', 'session']);
+    });
+  });
+
+  describe('zero cost', () => {
+    it('with no hook registered, impersonation start and stop, link and unlink never call the runner', async () => {
+      const p = await boot([], { raw: { authn: { freshAuth: { maxAgeSeconds: 300 } } } });
+      const a = await seed(p);
+      const b = await seed(p, BOB);
+      const admin = await p.sessions.issue(a, { method: 'password', strategy: 'local', assurance: 'aal2', mfa: ['fake'], authenticatedAt: new Date() });
+      const run = sinon.spy(DefaultHooks.prototype, 'run');
+      const impersonation = await p.child.resolve(AuthnImpersonationService);
+      const started = await impersonation.start(admin, b, ctx());
+      assert.ok(started.ok);
+      const own = await impersonation.stop(started.session, ctx());
+      assert.ok(own);
+      const links = await p.child.resolve(AccountLinkService);
+      const linked = await links.link(own, G1, { now: new Date(), session: own, ip: IP, purpose: 'link' });
+      assert.ok(linked.ok);
+      assert.deepStrictEqual(await links.unlink(own, linked.link.id, { now: new Date(), session: own, ip: IP, purpose: 'link' }), { ok: true });
+      assert.strictEqual(run.callCount, 0);
     });
   });
 });
