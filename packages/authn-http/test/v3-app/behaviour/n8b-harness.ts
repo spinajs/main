@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AuthnEventSink, AuthnService, CredentialAdminGuard, KeyRegistry, MfaPolicy, MfaStep, PasswordService, SecretStore } from '@spinajs/authn/contracts';
+import { AuthnEventSink, AuthnService, CredentialAdminGuard, KeyRegistry, MfaPolicy, MfaStep, NonceStore, PasswordService, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnEvent, AuthnFacts, CredentialAdminAction, IdentityRef, Principal } from '@spinajs/authn/contracts';
 import { FakeImpersonationGuard, totpFromProvisioning } from '@spinajs/authn-testing';
 import type { FakeIdentityStore, Harness, HarnessContext, HarnessFactory, HttpRoutes, PortName } from '@spinajs/authn-testing';
@@ -470,9 +470,8 @@ export const keysPart: LanePart = {
   routes: KEY_ROUTES,
   ports: ['keys', 'keyProofs', 'assertion'],
   async open() {
-    const k = laneKeys();
     // The registry holds the case's SecretStore and throttle; the strategies are uncached with the case services.
-    for (const base of [KeyRegistry, k.KeyNonceStore] as Class<unknown>[]) {
+    for (const base of [KeyRegistry, NonceStore] as Class<unknown>[]) {
       for (const type of DI.getRegisteredTypes(base) ?? []) DI.uncache(type as Class<unknown>);
       DI.uncache(base);
     }

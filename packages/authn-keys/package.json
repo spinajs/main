@@ -74,6 +74,14 @@
     "@spinajs/util": "3.0.1",
     "luxon": "^3.6.1"
   },
+  "peerDependencies": {
+    "@spinajs/authn-orm": "3.0.1"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/authn-orm": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@spinajs/authn-orm": "3.0.1",
     "@spinajs/authn-testing": "3.0.1",
