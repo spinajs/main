@@ -39,7 +39,7 @@ authn: {
 },
 ```
 
-Every other `authn.session` value comes from the defaults of the `authn` config schema: `expiration.ttl` 30 and `expiration.maxLifetime` 480 (minutes), `pendingTtlSeconds` 300, and the cookie `{ name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' }`.
+Every other `authn.session` value comes from the defaults of the `authn` config schema: `expiration.ttl` 30 and `expiration.maxLifetime` 480 (minutes), `pendingTtlSeconds` 300, `touchThresholdSeconds` 60, and the cookie `{ name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' }`.
 
 Logins issue sessions through `AuthnService`. Your code mostly lists and ends them:
 

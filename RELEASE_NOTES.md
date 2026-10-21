@@ -796,3 +796,14 @@ status so tracking no longer depends on a DB default.
 - Renderers no longer mutate the caller's model object during rendering.
 - Render timing log entries report real durations (a timer-key bug made handlebars
   always report 0 ms).
+
+# Release notes — session restore: one read, no write per request
+
+- `@spinajs/authn-http`: an authenticated cookie request now restores its session once.
+  `AuthnImpersonationService.principalOf(session, ctx)` accepts the restored `Session` and runs every
+  lifetime, status, max-minutes and guard check on it. A bare `SessionHandle` still works and is restored
+  as before.
+- `@spinajs/authn-session`: `DefaultSessionIssuer.restore` writes the row only when the last-seen time or
+  the expiry moves by `authn.session.touchThresholdSeconds` (new key, default `60`). Otherwise it does not
+  write at all. As a result, the stored idle deadline can trail the last request by up to the threshold.
+  Set the key to `0` to get the old write on every restore.

@@ -54,6 +54,7 @@ Keys of the other packages. Each is validated by the schema of the package in th
 | `authn.session.service` | `string` | unset | | [`authn-session`](../authn-session/README.md) |
 | `authn.session.expiration.service`, `.ttl`, `.maxLifetime` | `string`, `integer`, `integer` | unset, `30`, `480` | minutes, ≥ 1 | `authn-session`; `maxLifetime` also bounds [impersonation](11-impersonation-and-active-role.md) |
 | `authn.session.pendingTtlSeconds` | `integer` | `300` | ≥ 1 | `authn-session` |
+| `authn.session.touchThresholdSeconds` | `integer` | `60` | ≥ 0; `0` writes on every restore | `authn-session` |
 | `authn.session.cookie.name` | `string` | `'ssid'` | | `authn-session` |
 | `authn.session.cookie.hostPrefix`, `.secure` | `boolean \| 'auto'` | `'auto'` | `true`, `false`, `'auto'`, `'true'`, `'false'` | `authn-session` |
 | `authn.session.cookie.sameSite` | `string \| boolean` | `'strict'` | `strict`, `lax`, `none` (any case), `true`, `false` | `authn-session` |
