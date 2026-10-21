@@ -8,6 +8,7 @@ import { ActionHook, Hooks } from './contracts.js';
 import type { ActionName, ActionPattern, AfterContext, BeforeContext, FailedContext, InputOf, OutputOf, RunOptions } from './contracts.js';
 import { ActionHookFailed, ActionRefused } from './errors.js';
 import { matches } from './match.js';
+import defaults from './config/hooks.js';
 
 const REFUSAL_CODE = /^[a-z0-9][a-z0-9_.-]{0,58}$/;
 
@@ -69,10 +70,10 @@ export class DefaultHooks extends Hooks {
   @Logger('hooks')
   protected Log: Log;
 
-  @Config('hooks.timeoutMs')
+  @Config('hooks.timeoutMs', { defaultValue: defaults.hooks.timeoutMs })
   protected TimeoutMs: number;
 
-  @Config('hooks.maxDepth')
+  @Config('hooks.maxDepth', { defaultValue: defaults.hooks.maxDepth })
   protected MaxDepth: number;
 
   private entries: HookEntry[] = [];
