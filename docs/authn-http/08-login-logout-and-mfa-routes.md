@@ -14,7 +14,7 @@ Key login (`POST /auth/keys/login`) answers the same way, through the same `comp
 4. `AuthnService.authenticate({ kind: 'password', login, password }, ctx)` runs with purpose `'login'` and `ctx.ip` from `ClientIp`.
 5. The result decides the answer:
    - `failure`: 401 login failure body, plus `Retry-After` when the reason is `throttled`. A revoked earlier session also gets its cookie cleared.
-   - `mfa_required`: the pending session gets the client ip and user agent (`stampClient`), then **200** `{ "MfaRequired": ["totp"] }` with the pending session cookie.
+   - `mfa_required`: the pending session gets the client ip and user agent (`stampClient`), then **200** `{ "MfaRequired": ["totp"], "MfaEnrol": [] }` with the pending session cookie. `MfaEnrol` lists the steps of `MfaRequired` the identity has not enrolled in: a forced enrolment (`authn.mfa.policy.force`, `forceForRoles`) answers `"MfaEnrol": ["totp"]`, and the client enrols through [`POST /user/mfa`](13-mfa-enrolment-routes.md) before it verifies.
    - `success` without a session (a strategy that issues none): 401 login failure body.
    - `success`: the session gets the client ip and user agent, then **200** with the [principal summary](17-answers-and-response-extensions.md#the-principal-summary), extended by every `AuthnResponseExtension` with kind `login`, and the session cookie.
 
@@ -38,7 +38,7 @@ sequenceDiagram
   L->>A: authenticate(password credentials, ctx login)
   A->>S: issue pending session
   A-->>L: mfa_required (pending, steps)
-  L-->>B: 200 { MfaRequired: ["totp"] } + Set-Cookie ssid (pending)
+  L-->>B: 200 { MfaRequired: ["totp"], MfaEnrol: [] } + Set-Cookie ssid (pending)
   B->>M: POST /auth/mfa/verify { code } + Cookie ssid
   Note over B,M: AuthnMiddleware restored the pending session; no principal
   M->>A: completeMfa(pending handle, "totp", code, ctx)
@@ -60,7 +60,7 @@ sequenceDiagram
 | --- | --- |
 | Request body | `{ "login": string, "password": string }` |
 | 200 | Principal summary plus extensions, `Set-Cookie` with the session, `Cache-Control: no-store` |
-| 200 (MFA) | `{ "MfaRequired": string[] }`, `Set-Cookie` with the pending session, `Cache-Control: no-store` |
+| 200 (MFA) | `{ "MfaRequired": string[], "MfaEnrol": string[] }`, `Set-Cookie` with the pending session, `Cache-Control: no-store` |
 | 401 | Login failure body; `Retry-After` when throttled |
 
 ### `POST /auth/logout`
@@ -78,7 +78,7 @@ Logout revokes the session (an impersonation ends with it), audits `logout`, and
 | | |
 | --- | --- |
 | 200 | Principal summary plus extensions (kind `whoami`), `Cache-Control: no-store` |
-| 200 (pending) | `{ "MfaRequired": string[] }` for a pending session |
+| 200 (pending) | `{ "MfaRequired": string[], "MfaEnrol": string[] }` for a pending session |
 | 401 | `unauthenticated`: no principal and no pending session |
 
 Works for any authenticated principal, including API tokens and keys.
@@ -121,7 +121,7 @@ Works for any authenticated principal, including API tokens and keys.
 
 - **One answer for every failure.** Unknown login, wrong password, inactive or banned account, over-long fields and a missing body all answer the same 401 body. The real reason goes to the audit only.
 - **Logging in ends the held session.** A second login on the same browser revokes the first session, even an active one; the route has no `NotLoggedPolicy`.
-- **A pending session answers only `MfaRequired`.** `GET /auth` reveals no identity until the second factor passed.
+- **A pending session answers only `MfaRequired` and `MfaEnrol`.** `GET /auth` reveals no identity until the second factor passed. `MfaEnrol` empties once the pending session has enrolled the step, and it then verifies as any other.
 - **MFA success rotates the session id.** The pending cookie stops working; the answer carries the new one.
 - **The client ip and user agent are stored** with each new session (user agent cut to 512 characters); `GET /user/sessions` shows them.
 - **The cookie is a browser-session cookie** with no max-age; the server enforces idle and total lifetime.
@@ -140,9 +140,10 @@ Works for any authenticated principal, including API tokens and keys.
 const res = await fetch('/auth/login', { method: 'POST', body, headers, credentials: 'include' });
 if (res.ok) showDashboard();
 
-// Do: a pending login asks for the second factor
+// Do: a pending login asks for the second factor, or to enrol it first
 const answer = await res.json();
-if (answer.MfaRequired) askForCode(answer.MfaRequired);
+if (answer.MfaEnrol?.length) startEnrolment(answer.MfaEnrol);
+else if (answer.MfaRequired) askForCode(answer.MfaRequired);
 else if (res.ok) showDashboard();
 ```
 

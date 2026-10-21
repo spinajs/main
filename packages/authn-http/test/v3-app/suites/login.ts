@@ -179,17 +179,17 @@ export function loginSuite(): void {
       expect(V3AppResponseExtension.calls.map((x) => x.kind)).to.deep.eq(['whoami']);
     });
 
-    it('SR-07 pending whoami shows only MfaRequired', async () => {
+    it('SR-07 pending login and whoami show only MfaRequired and MfaEnrol, empty for an enrolled user', async () => {
       const u = await seedUser();
       step.enrol(u.ref);
       const c = new Client();
       const login = await c.post('/auth/login', { login: u.login, password: u.password });
       expect(login.status).to.eq(200);
-      expect(login.body).to.deep.eq({ MfaRequired: ['totp'] });
+      expect(login.body).to.deep.eq({ MfaRequired: ['totp'], MfaEnrol: [] });
       resetRecorders();
       const res = await c.get('/auth');
       expect(res.status).to.eq(200);
-      expect(res.body).to.deep.eq({ MfaRequired: ['totp'] });
+      expect(res.body).to.deep.eq({ MfaRequired: ['totp'], MfaEnrol: [] });
       expect(V3AppResponseExtension.calls, 'no extension sees a pending session').to.deep.eq([]);
     });
   });

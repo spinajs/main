@@ -6,7 +6,7 @@ Once a user has a confirmed enrolment, a password login stops at a pending sessi
 
 1. **First factor.** The client posts the password (`POST auth/login` in `@spinajs/authn-http`). `AuthnService.authenticate` verifies it through the password strategy of `@spinajs/authn-local`.
 2. **Policy.** `MfaPolicy.required(identity, facts)` asks every listed step whether the identity is enrolled. `DefaultMfaPolicy` asks for password logins only; `TotpMfaStep.enrolled` is true once the enrolment is confirmed.
-3. **Pending session.** With steps required, `SessionIssuer.issue` makes a *pending* session that yields no principal, and the result is `mfa_required`. Over HTTP the answer is `{ MfaRequired: ['totp'] }` with the pending session cookie.
+3. **Pending session.** With steps required, `SessionIssuer.issue` makes a *pending* session that yields no principal, and the result is `mfa_required`. Over HTTP the answer is `{ MfaRequired: ['totp'], MfaEnrol: [] }` with the pending session cookie; `MfaEnrol` is `['totp']` while a forced user has not enrolled.
 4. **Second factor.** The client posts the code (`POST auth/mfa/verify` with `{ code, step? }`). `AuthnService.completeMfa(pending, 'totp', code, ctx)` restores the pending session and counts the attempt into the `mfa` throttle. A refused attempt fails with `throttled` and is not checked.
 5. `completeMfa` asks the policy again for the required steps, checks `TotpMfaStep.enrolled` and calls `TotpMfaStep.verify(identity, code)`.
 6. **Code check.** `verify` removes whitespace and requires exactly `digits` digits; anything else is `false` with no store read. It reads the row with `MfaSecretStore.get` and returns `false` unless the enrolment is confirmed.

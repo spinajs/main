@@ -5,7 +5,7 @@ import { Ok } from '@spinajs/http';
 import type { ICookie, Request, Unauthorized } from '@spinajs/http';
 import { mfaEnrolmentRefusal } from '@spinajs/authn';
 import { AuthnResponseExtension, AuthnService, SessionIssuer } from '@spinajs/authn/contracts';
-import type { Credentials, IdentityRef, Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
+import type { Credentials, IdentityRef, MfaStep, Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
 import { SESSION_IP_KEY, SESSION_USER_AGENT_KEY } from '@spinajs/authn-session';
 import { isPlainObject } from '@spinajs/util';
 
@@ -45,8 +45,8 @@ export async function stampClient(sessions: SessionIssuer, handle: SessionHandle
 /**
  * A login route's answer: ends a session the caller already holds, then authenticates `credentials` (null: missing or
  * malformed, a failed login). Success: the session cookie and the principal summary with the login extensions; MFA
- * required: `{ MfaRequired: [steps] }` with the pending session cookie; any failure: the login failure answer, plus
- * Retry-After when throttled, clearing the ended session's cookie.
+ * required: `{ MfaRequired, MfaEnrol }` (pendingAnswer) with the pending session cookie; any failure: the login failure
+ * answer, plus Retry-After when throttled, clearing the ended session's cookie.
  */
 export async function completeLogin(container: IContainer, sessions: SessionIssuer, config: Configuration, req: Request, credentials: Credentials | null): Promise<Ok | Unauthorized> {
   const held = req.storage.AuthnSession;
@@ -63,7 +63,10 @@ export async function completeLogin(container: IContainer, sessions: SessionIssu
   if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined, cleared);
   if (result.status === 'mfa_required') {
     await stampClient(sessions, result.pending, req);
-    return new Ok({ MfaRequired: [...result.steps] }, { Coockies: [authnSessionCookie(config, result.pending)], Headers: [NO_STORE] });
+    const pending = await sessions.restore(result.pending.id);
+    if (!pending) return authnFailureResponse(undefined, cleared);
+    const body = await pendingAnswer(container, config.get<string>('authn.mfa.policy.service'), pending.identity, result.steps);
+    return new Ok(body, { Coockies: [authnSessionCookie(config, result.pending)], Headers: [NO_STORE] });
   }
   // A strategy that takes these credentials but issues no session cannot log anyone in here.
   if (!result.session) return authnFailureResponse(undefined, cleared);
@@ -139,6 +142,21 @@ export async function pendingSteps(container: IContainer, session: Session, poli
     if (mfaEnrolmentRefusal(err)) return [];
     throw err;
   }
+}
+
+/**
+ * What a pending session is told (SR-07: nothing about the principal): `MfaRequired`, the steps it waits for, and
+ * `MfaEnrol`, those of them the identity has not enrolled in, which it must enrol (`POST /user/mfa`) before it can verify
+ * them. A step the MFA policy does not list counts as enrolled: no route could enrol it.
+ */
+export async function pendingAnswer(container: IContainer, policyService: string, identity: IdentityRef, steps: readonly string[]): Promise<{ MfaRequired: string[]; MfaEnrol: string[] }> {
+  const listed: ReadonlyMap<string, MfaStep> = steps.length > 0 ? await (await mfaPolicyOf(container, policyService)).steps() : new Map();
+  const enrol: string[] = [];
+  for (const name of steps) {
+    const step = listed.get(name);
+    if (step && !(await step.enrolled(identity))) enrol.push(name);
+  }
+  return { MfaRequired: [...steps], MfaEnrol: enrol };
 }
 
 /** A user id, or `{ type, id }`, each part a non-empty string of at most `cap` characters. */

@@ -65,7 +65,8 @@ export class AuthnMfaEnrolmentController extends BaseController {
    * @security cookieAuth
    */
   @Post('mfa')
-  // Decorators apply bottom up: the full-login group comes first, and a caller who passes neither hears its refusal.
+  // The groups are ORed. A caller who passes neither hears the group that authenticated it: an enrolled pending session
+  // gets PendingMfaEnrolment's 403 enrolment_closed, an anonymous caller the 401.
   @Policy(PendingMfaEnrolment)
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async begin(@Req() req: Request) {
