@@ -1,88 +1,90 @@
+import { CONTROLLED_DESCRIPTOR_SYMBOL } from '@spinajs/http';
+import type { IControllerDescriptor, IRouteParameter } from '@spinajs/http';
+import { SCHEMA_SYMBOL } from '@spinajs/validation';
+
+import { AuthzAdminController } from '../controllers/AuthzAdminController.js';
+import { AuthzAdminBatch } from './commands.js';
 import type { JsonSchema } from './primitives.js';
 import { AUTHZ_ADMIN_SCHEMAS } from './provider.js';
 
-type Json = Record<string, any>;
-
-interface RouteDoc {
-  readonly method: 'get' | 'post' | 'put' | 'patch' | 'delete';
-  readonly path: string;
-  readonly body?: string;
-  readonly query?: readonly string[];
-  readonly requiredQuery?: readonly string[];
+interface Parameter {
+  name: string;
+  in: string;
+  required?: boolean;
+  description?: string;
+  schema?: JsonSchema;
 }
 
-const WRITE_OPTIONS = ['reason', 'idempotencyKey', 'dryRun'] as const;
+interface Operation {
+  parameters?: Parameter[];
+  requestBody?: unknown;
+}
 
-const QUERY: Readonly<Record<string, Json>> = {
-  scope: { schema: { type: 'string' }, description: '`<type>` or `<type>:<id>`, split at the first `:`; `$global` is the global scope' },
-  subject: { schema: { type: 'string' }, description: '`<type>:<id>` (a principal) or `set:<role>@<type>:<id>` (a subject set)' },
-  role: { schema: { type: 'string' }, description: 'only assignments of this role' },
-  permission: { schema: { type: 'string' }, description: 'the permission whose holders are listed (required)' },
-  expandSets: { schema: { type: 'boolean' }, description: '`true` also lists the members of each subject set, next to the set itself' },
-  includeExpired: { schema: { type: 'boolean' }, description: '`true` or `false`' },
-  limit: { schema: { type: 'integer', minimum: 0 }, description: 'page size; the server sets the default' },
-  offset: { schema: { type: 'integer', minimum: 0 }, description: 'rows to skip' },
-  after: { schema: { type: 'string' }, description: 'the `next` of the previous page: continues behind its last row; give it instead of `offset`' },
-  reason: { schema: { type: 'string' }, description: 'goes to the audit trail' },
-  idempotencyKey: { schema: { type: 'string' }, description: 'a retried request with the same key returns the first result' },
-  dryRun: { schema: { type: 'boolean' }, description: '`true` validates and guards, then rolls back' },
-};
+interface Document {
+  paths?: Record<string, Record<string, Operation | undefined>>;
+  components?: { schemas?: Record<string, unknown> };
+}
 
-const PATH_PARAMS: Readonly<Record<string, string>> = {
-  id: 'the id of the row (assignment, link, rule, policy) or of the scope node',
-  type: 'the resource type of the scope node',
-};
+interface ObjectSchema extends JsonSchema {
+  properties?: Record<string, JsonSchema>;
+  required?: readonly string[];
+}
 
-/** What each route takes that the controller's signature cannot say: its body and its query string. */
-export const AUTHZ_ADMIN_ROUTES: readonly RouteDoc[] = [
-  { method: 'post', path: '/authz/commands', body: 'AuthzAdminBatch' },
-  { method: 'get', path: '/authz/assignments', query: ['scope', 'subject', 'role', 'includeExpired', 'limit', 'offset', 'after'] },
-  { method: 'get', path: '/authz/holders', query: ['scope', 'permission', 'expandSets', 'limit', 'offset', 'after'], requiredQuery: ['scope', 'permission'] },
-  { method: 'post', path: '/authz/assignments', body: 'AuthzAssignmentGrant', query: WRITE_OPTIONS },
-  { method: 'patch', path: '/authz/assignments/{id}', body: 'AuthzAssignmentPatch', query: WRITE_OPTIONS },
-  { method: 'delete', path: '/authz/assignments/{id}', query: WRITE_OPTIONS },
-  { method: 'get', path: '/authz/links', query: ['scope', 'limit', 'offset', 'after'] },
-  { method: 'post', path: '/authz/links', body: 'AuthzLinkCreate', query: WRITE_OPTIONS },
-  { method: 'patch', path: '/authz/links/{id}', body: 'AuthzLinkPatch', query: WRITE_OPTIONS },
-  { method: 'delete', path: '/authz/links/{id}', query: WRITE_OPTIONS },
-  { method: 'get', path: '/authz/rules', query: ['scope', 'limit', 'offset', 'after'] },
-  { method: 'put', path: '/authz/rules/{id}', body: 'AuthzRuleBody', query: WRITE_OPTIONS },
-  { method: 'delete', path: '/authz/rules/{id}', query: WRITE_OPTIONS },
-  { method: 'get', path: '/authz/policies', query: ['scope', 'limit', 'offset'] },
-  { method: 'put', path: '/authz/policies/{id}', body: 'AuthzPolicyBody', query: WRITE_OPTIONS },
-  { method: 'delete', path: '/authz/policies/{id}', query: WRITE_OPTIONS },
-  { method: 'get', path: '/authz/scopes/{type}/{id}/attributes' },
-  { method: 'patch', path: '/authz/scopes/{type}/{id}/attributes', body: 'AuthzAttributesPatch', query: WRITE_OPTIONS },
-  { method: 'put', path: '/authz/scopes/{type}/{id}/attributes', body: 'AuthzAttributesBody', query: WRITE_OPTIONS },
-];
+/** The answers and the batch body over the built-in command kinds. */
+const DEFAULT_SCHEMAS: Readonly<Record<string, JsonSchema>> = { ...AUTHZ_ADMIN_SCHEMAS, AuthzAdminBatch };
+
+function schemaOf(param: IRouteParameter): ObjectSchema | undefined {
+  const type = param.RuntimeType as { prototype?: object } | undefined;
+  return type?.prototype ? (Reflect.getMetadata(SCHEMA_SYMBOL, type.prototype) as ObjectSchema | undefined) : undefined;
+}
+
+const jsonBody = (schema: JsonSchema): unknown => ({ required: true, content: { 'application/json': { schema } } });
+
+/** The request body or the query parameters a custom route arg of the controller takes, which http-swagger does not know. */
+function describeArg(operation: Operation, param: IRouteParameter): void {
+  const schema = schemaOf(param);
+  if (param.Type === 'AuthzAdminBatchArg') {
+    operation.requestBody = jsonBody({ $ref: '#/components/schemas/AuthzAdminBatch' });
+  } else if (param.Type === 'AuthzAdminBodyArg' && schema) {
+    const { $id: _id, ...documented } = schema;
+    operation.requestBody = jsonBody(documented);
+  } else if (param.Type === 'AuthzAdminQueryArg' && schema) {
+    const parameters = (operation.parameters ??= []);
+    const required = schema.required ?? [];
+    for (const [name, property] of Object.entries(schema.properties ?? {})) {
+      if (parameters.some((p) => p.in === 'query' && p.name === name)) continue;
+      const { description, ...value } = property;
+      parameters.push({ name, in: 'query', required: required.includes(name), schema: value, ...(typeof description === 'string' ? { description } : {}) });
+    }
+  }
+}
 
 /**
- * http-swagger describes a route's body and query string from decorated arguments, and the admin
- * routes read both from `@Req()` so that no http-layer step can refuse what AuthzAdmin would answer.
- * This adds what the builder cannot see to an OpenAPI document it built: the request bodies, the
- * query parameters, the path parameter text and the body schemas as components. Operations are
- * matched by method and path suffix, so a route prefix does not matter. `basePath` is the configured
- * `authz.http.admin.basePath` when the app moved the routes. Changes the document in place.
- * Pass `AuthzAdminSchemaProvider.schemas()` as `schemas` to list the commands every registered model contributes.
+ * http-swagger documents the `@Body()` DTOs and the `@Param()` schemas of the admin routes itself.
+ * This adds what it cannot see, read from the same DTOs and registry the routes validate against:
+ * the body of POST /authz/commands (`$ref` AuthzAdminBatch, built from the registered
+ * AuthzCommandSchemaSources), the attribute bodies (`@AdminBody()`), the query parameters of each
+ * query DTO (`@AdminQuery()`) and the path parameter text. Operations are matched by method and path
+ * suffix, so a route prefix does not matter; `basePath` is the configured `authz.http.admin.basePath`
+ * when the app moved the routes. Changes the document in place. Pass `AuthzAdminSchemaProvider.schemas()`
+ * as `schemas` to list the commands every registered model contributes.
  */
-export function describeAuthzAdminDocument<T extends object>(doc: T, basePath = 'authz', schemas: Readonly<Record<string, JsonSchema>> = AUTHZ_ADMIN_SCHEMAS): T {
-  const document = doc as Json;
-  const components = ((document.components ??= {}).schemas ??= {}) as Json;
+export function describeAuthzAdminDocument<T extends object>(doc: T, basePath = 'authz', schemas: Readonly<Record<string, JsonSchema>> = DEFAULT_SCHEMAS): T {
+  const document = doc as Document;
+  const components = ((document.components ??= {}).schemas ??= {});
   for (const [name, schema] of Object.entries(schemas)) components[name] ??= schema;
 
-  for (const route of AUTHZ_ADMIN_ROUTES) {
-    const routePath = route.path.replace(/^\/authz/, `/${basePath.replace(/^\/+|\/+$/g, '')}`);
-    const path = Object.keys(document.paths ?? {}).find((p) => p === routePath || p.endsWith(routePath));
-    const operation = path ? document.paths[path][route.method] : undefined;
+  const base = basePath.replace(/^\/+|\/+$/g, '');
+  const paths = document.paths ?? {};
+  const descriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, AuthzAdminController.prototype) as IControllerDescriptor;
+  for (const route of descriptor.Routes.values()) {
+    const routePath = `/${base}/${(route.Path ?? '').replace(/:(\w+)/g, '{$1}')}`;
+    const path = Object.keys(paths).find((p) => p === routePath || p.endsWith(routePath));
+    const operation = path ? paths[path][route.Type] : undefined;
     if (!operation) continue;
 
-    if (route.body) operation.requestBody = { required: true, content: { 'application/json': { schema: { $ref: `#/components/schemas/${route.body}` } } } };
-
-    const parameters: Json[] = (operation.parameters ??= []);
-    for (const p of parameters) if (p.in === 'path' && !p.description) p.description = PATH_PARAMS[p.name];
-    for (const name of route.query ?? []) {
-      if (!parameters.some((p) => p.in === 'query' && p.name === name)) parameters.push({ name, in: 'query', required: route.requiredQuery?.includes(name) === true, ...QUERY[name] });
-    }
+    for (const param of route.Parameters.values()) describeArg(operation, param);
+    for (const p of operation.parameters ?? []) if (p.in === 'path' && !p.description && typeof p.schema?.description === 'string') p.description = p.schema.description;
   }
   return doc;
 }
