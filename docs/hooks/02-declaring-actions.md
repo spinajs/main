@@ -16,12 +16,12 @@ Each package adds its actions to the `HookActions` interface, in its `src/hooks.
 ```ts
 declare module '@spinajs/hooks' {
   interface HookActions {
-    'orders.place': { input: PlaceInput; output: PlaceOutput };
+    'orders.create': { input: PlaceInput; output: PlaceOutput };
   }
 }
 ```
 
-- The key is the action name. Use dotted names (`orders.place`, `orders.item.add`) so prefix patterns like `'orders.*'` work.
+- The key is the action name. Use dotted names (`orders.create`, `orders.item.add`) so prefix patterns like `'orders.*'` work.
 - `input` is what hooks see. Leave out secrets such as plaintext passwords.
 - `output` is what `after` hooks see. A failure result (`status: 'failure'`) is an output, not an error.
 
@@ -37,7 +37,7 @@ Hooks.run(action, input, impl, { mutable, refusable })
 | `input` | The input object; hooks get a shallow copy. |
 | `impl` | `(input) => Promise<output>`. It receives the merged input. |
 | `opts.mutable` | The input keys a `before` hook may change. `[]` for none. |
-| `opts.refusable` | Default `true`. `false`: a refusal or an error in `before` is logged and `impl` runs anyway. |
+| `opts.refusable` | Default `true`. `false`: a refusal or an error in `before` is logged and `impl` runs anyway. The depth limit (`hooks.maxDepth`) is always enforced, even with `false`. |
 
 ### The zero-cost path
 
@@ -51,7 +51,7 @@ Hooks.run(action, input, impl, { mutable, refusable })
 
 | Error | Meaning | Fields |
 | --- | --- | --- |
-| `ActionRefused` | A `before` hook called `ctx.refuse`. | `action`, `code` |
+| `ActionRefused` | A `before` hook called `ctx.refuse`. | `action`, `code`, `message` |
 | `ActionHookFailed` | A `before` hook threw something else, timed out, or the run passed `hooks.maxDepth`. | `action`, `hook` (class name), `reason`: `'error'`, `'timeout'` or `'depth'` |
 
 - Map a refusal to a failure the caller already handles.
@@ -76,7 +76,7 @@ import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
 
 declare module '@spinajs/hooks' {
   interface HookActions {
-    'orders.place': {
+    'orders.create': {
       input: { customerId: string; total: number; note?: string };
       output: { id: string };
     };
@@ -96,7 +96,7 @@ export class OrderService {
     this.assertTotal(input.total);
 
     try {
-      const out = await this.Hooks.run('orders.place', input, (merged) => this.insert(merged), {
+      const out = await this.Hooks.run('orders.create', input, (merged) => this.insert(merged), {
         mutable: ['note'],
       });
       return { status: 'placed', id: out.id };

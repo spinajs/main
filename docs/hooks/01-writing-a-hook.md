@@ -5,7 +5,7 @@ An `ActionHook` runs code around a named action: before it (change inputs or ref
 ## How it works
 
 1. You register a class that extends `ActionHook` and lists the actions it wants in `actions`.
-2. At boot, `DefaultHooks.resolve()` reads the registered hook types and their `actions` patterns. Hook instances are not built yet.
+2. At boot, `DefaultHooks.resolve()` reads the registered hook types and their `actions` patterns. A hook registered as a factory (`() => instance`) is called at boot, so its instance exists from then on. A class registration gets a probe instance built with `new` and a DI instance on the first matching run.
 3. An action calls `Hooks.run(action, input, impl, opts)`. The runner looks up the hooks that match the action, cached per action name. With none, it returns `impl(input)` and builds no context.
 4. The first matching run resolves the hook instances. The runner copies the input into `ctx.input` and calls each `before` hook in ascending `order`, each bounded by `hooks.timeoutMs`.
 5. The runner calls `impl` with `{ ...original, ...pick(ctx.input, opts.mutable) }`. Assignments to other keys are dropped.
@@ -57,7 +57,7 @@ The action also checks again the invariants that guard the changed values, so a 
 - `code` must match `/^[a-z0-9][a-z0-9_.-]{0,58}$/`, so the audit reason `hook:<code>` fits the 64-character reason columns.
 - A code outside that format is an error in the hook: the run throws `ActionHookFailed` with reason `'error'`.
 - What the caller sees is the action's decision. Each action maps `ActionRefused` to its own answer; see the action's documentation.
-- An action that cannot be refused (`refusable: false`) logs the refusal and runs anyway.
+- An action that cannot be refused (`refusable: false`) logs the refusal and runs anyway. The depth limit (`hooks.maxDepth`) is always enforced, even with `refusable: false`.
 
 ## Errors and timeouts
 
@@ -67,7 +67,7 @@ The action also checks again the invariants that guard the changed values, so a 
 | Any other throw | `ActionHookFailed` with reason `'error'`, carrying the hook class name; the run stops. |
 | The hook takes longer than `hooks.timeoutMs` | `ActionHookFailed` with reason `'timeout'`; the run stops. |
 
-- With `refusable: false`, a refusal, a throw and a timeout in `before` are logged and the run goes on.
+- With `refusable: false`, a refusal, a throw and a timeout in `before` are logged and the run goes on. The depth limit (`hooks.maxDepth`) is still enforced.
 - An `after` hook that throws or times out is logged and swallowed; the output is returned unchanged.
 - A `failed` hook that throws is logged. It never masks the error of `impl`, which is rethrown.
 - A `failed` hook runs only when `impl` throws. A result such as `status: 'failure'` is a result, so it reaches `after`.
@@ -93,13 +93,14 @@ The runner reads `actions` and `order` at boot from a probe instance built with 
 ## When hooks are collected
 
 - Hook **types** are collected at boot. A hook registered after boot is not used.
-- Hook **instances** are resolved on the first run of an action they match, not at boot. A hook can inject a service that injects `Hooks` without a dependency cycle.
+- Hook **instances** of class registrations are resolved on the first run of an action they match, not at boot. A factory registration (`() => instance`) is called at boot. A hook can inject a service that injects `Hooks` without a dependency cycle.
 
 Import the module that registers your hook before the application boots.
 
 ## Logging
 
-Hook failures are logged on the `hooks` log with the hook class name, the action and the error class. The error message and the input are never logged, since an input can hold a password. 
+Hook failures are logged on the `hooks` log with the hook class name, the action and the error class. The error message and the input are never logged, since an input can hold a password.
+
 The `refuse` message is not logged. It reaches the caller as `ActionRefused.message` (default `<action> refused: <code>`), so keep input values out of it. An action may map a refusal to its own answer (authn keeps opaque answers), so callers must not rely on seeing the message.
 
 ## Configuration
@@ -165,7 +166,7 @@ import { RecordingActionHook, refusingHook, mutatingHook } from '@spinajs/hooks/
 
 const recorder = new RecordingActionHook();
 const refuse = refusingHook('orders.*', 'order.blocked', { order: -10 });
-const stamp = mutatingHook('orders.place', { note: 'checked' });
+const stamp = mutatingHook('orders.submit', { note: 'checked' });
 
 // After a run: recorder.calls[0].phase === 'before'
 ```
@@ -183,7 +184,7 @@ import type { AfterContext, BeforeContext } from '@spinajs/hooks';
 
 declare module '@spinajs/hooks' {
   interface HookActions {
-    'orders.place': {
+    'orders.submit': {
       input: { customerId: string; total: number; note?: string };
       output: { id: string };
     };
@@ -191,12 +192,12 @@ declare module '@spinajs/hooks' {
 }
 
 @Injectable(ActionHook)
-export class OrderRulesHook extends ActionHook<'orders.place'> {
-  public readonly actions = ['orders.place'] as const;
+export class OrderRulesHook extends ActionHook<'orders.submit'> {
+  public readonly actions = ['orders.submit'] as const;
 
   public readonly order = 10;
 
-  public before(ctx: BeforeContext<'orders.place'>): void {
+  public before(ctx: BeforeContext<'orders.submit'>): void {
     if (ctx.input.total > 10_000) {
       ctx.refuse('order.over_limit');
     }
@@ -205,14 +206,14 @@ export class OrderRulesHook extends ActionHook<'orders.place'> {
     ctx.input.note = `${ctx.input.note ?? ''} [checked]`.trim();
   }
 
-  public after(ctx: AfterContext<'orders.place'>): void {
+  public after(ctx: AfterContext<'orders.submit'>): void {
     const startedAt = ctx.bag.get('startedAt') as number;
     console.log(`order ${ctx.output.id} placed in ${Date.now() - startedAt} ms`);
   }
 }
 ```
 
-`note` reaches `orders.place` only when that action lists it in `mutable`; see [Declaring actions](02-declaring-actions.md).
+`note` reaches `orders.submit` only when that action lists it in `mutable`; see [Declaring actions](02-declaring-actions.md).
 
 ## Related
 
