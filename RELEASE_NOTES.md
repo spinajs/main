@@ -21,8 +21,7 @@ Additive: no 3.0.1 API, config key or HTTP answer changes, and each new behaviou
 - **OpenAPI.** The 3.0 authn routes document their request bodies, answers and error bodies (`AuthnHttpSchemaProvider`).
   http-swagger reads a new JSDoc tag, `@body {Type} description`, for a route that reads its body without a body
   route argument, and expands named types inside `oneOf`/`anyOf`/`allOf`. The operationIds do not change.
-- **`authn.http.routes.prefix` is deprecated.** No source ever read it, and it left the schema; a config that still sets
-  it boots and logs a warning. `http.controllers.route.prefix` moves the authn routes.
+- **`authn.http.routes.prefix` is removed.** No source ever read it. `http.controllers.route.prefix` moves the authn routes.
 - **Converter** (`spinajs-authz-convert`): `rbac.email.changePassword` is left out with a warning (nothing reads
   `users.email.changePassword`); `$extend` on `system` is a warning, since no 3.0 package defines `system`; a guard
   written without `privilegedPermission` is a note (authz-rbac ships `users:update`).

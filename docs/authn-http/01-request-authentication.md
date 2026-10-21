@@ -78,7 +78,7 @@ sequenceDiagram
 | `http.cookie.secret` | `string` | `@spinajs/http` default | your own secret | Verifies the session cookie signature. Missing: boot fails. The public default: boot fails outside development and test, warns inside them. |
 | `authn.session.cookie` | object | see [Session cookie](../authn-session/07-session-cookie.md) | | Cookie name and flags; `AuthnMiddleware` reads the name through `sessionCookieName()`. |
 
-The authn routes have no prefix of their own: `http.controllers.route.prefix` moves them with every other controller. `authn.http.routes.prefix` is deprecated and not in the schema; a config that still sets it boots, and `AuthnMiddleware` warns at boot that the key is never read.
+The authn routes have no prefix of their own: `http.controllers.route.prefix` moves them with every other controller.
 
 ```ts
 export default {
