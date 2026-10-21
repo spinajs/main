@@ -19,13 +19,14 @@ interface IStoredSession {
   Creation: string;
   Expiration?: string;
   Data: unknown;
+  ExternalKey?: string;
 }
 
 type IndexRole = 'subject' | 'impersonator';
 
 interface IIndexSet {
   key: string;
-  role: IndexRole;
+  role: IndexRole | 'external';
 }
 
 /** Compare-and-set: writes only when the key still holds the value touch read, so a deleted row stays deleted. */
@@ -59,6 +60,8 @@ function refOf(key: unknown): IdentityRef | undefined {
  *    principal keys and State; PEXPIREAT at its Expiration
  *  - `session:subject:<principalKey>`, `session:impersonator:<principalKey>`:
  *    sets of SessionIds (SR-06); dead members are pruned when met
+ *  - `session:external:<ExternalKey>`: the same for the rows of one IdP
+ *    session, read by deleteByExternalKey (back-channel logout)
  *
  * Liveness is always judged with `isExpired` in Node; the Redis TTL only frees
  * memory.
@@ -124,6 +127,7 @@ export class RedisSessionStore extends SessionProvider {
       Creation: session.Creation.toISO()!,
       Expiration: session.Expiration ? session.Expiration.toISO()! : undefined,
       Data: encodeSessionData(session.Data),
+      ...(session.ExternalKey !== undefined ? { ExternalKey: session.ExternalKey } : {}),
     };
 
     const sets = this.indexSetsOf(session).map((s) => s.key);
@@ -240,8 +244,50 @@ export class RedisSessionStore extends SessionProvider {
     return live;
   }
 
-  public async deleteByExternalKey(_externalKey: string): Promise<number> {
-    throw new Error('not implemented: RedisSessionStore.deleteByExternalKey');
+  /** List-then-delete over the external set, repeated as deleteBySubject; members whose row is gone or carries another key are pruned. */
+  public async deleteByExternalKey(externalKey: string): Promise<number> {
+    const set = this.externalIndexKey(externalKey);
+    const seen = new Set<string>();
+    let count = 0;
+
+    for (;;) {
+      const ids = (await this.Client.smembers(set)).filter((id) => !seen.has(id));
+      if (ids.length === 0) {
+        return count;
+      }
+      ids.forEach((id) => seen.add(id));
+
+      const values = await this.Client.mget(...ids.map((id) => this.sessionKey(id)));
+      const rows: ISession[] = [];
+      const stale: [string, string][] = [];
+      ids.forEach((id, i) => {
+        const raw = values[i];
+        const row = raw ? this.toSession(id, raw, true) : null;
+        if (row && row.ExternalKey === externalKey) {
+          rows.push(row);
+        } else {
+          stale.push([set, id]);
+        }
+      });
+
+      const multi = this.Client.multi();
+      for (const row of rows) {
+        multi.del(this.sessionKey(row.SessionId));
+        for (const s of this.indexSetsOf(row)) {
+          multi.srem(s.key, row.SessionId);
+        }
+      }
+      this.prune(multi, stale);
+      const results = await this.exec(multi);
+
+      let at = 0;
+      for (const row of rows) {
+        if (Number(results[at]) === 1 && !this.isExpired(row)) {
+          count++;
+        }
+        at += 1 + this.indexSetsOf(row).length;
+      }
+    }
   }
 
   public async truncate(): Promise<void> {
@@ -264,10 +310,17 @@ export class RedisSessionStore extends SessionProvider {
     return `session:${role}:${principalKey(ref)}`;
   }
 
+  protected externalIndexKey(externalKey: string): string {
+    return `session:external:${externalKey}`;
+  }
+
   protected indexSetsOf(session: ISession): IIndexSet[] {
     const sets: IIndexSet[] = [{ key: this.indexKey('subject', session.Subject), role: 'subject' }];
     if (session.Impersonator) {
       sets.push({ key: this.indexKey('impersonator', session.Impersonator), role: 'impersonator' });
+    }
+    if (session.ExternalKey !== undefined) {
+      sets.push({ key: this.externalIndexKey(session.ExternalKey), role: 'external' });
     }
     return sets;
   }
@@ -329,7 +382,7 @@ export class RedisSessionStore extends SessionProvider {
   /** Patterns (without the connection keyPrefix) covering session rows and both kinds of index sets. */
   protected keyPatterns(): string[] {
     const any: IdentityRef = { type: '*', id: '*' };
-    return [...new Set([this.sessionKey('*'), this.indexKey('subject', any), this.indexKey('impersonator', any)])];
+    return [...new Set([this.sessionKey('*'), this.indexKey('subject', any), this.indexKey('impersonator', any), this.externalIndexKey('*')])];
   }
 
   /** Runs `each` on every batch of keys matching `patterns`, with the connection keyPrefix stripped (the client adds it back). */
@@ -397,6 +450,7 @@ export class RedisSessionStore extends SessionProvider {
       Creation: DateTime.fromISO(stored.Creation),
       Expiration: stored.Expiration ? this.instant(stored.Expiration) : undefined,
       Data: data,
+      ExternalKey: typeof stored.ExternalKey === 'string' ? stored.ExternalKey : undefined,
     });
   }
 
