@@ -13,7 +13,9 @@ export interface AccessOptions {
   resource?: ResourceExtractor; // default: type-level ref of the permission's resource
   also?: readonly Class<BasePolicy>[]; // same policy group (AND) (B23)
   domain?: string; // authz domain; default 'root'
-  subject?: 'load' | 'none'; // 'load': adapter.load(ref) ⇒ definite 403 instead of a residual
+  subject?: 'load' | 'none'; // 'load': same as conditional: 'load'
+  /** 'load' (default): a conditional allow on a resource with an id loads the row and checks again; 'action': the action checks the residual itself. */
+  conditional?: 'load' | 'action';
   fields?: 'filter' | 'none'; // apply decision.fields.read to the response
 }
 

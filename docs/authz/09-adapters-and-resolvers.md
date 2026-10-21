@@ -8,7 +8,7 @@ Adapters and resolvers tell the engine about resources: what type an object is, 
 2. **Ancestors.** For a ref with an id, the engine asks the adapter of its type, else the `ScopeResolver` of its type, for `ancestors(ref)`: the whole path `[self, parent, ..., GLOBAL]`, or `null` for an unknown resource (denied `unknown_resource`). A type with neither answers `[ref, GLOBAL]`. The answer is memoised per request.
 3. **Relations.** A residual op `{ op: 'relation', relation }` is settled on the row by the `RelationResolver` registered for `(type, relation)`: `holds(principal, ref, subject)`.
 4. **Attributes.** `ctx.attributes(ref)` and `scope.<type>.*` condition refs read a node's attributes: the schema defaults of the type, then the adapter's `scopeAttributes(ref)` (else the resolver's `attributes(ref)`), then the `ScopeAttributeStore` row. Later layers win. `null` from the adapter or resolver means an unknown node.
-5. **Rows.** `checkAll()` and authz-http's `subject: 'load'` load rows through `loadMany()` or `load()`; `attribute(subject, field)` reads a field of a row for `cmp` residuals.
+5. **Rows.** `checkAll()` and the conditional allows of authz-http's `@Access` load rows through `loadMany()` or `load()`; `attribute(subject, field)` reads a field of a row for `cmp` residuals.
 6. **Contributions.** At boot each `AuthzContributor` declares what its package needs (permissions, relations, scope types, list types, attribute schemas), so a missing piece fails boot instead of a check ([Boot checks](04-host-boot-and-configuration.md#boot-checks)).
 
 ## Services and extension points
@@ -31,7 +31,7 @@ Adapters and resolvers tell the engine about resources: what type an object is, 
 | `refOf(target)` | yes | The object's `{ type, id }`. |
 | `ancestors(ref)` | yes | `[self, parent, ..., GLOBAL]`, or `null`. |
 | `ancestorsMany(refs)`, `loadMany(refs)` | no | Batched forms for `checkAll`, keyed by `resourceKey(ref)`. |
-| `load(ref)` | no | The row of a ref, for `subject: 'load'` and `checkAll`. |
+| `load(ref)` | no | The row of a ref, for a conditional allow of `@Access` and for `checkAll`. Without it, `@Access` denies a conditional allow on that type with `unknown_resource`. |
 | `attribute(subject, field)` | no | Reads a row field for residuals; default reads own properties. |
 | `scopeAttributes(ref)` | no | Attributes of a node for `scope.<type>.*`. |
 | `relations()` | no | Its `RelationResolver`s. |

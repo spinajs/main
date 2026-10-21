@@ -47,9 +47,9 @@ const isRef = (v: unknown): v is ResourceRef => typeof v === 'object' && v !== n
  * Decides the `@Access` of its scope (design §11.2), read from the controller's descriptor at
  * request time: a request without a principal, or with an unauthenticated one on a route without
  * `@AllowAnonymous`, is refused 401; several permissions mean any of them; a denial throws a 403
- * with `{ error, permission, resource, reason }`. With `subject: 'load'` a conditional allow is
- * settled against the row the domain's adapter loads. The allowing decision of the route's own
- * `@Access` (else the class's) goes to `req.storage.AuthzDecision`.
+ * with `{ error, permission, resource, reason }`. A conditional allow on a resource with an id is
+ * settled against the row the domain's adapter loads, unless the rule says `conditional: 'action'`.
+ * The allowing decision of the route's own `@Access` (else the class's) goes to `req.storage.AuthzDecision`.
  */
 @NewInstance()
 export class AccessPolicy extends BasePolicy {
@@ -117,11 +117,13 @@ export class AccessPolicy extends BasePolicy {
   protected async decide(authz: AuthzService, domain: string, rule: IAccessRule, principal: Principal, resource: ResourceRef | object | undefined): Promise<Decision> {
     let denied: Decision | undefined;
     let subject: Promise<unknown> | undefined;
+    const settles = (rule.options.conditional ?? 'load') === 'load';
 
     for (const permission of rule.permissions) {
       let decision = await authz.check({ principal, permission, resource: resource ?? { type: parsePermission(permission).resource } });
 
-      if (decision.allowed && decision.residual.op !== 'true' && rule.options.subject === 'load') {
+      // A type-level allow keeps its residual: the action's `.accessible()` applies it to the list.
+      if (decision.allowed && decision.residual.op !== 'true' && settles && decision.resource.id !== undefined) {
         subject ??= this.load(domain, decision.resource);
         const row = await subject;
         decision = row === null ? Object.freeze({ ...decision, allowed: false, residual: FALSE, reason: { code: 'unknown_resource' } }) : await authz.check({ principal, permission, resource: decision.resource, subject: row });

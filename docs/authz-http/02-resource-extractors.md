@@ -10,7 +10,7 @@ A resource extractor tells `@Access` which object the request works on: `{ type:
 4. A `null` or `undefined` result throws `InvalidArgument` (400, `fieldName: 'resource'`). The shipped builders throw `InvalidArgument` (400) themselves when the value is missing.
 5. A `fromModel` result is an unloaded model instance. `AccessPolicy.refOf()` asks the domain's `ResourceAdapter`s for the first one whose `accepts(instance)` is true and checks the ref its `refOf(instance)` gives. No adapter: `AuthzConfigError` (500).
 6. Any other result goes to `authz.check()` as the resource.
-7. With `subject: 'load'` and a conditional allow, `AccessPolicy.load()` asks the first adapter of the domain that has `load()` and serves the ref's type for the row, then checks again with `subject: row`. A ref without an id, no such adapter, or no row: the decision becomes a deny with reason `unknown_resource` (403). The row is loaded once per request, whatever the number of permissions.
+7. On a conditional allow for a ref with an id, unless the rule says `conditional: 'action'`, `AccessPolicy.load()` asks the first adapter of the domain that has `load()` and serves the ref's type for the row, then checks again with `subject: row`. No such adapter, or no row: the decision becomes a deny with reason `unknown_resource` (403). A type-level ref loads nothing and keeps its residual. The row is loaded once per request, whatever the number of permissions.
 
 ## Extractors
 
@@ -40,7 +40,7 @@ Helpers for code that reads extractors (boot checks, OpenAPI):
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `ResourceExtractor` | a plain function in `AccessOptions.resource`; no DI | the type-level ref of the permission | `fromParam`, `fromBody`, `fromQuery`, `fromModel`; `ownUser` (`@spinajs/users-http`), `TEAM` and `PARENT_TEAM` (`@spinajs/teams-http`) | Write a function; wrap it in `typedExtractor(type, fn)` so the boot and OpenAPI know its type. |
-| `ResourceAdapter` (`@spinajs/authz`) | list in the domain's container, `Array.chainOf(ResourceAdapter)` | authz-orm's ORM adapter | your adapter | Read for `fromModel` (`accepts`, `refOf`) and `subject: 'load'` (`types`, `load`). See [`@spinajs/authz`](../authz/09-adapters-and-resolvers.md). |
+| `ResourceAdapter` (`@spinajs/authz`) | list in the domain's container, `Array.chainOf(ResourceAdapter)` | authz-orm's ORM adapter | your adapter | Read for `fromModel` (`accepts`, `refOf`) and the row of a conditional allow (`types`, `load`). See [`@spinajs/authz`](../authz/09-adapters-and-resolvers.md). |
 
 ### Custom extractor: the workspace from a header
 
@@ -77,7 +77,7 @@ export class WorkspaceSettingsController extends BaseController {
 - The engine never sees a `fromModel` instance: its default field values would read as a row. Only the adapter's ref is checked.
 - `fromBody` reads own properties only: `'__proto__.id'` or an inherited key gives no value and a 400.
 - An extractor runs once per `AccessPolicy`, so a class `@Access` and a route `@Access` with extractors each call their own.
-- `subject: 'load'` loads through the first adapter of the domain that serves the type, not through your action's query. Load the row again in the action when you need it.
+- A conditional allow loads the row through the first adapter of the domain that serves the type, not through your action's query. Load the row again in the action when you need it.
 
 ## Best practices
 
@@ -122,7 +122,7 @@ export class Invoice extends ModelBase<Invoice> {
 export class InvoiceApprovalController extends BaseController {
   // The ORM adapter turns invoice <id> into its ref; an owner-only grant is settled on the row.
   @Post(':id/approve')
-  @Access('invoice:approve', { resource: fromModel(Invoice, 'id'), subject: 'load' })
+  @Access('invoice:approve', { resource: fromModel(Invoice, 'id') })
   public approve(@Param() id: number) {
     return new Ok({ id, status: 'approved' });
   }

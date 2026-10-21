@@ -15,7 +15,7 @@ Socket commands and events are guarded the way http routes are. `@SocketPolicy` 
    1. the handler's own rule, else the class rule, marks the call for authz-http's input field filter (`storage.AuthzHttpRoute`) and becomes the deciding rule;
    2. a principal that is not authenticated answers `unauthenticated`, unless `allowAnonymous`;
    3. the `resource` extractor runs; finding nothing answers `invalid_argument`. Without one, the type-level ref of each permission's resource is used (`doc:read` checks `{ type: 'doc' }`);
-   4. each permission is checked with `AuthzService.check()` in the rule's `domain`; the first allow wins. With `subject: 'load'`, a conditional allow is checked again against the row the domain's `ResourceAdapter` loads; a missing row is denied with `unknown_resource`;
+   4. each permission is checked with `AuthzService.check()` in the rule's `domain`; the first allow wins. A conditional allow on a resource with an id is checked again against the row the domain's `ResourceAdapter` loads, unless the rule says `conditional: 'action'`; no adapter that can load the type, or no row, is denied with `unknown_resource`. A type-level resource loads nothing and keeps its residual;
    5. a denial throws `AccessDenied` (answered `forbidden` with `permission`, `resource` and `reason`); the deciding rule's allow is stored in `storage.AuthzDecision`.
 5. `ArgumentsStage` runs the `ArgInputFilter`s; with `@spinajs/authz-http` loaded, the payload loses the fields the decision does not let the caller write.
 6. `AccessFieldsStage` (order 650), for a rule with `fields: 'filter'`, limits the result, or each stream chunk, to `decision.fields.read` minus the domain's `fields.neverRead`.
@@ -51,7 +51,8 @@ The `route` a policy gets has `Type: 'socket'`, `Path` set to the full name and 
 | `also` | `Class<BasePolicy>[]` | `[]` | More policies in the same group (AND) |
 | `domain` | string | `'root'` | The authz domain the rule checks in |
 | `allowAnonymous` | boolean | `false` | Let an unauthenticated principal reach the engine |
-| `subject` | `'load'` \| `'none'` | `'none'` | `'load'`: settle a conditional allow against the loaded row |
+| `conditional` | `'load'` \| `'action'` | `'load'` | A conditional allow on a resource with an id: `'load'` settles it against the loaded row, as authz-http's `@Access` does; `'action'` runs the handler with the residual in `storage.AuthzDecision` |
+| `subject` | `'load'` \| `'none'` | none | Deprecated: `'load'` means `conditional: 'load'`; `'none'` changes nothing |
 | `fields` | `'filter'` \| `'none'` | `'none'` | `'filter'`: limit the result, or each chunk, to the readable fields |
 | `unfilteredInput` | string (a reason) | none | The payload skips authz-http's input field filter |
 
@@ -61,7 +62,7 @@ The `route` a policy gets has `Type: 'socket'`, `Path` set to the full name and 
 | --- | --- | --- | --- | --- |
 | `BasePolicy` (`@spinajs/http`) | Resolved per handler at registry build with the group's options; lifetime from the class; a string member must name a class registered under `BasePolicy` | none | Your policies; authn-http's `Authenticated`, `NotLoggedPolicy`, `NoTokenAuthPolicy`, `NoImpersonationPolicy`, `MfaSatisfied` (from `@spinajs/authn-http/socket`) | Extend `BasePolicy`, attach with `@SocketPolicy`; for a config-selected policy, `@Injectable(BasePolicy)` and `@SocketPolicy('config.key')` |
 | `SocketResourceExtractor` | Not in DI: a function in `@SocketAccess({ resource })` | `fromPayload(path, type)` | Your function | `(call: ISocketPolicyRequest) => ResourceRef \| object \| Promise<...>` |
-| `SocketAccessPolicy` | `@NewInstance()`, resolved per handler with its `ISocketAccess` | `SocketAccessPolicy` | Your subclass | Override the protected `decide()`, `load()` (row loading for `subject: 'load'`) or `service()`; keep `@NewInstance()`; `DI.register(Mine).as(SocketAccessPolicy)` before `SocketServer` resolves |
+| `SocketAccessPolicy` | `@NewInstance()`, resolved per handler with its `ISocketAccess` | `SocketAccessPolicy` | Your subclass | Override the protected `decide()`, `load()` (row loading for a conditional allow) or `service()`; keep `@NewInstance()`; `DI.register(Mine).as(SocketAccessPolicy)` before `SocketServer` resolves |
 | `SocketPolicyGate` | `SocketPolicyGate` (self), singleton | `SocketPolicyGate` (http's gate, cached per handler) | Your subclass | Override `check(ctx)`; `DI.register(Mine).as(SocketPolicyGate)` |
 | `SocketAccessContributor` | `AuthzContributor`, singleton | `SocketAccessContributor` | none | See [Boot checks](#boot-checks); `DI.unregister(SocketAccessContributor)` drops socket permissions from the boot checks |
 | `AccessFieldsStage` | `SocketCommandStage`, order 650 | `AccessFieldsStage` | Your stage | Replace as any stage; see [Command pipeline](04-command-pipeline.md#replace-a-built-in-stage) |
@@ -183,7 +184,7 @@ export class WorkspaceSocket extends BaseSocketController {
 - `allowAnonymous` and `unfilteredInput` apply only to the rule that carries them. A class rule's options do not reach a handler with its own `@SocketAccess`, unlike http's `@AllowAnonymous` and `@UnfilteredInput` on a class.
 - A command without `@SocketAccess` is not input-filtered. In authz-http's `reject` write mode, a refused field answers `invalid_argument` with `details { error: 'fields_not_writable', fields }`.
 - With `fields: 'filter'`, only a top-level binary result or chunk passes unchanged; nested binary values are filtered like JSON. Without it nothing is stripped from output, `neverRead` included.
-- `subject: 'load'` uses the first `ResourceAdapter` of the domain that serves the ref's type and can `load`; with none, the row counts as missing.
+- A conditional allow uses the first `ResourceAdapter` of the domain that serves the ref's type and can `load`; with none, the row counts as missing. Use `conditional: 'action'` only when the handler applies the residual itself.
 - authn-http's `NoSession`, `FreshAuth` and `PendingMfaEnrolment` read `AuthnSession`, which socket calls do not carry: `NoSession` would always pass on a socket. Do not attach them with `@SocketPolicy`.
 - Refusals of authn-http policies carry their stable code in `details.error` (`session_required`, `already_authenticated`, `impersonating` ...).
 
@@ -231,7 +232,7 @@ export class DocsSocket extends BaseSocketController {
 
   // conditional grants ( "owner may read" ) are settled against the loaded row; fields the caller may not read are dropped
   @Command('get', { schema: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } } })
-  @SocketAccess(['doc:read', 'doc:admin'], { resource: fromPayload('id', 'doc'), subject: 'load', fields: 'filter' })
+  @SocketAccess(['doc:read', 'doc:admin'], { resource: fromPayload('id', 'doc'), fields: 'filter' })
   public async get(@Payload() req: { id: string }) {
     return rows.get(req.id) ?? null;
   }
