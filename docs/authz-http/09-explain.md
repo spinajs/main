@@ -9,11 +9,11 @@ Two debugging aids show why a check was decided the way it was: the `GET /authz/
 1. At startup, http asks every `ControllerSource` for controllers. `ExplainControllerSource.getControllers()` returns `ExplainController` only when `authz.http.explainRoute.enabled` is exactly `true` and the app is not in production. Enabled in production, it logs a warning and registers nothing, so the route answers 404.
 2. `ExplainPolicy` (the route's `@Policy`) refuses an unauthenticated caller with 401. It checks `authz.http.explainRoute.permission` (default `authz:explain`) for the caller on the permission's type-level resource, in the domain `authz.http.access.domain`, or the one the [`AuthzDomainResolver`](../authz/05-domains.md#per-request-domains) names for the request. Anything but an unconditional allow is a 403.
 3. `ExplainController.explain()` reads the query:
-   - `principal=<type>:<id>` (required; `%3A` and `%25` in the type are decoded as in principal keys);
+   - `principal=<type>:<id>` (required, 1 to 256 characters; `%3A` and `%25` in the type are decoded as in principal keys);
    - `permission=<name>` (required, a valid permission name of up to 256 characters);
-   - `resource=<type>[:<id>]` (optional; default the type-level ref of the permission);
+   - `resource=<type>[:<id>]` (optional, up to 256 characters; absent or `resource=` means the type-level ref of the permission);
    - `format=decision|tree` (optional; default `decision`).
-   Each value is validated as its own `@Query()` argument (`EXPLAIN_QUERY_PROPERTIES`: `principal` and `resource` up to 256 characters, `format` one of `''`, `decision`, `tree`). A malformed value is a 400; a `permission` that does not match the name pattern, or a value over its cap, answers the standard validation 400, a malformed `<type>:<id>` an `InvalidArgument` naming the field. A permission that is not registered is still a 500.
+   Each value is validated as its own `@Query()` argument (`ExplainQueryArg(name)` over `EXPLAIN_QUERY_PROPERTIES`: `principal` 1 to 256 characters, `resource` up to 256, `format` one of `''`, `decision`, `tree`). A malformed value is a 400: a missing `principal` or `permission`, a `permission` that does not match the name pattern, or a value over its cap answers the standard validation 400 (`ValidationError`, body `{ message, parameter, details }`, see [Validation errors](../validation/07-validation-errors.md)); a malformed `<type>:<id>` throws `InvalidArgument` naming the field (400 without `details`). A permission that is not registered is still a 500. The domain comes from `@AccessDomain()`, as in `ExplainPolicy`.
 4. It builds a bare principal from `principal` (`authenticated` unless the type is `anonymous` or `unattended`, `source: 'explain'`, no attributes, no ceiling) and calls `AuthzService.explain()` in that domain.
 5. `format=decision` answers the `Decision` with its `trace`. `format=tree` answers `explainTree(decision)`: `{ label, allowed, children }`, one child per model vote with its trace steps, then the engine's combining step.
 
@@ -69,6 +69,7 @@ Declare the explain permission in `authz.permissions` and grant it to the people
 | `ExplainController` | `BaseController`, `@BasePath('authz')`, handed to http only by `ExplainControllerSource` | `ExplainController` | | Not meant to be replaced. |
 | `ExplainPolicy` | plain `BasePolicy` on the explain route | `ExplainPolicy` | | Not meant to be replaced. |
 | `explainTree(decision)` | exported function returning `ExplainNode` | | | Render a decision you got from `authz().explain()` in your own tools. |
+| `ExplainQueryArg(name)`, `ExplainQuery`, `EXPLAIN_QUERY_PROPERTIES` | parameter decorator over `@Query()`, the query's type, and the property schemas | | | Reuse them on your own explain-like route; `principal` and `permission` are required. |
 
 ## Important behaviour
 

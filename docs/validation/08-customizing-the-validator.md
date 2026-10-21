@@ -7,8 +7,8 @@
 1. `DataValidator` is decorated `@Singleton()` and extends `AsyncService`. It is not registered under another token: consumers resolve the class itself (`@Autoinject() Validator: DataValidator`, `DI.resolve(DataValidator)`).
 2. `DI.register(MyValidator).as(DataValidator)` adds a registration under the `DataValidator` key. A resolve of `DataValidator` builds the last class registered there, once, and caches it.
 3. The container sets the `@Config('validation')`, `@Autoinject(SchemaSource)`, `@Logger('validation')` and `@Autoinject()` properties, then awaits `resolve()`.
-4. Your `resolve()` calls `super.resolve()`, which builds the Ajv instance into the protected `Validator` property and loads the [schema sources](05-schema-sources.md). Then it adds its own formats and keywords.
-5. Ajv compiles a schema on first use, so formats and keywords added right after `super.resolve()` apply to every schema the sources loaded.
+4. `super.resolve()` builds two Ajv instances with `createAjv()`: the protected `Validator`, and `StrictValidator` with `coerceTypes: false` for [strict schema ids](02-validator-options.md#strict-schema-ids). Then it loads the [schema sources](05-schema-sources.md) into both.
+5. Add formats and keywords by overriding `createAjv()`: both instances get them, before any source schema is loaded.
 
 ## Services and extension points
 
@@ -20,7 +20,7 @@
 
 | Member | Visibility | Use |
 | --- | --- | --- |
-| `resolve()` | public | Startup. Call `super.resolve()` first, then extend `this.Validator`. |
+| `resolve()` | public | Startup. Call `super.resolve()` first when you override it. |
 | `Validator` | protected, `any` | The Ajv 8 instance: `addFormat()`, `addKeyword()`, `addVocabulary()`, `addMetaSchema()`. |
 | `StrictValidator` | protected | The second Ajv 8 instance, with `coerceTypes: false`, for [strict schema ids](02-validator-options.md#strict-schema-ids). Add every format and keyword to it too. |
 | `createAjv(options)` | protected | Builds one Ajv instance with the three plugins; `resolve()` calls it for both instances. Override it to add a format or keyword to both at once. |
@@ -30,7 +30,7 @@
 | `Log` | protected | The `validation` logger. |
 | `Container` | protected | The container that built the validator. |
 | `addSchema()`, `removeSchema()`, `hasSchema()`, `getSchema()` | public | Override to observe, veto or namespace registrations. `resolve()` calls `addSchema()` for every source schema. |
-| `validate()`, `tryValidate()`, `validateSchema()`, `extractSchema()` | public | Override to wrap validation (metrics, tracing, extra rules). `validate()` calls `tryValidate()`. |
+| `validate()`, `tryValidate()`, `validateSchema()`, `extractSchema()` | public | Override to wrap validation (metrics, tracing, extra rules). `validate()` and `tryValidate()` share a private implementation and do not call each other: wrap both to see every call. |
 
 ### `DataValidator`: custom implementation
 
@@ -54,19 +54,22 @@ function isNip(value: string): boolean {
 }
 
 export class BillingValidator extends DataValidator {
-  public async resolve() {
-    await super.resolve();
+  // Called for Validator and StrictValidator alike, so strict schema ids can use the format and keyword too.
+  protected createAjv(options: object) {
+    const ajv = super.createAjv(options);
 
     // { "type": "string", "format": "nip" }
-    this.Validator.addFormat('nip', { type: 'string', validate: isNip });
+    ajv.addFormat('nip', { type: 'string', validate: isNip });
 
     // { "type": "string", "sku": true }
-    this.Validator.addKeyword({
+    ajv.addKeyword({
       keyword: 'sku',
       type: 'string',
       schemaType: 'boolean',
       validate: (enabled: boolean, value: string) => !enabled || /^[A-Z]{3}-[0-9]{4}$/.test(value),
     });
+
+    return ajv;
   }
 }
 
@@ -92,7 +95,7 @@ export async function checkCustomer(customer: { name: string; nip: string; defau
 
 ### Wrap validation: count failures per schema
 
-Override `tryValidate()` to observe every validation: `validate()` calls it too. Keep both overload signatures so callers type-check.
+`validate()` does not call `tryValidate()`, so override both to observe every validation. Keep the overload signatures so callers type-check, and forward the call with the same number of arguments: the one-argument form reads the schema from the data's `@Schema`.
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -104,13 +107,26 @@ export class MeteredValidator extends DataValidator {
   public tryValidate(data: object): [boolean, IValidationError[] | null];
   public tryValidate(schema: object | string, data: object): [boolean, IValidationError[] | null];
   public tryValidate(schemaOrData: object | string, data?: object): [boolean, IValidationError[] | null] {
-    const result = data === undefined ? super.tryValidate(schemaOrData as object) : super.tryValidate(schemaOrData, data);
-
-    if (!result[0]) {
-      const key = typeof schemaOrData === 'string' ? schemaOrData : ((schemaOrData as { $id?: string }).$id ?? 'inline');
-      this.Failures.set(key, (this.Failures.get(key) ?? 0) + 1);
-    }
+    const result = arguments.length > 1 ? super.tryValidate(schemaOrData, data!) : super.tryValidate(schemaOrData as object);
+    if (!result[0]) this.count(schemaOrData);
     return result;
+  }
+
+  public validate(data: object): void;
+  public validate(schema: object | string, data: object): void;
+  public validate(schemaOrData: object | string, data?: object): void {
+    try {
+      if (arguments.length > 1) super.validate(schemaOrData, data!);
+      else super.validate(schemaOrData as object);
+    } catch (err) {
+      this.count(schemaOrData);
+      throw err;
+    }
+  }
+
+  private count(schemaOrData: object | string): void {
+    const key = typeof schemaOrData === 'string' ? schemaOrData : ((schemaOrData as { $id?: string }).$id ?? 'inline');
+    this.Failures.set(key, (this.Failures.get(key) ?? 0) + 1);
   }
 }
 
@@ -121,8 +137,8 @@ DI.register(MeteredValidator).as(DataValidator);
 
 - **Register before the first resolve.** `DataValidator` is cached on its first resolve; a registration after that is ignored by every holder of the cached instance. In tests, `DI.uncache(DataValidator)` forces a rebuild.
 - **`DataValidator` resolves asynchronously.** Classes that inject it become async to resolve too; `await` them.
-- **Ajv is created inside `resolve()`.** `this.Validator` is `undefined` until `super.resolve()` has started; touching it earlier throws.
-- **Sources are loaded inside `super.resolve()`.** A schema that uses your custom keyword passes the startup meta-schema check (unknown keywords are allowed there) and compiles later, after your `addKeyword()`. Add keywords right after `super.resolve()`, before any validation.
+- **Ajv is created inside `resolve()`.** `this.Validator` and `this.StrictValidator` are `undefined` until `super.resolve()` has started; touching them earlier throws.
+- **Two instances.** A format or keyword added only to `this.Validator` after `super.resolve()` is missing on `StrictValidator`: a strict-id schema that uses it throws `unknown format` / `unknown keyword`. Add them in `createAjv()`.
 - **Options come from config only.** `Options` is a getter over the `validation` key, so a subclass cannot assign it. `$data: true` and `verbose: true` are applied after it and always win.
 - **Custom keyword errors keep their `params`.** `sanitizeError()` drops verbose fields from them, but redacts `params` only for `$data` rules and for its fixed list of value-bearing keywords. Do not put request values into the `params` or `message` of your own keyword errors.
 
@@ -142,9 +158,10 @@ ajv.validate(schema, data);
 
 // Do: extend the one validator every package resolves
 class BillingValidator extends DataValidator {
-  public async resolve() {
-    await super.resolve();
-    this.Validator.addFormat('nip', { type: 'string', validate: isNip });
+  protected createAjv(options: object) {
+    const ajv = super.createAjv(options);
+    ajv.addFormat('nip', { type: 'string', validate: isNip });
+    return ajv;
   }
 }
 DI.register(BillingValidator).as(DataValidator);

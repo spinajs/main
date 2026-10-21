@@ -74,7 +74,7 @@ export async function signUp(input: SignUpDto) {
 
 ## Related packages
 
-- [`@spinajs/http`](../http/04-route-arguments.md#validation-and-conversion): validates every route argument with `DataValidator` and answers `ValidationFailed` with 400.
+- [`@spinajs/http`](../http/04-route-arguments.md#validation-and-conversion): validates every route argument with `DataValidator` and answers `ValidationFailed` with 400, unless a route's [`@OnError`](../http/11-error-handling.md#route-error-handlers) handler answers it differently.
 - [`@spinajs/http-socket`](../http-socket/03-handler-arguments.md): validates socket payloads; `ValidationFailed` becomes `invalid_argument`.
 - [`@spinajs/http-swagger`](../http-swagger/04-named-schemas-and-schema-providers.md): asks every `SchemaProvider` for named types.
 - [`@spinajs/orm`](../orm/11-json-schema.md): ships `ModelSchemaProvider`, a `SchemaProvider` for models.

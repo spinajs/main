@@ -32,7 +32,7 @@ sequenceDiagram
   S-->>DI: emit http.server.closing / http.server.closed
 ```
 
-The resulting Express stack, top to bottom: `http.middlewares` → `ServerMiddleware.before()` by `Order` → static files → controllers router → `ServerMiddleware.after()` (404 handler, then error handler).
+The resulting Express stack, top to bottom: the body limit gate (only when `http.bodyLimits` has rules) → `http.middlewares` → `ServerMiddleware.before()` by `Order` → static files → controllers router → `ServerMiddleware.after()` (404 handler, then error handler).
 
 ### Lifecycle
 
@@ -61,12 +61,16 @@ Read the state from `server.State` and the Node server from `server.Server`.
 | `http.FatalTemplate` | `string` | built-in "HTTP 500" page | HTML with an optional `{ticket}` | Page sent when even the error page fails to render. |
 | `http.controllers.route.prefix` | `string` | `''` | path without slashes at the ends | Prefix for every controller route; see [Controllers and routing](02-controllers-and-routing.md#path-rules). |
 | `system.dirs.controllers` | `string[]` | not set | directories | Where controllers are scanned; see [Controller discovery](03-controller-discovery.md). |
+| `http.errors.handlers` | `{ service: string }[]` | `[]` | names of registered `ErrorHandlerService` classes | App-wide route error handlers; see [Error handling](11-error-handling.md#app-wide-handlers). |
+| `http.csrf.*` | object | `enabled: true`, empty lists | | The default-deny `CsrfGuard`; see [CSRF guard](23-csrf-guard.md#configuration). |
+| `http.bot.*` | object | `enabled: false` | | `@BotCheck` verifiers and checks; see [Bot checks](23-bot-check.md#configuration). |
+| `http.throttle.*` | object | `enabled: false`, `ipv6Prefix: 64`, `rules: []` | | Per-IP, per-path rate limits; see [Throttling](18-throttling.md). |
 
 The default `http.middlewares` are:
 
 | Handler | Settings | Why |
 | --- | --- | --- |
-| `helmet` | `referrerPolicy: 'strict-origin-when-cross-origin'` | helmet's default `no-referrer` makes browsers send `Origin: null` on same-origin form posts, which the `@spinajs/authn-http` CSRF guard refuses |
+| `helmet` | `referrerPolicy: 'strict-origin-when-cross-origin'` | helmet's default `no-referrer` makes browsers send `Origin: null` on same-origin form posts, which the [CSRF guard](23-csrf-guard.md) (and its `@spinajs/authn-http` subclass) refuses |
 | `express.json` | `limit: '5mb'`, `verify` stores the raw bytes in `req.rawBody` | feeds [`@RawBody()`](04-route-arguments.md) |
 | `express.urlencoded` | `extended: true` | form posts |
 | `express.text` | types `application/xml`, `text/xml`, `application/*+xml`, `limit: '5mb'` | feeds [`@FromXml()`](04-route-arguments.md) |
@@ -107,7 +111,7 @@ export default {
 
 ### Configuration schema and file providers
 
-The package registers the `http.configuration` JSON schema twice: at import (`registerConfigurationSchemaAtImport`) and from `HttpConfigBootstrapper`. The configuration validates the merged tree against it and fills its defaults. It checks `http.cookie.secret`, `http.trustProxy`, `http.cors` and `http.throttle`.
+The package registers the `http.configuration` JSON schema twice: at import (`registerConfigurationSchemaAtImport`) and from `HttpConfigBootstrapper`. The configuration validates the merged tree against it and fills its defaults. It checks `http.cookie.secret`, `http.trustProxy`, `http.cors`, `http.bodyLimits`, `http.errors`, `http.csrf`, `http.throttle` and `http.bot`.
 
 The package configuration also adds three `fs.providers` entries and two `system.dirs` entries:
 

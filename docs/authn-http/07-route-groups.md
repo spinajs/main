@@ -1,6 +1,6 @@
 # Route groups
 
-The package mounts its routes from eleven controllers in `lib/<cjs|mjs>/v3/controllers`, which the shipped config adds to the controller scan. Most groups switch on by themselves when the service behind them is registered: install the strategy package (or `@spinajs/users`) and the routes appear; leave it out and they answer 404 as if they did not exist.
+The package mounts its routes from seventeen controllers in `lib/<cjs|mjs>/v3/controllers`, which the shipped config adds to the controller scan. Most groups switch on by themselves when the service behind them is registered: install the strategy package (or `@spinajs/users`) and the routes appear; leave it out and they answer 404 as if they did not exist.
 
 ## How it works
 
@@ -18,6 +18,7 @@ The package mounts its routes from eleven controllers in `lib/<cjs|mjs>/v3/contr
 | Password | `PasswordServiceRegistered` | a registered `PasswordService` ([`@spinajs/authn-local`](../authn-local/README.md)) | [Password routes](12-password-routes.md) |
 | Registration | `IdentityRegistrarRegistered` | a registered `IdentityRegistrar` that is switched on (`UserIdentityRegistrar` of `@spinajs/users`, `users.registration.enabled`) | [Registration route](22-registration-route.md) |
 | Address verification | `AddressVerificationRegistered` | a registered `PasswordService` that offers `requestVerification` and `redeemVerification` (`LocalPasswordService`) | [Verification routes](21-verification-routes.md) |
+| Passkeys | `PasskeyRoutesOn` | a registered `PasskeyService` ([`@spinajs/authn-webauthn`](../authn-webauthn/README.md)) and a strategy in `authn.strategies` that takes `webauthn` credentials | [Input validation](24-input-validation.md) |
 | Code login | `CodeLoginRegistered` | a registered `PasswordService` that offers `requestCode` (`LocalPasswordService`); the login also needs the `email-code` strategy | [Code routes](22-code-routes.md) |
 | MFA enrolment | `TotpEnrolmentOn` | a registered `MfaEnrolmentService` whose `enabled(steps)` is true for the steps of the configured MFA policy. For `TotpService` of [`@spinajs/authn-totp`](../authn-totp/README.md): `authn.mfa.steps` lists `TotpMfaStep` itself, not a subclass, and `authn.mfa.encryptionKey.secret` is set | [MFA enrolment routes](13-mfa-enrolment-routes.md) |
 | API tokens | `TokenServiceRegistered` | a registered `TokenService` ([`@spinajs/authn-token`](../authn-token/README.md)) | [API token routes](14-api-token-routes.md) |
@@ -32,8 +33,19 @@ The package mounts its routes from eleven controllers in `lib/<cjs|mjs>/v3/contr
 | `POST` | `/auth/login` | `AuthnLoginController` | | none |
 | `POST` | `/auth/logout` | `AuthnLoginController` | | any session, pending included |
 | `GET` | `/auth` | `AuthnLoginController` | | principal or pending session |
-| `POST` | `/auth/mfa/verify` | `AuthnMfaController` | | pending session |
-| `POST` | `/auth/mfa/recovery` | `AuthnMfaController` | | pending session |
+| `POST` | `/auth/mfa/verify` | `AuthnMfaController` | `PendingSessionOnly` | pending session |
+| `POST` | `/auth/mfa/recovery` | `AuthnMfaController` | `PendingSessionOnly` | pending session |
+| `POST` | `/auth/mfa/step-up` | `AuthnMfaController` | `ActiveSessionOnly` | active session |
+| `POST` | `/auth/mfa/challenge` | `AuthnMfaController` | `PendingSessionOnly` | pending session |
+| `POST` | `/auth/reauth` | `AuthnReauthController` | `ActiveSessionOnly` | active session |
+| `POST` | `/auth/code/request` | `AuthnCodeLoginController` | | none |
+| `POST` | `/auth/code/login` | `AuthnCodeLoginController` | | none |
+| `POST` | `/auth/passkeys/challenge` | `AuthnPasskeyController` | | none, or a pending session for the WebAuthn MFA step |
+| `POST` | `/auth/passkeys/login` | `AuthnPasskeyController` | | none |
+| `POST` | `/user/passkeys/options` | `AuthnPasskeyController` | `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` | session principal, fresh |
+| `POST` | `/user/passkeys` | `AuthnPasskeyController` | same | session principal, fresh |
+| `GET` | `/user/passkeys` | `AuthnPasskeyController` | same | session principal |
+| `DELETE` | `/user/passkeys/:id` | `AuthnPasskeyController` | same | session principal |
 | `GET` | `/user/sessions` | `AuthnSessionsController` | `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` (controller) | session principal |
 | `DELETE` | `/user/sessions/:handle` | `AuthnSessionsController` | same | session principal |
 | `DELETE` | `/user/sessions` | `AuthnSessionsController` | same | session principal |
@@ -79,12 +91,12 @@ The credential admin paths above mount under `authn.http.admin.basePath` (defaul
 
 | Status | Body | When |
 | --- | --- | --- |
-| 401 | `{ "error": { "code": "E_AUTH_FAILED", "message": "login or password incorrect" }, "message": "login or password incorrect" }` | Every failed authentication: login, MFA code, re-authentication password, reset secret, old password. `Retry-After` only for a throttled login (password or key), MFA code or reset redemption, never for a re-authentication. See [the shared 401 body](17-answers-and-response-extensions.md#the-shared-401-body). |
+| 401 | `{ "error": { "code": "E_AUTH_FAILED", "message": "login or password incorrect" }, "message": "login or password incorrect" }` | Every failed authentication: login, MFA code, re-authentication password, reset secret, old password. `Retry-After` only for a throttled login (password, code, key or passkey), MFA code or reset redemption, never for a re-authentication. See [the shared 401 body](17-answers-and-response-extensions.md#the-shared-401-body). |
 | 401 | `{ "error": "unauthenticated", "message": "..." }` | No authenticated principal, or the session ended during the request. |
 | 403 | `{ "error": "<code>", "message": "..." }` | A policy or route refused an authenticated caller. Codes: `session_required`, `impersonating`, `fresh_auth_required`, `mfa_required`, `already_authenticated`, `session_exists`, `role_not_held`, `impersonation_refused`, `mfa_not_pending`, `forbidden`, `protected_role`, `escalation`. |
 | 403 | `{ "error": { "code": "E_CSRF_ORIGIN", ... } }` | [CSRF origin guard](04-csrf-origin-guard.md). |
 | 404 | `{ "error": "not_found", "message": "..." }` | A switched-off group or route. |
-| 429 | `{ "error": "throttled", "message": "..." }` | A throttled password reset request or key login challenge; with `Retry-After`. |
+| 429 | `{ "error": "throttled", "message": "..." }` | A throttled password reset request, code request, verification, registration, token revocation, key challenge or anonymous passkey challenge; with `Retry-After`. |
 
 Bodies of thrown errors (`unauthenticated`, policy 403s, gate 404s) also carry `stack` outside production; see [Error handling](../http/11-error-handling.md). The login failure body is built as a response and never carries `stack`.
 
@@ -94,8 +106,8 @@ Answers about an account, its session or its credentials carry `Cache-Control: n
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Route controllers | mounted by the controller scan from the shipped `system.dirs.controllers` entry | the eleven `Authn*Controller` classes | | Not exported. Switch a group through its service and add fields to the answers with `AuthnResponseExtension`. <!-- TODO(docs-hook): verify whether an app can replace or drop a single shipped controller (config arrays concatenate across files) --> |
-| Group gates | resolved by class from `@Policy` | `RoleSourceRegistered`, `ImpersonationGuardRegistered`, `PasswordServiceRegistered`, `AddressVerificationRegistered`, `IdentityRegistrarRegistered`, `TotpEnrolmentOn`, `TokenServiceRegistered`, `KeyRoutesOn`, `CredentialAdminGuardRegistered`, `SessionIssuerRegistered`, `AdminMfaResetOn` | | Not exported; switch a group by registering or not registering its service. |
+| Route controllers | mounted by the controller scan from the shipped `system.dirs.controllers` entry | the seventeen `Authn*Controller` classes | | Not exported. Switch a group through its service and add fields to the answers with `AuthnResponseExtension`. <!-- TODO(docs-hook): verify whether an app can replace or drop a single shipped controller (config arrays concatenate across files) --> |
+| Group gates | resolved by class from `@Policy` | `RoleSourceRegistered`, `ImpersonationGuardRegistered`, `PasswordServiceRegistered`, `AddressVerificationRegistered`, `IdentityRegistrarRegistered`, `CodeLoginRegistered`, `PasskeyRoutesOn`, `TotpEnrolmentOn`, `TokenServiceRegistered`, `KeyRoutesOn`, `CredentialAdminGuardRegistered`, `SessionIssuerRegistered`, `AdminMfaResetOn` | | Not exported; switch a group by registering or not registering its service. |
 | `AuthnResponseExtension` | `Array.ofType` | none in this package | `AccessResponseExtension` of `@spinajs/users` | See [Answers and response extensions](17-answers-and-response-extensions.md). |
 
 ## Important behaviour
@@ -103,7 +115,7 @@ Answers about an account, its session or its credentials carry `Cache-Control: n
 - Switching a group off is a registration decision, not a config flag. A group whose service is not registered answers 404 on every route.
 - Gates check the registration per request, so a service registered after boot switches its group on.
 - A route's own policies run in parallel with the gate. Routes that verify a password (`POST /user/tokens`, `POST /user/tokens/:uuid/rotate`, `POST /user/keys`, the admin routes) therefore do it in the handler, after the gate, never as a `FreshAuth` policy.
-- Request bodies are read by their camelCase field names only (`login`, `password`, `role`, `target`, `expiresAt`, ...); each route page lists them. Any other key is ignored: a body with `Email` instead of `login` reads as a body without `login`.
+- Request bodies are read by their camelCase field names only (`login`, `password`, `role`, `target`, `expiresAt`, ...); each route page lists them. Every body DTO is closed: any other key is refused, with 400 `invalid_field` or the route's own answer for bad input (the login failure body on the login, MFA completion and `POST /auth/password/reset` routes). A body with `Email` instead of `login` is refused. See [Input validation](24-input-validation.md).
 - The JSDoc of each route carries `@tags`, `@security`, `@returns` and `@response` for [`@spinajs/http-swagger`](../http-swagger/README.md). The request bodies are the routes' DTOs: http-swagger documents a `@Body()` argument from its `@Schema` (see [Input validation](24-input-validation.md)). `AuthnHttpSchemaProvider` (registered when the package loads) serves the named answer and error schemas of `AUTHN_HTTP_SCHEMAS`: the answers (`AuthnLoginAnswer` is the principal summary or the pending `{ MfaRequired, MfaEnrol }`; `AuthnPasskeyCeremony`, `AuthnPasskeyEntry`, `AuthnRegistrationAnswer`, `AuthnTokenUpdated`, `AuthnEmpty` and the rest) and the error bodies `AuthnFailure`, `AuthnError` and `AuthnUnauthorized` (either of the two). The operationIds stay `<Controller>_<method>`.
 
 ## Related

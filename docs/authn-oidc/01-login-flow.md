@@ -124,11 +124,11 @@ The controller has the fixed prefix `auth/oidc`.
 
 | Route | Does | Page |
 | --- | --- | --- |
-| `GET /auth/oidc/:provider` | Starts a login. Optional `?returnTo=/path`. | this page |
+| `GET /auth/oidc/:provider` | Starts a login. Optional `?returnTo=/path`; any other query key is refused. | this page |
 | `GET /auth/oidc/:provider/callback` | Completes a login or a link flow. | this page, [Account linking](06-account-linking.md) |
 | `POST /auth/oidc/:provider/link` | Starts linking for the current session. | [Account linking](06-account-linking.md) |
 | `DELETE /auth/oidc/:provider/link` | Removes a link of the current identity. | [Account linking](06-account-linking.md) |
-| `GET /auth/oidc/:provider/reauth` | Re-authenticates the current session. Optional `?returnTo=/path`. | this page |
+| `GET /auth/oidc/:provider/reauth` | Re-authenticates the current session. Optional `?returnTo=/path`; any other query key is refused. | this page |
 
 `OidcController` is not exported. The package config file adds its `lib/<cjs|mjs>/controllers` directory to `system.dirs.controllers`, and the HTTP server finds it by that scan.
 
@@ -168,7 +168,7 @@ authn: {
 - **One answer.** Every failure, from an unknown provider to a bad signature, gets the same answer. Read the audit (`AuthnService` events) for the reason.
 - **Throttle.** The core throttles the callback like any interactive login. `OidcStrategy.throttleKeys()` returns no key: no account is known before verification, and a per-provider key would let one client slow every login. The core adds the `ip` key when `authn-http` set `ClientIp`.
 - **Redirect URI.** The flow keeps the redirect URI it sent and sends it unchanged to the token endpoint. Default: `<origin>/auth/oidc/<name>/callback`. The origin uses `X-Forwarded-Proto` and `X-Forwarded-Host` only from a trusted proxy. The first request with an `http` origin outside development and test logs a warning.
-- **Return path.** `returnTo` is kept only when it is an app-relative path of at most 1024 printable ASCII characters. Anything else falls back to `redirects.success`, so there is no open redirect.
+- **Return path.** `returnTo` is kept only when it is an app-relative path of at most 1024 printable ASCII characters. A `returnTo` over 1024 characters is refused by the route's query schema and gets the failure answer. Any other value that is no such path falls back to `redirects.success`, so there is no open redirect. See [Route inputs](09-security.md#route-inputs).
 - **Flow expiry.** A user who waits more than 10 minutes at the IdP gets the failure answer and must start again.
 
 ## Best practices

@@ -14,13 +14,12 @@
    | `sessions` | `SessionIssuerRegistered` | a `SessionIssuer` |
    | `tokens` | `TokenServiceRegistered` | a `TokenService` |
 
-3. **`admit()`**, in this order, so a refused call changes nothing:
+3. **Route arguments**, before the handler: `:uuid` must be a lower-case uuid, else 404 `not_found` (`No such user`); then the body DTO: `sendReset` not a boolean is 400 `invalid_send_reset`, a `reauthPassword` that is no string the 401 login failure body, any other key 400 `invalid_field`.
+4. **`admit()`**, in this order, so a refused call changes nothing:
    1. an active session of the admin, else 403 `session_required`;
    2. [fresh authentication](05-policies.md#fresh-authentication) through `freshAuthOrAnswer()` with the admin's password in `reauthPassword`: 403 `fresh_auth_required`, or 401 login failure body without `Retry-After`;
-   3. `:uuid` must be a lower-case uuid, else 404 `not_found` (`No such user`);
-   4. the route's own body fields (`sendReset` for password reset);
-   5. `CredentialAdminGuard.allowed(admin, target, action)`: only `{ ok: true }` passes. Refusals: 403 `forbidden`, `protected_role` or `escalation`, or 404 `not_found`; an unknown code is 403 `forbidden`.
-4. **Effect**, with the admin as the audit actor.
+   3. `CredentialAdminGuard.allowed(admin, target, action)`: only `{ ok: true }` passes. Refusals: 403 `forbidden`, `protected_role` or `escalation`, or 404 `not_found`; an unknown code is 403 `forbidden`.
+5. **Effect**, with the admin as the audit actor.
 
 ```mermaid
 sequenceDiagram
@@ -30,7 +29,7 @@ sequenceDiagram
   participant P as PasswordService
   A->>C: POST /authn/admin/users/:uuid/password-reset { sendReset, reauthPassword? }
   C->>C: gates, Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy
-  C->>C: assertFreshAuth, :uuid check, sendReset check
+  C->>C: :uuid and body checks, then assertFreshAuth
   C->>G: allowed(admin, target, "password-reset")
   G-->>C: { ok: true }
   C->>P: expire(target, { cause: admin, actor, sendReset }, ctx)
@@ -46,7 +45,7 @@ sequenceDiagram
 | `DELETE /authn/admin/users/:uuid/sessions` | `{ "reauthPassword"?: string }` | `{ "revoked": number }` | Ends every session of the user, impersonations included; audited as `session.revoke`, reason `admin`. |
 | `DELETE /authn/admin/users/:uuid/tokens` | `{ "reauthPassword"?: string }` | `{ "revoked": number }` | Revokes every API and agent token of the user. |
 
-Errors common to all four: 400 `invalid_send_reset` (password reset, `sendReset` not a boolean); 401 `unauthenticated` or the login failure body; 403 `session_required`, `impersonating`, `fresh_auth_required`, `forbidden`, `protected_role`, `escalation`; 404 `not_found` (group or route off, malformed `:uuid`, unknown user). Every answer carries `Cache-Control: no-store`.
+Errors common to all four: 400 `invalid_send_reset` (password reset, `sendReset` not a boolean), `invalid_field` (any other key); 401 `unauthenticated` or the login failure body; 403 `session_required`, `impersonating`, `fresh_auth_required`, `forbidden`, `protected_role`, `escalation`; 404 `not_found` (group or route off, malformed `:uuid`, unknown user). Every answer carries `Cache-Control: no-store`.
 
 `resetMailRequested` echoes `sendReset` only: the password service decides whether a mail goes out (none without a `PasswordMailer`, or for a user it finds not eligible).
 
@@ -68,7 +67,7 @@ Errors common to all four: 400 `invalid_send_reset` (password reset, `sendReset`
 
 ## Important behaviour
 
-- **A refused call changes nothing**: fresh authentication, the target check and the guard all run before any effect.
+- **A refused call changes nothing**: the target and body checks, fresh authentication and the guard all run before any effect. A malformed `:uuid` or body costs no re-authentication.
 - **`:uuid` is case-sensitive.** An upper-case uuid answers 404, so a case-insensitive user lookup cannot expire a user while the session store revokes nothing.
 - **Not while impersonating**, and never from an API token or key.
 - **No secret in any answer.** A reset secret travels in the owner's mail only.
