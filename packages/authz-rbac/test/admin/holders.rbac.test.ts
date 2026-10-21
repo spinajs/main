@@ -154,7 +154,7 @@ describe('holders query on the RbacModel', function () {
     expect([...keys(first), ...keys(second)]).to.deep.equal(keys(everyone));
     expect(await holders({ page: { limit: 2, offset: 2 } })).to.not.have.property('next');
     expect(await rejection(holders({ page: { limit: 2, offset: 1, after: first.next } }))).to.equal('invalid_query');
-    expect(await rejection(holders({ page: { limit: 2, offset: 0, after: 'bm9wZQ' } }))).to.equal('invalid_page');
+    expect(await rejection(holders({ page: { limit: 2, offset: 0, after: '***' } }))).to.equal('invalid_page');
   });
 
   it('refuses an unknown permission, an unknown resource (denied by the actor check first) and a permission not checked on the scope type', async () => {
