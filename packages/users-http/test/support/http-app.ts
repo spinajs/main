@@ -11,7 +11,8 @@ import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { fsService } from '@spinajs/fs';
+import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
+import type { fs } from '@spinajs/fs';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
@@ -293,5 +294,7 @@ export async function stopUsersHttpApp(): Promise<void> {
   DI.uncache(ServerMiddleware);
   // Sibling suites register their own Configuration; DI hands out the last registration.
   DI.unregister(UsersHttpAppConfiguration);
+  // fsTemp's cleanup interval would keep the mocha process alive after the last suite.
+  for (const provider of DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES)?.values() ?? []) await provider.dispose();
   release();
 }
