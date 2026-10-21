@@ -1,11 +1,10 @@
-import { AuthzConfigError, GLOBAL, compileFieldGlobs, isPermission } from '@spinajs/authz';
+import { AuthzConfigError, GLOBAL, compileFieldGlobs, isPermission, isValidField } from '@spinajs/authz';
 import type { AuthzDomains, AuthzService, Decision, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import type { Log } from '@spinajs/log';
 import { isPlainObject } from '@spinajs/util';
 
+import { CLIENT_CHECK_SCHEMA } from '../dto/access-checks.js';
 import { decisionFields } from '../fields.js';
-
-export const MAX_ACCESS_CHECKS = 100;
 
 /** `reasons[i]` codes the endpoint sets itself; a denial carries the decision's own `reason.code`. */
 export const CLIENT_CHECK_REASONS = Object.freeze({
@@ -34,28 +33,21 @@ export interface ClientCheckOptions {
   readonly log: Log;
 }
 
-const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== '';
-
 const isCaller = (subject: unknown, principal: Principal): boolean => isPlainObject(subject) && subject.type === principal.type && subject.id === principal.id && subject.relation === undefined;
 
 /** One `checks[]` entry (ckit's `{ object, permission, subject?, context? }`) as a check, or the reason it is answered false. `checkAll` throws on a malformed entry, so none may reach it. */
 export function readClientCheck(raw: unknown, principal: Principal): ClientCheck | string {
-  if (!isPlainObject(raw) || !isPlainObject(raw.object) || !nonEmpty(raw.object.type) || !nonEmpty(raw.object.id) || !nonEmpty(raw.permission)) return CLIENT_CHECK_REASONS.invalid;
-  const type = raw.object.type;
-  const id = raw.object.id;
-  const permission = raw.permission.includes(':') ? raw.permission : `${type}:${raw.permission}`;
+  if (!isValidField(CLIENT_CHECK_SCHEMA, raw)) return CLIENT_CHECK_REASONS.invalid;
+  const object = raw.object as { type: string; id: string };
+  const permissionName = raw.permission as string;
+  const { type, id } = object;
+  const permission = permissionName.includes(':') ? permissionName : `${type}:${permissionName}`;
   if (!isPermission(permission)) return CLIENT_CHECK_REASONS.invalid;
   if (raw.subject !== undefined && !isCaller(raw.subject, principal)) return CLIENT_CHECK_REASONS.subjectMismatch;
 
   let field: ClientCheck['field'];
-  if (raw.context !== undefined) {
-    if (!isPlainObject(raw.context)) return CLIENT_CHECK_REASONS.invalid;
-    const { field: name, fieldMode } = raw.context;
-    if (name !== undefined) {
-      if (!nonEmpty(name) || (fieldMode !== undefined && fieldMode !== 'read' && fieldMode !== 'write')) return CLIENT_CHECK_REASONS.invalid;
-      field = { name, mode: fieldMode ?? 'write' };
-    }
-  }
+  const context = raw.context as { field?: string; fieldMode?: 'read' | 'write' } | undefined;
+  if (context?.field !== undefined) field = { name: context.field, mode: context.fieldMode ?? 'write' };
 
   const resource: ResourceRef = type === GLOBAL.type ? GLOBAL : id === '*' ? { type } : { type, id };
   return field ? { permission, resource, field } : { permission, resource };
