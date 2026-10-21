@@ -1,4 +1,4 @@
-import { AuthzConfigError, SYSTEM, currentPrincipal } from '@spinajs/authz';
+import { AuthzConfigError, SYSTEM, authzStorage, currentPrincipal } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
 import { InStatement, QueryMiddleware, SelectQueryBuilder, SqlOperator, WhereStatement, extractModelDescriptor } from '@spinajs/orm';
 import type { IQueryStatement, QueryBuilder } from '@spinajs/orm';
@@ -54,6 +54,12 @@ export function callSite(stack: string | undefined): string {
   return frames.find((f) => f.startsWith('at ') && !INTERNAL.test(f)) ?? 'unknown call site';
 }
 
+/** A route's check-before covers a single-object load only when it was unconditional; outside a route nothing decided. */
+function routeDecisionCovers(): boolean {
+  const decision = authzStorage().getStore()?.AuthzDecision;
+  return decision === undefined || decision.residual.op === 'true';
+}
+
 /** Design §8: reads builders, never changes them. */
 @Injectable(QueryMiddleware)
 export class AccessGuardMiddleware extends QueryMiddleware {
@@ -74,7 +80,7 @@ export class AccessGuardMiddleware extends QueryMiddleware {
     const marks = marksOf(query);
     if (marks?.accessible !== undefined || marks?.unscoped !== undefined) return;
     if (currentPrincipal() === SYSTEM || storageUnscoped() !== undefined) return;
-    if (isSingleObjectLoad(query, entry)) return;
+    if (isSingleObjectLoad(query, entry) && routeDecisionCovers()) return;
     const mode = guardMode();
     if (mode === 'off') return;
     const message = `authz-orm: a select of ${nameOf(query.Model)} (@AccessResource '${entry.type}') runs without .accessible(permission), .unscoped(reason) or runAs(SYSTEM)`;
