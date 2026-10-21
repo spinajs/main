@@ -125,6 +125,38 @@ for (const kind of DB_KINDS) {
       expect(await store.redeem(KEY, CHALLENGE, raw)).to.eq(false);
     });
 
+    it('issues the value it is given, keeps only its SHA-256, and redeems it once for its identity and purpose', async () => {
+      const store = new DbSecretStore();
+
+      expect(await store.issue(ALICE, 'email-code', 600, '123456')).to.eq('123456');
+
+      const [row] = await secretRows(db);
+      expect(row.secret_hash).to.eq(sha256hex('123456'));
+      expect(JSON.stringify(row)).to.not.contain('123456');
+      expect(await store.redeem(ALICE, 'email-code', '654321')).to.eq(false);
+      expect(await store.redeem(BOB, 'email-code', '123456')).to.eq(false);
+      expect(await store.redeem(ALICE, 'reset', '123456')).to.eq(false);
+      expect(await store.redeem(ALICE, 'email-code', '123456')).to.eq(true);
+      expect(await store.redeem(ALICE, 'email-code', '123456')).to.eq(false);
+    });
+
+    it('a value replaces the older secret of that identity and purpose', async () => {
+      const store = new DbSecretStore();
+      await store.issue(ALICE, 'email-code', 600, '111111');
+      await store.issue(ALICE, 'email-code', 600, '222222');
+
+      expect(await secretRows(db)).to.have.length(1);
+      expect(await store.redeem(ALICE, 'email-code', '111111')).to.eq(false);
+      expect(await store.redeem(ALICE, 'email-code', '222222')).to.eq(true);
+    });
+
+    it('refuses an empty value and one past the redeem bound', async () => {
+      const store = new DbSecretStore();
+      await expectInvalid(store.issue(ALICE, 'email-code', 600, ''));
+      await expectInvalid(store.issue(ALICE, 'email-code', 600, 'x'.repeat(1025)));
+      expect(await secretRows(db)).to.have.length(0);
+    });
+
     it('writes UTC wall-clock times', async () => {
       await new DbSecretStore().issue(ALICE, 'reset', 90);
       const [row] = await secretRows(db);

@@ -1,5 +1,6 @@
 import { AccessDenied } from '@spinajs/authz';
-import type { Assignment, AuthzService, Permission, Principal, ResourceType } from '@spinajs/authz';
+import type { AuthzService, Permission, Principal, ResourceType } from '@spinajs/authz';
+import type { Assignment } from '@spinajs/authz-rbac';
 import { fixtureDsl, userPrincipal } from '@spinajs/authz-testing';
 import type { HarnessSession, OrmModelSpec, SetupContext, World } from '@spinajs/authz-testing';
 import { expect } from 'chai';

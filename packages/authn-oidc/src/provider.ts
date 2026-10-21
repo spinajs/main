@@ -8,7 +8,7 @@ import { OidcDiscovery } from './discovery.js';
 import type { OidcHttpClient } from './http/client.js';
 import { OidcJwks } from './jwks.js';
 import { flowIsLive, flowSecrets, newFlow, stateClaim } from './flow/cookie.js';
-import type { OidcFlow } from './flow/cookie.js';
+import type { OidcFlow, OidcFlowMode } from './flow/cookie.js';
 import { authorizationUrl } from './flow/authorize.js';
 import { exchangeCode } from './token/exchange.js';
 import { validateIdToken } from './token/id-token.js';
@@ -26,6 +26,11 @@ export interface OidcEndpointSet {
   readonly userinfo?: string;
   /** RFC 9207 advertised: the callback must carry iss. */
   readonly issParameter: boolean;
+}
+
+/** Filled by `complete` with the validated ID token when the provider keeps it for logout. */
+export interface OidcTokenCapture {
+  idToken?: string;
 }
 
 export interface OidcCallbackQuery {
@@ -82,7 +87,9 @@ export class OidcProvider {
   }
 
   /** A new flow and the authorization request URL for it. */
-  public async begin(input: { redirectUri: string; returnTo?: unknown; mode: 'login' | 'link'; sessionHash?: string; now: Date }): Promise<{ flow: OidcFlow; location: string }> {
+  public async begin(input: { redirectUri: string; returnTo?: unknown; mode: OidcFlowMode; sessionHash?: string; now: Date }): Promise<{ flow: OidcFlow; location: string }> {
+    // Only an ID token's auth_time shows the provider authenticated the user again.
+    if (input.mode === 'reauth' && !this.options.idToken) throw new AuthenticationFailed('authn-oidc: a re-authentication needs an ID token');
     const endpoints = await this.endpoints(input.now);
     const flow = newFlow({ provider: this.name, redirectUri: this.options.redirectUri ?? input.redirectUri, returnTo: input.returnTo, mode: input.mode, sessionHash: input.sessionHash, now: input.now });
     const location = authorizationUrl({
@@ -93,16 +100,17 @@ export class OidcProvider {
       secrets: flowSecrets(flow),
       nonce: this.options.idToken,
       extra: this.options.authorizationParams,
+      reauth: input.mode === 'reauth',
     });
     return { flow, location };
   }
 
   /**
    * The callback (D1, D2, D10–D13): the flow must be this provider's, live, and match the state; the state is claimed
-   * once before any network call; then RFC 9207 iss, the code exchange, the ID token, userinfo and the mapping.
-   * Throws on every failure.
+   * once before any network call; then RFC 9207 iss, the code exchange, the ID token (auth_time no earlier than the
+   * start of a reauth flow), userinfo and the mapping. Throws on every failure.
    */
-  public async complete(flow: OidcFlow, query: OidcCallbackQuery, now: Date): Promise<OidcExternalSubject> {
+  public async complete(flow: OidcFlow, query: OidcCallbackQuery, now: Date, capture?: OidcTokenCapture): Promise<OidcExternalSubject> {
     const refuse = (what: string): never => {
       throw new AuthenticationFailed(`authn-oidc: callback refused: ${what}`);
     };
@@ -144,7 +152,9 @@ export class OidcProvider {
             nonce: secrets.nonce,
             accessToken: tokens.accessToken,
             now,
+            ...(flow.m === 'reauth' ? { authenticatedSince: flow.t } : {}),
           });
+    if (flow.m === 'reauth' && idClaims === null) refuse('a re-authentication needs an ID token');
 
     const wantsUserinfo = this.options.userinfo === true || (this.options.userinfo === 'auto' && endpoints.userinfo !== undefined);
     let userinfo: Readonly<Record<string, unknown>> | null = null;
@@ -156,6 +166,11 @@ export class OidcProvider {
 
     const raw = rawClaims(idClaims, userinfo);
     if (!hasRequiredClaims(raw, this.options.requiredClaims)) refuse('required claims');
+    this.keepIdToken(capture, tokens.idToken);
     return mapClaims(this.options.strategy, this.options.claims, raw, [idClaims, userinfo].filter((x): x is Readonly<Record<string, unknown>> => x !== null));
+  }
+
+  protected keepIdToken(capture: OidcTokenCapture | undefined, idToken: string | undefined): void {
+    if (capture && idToken !== undefined && this.options.logout.storeIdToken) capture.idToken = idToken;
   }
 }

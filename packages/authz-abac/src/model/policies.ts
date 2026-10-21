@@ -1,5 +1,6 @@
 import { AuthzConfigError, FALSE, GLOBAL, TRUE, UnknownPermission, isFieldGlob, isPermission, isPermissionGlob, normalizeFieldGlobs } from '@spinajs/authz';
-import type { Condition, DecisionRequest, FieldSet, ParsedCondition, Permission, PermissionRegistry, Policy, PrincipalType, ResourceFilter, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { Condition, DecisionRequest, FieldSet, ParsedCondition, Permission, PermissionRegistry, PrincipalType, ResourceFilter, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { Policy } from '../contracts.js';
 import { isPlainObject as isObject } from '@spinajs/util';
 
 export const DEFAULT_POLICY_PRIORITY = 500;

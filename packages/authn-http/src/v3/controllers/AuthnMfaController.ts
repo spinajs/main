@@ -5,19 +5,24 @@ import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Ok, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { AuthnService, SessionIssuer } from '@spinajs/authn/contracts';
+import type { AuthenticationResult, Session } from '@spinajs/authn/contracts';
 
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
+import { mfaPolicyOf } from '../../policies/v3/mfa.js';
 import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
-import { NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
+import { AcceptedResponse, NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
 import { answerFor, bodyField, boundedString, contextOf, pendingSteps, startedSession } from '../routes.js';
 
 /** completeMfa's step for recovery codes (contracts: MfaStep.name, AuthnService.completeMfa). */
 const RECOVERY_STEP = 'recovery';
 
+const STEP_NAME_CAP = 64;
+
 /**
  * Completes the login of a pending (pre-MFA) session (A09, A10). Only a pending session reaches these routes: none
  * answers 401, an active one 403. Success elevates the session to aal2 under a new id, keeping its data; a failure
- * answers the login failure body and leaves the session pending.
+ * answers the login failure body and leaves the session pending. The step-up route is the reverse: only an active
+ * session reaches it (a pending one answers 403), and success reissues it at aal2 under a new id.
  * @tags Authentication
  */
 @BasePath('auth')
@@ -59,10 +64,60 @@ export class AuthnMfaController extends BaseController {
     return this.complete(req, true);
   }
 
-  protected async complete(req: Request, recovery: boolean) {
+  /**
+   * Step up the active session
+   * Body `{ step?, code }`: `step` is an MFA step the identity is enrolled in, or `recovery` for a recovery code.
+   * @security cookieAuth
+   */
+  @Post('mfa/step-up')
+  public async stepUp(@Req() req: Request) {
+    const session = req.storage.AuthnSession;
+    if (!session) throw unauthenticated('this route needs a session');
+    if (session.handle.state !== 'active') throw refused('mfa_pending', 'complete the pending second factor instead');
+
+    const code = boundedString(bodyField(req, 'code'), PASSWORD_HARD_CAP);
+    if (code === null) return authnFailureResponse();
+    const step = boundedString(bodyField(req, 'step'), STEP_NAME_CAP) ?? (await this.firstEnrolledStep(session));
+    if (step === null) return authnFailureResponse();
+
+    const authn = await this.Container.resolve(AuthnService);
+    return this.answer(authn, await authn.stepUp(session.handle, step, code, contextOf(req, 'login', session.handle)), false);
+  }
+
+  /**
+   * Send the code of an MFA step
+   * Body `{ step? }`: asks the pending step (as in `mfa/verify`) that delivers its code out of band, such as the email
+   * code, to send it. 202 `{ Ok: true }` whether or not a step sends anything and whether or not the send worked, so the
+   * answer tells nothing about the account; a step with no `challenge` needs none. Repeats are throttled by the step.
+   * @security cookieAuth
+   */
+  @Post('mfa/challenge')
+  public async challenge(@Req() req: Request) {
+    const session = this.pendingSession(req);
+    const steps = await pendingSteps(this.Container, session, this.MfaPolicyService);
+    const asked = bodyField(req, 'step');
+    const name = typeof asked === 'string' && steps.includes(asked) ? asked : steps[0];
+    const step = name === undefined ? undefined : (await (await mfaPolicyOf(this.Container, this.MfaPolicyService)).steps()).get(name);
+    if (typeof step?.challenge === 'function') {
+      try {
+        await step.challenge(session.identity, contextOf(req, 'login', session.handle));
+      } catch (err) {
+        // The name only: an error can carry the address or the code.
+        this._log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'An MFA challenge failed: ${errorName}');
+      }
+    }
+    return new AcceptedResponse({ Ok: true }, { Headers: [NO_STORE] });
+  }
+
+  protected pendingSession(req: Request) {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('this route needs a pending session');
     if (session.handle.state !== 'pending') throw refused('mfa_not_pending', 'this session needs no second factor');
+    return session;
+  }
+
+  protected async complete(req: Request, recovery: boolean) {
+    const session = this.pendingSession(req);
 
     const code = boundedString(bodyField(req, 'code'), PASSWORD_HARD_CAP);
     if (code === null) return authnFailureResponse();
@@ -77,10 +132,20 @@ export class AuthnMfaController extends BaseController {
 
     // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
     const authn = await this.Container.resolve(AuthnService);
-    const result = await authn.completeMfa(session.handle, step, code, contextOf(req, 'login', session.handle));
+    return this.answer(authn, await authn.completeMfa(session.handle, step, code, contextOf(req, 'login', session.handle)), true);
+  }
+
+  protected async firstEnrolledStep(session: Session): Promise<string | null> {
+    const policy = await mfaPolicyOf(this.Container, this.MfaPolicyService);
+    for (const s of (await policy.steps()).values()) if (await s.enrolled(session.identity)) return s.name;
+    return null;
+  }
+
+  // A step-up reissues a session that already started: its ActiveRole, maybe switched since, stays.
+  protected async answer(authn: AuthnService, result: AuthenticationResult, started: boolean) {
     if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined);
     if (result.status !== 'success' || !result.session) return authnFailureResponse();
-    const principal = await startedSession(this.Container, this.Sessions, 'mfa', result.session, await authn.principalOf(result));
+    const principal = started ? await startedSession(this.Container, this.Sessions, 'mfa', result.session, await authn.principalOf(result)) : await authn.principalOf(result);
     return new Ok(await answerFor(this.Container, 'mfa', principal), { Coockies: [authnSessionCookie(this._cfg, result.session)], Headers: [NO_STORE] });
   }
 }

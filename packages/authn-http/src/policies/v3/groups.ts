@@ -2,7 +2,7 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import { ImpersonationGuard, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
+import { IdentityRegistrar, ImpersonationGuard, JwsSigner, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
 
 import { notFound } from './errors.js';
 
@@ -54,3 +54,14 @@ export class RoleSourceRegistered extends serviceRegistered(RoleSource, 'role sw
 
 /** 404 while no ImpersonationGuard is registered: the impersonation routes are off. */
 export class ImpersonationGuardRegistered extends serviceRegistered(ImpersonationGuard, 'impersonation is off: no ImpersonationGuard is registered') {}
+
+/** 404 while no JwsSigner is registered: the JWKS route is off. */
+export class JwsSignerRegistered extends serviceRegistered(JwsSigner, 'the JWKS route is off: no JwsSigner is registered') {}
+
+/** 404 while no IdentityRegistrar is registered, or the registered factory yields none (users.registration.enabled is off). */
+export class IdentityRegistrarRegistered extends serviceRegistered(IdentityRegistrar, 'registration is off: no IdentityRegistrar is registered') {
+  public async execute(req: Request, action: IRoute, instance: IController): Promise<void> {
+    await super.execute(req, action, instance);
+    if (!(await this.Container.resolve(IdentityRegistrar))) throw notFound('not_found', 'registration is off: the IdentityRegistrar is switched off');
+  }
+}

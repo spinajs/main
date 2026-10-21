@@ -15,6 +15,7 @@ export * from './provider.js';
 export * from './strategy.js';
 export * from './login.js';
 export * from './links.js';
+export { OIDC_ID_TOKEN_KEY, OidcLogoutExtension } from './logout-extension.js';
 export * from './providers.js';
 export * from './bootstrap.js';
 export * from './origin.js';

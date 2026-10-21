@@ -1,31 +1,33 @@
 # Password mailer
 
-`PasswordMailer` sends the reset and invite messages that carry a single-use secret. `LocalPasswordService` calls it right after it issues the secret. The package ships only the abstract class; `@spinajs/users` registers `EmailPasswordMailer` from `@spinajs/email` unless the app registered its own.
+`PasswordMailer` sends the reset and invite messages that carry a single-use secret. `LocalPasswordService.deliver()` calls it right after it issues the secret, when a dispatched mail request is delivered ([Mail delivery](13-mail-delivery.md)). The package ships only the abstract class; `@spinajs/users` registers `EmailPasswordMailer` from `@spinajs/email` unless the app registered its own.
 
 ## How it works
 
 1. A flow needs a mail: `requestReset()` (deferred), `invite()`, or `expire()` with `cause: 'aged'` or `sendReset: true`.
-2. `LocalPasswordService.mailer()` answers the optional `@Autoinject(PasswordMailer)` property, set when a mailer was registered when the service was built. None: a warning is logged, **no secret is issued**, and the event records the failure reason `no_mailer`.
-3. `IdentityStore.display(id)` gives the recipient's `email` and `name`.
-4. `SecretStore.issue(id, purpose, ttlSeconds)` returns the raw secret. Without a `SecretStore` this step throws `InvalidOperation`.
-5. `PasswordMailer.send(mail)` runs at once with a `PasswordMail`.
+2. `LocalPasswordService.mailer()` answers the optional `@Autoinject(PasswordMailer)` property, set when a mailer was registered when the service was built. None: a warning is logged, **nothing is dispatched and no secret is issued**, and the event records the failure reason `no_mailer`.
+3. The flow dispatches an `AuthnMailRequest`, which holds no secret. When it is delivered, `deliver()` drops a request older than its lifetime.
+4. `IdentityStore.display(id)` gives the recipient's `email` and `name`. No `email`: nothing is issued or sent.
+5. `SecretStore.issue(id, purpose, ttlSeconds)` returns the raw secret. Without a `SecretStore` this step throws `InvalidOperation`.
+6. `PasswordMailer.send(mail)` runs at once with a `PasswordMail`.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `identity` | `IdentityRef` | Whose secret it is. |
-| `purpose` | `'reset' \| 'invite'` | Which message. |
+| `purpose` | `'reset' \| 'invite' \| 'verify' \| 'code'` | Which message. |
 | `to` | `{ email?: string; name?: string }` | From `IdentityStore.display()`. |
-| `secret` | `string` | The raw single-use secret. |
+| `secret` | `string` | The raw single-use secret. For purpose `code`, the code itself. |
+| `code` | `string`, optional | The 6-digit code of purpose `code` ([Email codes](15-email-codes.md)). That mail has no link: `url` is `''`. |
 | `url` | `string` | `authn.local.reset.url`, the page that redeems the secret, for both purposes. May be `''`. |
 | `ttlSeconds` | `number` | `authn.local.reset.ttlSeconds` or `authn.local.invite.ttlSeconds`. |
+| `lang` | `string`, optional | The language of the request, when it named one. |
 
-What happens to an error from `send()` depends on the flow:
+What happens to an error from `send()` depends on the delivery, never on the flow, which has already answered:
 
-| Flow | A `send()` error |
+| Delivery | A `send()` error |
 | --- | --- |
-| `requestReset()` | Logged by error name in the deferred work; the caller already has `accepted`. |
-| `invite()` | Thrown to the caller. |
-| `expire()` | Logged by error name; the expiry holds. |
+| inline | Logged by error name. |
+| queue | Fails the `AuthnMailJob`; the queue retries it, and each retry issues a fresh secret. |
 
 ## Configuration
 
@@ -98,20 +100,20 @@ export function useSmsMailer(sms: SmsGateway, staff: StaffDirectory): void {
 ## Important behaviour
 
 - **No mailer, no secret.** Without a registered `PasswordMailer`, reset and invite issue nothing and send nothing; the flows still answer as usual.
-- **The secret is issued right before `send()`** and exists nowhere else: `LocalPasswordService` never returns it, and its events never hold it.
+- **The secret is issued right before `send()`** and exists nowhere else: `LocalPasswordService` never returns it, and neither its events nor a queued `AuthnMailJob` hold it.
 - **`url` is the reset URL for invites too.** Build the invite link from it, or ignore it and use your own page per `purpose`.
 - **The mailer is optional.** An app without one boots; only the mails are skipped, each with a logged warning. Register it before `PasswordService` is first resolved: the service takes it when it is built.
 
 ## Best practices
 
-- Keep `send()` synchronous with the provider call. A queue that retries later would have to store the secret.
+- Keep `send()` synchronous with the provider call. Queue the request (`authn.local.mail.delivery: 'queue'`), never the mail: a queued mail would have to store the secret.
 - Use `mail.purpose` to pick the template; one mailer serves both.
 - Test your mailer with a fake transport and assert the secret never shows up in logged output.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: the queue persists the job, secret included, and retries may send stale codes.
+// Don't: the queue persists the job, secret included, and retries may send stale codes. AuthnMailJob queues the request instead.
 public async send(mail: PasswordMail): Promise<void> {
   await queue.emit(new SendResetMailJob(mail.to.email, mail.secret));
 }

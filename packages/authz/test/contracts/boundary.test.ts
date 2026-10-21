@@ -10,7 +10,7 @@ const expect = chai.expect;
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONTRACTS_DIR = join(PKG_ROOT, 'src', 'contracts');
 const CONDITIONS_CONTRACTS = join(PKG_ROOT, 'src', 'conditions', 'contracts.ts');
-const ALLOWED_PACKAGES = ['@spinajs/authn/contracts', '@spinajs/di', '@spinajs/exceptions', '@spinajs/util'];
+const ALLOWED_PACKAGES = ['@spinajs/di', '@spinajs/exceptions', '@spinajs/principal', '@spinajs/util'];
 
 function listTs(dir: string): string[] {
   const out: string[] = [];
@@ -54,9 +54,15 @@ describe('authz contract files boundary', () => {
     expect(bad).to.deep.eq([]);
   });
 
-  it('never imports the @spinajs/authn root', () => {
-    const roots = files().flatMap((f) => specifiersOf(f).filter((s) => s === '@spinajs/authn'));
-    expect(roots).to.deep.eq([]);
+  it('never imports @spinajs/authn or one of its subpaths', () => {
+    const authn = files().flatMap((f) => specifiersOf(f).filter((s) => s === '@spinajs/authn' || s.startsWith('@spinajs/authn/')));
+    expect(authn).to.deep.eq([]);
+  });
+
+  it('installs without @spinajs/authn: the principal contracts come from @spinajs/principal', () => {
+    const pkg = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')) as Record<string, Record<string, string> | undefined>;
+    for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) expect(pkg[field] ?? {}, field).to.not.have.property('@spinajs/authn');
+    expect(pkg.dependencies).to.have.property('@spinajs/principal');
   });
 
   it('declares no DI registration, lifetime decorator or container call', () => {

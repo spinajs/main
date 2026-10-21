@@ -27,7 +27,7 @@ The server side:
    - an issuer rule: `iss` must equal `assertionIssuer(key.owner)`;
    - `audience`, `skewSeconds` and `maxLifetimeSeconds` from `authn.keys.assertion`.
 5. On `unknown_key` the strategy runs one dummy verification (`unknownKeyWork`) and returns `invalid_credentials`, `revoked` or `expired`. Every other code returns `invalid_credentials`.
-6. `KeyNonceStore.claim(nonceKey('jti', kid, jti), exp + skewSeconds, ctx.now)` accepts the `jti` once. A replay returns `invalid_credentials`.
+6. `NonceStore.claim(nonceKey('jti', kid, jti), exp + skewSeconds, ctx.now)` accepts the `jti` once. A replay returns `invalid_credentials`.
 7. The protected `success()` of `KeyStrategy` calls `KeyRegistry.touch(kid, ctx.now)` when the registry implements it, and returns the key owner as the identity, method `jws`, and the key's `scope` as the ceiling. A failed stamp is logged and never fails the login.
 
 ```mermaid
@@ -38,7 +38,7 @@ sequenceDiagram
   participant J as JwsAssertionStrategy
   participant V as StrictJwsVerifier
   participant R as KeyRegistry
-  participant N as KeyNonceStore
+  participant N as NonceStore
   C->>X: Authorization: Bearer <jws>
   X->>A: { kind: 'jws-assertion', jws }
   A->>A: throttle peek on key:<kid>
@@ -76,9 +76,9 @@ authn: {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Assertion strategy | `AuthenticationStrategy`, picked by `service: 'JwsAssertionStrategy'` | `JwsAssertionStrategy` (`name: 'keys-jws'`, `kinds: ['jws-assertion']`, `interactive: false`); extends `KeyStrategy`, `@Autoinject`s `KeyRegistry`, `JwsVerifier` and `KeyNonceStore`, or takes them from `JwsAssertionStrategyDeps` | none | Subclass it; see [Custom key strategies](09-custom-key-strategies.md) |
+| Assertion strategy | `AuthenticationStrategy`, picked by `service: 'JwsAssertionStrategy'` | `JwsAssertionStrategy` (`name: 'keys-jws'`, `kinds: ['jws-assertion']`, `interactive: false`); extends `KeyStrategy`, `@Autoinject`s `KeyRegistry`, `JwsVerifier` and `NonceStore`, or takes them from `JwsAssertionStrategyDeps` | none | Subclass it; see [Custom key strategies](09-custom-key-strategies.md) |
 | JWS verifier | `JwsVerifier` | `StrictJwsVerifier` | none | See [JWS and key material](08-jws-and-key-material.md#services-and-extension-points) |
-| `jti` store | `KeyNonceStore` | `DbKeyNonceStore` | `MemoryKeyNonceStore` | See [Replay protection](07-replay-protection.md) |
+| `jti` store | `NonceStore` | `DbNonceStore` (`@spinajs/authn-orm`) | `MemoryNonceStore` | See [Replay protection](07-replay-protection.md) |
 
 ## Important behaviour
 

@@ -12,7 +12,8 @@ Every authentication package reads the `authn.*` root. `@spinajs/authn` owns `AU
    1. logs a warning when no app env was set (see [App env](#app-env));
    2. runs `checkAuthnSecrets` and fails the boot on its errors;
    3. calls the throttle's `checkConfiguration` (a throw fails the boot);
-   4. warns when the throttle has no `peek` and a per-request strategy is listed.
+   4. calls the session issuer's `checkConfiguration`, which asks the session store: `MemorySessionStore` fails the boot outside development and test unless `authn.session.allowMemoryStore` is `true`;
+   5. warns when the throttle has no `peek` and a per-request strategy is listed.
 6. `checkAuthnConfig(container)` (from `@spinajs/authn/boot`) returns `AuthnConfigFinding[]` (`topic`, `level`, `message`). It validates against the authn schema and every `authn.*` schema registered in the container lineage. `@spinajs/authn-http` serves it as the CLI command `authn:check-config`.
 
 ## Configuration
@@ -38,7 +39,8 @@ Keys of the other packages. Each is validated by the schema of the package in th
 | Key | Type | Default | Allowed values | Read by |
 | --- | --- | --- | --- | --- |
 | `authn.local.hasher.service` | `string` | unset | | [`authn-local`](../authn-local/README.md) |
-| `authn.local.hasher.maxConcurrent` | `integer` | `8` | ≥ 1 | `authn-local` |
+| `authn.local.hasher.maxConcurrent` | `integer` | `max(1, UV_THREADPOOL_SIZE - 1)` | ≥ 1 | `authn-local` |
+| `authn.local.hasher.maxQueue` | `integer` | `64` | ≥ 0 | `authn-local` |
 | `authn.local.pepper.secret` | `string \| null` | `null` | non-empty | `authn-local` |
 | `authn.local.pepper.version` | `integer` | `1` | 1 to 999999999 | `authn-local` |
 | `authn.local.pepper.previous` | `{ secret, version }[]` | unset | Versions unique and unlike `version` | `authn-local` |
@@ -54,9 +56,11 @@ Keys of the other packages. Each is validated by the schema of the package in th
 | `authn.session.service` | `string` | unset | | [`authn-session`](../authn-session/README.md) |
 | `authn.session.expiration.service`, `.ttl`, `.maxLifetime` | `string`, `integer`, `integer` | unset, `30`, `480` | minutes, ≥ 1 | `authn-session`; `maxLifetime` also bounds [impersonation](11-impersonation-and-active-role.md) |
 | `authn.session.pendingTtlSeconds` | `integer` | `300` | ≥ 1 | `authn-session` |
+| `authn.session.touchThresholdSeconds` | `integer` | `60` | ≥ 0; `0` writes on every restore | `authn-session` |
 | `authn.session.cookie.name` | `string` | `'ssid'` | | `authn-session` |
 | `authn.session.cookie.hostPrefix`, `.secure` | `boolean \| 'auto'` | `'auto'` | `true`, `false`, `'auto'`, `'true'`, `'false'` | `authn-session` |
 | `authn.session.cookie.sameSite` | `string \| boolean` | `'strict'` | `strict`, `lax`, `none` (any case), `true`, `false` | `authn-session` |
+| `authn.session.allowMemoryStore` | `boolean` | `false` | | `authn-session`; lets `MemorySessionStore` boot outside development and test |
 | `authn.session.hashIds` | `boolean` | `true` | `true` only | `authn-session` |
 | `authn.mfa.totp.*` | object | issuer `SpinaJS`, `SHA1`, 6 digits, 30 s, window 1, 10 codes | | [`authn-totp`](../authn-totp/README.md) |
 | `authn.token.prefix`, `.length` | `string`, `integer` | `'spt_'`, `32` | non-empty, ≥ 32 | [`authn-token`](../authn-token/README.md) |
@@ -68,7 +72,7 @@ Keys of the other packages. Each is validated by the schema of the package in th
 | `authn.keys.challenge.*`, `.assertion.*`, `.httpSignature.*` | object | see owner | | `authn-keys` |
 | `authn.http.publicOrigin` | `string \| null` | unset | `scheme://host[:port]` | [`authn-http`](../authn-http/README.md) |
 | `authn.http.trustProxy` | `string[] \| integer \| null` | unset | CIDRs or a hop count; `null` falls back to `http.trustProxy` | `authn-http`, `authn-oidc` |
-| `authn.http.csrf.enabled`, `.allowedOrigins` | `boolean`, `string[]` | `true`, `[]` | origins | `authn-http` |
+| `authn.http.csrf.enabled`, `.allowedOrigins`, `.unauthenticatedRoutes` | `boolean`, `string[]`, `string[]` | `true`, `[]`, the six credential-taking auth paths | origins, absolute paths | `authn-http` |
 | `authn.http.logout.clearSiteData` | `string[]` | `['cache', 'cookies', 'storage']` | `cache`, `cookies`, `storage`, `executionContexts`, `*` | `authn-http` |
 
 `authn.oidc.*` has its own schema in [`@spinajs/authn-oidc`](../authn-oidc/README.md).

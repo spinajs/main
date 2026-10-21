@@ -10,6 +10,17 @@ Every authentication fact (a login, a failed code, a throttle refusal, an impers
 4. A sink that throws or times out is logged on the `authn-audit` log by its class name and the event type, never with the error message or event values. `publish` never rejects because of a sink.
 5. `publish` resolves when every sink has settled or timed out. A login waits for the slowest sink, not for the sum.
 
+### Delivery modes
+
+| Call | Returns | Used for |
+| --- | --- | --- |
+| `publish(event)`, `publishIn(ctx, body)` | A promise that resolves when every sink has settled or timed out | Every failure event, and every event of a login, an MFA step, a session or an admin action |
+| `publishDetached(ctx, body)` | Nothing, at once | The success `token.use` and `key.use` events of `DefaultAuthnService` |
+
+A detached delivery runs the same way: every sink gets the same frozen copy, each bounded by `sinkTimeoutMs`, and a failure or timeout is logged the same way. Only the caller does not wait, so a slow sink never adds latency to a request authenticated by a token or a key. A failed token or key use is still awaited: the request that failed waits for its audit event.
+
+`settled()` resolves when every detached delivery started so far has settled or timed out. Tests await it before they read a sink; `AuthnAudit.dispose()` awaits it, so disposing the container on shutdown does not drop the events still in flight. An event still in flight when the process dies without that dispose is lost.
+
 The sinks are every `AuthnEventSink` registered in the container and its ancestors (`Array.chainOf`), resolved when `AuthnAudit` boots. With no sink, boot logs a warning.
 
 A sink failure after a state change (a stored token, a confirmed TOTP enrolment) never fails the request. `AuthnAudit.over(sinks, { sinkTimeoutMs, log })` gives the same delivery over explicit sinks, for services built with `new` in tests: the `sinks` deps of `authn-local` and `authn-totp`, the `audit` dep of `DefaultKeyRegistry`, the constructor argument of `DbTokenService`.
@@ -39,9 +50,10 @@ Event types (`AuthnEventType`):
 | MFA | `mfa.challenge`, `mfa.verify`, `mfa.enrol`, `mfa.disable` |
 | Session | `session.issue`, `session.rotate`, `session.revoke`, `session.expire` |
 | Password | `password.change`, `password.reset.request`, `password.reset`, `invite.redeem` |
-| Tokens and keys | `token.create`, `token.use`, `token.revoke`, `key.register`, `key.use`, `key.revoke` |
+| Tokens and keys | `token.create`, `token.use`, `token.revoke`, `token.rotate`, `token.update`, `key.register`, `key.use`, `key.revoke` |
 | Identity links | `identity.link`, `identity.unlink` |
 | Impersonation | `impersonation.start`, `impersonation.end`, `impersonation.expire` |
+| Email codes | `code.request` |
 
 The reasons the core writes are listed in [Authentication flow](01-authentication-flow.md#results-and-failure-reasons).
 
@@ -98,7 +110,8 @@ Import the module before the app boots: `AuthnAudit` lists the sinks when it res
 
 ## Important behaviour
 
-- Every sink gets every event. There is no sampling: each `token.use` and `key.use` success is published too.
+- Every sink gets every event. There is no sampling: each `token.use` and `key.use` success is published too, detached.
+- A sink may see a detached `token.use` success after the response to its request has gone out.
 - Sinks run concurrently. No sink may rely on another sink having run first.
 - All sinks get the same deep-frozen copy, so a sink cannot change what another sees or what the caller holds.
 - A sink failure never fails a login.
@@ -106,7 +119,8 @@ Import the module before the app boots: `AuthnAudit` lists the sinks when it res
 
 ## Best practices
 
-- Keep a sink fast or hand the event to a queue: the login waits up to `sinkTimeoutMs` for it.
+- Keep a sink fast or hand the event to a queue: the login waits up to `sinkTimeoutMs` for it. Token and key successes do not wait, but each one still holds a delivery open until the sink settles.
+- In a test that reads a sink after a token or key success, `await audit.settled()` first.
 - Set `authn.audit.hashKey.secret` in production, so hashed identifiers stay comparable across restarts and instances.
 - Read `reason` only in sinks. Never send it to the client.
 

@@ -39,7 +39,7 @@ Each entry is a column name, or `{ column, typeColumn? }`.
 
 ## Important behaviour
 
-- A relation grant is decided only against the loaded row: a check on a bare `{ type, id }` without the row is conditional (`allowed` with a residual). Pass the row, use `subject: 'load'` on `@Access`, or `assert(me, perm, row)`.
+- A relation grant is decided only against the loaded row: a check on a bare `{ type, id }` without the row is conditional (`allowed` with a residual). Pass the row, give `@Access` a resource extractor (it loads the row of a conditional allow), or `assert(me, perm, row)`.
 - Without `typeColumn`, the column holds `user` ids and matches `user` principals only.
 - With `typeColumn`, the principal's type must equal that column and the id must equal the main column.
 - A grant whose relation has only a custom, non-listable `RelationResolver` still works for single

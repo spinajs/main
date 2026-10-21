@@ -14,8 +14,8 @@ const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SRC_DIR = join(PKG_ROOT, 'src', 'contracts');
 const MJS_DIR = join(PKG_ROOT, 'lib', 'mjs', 'contracts');
 const CJS_DIR = join(PKG_ROOT, 'lib', 'cjs', 'contracts');
-const ALLOWED_PACKAGES = ['@spinajs/di', '@spinajs/util'];
-const RUNTIME_EXPORTS = ['SYSTEM', 'UNATTENDED', 'principalKey', 'ceilingHash', 'AuthenticationStrategy', 'AuthnService', 'PrincipalFactory', 'IdentityStore', 'PasswordCredentialStore', 'IdentityLinkStore', 'SessionIssuer', 'MfaStep', 'MfaPolicy', 'SecretStore', 'AuthnThrottle', 'AuthnEventSink', 'ImpersonationGuard', 'PasswordService', 'TokenService', 'KeyRegistry', 'JwsVerifier', 'JwsSigner', 'CredentialExtractor', 'AuthnResponseExtension', 'RoleSource', 'SessionStartHook', 'ExternalLoginHook', 'CredentialAdminGuard', 'Session', 'SessionKeys', 'sessionKey', 'resolveSession', 'sameRef', 'identityThrottleKeys', 'backoffDelayMs', 'CLI_ACTOR', 'cliContext', 'AUTHN_FAILURE_BODY', 'PASSWORD_HARD_CAP', 'NonceStore'];
+const ALLOWED_PACKAGES = ['@spinajs/di', '@spinajs/principal', '@spinajs/util'];
+const RUNTIME_EXPORTS = ['SYSTEM', 'UNATTENDED', 'principalKey', 'ceilingHash', 'AuthenticationStrategy', 'AuthnService', 'PrincipalFactory', 'IdentityStore', 'PasswordCredentialStore', 'IdentityLinkStore', 'SessionIssuer', 'MfaStep', 'MfaPolicy', 'SecretStore', 'AuthnThrottle', 'AuthnEventSink', 'ImpersonationGuard', 'PasswordService', 'TokenService', 'KeyRegistry', 'JwsVerifier', 'JwsSigner', 'CredentialExtractor', 'AuthnResponseExtension', 'RoleSource', 'SessionStartHook', 'ExternalLoginHook', 'CredentialAdminGuard', 'Session', 'SessionKeys', 'sessionKey', 'resolveSession', 'sameRef', 'identityThrottleKeys', 'backoffDelayMs', 'CLI_ACTOR', 'cliContext', 'AUTHN_FAILURE_BODY', 'PASSWORD_HARD_CAP', 'NonceStore', 'PasskeyService'];
 
 // Plain JS so the same code runs in this process and in the child processes.
 const EXERCISE = `(c) => ({
@@ -130,6 +130,7 @@ describe('@spinajs/authn/contracts boundary', function () {
        const di = require('@spinajs/di');
        const before = snapshot(di);
        require('@spinajs/util');
+       require('@spinajs/principal');
        const depFiles = Object.keys(require.cache).filter((k) => !initial.has(k));
        const c = require('@spinajs/authn/contracts');
        const after = snapshot(di);
@@ -162,32 +163,32 @@ describe('@spinajs/authn/contracts boundary', function () {
   });
 
   describe('imports', () => {
-    it('src/contracts imports nothing outside src/contracts except @spinajs/di and @spinajs/util', () => {
+    it('src/contracts imports nothing outside src/contracts except @spinajs/di, @spinajs/principal and @spinajs/util', () => {
       const { found, bad } = violations(SRC_DIR, /\.ts$/);
       expect(found, 'scanner found no import in src/contracts').to.include('./principal.js');
       expect(bad).to.deep.eq([]);
     });
 
-    it('lib/mjs/contracts imports nothing outside itself except @spinajs/di and @spinajs/util', () => {
+    it('lib/mjs/contracts imports nothing outside itself except @spinajs/di, @spinajs/principal and @spinajs/util', () => {
       const { found, bad } = violations(MJS_DIR, /\.js$/);
       expect(found, 'scanner found no import in lib/mjs/contracts').to.include('./principal.js');
       expect(bad).to.deep.eq([]);
     });
 
-    it('lib/cjs/contracts requires nothing outside itself except @spinajs/di and @spinajs/util', () => {
+    it('lib/cjs/contracts requires nothing outside itself except @spinajs/di, @spinajs/principal and @spinajs/util', () => {
       const { found, bad } = violations(CJS_DIR, /\.js$/);
       expect(found, 'scanner found no require in lib/cjs/contracts').to.include('./principal.js');
       expect(bad).to.deep.eq([]);
     });
 
-    it('CJS loads only lib/cjs/contracts files and what @spinajs/di and @spinajs/util themselves load', () => {
+    it('CJS loads only lib/cjs/contracts files and what @spinajs/di, @spinajs/principal and @spinajs/util themselves load', () => {
       const depFiles = new Set(cjs.depFiles);
       expect(cjsAlone.loaded).to.include(join(CJS_DIR, 'index.js'));
       const outside = cjsAlone.loaded!.filter((f) => !isInside(CJS_DIR, f) && !depFiles.has(f));
       expect(outside).to.deep.eq([]);
     });
 
-    it('CJS adds only lib/cjs/contracts files once @spinajs/di and @spinajs/util are loaded', () => {
+    it('CJS adds only lib/cjs/contracts files once @spinajs/di, @spinajs/principal and @spinajs/util are loaded', () => {
       expect(cjs.contractFiles).to.not.be.empty;
       expect(cjs.contractFiles!.filter((f) => !isInside(CJS_DIR, f))).to.deep.eq([]);
     });

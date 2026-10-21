@@ -1,4 +1,4 @@
-import type { Policy } from '@spinajs/authz';
+import type { TestAbacPolicy as Policy } from '../model-shapes.js';
 
 import { agentPrincipal, servicePrincipal, userPrincipal } from '../principals.js';
 import { combine, fixture, ref } from './dsl.js';

@@ -1,5 +1,6 @@
 import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, AuthzEventSink, MemoryScopeAttributeStore, ScopeAttributeStore, WritableScopeAttributeStore, principalKey } from '@spinajs/authz';
-import type { Assignment, AuthzService, Permission, Principal, ResourceType } from '@spinajs/authz';
+import type { AuthzService, Permission, Principal, ResourceType } from '@spinajs/authz';
+import type { Assignment } from '../../src/contracts.js';
 import { evaluateFilter, hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, Facet, HarnessSession, HostSetup, WorldLink } from '@spinajs/authz-testing';
 import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';

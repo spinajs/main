@@ -27,22 +27,25 @@ export interface ConfigOverrides {
   readonly authn?: DeepPartial<{
     strategies: readonly { name: string; service: string }[];
     local: {
-      hasher: { maxConcurrent: number };
+      hasher: { maxConcurrent: number; maxQueue: number };
       pepper: { secret: string | null; version: number };
       policy: { minLength: number; maxLength: number; rule: object | null; blocklist: readonly string[] | null };
       reset: { ttlSeconds: number; revokeTokens: boolean };
       invite: { ttlSeconds: number };
+      verify: { ttlSeconds: number };
+      emailCode: { ttlSeconds: number };
     };
-    session: { expiration: { ttl: number; maxLifetime: number }; pendingTtlSeconds: number };
-    mfa: { policy: { force: boolean }; totp: { recoveryCodes: number } };
-    throttle: Partial<ThrottleParams>;
+    login: { requireVerifiedAddress: boolean };
+    session: { expiration: { ttl: number; maxLifetime: number }; pendingTtlSeconds: number; allowMemoryStore: boolean };
+    mfa: { policy: { force: boolean; methods: readonly string[] }; totp: { recoveryCodes: number } };
+    throttle: Partial<ThrottleParams> & { ipv6Prefix: number };
     freshAuth: { maxAgeSeconds: number };
     token: { maxTtlDays: number; agentMaxTtlMinutes: number };
     jwt: { issuers: readonly JwtIssuerOverride[] };
     keys: { assertion: { maxLifetimeSeconds: number; skewSeconds: number } };
     linking: { jit: boolean; byVerifiedEmail: boolean };
     impersonation: { requirePassword: boolean; requireMfa: boolean; maxMinutes: number; clockSkewSeconds: number };
-    http: { trustProxy: number | readonly string[] | null; csrf: { enabled: boolean; allowedOrigins: readonly string[] } };
+    http: { trustProxy: number | readonly string[] | null; csrf: { enabled: boolean; allowedOrigins: readonly string[]; unauthenticatedRoutes: readonly string[] } };
   }>;
   readonly http?: { readonly cors?: { readonly origins?: readonly string[] | null } };
 }

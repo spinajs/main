@@ -6,6 +6,7 @@ import { Autoinject } from '@spinajs/di';
 import { AuthzDomains } from '@spinajs/authz';
 import { _check_arg, _is_array, _max_length } from '@spinajs/util';
 
+import { resolveAuthzDomain } from '../access/domain-resolver.js';
 import { HasPrincipal, IsAuthenticated } from '../access/principal-policies.js';
 import { MAX_ACCESS_CHECKS, answerClientChecks } from '../client-access/checks.js';
 import { AccessEventStream, SseAccessPushTransport } from '../client-access/sse.js';
@@ -32,7 +33,7 @@ export class AccessController extends BaseController {
   @Get('/')
   @Policy(HasPrincipal)
   public async summary(@Req() req: Request) {
-    const authz = await this.Domains.service(this.AccessDomain);
+    const authz = await this.Domains.service(await resolveAuthzDomain(req, this.AccessDomain));
     return new Ok(await authz.summary(req.storage.Principal!));
   }
 
@@ -41,7 +42,7 @@ export class AccessController extends BaseController {
   @Policy(HasPrincipal)
   public async checks(@Req() req: Request, @Body() checks: unknown[]) {
     _check_arg(_is_array(), _max_length(MAX_ACCESS_CHECKS))(checks, 'checks');
-    const authz = await this.Domains.service(this.AccessDomain);
+    const authz = await this.Domains.service(await resolveAuthzDomain(req, this.AccessDomain));
     return new Ok(await answerClientChecks(authz, req.storage.Principal!, checks, { authz: this.Authz, domains: this.Domains, log: this.Log }));
   }
 

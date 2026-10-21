@@ -1,10 +1,13 @@
 import { AuthzAdminFailure, GLOBAL } from '@spinajs/authz';
-import type { AssignmentSubject, AuthzAdminOptions, AuthzAdminQuery, ResourceRef } from '@spinajs/authz';
+import type { AuthzAdminOptions, AuthzAdminQuery, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
 /** A parsed query string (express: string, string[] or a nested object per key). */
 export type QueryInput = Readonly<Record<string, unknown>>;
 
-type Page = { limit?: number; offset?: number };
+type Page = { limit?: number; offset?: number; after?: string };
+
+/** authz-rbac's AssignmentSubject; the list queries belong to models this package does not import. */
+type AssignmentSubject = PrincipalRef | { readonly set: { readonly role: string; readonly scope: ResourceRef } };
 
 function invalid(field: string, message: string): never {
   throw new AuthzAdminFailure('invalid_query', message, field);
@@ -59,12 +62,21 @@ function count(q: QueryInput, field: string): number | undefined {
   return Number(v);
 }
 
-/** `limit` and `offset` as AuthzAdmin's page, only the ones given; AuthzAdmin defaults the rest. */
+/** `after`, the `next` of the previous page; it replaces `offset`. */
+function cursor(q: QueryInput, offset: number | undefined): string | undefined {
+  const after = text(q, 'after');
+  if (after === '') invalid('after', 'after must not be empty');
+  if (after !== undefined && offset !== undefined) invalid('after', 'after replaces offset: give one of them');
+  return after;
+}
+
+/** `limit`, `offset` and `after` as AuthzAdmin's page, only the ones given; AuthzAdmin defaults the rest. */
 function page(q: QueryInput): { page?: Page } {
   const limit = count(q, 'limit');
   const offset = count(q, 'offset');
-  if (limit === undefined && offset === undefined) return {};
-  return { page: { ...(limit === undefined ? {} : { limit }), ...(offset === undefined ? {} : { offset }) } };
+  const after = cursor(q, offset);
+  if (limit === undefined && offset === undefined && after === undefined) return {};
+  return { page: { ...(limit === undefined ? {} : { limit }), ...(offset === undefined ? {} : { offset }), ...(after === undefined ? {} : { after }) } };
 }
 
 function scope(q: QueryInput): { scope?: ResourceRef } {
@@ -72,7 +84,7 @@ function scope(q: QueryInput): { scope?: ResourceRef } {
   return v === undefined ? {} : { scope: parseResourceRef(v, 'scope') };
 }
 
-/** GET /authz/assignments: `scope`, `subject`, `role`, `includeExpired`, `limit`, `offset`. */
+/** GET /authz/assignments: `scope`, `subject`, `role`, `includeExpired`, `limit`, `offset` or `after`. */
 export function readAssignmentsQuery(q: QueryInput): AuthzAdminQuery {
   const subject = text(q, 'subject');
   const role = text(q, 'role');
@@ -84,10 +96,10 @@ export function readAssignmentsQuery(q: QueryInput): AuthzAdminQuery {
     ...(role === undefined ? {} : { role }),
     ...(includeExpired === undefined ? {} : { includeExpired }),
     ...page(q),
-  } as AuthzAdminQuery;
+  } as unknown as AuthzAdminQuery;
 }
 
-/** GET /authz/holders: `scope` and `permission` (both required), `expandSets`, `limit`, `offset`. */
+/** GET /authz/holders: `scope` and `permission` (both required), `expandSets`, `limit`, `offset` or `after`. */
 export function readHoldersQuery(q: QueryInput): AuthzAdminQuery {
   const scope = text(q, 'scope');
   const permission = text(q, 'permission');
@@ -100,12 +112,13 @@ export function readHoldersQuery(q: QueryInput): AuthzAdminQuery {
     permission,
     ...(expandSets === undefined ? {} : { expandSets }),
     ...page(q),
-  } as AuthzAdminQuery;
+  } as unknown as AuthzAdminQuery;
 }
 
-/** GET /authz/links, /authz/rules and /authz/policies: `scope`, `limit`, `offset`. */
+/** GET /authz/links and /authz/rules: `scope`, `limit`, `offset` or `after`; GET /authz/policies has no `after`. */
 export function readPageQuery(kind: 'links' | 'rules' | 'policies', q: QueryInput): AuthzAdminQuery {
-  return { kind, ...scope(q), ...page(q) } as AuthzAdminQuery;
+  if (kind === 'policies' && text(q, 'after') !== undefined) invalid('after', 'policies are paged by offset: after is not supported');
+  return { kind, ...scope(q), ...page(q) } as unknown as AuthzAdminQuery;
 }
 
 /** The AuthzAdminOptions of a single-command route: `reason`, `idempotencyKey`, `dryRun`. */

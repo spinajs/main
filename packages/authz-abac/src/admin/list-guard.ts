@@ -1,5 +1,6 @@
 import { AuthzAdminFailure, ListSupportGuard } from '@spinajs/authz';
-import type { AdminContext, AuthzCommand, Policy } from '@spinajs/authz';
+import type { AdminContext, AuthzCommand } from '@spinajs/authz';
+import type { Policy } from '../contracts.js';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import { abacModels } from './common.js';

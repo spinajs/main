@@ -4,7 +4,8 @@ import { fixtureDsl, linkPrincipal, userPrincipal } from '@spinajs/authz-testing
 import type { HarnessSession, World } from '@spinajs/authz-testing';
 
 import { AuthzAdminFailure } from '@spinajs/authz';
-import type { AuthzAdmin, AuthzChange, AuthzCommand, AuthzService, LinkDef, Principal, ResourceRef, RuleDef } from '@spinajs/authz';
+import type { AuthzAdmin, AuthzChange, AuthzCommand, AuthzService, Principal, ResourceRef } from '@spinajs/authz';
+import type { LinkDef, RuleDef } from '../../src/contracts.js';
 
 import type { Assignment, AssignmentSubject } from '../../src/index.js';
 import { adminHarness } from './admin-harness.js';

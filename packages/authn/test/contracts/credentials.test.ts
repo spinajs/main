@@ -121,7 +121,7 @@ describe('credential, context and result contracts', () => {
     });
 
     it('ExternalSubject has the design members', () => {
-      same<ExternalSubject, { readonly provider: string; readonly subject: string; readonly email?: string; readonly emailVerified?: boolean; readonly claims?: Readonly<Record<string, unknown>> }>(true);
+      same<ExternalSubject, { readonly provider: string; readonly subject: string; readonly email?: string; readonly emailVerified?: boolean; readonly claims?: Readonly<Record<string, unknown>>; readonly sid?: string }>(true);
       const min: ExternalSubject = { provider: 'google', subject: 's' };
       // @ts-expect-error subject is required
       const noSubject: ExternalSubject = { provider: 'google' };
@@ -133,7 +133,7 @@ describe('credential, context and result contracts', () => {
 
   describe('AuthnFailure', () => {
     it('is exactly the design union', () => {
-      same<AuthnFailure, 'invalid_credentials' | 'throttled' | 'unsupported_credentials' | 'expired' | 'revoked' | 'not_linked'>(true);
+      same<AuthnFailure, 'invalid_credentials' | 'throttled' | 'unsupported_credentials' | 'expired' | 'revoked' | 'not_linked' | 'unverified_address'>(true);
       // @ts-expect-error not a failure reason
       const locked: AuthnFailure = 'locked';
       expect(locked).to.eq('locked');
@@ -193,7 +193,7 @@ describe('credential, context and result contracts', () => {
 
   describe('StrategyOutcome', () => {
     it('is exactly the design union', () => {
-      same<StrategyOutcome, { readonly ok: true; readonly identity?: IdentityRef; readonly external?: ExternalSubject; readonly method: string; readonly ceiling?: Ceiling; readonly delegation?: Delegation; readonly attributes?: Attributes } | { readonly ok: false; readonly reason: AuthnFailure }>(true);
+      same<StrategyOutcome, { readonly ok: true; readonly identity?: IdentityRef; readonly external?: ExternalSubject; readonly method: string; readonly ceiling?: Ceiling; readonly delegation?: Delegation; readonly attributes?: Attributes; readonly assurance?: 'aal1' | 'aal2' } | { readonly ok: false; readonly reason: AuthnFailure; readonly retryAfterSeconds?: number }>(true);
     });
 
     it('attributes are strategy-owned keys that lose to derived ones (review I3, R2)', () => {

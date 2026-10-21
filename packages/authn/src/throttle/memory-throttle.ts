@@ -8,7 +8,8 @@ import { MemoryThrottleStore, deepFreeze } from '@spinajs/util';
 import type { KeyedBackoffOptions, ThrottleStore } from '@spinajs/util';
 
 import { AuthnThrottle, THROTTLE_FLOWS, backoffDelayMs } from '../contracts/throttle.js';
-import type { BackoffParams, ThrottleFlow, ThrottleKey, ThrottleParams } from '../contracts/throttle.js';
+import type { AuthnContext } from '../contracts/credentials.js';
+import type { BackoffParams, PeekVerdict, ThrottleFlow, ThrottleKey, ThrottleParams } from '../contracts/throttle.js';
 import { checkThrottleMaxRows, checkThrottleParams } from '../service/boot/env.js';
 import { FlowLimiter } from './flow-limiter.js';
 import { DEFAULT_MEMORY_THROTTLE, DEFAULT_THROTTLE_MAX_ROWS } from './params.js';
@@ -78,7 +79,7 @@ export class MemoryAuthnThrottle extends StoreAuthnThrottle {
   private get configured(): Loaded {
     if (!this.loaded) {
       if (!this.Throttle) throw new InvalidOperation('authn.throttle is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
-      const { service: _service, maxRows, memory, ...params } = structuredClone(this.Throttle);
+      const { service: _service, maxRows, memory, ipv6Prefix: _ipv6Prefix, ...params } = structuredClone(this.Throttle);
       checkThrottleParams(params);
       if (maxRows !== undefined) checkThrottleMaxRows(maxRows);
       this.loaded = { params: deepFreeze(params), maxRows, memory: deepFreeze({ ...DEFAULT_MEMORY_THROTTLE, ...memory }) };
@@ -88,6 +89,17 @@ export class MemoryAuthnThrottle extends StoreAuthnThrottle {
 
   protected async store(): Promise<ThrottleStore> {
     return this.tables;
+  }
+
+  /** Clean when no live row holds a key that a success lowers by or clears; reading rows here costs nothing. */
+  public override async peek(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<PeekVerdict> {
+    const verdict = await super.peek(keys, flow, ctx);
+    if (!verdict.allowed) return verdict;
+    const onSuccess = this.rules(this.params)[flow].onSuccess;
+    const touched = new Set([...(onSuccess?.clear ?? []), ...(onSuccess?.lower ?? []).map((l) => l.by)]);
+    const limiter = this.tables.limiter(flow);
+    const nowMs = ctx.now.getTime();
+    return { allowed: true, clean: !keys.some((k) => touched.has(k.kind) && limiter.row(this.keyId(flow, k), nowMs) !== undefined) };
   }
 
   /**

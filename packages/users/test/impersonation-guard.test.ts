@@ -7,7 +7,8 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { DefaultQueueService } from '@spinajs/queue';
 import { AuthzConfigError, AuthzDomains, GLOBAL, SYSTEM } from '@spinajs/authz';
-import type { AssignmentSubject, AuthzCommand, Principal, ResourceRef } from '@spinajs/authz';
+import type { AuthzCommand, Principal, ResourceRef } from '@spinajs/authz';
+import type { AssignmentSubject } from '@spinajs/authz-rbac';
 import { ImpersonationGuard, PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnFacts, Ceiling, IdentityRef } from '@spinajs/authn/contracts';
 

@@ -75,6 +75,7 @@
     "@spinajs/intl": "3.0.3",
     "@spinajs/log": "3.0.3",
     "@spinajs/queue": "3.0.3",
+    "@spinajs/templates-mjml": "3.0.3",
     "@spinajs/util": "3.0.3",
     "luxon": "^3.6.1"
   },

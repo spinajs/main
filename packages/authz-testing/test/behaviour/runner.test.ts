@@ -128,7 +128,7 @@ describe('runBehaviour', () => {
   });
 
   it('throws at registration for unknown ids and parts, before calling the factory', () => {
-    for (const bad of ['B47', 'B1', 'X01', 'B01.nope', 'B01.', 'b01']) {
+    for (const bad of ['B99', 'B1', 'X01', 'B01.nope', 'B01.', 'b01']) {
       let called = false;
       assert.throws(() => runBehaviour([bad as never], () => ((called = true), stub()), { mocha: recorder().mocha, fixtures: FIXTURES }), /unknown behaviour id|has no part/, bad);
       assert.equal(called, false, bad);

@@ -244,14 +244,14 @@ result goes to `req.storage.Principal`, then `authz.preload(principal)` runs.
 
 [`@Access(permission | permissions[], options)`](../../packages/authz-http/src/access/decorators.ts#L38)
 adds an `AccessPolicy`. Options: `resource` (`fromParam`, `fromBody`, `fromQuery`, `fromModel`),
-`subject: 'load'`, `fields: 'filter'`, `domain`, `also`.
+`conditional: 'load' | 'action'`, `fields: 'filter'`, `domain`, `also`.
 
 [`AccessPolicy.execute`](../../packages/authz-http/src/access/policy.ts#L67-L126):
 
 1. 401 when there is no principal, or it is unauthenticated and the route lacks `@AllowAnonymous`.
 2. Extracts the resource. The default is the type-level ref `{type: <permission resource>}`.
-3. Calls `authz.check` per permission; one allowing permission is enough. With `subject: 'load'`,
-   a residual is settled against the row the adapter loads.
+3. Calls `authz.check` per permission; one allowing permission is enough. A residual on a resource
+   with an id is settled against the row the adapter loads, unless the rule says `conditional: 'action'`.
 4. A denial becomes 403 `{error, permission, resource, reason}`. An allow is stored in
    `req.storage.AuthzDecision`.
 

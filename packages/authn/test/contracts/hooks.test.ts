@@ -7,7 +7,7 @@ import type { ExternalSubject, IdentityRef } from '../../src/contracts/credentia
 import type { Ceiling, Principal } from '../../src/contracts/principal.js';
 import type { SessionHandle, SessionIssuer } from '../../src/contracts/session.js';
 import * as index from '../../src/contracts/index.js';
-import { classMembers, declarationDocs, docOf, memberDocs, same, shapeOf } from './source-shape.js';
+import { classMembers, declarationDocs, docOf, same, shapeOf } from './source-shape.js';
 
 const expect = chai.expect;
 
@@ -133,12 +133,6 @@ describe('hand-off and hook contracts', () => {
     });
 
     it('docs carry the rules a reader needs', () => {
-      const storage = memberDocs('hooks.ts', 'IAuthnPrincipalStorage');
-      expect(Object.keys(storage)).to.deep.eq(['AuthnPrincipal']);
-      expect(storage.AuthnPrincipal).to.contain('null: no or pending credentials');
-      expect(storage.AuthnPrincipal).to.contain('AuthnPrincipalSource');
-      expect(declarationDocs('hooks.ts').IAuthnPrincipalStorage).to.contain('AuthnMiddleware');
-
       const c = classMembers('hooks.ts');
       expect(c.AuthnResponseExtension.doc).to.contain('Array.ofType');
       expect(c.AuthnResponseExtension.doc).to.contain('Access');

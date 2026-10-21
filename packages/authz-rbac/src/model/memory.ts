@@ -1,8 +1,8 @@
 import { resourceKey } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, ResourceRef } from '@spinajs/authz';
+import type { ResourceRef } from '@spinajs/authz';
 
 import { AssignmentStore, RoleStore } from '../contracts.js';
-import type { LadderDef, RoleDef } from '../contracts.js';
+import type { Assignment, AssignmentSubject, LadderDef, RoleDef } from '../contracts.js';
 import { expiryTime, isLive, subjectKey } from './assignments.js';
 
 /** Role definitions held in memory; `set` replaces them and changes the version. */

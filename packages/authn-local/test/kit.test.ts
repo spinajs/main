@@ -3,9 +3,10 @@ import { expect } from 'chai';
 import { runAuthnBehaviour, runStrategyConformance, timingDefaults, timingTimeoutMs } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Facet, HarnessContext } from '@spinajs/authn-testing';
 
-import { localHarness, localStrategySubject, registerHarnessTypes, unregisterHarnessTypes } from './kit-harness.js';
+import { emailCodeHarness, localHarness, localStrategySubject, registerHarnessTypes, unregisterHarnessTypes } from './kit-harness.js';
 
-const N3_FACETS: Facet[] = ['A02/local', 'A03/argon2', 'A04/local', 'A11/local', 'A13/local', 'A30/local'];
+const N3_FACETS: Facet[] = ['A02/local', 'A03/argon2', 'A04/local', 'A11/local', 'A13/local', 'A30/local', 'A32/local', 'A35/local'];
+const EMAIL_CODE_FACETS: Facet[] = ['A36/step', 'A36/local'];
 
 // Sized for a loaded host where one argon2 verify takes up to 500 ms; the kit's flat 600 s timed out there.
 const TIMING_TIMEOUT_MS = timingTimeoutMs(timingDefaults(), 500);
@@ -15,11 +16,18 @@ describe('authn-local kit acceptance', function () {
   before(registerHarnessTypes);
   after(unregisterHarnessTypes);
 
-  runAuthnBehaviour(['A02', 'A03', 'A04', 'A11', 'A13', 'A30'], localHarness, {
+  runAuthnBehaviour(['A02', 'A03', 'A04', 'A11', 'A13', 'A30', 'A32', 'A35'], localHarness, {
     claim: N3_FACETS,
     facets: N3_FACETS,
     timeoutMs: TIMING_TIMEOUT_MS,
     title: 'authn behaviour (authn-local)',
+  });
+
+  runAuthnBehaviour(['A36'], emailCodeHarness, {
+    claim: EMAIL_CODE_FACETS,
+    facets: EMAIL_CODE_FACETS,
+    timeoutMs: TIMING_TIMEOUT_MS,
+    title: 'authn behaviour (authn-local email code)',
   });
 
   runStrategyConformance(localStrategySubject, { title: 'LocalPasswordStrategy conformance', timeoutMs: TIMING_TIMEOUT_MS });

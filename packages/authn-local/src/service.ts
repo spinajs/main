@@ -6,15 +6,19 @@ import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService, identityThrottleKeys, sameRef } from '@spinajs/authn/contracts';
+import { AuthnThrottle, IdentityAddressVerifier, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService, identityThrottleKeys, sameRef } from '@spinajs/authn/contracts';
 import type {
+  AddressVerificationRequestResult,
+  AddressVerificationResult,
   AuthnContext,
   AuthnEventSink,
+  CodeRequestResult,
   IdentityRef,
   IdentityStatus,
   PasswordChangeResult,
   PasswordExpiry,
   PasswordPolicy,
+  PasswordPolicyContext,
   PasswordResetRequestResult,
   PasswordResetResult,
   PasswordSetResult,
@@ -27,8 +31,12 @@ import type {
 import type { AuditLog } from './audit.js';
 import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
 import { DeferredWork } from './deferred.js';
+import { EmailCodes } from './email-code/codes.js';
 import { EXPIRED_PASSWORD_MARKER, PasswordHasher } from './hasher.js';
 import { PasswordMailer } from './mailer.js';
+import { AuthnMailDispatcher } from './mail/contracts.js';
+import type { AuthnMailPurpose, AuthnMailRequest } from './mail/contracts.js';
+import { InlineAuthnMailDispatcher } from './mail/inline.js';
 import { isLoginLength, LocalPasswordPolicy } from './policy.js';
 import { normalizeLogin } from './strategy.js';
 
@@ -58,6 +66,16 @@ export interface LocalPasswordServiceDeps {
   readonly resetUrl?: string;
   /** `authn.local.invite.ttlSeconds`; default 900. */
   readonly inviteTtlSeconds?: number;
+  /** Missing: an `InlineAuthnMailDispatcher` over `deliver`. */
+  readonly dispatcher?: AuthnMailDispatcher;
+  /** Required by `redeemVerification`. */
+  readonly verifier?: IdentityAddressVerifier | null;
+  /** `authn.local.verify.ttlSeconds`; default 86400. */
+  readonly verifyTtlSeconds?: number;
+  /** `authn.local.verify.url`; default ''. */
+  readonly verifyUrl?: string;
+  /** `authn.local.emailCode.ttlSeconds`; default 600. */
+  readonly emailCodeTtlSeconds?: number;
 }
 
 /** D11, D12: exists, not deleted, not banned, and active or invite-pending. */
@@ -71,6 +89,39 @@ const throwaway = (): IdentityRef => ({ type: 'user', id: randomUUID() });
  * throttle every other caller that also omits it: HTTP callers must pass the trusted-proxy ip.
  */
 const resetIpKey = (ctx: AuthnContext): ThrottleKey => ({ kind: 'ip', value: ctx.ip ?? 'unknown' });
+
+/** Its own account key: a verify request must not use up the reset request of the same account. */
+const verifyKey = (id: IdentityRef): ThrottleKey => ({ kind: 'account', value: `verify:${id.type}:${id.id}` });
+
+/** Its own account key: a code request must not use up the reset or verify request of the same account. */
+const codeKey = (id: IdentityRef): ThrottleKey => ({ kind: 'account', value: `code:${id.type}:${id.id}` });
+
+/** A code goes to an active identity whose address the store does not report unverified: whoever owns the mailbox can use it. */
+const codeRefusal = (s: IdentityStatus): string | null => (!s.exists || s.deleted || s.banned || !s.active ? 'status' : s.addressVerified === false ? 'unverified_address' : null);
+
+/**
+ * POST /auth/verify takes the secret alone, and a SecretStore redeems per identity, so the mailed secret carries its
+ * identity: `base64url(JSON [type, id]).raw`. The identity part is no secret; the raw part is.
+ */
+function verifySecretOf(id: IdentityRef, raw: string): string {
+  return `${Buffer.from(JSON.stringify([id.type, id.id]), 'utf8').toString('base64url')}.${raw}`;
+}
+
+function parseVerifySecret(secret: string): { id: IdentityRef; raw: string } | null {
+  const parts = typeof secret === 'string' ? secret.split('.') : [];
+  if (parts.length !== 2 || parts[0] === '' || parts[1] === '') {
+    return null;
+  }
+  try {
+    const ref: unknown = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+    if (Array.isArray(ref) && ref.length === 2 && ref.every((v) => typeof v === 'string' && v !== '')) {
+      return { id: { type: ref[0] as string, id: ref[1] as string }, raw: parts[1] };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /** Local password flows (A04, A13, A30). With `deps` the container is not used at all. */
 @Injectable(PasswordService)
@@ -86,6 +137,15 @@ export class LocalPasswordService extends PasswordService {
 
   @Config('authn.local.invite.ttlSeconds')
   protected InviteTtlSeconds: number;
+
+  @Config('authn.local.verify.ttlSeconds')
+  protected VerifyTtlSeconds: number;
+
+  @Config('authn.local.verify.url')
+  protected VerifyUrl: string;
+
+  @Config('authn.local.emailCode.ttlSeconds')
+  protected EmailCodeTtlSeconds: number;
 
   @Logger('authn-local')
   protected Log: Log;
@@ -120,21 +180,30 @@ export class LocalPasswordService extends PasswordService {
   @Autoinject(TokenService, { optional: true })
   protected Tokens: TokenService | undefined;
 
+  @Autoinject(IdentityAddressVerifier, { optional: true })
+  protected Verifier: IdentityAddressVerifier | undefined;
+
+  /** `@spinajs/users` registers one per `authn.local.mail.delivery`; none: inline. */
+  @Autoinject(AuthnMailDispatcher, { optional: true })
+  protected Dispatcher: AuthnMailDispatcher | undefined;
+
   private _work?: DeferredWork;
+  private _dispatcher?: AuthnMailDispatcher;
   private _auditor?: AuthnAuditor;
 
   constructor(protected readonly Deps?: LocalPasswordServiceDeps) {
     super();
   }
 
-  /** Resolves once every deferred reset job scheduled so far has finished (tests, shutdown). */
-  public drain(): Promise<void> {
-    return this.work().drain();
+  /** Resolves once the deferred reset lookups and every mail dispatched so far are done (tests, shutdown). */
+  public async drain(): Promise<void> {
+    await this.work().drain();
+    await this.dispatcher().drain();
   }
 
   /** D9. Keeps every API and agent token (H32). */
   public async change(id: IdentityRef, oldPassword: string, newPassword: string, session: SessionHandle, ctx: AuthnContext): Promise<PasswordChangeResult> {
-    const violations = await this.policyComponent().check(newPassword);
+    const violations = await this.policyComponent().check(newPassword, await this.policyContext(id));
     if (violations.length > 0) {
       await this.audit(ctx, { type: 'password.change', outcome: 'failure', identity: id, reason: 'policy' });
       return { status: 'rejected', violations };
@@ -186,7 +255,7 @@ export class LocalPasswordService extends PasswordService {
 
   /** D14. Not a voluntary change: every session and, with reset.revokeTokens, every token goes. */
   public async set(id: IdentityRef, newPassword: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<PasswordSetResult> {
-    const violations = await this.policyComponent().check(newPassword);
+    const violations = await this.policyComponent().check(newPassword, await this.policyContext(id));
     if (violations.length > 0) {
       return { status: 'rejected', violations };
     }
@@ -199,8 +268,8 @@ export class LocalPasswordService extends PasswordService {
     return { status: 'set' };
   }
 
-  public check(password: string): Promise<readonly PasswordViolation[]> {
-    return this.policyComponent().check(password);
+  public check(password: string, ctx?: PasswordPolicyContext): Promise<readonly PasswordViolation[]> {
+    return this.policyComponent().check(password, ctx);
   }
 
   public policy(): PasswordPolicy {
@@ -231,17 +300,19 @@ export class LocalPasswordService extends PasswordService {
       return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
 
-    const violations = await this.policyComponent().check(newPassword);
-    if (violations.length > 0) {
-      return { status: 'rejected', violations };
-    }
-
     const identities = await this.identities();
     const secrets = await this.secrets();
     const id = await identities.findByLogin(login);
     const status = await identities.status(id ?? throwaway());
     const target = id && eligible(status) ? id : null;
     const pending = target !== null && status.invitePending === true;
+
+    // After the lookup, so the similarity rule sees the account's identifiers; before the redeems, so a violation does not
+    // use up the secret. A refused account shows the rule a throwaway ref, as an unknown login does.
+    const violations = await this.policyComponent().check(newPassword, await this.policyContext(target ?? throwaway(), login));
+    if (violations.length > 0) {
+      return { status: 'rejected', violations };
+    }
 
     // Always two redeems, on throwaway refs where no real one is due: otherwise the time tells a pending invite from a missing
     // login (A02).
@@ -274,7 +345,7 @@ export class LocalPasswordService extends PasswordService {
 
   /** D13: an admin action, in the call and not throttled. */
   public async invite(id: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<void> {
-    const sent = await this.mail(id, 'invite', this.inviteTtlSeconds());
+    const sent = await this.dispatchMail(id, 'invite', this.inviteTtlSeconds());
     // No event type exists for issuing an invite; it is recorded as a request of purpose invite.
     await this.audit(ctx, {
       type: 'password.reset.request',
@@ -284,6 +355,83 @@ export class LocalPasswordService extends PasswordService {
       ...(sent ? {} : { reason: 'no_mailer' }),
       data: { purpose: 'invite' },
     });
+  }
+
+  /** Counts first; an identity that cannot verify or is verified already gets no mail and the same answer. */
+  public async requestVerification(id: IdentityRef, ctx: AuthnContext): Promise<AddressVerificationRequestResult> {
+    const gate = await this.throttle().attempt([verifyKey(id)], 'reset', ctx);
+    if (!gate.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', identity: id, reason: 'throttled', data: { flow: 'verify' } });
+      return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
+
+    const status = await (await this.identities()).status(id);
+    const refused = !eligible(status) ? 'status' : status.addressVerified === true ? 'verified' : null;
+    if (refused) {
+      await this.audit(ctx, { type: 'address.verify.request', outcome: 'failure', identity: id, reason: refused });
+      return { status: 'accepted' };
+    }
+    const sent = await this.dispatchMail(id, 'verify', this.verifyTtlSeconds());
+    await this.audit(ctx, { type: 'address.verify.request', outcome: sent ? 'success' : 'failure', identity: id, ...(sent ? {} : { reason: 'no_mailer' }) });
+    return { status: 'accepted' };
+  }
+
+  /**
+   * Counts first; then the lookup, issue, mail and audit run as deferred work, so the answer and its timing are the same for
+   * known and unknown logins (SR-04).
+   */
+  public async requestCode(login: string, ctx: AuthnContext): Promise<CodeRequestResult> {
+    const keys: ThrottleKey[] = [{ kind: 'account', value: `code:${normalizeLogin(login)}` }, resetIpKey(ctx)];
+    const gate = await this.throttle().attempt(keys, 'reset', ctx);
+    if (!gate.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', data: { flow: 'code' } });
+      return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
+
+    this.work().defer(() => this.sendLoginCode(login, ctx));
+    return { status: 'accepted' };
+  }
+
+  /** Counts first; an identity that cannot get a code gets no mail and the same answer. */
+  public async challengeCode(id: IdentityRef, ctx: AuthnContext): Promise<CodeRequestResult> {
+    const gate = await this.throttle().attempt([codeKey(id)], 'reset', ctx);
+    if (!gate.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', identity: id, reason: 'throttled', data: { flow: 'code' } });
+      return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
+    await this.sendCode(id, ctx, 'mfa');
+    return { status: 'accepted' };
+  }
+
+  /** Every refusal answers `invalid`; the reason goes to audit only. */
+  public async redeemVerification(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult> {
+    const verifier = this.verifier();
+    const parsed = parseVerifySecret(secret);
+    if (!parsed) {
+      await (await this.secrets()).redeem(throwaway(), 'verify', '');
+      await this.audit(ctx, { type: 'address.verify', outcome: 'failure', reason: 'malformed' });
+      return INVALID;
+    }
+    const status = await (await this.identities()).status(parsed.id);
+    const target = eligible(status) ? parsed.id : null;
+    // Always one redeem, on a throwaway ref where no real one is due: otherwise the time tells a forged identity part apart.
+    const redeemed = await (await this.secrets()).redeem(target ?? throwaway(), 'verify', parsed.raw);
+
+    if (!target || !redeemed) {
+      const reason = !status.exists ? 'unknown_identity' : !target ? 'status' : 'secret';
+      await this.audit(ctx, { type: 'address.verify', outcome: 'failure', ...(status.exists ? { identity: parsed.id } : {}), reason });
+      return INVALID;
+    }
+    await verifier.markVerified(target, ctx.now);
+    await this.audit(ctx, { type: 'address.verify', outcome: 'success', identity: target });
+    return { status: 'verified' };
+  }
+
+  /** Dispatched without a secret: the mail points at the reset page. An identity that cannot sign in gets none. */
+  public async notifyAccountExists(id: IdentityRef, _ctx: AuthnContext): Promise<void> {
+    if (eligible(await (await this.identities()).status(id))) {
+      await this.dispatchMail(id, 'account-exists', this.resetTtlSeconds());
+    }
   }
 
   /** D15. `admin` revokes tokens under reset.revokeTokens and mails only with `sendReset`; `aged` keeps tokens (H32) and mails. */
@@ -315,7 +463,7 @@ export class LocalPasswordService extends PasswordService {
   protected async mailResetAfterExpiry(id: IdentityRef): Promise<void> {
     try {
       if (eligible(await (await this.identities()).status(id))) {
-        await this.mail(id, 'reset', this.resetTtlSeconds());
+        await this.dispatchMail(id, 'reset', this.resetTtlSeconds());
       }
     } catch (err) {
       this.log().warn({ identityType: id.type, identityId: id.id, errorName: (err as Error)?.name ?? typeof err }, 'The reset mail after the password expiry of ${identityType} ${identityId} failed: ${errorName}');
@@ -333,21 +481,80 @@ export class LocalPasswordService extends PasswordService {
       await this.audit(ctx, { type: 'password.reset.request', outcome: 'failure', identity: id, reason: 'status' });
       return;
     }
-    const sent = await this.mail(id, 'reset', this.resetTtlSeconds());
+    const sent = await this.dispatchMail(id, 'reset', this.resetTtlSeconds());
     await this.audit(ctx, { type: 'password.reset.request', outcome: sent ? 'success' : 'failure', identity: id, ...(sent ? {} : { reason: 'no_mailer' }) });
   }
 
-  /** Issues the secret right before sending it (D10, SR-09); without a mailer nothing is issued. */
-  protected async mail(id: IdentityRef, purpose: 'reset' | 'invite', ttlSeconds: number): Promise<boolean> {
+  protected async sendLoginCode(login: string, ctx: AuthnContext): Promise<void> {
+    const id = await (await this.identities()).findByLogin(login);
+    if (!id) {
+      await this.audit(ctx, { type: 'code.request', outcome: 'failure', reason: 'unknown_login', data: { via: 'login' } });
+      return;
+    }
+    await this.sendCode(id, ctx, 'login');
+  }
+
+  protected async sendCode(id: IdentityRef, ctx: AuthnContext, via: 'login' | 'mfa'): Promise<void> {
+    const refused = codeRefusal(await (await this.identities()).status(id));
+    if (refused) {
+      await this.audit(ctx, { type: 'code.request', outcome: 'failure', identity: id, reason: refused, data: { via } });
+      return;
+    }
+    const sent = await this.dispatchMail(id, 'code', this.emailCodeTtlSeconds());
+    await this.audit(ctx, { type: 'code.request', outcome: sent ? 'success' : 'failure', identity: id, ...(sent ? {} : { reason: 'no_mailer' }), data: { via } });
+  }
+
+  /** Hands the request on without a secret (SR-09): `deliver` issues it. Without a mailer nothing is dispatched. */
+  protected async dispatchMail(id: IdentityRef, purpose: AuthnMailPurpose, ttlSeconds: number): Promise<boolean> {
+    if (!(await this.mailer())) {
+      this.warnNoMailer(id, purpose);
+      return false;
+    }
+    // The real clock, not ctx.now: deliver() measures the age of the request against it.
+    await this.dispatcher().dispatch({ identity: id, purpose, ttlSeconds, requestedAt: new Date() });
+    return true;
+  }
+
+  protected warnNoMailer(id: IdentityRef, purpose: AuthnMailPurpose): void {
+    this.log().warn({ purpose, identityType: id.type, identityId: id.id }, 'No PasswordMailer is registered: the ${purpose} mail for ${identityType} ${identityId} was not sent');
+  }
+
+  /**
+   * Issues the secret, resolves the address and sends through the PasswordMailer at once. False when there is no mailer, no
+   * address, or the request is older than its ttl.
+   */
+  public async deliver(request: AuthnMailRequest): Promise<boolean> {
+    const { identity: id, purpose, ttlSeconds } = request;
+    const log = { purpose, identityType: id.type, identityId: id.id };
+    const requestedAt = request.requestedAt.getTime();
+    // A link issued now would already be past the lifetime the request asked for.
+    if (!Number.isFinite(requestedAt) || Date.now() > requestedAt + ttlSeconds * 1000) {
+      this.log().warn(log, 'The ${purpose} mail for ${identityType} ${identityId} was requested longer ago than its lifetime and is dropped');
+      return false;
+    }
     const mailer = await this.mailer();
     if (!mailer) {
-      this.log().warn({ purpose, identityType: id.type, identityId: id.id }, 'No PasswordMailer is registered: the ${purpose} mail for ${identityType} ${identityId} was not sent');
+      this.warnNoMailer(id, purpose);
       return false;
     }
     const to = await (await this.identities()).display(id);
-    const secret = await (await this.secrets()).issue(id, purpose, ttlSeconds);
-    await mailer.send({ identity: id, purpose, to, secret, url: this.resetUrl(), ttlSeconds });
+    if (!to.email) {
+      this.log().warn(log, 'The ${purpose} mail for ${identityType} ${identityId} was not sent: the identity has no email address');
+      return false;
+    }
+    await mailer.send({ identity: id, purpose, to, ...(await this.issueFor(id, purpose, ttlSeconds)), ttlSeconds, ...(request.lang ? { lang: request.lang } : {}) });
     return true;
+  }
+
+  /** The secret to mail for `purpose` with the page that redeems it; a code has no page, an account-exists mail no secret. */
+  protected async issueFor(id: IdentityRef, purpose: AuthnMailPurpose, ttlSeconds: number): Promise<{ secret: string; url: string; code?: string }> {
+    if (purpose === 'code') {
+      const code = await new EmailCodes(await this.secrets()).issue(id, ttlSeconds);
+      return { secret: code, code, url: '' };
+    }
+    if (purpose === 'account-exists') return { secret: '', url: this.resetUrl() };
+    const raw = await (await this.secrets()).issue(id, purpose, ttlSeconds);
+    return purpose === 'verify' ? { secret: verifySecretOf(id, raw), url: this.verifyUrl() } : { secret: raw, url: this.resetUrl() };
   }
 
   /**
@@ -362,6 +569,12 @@ export class LocalPasswordService extends PasswordService {
     }
     const stored = await (await this.passwords()).get(id);
     return (await hasher.verify(stored, password)) ? stored : null;
+  }
+
+  /** What the similarity rule compares a new password with: `login` as typed, and what the store shows for `id`. */
+  protected async policyContext(id: IdentityRef, login?: string): Promise<PasswordPolicyContext> {
+    const shown = await (await this.identities()).display(id);
+    return { ...(login !== undefined ? { login } : {}), ...(shown.email ? { email: shown.email } : {}), ...(shown.name ? { name: shown.name } : {}) };
   }
 
   /** With `expected`, writes only over that stored hash and answers whether it wrote; without it, writes unconditionally. */
@@ -388,12 +601,36 @@ export class LocalPasswordService extends PasswordService {
     return (this._work ??= new DeferredWork(this.log()));
   }
 
+  protected dispatcher(): AuthnMailDispatcher {
+    return (this._dispatcher ??= (this.Deps ? this.Deps.dispatcher : this.Dispatcher) ?? new InlineAuthnMailDispatcher((r) => this.deliver(r), this.log()));
+  }
+
   protected resetTtlSeconds(): number {
     return this.Deps ? (this.Deps.resetTtlSeconds ?? AUTHN_LOCAL_DEFAULTS.reset.ttlSeconds) : this.ResetTtlSeconds;
   }
 
   protected inviteTtlSeconds(): number {
     return this.Deps ? (this.Deps.inviteTtlSeconds ?? AUTHN_LOCAL_DEFAULTS.invite.ttlSeconds) : this.InviteTtlSeconds;
+  }
+
+  protected verifyTtlSeconds(): number {
+    return this.Deps ? (this.Deps.verifyTtlSeconds ?? AUTHN_LOCAL_DEFAULTS.verify.ttlSeconds) : this.VerifyTtlSeconds;
+  }
+
+  protected emailCodeTtlSeconds(): number {
+    return this.Deps ? (this.Deps.emailCodeTtlSeconds ?? AUTHN_LOCAL_DEFAULTS.emailCode.ttlSeconds) : this.EmailCodeTtlSeconds;
+  }
+
+  protected verifyUrl(): string {
+    return this.Deps ? (this.Deps.verifyUrl ?? AUTHN_LOCAL_DEFAULTS.verify.url) : this.VerifyUrl;
+  }
+
+  protected verifier(): IdentityAddressVerifier {
+    const verifier = (this.Deps ? this.Deps.verifier : this.Verifier) ?? null;
+    if (!verifier) {
+      throw new InvalidOperation(this.Deps ? 'LocalPasswordService was built without an IdentityAddressVerifier' : 'Address verification needs an IdentityAddressVerifier, and none is registered');
+    }
+    return verifier;
   }
 
   protected resetUrl(): string {

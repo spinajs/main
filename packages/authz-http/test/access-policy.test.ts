@@ -61,7 +61,7 @@ class DocAdapter extends ResourceAdapter<Doc> {
 @BasePath('pol')
 class PolicyRoutes extends BaseController {
   @Get('files/:id')
-  @Access('file:read', { domain: D, resource: fromParamForTests('id', 'file') })
+  @Access('file:read', { domain: D, resource: fromParamForTests('id', 'file'), conditional: 'action' })
   public read(@Req() req: Request) {
     return ok(req);
   }
@@ -73,7 +73,7 @@ class PolicyRoutes extends BaseController {
   }
 
   @Get('docs/:doc')
-  @Access('doc:read', { domain: D, resource: fromModel(Doc, 'doc') })
+  @Access('doc:read', { domain: D, resource: fromModel(Doc, 'doc'), conditional: 'action' })
   public doc(@Req() req: Request) {
     return ok(req);
   }
@@ -143,7 +143,7 @@ describe('AccessPolicy', function () {
     expect(res.body).to.deep.include({ error: 'unauthenticated' });
   });
 
-  it('lets a conditional allow through and keeps it, with its residual, for the ORM', async () => {
+  it("conditional: 'action' lets a conditional allow through and keeps it, with its residual, for the ORM", async () => {
     const res = await app.request().get('/pol/files/f2').set('x-user', 'alice');
 
     expect(res.status).to.eq(200);

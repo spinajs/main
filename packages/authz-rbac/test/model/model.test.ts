@@ -1,5 +1,6 @@
 import { AuthzConfigError, CORE_FILTER_OPS, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, UnknownPermission } from '@spinajs/authz';
-import type { Assignment, ModelInitContext, NativeFilter, PermissionInput, PermissionRegistry, Principal, ResourceRef } from '@spinajs/authz';
+import type { ModelInitContext, NativeFilter, PermissionInput, PermissionRegistry, Principal, ResourceRef } from '@spinajs/authz';
+import type { Assignment } from '../../src/contracts.js';
 import { FakeScopeResolver, anonymousPrincipal, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal, withCeiling, withCompanions } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';

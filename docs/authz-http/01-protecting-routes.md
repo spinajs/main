@@ -23,11 +23,11 @@ Per request:
 1. authn-http's `AuthnMiddleware` leaves the authenticated principal in `req.storage.AuthnPrincipal` ([`@spinajs/authn-http`](../authn-http/README.md)).
 2. `PrincipalMiddleware` picks the request's principal and puts it in `req.storage.Principal` ([Principal resolution](03-principal-resolution.md)).
 3. http's policy gate runs every policy of the route in parallel ([Policies](../http/13-policies.md)). `AccessPolicy.execute(req, route, controller)` reads the rule of its scope (`'route'` or `'class'`) from the descriptor.
-4. It writes `req.storage.AuthzHttpRoute = { domain, unfilteredInput? }` for the input field filter.
-5. No principal: 401. A principal with `authenticated: false` (the anonymous one) on a route or class without `@AllowAnonymous`: 401. No model runs in either case.
-6. It resolves the `AuthzService` of `opts.domain` (default `root`).
+4. No principal: 401. A principal with `authenticated: false` (the anonymous one) on a route or class without `@AllowAnonymous`: 401. No model runs in either case.
+5. It asks the `AuthzDomainResolver` for the domain, with `opts.domain` (default `root`) as the fallback ([Per-request domains](../authz/05-domains.md#per-request-domains)). A domain no live domain bears is a 403 with reason `unknown_domain`.
+6. It writes `req.storage.AuthzHttpRoute = { domain, unfilteredInput? }` for the input field filter, then resolves the `AuthzService` of the domain.
 7. It runs `opts.resource(req)` when set ([Resource extractors](02-resource-extractors.md)). A `null` or `undefined` result is a 400. An unloaded `fromModel` instance is turned into a ref by the domain's `ResourceAdapter`. Without an extractor the resource is the type-level ref of the permission, `{ type: 'invoice' }` for `invoice:read`.
-8. `AccessPolicy.decide()` calls `authz.check({ principal, permission, resource })` for each permission in order and stops at the first allow. With `subject: 'load'` a conditional allow is settled against the loaded row.
+8. `AccessPolicy.decide()` calls `authz.check({ principal, permission, resource })` for each permission in order and stops at the first allow. A conditional allow on a resource with an id is settled against the loaded row, unless the rule says `conditional: 'action'` ([Conditional allows](#conditional-allows)).
 9. A denial throws `AccessDenied` with the 403 body below; the first denial is reported. An allow from the route's own `@Access` (else the class's) goes to `req.storage.AuthzDecision`.
 10. The route runs when every scope (class and route) has one group that passed. The checks run in `req.storage`'s async store, so they share the per-request decision cache with the action's own `authz()` calls.
 
@@ -77,8 +77,9 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `resource` | `ResourceExtractor` | type-level ref of the permission's resource | Where the checked resource comes from: `fromParam`, `fromBody`, `fromQuery`, `fromModel`, `typedExtractor` or your function. |
 | `also` | `Class<BasePolicy>[]` | `[]` | More policies in the same group: all of them and `AccessPolicy` must pass. |
-| `domain` | `string` | `'root'` | The authz domain the check runs in. |
-| `subject` | `'load' \| 'none'` | `'none'` | `'load'`: a conditional allow is checked again against the row the domain's adapter loads, so the answer is definite. A missing row is a 403 with reason `unknown_resource`. |
+| `domain` | `string` | `'root'` | The authz domain the check runs in, unless an [`AuthzDomainResolver`](../authz/05-domains.md#per-request-domains) names another for the request. |
+| `conditional` | `'load' \| 'action'` | `'load'` | What a conditional allow on a resource with an id does. `'load'`: it is checked again against the row the domain's adapter loads, so the answer is definite; no adapter that can load the type, or no row, is a 403 with reason `unknown_resource`. `'action'`: the route runs and the residual stays in `req.storage.AuthzDecision` for the action to apply. |
+| `subject` | `'load' \| 'none'` | none | Deprecated. `'load'` means `conditional: 'load'`; `'none'` changes nothing. |
 | `fields` | `'filter' \| 'none'` | `'none'` | `'filter'`: the response keeps only the fields the decision lets the caller read. |
 
 Order does not matter. `@Access` creates the route entry when the route decorator (`@Get`, `@Post`) has not run yet, and `@AllowAnonymous` and `@UnfilteredInput` only write the descriptor.
@@ -91,7 +92,8 @@ Each error goes through http's error handler, which answers `{ ...error fields, 
 | --- | --- | --- |
 | 401 | No principal on an `@Access`, `HasPrincipal` or `IsAuthenticated` route. | `error: 'unauthenticated'`, `message: 'this route needs a principal'` |
 | 401 | An unauthenticated principal on an `@Access` route without `@AllowAnonymous`, or on an `IsAuthenticated` route. | `error: 'unauthenticated'`, `message: 'this route needs an authenticated principal'` |
-| 403 | Every permission of the rule is denied, or `subject: 'load'` finds no row. | `error: 'forbidden'`, `permission`, `resource`, `reason` (the deny reason without `priority` and `sortKey`, e.g. `{ code: 'no_access' }`), `trace` only when [explain](09-explain.md#trace-in-a-403) allows it |
+| 403 | The `AuthzDomainResolver` names a domain no live domain bears. | `error: 'forbidden'`, `reason: { code: 'unknown_domain' }` |
+| 403 | Every permission of the rule is denied, or a conditional allow finds no row or no adapter that can load it. | `error: 'forbidden'`, `permission`, `resource`, `reason` (the deny reason without `priority` and `sortKey`, e.g. `{ code: 'no_access' }`), `trace` only when [explain](09-explain.md#trace-in-a-403) allows it |
 | 400 | An extractor finds no usable id, or a custom extractor returns `null` or `undefined`. | `message`, `fieldName` (`url parameter id`, `body.projectId`, `query parameter team` or `resource`) |
 | 400 | A body field the caller may not write, in `reject` mode. | `error: 'fields_not_writable'`, `fields` ([Field filters](06-field-filters.md)) |
 | 500 | `AuthzConfigError`: no `ResourceAdapter` accepts a `fromModel` instance, a principal source returned a `system` or `unattended` principal, the root domain cannot boot. | `message` |
@@ -177,7 +179,7 @@ export class PayoutsController extends BaseController {
 
 ## Important behaviour
 
-- **A conditional allow passes the route.** Without `subject: 'load'` an allow with a residual other than `TRUE` ("yes, if the row matches") lets the action run, and the decision with its residual stays in `req.storage.AuthzDecision`. The action must load the row and check it, or the route must use `subject: 'load'`.
+- **A conditional allow on one object is settled on its row.** See [Conditional allows](#conditional-allows).
 - **Several permissions mean any.** `@Access(['invoice:update', 'invoice:approve'])` passes on the first allow.
 - **Class and route `@Access` combine with AND.** A class `@Access` guards every route; a route `@Access` adds a second check. `req.storage.AuthzDecision` holds the route's decision.
 - **Another `@Policy` group is an alternative (OR).** `@Policy(X)` next to `@Access` at the same place lets the route run when `X` alone passes. Put extra checks in `also`.
@@ -190,11 +192,12 @@ export class PayoutsController extends BaseController {
 
 ## Best practices
 
-- Pass a resource extractor whenever the route works on one object, and `subject: 'load'` when the permission can be conditional (owner rules, ABAC conditions).
+- Pass a resource extractor whenever the route works on one object. A conditional grant (owner rules, ABAC conditions) is then settled on the row before the action runs.
+- Use `conditional: 'action'` only when the action applies `req.storage.AuthzDecision.residual` itself, for example in an update with a `WHERE` built from it.
 - Declare every permission an `@Access` names in `authz.permissions`; the boot then catches a typo before the first request.
 - Use `IsAuthenticated` or `HasPrincipal` for routes about the caller only (`/me`, the caller's teams), where no permission names the action.
 - Give `@Unscoped` a reason a reviewer understands ("nightly report export"); it lands in the audit.
-- Keep `@Access` on the controller class of a package and narrow it per route, so a new route is never left unguarded.
+- Keep `@Access` on the controller class of a package and narrow it per route, so a new route is never left unguarded. Set `authz.http.unguardedRoutes` to `'throw'` to make the server refuse to start with one ([Unguarded routes](10-access-metadata-and-openapi.md#unguarded-routes)).
 
 ## Patterns and antipatterns
 
@@ -219,9 +222,22 @@ public update(@Param() id: string) {}
 
 // Do: check the invoice the route changes, settled against its row.
 @Put(':id')
-@Access('invoice:update', { resource: fromParam('id', 'invoice'), subject: 'load' })
+@Access('invoice:update', { resource: fromParam('id', 'invoice') })
 public update(@Param() id: string) {}
 ```
+
+## Conditional allows
+
+A conditional allow is "yes, if the row matches": `allowed: true` with a residual other than `TRUE`, from an owner rule, a relation grant or an ABAC condition on `resource.*`.
+
+| Resource of the rule | `conditional: 'load'` (default) | `conditional: 'action'` |
+| --- | --- | --- |
+| One object (`{ type, id }`, `fromParam`, `fromModel` ...) | The first adapter of the domain that serves the type and has `load()` loads the row, and the permission is checked again with `subject: row`. The route runs with a `TRUE` residual, or answers 403 with the reason of that check. No such adapter, or no row: 403 `unknown_resource`. The row is loaded once, whatever the number of permissions. | The route runs; the residual stays in `req.storage.AuthzDecision`. |
+| Type level (no extractor, `{ type }`) | Nothing is loaded. The route runs; the residual stays in `req.storage.AuthzDecision` for `.accessible()` on the list query. | Same. |
+
+In the `test` and `development` envs, authz-orm's runtime guard flags a primary-key load of an `@AccessResource` model while the route's decision is conditional: no check covered that row ([The runtime guard](../authz-orm/07-runtime-guard.md#single-object-loads)).
+
+In 3.0, a conditional allow reached the action unless the route said `subject: 'load'`. To keep that for a route whose action applies the residual itself, add `conditional: 'action'`; a route that relied on the old default without doing so let any caller with the conditional grant reach any id.
 
 ## Examples
 
@@ -247,7 +263,7 @@ export class InvoicesController extends BaseController {
 
   // Class rule AND route rule on invoice <id>; a conditional grant is settled on the row.
   @Post(':id/approve')
-  @Access('invoice:approve', { resource: fromParam('id', 'invoice'), subject: 'load' })
+  @Access('invoice:approve', { resource: fromParam('id', 'invoice') })
   public approve(@Param() id: string) {
     return new Ok({ id, approved: true });
   }

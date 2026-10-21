@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon';
 import { Injectable, NewInstance } from '@spinajs/di';
 import type { IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
+import { authnAppEnv, isLenientAuthnEnv } from '@spinajs/authn/env';
+import { InvalidOption } from '@spinajs/exceptions';
 import { SessionProvider } from './contracts.js';
 import type { ISession } from './contracts.js';
 import { belongsTo, expirationEquals } from './match.js';
@@ -26,6 +28,8 @@ export class UserSession implements ISession {
   public Expiration: DateTime | undefined = undefined;
 
   public Data: Map<string, unknown> = new Map();
+
+  public ExternalKey?: string;
 
   constructor(session?: Partial<ISession>) {
     if (session) {
@@ -113,7 +117,28 @@ export class MemorySessionStore extends SessionProvider<ISession> {
     return [...this.Sessions.values()].filter((s) => !this.isExpired(s) && belongsTo(s, subject, opts?.includeImpersonations));
   }
 
+  public async deleteByExternalKey(externalKey: string): Promise<number> {
+    let count = 0;
+    for (const [key, session] of [...this.Sessions.entries()]) {
+      if (session.ExternalKey === externalKey) {
+        this.Sessions.delete(key);
+        if (!this.isExpired(session)) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
   public async truncate(): Promise<void> {
     this.Sessions = new Map<string, ISession>();
+  }
+
+  public async checkConfiguration(booting: { get<T>(path: string | string[]): T }): Promise<void> {
+    if (booting.get<boolean | undefined>('authn.session.allowMemoryStore') === true) return;
+    const env = authnAppEnv(booting);
+    if (!isLenientAuthnEnv(env)) {
+      throw new InvalidOption(`MemorySessionStore keeps sessions in process memory, so they vanish on restart and are not shared between instances; outside development and test (env ${JSON.stringify(env ?? 'unset')}) use a shared store such as @spinajs/session-provider-db, or set authn.session.allowMemoryStore to true`);
+    }
   }
 }

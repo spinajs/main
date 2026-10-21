@@ -4,9 +4,9 @@ import type { AuthnContext, Credentials, ExternalSubject, IdentityLinkStore, Ide
 import { AuthenticationFailed } from '@spinajs/exceptions';
 
 import type { OidcExternalSubject, OidcStrategyName } from './contracts.js';
-import { decodeFlow } from './flow/cookie.js';
+import { decodeFlow, sessionBindingOf } from './flow/cookie.js';
 import type { OidcFlow } from './flow/cookie.js';
-import type { OidcCallbackQuery, OidcProvider } from './provider.js';
+import type { OidcCallbackQuery, OidcProvider, OidcTokenCapture } from './provider.js';
 import { isPlainObject } from './support.js';
 
 /** What the callback route passes as `Credentials.payload` of kind 'external'. */
@@ -14,6 +14,8 @@ export interface OidcCallbackPayload {
   /** The raw flow cookie value. */
   readonly flow: string;
   readonly query: OidcCallbackQuery;
+  /** Filled by the strategy with the ID token to keep for logout; the callback route reads it after a successful login. */
+  readonly capture?: OidcTokenCapture;
 }
 
 export interface OidcStrategyDeps {
@@ -77,16 +79,23 @@ export class OidcStrategy extends AuthenticationStrategy {
     return [];
   }
 
+  /**
+   * A login callback, or with purpose 'reauth' the callback of a reauth flow started by `ctx.session`. A re-authentication
+   * passes no linking switch: the core accepts only a subject already linked to the session's identity.
+   */
   public async verify(c: Credentials, ctx: AuthnContext): Promise<StrategyOutcome> {
     const input = this.callbackOf(c);
     if (input === null) return UNSUPPORTED;
-    if (input.flow === null || input.flow.m !== 'login') return FAILED;
+    const reauth = ctx.purpose === 'reauth';
+    if (input.flow === null || input.flow.m !== (reauth ? 'reauth' : 'login')) return FAILED;
+    if (reauth && (ctx.session === undefined || input.flow.h !== sessionBindingOf(ctx.session.id))) return FAILED;
     let external: OidcExternalSubject;
     try {
-      external = await this.deps.provider.complete(input.flow, input.query, ctx.now);
+      external = await this.deps.provider.complete(input.flow, input.query, ctx.now, input.capture);
     } catch {
       return FAILED;
     }
+    if (reauth) return { ok: true, external, method: 'oidc' };
     let gated: OidcExternalSubject | null;
     try {
       gated = await this.gate(external);
@@ -115,14 +124,14 @@ export class OidcStrategy extends AuthenticationStrategy {
     return this.deps.provider.complete(input.flow, input.query, ctx.now);
   }
 
-  protected callbackOf(c: Credentials): { flow: OidcFlow | null; query: OidcCallbackQuery } | null {
+  protected callbackOf(c: Credentials): { flow: OidcFlow | null; query: OidcCallbackQuery; capture?: OidcTokenCapture } | null {
     try {
       if (!this.accepts(c)) return null;
       const payload = (c as { payload?: unknown }).payload;
       if (!isPlainObject(payload)) return null;
       const query = queryOf(payload.query);
       if (query === null) return null;
-      return { flow: decodeFlow(payload.flow), query };
+      return { flow: decodeFlow(payload.flow), query, ...(isPlainObject(payload.capture) ? { capture: payload.capture } : {}) };
     } catch {
       return null;
     }

@@ -1,15 +1,16 @@
 # MFA store
 
-`DbMfaStore` keeps the MFA enrolments of identities in `authn_mfa` and their recovery codes in `authn_recovery_code`. It stores cipher text it is given, decides replay and single use in SQL, and never encrypts or decrypts. `authn-totp`'s `DbMfaSecretStore` and this package's `DbMfaEnrolments` build on it.
+`DbMfaStore` keeps the MFA enrolments of identities in `authn_mfa` and their recovery codes in `authn_recovery_code`. It stores cipher text it is given, decides replay and single use in SQL, and never encrypts or decrypts. `authn-totp`'s `DbMfaSecretStore` and this package's `DbMfaEnrolments` and `DbMfaEnrolmentMarks` build on it.
 
 ## Where it runs in the authn flow
 
-`DbMfaStore` fills no `@spinajs/authn` port itself. Two adapters put it into the flow:
+`DbMfaStore` fills no `@spinajs/authn` port itself. Three adapters put it into the flow:
 
 | Adapter | Port | Caller | When it calls |
 | --- | --- | --- | --- |
 | `DbMfaSecretStore` ([`@spinajs/authn-totp`](../authn-totp/README.md), loaded by `import '@spinajs/authn-totp/db'`) | `MfaSecretStore` | `TotpMfaStep`, also on behalf of `TotpService` | `completeMfa`, on the pending session that login step 7 of [How a login runs](../authn/01-authentication-flow.md) issued: `get` and `acceptStep` verify a TOTP code; `redeemRecoveryCode` spends a normalised recovery code. Enrolment: `get`, `putPending`, `acceptStep`, `confirm` with the stored cipher text, `replaceRecoveryCodes`. Disabling and admin reset: `remove`, `removeRecoveryCodes`. |
 | `DbMfaEnrolments` (this package) | `MfaEnrolments` | `DefaultMfaPolicy` and `authn:check-config` ([`@spinajs/authn`](../authn/04-mfa-policy-and-steps.md)) | Login step 6: when the identity is enrolled in no listed step, `stepsOf` reports confirmed steps that `authn.mfa.steps` does not list. |
+| `DbMfaEnrolmentMarks` (this package) | `MfaEnrolmentMarks` | `EmailCodeMfaStep` ([`@spinajs/authn-local`](../authn-local/15-email-codes.md)) | `has` reads a confirmed row; `mark` calls `putPending` with a placeholder and confirms that placeholder, so exactly one caller marks; `unmark` calls `remove`. The row holds no secret: `secret_enc` is `mark` and `key_id` is `none`. |
 
 `DbMfaSecretStore` maps its port onto `DbMfaStore` this way:
 
@@ -53,6 +54,10 @@ Every method first builds the identity key with `identityKey(id)` (`<type>:<id>`
 2. `redeemRecoveryCode(id, raw)` resolves `false` for a `raw` that is not a non-empty string of at most 1024 characters. Otherwise one `UPDATE` sets `used_at` = now where the identity and hash match and `used_at IS NULL`; it resolves `true` for exactly one caller.
 3. `countRecoveryCodes(id)` resolves with the number of unused codes.
 4. `removeRecoveryCodes(id)` deletes every code of the identity.
+
+### `DbMfaEnrolmentMarks`
+
+Importing the package registers `DbMfaEnrolmentMarks` under `MfaEnrolmentMarks` (`@PerChildInstance()`, `@Injectable(MfaEnrolmentMarks)`). A mark is a confirmed `authn_mfa` row, so `DbMfaEnrolments` reports the step too: an identity marked in `email-code` while `authn.mfa.steps` does not list it is refused at login. `mark` resolves `false` when the identity is marked already.
 
 ### `DbMfaEnrolments`
 

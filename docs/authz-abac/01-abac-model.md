@@ -119,7 +119,8 @@ authz-fs subclasses `AbacModel` to make boot errors name the config key a policy
 ```ts sample
 import { DI } from '@spinajs/di';
 import { AuthorizationModel, AuthzConfigError, AuthzContributor } from '@spinajs/authz';
-import type { ModelInitContext, Policy } from '@spinajs/authz';
+import type { ModelInitContext } from '@spinajs/authz';
+import type { Policy } from '@spinajs/authz-abac';
 import { AbacContributor, AbacModel, ConfigPolicyStore } from '@spinajs/authz-abac';
 
 // Boot errors point at the file the security team edits.

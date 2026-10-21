@@ -57,12 +57,12 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.3",
     "@spinajs/cli": "3.0.3",
     "@spinajs/configuration": "3.0.3",
     "@spinajs/di": "3.0.3",
     "@spinajs/exceptions": "3.0.3",
     "@spinajs/log-common": "3.0.3",
+    "@spinajs/principal": "3.0.3",
     "@spinajs/util": "3.0.3",
     "ajv": "^8.12.0"
   },

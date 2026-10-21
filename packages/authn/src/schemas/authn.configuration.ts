@@ -74,8 +74,9 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
           default: {},
           properties: {
             service: { type: 'string', minLength: 1, default: 'DefaultMfaPolicy' },
-            force: { type: 'boolean', default: false, description: "Requires a step on logins whose strategy reports method 'password' only (D13): key and OIDC logins get none." },
+            force: { type: 'boolean', default: false, description: 'Requires a step on logins whose method is listed in methods.' },
             forceForRoles: { ...stringList, default: [] },
+            methods: { ...stringList, default: ['password'], description: "Login methods (AuthnFacts.method) that must pass a step. The default exempts OIDC, key and token logins (D13); add 'oidc' to ask for a step after an IdP login too." },
           },
         },
         steps: { ...named, items: { ...named.items, properties: { ...named.items.properties, name: { type: 'string', minLength: 1, not: { enum: ['recovery'] }, description: "'recovery' is reserved for recovery codes (AuthnService.completeMfa)." } } } },
@@ -101,7 +102,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     throttle: {
       type: 'object',
       default: {},
-      propertyNames: { enum: ['service', 'login', 'mfa', 'reset', 'reauth', 'resetAfterSeconds', 'global', 'maxRows', 'memory'] },
+      propertyNames: { enum: ['service', 'login', 'mfa', 'reset', 'reauth', 'resetAfterSeconds', 'global', 'maxRows', 'memory', 'ipv6Prefix'] },
       properties: {
         service: { type: 'string', minLength: 1 },
         login: flow({ free: 5, baseDelayMs: 1000, maxDelayMs: 60000 }, { free: 20, baseDelayMs: 1000, maxDelayMs: 300000 }),
@@ -111,6 +112,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         resetAfterSeconds: { type: 'integer', minimum: 1, default: 86400, description: 'A key with no counted attempt for this long starts from zero.' },
         global: { ...backoff(), type: ['object', 'null'], default: null, description: 'Off (null) by default: one attacker could slow every login. Counted per flow: each flow keeps its own global row.' },
         maxRows: { type: 'integer', minimum: 4, maximum: 16000000, default: 1000000, description: 'Rows a MemoryAuthnThrottle keeps per flow (memory grows with 4 × maxRows).' },
+        ipv6Prefix: { type: 'integer', minimum: 16, maximum: 128, default: 64, description: 'IPv6 clients share the ip throttle keys of their prefix of this many bits (L3); IPv4 is keyed whole.' },
         memory: {
           type: 'object',
           default: {},
@@ -178,6 +180,13 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         byVerifiedEmail: { type: 'boolean', default: false },
       },
     },
+    login: {
+      type: 'object',
+      default: {},
+      properties: {
+        requireVerifiedAddress: { type: 'boolean', default: false, description: 'Refuse a login whose address the IdentityStore reports unverified (addressVerified false).' },
+      },
+    },
     impersonation: {
       type: 'object',
       default: {},
@@ -192,7 +201,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     audit: {
       type: 'object',
       default: {},
-      propertyNames: { enum: ['hashIdentifiers', 'hashKey', 'sinkTimeoutMs'] },
+      propertyNames: { enum: ['hashIdentifiers', 'hashKey', 'sinkTimeoutMs', 'retentionDays', 'purgeInterval'] },
       properties: {
         // Not `type: 'boolean'`: coerceTypes would turn a null into false and write raw identifiers.
         hashIdentifiers: { enum: [true, false], default: true },
@@ -202,6 +211,30 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
           properties: { secret: { type: ['string', 'null'], minLength: 32 } },
         },
         sinkTimeoutMs: { type: 'integer', minimum: 1, maximum: 60000, default: 2000, description: 'How long one sink may take.' },
+        // No default: the shipped config is compared whole to the schema defaults, and unset means off.
+        retentionDays: { type: ['integer', 'null'], minimum: 1, description: 'Days of audit rows to keep in authn_audit; unset or null keeps them forever.' },
+        purgeInterval: { type: ['integer', 'null'], minimum: 1, description: 'Milliseconds between purges of expired audit rows; unset or null runs none.' },
+      },
+    },
+    webhooks: {
+      type: 'array',
+      description: 'Outbound webhook sinks of authn-http: each target receives the audit events whose type is in `types` (all when absent), signed in Spinajs-Signature.',
+      items: {
+        type: 'object',
+        required: ['url', 'secret'],
+        propertyNames: { enum: ['url', 'secret', 'types', 'timeoutMs'] },
+        properties: {
+          url: { type: 'string', pattern: '^https?://[^\\s]+$' },
+          secret: {
+            type: 'object',
+            description: 'A reference the configuration resolves (e.g. aws-parameters://), never an inline value.',
+            propertyNames: { enum: ['secret'] },
+            required: ['secret'],
+            properties: { secret: { type: 'string', minLength: 1 } },
+          },
+          types: { type: 'array', uniqueItems: true, items: { type: 'string', minLength: 1 } },
+          timeoutMs: { type: 'integer', minimum: 1, maximum: 60000, default: 2000 },
+        },
       },
     },
     // http-socket reads trustProxy without depending on authn-http, which owns the rest of authn.http.

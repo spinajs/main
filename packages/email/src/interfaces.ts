@@ -228,7 +228,8 @@ export interface PasswordMailPurposeConfiguration {
   subject?: string;
 
   /**
-   * Without a template the mail is a short plain-text body.
+   * An `.mjml` file: a path in `email.templateFs`, or `{ file, fs }`. Defaults to the built-in `authn/<purpose>.mjml` in the
+   * `email-builtin-templates` filesystem.
    */
   template?: string | IEmailTemplate;
 }
@@ -240,13 +241,23 @@ export interface PasswordMailConfiguration {
   connection?: string;
   from?: string;
   lang?: string;
+
   /**
-   * Sent with every reset and invite mail, e.g. the images a template shows as `cid:`. The email service reads each
+   * `AppName` of the template model. Defaults to `app.name`.
+   */
+  appName?: string;
+
+  /**
+   * Sent with every password mail, e.g. the images a template shows as `cid:`. The email service reads each
    * through its filesystem, as for any mail.
    */
   attachments?: IEmailAttachement[];
+
   reset?: PasswordMailPurposeConfiguration;
   invite?: PasswordMailPurposeConfiguration;
+  verify?: PasswordMailPurposeConfiguration;
+  code?: PasswordMailPurposeConfiguration;
+  'account-exists'?: PasswordMailPurposeConfiguration;
 }
 
 export interface EmailConnectionOptions {

@@ -1,4 +1,5 @@
-import type { Assignment, CombiningAlgorithm, LinkDef, Permission, Policy, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, RuleDef, ScopeAttributeSchema } from '@spinajs/authz';
+import type { CombiningAlgorithm, Permission, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, ScopeAttributeSchema } from '@spinajs/authz';
+import type { TestAssignment as Assignment, TestLinkDef as LinkDef, TestAbacPolicy as Policy, TestRuleDef as RuleDef } from '../model-shapes.js';
 
 import type { TestLadderDef, TestRoleDef } from '../arbitraries/rbac.js';
 import type { FakeAdapterOptions, FakeRbacOptions, FakeScopeResolverOptions, FakeTupleModelOptions, HoldsFn, ListStaticModelOptions, ModelCall } from '../fakes/index.js';
@@ -8,7 +9,7 @@ import type { FakePermissionInput } from '../registry.js';
 import type { StepContext } from './harness.js';
 import type { BEHAVIOUR_RULES } from './rules.js';
 
-/** 'B01' … 'B46' (design §17). */
+/** 'B01' … 'B49' (design §17 and the Ory-parity plan). */
 export type BehaviourId = keyof typeof BEHAVIOUR_RULES;
 
 /** A whole fixture ('B09') or one of its parts ('B09.core'). */
@@ -35,7 +36,7 @@ export const FACETS: Readonly<Record<Facet, string>> = Object.freeze({
   links: '`world.rbac.links` exist as share links whose tokens resolve to link principals (lane handle `rbacLinks`; L1b, L2, L5, C4).',
   abac: "`world.abac.policies` are loaded into the lane's ABAC model, named 'abac'.",
   conditions: 'the core ConditionCompiler is wired (`ctx.conditions`), so policy and rule conditions work (L3).',
-  rebac: '`world.rebac.tuples` are loaded into a real ReBAC model (reserved for @spinajs/authz-rebac; the kit FakeTupleModel needs only `engine`).',
+  rebac: "`world.rebac.tuples` are loaded into the lane's ReBAC model (@spinajs/authz-rebac), named 'rebac', with `world.config.rebac` (namespaces, permissions, limit) as its config section; the kit FakeTupleModel needs only `engine`.",
   admin: "`session.admin` is the domain's AuthzAdmin over the lane's stores, and lane handle `adminEvents` lists the AuthzEvents its sinks received (L9, C4).",
   scopeAttributes: '`world.scopeAttributes` (schemas and stored values) feed `ctx.attributes`, the store winning over resolver values (L9).',
   store: 'assignments, rules, links and policies live in the DB-backed stores, with `authz_version` bumps (lane handles `store` and `rbacStore`; L2).',

@@ -8,11 +8,11 @@ import { bootPort, coreHarness, useHarnessLog } from './harness.js';
 
 // A10/core is N8b's in the kit README; N1 claims it too because completeMfa counts codes in the mfa flow (task 3).
 // A05/store and A06/store run in test/throttle/memory-throttle.test.ts (runThrottleConformance).
-const FACETS: Facet[] = ['A01/core', 'A02/core', 'A02/external', 'A05/core', 'A06/core', 'A09/core', 'A10/core', 'A13/core', 'A19/core', 'A20/core', 'A21/core', 'A23/core', 'A24/boot'];
+const FACETS: Facet[] = ['A01/core', 'A02/core', 'A02/external', 'A05/core', 'A06/core', 'A09/core', 'A10/core', 'A10/flow', 'A13/core', 'A19/core', 'A20/core', 'A21/core', 'A23/core', 'A24/boot', 'A32/core'];
 
 describe('N1 core behaviour', function () {
   useHarnessLog();
-  runAuthnBehaviour(['A01', 'A02', 'A05', 'A06', 'A09', 'A10', 'A13', 'A19', 'A20', 'A21', 'A23', 'A24'], coreHarness, { title: 'authn behaviour: DefaultAuthnService', facets: FACETS, claim: FACETS });
+  runAuthnBehaviour(['A01', 'A02', 'A05', 'A06', 'A09', 'A10', 'A13', 'A19', 'A20', 'A21', 'A23', 'A24', 'A32'], coreHarness, { title: 'authn behaviour: DefaultAuthnService', facets: FACETS, claim: FACETS });
 
   describe('boot port', () => {
     it('A01 an unknown service name fails boot in the strategy registry', async () => {

@@ -32,6 +32,9 @@ export function bodyField(req: Request, name: string): unknown {
   return body[name];
 }
 
+/** A browser navigation (Sec-Fetch-Mode: navigate, or Accept lists text/html) as opposed to a script's request. */
+export const isNavigation = (req: Request): boolean => req.get('sec-fetch-mode') === 'navigate' || /\btext\/html\b/i.test(req.get('accept') ?? '');
+
 /** A non-empty string of at most `cap` characters, else null. */
 export const boundedString = (value: unknown, cap: number): string | null => (typeof value === 'string' && value !== '' && value.length <= cap ? value : null);
 

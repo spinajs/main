@@ -76,4 +76,23 @@ export const A03: AuthnRule = defineRule('A03', 'passwords are hashed with argon
       assert.ok(h.hasher.peakConcurrent() <= 2, `peak ${h.hasher.peakConcurrent()}`);
     },
   }),
+  defineCase({
+    name: 'A03 a saturated hasher answers throttled with retryAfterSeconds 1',
+    facet: 'A03/argon2',
+    needs: ['seed', 'service'],
+    config: { authn: { local: { hasher: { maxConcurrent: 1, maxQueue: 0 } } } },
+    timeoutMs: 60_000,
+    async run(h, k) {
+      await seedUser(h, ALICE);
+      const r = await burst(4, () => auth(h, k, pw(ALICE.login, ALICE.password)));
+      const results = r.fulfilled();
+      assert.strictEqual(results.length, 4);
+      const refused = results.filter((x) => x.status === 'failure');
+      assert.ok(refused.length >= 1, 'a login that finds no free slot is refused at once');
+      for (const x of refused) {
+        assert.ok(x.status === 'failure' && x.reason === 'throttled' && x.retryAfterSeconds === 1, JSON.stringify(x));
+      }
+      assert.ok(results.some((x) => x.status === 'success'), 'the login that got the slot succeeds');
+    },
+  }),
 ]);

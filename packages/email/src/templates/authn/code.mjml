@@ -1,0 +1,31 @@
+<mjml>
+  <mj-head>
+    <mj-title>{{Subject}}</mj-title>
+    <mj-preview>{{Subject}}</mj-preview>
+    <mj-attributes>
+      <mj-all font-family="Helvetica, Arial, sans-serif" />
+      <mj-text font-size="15px" line-height="22px" color="#1f2933" />
+    </mj-attributes>
+  </mj-head>
+  <mj-body background-color="#f4f5f7">
+    <mj-section padding="24px 0 8px">
+      <mj-column>
+        <mj-text align="center" font-size="20px" font-weight="bold">{{AppName}}</mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section background-color="#ffffff" padding="24px">
+      <mj-column>
+        <mj-text font-size="18px" font-weight="bold">{{Subject}}</mj-text>
+        <mj-text>{{#if Name}}Hello {{Name}},{{else}}Hello,{{/if}}</mj-text>
+        <mj-text>Use this code to sign in{{#if AppName}} to {{AppName}}{{/if}}:</mj-text>
+        <mj-text align="center" font-size="32px" line-height="40px" font-weight="bold" font-family="Courier New, Courier, monospace" letter-spacing="6px">{{Code}}</mj-text>
+        <mj-text>It expires in {{ExpiresInMinutes}} minutes. Do not share it with anyone.</mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section padding="8px 24px 24px">
+      <mj-column>
+        <mj-text font-size="12px" color="#7b8794">If you did not ask for this code, ignore this mail: nothing changes.</mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

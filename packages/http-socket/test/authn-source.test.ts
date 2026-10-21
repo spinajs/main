@@ -62,6 +62,10 @@ export class AuthnTestService extends AuthnService {
     throw new Error('not used by socket handshakes');
   }
 
+  public async stepUp(): Promise<AuthenticationResult> {
+    throw new Error('not used by socket handshakes');
+  }
+
   public strategies(): readonly AuthenticationStrategy[] {
     return [];
   }

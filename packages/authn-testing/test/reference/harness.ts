@@ -118,7 +118,7 @@ export function buildReference(ctx: HarnessContext, over: ReferenceOverrides = {
   const fakes = [FakeStrategy.password({ identities, passwords }), FakeStrategy.bearer({ tokens }), FakeStrategy.external({ provider: 'kit-idp', subjects: externalSubjects }), attributedStrategy('kit-attributed-login', 'kit-attributed-login', true), attributedStrategy('kit-attributed-request', 'kit-attributed-request', false)];
   const strategies = over.strategies ?? [over.password?.(fakes[0], identities) ?? fakes[0], ...fakes.slice(1)];
   const policy = config.authn?.mfa?.policy?.force ? new ForcedMfaPolicy(step) : new EnrolledMfaPolicy([step]);
-  const deps: ReferenceDeps = { strategies, throttle, identities, links, linking, policy, steps: [step], sessions, sinks, principals };
+  const deps: ReferenceDeps = { strategies, throttle, identities, links, linking, policy, steps: [step], sessions, sinks, principals, ...(config.authn?.throttle?.ipv6Prefix !== undefined ? { ipv6Prefix: config.authn.throttle.ipv6Prefix } : {}) };
   const service = over.service?.(deps) ?? new ReferenceAuthnService(deps);
 
   const harness: Harness = {

@@ -14,6 +14,8 @@ import { B28 } from './B28-fs-guard.spec.js';
 import { B30 } from './B30-queue.spec.js';
 import { B37Token } from './B37-token.spec.js';
 import { B41 } from './B41-production.spec.js';
+import { B47 } from './B47-conditional-allow.spec.js';
+import { B48 } from './B48-domain-resolver.spec.js';
 
 /** Lane fixtures (HTTP, ORM, fs, queue, token, host integration) and the lane parts of rules defined elsewhere. */
-export const LANE_FIXTURES: readonly (BehaviourFixture | FixtureExtension)[] = Object.freeze([B02Lanes, B07Token, B09Lanes, B10, B17Lanes, B20, B21, B23, B24, B25, B27Lanes, B28, B30, B37Token, B41]);
+export const LANE_FIXTURES: readonly (BehaviourFixture | FixtureExtension)[] = Object.freeze([B02Lanes, B07Token, B09Lanes, B10, B17Lanes, B20, B21, B23, B24, B25, B27Lanes, B28, B30, B37Token, B41, B47, B48]);

@@ -1,4 +1,5 @@
-import type { Assignment, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import type { Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import type { Assignment } from '@spinajs/authz-rbac';
 import { AssignmentStore } from '@spinajs/authz-rbac';
 
 import type { MemberEntry, Paged, Page, TeamSubject } from '../api.js';

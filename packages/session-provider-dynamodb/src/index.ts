@@ -48,10 +48,12 @@ const isConditionFailure = (err: unknown) => (err as { name?: string } | null)?.
  *
  * Item attributes: `Subject`, `ImpersonatorId` (principal keys), `State`,
  * `Creation` (ISO), `Expiration` (epoch seconds, the TTL attribute), `Data` (the
- * session codec).
+ * session codec), `ExternalKey` (only on rows of an IdP session).
  *
- * deleteBySubject / listBySubject run a strongly consistent Scan filtered on
- * Subject / ImpersonatorId. Liveness is always judged with `isExpired` in Node.
+ * deleteBySubject / listBySubject / deleteByExternalKey run a strongly
+ * consistent Scan filtered on Subject / ImpersonatorId / ExternalKey: a GSI
+ * would answer only eventually consistent reads, and the table is keyed by
+ * SessionId alone. Liveness is always judged with `isExpired` in Node.
  */
 @Injectable(SessionProvider)
 export class DynamoDbSessionProvider extends SessionProvider {
@@ -172,6 +174,10 @@ export class DynamoDbSessionProvider extends SessionProvider {
       item.ImpersonatorId = { S: principalKey(session.Impersonator) };
     }
 
+    if (session.ExternalKey !== undefined) {
+      item.ExternalKey = { S: session.ExternalKey };
+    }
+
     if (session.Expiration !== undefined) {
       item.Expiration = { N: toTtl(session.Expiration) };
     }
@@ -271,6 +277,36 @@ export class DynamoDbSessionProvider extends SessionProvider {
     return (await this.matching(subject, opts?.includeImpersonations)).filter((s) => !this.isExpired(s));
   }
 
+  /** As deleteBySubject, over the items carrying `externalKey`. */
+  public async deleteByExternalKey(externalKey: string): Promise<number> {
+    const seen = new Set<string>();
+    let count = 0;
+
+    for (;;) {
+      const items = await this.scan({ FilterExpression: '#ext = :key', ExpressionAttributeNames: { '#ext': 'ExternalKey' }, ExpressionAttributeValues: { ':key': { S: externalKey } } });
+      const found = items
+        .map((item) => this.toSession(item, true))
+        .filter((s): s is ISession => !!s && s.ExternalKey === externalKey && !seen.has(s.SessionId));
+      if (found.length === 0) {
+        return count;
+      }
+
+      for (const session of found) {
+        seen.add(session.SessionId);
+        const result = await this.DynamoDb.send(
+          new DeleteItemCommand({
+            TableName: this.Table,
+            Key: { SessionId: { S: session.SessionId } },
+            ReturnValues: 'ALL_OLD',
+          }),
+        );
+        if (result.Attributes && !this.isExpired(session)) {
+          count++;
+        }
+      }
+    }
+  }
+
   /** Deletes every item and keeps the table: a deleted table stays DELETING for a while and cannot be recreated at once. */
   public async truncate(): Promise<void> {
     const items = await this.scan({ ProjectionExpression: '#id', ExpressionAttributeNames: { '#id': 'SessionId' } });
@@ -347,6 +383,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
       Creation: DateTime.fromISO(item.Creation?.S ?? ''),
       Expiration: item.Expiration ? this.instant(item.Expiration) : undefined,
       Data: data,
+      ExternalKey: item.ExternalKey?.S,
     });
   }
 

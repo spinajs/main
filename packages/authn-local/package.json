@@ -14,12 +14,28 @@
       "types": "./lib/mjs/schema.d.ts",
       "import": "./lib/mjs/schema.js",
       "require": "./lib/cjs/schema.js"
+    },
+    "./register-schema": {
+      "types": "./lib/mjs/register-schema.d.ts",
+      "import": "./lib/mjs/register-schema.js",
+      "require": "./lib/cjs/register-schema.js"
+    },
+    "./queue": {
+      "types": "./lib/mjs/queue/index.d.ts",
+      "import": "./lib/mjs/queue/index.js",
+      "require": "./lib/cjs/queue/index.js"
     }
   },
   "typesVersions": {
     "*": {
       "schemas": [
         "lib/cjs/schema.d.ts"
+      ],
+      "register-schema": [
+        "lib/cjs/register-schema.d.ts"
+      ],
+      "queue": [
+        "lib/cjs/queue/index.d.ts"
       ]
     }
   },
@@ -72,9 +88,19 @@
     "@spinajs/log": "3.0.3",
     "@spinajs/util": "3.0.3",
     "ajv": "^8.12.0",
-    "argon2": "^0.44.0"
+    "argon2": "^0.44.0",
+    "bcryptjs": "^3.0.3"
+  },
+  "peerDependencies": {
+    "@spinajs/queue": "3.0.3"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/queue": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@spinajs/authn-testing": "3.0.3"
+    "@spinajs/authn-testing": "3.0.3",
+    "@spinajs/queue": "3.0.3"
   }
 }

@@ -50,6 +50,7 @@ export const SUPPORTED_CONFIG: readonly string[] = [
   'authn.session.expiration.maxLifetime',
   'authn.session.pendingTtlSeconds',
   'authn.mfa.policy.force',
+  'authn.mfa.policy.methods',
   'authn.freshAuth.maxAgeSeconds',
   'authn.impersonation',
   'authn.http.trustProxy',
@@ -61,7 +62,7 @@ export const SUPPORTED_CONFIG: readonly string[] = [
 
 // Only the modules the harness needs, loaded from the authn-token build rather than through its root.
 const TOKEN_LIB = new URL('../../../../authn-token/lib/mjs/', import.meta.url);
-const TOKEN_MODULES = ['generator.js', 'models/AccessToken.js', 'service/index.js', 'strategy/TokenStrategy.js', 'migrations/RbacHttpTokenInitial_2026_08_11_01_00_00.js'];
+const TOKEN_MODULES = ['generator.js', 'models/AccessToken.js', 'service/index.js', 'strategy/TokenStrategy.js', 'migrations/RbacHttpTokenInitial_2026_08_11_01_00_00.js', 'migrations/AuthnTokenRotation_2026_10_21_00_00_00.js'];
 const DB_CONNECTION = 'sqlite';
 
 export const ROUTES: Partial<HttpRoutes> = {
@@ -70,6 +71,9 @@ export const ROUTES: Partial<HttpRoutes> = {
   whoami: () => ({ method: 'GET', path: '/auth' }),
   mfaVerify: (code) => ({ method: 'POST', path: '/auth/mfa/verify', body: { code } }),
   mfaRecovery: (code) => ({ method: 'POST', path: '/auth/mfa/recovery', body: { code } }),
+  mfaStepUp: (step, code) => ({ method: 'POST', path: '/auth/mfa/step-up', body: { step, code } }),
+  mfaGated: () => ({ method: 'GET', path: '/v3-app-mfa-gated' }),
+  reauth: (password) => ({ method: 'POST', path: '/auth/reauth', body: { password } }),
   sessionsList: () => ({ method: 'GET', path: '/user/sessions' }),
   impersonateStart: (target, password) => ({ method: 'POST', path: '/auth/impersonate', body: { target: { type: target.type, id: target.id }, ...(password !== undefined ? { password } : {}) } }),
   impersonateStop: () => ({ method: 'DELETE', path: '/auth/impersonate' }),

@@ -77,7 +77,7 @@ The adapter has no config keys. The tables it reads live on the connection `db.A
 ## Best practices
 
 - On routes, prefer `@Access(permission, { resource: fromModel(Model, 'param') })`: the check runs before the handler and needs no row load ([`@spinajs/authz-http`](../authz/09-adapters-and-resolvers.md)).
-- In services, load the row by primary key, then `assert()` it. A single primary-key select passes the runtime guard without `.accessible()` ([The runtime guard](07-runtime-guard.md)).
+- In services, load the row by primary key, then `assert()` it. A single primary-key select passes the runtime guard without `.accessible()`, except inside a route whose decision is conditional ([The runtime guard](07-runtime-guard.md#single-object-loads)).
 - Pass the loaded row, not a ref, when a grant depends on `owner` or `self`: the resolver then reads the column without a second load.
 
 ## Patterns and antipatterns

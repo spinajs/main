@@ -1,4 +1,5 @@
 export * from './keys.js';
+export * from './nonce-key.js';
 export * from './assertion.js';
 export * from './httpsig.js';
 export * from './challenge.js';

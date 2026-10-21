@@ -29,7 +29,7 @@ type Admitted = { readonly answer: unknown } | { readonly actor: PrincipalRef; r
  * call changes nothing. Every answer the routes build carries no-store and no secret. The admin is the audit actor.
  * @tags Authentication
  */
-@BasePath('authn/admin/users')
+@BasePath({ config: 'authn.http.admin.basePath', default: 'authn/admin/users' })
 @Policy(CredentialAdminGuardRegistered)
 export class AuthnCredentialAdminController extends BaseController {
   @Autoinject(Container)

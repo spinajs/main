@@ -26,6 +26,12 @@ export interface HttpRoutes {
   whoami(): HttpRequest;
   mfaVerify(code: string): HttpRequest;
   mfaRecovery(code: string): HttpRequest;
+  /** Step-up of the active session the jar holds, with `code` for `step`. */
+  mfaStepUp(step: string, code: string): HttpRequest;
+  /** A route behind Authenticated and MfaSatisfied that answers 200 when both pass. */
+  mfaGated(): HttpRequest;
+  /** Re-authentication of the active session the jar holds with its password; success sets a new session cookie. */
+  reauth(password: string): HttpRequest;
   mfaEnrol(): HttpRequest;
   mfaConfirm(code: string): HttpRequest;
   mfaDisable(code: string): HttpRequest;
@@ -44,6 +50,12 @@ export interface HttpRoutes {
   adminMfaReset(target: IdentityRef): HttpRequest;
   adminSessionsRevoke(target: IdentityRef): HttpRequest;
   adminTokensRevoke(target: IdentityRef): HttpRequest;
+  passkeyChallenge(): HttpRequest;
+  passkeyLogin(body: { challengeId: string; response: unknown }): HttpRequest;
+  passkeyOptions(o: { reauthPassword?: string }): HttpRequest;
+  passkeyRegister(body: { challengeId: string; response: unknown; name?: string; reauthPassword?: string }): HttpRequest;
+  passkeyList(): HttpRequest;
+  passkeyDelete(id: string): HttpRequest;
 }
 
 export interface HttpPort {

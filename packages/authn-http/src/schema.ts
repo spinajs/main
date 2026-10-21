@@ -24,6 +24,24 @@ export const AUTHN_HTTP_CONFIGURATION_SCHEMA = {
         // Not `type: 'boolean'`: coerceTypes would turn a null into false and switch the guard off.
         enabled: { enum: [true, false], default: true },
         allowedOrigins: { type: 'array', default: [], items: { type: 'string', pattern: ORIGIN_PATTERN }, description: 'Besides the same origin, which is always allowed.' },
+        unauthenticatedRoutes: {
+          type: 'array',
+          items: { type: 'string', pattern: '^/' },
+          description: 'POST paths (after http.controllers.route.prefix) whose requests without the session cookie must still come from an allowed origin; closes login CSRF.',
+        },
+      },
+    },
+    registration: {
+      type: 'object',
+      default: {},
+      properties: {
+        notifyExisting: { enum: [true, false], default: true, description: 'POST /auth/register mails the owner of a taken address that someone tried to register with it (purpose account-exists).' },
+      },
+    },
+    admin: {
+      type: 'object',
+      properties: {
+        basePath: { type: 'string', minLength: 1, description: 'Where the credential admin routes mount, without the global route prefix. Unset: authn/admin/users.' },
       },
     },
     logout: {

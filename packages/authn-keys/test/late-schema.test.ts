@@ -53,6 +53,7 @@ describe('authn.keys in a CLI process that imports the command after the Configu
       challenge: { ttlSeconds: 120, audience: null },
       assertion: { typ: 'spinajs-client+jwt', audience: null, maxLifetimeSeconds: 300, skewSeconds: 30 },
       httpSignature: { maxAgeSeconds: 300, skewSeconds: 30, requiredComponents: ['@method', '@target-uri', 'content-digest'] },
+      cache: { ttlSeconds: 10, maxEntries: 10000 },
     });
   });
 

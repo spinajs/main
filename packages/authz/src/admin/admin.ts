@@ -4,8 +4,7 @@ import { Config } from '@spinajs/configuration';
 import { deepFreeze, quote as q } from '@spinajs/util';
 
 import { AdminGuard, AuthzAdmin, AuthzAdminFailure, AuthzCommandValidator, AuthzEventSink, AuthzWriteHandler } from '../contracts/admin.js';
-import type { AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzTx } from '../contracts/admin.js';
-import type { Assignment, LinkDef, Policy, RuleDef } from '../contracts/data.js';
+import type { AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, AuthzCommandFields, AuthzCommandOf, AuthzCommandResult, AuthzCommandRow, AuthzEvent, AuthzTx } from '../contracts/admin.js';
 import { AuthzConfigError } from '../contracts/errors.js';
 import { isPermission } from '../contracts/permission.js';
 import type { Permission } from '../contracts/permission.js';
@@ -54,6 +53,8 @@ const typeName = (t: unknown): string => (typeof t === 'function' && typeof t.na
 const className = (v: unknown): string => (isObject(v) ? typeName(v.constructor) : '') || q(v);
 const kindOf = (c: unknown): AuthzCommand['kind'] => (isObject(c) && typeof c.kind === 'string' ? c.kind : q(isObject(c) ? c.kind : c)) as AuthzCommand['kind'];
 const refOf = (p: Principal): PrincipalRef => Object.freeze({ type: p.type, id: p.id });
+// The sugar kinds belong to models the core cannot see, so their commands are put together untyped.
+const sugar = (kind: string, fields: object): AuthzCommand => ({ ...fields, kind }) as unknown as AuthzCommand;
 
 /** A deep copy without keys that look like secrets; a link token never reaches events, audit or the idempotency store. */
 function redact<T>(value: T, seen: WeakSet<object> = new WeakSet()): T {
@@ -108,21 +109,21 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     return (await this.run(actor, commands, opts, 'execute')).results;
   }
 
-  async assign(actor: Principal, a: Omit<Extract<AuthzCommand, { kind: 'assignment.grant' }>, 'kind'>, opts?: AuthzAdminOptions): Promise<Assignment> {
-    const { row } = await this.one(actor, { ...a, kind: 'assignment.grant' }, opts, { row: true });
+  async assign(actor: Principal, a: AuthzCommandFields<'assignment.grant'>, opts?: AuthzAdminOptions): Promise<AuthzCommandRow<'assignment.grant'>> {
+    const { row } = await this.one(actor, sugar('assignment.grant', a), opts, { row: true });
     if (!isObject(row) || typeof row.id !== 'string') throw new AuthzConfigError('AuthzAdmin.assign: the handler of "assignment.grant" returned no Assignment row');
-    return row as unknown as Assignment;
+    return row;
   }
 
   async revoke(actor: Principal, id: string, opts?: AuthzAdminOptions): Promise<void> {
-    await this.one(actor, { kind: 'assignment.revoke', id }, opts);
+    await this.one(actor, sugar('assignment.revoke', { id }), opts);
   }
 
-  async createLink(actor: Principal, l: Omit<Extract<AuthzCommand, { kind: 'link.create' }>, 'kind'>, opts?: AuthzAdminOptions): Promise<{ link: LinkDef; token: string }> {
-    const { result, row, replayed, dryRun } = await this.one(actor, { ...l, kind: 'link.create' }, opts, { row: true, token: true });
+  async createLink(actor: Principal, l: AuthzCommandFields<'link.create'>, opts?: AuthzAdminOptions): Promise<{ link: AuthzCommandRow<'link.create'>; token: string }> {
+    const { result, row, replayed, dryRun } = await this.one(actor, sugar('link.create', l), opts, { row: true, token: true });
     if (replayed) throw new AuthzAdminFailure('conflict', 'the link token is shown once; this idempotency key already created the link', 'idempotencyKey');
     if (!isObject(row) || typeof row.id !== 'string') throw new AuthzConfigError('AuthzAdmin.createLink: the handler of "link.create" returned no LinkDef row');
-    const link = row as unknown as LinkDef;
+    const link = row as AuthzCommandRow<'link.create'>;
     // A dry run returns token '': the link was rolled back, so no token was ever valid.
     if (dryRun) return { link, token: '' };
     if (typeof result.token !== 'string') throw new AuthzConfigError('AuthzAdmin.createLink: the handler of "link.create" returned no token');
@@ -130,27 +131,27 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
   }
 
   async revokeLink(actor: Principal, id: string, opts?: AuthzAdminOptions): Promise<void> {
-    await this.one(actor, { kind: 'link.revoke', id }, opts);
+    await this.one(actor, sugar('link.revoke', { id }), opts);
   }
 
   async setTags(actor: Principal, assignmentId: string, tags: readonly string[], opts?: AuthzAdminOptions): Promise<void> {
-    await this.one(actor, { kind: 'assignment.setTags', id: assignmentId, tags }, opts);
+    await this.one(actor, sugar('assignment.setTags', { id: assignmentId, tags }), opts);
   }
 
-  async putRule(actor: Principal, rule: Omit<RuleDef, 'source'>, opts?: AuthzAdminOptions): Promise<void> {
-    await this.one(actor, { kind: 'rule.put', rule }, opts);
+  async putRule(actor: Principal, rule: AuthzCommandOf<'rule.put'>['rule'], opts?: AuthzAdminOptions): Promise<void> {
+    await this.one(actor, sugar('rule.put', { rule }), opts);
   }
 
   async deleteRule(actor: Principal, id: string, opts?: AuthzAdminOptions): Promise<void> {
-    await this.one(actor, { kind: 'rule.delete', id }, opts);
+    await this.one(actor, sugar('rule.delete', { id }), opts);
   }
 
-  async putPolicy(actor: Principal, policy: Omit<Policy, 'source'>, opts?: AuthzAdminOptions): Promise<void> {
-    await this.one(actor, { kind: 'policy.put', policy }, opts);
+  async putPolicy(actor: Principal, policy: AuthzCommandOf<'policy.put'>['policy'], opts?: AuthzAdminOptions): Promise<void> {
+    await this.one(actor, sugar('policy.put', { policy }), opts);
   }
 
   async deletePolicy(actor: Principal, id: string, opts?: AuthzAdminOptions): Promise<void> {
-    await this.one(actor, { kind: 'policy.delete', id }, opts);
+    await this.one(actor, sugar('policy.delete', { id }), opts);
   }
 
   async setScopeAttributes(actor: Principal, scope: ResourceRef, patch: Readonly<Record<string, unknown>>, opts?: AuthzAdminOptions): Promise<void> {
@@ -161,29 +162,19 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     await this.one(actor, { kind: 'scope.forget', scope }, opts);
   }
 
-  async list(actor: Principal, query: AuthzAdminQuery): Promise<{ items: readonly unknown[]; total: number }> {
+  async list(actor: Principal, query: AuthzAdminQuery): Promise<{ items: readonly unknown[]; total: number; next?: string }> {
     const env = await this.env();
     assertActor(actor, env.where, 'list');
-    const qn = readQuery(query);
+    const readers = await this.readers(env.where);
+    const qn = readQuery(query, readers);
     const ctx = this.context(env, actor, env.clock.now(), undefined, false);
-    const resource = qn.scope ?? GLOBAL;
+    const resource = (qn as { scope?: ResourceRef }).scope ?? GLOBAL;
     const permission = mapPermission(env.cfg.permissions, `list.${qn.kind}`, resource.type, `authz:${qn.kind}.read`);
     await this.permit(env, actor, permission, resource);
 
-    const readers = new Map<string, AuthzAdminReader>();
-    for (const r of await resolveChain(this.container, AuthzAdminReader)) {
-      if (!isObject(r) || !Array.isArray(r.kinds) || typeof r.list !== 'function') throw new AuthzConfigError(`${env.where}: ${className(r)} is not an AuthzAdminReader (kinds, list)`);
-      for (const kind of r.kinds) {
-        const other = readers.get(kind);
-        if (other !== undefined && other !== r) throw new AuthzConfigError(`${env.where}: two AuthzAdminReaders claim query kind ${q(kind)}: ${className(other)} and ${className(r)}`);
-        readers.set(kind, r);
-      }
-    }
     const reader = readers.get(qn.kind);
     if (!reader) throw new AuthzAdminFailure('not_found', `no AuthzAdminReader answers query kind ${q(qn.kind)}`, 'kind');
-    const out: unknown = await reader.list(qn, ctx);
-    if (!isObject(out) || !Array.isArray(out.items) || typeof out.total !== 'number' || !Number.isInteger(out.total) || out.total < 0) throw new AuthzConfigError(`${env.where}: ${className(reader)}.list() must return { items, total }, got ${q(out)}`);
-    return { items: out.items as unknown[], total: out.total };
+    return readerAnswer(await reader.list(qn, ctx), env.where, reader);
   }
 
   /** One command through run(); a failed result throws its error. */
@@ -398,6 +389,19 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     return { where, domain, service, cfg, guard, backend, clock: domains.clock(domain), bus: domains.bus(domain), audit: domains.audit(domain) };
   }
 
+  private async readers(where: string): Promise<ReadonlyMap<string, AuthzAdminReader>> {
+    const readers = new Map<string, AuthzAdminReader>();
+    for (const r of await resolveChain(this.container, AuthzAdminReader)) {
+      if (!isObject(r) || !Array.isArray(r.kinds) || typeof r.list !== 'function') throw new AuthzConfigError(`${where}: ${className(r)} is not an AuthzAdminReader (kinds, list)`);
+      for (const kind of r.kinds) {
+        const other = readers.get(kind);
+        if (other !== undefined && other !== r) throw new AuthzConfigError(`${where}: two AuthzAdminReaders claim query kind ${q(kind)}: ${className(other)} and ${className(r)}`);
+        readers.set(kind, r);
+      }
+    }
+    return readers;
+  }
+
   private async handlers(where: string): Promise<ReadonlyMap<string, AuthzWriteHandler>> {
     const map = new Map<string, AuthzWriteHandler>();
     for (const h of await resolveChain(this.container, AuthzWriteHandler)) {
@@ -442,11 +446,21 @@ function appliedOf(out: unknown, kind: string, where: string): Applied {
   return out as unknown as Applied;
 }
 
+/** What a reader returned, checked: `{ items, total }`, and a `next` only when it is a cursor. */
+function readerAnswer(out: unknown, where: string, reader: AuthzAdminReader): { items: readonly unknown[]; total: number; next?: string } {
+  if (!isObject(out) || !Array.isArray(out.items) || typeof out.total !== 'number' || !Number.isInteger(out.total) || out.total < 0) throw new AuthzConfigError(`${where}: ${className(reader)}.list() must return { items, total }, got ${q(out)}`);
+  const next = out.next;
+  if (next === undefined) return { items: out.items as unknown[], total: out.total };
+  if (typeof next !== 'string' || next === '') throw new AuthzConfigError(`${where}: ${className(reader)}.list() returned a next that is not a non-empty string: ${q(next)}`);
+  return { items: out.items as unknown[], total: out.total, next };
+}
+
 function assertActor(actor: unknown, where: string, what: string): asserts actor is Principal {
   if (!isObject(actor) || typeof actor.type !== 'string' || typeof actor.id !== 'string') throw new AuthzConfigError(`${where}: AuthzAdmin.${what} needs a principal as the actor, got ${q(actor)}`);
 }
 
-const QUERY_KINDS: ReadonlySet<string> = new Set<AuthzAdminQuery['kind']>(['assignments', 'links', 'rules', 'policies', 'attributes', 'holders']);
+// The first-party models' kinds stay known without their reader, so a missing reader answers not_found, not invalid_query.
+const FIRST_PARTY_QUERY_KINDS: ReadonlySet<string> = new Set(['assignments', 'links', 'rules', 'policies', 'attributes', 'holders']);
 const DEFAULT_PAGE = Object.freeze({ limit: 50, offset: 0 });
 
 function copyOf(v: unknown): unknown {
@@ -459,13 +473,14 @@ function copyOf(v: unknown): unknown {
 const MAX_LIMIT = 500;
 
 /** A copy of the query with its page normalised; malformed input is an AuthzAdminFailure('invalid_query'). */
-function readQuery(query: unknown): AuthzAdminQuery {
+function readQuery(query: unknown, readers: ReadonlyMap<string, unknown>): AuthzAdminQuery {
   const bad = (message: string, field?: string): never => {
     throw new AuthzAdminFailure('invalid_query', message, field);
   };
   if (!isObject(query)) return bad(`a query must be an object, got ${q(query)}`);
   const kind = query.kind;
-  if (typeof kind !== 'string' || !QUERY_KINDS.has(kind)) return bad(`a query needs a kind of ${[...QUERY_KINDS].join(', ')}, got ${q(kind)}`, 'kind');
+  const known = new Set([...FIRST_PARTY_QUERY_KINDS, ...readers.keys()]);
+  if (typeof kind !== 'string' || !known.has(kind)) return bad(`a query needs a kind of ${[...known].join(', ')}, got ${q(kind)}`, 'kind');
   const scope = query.scope;
   if (scope !== undefined && (!isObject(scope) || typeof scope.type !== 'string' || (scope.id !== undefined && typeof scope.id !== 'string'))) bad(`scope must be a resource ref, got ${q(scope)}`, 'scope');
   if (kind === 'attributes') {
@@ -477,7 +492,7 @@ function readQuery(query: unknown): AuthzAdminQuery {
     if (!isPermission(query.permission)) bad(`permission must be a permission name, got ${q(query.permission)}`, 'permission');
     if (query.expandSets !== undefined && typeof query.expandSets !== 'boolean') bad(`expandSets must be a boolean, got ${q(query.expandSets)}`, 'expandSets');
   }
-  let page: { limit: number; offset: number } = { ...DEFAULT_PAGE };
+  let page: { limit: number; offset: number; after?: string } = { ...DEFAULT_PAGE };
   if (query.page !== undefined) {
     const p = query.page;
     if (!isObject(p)) return bad(`page must be { limit, offset }, got ${q(p)}`, 'page');
@@ -485,7 +500,10 @@ function readQuery(query: unknown): AuthzAdminQuery {
     const offset = p.offset ?? DEFAULT_PAGE.offset;
     if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1) bad(`page.limit must be an integer >= 1, got ${q(limit)}`, 'page.limit');
     if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) bad(`page.offset must be an integer >= 0, got ${q(offset)}`, 'page.offset');
-    page = { limit: Math.min(limit as number, MAX_LIMIT), offset: offset as number };
+    const after = p.after;
+    if (after !== undefined && (typeof after !== 'string' || after === '')) bad(`page.after must be a non-empty string, got ${q(after)}`, 'page.after');
+    if (after !== undefined && (offset as number) > 0) bad('page.after replaces page.offset: give one of them', 'page.after');
+    page = { limit: Math.min(limit as number, MAX_LIMIT), offset: offset as number, ...(after === undefined ? {} : { after: after as string }) };
   }
   return { ...(copyOf(query) as object), page } as unknown as AuthzAdminQuery;
 }

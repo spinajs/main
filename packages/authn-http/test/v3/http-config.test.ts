@@ -56,7 +56,7 @@ describe('authn http middlewares through @Config and the schemas', () => {
 
     it('with no user config, the effective authn.http equals the defaults of the former single authn schema', async () => {
       const { configuration } = await boot(SCHEMAS, {});
-      expect(configuration.get('authn.http')).to.deep.eq({ csrf: { enabled: true, allowedOrigins: [] } });
+      expect(configuration.get('authn.http')).to.deep.eq({ csrf: { enabled: true, allowedOrigins: [] }, registration: { notifyExisting: true } });
     });
 
     it('fills the csrf and session cookie defaults', async () => {

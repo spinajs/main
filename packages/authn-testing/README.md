@@ -106,7 +106,7 @@ canvas commit, hashes and how to refresh. The keys are public test keys.
 
 | Lane | Facets it claims |
 |---|---|
-| N1 | A01/core, A02/core, A02/external, A05/store, A05/core, A06/store, A06/core, A09/core, A13/core, A19/core, A20/core, A21/core, A23/core, A24/boot |
+| N1 | A01/core, A02/core, A02/external, A05/store, A05/core, A06/store, A06/core, A09/core, A10/flow, A13/core, A19/core, A20/core, A21/core, A23/core, A24/boot |
 | N2 | A07/store, A08/store, A09/store |
 | N3 | A02/local, A03/argon2, A04/local, A11/local, A30/local (A13/local first runs in N8b) |
 | N4 | A05/store, A06/store, A11/store, A19/store |

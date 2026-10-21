@@ -13,10 +13,11 @@ export const AUTHN_LOCAL_CONFIGURATION_SCHEMA = {
       type: 'object',
       default: {},
       description: 'No argon2 cost keys: the cost is the library default (H30).',
-      propertyNames: { enum: ['service', 'maxConcurrent'] },
+      propertyNames: { enum: ['service', 'maxConcurrent', 'maxQueue'] },
       properties: {
         service: { type: 'string', minLength: 1 },
-        maxConcurrent: { type: 'integer', minimum: 1, default: 8, description: 'Argon2 operations at once; the rest queue.' },
+        maxConcurrent: { type: 'integer', minimum: 1, description: 'Argon2 operations at once; the rest queue. Unset: UV_THREADPOOL_SIZE - 1 (at least 1).' },
+        maxQueue: { type: 'integer', minimum: 0, default: 64, description: 'Operations that may wait for a free slot; beyond it a hash or verify fails with HasherBusy.' },
       },
     },
     pepper: {
@@ -41,6 +42,13 @@ export const AUTHN_LOCAL_CONFIGURATION_SCHEMA = {
       }),
       default: { secret: null, version: 1 },
     },
+    legacyHashes: {
+      type: 'array',
+      default: [],
+      uniqueItems: true,
+      items: { enum: ['bcrypt', 'pbkdf2'] },
+      description: 'Foreign hash formats that still verify; a successful login replaces them with argon2. Empty: only argon2 verifies.',
+    },
     policy: {
       type: 'object',
       default: {},
@@ -49,7 +57,17 @@ export const AUTHN_LOCAL_CONFIGURATION_SCHEMA = {
         maxLength: { type: 'integer', minimum: { $data: '1/minLength' }, maximum: 128, default: 128 },
         rule: { type: ['object', 'null'], default: null, description: 'A JSON schema the password must match.' },
         description: { type: 'string' },
-        blocklist: { type: ['string', 'null'], default: null, description: 'PasswordBlocklist service.' },
+        blocklist: { type: ['string', 'null'], default: null, description: 'PasswordBlocklist service. The shipped config names HibpPasswordBlocklist outside development and test.' },
+        similarity: { type: 'boolean', default: true, description: 'Refuse a password equal to, containing or within 2 edits of the login, the email local part or the name.' },
+      },
+    },
+    hibp: {
+      type: 'object',
+      default: {},
+      propertyNames: { enum: ['url', 'timeoutMs'] },
+      properties: {
+        url: { type: 'string', minLength: 1, default: 'https://api.pwnedpasswords.com/range/', description: 'The range endpoint; the 5-character SHA-1 prefix is appended.' },
+        timeoutMs: { type: 'integer', minimum: 1, default: 2000, description: 'Past it the check gives up and lets the password through (fails open).' },
       },
     },
     generator: {
@@ -77,12 +95,35 @@ export const AUTHN_LOCAL_CONFIGURATION_SCHEMA = {
         ttlSeconds: { type: 'integer', minimum: 1, default: 900 },
       },
     },
+    verify: {
+      type: 'object',
+      default: {},
+      properties: {
+        ttlSeconds: { type: 'integer', minimum: 1, default: 86400 },
+        url: { type: 'string', default: '', description: 'The page that redeems the verify secret (POST /auth/verify); empty: the mail shows the secret instead of a link.' },
+      },
+    },
+    emailCode: {
+      type: 'object',
+      default: {},
+      properties: {
+        ttlSeconds: { type: 'integer', minimum: 1, default: 600, description: 'Lifetime of a mailed 6-digit code (second factor and code login).' },
+      },
+    },
     expiration: {
       type: 'object',
       default: {},
       properties: {
         enabled: { type: 'boolean', default: false },
         maxAgeDays: { type: 'number', exclusiveMinimum: 0, default: 31 },
+      },
+    },
+    mail: {
+      type: 'object',
+      default: {},
+      propertyNames: { enum: ['delivery'] },
+      properties: {
+        delivery: { enum: ['queue', 'inline'], default: 'queue', description: 'queue: an AuthnMailJob per mail; inline: delivered in this process after the answer.' },
       },
     },
   },

@@ -1,5 +1,5 @@
 import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
-import type { RuleDef } from '@spinajs/authz';
+import type { RuleDef } from '../../src/contracts.js';
 import { bootConfiguration, violationPaths } from '@spinajs/authz-testing';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';

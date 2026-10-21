@@ -8,6 +8,7 @@ export { KeyPrincipalResolver, TokenPrincipalResolver } from './resolvers/creden
 export { SessionPrincipalResolver } from './resolvers/session.js';
 export { Authenticated, NoSession } from './policies/v3/principal.js';
 export { FreshAuth, assertFreshAuth } from './policies/v3/fresh-auth.js';
+export { AuthnLogoutExtension } from './v3/logout-extension.js';
 export { MfaSatisfied } from './policies/v3/mfa.js';
 export { Identity, AuthnSession } from './args/authn.js';
 export * from './extractors/index.js';
@@ -18,3 +19,6 @@ export { AUTHN_FAILURE_BODY, authnFailureResponse, authnSessionCookie, authnClea
 export { AUTHN_HTTP_SCHEMAS, AuthnHttpSchemaProvider } from './v3/schemas.js';
 export * from './schema.js';
 export * from './bootstrap.js';
+export { WebhookAuthnEventSink } from './webhook/sink.js';
+export type { AuthnWebhookTarget } from './webhook/sink.js';
+export { WEBHOOK_SIGNATURE_HEADER, signWebhook } from './webhook/sign.js';

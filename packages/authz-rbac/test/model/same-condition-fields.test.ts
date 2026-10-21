@@ -1,5 +1,6 @@
 import { Authorizer, CORE_FILTER_OPS, DefaultConditionCompiler, GLOBAL, PermissionRegistryImpl, and, compileFieldGlobs, not, or } from '@spinajs/authz';
-import type { Assignment, ResourceFilter, ResourceRef } from '@spinajs/authz';
+import type { ResourceFilter, ResourceRef } from '@spinajs/authz';
+import type { Assignment } from '../../src/contracts.js';
 import { FakeAdapter, evaluateFilter, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import * as fc from 'fast-check';

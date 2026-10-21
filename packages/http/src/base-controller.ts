@@ -54,9 +54,20 @@ export abstract class BaseController extends AsyncService implements IController
    * Base path for all controller routes eg. my/custom/path/
    *
    * It can be defined via `@BasePath` decorator, defaults to the lower-cased class name ( `UsersController` → `userscontroller` ).
+   * `@BasePath({ config, default })` reads the path from configuration on every call.
    */
   public get BasePath(): string {
-    return this.Descriptor.BasePath ? this.Descriptor.BasePath : this.constructor.name.toLowerCase();
+    const { BasePath, BasePathConfig } = this.Descriptor;
+
+    if (BasePathConfig) {
+      const configured = this._cfg.get<unknown>(BasePathConfig, BasePath);
+      if (typeof configured !== 'string' || configured.trim() === '') {
+        throw new RouteRegistrationException(`Configuration key ${BasePathConfig} of ${this.constructor.name} must be a non-empty path string`);
+      }
+      return configured.trim().replace(/^\/+|\/+$/g, '') || '/';
+    }
+
+    return BasePath ? BasePath : this.constructor.name.toLowerCase();
   }
 
   public async resolve() {

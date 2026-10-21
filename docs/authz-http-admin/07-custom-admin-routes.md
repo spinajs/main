@@ -22,8 +22,8 @@ Your route stays a thin layer: build the commands, call `AuthzAdmin` as the requ
 | `ISO_DATE_TIME` | `RegExp` | The only strings read as a date: date, time (seconds and fraction optional), then `Z` or an offset. |
 | `parseResourceRef` | `(value: string, field: string) => ResourceRef` | `<type>` or `<type>:<id>`, split at the first `:`; `$global` is `GLOBAL`. |
 | `parseAssignmentSubject` | `(value: string, field = 'subject') => AssignmentSubject` | `<type>:<id>` or `set:<role>@<type>:<id>`. |
-| `readAssignmentsQuery` | `(q: QueryInput) => AuthzAdminQuery` | `scope`, `subject`, `role`, `includeExpired`, `limit`, `offset` as an `assignments` query. |
-| `readPageQuery` | `(kind: 'links' \| 'rules' \| 'policies', q: QueryInput) => AuthzAdminQuery` | `scope`, `limit`, `offset`. |
+| `readAssignmentsQuery` | `(q: QueryInput) => AuthzAdminQuery` | `scope`, `subject`, `role`, `includeExpired`, `limit`, and `offset` or `after` as an `assignments` query. |
+| `readPageQuery` | `(kind: 'links' \| 'rules' \| 'policies', q: QueryInput) => AuthzAdminQuery` | `scope`, `limit`, and `offset` or `after` (`after` is refused for `policies`). |
 | `readWriteOptions` | `(q: QueryInput) => AuthzAdminOptions` | `reason`, `idempotencyKey`, `dryRun`. |
 | `QueryInput` | `Readonly<Record<string, unknown>>` | A parsed query string. |
 | `adminErrorStatus` | `(code: string) => number` | `403` for `forbidden`, `escalation`, `last_holder`, `self_lockout`, `protected_role`; `404` for `not_found`; `409` for `conflict`; `400` for any other code. |

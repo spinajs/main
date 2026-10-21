@@ -58,6 +58,7 @@
     "@spinajs/configuration": "3.0.3",
     "@spinajs/di": "3.0.3",
     "@spinajs/exceptions": "3.0.3",
+    "@spinajs/log-common": "3.0.3",
     "@spinajs/orm": "3.0.3",
     "@spinajs/util": "3.0.3",
     "luxon": "^3.6.1"

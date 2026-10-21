@@ -1,4 +1,5 @@
-import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext } from '@spinajs/authz';
+import type { DecisionRequest, EvaluationContext } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject } from '../../contracts.js';
 import { isThenable } from '@spinajs/util';
 
 import { subjectKey } from '../assignments.js';

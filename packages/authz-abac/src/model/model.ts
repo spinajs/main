@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { AUTHZ_CONNECTION, AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, compareDenyReasons, FALSE, GLOBAL, TRUE, and, or, registeredFunctions, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
-import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionRequest, DenyReason, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { Policy } from '../contracts.js';
 
 import { PolicyStore } from '../contracts.js';
 import { notListFilterable, rowDependence } from './list.js';

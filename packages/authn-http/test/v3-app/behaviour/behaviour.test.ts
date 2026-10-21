@@ -2,7 +2,8 @@ import 'mocha';
 import { expect } from 'chai';
 import { planCases, runAuthnBehaviour } from '@spinajs/authn-testing';
 
-import { PORTS, ROUTES, bootBehaviourApp, httpHarness, shutdownBehaviourApp, supports } from './harness.js';
+import { PORTS, ROUTES, bootBehaviourApp, httpHarness, laneHttpHarness, shutdownBehaviourApp, supports } from './harness.js';
+import { webauthnLane } from './webauthn-harness.js';
 
 /**
  * The README's N8a facets but A09/http: two of its cases need N8b's routes (tokenList, mfaEnrol) and the kit claims
@@ -55,4 +56,8 @@ describe('N8a behaviour rules over HTTP (test/v3-app)', function () {
   });
 
   runAuthnBehaviour([...RULES], httpHarness, { title: 'authn-http: plan list (N8a task 8)', claim: [...CLAIM], facets: FACETS });
+
+  runAuthnBehaviour(['A33'], laneHttpHarness(webauthnLane), { title: 'authn-http: A33 passkeys', claim: ['A33/http'] });
+
+  runAuthnBehaviour(['A34'], httpHarness, { title: 'authn-http: A34 step-up', facets: ['A34/http'], claim: ['A34/http'] });
 });

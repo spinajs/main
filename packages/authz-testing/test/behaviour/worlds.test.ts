@@ -12,15 +12,15 @@ const fixtures = mergeFixtures(BEHAVIOUR_FIXTURES);
 const alice = userPrincipal('alice');
 
 describe('behaviour fixture catalogue', () => {
-  it('holds the 46 behaviour rules, each fixture carrying its own', () => {
-    assert.equal(Object.keys(BEHAVIOUR_RULES).length, 46);
+  it('holds the 49 behaviour rules, each fixture carrying its own', () => {
+    assert.equal(Object.keys(BEHAVIOUR_RULES).length, 49);
     for (const f of fixtures.values()) assert.equal(f.rule, BEHAVIOUR_RULES[f.id]);
   });
 
-  it('has every rule B01-B46, each with a part every lane can name', () => {
+  it('has every rule B01-B49, each with a part every lane can name', () => {
     assert.deepEqual(
       [...fixtures.keys()].sort(),
-      Array.from({ length: 46 }, (_, i) => 'B' + String(i + 1).padStart(2, '0')),
+      Array.from({ length: 49 }, (_, i) => 'B' + String(i + 1).padStart(2, '0')),
     );
     for (const f of fixtures.values()) {
       const names = f.parts.map((p) => p.name);

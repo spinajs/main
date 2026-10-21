@@ -12,6 +12,13 @@ Sensitive actions (change a password, enrol MFA, create a token, start an impers
 
 `check` never throws for a bad session or bad credentials. A successful re-authentication counts for the current request only: it changes no fact and does not rotate the session id.
 
+### Refreshing the session
+
+A route can make a re-authentication last: after `reauthenticate` succeeds, `SessionIssuer.reissue(h, { authenticatedAt: ctx.now })` moves the session to a new id with a fresh `authenticatedAt`, keeping its identity, assurance, MFA steps and data. Every fresh-auth check then passes for `maxAgeSeconds`. Two routes do this:
+
+- `POST /auth/reauth` in `@spinajs/authn-http`, with the password.
+- `GET /auth/oidc/:provider/reauth` in `@spinajs/authn-oidc`, for users who log in through an OIDC provider. The provider must log the user in again (`prompt=login`, `max_age=0`), and the callback checks the ID token's `auth_time`.
+
 `isFresh(facts, now, maxAgeSeconds)` is the pure age test, also usable on `principal.authn`. It is `true` when `authenticatedAt` lies within `maxAgeSeconds` before `now`, the boundary included. A time after `now`, an invalid time and any impersonation are not fresh. A `maxAgeSeconds` that is not a positive finite number throws `InvalidArgument`.
 
 ## Configuration
@@ -41,6 +48,7 @@ It is not named `FreshAuth`: DI keys classes by name, and the route policy in `@
 ## Best practices
 
 - Pass the password inline as `reauth` instead of sending the user to log in again: the session id stays the same.
+- When the user is about to do several sensitive actions, re-authenticate once through `POST /auth/reauth` or the OIDC reauth route instead of asking for the password on each request.
 - Set `ctx.purpose` to `reauth` when you call `check` from your own code.
 
 ## Examples
@@ -60,5 +68,6 @@ export async function guarded(check: FreshAuthCheck, session: SessionHandle, ctx
 ## Related
 
 - [Authentication flow](01-authentication-flow.md#re-authentication-reauthenticate): what `reauthenticate` checks.
-- [`@spinajs/authn-http`](../authn-http/README.md): the `FreshAuth` policy and the `reauthPassword` body field.
+- [`@spinajs/authn-http`](../authn-http/README.md): the `FreshAuth` policy, the `reauthPassword` body field and [`POST /auth/reauth`](../authn-http/08-login-logout-and-mfa-routes.md#post-authreauth).
+- [OIDC login flow](../authn-oidc/01-login-flow.md#re-authentication-get-authoidcproviderreauth): re-authentication through the provider.
 - [Account linking](10-account-linking.md) and [Impersonation](11-impersonation-and-active-role.md): both call `FreshAuthCheck`.

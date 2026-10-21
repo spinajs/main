@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import { TokenService } from '@spinajs/authn/contracts';
-import type { AuthnContext, IdentityRef, PrincipalRef, TokenCreateResult, TokenRecord, TokenValidation } from '@spinajs/authn/contracts';
+import type { AuthnContext, IdentityRef, PrincipalRef, TokenCreateResult, TokenRecord, TokenRotateResult, TokenUpdateResult, TokenValidation } from '@spinajs/authn/contracts';
 import { currentPrincipal } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 
@@ -30,6 +30,18 @@ export class RecordingTokenService extends TokenService {
   }
 
   public revoke(): Promise<boolean> {
+    throw new Error('not used');
+  }
+
+  public rotate(): Promise<TokenRotateResult> {
+    throw new Error('not used');
+  }
+
+  public update(): Promise<TokenUpdateResult> {
+    throw new Error('not used');
+  }
+
+  public revokeByPlaintext(): Promise<boolean> {
     throw new Error('not used');
   }
 

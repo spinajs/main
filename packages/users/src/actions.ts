@@ -630,7 +630,7 @@ export async function create(data: ICreateUserData, roles?: string[], actor: Pri
   const roleNames = asked.length > 0 ? asked : [...new Set(Array.isArray(configured) ? (configured as string[]) : [])];
 
   const passwords = await passwordService();
-  if (password !== undefined && (await passwords.check(password)).length > 0) {
+  if (password !== undefined && (await passwords.check(password, { login, email })).length > 0) {
     throw new InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
   }
 

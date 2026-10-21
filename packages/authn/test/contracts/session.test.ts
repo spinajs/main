@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 import { SessionIssuer } from '../../src/contracts/session.js';
-import type { SessionHandle } from '../../src/contracts/session.js';
+import type { SessionFactsChange, SessionHandle } from '../../src/contracts/session.js';
 import { Session } from '../../src/contracts/session-state.js';
 import type { IdentityRef } from '../../src/contracts/credentials.js';
 import type { AuthnFacts } from '../../src/contracts/principal.js';
@@ -59,6 +59,11 @@ class MemoryIssuer extends SessionIssuer {
     r.facts = { ...r.facts, ...more };
     return this.rotate({ id: r.id, state: r.state });
   }
+  async reissue(h: SessionHandle, change: SessionFactsChange): Promise<SessionHandle> {
+    const r = this.rows.find((x) => x.id === h.id)!;
+    r.facts = { ...r.facts, ...change };
+    return this.rotate({ id: r.id, state: r.state });
+  }
   async set(h: SessionHandle, key: string, value: unknown): Promise<void> {
     this.rows.find((x) => x.id === h.id)!.data.set(key, value);
   }
@@ -81,6 +86,11 @@ class MemoryIssuer extends SessionIssuer {
   }
   async list(subject: IdentityRef, opts?: { current?: SessionHandle }): Promise<readonly Listed[]> {
     return this.rows.filter((r) => r.identity.id === subject.id).map((r) => ({ handle: `h(${r.id})`, createdAt: new Date(0), lastSeenAt: new Date(0), ...(r.id === opts?.current?.id ? { current: true } : {}) }));
+  }
+  async revokeByExternal(provider: string, sid: string): Promise<number> {
+    const before = this.rows.length;
+    this.rows = this.rows.filter((r) => !(r.facts.external?.provider === provider && r.facts.external.sid === sid));
+    return before - this.rows.length;
   }
   impersonate(h: SessionHandle, actor: IdentityRef, target: IdentityRef): void {
     const r = this.rows.find((x) => x.id === h.id)!;
@@ -174,11 +184,14 @@ describe('session issuer contract', () => {
         { name: 'restore', modifiers: ['abstract'], optional: false, params: ['rawId'] },
         { name: 'rotate', modifiers: ['abstract'], optional: false, params: ['h'] },
         { name: 'elevate', modifiers: ['abstract'], optional: false, params: ['h', 'facts'] },
+        { name: 'reissue', modifiers: ['abstract'], optional: false, params: ['h', 'change'] },
         { name: 'set', modifiers: ['abstract'], optional: false, params: ['h', 'key', 'value'] },
         { name: 'revoke', modifiers: ['abstract'], optional: false, params: ['h'] },
         { name: 'revokeAll', modifiers: ['abstract'], optional: false, params: ['subject', 'opts'] },
         { name: 'revokeHandle', modifiers: ['abstract'], optional: false, params: ['subject', 'handle'] },
         { name: 'list', modifiers: ['abstract'], optional: false, params: ['subject', 'opts'] },
+        { name: 'revokeByExternal', modifiers: ['abstract'], optional: false, params: ['provider', 'sid'] },
+        { name: 'checkConfiguration', modifiers: [], optional: true, params: ['booting'] },
       ]);
     });
 
@@ -189,6 +202,9 @@ describe('session issuer contract', () => {
       expect(docOf(m, 'elevate')).to.contain('aal2');
       expect(docOf(m, 'elevate')).to.contain('rotates');
       expect(docOf(m, 'elevate')).to.contain('Refuses an active session');
+      expect(docOf(m, 'reissue')).to.contain('Active sessions only');
+      expect(docOf(m, 'reissue')).to.contain('Refuses a pending session');
+      expect(docOf(m, 'reissue')).to.contain('a revocation that lands during the move');
       expect(docOf(m, 'set')).to.contain('ActiveRole');
       expect(docOf(m, 'set')).to.contain('impersonation');
       expect(docOf(m, 'revokeAll')).to.contain('impersonator');
@@ -226,6 +242,9 @@ describe('session issuer contract', () => {
       same<ReturnType<SessionIssuer['rotate']>, Promise<SessionHandle>>(true);
       same<Parameters<SessionIssuer['elevate']>, [SessionHandle, Partial<AuthnFacts>]>(true);
       same<ReturnType<SessionIssuer['elevate']>, Promise<SessionHandle>>(true);
+      same<Parameters<SessionIssuer['reissue']>, [SessionHandle, SessionFactsChange]>(true);
+      same<SessionFactsChange, { readonly assurance?: 'aal2'; readonly mfa?: readonly string[]; readonly authenticatedAt?: Date }>(true);
+      same<ReturnType<SessionIssuer['reissue']>, Promise<SessionHandle>>(true);
       same<Parameters<SessionIssuer['set']>, [SessionHandle, string, unknown]>(true);
       same<ReturnType<SessionIssuer['set']>, Promise<void>>(true);
       same<Parameters<SessionIssuer['revoke']>, [SessionHandle]>(true);
@@ -268,6 +287,9 @@ describe('session issuer contract', () => {
           return h;
         }
         async elevate(h: SessionHandle): Promise<SessionHandle> {
+          return h;
+        }
+        async reissue(h: SessionHandle): Promise<SessionHandle> {
           return h;
         }
         async set(): Promise<void> {}

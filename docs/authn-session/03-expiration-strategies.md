@@ -16,7 +16,7 @@ When each step runs:
 | --- | --- | --- |
 | `issue` (active) | `save` | `initial()` |
 | `issue` (pending) | `save` | now + `authn.session.pendingTtlSeconds`, set by the issuer |
-| `restore` of an active session (not peeking) | `touch` | `renew()` |
+| `restore` of an active session (not peeking) | `touch`, only when last-seen or the expiry moves by `touchThresholdSeconds` | `renew()` |
 | `set` | `touch` | `renew()` for an active session, unchanged for a pending one |
 | `rotate` | `save` | copied from the old row |
 | `elevate` | `save` | `initial()` of the now active row, with the original `Creation` |
@@ -99,7 +99,8 @@ Keep settings of your own under a config path your app owns, as `terminals.closi
 
 - **Server-side only.** The cookie `@spinajs/authn-http` sends is a browser-session cookie with no `Max-Age`. The store enforces both timeouts; a browser that keeps the cookie gets `null` from `restore` once the row expired.
 - **`initial()` keeps an old `Creation` in check.** `SlidingCappedExpiration.initial()` is capped like `renew()`, because `elevate` gives a row with an old `Creation` a fresh initial expiration.
-- **`AbsoluteExpiration.renew()` changes nothing**, so `touch` reports no change. The issuer still calls it on every request.
+- **`AbsoluteExpiration.renew()` changes nothing**, so `touch` reports no change. A `restore` then writes only to record the last-seen time, once per `touchThresholdSeconds`.
+- **The issuer asks the strategy too.** Before it decides whether to `touch`, `DefaultSessionIssuer` calls `renew()` itself to see where the expiry would move. A strategy's `renew()` must therefore have no side effects.
 - **Missing values expire at once.** A `ttl` or `maxLifetime` that is missing at runtime (set past the schema) makes `initial()` return `Creation` or earlier: the session is born expired instead of living forever. The same holds for a missing `pendingTtlSeconds`.
 - **A pending row needs its own expiration.** `applyInitialExpiration()` throws `InvalidOperation('A pending session must carry its own expiration (authn.session.pendingTtlSeconds)')` for a pending row without one.
 - **Process clock.** The strategies and `SessionProvider.isExpired()` use `DateTime.now()` of the Node process, not the clock of a database. `isExpired()` is public: `DefaultSessionIssuer` judges a row with its store's `isExpired()`, so a store that overrides it is honoured by the issuer too.

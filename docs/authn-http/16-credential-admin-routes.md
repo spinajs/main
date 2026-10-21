@@ -54,6 +54,7 @@ Errors common to all four: 400 `invalid_send_reset` (password reset, `sendReset`
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
+| `authn.http.admin.basePath` | `string` | not set, the routes mount under `authn/admin/users` | a non-empty path without the route prefix | Where the four credential admin routes mount, for example `internal/authn/users`. They move together. |
 | `authn.local.reset.revokeTokens` | `boolean` | `true` | | An admin password reset also revokes every token; see [`@spinajs/authn-local`](../authn-local/README.md). |
 | `authn.freshAuth.maxAgeSeconds` | `integer` | `300` | `>= 1` | Freshness the admin needs. |
 | `authn.mfa.steps`, `authn.mfa.encryptionKey.secret`, `authn.mfa.policy.service` | | | | Decide whether `mfa-reset` is on, as for the [MFA enrolment routes](13-mfa-enrolment-routes.md#configuration). |

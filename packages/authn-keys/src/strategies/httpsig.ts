@@ -1,12 +1,12 @@
 import { Autoinject, Injectable } from '@spinajs/di';
-import { AuthenticationStrategy } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, NonceStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, KeyAlgorithm, SignedRequest, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { verifySignature } from '../jwk/signature.js';
 import { digestMatches, lowerCaseHeaders, signatureBase } from '../httpsig/base.js';
 import { parseByteSequenceDictionary, parseSignatureInput } from '../httpsig/fields.js';
 import type { SignatureInput } from '../httpsig/fields.js';
-import { KeyNonceStore, nonceKey } from '../nonce/store.js';
-import { KeyStrategy, MAX_CREDENTIAL_LENGTH, failure, keyThrottleKeys, usableKey } from './keys.js';
+import { nonceKey } from './nonce-key.js';
+import { KeyStrategy, MAX_CREDENTIAL_LENGTH, failure, keyThrottleKeys, requireNonceStore, usableKey } from './keys.js';
 import type { KeyStrategyDeps } from './keys.js';
 
 /** RFC 9421 algorithm names; the `alg` parameter is optional and, when sent, must name the key's algorithm. */
@@ -30,7 +30,7 @@ const isRequest = (r: unknown): r is SignedRequest => {
 };
 
 export interface HttpSignatureStrategyDeps extends KeyStrategyDeps {
-  readonly nonces?: KeyNonceStore;
+  readonly nonces?: NonceStore;
 }
 
 /**
@@ -44,11 +44,16 @@ export class HttpSignatureStrategy extends KeyStrategy<HttpSignatureStrategyDeps
   readonly kinds = ['http-signature'];
   readonly interactive = false;
 
-  @Autoinject(KeyNonceStore)
-  protected Nonces: KeyNonceStore;
+  @Autoinject(NonceStore, { optional: true })
+  protected Nonces: NonceStore | undefined;
 
-  protected get nonces(): KeyNonceStore {
-    return this.Deps?.nonces ?? this.Nonces;
+  protected get nonces(): NonceStore {
+    return requireNonceStore(this.Deps?.nonces ?? this.Nonces, this.name);
+  }
+
+  public async resolve(): Promise<void> {
+    void this.nonces;
+    await super.resolve();
   }
 
   throttleKeys(c: Credentials, ctx: AuthnContext): readonly ThrottleKey[] {

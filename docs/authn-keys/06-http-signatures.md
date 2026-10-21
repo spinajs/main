@@ -33,7 +33,7 @@ The server side:
 5. `signatureBase()` builds the RFC 9421 §2.5 base: one line `"<name>": <value>` per covered component, then `"@signature-params": <the Signature-Input member value as sent>`. A component it cannot hold (an unknown `@` name, a header that is absent, a value with CR or LF) returns `invalid_credentials`.
 6. `usableKey(registry, keyid, ctx)` reads the key. No usable key: one dummy verification (`unknownKeyWork`), then `invalid_credentials`, `revoked` or `expired`.
 7. The `alg` parameter, when sent, must name the key's algorithm. `verifySignature()` checks the signature with the key's own algorithm. Failure returns `invalid_credentials`.
-8. `KeyNonceStore.claim(nonceKey('sig', kid, nonce), expires + skewSeconds, ctx.now)` accepts the nonce once. A replay returns `invalid_credentials`.
+8. `NonceStore.claim(nonceKey('sig', kid, nonce), expires + skewSeconds, ctx.now)` accepts the nonce once. A replay returns `invalid_credentials`.
 9. The protected `success()` of `KeyStrategy` calls `KeyRegistry.touch(kid, ctx.now)` when the registry implements it, and returns the key owner as the identity, method `http-signature`, and the key's `scope` as the ceiling. A failed stamp is logged and never fails the login.
 
 Derived component values:
@@ -54,7 +54,7 @@ sequenceDiagram
   participant A as AuthnService
   participant H as HttpSignatureStrategy
   participant R as KeyRegistry
-  participant N as KeyNonceStore
+  participant N as NonceStore
   C->>X: request + Signature-Input, Signature, Content-Digest
   X->>A: { kind: 'http-signature', request: { targetUri: publicOrigin + path, ... } }
   A->>A: throttle peek on key:<keyid>
@@ -95,8 +95,8 @@ authn: {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Signature strategy | `AuthenticationStrategy`, picked by `service: 'HttpSignatureStrategy'` | `HttpSignatureStrategy` (`name: 'keys-httpsig'`, `kinds: ['http-signature']`, `interactive: false`); extends `KeyStrategy`, `@Autoinject`s `KeyRegistry` and `KeyNonceStore`, or takes them from `HttpSignatureStrategyDeps` | none | Subclass it and override `check()` to add rules; see [Custom key strategies](09-custom-key-strategies.md) |
-| Nonce store | `KeyNonceStore` | `DbKeyNonceStore` | `MemoryKeyNonceStore` | See [Replay protection](07-replay-protection.md) |
+| Signature strategy | `AuthenticationStrategy`, picked by `service: 'HttpSignatureStrategy'` | `HttpSignatureStrategy` (`name: 'keys-httpsig'`, `kinds: ['http-signature']`, `interactive: false`); extends `KeyStrategy`, `@Autoinject`s `KeyRegistry` and `NonceStore`, or takes them from `HttpSignatureStrategyDeps` | none | Subclass it and override `check()` to add rules; see [Custom key strategies](09-custom-key-strategies.md) |
+| Nonce store | `NonceStore` | `DbNonceStore` (`@spinajs/authn-orm`) | `MemoryNonceStore` | See [Replay protection](07-replay-protection.md) |
 
 The parsers are exported for clients and custom strategies: `parseSignatureInput`, `parseByteSequenceDictionary`, `signatureBase`, `digestMatches`, `lowerCaseHeaders`.
 

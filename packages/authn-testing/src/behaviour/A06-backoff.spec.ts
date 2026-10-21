@@ -236,6 +236,43 @@ export const A06: AuthnRule = defineRule('A06', 'backoff per key, never a lock',
       expectThrottled(await h.service.authenticate(c, at(IP_B)), 1, 'the attacker still waits');
     },
   }),
+  // L3: one IPv6 client holds a whole prefix, so its addresses must not each get a fresh ip key.
+  defineCase({
+    name: 'A06 IPv6 addresses of one /64 share the ip key',
+    facet: 'A06/core',
+    needs: ['service'],
+    config: { authn: { throttle: { login: { ip: { free: 3, baseDelayMs: 1000, maxDelayMs: 300000 } } } } },
+    async run(h, k) {
+      const from = (n: number, ip: string) => auth(h, k, pw(`ghost${n}@example.test`, WRONG), { ip });
+      for (let i = 0; i < 3; i++) expectFailure(await from(i, `2001:db8::${i + 1}`), 'invalid_credentials', `ghost ${i + 1}`);
+      expectThrottled(await from(3, '2001:db8::ffff'), 1, 'another address of the same /64');
+      expectFailure(await from(4, '2001:db8:0:1::1'), 'invalid_credentials', 'another /64');
+    },
+  }),
+  defineCase({
+    name: 'A06 authn.throttle.ipv6Prefix widens the shared prefix',
+    facet: 'A06/core',
+    needs: ['service'],
+    config: { authn: { throttle: { ipv6Prefix: 56, login: { ip: { free: 2, baseDelayMs: 1000, maxDelayMs: 300000 } } } } },
+    async run(h, k) {
+      const from = (n: number, ip: string) => auth(h, k, pw(`ghost${n}@example.test`, WRONG), { ip });
+      expectFailure(await from(0, '2001:db8::1'), 'invalid_credentials');
+      expectFailure(await from(1, '2001:db8:0:1::1'), 'invalid_credentials', 'a different /64 of the same /56');
+      expectThrottled(await from(2, '2001:db8:0:ff::1'), 1, 'the /56 is spent');
+    },
+  }),
+  defineCase({
+    name: 'A06 IPv4 addresses keep their own ip keys',
+    facet: 'A06/core',
+    needs: ['service'],
+    config: { authn: { throttle: { login: { ip: { free: 1, baseDelayMs: 1000, maxDelayMs: 300000 } } } } },
+    async run(h, k) {
+      const from = (n: number, ip: string) => auth(h, k, pw(`ghost${n}@example.test`, WRONG), { ip });
+      expectFailure(await from(0, IP_A), 'invalid_credentials');
+      expectThrottled(await from(1, IP_A), 1);
+      expectFailure(await from(2, IP_B), 'invalid_credentials', 'the neighbouring address');
+    },
+  }),
   defineCase({
     name: 'A06 MFA attempts count in the mfa flow',
     facet: 'A06/core',

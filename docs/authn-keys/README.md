@@ -22,8 +22,9 @@ Add one ORM driver, for example `@spinajs/orm-sqlite` or `@spinajs/orm-postgres`
 | [Challenge login](04-challenge-login.md) | `KeyRegistry.challenge` and `KeyChallengeStrategy` (`keys-challenge`): sign a one-time nonce to prove possession or to log in with a session |
 | [JWS client assertions](05-jws-assertions.md) | `JwsAssertionStrategy` (`keys-jws`): `Authorization: Bearer <jws>` signed by a registered key, per request |
 | [HTTP message signatures](06-http-signatures.md) | `HttpSignatureStrategy` (`keys-httpsig`): an RFC 9421 subset with `Content-Digest`, per request |
-| [Replay protection](07-replay-protection.md) | `KeyNonceStore`, `DbKeyNonceStore`, `MemoryKeyNonceStore`: each assertion `jti` and signature nonce is accepted once |
+| [Replay protection](07-replay-protection.md) | the core `NonceStore` (`DbNonceStore` from `@spinajs/authn-orm`): each assertion `jti` and signature nonce is accepted once; the strategies refuse to boot without one |
 | [JWS and key material](08-jws-and-key-material.md) | `StrictJwsVerifier`, `LocalJwsSigner`, JWK checks, thumbprints, strict base64url and JSON, structured-field parsers |
+| [Signing keys and rotation](10-signing-keys.md) | `authn.keys.signer` registers a `JwsSigner` from private JWKs; the key rotation runbook |
 | [Custom key strategies](09-custom-key-strategies.md) | `KeyStrategy`, the helpers and the protected hooks for writing or extending a strategy that verifies registered keys |
 
 ## Quick start

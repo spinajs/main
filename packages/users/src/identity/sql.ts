@@ -95,6 +95,17 @@ export function raw(condition: Condition): RawQuery {
   return RawQuery.create(condition.sql, condition.bindings);
 }
 
+/** @internal Sets `EmailVerifiedAt` once: a later verification keeps the first time. */
+export async function recordAddressVerifiedAt(uuid: string, at: Date): Promise<void> {
+  const driver = usersDriver();
+  await driver
+    .update()
+    .in(USERS_TABLE)
+    .update({ EmailVerifiedAt: at })
+    .where('Uuid', uuid)
+    .where(raw({ sql: `${quoted(driver, 'EmailVerifiedAt')} IS NULL`, bindings: [] }));
+}
+
 /** @internal Stamps `users.PasswordSetAt` forward only, so writes that arrive out of order never move it back. */
 export async function recordPasswordSetAt(uuid: string, at: Date): Promise<void> {
   const driver = usersDriver();

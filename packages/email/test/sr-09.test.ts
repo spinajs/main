@@ -84,7 +84,7 @@ describe('SR-09 password mails through @spinajs/email', function () {
     expectNothingHolds(dump([x.warnings, x.events.all()]), secrets);
   });
 
-  it('SR-09 a transport error holding the secret leaves it in no log, event or thrown error', async () => {
+  it('SR-09 a transport error holding the secret leaves it in no log, event or thrown error, and never reaches the caller', async () => {
     const x = setup();
     x.sender.fail = (m: IEmail) => new Error(`550 rejected ${m.model.ResetUrl} token ${m.model.Token}`, { cause: new Error(m.model.Token) });
 
@@ -95,8 +95,9 @@ describe('SR-09 password mails through @spinajs/email', function () {
     await x.service.requestReset(LOGIN, ctx());
     await x.service.drain();
 
-    expect(thrown).to.not.equal(null);
+    expect(thrown, 'invite returns before the mail is sent').to.equal(null);
     expect(x.sender.Captured).to.have.length(2);
+    expect(x.warnings, 'each failed delivery is logged by its error name').to.have.length(2);
     const secrets = x.sender.Captured.map((m: IEmail) => m.model.Token as string);
     expect(x.perf.filter((m) => m.error !== undefined)).to.have.length(2);
     expectNothingHolds(dump(thrown), secrets);

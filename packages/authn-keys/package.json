@@ -74,7 +74,16 @@
     "@spinajs/util": "3.0.3",
     "luxon": "^3.6.1"
   },
+  "peerDependencies": {
+    "@spinajs/authn-orm": "3.0.3"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/authn-orm": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@spinajs/authn-orm": "3.0.3",
     "@spinajs/authn-testing": "3.0.3",
     "@spinajs/orm-sqlite": "3.0.3"
   }

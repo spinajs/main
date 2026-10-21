@@ -18,14 +18,14 @@ Three families keep one direction:
 | Authentication (`@spinajs/authn*`) | `authn.*` | Who is calling and how sure we are |
 | Authorization (`@spinajs/authz*`) | `authz.*` | What that caller may do |
 
-No `authn*` package imports `authz*` or `users*`. `@spinajs/authz` imports only the principal types from `@spinajs/authn/contracts`. Anything authn needs from authorization is a hook contract that `@spinajs/users` implements: `ImpersonationGuard`, `CredentialAdminGuard`, `RoleSource` and `AuthnResponseExtension`.
+No `authn*` package imports `authz*` or `users*`. `@spinajs/authz` does not import authn at all: the principal contracts live in `@spinajs/principal`, which `@spinajs/authn/contracts` re-exports with the same runtime identity. Anything authn needs from authorization is a hook contract that `@spinajs/users` implements: `ImpersonationGuard`, `CredentialAdminGuard`, `RoleSource` and `AuthnResponseExtension`.
 
 ## Entry points
 
 | Import | Holds | Side effects |
 | --- | --- | --- |
 | `@spinajs/authn` | Everything below except `@spinajs/authn/boot`, plus the services | Registers `DefaultAuthnService`, `DefaultMfaPolicy`, `MemoryAuthnThrottle`, `LogAuthnAuditSink` and `AuthnConfigBootstrapper` |
-| `@spinajs/authn/contracts` | The contracts, `Session`, `SessionKeys`, `isFresh`, `SYSTEM`, `UNATTENDED`, `principalKey`, `ceilingHash`, and the [shared constants and helpers](#shared-constants-and-helpers) | None |
+| `@spinajs/authn/contracts` | The contracts, `Session`, `SessionKeys`, `isFresh`, `SYSTEM`, `UNATTENDED`, `principalKey`, `ceilingHash` (these four re-exported from `@spinajs/principal`), and the [shared constants and helpers](#shared-constants-and-helpers) | None |
 | `@spinajs/authn/schemas` | `AUTHN_CONFIGURATION_SCHEMA` | None |
 | `@spinajs/authn/register-schema` | Registers `AUTHN_CONFIGURATION_SCHEMA` at import | For modules that read `authn.*` and may load where the root never does |
 | `@spinajs/authn/env` | `authnAppEnv`, `authnEnvFellBack`, `isLenientAuthnEnv`, the throttle param checks | None |
@@ -34,6 +34,7 @@ No `authn*` package imports `authz*` or `users*`. `@spinajs/authz` imports only 
 | `@spinajs/authn/store-throttle` | `StoreAuthnThrottle` | None |
 | `@spinajs/authn/nonces` | `MemoryNonceStore` | None |
 | `@spinajs/authn/audit` | `AuthnAudit`, `AuthnEventBody`, `AuthnAuditor` | None |
+| `@spinajs/authn/bus` | `InProcessCredentialChangeBus`, `credentialTag`, `identityTag`, `credentialChangeTags` | Registers `InProcessCredentialChangeBus` as the `CredentialChangeBus` |
 
 A store package imports a subpath, not the root, when it must not register the core services.
 
@@ -68,6 +69,7 @@ The satellite packages take these from `@spinajs/authn/contracts` instead of kee
 | `MfaEnrolmentService` | The owner's enrolment in one MFA step and its admin reset, behind the `/user/mfa` routes | `TotpService` (authn-totp) | [`@spinajs/authn-totp`](../authn-totp/README.md) |
 | `PasswordService` | Change, reset, invite, expire a password | `LocalPasswordService` (authn-local) | [`@spinajs/authn-local`](../authn-local/README.md) |
 | `TokenService` | API and agent tokens | `DbTokenService` (authn-token) | [`@spinajs/authn-token`](../authn-token/README.md) |
+| `CredentialChangeBus` | Tells credential caches that a token, a key or an identity changed: `publish({ kind: 'token' \| 'key', id })` or `publish({ kind: 'identity', identity })`, and `subscribe(listener)` | `InProcessCredentialChangeBus` (core, this process only; a failing listener is logged and skipped) | [Validation cache](../authn-token/01-token-service.md#validation-cache), [Key cache](../authn-keys/02-key-registry.md#key-cache) |
 | `KeyRegistry`, `JwsVerifier`, `JwsSigner` | Public keys, strict JWS | `DefaultKeyRegistry` and the verifier (authn-keys) | [`@spinajs/authn-keys`](../authn-keys/README.md) |
 | `ImpersonationGuard`, `RoleSource`, `CredentialAdminGuard`, `AuthnResponseExtension` | Authorization questions authn asks | `AuthzImpersonationGuard`, `RbacRoleSource`, `AuthzCredentialAdminGuard`, `AccessResponseExtension` (users) | [Integration hooks](12-integration-hooks.md) |
 | `ExternalLoginHook` | Runs after an external login | Your app | [Integration hooks](12-integration-hooks.md#externalloginhook) |

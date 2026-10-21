@@ -92,6 +92,13 @@ export interface OidcClientConfig {
          */
         readonly byVerifiedEmail?: boolean;
     };
+    /** RP-initiated logout; it applies only when the provider advertises an end_session_endpoint. */
+    readonly logout?: {
+        /** Keep the validated ID token in the session, to send it as id_token_hint at logout. Default false: a stored ID token is a bearer proof of the login. */
+        readonly storeIdToken?: boolean;
+        /** Absolute; the provider must have it registered. Default: '/' on the request's origin. */
+        readonly postLogoutRedirectUri?: string;
+    };
 }
 export type OidcProviderSource = {
     readonly preset?: undefined;

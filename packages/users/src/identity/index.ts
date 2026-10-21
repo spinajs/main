@@ -4,3 +4,5 @@ export * from './password-age.js';
 export * from './account-sink.js';
 export * from './queue-sink.js';
 export * from './account-status.js';
+export * from './address-verifier.js';
+export * from './registrar.js';

@@ -32,7 +32,9 @@ const CLAIM: readonly Facet[] = ['A09/http', ...N8B_FACETS];
  */
 const EXPECTED_PENDING: Readonly<Record<string, { owner: string; needs: readonly string[] }>> = {
   'A10/totp': { owner: 'N5', needs: ['mfaStorage'] },
+  'A10/flow': { owner: 'N1', needs: ['external', 'links'] },
   'A17/jws': { owner: 'N7', needs: ['jws'] },
+  'A13/oidc': { owner: 'N10', needs: ['links', 'oidc'] },
 };
 
 /** SR cases of RULES that stay pending: A10/totp's (N5). */

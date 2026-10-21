@@ -1,5 +1,6 @@
 import { engineLog } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, HostLog, ModelInitContext, Principal, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { HostLog, ModelInitContext, Principal, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject } from '../../contracts.js';
 import { compareStrings } from '@spinajs/util';
 
 import { SubjectResolver } from '../../contracts.js';

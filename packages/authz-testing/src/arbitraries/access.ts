@@ -1,7 +1,8 @@
 import * as fc from 'fast-check';
 
 import { GLOBAL } from '@spinajs/authz';
-import type { Assignment, ResourceRef } from '@spinajs/authz';
+import type { ResourceRef } from '@spinajs/authz';
+import type { TestAssignment as Assignment } from '../model-shapes.js';
 
 import type { OrmModelSpec } from '../behaviour/lane.js';
 import type { World } from '../behaviour/types.js';

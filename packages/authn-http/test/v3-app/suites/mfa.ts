@@ -131,6 +131,75 @@ export function mfaSuite(): void {
     expect(reuse.body).to.deep.eq(AUTHN_FAILURE_BODY);
   });
 
+  describe('POST /auth/mfa/challenge', () => {
+    const ACK = { Ok: true };
+
+    it('asks the pending step to send its code for the session identity and answers 202 without caching', async () => {
+      const u = await seedUser();
+      const c = await pending(u);
+      step.challenges.length = 0;
+      const res = await c.post('/auth/mfa/challenge', {});
+      expect(res.status, JSON.stringify(res.body)).to.eq(202);
+      expect(res.body).to.deep.eq(ACK);
+      expect(res.headers['cache-control']).to.eq('no-store');
+      expect(step.challenges).to.have.length(1);
+      expect(step.challenges[0].id).to.deep.eq(u.ref);
+      expect(step.challenges[0].ctx).to.include({ purpose: 'login' });
+      expect(step.challenges[0].ctx.ip).to.be.a('string');
+      expect(step.challenges[0].ctx.session?.state).to.eq('pending');
+      expect((await c.get('/auth')).body, 'the session stays pending').to.deep.eq({ MfaRequired: ['totp'], MfaEnrol: [] });
+    });
+
+    it('takes the step from the body when it is pending, else the first pending step', async () => {
+      const u = await seedUser();
+      const c = await pending(u);
+      step.challenges.length = 0;
+      expect((await c.post('/auth/mfa/challenge', { step: 'totp' })).status).to.eq(202);
+      expect((await c.post('/auth/mfa/challenge', { step: 'no-such-step' })).status).to.eq(202);
+      expect(step.challenges).to.have.length(2);
+    });
+
+    it('answers 202 and calls nothing for a step that offers no challenge', async () => {
+      const u = await seedUser();
+      const c = await pending(u);
+      const offered = step.challenge;
+      step.challenges.length = 0;
+      step.challenge = undefined;
+      try {
+        const res = await c.post('/auth/mfa/challenge', {});
+        expect(res.status).to.eq(202);
+        expect(res.body).to.deep.eq(ACK);
+        expect(step.challenges).to.have.length(0);
+      } finally {
+        step.challenge = offered;
+      }
+    });
+
+    it('a step that throws still answers 202, with nothing of the error in the answer', async () => {
+      const u = await seedUser();
+      const c = await pending(u);
+      const offered = step.challenge;
+      step.challenge = async () => {
+        throw new Error(`mail down for ${u.login}`);
+      };
+      try {
+        const res = await c.post('/auth/mfa/challenge', {});
+        expect(res.status).to.eq(202);
+        expect(JSON.stringify(res.body)).to.not.contain(u.login);
+      } finally {
+        step.challenge = offered;
+      }
+    });
+
+    it('takes only a pending session: none 401, active 403 mfa_not_pending', async () => {
+      expect((await new Client().post('/auth/mfa/challenge', {})).status).to.eq(401);
+      const active = await loggedIn(await seedUser());
+      const res = await active.post('/auth/mfa/challenge', {});
+      expect(res.status).to.eq(403);
+      expect((res.body as { error?: string }).error).to.eq('mfa_not_pending');
+    });
+  });
+
   it('the MFA routes take only a pending session: none 401, active 403', async () => {
     for (const path of ['/auth/mfa/verify', '/auth/mfa/recovery']) {
       expect((await new Client().post(path, { code: '123456' })).status, path).to.eq(401);

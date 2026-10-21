@@ -1,8 +1,8 @@
 import { AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, CONDITION_UNKNOWN, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, registeredFunctions, resourceKey } from '@spinajs/authz';
-import type { AuthzContribution, CompiledCondition, Condition, DecisionRequest, EvaluationContext, ModelInitContext, ParsedCondition, PermissionRegistry, ResourceFilter, ResourceRef, RuleDef } from '@spinajs/authz';
+import type { AuthzContribution, CompiledCondition, Condition, DecisionRequest, EvaluationContext, ModelInitContext, ParsedCondition, PermissionRegistry, ResourceFilter, ResourceRef } from '@spinajs/authz';
 import { compareStrings, toArray } from '@spinajs/util';
 
-import type { RuleStore } from '../../contracts.js';
+import type { RuleDef, RuleStore } from '../../contracts.js';
 import type { RbacExtension, RbacExtensionFactory, RbacInput, RbacSources } from '../evaluate.js';
 import type { GrantIndex } from '../grants.js';
 import { compileLadders } from '../ladder/ladders.js';

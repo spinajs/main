@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { AuthzConfigError, GLOBAL, resourceKey } from '@spinajs/authz';
-import type { ResourceRef, RuleDef } from '@spinajs/authz';
+import type { ResourceRef } from '@spinajs/authz';
+import type { RuleDef } from '../contracts.js';
 import { Config } from '@spinajs/configuration';
 import type { Configuration } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';

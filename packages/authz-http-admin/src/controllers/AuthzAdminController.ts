@@ -4,7 +4,7 @@ import { Autoinject } from '@spinajs/di';
 import type { AuthzAdmin, AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, Principal, ResourceRef } from '@spinajs/authz';
 import { BadRequestResponse, BaseController, BasePath, Conflict, Del, ForbiddenResponse, Get, NotFound, Ok, Patch, Policy, Post, Put, Req } from '@spinajs/http';
 import type { Request, Response } from '@spinajs/http';
-import { IsAuthenticated } from '@spinajs/authz-http';
+import { IsAuthenticated, UnknownAuthzDomain, resolveAuthzDomain } from '@spinajs/authz-http';
 import { isPlainObject } from '@spinajs/util';
 
 import '../schemas/provider.js';
@@ -51,6 +51,9 @@ function withPathId(body: unknown, id: string, what: string): Record<string, unk
   return { ...o, id };
 }
 
+// The routes serve the RBAC and ABAC commands, whose AuthzCommandMap entries this package does not import.
+const byId = (kind: string, id: string): AuthzCommand => ({ kind, id }) as unknown as AuthzCommand;
+
 const LINK_PATCH_KEYS = ['expiresAt', 'attributes', 'role', 'tags'] as const;
 
 /** PATCH /authz/links/:id as one link.update; like the assignment patch, a key it does not serve is refused, not ignored. */
@@ -84,7 +87,7 @@ const scopeOf = (req: Request): ResourceRef => ({ type: param(req, 'type'), id: 
  * @tags Authz admin
  */
 @Policy(IsAuthenticated)
-@BasePath('authz')
+@BasePath({ config: 'authz.http.admin.basePath', default: 'authz' })
 export class AuthzAdminController extends BaseController {
   @Config('authz.http.admin.domain')
   protected AdminDomain: string;
@@ -92,9 +95,18 @@ export class AuthzAdminController extends BaseController {
   @Autoinject(AuthzDomains)
   protected Domains: AuthzDomains;
 
-  /** Runs a route on the domain's AuthzAdmin; an AuthzAdminFailure becomes its status with `{ error }`, anything else propagates. */
-  protected async guarded(fn: (admin: AuthzAdmin) => Promise<Response>): Promise<Response> {
-    const admin = (await this.Domains.service(this.AdminDomain)).admin();
+  /**
+   * Runs a route on the AuthzAdmin of the domain the AuthzDomainResolver names for `req`, `authz.http.admin.domain` being its fallback and the domain without a request.
+   * An AuthzAdminFailure becomes its status with `{ error }`, a domain no live domain bears 403 `unknown_domain`, anything else propagates.
+   */
+  protected async guarded(fn: (admin: AuthzAdmin) => Promise<Response>, req?: Request): Promise<Response> {
+    let admin: AuthzAdmin;
+    try {
+      admin = (await this.Domains.service(req ? await resolveAuthzDomain(req, this.AdminDomain) : this.AdminDomain)).admin();
+    } catch (e) {
+      if (e instanceof UnknownAuthzDomain) return respond(403, { error: { code: 'unknown_domain', message: e.message } });
+      throw e;
+    }
     try {
       return await fn(admin);
     } catch (e) {
@@ -108,11 +120,11 @@ export class AuthzAdminController extends BaseController {
     return this.guarded(async (admin) => {
       const opts = readWriteOptions(query(req));
       return results(await admin.execute(actorOf(req), build(), opts));
-    });
+    }, req);
   }
 
   protected list(req: Request, build: () => AuthzAdminQuery) {
-    return this.guarded(async (admin) => respond(200, await admin.list(actorOf(req), build())));
+    return this.guarded(async (admin) => respond(200, await admin.list(actorOf(req), build())), req);
   }
 
   /**
@@ -135,13 +147,13 @@ export class AuthzAdminController extends BaseController {
       const opts: Record<string, unknown> = {};
       for (const key of ['reason', 'idempotencyKey', 'dryRun'] as const) if (key in body) opts[key] = body[key];
       return results(await admin.execute(actorOf(req), decodeCommands(body.commands) as AuthzCommand[], opts as AuthzAdminOptions));
-    });
+    }, req);
   }
 
   /**
    * List assignments
    * Lists assignments, filtered by the query.
-   * Query: `scope` (`<type>` or `<type>:<id>`), `subject` (`<type>:<id>` or `set:<role>@<type>:<id>`), `role`, `includeExpired` (`true` or `false`), `limit`, `offset`.
+   * Query: `scope` (`<type>` or `<type>:<id>`), `subject` (`<type>:<id>` or `set:<role>@<type>:<id>`), `role`, `includeExpired` (`true` or `false`), `limit`, `offset` or `after` (the `next` of the previous page).
    * @response 200 {AuthzAdminPage} One page of rows
    * @response 400 {AuthzAdminError} invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
@@ -155,7 +167,7 @@ export class AuthzAdminController extends BaseController {
   /**
    * List holders
    * Who holds a permission on a resource through role assignments on it, its ancestors or $global; each principal is verified by a fresh check.
-   * Query: `scope` (`<type>:<id>`), `permission`, `expandSets` (`true` or `false`), `limit`, `offset`.
+   * Query: `scope` (`<type>:<id>`), `permission`, `expandSets` (`true` or `false`), `limit`, `offset` or `after` (the `next` of the previous page).
    * @response 200 {AuthzAdminPage} One page of holders
    * @response 400 {AuthzAdminError} invalid_query: a malformed or missing query parameter
    * @response 401 Unauthorized: a valid session or token is required
@@ -223,13 +235,13 @@ export class AuthzAdminController extends BaseController {
    */
   @Del('assignments/:id')
   public async revoke(@Req() req: Request) {
-    return this.single(req, () => [{ kind: 'assignment.revoke', id: param(req, 'id') }]);
+    return this.single(req, () => [byId('assignment.revoke', param(req, 'id'))]);
   }
 
   /**
    * List share links
    * Lists the share links, filtered by the query. A listing never carries a token or its hash: the token is shown once, when the link is created.
-   * Query: `scope` (`<type>` or `<type>:<id>`), `limit`, `offset`.
+   * Query: `scope` (`<type>` or `<type>:<id>`), `limit`, `offset` or `after` (the `next` of the previous page).
    * @response 200 {AuthzAdminPage} One page of rows
    * @response 400 {AuthzAdminError} invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
@@ -288,13 +300,13 @@ export class AuthzAdminController extends BaseController {
    */
   @Del('links/:id')
   public async revokeLink(@Req() req: Request) {
-    return this.single(req, () => [{ kind: 'link.revoke', id: param(req, 'id') }]);
+    return this.single(req, () => [byId('link.revoke', param(req, 'id'))]);
   }
 
   /**
    * List rules
    * Lists the RBAC rules held as rows.
-   * Query: `scope` (`<type>` or `<type>:<id>`), `limit`, `offset`.
+   * Query: `scope` (`<type>` or `<type>:<id>`), `limit`, `offset` or `after` (the `next` of the previous page).
    * @response 200 {AuthzAdminPage} One page of rows
    * @response 400 {AuthzAdminError} invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
@@ -335,7 +347,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Del('rules/:id')
   public async deleteRule(@Req() req: Request) {
-    return this.single(req, () => [{ kind: 'rule.delete', id: param(req, 'id') }]);
+    return this.single(req, () => [byId('rule.delete', param(req, 'id'))]);
   }
 
   /**
@@ -382,7 +394,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Del('policies/:id')
   public async deletePolicy(@Req() req: Request) {
-    return this.single(req, () => [{ kind: 'policy.delete', id: param(req, 'id') }]);
+    return this.single(req, () => [byId('policy.delete', param(req, 'id'))]);
   }
 
   /**

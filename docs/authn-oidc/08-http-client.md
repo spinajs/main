@@ -19,7 +19,7 @@ Every request to an IdP (discovery, JWKS, token, userinfo) goes through one port
 
 1. A cached document younger than one hour (`DISCOVERY_MAX_AGE_MS`) is returned.
 2. Otherwise one fetch of `<issuer>/.well-known/openid-configuration` runs; concurrent callers share it.
-3. `validate()` checks: `issuer` equals the configured issuer exactly; `authorization_endpoint`, `token_endpoint`, `jwks_uri` and (when present) `userinfo_endpoint` are absolute https URLs without credentials or fragment; `response_types_supported`, when present, lists `code`; `code_challenge_methods_supported`, when present, lists `S256`.
+3. `validate()` checks: `issuer` equals the configured issuer exactly; `authorization_endpoint`, `token_endpoint`, `jwks_uri` and (when present) `userinfo_endpoint` are absolute https URLs without credentials or fragment; `response_types_supported`, when present, lists `code`; `code_challenge_methods_supported`, when present, lists `S256`. An `end_session_endpoint` that is no such URL is dropped instead of failing the document, since only [RP-initiated logout](12-rp-initiated-logout.md) uses it.
 4. It keeps `authorization_response_iss_parameter_supported === true` as the RFC 9207 flag: the callback must then carry `iss`.
 5. A failed fetch keeps the last good document. The next attempt waits 60 seconds (`DISCOVERY_RETRY_MS`); with no document at all, calls fail until then.
 

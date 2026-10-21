@@ -6,8 +6,9 @@ import type { AuthenticationResult, AuthnContext, AuthnService, Credentials, Ide
 import type { OidcAppPath } from './contracts.js';
 import { clearFlowCookie, decodeFlow, flowCookie, flowCookieName, flowSecrets, sessionBindingOf } from './flow/cookie.js';
 import type { OidcAccountLinks } from './links.js';
-import type { FlowCookie } from './flow/cookie.js';
-import type { OidcCallbackQuery } from './provider.js';
+import type { FlowCookie, OidcFlow } from './flow/cookie.js';
+import { OIDC_ID_TOKEN_KEY } from './id-token-key.js';
+import type { OidcCallbackQuery, OidcTokenCapture } from './provider.js';
 import type { OidcCallbackPayload, OidcStrategy } from './strategy.js';
 
 /** What the HTTP layer knows about the request. */
@@ -19,7 +20,7 @@ export interface OidcRequest {
   /** A browser navigation (Sec-Fetch-Mode: navigate, or Accept lists text/html): failures redirect instead of 401. */
   readonly navigation: boolean;
   readonly ctx: AuthnContext;
-  /** The session the request restored (authn-http's AuthnSession), pending included; link routes need an active one. */
+  /** The session the request restored (authn-http's AuthnSession), pending included; link and reauth routes need an active one. */
   readonly session?: SessionHandle | null;
   /** The Sec-Fetch-Site request header, when the browser sent one. */
   readonly fetchSite?: string;
@@ -112,10 +113,15 @@ export class OidcLogin {
     const query = callbackQueryOf(req.query);
     if (!strategy || typeof flow !== 'string' || query === null) return this.failure(req);
 
-    const payload: OidcCallbackPayload = { flow, query };
+    const capture: OidcTokenCapture = {};
+    const payload: OidcCallbackPayload = { flow, query, capture };
     const credentials: Credentials = { kind: 'external', provider: strategy.name, payload: payload as unknown as Record<string, unknown> };
-    if (decodeFlow(flow)?.m === 'link') {
+    const mode = decodeFlow(flow)?.m;
+    if (mode === 'link') {
       return this.linkCallback(strategy, credentials, req);
+    }
+    if (mode === 'reauth') {
+      return this.reauthCallback(strategy, credentials, capture, req);
     }
     let result: AuthenticationResult;
     try {
@@ -131,8 +137,58 @@ export class OidcLogin {
       // An interactive strategy always gets a session from the core; without one the browser could not stay logged in.
       return this.failure(req);
     }
+    await this.keepIdToken(handle, capture);
     const returnTo = decodeFlow(flow)?.r ?? this.d.redirects.success;
     return this.moveOn(req, returnTo, [clearFlowCookie(this.d.env), this.d.sessionCookie(handle)]);
+  }
+
+  /** The login has succeeded either way: a session that cannot keep the token only loses the id_token_hint of its logout. */
+  protected async keepIdToken(handle: SessionHandle, capture: OidcTokenCapture): Promise<void> {
+    if (capture.idToken === undefined) return;
+    try {
+      await this.d.sessions.set(handle, OIDC_ID_TOKEN_KEY.name, capture.idToken);
+    } catch (err) {
+      this.d.log?.warn({ errorName: errorName(err) }, 'authn-oidc: the ID token could not be kept in the session: ${errorName}');
+    }
+  }
+
+  /**
+   * `GET /auth/oidc/:provider/reauth`: re-authenticates the current active session at the provider (prompt=login,
+   * max_age=0). The callback checks auth_time, proves the session's own identity through AuthnService.reauthenticate and
+   * moves the session to a new id with a fresh authenticatedAt; a failure leaves the session as it was.
+   */
+  public async beginReauth(provider: string, req: OidcRequest): Promise<OidcAnswer> {
+    const strategy = this.d.strategies.get(provider);
+    const session = req.session;
+    if (!strategy || !session || session.state !== 'active') return this.failure(req);
+    try {
+      const { flow, location } = await strategy.provider.begin({ redirectUri: `${req.origin}${this.d.callbackPath(provider)}`, returnTo: req.query.returnTo, mode: 'reauth', sessionHash: sessionBindingOf(session.id), now: req.ctx.now });
+      return { status: 302, location, cookies: [flowCookie(flow, this.d.env)] };
+    } catch (err) {
+      this.d.log?.warn({ provider, errorName: errorName(err) }, 'authn-oidc: could not start a re-authentication with provider ${provider}: ${errorName}');
+      return this.failure(req);
+    }
+  }
+
+  /** A reauth flow's callback: the session that started it must come back; a failure leaves it as it was. */
+  protected async reauthCallback(strategy: OidcStrategy, credentials: Credentials, capture: OidcTokenCapture, req: OidcRequest): Promise<OidcAnswer> {
+    const flow = decodeFlow((credentials as { payload?: { flow?: unknown } }).payload?.flow);
+    const hop = this.sessionHop(strategy, flow, req, true);
+    if (hop) return hop;
+    const session = req.session;
+    if (!flow || !session || session.state !== 'active' || flow.h !== sessionBindingOf(session.id)) return this.failure(req);
+    const ctx: AuthnContext = { ...req.ctx, purpose: 'reauth', session };
+    let next: SessionHandle;
+    try {
+      if (!(await this.d.service.reauthenticate(session, credentials, ctx))) return this.failure(req);
+      next = await this.d.sessions.reissue(session, { authenticatedAt: ctx.now });
+    } catch (err) {
+      this.d.log?.warn({ strategy: strategy.name, errorName: errorName(err) }, 'authn-oidc: the re-authentication with ${strategy} failed: ${errorName}');
+      return this.failure(req);
+    }
+    // The reissued session carries the login's ID token over; the newer one is the better id_token_hint.
+    await this.keepIdToken(next, capture);
+    return this.moveOn(req, flow.r ?? this.d.redirects.success, [clearFlowCookie(this.d.env), this.d.sessionCookie(next)]);
   }
 
   /**
@@ -158,18 +214,8 @@ export class OidcLogin {
   /** A link flow's callback: the same session must come back, then the link service decides (fresh auth, A19). */
   protected async linkCallback(strategy: OidcStrategy, credentials: Credentials, req: OidcRequest): Promise<OidcAnswer> {
     const session = req.session;
-    const flow = decodeFlow((credentials as { payload?: { flow?: unknown } }).payload?.flow);
-    const ours = flow !== null && typeof req.query.state === 'string' && req.query.state === flowSecrets(flow).state;
-    if (!session && this.d.linker && ours && req.navigation && req.query.bounce === undefined) {
-      // The Strict session cookie did not come with the cross-site arrival; one same-site hop brings it (nothing consumed yet).
-      const again = new URLSearchParams();
-      for (const k of QUERY_KEYS) {
-        const v = req.query[k];
-        if (typeof v === 'string') again.set(k, v);
-      }
-      again.set('bounce', '1');
-      return { status: 200, cookies: [], html: refreshPage(`${this.d.callbackPath(strategy.provider.name)}?${again.toString()}`) };
-    }
+    const hop = this.sessionHop(strategy, decodeFlow((credentials as { payload?: { flow?: unknown } }).payload?.flow), req, Boolean(this.d.linker));
+    if (hop) return hop;
     if (!this.d.linker || !session || session.state !== 'active') return this.failure(req);
     const ctx: AuthnContext = { ...req.ctx, purpose: 'link', session };
     try {
@@ -181,6 +227,22 @@ export class OidcLogin {
       return this.failure(req);
     }
     return this.moveOn(req, this.d.redirects.success, [clearFlowCookie(this.d.env)]);
+  }
+
+  /**
+   * The Strict session cookie does not come with the cross-site arrival of a callback that needs the session; one
+   * same-site hop brings it, before anything is consumed. Null when no hop is due.
+   */
+  protected sessionHop(strategy: OidcStrategy, flow: OidcFlow | null, req: OidcRequest, enabled: boolean): OidcAnswer | null {
+    const ours = flow !== null && typeof req.query.state === 'string' && req.query.state === flowSecrets(flow).state;
+    if (req.session || !enabled || !ours || !req.navigation || req.query.bounce !== undefined) return null;
+    const again = new URLSearchParams();
+    for (const k of QUERY_KEYS) {
+      const v = req.query[k];
+      if (typeof v === 'string') again.set(k, v);
+    }
+    again.set('bounce', '1');
+    return { status: 200, cookies: [], html: refreshPage(`${this.d.callbackPath(strategy.provider.name)}?${again.toString()}`) };
   }
 
   /** Success: a browser gets the same-site refresh page, any other client a 303. */

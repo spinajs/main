@@ -1,5 +1,6 @@
 import { GLOBAL, TRUE } from '@spinajs/authz';
-import type { Assignment, CombiningAlgorithm, DenyReason, ModelListPlan, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Value } from '@spinajs/authz';
+import type { CombiningAlgorithm, DenyReason, ModelListPlan, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Value } from '@spinajs/authz';
+import type { TestAssignment as Assignment } from '../model-shapes.js';
 
 import type { TestGrantDef, TestRoleDef } from '../arbitraries/rbac.js';
 import type { ScriptedVote } from '../fakes/index.js';

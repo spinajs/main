@@ -5,7 +5,7 @@ import type { HttpRoutes } from '../harness/http.js';
 import type { Harness, Need, PortName } from '../harness/ports.js';
 import type { CookieJar } from '../helpers/cookies.js';
 
-export const RULE_IDS = ['A01', 'A02', 'A03', 'A04', 'A05', 'A06', 'A07', 'A08', 'A09', 'A10', 'A11', 'A12', 'A13', 'A14', 'A15', 'A16', 'A17', 'A18', 'A19', 'A20', 'A21', 'A22', 'A23', 'A24', 'A25', 'A26', 'A27', 'A30', 'A31'] as const;
+export const RULE_IDS = ['A01', 'A02', 'A03', 'A04', 'A05', 'A06', 'A07', 'A08', 'A09', 'A10', 'A11', 'A12', 'A13', 'A14', 'A15', 'A16', 'A17', 'A18', 'A19', 'A20', 'A21', 'A22', 'A23', 'A24', 'A25', 'A26', 'A27', 'A30', 'A31', 'A32', 'A33', 'A34', 'A35', 'A36'] as const;
 export type RuleId = (typeof RULE_IDS)[number];
 
 export const FACET_KINDS = ['core', 'store', 'http', 'local', 'argon2', 'external', 'step', 'totp', 'token', 'jwt', 'keys', 'jws', 'oidc', 'api', 'identity', 'flow', 'lifecycle', 'boot', 'config'] as const;
@@ -50,6 +50,8 @@ const portNames = {
   identityMeta: 1,
   boot: 1,
   actors: 1,
+  webauthn: 1,
+  registrar: 1,
   http: 1,
 } satisfies Record<PortName, 1>;
 export const PORT_NAMES = Object.keys(portNames) as readonly PortName[];
@@ -60,6 +62,9 @@ const routeNames = {
   whoami: 1,
   mfaVerify: 1,
   mfaRecovery: 1,
+  mfaStepUp: 1,
+  mfaGated: 1,
+  reauth: 1,
   mfaEnrol: 1,
   mfaConfirm: 1,
   mfaDisable: 1,
@@ -78,6 +83,12 @@ const routeNames = {
   adminMfaReset: 1,
   adminSessionsRevoke: 1,
   adminTokensRevoke: 1,
+  passkeyChallenge: 1,
+  passkeyLogin: 1,
+  passkeyOptions: 1,
+  passkeyRegister: 1,
+  passkeyList: 1,
+  passkeyDelete: 1,
 } satisfies Record<keyof HttpRoutes, 1>;
 export const ROUTE_NAMES = Object.keys(routeNames) as readonly (keyof HttpRoutes)[];
 

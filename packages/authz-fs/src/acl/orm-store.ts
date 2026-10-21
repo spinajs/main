@@ -38,7 +38,8 @@ const IN_CHUNK = 500;
 /**
  * FileAclStore over `fs_acl` (migration AuthzFsAcl_2026_10_17_00_00_00). Reads are narrowed in SQL by `path_hash`
  * (the indexed key) and decided by an exact comparison of `path` in code, and rows change by id, so a table created
- * with a case-insensitive collation never merges two paths.
+ * with a case-insensitive collation never merges two paths. Tree reads (`deleteTree`, `moveTree`) go by
+ * `(fs, path)`, the index of AuthzFsAclPathIndex_2026_10_21_00_00_00.
  */
 @Injectable(FileAclStore)
 export class OrmFileAclStore extends FileAclStore {

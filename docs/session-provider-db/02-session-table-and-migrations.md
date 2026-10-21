@@ -19,6 +19,7 @@ When no connection or alias has the name, `Orm` logs `Cannot find connection ses
 
 1. Creates `user_sessions` with the columns listed under [Schema](#user_sessions).
 2. Creates the unique index `session_id_user_session_idx` on `SessionId`, and the indexes `user_sessions_subject_idx` on `Subject` and `user_sessions_impersonator_idx` on `ImpersonatorId`.
+3. `UserSessionExpirationIndex_2026_10_21_00_00_00` adds the index `user_sessions_expiration_idx` on `Expiration`, which the expired-session sweep reads.
 
 `down()` drops the table.
 
@@ -66,6 +67,7 @@ this.Config = _.merge(this.Config, {
 | `Subject` | `VARCHAR(100)`, nullable, index `user_sessions_subject_idx` | Principal key of the owner. The store reads a row without one as absent. |
 | `ImpersonatorId` | `VARCHAR(100)`, nullable, index `user_sessions_impersonator_idx` | Principal key of the impersonator; `NULL` when nobody impersonates. |
 | `State` | `VARCHAR(16)`, nullable, no default | `active` or `pending`. Any other value reads as `pending`; `touch()` never updates a row with `NULL`. |
+| `ExternalKey` | `VARCHAR(64)`, nullable, index `user_sessions_external_key_idx` | `sha256(provider + NUL + sid)` of a login whose ID token carried `sid`; read by back-channel logout. Added by `UserSessionExternalKey_2026_10_21_00_01_00`. |
 
 ### `DbSession` model
 
@@ -78,6 +80,7 @@ this.Config = _.merge(this.Config, {
 | `Subject` | `string \| null` | `Subject` |
 | `ImpersonatorId` | `string \| null` | `ImpersonatorId` |
 | `State` | `string \| null` | `State` |
+| `ExternalKey` | `string \| null` | `ExternalKey` |
 
 ## Services and extension points
 

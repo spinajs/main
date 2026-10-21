@@ -29,7 +29,7 @@ Boot fails when:
 | `throttleKeys(credentials, ctx)` | The keys this attempt counts against. A per-request strategy derives them from the credential's stable id (a token id, a key id), never from the raw secret |
 | `verify(credentials, ctx)` | Returns a `StrategyOutcome`. It must take the same time for an unknown account as for a known one |
 
-`StrategyOutcome` is `{ ok: false, reason }` or `{ ok: true, method, identity | external, ceiling?, delegation?, attributes? }`:
+`StrategyOutcome` is `{ ok: false, reason, retryAfterSeconds? }` or `{ ok: true, method, identity | external, ceiling?, delegation?, attributes? }`:
 
 - exactly one of `identity` (an `IdentityRef`) and `external` (an `ExternalSubject` the core links to an identity);
 - `method` becomes `AuthnFacts.method`. `DefaultMfaPolicy` asks for MFA only when it is `password`;
@@ -37,7 +37,9 @@ Boot fails when:
 - `delegation` makes the principal act on behalf of another identity (agent tokens);
 - `attributes` reach `Principal.attributes`. Set only keys your strategy owns, from server-side records or validated claims.
 
-A `reason` must be one of `invalid_credentials`, `unsupported_credentials`, `expired`, `revoked`, `not_linked`. Any other shape counts as a broken strategy and fails the attempt.
+A `reason` must be one of `invalid_credentials`, `unsupported_credentials`, `expired`, `revoked`, `not_linked`, `throttled`. Any other shape counts as a broken strategy and fails the attempt.
+
+A strategy answers `throttled` only when it is short of capacity (the local strategy does it when its hasher queue is full), not to back off a client: the core's `AuthnThrottle` does that. `retryAfterSeconds` is the wait the client should observe; a missing or invalid value counts as 1. The result is a `throttled` failure with that wait, audited as a failed login with reason `throttled`.
 
 ### Optional members
 

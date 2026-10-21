@@ -1,5 +1,6 @@
 import { DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, PermissionInput, Principal, ResourceRef, Vote } from '@spinajs/authz';
+import type { PermissionInput, Principal, ResourceRef, Vote } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject } from '../../src/contracts.js';
 import { FakeScopeResolver, evaluateFilter, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';

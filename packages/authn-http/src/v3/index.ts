@@ -3,7 +3,7 @@
 export { Authenticated, NoSession, NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy } from '../policies/v3/principal.js';
 export { FreshAuth, assertFreshAuth, REAUTH_PASSWORD_FIELD, PASSWORD_HARD_CAP } from '../policies/v3/fresh-auth.js';
 export { MfaSatisfied, PendingMfaEnrolment } from '../policies/v3/mfa.js';
-export { RoleSourceRegistered, ImpersonationGuardRegistered } from '../policies/v3/groups.js';
+export { RoleSourceRegistered, ImpersonationGuardRegistered, JwsSignerRegistered, IdentityRegistrarRegistered } from '../policies/v3/groups.js';
 export { AUTHN_FAILURE } from '../policies/v3/errors.js';
 export { AUTHN_FAILURE_BODY, authnFailureResponse, authnSessionCookie, authnClearedSessionCookie } from './responses.js';
 export { Identity, AuthnSession, SessionId, FromSession } from '../args/authn.js';

@@ -1,8 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
+import { InvalidOption } from '@spinajs/exceptions';
 import type { IContainer } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
-import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionHandle } from '@spinajs/authn/contracts';
+import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionFactsChange, SessionHandle } from '@spinajs/authn/contracts';
+import { authnAppEnv, isLenientAuthnEnv } from '@spinajs/authn/env';
 import type { SessionStoragePort } from '../harness/ports.js';
 
 export interface MemorySessionOptions {
@@ -10,6 +13,8 @@ export interface MemorySessionOptions {
   readonly absoluteMinutes?: number;
   readonly pendingTtlSeconds?: number;
   readonly container?: IContainer;
+  /** Behaves as an issuer over MemorySessionStore: the boot refuses it outside development and test unless authn.session.allowMemoryStore is true. */
+  readonly memoryBacked?: boolean;
 }
 
 interface Row {
@@ -36,6 +41,7 @@ export class MemorySessionIssuer extends SessionIssuer {
   private readonly absoluteMs: number;
   private readonly pendingMs: number;
   private readonly container: IContainer;
+  private readonly memoryBacked: boolean;
 
   constructor(opts: MemorySessionOptions = {}) {
     super();
@@ -43,9 +49,18 @@ export class MemorySessionIssuer extends SessionIssuer {
     this.absoluteMs = (opts.absoluteMinutes ?? 480) * 60_000;
     this.pendingMs = (opts.pendingTtlSeconds ?? 300) * 1000;
     this.container = opts.container ?? DI.RootContainer;
+    this.memoryBacked = opts.memoryBacked ?? false;
     this.storage = {
       storedKeys: async () => [...this.rows.keys()],
     };
+  }
+
+  async checkConfiguration(booting: { get<T>(path: string | string[]): T }): Promise<void> {
+    if (!this.memoryBacked || booting.get<boolean | undefined>('authn.session.allowMemoryStore') === true) return;
+    const env = authnAppEnv(booting);
+    if (!isLenientAuthnEnv(env)) {
+      throw new InvalidOption(`MemorySessionStore is refused in env ${JSON.stringify(env ?? 'unset')}: sessions would vanish on restart and not be shared; use @spinajs/session-provider-db, or set authn.session.allowMemoryStore to true`);
+    }
   }
 
   private newId(): string {
@@ -73,7 +88,8 @@ export class MemorySessionIssuer extends SessionIssuer {
   private need(h: SessionHandle): { key: string; row: Row } {
     const found = this.find(h);
     if (!found) {
-      throw new Error('unknown or expired session');
+      // The issuer contract's error: routes map it to the caller's session having ended.
+      throw new InvalidOperation('unknown or expired session');
     }
     return found;
   }
@@ -139,6 +155,21 @@ export class MemorySessionIssuer extends SessionIssuer {
     return this.place(row);
   }
 
+  async reissue(h: SessionHandle, change: SessionFactsChange): Promise<SessionHandle> {
+    const { key, row } = this.need(h);
+    if (row.state !== 'active') {
+      throw new Error('a pending session cannot be reissued');
+    }
+    row.facts = {
+      ...row.facts,
+      ...(change.assurance === 'aal2' ? { assurance: 'aal2' as const } : {}),
+      ...(change.mfa ? { mfa: [...change.mfa] } : {}),
+      ...(change.authenticatedAt ? { authenticatedAt: change.authenticatedAt } : {}),
+    };
+    this.rows.delete(key);
+    return this.place(row);
+  }
+
   async set(h: SessionHandle, key: string, value: unknown): Promise<void> {
     if (RESERVED.has(key)) {
       throw new Error(`reserved session key: ${key}`);
@@ -176,6 +207,20 @@ export class MemorySessionIssuer extends SessionIssuer {
       }
     }
     return false;
+  }
+
+  async revokeByExternal(provider: string, sid: string): Promise<number> {
+    const now = Date.now();
+    let count = 0;
+    for (const [key, row] of [...this.rows]) {
+      if (row.facts.external?.provider === provider && row.facts.external.sid === sid) {
+        this.rows.delete(key);
+        if (this.alive(row, now)) {
+          count++;
+        }
+      }
+    }
+    return count;
   }
 
   async list(subject: IdentityRef, opts?: { current?: SessionHandle }): Promise<readonly { handle: string; createdAt: Date; lastSeenAt: Date; ip?: string; userAgent?: string; current?: boolean }[]> {

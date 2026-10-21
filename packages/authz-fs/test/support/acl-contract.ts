@@ -2,7 +2,8 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { randomUUID } from 'node:crypto';
 
-import type { AssignmentSubject, PrincipalRef } from '@spinajs/authz';
+import type { PrincipalRef } from '@spinajs/authz';
+import type { AssignmentSubject } from '@spinajs/authz-rbac';
 import { InvalidArgument } from '@spinajs/exceptions';
 
 import type { FileAclStore, FsAclRow } from '../../src/index.js';

@@ -1,17 +1,12 @@
 import { commandSchemas, policyBody, ruleBody } from './commands.js';
-import { anyObject, assignmentSubject, nullableDateTime, obj, resourceRef, tags, text } from './primitives.js';
+import { anyObject, assignmentSubject, commandBatch, nullableDateTime, obj, resourceRef, tags, text } from './primitives.js';
 import type { JsonSchema } from './primitives.js';
 
 const { id: _ruleId, ...ruleFields } = ruleBody.properties as Record<string, JsonSchema>;
 const { id: _policyId, ...policyFields } = policyBody.properties as Record<string, JsonSchema>;
 
-const writeOptions = {
-  reason: { ...text, description: 'goes to the audit trail' },
-  idempotencyKey: { ...text, description: 'a retried batch with the same key returns the first result' },
-  dryRun: { type: 'boolean', description: 'validate and guard, then roll back' },
-};
-
-export const AuthzAdminBatch: JsonSchema = obj(['commands'], { commands: { type: 'array', items: { oneOf: commandSchemas } }, ...writeOptions }, 'POST /authz/commands: the commands run in one transaction, in order; the first failure rolls the batch back');
+/** Over the built-in command schemas; AuthzAdminSchemaProvider serves it over every registered source. */
+export const AuthzAdminBatch: JsonSchema = commandBatch(commandSchemas);
 
 export const AuthzAssignmentGrant: JsonSchema = obj(['subject', 'role', 'scope'], { subject: assignmentSubject, role: text, scope: resourceRef, tags, expiresAt: nullableDateTime, replaceLadder: { type: 'boolean' } }, 'POST /authz/assignments: the fields of assignment.grant (reason, idempotencyKey and dryRun go in the query string)');
 
@@ -46,6 +41,6 @@ export const AuthzCommandResult: JsonSchema = { ...commandResult, description: '
 
 export const AuthzAdminResults: JsonSchema = obj(['results'], { results: { type: 'array', items: commandResult, description: 'one per command, in order; the first failure ends the list' } }, 'The answer of a write route: 200 when every command succeeded, else the status of the first failure, with the same body');
 
-export const AuthzAdminPage: JsonSchema = obj(['items', 'total'], { items: { type: 'array', items: anyObject }, total: { type: 'integer', description: 'rows matching before paging' } }, 'The answer of a list route');
+export const AuthzAdminPage: JsonSchema = obj(['items', 'total'], { items: { type: 'array', items: anyObject }, total: { type: 'integer', description: 'rows matching before paging' }, next: { type: 'string', description: 'pass it as `after` to read the following page; absent on the last page and on offset pages' } }, 'The answer of a list route');
 
 export const AuthzAdminAttributes: JsonSchema = { ...anyObject, description: 'The attributes of a scope' };

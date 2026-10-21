@@ -36,7 +36,7 @@ interface Run {
 // Plain JS for the ESM and the CJS child: the built package, loaded as an app loads it.
 const ROUTE_ARG_NAMES = ['AuthnIdentityArg', 'AuthnSessionArg', 'AuthnSessionIdArg', 'AuthnSessionDataArg'];
 
-const V3_CONTROLLERS = ['AuthnLoginController', 'AuthnMfaController', 'AuthnSessionsController', 'AuthnActiveRoleController', 'AuthnImpersonationController'];
+const V3_CONTROLLERS = ['AuthnLoginController', 'AuthnMfaController', 'AuthnReauthController', 'AuthnSessionsController', 'AuthnActiveRoleController', 'AuthnImpersonationController'];
 
 const BODY = `
   const ROUTE_ARGS = ${JSON.stringify(ROUTE_ARG_NAMES)};

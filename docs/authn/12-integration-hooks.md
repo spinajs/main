@@ -69,7 +69,7 @@ export class AssuranceResponseExtension extends AuthnResponseExtension {
 
 ## `SessionStartHook`
 
-`onStart(kind, session, principal, sessions)` runs once per new active session: `kind` is `login` (password and key login) or `mfa` (the MFA completion of a pending login); a pending login asks no hook. It returns a `Ceiling` or `undefined`:
+`onStart(kind, session, principal, sessions)` runs once per new active session: `kind` is `login` (password, key, email code and passkey login) or `mfa` (the MFA completion of a pending login); a pending login, a step-up (`POST /auth/mfa/step-up`) and a re-authentication (`POST /auth/reauth`) ask no hook, so they keep the session's `ActiveRole`. It returns a `Ceiling` or `undefined`:
 
 1. The hooks are asked in registration order; the first one that answers a ceiling decides, and later ones are not asked.
 2. The ceiling must name at most one role and nothing else: `{ roles: [role] }`, or `{ roles: [] }` for none. It is stored as the session's `ActiveRole`, the key a role switch writes, so `GET /auth/active-role` shows it, every later request carries it as `ceiling.roles`, and the user switches away from it as from any role switch.

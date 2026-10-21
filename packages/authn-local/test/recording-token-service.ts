@@ -1,5 +1,5 @@
 import { TokenService } from '@spinajs/authn/contracts';
-import type { AuthnContext, IdentityRef, PrincipalRef, TokenCreateOptions, TokenCreateResult, TokenRecord, TokenValidation } from '@spinajs/authn/contracts';
+import type { AuthnContext, IdentityRef, PrincipalRef, TokenCreateOptions, TokenCreateResult, TokenRecord, TokenRotateResult, TokenUpdate, TokenUpdateResult, TokenValidation } from '@spinajs/authn/contracts';
 
 /** Records every call; only revokeAllFor answers, the rest fail the test if reached. */
 export class RecordingTokenService extends TokenService {
@@ -24,9 +24,24 @@ export class RecordingTokenService extends TokenService {
     return false;
   }
 
+  public async rotate(owner: IdentityRef, id: string, ctx: AuthnContext, opts?: { readonly graceSeconds?: number }): Promise<TokenRotateResult> {
+    this.record('rotate', [owner, id, ctx, opts]);
+    throw new Error('RecordingTokenService.rotate is not expected here');
+  }
+
+  public async update(owner: IdentityRef, id: string, change: TokenUpdate, ctx: AuthnContext): Promise<TokenUpdateResult> {
+    this.record('update', [owner, id, change, ctx]);
+    throw new Error('RecordingTokenService.update is not expected here');
+  }
+
   public async revokeAllFor(owner: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<number> {
     this.record('revokeAllFor', [owner, ctx, opts]);
     return 0;
+  }
+
+  public async revokeByPlaintext(raw: string, ctx: AuthnContext): Promise<boolean> {
+    this.record('revokeByPlaintext', [raw, ctx]);
+    throw new Error('RecordingTokenService.revokeByPlaintext is not expected here');
   }
 
   public async validate(raw: string, ctx: AuthnContext): Promise<TokenValidation> {
