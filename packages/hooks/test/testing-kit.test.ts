@@ -158,7 +158,7 @@ describe('@spinajs/hooks/testing', function () {
 });
 
 describe('@spinajs/hooks/testing subpath', () => {
-  it('exports the same kit as the source module', async () => {
+  it('resolves the testing subpath', async () => {
     const viaPackage = await import('@spinajs/hooks/testing');
 
     expect(viaPackage.RecordingActionHook).to.be.a('function');

@@ -38,7 +38,7 @@ describe('hooks configuration schema', function () {
   });
 
   it('rejects an unknown key under hooks', async () => {
-    const e = await rejectionOf(boot({ hooks: { timeoutMs: 100, timeout: 5 } }));
+    const e = await rejectionOf(boot({ hooks: { maxDepth: 4, timeout: 5 } }));
 
     expect(String((e as Error).message)).to.contain('timeout');
   });
