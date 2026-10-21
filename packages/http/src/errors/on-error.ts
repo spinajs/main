@@ -38,12 +38,15 @@ export abstract class ErrorHandlerService {
 
 const STAGE = Symbol('errorStage');
 
-export function markStage(res: express.Response, stage: ErrorStage): void {
-  (res.locals as Record<symbol, ErrorStage>)[STAGE] = stage;
+// Tolerates a response without `locals`: the route-builder helpers are also called with bare stubs.
+export function markStage(res: express.Response | undefined, stage: ErrorStage): void {
+  if (res?.locals) {
+    (res.locals as Record<symbol, ErrorStage>)[STAGE] = stage;
+  }
 }
 
-export function stageOf(res: express.Response): ErrorStage {
-  return (res.locals as Record<symbol, ErrorStage>)[STAGE] ?? 'action';
+export function stageOf(res: express.Response | undefined): ErrorStage {
+  return (res?.locals as Record<symbol, ErrorStage> | undefined)?.[STAGE] ?? 'action';
 }
 
 export function toErrorDescriptor(service: ErrorHandlerService): IOnErrorDescriptor {

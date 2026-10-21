@@ -69,6 +69,7 @@ describe('Per-path body limits', function () {
       DI.uncache(c);
     }
     DI.uncache(BaseController);
+    DI.unregister(BodyLimitsConfiguration);
     DI.uncache(Configuration);
   });
 

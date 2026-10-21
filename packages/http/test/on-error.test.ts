@@ -206,6 +206,7 @@ describe('OnError', function () {
       DI.uncache(c);
     }
     DI.uncache(BaseController);
+    DI.unregister(OnErrorConfiguration);
     DI.uncache(Configuration);
   });
 
