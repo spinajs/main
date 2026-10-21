@@ -1,0 +1,77 @@
+import { expect } from 'chai';
+import { DI } from '@spinajs/di';
+import { EmailVerificationStore } from '../src/contracts.js';
+import { MemoryEmailVerificationStore } from '../src/stores/memory.js';
+import { ListVerifier } from '../src/verifiers/list.js';
+import { boot, shutdown } from './support.js';
+
+const TYPES = [EmailVerificationStore, MemoryEmailVerificationStore];
+const verifier = () => boot(ListVerifier, { lists: { refreshSeconds: 1, sources: [] } }, TYPES);
+const store = () => DI.resolve(MemoryEmailVerificationStore);
+
+describe('ListVerifier', () => {
+  afterEach(shutdown);
+
+  it('answers unknown for a domain on no list', async () => {
+    expect(await (await verifier()).verify('x.com')).to.deep.eq({ result: 'unknown' });
+  });
+
+  it('refuses a blocked domain and its subdomains, naming the source', async () => {
+    const v = await verifier();
+    await (await store()).upsertEntries([{ domain: 'mailinator.com', kind: 'block', source: 'admin' }]);
+    await v.reload();
+    expect(await v.verify('x.mailinator.com')).to.deep.eq({ result: 'refuse', reason: 'listed', source: 'list:admin' });
+  });
+
+  it('lets an allow entry win over a block entry', async () => {
+    const v = await verifier();
+    const s = await store();
+    await s.replaceSource('sync', 'block', ['x.foo.com']);
+    await s.upsertEntries([{ domain: 'foo.com', kind: 'allow', source: 'admin' }]);
+    await v.reload();
+    expect(await v.verify('x.foo.com')).to.deep.eq({ result: 'allow', source: 'list:admin' });
+  });
+
+  it('reloads on refresh only when the list version moved', async () => {
+    const v = await verifier();
+    const s = await store();
+    let loads = 0;
+    const load = s.loadLists.bind(s);
+    s.loadLists = async () => {
+      loads++;
+      return load();
+    };
+    await v.refresh();
+    expect(loads).to.eq(0);
+    await s.upsertEntries([{ domain: 'new.com', kind: 'block', source: 'admin' }]);
+    await v.refresh();
+    expect(loads).to.eq(1);
+    expect((await v.verify('new.com')).result).to.eq('refuse');
+  });
+
+  it('matches block-mx hosts by label suffix', async () => {
+    const v = await verifier();
+    await (await store()).upsertEntries([{ domain: 'mx.trash.io', kind: 'block-mx', source: 'admin' }]);
+    await v.reload();
+    expect(v.match('block-mx', 'a.mx.trash.io')).to.eq('admin');
+    expect(v.match('block-mx', 'mx.trash.io.evil.com')).to.eq(undefined);
+  });
+
+  it('starts empty when the store cannot load the lists', async () => {
+    const original = MemoryEmailVerificationStore.prototype.loadLists;
+    MemoryEmailVerificationStore.prototype.loadLists = async () => {
+      throw new Error('down');
+    };
+    try {
+      expect((await (await verifier()).verify('x.com')).result).to.eq('unknown');
+    } finally {
+      MemoryEmailVerificationStore.prototype.loadLists = original;
+    }
+  });
+
+  it('is never cached', async () => {
+    const v = await verifier();
+    expect(v.cacheable).to.eq(false);
+    expect(v.ttlFor()).to.eq(0);
+  });
+});
