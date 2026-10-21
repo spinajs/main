@@ -235,6 +235,7 @@ export declare abstract class AuthzAdmin {
     abstract list(actor: Principal, q: AuthzAdminQuery): Promise<{
         items: readonly unknown[];
         total: number;
+        next?: string;
     }>;
 }
 export type AuthzAdminQuery = {
@@ -246,6 +247,7 @@ export type AuthzAdminQuery = {
     readonly page?: {
         limit: number;
         offset: number;
+        after?: string;
     };
 } | {
     readonly kind: "links" | "rules" | "policies";
@@ -253,6 +255,7 @@ export type AuthzAdminQuery = {
     readonly page?: {
         limit: number;
         offset: number;
+        after?: string;
     };
 } | {
     readonly kind: "attributes";
@@ -265,6 +268,7 @@ export type AuthzAdminQuery = {
     readonly page?: {
         limit: number;
         offset: number;
+        after?: string;
     };
 };
 /** One per command kind family; registered by the model that owns the data (RBAC: assignment, set, link, rule; ABAC: policy; core: scope). */
