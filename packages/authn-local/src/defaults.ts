@@ -3,9 +3,15 @@ import { frozenCopy } from '@spinajs/util';
 
 const local = AUTHN_LOCAL_CONFIGURATION_SCHEMA.properties;
 
+/** One thread of the libuv pool stays free for the other work that needs it (fs, dns, crypto). */
+export function defaultMaxConcurrent(): number {
+  const pool = Number(process.env.UV_THREADPOOL_SIZE ?? 4);
+  return Math.max(1, (Number.isFinite(pool) ? Math.floor(pool) : 4) - 1);
+}
+
 /** The schema's `authn.local` defaults, for the `deps`/`options` seams that bypass the configuration. */
 export const AUTHN_LOCAL_DEFAULTS = frozenCopy({
-  hasher: { maxConcurrent: local.hasher.properties.maxConcurrent.default, maxQueue: local.hasher.properties.maxQueue.default },
+  hasher: { maxQueue: local.hasher.properties.maxQueue.default },
   policy: { minLength: local.policy.properties.minLength.default, maxLength: local.policy.properties.maxLength.default },
   generator: { length: local.generator.properties.length.default, characters: local.generator.properties.characters.default },
   reset: { ttlSeconds: local.reset.properties.ttlSeconds.default, url: local.reset.properties.url.default, revokeTokens: local.reset.properties.revokeTokens.default },

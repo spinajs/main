@@ -18,6 +18,9 @@ export class ConcurrencyLimiter {
     public readonly maxQueue: number = Infinity,
   ) {
     _check_arg(_is_number(_integer(), _gte(1)))(max, 'max');
+    if (maxQueue !== Infinity) {
+      _check_arg(_is_number(_integer(), _gte(0)))(maxQueue, 'maxQueue');
+    }
   }
 
   public get active(): number {
@@ -39,6 +42,9 @@ export class ConcurrencyLimiter {
 
   public async run<T>(task: () => Promise<T>): Promise<T> {
     if (this._active >= this.max) {
+      if (this._queue.length >= this.maxQueue) {
+        throw new HasherBusy('The password hasher is at capacity');
+      }
       // A finishing task hands its slot over without decrementing `_active`,
       // so no newcomer can take it before this waiter resumes.
       await new Promise<void>((res) => this._queue.push(res));

@@ -16,7 +16,7 @@ export const AUTHN_LOCAL_CONFIGURATION_SCHEMA = {
       propertyNames: { enum: ['service', 'maxConcurrent', 'maxQueue'] },
       properties: {
         service: { type: 'string', minLength: 1 },
-        maxConcurrent: { type: 'integer', minimum: 1, default: 8, description: 'Argon2 operations at once; the rest queue.' },
+        maxConcurrent: { type: 'integer', minimum: 1, description: 'Argon2 operations at once; the rest queue. Unset: UV_THREADPOOL_SIZE - 1 (at least 1).' },
         maxQueue: { type: 'integer', minimum: 0, default: 64, description: 'Operations that may wait for a free slot; beyond it a hash or verify fails with HasherBusy.' },
       },
     },

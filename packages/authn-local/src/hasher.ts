@@ -4,7 +4,7 @@ import { AsyncService, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import './register-schema.js';
 
-import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
+import { AUTHN_LOCAL_DEFAULTS, defaultMaxConcurrent } from './defaults.js';
 import { ConcurrencyLimiter } from './limiter.js';
 import { formatStored, parseStored, pepperInput, PepperEntry } from './pepper.js';
 
@@ -47,18 +47,22 @@ export abstract class PasswordHasher extends AsyncService {
 
 interface HasherSettings {
   readonly maxConcurrent: number;
+  readonly maxQueue: number;
   readonly current: PepperEntry | null;
   readonly peppers: ReadonlyMap<number, PepperEntry>;
 }
 
 /**
  * argon2id at the argon2 library defaults (H30, SR-13): no option and no config key sets a cost, so the stored hash starts with
- * `$argon2id$v=19$m=65536,t=3,p=4$` (argon2 0.44). Peak memory is `maxConcurrent` × 64 MiB; small hosts lower `maxConcurrent`.
+ * `$argon2id$v=19$m=65536,t=3,p=4$` (argon2 0.44). Peak memory is `maxConcurrent` × 64 MiB; small hosts lower `maxConcurrent`. When the queue is full a hash or verify fails with HasherBusy.
  */
 @Injectable(PasswordHasher)
 export class Argon2PasswordHasher extends PasswordHasher {
   @Config('authn.local.hasher.maxConcurrent')
-  protected MaxConcurrent: number;
+  protected MaxConcurrent?: number;
+
+  @Config('authn.local.hasher.maxQueue')
+  protected MaxQueue?: number;
 
   @Config('authn.local.pepper')
   protected Pepper: PepperConfig;
@@ -79,7 +83,7 @@ export class Argon2PasswordHasher extends PasswordHasher {
 
   /** Every argon2 operation of this hasher, dummy verifies included, runs through it (SR-03). */
   public get limiter(): ConcurrencyLimiter {
-    return (this._limiter ??= new ConcurrencyLimiter(this.settings.maxConcurrent));
+    return (this._limiter ??= new ConcurrencyLimiter(this.settings.maxConcurrent, this.settings.maxQueue));
   }
 
   public async hash(password: string): Promise<string> {
@@ -134,7 +138,9 @@ export class Argon2PasswordHasher extends PasswordHasher {
 
   protected get settings(): HasherSettings {
     return (this._settings ??= this.buildSettings(
-      this.Options ? { ...this.Options, maxConcurrent: this.Options.maxConcurrent ?? AUTHN_LOCAL_DEFAULTS.hasher.maxConcurrent } : { maxConcurrent: this.MaxConcurrent, pepper: this.Pepper },
+      this.Options
+        ? { ...this.Options, maxConcurrent: this.Options.maxConcurrent ?? defaultMaxConcurrent(), maxQueue: this.Options.maxQueue ?? AUTHN_LOCAL_DEFAULTS.hasher.maxQueue }
+        : { maxConcurrent: this.MaxConcurrent ?? defaultMaxConcurrent(), maxQueue: this.MaxQueue ?? AUTHN_LOCAL_DEFAULTS.hasher.maxQueue, pepper: this.Pepper },
     ));
   }
 
@@ -157,7 +163,7 @@ export class Argon2PasswordHasher extends PasswordHasher {
     await argon2.verify(parsed.argon2, pepper ? pepperInput(password, pepper.secret) : password);
   }
 
-  private buildSettings(options: Argon2PasswordHasherOptions & { readonly maxConcurrent: number }): HasherSettings {
+  private buildSettings(options: Argon2PasswordHasherOptions & { readonly maxConcurrent: number; readonly maxQueue: number }): HasherSettings {
     const peppers = new Map<number, PepperEntry>();
     let current: PepperEntry | null = null;
 
@@ -170,6 +176,6 @@ export class Argon2PasswordHasher extends PasswordHasher {
       peppers.set(entry.version, { secret: entry.secret, version: entry.version });
     }
 
-    return { maxConcurrent: options.maxConcurrent, current, peppers };
+    return { maxConcurrent: options.maxConcurrent, maxQueue: options.maxQueue, current, peppers };
   }
 }
