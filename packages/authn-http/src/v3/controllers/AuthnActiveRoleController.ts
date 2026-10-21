@@ -40,6 +40,8 @@ export class AuthnActiveRoleController extends BaseController {
   /**
    * Get the active role
    * `ActiveRole` (null before any switch: every held role applies) and the roles RoleSource gives.
+   * @returns {AuthnActiveRoleState} The active role and the roles held
+   * @response 401 {AuthnError} No session
    * @security cookieAuth
    */
   @Get('active-role')
@@ -52,6 +54,11 @@ export class AuthnActiveRoleController extends BaseController {
   /**
    * Switch the active role
    * Body `{ role, password? }`. 400 for a malformed role, 403 for a role not held, 401 with the login failure body when the password fails (no Retry-After). Not while impersonating.
+   * @body {AuthnActiveRoleBody} The role, and the password when the role asks for a fresh one
+   * @returns {AuthnRoleSwitchAnswer} The principal summary narrowed to the role
+   * @response 400 {AuthnError} invalid_role
+   * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
+   * @response 403 {AuthnError} role_not_held, fresh_auth_required, session_required or impersonating
    * @security cookieAuth
    */
   @Post('active-role')

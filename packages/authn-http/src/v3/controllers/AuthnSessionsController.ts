@@ -29,6 +29,7 @@ export class AuthnSessionsController extends BaseController {
    * List own sessions
    * Newest first; `Current` marks the one making the request. Sessions in which someone impersonates the caller are
    * listed too, with the impersonator's ip and user agent.
+   * @returns {AuthnSessionEntry[]} The own sessions, newest first
    * @security cookieAuth
    */
   @Get('sessions')
@@ -51,6 +52,7 @@ export class AuthnSessionsController extends BaseController {
   /**
    * Revoke one session
    * Ends the own session with that handle; ending the current one logs the caller out. 404 for any other handle.
+   * @response 404 {AuthnError} session_not_found
    * @security cookieAuth
    */
   @Del('sessions/:handle')
@@ -66,6 +68,7 @@ export class AuthnSessionsController extends BaseController {
   /**
    * Revoke every other session
    * Ends all own sessions but the current one.
+   * @returns {AuthnSessionsRevoked} The count of ended sessions
    * @security cookieAuth
    */
   @Del('sessions')

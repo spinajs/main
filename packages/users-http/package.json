@@ -72,6 +72,7 @@
     "@spinajs/authn-testing": "3.0.1",
     "@spinajs/authz-testing": "3.0.1",
     "@spinajs/fs": "3.0.1",
+    "@spinajs/http-swagger": "3.0.1",
     "@spinajs/orm-sqlite": "3.0.1",
     "@spinajs/queue": "3.0.1",
     "cookie-signature": "^1.2.2",

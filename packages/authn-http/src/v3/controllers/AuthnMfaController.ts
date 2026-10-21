@@ -34,6 +34,10 @@ export class AuthnMfaController extends BaseController {
   /**
    * Verify an MFA step
    * Body `{ code, step? }`: `step` when it is one of the pending steps, else the first pending step.
+   * @body {AuthnMfaVerifyBody} A code of a pending step
+   * @returns {AuthnPrincipalAnswer} The principal summary of the elevated session
+   * @response 401 {AuthnUnauthorized} No session, or a wrong, missing or throttled code
+   * @response 403 {AuthnError} mfa_not_pending: the session is active
    * @security cookieAuth
    */
   @Post('mfa/verify')
@@ -44,6 +48,10 @@ export class AuthnMfaController extends BaseController {
   /**
    * Use a recovery code
    * Body `{ code }`: a single-use recovery code instead of a step.
+   * @body {AuthnMfaCodeBody} A recovery code
+   * @returns {AuthnPrincipalAnswer} The principal summary of the elevated session
+   * @response 401 {AuthnUnauthorized} No session, or a wrong, used or throttled code
+   * @response 403 {AuthnError} mfa_not_pending: the session is active
    * @security cookieAuth
    */
   @Post('mfa/recovery')

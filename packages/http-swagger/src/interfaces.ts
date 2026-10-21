@@ -67,11 +67,18 @@ export interface IMethodDocumentation {
   description?: string;
   params: Record<string, IParamDocumentation>;
   returns?: IReturnDocumentation;
+  /** `@body {Type} description`, for a route that reads its JSON body without a body route argument. */
+  body?: IBodyDocumentation;
   responses?: Record<string, IResponseDocumentation>;
   examples?: IExampleDocumentation[];
   tags?: string[];
   deprecated?: boolean;
   security?: Array<Record<string, string[]>>;
+}
+
+export interface IBodyDocumentation {
+  type: string;
+  description?: string;
 }
 
 export interface IParamDocumentation {

@@ -37,6 +37,9 @@ export class AuthnLoginController extends BaseController {
    * Body `{ login, password }`. Ends a session the caller already holds. Success: the session cookie and the principal summary with the login extensions. MFA required: 200
    * `{ MfaRequired: [steps], MfaEnrol: [steps to enrol first] }` with the pending session cookie. Any failure: 401 with one
    * body, plus Retry-After when throttled.
+   * @body {AuthnLoginBody} The credentials
+   * @returns {AuthnLoginAnswer} The principal summary, or the pending answer when MFA is required
+   * @response 401 {AuthnFailure} The login failed (Retry-After when throttled)
    * @security []
    */
   @Post('login')
@@ -54,7 +57,7 @@ export class AuthnLoginController extends BaseController {
    * `impersonation.end` (reason `logout`) for an impersonation (A20, A21).
    * POST, so no cross-site link can log anyone out.
    * @security cookieAuth
-   * @response 401 No session
+   * @response 401 {AuthnError} No session
    */
   @Post('logout')
   public async logout(@Req() req: Request) {
@@ -72,8 +75,9 @@ export class AuthnLoginController extends BaseController {
   /**
    * Who am I
    * The principal summary with the whoami extensions. A pending session gets only `{ MfaRequired: [steps], MfaEnrol: [steps to enrol first] }`.
+   * @returns {AuthnLoginAnswer} The principal summary, or the pending answer of a pending session
    * @security cookieAuth
-   * @response 401 No principal and no pending session
+   * @response 401 {AuthnError} No principal and no pending session
    */
   @Get('/')
   public async whoami(@Req() req: Request) {
