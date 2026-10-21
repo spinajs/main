@@ -2,7 +2,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import '@spinajs/log';
 import '@spinajs/orm-mysql';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import type { IDriverOptions, OrmDriver } from '@spinajs/orm';
 
 import '../src/index.js';
@@ -58,6 +58,7 @@ async function dropTables(): Promise<void> {
   });
 
   beforeEach(async () => {
+    DI.uncache(OrmMigrator);
     DI.uncache(Orm);
     DI.uncache(Configuration);
     await DI.resolve(Configuration);
@@ -66,11 +67,12 @@ async function dropTables(): Promise<void> {
     for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
       await b.bootstrap();
     }
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
   });
 
   afterEach(async () => {
     await DI.get(Orm)?.dispose();
+    DI.uncache(OrmMigrator);
     DI.uncache(Orm);
     DI.uncache(Configuration);
   });

@@ -9,7 +9,7 @@ import { DbConfig, isConfigValueEqual } from './models/DbConfig.js';
 import { DbConfigValueConverter } from './converter.js';
 import CONFIGURATION_SCHEMA from './schemas/configuration.db.source.schema.js';
 import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntryOptionsCommon } from '@spinajs/configuration-common';
-import { InsertBehaviour, Orm } from '@spinajs/orm';
+import { extractModelDescriptor, InsertBehaviour, Orm } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { normalizeFileEntryOptions } from './file.js';
 import { asSystem } from './system.js';
@@ -35,15 +35,19 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
   private configuration: Configuration | null = null;
 
+  /** Set once the exposed options were swept into the `configuration` table; late registrations sync one by one after it. */
+  private tableReady = false;
+
   /** The authz domain whose service runs the queries as SYSTEM; the one holding the `configuration` model. */
   public authzDomain = 'root';
 
   public async bootstrap(): Promise<void> {
     registerConfigurationSchema(CONFIGURATION_SCHEMA);
+    this.tableReady = false;
 
     // persist & load exposed options as they get registered (eg. lazily resolved services).
-    // before ORM is resolved there is no connection - those vars are handled by the
-    // di.resolved.Orm handler below, so skip them here to avoid failing db calls.
+    // Until the configuration table is ready those vars are handled by the sweep in
+    // syncExposedOptions(), so skip them here to avoid failing db calls.
     DI.on('di.registered.__configuration_property__', (arg: unknown) => {
       const v = arg as __dbCOnfigOptions;
       if (!v.options || !v.options.expose) {
@@ -53,33 +57,68 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       // synchronous, so a misdeclared file entry throws out of the registration itself
       normalizeFileEntryOptions(v.path, v.options.exposeOptions);
 
-      if (!DI.has(Orm)) {
+      if (!this.tableReady) {
         return;
       }
 
       void this.syncConfigOption(v);
     });
 
-    // register vals added before orm is resolved eg. at bootstrap phase
-    DI.once('di.resolved.Orm', (arg: unknown) => {
-      const container = arg as IContainer;
-      const vars = container
-        .get<__dbCOnfigOptions>(Array.ofType('__configuration_property__'))!
-        .filter((x) => x.options)
-        .filter((x) => x.options.expose);
+    // A deployment migrated by the CLI resolves no migrator, so the Orm's resolve is the signal when the table is
+    // already there; otherwise the migrator creates it.
+    DI.once('di.resolved.Orm', (container: unknown, orm: unknown) => {
+      void this.tableExists(orm as Orm)
+        .then((exists) => {
+          if (exists) {
+            this.syncExposedOptions(container as IContainer);
+          }
+        })
+        .catch((err) => {
+          InternalLogger.error({ error: err }, 'Failed to check the configuration table', LOG_CHANNEL);
+        });
+    });
 
-      vars.forEach((v) => normalizeFileEntryOptions(v.path, v.options.exposeOptions));
-
-      // insert all exposed config options (InsertOrIgnore - safe to repeat)
-      void Promise.all(vars.map((v) => this.saveConfigOptions(v))).catch((err) => {
-        InternalLogger.error({ error: err }, 'Failed to persist exposed config options to db', LOG_CHANNEL);
-      });
-
-      vars.filter((x) => x.options.exposeOptions?.watch).forEach((x) => this.watchedSlugs.add(x.path));
-      this.startWatchTimer(container);
+    DI.once('di.resolved.OrmMigrator', (container: unknown) => {
+      this.syncExposedOptions(container as IContainer);
     });
 
     return;
+  }
+
+  /** False on a `Migration.OnStartup` connection until the migrator runs: its model queries throw until then. */
+  private async tableExists(orm: Orm): Promise<boolean> {
+    const descriptor = extractModelDescriptor(DbConfig)!;
+    const driver = orm.Connections.get(descriptor.Connection!);
+
+    if (!driver || driver.AwaitsStartupMigration) {
+      return false;
+    }
+
+    return await driver.schema().tableExists(descriptor.TableName);
+  }
+
+  /** Persists every exposed option registered so far and starts the watch timer; once per process. */
+  private syncExposedOptions(container: IContainer): void {
+    if (this.tableReady) {
+      return;
+    }
+
+    this.tableReady = true;
+
+    const vars = container
+      .get<__dbCOnfigOptions>(Array.ofType('__configuration_property__'))!
+      .filter((x) => x.options)
+      .filter((x) => x.options.expose);
+
+    vars.forEach((v) => normalizeFileEntryOptions(v.path, v.options.exposeOptions));
+
+    // insert all exposed config options (InsertOrIgnore - safe to repeat)
+    void Promise.all(vars.map((v) => this.saveConfigOptions(v))).catch((err) => {
+      InternalLogger.error({ error: err }, 'Failed to persist exposed config options to db', LOG_CHANNEL);
+    });
+
+    vars.filter((x) => x.options.exposeOptions?.watch).forEach((x) => this.watchedSlugs.add(x.path));
+    this.startWatchTimer(container);
   }
 
   /**

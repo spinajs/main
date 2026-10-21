@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import { Configuration } from '@spinajs/configuration';
 
 import { DbConfig, DbConfigSourceBotstrapper } from '../../src/index.js';
@@ -23,6 +23,7 @@ export async function bootDb(setConfig: SetConfig, domain = 'root'): Promise<DbH
   setConfig(['db'], { DefaultConnection: 'sqlite', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { OnStartup: true } }] });
 
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+  await DI.resolve(OrmMigrator);
   const orm = await DI.resolve(Orm);
   const config = (await DI.resolve(Configuration)) as Configuration;
 
@@ -41,6 +42,7 @@ export async function bootDb(setConfig: SetConfig, domain = 'root'): Promise<DbH
     value: (path) => config.get(path),
     async dispose() {
       orm.dispose();
+      DI.uncache(OrmMigrator);
       DI.uncache(Orm);
       DI.uncache('orm-driver-sqlite');
       DI.unregister(SqliteOrmDriver);
