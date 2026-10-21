@@ -48,6 +48,8 @@ const ROUTES = {
     ['GET', '/user/tokens'],
     ['POST', '/user/tokens', { name: 'boot', expiresAt: new Date(Date.now() + 86400000).toISOString(), reauthPassword: USER.password }],
     ['DELETE', '/user/tokens/00000000-0000-4000-8000-000000000000'],
+    ['POST', '/user/tokens/00000000-0000-4000-8000-000000000000/rotate', { reauthPassword: USER.password }],
+    ['PATCH', '/user/tokens/00000000-0000-4000-8000-000000000000', { name: 'renamed' }],
   ],
   keys: [
     ['GET', '/user/keys'],

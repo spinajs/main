@@ -4,7 +4,7 @@ import { Configuration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
-import type { AuthnContext, IdentityRef, PrincipalRef, TokenCreateOptions, TokenCreateResult, TokenRecord, TokenValidation } from '@spinajs/authn/contracts';
+import type { AuthnContext, IdentityRef, PrincipalRef, TokenCreateOptions, TokenCreateResult, TokenRecord, TokenRotateResult, TokenUpdateResult, TokenValidation } from '@spinajs/authn/contracts';
 import {
   EnrolledMfaPolicy,
   FakeAuthnService,
@@ -197,6 +197,14 @@ class HarnessTokenService extends TokenService {
 
   public async list(owner: IdentityRef): Promise<readonly TokenRecord[]> {
     return this.tokens.filter((t) => !t.revoked && sameRef(t.record.owner, owner)).map((t) => t.record);
+  }
+
+  public async rotate(): Promise<TokenRotateResult> {
+    throw new Error('HarnessTokenService.rotate is not used');
+  }
+
+  public async update(): Promise<TokenUpdateResult> {
+    throw new Error('HarnessTokenService.update is not used');
   }
 
   public async revoke(owner: IdentityRef, id: string): Promise<boolean> {

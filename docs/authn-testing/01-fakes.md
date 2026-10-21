@@ -23,6 +23,7 @@ Time comes from two places. `ctx.now` (from `FakeClock.ctx()`) drives the thrott
 | `MemorySecretStore` | `SecretStore` | Single-use secrets stored as SHA-256, one live secret per identity and purpose | `rows()` |
 | `MemorySessionIssuer` | `SessionIssuer` | Sessions keyed by the SHA-256 of the id, idle and absolute timeouts, pending sessions | `storage.storedKeys()` |
 | `MemoryLinkStore` | `IdentityLinkStore` | External links; `(provider, subject)` is unique | `links` |
+| `MemoryTokenService` | `TokenService` | Tokens in memory with rotation and narrowing; takes its time from `ctx.now`; no owner status or role checks | none |
 | `FakeMfaStep` | `MfaStep` | Six-digit codes, each accepted once; optional recovery codes | `verifyCalls` |
 | `EnrolledMfaPolicy` | `MfaPolicy` | Requires every configured step the identity is enrolled in | none |
 | `FakeStrategy` | `AuthenticationStrategy` | A strategy from two functions, plus `password`, `bearer` and `external` presets | `verifyCalls`, `keyCalls` |

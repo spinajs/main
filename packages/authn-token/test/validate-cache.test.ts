@@ -312,4 +312,80 @@ describe('DbTokenService validation cache', function () {
     assert.strictEqual(cached.result.token.lastUsedAt?.getTime(), clock.now().getTime());
     assert.strictEqual(cached.result.token.lastUsedIp, w.ctx().ip);
   });
+
+  it('a rotation evicts the old secret from the cache at once, and the new one is read once and cached', async () => {
+    const w = await world();
+    const owner = await w.owner();
+    const t = await w.mint(owner);
+    assert.ok((await w.validate(t.plaintext)).result.ok);
+    assert.deepStrictEqual((await w.validate(t.plaintext)).statements, [], 'cached');
+
+    const r = await w.service.rotate(owner, t.record.id, w.ctx());
+    assert.ok(r.ok);
+
+    const old = await w.validate(t.plaintext);
+    assert.deepStrictEqual(old.result, { ok: false, reason: 'invalid_credentials' });
+    assert.strictEqual(old.statements.length, 1, 'one statement for a hash no row holds');
+
+    const fresh = await w.validate(r.plaintext);
+    assert.ok(fresh.result.ok);
+    assert.strictEqual(fresh.statements.length, 1);
+    assert.deepStrictEqual((await w.validate(r.plaintext)).statements, []);
+  });
+
+  it('a secret in grace is read in one statement, and cached no longer than the grace', async () => {
+    const w = await world({ ttlSeconds: 100, maxEntries: 10_000 });
+    const owner = await w.owner();
+    const t = await w.mint(owner);
+    const r = await w.service.rotate(owner, t.record.id, w.ctx(), { graceSeconds: 60 });
+    assert.ok(r.ok);
+
+    const first = await w.validate(t.plaintext);
+    assert.ok(first.result.ok);
+    assert.strictEqual(first.statements.filter((s) => /rbac_access_tokens/i.test(s)).length, 1, first.statements.join('\n'));
+    assert.deepStrictEqual((await w.validate(t.plaintext)).statements, [], 'cached');
+
+    clock.tick(60 * SECOND - 1);
+    assert.ok((await w.validate(t.plaintext)).result.ok, 'cached one millisecond before the grace ends');
+    clock.tick(1);
+    assert.deepStrictEqual((await w.validate(t.plaintext)).result, { ok: false, reason: 'invalid_credentials' });
+    assert.ok((await w.validate(r.plaintext)).result.ok, 'the new secret is not tied to the grace');
+  });
+
+  it('publishes each rotation and update on the bus', async () => {
+    const w = await world();
+    const owner = await w.owner();
+    const t = await w.mint(owner);
+    const seen: unknown[] = [];
+    w.bus.subscribe((c) => seen.push(c));
+
+    assert.ok((await w.service.rotate(owner, t.record.id, w.ctx(), { graceSeconds: 30 })).ok);
+    assert.ok((await w.service.update(owner, t.record.id, { name: 'renamed' }, w.ctx())).ok);
+    assert.deepStrictEqual((await w.service.rotate({ type: 'user', id: randomUUID() }, t.record.id, w.ctx())).ok, false);
+
+    assert.deepStrictEqual(seen, [
+      { kind: 'token', id: t.record.id },
+      { kind: 'token', id: t.record.id },
+    ]);
+  });
+
+  it('a second service on the same bus drops its cached secret when the first rotates or updates the token', async () => {
+    const w = await world();
+    const other = await tokenServiceOver<DbTokenService>({ identities: w.identities, profiles: new NoTokenProfilesPolicy(), auditor: AuthnAudit.over([]), bus: w.bus });
+    const owner = await w.owner();
+    const t = await w.mint(owner, { roles: ['editor', 'viewer'] });
+    const ok = async (plaintext: string) => other.validate(plaintext, w.ctx());
+    const warm = await ok(t.plaintext);
+    assert.ok(warm.ok);
+
+    assert.ok((await w.service.update(owner, t.record.id, { roles: ['viewer'] }, w.ctx())).ok);
+    const narrowed = await ok(t.plaintext);
+    assert.ok(narrowed.ok);
+    assert.deepStrictEqual(narrowed.ceiling?.roles, ['viewer']);
+
+    const r = await w.service.rotate(owner, t.record.id, w.ctx());
+    assert.ok(r.ok);
+    assert.deepStrictEqual(await ok(t.plaintext), { ok: false, reason: 'invalid_credentials' });
+    assert.ok((await ok(r.plaintext)).ok);
+  });
 });

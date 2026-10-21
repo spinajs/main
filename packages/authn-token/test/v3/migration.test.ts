@@ -8,10 +8,11 @@ import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 
 import { AccessToken } from '../../src/models/AccessToken.js';
+import { AuthnTokenRotation_2026_10_21_00_00_00 } from '../../src/migrations/AuthnTokenRotation_2026_10_21_00_00_00.js';
 import { RbacHttpTokenInitial_2026_08_11_01_00_00 } from '../../src/migrations/RbacHttpTokenInitial_2026_08_11_01_00_00.js';
 import { bootV3Db, insertUserRow, shutdownV3Db } from './db.js';
 
-const COLUMNS = ['Id', 'Uuid', 'Name', 'Token', 'Roles', 'Profile', 'ExpiresAt', 'CreatedAt', 'LastUsedAt', 'user_id', 'Scope', 'Kind', 'RevokedAt', 'LastUsedIp'];
+const COLUMNS = ['Id', 'Uuid', 'Name', 'Token', 'Roles', 'Profile', 'ExpiresAt', 'CreatedAt', 'LastUsedAt', 'user_id', 'Scope', 'Kind', 'RevokedAt', 'LastUsedIp', 'PreviousToken', 'PreviousValidUntil'];
 
 describe('RbacHttpTokenInitial migration', function () {
   this.timeout(15000);
@@ -35,6 +36,33 @@ describe('RbacHttpTokenInitial migration', function () {
 
   it('creates rbac_access_tokens with the 3.0 columns', async () => {
     expect(await columns()).to.have.members(COLUMNS);
+  });
+
+  it('adds the nullable PreviousToken and PreviousValidUntil, which a row inserted without them leaves empty', async () => {
+    const uuid = uuidv4();
+    await connection
+      .insert()
+      .into('rbac_access_tokens')
+      .values({ Uuid: uuid, Name: 'no rotation', Token: 'p'.repeat(64), Roles: 'user', ExpiresAt: DateTime.now().plus({ days: 1 }), user_id: owner });
+
+    const loaded = await AccessToken.where('Uuid', uuid).firstOrFail();
+    expect(loaded.PreviousToken ?? null).to.equal(null);
+    expect(loaded.PreviousValidUntil ?? null).to.equal(null);
+  });
+
+  it('keeps PreviousToken unique, and lets any number of rows leave it empty', async () => {
+    const row = (over: Record<string, unknown>) => ({ Uuid: uuidv4(), Name: 'rotated', Token: uuidv4().replace(/-/g, '').repeat(2), Roles: 'user', ExpiresAt: DateTime.now().plus({ days: 1 }), user_id: owner, ...over });
+    const previous = 'q'.repeat(64);
+    await connection.insert().into('rbac_access_tokens').values(row({ PreviousToken: previous, PreviousValidUntil: DateTime.now().plus({ minutes: 1 }) }));
+    await connection.insert().into('rbac_access_tokens').values(row({}));
+    await connection.insert().into('rbac_access_tokens').values(row({}));
+
+    const duplicate = await connection
+      .insert()
+      .into('rbac_access_tokens')
+      .values(row({ PreviousToken: previous }))
+      .catch((e: unknown) => e);
+    expect(duplicate, 'duplicate PreviousToken').to.be.instanceOf(Error);
   });
 
   it('defaults Kind to pat for a row inserted without it', async () => {
@@ -91,6 +119,7 @@ describe('RbacHttpTokenInitial migration', function () {
       expect(await connection.schema().tableExists('rbac_access_tokens')).to.equal(false);
     } finally {
       await migration.up(connection);
+      await new AuthnTokenRotation_2026_10_21_00_00_00().up(connection);
     }
 
     expect(await columns()).to.have.members(COLUMNS);

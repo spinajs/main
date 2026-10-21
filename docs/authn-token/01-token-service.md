@@ -1,6 +1,6 @@
 # Issuing and revoking tokens
 
-`DbTokenService` is the `TokenService` of `@spinajs/authn` over the `rbac_access_tokens` table. It mints personal (`pat`), `service` and `agent` tokens, lists and revokes them, and sweeps old rows. Use it from your own code, or through the token routes of [`@spinajs/authn-http`](../authn-http/README.md) and the [CLI](06-cli-commands.md), which both call it.
+`DbTokenService` is the `TokenService` of `@spinajs/authn` over the `rbac_access_tokens` table. It mints personal (`pat`), `service` and `agent` tokens, lists, rotates, narrows and revokes them, and sweeps old rows. Use it from your own code, or through the token routes of [`@spinajs/authn-http`](../authn-http/README.md) and the [CLI](06-cli-commands.md), which both call it.
 
 Validation of a presented token (`validate`) is described in [API token authentication](02-token-authentication.md).
 
@@ -62,6 +62,35 @@ sequenceDiagram
 4. It evicts the token from the [validation cache](#validation-cache) and publishes `{ kind: 'token', id }` on the `CredentialChangeBus`.
 5. It publishes `token.revoke` with `{ token, kind }` and the optional `actor`, and answers `true`. The row stays until the [sweep](#sweep-deleteexpirednow).
 
+### Rotate, `rotate(owner, id, ctx, { graceSeconds }?)`
+
+Replaces the secret of a live token and keeps everything else: the `Uuid`, name, kind, roles, profile, scope and expiry.
+
+1. `graceSeconds` defaults to `0`. It must be a whole number from `0` to `604800` (seven days), or the call throws `InvalidArgument` before it reads anything.
+2. It finds the unrevoked, unexpired row with that `Uuid` **and** that owner. Anything else, including an unknown owner or a blank id, answers `{ ok: false, reason: 'not_found' }`, so a foreign token looks like an unknown one.
+3. It mints a new secret and updates the row `WHERE Id = ? AND Token = <the hash it read> AND RevokedAt IS NULL`: `Token` becomes the new hash. With `graceSeconds > 0`, `PreviousToken` takes the old hash and `PreviousValidUntil` becomes `ctx.now + graceSeconds`; without, both are cleared. Of two racing rotations one wins and the other answers `not_found`, so no caller is left holding a secret that is already dead.
+4. It evicts the token from the [validation cache](#validation-cache), publishes `{ kind: 'token', id }` on the `CredentialChangeBus` and publishes `token.rotate` with `{ token, kind, graceSeconds }`.
+5. It answers `{ ok: true, plaintext, token }`. The plaintext is returned once.
+
+While the grace lasts, `validate` accepts the old secret and answers the same token. The grace ends at `PreviousValidUntil` (the instant itself is already over), and the token's own expiry and a revoke end it earlier. A second rotation drops the previous secret the first one kept, so at most one old secret is ever in grace.
+
+### Update, `update(owner, id, change, ctx)`
+
+Narrows a live token. `change` has three optional fields; any other key is ignored.
+
+| Field | Rule | Refusal |
+| --- | --- | --- |
+| `name` | 1 to 128 characters after trimming. | Throws `InvalidArgument`, like `create`. |
+| `roles` | A non-empty list. For a token with roles, a subset of them. For a token without roles (which holds all its owner's), roles the owner holds, checked with the `RoleSource` when one is registered. An agent token takes no roles. | `invalid_scope` |
+| `expiresAt` | A `Date` after `ctx.now` and not after the current expiry. | `invalid_expiry` |
+
+1. It answers `not_found` for an unknown, foreign or revoked token, like `rotate`; an expired token can still be renamed.
+2. It checks every field before it writes any: a refused field changes nothing, and an empty `change` answers the token without a write or an event.
+3. It writes the changed columns `WHERE RevokedAt IS NULL`, evicts and publishes the token like `rotate`, and publishes `token.update` with `{ token, kind, fields }`, `fields` naming what changed.
+4. It answers `{ ok: true, token }`.
+
+The kind, profile, scope and secret never change here. To widen a token, create a new one.
+
 ### Revoke by id, `revokeById(id, ctx, { actor }?)`
 
 The operator variant behind `authn:token-delete`. It is not part of the `TokenService` contract.
@@ -82,8 +111,8 @@ Password resets call it when `authn.local.reset.revokeTokens` is on (the default
 `validate` keeps each successful result in memory, keyed by the token's SHA-256 digest, for `authn.token.cache.ttlSeconds` (10 s):
 
 1. A hit runs no query and no `IdentityStore.status` read. The token's own `expiresAt` is still checked against `ctx.now`.
-2. A miss reads the token row and its owner through `TokenOwnerResolver.tokenByHash` (one statement under the default resolver, which joins `users`), then reads the status.
-3. `revoke`, `revokeById` and `revokeAllFor` evict in this process at once. Every change the `CredentialChangeBus` delivers evicts too: `{ kind: 'token', id }` that token, `{ kind: 'identity', identity }` every token of that owner, agent tokens acting for it included.
+2. A miss reads the token row and its owner through `TokenOwnerResolver.tokenByHash` (one statement under the default resolver, which joins `users` and matches the current or the previous hash), then reads the status. A secret in grace is cached no longer than its grace.
+3. `revoke`, `revokeById`, `revokeAllFor`, `rotate` and `update` evict in this process at once. Every change the `CredentialChangeBus` delivers evicts too: `{ kind: 'token', id }` that token, `{ kind: 'identity', identity }` every token of that owner, agent tokens acting for it included.
 4. A validation that a revoke overtook while it was reading stores nothing.
 5. `touch` updates the cached `lastUsedAt`, so `TokenStrategy` does not stamp a cached token on every request.
 
@@ -167,15 +196,17 @@ The collaborators are `@Autoinject` properties of `DbTokenService`, so the subcl
 - **Plaintext once.** Only the SHA-256 hex digest is stored, in a column hidden from `dehydrate()`. `TokenRecord`, events and logs never carry the plaintext or the hash.
 - **Expiry is mandatory.** There is no "never expires" token; `expiresAt` is required by the type and checked at run time. A non-finite cap (a broken config that skipped the schema) refuses every expiry.
 - **Refusals vs throws.** A bad kind, scope, role, profile or expiry is a result (`invalid_scope`, `invalid_expiry`). A bad name (`InvalidArgument`), an unknown owner or an invalid `ctx.now` (`InvalidOperation`), a token format outside the limits (`InvalidOption`), a broken generator (`UnexpectedServerError`) or a database error throws.
-- **Events never undo a write.** `token.create` and `token.revoke` are published after the row is written. `AuthnAudit` runs the sinks concurrently, each bounded by `authn.audit.sinkTimeoutMs`; a sink that fails or times out is logged, and the caller still gets the plaintext or `true`. A refused create and a failed revoke publish nothing.
+- **Events never undo a write.** `token.create`, `token.revoke`, `token.rotate` and `token.update` are published after the row is written. `AuthnAudit` runs the sinks concurrently, each bounded by `authn.audit.sinkTimeoutMs`; a sink that fails or times out is logged, and the caller still gets the plaintext or `true`. A refused create, a failed revoke and a refused rotate or update publish nothing.
 - **Status within the ttl.** A cached validation does not re-read the owner's status. A ban through `@spinajs/users` revokes the owner's tokens, which evicts them; any other status change counts once the entry is older than `authn.token.cache.ttlSeconds`, or at once when something publishes `{ kind: 'identity' }` on the bus.
 - **Revocation keeps the row.** `revoke` and `revokeAllFor` only set `RevokedAt`; `deleteExpired` removes the row later.
 - **`service` tokens.** In this package a `service` token behaves like a `pat`; the kind is stored and reported. Both belong to a user owner under the default resolver.
-- **Rotation.** There is no rotate call. Create the new token, deploy it, then revoke the old one; both work in between.
+- **Rotation.** `rotate` swaps the secret in place. For a deployment that cannot change the secret everywhere at once, rotate with a `graceSeconds` long enough to roll it out; both secrets work until then. Rotating keeps the token's id, so audit and the token list stay continuous.
+- **Narrowing only.** `update` can shorten a token's life and its roles, never lengthen or widen them; a leaked token's damage can be cut without minting a new one.
 
 ## Best practices
 
 - Pass `ctx.now` from one clock read per request; `create` stores `CreatedAt` and checks the expiry against it, not against the database.
+- Prefer a short `graceSeconds` (minutes), and `0` when the old secret may have leaked: the old secret works for the whole grace.
 - Pass an `actor` to `revoke` and `revokeAllFor` when someone other than the owner acts (an admin, a job), so the audit tells them apart. The CLI uses `{ type: 'system', id: 'cli' }`.
 - Schedule `authn:token-delete-expired`; expired and revoked rows are refused on use but stay in the table until swept.
 - Keep `maxTtlDays` short for `pat` tokens and issue `agent` tokens per task; see [Token roles, scopes and agent tokens](03-token-scopes.md).
@@ -243,5 +274,5 @@ export async function expiringSoon(userUuid: string, now = new Date()): Promise<
 - [API token authentication](02-token-authentication.md): how `validate` and `TokenStrategy` use the stored rows.
 - [Token roles, scopes and agent tokens](03-token-scopes.md): what `roles`, `scope`, `profile` and `kind` do.
 - [Token storage and migrations](05-token-storage.md): the table the service writes.
-- [`@spinajs/authn` audit events](../authn/06-audit-events.md): the sinks that receive `token.create` and `token.revoke`.
-- [`@spinajs/authn-http`](../authn-http/README.md): `POST /user/tokens` (fresh auth required) and `DELETE /user/tokens/:uuid` over this service.
+- [`@spinajs/authn` audit events](../authn/06-audit-events.md): the sinks that receive `token.create`, `token.revoke`, `token.rotate` and `token.update`.
+- [`@spinajs/authn-http`](../authn-http/README.md): `POST /user/tokens` and `POST /user/tokens/:uuid/rotate` (fresh auth required), `PATCH /user/tokens/:uuid` and `DELETE /user/tokens/:uuid` over this service.

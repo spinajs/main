@@ -17,7 +17,7 @@ import { laneEvents, laneTokenProfiles, n8bHarness } from '../behaviour/n8b-harn
 import { LaneClient, expectFailureBody, expectRefused, later } from './mfa-enrolment.js';
 import { mountedRoutes } from './route-table.js';
 
-export const TOKEN_ROUTES_V3 = ['GET /user/tokens', 'POST /user/tokens', 'DELETE /user/tokens/:uuid'];
+export const TOKEN_ROUTES_V3 = ['GET /user/tokens', 'POST /user/tokens', 'DELETE /user/tokens/:uuid', 'POST /user/tokens/:uuid/rotate', 'PATCH /user/tokens/:uuid'];
 
 /** The keys of one token in a list or create answer. */
 const ENTRY_KEYS = ['CreatedAt', 'Expired', 'ExpiresAt', 'Kind', 'LastUsedAt', 'LastUsedIp', 'Name', 'Profile', 'Roles', 'Scope', 'Uuid'];
@@ -91,6 +91,8 @@ export function tokenRoutesSuite(): void {
   const create = (c: LaneClient, payload: unknown, headers: Record<string, string> = {}) => c.send({ method: 'POST', path: '/user/tokens', body: payload, headers });
   const list = (c: LaneClient) => c.send({ method: 'GET', path: '/user/tokens' });
   const revoke = (c: LaneClient, uuid: string) => c.send({ method: 'DELETE', path: `/user/tokens/${encodeURIComponent(uuid)}` });
+  const rotate = (c: LaneClient, uuid: string, payload: unknown = {}) => c.send({ method: 'POST', path: `/user/tokens/${encodeURIComponent(uuid)}/rotate`, body: payload });
+  const patch = (c: LaneClient, uuid: string, payload: unknown) => c.send({ method: 'PATCH', path: `/user/tokens/${encodeURIComponent(uuid)}`, body: payload });
 
   /** A token of `owner` minted through the service, not the route. */
   const mint = async (owner: IdentityRef, expiresAt = new Date(Date.now() + DAY)) => {
@@ -107,7 +109,7 @@ export function tokenRoutesSuite(): void {
     return body<{ principal: { id: string; ceiling?: { roles?: string[] } } | null }>(res).principal;
   };
 
-  const tokenEvents = (type: 'token.create' | 'token.revoke') => laneEvents.filter((e) => e.type === type);
+  const tokenEvents = (type: 'token.create' | 'token.revoke' | 'token.rotate' | 'token.update') => laneEvents.filter((e) => e.type === type);
   const stored = async (owner: IdentityRef) => (await h.tokens!.list(owner)).length;
 
   function expectEntry(entry: unknown): asserts entry is Entry {
@@ -311,7 +313,7 @@ export function tokenRoutesSuite(): void {
       expect(tokenEvents('token.revoke')).to.deep.eq([]);
     });
 
-    it('the three routes are mounted once', async () => {
+    it('the five routes are mounted once', async () => {
       const routes = await mountedRoutes();
       for (const route of TOKEN_ROUTES_V3)
         expect(
@@ -415,6 +417,112 @@ export function tokenRoutesSuite(): void {
     });
   });
 
+  describe('rotate and update', () => {
+    beforeEach(() => open());
+
+    it('POST /user/tokens/:uuid/rotate answers the entry and a new plaintext once; the old plaintext stops at once', async () => {
+      const u = await user();
+      const c = await login(u);
+      const { Token, Plaintext } = body<{ Token: Entry; Plaintext: string }>(await create(c, valid()));
+      expect((await principalOf(Plaintext))?.id).to.eq(u.ref.id);
+
+      const res = await rotate(c, Token.Uuid);
+      expect(res.status, JSON.stringify(res.body)).to.eq(200);
+      expect(res.headers['cache-control']).to.eq('no-store');
+      const rotated = body<{ Token: Entry; Plaintext: string }>(res);
+      expect(Object.keys(rotated).sort()).to.deep.eq(['Plaintext', 'Token']);
+      expect(rotated.Plaintext).to.match(/^spt_[A-Za-z0-9_-]{43,}$/).and.not.eq(Plaintext);
+      expect(rotated.Token).to.deep.include({ Uuid: Token.Uuid, Name: Token.Name, Kind: Token.Kind, Roles: Token.Roles, CreatedAt: Token.CreatedAt, ExpiresAt: Token.ExpiresAt });
+
+      expect(await principalOf(Plaintext)).to.eq(null);
+      expect((await principalOf(rotated.Plaintext))?.id).to.eq(u.ref.id);
+      expect(body<Entry[]>(await list(c)).map((e) => e.Uuid)).to.deep.eq([Token.Uuid]);
+      expect(tokenEvents('token.rotate').map((e) => e.identity?.id)).to.deep.eq([u.ref.id]);
+      expect(JSON.stringify(c.answers.filter((a) => a !== res).map((a) => a.body))).to.not.include(rotated.Plaintext);
+    });
+
+    it('graceSeconds keeps the old plaintext working for that long; a malformed one answers 400 invalid_grace', async () => {
+      const u = await user();
+      const c = await login(u);
+      const { Token, Plaintext } = body<{ Token: Entry; Plaintext: string }>(await create(c, valid()));
+
+      for (const graceSeconds of [-1, 1.5, '60', 604_801]) expectBadRequest(await rotate(c, Token.Uuid, { graceSeconds }), 'invalid_grace');
+      expect((await principalOf(Plaintext))?.id, 'refused rotations changed nothing').to.eq(u.ref.id);
+
+      const res = await rotate(c, Token.Uuid, { graceSeconds: 60 });
+      expect(res.status, JSON.stringify(res.body)).to.eq(200);
+      expect((await principalOf(Plaintext))?.id, 'in grace').to.eq(u.ref.id);
+      expect((await principalOf(body<{ Plaintext: string }>(res).Plaintext))?.id).to.eq(u.ref.id);
+    });
+
+    it('rotating needs fresh auth, with reauthPassword for that request only; updating and listing do not', async () => {
+      const u = await user();
+      const c = await login(u);
+      const { Token } = body<{ Token: Entry }>(await create(c, valid()));
+      await later(301, async () => {
+        expectRefused(await rotate(c, Token.Uuid), 403, 'fresh_auth_required');
+        expectFailureBody(await rotate(c, Token.Uuid, { reauthPassword: 'Not-The-Pass-1' }));
+        expect((await patch(c, Token.Uuid, { name: 'renamed' })).status).to.eq(200);
+        expect((await rotate(c, Token.Uuid, { reauthPassword: u.password })).status).to.eq(200);
+        expectRefused(await rotate(c, Token.Uuid), 403, 'fresh_auth_required');
+      });
+      expect(tokenEvents('token.rotate')).to.have.length(1);
+      expect(logLines().join('\n')).to.not.include(u.password);
+    });
+
+    it('a foreign, an unknown and a malformed uuid answer one 404 on both routes and change nothing', async () => {
+      const alice = await user();
+      const bob = await user();
+      const c = await login(alice);
+      const bobs = await mint(bob.ref);
+      const answers = [
+        await rotate(c, bobs.record.id),
+        await rotate(c, randomUUID()),
+        await rotate(c, 'x'.repeat(65)),
+        await patch(c, bobs.record.id, { name: 'taken' }),
+        await patch(c, randomUUID(), { name: 'taken' }),
+        await patch(c, 'x'.repeat(65), { name: 'taken' }),
+      ];
+      for (const res of answers) {
+        expectRefused(res, 404, 'token_not_found');
+        expect(res.body).to.deep.eq(answers[0].body);
+      }
+      expect((await principalOf(bobs.plaintext))?.id).to.eq(bob.ref.id);
+      expect(tokenEvents('token.rotate')).to.deep.eq([]);
+      expect(tokenEvents('token.update')).to.deep.eq([]);
+    });
+
+    it('PATCH /user/tokens/:uuid narrows roles and expiry at once, and only narrows', async () => {
+      const u = await user();
+      await h.roles!.grant(u.ref, [
+        { role: 'editor', requirePassword: false },
+        { role: 'viewer', requirePassword: false },
+      ]);
+      const c = await login(u);
+      const { Token, Plaintext } = body<{ Token: Entry; Plaintext: string }>(await create(c, valid({ roles: ['editor', 'viewer'] })));
+      expect((await principalOf(Plaintext))?.ceiling?.roles).to.have.members(['editor', 'viewer']);
+
+      const shorter = isoIn(10 * MINUTE);
+      const res = await patch(c, Token.Uuid, { name: 'renamed', roles: ['viewer'], expiresAt: shorter });
+      expect(res.status, JSON.stringify(res.body)).to.eq(200);
+      expect(res.headers['cache-control']).to.eq('no-store');
+      const updated = body<{ Token: Entry }>(res).Token;
+      expectEntry(updated);
+      expect(updated).to.deep.include({ Uuid: Token.Uuid, Name: 'renamed', Roles: ['viewer'] });
+      expect((await principalOf(Plaintext))?.ceiling?.roles, 'a cached validation sees it').to.deep.eq(['viewer']);
+      expect(body<Entry[]>(await list(c)).map((e) => [e.Uuid, e.Name, e.Roles])).to.deep.eq([[Token.Uuid, 'renamed', ['viewer']]]);
+      expect(tokenEvents('token.update').map((e) => e.identity?.id)).to.deep.eq([u.ref.id]);
+
+      expectBadRequest(await patch(c, Token.Uuid, { roles: ['viewer', 'editor'] }), 'invalid_scope');
+      expectBadRequest(await patch(c, Token.Uuid, { expiresAt: isoIn(2 * DAY) }), 'invalid_expiry');
+      expectBadRequest(await patch(c, Token.Uuid, { expiresAt: isoIn(-MINUTE) }), 'invalid_expiry');
+      expectBadRequest(await patch(c, Token.Uuid, { name: '' }), 'invalid_name');
+      expectBadRequest(await patch(c, Token.Uuid, { roles: [] }), 'invalid_roles');
+      expectBadRequest(await patch(c, Token.Uuid, { kind: 'agent' }), 'invalid_field');
+      expect((await principalOf(Plaintext))?.ceiling?.roles).to.deep.eq(['viewer']);
+    });
+  });
+
   describe('callers that may not manage tokens', () => {
     beforeEach(() => open());
 
@@ -422,11 +530,11 @@ export function tokenRoutesSuite(): void {
       const u = await user();
       const t = await mint(u.ref);
       const anonymous = new LaneClient(h);
-      for (const res of [await list(anonymous), await create(anonymous, valid()), await revoke(anonymous, t.record.id)]) expectRefused(res, 401, 'unauthenticated');
+      for (const res of [await list(anonymous), await create(anonymous, valid()), await revoke(anonymous, t.record.id), await rotate(anonymous, t.record.id), await patch(anonymous, t.record.id, { name: 'x' })]) expectRefused(res, 401, 'unauthenticated');
       await h.mfa!.enrol(u.ref);
       const pending = await login(u);
       expect(pending.cookie, 'a pending session').to.be.a('string');
-      for (const res of [await list(pending), await create(pending, valid()), await revoke(pending, t.record.id)]) expectRefused(res, 401, 'unauthenticated');
+      for (const res of [await list(pending), await create(pending, valid()), await revoke(pending, t.record.id), await rotate(pending, t.record.id), await patch(pending, t.record.id, { name: 'x' })]) expectRefused(res, 401, 'unauthenticated');
       expect(await stored(u.ref)).to.eq(1);
       expect(tokenEvents('token.revoke')).to.deep.eq([]);
     });
@@ -436,7 +544,7 @@ export function tokenRoutesSuite(): void {
       const t = await mint(u.ref);
       const before = tokenEvents('token.create').length;
       const c = new LaneClient(h, { authorization: `Bearer ${t.plaintext}` });
-      for (const res of [await list(c), await create(c, valid()), await revoke(c, t.record.id)]) expectRefused(res, 403, 'session_required');
+      for (const res of [await list(c), await create(c, valid()), await revoke(c, t.record.id), await rotate(c, t.record.id), await patch(c, t.record.id, { name: 'x' })]) expectRefused(res, 403, 'session_required');
       expect(tokenEvents('token.create')).to.have.length(before);
       expect(await stored(u.ref)).to.eq(1);
       expect((await principalOf(t.plaintext))?.id).to.eq(u.ref.id);
@@ -452,7 +560,7 @@ export function tokenRoutesSuite(): void {
       await later(30, async () => expect((await c.send(ROUTES.mfaVerify!(await h.mfa!.code(admin.ref)))).status).to.eq(200));
       const started = await c.send(ROUTES.impersonateStart!(target.ref, admin.password));
       expect(started.status, JSON.stringify(started.body)).to.eq(200);
-      for (const res of [await list(c), await create(c, valid()), await revoke(c, targets.record.id)]) expectRefused(res, 403, 'impersonating');
+      for (const res of [await list(c), await create(c, valid()), await revoke(c, targets.record.id), await rotate(c, targets.record.id), await patch(c, targets.record.id, { name: 'x' })]) expectRefused(res, 403, 'impersonating');
       expect(await stored(target.ref)).to.eq(1);
       expect(await stored(admin.ref)).to.eq(0);
       expect(tokenEvents('token.revoke')).to.deep.eq([]);
