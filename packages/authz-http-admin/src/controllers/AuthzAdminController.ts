@@ -141,7 +141,7 @@ export class AuthzAdminController extends BaseController {
   /**
    * List assignments
    * Lists assignments, filtered by the query.
-   * Query: `scope` (`<type>` or `<type>:<id>`), `subject` (`<type>:<id>` or `set:<role>@<type>:<id>`), `role`, `includeExpired` (`true` or `false`), `limit`, `offset`.
+   * Query: `scope` (`<type>` or `<type>:<id>`), `subject` (`<type>:<id>` or `set:<role>@<type>:<id>`), `role`, `includeExpired` (`true` or `false`), `limit`, `offset` or `after` (the `next` of the previous page).
    * @response 200 {AuthzAdminPage} One page of rows
    * @response 400 {AuthzAdminError} invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
@@ -155,7 +155,7 @@ export class AuthzAdminController extends BaseController {
   /**
    * List holders
    * Who holds a permission on a resource through role assignments on it, its ancestors or $global; each principal is verified by a fresh check.
-   * Query: `scope` (`<type>:<id>`), `permission`, `expandSets` (`true` or `false`), `limit`, `offset`.
+   * Query: `scope` (`<type>:<id>`), `permission`, `expandSets` (`true` or `false`), `limit`, `offset` or `after` (the `next` of the previous page).
    * @response 200 {AuthzAdminPage} One page of holders
    * @response 400 {AuthzAdminError} invalid_query: a malformed or missing query parameter
    * @response 401 Unauthorized: a valid session or token is required
@@ -229,7 +229,7 @@ export class AuthzAdminController extends BaseController {
   /**
    * List share links
    * Lists the share links, filtered by the query. A listing never carries a token or its hash: the token is shown once, when the link is created.
-   * Query: `scope` (`<type>` or `<type>:<id>`), `limit`, `offset`.
+   * Query: `scope` (`<type>` or `<type>:<id>`), `limit`, `offset` or `after` (the `next` of the previous page).
    * @response 200 {AuthzAdminPage} One page of rows
    * @response 400 {AuthzAdminError} invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
@@ -294,7 +294,7 @@ export class AuthzAdminController extends BaseController {
   /**
    * List rules
    * Lists the RBAC rules held as rows.
-   * Query: `scope` (`<type>` or `<type>:<id>`), `limit`, `offset`.
+   * Query: `scope` (`<type>` or `<type>:<id>`), `limit`, `offset` or `after` (the `next` of the previous page).
    * @response 200 {AuthzAdminPage} One page of rows
    * @response 400 {AuthzAdminError} invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
