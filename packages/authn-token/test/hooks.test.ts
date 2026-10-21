@@ -132,6 +132,20 @@ describe('DbTokenService action hooks', function () {
       expect(hook.landed()).to.deep.equal(['authn.token.create:before']);
     });
 
+    it('a hook writing the owner of a revoke or an update in place does not move either', async () => {
+      const a = await owner();
+      const b = await owner();
+      const t = await pat(a);
+      hook.tamper('authn.token.*', (i) => {
+        i.owner.id = b.id;
+      });
+      expect((await tokens.update(a, t.record.id, { name: 'renamed' }, ctx())).ok).to.equal(true);
+      expect((await tokens.list(a))[0].name).to.equal('renamed');
+      expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
+      expect((await tokens.validate(t.plaintext, ctx())).ok).to.equal(false);
+      expect(hook.landed()).to.deep.equal([]);
+    });
+
     it('a hook writing the owner of a rotation in place does not move the rotation', async () => {
       const a = await owner();
       const b = await owner();

@@ -44,6 +44,16 @@ class KeyThrottle extends FakeBackoffThrottle {
   }
 }
 
+/** Counts the hashes made. */
+class CountingHasher extends Argon2PasswordHasher {
+  public hashes = 0;
+
+  public async hash(password: string): Promise<string> {
+    this.hashes++;
+    return super.hash(password);
+  }
+}
+
 class RecordingMailer extends PasswordMailer {
   public readonly mails: PasswordMail[] = [];
   public async send(mail: PasswordMail): Promise<void> {
@@ -66,7 +76,7 @@ async function setup() {
   const secrets = new MemorySecretStore();
   const mailer = new RecordingMailer();
   const verifier = new RecordingVerifier();
-  const hasher = new Argon2PasswordHasher({});
+  const hasher = new CountingHasher({});
   await hasher.resolve();
   const hook = new ScriptedActionHook();
   const throttle = new KeyThrottle(DEFAULT_THROTTLE);
@@ -93,7 +103,7 @@ async function setup() {
     await service.drain();
     return mailer.mails.filter((m) => m.purpose === purpose);
   };
-  return { identities, passwords, sessions, events, secrets, mailer, verifier, hook, service, alice, session, audited, mailsOf, throttle };
+  return { identities, passwords, sessions, events, secrets, mailer, verifier, hook, service, alice, session, audited, mailsOf, throttle, hasher };
 }
 
 /** Requests a reset for alice and returns the secret its mail holds. */
@@ -126,6 +136,18 @@ describe('LocalPasswordService action hooks', function () {
       expect(await x.service.change(x.alice, OLD, NEW, x.session, ctx({ purpose: 'reauth' }))).to.deep.equal({ status: 'refused', code: 'hook_error' });
       expect(x.passwords.armedWrites).to.equal(0);
       expect(x.audited('password.change', 'hook_error')).to.equal(true);
+    });
+
+    it('a refused set spends the one hash a set does, so a refusal nested in a registration costs what a taken address does', async () => {
+      const x = await setup();
+      const hashes = x.hasher.hashes;
+      x.hook.refuse('authn.password.set', CODE);
+      expect((await x.service.set(x.alice, NEW, ctx(), { actor: ADMIN })).status).to.equal('refused');
+      expect(x.hasher.hashes - hashes).to.equal(1);
+      x.hook.reset();
+      const before = x.hasher.hashes;
+      expect((await x.service.set(x.alice, NEW, ctx(), { actor: ADMIN })).status).to.equal('set');
+      expect(x.hasher.hashes - before).to.equal(1);
     });
 
     it('set answers { status: refused, code } and stores no hash', async () => {

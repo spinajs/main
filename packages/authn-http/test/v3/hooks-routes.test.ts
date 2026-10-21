@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access -- the tamper tests write into hook inputs untyped, as a careless hook would */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call -- the tamper tests write into hook inputs untyped, as a careless hook would */
 /** The action hooks of the 3.0 routes (HOOK-3): each refusal's answer, and that a refused route changes nothing. */
 import 'mocha';
 import { expect } from 'chai';
@@ -50,6 +50,32 @@ function expectRefused(res: unknown, status: number, code = CODE): Answer {
   expect(a.status, JSON.stringify(a.body)).to.equal(status);
   expect(a.body.code).to.equal(code);
   return a;
+}
+
+/** Like the users ORM model a principal may carry: a method of its own and a cycle, so structuredClone refuses it. */
+class LiveModel {
+  public readonly self: LiveModel = this;
+  public readonly reload = (): void => undefined;
+}
+
+/** Every write a careless hook might make to a principal. */
+function tamperPrincipal(p: Record<string, any>): void {
+  try {
+    p.ceiling.roles.push('admin');
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e;
+  }
+  try {
+    p.attributes.tier = 'gold';
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e;
+  }
+  try {
+    p.id = 'someone-else';
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e;
+  }
+  delete p.ceiling;
 }
 
 const facts = (): AuthnFacts => ({ method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date() });
@@ -158,6 +184,18 @@ describe('action hooks on the 3.0 routes', function () {
       expect(w.hook.calls('authn.sessions.revoke')[0].input.handle).to.equal(row.handle);
     });
 
+    it('a hook writing ctx.session in place does not move what revokeOthers keeps', async () => {
+      const w = await world();
+      const other = await w.sessions.issue(w.alice, facts());
+      w.hook.tamper('authn.sessions.revoke', (i) => {
+        i.ctx.session.id = other.id;
+      });
+      expect(answerOf(await w.wire(new AuthnSessionsController()).revokeOthers(w.request())).body).to.deep.equal({ Revoked: 1 });
+      expect(await w.sessions.restore(other.id)).to.equal(null);
+      expect(await w.sessions.restore(w.session.handle.id)).to.not.equal(null);
+      expect(w.hook.landed()).to.deep.equal([]);
+    });
+
     it('DELETE /user/sessions refused answers 403 and every session is kept', async () => {
       const w = await world();
       const other = await w.sessions.issue(w.alice, facts());
@@ -181,6 +219,26 @@ describe('action hooks on the 3.0 routes', function () {
       const now = await w.sessions.restore(w.session.handle.id);
       expect(now, 'the id did not rotate').to.not.equal(null);
       expect(now!.activeRole).to.equal(undefined);
+    });
+
+    it('a hook writing the session handle in place, or the principal it is shown after, moves neither the rotation nor the answer', async () => {
+      const w = await world();
+      const controller = w.wire(new AuthnActiveRoleController());
+      const principal = { authenticated: true, type: 'user', id: w.alice.id, ceiling: { roles: ['viewer'] }, attributes: { tier: 'basic' }, identity: new LiveModel() };
+      Object.assign(controller, { _cfg: { Env: 'test', get: (_path: string, fallback?: unknown) => fallback } });
+      Object.assign(controller, {
+        Principals: { principalOf: async () => principal },
+        Roles: { rolesOf: async () => [{ role: 'viewer', requirePassword: false }] },
+      });
+      w.hook.tamper('authn.role.switch', (i) => {
+        i.session.handle.id = 'forged';
+      });
+      w.hook.tamper('authn.role.switch', (o) => tamperPrincipal(o), 'after');
+      const a = answerOf(await controller.switch(w.request({ role: 'viewer' })));
+      expect(a.status).to.equal(200);
+      expect(await w.sessions.restore(w.session.handle.id), 'the real session rotated').to.equal(null);
+      expect(principal).to.deep.include({ id: w.alice.id, ceiling: { roles: ['viewer'] }, attributes: { tier: 'basic' } });
+      expect(w.hook.landed()).to.deep.equal([]);
     });
   });
 
@@ -265,6 +323,17 @@ describe('action hooks on the 3.0 routes', function () {
       return { w, registrar, verifications, register };
     }
 
+    it('a hook writing the output id in place sends the mail and the audit to the account the registrar made', async () => {
+      const { w, verifications, register } = await registration();
+      w.hook.tamper('authn.registration', (o) => {
+        o.id.id = 'someone-else';
+      }, 'after');
+      expect(answerOf(await register({})).status).to.equal(202);
+      expect(verifications).to.deep.equal([{ type: 'user', id: 'new-1' }]);
+      expect(w.events.find((e) => e.type === 'identity.register')?.identity).to.deep.equal({ type: 'user', id: 'new-1' });
+      expect(w.hook.landed()).to.deep.equal([]);
+    });
+
     it('refused answers 400 { code } and registers nothing', async () => {
       const { w, registrar, verifications, register } = await registration();
       w.hook.refuse('authn.registration', CODE);
@@ -307,6 +376,19 @@ describe('action hooks on the 3.0 routes', function () {
   });
 
   describe('POST /auth/code/request', () => {
+    it('a hook writing ctx.ip in place does not reach the throttled requestCode', async () => {
+      const w = await world();
+      const ips: unknown[] = [];
+      const controller = w.wire(new AuthnCodeLoginController());
+      Object.assign(controller, { Passwords: { requestCode: async (_login: string, c: AuthnContext) => (ips.push(c.ip), { status: 'accepted' }) } });
+      w.hook.tamper('authn.code.request', (i) => {
+        i.ctx.ip = '203.0.113.9';
+      });
+      expect(answerOf(await controller.request(w.request({ login: 'alice@example.test' }, { session: null, principal: null }))).status).to.equal(202);
+      expect(ips).to.deep.equal(['192.0.2.7']);
+      expect(w.hook.landed()).to.deep.equal([]);
+    });
+
     it('refused answers the accepted body and sends nothing', async () => {
       const w = await world();
       const requested: string[] = [];
@@ -409,8 +491,8 @@ describe('action hooks on the 3.0 routes', function () {
   });
 
   describe('authn.request', () => {
-    async function authenticate(w: World, values: Record<string, unknown>, seen: { req?: Request } = {}): Promise<unknown> {
-      const principal = { authenticated: true, type: 'user', id: 'alice-1', ceiling: { roles: ['viewer'] } };
+    async function authenticate(w: World, values: Record<string, unknown>, seen: { req?: Request } = {}, extra: Record<string, unknown> = {}): Promise<unknown> {
+      const principal = { authenticated: true, type: 'user', id: 'alice-1', ceiling: { roles: ['viewer'] }, ...extra };
       const middleware = readingFrom(new AuthnMiddleware(), fakeContainer(values));
       Object.assign(middleware, { Container: w.container, Hooks: w.hooks, Sessions: w.sessions, Extractors: [], Resolvers: [{ order: 0, resolve: async () => principal }] });
       Object.defineProperty(middleware, 'Log', { value: { warn: () => undefined } });
@@ -436,6 +518,15 @@ describe('action hooks on the 3.0 routes', function () {
       expect(err).to.be.instanceOf(Forbidden);
       expect((err as { code?: unknown }).code).to.equal(CODE);
       expect(w.hook.calls('authn.request')[0].input).to.deep.include({ method: 'GET', path: '/api/things', ip: '192.0.2.7' });
+    });
+
+    it('on, with an identity that cannot be cloned, a hook still changes nothing of the principal the request gets', async () => {
+      const w = await world();
+      w.hook.tamper('authn.request', (i) => tamperPrincipal(i.principal));
+      const seen: { req?: Request } = {};
+      expect(await authenticate(w, { 'authn.http.hooks.request': true }, seen, { attributes: { tier: 'basic' }, identity: new LiveModel() })).to.equal(null);
+      expect(seen.req!.storage.AuthnPrincipal).to.deep.include({ id: 'alice-1', ceiling: { roles: ['viewer'] }, attributes: { tier: 'basic' } });
+      expect(w.hook.landed()).to.deep.equal([]);
     });
 
     it('on, a hook cannot drop the ceiling or change the id of the principal the request gets', async () => {
