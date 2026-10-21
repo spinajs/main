@@ -2,7 +2,7 @@ import { Autoinject, Container, Injectable, PerChildInstance } from '@spinajs/di
 import type { IContainer } from '@spinajs/di';
 import { AutoinjectNamedService, Config, Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { Log, Logger } from '@spinajs/log-common';
+import { Log, Logger, Perf } from '@spinajs/log-common';
 
 import { asciiLower, isNonEmptyString, isPlainObject, uniqueBy } from '@spinajs/util';
 
@@ -31,6 +31,7 @@ import { MFA_POLICY_SERVICE } from '../flow/select-policy.js';
 import { linkingSwitchesOf } from '../link/switches.js';
 import { StrategyRegistry } from '../registry/strategy-registry.js';
 import { canPeek } from '../throttle/peek.js';
+import { timedThrottle } from '../throttle/timing.js';
 import type { PeekableThrottle } from '../throttle/peek.js';
 import { AUTHN_THROTTLE_SERVICE } from '../throttle/select.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
@@ -203,13 +204,19 @@ export class DefaultAuthnService extends AuthnService {
     return this.Registry.strategies();
   }
 
-  public async authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
+  public authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
+    const labels = { strategy: 'none' };
+    return Perf.measure('authn.authenticate', () => this.authenticateTimed(c, ctx, labels), { labels }) as Promise<AuthenticationResult>;
+  }
+
+  private async authenticateTimed(c: Credentials, ctx: AuthnContext, labels: { strategy: string }): Promise<AuthenticationResult> {
     const candidates = this.Registry.candidates(c);
     if (candidates.length === 0) {
       await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials' });
       return fail('unsupported_credentials');
     }
     const only = candidates.length === 1 ? { strategy: candidates[0].name } : {};
+    labels.strategy = candidates.map((s) => s.name).join(',');
 
     const keyed = this.keysFor(candidates, c, ctx);
     if ('error' in keyed) {
@@ -220,13 +227,13 @@ export class DefaultAuthnService extends AuthnService {
     // in flight with a valid token or key would add up to a backoff. A login method keeps A05's count before verify.
     // A parallel burst of failures is then verified in full (PeekableThrottle), which only unguessable credentials allow.
     const failuresOnly = this.peeker !== undefined && candidates.every((s) => !s.interactive);
-    const gate = failuresOnly ? await this.peeker!.peek(keyed.all, 'login', ctx) : await this.Throttle.attempt(keyed.all, 'login', ctx);
+    const gate = await timedThrottle(() => (failuresOnly ? this.peeker!.peek(keyed.all, 'login', ctx) : this.Throttle.attempt(keyed.all, 'login', ctx)));
     if (!gate.allowed) return this.throttled(ctx, gate.retryAfterSeconds, only);
     const clean = 'clean' in gate && gate.clean === true;
 
     const result = await this.verified(candidates, keyed, c, ctx, only, clean);
     if (!failuresOnly || result.status === 'success') return result;
-    const counted = await this.Throttle.attempt(keyed.all, 'login', ctx);
+    const counted = await timedThrottle(() => this.Throttle.attempt(keyed.all, 'login', ctx));
     return counted.allowed ? result : this.throttled(ctx, counted.retryAfterSeconds, only);
   }
 

@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
 import { _check_arg, _custom, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import { Autoinject, Container, Injectable, PerChildInstance } from '@spinajs/di';
+import { Perf } from '@spinajs/log-common';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AutoinjectService, Config } from '@spinajs/configuration';
@@ -170,7 +171,11 @@ export class DefaultSessionIssuer extends SessionIssuer {
     return peekingSessions(() => this.restore(rawId));
   }
 
-  public async restore(rawId: string): Promise<Session | null> {
+  public restore(rawId: string): Promise<Session | null> {
+    return Perf.measure('authn.session.restore', () => this.restoreTimed(rawId)) as Promise<Session | null>;
+  }
+
+  private async restoreTimed(rawId: string): Promise<Session | null> {
     const [ok] = _try_check_arg(_is_string(_non_empty(), _max_length(MAX_RAW_ID_LENGTH)))(rawId, 'rawId');
     if (!ok) {
       return null;

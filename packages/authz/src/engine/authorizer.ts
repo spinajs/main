@@ -1,4 +1,5 @@
 import { quote, compareStrings } from '@spinajs/util';
+import { Perf } from '@spinajs/log-common';
 import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
@@ -418,7 +419,7 @@ export class Authorizer {
   }
 
   async check(input: CheckInput, scope?: RequestScope): Promise<Decision> {
-    return (await runAsync(this.pipeline(input, this.newRun(false, scope)))).decision;
+    return Perf.measure('authz.check', async () => (await runAsync(this.pipeline(input, this.newRun(false, scope)))).decision, { labels: { domain: this.domain } });
   }
 
   /** Introspection, not an access attempt: unaudited, no decision cache read or stored, models read fresh. */
@@ -1133,6 +1134,7 @@ export class Authorizer {
     if (key !== undefined && run.firm !== true && run.fresh !== true) {
       const hit = this.cached(key, run, def, ref, requester, parties.ref);
       if (hit) return hit;
+      Perf.count('authz.cache.miss');
     }
 
     if (parties.principal !== gate.principal) core('delegation', `inherit: the models run as ${principalKey(parties.ref)}`);
@@ -1271,6 +1273,7 @@ export class Authorizer {
     const l1 = l1Key('decision', this.domain, key);
     const entry = run.scope.get(l1);
     if (entry instanceof CachedDecision && entry.generation === this.generation && now < entry.expiresAt) {
+      Perf.count('authz.cache.l1.hit');
       if (run.depth > 0) nest(run, entry.tags);
       if (entry.unaudited && audits(run)) {
         entry.unaudited = false;
@@ -1292,6 +1295,7 @@ export class Authorizer {
       if (found !== undefined) this.logAt('warn', { permission: def.name, resource: resourceKey(ref) }, 'Authz domain ${domain}: ignored a cached decision that does not match ${permission} on ${resource} or has expired');
       return undefined;
     }
+    Perf.count('authz.cache.l2.hit');
     // The L2 returns no tags, so what the stored decision rested on (nested checks, scope nodes) is unknown here.
     if (run.depth > 0) nest(run, undefined);
     const ttl = this.ttlOf(decision);
