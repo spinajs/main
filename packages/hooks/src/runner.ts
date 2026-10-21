@@ -18,6 +18,7 @@ class InvalidRefusalCode extends Error {}
 class HookTimeout extends Error {}
 class InvalidInput extends Error {}
 
+const phasesOf = (hook: ActionHook) => ({ before: typeof hook.before === 'function', after: typeof hook.after === 'function', failed: typeof hook.failed === 'function' });
 const isObject = (value: unknown): value is object => typeof value === 'object' && value !== null;
 
 interface HookEntry {
@@ -26,6 +27,8 @@ interface HookEntry {
   readonly order: number;
   readonly index: number;
   readonly name: string;
+  /** Read from the boot probe, so a hook without `before` is not resolved before the action runs. */
+  readonly phases: { readonly before: boolean; readonly after: boolean; readonly failed: boolean };
   instance?: Promise<ActionHook>;
 }
 
@@ -38,6 +41,8 @@ interface RunState<A extends ActionName> {
   readonly action: A;
   readonly depth: number;
   readonly bag: Map<string, unknown>;
+  /** null: resolution failed and the hook is skipped. */
+  readonly hooks: Map<HookEntry, ActionHook | null>;
 }
 
 
@@ -85,10 +90,10 @@ export class DefaultHooks extends Hooks {
 
     const refusals = new WeakSet<object>();
     const ctx = this.createContext(action, input, depth, refusals);
-    const state: RunState<A> = { action, depth, bag: ctx.bag };
+    const state: RunState<A> = { action, depth, bag: ctx.bag, hooks: new Map() };
 
-    const resolved = await this.runBefore(entries, ctx, state, opts, refusals);
-    const descending = [...resolved].sort((a, b) => b.entry.order - a.entry.order || a.entry.index - b.entry.index);
+    await this.runBefore(entries, ctx, state, opts, refusals);
+    const descending = [...entries].sort((a, b) => b.order - a.order || a.index - b.index);
     const merged = this.mergeInput(input, ctx.input, opts);
 
     let output: OutputOf<A>;
@@ -127,11 +132,11 @@ export class DefaultHooks extends Hooks {
       } catch (error) {
         throw new Error(`Hook ${type.name} could not be constructed to read its actions`, { cause: error });
       }
-      return { type, patterns: probe.actions, order: probe.order, index, name: type.name };
+      return { type, patterns: probe.actions, order: probe.order, index, name: type.name, phases: phasesOf(probe) };
     }
 
     const instance = (type as Factory<ActionHook>)(this.Container);
-    return { type, patterns: instance.actions, order: instance.order, index, name: instance.constructor.name, instance: Promise.resolve(instance) };
+    return { type, patterns: instance.actions, order: instance.order, index, name: instance.constructor.name, phases: phasesOf(instance), instance: Promise.resolve(instance) };
   }
 
   private matching(action: string): HookEntry[] {
@@ -155,21 +160,22 @@ export class DefaultHooks extends Hooks {
     return entry.instance;
   }
 
-  private async runBefore<A extends ActionName>(entries: HookEntry[], ctx: BeforeContext<A>, state: RunState<A>, opts: RunOptions<A>, refusals: WeakSet<object>): Promise<ResolvedHook[]> {
+  private async runBefore<A extends ActionName>(entries: HookEntry[], ctx: BeforeContext<A>, state: RunState<A>, opts: RunOptions<A>, refusals: WeakSet<object>): Promise<void> {
     const mutable = new Set<PropertyKey>(opts.mutable as readonly PropertyKey[]);
     const refusable = opts.refusable ?? true;
-    const resolved: ResolvedHook[] = [];
-
     for (const entry of entries) {
+      if (!entry.phases.before) continue;
+
       let hook: ActionHook;
       try {
         hook = await this.instanceOf(entry);
       } catch (error) {
         this.logFailure(entry.name, state.action, error);
         if (refusable) throw new ActionHookFailed(state.action, entry.name, 'error');
+        state.hooks.set(entry, null);
         continue;
       }
-      resolved.push({ entry, hook });
+      state.hooks.set(entry, hook);
       if (!hook.before) continue;
 
       const previous = ctx.input;
@@ -186,11 +192,29 @@ export class DefaultHooks extends Hooks {
       }
       this.warnDropped(entry.name, state.action, snapshot, ctx.input as object, mutable);
     }
-    return resolved;
   }
 
-  private async runFailed<A extends ActionName>(hooks: ResolvedHook[], input: InputOf<A>, error: unknown, state: RunState<A>): Promise<void> {
-    for (const { entry, hook } of hooks) {
+  /** The hooks of `entries` that define `phase`, resolving those not resolved by the before phase; a failed resolution is logged and the hook skipped. */
+  private async phaseHooks<A extends ActionName>(entries: HookEntry[], phase: 'after' | 'failed', state: RunState<A>): Promise<ResolvedHook[]> {
+    const found: ResolvedHook[] = [];
+    for (const entry of entries) {
+      if (!(phase === 'after' ? entry.phases.after : entry.phases.failed)) continue;
+      if (!state.hooks.has(entry)) {
+        try {
+          state.hooks.set(entry, await this.instanceOf(entry));
+        } catch (error) {
+          this.logFailure(entry.name, state.action, error);
+          state.hooks.set(entry, null);
+        }
+      }
+      const hook = state.hooks.get(entry);
+      if (hook) found.push({ entry, hook });
+    }
+    return found;
+  }
+
+  private async runFailed<A extends ActionName>(entries: HookEntry[], input: InputOf<A>, error: unknown, state: RunState<A>): Promise<void> {
+    for (const { entry, hook } of await this.phaseHooks(entries, 'failed', state)) {
       if (!hook.failed) continue;
       const ctx: FailedContext<A> = { action: state.action, input, error, bag: state.bag, depth: state.depth };
       try {
@@ -201,8 +225,8 @@ export class DefaultHooks extends Hooks {
     }
   }
 
-  private async runAfter<A extends ActionName>(hooks: ResolvedHook[], input: InputOf<A>, output: OutputOf<A>, state: RunState<A>): Promise<void> {
-    for (const { entry, hook } of hooks) {
+  private async runAfter<A extends ActionName>(entries: HookEntry[], input: InputOf<A>, output: OutputOf<A>, state: RunState<A>): Promise<void> {
+    for (const { entry, hook } of await this.phaseHooks(entries, 'after', state)) {
       if (!hook.after) continue;
       const ctx: AfterContext<A> = { action: state.action, input, output, bag: state.bag, depth: state.depth };
       try {

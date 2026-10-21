@@ -92,6 +92,15 @@ class FlakyHook extends ActionHook {
   }
 }
 
+class FlakyAfterHook extends ActionHook {
+  @Autoinject(FlakyDependency)
+  protected Dependency: FlakyDependency;
+
+  readonly actions: readonly ActionPattern[] = ['boot.ping'];
+
+  after(): void {}
+}
+
 describe('DefaultHooks boot', function () {
   this.timeout(10000);
   useTestLog();
@@ -170,6 +179,14 @@ describe('DefaultHooks boot', function () {
       FlakyDependency.failing = false;
       expect(await hooks.run('boot.ping', { n: 2 }, echo, { mutable: [] })).to.eq(2);
       expect(FlakyHook.seen).to.have.length(1);
+    });
+
+    it('never fails a refusable run because an after-only hook cannot be resolved', async () => {
+      const { hooks } = await boot({}, (c) => c.register(FlakyAfterHook).as(ActionHook));
+
+      expect(await hooks.run('boot.ping', { n: 4 }, echo, { mutable: [] })).to.eq(4);
+
+      expect(TestLog.of('hooks').filter((l) => l.text.includes('FlakyAfterHook'))).to.have.length(1);
     });
 
     it('with refusable: false, logs it, skips the hook and runs the action', async () => {
