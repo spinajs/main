@@ -1,3 +1,38 @@
+# Release notes — conditional allows are settled on the row (M1)
+
+> Branch `feat/ory-sec-1`. Docs: `docs/authz-http/01-protecting-routes.md#conditional-allows`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authz-http`, `@spinajs/http-socket` — a conditional allow loads the row by default
+
+- `@Access` and `@SocketAccess` on a resource with an id now settle a conditional allow (an owner
+  rule, a relation grant, an ABAC condition on `resource.*`) against the row the domain's
+  `ResourceAdapter` loads. The route runs with a `TRUE` residual, or answers 403 with the reason of the
+  check against the row. No adapter that can load the type, or no row: 403 `unknown_resource`.
+- Before, such an allow reached the action unless the route said `subject: 'load'`. A route that did
+  not apply `req.storage.AuthzDecision.residual` itself let every caller holding the conditional grant
+  reach every id.
+- New option `conditional: 'load' | 'action'` (default `'load'`). `'action'` restores the old
+  behaviour for a route whose action applies the residual itself.
+- `subject: 'load'` still works and means `conditional: 'load'`. `subject: 'none'` no longer opts out:
+  use `conditional: 'action'`.
+- A type-level resource (no extractor, `{ type }`) loads nothing: list routes keep their residual for
+  `.accessible()`.
+- How to move: give every route that relies on a conditional allow reaching its action, and applies
+  the residual there, `conditional: 'action'`. A route with an id whose type no adapter can load (no
+  `load()`) now answers 403 on a conditional allow; give the adapter `load()`.
+
+### `@spinajs/authz-orm` — the runtime guard flags a primary-key load under a conditional route decision
+
+- In the `test` env (and as a warning in `development`), `get(id)`, `where(pk, id)` and
+  `findOrFail([id])` of an `@AccessResource` model inside a route whose decision is conditional (a
+  type-level rule, or `conditional: 'action'`) are flagged like any unguarded select. Use
+  `.accessible(permission)`, or drop `conditional: 'action'` so the route settles the decision on the
+  row. Code outside a request is unchanged.
+
+---
+
 # Release notes — SpinaJS 3.0.0: authentication and authorization
 
 > 3.0 splits `@spinajs/rbac` into three families: identity (`@spinajs/users*`), authentication

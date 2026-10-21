@@ -1,6 +1,6 @@
 # Behaviour fixtures
 
-The rules B01-B46 of the authz design (§17), written as data: worlds, steps and expected decisions. `runBehaviour` runs the rules you name against your system through a harness, so every engine, model and adapter is held to the same answers. Each package runs the parts it owns from its own tests.
+The rules B01-B47 of the authz design (§17), written as data: worlds, steps and expected decisions. `runBehaviour` runs the rules you name against your system through a harness, so every engine, model and adapter is held to the same answers. Each package runs the parts it owns from its own tests.
 
 ## How it works
 
@@ -125,6 +125,7 @@ The full text of each rule is in `BEHAVIOUR_RULES`. Parts marked *(no cases)* ar
 | B44 | Retired: lists on types with RBAC rules; boot rule 12 refuses them. | `retired` *(no cases)* |
 | B45 | Instance roles carry no scoped grant. | `rbac` |
 | B46 | Scope-attribute switches (`external_sharing`) act at check time. | `rules`, `links`, `store`, `cache`, `canvas` *(no cases)* |
+| B47 | A conditional allow of `@Access` on one object is settled against its loaded row; `conditional: 'action'` opts out; a type-level resource loads nothing. | `http` |
 
 ## Important behaviour
 
