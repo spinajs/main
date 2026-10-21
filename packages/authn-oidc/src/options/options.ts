@@ -33,6 +33,7 @@ export interface OidcProviderOptions {
   readonly requiredClaims: Readonly<Record<string, string | number | boolean>>;
   readonly authorizationParams: OidcAuthorizationParams;
   readonly linking: { readonly jit: boolean; readonly byVerifiedEmail: boolean };
+  readonly logout: { readonly storeIdToken: boolean; readonly postLogoutRedirectUri: string | null };
 }
 
 export interface OidcOptions {
@@ -96,6 +97,10 @@ function checkUrls(at: string, raw: Record<string, unknown>, relaxed: boolean): 
   }
   if (raw.redirectUri !== undefined && !checkedUrl(raw.redirectUri, { relaxed, query: true })) {
     fail(`${at}.redirectUri must be an absolute ${relaxed ? 'http or https' : 'https'} URL without credentials or fragment`);
+  }
+  const postLogout = (raw.logout as { postLogoutRedirectUri?: unknown } | undefined)?.postLogoutRedirectUri;
+  if (postLogout !== undefined && !checkedUrl(postLogout, { relaxed, query: true })) {
+    fail(`${at}.logout.postLogoutRedirectUri must be an absolute ${relaxed ? 'http or https' : 'https'} URL without credentials or fragment`);
   }
 }
 
@@ -163,6 +168,7 @@ function buildProvider(name: string, provider: ConfiguredProvider, env: string |
     requiredClaims: defined(provider.requiredClaims) as Record<string, string | number | boolean>,
     authorizationParams: defined(provider.authorizationParams) as OidcAuthorizationParams,
     linking,
+    logout: { storeIdToken: provider.logout?.storeIdToken === true, postLogoutRedirectUri: provider.logout?.postLogoutRedirectUri ?? null },
   });
 }
 

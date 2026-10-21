@@ -36,7 +36,7 @@ const branch = (preset: string, then: Record<string, unknown>) => ({
 
 const PROVIDER_MEMBERS = [
   'preset', 'issuer', 'tenant', 'baseUrl', 'realm', 'domain', 'authorizationServer', 'host', 'clientId', 'clientSecret', 'tokenEndpointAuth',
-  'redirectUri', 'scopes', 'claims', 'algorithms', 'clockSkewSeconds', 'userinfo', 'requiredClaims', 'authorizationParams', 'linking',
+  'redirectUri', 'scopes', 'claims', 'algorithms', 'clockSkewSeconds', 'userinfo', 'requiredClaims', 'authorizationParams', 'linking', 'logout',
 ];
 
 /** One authn.oidc.providers.<name> entry (OidcProviderConfig). The https rule, the subject rule and the env are checked by buildOidcOptions. */
@@ -85,6 +85,11 @@ export const AUTHN_OIDC_PROVIDER_SCHEMA = {
       default: {},
       propertyNames: { enum: ['jit', 'byVerifiedEmail'] },
       properties: { jit: { type: 'boolean', default: false }, byVerifiedEmail: { type: 'boolean', default: false } },
+    },
+    logout: {
+      type: 'object',
+      propertyNames: { enum: ['storeIdToken', 'postLogoutRedirectUri'] },
+      properties: { storeIdToken: { type: 'boolean', default: false }, postLogoutRedirectUri: { type: 'string', minLength: 1 } },
     },
   },
   allOf: [

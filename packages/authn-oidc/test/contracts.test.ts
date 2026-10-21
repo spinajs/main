@@ -355,6 +355,7 @@ describe('authn-oidc contracts', () => {
           readonly requiredClaims?: Readonly<Record<string, string | number | boolean>>;
           readonly authorizationParams?: OidcAuthorizationParams;
           readonly linking?: { readonly jit?: boolean; readonly byVerifiedEmail?: boolean };
+          readonly logout?: { readonly storeIdToken?: boolean; readonly postLogoutRedirectUri?: string };
         }
       >(true);
     });

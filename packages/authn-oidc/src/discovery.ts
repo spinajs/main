@@ -9,6 +9,8 @@ export interface OidcProviderMetadata {
   readonly token_endpoint: string;
   readonly jwks_uri: string;
   readonly userinfo_endpoint?: string;
+  /** OpenID Connect RP-Initiated Logout 1.0: absent when the provider does not offer it. */
+  readonly end_session_endpoint?: string;
   /** RFC 9207: the provider sends iss with every authorization response. */
   readonly authorization_response_iss_parameter_supported: boolean;
 }
