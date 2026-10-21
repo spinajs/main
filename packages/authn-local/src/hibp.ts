@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import './register-schema.js';
@@ -5,6 +6,7 @@ import { Log, Logger } from '@spinajs/log';
 import type { PasswordPolicyContext } from '@spinajs/authn/contracts';
 
 import type { AuditLog } from './audit.js';
+import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
 import { PasswordBlocklist } from './policy.js';
 
 export interface HibpPasswordBlocklistOptions {
@@ -34,7 +36,45 @@ export class HibpPasswordBlocklist extends PasswordBlocklist {
     super();
   }
 
-  public async isBlocked(_password: string, _ctx?: PasswordPolicyContext): Promise<boolean> {
-    throw new Error('not implemented: HibpPasswordBlocklist.isBlocked');
+  public async isBlocked(password: string, _ctx?: PasswordPolicyContext): Promise<boolean> {
+    const hash = createHash('sha1').update(password, 'utf8').digest('hex').toUpperCase();
+    const suffix = hash.slice(5);
+    let body: string;
+    try {
+      const response = await fetch(`${this.url()}${hash.slice(0, 5)}`, {
+        headers: { 'Add-Padding': 'true' },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(this.timeoutMs()),
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        return this.passUnchecked(`HTTP ${response.status}`);
+      }
+      body = await response.text();
+    } catch (err) {
+      return this.passUnchecked((err as Error)?.name ?? typeof err);
+    }
+    // Padding rows carry a count of 0.
+    return body.split(/\r?\n/).some((line) => {
+      const [listed, count] = line.trim().split(':');
+      return listed?.toUpperCase() === suffix && Number(count) > 0;
+    });
+  }
+
+  protected passUnchecked(reason: string): false {
+    this.log().warn({ reason }, 'The breached-password check failed (${reason}); the password was accepted without it');
+    return false;
+  }
+
+  protected url(): string {
+    return this.Options ? (this.Options.url ?? AUTHN_LOCAL_DEFAULTS.hibp.url) : this.Url;
+  }
+
+  protected timeoutMs(): number {
+    return this.Options ? (this.Options.timeoutMs ?? AUTHN_LOCAL_DEFAULTS.hibp.timeoutMs) : this.TimeoutMs;
+  }
+
+  protected log(): AuditLog {
+    return this.Options ? (this.Options.log ?? { warn: () => undefined }) : this.Log;
   }
 }
