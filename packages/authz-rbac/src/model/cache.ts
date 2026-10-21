@@ -1,4 +1,5 @@
 import type { EvaluationContext } from '@spinajs/authz';
+import { Perf } from '@spinajs/log-common';
 
 import type { Assignment, AssignmentStore, AssignmentSubject } from '../contracts.js';
 import { subjectKey } from './assignments.js';
@@ -79,7 +80,10 @@ export class AssignmentCache {
     const memoKey = MEMO_PREFIX + JSON.stringify([...bySubject.keys()]);
     const at = ctx.now.getTime();
     const memo = ctx.cache.get(memoKey) as Snapshot | undefined;
-    if (opts.fresh !== true && memo !== undefined && memo.generation === this.generation && memo.at <= at) return memo.rows;
+    if (opts.fresh !== true && memo !== undefined && memo.generation === this.generation && memo.at <= at) {
+      Perf.count('authz.rbac.assignments.hit');
+      return memo.rows;
+    }
     const generation = this.generation;
     const rows = this.load(bySubject, ctx.now, opts.fresh === true);
     if (!(rows instanceof Promise)) {
@@ -144,6 +148,7 @@ export class AssignmentCache {
       if (pending !== undefined && pending.at <= now) parts.set(key, pending.rows);
       else missing.push(key);
     }
+    Perf.count(missing.length > 0 ? 'authz.rbac.assignments.miss' : 'authz.rbac.assignments.hit');
     if (missing.length > 0) for (const [key, rows] of this.fetch(missing, subjects, at)) parts.set(key, rows);
     const ordered = [...subjects.keys()].map((key) => parts.get(key)!);
     if (!ordered.some((p) => p instanceof Promise)) return Object.freeze((ordered as Rows[]).flat());
