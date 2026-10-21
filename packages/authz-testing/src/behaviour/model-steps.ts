@@ -136,7 +136,8 @@ async function execute(ctx: StepContext, via: Via, actor: Principal | undefined,
   }
   assert.ok(ctx.session.admin, 'the session has no admin handle');
   assert.ok(actor, 'AuthzAdmin.execute needs an actor');
-  // The kit cannot see the models' AuthzCommandMap entries; the commands are theirs.
+  // The kit's own build cannot see the models' AuthzCommandMap entries; a program that imports them can.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
   return ctx.session.admin.execute(actor, commands as readonly AuthzCommand[], options);
 }
 

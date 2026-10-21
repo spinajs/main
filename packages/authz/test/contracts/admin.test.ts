@@ -81,7 +81,7 @@ describe('AuthzAdmin', () => {
   it('is implementable; without a model the sugar rows are unknown', async () => {
     const admin: AuthzAdmin = new Fake();
     const actor = {} as Principal;
-    const a = await admin.assign(actor, {} as AuthzCommandFields<'assignment.grant'>, { reason: 'x', idempotencyKey: 'k', dryRun: true });
+    const a = await admin.assign(actor, {}, { reason: 'x', idempotencyKey: 'k', dryRun: true });
     expect(a).to.deep.eq({ id: '1' });
     const out = await admin.execute(actor, [{ kind: 'scope.forget', scope }]);
     expect(out[0].ok).to.eq(true);

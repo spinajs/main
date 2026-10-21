@@ -112,7 +112,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
   async assign(actor: Principal, a: AuthzCommandFields<'assignment.grant'>, opts?: AuthzAdminOptions): Promise<AuthzCommandRow<'assignment.grant'>> {
     const { row } = await this.one(actor, sugar('assignment.grant', a), opts, { row: true });
     if (!isObject(row) || typeof row.id !== 'string') throw new AuthzConfigError('AuthzAdmin.assign: the handler of "assignment.grant" returned no Assignment row');
-    return row as AuthzCommandRow<'assignment.grant'>;
+    return row;
   }
 
   async revoke(actor: Principal, id: string, opts?: AuthzAdminOptions): Promise<void> {

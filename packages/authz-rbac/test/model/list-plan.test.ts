@@ -173,7 +173,7 @@ describe('authz-rbac listPlan (design §6.2)', () => {
 
   it('warns once that authz.rbac.maxPlanSubjects is no longer read', async () => {
     const warnings: string[] = [];
-    const m = new RbacModel({ roles: new MemoryRoleStore(ROLES), assignments: new MemoryAssignmentStore([]), log: { warn: (_fields: unknown, template: string) => void warnings.push(template) } as never });
+    const m = new RbacModel({ roles: new MemoryRoleStore(ROLES), assignments: new MemoryAssignmentStore([]), log: { warn: (_fields: unknown, template: string) => void warnings.push(template) } });
     const init = (config: Record<string, unknown>) => m.init(fakeModelInitContext({ model: 'rbac', permissions: registry(), config }));
     await init({});
     expect(warnings).to.deep.equal([]);

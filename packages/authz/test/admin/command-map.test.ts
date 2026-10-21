@@ -58,7 +58,7 @@ class FakeSetHandler extends AuthzWriteHandler {
     FakeSetHandler.seen.push(c);
     const set = c as FakeSet;
     if (set.key === 'clash') throw new AuthzAdminFailure('conflict', 'the value changed meanwhile', 'key');
-    const store = (await adminContainer(ctx).resolve(FakeValueStore)) as FakeValueStore;
+    const store = await adminContainer(ctx).resolve(FakeValueStore);
     const before = store.values.get(set.key);
     store.values.set(set.key, set.value);
     memoryTx(tx).onRollback(() => (before === undefined ? store.values.delete(set.key) : store.values.set(set.key, before)));
