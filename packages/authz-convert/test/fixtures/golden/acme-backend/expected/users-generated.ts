@@ -12,14 +12,6 @@ export default {
           { name: 'logo.png', path: 'images/logo.png', provider: 'email-templates', cid: 'logo' },
         ],
       },
-      changePassword: {
-        enabled: true,
-        template: 'account-mail.mjml',
-        subject: 'Password reset',
-        attachments: [
-          { name: 'logo.png', path: 'images/logo.png', provider: 'email-templates', cid: 'logo' },
-        ],
-      },
     },
   },
 };

@@ -4,11 +4,6 @@ export default {
   users: {
     email: {
       connection: 'rbac-email-connection',
-      changePassword: {
-        enabled: true,
-        template: './user-change-password-template.pug',
-        subject: 'Password change request',
-      },
       created: {
         enabled: true,
         template: './user-creation-email-template.pug',

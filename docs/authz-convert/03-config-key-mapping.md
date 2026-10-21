@@ -25,7 +25,7 @@
 | `rbac.token.rolePolicy` | `authz.token.rolePolicy` | `{ service }` copied. A service other than `OwnRolesTokenRolePolicy` is a manual `custom-service` item; another shape is a manual `token-role-policy` item. |
 | `rbac.token.excludedRoles` | `authz.token.excludedRoles` | Copied. |
 
-When the converter writes any `authz.admin.guard` key but no `privilegedPermission`, it adds a manual `guard-privileged-permission` item: boot requires that key unless both `preventSelfLockout` and `preventLastPrivilegedRemoval` are `false`.
+When the converter writes any `authz.admin.guard` key but no `privilegedPermission`, it adds a `guard-privileged-permission` note: the self-lockout and last-holder checks then count `@spinajs/authz-rbac`'s default `users:update`. There is no note when both `preventSelfLockout` and `preventLastPrivilegedRemoval` are `false`.
 
 ## Authentication keys (`authn.*`)
 
@@ -59,7 +59,7 @@ When the converter writes any `authz.admin.guard` key but no `privilegedPermissi
 | 2.x key | 3.0 key | Conversion |
 | --- | --- | --- |
 | `rbac.user` | `users.user` | Copied with the same sub-paths. |
-| `rbac.email` | `users.email` | Copied with the same sub-paths. |
+| `rbac.email` | `users.email` | Copied with the same sub-paths, except `changePassword`, which nothing in 3.0 reads: it is left out with an `email-change-password` warning. The reset mail takes `email.password.reset.subject` and `.template` ([Password mails](../email/08-password-mailer.md)). |
 | `rbac.actions` | `users.actions` | Copied. Hooks written as functions are left out as manual `not-data` items. |
 
 ## Removed keys
@@ -81,7 +81,7 @@ The converter reads only the app's files, so it carries the values the 2.x packa
 | `RBAC_2X_DEFAULTS` | Scalar defaults by path under `rbac` (`auth.service`, `twoFactorAuth.enabled`, `admin.roleGuard.privilegedAction`, ...) | Keys built from several 2.x keys, and the package-default findings. |
 | `RBAC_2X_ARRAYS` | `impersonation.protectedRoles` and `password.generator.characters` | Arrays 2.x joined with the app's array. |
 | `RBAC_2X_PACKAGE_GRANTS` | Role, resource and action key to the attribute list the packages granted | Refusing or noting app grants on the same key. |
-| `RBAC_2X_PACKAGE_EXTENDS` | `system` extends `admin`, `admin` extends `admin.users` | The `package-extends` note. |
+| `RBAC_2X_PACKAGE_EXTENDS` | `system` extends `admin`, `admin` extends `admin.users` | The `package-extends` finding. |
 | `RBAC_2X_PACKAGE_ROLES` | `guest`, `system`, `admin.users`, `user`, `admin` | Roles 2.x knew in every app (`roles-voided` check). |
 | `HTTP_2X_COOKIE_SECRET` | The public `@spinajs/http` 2.x cookie secret | The `cookie-secret` warning. |
 

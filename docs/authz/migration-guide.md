@@ -110,7 +110,7 @@ The table shows the target and what the converter does.
 | `rbac.grants.R.X['v:own'] = ['*']` | `{ permission: 'X:v', relation: 'owner' }` | Relation `owner`, except on the resource `user`: relation `self` (`--self-resources`). `users` stays `owner`. |
 | `'v:own': ['scope:polsat']` | `{ permission: 'X:v', relation: 'polsat' }` | `scope:x` becomes relation `x`. `scope:` on an `:any` grant is refused. `scope:owner` and `scope:self` are refused. |
 | Attribute lists `['*', '!Password']` | `fields: { read: [...] }` on read grants, `fields: { write: [...] }` on create and update grants | No `fields` for a list of `['*']`. None on delete. |
-| `$extend: [...]` | `extends: [...]` | Only the app's part is written. The 3.0 packages define their own `system`, `admin` and `admin.users`. |
+| `$extend: [...]` | `extends: [...]` | Only the app's part is written. `@spinajs/users` defines its own `admin` and `admin.users`; no 3.0 package defines `system`, so a `system` role no longer extends `admin` unless you add it. |
 | Roles nobody is assigned | `assignable: false` | Only with `--db`. Without it every role stays assignable. |
 | `rbac.roles: [{ Name }]` | A key in `authz.rbac.roles` | A role without grants is written with `grants: []`, so its assignments stay valid. A name that differs from a granted role only in case is not written. |
 | `rbac.defaultRole` | `authz.rbac.defaultRoles` (new users) | Written when the app sets it. |
