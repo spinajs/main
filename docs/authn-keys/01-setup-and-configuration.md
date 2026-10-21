@@ -30,6 +30,8 @@ Importing `@spinajs/authn-keys` registers the key registry, the stores, the JWS 
 | `authn.keys.httpSignature.maxAgeSeconds` | `integer` | `300` | `1`-`300` | Largest `expires - created` of a signature |
 | `authn.keys.httpSignature.skewSeconds` | `integer` | `30` | `0`-`300` | How far `created` may lie in the future |
 | `authn.keys.httpSignature.requiredComponents` | `string[]` | `['@method', '@target-uri', 'content-digest']` | component names | Components every signature must cover; `content-digest` only applies to a request with a body |
+| `authn.keys.cache.ttlSeconds` | `integer` | `10` | `>= 0` | Seconds `KeyRegistry.byId` serves a key from memory; `0` turns the cache off. See [Key cache](02-key-registry.md#key-cache) |
+| `authn.keys.cache.maxEntries` | `integer` | `10000` | `>= 1` | Cached keys held at most |
 | `authn.strategies` | `{ name, service }[]` | `[]` | see below | The strategies that run; owned by `@spinajs/authn` |
 
 The strategy entries this package provides:
