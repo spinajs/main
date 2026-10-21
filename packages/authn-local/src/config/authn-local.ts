@@ -1,4 +1,12 @@
 import { join, normalize, resolve } from 'path';
+import { isDevOrTestEnv } from '@spinajs/configuration';
+
+// D3: the env as the configuration resolves it, so an app that names no env counts as development, as for `*.dev.js` files.
+// Evaluated once, when the configuration first loads this file.
+function appEnv(): string {
+  const flag = process.argv.indexOf('--env');
+  return (flag >= 0 ? process.argv[flag + 1] : undefined) ?? process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development';
+}
 
 function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
@@ -51,8 +59,21 @@ const authnLocal = {
         minLength: 8,
         maxLength: 128,
 
-        /** Name of a registered `PasswordBlocklist` service; null: none. */
-        blocklist: null as string | null,
+        /**
+         * Name of a registered `PasswordBlocklist` service; null: none. Outside development and test the Have I Been Pwned
+         * range check (fails open after `hibp.timeoutMs`).
+         */
+        blocklist: (isDevOrTestEnv(appEnv()) ? null : 'HibpPasswordBlocklist') as string | null,
+
+        /** Refuse passwords equal to, containing or within 2 edits of the login, the email local part or the name. */
+        similarity: true,
+      },
+
+      hibp: {
+        /** Have I Been Pwned range API; only the first 5 hex characters of the password's SHA-1 are sent. */
+        url: 'https://api.pwnedpasswords.com/range/',
+        /** Past it the check lets the password through and logs a warning (fails open). */
+        timeoutMs: 2000,
       },
 
       // `expiration` ships no value here: the schema defaults are `enabled: false`, `maxAgeDays: 31`.

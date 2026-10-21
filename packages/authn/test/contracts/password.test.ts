@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { PasswordService } from '../../src/contracts/password.js';
-import type { PasswordChangeResult, PasswordExpiry, PasswordPolicy, PasswordRefusal, PasswordResetRequestResult, PasswordResetResult, PasswordSetResult, PasswordViolation } from '../../src/contracts/password.js';
+import type { PasswordChangeResult, PasswordExpiry, PasswordPolicy, PasswordPolicyContext, PasswordRefusal, PasswordResetRequestResult, PasswordResetResult, PasswordSetResult, PasswordViolation } from '../../src/contracts/password.js';
 import type { AuthnContext, IdentityRef } from '../../src/contracts/credentials.js';
 import type { PrincipalRef } from '../../src/contracts/principal.js';
 import type { SessionHandle } from '../../src/contracts/session.js';
@@ -158,7 +158,7 @@ describe('password service contract', () => {
             { name: 'redeemReset', modifiers: ['abstract'], optional: false, params: ['login', 'secret', 'newPassword', 'ctx'] },
             { name: 'invite', modifiers: ['abstract'], optional: false, params: ['id', 'ctx', 'opts'] },
             { name: 'policy', modifiers: ['abstract'], optional: false, params: [] },
-            { name: 'check', modifiers: ['abstract'], optional: false, params: ['password'] },
+            { name: 'check', modifiers: ['abstract'], optional: false, params: ['password', 'ctx'] },
             { name: 'set', modifiers: ['abstract'], optional: false, params: ['id', 'newPassword', 'ctx', 'opts'] },
             { name: 'expire', modifiers: ['abstract'], optional: false, params: ['id', 'opts', 'ctx'] },
             { name: 'requestVerification', modifiers: [], optional: true, params: ['id', 'ctx'] },
@@ -169,7 +169,7 @@ describe('password service contract', () => {
     });
 
     it('PasswordViolation lists its codes in order', () => {
-      expect(unionLiterals('password.ts', 'PasswordViolation')).to.deep.eq(['too_short', 'too_long', 'rule', 'blocklisted']);
+      expect(unionLiterals('password.ts', 'PasswordViolation')).to.deep.eq(['too_short', 'too_long', 'rule', 'blocklisted', 'similar_to_identifier']);
     });
 
     it('docs carry the rules a reader needs', () => {
@@ -205,6 +205,7 @@ describe('password service contract', () => {
       same<index.PasswordService, PasswordService>(true);
       same<index.PasswordPolicy, PasswordPolicy>(true);
       same<index.PasswordViolation, PasswordViolation>(true);
+      same<index.PasswordPolicyContext, PasswordPolicyContext>(true);
       same<index.PasswordRefusal, PasswordRefusal>(true);
       same<index.PasswordChangeResult, PasswordChangeResult>(true);
       same<index.PasswordResetRequestResult, PasswordResetRequestResult>(true);
@@ -215,7 +216,8 @@ describe('password service contract', () => {
 
     it('policy and violations have the planned shapes', () => {
       same<PasswordPolicy, { readonly minLength: number; readonly maxLength: number; readonly pattern?: string; readonly description?: string }>(true);
-      same<PasswordViolation, 'too_short' | 'too_long' | 'rule' | 'blocklisted'>(true);
+      same<PasswordViolation, 'too_short' | 'too_long' | 'rule' | 'blocklisted' | 'similar_to_identifier'>(true);
+      same<PasswordPolicyContext, { readonly login?: string; readonly email?: string; readonly name?: string }>(true);
       same<PasswordRefusal, Refusal>(true);
       same<PasswordChangeResult, { readonly status: 'changed'; readonly session: SessionHandle } | Refusal>(true);
       same<PasswordResetRequestResult, { readonly status: 'accepted' } | { readonly status: 'throttled'; readonly retryAfterSeconds: number }>(true);
@@ -236,7 +238,7 @@ describe('password service contract', () => {
       same<ReturnType<PasswordService['invite']>, Promise<void>>(true);
       same<Parameters<PasswordService['policy']>, []>(true);
       same<ReturnType<PasswordService['policy']>, PasswordPolicy>(true);
-      same<Parameters<PasswordService['check']>, [string]>(true);
+      same<Parameters<PasswordService['check']>, [string, PasswordPolicyContext?]>(true);
       same<ReturnType<PasswordService['check']>, Promise<readonly PasswordViolation[]>>(true);
       same<Parameters<PasswordService['set']>, [IdentityRef, string, AuthnContext, Actor?]>(true);
       same<ReturnType<PasswordService['set']>, Promise<PasswordSetResult>>(true);
