@@ -7,10 +7,10 @@ An `ActionHook` runs code around a named action: before it (change inputs or ref
 1. You register a class that extends `ActionHook` and lists the actions it wants in `actions`.
 2. At boot, `DefaultHooks.resolve()` reads the registered hook types and their `actions` patterns. A hook registered as a factory (`() => instance`) is called at boot, so its instance exists from then on. A class registration gets a probe instance built with `new` and a DI instance on the first matching run.
 3. An action calls `Hooks.run(action, input, impl, opts)`. The runner looks up the hooks that match the action, cached per action name. With none, it returns `impl(input)` and builds no context.
-4. The first matching run resolves the hook instances. The runner copies the input into `ctx.input` and calls each `before` hook in ascending `order`, each bounded by `hooks.timeoutMs`.
+4. The runner copies the input into `ctx.input` and calls each `before` hook in ascending `order`, each bounded by `hooks.timeoutMs`. A hook with a `before` is resolved from DI right before its call, and that resolution is bounded by `hooks.timeoutMs` too. After each `before` hook the runner puts the keys that are not mutable back to their original values, so the next hook sees what the action will see.
 5. The runner calls `impl` with `{ ...original, ...pick(ctx.input, opts.mutable) }`. Assignments to other keys are dropped.
-6. When `impl` returns, the `after` hooks run in descending `order`. The output is returned unchanged.
-7. When `impl` throws, the `failed` hooks run in descending `order`, one at a time, and the original error is rethrown.
+6. When `impl` returns, the `after` hooks run in descending `order`. A hook not resolved yet (no `before`) is resolved here. The output is returned unchanged.
+7. When `impl` throws, the `failed` hooks run in descending `order`, one at a time, resolved the same way, and the original error is rethrown.
 
 A hook implements any of `before`, `after` and `failed`; a phase it does not implement is skipped.
 
@@ -46,7 +46,7 @@ Every context carries `action`, `bag` and `depth`. `input` is writable only in `
 
 ## Mutable keys
 
-An action declares which input keys a `before` hook can change (`mutable` in `RunOptions`). The action receives the original input with only those keys taken from `ctx.input`. An assignment to any other key is dropped, and logged as a warning once per hook class. The action's own documentation lists its mutable keys.
+An action declares which input keys a `before` hook can change (`mutable` in `RunOptions`). The action receives the original input with only those keys taken from `ctx.input`. An assignment to any other key is dropped, and logged as a warning once per hook class. Deleting a mutable key keeps its original value. The action's own documentation lists its mutable keys.
 
 The action also checks again the invariants that guard the changed values, so a hook can narrow an action but never widen it. See [Declaring actions](02-declaring-actions.md#security-invariants).
 
@@ -66,8 +66,13 @@ The action also checks again the invariants that guard the changed values, so a 
 | `ctx.refuse(code)` | `ActionRefused`; the run stops. |
 | Any other throw | `ActionHookFailed` with reason `'error'`, carrying the hook class name; the run stops. |
 | The hook takes longer than `hooks.timeoutMs` | `ActionHookFailed` with reason `'timeout'`; the run stops. |
+| The hook sets `ctx.input` to something other than an object | `ActionHookFailed` with reason `'error'`; `ctx.input` goes back to its value before that hook. |
+| The hook fails to resolve from DI | `ActionHookFailed` with reason `'error'`; the run stops. |
+| The hook takes longer than `hooks.timeoutMs` to resolve from DI | `ActionHookFailed` with reason `'timeout'`; the run stops. |
 
-- With `refusable: false`, a refusal, a throw and a timeout in `before` are logged and the run goes on. The depth limit (`hooks.maxDepth`) is still enforced.
+- With `refusable: false`, a refusal, a throw, a timeout and a failed resolution in `before` are logged and the run goes on. A hook that failed to resolve is skipped for the rest of the run, `after` and `failed` included. The depth limit (`hooks.maxDepth`) is still enforced.
+- A hook with only `after` or `failed` that fails to resolve, or times out resolving, is logged and skipped. It never fails the action.
+- A failed resolution is not cached: the next run tries to resolve the hook again.
 - An `after` hook that throws or times out is logged and swallowed; the output is returned unchanged.
 - A `failed` hook that throws is logged. It never masks the error of `impl`, which is rethrown.
 - A `failed` hook runs only when `impl` throws. A result such as `status: 'failure'` is a result, so it reaches `after`.
@@ -76,9 +81,10 @@ The action also checks again the invariants that guard the changed values, so a 
 
 ## Constructor rules
 
-The runner reads `actions` and `order` at boot from a probe instance built with `new`, outside DI.
+The runner reads `actions`, `order` and which of `before`, `after` and `failed` the hook defines at boot, from a probe instance built with `new`, outside DI. A constructor that throws on the probe fails the boot with `Hook <name> could not be constructed to read its actions`. A hook whose `actions` is not an array of strings, or whose `order` is not a finite number, fails the boot with `Hook <name> declares no valid actions/order`. The same check applies to the instance a factory registration returns.
 
 - Declare `actions` and `order` as plain field initializers, or as getters with no dependencies.
+- Define `before`, `after` and `failed` as class methods. A phase added to the instance later is never called.
 - Keep the constructor free of side effects and of required arguments.
 - Injected dependencies (`@Autoinject`) are available only inside `before`, `after` and `failed`.
 
@@ -93,7 +99,7 @@ The runner reads `actions` and `order` at boot from a probe instance built with 
 ## When hooks are collected
 
 - Hook **types** are collected at boot. A hook registered after boot is not used.
-- Hook **instances** of class registrations are resolved on the first run of an action they match, not at boot. A factory registration (`() => instance`) is called at boot. A hook can inject a service that injects `Hooks` without a dependency cycle.
+- Hook **instances** of class registrations are resolved on the first run of an action they match that reaches a phase they define, not at boot. A factory registration (`() => instance`) is called at boot. A hook can inject a service that injects `Hooks` without a dependency cycle.
 
 Import the module that registers your hook before the application boots.
 
@@ -107,8 +113,10 @@ The `refuse` message is not logged. It reaches the caller as `ActionRefused.mess
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `hooks.timeoutMs` | number | `5000` | 1 to 60000 | Time bound for one hook call, in milliseconds. |
-| `hooks.maxDepth` | number | `8` | 1 to 32 | Maximum nesting of action runs started from hooks. |
+| `hooks.timeoutMs` | integer | `5000` | 1 to 60000 | Time bound for one hook call, in milliseconds. |
+| `hooks.maxDepth` | integer | `8` | 1 to 32 | Maximum nesting of action runs started from hooks. |
+
+Any other key under `hooks` fails configuration validation, so a typo does not pass silently.
 
 ```ts
 export default {
@@ -129,13 +137,12 @@ export default {
 ## Important behaviour
 
 - The `before` hook gets a **shallow** copy of the input, and `after` hooks get the live output. Only top-level keys are protected: a hook can still change nested data inside a non-mutable key (`ctx.input.user.Email = ...`) or inside the output, by reference. Do not mutate nested non-mutable data.
-- `depth` and `hooks.maxDepth` count runs started from inside a hook. A run started by an action's own `impl` (`users.create` calling `authn.password.invite`) starts again at depth `1`.
+- `depth` and `hooks.maxDepth` count runs started from inside a hook. A run started by an action's own `impl` adds no level: it runs at that action's depth (`1` for a top-level action).
 - Factory registrations (`register(() => hook).as(ActionHook)`) are called when `Hooks` boots, so a factory must not resolve services that inject `Hooks`. Class registrations are resolved lazily.
-- With `refusable: false`, a `before` hook that times out is abandoned but still holds its `ctx`. Edits it makes to `ctx.input` after the timeout can still reach the merge. Keep `before` hooks fast and cancel their own work.
-- Hook instances are resolved one by one in `before` order. If a later hook fails to resolve, the `before` of earlier hooks has already run. A hook that has only `after` or `failed` and fails to resolve is logged and skipped; it never fails the action.
+- With `refusable: false`, a `before` hook that times out is abandoned but still holds its `ctx`. Edits it makes to mutable keys of `ctx.input` after the timeout can still reach the merge; if it replaces `ctx.input` with a non-object, the runner uses the last valid input. Keep `before` hooks fast and cancel their own work.
+- Hooks with a `before` are resolved one by one in `before` order. If a later hook fails to resolve, the `before` of earlier hooks has already run. Hooks with only `after` or `failed` are resolved when that phase reaches them, so a refused run never resolves them.
 - A refusal counts only when made through `ctx.refuse` in that run. An `ActionRefused` thrown any other way (built by hand, or coming from a nested run) is treated as a hook error.
 - With no matching hook, an action pays a lookup: `impl` gets the same input object and no context is built.
-- A `before` hook sees a shallow copy of the input. Assign to top-level keys; nested objects are shared with the caller.
 - A hook on `authn.login` runs before the throttle and before the password check, so a refusal there is fast. It must not branch on whether an account exists; use `authn.login.identified` for account-dependent rules. The input of `authn.login` carries no identity.
 - Hooks do not replace guards. Where an action has its own guard, both the guard and the hooks must allow.
 

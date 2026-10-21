@@ -45,3 +45,6 @@ export class OrderLimitHook extends ActionHook<'orders.place'> {
 ## Related packages
 
 - [`@spinajs/di`](../di/README.md): resolves hooks and the `Hooks` service.
+- [`@spinajs/configuration`](../configuration/README.md): supplies `hooks.timeoutMs` and `hooks.maxDepth`.
+- [`@spinajs/exceptions`](../exceptions/README.md): base class of `ActionRefused` and `ActionHookFailed`.
+- [`@spinajs/log-common`](../log-common/README.md): the `hooks` log that receives hook failures.
