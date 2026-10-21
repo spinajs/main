@@ -139,8 +139,19 @@ export class MemorySessionIssuer extends SessionIssuer {
     return this.place(row);
   }
 
-  async reissue(_h: SessionHandle, _change: SessionFactsChange): Promise<SessionHandle> {
-    throw new Error('not implemented: MemorySessionIssuer.reissue');
+  async reissue(h: SessionHandle, change: SessionFactsChange): Promise<SessionHandle> {
+    const { key, row } = this.need(h);
+    if (row.state !== 'active') {
+      throw new Error('a pending session cannot be reissued');
+    }
+    row.facts = {
+      ...row.facts,
+      ...(change.assurance === 'aal2' ? { assurance: 'aal2' as const } : {}),
+      ...(change.mfa ? { mfa: [...change.mfa] } : {}),
+      ...(change.authenticatedAt ? { authenticatedAt: change.authenticatedAt } : {}),
+    };
+    this.rows.delete(key);
+    return this.place(row);
   }
 
   async set(h: SessionHandle, key: string, value: unknown): Promise<void> {
