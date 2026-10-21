@@ -17,6 +17,7 @@ import type { SessionHandle } from '../contracts/session.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
 import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
 import { Session, SessionKeys, resolveSession } from '../contracts/session-state.js';
+import type { SessionInit } from '../contracts/session-state.js';
 import { ACTIVE_ROLE_KEY, activeRoleCeiling } from './active-role.js';
 
 /**
@@ -45,6 +46,9 @@ type Block = { readonly startedAt: Date; readonly actorCeiling?: Ceiling };
 type Live = { readonly block: Block } | { readonly ending: Ending };
 
 const refOf = (r: PrincipalRef): IdentityRef => ({ type: r.type, id: r.id });
+
+// Structural, not instanceof: an issuer outside TypeScript may hand back a plain SessionInit, as AuthnMiddleware allows.
+const isRestored = (s: unknown): s is Session | SessionInit => s instanceof Session || (isPlainObject(s) && 'identity' in s && 'facts' in s && 'handle' in s);
 
 // The schema is the gate; the checks below hold for values set at runtime that never went through it: a switch is off
 // only when false, and a limit that is not a finite positive number ends the session instead of never ending it.
@@ -95,9 +99,12 @@ export class AuthnImpersonationService extends AsyncService {
   @Autoinject(AuthnAudit)
   protected Auditor: AuthnAudit;
 
-  /** What a request with this session resolves to; null when it yields no principal. */
+  /**
+   * What a request with this session resolves to; null when it yields no principal. A restored Session is used as
+   * is, so a request that already restored its session does not restore (and slide) it again; a bare handle is restored.
+   */
   public async principalOf(session: Session | SessionHandle, ctx: AuthnContext): Promise<Principal | null> {
-    const stored = await this.restore(session instanceof Session ? session.handle : session);
+    const stored = await this.restore(session);
     if (!stored) return null;
     const impersonator = stored.facts.impersonator;
     if (!impersonator) {
@@ -209,8 +216,8 @@ export class AuthnImpersonationService extends AsyncService {
     return this.denial(stored.identity, actingFacts(stored.facts), target, actorCeiling);
   }
 
-  private async restore(h: SessionHandle): Promise<Session | null> {
-    const stored = await restoreHandle(this.Sessions, h);
+  private async restore(s: Session | SessionHandle): Promise<Session | null> {
+    const stored = isRestored(s) ? s : await restoreHandle(this.Sessions, s);
     if (!stored) return null;
     const session = resolveSession(this.Container, stored);
     return session.handle.state === 'active' ? session : null;
