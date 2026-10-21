@@ -195,10 +195,10 @@ describe('KitActionHooks (the hooks port)', () => {
     const log: string[] = [];
     const kit = new KitActionHooks();
     kit.add(new Named(['authn.*'], log, 'a'), new Named(['authn.login'], log, 'b', -1), new Named(['users.*'], log, 'c'));
-    await kit.before!(before('authn.login', {}));
-    await kit.after!(after('authn.login', 1));
-    await kit.failed!(failed('authn.login', new Error('x')));
-    await kit.before!(before('authn.link', {}));
+    await kit.before(before('authn.login', {}));
+    await kit.after(after('authn.login', 1));
+    await kit.failed(failed('authn.login', new Error('x')));
+    await kit.before(before('authn.link', {}));
     assert.deepEqual(log, ['before b', 'before a', 'after a', 'after b', 'failed a', 'failed b', 'before a']);
   });
 
@@ -207,7 +207,7 @@ describe('KitActionHooks (the hooks port)', () => {
     const recorder = new RecordingActionHook(['authn.login']);
     kit.add(recorder, refusingHook('authn.login', 'kit-no'));
     const c = before('authn.login', { credentials: 1 });
-    await assert.rejects(Promise.resolve(kit.before!(c)), (e: { refused?: string }) => e.refused === 'kit-no');
+    await assert.rejects(Promise.resolve(kit.before(c)), (e: { refused?: string }) => e.refused === 'kit-no');
     assert.deepEqual(
       recorder.calls.map((x) => x.phase),
       ['before'],
@@ -224,7 +224,7 @@ describe('KitActionHooks (the hooks port)', () => {
     }
     const kit = new KitActionHooks();
     kit.add(new Named(['*'], log, 'a'), new Throwing(['*'], log, 'b'));
-    await assert.rejects(Promise.resolve(kit.after!(after('authn.login', 1))), /after failed/);
+    await assert.rejects(Promise.resolve(kit.after(after('authn.login', 1))), /after failed/);
     assert.deepEqual(log, ['after b', 'after a']);
   });
 
@@ -233,7 +233,7 @@ describe('KitActionHooks (the hooks port)', () => {
     const kit = new KitActionHooks();
     kit.add(new Named(['*'], log, 'a'));
     kit.clear();
-    await kit.before!(before('authn.login', {}));
+    await kit.before(before('authn.login', {}));
     assert.deepEqual(log, []);
   });
 
