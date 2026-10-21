@@ -15,7 +15,7 @@ export * from './interfaces.js';
 export * from './exceptions.js';
 export * from './models/User.js';
 export * from './models/UserMetadata.js';
-export * from './migrations/RBACInitial_2022_06_28_01_13_00.js';
+export * from './migrations/index.js';
 export * from './events/index.js';
 export * from './actions.js';
 export { rootAuthzAdmin } from './role-assignments.js';

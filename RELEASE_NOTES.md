@@ -19,6 +19,29 @@ it, or the build fails. `DbTokenService` and `MemoryTokenService` of `@spinajs/a
   Each request counts in the `reset` throttle flow keyed on the client ip, shared with the password reset routes; a
   refusal answers 429 with `Retry-After`.
 - `runTokenServiceConformance` covers the method.
+# Release notes — authn-local: breached-password check and identifier similarity
+
+## New behavior
+
+- `HibpPasswordBlocklist` checks every new password (change, set, reset, invite redeem) against the Have I Been Pwned
+  range API: only the first five hex characters of the SHA-1 are sent, with `Add-Padding: true`. It fails open after
+  `authn.local.hibp.timeoutMs` (default 2000) or on a network or HTTP error, and logs one warning.
+  `authn.local.hibp.url` (default `https://api.pwnedpasswords.com/range/`) can point at a mirror.
+- The identifier similarity rule refuses with the new violation `similar_to_identifier` a password equal to,
+  containing (ignoring case) or within two edits of the login, the email, its local part or the name.
+  `authn.local.policy.similarity` (default `true`) turns it off.
+- `redeemReset` resolves the login before the policy, so the similarity rule sees the account's identifiers; a
+  violation still leaves the secret usable.
+
+## Breaking changes
+
+- The shipped `authn.local.policy.blocklist` is `'HibpPasswordBlocklist'` unless the app env (`--env`, `APP_ENV`,
+  `NODE_ENV`) is development or test, so production deployments make an outbound HTTPS call per password change. Set
+  `authn.local.policy.blocklist: null` to opt out.
+- `PasswordViolation` gains `similar_to_identifier`; an exhaustive `Record<PasswordViolation, …>` needs the new key.
+- `PasswordService.check`, `LocalPasswordPolicy.check` and `PasswordBlocklist.isBlocked` take an optional
+  `PasswordPolicyContext` (`{ login?, email?, name? }`, exported by `@spinajs/authn`). Existing implementations stay
+  source-compatible; a custom `PasswordService` should forward it to its policy.
 
 # Release notes — bounded cleanup and the `Expiration` index
 
@@ -195,6 +218,28 @@ A subclass of `TokenOwnerResolver` that overrides `tokenByHash` must now match t
 > (`@spinajs/authn*`) and authorization (`@spinajs/authz*`). There is no compatibility mode, no
 > re-export shim and no 2.x patch. How to move an app: `docs/authz/migration-guide.md`. Overviews:
 > `docs/authz/README.md`, `docs/authn/README.md`, `docs/authn-oidc/README.md`.
+
+## Unreleased: email address verification
+
+Not breaking: the new field is optional, the login switch is off and the routes need a `PasswordService` that offers
+verification.
+
+- **`@spinajs/authn`.** `IdentityStatus.addressVerified` (undefined: the store does not track it), the
+  `IdentityAddressVerifier` contract, the `unverified_address` failure, the audit types `address.verify.request` and
+  `address.verify`, and the optional `PasswordService.requestVerification()` and `redeemVerification()`. With
+  `authn.login.requireVerifiedAddress: true`, a login method whose credentials verify answers `unverified_address`
+  while the store reports the address unverified.
+- **`@spinajs/authn-local`.** `LocalPasswordService` mails a single-use secret of purpose `verify` through the authn
+  mail pipeline (`authn.local.verify.ttlSeconds`, default one day; `authn.local.verify.url`) and redeems it once.
+- **`@spinajs/users`.** Migration `UsersAddressVerified_2026_10_21_00_00_00` adds `users.EmailVerifiedAt`.
+  `UserIdentityStore.status()` reports `addressVerified`, `UserAddressVerifier` stores it, and redeeming an invite marks
+  the address verified.
+- **`@spinajs/email`.** The built-in `authn/verify.mjml` template, subject `Confirm your email address`
+  (`email.password.verify.*`).
+- **`@spinajs/authn-http`.** `POST /auth/verify/request` (a session, 202) and `POST /auth/verify` with `{ secret }`
+  (anonymous, 200 or 400 `invalid_secret`).
+
+Docs: `docs/authn-local/14-address-verification.md`, `docs/authn-http/21-verification-routes.md`.
 
 ## Unreleased: queued authn mails and MJML templates
 

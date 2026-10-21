@@ -15,8 +15,18 @@ export interface PasswordPolicy {
 /** Longer passwords never verify, so no strategy hashes them; HTTP routes cap their credential fields at it too (N3). */
 export const PASSWORD_HARD_CAP = 1024;
 
-/** A policy violation says nothing about the account, so the caller may show it. */
-export type PasswordViolation = 'too_short' | 'too_long' | 'rule' | 'blocklisted';
+/**
+ * A policy violation says nothing about the account, so the caller may show it. `similar_to_identifier` compares the password
+ * only with the identifiers the caller passed or the account it is set for already shows its owner.
+ */
+export type PasswordViolation = 'too_short' | 'too_long' | 'rule' | 'blocklisted' | 'similar_to_identifier';
+
+/** The identifiers of the account a password is checked for; a policy refuses passwords too close to them. */
+export interface PasswordPolicyContext {
+  readonly login?: string;
+  readonly email?: string;
+  readonly name?: string;
+}
 
 /**
  * 'invalid' is the one answer for an unknown or inactive account, a wrong password, and a missing, expired, used or wrong secret
@@ -37,6 +47,11 @@ export type PasswordResetRequestResult = { readonly status: 'accepted' } | { rea
 export type PasswordResetResult = { readonly status: 'reset'; readonly purpose: 'reset' | 'invite' } | PasswordRefusal;
 
 export type PasswordSetResult = { readonly status: 'set' } | { readonly status: 'rejected'; readonly violations: readonly PasswordViolation[] };
+
+export type AddressVerificationRequestResult = { readonly status: 'accepted' } | { readonly status: 'throttled'; readonly retryAfterSeconds: number };
+
+/** 'invalid' is the one answer for a wrong, used, expired or other-purpose secret and for an identity that cannot verify (A02). */
+export type AddressVerificationResult = { readonly status: 'verified' } | { readonly status: 'invalid' };
 
 /** Why a password stops working. */
 export type PasswordExpiry =
@@ -76,8 +91,9 @@ export abstract class PasswordService {
   abstract requestReset(login: string, ctx: AuthnContext): Promise<PasswordResetRequestResult>;
   /**
    * POST /auth/password/reset. Counts the attempt against the 'reset' flow's IP key only (the account key would refuse a link redeemed
-   * soon after its request), then checks the policy, then the secret, so a violation tells nothing about the account and does not use
-   * up the secret. Single use; takes the same time for an unknown login (A02). Accepts purpose 'reset', or 'invite' while the identity
+   * soon after its request), resolves the login, then checks the policy, then the secret, so a violation does not use up the secret.
+   * Only `similar_to_identifier` depends on the account: the policy compares the password with the identifiers of an eligible one.
+   * Single use; takes the same time for an unknown login (A02). Accepts purpose 'reset', or 'invite' while the identity
    * has a pending invite (A32). Revokes every session of the identity, incl. those where it is the impersonator, and with
    * authn.local.reset.revokeTokens every token (A11, A30).
    */
@@ -86,8 +102,11 @@ export abstract class PasswordService {
   abstract invite(id: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<void>;
   /** GET /auth/password/policy. */
   abstract policy(): PasswordPolicy;
-  /** Length, rule and blocklist, as every method that sets a password applies them (A04); empty: acceptable. Lets users check before it creates an identity. */
-  abstract check(password: string): Promise<readonly PasswordViolation[]>;
+  /**
+   * Length, rule, identifier similarity and blocklist, as every method that sets a password applies them (A04); empty: acceptable.
+   * Lets users check before it creates an identity. Without `ctx` the similarity rule is skipped.
+   */
+  abstract check(password: string, ctx?: PasswordPolicyContext): Promise<readonly PasswordViolation[]>;
   /**
    * Sets a password without the old one: users' create and the CLI. Applies `check` (A04). Not a voluntary change: revokes every session
    * of `id`, incl. those where it is the impersonator, and with authn.local.reset.revokeTokens every token (A30).
@@ -95,4 +114,12 @@ export abstract class PasswordService {
   abstract set(id: IdentityRef, newPassword: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<PasswordSetResult>;
   /** Makes the current password unusable; the rest depends on the cause. */
   abstract expire(id: IdentityRef, opts: PasswordExpiry, ctx: AuthnContext): Promise<void>;
+  /**
+   * POST /auth/verify/request. Counts the attempt in the 'reset' flow (account key), then answers at once; the secret of purpose
+   * 'verify' is issued when the mail is sent (SR-09). An address already verified gets no mail and the same answer. Optional:
+   * without it the verification routes are off.
+   */
+  requestVerification?(id: IdentityRef, ctx: AuthnContext): Promise<AddressVerificationRequestResult>;
+  /** POST /auth/verify. Single use; marks the address verified through IdentityAddressVerifier. */
+  redeemVerification?(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult>;
 }

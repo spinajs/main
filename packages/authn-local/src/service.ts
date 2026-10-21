@@ -6,8 +6,10 @@ import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService, identityThrottleKeys, sameRef } from '@spinajs/authn/contracts';
+import { AuthnThrottle, IdentityAddressVerifier, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService, identityThrottleKeys, sameRef } from '@spinajs/authn/contracts';
 import type {
+  AddressVerificationRequestResult,
+  AddressVerificationResult,
   AuthnContext,
   AuthnEventSink,
   IdentityRef,
@@ -15,6 +17,7 @@ import type {
   PasswordChangeResult,
   PasswordExpiry,
   PasswordPolicy,
+  PasswordPolicyContext,
   PasswordResetRequestResult,
   PasswordResetResult,
   PasswordSetResult,
@@ -63,6 +66,12 @@ export interface LocalPasswordServiceDeps {
   readonly inviteTtlSeconds?: number;
   /** Missing: an `InlineAuthnMailDispatcher` over `deliver`. */
   readonly dispatcher?: AuthnMailDispatcher;
+  /** Required by `redeemVerification`. */
+  readonly verifier?: IdentityAddressVerifier | null;
+  /** `authn.local.verify.ttlSeconds`; default 86400. */
+  readonly verifyTtlSeconds?: number;
+  /** `authn.local.verify.url`; default ''. */
+  readonly verifyUrl?: string;
 }
 
 /** D11, D12: exists, not deleted, not banned, and active or invite-pending. */
@@ -76,6 +85,33 @@ const throwaway = (): IdentityRef => ({ type: 'user', id: randomUUID() });
  * throttle every other caller that also omits it: HTTP callers must pass the trusted-proxy ip.
  */
 const resetIpKey = (ctx: AuthnContext): ThrottleKey => ({ kind: 'ip', value: ctx.ip ?? 'unknown' });
+
+/** Its own account key: a verify request must not use up the reset request of the same account. */
+const verifyKey = (id: IdentityRef): ThrottleKey => ({ kind: 'account', value: `verify:${id.type}:${id.id}` });
+
+/**
+ * POST /auth/verify takes the secret alone, and a SecretStore redeems per identity, so the mailed secret carries its
+ * identity: `base64url(JSON [type, id]).raw`. The identity part is no secret; the raw part is.
+ */
+function verifySecretOf(id: IdentityRef, raw: string): string {
+  return `${Buffer.from(JSON.stringify([id.type, id.id]), 'utf8').toString('base64url')}.${raw}`;
+}
+
+function parseVerifySecret(secret: string): { id: IdentityRef; raw: string } | null {
+  const parts = typeof secret === 'string' ? secret.split('.') : [];
+  if (parts.length !== 2 || parts[0] === '' || parts[1] === '') {
+    return null;
+  }
+  try {
+    const ref: unknown = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+    if (Array.isArray(ref) && ref.length === 2 && ref.every((v) => typeof v === 'string' && v !== '')) {
+      return { id: { type: ref[0] as string, id: ref[1] as string }, raw: parts[1] };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /** Local password flows (A04, A13, A30). With `deps` the container is not used at all. */
 @Injectable(PasswordService)
@@ -91,6 +127,12 @@ export class LocalPasswordService extends PasswordService {
 
   @Config('authn.local.invite.ttlSeconds')
   protected InviteTtlSeconds: number;
+
+  @Config('authn.local.verify.ttlSeconds')
+  protected VerifyTtlSeconds: number;
+
+  @Config('authn.local.verify.url')
+  protected VerifyUrl: string;
 
   @Logger('authn-local')
   protected Log: Log;
@@ -125,6 +167,9 @@ export class LocalPasswordService extends PasswordService {
   @Autoinject(TokenService, { optional: true })
   protected Tokens: TokenService | undefined;
 
+  @Autoinject(IdentityAddressVerifier, { optional: true })
+  protected Verifier: IdentityAddressVerifier | undefined;
+
   /** `@spinajs/users` registers one per `authn.local.mail.delivery`; none: inline. */
   @Autoinject(AuthnMailDispatcher, { optional: true })
   protected Dispatcher: AuthnMailDispatcher | undefined;
@@ -145,7 +190,7 @@ export class LocalPasswordService extends PasswordService {
 
   /** D9. Keeps every API and agent token (H32). */
   public async change(id: IdentityRef, oldPassword: string, newPassword: string, session: SessionHandle, ctx: AuthnContext): Promise<PasswordChangeResult> {
-    const violations = await this.policyComponent().check(newPassword);
+    const violations = await this.policyComponent().check(newPassword, await this.policyContext(id));
     if (violations.length > 0) {
       await this.audit(ctx, { type: 'password.change', outcome: 'failure', identity: id, reason: 'policy' });
       return { status: 'rejected', violations };
@@ -197,7 +242,7 @@ export class LocalPasswordService extends PasswordService {
 
   /** D14. Not a voluntary change: every session and, with reset.revokeTokens, every token goes. */
   public async set(id: IdentityRef, newPassword: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<PasswordSetResult> {
-    const violations = await this.policyComponent().check(newPassword);
+    const violations = await this.policyComponent().check(newPassword, await this.policyContext(id));
     if (violations.length > 0) {
       return { status: 'rejected', violations };
     }
@@ -210,8 +255,8 @@ export class LocalPasswordService extends PasswordService {
     return { status: 'set' };
   }
 
-  public check(password: string): Promise<readonly PasswordViolation[]> {
-    return this.policyComponent().check(password);
+  public check(password: string, ctx?: PasswordPolicyContext): Promise<readonly PasswordViolation[]> {
+    return this.policyComponent().check(password, ctx);
   }
 
   public policy(): PasswordPolicy {
@@ -242,17 +287,19 @@ export class LocalPasswordService extends PasswordService {
       return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
 
-    const violations = await this.policyComponent().check(newPassword);
-    if (violations.length > 0) {
-      return { status: 'rejected', violations };
-    }
-
     const identities = await this.identities();
     const secrets = await this.secrets();
     const id = await identities.findByLogin(login);
     const status = await identities.status(id ?? throwaway());
     const target = id && eligible(status) ? id : null;
     const pending = target !== null && status.invitePending === true;
+
+    // After the lookup, so the similarity rule sees the account's identifiers; before the redeems, so a violation does not
+    // use up the secret. A refused account shows the rule a throwaway ref, as an unknown login does.
+    const violations = await this.policyComponent().check(newPassword, await this.policyContext(target ?? throwaway(), login));
+    if (violations.length > 0) {
+      return { status: 'rejected', violations };
+    }
 
     // Always two redeems, on throwaway refs where no real one is due: otherwise the time tells a pending invite from a missing
     // login (A02).
@@ -295,6 +342,49 @@ export class LocalPasswordService extends PasswordService {
       ...(sent ? {} : { reason: 'no_mailer' }),
       data: { purpose: 'invite' },
     });
+  }
+
+  /** Counts first; an identity that cannot verify or is verified already gets no mail and the same answer. */
+  public async requestVerification(id: IdentityRef, ctx: AuthnContext): Promise<AddressVerificationRequestResult> {
+    const gate = await this.throttle().attempt([verifyKey(id)], 'reset', ctx);
+    if (!gate.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', identity: id, reason: 'throttled', data: { flow: 'verify' } });
+      return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
+
+    const status = await (await this.identities()).status(id);
+    const refused = !eligible(status) ? 'status' : status.addressVerified === true ? 'verified' : null;
+    if (refused) {
+      await this.audit(ctx, { type: 'address.verify.request', outcome: 'failure', identity: id, reason: refused });
+      return { status: 'accepted' };
+    }
+    const sent = await this.dispatchMail(id, 'verify', this.verifyTtlSeconds());
+    await this.audit(ctx, { type: 'address.verify.request', outcome: sent ? 'success' : 'failure', identity: id, ...(sent ? {} : { reason: 'no_mailer' }) });
+    return { status: 'accepted' };
+  }
+
+  /** Every refusal answers `invalid`; the reason goes to audit only. */
+  public async redeemVerification(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult> {
+    const verifier = this.verifier();
+    const parsed = parseVerifySecret(secret);
+    if (!parsed) {
+      await (await this.secrets()).redeem(throwaway(), 'verify', '');
+      await this.audit(ctx, { type: 'address.verify', outcome: 'failure', reason: 'malformed' });
+      return INVALID;
+    }
+    const status = await (await this.identities()).status(parsed.id);
+    const target = eligible(status) ? parsed.id : null;
+    // Always one redeem, on a throwaway ref where no real one is due: otherwise the time tells a forged identity part apart.
+    const redeemed = await (await this.secrets()).redeem(target ?? throwaway(), 'verify', parsed.raw);
+
+    if (!target || !redeemed) {
+      const reason = !status.exists ? 'unknown_identity' : !target ? 'status' : 'secret';
+      await this.audit(ctx, { type: 'address.verify', outcome: 'failure', ...(status.exists ? { identity: parsed.id } : {}), reason });
+      return INVALID;
+    }
+    await verifier.markVerified(target, ctx.now);
+    await this.audit(ctx, { type: 'address.verify', outcome: 'success', identity: target });
+    return { status: 'verified' };
   }
 
   /** D15. `admin` revokes tokens under reset.revokeTokens and mails only with `sendReset`; `aged` keeps tokens (H32) and mails. */
@@ -386,8 +476,9 @@ export class LocalPasswordService extends PasswordService {
       this.log().warn(log, 'The ${purpose} mail for ${identityType} ${identityId} was not sent: the identity has no email address');
       return false;
     }
-    const secret = await (await this.secrets()).issue(id, purpose, ttlSeconds);
-    await mailer.send({ identity: id, purpose, to, secret, url: this.resetUrl(), ttlSeconds, ...(request.lang ? { lang: request.lang } : {}) });
+    const raw = await (await this.secrets()).issue(id, purpose, ttlSeconds);
+    const secret = purpose === 'verify' ? verifySecretOf(id, raw) : raw;
+    await mailer.send({ identity: id, purpose, to, secret, url: purpose === 'verify' ? this.verifyUrl() : this.resetUrl(), ttlSeconds, ...(request.lang ? { lang: request.lang } : {}) });
     return true;
   }
 
@@ -403,6 +494,12 @@ export class LocalPasswordService extends PasswordService {
     }
     const stored = await (await this.passwords()).get(id);
     return (await hasher.verify(stored, password)) ? stored : null;
+  }
+
+  /** What the similarity rule compares a new password with: `login` as typed, and what the store shows for `id`. */
+  protected async policyContext(id: IdentityRef, login?: string): Promise<PasswordPolicyContext> {
+    const shown = await (await this.identities()).display(id);
+    return { ...(login !== undefined ? { login } : {}), ...(shown.email ? { email: shown.email } : {}), ...(shown.name ? { name: shown.name } : {}) };
   }
 
   /** With `expected`, writes only over that stored hash and answers whether it wrote; without it, writes unconditionally. */
@@ -439,6 +536,22 @@ export class LocalPasswordService extends PasswordService {
 
   protected inviteTtlSeconds(): number {
     return this.Deps ? (this.Deps.inviteTtlSeconds ?? AUTHN_LOCAL_DEFAULTS.invite.ttlSeconds) : this.InviteTtlSeconds;
+  }
+
+  protected verifyTtlSeconds(): number {
+    return this.Deps ? (this.Deps.verifyTtlSeconds ?? AUTHN_LOCAL_DEFAULTS.verify.ttlSeconds) : this.VerifyTtlSeconds;
+  }
+
+  protected verifyUrl(): string {
+    return this.Deps ? (this.Deps.verifyUrl ?? AUTHN_LOCAL_DEFAULTS.verify.url) : this.VerifyUrl;
+  }
+
+  protected verifier(): IdentityAddressVerifier {
+    const verifier = (this.Deps ? this.Deps.verifier : this.Verifier) ?? null;
+    if (!verifier) {
+      throw new InvalidOperation(this.Deps ? 'LocalPasswordService was built without an IdentityAddressVerifier' : 'Address verification needs an IdentityAddressVerifier, and none is registered');
+    }
+    return verifier;
   }
 
   protected resetUrl(): string {

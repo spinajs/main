@@ -109,7 +109,7 @@ The `reset` throttle is `authn.throttle.reset` in the [authn core](../authn/READ
 - **Equal redeem work (A02).** Every redeem path runs exactly two `SecretStore.redeem()` calls, so the timing does not tell a pending invite from a missing login.
 - **The secret exists only in the mail (SR-09).** It is issued when the mail is delivered, right before `send()`, never returned to the caller, never put in a queued job, an event or a log line. Without a mailer no secret is issued.
 - **A new request replaces the older secret.** `SecretStore.issue()` voids earlier secrets of the same purpose for that identity.
-- **A policy violation does not spend the secret.** The policy runs before the redeem.
+- **A policy violation does not spend the secret.** The policy runs before the redeem. The login is resolved first, so the similarity rule also compares the new password with what the store shows for an eligible account; an unknown or ineligible login is checked against the typed login only.
 - **A reset ends everything.** Every session, including those where the user is the impersonator, and, by default, every token.
 - **A reset secret also completes a pending invite.** The redeem publishes `invite.redeem` with `data: { via: 'reset' }`, so an invite that expired can be finished with a reset link.
 - **Calls without an IP share one bucket.** `ctx.ip` missing means the key `ip: unknown`, so one such caller can throttle every other. authn-http passes the IP from the trusted proxy chain; set `http.trustProxy` behind a proxy.
