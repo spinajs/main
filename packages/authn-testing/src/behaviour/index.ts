@@ -30,6 +30,7 @@ import { A31 } from './A31-cors.spec.js';
 import { A32 } from './A32-address-verification.spec.js';
 import { A33 } from './A33-webauthn.spec.js';
 import { A34 } from './A34-step-up.spec.js';
+import { A35 } from './A35-registration.spec.js';
 import { A36 } from './A36-email-code.spec.js';
 import { planCasesIn, runBehaviourIn } from './runner.js';
 import type { PlannedCase } from './runner.js';
@@ -40,7 +41,7 @@ export * from './steps.js';
 export { DEFAULT_CASE_TIMEOUT_MS, PendingLog, executeCase, markPending, settleCase } from './runner.js';
 export type { CaseResult, CaseStatus, PlannedCase } from './runner.js';
 
-const ALL: readonly AuthnRule[] = [A01, A02, A03, A04, A05, A06, A07, A08, A09, A10, A11, A12, A13, A14, A15, A16, A17, A18, A19, A20, A21, A22, A23, A24, A25, A26, A27, A30, A31, A32, A33, A34, A36];
+const ALL: readonly AuthnRule[] = [A01, A02, A03, A04, A05, A06, A07, A08, A09, A10, A11, A12, A13, A14, A15, A16, A17, A18, A19, A20, A21, A22, A23, A24, A25, A26, A27, A30, A31, A32, A33, A34, A35, A36];
 
 export const AUTHN_RULES: ReadonlyMap<RuleId, AuthnRule> = new Map(ALL.map((r) => [r.id, r]));
 

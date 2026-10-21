@@ -427,6 +427,13 @@ export class LocalPasswordService extends PasswordService {
     return { status: 'verified' };
   }
 
+  /** Dispatched without a secret: the mail points at the reset page. An identity that cannot sign in gets none. */
+  public async notifyAccountExists(id: IdentityRef, _ctx: AuthnContext): Promise<void> {
+    if (eligible(await (await this.identities()).status(id))) {
+      await this.dispatchMail(id, 'account-exists', this.resetTtlSeconds());
+    }
+  }
+
   /** D15. `admin` revokes tokens under reset.revokeTokens and mails only with `sendReset`; `aged` keeps tokens (H32) and mails. */
   public async expire(id: IdentityRef, opts: PasswordExpiry, ctx: AuthnContext): Promise<void> {
     const sessions = this.sessions();
@@ -539,12 +546,13 @@ export class LocalPasswordService extends PasswordService {
     return true;
   }
 
-  /** The secret to mail for `purpose` with the page that redeems it; a code has no page. */
+  /** The secret to mail for `purpose` with the page that redeems it; a code has no page, an account-exists mail no secret. */
   protected async issueFor(id: IdentityRef, purpose: AuthnMailPurpose, ttlSeconds: number): Promise<{ secret: string; url: string; code?: string }> {
     if (purpose === 'code') {
       const code = await new EmailCodes(await this.secrets()).issue(id, ttlSeconds);
       return { secret: code, code, url: '' };
     }
+    if (purpose === 'account-exists') return { secret: '', url: this.resetUrl() };
     const raw = await (await this.secrets()).issue(id, purpose, ttlSeconds);
     return purpose === 'verify' ? { secret: verifySecretOf(id, raw), url: this.verifyUrl() } : { secret: raw, url: this.resetUrl() };
   }

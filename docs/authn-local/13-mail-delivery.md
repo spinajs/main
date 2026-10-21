@@ -26,7 +26,7 @@ Reset and invite mails leave `LocalPasswordService` as an `AuthnMailRequest`: wh
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `identityType`, `identityId` | `string` | The identity. |
-| `purpose` | `'reset' \| 'invite'` | Which mail. |
+| `purpose` | `'reset' \| 'invite' \| 'verify' \| 'account-exists'` | Which mail. |
 | `ttlSeconds` | `number` | Lifetime of the secret the job will issue. |
 | `requestedAt` | `string` | ISO 8601 time of the request. |
 | `lang` | `string`, optional | Template language. |

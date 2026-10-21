@@ -30,6 +30,7 @@ Import the package in the app entry, **before** anything resolves `Controllers` 
 | [Password routes](12-password-routes.md) | Password policy, reset request, reset and change. |
 | [Verification routes](21-verification-routes.md) | Ask for an address verification mail and redeem its link under `/auth/verify`. |
 | [Code routes](22-code-routes.md) | Ask for a login code and log in with it under `/auth/code`. |
+| [Registration route](22-registration-route.md) | Self-service `POST /auth/register`: one answer for a new and for a taken address. |
 | [MFA enrolment routes](13-mfa-enrolment-routes.md) | Enrol, confirm and disable TOTP, regenerate recovery codes under `/user/mfa`. |
 | [API token routes](14-api-token-routes.md) | List, create, rotate, narrow and revoke the caller's API tokens under `/user/tokens`; revoke a token by its plaintext at `POST /auth/tokens/revoke`. |
 | [JWKS route](20-jwks-route.md) | Publish the public keys of the registered `JwsSigner`. |

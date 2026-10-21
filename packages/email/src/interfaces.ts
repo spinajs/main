@@ -250,6 +250,7 @@ export interface PasswordMailConfiguration {
   invite?: PasswordMailPurposeConfiguration;
   verify?: PasswordMailPurposeConfiguration;
   code?: PasswordMailPurposeConfiguration;
+  'account-exists'?: PasswordMailPurposeConfiguration;
 }
 
 export interface EmailConnectionOptions {

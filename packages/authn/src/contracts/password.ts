@@ -132,4 +132,10 @@ export abstract class PasswordService {
   requestCode?(login: string, ctx: AuthnContext): Promise<CodeRequestResult>;
   /** Mails a code to `id` for the email code step (POST /auth/mfa/challenge); counted in the 'reset' flow on the account. */
   challengeCode?(id: IdentityRef, ctx: AuthnContext): Promise<CodeRequestResult>;
+  /**
+   * Tells the owner of `id` that someone tried to register with their address: a mail of purpose 'account-exists' that holds no
+   * secret and points at the reset page. Dispatched, not awaited to delivery; the registration route calls it for an address
+   * that is taken. Optional: without it that mail is not sent.
+   */
+  notifyAccountExists?(id: IdentityRef, ctx: AuthnContext): Promise<void>;
 }

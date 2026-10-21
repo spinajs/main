@@ -1,20 +1,15 @@
 import { Autoinject } from '@spinajs/di';
-import { BaseController, BasePath, HTTP_STATUS_CODE, Ok, Policy, Post, Req } from '@spinajs/http';
+import { BaseController, BasePath, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { PasswordService } from '@spinajs/authn/contracts';
 
 import { AddressVerificationRegistered, secretField, tooManyRequests } from '../../password/index.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
-import { NO_STORE, badRequest } from '../responses.js';
+import { AcceptedResponse, NO_STORE, badRequest } from '../responses.js';
 import { contextOf } from '../routes.js';
 
 const ACK: Readonly<{ Ok: true }> = Object.freeze({ Ok: true });
-
-/** @spinajs/http has no 202 response. */
-class AcceptedResponse<T = unknown> extends Ok<T> {
-  protected _errorCode = HTTP_STATUS_CODE.ACCEPTED;
-}
 
 // One answer for every refused secret, so it tells a used link from an expired or a forged one apart for nobody (A02).
 const invalidSecret = () => badRequest('invalid_secret', 'the verification link is invalid or has expired');

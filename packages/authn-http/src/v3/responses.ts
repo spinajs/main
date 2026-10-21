@@ -13,12 +13,12 @@ export { AUTHN_FAILURE_BODY };
 /** Authenticated answers and session cookies must not be cached. */
 export const NO_STORE: IResponseHeader = Object.freeze({ Name: 'Cache-Control', Value: 'no-store' });
 
-export const badRequest = (error: string, message: string): BadRequestResponse => new BadRequestResponse({ error, message }, { Headers: [NO_STORE] });
-
 /** @spinajs/http has no 202 response. */
 export class AcceptedResponse<T = unknown> extends Ok<T> {
   protected _errorCode = HTTP_STATUS_CODE.ACCEPTED;
 }
+
+export const badRequest = (error: string, message: string): BadRequestResponse => new BadRequestResponse({ error, message }, { Headers: [NO_STORE] });
 
 /** An instant to the second, as the credential tables keep it; null for none. */
 export const instant = (d: Date | undefined): string | null => (d ? new Date(Math.floor(d.getTime() / 1000) * 1000).toISOString() : null);

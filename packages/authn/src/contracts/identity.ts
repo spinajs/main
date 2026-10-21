@@ -1,4 +1,4 @@
-import type { ExternalSubject, IdentityRef } from './credentials.js';
+import type { AuthnContext, ExternalSubject, IdentityRef } from './credentials.js';
 
 export interface IdentityStatus {
   readonly exists: boolean;
@@ -14,6 +14,18 @@ export interface IdentityStatus {
 export abstract class IdentityAddressVerifier {
   /** Idempotent: an address verified earlier keeps its first time. */
   abstract markVerified(id: IdentityRef, at: Date): Promise<void>;
+}
+
+/** Implemented by @spinajs/users. Absent: the registration route answers 404. */
+export abstract class IdentityRegistrar {
+  /**
+   * Creates an account for a stranger; the caller applies the password policy first. A login or an email that is taken answers
+   * `exists` with the account that holds it, so the caller can tell its owner without telling the stranger (A35).
+   */
+  abstract register(
+    data: { readonly login: string; readonly email: string; readonly password: string },
+    ctx: AuthnContext,
+  ): Promise<{ readonly status: 'created'; readonly id: IdentityRef } | { readonly status: 'exists'; readonly id: IdentityRef }>;
 }
 
 /** Implemented by @spinajs/users. */

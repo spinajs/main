@@ -114,6 +114,30 @@ Migrate with one of:
 - `PasswordService` has two more optional methods, `requestCode(login, ctx)` and `challengeCode(id, ctx)`, which `LocalPasswordService` implements; `PasswordMail` has an optional `code`.
 - `@spinajs/authn-testing`: rule `A36`, `MemoryMfaEnrolmentMarks`, `FakeMfaStep({ challenge: true })`, and `OutboxPort.secretFor(id, 'code')`.
 - There are no HTTP routes to enrol, confirm or disable the step yet: call `EmailCodeMfaStep` from your own routes.
+# Release notes — authn, authn-http, users, email: self-service registration
+
+> Docs: `docs/authn-http/22-registration-route.md`, `docs/users/18-self-service-registration.md`.
+
+Not breaking: registration is off until `users.registration.enabled` is set, and every new contract member is optional or new.
+
+## New behavior
+
+- `POST /auth/register` in `@spinajs/authn-http`: body `{ login, email, password, confirmPassword? }`. It answers
+  `202 { "status": "accepted" }` for a new address and for a taken one alike. A new account is sent a verification mail
+  (address verification). The owner of a taken address is sent an `account-exists` mail with no secret that links to the
+  reset page; `authn.http.registration.notifyExisting: false` turns that mail off. The password policy runs with the login
+  and the email as context (400 `password_rejected`). Each request counts in the `reset` throttle flow, keyed on the
+  client ip and the address.
+- `@spinajs/authn`: the `IdentityRegistrar` contract, the audit type `identity.register` and the optional
+  `PasswordService.notifyAccountExists()`.
+- `@spinajs/users`: `UserIdentityRegistrar` over `create()`, provided while `users.registration.enabled` is `true`
+  (default `false`). `users.registration.activate` (default `true`) activates the new account at once.
+- `@spinajs/authn-local`: the mail purpose `account-exists`; `LocalPasswordService.notifyAccountExists()` dispatches it
+  and `deliver()` sends it without issuing a secret.
+- `@spinajs/email`: the built-in `authn/account-exists.mjml`, subject `You already have an account`
+  (`email.password.account-exists.*`). A mail without a secret links to the page as it is and redacts nothing.
+- `@spinajs/authn-testing`: the A35 behaviour rule, the `registrar` harness port and `FakeIdentityRegistrar`;
+  `OutboxPort.sent()` counts the mails of a purpose.
 
 # Release notes — authn, authn-token, authn-http: revoke a token by its plaintext
 

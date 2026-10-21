@@ -45,14 +45,15 @@ The fields of authn-local's `PasswordMail`, declared here so this package never 
 | `invite` | `authn/invite.mjml` | `email-builtin-templates` | `Set up your account` |
 | `verify` | `authn/verify.mjml` | `email-builtin-templates` | `Confirm your email address` |
 | `code` | `authn/code.mjml` | `email-builtin-templates` | `Your sign-in code` |
+| `account-exists` | `authn/account-exists.mjml` | `email-builtin-templates` | `You already have an account` |
 
-The files ship in the package under `lib/templates/authn/`. The package config registers the `fsNative` provider `email-builtin-templates` over `node_modules/@spinajs/email/lib/templates` (from `WORKSPACE_ROOT_PATH` or `cwd`). Each file is self-contained (no `mj-include`): a header with `AppName`, a button and a plain-link line bound to `ActionUrl`, the lifetime, and a footer that says to ignore an unexpected mail. Without a link the token takes the place of the button.
+The files ship in the package under `lib/templates/authn/`. The package config registers the `fsNative` provider `email-builtin-templates` over `node_modules/@spinajs/email/lib/templates` (from `WORKSPACE_ROOT_PATH` or `cwd`). Each file is self-contained (no `mj-include`): a header with `AppName`, a button and a plain-link line bound to `ActionUrl`, the lifetime, and a footer that says to ignore an unexpected mail. Without a link the token takes the place of the button. `account-exists` has no secret and no lifetime: its button opens the reset page (`authn.local.reset.url`) as it is, with no `token` or `email` query, and without that URL it shows no button.
 
 ### Template model
 
 | Variable | Type | Value |
 | --- | --- | --- |
-| `Purpose` | `string` | `reset`, `invite`, `verify` or `code`. |
+| `Purpose` | `string` | `reset`, `invite`, `verify`, `code` or `account-exists`. |
 | `Subject` | `string` | The mail subject. |
 | `Name` | `string` | Recipient display name, or `''`. |
 | `Email` | `string` | Recipient address. |
@@ -103,6 +104,8 @@ A `template` must be a non-empty `.mjml` path, or `{ file, fs }` with an `.mjml`
 | `email.password.verify.template` | `string \| { file, fs }` | `{ file: 'authn/verify.mjml', fs: 'email-builtin-templates' }` | an `.mjml` file | Address verification mail template. |
 | `email.password.code.subject` | `string` | `'Your sign-in code'` | | Email code mail subject. |
 | `email.password.code.template` | `string \| { file, fs }` | `{ file: 'authn/code.mjml', fs: 'email-builtin-templates' }` | an `.mjml` file | Email code mail template. |
+| `email.password.account-exists.subject` | `string` | `'You already have an account'` | | Subject of the mail to the owner of an address someone tried to register. |
+| `email.password.account-exists.template` | `string \| { file, fs }` | `{ file: 'authn/account-exists.mjml', fs: 'email-builtin-templates' }` | an `.mjml` file | Template of that mail. |
 | `email.defaultConnection` | `string` | not set | a connection name | Fallback connection. |
 
 ```ts

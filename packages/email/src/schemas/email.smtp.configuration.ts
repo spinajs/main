@@ -53,6 +53,7 @@ const CONFIGURATION_SCHEMA = {
         invite: PASSWORD_MAIL_PURPOSE,
         verify: PASSWORD_MAIL_PURPOSE,
         code: PASSWORD_MAIL_PURPOSE,
+        'account-exists': PASSWORD_MAIL_PURPOSE,
       },
     },
     connections: {

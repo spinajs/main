@@ -22,7 +22,7 @@ const SECRET = 'Zx9-secret_Q7w';
 const URL_BASE = 'https://app.example.com/password-reset';
 const LINK = `${URL_BASE}?token=${SECRET}&email=alice%40example.com`;
 const BUILTIN = resolve(process.cwd(), 'src', 'templates');
-const PURPOSES = ['reset', 'invite', 'verify', 'code'] as const;
+const PURPOSES = ['reset', 'invite', 'verify', 'code', 'account-exists'] as const;
 
 const dir = (path: string) => resolve(normalize(join(process.cwd(), 'test', path)));
 /** How the template engine writes a model value into HTML. */
@@ -375,6 +375,59 @@ describe('EmailPasswordMailer MJML templates (MAIL-1, D14)', function () {
       expect(err).to.be.instanceOf(IOFail);
       expect(holds(dump(err), CODE)).to.equal(false);
       expect(x.sent).to.have.length(0);
+    });
+  });
+
+  describe('the account-exists mail (FEAT-4)', () => {
+    const exists = (over: Partial<IPasswordMail> = {}) => aMail({ purpose: 'account-exists', secret: '', ...over });
+
+    it('renders authn/account-exists.mjml with the default subject and the plain reset page, and redacts nothing', async () => {
+      const x = await pipeline();
+      await x.mailer.send(exists());
+
+      const [email] = x.handed;
+      expect(email.template).to.deep.equal({ file: 'authn/account-exists.mjml', fs: 'email-builtin-templates' });
+      expect(email.subject).to.equal('You already have an account');
+      expect(email.tag).to.equal('authn-password-account-exists');
+      expect(email.redact, 'no secret and no secret link').to.deep.equal([]);
+      expect(email.text).to.equal(undefined);
+      expect(x.sent[0].html).to.match(/^<!doctype html>/i);
+      expect(x.sent[0].html).to.contain('You already have an account');
+      expect(x.sent[0].html).to.contain(URL_BASE);
+      expect(x.sent[0].html).to.not.contain('token');
+    });
+
+    it('passes the reset page as ActionUrl, without a token or an address query', async () => {
+      const x = await pipeline();
+      const render = sinon.spy(x.templates, 'render');
+      await x.mailer.send(exists());
+      expect(render.firstCall.args[1]).to.include({ ActionUrl: URL_BASE, ResetUrl: URL_BASE, Token: '', Purpose: 'account-exists', Email: 'alice@example.com' });
+    });
+
+    it('without a reset url it still renders, with no button', async () => {
+      const x = await pipeline();
+      await x.mailer.send(exists({ url: '' }));
+      expect(x.sent[0].html).to.contain('You already have an account');
+      expect(x.sent[0].html).to.not.contain('<a ');
+    });
+
+    it('email.password.account-exists.subject and .template override the built-in ones', async () => {
+      const x = await pipeline({ connection: 'test', 'account-exists': { subject: 'Welcome back', template: 'custom/account-exists.mjml' } });
+      await x.mailer.send(exists());
+      expect(x.handed[0].subject).to.equal('Welcome back');
+      expect(x.sent[0].html).to.contain('project-custom-account-exists');
+      expect(x.sent[0].html).to.contain(URL_BASE);
+    });
+
+    it('validates email.password.account-exists.template like the other purposes', async () => {
+      expect(await violationsOf('my/account-exists.mjml', 'account-exists')).to.deep.equal([]);
+      for (const template of [null, '', 'account-exists.hbs']) {
+        const paths = await violationsOf(template, 'account-exists');
+        expect(
+          paths.some((p) => p.startsWith('email.password.account-exists.template')),
+          paths.join(', '),
+        ).to.equal(true);
+      }
     });
   });
 });

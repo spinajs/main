@@ -5,7 +5,7 @@ import { EmailService, IEmail, IEmailTemplate, PasswordMailConfiguration } from 
 import { redactText } from './redact.js';
 
 /** `AuthnMailPurpose` of `@spinajs/authn-local`. */
-export type PasswordMailPurpose = 'reset' | 'invite' | 'verify' | 'code';
+export type PasswordMailPurpose = 'reset' | 'invite' | 'verify' | 'code' | 'account-exists';
 
 /** The fields of `PasswordMail` from `@spinajs/authn-local`, declared here so this package never imports it. */
 export interface IPasswordMail {
@@ -31,7 +31,7 @@ export interface EmailPasswordMailerDeps {
   readonly defaultConnection?: string;
 }
 
-const DEFAULT_SUBJECTS: Readonly<Record<PasswordMailPurpose, string>> = { reset: 'Reset your password', invite: 'Set up your account', verify: 'Confirm your email address', code: 'Your sign-in code' };
+const DEFAULT_SUBJECTS: Readonly<Record<PasswordMailPurpose, string>> = { reset: 'Reset your password', invite: 'Set up your account', verify: 'Confirm your email address', code: 'Your sign-in code', 'account-exists': 'You already have an account' };
 
 /** What the package config ships as `email.password.<purpose>.template`, for the `deps` seam and a config without it. */
 const BUILTIN_TEMPLATES: Readonly<Record<PasswordMailPurpose, IEmailTemplate>> = {
@@ -39,6 +39,7 @@ const BUILTIN_TEMPLATES: Readonly<Record<PasswordMailPurpose, IEmailTemplate>> =
   invite: { file: 'authn/invite.mjml', fs: 'email-builtin-templates' },
   verify: { file: 'authn/verify.mjml', fs: 'email-builtin-templates' },
   code: { file: 'authn/code.mjml', fs: 'email-builtin-templates' },
+  'account-exists': { file: 'authn/account-exists.mjml', fs: 'email-builtin-templates' },
 };
 
 /** `base` with the `token` and `email` query parameters the redemption page reads. */
@@ -74,15 +75,16 @@ export class EmailPasswordMailer {
   constructor(protected readonly Deps?: EmailPasswordMailerDeps) {}
 
   public async send(mail: IPasswordMail): Promise<void> {
-    const secrets = [mail.secret];
+    const secrets = mail.secret ? [mail.secret] : [];
     try {
       const address = mail.to.email;
       if (!address) {
         throw new InvalidArgument('the recipient has no email address');
       }
-      // A code is typed, not followed: it has no link, whatever url the mail was given.
-      const link = mail.purpose === 'code' ? '' : resetUrl(mail.url, mail.secret, address);
-      if (link) {
+      // A code is typed, not followed: it has no link, whatever url the mail was given. A mail without a secret links to
+      // the page as it is.
+      const link = mail.purpose === 'code' ? '' : mail.secret ? resetUrl(mail.url, mail.secret, address) : mail.url;
+      if (link && mail.secret) {
         secrets.push(link);
       }
       if (mail.code && mail.code !== mail.secret) {

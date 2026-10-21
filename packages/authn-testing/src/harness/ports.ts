@@ -1,5 +1,5 @@
 import type { KeyObject } from 'node:crypto';
-import type { AuthnContext, AuthnEvent, AuthnService, AuthnThrottle, AuthenticationStrategy, Credentials, ExternalSubject, IdentityLink, IdentityLinkStore, IdentityRef, IdentityStatus, JwsSigner, JwsVerifier, KeyAlgorithm, KeyChallenge, KeyOwner, KeyRegistry, MfaStep, PasswordCredentialStore, PasswordService, Principal, PublicJwk, SecretStore, SessionHandle, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEvent, AuthnService, AuthnThrottle, AuthenticationStrategy, Credentials, ExternalSubject, IdentityLink, IdentityLinkStore, IdentityRef, IdentityRegistrar, IdentityStatus, JwsSigner, JwsVerifier, KeyAlgorithm, KeyChallenge, KeyOwner, KeyRegistry, MfaStep, PasswordCredentialStore, PasswordService, Principal, PublicJwk, SecretStore, SessionHandle, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { PrincipalOfCall } from '../fakes/principals.js';
 import type { ConfigOverrides, AppEnv } from './config.js';
 import type { HttpPort, HttpRoutes } from './http.js';
@@ -49,6 +49,7 @@ export interface Harness {
   readonly boot?: BootPort;
   readonly actors?: ActorsPort;
   readonly webauthn?: WebAuthnPort;
+  readonly registrar?: IdentityRegistrar;
   readonly http?: HttpPort;
   dispose?(): Promise<void>;
 }
@@ -156,6 +157,8 @@ export interface HasherPort {
 export interface OutboxPort {
   /** The raw secret of the newest mail of that purpose to that identity, or null. */
   secretFor(id: IdentityRef, purpose: 'reset' | 'invite' | 'verify' | 'code'): Promise<string | null>;
+  /** How many mails of that purpose went to that identity; the account-exists mail holds no secret. */
+  sent(id: IdentityRef, purpose: 'reset' | 'invite' | 'verify' | 'account-exists'): Promise<number>;
 }
 
 export interface SecretStoragePort {

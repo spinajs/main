@@ -28,6 +28,13 @@ export const AUTHN_HTTP_CONFIGURATION_SCHEMA = {
         },
       },
     },
+    registration: {
+      type: 'object',
+      default: {},
+      properties: {
+        notifyExisting: { enum: [true, false], default: true, description: 'POST /auth/register mails the owner of a taken address that someone tried to register with it (purpose account-exists).' },
+      },
+    },
     admin: {
       type: 'object',
       properties: {
