@@ -256,8 +256,9 @@ export class OpenApiBuilder {
     // Mirror the runtime BasePath resolution (BaseController.BasePath): when no
     // @BasePath decorator is present the routes mount under the lowercased class
     // name (e.g. UsersController -> /userscontroller/...). Documenting an empty
-    // basePath here produced wrong URLs for every undecorated controller.
-    const basePath = descriptor.BasePath || controller.instance!.constructor.name.toLowerCase();
+    // basePath here produced wrong URLs for every undecorated controller. The
+    // instance getter also applies a config-driven @BasePath.
+    const basePath = controller.instance!.BasePath || descriptor.BasePath || controller.instance!.constructor.name.toLowerCase();
     const controllerName = controller.name.replace(/Controller$/, '');
 
     // Register tag from class documentation or controller name
