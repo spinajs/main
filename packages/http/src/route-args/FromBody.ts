@@ -39,7 +39,7 @@ export class FromBody extends RouteArgs {
   public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
     if (!req.body) {
       // `tryHydrateParam` is what refuses an absent `{ required: true }` parameter
-      return { CallData: callData, Args: param.Options?.required === true ? await this.tryHydrateParam(undefined, param, route) : null };
+      return { CallData: callData, Args: (param.Options as { required?: unknown } | undefined)?.required === true ? await this.tryHydrateParam(undefined, param, route) : null };
     }
 
     // Use presence, not truthiness — a body field legitimately holding 0,
@@ -47,7 +47,7 @@ export class FromBody extends RouteArgs {
     // would wrongly fall through to passing the whole body).
     const hasNamedField = Object.prototype.hasOwnProperty.call(req.body, param.Name);
     const isSingleBodyParam = [...route.Parameters.values()].filter((p) => p.Type === ParameterType.FromBody).length === 1;
-    const arg = hasNamedField ? req.body[param.Name] : isSingleBodyParam ? req.body : null;
+    const arg = hasNamedField ? (req.body as Record<string, unknown>)[param.Name] : isSingleBodyParam ? req.body : null;
 
     try {
       const result = await this.tryHydrateParam(arg, param, route);
