@@ -8,6 +8,7 @@ import { activeSessionOf } from '../../policies/v3/principal.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, authnClearedSessionCookie } from '../responses.js';
 import { publishAuthnEvent } from '../routes.js';
+import { clientOf } from '../client.js';
 
 /**
  * The caller's own sessions: list them, end one, end all others (A08; design §22.11). Needs a session principal; a
@@ -34,7 +35,7 @@ export class AuthnSessionsController extends BaseController {
    */
   @Get('sessions')
   public async list(@Req() req: Request) {
-    const session = activeSessionOf(req);
+    const session = activeSessionOf(clientOf(req));
     const rows = await this.Sessions.list(session.identity, { current: session.handle });
     const entries = [...rows]
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -57,10 +58,10 @@ export class AuthnSessionsController extends BaseController {
    */
   @Del('sessions/:handle')
   public async revoke(@Req() req: Request, @Param() handle: string) {
-    const session = activeSessionOf(req);
+    const session = activeSessionOf(clientOf(req));
     const ended = typeof handle === 'string' && (await this.Sessions.revokeHandle(session.identity, handle));
     if (!ended) return new NotFound({ error: 'session_not_found', message: 'No such session' });
-    await publishAuthnEvent(this.Container, req, { type: 'session.revoke', outcome: 'success', reason: 'owner', identity: { type: session.identity.type, id: session.identity.id }, session: handle });
+    await publishAuthnEvent(this.Container, clientOf(req), { type: 'session.revoke', outcome: 'success', reason: 'owner', identity: { type: session.identity.type, id: session.identity.id }, session: handle });
     const current = handle === session.facts.sessionHandle;
     return new Ok(null, { Coockies: current ? [authnClearedSessionCookie(this._cfg)] : [], Headers: [NO_STORE] });
   }
@@ -73,9 +74,9 @@ export class AuthnSessionsController extends BaseController {
    */
   @Del('sessions')
   public async revokeOthers(@Req() req: Request) {
-    const session = activeSessionOf(req);
+    const session = activeSessionOf(clientOf(req));
     const revoked = await this.Sessions.revokeAll(session.identity, { except: session.handle });
-    await publishAuthnEvent(this.Container, req, { type: 'session.revoke', outcome: 'success', reason: 'owner_others', identity: { type: session.identity.type, id: session.identity.id }, data: { count: revoked } });
+    await publishAuthnEvent(this.Container, clientOf(req), { type: 'session.revoke', outcome: 'success', reason: 'owner_others', identity: { type: session.identity.type, id: session.identity.id }, data: { count: revoked } });
     return new Ok({ Revoked: revoked }, { Headers: [NO_STORE] });
   }
 }

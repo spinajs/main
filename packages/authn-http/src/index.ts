@@ -11,7 +11,8 @@ export { Authenticated, NoSession } from './policies/v3/principal.js';
 export { FreshAuth, assertFreshAuth } from './policies/v3/fresh-auth.js';
 export { AuthnLogoutExtension } from './v3/logout-extension.js';
 export { MfaSatisfied } from './policies/v3/mfa.js';
-export { Identity, AuthnSession } from './args/authn.js';
+export { Identity, AuthnSession, ClientContext } from './args/authn.js';
+export type { AuthnClientContext } from './v3/client.js';
 export * from './extractors/index.js';
 // Loading it registers the 3.0 layer on the root container.
 export { registerAuthnHttpV3 } from './v3/register.js';

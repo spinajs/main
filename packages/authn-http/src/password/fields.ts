@@ -23,6 +23,9 @@ export const secretField = (req: Request): string | null => boundedString(bodyFi
 /** The current password of a change, or null. */
 export const oldPasswordField = (req: Request): string | null => boundedString(bodyField(req, 'oldPassword'), PASSWORD_HARD_CAP);
 
+/** 400 `invalid_login`: no login, or one longer than any account has. */
+export const invalidLogin = (): BadRequestResponse => badRequest('invalid_login', `login must be a non-empty string of at most ${PASSWORD_HARD_CAP} characters`);
+
 /** 400 with the policy violations; they say nothing about the account. */
 export const passwordRejected = (violations: readonly PasswordViolation[]): BadRequestResponse =>
   new BadRequestResponse({ error: 'password_rejected', message: 'the new password does not meet the password policy', violations: [...violations] }, { Headers: [NO_STORE] });

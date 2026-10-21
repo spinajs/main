@@ -12,6 +12,7 @@ import { activeSessionOf } from '../../policies/v3/principal.js';
 import { ACTIVE_ROLE_KEY } from '../../resolvers/session.js';
 import { NO_STORE, authnSessionCookie } from '../responses.js';
 import { answerFor, bodyField, boundedString, onLiveSession } from '../routes.js';
+import { clientOf } from '../client.js';
 
 const ROLE_CAP = 256;
 
@@ -47,7 +48,7 @@ export class AuthnActiveRoleController extends BaseController {
   @Get('active-role')
   @Policy([Authenticated, NoTokenAuthPolicy])
   public async state(@Req() req: Request) {
-    const session = activeSessionOf(req);
+    const session = activeSessionOf(clientOf(req));
     return new Ok({ ActiveRole: session.activeRole ?? null, Roles: await this.held(session) }, { Headers: [NO_STORE] });
   }
 
@@ -66,12 +67,12 @@ export class AuthnActiveRoleController extends BaseController {
   public async switch(@Req() req: Request) {
     const role = boundedString(bodyField(req, 'role'), ROLE_CAP);
     if (role === null) return new BadRequestResponse({ error: 'invalid_role', message: `role must be a non-empty string of at most ${ROLE_CAP} characters` });
-    const session = activeSessionOf(req);
+    const session = activeSessionOf(clientOf(req));
     const entry = (await this.held(session)).find((r) => r.role === role);
     if (!entry) throw refused('role_not_held', 'the caller does not hold this role');
     // Anything but an explicit false asks for the password.
     if (entry.requirePassword !== false) {
-      const fresh = await freshAuthOrAnswer(this.Container, req, bodyField(req, 'password'));
+      const fresh = await freshAuthOrAnswer(this.Container, clientOf(req), bodyField(req, 'password'));
       if ('answer' in fresh) return fresh.answer;
     }
 

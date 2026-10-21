@@ -12,6 +12,7 @@ import { newPasswordField, passwordRejected, tooManyRequests } from '../../passw
 import { IdentityRegistrarRegistered } from '../../policies/v3/groups.js';
 import { AcceptedResponse, NO_STORE, badRequest } from '../responses.js';
 import { bodyField, boundedString, contextOf, publishAuthnEvent } from '../routes.js';
+import { clientOf } from '../client.js';
 
 const IDENTIFIER_CAP = 254;
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
@@ -49,7 +50,7 @@ export class AuthnRegistrationController extends BaseController {
     const next = newPasswordField(req);
     if ('answer' in next) return next.answer;
 
-    const ctx = contextOf(req, 'request');
+    const ctx = contextOf(clientOf(req), 'request');
     const throttle = await this.Container.resolve(AuthnThrottle);
     const gate = await throttle.attempt([{ kind: 'account', value: `register:${email.trim().toLowerCase()}` }, { kind: 'ip', value: ctx.ip ?? 'unknown' }], 'reset', ctx);
     if (!gate.allowed) return tooManyRequests('too many registrations, try again later', gate.retryAfterSeconds);
@@ -67,7 +68,7 @@ export class AuthnRegistrationController extends BaseController {
     }
 
     const created = result.status === 'created';
-    await publishAuthnEvent(this.Container, req, { type: 'identity.register', outcome: created ? 'success' : 'failure', identity: result.id, ...(created ? {} : { reason: 'exists' }) });
+    await publishAuthnEvent(this.Container, clientOf(req), { type: 'identity.register', outcome: created ? 'success' : 'failure', identity: result.id, ...(created ? {} : { reason: 'exists' }) });
     await this.mail(passwords, result.id, created, ctx);
     return new AcceptedResponse({ status: 'accepted' }, { Headers: [NO_STORE] });
   }

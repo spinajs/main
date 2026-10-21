@@ -13,6 +13,7 @@ import { freshAuthOrAnswer, takeReauthPassword } from '../../policies/v3/fresh-a
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, badRequest, instant } from '../responses.js';
 import { bodyField, boundedString, completeLogin, contextOf } from '../routes.js';
+import { clientOf } from '../client.js';
 
 /** Above the challenge ids authn-webauthn draws (22 characters). */
 const CHALLENGE_ID_CAP = 64;
@@ -80,8 +81,8 @@ export class AuthnPasskeyController extends BaseController {
   public async challenge(@Req() req: Request) {
     const passkeys = await this.passkeys();
     const session = req.storage.AuthnSession;
-    if (session?.handle.state === 'pending') return ceremonyAnswer(await passkeys.challenge(contextOf(req, 'login', session.handle), session.identity));
-    return ceremonyAnswer(await passkeys.challenge(contextOf(req, 'login')));
+    if (session?.handle.state === 'pending') return ceremonyAnswer(await passkeys.challenge(contextOf(clientOf(req), 'login', session.handle), session.identity));
+    return ceremonyAnswer(await passkeys.challenge(contextOf(clientOf(req), 'login')));
   }
 
   /**
@@ -95,7 +96,7 @@ export class AuthnPasskeyController extends BaseController {
   public async login(@Req() req: Request) {
     const body = ceremonyBody(req);
     const credentials: Credentials | null = body && { kind: 'webauthn', challengeId: body.challengeId, response: body.response };
-    return completeLogin(this.Container, this.Sessions, this._cfg, req, credentials);
+    return completeLogin(this.Container, this.Sessions, this._cfg, clientOf(req), credentials);
   }
 
   /**
@@ -107,10 +108,10 @@ export class AuthnPasskeyController extends BaseController {
   @Post('user/passkeys/options')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async options(@Req() req: Request) {
-    const session = keyManager(req);
-    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+    const session = keyManager(clientOf(req));
+    const fresh = await freshAuthOrAnswer(this.Container, clientOf(req), takeReauthPassword(req));
     if ('answer' in fresh) return fresh.answer;
-    return ceremonyAnswer(await (await this.passkeys()).registrationOptions(session.identity, contextOf(req, 'request', session.handle)));
+    return ceremonyAnswer(await (await this.passkeys()).registrationOptions(session.identity, contextOf(clientOf(req), 'request', session.handle)));
   }
 
   /**
@@ -123,15 +124,15 @@ export class AuthnPasskeyController extends BaseController {
   @Post('user/passkeys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async register(@Req() req: Request) {
-    const session = keyManager(req);
-    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+    const session = keyManager(clientOf(req));
+    const fresh = await freshAuthOrAnswer(this.Container, clientOf(req), takeReauthPassword(req));
     if ('answer' in fresh) return fresh.answer;
     const body = ceremonyBody(req);
     if (!body) return badRequest('invalid_response', 'challengeId and response are required');
     const rawName = bodyField(req, 'name');
     const name = rawName === undefined ? undefined : boundedString(rawName, NAME_CAP);
     if (name === null || (name !== undefined && hasControlCharacter(name))) return badRequest('invalid_name', `name must be 1 to ${NAME_CAP} characters without control characters`);
-    const result = await (await this.passkeys()).register(session.identity, { ...body, ...(name !== undefined ? { name } : {}) }, contextOf(req, 'request', session.handle));
+    const result = await (await this.passkeys()).register(session.identity, { ...body, ...(name !== undefined ? { name } : {}) }, contextOf(clientOf(req), 'request', session.handle));
     if (!result.ok) {
       if (result.code === 'duplicate') return new Conflict({ error: 'passkey_taken', message: 'this passkey is already registered' }, { Headers: [NO_STORE] });
       return badRequest('invalid_response', 'the registration does not verify against a registration challenge of this user');
@@ -146,7 +147,7 @@ export class AuthnPasskeyController extends BaseController {
   @Get('user/passkeys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async list(@Req() req: Request) {
-    const session = keyManager(req);
+    const session = keyManager(clientOf(req));
     return new Ok((await (await this.passkeys()).list(session.identity)).map(passkeyEntry), { Headers: [NO_STORE] });
   }
 
@@ -158,8 +159,8 @@ export class AuthnPasskeyController extends BaseController {
   @Del('user/passkeys/:id')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async remove(@Req() req: Request, @Param() id: string) {
-    const session = keyManager(req);
-    const removed = typeof id === 'string' && CREDENTIAL_ID.test(id) && (await (await this.passkeys()).remove(session.identity, id, contextOf(req, 'request', session.handle)));
+    const session = keyManager(clientOf(req));
+    const removed = typeof id === 'string' && CREDENTIAL_ID.test(id) && (await (await this.passkeys()).remove(session.identity, id, contextOf(clientOf(req), 'request', session.handle)));
     if (!removed) return passkeyNotFound();
     return new Ok(null, { Headers: [NO_STORE] });
   }

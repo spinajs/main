@@ -3,7 +3,8 @@ import { Conflict, ForbiddenResponse, Unauthorized } from '@spinajs/http';
 import type { Request, Response } from '@spinajs/http';
 import type { Credentials, Session } from '@spinajs/authn/contracts';
 
-import { PASSWORD_HARD_CAP, reauthCredentials, takeReauthPassword } from '../policies/v3/fresh-auth.js';
+import { PASSWORD_HARD_CAP, reauthCredentials } from '../policies/v3/fresh-auth.js';
+import type { AuthnClientContext } from '../v3/client.js';
 import { NO_STORE, authnFailureResponse } from '../v3/responses.js';
 import { bodyField, boundedString } from '../v3/routes.js';
 
@@ -16,15 +17,14 @@ export const codeField = (req: Request): string | null => boundedString(bodyFiel
 /**
  * The inline re-authentication of an MFA route (A13): no credentials without `reauthPassword` or for a pending session
  * (TotpService then needs a fresh session), the password credentials of the session's identity, or the login failure
- * answer for a password that can never verify. The field leaves the body, as FreshAuth removes it, and TotpService
+ * answer for a password that can never verify. The DTO took the field off the request, as FreshAuth does, and TotpService
  * verifies the credentials only when an active session is not fresh: one check, counted in the reauth throttle.
  */
-export async function reauthOf(container: IContainer, req: Request, session: Session): Promise<{ credentials?: Credentials } | { answer: Response }> {
-  const password = takeReauthPassword(req);
+export async function reauthOf(container: IContainer, client: AuthnClientContext, session: Session, password: unknown): Promise<{ credentials?: Credentials } | { answer: Response }> {
   if (typeof password !== 'string' || password === '') return {};
   // An over-long password is a failed attempt even for a pending session.
   if (password.length <= PASSWORD_HARD_CAP && session.handle.state !== 'active') return {};
-  const credentials = await reauthCredentials(container, req, session, password);
+  const credentials = await reauthCredentials(container, client, session, password);
   return credentials ? { credentials } : { answer: authnFailureResponse() };
 }
 

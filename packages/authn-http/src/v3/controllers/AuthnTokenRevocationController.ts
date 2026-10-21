@@ -8,6 +8,7 @@ import { tooManyRequests } from '../../password/fields.js';
 import { TokenServiceRegistered } from '../../token/gate.js';
 import { NO_STORE } from '../responses.js';
 import { bodyField, boundedString, contextOf } from '../routes.js';
+import { clientOf } from '../client.js';
 
 /** Well above the length of any minted token. */
 const TOKEN_CAP = 1024;
@@ -34,7 +35,7 @@ export class AuthnTokenRevocationController extends BaseController {
    */
   @Post('auth/tokens/revoke')
   public async revoke(@Req() req: Request) {
-    const ctx = contextOf(req, 'request');
+    const ctx = contextOf(clientOf(req), 'request');
     const throttle = await this.Container.resolve(AuthnThrottle);
     const gate = await throttle.attempt([{ kind: 'ip', value: ctx.ip ?? 'unknown' }], 'reset', ctx);
     if (!gate.allowed) return tooManyRequests('too many revocation requests, try again later', gate.retryAfterSeconds);

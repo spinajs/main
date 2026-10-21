@@ -8,6 +8,7 @@ import type { TooManyRequestsResponse } from '../password/fields.js';
 import { refused } from '../policies/v3/errors.js';
 import { activeSessionOf, authenticatedPrincipal, isSessionPrincipal } from '../policies/v3/principal.js';
 import { expiryOf } from '../token/fields.js';
+import type { AuthnClientContext } from '../v3/client.js';
 import { NO_STORE, badRequest, instant } from '../v3/responses.js';
 import { bodyField, boundedString } from '../v3/routes.js';
 
@@ -32,11 +33,11 @@ export const kidOf = (value: unknown): string | null => (typeof value === 'strin
  * yields none), 403 `session_required` for a per-request credential (no token or key manages keys), 403 `impersonating`
  * (a key added there would outlive the impersonation).
  */
-export function keyManager(req: Request): Session {
-  const principal = authenticatedPrincipal(req);
+export function keyManager(client: AuthnClientContext): Session {
+  const principal = authenticatedPrincipal(client);
   if (!isSessionPrincipal(principal)) throw refused('session_required', 'this route needs a session, not a per-request credential');
   if (principal.authn?.impersonator !== undefined) throw refused('impersonating', 'this route cannot be used while impersonating another user');
-  const session = activeSessionOf(req, 'this route needs the session of a user');
+  const session = activeSessionOf(client, 'this route needs the session of a user');
   if (session.identity.type !== 'user') throw refused('session_required', 'this route needs the session of a user');
   return session;
 }

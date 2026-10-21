@@ -479,9 +479,10 @@ export function Query(schema?: any, options?: { required?: boolean }) {
 /**
  * Route parameter taken from message body (POST)
  *
- * @param schema - parameter json schema for optional validation
+ * @param options - `required`: an absent body fails validation; `sensitive`: body fields (a password) that leave
+ *   `req.body`, with `req.rawBody`, once the argument holds them
  */
-export function Body(options?: { required?: boolean }) {
+export function Body(options?: { required?: boolean; sensitive?: readonly string[] }) {
   return Route(Parameter(ParameterType.FromBody, null, options));
 }
 

@@ -10,10 +10,12 @@ import type { Session } from '@spinajs/authn/contracts';
 import { TotpEnrolmentOn, codeField, reauthOf, totpRefusal } from '../../mfa/index.js';
 import { unauthenticated } from '../../policies/v3/errors.js';
 import { mfaPolicyOf } from '../../policies/v3/mfa.js';
+import { takeReauthPassword } from '../../policies/v3/fresh-auth.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, PendingMfaEnrolment } from '../index.js';
 import { NO_STORE, authnFailureResponse } from '../responses.js';
 import { contextOf } from '../routes.js';
+import { clientOf } from '../client.js';
 
 /**
  * The owner's TOTP enrolment over the MfaEnrolmentService, authn-totp's TotpService (design §22.8, §22.11; A09, A10,
@@ -53,7 +55,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Get('mfa')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async status(@Req() req: Request) {
-    const session = activeSessionOf(req);
+    const session = activeSessionOf(clientOf(req));
     const steps = [];
     for (const step of (await (await mfaPolicyOf(this.Container, this.MfaPolicyService)).steps()).values()) steps.push({ name: step.name, enrolled: await step.enrolled(session.identity) });
     return new Ok({ steps }, { Headers: [NO_STORE] });
@@ -77,9 +79,9 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async begin(@Req() req: Request) {
     const session = ownSession(req);
-    const reauth = await reauthOf(this.Container, req, session);
+    const reauth = await reauthOf(this.Container, clientOf(req), session, takeReauthPassword(req));
     if ('answer' in reauth) return reauth.answer;
-    const result = await this.MfaEnrolment!.begin(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    const result = await this.MfaEnrolment!.begin(session.handle, contextOf(clientOf(req), 'reauth', session.handle), reauth.credentials);
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ provisioning: result.provisioning }, { Headers: [NO_STORE] });
   }
@@ -101,7 +103,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const session = ownSession(req);
     const code = codeField(req);
     if (code === null) return authnFailureResponse();
-    const result = await this.MfaEnrolment!.confirm(session.handle, code, contextOf(req, 'reauth', session.handle));
+    const result = await this.MfaEnrolment!.confirm(session.handle, code, contextOf(clientOf(req), 'reauth', session.handle));
     if (!result.ok) return totpRefusal(result.code, { reauthTried: false, retryAfterSeconds: result.retryAfterSeconds });
     return new Ok({ recoveryCodes: [...result.recoveryCodes] }, { Headers: [NO_STORE] });
   }
@@ -118,12 +120,12 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Post('mfa/disable')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async disable(@Req() req: Request) {
-    const session = activeSessionOf(req);
-    const reauth = await reauthOf(this.Container, req, session);
+    const session = activeSessionOf(clientOf(req));
+    const reauth = await reauthOf(this.Container, clientOf(req), session, takeReauthPassword(req));
     if ('answer' in reauth) return reauth.answer;
     const code = codeField(req);
     if (code === null) return authnFailureResponse();
-    const result = await this.MfaEnrolment!.disable(session.handle, code, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    const result = await this.MfaEnrolment!.disable(session.handle, code, contextOf(clientOf(req), 'reauth', session.handle), reauth.credentials);
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined, retryAfterSeconds: result.retryAfterSeconds });
     return new Ok(null, { Headers: [NO_STORE] });
   }
@@ -141,10 +143,10 @@ export class AuthnMfaEnrolmentController extends BaseController {
   @Post('mfa/recovery-codes')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async recoveryCodes(@Req() req: Request) {
-    const session = activeSessionOf(req);
-    const reauth = await reauthOf(this.Container, req, session);
+    const session = activeSessionOf(clientOf(req));
+    const reauth = await reauthOf(this.Container, clientOf(req), session, takeReauthPassword(req));
     if ('answer' in reauth) return reauth.answer;
-    const result = await this.MfaEnrolment!.regenerateRecoveryCodes(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    const result = await this.MfaEnrolment!.regenerateRecoveryCodes(session.handle, contextOf(clientOf(req), 'reauth', session.handle), reauth.credentials);
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ recoveryCodes: [...result.recoveryCodes] }, { Headers: [NO_STORE] });
   }

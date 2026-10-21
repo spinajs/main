@@ -11,6 +11,7 @@ import { freshAuthOrAnswer, takeReauthPassword } from '../../policies/v3/fresh-a
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE } from '../responses.js';
 import { completeLogin, contextOf } from '../routes.js';
+import { clientOf } from '../client.js';
 
 /**
  * Public keys over the KeyRegistry contract (design §22.10, §22.11; A02, A13, A17). Off (404) while no KeyRegistry is
@@ -42,7 +43,7 @@ export class AuthnKeysController extends BaseController {
   @Get('user/keys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async list(@Req() req: Request) {
-    const session = keyManager(req);
+    const session = keyManager(clientOf(req));
     const records = await (await this.registry()).list(session.identity);
     const now = new Date();
     return new Ok(
@@ -71,12 +72,12 @@ export class AuthnKeysController extends BaseController {
   @Post('user/keys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async register(@Req() req: Request) {
-    const session = keyManager(req);
-    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+    const session = keyManager(clientOf(req));
+    const fresh = await freshAuthOrAnswer(this.Container, clientOf(req), takeReauthPassword(req));
     if ('answer' in fresh) return fresh.answer;
     const parsed = keyRequestOf(req, new Date());
     if ('answer' in parsed) return parsed.answer;
-    const result = await (await this.registry()).register({ ...parsed.key, owner: { type: 'user', id: session.identity.id } }, contextOf(req, 'request', session.handle));
+    const result = await (await this.registry()).register({ ...parsed.key, owner: { type: 'user', id: session.identity.id } }, contextOf(clientOf(req), 'request', session.handle));
     if (!result.ok) return registerRefusal(result.code);
     return new Ok(keyEntry(result.key, new Date()), { Headers: [NO_STORE] });
   }
@@ -91,9 +92,9 @@ export class AuthnKeysController extends BaseController {
   @Del('user/keys/:kid')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async revoke(@Req() req: Request, @Param() kid: string) {
-    const session = keyManager(req);
+    const session = keyManager(clientOf(req));
     const id = kidOf(kid);
-    const revoked = id !== null && (await (await this.registry()).revoke(session.identity, id, contextOf(req, 'request', session.handle)));
+    const revoked = id !== null && (await (await this.registry()).revoke(session.identity, id, contextOf(clientOf(req), 'request', session.handle)));
     if (!revoked) return keyNotFound();
     return new Ok(null, { Headers: [NO_STORE] });
   }
@@ -118,10 +119,10 @@ export class AuthnKeysController extends BaseController {
     const registry = await this.registry();
     let result: KeyChallengeResult;
     if (parsed.purpose === 'register') {
-      const session = keyManager(req);
-      result = await registry.challenge({ purpose: 'register', owner: { type: 'user', id: session.identity.id } }, contextOf(req, 'request', session.handle));
+      const session = keyManager(clientOf(req));
+      result = await registry.challenge({ purpose: 'register', owner: { type: 'user', id: session.identity.id } }, contextOf(clientOf(req), 'request', session.handle));
     } else {
-      result = await registry.challenge({ purpose: 'login', kid: parsed.kid }, contextOf(req, 'login'));
+      result = await registry.challenge({ purpose: 'login', kid: parsed.kid }, contextOf(clientOf(req), 'login'));
     }
     if (!result.ok) return challengeThrottled(result.retryAfterSeconds);
     return challengeAnswer(result.challenge);
@@ -141,7 +142,7 @@ export class AuthnKeysController extends BaseController {
    */
   @Post('auth/keys/login')
   public async login(@Req() req: Request) {
-    return completeLogin(this.Container, this.Sessions, this._cfg, req, keyLoginCredentialsOf(req));
+    return completeLogin(this.Container, this.Sessions, this._cfg, clientOf(req), keyLoginCredentialsOf(req));
   }
 
   protected async registry(): Promise<KeyRegistry> {

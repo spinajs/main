@@ -11,6 +11,7 @@ import { TokenServiceRegistered } from '../../token/gate.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, badRequest } from '../responses.js';
 import { boundedString, contextOf } from '../routes.js';
+import { clientOf } from '../client.js';
 
 /**
  * The owner's API tokens over the TokenService contract (design §22.9, §22.11; A13, A14, SR-08). Off (404) while no
@@ -38,7 +39,7 @@ export class AuthnTokensController extends BaseController {
   @Get('tokens')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async list(@Req() req: Request) {
-    const session = activeSessionOf(req);
+    const session = activeSessionOf(clientOf(req));
     const records = await (await this.service()).list(session.identity);
     const now = new Date();
     return new Ok(
@@ -67,13 +68,13 @@ export class AuthnTokensController extends BaseController {
   @Post('tokens')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async create(@Req() req: Request) {
-    const session = activeSessionOf(req);
-    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+    const session = activeSessionOf(clientOf(req));
+    const fresh = await freshAuthOrAnswer(this.Container, clientOf(req), takeReauthPassword(req));
     if ('answer' in fresh) return fresh.answer;
     const parsed = tokenRequestOf(req);
     if ('answer' in parsed) return parsed.answer;
 
-    const result = await (await this.service()).create(session.identity, parsed.opts, contextOf(req, 'request', session.handle));
+    const result = await (await this.service()).create(session.identity, parsed.opts, contextOf(clientOf(req), 'request', session.handle));
     if (!result.ok) {
       return result.code === 'invalid_expiry' ? invalidExpiry() : badRequest('invalid_scope', 'the roles, profile or scope are not allowed for this token');
     }
@@ -90,9 +91,9 @@ export class AuthnTokensController extends BaseController {
   @Del('tokens/:uuid')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async revoke(@Req() req: Request, @Param() uuid: string) {
-    const session = activeSessionOf(req);
+    const session = activeSessionOf(clientOf(req));
     const id = boundedString(uuid, TOKEN_ID_CAP);
-    const revoked = id !== null && (await (await this.service()).revoke(session.identity, id, contextOf(req, 'request', session.handle)));
+    const revoked = id !== null && (await (await this.service()).revoke(session.identity, id, contextOf(clientOf(req), 'request', session.handle)));
     if (!revoked) return tokenNotFound();
     return new Ok(null, { Headers: [NO_STORE] });
   }
@@ -108,15 +109,15 @@ export class AuthnTokensController extends BaseController {
   @Post('tokens/:uuid/rotate')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async rotate(@Req() req: Request, @Param() uuid: string) {
-    const session = activeSessionOf(req);
-    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+    const session = activeSessionOf(clientOf(req));
+    const fresh = await freshAuthOrAnswer(this.Container, clientOf(req), takeReauthPassword(req));
     if ('answer' in fresh) return fresh.answer;
     const parsed = rotateRequestOf(req);
     if ('answer' in parsed) return parsed.answer;
     const id = boundedString(uuid, TOKEN_ID_CAP);
     if (id === null) return tokenNotFound();
 
-    const result = await (await this.service()).rotate(session.identity, id, contextOf(req, 'request', session.handle), parsed.opts);
+    const result = await (await this.service()).rotate(session.identity, id, contextOf(clientOf(req), 'request', session.handle), parsed.opts);
     if (!result.ok) return tokenNotFound();
     return new Ok({ Token: tokenEntry(result.token, new Date()), Plaintext: result.plaintext }, { Headers: [NO_STORE] });
   }
@@ -131,13 +132,13 @@ export class AuthnTokensController extends BaseController {
   @Patch('tokens/:uuid')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async update(@Req() req: Request, @Param() uuid: string) {
-    const session = activeSessionOf(req);
+    const session = activeSessionOf(clientOf(req));
     const parsed = tokenUpdateOf(req);
     if ('answer' in parsed) return parsed.answer;
     const id = boundedString(uuid, TOKEN_ID_CAP);
     if (id === null) return tokenNotFound();
 
-    const result = await (await this.service()).update(session.identity, id, parsed.change, contextOf(req, 'request', session.handle));
+    const result = await (await this.service()).update(session.identity, id, parsed.change, contextOf(clientOf(req), 'request', session.handle));
     if (result.ok) return new Ok({ Token: tokenEntry(result.token, new Date()) }, { Headers: [NO_STORE] });
     if (result.reason === 'not_found') return tokenNotFound();
     return result.reason === 'invalid_expiry' ? invalidExpiry() : badRequest('invalid_scope', 'the roles are not allowed for this token');

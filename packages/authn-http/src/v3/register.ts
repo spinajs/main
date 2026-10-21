@@ -12,7 +12,7 @@ import { ApiKeyHeaderExtractor, AuthorizationBearerExtractor } from '../extracto
 import { HttpSignatureExtractor } from '../extractors/signature.js';
 import { KeyPrincipalResolver, TokenPrincipalResolver } from '../resolvers/credential.js';
 import { SessionPrincipalResolver } from '../resolvers/session.js';
-import { AuthnIdentityArg, AuthnSessionArg, AuthnSessionDataArg, AuthnSessionIdArg } from '../args/authn.js';
+import { AuthnClientContextArg, AuthnIdentityArg, AuthnSessionArg, AuthnSessionDataArg, AuthnSessionIdArg } from '../args/authn.js';
 // Registers the SchemaProvider that names the request and answer schemas of the controllers' JSDoc for http-swagger.
 import './schemas.js';
 
@@ -23,7 +23,7 @@ function register(container: IContainer): void {
   container.register(AuthnMiddleware).as(ServerMiddleware);
   for (const extractor of [HttpSignatureExtractor, AuthorizationBearerExtractor, ApiKeyHeaderExtractor]) container.register(extractor).as(CredentialExtractor);
   for (const resolver of [KeyPrincipalResolver, TokenPrincipalResolver, SessionPrincipalResolver]) container.register(resolver).as(AuthnPrincipalResolver);
-  for (const arg of [AuthnIdentityArg, AuthnSessionArg, AuthnSessionIdArg, AuthnSessionDataArg]) {
+  for (const arg of [AuthnIdentityArg, AuthnSessionArg, AuthnSessionIdArg, AuthnSessionDataArg, AuthnClientContextArg]) {
     if (!DI.RootContainer.hasRegistered(arg, false)) DI.RootContainer.register(arg).asSelf();
   }
 }

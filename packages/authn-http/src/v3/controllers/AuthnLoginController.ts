@@ -3,17 +3,25 @@ import '@spinajs/authn/register-schema';
 import '../../register-schema.js';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BaseController, BasePath, BotCheck, Get, HTTP_STATUS_CODE, Ok, Post, Redirect, Req } from '@spinajs/http';
+import { BaseController, BasePath, Body, BotCheck, Get, HTTP_STATUS_CODE, Header, Ok, Post, Redirect, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 
+import { ClientContext } from '../../args/authn.js';
+import { AuthnLoginBody } from '../../dto/login.js';
 import { unauthenticated } from '../../policies/v3/errors.js';
-import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
 import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../schema.js';
+import { OnInvalidInput } from '../../validation/answers.js';
+import { failedLogin } from '../../validation/login.js';
+import type { AuthnClientContext } from '../client.js';
 import { NO_STORE, authnClearedSessionCookie } from '../responses.js';
 import { runLogoutExtensions } from '../logout-extension.js';
-import { answerFor, auditEnded, bodyField, boundedString, completeLogin, isNavigation, pendingAnswer, pendingSteps } from '../routes.js';
+import { answerFor, auditEnded, completeLogin, isNavigation, pendingAnswer, pendingSteps } from '../routes.js';
+
+// Sec-Fetch-Mode values are a few characters; an Accept header is bounded by the header size limit alone.
+const FETCH_MODE_HEADER = { type: 'string', maxLength: 64 } as const;
+const ACCEPT_HEADER = { type: 'string', maxLength: 16384 } as const;
 
 /**
  * Login, logout and whoami of the 3.0 layer (design §22.4, §22.11). Every failed login answers the same 401 body
@@ -40,8 +48,8 @@ export class AuthnLoginController extends BaseController {
   /**
    * Login
    * Body `{ login, password }`. Ends a session the caller already holds. Success: the session cookie and the principal summary with the login extensions. MFA required: 200
-   * `{ MfaRequired: [steps], MfaEnrol: [steps to enrol first] }` with the pending session cookie. Any failure: 401 with one
-   * body, plus Retry-After when throttled.
+   * `{ MfaRequired: [steps], MfaEnrol: [steps to enrol first] }` with the pending session cookie. Any failure, a body
+   * the schema refuses included: 401 with one body, plus Retry-After when throttled.
    * @body {AuthnLoginBody} The credentials
    * @returns {AuthnLoginAnswer} The principal summary, or the pending answer when MFA is required
    * @response 401 {AuthnFailure} The login failed (Retry-After when throttled)
@@ -49,11 +57,9 @@ export class AuthnLoginController extends BaseController {
    */
   @Post('login')
   @BotCheck('login')
-  public async login(@Req() req: Request) {
-    // Over-long values never verify (N3), so they reach no strategy, no throttle and no log.
-    const login = boundedString(bodyField(req, 'login'), PASSWORD_HARD_CAP);
-    const password = boundedString(bodyField(req, 'password'), PASSWORD_HARD_CAP);
-    return completeLogin(this.Container, this.Sessions, this._cfg, req, login === null || password === null ? null : { kind: 'password', login, password });
+  @OnInvalidInput(failedLogin)
+  public async login(@Body({ required: true }) body: AuthnLoginBody, @ClientContext() client: AuthnClientContext) {
+    return completeLogin(this.Container, this.Sessions, this._cfg, client, { kind: 'password', login: body.login, password: body.password });
   }
 
   /**
@@ -68,11 +74,18 @@ export class AuthnLoginController extends BaseController {
    * @response 401 {AuthnError} No session
    */
   @Post('logout')
-  public async logout(@Req() req: Request) {
-    const session = req.storage.AuthnSession;
+  public async logout(
+    @ClientContext() client: AuthnClientContext,
+    // Typed plain string, not string | undefined: a union reaches the route args as Object, and Object values are parsed as JSON.
+    @Header('sec-fetch-mode', FETCH_MODE_HEADER) fetchMode: string,
+    @Header('accept', ACCEPT_HEADER) accept: string,
+    // AuthnLogoutExtension takes the request (authn-oidc reads the origin from it): the one handler with @Req (D12).
+    @Req() req: Request,
+  ) {
+    const session = client.session;
     if (!session) throw unauthenticated('there is no session to end');
     await this.Sessions.revoke(session.handle);
-    await auditEnded(this.Container, req, session, 'logout', 'logout');
+    await auditEnded(this.Container, client, session, 'logout', 'logout');
     const redirect = await runLogoutExtensions(this.Container, session, req, this.Log);
     const directives = this.ClearSiteData;
     const options = {
@@ -80,7 +93,7 @@ export class AuthnLoginController extends BaseController {
       Headers: directives.length > 0 ? [{ Name: 'Clear-Site-Data', Value: directives.map((d) => `"${d}"`).join(', ') }, NO_STORE] : [NO_STORE],
     };
     if (redirect === undefined) return new Ok(null, options);
-    return isNavigation(req) ? new Redirect(redirect, HTTP_STATUS_CODE.SEE_OTHER, options) : new Ok({ endSession: redirect }, options);
+    return isNavigation(fetchMode, accept) ? new Redirect(redirect, HTTP_STATUS_CODE.SEE_OTHER, options) : new Ok({ endSession: redirect }, options);
   }
 
   /**
@@ -91,10 +104,10 @@ export class AuthnLoginController extends BaseController {
    * @response 401 {AuthnError} No principal and no pending session
    */
   @Get('/')
-  public async whoami(@Req() req: Request) {
-    const principal = req.storage.AuthnPrincipal;
+  public async whoami(@ClientContext() client: AuthnClientContext) {
+    const principal = client.principal;
     if (principal?.authenticated === true) return new Ok(await answerFor(this.Container, 'whoami', principal), { Headers: [NO_STORE] });
-    const session = req.storage.AuthnSession;
+    const session = client.session;
     if (session?.handle.state === 'pending') {
       const steps = await pendingSteps(this.Container, session, this.MfaPolicyService);
       return new Ok(await pendingAnswer(this.Container, this.MfaPolicyService, session.identity, steps), { Headers: [NO_STORE] });

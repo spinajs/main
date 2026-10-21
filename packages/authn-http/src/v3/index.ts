@@ -6,7 +6,7 @@ export { MfaSatisfied, PendingMfaEnrolment } from '../policies/v3/mfa.js';
 export { RoleSourceRegistered, ImpersonationGuardRegistered, JwsSignerRegistered, IdentityRegistrarRegistered } from '../policies/v3/groups.js';
 export { AUTHN_FAILURE } from '../policies/v3/errors.js';
 export { AUTHN_FAILURE_BODY, authnFailureResponse, authnSessionCookie, authnClearedSessionCookie } from './responses.js';
-export { Identity, AuthnSession, SessionId, FromSession } from '../args/authn.js';
+export { Identity, AuthnSession, SessionId, FromSession, ClientContext } from '../args/authn.js';
 export { ClientIp } from '../middleware/client-ip.js';
 export { CsrfOriginGuard } from '../middleware/csrf.js';
 export { AuthnMiddleware } from '../middleware/authn.js';

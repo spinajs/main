@@ -14,6 +14,9 @@ import { MemorySessionIssuer } from '@spinajs/authn-testing';
 import { AUTHN_HTTP_CONFIGURATION_SCHEMA } from '../../src/index.js';
 import { PASSWORD_HARD_CAP } from '../../src/v3/index.js';
 import { AuthnReauthController } from '../../src/v3/controllers/AuthnReauthController.js';
+import { AuthnReauthBody } from '../../src/dto/reauth.js';
+import { ActiveSessionOnly } from '../../src/policies/v3/session-state.js';
+import { clientOf } from '../../src/v3/client.js';
 import { boot, disposeBooted } from '../support/config-boot.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_SESSION_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
@@ -67,6 +70,7 @@ interface World {
   readonly events: Omit<AuthnEvent, 'at'>[];
   session(o?: { pending?: boolean; impersonated?: boolean }): Promise<SessionHandle>;
   request(session: SessionHandle | null, body: unknown): Promise<Request>;
+  reauth(session: SessionHandle | null, password: string): Promise<unknown>;
 }
 
 async function world(): Promise<World> {
@@ -97,7 +101,8 @@ async function world(): Promise<World> {
     const stored = handle ? await sessions.restore(handle.id) : null;
     return { body, headers: { 'user-agent': 'mocha' }, storage: { ClientIp: '192.0.2.10', ...(stored ? { AuthnSession: stored } : {}) } } as unknown as Request;
   };
-  return { controller, authn, sessions, events, session, request };
+  const reauth = async (handle: SessionHandle | null, password: string) => controller.reauth(new AuthnReauthBody({ password }), clientOf(await request(handle, { password })));
+  return { controller, authn, sessions, events, session, request, reauth };
 }
 
 interface Answer {
@@ -145,7 +150,7 @@ describe('POST /auth/reauth (FLOW-4)', function () {
     const w = await world();
     const old = await w.session();
     await w.sessions.set(old, 'ActiveRole', 'editor');
-    const a = answerOf(await w.controller.reauth(await w.request(old, { password: GOOD })));
+    const a = answerOf(await w.reauth(old, GOOD));
 
     expect(a.status).to.eq(200);
     expect(a.noStore).to.eq(true);
@@ -174,7 +179,7 @@ describe('POST /auth/reauth (FLOW-4)', function () {
     const w = await world();
     const old = await w.session();
     const before = await w.sessions.restore(old.id);
-    const a = answerOf(await w.controller.reauth(await w.request(old, { password: 'Wrong-Pass-9876' })));
+    const a = answerOf(await w.reauth(old, 'Wrong-Pass-9876'));
     expect(a.status).to.eq(401);
     expect(failureBodyOf(a)).to.deep.eq(AUTHN_FAILURE_BODY.error);
     expect(a.cookies).to.deep.eq([]);
@@ -183,22 +188,9 @@ describe('POST /auth/reauth (FLOW-4)', function () {
     expect((await w.sessions.restore(old.id))?.facts).to.deep.eq(before?.facts);
   });
 
-  for (const [label, body] of [
-    ['a missing password', {}],
-    ['an empty password', { password: '' }],
-    ['a password that is no string', { password: ['a', 'b'] }],
-  ] as const) {
-    it(`${label} answers the login failure body and asks the service nothing`, async () => {
-      const w = await world();
-      const a = answerOf(await w.controller.reauth(await w.request(await w.session(), body)));
-      expect(a.status).to.eq(401);
-      expect(w.authn.calls).to.deep.eq([]);
-    });
-  }
-
   it('a password over PASSWORD_HARD_CAP answers the login failure body, asks the service nothing and is audited', async () => {
     const w = await world();
-    const a = answerOf(await w.controller.reauth(await w.request(await w.session(), { password: 'x'.repeat(PASSWORD_HARD_CAP + 1) })));
+    const a = answerOf(await w.reauth(await w.session(), 'x'.repeat(PASSWORD_HARD_CAP + 1)));
     expect(a.status).to.eq(401);
     expect(w.authn.calls).to.deep.eq([]);
     expect(w.events.map((e) => [e.type, e.outcome, e.reason])).to.deep.eq([['reauth', 'failure', 'password_too_long']]);
@@ -206,16 +198,16 @@ describe('POST /auth/reauth (FLOW-4)', function () {
 
   it('without a session answers 401 unauthenticated', async () => {
     const w = await world();
-    const e = await thrown(w.controller.reauth(await w.request(null, { password: GOOD })));
+    const e = await thrown(w.reauth(null, GOOD));
     expect(e).to.be.instanceOf(AuthenticationFailed);
     expect((e as { error?: unknown }).error).to.eq('unauthenticated');
     expect(w.authn.calls).to.deep.eq([]);
   });
 
-  it('a pending session is refused with mfa_pending', async () => {
+  it('a pending session is refused with mfa_pending, before the body is read', async () => {
     const w = await world();
     const pending = await w.session({ pending: true });
-    const e = await thrown(w.controller.reauth(await w.request(pending, { password: GOOD })));
+    const e = await thrown(new ActiveSessionOnly().execute(await w.request(pending, { password: GOOD }), null as never, null as never));
     expect(e).to.be.instanceOf(Forbidden);
     expect((e as { error?: unknown }).error).to.eq('mfa_pending');
     expect(w.authn.calls).to.deep.eq([]);
@@ -224,7 +216,7 @@ describe('POST /auth/reauth (FLOW-4)', function () {
 
   it('an impersonation is refused with impersonating and asks the service nothing', async () => {
     const w = await world();
-    const e = await thrown(w.controller.reauth(await w.request(await w.session({ impersonated: true }), { password: GOOD })));
+    const e = await thrown(w.reauth(await w.session({ impersonated: true }), GOOD));
     expect(e).to.be.instanceOf(Forbidden);
     expect((e as { error?: unknown }).error).to.eq('impersonating');
     expect(w.authn.calls).to.deep.eq([]);
@@ -234,7 +226,7 @@ describe('POST /auth/reauth (FLOW-4)', function () {
     const w = await world();
     const old = await w.session();
     w.authn.beforeAnswer = async () => void (await w.sessions.revoke(old));
-    const e = await thrown(w.controller.reauth(await w.request(old, { password: GOOD })));
+    const e = await thrown(w.reauth(old, GOOD));
     expect(e).to.be.instanceOf(AuthenticationFailed);
     expect((e as { error?: unknown }).error).to.eq('unauthenticated');
     expect(await w.sessions.storage.storedKeys()).to.deep.eq([]);

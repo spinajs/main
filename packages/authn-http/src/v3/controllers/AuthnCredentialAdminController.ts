@@ -15,6 +15,7 @@ import { TokenServiceRegistered } from '../../token/gate.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE } from '../responses.js';
 import { contextOf, publishAuthnEvent } from '../routes.js';
+import { clientOf } from '../client.js';
 
 type Admitted = { readonly answer: unknown } | { readonly actor: PrincipalRef; readonly target: IdentityRef; readonly ctx: AuthnContext };
 
@@ -106,7 +107,7 @@ export class AuthnCredentialAdminController extends BaseController {
     if ('answer' in admitted) return admitted.answer;
     const revoked = await this.Sessions!.revokeAll(admitted.target, { includeImpersonations: true });
     // SessionIssuer audits nothing.
-    await publishAuthnEvent(this.Container, req, { type: 'session.revoke', outcome: 'success', reason: 'admin', identity: admitted.target, actor: admitted.actor, data: { count: revoked } });
+    await publishAuthnEvent(this.Container, clientOf(req), { type: 'session.revoke', outcome: 'success', reason: 'admin', identity: admitted.target, actor: admitted.actor, data: { count: revoked } });
     return new Ok({ revoked }, { Headers: [NO_STORE] });
   }
 
@@ -129,17 +130,17 @@ export class AuthnCredentialAdminController extends BaseController {
 
   /** Fresh auth, the target, `fields`, then the guard: the answer of the first that refuses, or what the effect needs. */
   protected async admit(req: Request, uuid: unknown, action: CredentialAdminAction, fields?: () => unknown): Promise<Admitted> {
-    const session = activeSessionOf(req);
-    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+    const session = activeSessionOf(clientOf(req));
+    const fresh = await freshAuthOrAnswer(this.Container, clientOf(req), takeReauthPassword(req));
     if ('answer' in fresh) return fresh;
     const target = targetOf(uuid);
     if (!target) return { answer: targetNotFound() };
     const invalid = fields?.();
     if (invalid) return { answer: invalid };
-    const principal = authenticatedPrincipal(req);
+    const principal = authenticatedPrincipal(clientOf(req));
     const verdict = await this.Guard!.allowed(principal, target, action);
     // A guard written past the types may answer anything; only `ok: true` opens the effect.
     if (verdict?.ok !== true) return { answer: guardRefusal(verdict?.code) };
-    return { actor: { type: principal.type, id: principal.id }, target, ctx: contextOf(req, 'request', session.handle) };
+    return { actor: { type: principal.type, id: principal.id }, target, ctx: contextOf(clientOf(req), 'request', session.handle) };
   }
 }

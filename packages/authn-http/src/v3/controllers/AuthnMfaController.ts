@@ -12,6 +12,7 @@ import { mfaPolicyOf } from '../../policies/v3/mfa.js';
 import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
 import { AcceptedResponse, NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
 import { answerFor, bodyField, boundedString, contextOf, pendingSteps, startedSession } from '../routes.js';
+import { clientOf } from '../client.js';
 
 /** completeMfa's step for recovery codes (contracts: MfaStep.name, AuthnService.completeMfa). */
 const RECOVERY_STEP = 'recovery';
@@ -81,7 +82,7 @@ export class AuthnMfaController extends BaseController {
     if (step === null) return authnFailureResponse();
 
     const authn = await this.Container.resolve(AuthnService);
-    return this.answer(authn, await authn.stepUp(session.handle, step, code, contextOf(req, 'login', session.handle)), false);
+    return this.answer(authn, await authn.stepUp(session.handle, step, code, contextOf(clientOf(req), 'login', session.handle)), false);
   }
 
   /**
@@ -100,7 +101,7 @@ export class AuthnMfaController extends BaseController {
     const step = name === undefined ? undefined : (await (await mfaPolicyOf(this.Container, this.MfaPolicyService)).steps()).get(name);
     if (typeof step?.challenge === 'function') {
       try {
-        await step.challenge(session.identity, contextOf(req, 'login', session.handle));
+        await step.challenge(session.identity, contextOf(clientOf(req), 'login', session.handle));
       } catch (err) {
         // The name only: an error can carry the address or the code.
         this._log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'An MFA challenge failed: ${errorName}');
@@ -132,7 +133,7 @@ export class AuthnMfaController extends BaseController {
 
     // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
     const authn = await this.Container.resolve(AuthnService);
-    return this.answer(authn, await authn.completeMfa(session.handle, step, code, contextOf(req, 'login', session.handle)), true);
+    return this.answer(authn, await authn.completeMfa(session.handle, step, code, contextOf(clientOf(req), 'login', session.handle)), true);
   }
 
   protected async firstEnrolledStep(session: Session): Promise<string | null> {

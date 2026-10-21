@@ -160,6 +160,14 @@ export function codeRoutesSuite(): void {
       }
       expect(fake.calls).to.deep.eq([]);
     });
+
+    it('an unknown field answers 400 invalid_field (D5) and never reaches the service', async () => {
+      const res = await new Client().post('/auth/code/request', { login: 'someone@example.test', remember: true });
+      expect(res.status).to.eq(400);
+      expect((res.body as { error?: string }).error).to.eq('invalid_field');
+      expect(res.headers['cache-control']).to.eq('no-store');
+      expect(fake.calls).to.deep.eq([]);
+    });
   });
 
   describe('POST /auth/code/login', () => {
@@ -194,7 +202,7 @@ export function codeRoutesSuite(): void {
 
     it('a missing, non-string or over-long field answers the failure body without reaching the strategy', async () => {
       const u = await seedUser();
-      for (const body of [{}, { login: u.login }, { code: KIT_CODE }, { login: u.login, code: 123456 }, { login: u.login, code: 'x'.repeat(PASSWORD_HARD_CAP + 1) }]) {
+      for (const body of [{}, { login: u.login }, { code: KIT_CODE }, { login: u.login, code: 123456 }, { login: u.login, code: 'x'.repeat(PASSWORD_HARD_CAP + 1) }, { login: u.login, code: KIT_CODE, extra: 1 }]) {
         const res = await new Client().post('/auth/code/login', body);
         expect(res.status).to.eq(401);
         expect(res.body).to.deep.eq(AUTHN_FAILURE_BODY);

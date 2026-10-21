@@ -8,6 +8,7 @@ import { activeSessionOf } from '../../policies/v3/principal.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, PASSWORD_HARD_CAP } from '../index.js';
 import { NO_STORE, authnFailureResponse, authnSessionCookie, badRequest } from '../responses.js';
 import { contextOf } from '../routes.js';
+import { clientOf } from '../client.js';
 
 /**
  * Password routes of the 3.0 layer over the PasswordService contract (design §22.7, §22.11; A04, A11, A30, A32). Off
@@ -57,7 +58,7 @@ export class AuthnPasswordController extends BaseController {
     const login = loginField(req);
     if (login === null) return badRequest('invalid_login', `login must be a non-empty string of at most ${PASSWORD_HARD_CAP} characters`);
     try {
-      const result = await this.Passwords!.requestReset(login, contextOf(req, 'login'));
+      const result = await this.Passwords!.requestReset(login, contextOf(clientOf(req), 'login'));
       if (result.status === 'throttled') return resetRequestThrottled(result.retryAfterSeconds);
     } catch (err) {
       // The answer must not tell a failed lookup or mail from a sent one; the name only, as an error can carry the login.
@@ -86,7 +87,7 @@ export class AuthnPasswordController extends BaseController {
     const secret = secretField(req);
     if (login === null || secret === null) return authnFailureResponse();
 
-    const result = await this.Passwords!.redeemReset(login, secret, next.password, contextOf(req, 'login'));
+    const result = await this.Passwords!.redeemReset(login, secret, next.password, contextOf(clientOf(req), 'login'));
     switch (result.status) {
       case 'reset':
         return resetAck();
@@ -115,13 +116,13 @@ export class AuthnPasswordController extends BaseController {
   @Patch('user/password')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async change(@Req() req: Request) {
-    const session = activeSessionOf(req);
+    const session = activeSessionOf(clientOf(req));
     const next = newPasswordField(req);
     if ('answer' in next) return next.answer;
     const old = oldPasswordField(req);
     if (old === null) return authnFailureResponse();
 
-    const result = await this.Passwords!.change(session.identity, old, next.password, session.handle, contextOf(req, 'reauth', session.handle));
+    const result = await this.Passwords!.change(session.identity, old, next.password, session.handle, contextOf(clientOf(req), 'reauth', session.handle));
     switch (result.status) {
       case 'changed':
         return new Ok(null, { Coockies: [authnSessionCookie(this._cfg, result.session)], Headers: [NO_STORE] });

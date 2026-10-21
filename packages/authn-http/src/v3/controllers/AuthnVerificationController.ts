@@ -8,6 +8,7 @@ import { activeSessionOf } from '../../policies/v3/principal.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { AcceptedResponse, NO_STORE, badRequest } from '../responses.js';
 import { contextOf } from '../routes.js';
+import { clientOf } from '../client.js';
 
 const ACK: Readonly<{ Ok: true }> = Object.freeze({ Ok: true });
 
@@ -35,8 +36,8 @@ export class AuthnVerificationController extends BaseController {
   @Post('auth/verify/request')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async request(@Req() req: Request) {
-    const session = activeSessionOf(req);
-    const result = await this.Passwords!.requestVerification!(session.identity, contextOf(req, 'request', session.handle));
+    const session = activeSessionOf(clientOf(req));
+    const result = await this.Passwords!.requestVerification!(session.identity, contextOf(clientOf(req), 'request', session.handle));
     if (result.status === 'throttled') return tooManyRequests('too many verification requests, try again later', result.retryAfterSeconds);
     return new AcceptedResponse({ ...ACK }, { Headers: [NO_STORE] });
   }
@@ -51,7 +52,7 @@ export class AuthnVerificationController extends BaseController {
   public async verify(@Req() req: Request) {
     const secret = secretField(req);
     if (secret === null) return invalidSecret();
-    const result = await this.Passwords!.redeemVerification!(secret, contextOf(req, 'request'));
+    const result = await this.Passwords!.redeemVerification!(secret, contextOf(clientOf(req), 'request'));
     return result.status === 'verified' ? new Ok({ ...ACK }, { Headers: [NO_STORE] }) : invalidSecret();
   }
 }
