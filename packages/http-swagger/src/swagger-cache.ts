@@ -79,6 +79,7 @@ export class SwaggerDocCache extends AsyncService {
                   schema: m.returns.schema as any,
                 }
               : undefined,
+            body: m.body,
             responses: m.responses,
             examples: m.examples,
             tags: m.tags,

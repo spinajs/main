@@ -12,7 +12,7 @@ async function pending(u: KitUser): Promise<Client> {
   const c = new Client();
   const res = await c.post('/auth/login', { login: u.login, password: u.password }, { 'User-Agent': 'v3-app-mfa' });
   expect(res.status).to.eq(200);
-  expect(res.body).to.deep.eq({ MfaRequired: ['totp'] });
+  expect(res.body).to.deep.eq({ MfaRequired: ['totp'], MfaEnrol: [] });
   return c;
 }
 
@@ -81,7 +81,7 @@ export function mfaSuite(): void {
     expect(res.body).to.deep.eq(AUTHN_FAILURE_BODY);
     expect(res.headers['retry-after']).to.eq(undefined);
     expect(c.cookie).to.eq(before);
-    expect((await c.get('/auth')).body).to.deep.eq({ MfaRequired: ['totp'] });
+    expect((await c.get('/auth')).body).to.deep.eq({ MfaRequired: ['totp'], MfaEnrol: [] });
   });
 
   it('a code that is not a string, empty or over 1024 characters fails without reaching the step', async () => {
@@ -214,12 +214,13 @@ export function mfaSuite(): void {
     before(() => setForce(true));
     after(() => setForce(false));
 
-    it('a user enrolled in no step gets a pending session that reaches the enrolment routes and nothing else', async () => {
+    it('a user enrolled in no step gets a pending session that must enrol (MfaEnrol), reaches the enrolment routes and nothing else', async () => {
       const u = await seedUser();
       const c = new Client();
       const login = await c.post('/auth/login', { login: u.login, password: u.password });
       expect(login.status).to.eq(200);
-      expect(login.body).to.deep.eq({ MfaRequired: ['totp'] });
+      expect(login.body).to.deep.eq({ MfaRequired: ['totp'], MfaEnrol: ['totp'] });
+      expect((await c.get('/auth')).body).to.deep.eq({ MfaRequired: ['totp'], MfaEnrol: ['totp'] });
       const enrol = await c.post('/v3-app-enrol-stub');
       expect(enrol.status, JSON.stringify(enrol.body)).to.eq(200);
       expect(enrol.body.identity).to.deep.eq({ type: 'user', id: u.ref.id });
@@ -227,10 +228,12 @@ export function mfaSuite(): void {
       expect((await probe(c)).principal).to.eq(null);
     });
 
-    it('a pending session of an enrolled user does not reach the enrolment routes', async () => {
+    it('a pending session of an enrolled user does not reach the enrolment routes: 403 enrolment_closed', async () => {
       const u = await seedUser();
       const c = await pending(u);
-      expect((await c.post('/v3-app-enrol-stub')).status).to.be.oneOf([401, 403]);
+      const res = await c.post('/v3-app-enrol-stub');
+      expect(res.status).to.eq(403);
+      expect(res.body.error).to.eq('enrolment_closed');
     });
 
     it('an active session reaches the enrolment stub through Authenticated; an anonymous caller does not', async () => {

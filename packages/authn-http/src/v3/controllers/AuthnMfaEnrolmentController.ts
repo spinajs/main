@@ -47,6 +47,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
    * MFA status
    * `{ steps: [{ name, enrolled }] }` for each step of authn.mfa.steps; a begun but unconfirmed enrolment is not
    * enrolled. Never a secret.
+   * @returns {AuthnMfaStatus} Each configured step and whether the caller is enrolled in it
    * @security cookieAuth
    */
   @Get('mfa')
@@ -62,10 +63,16 @@ export class AuthnMfaEnrolmentController extends BaseController {
    * Begin a TOTP enrolment
    * Body `{ reauthPassword? }`. Answers `{ provisioning }`, the otpauth URI, once; a later begin replaces a begun
    * enrolment with a new secret.
+   * @body {AuthnReauthBody} The password, for a stale session
+   * @returns {AuthnMfaProvisioning} The otpauth URI
+   * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
+   * @response 403 {AuthnError} fresh_auth_required, enrolment_closed, session_required or impersonating
+   * @response 409 {AuthnError} mfa_enrolled
    * @security cookieAuth
    */
   @Post('mfa')
-  // Decorators apply bottom up: the full-login group comes first, and a caller who passes neither hears its refusal.
+  // The groups are ORed. A caller who passes neither hears the group that authenticated it: an enrolled pending session
+  // gets PendingMfaEnrolment's 403 enrolment_closed, an anonymous caller the 401.
   @Policy(PendingMfaEnrolment)
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async begin(@Req() req: Request) {
@@ -80,6 +87,11 @@ export class AuthnMfaEnrolmentController extends BaseController {
   /**
    * Confirm the TOTP enrolment
    * Body `{ code }`: a code of the begun secret. Answers `{ recoveryCodes }` once; each is single use.
+   * @body {AuthnMfaCodeBody} A code of the begun secret
+   * @returns {AuthnRecoveryCodes} The recovery codes, shown once
+   * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
+   * @response 403 {AuthnError} enrolment_closed, session_required or impersonating
+   * @response 409 {AuthnError} mfa_enrolled or mfa_not_begun
    * @security cookieAuth
    */
   @Post('mfa/confirm')
@@ -97,6 +109,10 @@ export class AuthnMfaEnrolmentController extends BaseController {
   /**
    * Disable TOTP
    * Body `{ code, reauthPassword? }`: a TOTP code or a recovery code. Removes the secret and the recovery codes.
+   * @body {AuthnMfaDisableBody} A TOTP code or a recovery code, and the password for a stale session
+   * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
+   * @response 403 {AuthnError} fresh_auth_required, session_required or impersonating
+   * @response 409 {AuthnError} mfa_not_enrolled
    * @security cookieAuth
    */
   @Post('mfa/disable')
@@ -115,6 +131,11 @@ export class AuthnMfaEnrolmentController extends BaseController {
   /**
    * New recovery codes
    * Body `{ reauthPassword? }`. Answers `{ recoveryCodes }` once and voids every older code.
+   * @body {AuthnReauthBody} The password, for a stale session
+   * @returns {AuthnRecoveryCodes} New recovery codes, shown once
+   * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
+   * @response 403 {AuthnError} fresh_auth_required, session_required or impersonating
+   * @response 409 {AuthnError} mfa_not_enrolled
    * @security cookieAuth
    */
   @Post('mfa/recovery-codes')

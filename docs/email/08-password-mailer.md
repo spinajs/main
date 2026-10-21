@@ -96,6 +96,7 @@ A `template` must be a non-empty `.mjml` path, or `{ file, fs }` with an `.mjml`
 | `email.password.from` | `string` | connection's `defaults.mailFrom` (SMTP) | address | Sender. |
 | `email.password.lang` | `string` | not set | locale | Template language. |
 | `email.password.appName` | `string` | `app.name` | | `AppName` in the templates. |
+| `email.password.attachments` | `{ name, path, provider?, cid? }[]` | not set | | Sent with every password mail, as `IEmail.attachements`; the email service reads each through its filesystem (`provider`, else the default). Give an image a `cid` to show it inline (`<img src="cid:logo">`). |
 | `email.password.reset.subject` | `string` | `'Reset your password'` | | Reset mail subject. |
 | `email.password.reset.template` | `string \| { file, fs }` | `{ file: 'authn/reset.mjml', fs: 'email-builtin-templates' }` | an `.mjml` file | Reset mail template. |
 | `email.password.invite.subject` | `string` | `'Set up your account'` | | Invite mail subject. |

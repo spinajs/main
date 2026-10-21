@@ -120,7 +120,7 @@ The flow lives in one cookie; the server keeps no flow state until the callback 
 
 ## HTTP routes
 
-The controller has the fixed prefix `auth/oidc`. `authn.http.routes.prefix` does not move it.
+The controller has the fixed prefix `auth/oidc`.
 
 | Route | Does | Page |
 | --- | --- | --- |

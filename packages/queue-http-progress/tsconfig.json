@@ -12,6 +12,7 @@
     { "path": "../authz-http/tsconfig.json" },
     { "path": "../authz-orm/tsconfig.json" },
     { "path": "../authz-queue/tsconfig.json" },
+    { "path": "../authz-rbac/tsconfig.json" },
     { "path": "../authz-testing/tsconfig.json" },
     { "path": "../orm/tsconfig.json" },
     { "path": "../fs/tsconfig.json" },

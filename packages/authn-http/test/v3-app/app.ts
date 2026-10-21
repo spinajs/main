@@ -12,8 +12,8 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { MemoryTarget } from '@spinajs/log';
-import { AuthenticationStrategy, AuthnEventSink, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
-import type { IdentityRef, Principal } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, AuthnEventSink, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource, SessionStartHook } from '@spinajs/authn/contracts';
+import type { Ceiling, IdentityRef, Principal, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
@@ -86,6 +86,17 @@ export class V3AppResponseExtension extends AuthnResponseExtension {
   public async extend(kind: 'login' | 'mfa' | 'role-switch' | 'impersonation' | 'whoami', principal: Principal, body: Record<string, unknown>): Promise<void> {
     V3AppResponseExtension.calls.push({ kind, principal });
     body.Access = { kind, id: principal.id, roles: principal.ceiling?.roles ?? null };
+  }
+}
+
+/** Answers `answer` (none by default, the 3.0.1 behaviour) and records the calls. */
+export class V3AppSessionStartHook extends SessionStartHook {
+  public static answer: ((kind: 'login' | 'mfa', principal: Principal) => Ceiling | undefined) | undefined;
+  public static calls: { kind: 'login' | 'mfa'; session: SessionHandle; principal: Principal }[] = [];
+
+  public async onStart(kind: 'login' | 'mfa', session: SessionHandle, principal: Principal, _sessions: SessionIssuer): Promise<Ceiling | undefined> {
+    V3AppSessionStartHook.calls.push({ kind, session, principal });
+    return V3AppSessionStartHook.answer?.(kind, principal);
   }
 }
 
@@ -165,6 +176,7 @@ async function wire(): Promise<void> {
   const { MfaStep } = await import('@spinajs/authn/contracts');
   bind(MfaStep, 'V3AppMfaStep', () => current.step);
   DI.register(V3AppResponseExtension).as(AuthnResponseExtension);
+  DI.register(V3AppSessionStartHook).as(SessionStartHook);
   await registerAuthnHttpV3();
 }
 
@@ -354,6 +366,8 @@ export function resetRecorders(): void {
   throttle.succeeds.length = 0;
   passwordStrategy.verifyCalls.length = 0;
   V3AppResponseExtension.calls.length = 0;
+  V3AppSessionStartHook.calls.length = 0;
+  V3AppSessionStartHook.answer = undefined;
   events.clear();
 }
 

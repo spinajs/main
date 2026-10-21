@@ -121,7 +121,6 @@ function example(): Json {
     http: {
       trustProxy: null,
       csrf: { enabled: true, allowedOrigins: [] },
-      routes: { prefix: 'auth' },
     },
   };
 }

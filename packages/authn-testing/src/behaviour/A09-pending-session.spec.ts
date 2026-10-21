@@ -166,7 +166,8 @@ export const A09: AuthnRule = defineRule('A09', 'a session before MFA is pending
       assert.ok(jar.get(h.http.sessionCookie), 'the session cookie is set');
       const w = await send(h, routes(h).whoami(), jar);
       assert.strictEqual(w.status, 200);
-      assert.deepStrictEqual(Object.keys(w.body as object), ['MfaRequired']);
+      assert.deepStrictEqual(Object.keys(w.body as object), ['MfaRequired', 'MfaEnrol']);
+      assert.deepStrictEqual((w.body as { MfaEnrol?: unknown }).MfaEnrol, [], 'an enrolled identity has no step to enrol');
     },
   }),
   defineCase({

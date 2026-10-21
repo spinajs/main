@@ -189,6 +189,10 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
           properties: {
             // null counts as unset: every role then asks for the password.
             requirePassword: { anyOf: [{ type: 'array', items: ROLE_NAME }, { type: 'null' }] },
+            // Read by users' OrderedActiveRoleHook; unset and null leave a new session with every held role.
+            initial: {
+              anyOf: [{ type: 'object', required: ['order'], properties: { order: { type: 'array', minItems: 1, uniqueItems: true, items: ROLE_NAME } } }, { type: 'null' }],
+            },
           },
         },
       },

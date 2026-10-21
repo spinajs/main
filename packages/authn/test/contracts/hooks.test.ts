@@ -1,10 +1,11 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { AuthnResponseExtension, CredentialAdminGuard, ExternalLoginHook, RoleSource } from '../../src/contracts/hooks.js';
+import { AuthnResponseExtension, CredentialAdminGuard, ExternalLoginHook, RoleSource, SessionStartHook } from '../../src/contracts/hooks.js';
 import type { CredentialAdminAction, IAuthnPrincipalStorage } from '../../src/contracts/hooks.js';
 import type { ExternalSubject, IdentityRef } from '../../src/contracts/credentials.js';
-import type { Principal } from '../../src/contracts/principal.js';
+import type { Ceiling, Principal } from '../../src/contracts/principal.js';
+import type { SessionHandle, SessionIssuer } from '../../src/contracts/session.js';
 import * as index from '../../src/contracts/index.js';
 import { classMembers, declarationDocs, docOf, same, shapeOf } from './source-shape.js';
 
@@ -45,6 +46,14 @@ class AdminsOnly extends CredentialAdminGuard {
   }
 }
 
+class FirstRole extends SessionStartHook {
+  readonly calls: ['login' | 'mfa', SessionHandle][] = [];
+  async onStart(kind: 'login' | 'mfa', session: SessionHandle, p: Principal, _sessions: SessionIssuer): Promise<Ceiling | undefined> {
+    this.calls.push([kind, session]);
+    return p.id === 'alice' ? { roles: ['admin'] } : undefined;
+  }
+}
+
 class GroupSync extends ExternalLoginHook {
   readonly synced: [IdentityRef, readonly string[]][] = [];
   async afterLogin(identity: IdentityRef, ext: ExternalSubject): Promise<void> {
@@ -54,12 +63,13 @@ class GroupSync extends ExternalLoginHook {
 
 describe('hand-off and hook contracts', () => {
   describe('runtime', () => {
-    it('exports the four hooks from the contracts index as plain abstract classes', () => {
+    it('exports the five hooks from the contracts index as plain abstract classes', () => {
       expect(index.AuthnResponseExtension).to.eq(AuthnResponseExtension);
       expect(index.RoleSource).to.eq(RoleSource);
+      expect(index.SessionStartHook).to.eq(SessionStartHook);
       expect(index.ExternalLoginHook).to.eq(ExternalLoginHook);
       expect(index.CredentialAdminGuard).to.eq(CredentialAdminGuard);
-      for (const c of [AuthnResponseExtension, RoleSource, ExternalLoginHook, CredentialAdminGuard]) {
+      for (const c of [AuthnResponseExtension, RoleSource, SessionStartHook, ExternalLoginHook, CredentialAdminGuard]) {
         expect(c).to.be.a('function');
         expect(Object.getPrototypeOf(c)).to.eq(Function.prototype);
       }
@@ -83,6 +93,18 @@ describe('hand-off and hook contracts', () => {
       ]);
     });
 
+    it('a session start hook answers a ceiling for a new active session, or undefined', async () => {
+      const hook = new FirstRole();
+      const handle: SessionHandle = { id: 'raw', state: 'active' };
+      const sessions = {} as SessionIssuer;
+      expect(await hook.onStart('login', handle, principal, sessions)).to.deep.eq({ roles: ['admin'] });
+      expect(await hook.onStart('mfa', handle, { ...principal, id: 'bob' }, sessions)).to.eq(undefined);
+      expect(hook.calls).to.deep.eq([
+        ['login', handle],
+        ['mfa', handle],
+      ]);
+    });
+
     it('every external login hook gets the identity and the mapped claims', async () => {
       const hooks = [new GroupSync(), new GroupSync()];
       for (const h of hooks) await h.afterLogin(alice, external);
@@ -100,10 +122,11 @@ describe('hand-off and hook contracts', () => {
   });
 
   describe('source shape (member names, modifiers, parameter names)', () => {
-    it('hooks.ts holds exactly the four hook classes', () => {
+    it('hooks.ts holds exactly the five hook classes', () => {
       expect(shapeOf(classMembers('hooks.ts'))).to.deep.eq({
         AuthnResponseExtension: { base: null, members: [{ name: 'extend', modifiers: ['abstract'], optional: false, params: ['kind', 'principal', 'body'] }] },
         RoleSource: { base: null, members: [{ name: 'rolesOf', modifiers: ['abstract'], optional: false, params: ['principal'] }] },
+        SessionStartHook: { base: null, members: [{ name: 'onStart', modifiers: ['abstract'], optional: false, params: ['kind', 'session', 'principal', 'sessions'] }] },
         ExternalLoginHook: { base: null, members: [{ name: 'afterLogin', modifiers: ['abstract'], optional: false, params: ['identity', 'external'] }] },
         CredentialAdminGuard: { base: null, members: [{ name: 'allowed', modifiers: ['abstract'], optional: false, params: ['actor', 'target', 'action'] }] },
       });
@@ -115,6 +138,11 @@ describe('hand-off and hook contracts', () => {
       expect(c.AuthnResponseExtension.doc).to.contain('Access');
       expect(docOf(c.AuthnResponseExtension.members, 'extend')).to.contain('body');
       expect(c.RoleSource.doc).to.contain('none registered ⇒ role switch off');
+      expect(c.SessionStartHook.doc).to.contain('Array.ofType');
+      expect(c.SessionStartHook.doc).to.contain('registration order');
+      expect(c.SessionStartHook.doc).to.contain('ActiveRole');
+      expect(c.SessionStartHook.doc).to.contain('at most one role');
+      expect(c.SessionStartHook.doc).to.contain('ends the session');
       expect(c.ExternalLoginHook.doc).to.contain('Array.ofType');
       expect(c.ExternalLoginHook.doc).to.contain('after a successful external login');
       expect(c.ExternalLoginHook.doc).to.contain('group');
@@ -140,6 +168,7 @@ describe('hand-off and hook contracts', () => {
       same<index.AuthnResponseExtension, AuthnResponseExtension>(true);
       same<index.RoleSource, RoleSource>(true);
       same<index.ExternalLoginHook, ExternalLoginHook>(true);
+      same<index.SessionStartHook, SessionStartHook>(true);
     });
 
     it('IAuthnPrincipalStorage is exactly the design shape', () => {
@@ -159,6 +188,8 @@ describe('hand-off and hook contracts', () => {
       same<ReturnType<AuthnResponseExtension['extend']>, Promise<void>>(true);
       same<Parameters<RoleSource['rolesOf']>, [Principal]>(true);
       same<ReturnType<RoleSource['rolesOf']>, Promise<readonly RoleOption[]>>(true);
+      same<Parameters<SessionStartHook['onStart']>, ['login' | 'mfa', SessionHandle, Principal, SessionIssuer]>(true);
+      same<ReturnType<SessionStartHook['onStart']>, Promise<Ceiling | undefined>>(true);
       same<Parameters<ExternalLoginHook['afterLogin']>, [IdentityRef, ExternalSubject]>(true);
       same<ReturnType<ExternalLoginHook['afterLogin']>, Promise<void>>(true);
       same<CredentialAdminAction, 'password-reset' | 'mfa-reset' | 'sessions' | 'tokens'>(true);

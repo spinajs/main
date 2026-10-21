@@ -73,7 +73,7 @@ Keys of the other packages. Each is validated by the schema of the package in th
 | `authn.http.publicOrigin` | `string \| null` | unset | `scheme://host[:port]` | [`authn-http`](../authn-http/README.md) |
 | `authn.http.trustProxy` | `string[] \| integer \| null` | unset | CIDRs or a hop count; `null` falls back to `http.trustProxy` | `authn-http`, `authn-oidc` |
 | `authn.http.csrf.enabled`, `.allowedOrigins`, `.unauthenticatedRoutes` | `boolean`, `string[]`, `string[]` | `true`, `[]`, the six credential-taking auth paths | origins, absolute paths | `authn-http` |
-| `authn.http.routes.prefix` | `string` | unset | | Accepted by the `authn-http` schema; no package reads it |
+| `authn.http.logout.clearSiteData` | `string[]` | `['cache', 'cookies', 'storage']` | `cache`, `cookies`, `storage`, `executionContexts`, `*` | `authn-http` |
 
 `authn.oidc.*` has its own schema in [`@spinajs/authn-oidc`](../authn-oidc/README.md).
 

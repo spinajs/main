@@ -49,7 +49,7 @@ The 2.x packages granted keys of their own (`guest`, `user`, `admin.users`; see 
 
 - An app list on such a key with only plain fields is converted, with a `package-grant` note: 3.0 keeps both grants, the same union.
 - An app list on such a key with a `!` negation or a `scope:` token is refused: in 2.x it narrowed the package grant, which 3.0 keeps apart.
-- An app `$extend` on `system` or `admin` is written without the package part, with a `package-extends` note. The 3.0 packages define their own `system`, `admin` and `admin.users`.
+- An app `$extend` on `system` or `admin` is written without the package part, with a `package-extends` finding. For `admin` it is a note: `@spinajs/users` defines `admin` (extending `admin.users`) again, and the loader joins its list with the app's. No 3.0 package defines `system`, so for `system` it is a warning: the role no longer extends `admin` unless you add it.
 
 ## Declared roles (`rbac.roles`)
 

@@ -14,7 +14,7 @@ import { fsService } from '@spinajs/fs';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
-import { AuthorizationModel, AuthzContributor, AuthzService, GLOBAL, SYSTEM } from '@spinajs/authz';
+import { AuthorizationModel, AuthzAdmin, AuthzContributor, AuthzService, GLOBAL, SYSTEM } from '@spinajs/authz';
 import type { AuthzCommand } from '@spinajs/authz';
 import { AdminAssignmentStore, AssignmentStore, ConfigRoleStore, DbAssignmentStore, RbacContributor, RbacModel, RbacService, RoleStore } from '@spinajs/authz-rbac';
 import { AccessController, PrincipalMiddleware } from '@spinajs/authz-http';
@@ -347,6 +347,9 @@ export async function stopUsersHttpApp(): Promise<void> {
   for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type as Class<ServerMiddleware>);
   DI.uncache(ServerMiddleware);
   resetAuthnCaseServices();
+  // DefaultAuthzAdmin keeps the AuthzService of its first call, which uninstallHost disposes below.
+  for (const type of DI.getRegisteredTypes(AuthzAdmin) ?? []) DI.uncache(type as Class<unknown>);
+  DI.uncache(AuthzAdmin as unknown as Class<unknown>);
   await DI.get(Orm)?.dispose();
   DI.uncache(Orm);
   for (const undo of rootUndo.splice(0).reverse()) undo();

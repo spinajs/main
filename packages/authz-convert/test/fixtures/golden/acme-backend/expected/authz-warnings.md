@@ -3,23 +3,24 @@
 Inputs: test/fixtures/golden/acme-backend/config; layers: common, dev, local, prod.
 The converter ran the config files, so a value a file computes (from process.env, the clock, …) is written as the value it had during the run. Check such keys by hand.
 
-## Convert by hand (5)
+## Convert by hand (4)
 
 The converter left these out (or wrote them as found) because it cannot convert them without guessing. Boot may fail until they are done.
 
 - [common] `rbac.actions.create.afterCreate`: rbac.actions.create.afterCreate[0] is not plain data (a function or a class instance); the converter cannot write it. Move rbac.actions.create.afterCreate by hand. (not-data)
 - [common] `rbac.accountTypes`: rbac.accountTypes is not a SpinaJS 2.x key; 3.0 drops the rbac.* root. Move it to a root of your own. (unknown-key)
 - [common] `rbac.admin.roleGuard.service`: Role guard 'ScopedRoleGuard' was written as found, so boot fails until a 3.0 AdminGuard of that name is registered. Port it to AdminGuard (design §6.6); leaving it out would fall back to DefaultAdminGuard, which may allow more. (custom-service)
-- [common] `rbac.admin.roleGuard`: Set authz.admin.guard.privilegedPermission: boot requires it while the self-lockout and last-holder checks are on, and the converter cannot pick it for a guard it did not write. (guard-privileged-permission)
 - [common] `rbac.token.rolePolicy.service`: Token role policy 'GrantSubsetTokenRolePolicy' was written as found; boot fails until a 3.0 policy of that name is registered. 3.0 ports no grant-subset rule: a token's roles are the token's roles that its owner holds (B24, B07). (custom-service)
 
-## Behaviour changes and actions (23)
+## Behaviour changes and actions (25)
 
 Converted, but 3.0 behaves differently here, or the app must act.
 
+- [common] `rbac.grants.system.$extend`: 2.x joined this $extend with the package's ["admin"]; only the app's part was written. No 3.0 package defines a 'system' role, so it no longer extends ["admin"]: add them to its extends if its holders need them. (package-extends)
 - [common] `rbac.grants["users.self"].user["read:own"]`: :own on 'user' became relation 'self' (the caller's own account). If the app registered a default OrmPermission policy for 'user', 2.x used it here and 'self' ignores it; pass --self-resources without 'user' to get relation 'owner' instead. (self-relation)
 - [common] `rbac.grants["users.self"].user["update:own"]`: :own on 'user' became relation 'self' (the caller's own account). If the app registered a default OrmPermission policy for 'user', 2.x used it here and 'self' ignores it; pass --self-resources without 'user' to get relation 'owner' instead. (self-relation)
 - [common] `rbac.roles[0]`: Role 'Stock editor' is declared but has no grants; it was written with no grants so it can be assigned. In 2.x a user holding it with other roles got no permission at all (accesscontrol refused the role list); in 3.0 the other roles apply. (declared-without-grants)
+- [common] `rbac.email.changePassword`: Left out: nothing in 3.0 reads users.email.changePassword. The password reset mail comes from the PasswordMailer; the default EmailPasswordMailer takes email.password.reset.subject and email.password.reset.template. (email-change-password)
 - [common] `authn.mfa.encryptionKey`: TOTP secrets are stored encrypted in 3.0: set authn.mfa.encryptionKey (a secret reference). Outside development and test, boot refuses to start without it while a listed step stores secrets. (mfa-key)
 - [local] test/fixtures/golden/acme-backend/config/twoFactorAuth.local.js (or a module it imports) reads ACME_TWO_FACTOR_AUTH from the environment; values derived from them were converted as this run saw them. Check the keys it sets. (reads-env)
 - [common] `Task`: :own grants on Task became relation 'owner', but no @OrmResource('Task') model was found; a RelationResolver for 'owner' on type 'Task' must exist in 3.0. (owner-relation)
@@ -45,8 +46,8 @@ Converted, but 3.0 behaves differently here, or the app must act.
 
 Converted as the migration guide describes.
 
-- [common] `rbac.grants.system.$extend`: 2.x joined this $extend with the package's ["admin"]; only the app's part was written, and the 3.0 packages define their own 'system'. (package-extends)
 - [common] `rbac.grants.admin.$extend`: 2.x joined this $extend with the package's ["admin.users"]; only the app's part was written, and the 3.0 packages define their own 'admin'. (package-extends)
+- [common] `rbac.admin.roleGuard`: authz.admin.guard.privilegedPermission was not written, so the self-lockout and last-holder checks count @spinajs/authz-rbac's default 'users:update'. Set it if the guard should count another permission. (guard-privileged-permission)
 - [common] No user or token holds 'admin.campaigns', 'users.self', 'location.subscriptions', 'route.home', 'route.salesman', 'route.user', 'route.admin', 'route.campaigns' and other roles extend them, so they are written 'assignable: false'. (assignable)
 - [common] `CampaignView`: 'scope:partner' on CampaignView became relation 'partner', which 3.0 has no query form for: assign a role on each CampaignView row to the subjects @OrmPermission(Model, 'partner') selected (a user, or a subject set such as team:<id>#member), and register a RelationResolver for 'partner' on 'CampaignView' until then. (scope-relation)
 - [common] `Campaign`: :own grants on Campaign became relation 'owner'; its model has @ResourceOwner(), which becomes @Owner(). (owner-relation)

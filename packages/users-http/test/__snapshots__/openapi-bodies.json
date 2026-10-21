@@ -1,0 +1,302 @@
+{
+  "Security_banUser": {
+    "route": "POST /users/security/ban/{user}",
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string",
+                "description": "Why the account is banned. Stored in user metadata.",
+                "maxLength": 255
+              },
+              "duration": {
+                "type": "number",
+                "description": "Ban duration in seconds. Defaults to 24h.",
+                "minimum": 1
+              },
+              "reauthPassword": {
+                "type": "string",
+                "description": "The caller's password, for fresh authentication"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "UserMetadataController_addMetadata": {
+    "route": "POST /user/metadata",
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "Key",
+              "Type"
+            ],
+            "properties": {
+              "Key": {
+                "type": "string",
+                "description": "Metadata key (dot-notation supported, e.g. user:niceName)",
+                "minLength": 6,
+                "maxLength": 255
+              },
+              "Value": {
+                "type": "string",
+                "description": "Metadata value stored as a string regardless of Type"
+              },
+              "Type": {
+                "type": "string",
+                "description": "Declared value type used for serialization/deserialization",
+                "enum": [
+                  "number",
+                  "float",
+                  "string",
+                  "json",
+                  "boolean",
+                  "datetime"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "UserMetadataController_addUserMetadata": {
+    "route": "POST /user/{user}/metadata",
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "Key",
+              "Type"
+            ],
+            "properties": {
+              "Key": {
+                "type": "string",
+                "description": "Metadata key (dot-notation supported, e.g. user:niceName)",
+                "minLength": 6,
+                "maxLength": 255
+              },
+              "Value": {
+                "type": "string",
+                "description": "Metadata value stored as a string regardless of Type"
+              },
+              "Type": {
+                "type": "string",
+                "description": "Declared value type used for serialization/deserialization",
+                "enum": [
+                  "number",
+                  "float",
+                  "string",
+                  "json",
+                  "boolean",
+                  "datetime"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "UserMetadataController_updateMetadata": {
+    "route": "PATCH /user/metadata/{meta}",
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "Key",
+              "Type"
+            ],
+            "properties": {
+              "Key": {
+                "type": "string",
+                "description": "Metadata key (dot-notation supported, e.g. user:niceName)",
+                "minLength": 6,
+                "maxLength": 255
+              },
+              "Value": {
+                "type": "string",
+                "description": "Metadata value stored as a string regardless of Type"
+              },
+              "Type": {
+                "type": "string",
+                "description": "Declared value type used for serialization/deserialization",
+                "enum": [
+                  "number",
+                  "float",
+                  "string",
+                  "json",
+                  "boolean",
+                  "datetime"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "UserMetadataController_updateUserMetadata": {
+    "route": "PATCH /user/{user}/metadata/{meta}",
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "Key",
+              "Type"
+            ],
+            "properties": {
+              "Key": {
+                "type": "string",
+                "description": "Metadata key (dot-notation supported, e.g. user:niceName)",
+                "minLength": 6,
+                "maxLength": 255
+              },
+              "Value": {
+                "type": "string",
+                "description": "Metadata value stored as a string regardless of Type"
+              },
+              "Type": {
+                "type": "string",
+                "description": "Declared value type used for serialization/deserialization",
+                "enum": [
+                  "number",
+                  "float",
+                  "string",
+                  "json",
+                  "boolean",
+                  "datetime"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "Users_addUser": {
+    "route": "POST /users",
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "Login",
+              "Email",
+              "Role"
+            ],
+            "properties": {
+              "Login": {
+                "type": "string",
+                "description": "Unique login name (3–32 characters)",
+                "minLength": 3,
+                "maxLength": 32
+              },
+              "Email": {
+                "type": "string",
+                "format": "email",
+                "description": "Unique email address"
+              },
+              "Role": {
+                "description": "RBAC role to assign to the user, or a list of roles",
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^(?!(?:true|false)$)(?!-?\\d)\\S(?:.*\\S)?$"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^(?!(?:true|false)$)(?!-?\\d)\\S(?:.*\\S)?$"
+                    }
+                  }
+                ]
+              },
+              "Metadata": {
+                "type": "object",
+                "description": "Optional key-value metadata to attach to the user account",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "Users_updateUser": {
+    "route": "PATCH /users/{user}",
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "Login": {
+                "type": "string",
+                "description": "Unique login name (3–32 characters)",
+                "minLength": 3,
+                "maxLength": 32
+              },
+              "Email": {
+                "type": "string",
+                "format": "email",
+                "description": "Unique email address"
+              },
+              "Role": {
+                "description": "RBAC role to assign to the user, or a list of roles",
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^(?!(?:true|false)$)(?!-?\\d)\\S(?:.*\\S)?$"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^(?!(?:true|false)$)(?!-?\\d)\\S(?:.*\\S)?$"
+                    }
+                  }
+                ]
+              },
+              "reauthPassword": {
+                "type": "string",
+                "description": "The caller's password, for fresh authentication when an e-mail or login changes"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  }
+}

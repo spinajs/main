@@ -70,6 +70,7 @@ Config lives under `authz.*` (H3). The schema validates the keys below; other se
 | `authz.bus.service` | `string` | the last `ChangeBus` registration | a registered class name | The change bus. Root only. |
 | `authz.principals.anonymous.enabled` | `boolean` | `true` | | `false`: no anonymous principal. Read by the principal sources of `@spinajs/authz-http`. |
 | `authz.principals.roleSwitch.requirePassword` | `string[] \| null` | unset | role names | Roles a session role switch asks the password for; unset or `null`: every role; `[]` turns the check off. Read by `@spinajs/users`. |
+| `authz.principals.roleSwitch.initial` | `{ order: string[] } \| null` | unset | unique role names | A new session starts on the first role of `order` the user holds; unset or `null`: on every held role. Read by `@spinajs/users`' `OrderedActiveRoleHook`. |
 | `authz.impersonation.permission` | `string` | `'user:impersonate'` | | Permission an impersonation needs. Read by `@spinajs/users`. |
 | `authz.impersonation.protectedRoles` | `string[]` | `['admin']` | role names | Roles nobody may impersonate. Read by `@spinajs/users`. |
 | `authz.scopes.attributes.<type>` | `{ schema, defaults? } \| null` | none | a JSON schema | Scope attribute schema of a resource type ([Resource adapters and resolvers](09-adapters-and-resolvers.md#scope-attributes)). |

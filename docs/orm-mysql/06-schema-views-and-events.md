@@ -11,7 +11,7 @@
 
 | Token | MySQL registers | Emits |
 | --- | --- | --- |
-| `ColumnQueryCompiler` | `SqlColumnQueryCompiler` | `` `name` TYPE [UNSIGNED] [CHARACTER SET '...'] [COLLATE '...'] [NOT NULL] [DEFAULT ...] [AUTO_INCREMENT] [COMMENT '...'] [UNIQUE] ``; `exact()` fills the character set and collation, see below |
+| `ColumnQueryCompiler` | `MySqlColumnQueryCompiler` | `` `name` TYPE [UNSIGNED] [CHARACTER SET '...'] [COLLATE '...'] [NOT NULL \| NULL] [DEFAULT ...] [AUTO_INCREMENT] [COMMENT '...'] [UNIQUE] ``; `NULL` only on a `TIMESTAMP` without `notNull()`; `exact()` fills the character set and collation, see below |
 | `AlterTableQueryCompiler` | `SqlAlterTableQueryCompiler` | one `ALTER TABLE` per dropped column (`` DROP COLUMN `c` ``), rename and changed column |
 | `IndexQueryCompiler` | `SqlIndexQueryCompiler` (from `SqlDriver`) | `` CREATE [UNIQUE] INDEX `i` ON `t` (...) ``, or `` DROP INDEX `i` ON `t` `` after `drop()` |
 | `AlterColumnQueryCompiler` | `SqlAlterColumnQueryCompiler` | `ADD <column> [AFTER x]`, `MODIFY <column>`, `RENAME COLUMN a TO b` |
@@ -43,6 +43,17 @@
 | `binary(name, n?)` | `BINARY(n)`, default `255` |
 | `uuid(name)` | `BINARY(16)`, written by `UuidConverter` |
 | `tinyblob`, `mediumblob`, `longblob` | the same names |
+
+### Nullable `TIMESTAMP` columns
+
+A schema builder column is nullable unless `notNull()`. `MySqlColumnQueryCompiler` writes `NULL` after a `TIMESTAMP` column without `notNull()`, so it stays nullable under either value of the server's `explicit_defaults_for_timestamp`:
+
+| Server | Without the `NULL` attribute | With it |
+| --- | --- | --- |
+| MySQL 8.0 (`explicit_defaults_for_timestamp=ON`) | nullable | nullable |
+| MySQL 5.7 default (`explicit_defaults_for_timestamp=OFF`) | `NOT NULL`, and after the first such column `DEFAULT '0000-00-00 00:00:00'`, which the strict `sql_mode` refuses: `Invalid default value` | nullable |
+
+Every other type compiles as in `SqlColumnQueryCompiler`. The `ADD` and `MODIFY` column changes of `alterTable()` go through the same compiler (`SqlAlterColumnQueryCompiler._columnDefinition()`), so they write `NULL` too.
 
 ### Views
 
@@ -90,14 +101,14 @@ MySQL commits implicitly before and after `CREATE`, `ALTER`, `DROP`, `TRUNCATE` 
 | `db.Connections[].Migration.Table` | `string` | `spinajs_migration` | | Tracking table. |
 | `db.Connections[].Migration.Transaction.Mode` | `MigrationTransactionMode` | `None` | `None`, `PerMigration`, `PerRun` | Wraps migrations in a transaction; DDL still commits implicitly. |
 
-Server settings this page depends on: `event_scheduler = ON` for events; MySQL 8.0 or MariaDB 10.5.2 for `RENAME COLUMN`.
+Server settings this page depends on: `event_scheduler = ON` for events; MySQL 8.0 or MariaDB 10.5.2 for `RENAME COLUMN`. Nullable `TIMESTAMP` columns work with either `explicit_defaults_for_timestamp` value.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | View compiler | `CreateViewCompiler`; `@NewInstance() @Inject(Container)`, constructor `(container, builder)` | `MySqlCreateViewCompiler` | | Extend `MySqlCreateViewCompiler`, or `SqlCreateViewQueryCompiler` from `@spinajs/orm-sql`, override the hooks, register `.as(CreateViewCompiler)` after `super.resolve()`. |
-| Column compiler | `ColumnQueryCompiler`; constructor `(builder: ColumnQueryBuilder)` | `SqlColumnQueryCompiler` | | Extend `SqlColumnQueryCompiler`, override `compile()`; register `.as(ColumnQueryCompiler)`. `SqlTableQueryCompiler` resolves it once per column. |
+| Column compiler | `ColumnQueryCompiler`; `@NewInstance()`, constructor `(builder: ColumnQueryBuilder)` | `MySqlColumnQueryCompiler` | `SqlColumnQueryCompiler` (no `NULL` attribute) | Extend `MySqlColumnQueryCompiler`, override `explicitNull()`, `charsetName()`, `collationName()` or `compile()`; register `.as(ColumnQueryCompiler)` after `super.resolve()`. `SqlTableQueryCompiler` and `SqlAlterColumnQueryCompiler` resolve it once per column. |
 | Alter compilers | `AlterTableQueryCompiler`, `AlterColumnQueryCompiler` | `SqlAlterTableQueryCompiler`, `SqlAlterColumnQueryCompiler` | | Extend; `SqlAlterColumnQueryCompiler` has one hook per alteration type. See [Query compilers](../orm-sql/02-query-compilers.md). |
 | Default values | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | | Extend and override `date()` / `dateTime()`; register `.as(DefaultValueBuilder)`. |
 | Clone, truncate, history | `TableCloneQueryCompiler`, `TruncateTableQueryCompiler`, `TableHistoryQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTruncateTableQueryCompiler`, `SqlTableHistoryQueryCompiler` | | Extend the `Sql*` class, register under its token. |

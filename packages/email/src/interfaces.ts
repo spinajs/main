@@ -246,6 +246,13 @@ export interface PasswordMailConfiguration {
    * `AppName` of the template model. Defaults to `app.name`.
    */
   appName?: string;
+
+  /**
+   * Sent with every password mail, e.g. the images a template shows as `cid:`. The email service reads each
+   * through its filesystem, as for any mail.
+   */
+  attachments?: IEmailAttachement[];
+
   reset?: PasswordMailPurposeConfiguration;
   invite?: PasswordMailPurposeConfiguration;
   verify?: PasswordMailPurposeConfiguration;

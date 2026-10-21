@@ -131,6 +131,7 @@ export class EmailPasswordMailer {
       },
       redact: [...secrets],
       ...(options.from ? { from: options.from } : {}),
+      ...(options.attachments?.length ? { attachements: options.attachments.map((a) => ({ ...a })) } : {}),
       ...(lang ? { lang } : {}),
     };
   }

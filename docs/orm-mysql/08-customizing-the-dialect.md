@@ -45,7 +45,8 @@ On top of [`SqlDriver.resolve()`](../orm-sql/01-sql-driver.md#what-sqldriverreso
 | `InsertQueryCompiler` | `MySqlInsertQueryCompiler` | yes | [Inserts](04-inserts-and-generated-keys.md) |
 | `OnDuplicateQueryCompiler` | `SqlOnDuplicateQueryCompiler` | | [Inserts](04-inserts-and-generated-keys.md) |
 | `CreateViewCompiler` | `MySqlCreateViewCompiler` | yes | [Schema](06-schema-views-and-events.md) |
-| `ColumnQueryCompiler`, `AlterColumnQueryCompiler`, `AlterTableQueryCompiler` | `SqlColumnQueryCompiler`, `SqlAlterColumnQueryCompiler`, `SqlAlterTableQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
+| `ColumnQueryCompiler` | `MySqlColumnQueryCompiler`: `SqlColumnQueryCompiler` that writes `NULL` on a nullable `TIMESTAMP` | yes | [Schema](06-schema-views-and-events.md#nullable-timestamp-columns) |
+| `AlterColumnQueryCompiler`, `AlterTableQueryCompiler` | `SqlAlterColumnQueryCompiler`, `SqlAlterTableQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `TableCloneQueryCompiler`, `TruncateTableQueryCompiler`, `TableHistoryQueryCompiler` | `SqlTableCloneQueryCompiler`, `SqlTruncateTableQueryCompiler`, `SqlTableHistoryQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `EventQueryCompiler`, `DropEventQueryCompiler` | `SqlEventQueryCompiler`, `SqlDropEventQueryCompiler` | | [Schema](06-schema-views-and-events.md) |
 | `DefaultValueBuilder` | `SqlDefaultValueBuilder` | | [Schema](06-schema-views-and-events.md) |

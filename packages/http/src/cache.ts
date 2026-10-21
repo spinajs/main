@@ -23,6 +23,12 @@ export interface IResponseDoc {
   type?: string;
 }
 
+/** `@body {Type} description`: the JSON body of a route that reads it without a body route argument. */
+export interface IBodyDoc {
+  type: string;
+  description?: string;
+}
+
 export interface IExampleDoc {
   name?: string;
   description?: string;
@@ -50,6 +56,7 @@ export interface IMethodDoc {
   description?: string;
   params: Record<string, IParamDoc>;
   returns?: IReturnDoc;
+  body?: IBodyDoc;
   responses?: Record<string, IResponseDoc>;
   examples?: IExampleDoc[];
   tags?: string[];
@@ -435,6 +442,7 @@ export class DefaultControllerCache extends AsyncService {
     { tags: ['param'], extract: (tag, ctx) => this.extractParamTag(tag as ts.JSDocParameterTag, ctx) },
     { tags: ['returns', 'return'], extract: (tag, ctx) => this.extractReturnTag(tag as ts.JSDocReturnTag, ctx) },
     { tags: ['response'], extract: (tag, ctx) => this.extractResponseTag(tag, ctx) },
+    { tags: ['body'], extract: (tag, ctx) => this.extractBodyTag(tag, ctx) },
     { tags: ['example'], extract: (tag, ctx) => this.extractExampleTag(tag, ctx) },
     { tags: ['tags', 'tag', 'category'], extract: (tag, ctx) => this.extractTagsTag(tag, ctx) },
     { tags: ['deprecated'], extract: (_tag, ctx) => { ctx.doc.deprecated = true; } },
@@ -476,6 +484,13 @@ export class DefaultControllerCache extends AsyncService {
     }
 
     (ctx.doc.responses ??= {})[code] = { description: desc, ...(type ? { type } : {}) };
+  }
+
+  private extractBodyTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+    const match = /^\{([^}]+)\}\s*([\s\S]*)$/.exec(this.getTagComment(tag)?.trim() ?? '');
+    if (!match) return;
+    const description = match[2].trim();
+    ctx.doc.body = { type: match[1].trim(), ...(description ? { description } : {}) };
   }
 
   private extractExampleTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {

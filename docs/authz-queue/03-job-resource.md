@@ -1,12 +1,14 @@
 # Job rows as a resource
 
-The import makes every `queue_jobs` row (`JobModel`) an authz resource of type `job`, owned by the principal that emitted the job. The `user` role gets `job:read` on the jobs it owns, so a user can read the status of their own jobs and no one else's. The queue's own reads and writes of the table run as `SYSTEM`.
+`import '@spinajs/authz-queue/jobs'` makes every `queue_jobs` row (`JobModel`) an authz resource of type `job`, owned by the principal that emitted the job. The `user` role gets `job:read` on the jobs it owns, so a user can read the status of their own jobs and no one else's. The queue's own reads and writes of the table run as `SYSTEM`.
+
+The subpath needs `@spinajs/authz-orm`, an optional peer dependency. The package root (`import '@spinajs/authz-queue'`) registers none of this page.
 
 ## How it works
 
-At import:
+At the subpath import:
 
-1. `registerAccessResource(JobModel, 'job', { owner: { column: 'InitiatorId', typeColumn: 'InitiatorType' } })` declares the model to `@spinajs/authz-orm`. The `owner` relation compares both columns, because an initiator may be any principal type.
+1. `registerAccessResource(JobModel, 'job', { owner: { column: 'InitiatorId', typeColumn: 'InitiatorType' } })` declares the model to `@spinajs/authz-orm`. The `owner` relation compares both columns, because an initiator may be any principal type. authz-orm's resource adapter then registers `job:read`, `job:create`, `job:update` and `job:delete` when the domain boots.
 2. `JobGrantSource`, a `ConfigurationSource` with `Order` `0`, adds this grant when the `Configuration` loads its sources:
    `authz.rbac.roles.user.grants: [{ permission: 'job:read', relation: 'owner' }]`.
 3. `AuthzQueueTrackingHook` registers as a `QueueTrackingHook`.
@@ -46,7 +48,7 @@ export default {
 };
 ```
 
-<!-- TODO(docs-hook): verify which package registers the permission `job:read` in `authz.permissions` when the app does not declare it and `@spinajs/queue-http-progress` is not installed; authz-queue only grants it. -->
+`job:read` itself needs no `authz.permissions` entry: authz-orm's resource adapter registers it for the `job` type (step 1 of [How it works](#how-it-works)). Declare it only to add options such as `list`.
 
 ## Schema
 
@@ -64,12 +66,13 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Tracking hook | `QueueTrackingHook`, one entry of the list `tracked()` resolves with `Array.ofType(QueueTrackingHook)` on every call; singleton; registered by `@Injectable(QueueTrackingHook)` at import | `AuthzQueueTrackingHook` | none | Subclass it and override `aroundTracking(next)`, then `DI.unregister(AuthzQueueTrackingHook)` and `DI.register(MySubclass).as(QueueTrackingHook)`. The replacement must still run `next` under a principal that may touch `queue_jobs`. |
-| Job grant | `ConfigurationSource`, registered by `@Injectable(ConfigurationSource)` at import; not exported | `JobGrantSource` | none | Not replaceable. Add grants under `authz.rbac.roles.<role>.grants` in your config instead. |
+| Tracking hook | `QueueTrackingHook`, one entry of the list `tracked()` resolves with `Array.ofType(QueueTrackingHook)` on every call; singleton; registered by `@Injectable(QueueTrackingHook)` at the subpath import | `AuthzQueueTrackingHook` | none | Subclass it and override `aroundTracking(next)`, then `DI.unregister(AuthzQueueTrackingHook)` and `DI.register(MySubclass).as(QueueTrackingHook)`. The replacement must still run `next` under a principal that may touch `queue_jobs`. |
+| Job grant | `ConfigurationSource`, registered by `@Injectable(ConfigurationSource)` at the subpath import; not exported | `JobGrantSource` | none | Not replaceable. Add grants under `authz.rbac.roles.<role>.grants` in your config instead. |
 
 ## Important behaviour
 
-- **The grant comes with the import, not the install.** Every installed package's config folder is read whether it is imported or not; a grant of a permission nothing registered fails boot, so the grant is a configuration source that only an import registers.
+- **The grant comes with the subpath import, not the install and not the package root.** Every installed package's config folder is read whether it is imported or not, and a grant of a permission nothing registered fails boot, so the grant is a configuration source that only an import registers. It needs `job:read` and the `job` type's `owner` relation, which only the subpath's `job` resource provides, so the root does not load it.
+- **Importing only the root leaves `job:read` ungranted.** `GET jobs/v1/:jobId/status` of `@spinajs/queue-http-progress` then fails boot on the unregistered permission or, when the app registers `job:read` itself, answers 403 to every caller. Granting `{ permission: 'job:read', relation: 'owner' }` in the app's own config does not help without the subpath: no `RelationResolver` serves `owner` on `job`, so the boot fails.
 - **Import before the `Configuration` resolves.** The source is read when the `Configuration` collects its sources. A later import takes effect on the next resolve; `load()` alone reuses the sources it already has.
 - **The application can override the grant's scalars.** The source loads before the config files (`Order` `0`), so the application's `authz.rbac.roles.user` keys win, and its grants are added.
 - **Owner means type and id.** A `service` principal with id `alice` does not own a job that the `user` `alice` emitted.
@@ -88,7 +91,7 @@ export default {
 ### Show a user the progress of their own job
 
 ```ts sample
-import '@spinajs/authz-queue';
+import '@spinajs/authz-queue/jobs';
 import { SYSTEM, authz } from '@spinajs/authz';
 import { JobModel } from '@spinajs/queue';
 
@@ -108,7 +111,7 @@ Declare `job:read` with `list: true` (see [Configuration](#configuration)).
 
 ```ts sample
 import '@spinajs/authz-orm';
-import '@spinajs/authz-queue';
+import '@spinajs/authz-queue/jobs';
 import { JobModel } from '@spinajs/queue';
 
 export async function myRunningJobs() {

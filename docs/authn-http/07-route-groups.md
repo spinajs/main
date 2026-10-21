@@ -104,7 +104,7 @@ Answers about an account, its session or its credentials carry `Cache-Control: n
 - Gates check the registration per request, so a service registered after boot switches its group on.
 - A route's own policies run in parallel with the gate. Routes that verify a password (`POST /user/tokens`, `POST /user/tokens/:uuid/rotate`, `POST /user/keys`, the admin routes) therefore do it in the handler, after the gate, never as a `FreshAuth` policy.
 - Request bodies are read by their camelCase field names only (`login`, `password`, `role`, `target`, `expiresAt`, ...); each route page lists them. Any other key is ignored: a body with `Email` instead of `login` reads as a body without `login`.
-- The JSDoc of each route carries `@tags` and `@security` for [`@spinajs/http-swagger`](../http-swagger/README.md).
+- The JSDoc of each route carries `@tags`, `@security`, `@body`, `@returns` and `@response` for [`@spinajs/http-swagger`](../http-swagger/README.md). The routes read their bodies field by field from `@Req()`, so `@body` names the request schema. `AuthnHttpSchemaProvider` (registered when the package loads) serves every named schema of `AUTHN_HTTP_SCHEMAS`: the bodies, the answers (`AuthnLoginAnswer` is the principal summary or the pending `{ MfaRequired, MfaEnrol }`) and the error bodies `AuthnFailure`, `AuthnError` and `AuthnUnauthorized` (either of the two). The operationIds stay `<Controller>_<method>`.
 
 ## Related
 

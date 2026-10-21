@@ -553,9 +553,15 @@ ${line}` : line;
 
     operation.parameters!.push(...otherParams);
 
-    // Build request body from body params
+    // Build request body from body params; a route that reads its body without one may name its type with `@body`.
     if (bodyParams.length > 0) {
       operation.requestBody = this.buildRequestBody(bodyParams, route);
+    } else if (methodDoc?.body?.type) {
+      operation.requestBody = {
+        description: methodDoc.body.description,
+        required: true,
+        content: { 'application/json': { schema: this.expandNamedSchemas(this.inferSchemaFromString(methodDoc.body.type)) } },
+      };
     }
 
     // Attach @example tags: to the request body when the route has one,
@@ -1419,7 +1425,7 @@ ${line}` : line;
       }
     }
 
-    // Case 3 — a container: keep the node, expand the two places a model can hide.
+    // Case 3 — a container: keep the node, expand the places a model can hide.
     if (schema.items) {
       schema.items = this.expandNamedSchemas(schema.items, kind);
     }
@@ -1427,6 +1433,10 @@ ${line}` : line;
       for (const key of Object.keys(schema.properties)) {
         schema.properties[key] = this.expandNamedSchemas(schema.properties[key], kind);
       }
+    }
+    for (const key of ['oneOf', 'anyOf', 'allOf'] as const) {
+      const members = schema[key];
+      if (Array.isArray(members)) schema[key] = members.map((m) => this.expandNamedSchemas(m, kind));
     }
 
     return schema;

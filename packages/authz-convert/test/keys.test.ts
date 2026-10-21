@@ -100,15 +100,17 @@ describe('convertKeys', () => {
     it('writes a custom guard as found, so boot fails until it is ported, and says so', () => {
       const { out, f } = run({ admin: { roleGuard: { service: 'ScopedRoleGuard' } } });
       expect(out.authz).to.deep.equal({ authz: { admin: { guard: { service: 'ScopedRoleGuard' } } } });
-      expect(codes(f, 'manual')).to.deep.equal(['custom-service', 'guard-privileged-permission']);
+      expect(codes(f, 'manual')).to.deep.equal(['custom-service']);
     });
 
-    it('flags a guard written without privilegedPermission, unless both lockout checks are off', () => {
+    it("notes that a guard written without privilegedPermission keeps authz-rbac's users:update, unless both lockout checks are off", () => {
       const flagged = run({ admin: { roleGuard: { service: 'ScopedRoleGuard', preventEscalation: false } } });
-      expect(codes(flagged.f, 'manual')).to.include('guard-privileged-permission');
+      expect(codes(flagged.f, 'manual')).to.not.include('guard-privileged-permission');
+      expect(codes(flagged.f, 'info')).to.include('guard-privileged-permission');
+      expect(flagged.f.list.find((x) => x.code === 'guard-privileged-permission')!.message).to.contain("'users:update'");
       expect(flagged.out.authz).to.not.deep.include({ authz: { admin: { guard: { preventSelfLockout: false, preventLastPrivilegedRemoval: false } } } });
       const off = run({ admin: { roleGuard: { preventSelfLockout: false, preventLastPrivilegedRemoval: false } } });
-      expect(codes(off.f, 'manual')).to.not.include('guard-privileged-permission');
+      expect(codes(off.f)).to.not.include('guard-privileged-permission');
     });
 
     it('splits the token keys between authz and authn', () => {
@@ -141,6 +143,17 @@ describe('convertKeys', () => {
     it('moves identity keys under users with the same sub-path', () => {
       const { out } = run({ user: { profile: 'BasicProfileProvider' }, email: { connection: 'mail', created: { enabled: true } } });
       expect(out.users).to.deep.equal({ users: { user: { profile: 'BasicProfileProvider' }, email: { connection: 'mail', created: { enabled: true } } } });
+    });
+
+    it('leaves out users.email.changePassword, which nothing in 3.0 reads, and names where the reset mail is configured', () => {
+      const changePassword = { enabled: true, template: 'reset.pug', subject: 'Password reset' };
+      const { out, f } = run({ email: { connection: 'mail', created: { enabled: true }, changePassword } });
+      expect(out.users).to.deep.equal({ users: { email: { connection: 'mail', created: { enabled: true } } } });
+      const finding = f.list.find((x) => x.code === 'email-change-password');
+      expect(finding, JSON.stringify(f.list)).to.not.equal(undefined);
+      expect(finding).to.include({ severity: 'warning', path: 'rbac.email.changePassword' });
+      expect(finding!.message).to.contain('email.password.reset');
+      expect(run({ email: { changePassword } }).out.users).to.deep.equal({});
     });
 
     it('leaves out what a config file cannot hold and keeps the rest', () => {

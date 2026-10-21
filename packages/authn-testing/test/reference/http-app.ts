@@ -119,7 +119,8 @@ class ReferenceHttpApp {
         if (r.status === 'failure') return this.failed(r);
         if (r.status === 'mfa_required') {
           await sessions.set(r.pending, MFA_STEPS, r.steps);
-          return this.json(200, { MfaRequired: r.steps }, { setCookie: [this.setCookie(r.pending.id)] });
+          const pending = await sessions.restore(r.pending.id);
+          return this.json(200, { MfaRequired: r.steps, MfaEnrol: pending ? await this.toEnrol(pending) : [] }, { setCookie: [this.setCookie(r.pending.id)] });
         }
         return this.json(200, {}, { setCookie: [this.setCookie(r.session!.id)] });
       }
@@ -127,7 +128,7 @@ class ReferenceHttpApp {
         if (session) await sessions.revoke(session.handle);
         return this.json(200, {}, { setCookie: [this.setCookie(null)] });
       case 'GET /auth':
-        if (session?.handle.state === 'pending') return this.json(200, { MfaRequired: this.steps(session) });
+        if (session?.handle.state === 'pending') return this.json(200, { MfaRequired: this.steps(session), MfaEnrol: await this.toEnrol(session) });
         return active ? this.json(200, { id: active.identity.id, type: active.identity.type }) : this.failed(null);
       case 'POST /auth/mfa/verify': {
         if (session?.handle.state !== 'pending') return this.failed(null);
@@ -147,6 +148,12 @@ class ReferenceHttpApp {
 
   private steps(s: Restored): string[] {
     return (s.data.get(MFA_STEPS) as string[] | undefined) ?? [this.parts.step.name];
+  }
+
+  /** The pending steps the identity still has to enrol, as authn-http's `MfaEnrol`. */
+  private async toEnrol(s: Restored): Promise<string[]> {
+    const step = this.parts.step;
+    return this.steps(s).includes(step.name) && !(await step.enrolled(s.identity)) ? [step.name] : [];
   }
 
   port(): HttpPort {

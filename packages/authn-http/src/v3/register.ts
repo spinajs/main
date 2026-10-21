@@ -13,6 +13,8 @@ import { HttpSignatureExtractor } from '../extractors/signature.js';
 import { KeyPrincipalResolver, TokenPrincipalResolver } from '../resolvers/credential.js';
 import { SessionPrincipalResolver } from '../resolvers/session.js';
 import { AuthnIdentityArg, AuthnSessionArg, AuthnSessionDataArg, AuthnSessionIdArg } from '../args/authn.js';
+// Registers the SchemaProvider that names the request and answer schemas of the controllers' JSDoc for http-swagger.
+import './schemas.js';
 
 const LOADED_TOO_LATE = '@spinajs/authn-http loaded after HttpServer was resolved: AuthnMiddleware is not in its middleware pipeline, so no request is authenticated. Fix: import @spinajs/authn-http before resolving Controllers or HttpServer (the controller scan loads it too late).';
 
