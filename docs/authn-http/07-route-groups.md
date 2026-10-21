@@ -53,6 +53,7 @@ The package mounts its routes from eleven controllers in `lib/<cjs|mjs>/v3/contr
 | `DELETE` | `/user/tokens/:uuid` | `AuthnTokensController` | same | session principal |
 | `POST` | `/user/tokens/:uuid/rotate` | `AuthnTokensController` | same | session principal, fresh |
 | `PATCH` | `/user/tokens/:uuid` | `AuthnTokensController` | same | session principal |
+| `POST` | `/auth/tokens/revoke` | `AuthnTokenRevocationController` | none | none (the secret in the body) |
 | `GET` | `/user/keys` | `AuthnKeysController` | `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` | user session principal |
 | `POST` | `/user/keys` | `AuthnKeysController` | same | user session principal, fresh |
 | `DELETE` | `/user/keys/:kid` | `AuthnKeysController` | same | user session principal |
