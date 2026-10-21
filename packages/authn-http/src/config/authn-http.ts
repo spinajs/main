@@ -12,7 +12,7 @@ const authnHttp = {
     http: {
       csrf: {
         // Matched against the request path after http.controllers.route.prefix.
-        unauthenticatedRoutes: ['/auth/login', '/auth/password/reset-request', '/auth/password/reset', '/auth/keys/login', '/auth/mfa/verify', '/auth/mfa/recovery'],
+        unauthenticatedRoutes: ['/auth/login', '/auth/password/reset-request', '/auth/password/reset', '/auth/keys/login', '/auth/mfa/verify', '/auth/mfa/recovery', '/auth/code/request', '/auth/code/login'],
       },
     },
   },

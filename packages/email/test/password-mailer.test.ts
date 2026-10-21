@@ -56,6 +56,7 @@ describe('EmailPasswordMailer', () => {
       ActionUrl: RESET_URL,
       ResetUrl: RESET_URL,
       Token: SECRET,
+      Code: '',
       ExpiresInMinutes: 60,
       AppName: '',
       IsInvite: false,

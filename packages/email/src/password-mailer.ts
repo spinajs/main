@@ -5,15 +5,17 @@ import { EmailService, IEmail, IEmailTemplate, PasswordMailConfiguration } from 
 import { redactText } from './redact.js';
 
 /** `AuthnMailPurpose` of `@spinajs/authn-local`. */
-export type PasswordMailPurpose = 'reset' | 'invite' | 'verify';
+export type PasswordMailPurpose = 'reset' | 'invite' | 'verify' | 'code';
 
 /** The fields of `PasswordMail` from `@spinajs/authn-local`, declared here so this package never imports it. */
 export interface IPasswordMail {
   readonly identity: { readonly type: string; readonly id: string };
   readonly purpose: PasswordMailPurpose;
   readonly to: { readonly email?: string; readonly name?: string };
-  /** The raw single-use secret. */
+  /** The raw single-use secret; for purpose `code`, the code itself. */
   readonly secret: string;
+  /** The 6-digit code of purpose `code`. */
+  readonly code?: string;
   /** The page that redeems the secret, or ''. */
   readonly url: string;
   readonly ttlSeconds: number;
@@ -29,13 +31,14 @@ export interface EmailPasswordMailerDeps {
   readonly defaultConnection?: string;
 }
 
-const DEFAULT_SUBJECTS: Readonly<Record<PasswordMailPurpose, string>> = { reset: 'Reset your password', invite: 'Set up your account', verify: 'Confirm your email address' };
+const DEFAULT_SUBJECTS: Readonly<Record<PasswordMailPurpose, string>> = { reset: 'Reset your password', invite: 'Set up your account', verify: 'Confirm your email address', code: 'Your sign-in code' };
 
 /** What the package config ships as `email.password.<purpose>.template`, for the `deps` seam and a config without it. */
 const BUILTIN_TEMPLATES: Readonly<Record<PasswordMailPurpose, IEmailTemplate>> = {
   reset: { file: 'authn/reset.mjml', fs: 'email-builtin-templates' },
   invite: { file: 'authn/invite.mjml', fs: 'email-builtin-templates' },
   verify: { file: 'authn/verify.mjml', fs: 'email-builtin-templates' },
+  code: { file: 'authn/code.mjml', fs: 'email-builtin-templates' },
 };
 
 /** `base` with the `token` and `email` query parameters the redemption page reads. */
@@ -77,9 +80,13 @@ export class EmailPasswordMailer {
       if (!address) {
         throw new InvalidArgument('the recipient has no email address');
       }
-      const link = resetUrl(mail.url, mail.secret, address);
+      // A code is typed, not followed: it has no link, whatever url the mail was given.
+      const link = mail.purpose === 'code' ? '' : resetUrl(mail.url, mail.secret, address);
       if (link) {
         secrets.push(link);
+      }
+      if (mail.code && mail.code !== mail.secret) {
+        secrets.push(mail.code);
       }
       const email = this.compose(mail, address, link, secrets);
       const service = this.Deps ? this.Deps.email : await DI.resolve(EmailService);
@@ -115,6 +122,7 @@ export class EmailPasswordMailer {
         // 3.0 templates read the link under this name.
         ResetUrl: link,
         Token: mail.secret,
+        Code: mail.code ?? '',
         ExpiresInMinutes: Math.round(mail.ttlSeconds / 60),
         AppName: this.appName(options),
         IsInvite: mail.purpose === 'invite',

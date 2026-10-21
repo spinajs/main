@@ -13,6 +13,7 @@ import {
   FakeBackoffThrottle,
   FakeIdentityStore,
   MemoryLinkStore,
+  MemoryMfaEnrolmentMarks,
   MemoryPasswordCredentialStore,
   MemorySecretStore,
   MemorySessionIssuer,
@@ -24,6 +25,8 @@ import {
 import type { ConfigOverrides, Harness, HarnessContext, StrategySubject, ThrottleParams } from '@spinajs/authn-testing';
 
 import packageConfig from '../src/config/authn-local.js';
+import { EmailCodeMfaStep } from '../src/email-code/step.js';
+import { EmailCodeStrategy } from '../src/email-code/strategy.js';
 import { Argon2PasswordHasher, PasswordHasher } from '../src/hasher.js';
 import { PasswordMail, PasswordMailer } from '../src/mailer.js';
 import { LocalPasswordPolicy, PasswordBlocklist } from '../src/policy.js';
@@ -44,6 +47,7 @@ const SUPPORTED = [
   'authn.local.reset.revokeTokens',
   'authn.local.invite.ttlSeconds',
   'authn.local.verify.ttlSeconds',
+  'authn.local.emailCode.ttlSeconds',
   'authn.login.requireVerifiedAddress',
   'authn.throttle',
 ];
@@ -160,7 +164,7 @@ class HarnessMailer extends PasswordMailer {
   public async send(mail: PasswordMail): Promise<void> {
     this.mails.push(mail);
   }
-  public secretFor(id: IdentityRef, purpose: 'reset' | 'invite' | 'verify'): string | null {
+  public secretFor(id: IdentityRef, purpose: 'reset' | 'invite' | 'verify' | 'code'): string | null {
     const m = [...this.mails].reverse().find((x) => x.identity.type === id.type && x.identity.id === id.id && x.purpose === purpose);
     return m ? m.secret : null;
   }
@@ -354,6 +358,9 @@ export interface LocalParts {
   readonly hasher: Argon2PasswordHasher;
   readonly strategy: LocalPasswordStrategy;
   readonly password: LocalPasswordService;
+  readonly codeStrategy: EmailCodeStrategy;
+  readonly codeStep: EmailCodeMfaStep;
+  readonly marks: MemoryMfaEnrolmentMarks;
 }
 
 /** A fresh container for `config`, resolved as at boot (the hasher's dummy hash is made here, D4). */
@@ -362,23 +369,33 @@ async function buildParts(config: ConfigOverrides): Promise<LocalParts> {
   freshContainer();
   await DI.resolve(Configuration);
   const strategy = (await DI.resolve(LocalPasswordStrategy)) as LocalPasswordStrategy;
+  const identities = DI.resolve(IdentityStore) as HarnessIdentityStore;
+  const secrets = DI.resolve(SecretStore) as HarnessSecretStore;
+  const password = (await DI.resolve(PasswordService)) as LocalPasswordService;
+  const marks = new MemoryMfaEnrolmentMarks();
   return {
-    identities: DI.resolve(IdentityStore) as HarnessIdentityStore,
+    identities,
     passwords: DI.resolve(PasswordCredentialStore) as HarnessPasswordStore,
     sessions: DI.resolve(SessionIssuer) as HarnessSessionIssuer,
-    secrets: DI.resolve(SecretStore) as HarnessSecretStore,
+    secrets,
     throttle: DI.resolve(AuthnThrottle) as HarnessThrottle,
     sinks: ((await DI.resolve(Array.ofType(AuthnEventSink))) as unknown[]).filter((s): s is RecordingEventSink => s instanceof RecordingEventSink),
     tokens: DI.resolve(TokenService) as HarnessTokenService,
     mailer: DI.resolve(PasswordMailer) as HarnessMailer,
     hasher: (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher,
     strategy,
-    password: (await DI.resolve(PasswordService)) as LocalPasswordService,
+    password,
+    codeStrategy: new EmailCodeStrategy({ identities, secrets }),
+    codeStep: new EmailCodeMfaStep({ identities, secrets, marks, passwords: password }),
+    marks,
   };
 }
 
-/** The kit harness for N3 (README "Fakes for the service port"): the real N3 classes in DI, kit fakes around them. */
-export async function localHarness(ctx: HarnessContext): Promise<Harness> {
+/**
+ * The kit harness for N3 (README "Fakes for the service port"): the real N3 classes in DI, kit fakes around them. With
+ * `emailCode`, the email code strategy and step are in the service and the `mfa` port is the step.
+ */
+export async function localHarness(ctx: HarnessContext, emailCode = false): Promise<Harness> {
   const p = await buildParts(ctx.config);
   const params = current.params;
   const [events, second] = p.sinks;
@@ -389,13 +406,13 @@ export async function localHarness(ctx: HarnessContext): Promise<Harness> {
     return verify(c, vctx);
   };
   const service = new FakeAuthnService({
-    strategies: [p.strategy],
+    strategies: emailCode ? [p.strategy, p.codeStrategy] : [p.strategy],
     throttle: p.throttle,
     identities: p.identities,
     links: new MemoryLinkStore(),
     linking: { jit: false, byVerifiedEmail: false },
-    policy: new EnrolledMfaPolicy([]),
-    steps: [],
+    policy: new EnrolledMfaPolicy(emailCode ? [p.codeStep] : []),
+    steps: emailCode ? [p.codeStep] : [],
     sessions: p.sessions,
     sinks: p.sinks,
     principals: new RecordingPrincipalFactory(),
@@ -437,12 +454,31 @@ export async function localHarness(ctx: HarnessContext): Promise<Harness> {
     secretStorage: { rows: async () => p.secrets.rows() },
     tokens: p.tokens,
     spy: { verifyCalls: () => verifyCalls },
+    ...(emailCode
+      ? {
+          mfa: {
+            step: p.codeStep,
+            enrol: async (id: IdentityRef) => {
+              await p.marks.mark(id, p.codeStep.name);
+            },
+            // A challenge, then the code its mail holds.
+            code: async (id: IdentityRef) => {
+              await p.codeStep.challenge(id, { now: new Date(), purpose: 'request' });
+              await p.password.drain();
+              return p.mailer.secretFor(id, 'code') ?? '';
+            },
+          },
+        }
+      : {}),
     async dispose() {
       await p.password.drain();
       freshContainer();
     },
   };
 }
+
+/** The harness of A36: `localHarness` with the email code strategy and step. */
+export const emailCodeHarness = (ctx: HarnessContext): Promise<Harness> => localHarness(ctx, true);
 
 const KNOWN = { login: 'conformance@example.test', password: 'Conformance-Pass-1' };
 

@@ -14,9 +14,10 @@
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `identity` | `IdentityRef` | Whose secret it is. |
-| `purpose` | `'reset' \| 'invite'` | Which message. |
+| `purpose` | `'reset' \| 'invite' \| 'verify' \| 'code'` | Which message. |
 | `to` | `{ email?: string; name?: string }` | From `IdentityStore.display()`. |
-| `secret` | `string` | The raw single-use secret. |
+| `secret` | `string` | The raw single-use secret. For purpose `code`, the code itself. |
+| `code` | `string`, optional | The 6-digit code of purpose `code` ([Email codes](15-email-codes.md)). That mail has no link: `url` is `''`. |
 | `url` | `string` | `authn.local.reset.url`, the page that redeems the secret, for both purposes. May be `''`. |
 | `ttlSeconds` | `number` | `authn.local.reset.ttlSeconds` or `authn.local.invite.ttlSeconds`. |
 | `lang` | `string`, optional | The language of the request, when it named one. |

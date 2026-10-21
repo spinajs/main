@@ -1,6 +1,6 @@
 # Login, logout and MFA routes
 
-`AuthnLoginController` and `AuthnMfaController` log a user in with a password, complete a pending login with a second factor or a recovery code, report who is calling, and log out. They are always on. The password check runs in [`@spinajs/authn`](../authn/01-authentication-flow.md) and the strategy listed in `authn.strategies` (usually [`@spinajs/authn-local`](../authn-local/README.md)); the session comes from [`@spinajs/authn-session`](../authn-session/README.md).
+`AuthnLoginController` and `AuthnMfaController` log a user in with a password, ask a pending session's step to send its code, complete a pending login with a second factor or a recovery code, report who is calling, and log out. They are always on. The password check runs in [`@spinajs/authn`](../authn/01-authentication-flow.md) and the strategy listed in `authn.strategies` (usually [`@spinajs/authn-local`](../authn-local/README.md)); the session comes from [`@spinajs/authn-session`](../authn-session/README.md).
 
 Key login (`POST /auth/keys/login`) answers the same way, through the same `completeLogin()` helper; it is on [Key routes](15-key-routes.md). OIDC login is in [`@spinajs/authn-oidc`](../authn-oidc/01-login-flow.md#http-routes).
 
@@ -111,6 +111,19 @@ Raises an active `aal1` session to `aal2`, for a route behind `MfaSatisfied` tha
 | 403 | `mfa_pending`: the session is pending; complete it with `POST /auth/mfa/verify` |
 
 The CSRF guard checks it like any other request with the session cookie.
+
+### `POST /auth/mfa/challenge`
+
+For a step that delivers its code out of band, such as the [email code](../authn-local/15-email-codes.md): the client calls it after login answered `MfaRequired`, and the step mails the code. TOTP needs no challenge.
+
+| | |
+| --- | --- |
+| Request body | `{ "step"?: string }`: a pending step, else the first pending step |
+| 202 | `{ "Ok": true }`, `Cache-Control: no-store` |
+| 401 | `unauthenticated` without a session |
+| 403 | `mfa_not_pending`: the session is already active |
+
+The pending session's identity is the one asked; the body names no identity. The answer is 202 whether the step has a `challenge`, whether it sent anything (an unenrolled, banned or throttled request sends nothing) and whether the send worked. A failing step is logged by its error name only. The step does its own throttling: a repeat inside the backoff sends no second mail.
 
 ## Configuration
 

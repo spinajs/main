@@ -1,6 +1,6 @@
 import type { Configuration } from '@spinajs/configuration';
 import '@spinajs/authn-session/register-schema';
-import { BadRequestResponse, Unauthorized } from '@spinajs/http';
+import { BadRequestResponse, HTTP_STATUS_CODE, Ok, Unauthorized } from '@spinajs/http';
 import type { ICookie, IResponseHeader } from '@spinajs/http';
 import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 import type { SessionHandle } from '@spinajs/authn/contracts';
@@ -14,6 +14,11 @@ export { AUTHN_FAILURE_BODY };
 export const NO_STORE: IResponseHeader = Object.freeze({ Name: 'Cache-Control', Value: 'no-store' });
 
 export const badRequest = (error: string, message: string): BadRequestResponse => new BadRequestResponse({ error, message }, { Headers: [NO_STORE] });
+
+/** @spinajs/http has no 202 response. */
+export class AcceptedResponse<T = unknown> extends Ok<T> {
+  protected _errorCode = HTTP_STATUS_CODE.ACCEPTED;
+}
 
 /** An instant to the second, as the credential tables keep it; null for none. */
 export const instant = (d: Date | undefined): string | null => (d ? new Date(Math.floor(d.getTime() / 1000) * 1000).toISOString() : null);

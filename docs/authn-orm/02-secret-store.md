@@ -14,12 +14,12 @@ Callers resolve the `SecretStore` port of `@spinajs/authn`; this package registe
 
 ## How it works
 
-### Issue, `issue(identity, purpose, ttlSeconds)`
+### Issue, `issue(identity, purpose, ttlSeconds, value?)`
 
 1. `identityKey(identity)` builds the `identity` column value, `<type>:<id>`. A type that is empty or contains `:`, or a key longer than 100 characters, throws `InvalidArgument`.
-2. The store checks `purpose` (a non-empty string of at most 32 characters) and `ttlSeconds` (a finite number above 0). A bad value throws `InvalidArgument`.
+2. The store checks `purpose` (a non-empty string of at most 32 characters) and `ttlSeconds` (a finite number above 0). A bad value throws `InvalidArgument`. So does a `value` that is not a non-empty string of at most 1024 characters.
 3. It takes "now" from the Node clock, awaits `ormReady()`, and on every 64th `issue` or `redeem` call of the instance runs `purge()` first.
-4. It makes the raw secret: 32 random bytes as base64url, 43 characters.
+4. It makes the raw secret: 32 random bytes as base64url, 43 characters. With `value` the raw secret is that string instead: the [email code](../authn-local/15-email-codes.md) issues its 6 digits this way. It is hashed and single use like any other, so the caller must limit guessing itself.
 5. `AuthnSecret.destroy()` deletes the identity's rows of that purpose, so a new secret replaces the older ones.
 6. `AuthnSecret.insert()` writes a row with a random UUID `id`, the hex SHA-256 of the raw secret, `expires_at` = now + `ttlSeconds`, and `used_at` `NULL`.
 7. It resolves with the raw secret. Nothing stores it.

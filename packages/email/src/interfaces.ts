@@ -249,6 +249,7 @@ export interface PasswordMailConfiguration {
   reset?: PasswordMailPurposeConfiguration;
   invite?: PasswordMailPurposeConfiguration;
   verify?: PasswordMailPurposeConfiguration;
+  code?: PasswordMailPurposeConfiguration;
 }
 
 export interface EmailConnectionOptions {

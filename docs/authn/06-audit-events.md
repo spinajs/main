@@ -53,6 +53,7 @@ Event types (`AuthnEventType`):
 | Tokens and keys | `token.create`, `token.use`, `token.revoke`, `token.rotate`, `token.update`, `key.register`, `key.use`, `key.revoke` |
 | Identity links | `identity.link`, `identity.unlink` |
 | Impersonation | `impersonation.start`, `impersonation.end`, `impersonation.expire` |
+| Email codes | `code.request` |
 
 The reasons the core writes are listed in [Authentication flow](01-authentication-flow.md#results-and-failure-reasons).
 

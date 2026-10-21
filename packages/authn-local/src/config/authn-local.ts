@@ -100,6 +100,11 @@ const authnLocal = {
         url: '',
       },
 
+      emailCode: {
+        /** Lifetime of a mailed 6-digit code. */
+        ttlSeconds: 600,
+      },
+
       mail: {
         /**
          * 'queue': each mail is an AuthnMailJob that a queue consumer delivers; it needs a real connection for

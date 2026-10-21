@@ -1,6 +1,6 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import { MfaPolicy, MfaStep } from '@spinajs/authn/contracts';
-import type { AuthnFacts, IdentityRef } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnFacts, IdentityRef } from '@spinajs/authn/contracts';
 
 interface State {
   enrolled: boolean;
@@ -15,15 +15,23 @@ const sixDigits = () => String(randomInt(0, 1_000_000)).padStart(6, '0');
 export class FakeMfaStep extends MfaStep {
   readonly name: string;
   readonly verifyCalls: { id: IdentityRef; response: string }[] = [];
+  readonly challenges: { id: IdentityRef; ctx: AuthnContext }[] = [];
   declare verifyRecovery?: (id: IdentityRef, code: string) => Promise<boolean>;
   declare regenerateRecoveryCodes?: (id: IdentityRef) => Promise<readonly string[]>;
+  declare challenge?: (id: IdentityRef, ctx: AuthnContext) => Promise<void>;
   private readonly states = new Map<string, State>();
 
-  constructor(opts: { name?: string; recoveryCodes?: number | false } = {}) {
+  /** `challenge: true` gives the step a `challenge` that records its calls in `challenges`. */
+  constructor(opts: { name?: string; recoveryCodes?: number | false; challenge?: boolean } = {}) {
     super();
     this.name = opts.name ?? 'fake';
     if (this.name === 'recovery') {
       throw new Error("no MFA step may be named 'recovery'");
+    }
+    if (opts.challenge === true) {
+      this.challenge = async (id, ctx) => {
+        this.challenges.push({ id, ctx });
+      };
     }
     const count = opts.recoveryCodes ?? 10;
     if (count !== false) {

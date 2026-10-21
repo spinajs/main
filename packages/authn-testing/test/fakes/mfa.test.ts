@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import 'mocha';
-import { EnrolledMfaPolicy, FakeMfaStep } from '../../src/fakes/index.js';
+import { EnrolledMfaPolicy, FakeMfaStep, MemoryMfaEnrolmentMarks } from '../../src/fakes/index.js';
 
 const A = { type: 'user', id: 'a' };
 const B = { type: 'user', id: 'b' };
@@ -81,6 +81,40 @@ describe('FakeMfaStep', () => {
     s.enrol(A);
     assert.equal(await s.verify(A, code), false);
     assert.equal(await s.verifyRecovery!(A, rec), false);
+  });
+});
+
+describe('FakeMfaStep challenge', () => {
+  const ctx = { now: new Date(0), purpose: 'login' as const };
+
+  it('has no challenge unless asked for', () => {
+    assert.equal(new FakeMfaStep().challenge, undefined);
+  });
+
+  it('records each challenge when asked for one', async () => {
+    const s = new FakeMfaStep({ name: 'mail', challenge: true });
+    await s.challenge!(A, ctx);
+    await s.challenge!(B, ctx);
+    assert.deepEqual(
+      s.challenges.map((c) => c.id),
+      [A, B],
+    );
+    assert.equal(s.challenges[0].ctx, ctx);
+  });
+});
+
+describe('MemoryMfaEnrolmentMarks', () => {
+  it('marks once per identity and step, and unmarks', async () => {
+    const marks = new MemoryMfaEnrolmentMarks();
+    assert.equal(await marks.has(A, 'email-code'), false);
+    assert.equal(await marks.mark(A, 'email-code'), true);
+    assert.equal(await marks.mark(A, 'email-code'), false);
+    assert.equal(await marks.has(A, 'email-code'), true);
+    assert.equal(await marks.has(B, 'email-code'), false);
+    assert.equal(await marks.has(A, 'totp'), false);
+    await marks.unmark(A, 'email-code');
+    assert.equal(await marks.has(A, 'email-code'), false);
+    assert.equal(await marks.mark(A, 'email-code'), true);
   });
 });
 

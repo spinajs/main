@@ -9,7 +9,7 @@ import ts from 'typescript';
 import { AsyncService } from '@spinajs/di';
 import { MfaEnrolmentService, MfaPolicy, MfaStep } from '../../src/contracts/mfa.js';
 import { SecretStore } from '../../src/contracts/secrets.js';
-import type { IdentityRef } from '../../src/contracts/credentials.js';
+import type { AuthnContext, IdentityRef } from '../../src/contracts/credentials.js';
 import type { AuthnFacts } from '../../src/contracts/principal.js';
 import * as index from '../../src/contracts/index.js';
 
@@ -214,6 +214,7 @@ describe('mfa and secret contracts', () => {
             { name: 'verifyRecovery', modifiers: [], optional: true, params: ['id', 'code'] },
             { name: 'regenerateRecoveryCodes', modifiers: [], optional: true, params: ['id'] },
             { name: 'disable', modifiers: ['abstract'], optional: false, params: ['id'] },
+            { name: 'challenge', modifiers: [], optional: true, params: ['id', 'ctx'] },
           ],
         },
         MfaPolicy: {
@@ -234,6 +235,14 @@ describe('mfa and secret contracts', () => {
             { name: 'adminReset', modifiers: ['abstract'], optional: false, params: ['actor', 'target', 'ctx'] },
           ],
         },
+        MfaEnrolmentMarks: {
+          base: null,
+          members: [
+            { name: 'has', modifiers: ['abstract'], optional: false, params: ['id', 'step'] },
+            { name: 'mark', modifiers: ['abstract'], optional: false, params: ['id', 'step'] },
+            { name: 'unmark', modifiers: ['abstract'], optional: false, params: ['id', 'step'] },
+          ],
+        },
       });
     });
 
@@ -242,7 +251,7 @@ describe('mfa and secret contracts', () => {
         SecretStore: {
           base: null,
           members: [
-            { name: 'issue', modifiers: ['abstract'], optional: false, params: ['identity', 'purpose', 'ttlSeconds'] },
+            { name: 'issue', modifiers: ['abstract'], optional: false, params: ['identity', 'purpose', 'ttlSeconds', 'value'] },
             { name: 'redeem', modifiers: ['abstract'], optional: false, params: ['identity', 'purpose', 'raw'] },
           ],
         },
@@ -271,6 +280,9 @@ describe('mfa and secret contracts', () => {
       expect(secrets.doc).to.contain('SR-09');
       expect(docOf(secrets.members, 'issue')).to.contain('raw secret once');
       expect(docOf(secrets.members, 'issue')).to.contain('replaces older ones of that purpose');
+      expect(docOf(secrets.members, 'issue')).to.contain('`value` makes the secret that string');
+      expect(docOf(step, 'challenge')).to.contain('out of band');
+      expect(docOf(step, 'challenge')).to.contain('POST /auth/mfa/challenge');
       expect(docOf(secrets.members, 'redeem')).to.contain('Constant time');
       expect(docOf(secrets.members, 'redeem')).to.contain('single use');
       expect(docOf(secrets.members, 'redeem')).to.contain('A11');
@@ -298,6 +310,7 @@ describe('mfa and secret contracts', () => {
       same<ReturnType<MfaStep['disable']>, Promise<void>>(true);
       same<MfaStep['verifyRecovery'], ((id: IdentityRef, code: string) => Promise<boolean>) | undefined>(true);
       same<MfaStep['regenerateRecoveryCodes'], ((id: IdentityRef) => Promise<readonly string[]>) | undefined>(true);
+      same<MfaStep['challenge'], ((id: IdentityRef, ctx: AuthnContext) => Promise<unknown>) | undefined>(true);
     });
 
     it('MfaPolicy.required takes only method and strategy', () => {
@@ -307,7 +320,7 @@ describe('mfa and secret contracts', () => {
     });
 
     it('SecretStore returns the raw secret from issue and a boolean from redeem', () => {
-      same<Parameters<SecretStore['issue']>, [IdentityRef, string, number]>(true);
+      same<Parameters<SecretStore['issue']>, [IdentityRef, string, number, string?]>(true);
       same<ReturnType<SecretStore['issue']>, Promise<string>>(true);
       same<Parameters<SecretStore['redeem']>, [IdentityRef, string, string]>(true);
       same<ReturnType<SecretStore['redeem']>, Promise<boolean>>(true);

@@ -92,6 +92,28 @@ Migrate with one of:
 - A successful login replaces the legacy hash with argon2id through the existing compare-and-set rehash. The argon2 cost
   stays pinned.
 - `Argon2PasswordHasherOptions.legacyHashes` and the exported `LegacyHashKind` type.
+# Release notes — authn, authn-local, authn-http, authn-orm, email: email one-time code
+
+> Branch `feat/ory-feat-3`. Docs: `docs/authn-local/15-email-codes.md`, `docs/authn-http/22-code-routes.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`.
+
+## New behavior
+
+- `EmailCodeMfaStep` (step `email-code`) is a second factor by a 6-digit code mailed to the account's verified address. List it in `authn.mfa.steps`. After a password login the client calls the new `POST /auth/mfa/challenge` (pending session; 202 always), then `POST /auth/mfa/verify` with the code. The session becomes `aal2`.
+- `EmailCodeStrategy` (strategy `email-code`, credentials `{ kind: 'email-code', login, code }`) logs in with a mailed code: `POST /auth/code/request` answers 202 for every login, `POST /auth/code/login` logs in once with method `email-code` at `aal1`. List it in `authn.strategies`.
+- A code is a `SecretStore` secret of purpose `email-code`, valid for `authn.local.emailCode.ttlSeconds` (default 600) and single use, with five verify attempts per code, counted with single-use tickets in the `SecretStore`. The queued `AuthnMailJob` holds no code: `PasswordService.deliver` issues it when the mail is delivered.
+- Enrolment in the step needs `IdentityStatus.addressVerified === true`. A code login mails nothing to an address the store reports unverified.
+- New mail purpose `code`, template `authn/code.mjml` (the code large, no link), `email.password.code.subject` (default "Your sign-in code") and `email.password.code.template`. The template model has `Code`; the code is redacted like a secret.
+- `POST /auth/code/request` and `POST /auth/code/login` are in the default `authn.http.csrf.unauthenticatedRoutes`, so the origin guard checks them without a session cookie.
+- New audit event type `code.request`.
+
+## For implementers
+
+- `MfaStep.challenge?(id, ctx)` is optional; a step that delivers a code out of band implements it.
+- `MfaEnrolmentMarks` (`has`, `mark`, `unmark`) is a new contract for steps that keep no secret. `@spinajs/authn-orm` registers `DbMfaEnrolmentMarks`, which keeps marks as confirmed `authn_mfa` rows, so `MfaEnrolments` and the login refusal for an unlisted step cover them.
+- `SecretStore.issue(identity, purpose, ttlSeconds, value?)` takes an optional chosen value. `DbSecretStore` and `MemorySecretStore` support it; a custom store that ignores it makes the email code throw `InvalidOperation`.
+- `PasswordService` has two more optional methods, `requestCode(login, ctx)` and `challengeCode(id, ctx)`, which `LocalPasswordService` implements; `PasswordMail` has an optional `code`.
+- `@spinajs/authn-testing`: rule `A36`, `MemoryMfaEnrolmentMarks`, `FakeMfaStep({ challenge: true })`, and `OutboxPort.secretFor(id, 'code')`.
+- There are no HTTP routes to enrol, confirm or disable the step yet: call `EmailCodeMfaStep` from your own routes.
 
 # Release notes — authn, authn-token, authn-http: revoke a token by its plaintext
 

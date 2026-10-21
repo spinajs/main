@@ -22,7 +22,7 @@ const SECRET = 'Zx9-secret_Q7w';
 const URL_BASE = 'https://app.example.com/password-reset';
 const LINK = `${URL_BASE}?token=${SECRET}&email=alice%40example.com`;
 const BUILTIN = resolve(process.cwd(), 'src', 'templates');
-const PURPOSES = ['reset', 'invite', 'verify'] as const;
+const PURPOSES = ['reset', 'invite', 'verify', 'code'] as const;
 
 const dir = (path: string) => resolve(normalize(join(process.cwd(), 'test', path)));
 /** How the template engine writes a model value into HTML. */
@@ -232,7 +232,7 @@ describe('EmailPasswordMailer MJML templates (MAIL-1, D14)', function () {
     expect(files.sort()).to.deep.equal(PURPOSES.map((p) => `${p}.mjml`).sort());
     for (const file of files) {
       for (const ActionUrl of [LINK, '']) {
-        const model = { Purpose: file.replace('.mjml', ''), Name: 'Alice', Email: 'alice@example.com', ActionUrl, ResetUrl: ActionUrl, Token: SECRET, ExpiresInMinutes: 60, AppName: 'Example', IsInvite: file === 'invite.mjml', Subject: 'Subject' };
+        const model = { Purpose: file.replace('.mjml', ''), Name: 'Alice', Email: 'alice@example.com', ActionUrl, ResetUrl: ActionUrl, Token: SECRET, Code: '482913', ExpiresInMinutes: 60, AppName: 'Example', IsInvite: file === 'invite.mjml', Subject: 'Subject' };
         const source = await templates.compile(join(BUILTIN, 'authn', file), 'handlebars', model);
         const { errors } = await mjml2html(source, { validationLevel: 'soft' });
         expect(errors, `${file} ${ActionUrl ? 'with' : 'without'} a link`).to.deep.equal([]);
@@ -309,6 +309,72 @@ describe('EmailPasswordMailer MJML templates (MAIL-1, D14)', function () {
           paths.join(', '),
         ).to.equal(true);
       }
+    });
+  });
+
+  describe('the code mail (FEAT-3)', () => {
+    const CODE = '482913';
+    const aCodeMail = (over: Partial<IPasswordMail> = {}) => aMail({ purpose: 'code', secret: CODE, code: CODE, url: '', ttlSeconds: 600, ...over });
+
+    it('renders authn/code.mjml with the default subject, the code and the expiry, and redacts the code', async () => {
+      const x = await pipeline();
+      await x.mailer.send(aCodeMail());
+
+      const [email] = x.handed;
+      expect(email.template).to.deep.equal({ file: 'authn/code.mjml', fs: 'email-builtin-templates' });
+      expect(email.subject).to.equal('Your sign-in code');
+      expect(email.tag).to.equal('authn-password-code');
+      expect(email.redact).to.deep.equal([CODE]);
+      expect(email.text).to.equal(undefined);
+      expect(x.sent[0].html).to.match(/^<!doctype html>/i);
+      expect(x.sent[0].html).to.contain('Your sign-in code');
+      expect(x.sent[0].html).to.contain(CODE);
+      expect(x.sent[0].html).to.contain('10 minutes');
+    });
+
+    it('shows no link and no button, whatever url the mail was given', async () => {
+      const x = await pipeline();
+      await x.mailer.send(aCodeMail({ url: URL_BASE }));
+      expect(x.handed[0].model).to.include({ ActionUrl: '', ResetUrl: '' });
+      expect(x.sent[0].html).to.not.contain(URL_BASE);
+      expect(x.handed[0].redact).to.deep.equal([CODE]);
+    });
+
+    it('gives the template Code beside the other fields, and an empty Code to mails that carry none', async () => {
+      const x = await pipeline();
+      const render = sinon.spy(x.templates, 'render');
+      await x.mailer.send(aCodeMail());
+      await x.mailer.send(aMail());
+      expect(render.firstCall.args[1]).to.include({ Code: CODE, Purpose: 'code', Token: CODE, ExpiresInMinutes: 10, Email: 'alice@example.com' });
+      expect(render.secondCall.args[1]).to.include({ Code: '' });
+    });
+
+    it('email.password.code.subject and email.password.code.template override the built-in ones', async () => {
+      const x = await pipeline({ connection: 'test', code: { subject: 'Your login code', template: 'custom/code.mjml' } });
+      await x.mailer.send(aCodeMail());
+      expect(x.handed[0].subject).to.equal('Your login code');
+      expect(x.sent[0].html).to.contain('project-custom-code');
+      expect(x.sent[0].html).to.contain(CODE);
+    });
+
+    it('validates email.password.code.template like the other purposes', async () => {
+      expect(await violationsOf('my/code.mjml', 'code')).to.deep.equal([]);
+      for (const template of [null, '', 'code.hbs']) {
+        const paths = await violationsOf(template, 'code');
+        expect(
+          paths.some((p) => p.startsWith('email.password.code.template')),
+          paths.join(', '),
+        ).to.equal(true);
+      }
+    });
+
+    it('a rendering error is an IOFail that does not hold the code', async () => {
+      const x = await pipeline();
+      sinon.stub(x.templates, 'render').rejects(new Error(`cannot render for ${CODE}`));
+      const err = await failure(x.mailer.send(aCodeMail()));
+      expect(err).to.be.instanceOf(IOFail);
+      expect(holds(dump(err), CODE)).to.equal(false);
+      expect(x.sent).to.have.length(0);
     });
   });
 });

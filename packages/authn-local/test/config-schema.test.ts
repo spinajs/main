@@ -55,6 +55,7 @@ describe('authn.local through the schema', function () {
         reset: { ttlSeconds: 3600, url: '', revokeTokens: true },
         invite: { ttlSeconds: 900 },
         verify: { ttlSeconds: 86400, url: '' },
+        emailCode: { ttlSeconds: 600 },
         expiration: { enabled: false, maxAgeDays: 31 },
         mail: { delivery: 'queue' },
       };
@@ -73,6 +74,7 @@ describe('authn.local through the schema', function () {
       expect(configuration.get('authn.local.generator.characters')).to.have.length(3);
       expect(configuration.get('authn.local.reset')).to.deep.eq({ ttlSeconds: 3600, url: '', revokeTokens: true });
       expect(configuration.get('authn.local.invite.ttlSeconds')).to.eq(900);
+      expect(configuration.get('authn.local.emailCode.ttlSeconds')).to.eq(600);
       expect(configuration.get('authn.local.expiration')).to.deep.eq({ enabled: false, maxAgeDays: 31 });
     });
 
@@ -87,6 +89,7 @@ describe('authn.local through the schema', function () {
         reset: filled.reset,
         invite: filled.invite,
         verify: filled.verify,
+        emailCode: filled.emailCode,
         expiration: filled.expiration,
         mail: filled.mail,
       });
@@ -102,6 +105,7 @@ describe('authn.local through the schema', function () {
       expect(configuration.get('authn.local.reset.revokeTokens')).to.eq(shipped.reset.revokeTokens);
       expect(configuration.get('authn.local.mail.delivery')).to.eq(shipped.mail.delivery);
       expect(configuration.get('authn.local.verify')).to.deep.eq(shipped.verify);
+      expect(configuration.get('authn.local.emailCode')).to.deep.eq(shipped.emailCode);
       expect(configuration.get('authn.local.policy.similarity')).to.eq(shipped.policy.similarity);
       expect(configuration.get('authn.local.hibp')).to.deep.eq(shipped.hibp);
     });
@@ -160,6 +164,7 @@ describe('authn.local through the schema', function () {
         [{ reset: { revokeTokens: 'true' } }, 'authn.local.reset.revokeTokens'],
         [{ reset: { revokeTokens: 0 } }, 'authn.local.reset.revokeTokens'],
         [{ invite: { ttlSeconds: 0 } }, 'authn.local.invite.ttlSeconds'],
+        [{ emailCode: { ttlSeconds: 0 } }, 'authn.local.emailCode.ttlSeconds'],
         [{ expiration: { maxAgeDays: 0 } }, 'authn.local.expiration.maxAgeDays'],
         [{ expiration: { maxAgeDays: -3 } }, 'authn.local.expiration.maxAgeDays'],
         [{ mail: { delivery: 'smtp' } }, 'authn.local.mail.delivery'],

@@ -23,12 +23,13 @@ Import the package in the app entry, **before** anything resolves `Controllers` 
 | [Policies](05-policies.md) | `Authenticated`, `FreshAuth`, `MfaSatisfied`, `NoSession` and the other route guards. |
 | [Route arguments](06-route-arguments.md) | `@Identity()`, `@AuthnSession()`, `@SessionId()` and `@FromSession(key)`. |
 | [Route groups](07-route-groups.md) | Every route the package mounts, the service that switches each group on, and the shared answers. |
-| [Login, logout and MFA routes](08-login-logout-and-mfa-routes.md) | `POST /auth/login`, `POST /auth/logout`, `GET /auth`, `POST /auth/mfa/verify`, `POST /auth/mfa/recovery`, `POST /auth/mfa/step-up`. |
+| [Login, logout and MFA routes](08-login-logout-and-mfa-routes.md) | `POST /auth/login`, `POST /auth/logout`, `GET /auth`, `POST /auth/mfa/verify`, `POST /auth/mfa/recovery`, `POST /auth/mfa/step-up`, `POST /auth/mfa/challenge`. |
 | [Session management routes](09-session-management-routes.md) | List and end the caller's own sessions under `/user/sessions`. |
 | [Active role routes](10-active-role-routes.md) | Narrow a session to one role it holds under `/auth/active-role`. |
 | [Impersonation routes](11-impersonation-routes.md) | Start, inspect and stop impersonation under `/auth/impersonate`. |
 | [Password routes](12-password-routes.md) | Password policy, reset request, reset and change. |
 | [Verification routes](21-verification-routes.md) | Ask for an address verification mail and redeem its link under `/auth/verify`. |
+| [Code routes](22-code-routes.md) | Ask for a login code and log in with it under `/auth/code`. |
 | [MFA enrolment routes](13-mfa-enrolment-routes.md) | Enrol, confirm and disable TOTP, regenerate recovery codes under `/user/mfa`. |
 | [API token routes](14-api-token-routes.md) | List, create, rotate, narrow and revoke the caller's API tokens under `/user/tokens`; revoke a token by its plaintext at `POST /auth/tokens/revoke`. |
 | [JWKS route](20-jwks-route.md) | Publish the public keys of the registered `JwsSigner`. |
