@@ -2,7 +2,8 @@ import { hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, Facet, HostSetup } from '@spinajs/authz-testing';
 
 import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, AuthzEventSink, MemoryAuthzAdminBackend, MemoryScopeAttributeStore, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
-import type { Assignment, AuthzEvent, AuthzService } from '@spinajs/authz';
+import type { AuthzEvent, AuthzService } from '@spinajs/authz';
+import type { Assignment } from '../../src/contracts.js';
 
 import adminConfig from '../../src/config/admin.js';
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRuleStore, RoleStore, RuleStore } from '../../src/index.js';

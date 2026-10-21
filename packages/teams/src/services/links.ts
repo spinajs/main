@@ -1,4 +1,5 @@
-import type { AssignmentSubject, AuthzCommand, ResourceRef } from '@spinajs/authz';
+import type { AuthzCommand, ResourceRef } from '@spinajs/authz';
+import type { AssignmentSubject } from '@spinajs/authz-rbac';
 
 import { GROUP_MEMBER_ROLE, TEAM_MEMBER_ROLE } from '../api.js';
 import { groupRef, teamRef } from '../refs.js';

@@ -1,5 +1,8 @@
+import { Injectable } from '@spinajs/di';
+
 import { anyObject, assignmentSubject, command, nullableDateTime, obj, principalRef, resourceRef, roleSet, tags, text } from './primitives.js';
 import type { JsonSchema } from './primitives.js';
+import { AuthzCommandSchemaSource } from './registry.js';
 
 const idOnly = { id: { ...text, description: 'the id of the row' } };
 
@@ -48,10 +51,10 @@ export const policyBody: JsonSchema = obj(
   'An ABAC policy; the server sets `source`',
 );
 
-/** The command kinds of AuthzCommand (packages/authz/src/contracts/admin.ts), in declaration order. */
+/** The command kinds the built-in sources describe: authz-rbac's, authz-abac's and the core's. */
 export const COMMAND_KINDS = ['assignment.grant', 'assignment.revoke', 'assignment.revokeWhere', 'assignment.setTags', 'assignment.addTags', 'assignment.removeTags', 'assignment.setExpiry', 'set.addMember', 'set.removeMember', 'link.create', 'link.update', 'link.revoke', 'rule.put', 'rule.delete', 'policy.put', 'policy.delete', 'scope.setAttributes', 'scope.replaceAttributes', 'scope.forget'] as const;
 
-export const commandSchemas: readonly JsonSchema[] = [
+const rbacCommands: readonly JsonSchema[] = [
   command('assignment.grant', ['subject', 'role', 'scope'], { subject: assignmentSubject, role: text, scope: resourceRef, tags, expiresAt: nullableDateTime, replaceLadder: { type: 'boolean', description: "revoke the subject's other roles of the same ladder at this scope" } }, 'Grants a role to a subject at a scope'),
   command('assignment.revoke', ['id'], idOnly, 'Revokes one assignment'),
   command('assignment.revokeWhere', ['scope'], { scope: resourceRef, subject: assignmentSubject, role: text }, 'Revokes the assignments at a scope, narrowed by subject and role'),
@@ -66,9 +69,44 @@ export const commandSchemas: readonly JsonSchema[] = [
   command('link.revoke', ['id'], idOnly, 'Revokes a share link'),
   command('rule.put', ['rule'], { rule: ruleBody }, 'Inserts or replaces a RBAC rule by id'),
   command('rule.delete', ['id'], idOnly, 'Deletes a RBAC rule'),
+];
+
+const abacCommands: readonly JsonSchema[] = [
   command('policy.put', ['policy'], { policy: policyBody }, 'Inserts or replaces an ABAC policy by id'),
   command('policy.delete', ['id'], idOnly, 'Deletes an ABAC policy'),
+];
+
+const coreCommands: readonly JsonSchema[] = [
   command('scope.setAttributes', ['scope', 'patch'], { scope: resourceRef, patch: { ...anyObject, description: 'deep merge; null deletes a path' } }, 'Merges a patch into the attributes of a scope'),
   command('scope.replaceAttributes', ['scope', 'attributes'], { scope: resourceRef, attributes: anyObject }, 'Replaces the attributes of a scope'),
   command('scope.forget', ['scope'], { scope: resourceRef }, 'Removes everything held AT a scope node (assignments, links, rules, policies, attributes)'),
 ];
+
+/** The schemas of the built-in sources, in COMMAND_KINDS order. */
+export const commandSchemas: readonly JsonSchema[] = [...rbacCommands, ...abacCommands, ...coreCommands];
+
+const byKind = (schemas: readonly JsonSchema[]): Readonly<Record<string, JsonSchema>> => Object.fromEntries(schemas.map((s) => [(s.properties as { kind: { enum: readonly string[] } }).kind.enum[0], s]));
+
+/** The commands of @spinajs/authz-rbac. */
+@Injectable(AuthzCommandSchemaSource)
+export class RbacCommandSchemas extends AuthzCommandSchemaSource {
+  schemas(): Readonly<Record<string, JsonSchema>> {
+    return byKind(rbacCommands);
+  }
+}
+
+/** The commands of @spinajs/authz-abac. */
+@Injectable(AuthzCommandSchemaSource)
+export class AbacCommandSchemas extends AuthzCommandSchemaSource {
+  schemas(): Readonly<Record<string, JsonSchema>> {
+    return byKind(abacCommands);
+  }
+}
+
+/** The core's scope commands. */
+@Injectable(AuthzCommandSchemaSource)
+export class CoreCommandSchemas extends AuthzCommandSchemaSource {
+  schemas(): Readonly<Record<string, JsonSchema>> {
+    return byKind(coreCommands);
+  }
+}

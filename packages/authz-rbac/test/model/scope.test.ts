@@ -1,5 +1,6 @@
 import { GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
-import type { Assignment, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
+import type { Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
+import type { Assignment } from '../../src/contracts.js';
 import { FakeRelationResolver, FakeScopeResolver, evaluateFilter, fakeEvaluationContext, userPrincipal, withCeiling, withCompanions } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import * as fc from 'fast-check';

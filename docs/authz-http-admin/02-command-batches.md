@@ -33,7 +33,7 @@
 | `idempotencyKey` | `string` | no | A retried batch with the same key answers the first result. |
 | `dryRun` | `boolean` | no | Validate, check permissions and guard, then roll back. |
 
-The command kinds and their fields are those of `AuthzCommand` in `@spinajs/authz`; `COMMAND_KINDS` lists all 19 and `commandSchemas` holds a JSON schema for each. See [AuthzAdmin](../authz/10-authz-admin.md) for what each command does.
+The command kinds and their fields are those of `AuthzCommand`: the core's, authz-rbac's, authz-abac's and any a model of your own declares. The route passes every kind to `AuthzAdmin`, which answers `not_found` for a kind no handler serves. `COMMAND_KINDS` lists the 19 built-in kinds and `commandSchemas` holds a JSON schema for each. See [AuthzAdmin](../authz/10-authz-admin.md) for what each command does.
 
 ## Answer
 

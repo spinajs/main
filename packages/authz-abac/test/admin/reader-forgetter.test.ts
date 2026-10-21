@@ -3,7 +3,7 @@ import 'mocha';
 import { userPrincipal } from '@spinajs/authz-testing';
 
 import { AuthzAdminFailure, AuthzAdminReader, AuthzConfigError, MemoryAuthzAdminBackend, ScopeForgetter, SYSTEM } from '@spinajs/authz';
-import type { Policy } from '@spinajs/authz';
+import type { Policy } from '../../src/contracts.js';
 
 import { AbacPolicyReader, AbacScopeForgetter } from '../../src/index.js';
 import { F1, G, O1, P1, P2, abacDomain, installHost, ok, rejection, resetHost, snapshot, stored, uninstallHost } from './support.js';

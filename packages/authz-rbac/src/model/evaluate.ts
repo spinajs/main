@@ -1,9 +1,9 @@
 import { AuthzConfigError, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, TRUE, and, compareDenyReasons, or, principalKey, resourceKey, unionFieldGlobs } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, AuthzContribution, DecisionRequest, DenyReason, EvaluationContext, FieldSet, FilterOp, ModelCapabilities, ModelInitContext, NativeFilter, Permission, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, Vote } from '@spinajs/authz';
+import type { AuthzContribution, DecisionRequest, DenyReason, EvaluationContext, FieldSet, FilterOp, ModelCapabilities, ModelInitContext, NativeFilter, Permission, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, Vote } from '@spinajs/authz';
 import { compareStrings, isThenable, thenMaybe as after } from '@spinajs/util';
 import type { MaybePromise } from '@spinajs/util';
 
-import type { AssignmentStore, LinkStore, RuleStore, SubjectResolver } from '../contracts.js';
+import type { Assignment, AssignmentStore, AssignmentSubject, LinkStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { expiryTime } from './assignments.js';
 import { ceilingRoles, withinCeiling } from './ceiling.js';
 import { applyDenyRoles, isDenyRole } from './deny.js';

@@ -1,6 +1,7 @@
 import * as fc from 'fast-check';
 
-import type { Assignment, AssignmentSubject, FieldSet, PrincipalRef, ResourceRef, ResourceType, RuleDef } from '@spinajs/authz';
+import type { FieldSet, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { TestAssignment as Assignment, TestAssignmentSubject as AssignmentSubject, TestRuleDef as RuleDef } from '../model-shapes.js';
 
 import { DEFAULT_FIELDS, DEFAULT_PERMISSIONS, DEFAULT_ROLES, DEFAULT_TYPES, dateInRange, fromPool, idOf, optional, scopeRef, sparse, subset, word } from './common.js';
 import type { NowOption, RefOptions } from './common.js';

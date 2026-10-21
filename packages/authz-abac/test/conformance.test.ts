@@ -1,6 +1,6 @@
 import 'mocha';
 import { DefaultConditionCompiler } from '@spinajs/authz';
-import type { Policy } from '@spinajs/authz';
+import type { Policy } from '../src/contracts.js';
 import { FakeAdapter, FakeScopeResolver, agentPrincipal, runModelConformance, servicePrincipal, userPrincipal, worldRows } from '@spinajs/authz-testing';
 import type { ModelFactory, ModelSetup } from '@spinajs/authz-testing';
 

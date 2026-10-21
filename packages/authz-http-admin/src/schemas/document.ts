@@ -1,3 +1,4 @@
+import type { JsonSchema } from './primitives.js';
 import { AUTHZ_ADMIN_SCHEMAS } from './provider.js';
 
 type Json = Record<string, any>;
@@ -62,11 +63,12 @@ export const AUTHZ_ADMIN_ROUTES: readonly RouteDoc[] = [
  * query parameters, the path parameter text and the body schemas as components. Operations are
  * matched by method and path suffix, so a route prefix does not matter. `basePath` is the configured
  * `authz.http.admin.basePath` when the app moved the routes. Changes the document in place.
+ * Pass `AuthzAdminSchemaProvider.schemas()` as `schemas` to list the commands every registered model contributes.
  */
-export function describeAuthzAdminDocument<T extends object>(doc: T, basePath = 'authz'): T {
+export function describeAuthzAdminDocument<T extends object>(doc: T, basePath = 'authz', schemas: Readonly<Record<string, JsonSchema>> = AUTHZ_ADMIN_SCHEMAS): T {
   const document = doc as Json;
   const components = ((document.components ??= {}).schemas ??= {}) as Json;
-  for (const [name, schema] of Object.entries(AUTHZ_ADMIN_SCHEMAS)) components[name] ??= schema;
+  for (const [name, schema] of Object.entries(schemas)) components[name] ??= schema;
 
   for (const route of AUTHZ_ADMIN_ROUTES) {
     const routePath = route.path.replace(/^\/authz/, `/${basePath.replace(/^\/+|\/+$/g, '')}`);

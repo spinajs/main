@@ -1,12 +1,11 @@
-import type * as core from '@spinajs/authz';
-import type { FieldSet, ResourceType } from '@spinajs/authz';
+import type { Condition, DenyReason, FieldSet, Permission, PrincipalType, ResourceType } from '@spinajs/authz';
 import * as chai from 'chai';
 import 'mocha';
 
 import { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore, SubjectResolver } from '../src/index.js';
 import * as root from '../src/index.js';
 import type { Assignment, AssignmentSubject, GrantDef, ImpliedRole, LadderDef, LinkDef, ResourcePattern, RoleDef, RuleDef, SubjectKey, SubjectSelector } from '../src/index.js';
-import type { Assignment as CoreAssignment, AssignmentSubject as CoreSubject, AuthzTx, LinkDef as CoreLinkDef, Principal, PrincipalRef, ResourceRef, RuleDef as CoreRuleDef, SubjectSelector as CoreSelector } from '@spinajs/authz';
+import type { AuthzAdmin, AuthzAdminQuery, AuthzCommand, AuthzCommandOf, AuthzTx, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
 const expect = chai.expect;
 
@@ -52,21 +51,6 @@ describe('authz-rbac contracts', () => {
     const a: Assignment = { id: '1', subject: s2, role: 'admin', scope, tags: ['t'], expiresAt: null, grantedBy: actor, source: 'db' };
     expect(a.subject).to.equal(s2);
     expect(s1).to.equal(actor);
-  });
-
-  it('re-exported types are the core types', () => {
-    const rule: CoreRuleDef = { id: 'r', kind: 'restrict', scope, source: 'config' };
-    const fwd: RuleDef = rule;
-    const back: CoreRuleDef = fwd;
-    const a: CoreAssignment = {} as Assignment;
-    const b: Assignment = a;
-    const s: CoreSubject = {} as AssignmentSubject;
-    const s2: AssignmentSubject = s;
-    const l: CoreLinkDef = {} as LinkDef;
-    const l2: LinkDef = l;
-    const sel: CoreSelector = {} as SubjectSelector;
-    const sel2: SubjectSelector = sel;
-    expect([back, b, s2, l2, sel2]).to.have.length(5);
   });
 
   it('store classes are runtime exports of the root', () => {
@@ -272,12 +256,140 @@ describe('authz-rbac pinned shapes', () => {
     yes<Equal<Shape<SubjectResolver>, { subjects(p: Principal): Promise<readonly AssignmentSubject[]> | readonly AssignmentSubject[] }>>();
     yes<Equal<Shape<MembershipStore>, { setsOf(memberKeys: readonly string[], at: Date): Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]>; membersOf(setKey: string, at: Date): Promise<readonly string[]> }>>();
     yes<Equal<SubjectKey, string>>();
-    yes<Equal<AssignmentSubject, core.AssignmentSubject>>();
-    yes<Equal<Assignment, core.Assignment>>();
-    yes<Equal<SubjectSelector, core.SubjectSelector>>();
-    yes<Equal<RuleDef, core.RuleDef>>();
-    yes<Equal<LinkDef, core.LinkDef>>();
     expect(true).to.equal(true);
+  });
+});
+
+describe('authz-rbac admin commands (declared in AuthzCommandMap)', () => {
+  type DSubject = PrincipalRef | { readonly set: { readonly role: string; readonly scope: ResourceRef } };
+  type DPage = { limit: number; offset: number; after?: string };
+  type DCommand =
+    | { readonly kind: 'assignment.grant'; readonly subject: AssignmentSubject; readonly role: string; readonly scope: ResourceRef; readonly tags?: readonly string[]; readonly expiresAt?: Date | null; readonly replaceLadder?: boolean }
+    | { readonly kind: 'assignment.revoke'; readonly id: string }
+    | { readonly kind: 'assignment.revokeWhere'; readonly scope: ResourceRef; readonly subject?: AssignmentSubject; readonly role?: string }
+    | { readonly kind: 'assignment.setTags' | 'assignment.addTags' | 'assignment.removeTags'; readonly id: string; readonly tags: readonly string[] }
+    | { readonly kind: 'assignment.setExpiry'; readonly id: string; readonly expiresAt: Date | null }
+    | { readonly kind: 'set.addMember'; readonly set: { readonly role: string; readonly scope: ResourceRef }; readonly member: PrincipalRef; readonly expiresAt?: Date | null }
+    | { readonly kind: 'set.removeMember'; readonly set: { readonly role: string; readonly scope: ResourceRef }; readonly member: PrincipalRef }
+    | { readonly kind: 'link.create'; readonly scope: ResourceRef; readonly role: string; readonly tags?: readonly string[]; readonly expiresAt?: Date | null; readonly attributes?: Readonly<Record<string, unknown>> }
+    | { readonly kind: 'link.update'; readonly id: string; readonly expiresAt?: Date | null; readonly attributes?: Readonly<Record<string, unknown>>; readonly role?: string; readonly tags?: readonly string[] }
+    | { readonly kind: 'link.revoke'; readonly id: string }
+    | { readonly kind: 'rule.put'; readonly rule: Omit<RuleDef, 'source'> }
+    | { readonly kind: 'rule.delete'; readonly id: string };
+  type DQuery =
+    | { readonly kind: 'assignments'; readonly scope?: ResourceRef; readonly subject?: AssignmentSubject; readonly role?: string; readonly includeExpired?: boolean; readonly page?: DPage }
+    | { readonly kind: 'links'; readonly scope?: ResourceRef; readonly page?: DPage }
+    | { readonly kind: 'rules'; readonly scope?: ResourceRef; readonly page?: DPage }
+    | { readonly kind: 'holders'; readonly scope: ResourceRef; readonly permission: Permission; readonly expandSets?: boolean; readonly page?: DPage };
+  type RbacKind = `${'assignment' | 'set' | 'link' | 'rule'}.${string}`;
+  type Opts = { readonly reason?: string; readonly idempotencyKey?: string; readonly dryRun?: boolean };
+
+  interface DAssignment {
+    readonly id: string;
+    readonly subject: DSubject;
+    readonly role: string;
+    readonly scope: ResourceRef;
+    readonly tags?: readonly string[];
+    readonly expiresAt?: Date | null;
+    readonly grantedBy?: PrincipalRef;
+    readonly source: string;
+  }
+
+  interface DSelector {
+    readonly principalTypes?: readonly PrincipalType[];
+    readonly actorTypes?: readonly PrincipalType[];
+    readonly refs?: readonly PrincipalRef[];
+    readonly rank?: { readonly ladder: string; readonly at: ResourceType; readonly lt?: string; readonly eq?: string; readonly gte?: string };
+    readonly when?: Condition;
+  }
+
+  interface DRule {
+    readonly id: string;
+    readonly kind: 'restrict' | 'cap' | 'threshold';
+    readonly scope: ResourceRef;
+    readonly resourceTypes?: readonly ResourceType[];
+    readonly subjects?: DSelector;
+    readonly when?: Condition;
+    readonly expiresAt?: Date | null;
+    readonly source: string;
+    readonly allow?: readonly DSubject[];
+    readonly ladder?: string;
+    readonly maxRole?: string | { readonly ref: string } | null;
+    readonly stripTags?: boolean;
+    readonly assignments?: { readonly scopeTypes?: readonly ResourceType[]; readonly subjectTypes?: readonly PrincipalType[] };
+    readonly permissions?: readonly string[];
+    readonly resource?: Condition;
+    readonly minRole?: string | { readonly ref: string };
+    readonly at?: ResourceType;
+    readonly reason?: DenyReason & { readonly model?: never };
+  }
+
+  interface DLink {
+    readonly id: string;
+    readonly scope: ResourceRef;
+    readonly expiresAt?: Date | null;
+    readonly attributes: Readonly<Record<string, unknown>>;
+    readonly createdBy?: PrincipalRef;
+  }
+
+  it('owns the data shapes the commands carry', () => {
+    yes<Equal<AssignmentSubject, DSubject>>();
+    yes<Equal<Assignment, DAssignment>>();
+    yes<Equal<SubjectSelector, DSelector>>();
+    yes<Equal<RuleDef, DRule>>();
+    yes<Equal<LinkDef, DLink>>();
+    expect(true).to.equal(true);
+  });
+
+  it('adds its commands and queries to AuthzCommand and AuthzAdminQuery', () => {
+    yes<Equal<Extract<AuthzCommand, { kind: RbacKind }>, DCommand>>();
+    yes<Equal<Extract<AuthzAdminQuery, { kind: 'assignments' | 'links' | 'rules' | 'holders' }>, DQuery>>();
+    yes<Equal<AuthzCommandOf<'assignment.grant'>, Extract<DCommand, { kind: 'assignment.grant' }>>>();
+    const commands: AuthzCommand[] = [
+      { kind: 'assignment.grant', subject: actor, role: 'editor', scope, tags: ['a'], expiresAt: null, replaceLadder: true },
+      { kind: 'assignment.revoke', id: '1' },
+      { kind: 'assignment.revokeWhere', scope, subject: actor, role: 'editor' },
+      { kind: 'assignment.setTags', id: '1', tags: [] },
+      { kind: 'assignment.addTags', id: '1', tags: ['x'] },
+      { kind: 'assignment.removeTags', id: '1', tags: ['x'] },
+      { kind: 'assignment.setExpiry', id: '1', expiresAt: new Date(0) },
+      { kind: 'set.addMember', set: { role: 'group.member', scope }, member: actor, expiresAt: null },
+      { kind: 'set.removeMember', set: { role: 'group.member', scope }, member: actor },
+      { kind: 'link.create', scope, role: 'viewer', tags: [], expiresAt: null, attributes: { org_only: true } },
+      { kind: 'link.update', id: 'l', expiresAt: null, attributes: {}, role: 'viewer', tags: [] },
+      { kind: 'link.revoke', id: 'l' },
+      { kind: 'rule.put', rule: { id: 'r', kind: 'restrict', scope } },
+      { kind: 'rule.delete', id: 'r' },
+      { kind: 'scope.forget', scope },
+    ];
+    // @ts-expect-error scope is required
+    const missing: AuthzCommand = { kind: 'assignment.grant', subject: actor, role: 'r' };
+    // @ts-expect-error id is required
+    const noId: AuthzCommand = { kind: 'link.revoke' };
+    expect([...commands, missing, noId]).to.have.length(17);
+  });
+
+  it('types the AuthzAdmin sugar of its commands', () => {
+    yes<Equal<Parameters<AuthzAdmin['assign']>, [actor: Principal, a: Omit<Extract<DCommand, { kind: 'assignment.grant' }>, 'kind'>, opts?: Opts]>>();
+    yes<Equal<Awaited<ReturnType<AuthzAdmin['assign']>>, DAssignment>>();
+    yes<Equal<Parameters<AuthzAdmin['createLink']>, [actor: Principal, l: Omit<Extract<DCommand, { kind: 'link.create' }>, 'kind'>, opts?: Opts]>>();
+    yes<Equal<Awaited<ReturnType<AuthzAdmin['createLink']>>, { link: DLink; token: string }>>();
+    yes<Equal<Parameters<AuthzAdmin['putRule']>, [actor: Principal, rule: Omit<DRule, 'source'>, opts?: Opts]>>();
+    expect(true).to.equal(true);
+  });
+
+  it('types RuleDef.reason as a DenyReason without model', () => {
+    const base = { id: 'r', kind: 'threshold', scope, source: 'db' } as const;
+    const ok: RuleDef = { ...base, reason: { code: 'x', priority: 300, sortKey: 'a', tag: 't' } };
+    // @ts-expect-error code is required
+    const noCode: RuleDef = { ...base, reason: {} };
+    // @ts-expect-error code is a string
+    const badCode: RuleDef = { ...base, reason: { code: 42 } };
+    // @ts-expect-error priority is a number
+    const badPriority: RuleDef = { ...base, reason: { code: 'x', priority: 'high' } };
+    // @ts-expect-error model is set by the engine
+    const withModel: RuleDef = { ...base, reason: { code: 'x', model: 'rbac' } };
+    expect([ok, noCode, badCode, badPriority, withModel]).to.have.length(5);
   });
 });
 

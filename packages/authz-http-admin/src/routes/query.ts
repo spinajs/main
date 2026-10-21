@@ -1,10 +1,13 @@
 import { AuthzAdminFailure, GLOBAL } from '@spinajs/authz';
-import type { AssignmentSubject, AuthzAdminOptions, AuthzAdminQuery, ResourceRef } from '@spinajs/authz';
+import type { AuthzAdminOptions, AuthzAdminQuery, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
 /** A parsed query string (express: string, string[] or a nested object per key). */
 export type QueryInput = Readonly<Record<string, unknown>>;
 
 type Page = { limit?: number; offset?: number; after?: string };
+
+/** authz-rbac's AssignmentSubject; the list queries belong to models this package does not import. */
+type AssignmentSubject = PrincipalRef | { readonly set: { readonly role: string; readonly scope: ResourceRef } };
 
 function invalid(field: string, message: string): never {
   throw new AuthzAdminFailure('invalid_query', message, field);
@@ -93,7 +96,7 @@ export function readAssignmentsQuery(q: QueryInput): AuthzAdminQuery {
     ...(role === undefined ? {} : { role }),
     ...(includeExpired === undefined ? {} : { includeExpired }),
     ...page(q),
-  } as AuthzAdminQuery;
+  } as unknown as AuthzAdminQuery;
 }
 
 /** GET /authz/holders: `scope` and `permission` (both required), `expandSets`, `limit`, `offset` or `after`. */
@@ -109,13 +112,13 @@ export function readHoldersQuery(q: QueryInput): AuthzAdminQuery {
     permission,
     ...(expandSets === undefined ? {} : { expandSets }),
     ...page(q),
-  } as AuthzAdminQuery;
+  } as unknown as AuthzAdminQuery;
 }
 
 /** GET /authz/links and /authz/rules: `scope`, `limit`, `offset` or `after`; GET /authz/policies has no `after`. */
 export function readPageQuery(kind: 'links' | 'rules' | 'policies', q: QueryInput): AuthzAdminQuery {
   if (kind === 'policies' && text(q, 'after') !== undefined) invalid('after', 'policies are paged by offset: after is not supported');
-  return { kind, ...scope(q), ...page(q) } as AuthzAdminQuery;
+  return { kind, ...scope(q), ...page(q) } as unknown as AuthzAdminQuery;
 }
 
 /** The AuthzAdminOptions of a single-command route: `reason`, `idempotencyKey`, `dryRun`. */

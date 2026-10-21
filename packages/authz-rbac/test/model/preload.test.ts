@@ -1,5 +1,6 @@
 import { AuthzConfigError, FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, ResourceRef, Vote } from '@spinajs/authz';
+import type { ResourceRef, Vote } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject } from '../../src/contracts.js';
 import { ManualClock, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal, withCompanions } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';

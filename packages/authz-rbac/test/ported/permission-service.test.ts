@@ -3,7 +3,8 @@ import 'mocha';
 import { renderTemplate } from '@spinajs/log-common';
 
 import { AccessDenied, AuthorizationModel, AuthzConfigError, AuthzContributor, AuthzService, FALSE, GLOBAL, PermissionRegistryImpl, ResourceAdapter, TRUE, UnknownPermission } from '@spinajs/authz';
-import type { Assignment, PermissionInput, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
+import type { PermissionInput, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
+import type { Assignment } from '../../src/contracts.js';
 import { FakeAdapter, FakeRelationResolver, fakeEvaluationContext, fakeModelInitContext, testHost, userPrincipal } from '@spinajs/authz-testing';
 import type { FakeRow } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';

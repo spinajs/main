@@ -47,6 +47,8 @@ sequenceDiagram
 
 ## Commands
 
+The core declares the `scope.*` kinds. authz-rbac and authz-abac add theirs to `AuthzCommand` by module augmentation, and a model of your own can add more ([Writing a model with admin commands](#writing-a-model-with-admin-commands)).
+
 | Kind | Handled by | Does |
 | --- | --- | --- |
 | `assignment.grant`, `assignment.revoke`, `assignment.revokeWhere`, `assignment.setTags`, `assignment.addTags`, `assignment.removeTags`, `assignment.setExpiry` | authz-rbac | Role assignments. |
@@ -58,9 +60,9 @@ sequenceDiagram
 | `scope.replaceAttributes` | core `ScopeAttributeHandler` | Replaces a node's attributes. |
 | `scope.forget` | core `ScopeForgetHandler` | Every model's data at one node (each `ScopeForgetter`), then its scope attributes. Data below the node needs one command per node. |
 
-Sugar methods: `assign`, `revoke`, `createLink` (returns `{ link, token }`; a replayed key fails with `conflict`, because the token is shown once), `revokeLink`, `setTags`, `putRule`, `deleteRule`, `putPolicy`, `deletePolicy`, `setScopeAttributes`, `forgetScope`. Each throws `AuthzAdminFailure` instead of returning a failed result.
+Sugar methods: `assign`, `revoke`, `createLink` (returns `{ link, token }`; a replayed key fails with `conflict`, because the token is shown once), `revokeLink`, `setTags`, `putRule`, `deleteRule`, `putPolicy`, `deletePolicy`, `setScopeAttributes`, `forgetScope`. Each throws `AuthzAdminFailure` instead of returning a failed result. The RBAC and ABAC sugar is typed only where that model is imported; without it the parameters are `never`.
 
-`list(actor, query)` reads for admin screens: `{ kind: 'assignments' | 'links' | 'rules' | 'policies' | 'attributes' | 'holders', scope?, ... }`. It checks `authz:<kind>.read` at the query's scope (mapped by `authz.admin.permissions` under `list.<kind>`), pages by `{ limit, offset }` (default 50, at most 500) or, instead of `offset`, `{ limit, after }` with the `next` an earlier answer carried and asks the `AuthzAdminReader` of the kind. Items never carry a link token or its hash. A `holders` query needs a `scope` and a `permission`; the RBAC reader refuses a page limit above 100 with `invalid_query` ([Holders](13-holders.md)).
+`list(actor, query)` reads for admin screens: `{ kind: 'assignments' | 'links' | 'rules' | 'policies' | 'attributes' | 'holders', scope?, ... }`, or any kind a registered `AuthzAdminReader` claims. It checks `authz:<kind>.read` at the query's scope (mapped by `authz.admin.permissions` under `list.<kind>`), pages by `{ limit, offset }` (default 50, at most 500) or, instead of `offset`, `{ limit, after }` with the `next` an earlier answer carried and asks the `AuthzAdminReader` of the kind. Items never carry a link token or its hash. A `holders` query needs a `scope` and a `permission`; the RBAC reader refuses a page limit above 100 with `invalid_query` ([Holders](13-holders.md)).
 
 ## Permissions
 
@@ -136,6 +138,53 @@ A handler gets the `AdminContext` that `AuthzAdmin` passes. These helpers keep h
 | `optionalAdminService(ctx, Token)` | The same, `undefined` when none is registered. |
 | `readId`, `readRef`, `readScope`, `readNode`, `readPrincipal`, `readExpiry` | Copy a command field, or throw `AuthzAdminFailure` `invalid_command` naming the field. |
 | `invalid(field, message)` | Builds that `invalid_command` failure. |
+
+### Writing a model with admin commands
+
+`AuthzCommand` and `AuthzAdminQuery` are open sets. Each is the union of an interface keyed by kind: `AuthzCommandMap` and `AuthzAdminQueryMap`. The core declares only `scope.setAttributes`, `scope.replaceAttributes`, `scope.forget` and the `attributes` query. authz-rbac and authz-abac add their kinds the same way a third-party model does, with module augmentation:
+
+```ts
+import { AuthzAdminFailure, AuthzWriteHandler, adminContainer, readScope } from '@spinajs/authz';
+import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx, Permission, ResourceRef } from '@spinajs/authz';
+import { Injectable } from '@spinajs/di';
+
+export interface QuotaSetCommand {
+  readonly kind: 'quota.set';
+  readonly scope: ResourceRef;
+  readonly limit: number;
+}
+
+declare module '@spinajs/authz' {
+  interface AuthzCommandMap {
+    'quota.set': QuotaSetCommand;
+  }
+}
+
+@Injectable(AuthzWriteHandler)
+export class QuotaHandler extends AuthzWriteHandler {
+  readonly kinds = ['quota.set'] as const;
+
+  async validate(c: AuthzCommand): Promise<void> {
+    if (c.kind !== 'quota.set' || !Number.isInteger(c.limit) || c.limit < 0) throw new AuthzAdminFailure('invalid_command', 'limit must be a count', 'limit');
+  }
+
+  permission(c: AuthzCommand): { permission: Permission; resource: ResourceRef } {
+    return { permission: 'app:quota.manage', resource: readScope((c as QuotaSetCommand).scope) };
+  }
+
+  async apply(c: AuthzCommand, ctx: AdminContext, tx: AuthzTx): Promise<{ affected: number; tags: readonly string[]; events: readonly AuthzEvent[] }> {
+    const store = await adminContainer(ctx).resolve(QuotaStore);
+    await store.set(c as QuotaSetCommand, tx);
+    return { affected: 1, tags: [], events: [{ type: 'QuotaSet', data: { limit: (c as QuotaSetCommand).limit } } as AuthzEvent] };
+  }
+}
+```
+
+- The augmentation lives in a module that the package's public types import, as `authz-rbac/src/admin/commands.ts` is re-exported by `authz-rbac/src/contracts.ts`. Any file that imports the package then sees the new kinds.
+- `AuthzCommandOf<'quota.set'>` is the shape, and `never` until a model declares the kind. The sugar methods of `AuthzAdmin` take `AuthzCommandFields<K>` and return `AuthzCommandRow<K>`, so `assign` and `createLink` are typed only where authz-rbac is imported. `putPolicy` and `deletePolicy` need authz-abac in the same way.
+- A query works the same way: augment `AuthzAdminQueryMap` and register an `AuthzAdminReader` whose `kinds` lists it. `list()` accepts any kind a registered reader claims. The first-party kinds stay known without their reader and answer `not_found` instead of `invalid_query`.
+- The guard, validators, permission mapping (`authz.admin.permissions`), audit, events and idempotency treat the new kind like a built-in one. `DefaultAdminGuard` checks only the RBAC kinds, so it lets another model's commands through.
+- For the HTTP admin routes, register an `AuthzCommandSchemaSource` that describes the kind; see [OpenAPI documentation](../authz-http-admin/06-openapi-documentation.md).
 
 ### `AuthzCommandValidator`: custom implementation
 

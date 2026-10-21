@@ -1,5 +1,6 @@
 import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
-import type { Assignment, Permission, Principal, ResourceType } from '@spinajs/authz';
+import type { Permission, Principal, ResourceType } from '@spinajs/authz';
+import type { Assignment } from '../../src/contracts.js';
 import { evaluateFilter, hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, Facet, HarnessSession, HostSetup } from '@spinajs/authz-testing';
 

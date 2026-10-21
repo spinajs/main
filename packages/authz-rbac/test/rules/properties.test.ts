@@ -1,5 +1,6 @@
 import { DefaultConditionCompiler, GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
-import type { Assignment, EvaluationContext, NativeFilter, PermissionInput, Principal, ResourceFilter, ResourceRef, RuleDef, Vote } from '@spinajs/authz';
+import type { EvaluationContext, NativeFilter, PermissionInput, Principal, ResourceFilter, ResourceRef, Vote } from '@spinajs/authz';
+import type { Assignment, RuleDef } from '../../src/contracts.js';
 import { FakeScopeResolver, evaluateFilter, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import * as fc from 'fast-check';

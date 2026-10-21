@@ -1,5 +1,6 @@
 import { AuthzConfigError, GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
-import type { Assignment, Principal } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
+import type { Assignment } from '../../src/contracts.js';
 import { Container, DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { bootConfiguration, fakeModelInitContext, userPrincipal, violationPaths } from '@spinajs/authz-testing';

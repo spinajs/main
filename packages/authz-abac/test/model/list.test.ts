@@ -1,7 +1,8 @@
 import * as chai from 'chai';
 import 'mocha';
 import { DefaultConditionCompiler, PermissionRegistryImpl } from '@spinajs/authz';
-import type { EvaluationContext, ListPlanRequest, Policy, Principal } from '@spinajs/authz';
+import type { EvaluationContext, ListPlanRequest, Principal } from '@spinajs/authz';
+import type { Policy } from '../../src/contracts.js';
 import { agentPrincipal, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 
 import { AbacModel, MemoryPolicyStore } from '../../src/index.js';

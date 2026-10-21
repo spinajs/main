@@ -113,7 +113,8 @@ Extend `DbPolicyStore` to add a rule before a write, and keep the base checks an
 
 ```ts sample
 import { AuthzConfigError } from '@spinajs/authz';
-import type { AuthzTx, Policy, PrincipalRef } from '@spinajs/authz';
+import type { AuthzTx, PrincipalRef } from '@spinajs/authz';
+import type { Policy } from '@spinajs/authz-abac';
 import { DbPolicyStore } from '@spinajs/authz-abac';
 
 // Stored policies may only deny; permits stay in reviewed config.

@@ -2,7 +2,8 @@ import type { IContainer } from '@spinajs/di';
 import { FakeScopeResolver, ManualClock, RecordingAudit, RecordingChangeBus, StaticModel, testHost } from '@spinajs/authz-testing';
 
 import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzContributor, AuthzEventSink, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, SYSTEM, ScopeResolver, TRUE, resourceKey } from '@spinajs/authz';
-import type { AdminCallContext, AuthzAdmin, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzService, Policy, Principal, ResourceRef } from '@spinajs/authz';
+import type { AdminCallContext, AuthzAdmin, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzService, Principal, ResourceRef } from '@spinajs/authz';
+import type { Policy } from '../../src/contracts.js';
 
 import { AbacContributor, AbacModel, ConfigPolicyStore, MemoryPolicyStore, PolicyStore } from '../../src/index.js';
 

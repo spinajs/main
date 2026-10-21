@@ -1,4 +1,5 @@
-import type { AssignmentSubject, PrincipalRef } from '@spinajs/authz';
+import type { PrincipalRef } from '@spinajs/authz';
+import type { AssignmentSubject } from '../../contracts.js';
 
 import { scopeFromColumns, subjectKeyOf } from '../../stores/columns.js';
 import { WILDCARD_ID } from './resolver.js';

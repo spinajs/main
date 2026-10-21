@@ -2,7 +2,8 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { AuthorizationModel, AuthzContributor, AuthzService, GLOBAL, ResourceAdapter } from '@spinajs/authz';
-import type { Assignment, Principal, ResourceRef } from '@spinajs/authz';
+import type { Principal, ResourceRef } from '@spinajs/authz';
+import type { Assignment } from '../../src/contracts.js';
 import { FakeAdapter, testHost, userPrincipal } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 

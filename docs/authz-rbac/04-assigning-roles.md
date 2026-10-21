@@ -191,7 +191,7 @@ await admin.execute(actor, [
 
 ```ts sample
 import { authz } from '@spinajs/authz';
-import type { Assignment } from '@spinajs/authz';
+import type { Assignment } from '@spinajs/authz-rbac';
 
 export async function grantAccountant(userId: string, orgId: string): Promise<Assignment> {
   const in30Days = new Date(Date.now() + 30 * 24 * 3600 * 1000);

@@ -1,4 +1,5 @@
-import type { LinkDef, Principal, PrincipalRef } from '@spinajs/authz';
+import type { Principal, PrincipalRef } from '@spinajs/authz';
+import type { LinkDef } from '../../contracts.js';
 
 /** The deny code of a link principal's ceiling: an invalid, expired or out-of-scope link. */
 export const LINK_INVALID = 'link_invalid';

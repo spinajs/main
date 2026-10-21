@@ -1,5 +1,6 @@
 import { GLOBAL } from '@spinajs/authz';
-import type { AuthzCommand, Policy, Principal, ResourceRef } from '@spinajs/authz';
+import type { Principal, ResourceRef } from '@spinajs/authz';
+import type { TestAdminCommand as AuthzCommand, TestAbacPolicy as Policy } from '../model-shapes.js';
 
 import { userPrincipal } from '../principals.js';
 import { assignment, combine, fixture, ref, role } from './dsl.js';

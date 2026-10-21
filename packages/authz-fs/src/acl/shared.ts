@@ -1,5 +1,6 @@
 import { AuthzConfigError } from '@spinajs/authz';
-import type { AssignmentSubject, PrincipalRef } from '@spinajs/authz';
+import type { PrincipalRef } from '@spinajs/authz';
+import type { AssignmentSubject } from '@spinajs/authz-rbac';
 import { SUBJECT_KEY_MAX_LENGTH, parsePrincipalKey, parsePrincipalSubjectKey, parseSetKey, principalSubjectKey, subjectKeyOf } from '@spinajs/authz-rbac';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';

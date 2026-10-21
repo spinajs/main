@@ -1,7 +1,8 @@
 import * as chai from 'chai';
 import 'mocha';
 import { Authorizer, AuthzConfigError, DefaultConditionCompiler, FALSE, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
-import type { DecisionRequest, EvaluationContext, Policy, Vote } from '@spinajs/authz';
+import type { DecisionRequest, EvaluationContext, Vote } from '@spinajs/authz';
+import type { Policy } from '../../src/contracts.js';
 import { StaticModel, agentPrincipal, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 
 import { AbacModel, ConfigPolicyStore, DbPolicyStore, MemoryPolicyStore, storesFromConfig } from '../../src/index.js';
@@ -334,7 +335,9 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       await m.init(fakeModelInitContext({ permissions: registry(), config: { stores: ['ConfigPolicyStore'], policies: [policy('read')] } }));
       expect(((await m.evaluate(req(), ctx())) as Vote).permitWhen).to.equal(TRUE);
       let error: unknown;
-      await new AbacModel().init(fakeModelInitContext({ permissions: registry(), config: { stores: ['Nope'] } })).catch((e) => (error = e));
+      await new AbacModel().init(fakeModelInitContext({ permissions: registry(), config: { stores: ['Nope'] } })).catch((e: unknown) => {
+        error = e;
+      });
       expect(error).to.be.instanceOf(AuthzConfigError);
       expect((error as Error).message).to.match(/authz\.abac\.stores names "Nope"/);
     });
@@ -342,7 +345,9 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
     it('refuses authz.<name>.connection at init, naming db.Aliases.authz', async () => {
       for (const name of ['abac', 'tenant-abac']) {
         let error: unknown;
-        await new AbacModel({ name, stores: [] }).init(fakeModelInitContext({ permissions: registry(), config: { connection: 'reporting' } })).catch((e) => (error = e));
+        await new AbacModel({ name, stores: [] }).init(fakeModelInitContext({ permissions: registry(), config: { connection: 'reporting' } })).catch((e: unknown) => {
+          error = e;
+        });
         expect(error, name).to.be.instanceOf(AuthzConfigError);
         expect((error as Error).message).to.equal(`authz.${name}.connection: removed; the authz tables use the ORM connection alias "authz", so set db.Aliases.authz to the connection name instead (default: "default")`);
       }
@@ -352,10 +357,14 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       const store = new DbPolicyStore();
       const tx = { driver: {} };
       let error: unknown;
-      await store.put({ id: 'p', effect: 'permit', permissions: [] }, undefined, tx).catch((e) => (error = e));
+      await store.put({ id: 'p', effect: 'permit', permissions: [] }, undefined, tx).catch((e: unknown) => {
+        error = e;
+      });
       expect((error as Error).message).to.match(/permissions must be a non-empty list/);
       error = undefined;
-      await store.put({ id: 'x'.repeat(65), effect: 'permit', permissions: ['file:read'] }, undefined, tx).catch((e) => (error = e));
+      await store.put({ id: 'x'.repeat(65), effect: 'permit', permissions: ['file:read'] }, undefined, tx).catch((e: unknown) => {
+        error = e;
+      });
       expect((error as Error).message).to.match(/id is longer than 64 characters/);
     });
   });
