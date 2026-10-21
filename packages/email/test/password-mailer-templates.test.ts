@@ -22,7 +22,7 @@ const SECRET = 'Zx9-secret_Q7w';
 const URL_BASE = 'https://app.example.com/password-reset';
 const LINK = `${URL_BASE}?token=${SECRET}&email=alice%40example.com`;
 const BUILTIN = resolve(process.cwd(), 'src', 'templates');
-const PURPOSES = ['reset', 'invite'] as const;
+const PURPOSES = ['reset', 'invite', 'verify'] as const;
 
 const dir = (path: string) => resolve(normalize(join(process.cwd(), 'test', path)));
 /** How the template engine writes a model value into HTML. */
@@ -74,11 +74,11 @@ function configurationOf(values: Record<string, unknown>): Class<Configuration> 
   };
 }
 
-async function violationsOf(template: unknown): Promise<string[]> {
+async function violationsOf(template: unknown, purpose = 'reset'): Promise<string[]> {
   const child = DI.RootContainer.child();
   try {
     child.register(CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
-    child.register(configurationOf({ email: { connections: [], defaultConnection: 'test', password: { reset: { template } } } })).as(Configuration);
+    child.register(configurationOf({ email: { connections: [], defaultConnection: 'test', password: { [purpose]: { template } } } })).as(Configuration);
     await child.resolve(Configuration);
     return [];
   } catch (e) {
@@ -266,5 +266,49 @@ describe('EmailPasswordMailer MJML templates (MAIL-1, D14)', function () {
         expect(await violationsOf(template)).to.deep.equal([]);
       });
     }
+  });
+
+  describe('the verify mail (FEAT-2)', () => {
+    it('without template config renders authn/verify.mjml with the default subject, the ActionUrl and the expiry, and redacts the secret and the link', async () => {
+      const x = await pipeline();
+      await x.mailer.send(aMail({ purpose: 'verify', ttlSeconds: 86400 }));
+
+      const [email] = x.handed;
+      expect(email.template).to.deep.equal({ file: 'authn/verify.mjml', fs: 'email-builtin-templates' });
+      expect(email.subject).to.equal('Confirm your email address');
+      expect(email.tag).to.equal('authn-password-verify');
+      expect(email.redact).to.deep.equal([SECRET, LINK]);
+      expect(email.text).to.equal(undefined);
+      expect(x.sent[0].html).to.match(/^<!doctype html>/i);
+      expect(x.sent[0].html).to.contain('Confirm your email address');
+      expect(x.sent[0].html).to.contain(inHtml(LINK));
+      expect(x.sent[0].html).to.contain('1440 minutes');
+    });
+
+    it('without a verify url the built-in template shows the token instead of the button', async () => {
+      const x = await pipeline();
+      await x.mailer.send(aMail({ purpose: 'verify', url: '' }));
+      expect(x.sent[0].html).to.contain(SECRET);
+      expect(x.sent[0].html).to.not.contain(URL_BASE);
+    });
+
+    it('email.password.verify.subject and email.password.verify.template override the built-in ones', async () => {
+      const x = await pipeline({ connection: 'test', verify: { subject: 'Please confirm', template: 'custom/verify.mjml' } });
+      await x.mailer.send(aMail({ purpose: 'verify' }));
+      expect(x.handed[0].subject).to.equal('Please confirm');
+      expect(x.sent[0].html).to.contain('project-custom-verify');
+      expect(x.sent[0].html).to.contain(inHtml(LINK));
+    });
+
+    it('validates email.password.verify.template like the other purposes', async () => {
+      expect(await violationsOf('my/verify.mjml', 'verify')).to.deep.equal([]);
+      for (const template of [null, '', 'verify.hbs']) {
+        const paths = await violationsOf(template, 'verify');
+        expect(
+          paths.some((p) => p.startsWith('email.password.verify.template')),
+          paths.join(', '),
+        ).to.equal(true);
+      }
+    });
   });
 });

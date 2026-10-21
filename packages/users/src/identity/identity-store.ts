@@ -6,7 +6,7 @@ import { USER_COMMON_METADATA, User } from '../models/User.js';
 import { runAsSystem } from '../system.js';
 import { usersMatchingLogin, usersOrmUp } from './sql.js';
 
-const UNKNOWN: IdentityStatus = Object.freeze({ exists: false, active: false, banned: false, deleted: false, invitePending: false });
+const UNKNOWN: IdentityStatus = Object.freeze({ exists: false, active: false, banned: false, deleted: false, invitePending: false, addressVerified: false });
 
 /**
  * Users as authn identities (`user:<Uuid>`). Every lookup uses the base `User` and includes soft-deleted rows, so
@@ -48,6 +48,7 @@ export class UserIdentityStore extends IdentityStore {
       banned: u.IsBanned,
       deleted: Boolean(u.DeletedAt),
       invitePending: u.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING] === true,
+      addressVerified: Boolean(u.EmailVerifiedAt),
     };
   }
 

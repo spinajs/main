@@ -5,7 +5,7 @@ import type { ConfigOverrides, Facet, HarnessContext } from '@spinajs/authn-test
 
 import { localHarness, localStrategySubject, registerHarnessTypes, unregisterHarnessTypes } from './kit-harness.js';
 
-const N3_FACETS: Facet[] = ['A02/local', 'A03/argon2', 'A04/local', 'A11/local', 'A13/local', 'A30/local'];
+const N3_FACETS: Facet[] = ['A02/local', 'A03/argon2', 'A04/local', 'A11/local', 'A13/local', 'A30/local', 'A32/local'];
 
 // Sized for a loaded host where one argon2 verify takes up to 500 ms; the kit's flat 600 s timed out there.
 const TIMING_TIMEOUT_MS = timingTimeoutMs(timingDefaults(), 500);
@@ -15,7 +15,7 @@ describe('authn-local kit acceptance', function () {
   before(registerHarnessTypes);
   after(unregisterHarnessTypes);
 
-  runAuthnBehaviour(['A02', 'A03', 'A04', 'A11', 'A13', 'A30'], localHarness, {
+  runAuthnBehaviour(['A02', 'A03', 'A04', 'A11', 'A13', 'A30', 'A32'], localHarness, {
     claim: N3_FACETS,
     facets: N3_FACETS,
     timeoutMs: TIMING_TIMEOUT_MS,

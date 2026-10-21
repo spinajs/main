@@ -1,5 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { AuthnLocalConfigBootstrapper } from '../src/bootstrap.js';
@@ -14,6 +17,19 @@ import { boot, disposeBooted, readingFrom, violationsOf } from './support/config
 import { registeredSchemasAfter } from './support/registered-schemas.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_LOCAL_CONFIGURATION_SCHEMA];
+
+/** `authn.local.policy.blocklist` of the built shipped config, loaded in a fresh process under `env`. */
+function shippedBlocklistUnder(env: Record<string, string>): unknown {
+  const file = pathToFileURL(join(process.cwd(), 'lib', 'mjs', 'config', 'authn-local.js')).href;
+  const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'APP_ENV' && k !== 'NODE_ENV' && k !== 'NODE_OPTIONS'));
+  const run = spawnSync(process.execPath, ['--input-type=module', '-e', `const m = await import(${JSON.stringify(file)}); process.stdout.write(JSON.stringify(m.default.authn.local.policy.blocklist));`], {
+    env: { ...base, ...env },
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  if (run.status !== 0) throw new Error(`loading the shipped config failed: ${run.stderr}`);
+  return JSON.parse(run.stdout) as unknown;
+}
 const LOCAL = { authn: { local: {} } };
 const bad = (local: Record<string, unknown>) => violationsOf(SCHEMAS, { authn: { local } });
 
@@ -32,10 +48,12 @@ describe('authn.local through the schema', function () {
       const expected = {
         hasher: { maxQueue: 64 },
         pepper: { secret: null, version: 1 },
-        policy: { minLength: 8, maxLength: 128, rule: null, blocklist: null },
+        policy: { minLength: 8, maxLength: 128, rule: null, blocklist: null, similarity: true },
+        hibp: { url: 'https://api.pwnedpasswords.com/range/', timeoutMs: 2000 },
         generator: { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] },
         reset: { ttlSeconds: 3600, url: '', revokeTokens: true },
         invite: { ttlSeconds: 900 },
+        verify: { ttlSeconds: 86400, url: '' },
         expiration: { enabled: false, maxAgeDays: 31 },
         mail: { delivery: 'queue' },
       };
@@ -48,7 +66,8 @@ describe('authn.local through the schema', function () {
       expect(configuration.get('authn.local.hasher.maxConcurrent')).to.eq(undefined);
       expect(configuration.get('authn.local.hasher.maxQueue')).to.eq(64);
       expect(configuration.get('authn.local.pepper')).to.deep.eq({ secret: null, version: 1 });
-      expect(configuration.get('authn.local.policy')).to.deep.eq({ minLength: 8, maxLength: 128, rule: null, blocklist: null });
+      expect(configuration.get('authn.local.policy')).to.deep.eq({ minLength: 8, maxLength: 128, rule: null, blocklist: null, similarity: true });
+      expect(configuration.get('authn.local.hibp')).to.deep.eq({ url: 'https://api.pwnedpasswords.com/range/', timeoutMs: 2000 });
       expect(configuration.get('authn.local.generator.length')).to.eq(16);
       expect(configuration.get('authn.local.generator.characters')).to.have.length(3);
       expect(configuration.get('authn.local.reset')).to.deep.eq({ ttlSeconds: 3600, url: '', revokeTokens: true });
@@ -61,10 +80,12 @@ describe('authn.local through the schema', function () {
       const filled = configuration.get<Record<string, Record<string, unknown>>>('authn.local');
       expect(AUTHN_LOCAL_DEFAULTS).to.deep.eq({
         hasher: { maxQueue: filled.hasher.maxQueue },
-        policy: { minLength: filled.policy.minLength, maxLength: filled.policy.maxLength },
+        policy: { minLength: filled.policy.minLength, maxLength: filled.policy.maxLength, similarity: filled.policy.similarity },
+        hibp: filled.hibp,
         generator: filled.generator,
         reset: filled.reset,
         invite: filled.invite,
+        verify: filled.verify,
         expiration: filled.expiration,
         mail: filled.mail,
       });
@@ -79,7 +100,24 @@ describe('authn.local through the schema', function () {
       expect(configuration.get('authn.local.policy.maxLength')).to.eq(shipped.policy.maxLength);
       expect(configuration.get('authn.local.reset.revokeTokens')).to.eq(shipped.reset.revokeTokens);
       expect(configuration.get('authn.local.mail.delivery')).to.eq(shipped.mail.delivery);
+      expect(configuration.get('authn.local.verify')).to.deep.eq(shipped.verify);
+      expect(configuration.get('authn.local.policy.similarity')).to.eq(shipped.policy.similarity);
+      expect(configuration.get('authn.local.hibp')).to.deep.eq(shipped.hibp);
     });
+
+    // The shipped config is evaluated once per process, so each env gets its own process.
+    for (const [label, env, expected] of [
+      ['production', { APP_ENV: 'production' }, 'HibpPasswordBlocklist'],
+      ['staging', { APP_ENV: 'staging' }, 'HibpPasswordBlocklist'],
+      ['NODE_ENV production', { NODE_ENV: 'production' }, 'HibpPasswordBlocklist'],
+      ['development', { APP_ENV: 'development' }, null],
+      ['test', { APP_ENV: 'test' }, null],
+      ['no env named, which the configuration loads as development', {}, null],
+    ] as const) {
+      it(`ships ${String(expected)} as authn.local.policy.blocklist under ${label} (D3)`, () => {
+        expect(shippedBlocklistUnder(env)).to.eq(expected);
+      });
+    }
 
     it('ships AuthnMailJob on its own queue connection and lists the job directory', () => {
       expect(authnLocal.queue.routing.AuthnMailJob).to.deep.eq({ connection: 'authn-mail' });
