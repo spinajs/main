@@ -48,6 +48,7 @@ describe('authn.local through the schema', function () {
       const expected = {
         hasher: { maxQueue: 64 },
         pepper: { secret: null, version: 1 },
+        legacyHashes: [],
         policy: { minLength: 8, maxLength: 128, rule: null, blocklist: null, similarity: true },
         hibp: { url: 'https://api.pwnedpasswords.com/range/', timeoutMs: 2000 },
         generator: { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] },

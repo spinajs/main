@@ -13,3 +13,4 @@ export * from './deferred.js';
 export * from './expiration.js';
 export * from './schema.js';
 export * from './bootstrap.js';
+export * from './legacy/index.js';

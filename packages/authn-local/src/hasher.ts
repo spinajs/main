@@ -6,6 +6,7 @@ import './register-schema.js';
 
 import { AUTHN_LOCAL_DEFAULTS, defaultMaxConcurrent } from './defaults.js';
 import { ConcurrencyLimiter } from './limiter.js';
+import type { LegacyHashKind } from './legacy/index.js';
 import { formatStored, parseStored, pepperInput, PepperEntry } from './pepper.js';
 
 /** Stored instead of a hash to make the current password unusable; never verifies. */
@@ -30,6 +31,7 @@ export interface Argon2PasswordHasherOptions {
   readonly maxConcurrent?: number;
   readonly maxQueue?: number;
   readonly pepper?: PepperConfig;
+  readonly legacyHashes?: readonly LegacyHashKind[];
 }
 
 export abstract class PasswordHasher extends AsyncService {
@@ -66,6 +68,9 @@ export class Argon2PasswordHasher extends PasswordHasher {
 
   @Config('authn.local.pepper')
   protected Pepper: PepperConfig;
+
+  @Config('authn.local.legacyHashes')
+  protected LegacyHashes?: readonly LegacyHashKind[];
 
   private _settings?: HasherSettings;
   private _limiter?: ConcurrencyLimiter;
