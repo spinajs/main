@@ -7,7 +7,18 @@ export interface KeysConfig {
   readonly challenge: { readonly ttlSeconds: number; readonly audience: string | null };
   readonly assertion: { readonly typ: string; readonly audience: string | null; readonly maxLifetimeSeconds: number; readonly skewSeconds: number };
   readonly httpSignature: { readonly maxAgeSeconds: number; readonly skewSeconds: number; readonly requiredComponents: readonly string[] };
+  /** Absent: {@link DEFAULT_KEY_CACHE}. */
+  readonly cache?: KeyCacheOptions;
 }
+
+/** `authn.keys.cache`: how long `KeyRegistry.byId` serves a key from memory. */
+export interface KeyCacheOptions {
+  /** 0 turns the cache off. */
+  readonly ttlSeconds: number;
+  readonly maxEntries: number;
+}
+
+export const DEFAULT_KEY_CACHE: KeyCacheOptions = Object.freeze({ ttlSeconds: 10, maxEntries: 10_000 });
 
 /** `authn.keys` (design §22.5) after defaults. */
 export interface KeysOptions {
@@ -29,6 +40,7 @@ export interface KeysOptions {
     readonly skewSeconds: number;
     readonly requiredComponents: readonly string[];
   };
+  readonly cache: KeyCacheOptions;
 }
 
 const derived = new WeakMap<object, KeysOptions>();
@@ -65,6 +77,7 @@ export function keysOptionsOf(config: KeysConfig): KeysOptions {
       challenge: Object.freeze({ ttlSeconds: config.challenge.ttlSeconds, audience: config.challenge.audience ?? config.assertion.audience }),
       assertion: Object.freeze({ ...config.assertion }),
       httpSignature: Object.freeze({ ...config.httpSignature, requiredComponents: Object.freeze([...config.httpSignature.requiredComponents]) }),
+      cache: Object.freeze({ ...DEFAULT_KEY_CACHE, ...config.cache }),
     });
     derived.set(config, options);
     derived.set(options, options);

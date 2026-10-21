@@ -13,6 +13,7 @@ export interface KeysOverrides {
   readonly challenge?: Partial<KeysConfig['challenge']>;
   readonly assertion?: Partial<KeysConfig['assertion']>;
   readonly httpSignature?: Partial<KeysConfig['httpSignature']>;
+  readonly cache?: KeysConfig['cache'];
 }
 
 export const keysOptionsFor = (over: KeysOverrides = {}): KeysOptions =>
@@ -21,4 +22,5 @@ export const keysOptionsFor = (over: KeysOverrides = {}): KeysOptions =>
     challenge: { ...TEST_KEYS_CONFIG.challenge, ...over.challenge },
     assertion: { ...TEST_KEYS_CONFIG.assertion, ...over.assertion },
     httpSignature: { ...TEST_KEYS_CONFIG.httpSignature, ...over.httpSignature },
+    ...(over.cache !== undefined ? { cache: over.cache } : {}),
   });

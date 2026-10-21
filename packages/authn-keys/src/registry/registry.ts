@@ -5,6 +5,7 @@ import '../register-schema.js';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
+import type { CredentialChangeBus } from '@spinajs/authn/contracts';
 import type { AuthnContext, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
 import { _between, _contains, _is_string, _try_check_arg, isPlainObject } from '@spinajs/util';
 import { InvalidArgument, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
@@ -74,6 +75,8 @@ export interface DefaultKeyRegistryDeps {
   readonly audit?: AuthnAuditor;
   /** Complete options that bypass the configuration. */
   readonly options?: KeysOptions;
+  /** Told about revoked keys, and evicts the key cache; otherwise the registered CredentialChangeBus. */
+  readonly bus?: CredentialChangeBus;
 }
 
 /** KeyRegistry over a KeyStore, challenges in SecretStore (lane notes D7, D12). */
