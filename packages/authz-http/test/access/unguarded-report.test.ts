@@ -220,11 +220,11 @@ describe('unguarded routes', () => {
       testHost.config().set(['authz', 'http', 'unguardedRoutes'], 'throw');
       DI.register(OpenRoutes).as(BaseController);
       try {
-        const middleware = (await DI.resolve(PrincipalMiddleware)) as PrincipalMiddleware;
+        const middleware = await DI.resolve(PrincipalMiddleware);
         const server = { stop: sinon.stub().resolves() };
 
         DI.RootContainer.emit('http.server.listening', server);
-        await new Promise((r) => setImmediate(r));
+        await new Promise((resolve) => setImmediate(resolve));
 
         expect(server.stop.calledOnce).to.eq(true);
         await middleware.dispose();
