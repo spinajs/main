@@ -86,7 +86,7 @@ The answer must be HTTP 200 with a JSON object, `token_type` `Bearer` (any case)
 - Every answer carries `Cache-Control: no-store`.
 - The 401 body is the login route's body (`AUTHN_FAILURE_BODY` of `@spinajs/authn/contracts`), so a client cannot tell an OIDC failure from a wrong password.
 - The success page is a `<meta http-equiv="refresh">` page with `referrer` `no-referrer`. A `SameSite=Strict` session cookie does not travel on the cross-site redirect chain from the IdP, so the last hop starts on your site.
-- A core result `mfa_required` (a custom `MfaPolicy` that asks steps for `oidc` logins) sets the pending session cookie and moves on the same way. `DefaultMfaPolicy` asks no step for an `oidc` login: it requires steps for password logins only.
+- A core result `mfa_required` (a custom `MfaPolicy` that asks steps for `oidc` logins) sets the pending session cookie and moves on the same way. By default `DefaultMfaPolicy` asks no step for an `oidc` login; list `oidc` in `authn.mfa.policy.methods` to make it do so.
 
 ## Flow cookie
 

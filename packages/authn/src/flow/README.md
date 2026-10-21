@@ -193,7 +193,7 @@ steps it was issued with. A `step` that is not required, or that the
 identity is not enrolled in, fails. With `RECOVERY_STEP` the first enrolled
 step that implements `verifyRecovery` checks the code.
 
-The policy returns steps for `password` logins only. A key challenge proves
+By default the policy returns steps for `password` logins only (see `authn.mfa.policy.methods`). A key challenge proves
 possession of a key and an IdP does its own MFA, so those logins never go
 pending. With `authn.mfa.policy.force`, or a role of
 `authn.mfa.policy.forceForRoles`, an identity with no enrolment is required to
