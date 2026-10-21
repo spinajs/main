@@ -33,7 +33,7 @@ export interface ConfigOverrides {
       reset: { ttlSeconds: number; revokeTokens: boolean };
       invite: { ttlSeconds: number };
     };
-    session: { expiration: { ttl: number; maxLifetime: number }; pendingTtlSeconds: number };
+    session: { expiration: { ttl: number; maxLifetime: number }; pendingTtlSeconds: number; allowMemoryStore: boolean };
     mfa: { policy: { force: boolean; methods: readonly string[] }; totp: { recoveryCodes: number } };
     throttle: Partial<ThrottleParams> & { ipv6Prefix: number };
     freshAuth: { maxAgeSeconds: number };

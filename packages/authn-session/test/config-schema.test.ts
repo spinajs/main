@@ -24,6 +24,7 @@ describe('authn.session through the schemas', function () {
       expiration: { ttl: 30, maxLifetime: 480 },
       pendingTtlSeconds: 300,
       touchThresholdSeconds: 60,
+      allowMemoryStore: false,
       cookie: { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' },
       hashIds: true,
     });

@@ -3,6 +3,7 @@ const sessionConfig = {
   authn: {
     session: {
       service: 'MemorySessionStore',
+      allowMemoryStore: false,
 
       /** Strategy by service name: AbsoluteExpiration | SlidingExpiration | SlidingCappedExpiration. */
       expiration: {
