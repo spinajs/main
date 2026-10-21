@@ -9,3 +9,4 @@ export * from './service.js';
 export * from './safe-fetch.js';
 export * from './verifiers/list.js';
 export * from './verifiers/dns.js';
+export * from './verifiers/rdap.js';
