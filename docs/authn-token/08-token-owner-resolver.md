@@ -15,7 +15,7 @@
    - `UsersTableTokenOwnerResolver` reads both in one statement, a `LEFT JOIN` of `users` on `user_id`.
 5. `validate` fails the token (`invalid_credentials`) when the owner is `null`; `revokeById` publishes its event without an identity.
 
-The default reads the `users` table directly, so this package does not import `@spinajs/users`. The protected `connection()` takes the `AccessToken` model's connection (`default` unless the model names another) with `modelDriver(AccessToken)`; when the ORM has no such connection it throws `OrmConnectionMissing`. `rowIdOf()`, `refOf()` and `tokenByHash()` await `ormReady()` first instead of injecting `Orm`, so they also work from a boot migration's `data()`.
+The default reads the `users` table directly, so this package does not import `@spinajs/users`. The protected `connection()` takes the `AccessToken` model's connection (`default` unless the model names another) with `modelDriver(AccessToken)`; when the ORM has no such connection it throws `OrmConnectionMissing`. The resolver injects the `Orm` (`@Autoinject(Orm)`), so resolving it creates that connection; it also works from a migration's `data()`, which `OrmMigrator` runs after the `Orm` resolved.
 
 ## Services and extension points
 
@@ -76,6 +76,7 @@ export class TwoStatementOwnerResolver extends UsersTableTokenOwnerResolver {
 - **`tokenByHash` and `refOf` must agree.** `validate` names the owner `tokenByHash` answers; `revokeById` and the audit name the one `refOf` answers.
 - **`rowIdOf` and `refOf` must agree.** `refOf(rowIdOf(owner))` must give back the same owner; otherwise `revoke` and the audit name another identity than `validate` answers.
 - **Revocation is owner-bound through the resolver.** `revoke` matches the token's `user_id` against `rowIdOf(owner)`, so a resolver that maps two owners to one row lets each revoke the other's tokens.
+- **The ORM is resolved when `DbTokenService` calls.** `DbTokenService` injects the `Orm`, so an override can use `connection()` directly. An override that extends `TokenOwnerResolver` instead of `UsersTableTokenOwnerResolver` and is called outside the service injects the `Orm` itself; otherwise `connection()` throws `OrmNotResolved` in a process where the ORM has not created its connections.
 - **Must be registered.** `DbTokenService` injects the resolver with the strict check (`{ check: true }`), so resolving it fails when no `TokenOwnerResolver` is registered.
 - **Agent tokens use the owner's row.** An agent token carries its owner's `user_id`; there is no separate agent row.
 
