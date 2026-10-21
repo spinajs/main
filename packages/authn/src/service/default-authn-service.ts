@@ -347,6 +347,10 @@ export class DefaultAuthnService extends AuthnService {
     return true;
   }
 
+  public async stepUp(_session: SessionHandle, _step: string, _response: string, _ctx: AuthnContext): Promise<AuthenticationResult> {
+    throw new Error('not implemented: DefaultAuthnService.stepUp');
+  }
+
   public async principalOf(result: Success): Promise<Principal> {
     if (!isPlainObject(result) || result.status !== 'success' || !isRef(result.identity)) {
       throw new InvalidArgument('principalOf takes a success result');

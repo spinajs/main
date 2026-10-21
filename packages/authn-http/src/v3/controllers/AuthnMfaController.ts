@@ -48,6 +48,16 @@ export class AuthnMfaController extends BaseController {
     return this.complete(req, true);
   }
 
+  /**
+   * Step up the active session
+   * Body `{ step?, code }`: `step` is an MFA step the identity is enrolled in, or `recovery` for a recovery code.
+   * @security cookieAuth
+   */
+  @Post('mfa/step-up')
+  public async stepUp(@Req() _req: Request): Promise<never> {
+    throw new Error('not implemented: AuthnMfaController.stepUp');
+  }
+
   protected async complete(req: Request, recovery: boolean) {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('this route needs a pending session');

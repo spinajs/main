@@ -8,7 +8,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import './register-schema.js';
 import { SessionIssuer, SessionKeys, resolveSession } from '@spinajs/authn/contracts';
-import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionHandle } from '@spinajs/authn/contracts';
+import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionFactsChange, SessionHandle } from '@spinajs/authn/contracts';
 import { SessionExpirationProvider, SessionProvider } from './contracts.js';
 import type { ISession } from './contracts.js';
 import { UserSession } from './session.js';
@@ -204,6 +204,10 @@ export class DefaultSessionIssuer extends SessionIssuer {
     );
     // No expiration: the store gives the now-active session its initial one.
     return this.moveTo(session, data, { State: 'active', Expiration: undefined });
+  }
+
+  public async reissue(_h: SessionHandle, _change: SessionFactsChange): Promise<SessionHandle> {
+    throw new Error('not implemented: DefaultSessionIssuer.reissue');
   }
 
   public async set(h: SessionHandle, key: string, value: unknown): Promise<void> {

@@ -50,6 +50,10 @@ class LoginHintingService extends AuthnService {
     return this.inner.reauthenticate(session, c, ctx);
   }
 
+  stepUp(session: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult> {
+    return this.inner.stepUp(session, step, response, ctx);
+  }
+
   principalOf(result: Extract<AuthenticationResult, { status: 'success' }>): Promise<Principal> {
     return this.inner.principalOf(result);
   }

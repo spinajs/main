@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
-import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionHandle } from '@spinajs/authn/contracts';
+import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionFactsChange, SessionHandle } from '@spinajs/authn/contracts';
 import type { SessionStoragePort } from '../harness/ports.js';
 
 export interface MemorySessionOptions {
@@ -137,6 +137,10 @@ export class MemorySessionIssuer extends SessionIssuer {
     row.expiresAt = Math.min(now + this.idleMs, row.creation + this.absoluteMs);
     this.rows.delete(key);
     return this.place(row);
+  }
+
+  async reissue(_h: SessionHandle, _change: SessionFactsChange): Promise<SessionHandle> {
+    throw new Error('not implemented: MemorySessionIssuer.reissue');
   }
 
   async set(h: SessionHandle, key: string, value: unknown): Promise<void> {

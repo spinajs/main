@@ -7,9 +7,9 @@ function runStoreFacets(ids: readonly RuleId[], facets: readonly Facet[], title:
   runAuthnBehaviour(ids, factory, { title, ...opts, facets, claim: facets });
 }
 
-/** A07, A08 and A09 store facets, all claimed: ports `sessions`, `sessionStorage`, `seed`. */
+/** A07, A08, A09 and A34 store facets, all claimed: ports `sessions`, `sessionStorage`, `seed`. */
 export function runSessionIssuerConformance(factory: HarnessFactory, opts: StoreConformanceOptions = {}): void {
-  runStoreFacets(['A07', 'A08', 'A09'], ['A07/store', 'A08/store', 'A09/store'], 'session issuer conformance', factory, opts);
+  runStoreFacets(['A07', 'A08', 'A09', 'A34'], ['A07/store', 'A08/store', 'A09/store', 'A34/store'], 'session issuer conformance', factory, opts);
 }
 
 /** A11 store facet, claimed: ports `secrets`, `secretStorage`, `seed`. */

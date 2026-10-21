@@ -73,6 +73,9 @@ class ListOnlySessions extends SessionIssuer {
   public elevate(): never {
     throw new Error('unused');
   }
+  public reissue(): never {
+    throw new Error('unused');
+  }
   public set(): never {
     throw new Error('unused');
   }

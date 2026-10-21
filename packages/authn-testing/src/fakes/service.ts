@@ -255,6 +255,10 @@ export class FakeAuthnService extends AuthnService {
     return ok;
   }
 
+  async stepUp(_session: SessionHandle, _step: string, _response: string, _ctx: AuthnContext): Promise<AuthenticationResult> {
+    throw new Error('not implemented: FakeAuthnService.stepUp');
+  }
+
   async principalOf(result: Success): Promise<Principal> {
     const stored = result.session ? (await this.d.sessions.restore(result.session.id))?.facts : undefined;
     const facts: AuthnFacts = stored ?? { ...result.facts, authenticatedAt: new Date() };
