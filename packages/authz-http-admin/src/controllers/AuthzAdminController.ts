@@ -84,7 +84,7 @@ const scopeOf = (req: Request): ResourceRef => ({ type: param(req, 'type'), id: 
  * @tags Authz admin
  */
 @Policy(IsAuthenticated)
-@BasePath('authz')
+@BasePath({ config: 'authz.http.admin.basePath', default: 'authz' })
 export class AuthzAdminController extends BaseController {
   @Config('authz.http.admin.domain')
   protected AdminDomain: string;

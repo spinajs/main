@@ -59,15 +59,17 @@ export const AUTHZ_ADMIN_ROUTES: readonly RouteDoc[] = [
  * routes read both from `@Req()` so that no http-layer step can refuse what AuthzAdmin would answer.
  * This adds what the builder cannot see to an OpenAPI document it built: the request bodies, the
  * query parameters, the path parameter text and the body schemas as components. Operations are
- * matched by method and path suffix, so a route prefix does not matter. Changes the document in place.
+ * matched by method and path suffix, so a route prefix does not matter. `basePath` is the configured
+ * `authz.http.admin.basePath` when the app moved the routes. Changes the document in place.
  */
-export function describeAuthzAdminDocument<T extends object>(doc: T): T {
+export function describeAuthzAdminDocument<T extends object>(doc: T, basePath = 'authz'): T {
   const document = doc as Json;
   const components = ((document.components ??= {}).schemas ??= {}) as Json;
   for (const [name, schema] of Object.entries(AUTHZ_ADMIN_SCHEMAS)) components[name] ??= schema;
 
   for (const route of AUTHZ_ADMIN_ROUTES) {
-    const path = Object.keys(document.paths ?? {}).find((p) => p === route.path || p.endsWith(route.path));
+    const routePath = route.path.replace(/^\/authz/, `/${basePath.replace(/^\/+|\/+$/g, '')}`);
+    const path = Object.keys(document.paths ?? {}).find((p) => p === routePath || p.endsWith(routePath));
     const operation = path ? document.paths[path][route.method] : undefined;
     if (!operation) continue;
 
