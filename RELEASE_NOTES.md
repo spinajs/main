@@ -1,3 +1,29 @@
+# Release notes — authz-rebac: relationship-based access (ReBAC)
+
+## New behavior
+
+- New package `@spinajs/authz-rebac`: `RebacModel`, an `AuthorizationModel` that answers from relation tuples
+  (`doc:d1#viewer@group:eng#member`) under namespaces configured in `authz.rebac.namespaces`, Keto's OPL as JSON:
+  relations with their allowed subject types, and permissions as rewrites (computed userset `'viewer'`,
+  tuple-to-userset `'parent->view'`, `union`, `intersection`, `exclusion`). `authz.rebac.permissions` maps a
+  permission to `<namespace>#<name>`. Bad namespaces fail the boot with `AuthzConfigError`.
+- A check whose only proof lies deeper than `authz.rebac.limit.maxDepth` tuple hops (default 8), or that runs past
+  `limit.maxCalls` node evaluations (default 10000), is indeterminate (`model_error`). Cycles of subject sets end
+  without a grant.
+- Tuples live in a `MemoryTupleStore` or a `DbTupleStore` over the new `authz_rebac_tuple` table (migration
+  `AuthzRebac_2026_10_21_00_00_00` on the `authz` connection alias).
+- `filter()` gets the residual `native:rebac.check`; `.accessible()` lists get the SQL plan term `rebac.tuples`
+  (`RebacTuplesTerm`), for every rewrite but exclusion.
+- `AuthzAdmin` gains `tuple.write`, `tuple.delete` (permission `authz:tuples.manage` on the tuple's object), the
+  `tuples` query (`authz:tuples.read`) and the tuple part of `scope.forget`. Importing
+  `@spinajs/authz-rebac/http` adds both commands to `POST /authz/commands` of `@spinajs/authz-http-admin`.
+- `@spinajs/authz-testing` adds behaviour rule B49 (facets `engine`, `rebac`), run by `@spinajs/authz-rebac`.
+
+## Migration
+
+Nothing changes for apps that do not install the package. To use it, register a `RebacModel` and its store, run
+the migration, and grant `authz:tuples.manage` / `authz:tuples.read` to tuple administrators.
+
 # Release notes — bounded cleanup and the `Expiration` index
 
 ## New behavior
