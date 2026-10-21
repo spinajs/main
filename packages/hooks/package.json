@@ -9,6 +9,11 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./testing": {
+      "types": "./lib/mjs/testing/index.d.ts",
+      "import": "./lib/mjs/testing/index.js",
+      "require": "./lib/cjs/testing/index.js"
     }
   },
   "type": "module",
