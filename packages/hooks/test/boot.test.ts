@@ -1,10 +1,11 @@
 import * as chai from 'chai';
 import 'mocha';
-import { Autoinject } from '@spinajs/di';
+import * as sinon from 'sinon';
+import { AsyncService, Autoinject } from '@spinajs/di';
 
 import { ActionHook, ActionHookFailed, Hooks } from '../src/index.js';
 import type { ActionPattern } from '../src/index.js';
-import { TestLog, boot, disposeChildren, rejectionOf, useTestLog } from './support.js';
+import { TestLog, boot, track, disposeChildren, rejectionOf, useTestLog } from './support.js';
 
 const expect = chai.expect;
 
@@ -101,6 +102,47 @@ class FlakyAfterHook extends ActionHook {
   after(): void {}
 }
 
+class Hanging extends AsyncService {
+  async resolve(): Promise<void> {
+    await new Promise<void>(() => undefined);
+  }
+}
+
+class HangingBefore extends ActionHook {
+  static readonly seen: number[] = [];
+
+  @Autoinject(Hanging)
+  protected Hanging: Hanging;
+
+  readonly actions: readonly ActionPattern[] = ['boot.ping'];
+
+  before(): void {
+    HangingBefore.seen.push(1);
+  }
+}
+
+class HangingAfter extends ActionHook {
+  @Autoinject(Hanging)
+  protected Hanging: Hanging;
+
+  readonly actions: readonly ActionPattern[] = ['boot.ping'];
+
+  after(): void {}
+}
+
+class NoActions extends ActionHook {
+  readonly actions = undefined as unknown as readonly ActionPattern[];
+}
+
+class NanOrder extends ActionHook {
+  readonly actions: readonly ActionPattern[] = ['boot.ping'];
+  readonly order = NaN;
+}
+
+class NonStringAction extends ActionHook {
+  readonly actions = [1] as unknown as readonly ActionPattern[];
+}
+
 describe('DefaultHooks boot', function () {
   this.timeout(10000);
   useTestLog();
@@ -158,6 +200,67 @@ describe('DefaultHooks boot', function () {
     expect(hooks.has('boot.ping')).to.be.false;
     await hooks.run('boot.ping', { n: 6 }, echo, { mutable: [] });
     expect(LateHook.seen).to.deep.eq([]);
+  });
+
+  describe('a hook declaration that is not valid', () => {
+    for (const [title, hook] of [
+      ['no actions', NoActions],
+      ['a non-string action', NonStringAction],
+      ['an order that is not a finite number', NanOrder],
+    ] as const) {
+      it(`fails boot for a hook with ${title}`, async () => {
+        const e = await rejectionOf(boot({}, (c) => c.register(hook).as(ActionHook)));
+
+        expect((e as Error).message).to.contain(`Hook ${hook.name} declares no valid actions/order`);
+      });
+    }
+  });
+
+  describe('a hook whose DI resolution hangs', () => {
+    let clock: sinon.SinonFakeTimers | undefined;
+
+    beforeEach(() => HangingBefore.seen.splice(0));
+    afterEach(() => {
+      clock?.restore();
+      clock = undefined;
+    });
+
+    it('rejects a refusable run with ActionHookFailed(timeout) and logs it', async () => {
+      const { hooks } = await boot({ hooks: { timeoutMs: 100 } }, (c) => c.register(HangingBefore).as(ActionHook));
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+      const run = track(hooks.run('boot.ping', { n: 1 }, echo, { mutable: [] }));
+      await clock.tickAsync(100);
+
+      expect(run.settled).to.be.true;
+      expect(run.error).to.be.instanceOf(ActionHookFailed);
+      expect((run.error as ActionHookFailed).reason).to.eq('timeout');
+      expect((run.error as ActionHookFailed).hook).to.eq('HangingBefore');
+      expect(TestLog.of('hooks').some((l) => l.text.includes('HangingBefore'))).to.be.true;
+    });
+
+    it('with refusable: false, logs it, skips the hook and runs the action', async () => {
+      const { hooks } = await boot({ hooks: { timeoutMs: 100 } }, (c) => c.register(HangingBefore).as(ActionHook));
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+      const run = track(hooks.run('boot.ping', { n: 2 }, echo, { mutable: [], refusable: false }));
+      await clock.tickAsync(100);
+
+      expect(run.value).to.eq(2);
+      expect(HangingBefore.seen).to.deep.eq([]);
+      expect(TestLog.of('hooks').some((l) => l.text.includes('HangingBefore'))).to.be.true;
+    });
+
+    it('logs and skips an after-only hook whose resolution hangs', async () => {
+      const { hooks } = await boot({ hooks: { timeoutMs: 100 } }, (c) => c.register(HangingAfter).as(ActionHook));
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+      const run = track(hooks.run('boot.ping', { n: 3 }, echo, { mutable: [] }));
+      await clock.tickAsync(100);
+
+      expect(run.value).to.eq(3);
+      expect(TestLog.of('hooks').filter((l) => l.text.includes('HangingAfter'))).to.have.length(1);
+    });
   });
 
   describe('a hook whose DI resolution fails', () => {

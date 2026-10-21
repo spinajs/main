@@ -79,6 +79,14 @@ class RejectingLater extends ActionHook {
   }
 }
 
+class StallingFailed extends ActionHook {
+  readonly actions: readonly ActionPattern[] = ['run.account'];
+
+  failed(): Promise<void> {
+    return new Promise<void>(() => undefined);
+  }
+}
+
 class Stalling extends ActionHook {
   readonly actions: readonly ActionPattern[] = ['run.account'];
 
@@ -266,6 +274,20 @@ describe('DefaultHooks.run', function () {
       expect(impl.called).to.be.false;
     });
 
+    it('with refusable: false, logs a before hook that times out and runs the action', async () => {
+      const impl = sinon.spy(created);
+      const { hooks } = await boot({ hooks: { timeoutMs: 100 } }, (c) => addHook(c, new Stalling()));
+      const timers = fakeTimers();
+
+      const run = track(hooks.run('run.account', account(), impl, { mutable: [], refusable: false }));
+      await timers.tickAsync(100);
+
+      expect(run.settled).to.be.true;
+      expect(run.value).to.deep.eq({ id: 'u-1' });
+      expect(impl.calledOnce).to.be.true;
+      expect(TestLog.of('hooks').some((l) => l.text.includes('Stalling'))).to.be.true;
+    });
+
     it('with refusable: false, logs a refusal and a throw and runs the action', async () => {
       const seen: string[] = [];
       const impl = sinon.spy(created);
@@ -344,6 +366,28 @@ describe('DefaultHooks.run', function () {
       expect(last.errors).to.deep.eq([failure]);
       expect(afterSeen).to.deep.eq(['observer:before', 'observer:failed']);
       expect(TestLog.of('hooks').some((l) => l.text.includes('BrokenFailed'))).to.be.true;
+    });
+
+    it('logs a failed hook that times out and rethrows the original error', async () => {
+      const failure = new RangeError('impl failed');
+      const { hooks } = await boot({ hooks: { timeoutMs: 100 } }, (c) => addHook(c, new StallingFailed()));
+      const timers = fakeTimers();
+
+      const run = track(
+        hooks.run(
+          'run.account',
+          account(),
+          async () => {
+            throw failure;
+          },
+          { mutable: [] },
+        ),
+      );
+      await timers.tickAsync(100);
+
+      expect(run.settled).to.be.true;
+      expect(run.error).to.equal(failure);
+      expect(TestLog.of('hooks').some((l) => l.text.includes('StallingFailed'))).to.be.true;
     });
   });
 
@@ -430,7 +474,7 @@ describe('DefaultHooks.run', function () {
     });
   });
 
-  describe('review fixes', () => {
+  describe('input edge cases and refusal provenance', () => {
     const optionalImpl = (seen: unknown[]) => async (i: { name: string; note?: string }) => {
       seen.push(i);
       return 'ok';
@@ -544,6 +588,94 @@ describe('DefaultHooks.run', function () {
       const received: Account[] = [];
       await hooks.run('run.account', account(), async (i) => (received.push(i), { id: 'u' }), { mutable: ['login'], refusable: false });
       expect(received[0]).to.deep.eq(account());
+    });
+  });
+
+  describe('before-phase isolation', () => {
+    class ChangesRole extends ActionHook<'run.account'> {
+      readonly actions: readonly ActionPattern[] = ['run.account'];
+
+      before(ctx: BeforeContext<'run.account'>): void {
+        ctx.input.role = 'admin';
+        delete (ctx.input as Partial<Account>).email;
+      }
+    }
+
+    class WatchesInput extends ActionHook<'run.account'> {
+      readonly seen: Partial<Account>[] = [];
+      readonly actions: readonly ActionPattern[] = ['run.account'];
+      readonly order = 1;
+
+      before(ctx: BeforeContext<'run.account'>): void {
+        this.seen.push({ ...ctx.input });
+      }
+    }
+
+    it('shows a later before hook the original value of a key the action does not declare mutable', async () => {
+      const watcher = new WatchesInput();
+      const { hooks } = await boot({}, (c) => {
+        addHook(c, new ChangesRole());
+        addHook(c, watcher);
+      });
+
+      await hooks.run('run.account', account(), created, { mutable: ['login'] });
+      await hooks.run('run.account', account(), created, { mutable: ['login'] });
+
+      expect(watcher.seen[0]).to.deep.eq(account());
+      expect(TestLog.of('hooks', 'warn').filter((l) => l.text.includes('ChangesRole'))).to.have.length(1);
+    });
+
+    it('still passes a mutable key on to the next before hook', async () => {
+      class ChangesLogin extends ActionHook<'run.account'> {
+        readonly actions: readonly ActionPattern[] = ['run.account'];
+
+        before(ctx: BeforeContext<'run.account'>): void {
+          ctx.input.login = 'renamed';
+        }
+      }
+      const watcher = new WatchesInput();
+      const { hooks } = await boot({}, (c) => {
+        addHook(c, new ChangesLogin());
+        addHook(c, watcher);
+      });
+
+      await hooks.run('run.account', account(), created, { mutable: ['login'] });
+
+      expect(watcher.seen[0].login).to.eq('renamed');
+    });
+  });
+
+  describe('late writes of an abandoned hook', () => {
+    // The abandoned hook writes null after `hops` microtask turns; some value of `hops` lands between the last hook and the merge.
+    const lateNull = (hops: number) =>
+      class LateNull extends ActionHook<'run.account'> {
+        readonly actions: readonly ActionPattern[] = ['run.account'];
+
+        async before(ctx: BeforeContext<'run.account'>): Promise<void> {
+          await new Promise<void>((resolve) => setTimeout(resolve, 100));
+          for (let i = 0; i < hops; i++) await Promise.resolve();
+          ctx.input = null as never;
+        }
+      };
+
+    it('gives impl the last good input when ctx.input is no longer an object at merge time', async () => {
+      for (let hops = 0; hops < 25; hops++) {
+        const Late = lateNull(hops);
+        const { hooks } = await boot({ hooks: { timeoutMs: 100 } }, (c) => addHook(c, new Late()));
+        const timers = fakeTimers();
+        const received: Account[] = [];
+
+        const run = track(hooks.run('run.account', account(), async (i) => (received.push(i), { id: 'u' }), { mutable: ['login'], refusable: false }));
+        timers.tick(100);
+        await timers.tickAsync(1);
+
+        expect(run.settled, `hops ${hops}`).to.be.true;
+        expect(run.error, `hops ${hops}`).to.be.undefined;
+        expect(received[0], `hops ${hops}`).to.deep.eq(account());
+        clock?.restore();
+        clock = undefined;
+        await disposeChildren();
+      }
     });
   });
 

@@ -19,6 +19,7 @@ class HookTimeout extends Error {}
 class InvalidInput extends Error {}
 
 const phasesOf = (hook: ActionHook) => ({ before: typeof hook.before === 'function', after: typeof hook.after === 'function', failed: typeof hook.failed === 'function' });
+const reasonOf = (error: unknown) => (error instanceof HookTimeout ? 'timeout' : 'error');
 const isObject = (value: unknown): value is object => typeof value === 'object' && value !== null;
 
 interface HookEntry {
@@ -40,11 +41,13 @@ interface ResolvedHook {
 interface RunState<A extends ActionName> {
   readonly action: A;
   readonly depth: number;
+  readonly input: InputOf<A>;
+  /** The last ctx.input that was an object; a hook abandoned by a timeout may still replace ctx.input later. */
+  lastGood: InputOf<A>;
   readonly bag: Map<string, unknown>;
   /** null: resolution failed and the hook is skipped. */
   readonly hooks: Map<HookEntry, ActionHook | null>;
 }
-
 
 /**
  * Collects the registered ActionHook types and their patterns in resolve(), without resolving them through DI: a
@@ -90,11 +93,11 @@ export class DefaultHooks extends Hooks {
 
     const refusals = new WeakSet<object>();
     const ctx = this.createContext(action, input, depth, refusals);
-    const state: RunState<A> = { action, depth, bag: ctx.bag, hooks: new Map() };
+    const state: RunState<A> = { action, depth, input, lastGood: ctx.input, bag: ctx.bag, hooks: new Map() };
 
     await this.runBefore(entries, ctx, state, opts, refusals);
     const descending = [...entries].sort((a, b) => b.order - a.order || a.index - b.index);
-    const merged = this.mergeInput(input, ctx.input, opts);
+    const merged = this.mergeInput(input, isObject(ctx.input) ? ctx.input : state.lastGood, opts);
 
     let output: OutputOf<A>;
     try {
@@ -132,11 +135,17 @@ export class DefaultHooks extends Hooks {
       } catch (error) {
         throw new Error(`Hook ${type.name} could not be constructed to read its actions`, { cause: error });
       }
-      return { type, patterns: probe.actions, order: probe.order, index, name: type.name, phases: phasesOf(probe) };
+      return this.entryOf(type, probe, index, type.name);
     }
 
     const instance = (type as Factory<ActionHook>)(this.Container);
-    return { type, patterns: instance.actions, order: instance.order, index, name: instance.constructor.name, phases: phasesOf(instance), instance: Promise.resolve(instance) };
+    return { ...this.entryOf(type, instance, index, instance.constructor.name), instance: Promise.resolve(instance) };
+  }
+
+  private entryOf(type: Class<ActionHook> | Factory<ActionHook>, source: ActionHook, index: number, name: string): HookEntry {
+    const { actions, order } = source;
+    if (!Array.isArray(actions) || !actions.every((p) => typeof p === 'string') || !Number.isFinite(order)) throw new Error(`Hook ${name} declares no valid actions/order`);
+    return { type, patterns: actions as readonly ActionPattern[], order, index, name, phases: phasesOf(source) };
   }
 
   private matching(action: string): HookEntry[] {
@@ -146,6 +155,11 @@ export class DefaultHooks extends Hooks {
       this.matchCache.set(action, found);
     }
     return found;
+  }
+
+  /** Resolution is bounded by hooks.timeoutMs like a hook call; an abandoned resolution stays cached, so a hook that never resolves keeps timing out. */
+  private boundedInstance(entry: HookEntry, depth: number): Promise<ActionHook> {
+    return this.bounded(depth, () => this.instanceOf(entry));
   }
 
   private instanceOf(entry: HookEntry): Promise<ActionHook> {
@@ -168,10 +182,10 @@ export class DefaultHooks extends Hooks {
 
       let hook: ActionHook;
       try {
-        hook = await this.instanceOf(entry);
+        hook = await this.boundedInstance(entry, state.depth);
       } catch (error) {
         this.logFailure(entry.name, state.action, error);
-        if (refusable) throw new ActionHookFailed(state.action, entry.name, 'error');
+        if (refusable) throw new ActionHookFailed(state.action, entry.name, reasonOf(error));
         state.hooks.set(entry, null);
         continue;
       }
@@ -188,10 +202,23 @@ export class DefaultHooks extends Hooks {
         const refusal = error instanceof ActionRefused && refusals.has(error);
         if (refusable && refusal) throw error;
         this.logFailure(entry.name, state.action, error);
-        if (refusable) throw new ActionHookFailed(state.action, entry.name, error instanceof HookTimeout ? 'timeout' : 'error');
+        if (refusable) throw new ActionHookFailed(state.action, entry.name, reasonOf(error));
       }
-      this.warnDropped(entry.name, state.action, snapshot, ctx.input as object, mutable);
+      this.settleInput(entry.name, ctx, state, snapshot, mutable);
     }
+  }
+
+  private settleInput<A extends ActionName>(hook: string, ctx: BeforeContext<A>, state: RunState<A>, snapshot: object, mutable: Set<PropertyKey>): void {
+    if (!isObject(ctx.input)) return;
+    this.warnDropped(hook, state.action, snapshot, ctx.input, mutable);
+    this.restoreFixed(ctx.input, state.input as object, mutable);
+    state.lastGood = ctx.input;
+  }
+
+  /** A later before hook must not decide on a value the action will not see. */
+  private restoreFixed(target: object, original: object, mutable: Set<PropertyKey>): void {
+    for (const key of Reflect.ownKeys(target)) if (!mutable.has(key) && !Object.hasOwn(original, key)) Reflect.deleteProperty(target, key);
+    for (const key of Reflect.ownKeys(original)) if (!mutable.has(key)) Reflect.set(target, key, Reflect.get(original, key));
   }
 
   /** The hooks of `entries` that define `phase`, resolving those not resolved by the before phase; a failed resolution is logged and the hook skipped. */
@@ -201,7 +228,7 @@ export class DefaultHooks extends Hooks {
       if (!(phase === 'after' ? entry.phases.after : entry.phases.failed)) continue;
       if (!state.hooks.has(entry)) {
         try {
-          state.hooks.set(entry, await this.instanceOf(entry));
+          state.hooks.set(entry, await this.boundedInstance(entry, state.depth));
         } catch (error) {
           this.logFailure(entry.name, state.action, error);
           state.hooks.set(entry, null);
@@ -238,20 +265,18 @@ export class DefaultHooks extends Hooks {
   }
 
   private mergeInput<A extends ActionName>(original: InputOf<A>, changed: InputOf<A>, opts: RunOptions<A>): InputOf<A> {
-    const picked = Object.fromEntries(
-      (opts.mutable as readonly PropertyKey[]).filter((key) => Object.hasOwn(changed as object, key)).map((key) => [key, Reflect.get(changed as object, key)]),
-    );
+    const picked = Object.fromEntries((opts.mutable as readonly PropertyKey[]).filter((key) => Object.hasOwn(changed as object, key)).map((key) => [key, Reflect.get(changed as object, key)]));
     return { ...(original as object), ...picked } as InputOf<A>;
   }
 
   /** Runs one hook call at `depth` (what a nested run reads) and rejects with HookTimeout after hooks.timeoutMs. The call is abandoned, not cancelled. */
-  private async bounded(depth: number, call: () => void | Promise<void>): Promise<void> {
+  private async bounded<T>(depth: number, call: () => T | Promise<T>): Promise<T> {
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => reject(new HookTimeout()), this.TimeoutMs);
     });
     try {
-      await Promise.race([hookDepth.run(depth, async () => call()), timeout]);
+      return await Promise.race([hookDepth.run(depth, async () => call()), timeout]);
     } finally {
       clearTimeout(timer);
     }
