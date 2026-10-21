@@ -72,14 +72,15 @@ export class EmailPasswordMailer {
   constructor(protected readonly Deps?: EmailPasswordMailerDeps) {}
 
   public async send(mail: IPasswordMail): Promise<void> {
-    const secrets = [mail.secret];
+    const secrets = mail.secret ? [mail.secret] : [];
     try {
       const address = mail.to.email;
       if (!address) {
         throw new InvalidArgument('the recipient has no email address');
       }
-      const link = resetUrl(mail.url, mail.secret, address);
-      if (link) {
+      // A mail without a secret links to the page as it is.
+      const link = mail.secret ? resetUrl(mail.url, mail.secret, address) : mail.url;
+      if (link && mail.secret) {
         secrets.push(link);
       }
       const email = this.compose(mail, address, link, secrets);

@@ -387,8 +387,11 @@ export class LocalPasswordService extends PasswordService {
     return { status: 'verified' };
   }
 
-  public notifyAccountExists(_id: IdentityRef, _ctx: AuthnContext): Promise<void> {
-    return Promise.reject(new Error('not implemented: notifyAccountExists'));
+  /** Dispatched without a secret: the mail points at the reset page. An identity that cannot sign in gets none. */
+  public async notifyAccountExists(id: IdentityRef, _ctx: AuthnContext): Promise<void> {
+    if (eligible(await (await this.identities()).status(id))) {
+      await this.dispatchMail(id, 'account-exists', this.resetTtlSeconds());
+    }
   }
 
   /** D15. `admin` revokes tokens under reset.revokeTokens and mails only with `sendReset`; `aged` keeps tokens (H32) and mails. */
@@ -480,7 +483,7 @@ export class LocalPasswordService extends PasswordService {
       this.log().warn(log, 'The ${purpose} mail for ${identityType} ${identityId} was not sent: the identity has no email address');
       return false;
     }
-    const raw = await (await this.secrets()).issue(id, purpose, ttlSeconds);
+    const raw = purpose === 'account-exists' ? '' : await (await this.secrets()).issue(id, purpose, ttlSeconds);
     const secret = purpose === 'verify' ? verifySecretOf(id, raw) : raw;
     await mailer.send({ identity: id, purpose, to, secret, url: purpose === 'verify' ? this.verifyUrl() : this.resetUrl(), ttlSeconds, ...(request.lang ? { lang: request.lang } : {}) });
     return true;
