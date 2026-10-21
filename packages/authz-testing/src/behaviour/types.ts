@@ -151,7 +151,10 @@ export interface WorldConfig {
 /** An ActionHook as data: before the action `action` it refuses with `refuse` when every key of `when` equals the same key of the input's `command`. */
 export interface WorldHook {
   readonly action: string;
-  readonly refuse: string;
+  /** Refuse with this code. */
+  readonly refuse?: string;
+  /** Throw instead, the way a broken hook does. */
+  readonly error?: true;
   readonly when?: Readonly<Record<string, unknown>>;
 }
 

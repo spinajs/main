@@ -3,7 +3,7 @@ import type { TestAdminCommand as AuthzCommand } from '../model-shapes.js';
 
 import { userPrincipal } from '../principals.js';
 import { assignment, combine, fixture, ref, role } from './dsl.js';
-import { exec } from './model-steps.js';
+import { exec, httpRefuses } from './model-steps.js';
 import type { Via } from './model-steps.js';
 import type { Case, DecisionExpectation, World } from './types.js';
 
@@ -29,8 +29,11 @@ const world = (extra: Partial<World> = {}): World => ({
   principals: { alice, root },
   scopes: [{ nodes: [{ ref: P1, parent: O1 }, { ref: f1, parent: P1 }] }],
   combine: combine('deny-overrides', 'rbac'),
-  rbac: { roles: [role('viewer', ['file:read']), role('reader', ['file:read']), role('superuser', [...MANAGE, 'file:read'])], assignments: [assignment('r1', root, 'superuser', ref('org', 'o1'))] },
-  hooks: [{ action: 'authz.admin.command', refuse: 'viewer-frozen', when: { role: 'viewer' } }],
+  rbac: { roles: [role('viewer', ['file:read']), role('reader', ['file:read']), role('broken', ['file:read']), role('superuser', [...MANAGE, 'file:read'])], assignments: [assignment('r1', root, 'superuser', ref('org', 'o1'))] },
+  hooks: [
+    { action: 'authz.admin.command', refuse: 'viewer-frozen', when: { role: 'viewer' } },
+    { action: 'authz.admin.command', error: true, when: { role: 'broken' } },
+  ],
   ...extra,
 });
 
@@ -44,6 +47,11 @@ const cases = (via: Via): Case[] => [
     name: 'the batch stops at the refused command: the commands before it are not applied either',
     world: world(),
     steps: [exec('root', [grant('reader'), grant('viewer')], { failsAt: 1, code: 'hook:viewer-frozen' }, { via }), aliceReads(NO_READ)],
+  },
+  {
+    name: 'a hook that throws fails the command with hook_error and nothing is written',
+    world: world(),
+    steps: [exec('root', [grant('broken')], { failsAt: 0, code: 'hook_error' }, { via }), aliceReads(NO_READ)],
   },
   {
     name: 'a command the hook does not match is applied',
@@ -65,6 +73,10 @@ export const B50 = fixture('B50', [
     facets: ['http', 'engine', 'rbac', 'hooks'],
     lanes: ['C4'],
     note: 'The same cases through POST /authz/commands: the refused answer is the admin failure body with code hook:<code>.',
-    cases: cases('http'),
+    cases: [
+      ...cases('http'),
+      { name: 'a hook refusal answers 403', world: world(), steps: [httpRefuses('root', [grant('viewer')], 403)] },
+      { name: 'a failing hook answers 500', world: world(), steps: [httpRefuses('root', [grant('broken')], 500)] },
+    ],
   },
 ]);
