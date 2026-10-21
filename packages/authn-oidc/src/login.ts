@@ -7,7 +7,8 @@ import type { OidcAppPath } from './contracts.js';
 import { clearFlowCookie, decodeFlow, flowCookie, flowCookieName, flowSecrets, sessionBindingOf } from './flow/cookie.js';
 import type { OidcAccountLinks } from './links.js';
 import type { FlowCookie, OidcFlow } from './flow/cookie.js';
-import type { OidcCallbackQuery } from './provider.js';
+import { OIDC_ID_TOKEN_KEY } from './id-token-key.js';
+import type { OidcCallbackQuery, OidcTokenCapture } from './provider.js';
 import type { OidcCallbackPayload, OidcStrategy } from './strategy.js';
 
 /** What the HTTP layer knows about the request. */
@@ -112,7 +113,8 @@ export class OidcLogin {
     const query = callbackQueryOf(req.query);
     if (!strategy || typeof flow !== 'string' || query === null) return this.failure(req);
 
-    const payload: OidcCallbackPayload = { flow, query };
+    const capture: OidcTokenCapture = {};
+    const payload: OidcCallbackPayload = { flow, query, capture };
     const credentials: Credentials = { kind: 'external', provider: strategy.name, payload: payload as unknown as Record<string, unknown> };
     const mode = decodeFlow(flow)?.m;
     if (mode === 'link') {
@@ -135,8 +137,19 @@ export class OidcLogin {
       // An interactive strategy always gets a session from the core; without one the browser could not stay logged in.
       return this.failure(req);
     }
+    await this.keepIdToken(handle, capture);
     const returnTo = decodeFlow(flow)?.r ?? this.d.redirects.success;
     return this.moveOn(req, returnTo, [clearFlowCookie(this.d.env), this.d.sessionCookie(handle)]);
+  }
+
+  /** The login has succeeded either way: a session that cannot keep the token only loses the id_token_hint of its logout. */
+  protected async keepIdToken(handle: SessionHandle, capture: OidcTokenCapture): Promise<void> {
+    if (capture.idToken === undefined) return;
+    try {
+      await this.d.sessions.set(handle, OIDC_ID_TOKEN_KEY.name, capture.idToken);
+    } catch (err) {
+      this.d.log?.warn({ errorName: errorName(err) }, 'authn-oidc: the ID token could not be kept in the session: ${errorName}');
+    }
   }
 
   /**

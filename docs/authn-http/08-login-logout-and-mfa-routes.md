@@ -69,9 +69,26 @@ sequenceDiagram
 | --- | --- |
 | Request | the session cookie, active or pending |
 | 200 | No data; the cookie cleared, `Clear-Site-Data: "cache", "cookies", "storage"`, `Cache-Control: no-store` |
+| 200 (redirect) | `{ "endSession": string }` with the same cookie and headers, for a script when a logout extension named a redirect |
+| 303 | The same headers and `Location`, for a browser navigation when a logout extension named a redirect |
 | 401 | `unauthenticated`: no session |
 
 Logout revokes the session (an impersonation ends with it), audits `logout`, and for an impersonation also `impersonation.end` with reason `logout`. It is `POST`, so no cross-site link can log anyone out, and the [CSRF origin guard](04-csrf-origin-guard.md) checks it.
+
+After the revoke, every registered `AuthnLogoutExtension` runs in registration order, with the revoked `Session` and the request. The first redirect any of them answers wins; the others still run. A navigation request (`Sec-Fetch-Mode: navigate`, or `Accept` lists `text/html`) gets `303`, any other client `200 { endSession }`. An extension that throws is logged by name and skipped: the session is already revoked. `@spinajs/authn-oidc` registers one that ends the provider's session ([RP-initiated logout](../authn-oidc/12-rp-initiated-logout.md)).
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { AuthnLogoutExtension } from '@spinajs/authn-http';
+import type { Session } from '@spinajs/authn/contracts';
+
+@Injectable(AuthnLogoutExtension)
+export class SignedOutPage extends AuthnLogoutExtension {
+  public async afterLogout(session: Session) {
+    return session.facts.method === 'saml' ? { redirect: 'https://sso.example.com/saml/logout' } : undefined;
+  }
+}
+```
 
 ### `GET /auth` (whoami)
 
