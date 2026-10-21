@@ -229,7 +229,7 @@ describe('EmailCodeMfaStep (FEAT-3)', function () {
       expect(await x.step.verify(bob, code)).to.equal(false);
     });
 
-    it('spends the same number of secret-store redeems for a right, a wrong and an unknown identity', async () => {
+    it('spends the same number of secret-store redeems for a right, a wrong and a malformed code', async () => {
       const x = await stepSetup();
       await enrol(x);
       const code = await challenged(x);
@@ -244,7 +244,7 @@ describe('EmailCodeMfaStep (FEAT-3)', function () {
         await f();
         return redeems;
       };
-      const counts = [await count(() => x.step.verify(x.alice, otherThan(code))), await count(() => x.step.verify({ type: 'user', id: 'nobody' }, code)), await count(() => x.step.verify(x.alice, code))];
+      const counts = [await count(() => x.step.verify(x.alice, otherThan(code))), await count(() => x.step.verify(x.alice, 'abc')), await count(() => x.step.verify(x.alice, code))];
       expect(new Set(counts).size, counts.join(',')).to.equal(1);
     });
   });
