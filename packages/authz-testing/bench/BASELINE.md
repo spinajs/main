@@ -1,4 +1,4 @@
-# authz bench: harness and 2.x baseline
+# authz bench: harness, 2.x baseline and 3.x baseline
 
 ## Run it
 
@@ -24,6 +24,60 @@ also import `accesscontrol`, `@spinajs/orm`, `@spinajs/orm-sqlite` and
 `@spinajs/configuration`, which authz-testing does not declare; they resolve through workspace
 hoisting. `bench/tsconfig.json` is for editors and `tsc -p bench/tsconfig.json --noEmit`;
 `npm run bench` type-checks through the package's own `tsconfig.json`.
+
+## Run the 3.x scenarios
+
+| scenario | file | what one call times |
+|---|---|---|
+| `check.warm` | `check-warm.ts` | `AuthzService.check` for `admin` over a 4-role chain (3 `$extend` levels); the permission lives in the bottom role |
+| `checkMany.30.warm` | `check-many-30.ts` | `AuthzService.checkMany` of 30 permissions, 20 granted and 10 denied |
+| `session.restore.memory` | `session-restore.ts` | `DefaultSessionIssuer.restore` of an active session over `MemorySessionStore` |
+| `session.restore.sqlite` | `session-restore.ts` | the same over `DbSessionStore` on in-memory sqlite |
+| `token.validate.sqlite` | `token-validate.ts` | `DbTokenService.validate` of a valid personal access token over in-memory sqlite |
+
+```
+npm run bench -w @spinajs/authz-testing -- --repeats=5                        # all five
+npm run bench -w @spinajs/authz-testing -- --files=check --repeats=5          # check.warm, checkMany.30.warm
+npm run bench -w @spinajs/authz-testing -- --files=session                    # both session.restore.*
+npm run bench -w @spinajs/authz-testing -- --filter=token.validate.sqlite
+```
+
+`--files` is a substring of the scenario file name (`check`, `session`, `token`); `--filter` is a
+substring of the scenario name. Every run exits 0 and prints one row per scenario; a scenario
+whose `verify()` fails stops the run with exit 1.
+
+Compare a run with the committed baseline (from `packages/authz-testing`, after the run wrote
+`bench/out/`):
+
+```
+node -e "const fs=require('fs');for(const f of fs.readdirSync('bench/baseline/3x')){if(!fs.existsSync('bench/out/'+f))continue;const a=require('./bench/baseline/3x/'+f),b=require('./bench/out/'+f);console.log(f.padEnd(30),'p50 '+(b.p50/a.p50).toFixed(2)+'x','p99 '+(b.p99/a.p99).toFixed(2)+'x')}"
+```
+
+What is in each number, and what is left out:
+
+- `check.warm`, `checkMany.30.warm`: the real `DefaultAuthzService` and authz-rbac's `RbacModel`
+  with config roles and in-memory assignments, resource `GLOBAL`. The decision cache is off
+  (`cache.maxEntries: 0`), so a call evaluates the model every time and the number is not a map
+  lookup. The audit sink is a no-op, so denied permissions do not pay for a log line. This
+  answers a decision, not an attribute list, so the gate reference row is `probeGrant.depth3`
+  (see "Which row is the gate reference").
+- `session.restore.*`: includes everything `restore` does on the request path, the store read
+  and the `touch` write that every restore issues today (PERF-1 removes the idle write). The session table sits on its own sqlite connection,
+  as in `DbSessionStore`'s tests. The store is booted through the real configuration and ORM.
+- `token.validate.sqlite`: one token row read and one `users` row read per call. Owner status
+  comes from an in-memory `IdentityStore`: the real one is `@spinajs/users`, which this package
+  must not import. The `users` table is created by the scenario with the columns the owner
+  resolver reads.
+- Time is wall-clock per call. sqlite rows are dominated by the ORM and the driver, and they
+  swing with machine load (see the 3.x baseline machine note).
+
+The runner shares one process and the global DI between scenarios. `_authz-host.ts` and
+`_authn-boot.ts` (skipped by the runner, they start with `_`) boot and dispose their state per
+scenario; a new scenario that touches the global DI must do the same in `teardown`.
+
+To refresh the baseline: run all five with `--repeats=5` on a quiet machine, copy
+`bench/out/*.json` to `bench/baseline/3x/`, and update the numbers and machine note in "3.x
+baseline" below.
 
 ## Add a scenario (X1: the 3.0 side)
 
