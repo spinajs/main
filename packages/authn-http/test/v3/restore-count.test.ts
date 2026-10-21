@@ -41,7 +41,7 @@ async function releaseHttpServer(): Promise<void> {
   await DI.get(HttpServer)?.stop();
   DI.uncache(HttpServer);
   DI.uncache(Controllers);
-  for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type as Class<BaseController>);
+  for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type);
   DI.uncache(BaseController);
 }
 
