@@ -1,0 +1,57 @@
+{
+  "name": "session.restore.sqlite",
+  "description": "DefaultSessionIssuer.restore over DbSessionStore on in-memory sqlite, sliding 60 min",
+  "unit": "ns",
+  "iterations": 5000,
+  "warmup": 500,
+  "batch": 1,
+  "repeats": 5,
+  "p50": 10810200,
+  "p95": 31552000,
+  "p99": 47778000,
+  "mean": 14032333.82,
+  "opsPerSec": 71.26398308560194,
+  "perRepeat": [
+    {
+      "p50": 10810200,
+      "p95": 31400800,
+      "p99": 47778000,
+      "mean": 13289354.88,
+      "opsPerSec": 75.24819745049956
+    },
+    {
+      "p50": 8172600,
+      "p95": 21744800,
+      "p99": 31692200,
+      "mean": 9609866,
+      "opsPerSec": 104.05972362153645
+    },
+    {
+      "p50": 10139700,
+      "p95": 49895700,
+      "p99": 86586800,
+      "mean": 16493274.64,
+      "opsPerSec": 60.63077356238094
+    },
+    {
+      "p50": 19966200,
+      "p95": 56486200,
+      "p99": 122741400,
+      "mean": 24725846.66,
+      "opsPerSec": 40.443508922092455
+    },
+    {
+      "p50": 12537700,
+      "p95": 31552000,
+      "p99": 47767900,
+      "mean": 14032333.82,
+      "opsPerSec": 71.26398308560194
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}
