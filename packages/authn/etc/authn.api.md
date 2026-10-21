@@ -1262,7 +1262,7 @@ export interface ThrottleKey {
     /** The caller passes the plain value; stores keep a keyed hash of it, since logins are personal data (SR-19). */
     readonly value: string;
 }
-export type ThrottleFlow = "login" | "mfa" | "reset" | "reauth";
+export type ThrottleFlow = "login" | "mfa" | "reset" | "reauth" | "register";
 /** `clean`: no live row holds any of the keys, so a success has nothing to lower or clear and `succeed` may be skipped. */
 export type PeekVerdict = {
     readonly allowed: true;
@@ -1284,7 +1284,7 @@ export declare abstract class AuthnThrottle {
         allowed: false;
         retryAfterSeconds: number;
     }>;
-    /** Resets the account key and removes that account's attempts from the IP key (A06). For 'reset' nothing is cleared; only time clears those keys (§22.13). */
+    /** Resets the account key and removes that account's attempts from the IP key (A06). For 'reset' nothing is cleared; only time clears those keys (§22.13). Nor for 'register'. */
     abstract succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow): Promise<void>;
     /** Optional; the authn service calls it at boot with its configuration, so a throttle that cannot run on it fails the boot. */
     checkConfiguration?(configuration: {
@@ -1301,6 +1301,7 @@ export interface ThrottleParams {
     readonly mfa: ThrottleFlowParams;
     readonly reset: ThrottleFlowParams;
     readonly reauth: ThrottleFlowParams;
+    readonly register: ThrottleFlowParams;
     readonly resetAfterSeconds: number;
     /** Off (null) unless configured: one attacker could slow every login. */
     readonly global?: BackoffParams | null;

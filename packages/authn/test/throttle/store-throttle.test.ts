@@ -50,7 +50,7 @@ const backoff = (free: number): BackoffParams => ({ free, baseDelayMs: 1000, max
 const ACCOUNT = backoff(5);
 const IP = backoff(20);
 const GLOBAL = backoff(100);
-const PARAMS: ThrottleParams = { login: { account: ACCOUNT, ip: IP }, mfa: { account: ACCOUNT, ip: IP }, reset: { account: ACCOUNT, ip: IP }, reauth: { account: ACCOUNT }, resetAfterSeconds: 60, global: null };
+const PARAMS: ThrottleParams = { login: { account: ACCOUNT, ip: IP }, mfa: { account: ACCOUNT, ip: IP }, reset: { account: ACCOUNT, ip: IP }, reauth: { account: ACCOUNT }, register: { account: ACCOUNT, ip: IP }, resetAfterSeconds: 60, global: null };
 
 const keys: ThrottleKey[] = [
   { kind: 'account', value: 'alice' },
@@ -90,7 +90,7 @@ describe('StoreAuthnThrottle', () => {
     });
 
     it('covers every flow of the defaults', () => {
-      assert.deepStrictEqual(Object.keys(new Recording(DEFAULT_THROTTLE_PARAMS).table()).sort(), ['login', 'mfa', 'reauth', 'reset']);
+      assert.deepStrictEqual(Object.keys(new Recording(DEFAULT_THROTTLE_PARAMS).table()).sort(), ['login', 'mfa', 'reauth', 'register', 'reset']);
     });
   });
 

@@ -27,7 +27,7 @@ describe('DbAuthnThrottle configuration', () => {
   afterEach(disposeBooted);
 
   it("uses authn core's throttle parameters, not a copy", () => {
-    expect(THROTTLE_FLOWS).to.deep.eq(['login', 'mfa', 'reset', 'reauth']);
+    expect(THROTTLE_FLOWS).to.deep.eq(['login', 'mfa', 'reset', 'reauth', 'register']);
     expect(DEFAULT_THROTTLE_PARAMS.login.account).to.deep.eq({ free: 5, baseDelayMs: 1000, maxDelayMs: 60000 });
     expect([1, 4, 5, 6, 7, 11, 12].map((n) => backoffDelayMs({ free: 5, baseDelayMs: 1000, maxDelayMs: 60000 }, n))).to.deep.eq([0, 0, 1000, 2000, 4000, 60000, 60000]);
   });

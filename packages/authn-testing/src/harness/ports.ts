@@ -106,6 +106,7 @@ export interface ThrottleParams {
   readonly mfa: FlowParams;
   readonly reset: FlowParams;
   readonly reauth: FlowParams;
+  readonly register: FlowParams;
   readonly resetAfterSeconds: number;
   readonly global?: BackoffParams | null;
 }

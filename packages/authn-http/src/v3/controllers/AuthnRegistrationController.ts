@@ -36,7 +36,7 @@ export class AuthnRegistrationController extends BaseController {
    * the address is taken, so it tells a stranger nothing about who has an account. A new account is sent a verification
    * mail; the owner of a taken address is sent an account-exists mail (`authn.http.registration.notifyExisting`). A
    * password that breaks the policy answers 400 `password_rejected` with its violations: they depend on the input only. 429
-   * with Retry-After when throttled (the `reset` flow, per address and per client ip).
+   * with Retry-After when throttled (the `register` flow, per address and per client ip).
    * @security []
    */
   @Post('auth/register')
@@ -50,7 +50,7 @@ export class AuthnRegistrationController extends BaseController {
 
     const ctx = contextOf(req, 'request');
     const throttle = await this.Container.resolve(AuthnThrottle);
-    const gate = await throttle.attempt([{ kind: 'account', value: `register:${email.trim().toLowerCase()}` }, { kind: 'ip', value: ctx.ip ?? 'unknown' }], 'reset', ctx);
+    const gate = await throttle.attempt([{ kind: 'account', value: `register:${email.trim().toLowerCase()}` }, { kind: 'ip', value: ctx.ip ?? 'unknown' }], 'register', ctx);
     if (!gate.allowed) return tooManyRequests('too many registrations, try again later', gate.retryAfterSeconds);
 
     const passwords = await this.Container.resolve(PasswordService);

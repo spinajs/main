@@ -19,7 +19,7 @@ the flow rules, configuration and DI.
   before verify and counts only failures, with `attempt` (K5).
 - `succeed(keys, flow)` is the success rule, below.
 
-Flows are `login`, `mfa`, `reset` and `reauth`. They never share rows. Any other flow is an `InvalidArgument`, and
+Flows are `login`, `mfa`, `reset`, `reauth` and `register`. They never share rows. Any other flow is an `InvalidArgument`, and
 so is a key whose `value` is not a string. The util `Throttle` checks only the keys an operation uses, so a key of
 a kind the flow ignores may carry anything; `DbAuthnThrottle` checks every key of `attempt` and `succeed`
 (`checkKeys`), also in `reset`.
