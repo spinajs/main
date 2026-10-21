@@ -25,7 +25,7 @@ export interface AuthnEvent {
     /** Never passwords, tokens, secrets or raw session ids (A21). */
     readonly data?: Readonly<Record<string, unknown>>;
 }
-export type AuthnEventType = "login" | "logout" | "mfa.challenge" | "mfa.verify" | "mfa.enrol" | "mfa.disable" | "reauth" | "session.issue" | "session.rotate" | "session.revoke" | "session.expire" | "password.change" | "password.reset.request" | "password.reset" | "invite.redeem" | "token.create" | "token.use" | "token.revoke" | "key.register" | "key.use" | "key.revoke" | "identity.link" | "identity.unlink" | "impersonation.start" | "impersonation.end" | "impersonation.expire" | "throttle.block" | "passkey.register" | "passkey.remove";
+export type AuthnEventType = "login" | "logout" | "mfa.challenge" | "mfa.verify" | "mfa.enrol" | "mfa.disable" | "reauth" | "session.issue" | "session.rotate" | "session.revoke" | "session.expire" | "password.change" | "password.reset.request" | "password.reset" | "invite.redeem" | "token.create" | "token.use" | "token.revoke" | "key.register" | "key.use" | "key.revoke" | "identity.link" | "identity.unlink" | "impersonation.start" | "impersonation.end" | "impersonation.expire" | "throttle.block" | "passkey.register" | "passkey.remove" | "address.verify.request" | "address.verify";
 /**
  * Registered with Array.ofType: every sink gets every event (A21).
  * Log sinks write identifiers (login strings, emails) as keyed hashes (authn.audit.hashIdentifiers, SR-19);
@@ -162,7 +162,7 @@ export type AuthenticationResult = {
     readonly retryAfterSeconds?: number;
 };
 /** Goes to audit only; HTTP answers one shape for all of them (A02). */
-export type AuthnFailure = "invalid_credentials" | "throttled" | "unsupported_credentials" | "expired" | "revoked" | "not_linked";
+export type AuthnFailure = "invalid_credentials" | "throttled" | "unsupported_credentials" | "expired" | "revoked" | "not_linked" | "unverified_address";
 export type StrategyOutcome = {
     readonly ok: true;
     /** One of identity and external. */
@@ -301,6 +301,13 @@ export interface IdentityStatus {
     readonly banned: boolean;
     readonly deleted: boolean;
     readonly invitePending?: boolean;
+    /** undefined: the store does not track it. */
+    readonly addressVerified?: boolean;
+}
+/** Implemented by @spinajs/users. */
+export declare abstract class IdentityAddressVerifier {
+    /** Idempotent: an address verified earlier keeps its first time. */
+    abstract markVerified(id: IdentityRef, at: Date): Promise<void>;
 }
 /** Implemented by @spinajs/users. */
 export declare abstract class IdentityStore {
@@ -830,6 +837,18 @@ export type PasswordSetResult = {
     readonly status: "rejected";
     readonly violations: readonly PasswordViolation[];
 };
+export type AddressVerificationRequestResult = {
+    readonly status: "accepted";
+} | {
+    readonly status: "throttled";
+    readonly retryAfterSeconds: number;
+};
+/** 'invalid' is the one answer for a wrong, used, expired or other-purpose secret and for an identity that cannot verify (A02). */
+export type AddressVerificationResult = {
+    readonly status: "verified";
+} | {
+    readonly status: "invalid";
+};
 /** Why a password stops working. */
 export type PasswordExpiry = {
     /**
@@ -888,6 +907,14 @@ export declare abstract class PasswordService {
     }): Promise<PasswordSetResult>;
     /** Makes the current password unusable; the rest depends on the cause. */
     abstract expire(id: IdentityRef, opts: PasswordExpiry, ctx: AuthnContext): Promise<void>;
+    /**
+     * POST /auth/verify/request. Counts the attempt in the 'reset' flow (account key), then answers at once; the secret of purpose
+     * 'verify' is issued when the mail is sent (SR-09). An address already verified gets no mail and the same answer. Optional:
+     * without it the verification routes are off.
+     */
+    requestVerification?(id: IdentityRef, ctx: AuthnContext): Promise<AddressVerificationRequestResult>;
+    /** POST /auth/verify. Single use; marks the address verified through IdentityAddressVerifier. */
+    redeemVerification?(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult>;
 }
 
 // values
