@@ -5,6 +5,7 @@ import type { Credentials, IdentityRef, SessionHandle } from '@spinajs/authn/con
 
 import { decodeFlow, encodeFlow, flowCookieName, sessionBindingOf } from '../src/flow/cookie.js';
 import type { OidcFlow } from '../src/flow/cookie.js';
+import { OIDC_ID_TOKEN_KEY } from '../src/id-token-key.js';
 import { ENV, ORIGIN, world } from './support/world.js';
 import type { WorldOptions } from './support/world.js';
 
@@ -132,6 +133,24 @@ describe('authn-oidc re-authentication (FLOW-4)', () => {
       expect(done.status).to.eq(200);
       expect(done.html).to.contain('url=/after');
       expect(sessionCookieOf(done.cookies)?.Value).to.be.a('string').and.not.eq('');
+    });
+
+    it('with logout.storeIdToken replaces the kept ID token with the one of the re-authentication (FLOW-3)', async () => {
+      const { w, alice } = await aliceWorld({ provider: { logout: { storeIdToken: true } } });
+      const session = await sessionOf(w, alice);
+      await w.sessions.set(session, OIDC_ID_TOKEN_KEY.name, 'old.id.token');
+      const { done } = await reauthRound(w, session, 'kc-1');
+      expect(done.status).to.eq(303);
+      const token = (await w.sessions.restore(sessionCookieOf(done.cookies)!.Value))!.get(OIDC_ID_TOKEN_KEY);
+      expect(token).to.be.a('string').and.not.eq('old.id.token');
+      expect(JSON.parse(Buffer.from(token!.split('.')[1], 'base64url').toString('utf8'))).to.have.property('sub', 'kc-1');
+    });
+
+    it('without logout.storeIdToken keeps no ID token after a re-authentication (FLOW-3)', async () => {
+      const { w, alice } = await aliceWorld();
+      const { done } = await reauthRound(w, await sessionOf(w, alice), 'kc-1');
+      expect(done.status).to.eq(303);
+      expect((await w.sessions.restore(sessionCookieOf(done.cookies)!.Value))!.has(OIDC_ID_TOKEN_KEY)).to.eq(false);
     });
 
     it('refuses an auth_time before the flow start minus the clock skew and leaves the session as it was', async () => {

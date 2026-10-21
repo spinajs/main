@@ -121,7 +121,7 @@ export class OidcLogin {
       return this.linkCallback(strategy, credentials, req);
     }
     if (mode === 'reauth') {
-      return this.reauthCallback(strategy, credentials, req);
+      return this.reauthCallback(strategy, credentials, capture, req);
     }
     let result: AuthenticationResult;
     try {
@@ -171,7 +171,7 @@ export class OidcLogin {
   }
 
   /** A reauth flow's callback: the session that started it must come back; a failure leaves it as it was. */
-  protected async reauthCallback(strategy: OidcStrategy, credentials: Credentials, req: OidcRequest): Promise<OidcAnswer> {
+  protected async reauthCallback(strategy: OidcStrategy, credentials: Credentials, capture: OidcTokenCapture, req: OidcRequest): Promise<OidcAnswer> {
     const flow = decodeFlow((credentials as { payload?: { flow?: unknown } }).payload?.flow);
     const hop = this.sessionHop(strategy, flow, req, true);
     if (hop) return hop;
@@ -186,6 +186,8 @@ export class OidcLogin {
       this.d.log?.warn({ strategy: strategy.name, errorName: errorName(err) }, 'authn-oidc: the re-authentication with ${strategy} failed: ${errorName}');
       return this.failure(req);
     }
+    // The reissued session carries the login's ID token over; the newer one is the better id_token_hint.
+    await this.keepIdToken(next, capture);
     return this.moveOn(req, flow.r ?? this.d.redirects.success, [clearFlowCookie(this.d.env), this.d.sessionCookie(next)]);
   }
 
