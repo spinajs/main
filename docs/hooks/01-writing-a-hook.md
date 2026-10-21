@@ -107,7 +107,7 @@ Import the module that registers your hook before the application boots.
 
 ## Logging
 
-Hook failures are logged on the `hooks` log with the hook class name, the action and the error class. The error message and the input are never logged, since an input can hold a password.
+Hook failures are logged on the `hooks` log with the hook class name, the action and the error class. The error message and the input are never logged, since an input can hold a password. One exception: while a hook's resolution is overdue, only the first fast failure of that period is logged; see [Errors and timeouts](#errors-and-timeouts).
 
 The `refuse` message is not logged. It reaches the caller as `ActionRefused.message` (default `<action> refused: <code>`), so keep input values out of it. An action may map a refusal to its own answer (authn keeps opaque answers), so callers must not rely on seeing the message.
 
