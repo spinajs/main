@@ -31,6 +31,11 @@ function subjectOf(v: unknown): string | null {
   return null;
 }
 
+/** The IdP session id, which back-channel logout names. */
+function sidOf(v: unknown): { sid?: string } {
+  return typeof v === 'string' && v.length > 0 && v.length <= MAX_SID_LENGTH ? { sid: v } : {};
+}
+
 function groupsOf(v: unknown): readonly string[] | undefined {
   if (typeof v === 'string') return Object.freeze([v]);
   if (Array.isArray(v)) return Object.freeze(v.filter((g): g is string => typeof g === 'string'));
@@ -49,11 +54,10 @@ export function mapClaims(provider: OidcStrategyName, mapping: OidcClaimsMapping
   const hasEmail = typeof email === 'string' && email.length > 0 && email.length <= MAX_EMAIL_LENGTH;
   const name = mapping.name === null ? undefined : readClaim(raw, mapping.name);
   const groups = mapping.groups === null ? undefined : groupsOf(readClaim(raw, mapping.groups));
-  const sid = raw.sid;
   return Object.freeze({
     provider,
     subject,
-    ...(typeof sid === 'string' && sid.length > 0 && sid.length <= MAX_SID_LENGTH ? { sid } : {}),
+    ...sidOf(raw.sid),
     ...(hasEmail ? { email, emailVerified: mapping.emailVerified !== null && readClaim(emailSource!, mapping.emailVerified) === true } : {}),
     claims: Object.freeze({
       ...(typeof name === 'string' && name.length <= MAX_NAME_LENGTH ? { name } : {}),

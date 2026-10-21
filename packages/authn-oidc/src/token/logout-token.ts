@@ -45,53 +45,72 @@ const LOGOUT_TYPES = new Set(['jwt', 'logout+jwt', 'application/jwt', 'applicati
 
 const isPart = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 
-/** Section 2.6: signature, iss, aud, iat, exp, events, no nonce, a jti, and a sub or a sid. Throws on any failure. */
-export async function validateLogoutToken(token: string, jwks: OidcJwks, r: LogoutTokenRules): Promise<LogoutTokenClaims> {
-  const refuse = (what: string): never => {
-    throw new AuthenticationFailed(`authn-oidc: logout token refused: ${what}`);
-  };
+const refuse = (what: string): never => {
+  throw new AuthenticationFailed(`authn-oidc: logout token refused: ${what}`);
+};
+
+const optionalPart = (v: unknown, max: number, name: string): string | undefined => (v === undefined ? undefined : isPart(v, max) ? v : refuse(name));
+
+/** The header checks; answers the alg and kid to verify with. */
+function checkedHeader(token: string, r: LogoutTokenRules): { alg: string; kid?: string } {
   if (typeof token !== 'string' || token.length > MAX_TOKEN_LENGTH || !COMPACT.test(token)) refuse('not a signed compact JWS');
-
   const header = decodeProtectedHeader(token) as Record<string, unknown>;
-  const alg = header.alg;
-  if (typeof alg !== 'string' || !(r.algorithms as readonly string[]).includes(alg)) refuse('algorithm not allowed');
+  const { alg, kid, typ } = header;
+  if (typeof alg !== 'string' || !(r.algorithms as readonly string[]).includes(alg)) return refuse('algorithm not allowed');
   if (header.crit !== undefined) refuse('crit header');
-  if (header.kid !== undefined && typeof header.kid !== 'string') refuse('kid');
-  if (header.typ !== undefined && !(typeof header.typ === 'string' && LOGOUT_TYPES.has(header.typ.toLowerCase()))) refuse('typ');
+  if (kid !== undefined && typeof kid !== 'string') refuse('kid');
+  if (typ !== undefined && !(typeof typ === 'string' && LOGOUT_TYPES.has(typ.toLowerCase()))) refuse('typ');
+  return { alg, ...(kid !== undefined ? { kid: kid as string } : {}) };
+}
 
-  const key = await jwks.key({ alg: alg as string, ...(header.kid !== undefined ? { kid: header.kid as string } : {}) }, r.now.getTime());
-  const { payload } = await compactVerify(token, key, { algorithms: [alg as string] });
-
+async function verifiedPayload(token: string, jwks: OidcJwks, r: LogoutTokenRules): Promise<Record<string, unknown>> {
+  const { alg, kid } = checkedHeader(token, r);
+  const key = await jwks.key({ alg, ...(kid !== undefined ? { kid } : {}) }, r.now.getTime());
+  const { payload } = await compactVerify(token, key, { algorithms: [alg] });
   let claims: unknown;
   try {
     claims = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(payload));
   } catch {
     return refuse('payload is not JSON');
   }
-  if (!isPlainObject(claims)) return refuse('payload is not an object');
-  const c = claims;
+  return isPlainObject(claims) ? claims : refuse('payload is not an object');
+}
 
+function checkAudience(c: Record<string, unknown>, r: LogoutTokenRules): void {
   if (typeof c.iss !== 'string' || !(c.iss === r.issuer || r.issuerAliases.includes(c.iss))) refuse('iss');
   const aud = c.aud;
   const audiences = typeof aud === 'string' ? [aud] : Array.isArray(aud) ? aud : [];
   if (audiences.length === 0 || !audiences.every((a) => a === r.clientId)) refuse('aud');
+}
 
+/** iat, exp and nbf with the clock skew; answers until when the token is live, in seconds. */
+function checkedLifetime(c: Record<string, unknown>, r: LogoutTokenRules): number {
   const now = r.now.getTime() / 1000;
   const skew = r.clockSkewSeconds;
-  if (!isFiniteNumber(c.iat) || c.iat > now + skew) refuse('iat');
+  if (!isFiniteNumber(c.iat) || c.iat > now + skew) return refuse('iat');
   if (c.exp !== undefined && !isFiniteNumber(c.exp)) refuse('exp');
-  const until = (c.exp as number | undefined) ?? (c.iat as number) + LOGOUT_TOKEN_MAX_AGE_SECONDS;
-  if (until + skew <= now) refuse('expired');
+  const until = ((c.exp as number | undefined) ?? c.iat + LOGOUT_TOKEN_MAX_AGE_SECONDS) + skew;
+  if (until <= now) refuse('expired');
   if (c.nbf !== undefined && (!isFiniteNumber(c.nbf) || c.nbf > now + skew)) refuse('nbf');
+  return until;
+}
 
+function checkEvent(c: Record<string, unknown>): void {
   const events = c.events;
   if (!isPlainObject(events) || !Object.hasOwn(events, BACKCHANNEL_LOGOUT_EVENT) || !isPlainObject(events[BACKCHANNEL_LOGOUT_EVENT])) refuse('events');
   // Section 2.4: a nonce is prohibited, so an ID token never passes as a logout token.
   if (Object.hasOwn(c, 'nonce')) refuse('nonce');
-  if (!isPart(c.jti, MAX_JTI_LENGTH)) refuse('jti');
+}
 
-  const sub = c.sub === undefined ? undefined : isPart(c.sub, MAX_SUBJECT_LENGTH) ? c.sub : refuse('sub');
-  const sid = c.sid === undefined ? undefined : isPart(c.sid, MAX_SID_LENGTH) ? c.sid : refuse('sid');
+/** Section 2.6: signature, iss, aud, iat, exp, events, no nonce, a jti, and a sub or a sid. Throws on any failure. */
+export async function validateLogoutToken(token: string, jwks: OidcJwks, r: LogoutTokenRules): Promise<LogoutTokenClaims> {
+  const c = await verifiedPayload(token, jwks, r);
+  checkAudience(c, r);
+  const until = checkedLifetime(c, r);
+  checkEvent(c);
+  if (!isPart(c.jti, MAX_JTI_LENGTH)) refuse('jti');
+  const sub = optionalPart(c.sub, MAX_SUBJECT_LENGTH, 'sub');
+  const sid = optionalPart(c.sid, MAX_SID_LENGTH, 'sid');
   if (sub === undefined && sid === undefined) refuse('neither sub nor sid');
 
   return Object.freeze({
@@ -99,7 +118,7 @@ export async function validateLogoutToken(token: string, jwks: OidcJwks, r: Logo
     jti: c.jti as string,
     ...(sub !== undefined ? { sub } : {}),
     ...(sid !== undefined ? { sid } : {}),
-    expiresAt: new Date((until + skew) * 1000),
+    expiresAt: new Date(until * 1000),
   });
 }
 
@@ -133,39 +152,46 @@ export class OidcBackchannelLogout {
   public async receive(provider: string, form: unknown, now: Date): Promise<OidcAnswer> {
     const strategy = typeof provider === 'string' ? this.d.strategies.get(provider) : undefined;
     const token = isPlainObject(form) ? form.logout_token : undefined;
-    const p = strategy?.provider;
-    if (!strategy || !p || p.jwks === null || p.options.issuer === null || typeof token !== 'string') return INVALID;
+    const rules = strategy ? this.rulesOf(strategy, now) : null;
+    if (!strategy || rules === null || typeof token !== 'string') return INVALID;
 
     let claims: LogoutTokenClaims;
     try {
-      claims = await validateLogoutToken(token, p.jwks, {
-        issuer: p.options.issuer,
-        issuerAliases: p.options.issuerAliases,
-        clientId: p.options.clientId,
-        algorithms: p.options.algorithms,
-        clockSkewSeconds: p.options.clockSkewSeconds,
-        now,
-      });
+      claims = await validateLogoutToken(token, strategy.provider.jwks!, rules);
     } catch (err) {
-      this.d.log?.warn(`authn-oidc: back-channel logout for ${provider} refused: ${err instanceof Error ? err.message : String(err)}`);
+      this.warn(provider, 'refused', err);
       return INVALID;
     }
-
     try {
       if (!(await this.d.nonces.claim(jtiKey(strategy.name, claims.iss, claims.jti), claims.expiresAt, now))) {
-        this.d.log?.warn(`authn-oidc: back-channel logout for ${provider} refused: jti replayed`);
+        this.warn(provider, 'refused', new Error('jti replayed'));
         return INVALID;
       }
-      if (claims.sid !== undefined) {
-        await this.d.sessions.revokeByExternal(strategy.name, claims.sid);
-      } else {
-        const link = this.d.links ? await this.d.links.find(strategy.name, claims.sub!) : null;
-        if (link) await this.d.sessions.revokeAll(link.identity, { includeImpersonations: true });
-      }
+      await this.revoke(strategy.name, claims);
     } catch (err) {
-      this.d.log?.warn(`authn-oidc: back-channel logout for ${provider} failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.warn(provider, 'failed', err);
       return INVALID;
     }
     return DONE;
+  }
+
+  /** Null for a provider without an issuer and its JWKS (plain OAuth2): it cannot sign a logout token. */
+  protected rulesOf(strategy: OidcStrategy, now: Date): LogoutTokenRules | null {
+    const o = strategy.provider.options;
+    if (strategy.provider.jwks === null || o.issuer === null) return null;
+    return { issuer: o.issuer, issuerAliases: o.issuerAliases, clientId: o.clientId, algorithms: o.algorithms, clockSkewSeconds: o.clockSkewSeconds, now };
+  }
+
+  protected async revoke(provider: string, claims: LogoutTokenClaims): Promise<void> {
+    if (claims.sid !== undefined) {
+      await this.d.sessions.revokeByExternal(provider, claims.sid);
+      return;
+    }
+    const link = this.d.links ? await this.d.links.find(provider, claims.sub!) : null;
+    if (link) await this.d.sessions.revokeAll(link.identity, { includeImpersonations: true });
+  }
+
+  protected warn(provider: string, what: string, err: unknown): void {
+    this.d.log?.warn(`authn-oidc: back-channel logout for ${provider} ${what}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
