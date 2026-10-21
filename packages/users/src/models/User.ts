@@ -288,7 +288,7 @@ export class UserBase extends ModelBase<UserBase> {
 
   /** When the owner proved the address `Email` reached them (a verify link or an invite); null: not verified. */
   @DT()
-  public EmailVerifiedAt!: DateTime | null;
+  public EmailVerifiedAt!: DateTime;
 
   /**
    * User deletion date

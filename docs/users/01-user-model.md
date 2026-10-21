@@ -25,7 +25,7 @@
 | `CreatedAt` | `DateTime` | `@CreatedAt()`. |
 | `RegisteredAt` | `DateTime` | `@DateTime()`. Set by `create()`. |
 | `PasswordSetAt` | `DateTime` | `@DateTime()`, `@Hidden()`. When the current password was set; written by [`UserAccountSink`](08-authn-event-sinks.md). |
-| `EmailVerifiedAt` | `DateTime | null` | `@DateTime()`. When the address was verified (a verify link or an invite redeem); written by `UserAddressVerifier` and [`UserAccountSink`](08-authn-event-sinks.md). |
+| `EmailVerifiedAt` | `DateTime` | `@DateTime()`. When the address was verified (a verify link or an invite redeem); written by `UserAddressVerifier` and [`UserAccountSink`](08-authn-event-sinks.md). |
 | `DeletedAt` | `DateTime` | `@SoftDelete()`. Normal reads skip soft-deleted rows; add `.withDeleted()` to see them. |
 | `LastLoginAt` | `DateTime` | `@DateTime()`. No package in this monorepo writes it; see [Authn event sinks](08-authn-event-sinks.md#custom-sink-stamp-the-last-login-time). |
 | `IsActive` | `boolean` | Account passed registration. Independent of a ban. |
