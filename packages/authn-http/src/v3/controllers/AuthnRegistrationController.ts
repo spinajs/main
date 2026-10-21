@@ -7,7 +7,7 @@ import type { Request } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { AuthnThrottle, IdentityRegistrar, PasswordService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, PasswordViolation } from '@spinajs/authn/contracts';
-import { Hooks } from '@spinajs/hooks';
+import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
 import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 
 import { newPasswordField, passwordRejected, tooManyRequests } from '../../password/fields.js';
@@ -18,6 +18,17 @@ import type { RegistrationInput, RegistrationOutput } from '../../hooks.js';
 
 const IDENTIFIER_CAP = 254;
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
+
+/**
+ * A refusal of an action the registrar runs (users.create, authn.password.set): an ActionRefused or ActionHookFailed
+ * escaping it, or the InvalidArgument on the password users makes of a refused set; the route checked the policy itself.
+ */
+function nestedRefusalOf(err: unknown): { reason: string; action?: string } | null {
+  if (err instanceof ActionRefused) return { reason: `hook:${err.code}`, action: err.action };
+  if (err instanceof ActionHookFailed) return { reason: 'hook_error', action: err.action };
+  if (err instanceof InvalidArgument && err.fieldName === 'password') return { reason: 'password_refused' };
+  return null;
+}
 
 /** The password breaks the policy for the login or email a hook set. */
 class RejectedForHookedValues extends Error {
@@ -92,6 +103,12 @@ export class AuthnRegistrationController extends BaseController {
     if (refusal) {
       await publishAuthnEvent(this.Container, req, { type: 'identity.register', outcome: 'failure', reason: refusal.reason });
       return hookRefusedAnswer(refusal.code, 400);
+    }
+    // Only a new address reaches what the registrar runs inside it, so its refusals answer as a taken one does.
+    const nested = nestedRefusalOf(err);
+    if (nested) {
+      await publishAuthnEvent(this.Container, req, { type: 'identity.register', outcome: 'failure', reason: nested.reason, ...(nested.action ? { data: { action: nested.action } } : {}) });
+      return new AcceptedResponse({ status: 'accepted' }, { Headers: [NO_STORE] });
     }
     if (err instanceof InvalidArgument) return new BadRequestResponse({ error: 'invalid_registration', message: 'the registration was refused', ...(err.fieldName ? { field: err.fieldName } : {}) }, { Headers: [NO_STORE] });
     throw err;
