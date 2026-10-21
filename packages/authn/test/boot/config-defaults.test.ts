@@ -66,7 +66,7 @@ describe('authn shipped config', () => {
     expect(authn.audit).to.deep.eq(check({}).config.audit);
     expect(authn.impersonation).to.deep.eq({ requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 });
     expect(authn.linking).to.deep.eq({ jit: false, byVerifiedEmail: false });
-    expect(authn.mfa.policy).to.deep.eq({ service: 'DefaultMfaPolicy', force: false, forceForRoles: [] });
+    expect(authn.mfa.policy).to.deep.eq({ service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] });
     expect(authn).to.not.have.property('config');
   });
 

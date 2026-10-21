@@ -13,6 +13,33 @@ type WithStep = Harness & Required<Pick<Harness, 'mfa' | 'seed'>>;
 const FRESH_300 = { authn: { freshAuth: { maxAgeSeconds: 300 } } };
 const SECOND = 1000;
 
+type OidcRow = { label: string; methods?: readonly string[]; force?: boolean; enrolled: boolean; outcome: 'success' | 'mfa_required' };
+
+const OIDC_ROWS: readonly OidcRow[] = [
+  { label: 'the default methods exempt an enrolled identity', enrolled: true, outcome: 'success' },
+  { label: 'the default methods exempt a forced, unenrolled identity', force: true, enrolled: false, outcome: 'success' },
+  { label: 'methods listing oidc ask an enrolled identity for its step', methods: ['password', 'oidc'], enrolled: true, outcome: 'mfa_required' },
+  { label: 'methods listing oidc leave an unenrolled identity alone', methods: ['password', 'oidc'], enrolled: false, outcome: 'success' },
+  { label: 'force with methods listing oidc requires enrolment', methods: ['password', 'oidc'], force: true, enrolled: false, outcome: 'mfa_required' },
+];
+
+const PASSWORD_ROWS = [
+  { label: 'the default methods', methods: undefined, outcome: 'mfa_required' },
+  { label: 'methods listing password and oidc', methods: ['password', 'oidc'], outcome: 'mfa_required' },
+  { label: 'methods leaving password out', methods: ['oidc'], outcome: 'success' },
+] as const;
+
+/** ALICE linked to one subject of the external provider, enrolled in the kit step when `enrolled`. */
+async function externalLogin(h: Harness & Required<Pick<Harness, 'service' | 'seed' | 'mfa' | 'links' | 'external'>>, k: CaseKit, enrolled: boolean): Promise<AuthenticationResult> {
+  const a = await seedUser(h, ALICE);
+  const subject = { provider: h.external.provider, subject: 'kit-mfa-1' };
+  await h.links.link(a, subject);
+  if (enrolled) await h.mfa.enrol(a);
+  return auth(h, k, await h.external.credentialsFor(subject));
+}
+
+const policyConfig = (row: { methods?: readonly string[]; force?: boolean }) => ({ authn: { mfa: { policy: { ...(row.methods ? { methods: row.methods } : {}), ...(row.force ? { force: true } : {}) } } } });
+
 const is2xx = (status: number): boolean => status >= 200 && status < 300;
 
 /** ALICE enrolled and logged in: a pending session. */
@@ -212,6 +239,40 @@ export const A10: AuthnRule = defineRule('A10', 'MFA codes are throttled, single
       expectFail(await h.service.completeMfa(r.pending, 'recovery', await h.mfa.code(a), k.ctx()));
     },
   }),
+  table(OIDC_ROWS, (row) =>
+    defineCase({
+      name: `A10 an external login against authn.mfa.policy.methods: ${row.label}`,
+      facet: 'A10/flow',
+      needs: ['service', 'seed', 'mfa', 'external', 'links'],
+      config: policyConfig(row),
+      async run(h, k) {
+        const r = await externalLogin(h, k, row.enrolled);
+        if (row.outcome === 'success') {
+          expectSuccess(r);
+          assert.strictEqual(r.facts.assurance, 'aal1');
+          assert.strictEqual(r.facts.method, 'oidc');
+        } else {
+          expectMfaRequired(r);
+          assert.deepStrictEqual([...r.steps], [h.mfa.step.name]);
+        }
+      },
+    }),
+  ),
+  table(PASSWORD_ROWS, (row) =>
+    defineCase({
+      name: `A10 a password login of an enrolled identity against authn.mfa.policy.methods: ${row.label}`,
+      facet: 'A10/flow',
+      needs: ['service', 'seed', 'mfa'],
+      config: policyConfig(row),
+      async run(h, k) {
+        const a = await seedUser(h, ALICE);
+        await h.mfa.enrol(a);
+        const r = await auth(h, k, pw(ALICE.login, ALICE.password));
+        if (row.outcome === 'success') expectSuccess(r);
+        else expectMfaRequired(r);
+      },
+    }),
+  ),
   table(FRESH_ROWS, (row) =>
     defineCase({
       name: `A10 enrolment needs fresh auth: ${row.label}`,

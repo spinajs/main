@@ -11,6 +11,7 @@ const authn = {
         service: 'DefaultMfaPolicy',
         force: false,
         forceForRoles: [] as string[],
+        methods: ['password'] as string[],
       },
     },
     throttle: {

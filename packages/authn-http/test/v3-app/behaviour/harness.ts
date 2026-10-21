@@ -50,6 +50,7 @@ export const SUPPORTED_CONFIG: readonly string[] = [
   'authn.session.expiration.maxLifetime',
   'authn.session.pendingTtlSeconds',
   'authn.mfa.policy.force',
+  'authn.mfa.policy.methods',
   'authn.freshAuth.maxAgeSeconds',
   'authn.impersonation',
   'authn.http.trustProxy',

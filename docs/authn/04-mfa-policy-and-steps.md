@@ -11,7 +11,7 @@ A password login can end in a pending session that needs a second factor. The `M
 
 ### What `DefaultMfaPolicy.required` returns
 
-1. A login whose `method` is not `password` gets `[]`. A key challenge proves possession of a key and an identity provider does its own MFA.
+1. A login whose `method` is not in `authn.mfa.policy.methods` gets `[]`. The default list is `['password']`, so key, token and OIDC logins are exempt: a key challenge proves possession of a key and an identity provider does its own MFA.
 2. The steps of `authn.mfa.steps` the identity is enrolled in (`MfaStep.enrolled`), in list order. When there is at least one, that list is the answer.
 3. Enrolled in no listed step: every `MfaEnrolments` source of the container lineage is asked for the identity's confirmed steps.
    - A confirmed step that `authn.mfa.steps` does not list throws `MfaStepNotListed`.
@@ -44,7 +44,8 @@ The caller checks fresh authentication before `beginEnrolment`, `regenerateRecov
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authn.mfa.policy.service` | `string` | `'DefaultMfaPolicy'` | A registered `MfaPolicy` class name | The policy `AuthnService` uses |
-| `authn.mfa.policy.force` | `boolean` | `false` | | Every password login of an identity with no enrolment must pass the first step |
+| `authn.mfa.policy.methods` | `string[]` | `['password']` | Login methods such as `password`, `oidc`, `jws`, `token` | The logins that must pass a step. Add `oidc` to ask for a step after an identity provider login, and to refuse an existing `aal1` OIDC session on `MfaSatisfied` routes |
+| `authn.mfa.policy.force` | `boolean` | `false` | | Every login of a listed method of an identity with no enrolment must pass the first step |
 | `authn.mfa.policy.forceForRoles` | `string[]` | `[]` | Role names | Like `force`, for identities that hold one of these roles |
 | `authn.mfa.steps` | `{ name, service }[]` | `[]` | Unique names; `recovery` refused | The steps that run, in list order |
 | `authn.mfa.encryptionKey.secret` | `string \| null` | unset | 32 bytes as 64 hex characters, base64 or base64url | AES-256-GCM key for stored MFA secrets. Set it from a secret reference, never inline |
@@ -54,7 +55,7 @@ The caller checks fresh authentication before `beginEnrolment`, `regenerateRecov
 ```ts
 authn: {
   mfa: {
-    policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: ['admin'] },
+    policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: ['admin'], methods: ['password', 'oidc'] },
     steps: [{ name: 'totp', service: 'TotpMfaStep' }],
     encryptionKey: { secret: '<32 random bytes as 64 hex characters, from a secret reference>' },
   },
@@ -138,7 +139,7 @@ authn: {
 
 ## Important behaviour
 
-- Steps run only for logins whose `method` is `password`.
+- Steps run only for logins whose `method` is in `authn.mfa.policy.methods` (default `password`). An OIDC login of an identity enrolled in TOTP gets a session at `aal1` and `MfaSatisfied` passes it; list `oidc` to change that.
 - The required steps are alternatives: passing any one elevates the session to `aal2`.
 - A recovery code enters as `completeMfa(pending, 'recovery', code, ctx)` (`RECOVERY_STEP`). The first enrolled step that implements `verifyRecovery` checks it.
 - Under `force` the required step may be one the identity has not enrolled. `completeMfa` refuses it (`not_enrolled`): the pending session can only enrol.

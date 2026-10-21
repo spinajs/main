@@ -232,7 +232,7 @@ describe('MFA steps and DefaultMfaPolicy', function () {
 
     it('takes the policy defaults from the schema', async () => {
       const p = await boot();
-      assert.deepStrictEqual(p.configuration.get('authn.mfa.policy'), { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] });
+      assert.deepStrictEqual(p.configuration.get('authn.mfa.policy'), { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] });
       const policy = await policyOf(p);
       assert.strictEqual(policy.force, false);
       assert.deepStrictEqual(policy.forceForRoles, []);
