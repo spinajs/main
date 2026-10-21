@@ -352,6 +352,25 @@ describe('DbTokenService validation cache', function () {
     assert.ok((await w.validate(r.plaintext)).result.ok, 'the new secret is not tied to the grace');
   });
 
+  it('publishes a revokeByPlaintext on the bus, and a second service on the bus drops its cached secret', async () => {
+    const w = await world();
+    const other = await tokenServiceOver<DbTokenService>({ identities: w.identities, profiles: new NoTokenProfilesPolicy(), auditor: AuthnAudit.over([]), bus: w.bus });
+    const owner = await w.owner();
+    const t = await w.mint(owner);
+    assert.ok((await other.validate(t.plaintext, w.ctx())).ok, 'cached by the other service');
+    assert.ok((await w.validate(t.plaintext)).result.ok, 'cached by the revoking service');
+    const seen: unknown[] = [];
+    w.bus.subscribe((c) => seen.push(c));
+
+    assert.strictEqual(await w.service.revokeByPlaintext(t.plaintext, w.ctx()), true);
+    assert.strictEqual(await w.service.revokeByPlaintext(t.plaintext, w.ctx()), false);
+    assert.strictEqual(await w.service.revokeByPlaintext('spt_unknown', w.ctx()), false);
+
+    assert.deepStrictEqual(seen, [{ kind: 'token', id: t.record.id }], 'one change, for the revocation only');
+    assert.deepStrictEqual((await w.validate(t.plaintext)).result, { ok: false, reason: 'revoked' });
+    assert.deepStrictEqual(await other.validate(t.plaintext, w.ctx()), { ok: false, reason: 'revoked' });
+  });
+
   it('publishes each rotation and update on the bus', async () => {
     const w = await world();
     const owner = await w.owner();

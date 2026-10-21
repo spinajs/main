@@ -113,6 +113,10 @@ export class MemoryTokenService extends TokenService {
     return hit.length;
   }
 
+  async revokeByPlaintext(_raw: string, _ctx: AuthnContext): Promise<boolean> {
+    throw new Error('not implemented: MemoryTokenService.revokeByPlaintext');
+  }
+
   async validate(raw: string, ctx: AuthnContext): Promise<TokenValidation> {
     const hash = sha256(raw);
     const now = ctx.now.getTime();

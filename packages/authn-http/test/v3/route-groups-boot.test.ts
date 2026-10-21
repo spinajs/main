@@ -67,6 +67,7 @@ const OPEN: Record<string, Omit<Answer, 'group'>> = {
   'DELETE /user/tokens/00000000-0000-4000-8000-000000000000': { status: 401, error: 'unauthenticated' },
   'POST /user/tokens/00000000-0000-4000-8000-000000000000/rotate': { status: 401, error: 'unauthenticated' },
   'PATCH /user/tokens/00000000-0000-4000-8000-000000000000': { status: 401, error: 'unauthenticated' },
+  'POST /auth/tokens/revoke': { status: 200, error: null },
   'GET /user/keys': { status: 401, error: 'unauthenticated' },
   'POST /user/keys': { status: 401, error: 'unauthenticated' },
   'DELETE /user/keys/some-kid': { status: 401, error: 'unauthenticated' },
@@ -79,12 +80,12 @@ const OPEN: Record<string, Omit<Answer, 'group'>> = {
 const N8B_ROUTES: Record<Group, string[]> = {
   password: ['GET /auth/password/policy', 'POST /auth/password/reset-request', 'POST /auth/password/reset', 'PATCH /user/password'],
   mfa: ['GET /user/mfa', 'POST /user/mfa', 'POST /user/mfa/confirm', 'POST /user/mfa/disable', 'POST /user/mfa/recovery-codes'],
-  tokens: ['GET /user/tokens', 'POST /user/tokens', 'DELETE /user/tokens/:uuid', 'POST /user/tokens/:uuid/rotate', 'PATCH /user/tokens/:uuid'],
+  tokens: ['GET /user/tokens', 'POST /user/tokens', 'DELETE /user/tokens/:uuid', 'POST /user/tokens/:uuid/rotate', 'PATCH /user/tokens/:uuid', 'POST /auth/tokens/revoke'],
   keys: ['GET /user/keys', 'POST /user/keys', 'DELETE /user/keys/:kid', 'POST /auth/keys/challenge', 'POST /auth/keys/login'],
   admin: ['POST /authn/admin/users/:uuid/password-reset', 'POST /authn/admin/users/:uuid/mfa-reset', 'DELETE /authn/admin/users/:uuid/sessions', 'DELETE /authn/admin/users/:uuid/tokens'],
 };
 
-const V3_CONTROLLERS = ['AuthnActiveRoleController', 'AuthnCredentialAdminController', 'AuthnImpersonationController', 'AuthnJwksController', 'AuthnKeysController', 'AuthnLoginController', 'AuthnMfaController', 'AuthnMfaEnrolmentController', 'AuthnPasskeyController', 'AuthnPasswordController', 'AuthnSessionsController', 'AuthnTokensController'];
+const V3_CONTROLLERS = ['AuthnActiveRoleController', 'AuthnCredentialAdminController', 'AuthnImpersonationController', 'AuthnJwksController', 'AuthnKeysController', 'AuthnLoginController', 'AuthnMfaController', 'AuthnMfaEnrolmentController', 'AuthnPasskeyController', 'AuthnPasswordController', 'AuthnSessionsController', 'AuthnTokenRevocationController', 'AuthnTokensController'];
 
 interface Case {
   mode: 'esm' | 'cjs';

@@ -139,6 +139,12 @@ export abstract class TokenService {
   abstract update(owner: IdentityRef, id: string, change: TokenUpdate, ctx: AuthnContext): Promise<TokenUpdateResult>;
   /** Password reset and admin credential reset (A11, A25); agent tokens acting for `owner` included. Returns the count. */
   abstract revokeAllFor(owner: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<number>;
+  /**
+   * POST /auth/tokens/revoke (RFC 7009): the holder of a secret ends its token without a session. True when this call revoked a live token;
+   * false for an unknown, malformed, already revoked or out-of-grace secret, and never thrown, so the route answers the same in every case.
+   * The previous secret of a rotation counts only until its grace ends. Audited as `token.revoke` with reason 'self'.
+   */
+  abstract revokeByPlaintext(raw: string, ctx: AuthnContext): Promise<boolean>;
   /** Hash lookup; checks revocation, expiry and the owner's status on every use (A14, A15). Bad tokens yield a failure; they are never thrown. */
   abstract validate(raw: string, ctx: AuthnContext): Promise<TokenValidation>;
 }

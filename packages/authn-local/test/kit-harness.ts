@@ -207,6 +207,10 @@ class HarnessTokenService extends TokenService {
     throw new Error('HarnessTokenService.update is not used');
   }
 
+  public async revokeByPlaintext(): Promise<boolean> {
+    throw new Error('HarnessTokenService.revokeByPlaintext is not used');
+  }
+
   public async revoke(owner: IdentityRef, id: string): Promise<boolean> {
     const t = this.tokens.find((x) => !x.revoked && x.record.id === id && sameRef(x.record.owner, owner));
     if (t) {

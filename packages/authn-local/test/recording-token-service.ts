@@ -39,6 +39,11 @@ export class RecordingTokenService extends TokenService {
     return 0;
   }
 
+  public async revokeByPlaintext(raw: string, ctx: AuthnContext): Promise<boolean> {
+    this.record('revokeByPlaintext', [raw, ctx]);
+    throw new Error('RecordingTokenService.revokeByPlaintext is not expected here');
+  }
+
   public async validate(raw: string, ctx: AuthnContext): Promise<TokenValidation> {
     this.record('validate', [raw, ctx]);
     return { ok: false, reason: 'invalid_credentials' };

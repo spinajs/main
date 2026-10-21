@@ -493,6 +493,10 @@ export class DbTokenService extends TokenService {
     return count;
   }
 
+  public async revokeByPlaintext(_raw: string, _ctx: AuthnContext): Promise<boolean> {
+    throw new Error('not implemented: DbTokenService.revokeByPlaintext');
+  }
+
   public async validate(raw: string, ctx: AuthnContext): Promise<TokenValidation> {
     // Without a valid now no token could ever count as expired.
     const now = instant(ctx?.now);
