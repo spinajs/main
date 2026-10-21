@@ -3,7 +3,7 @@ import { ActionRefused } from '@spinajs/hooks';
 import type { AuthnEventType, IdentityRef, KeyOwner, KeyRegistration, PrincipalRef, TokenCreateOptions } from '@spinajs/authn/contracts';
 import { generateKeyPair } from '../helpers/index.js';
 import type { FlowHookCall, FlowHooksPort } from '../harness/ports.js';
-import { ALICE, BOB, NEW_PW, auth, expectFail, expectSuccess, factsAal1, pw, seedUser } from './steps.js';
+import { ALICE, BOB, NEW_PW, auth, expectFail, expectSuccess, factsAal1, pw, seedUser, storedHash } from './steps.js';
 import { defineCase, defineRule } from './types.js';
 import type { AuthnRule, CaseKit, HarnessWith } from './types.js';
 
@@ -72,10 +72,10 @@ export const A38: AuthnRule = defineRule('A38', 'action hooks run around the pas
     needs: [...LOCAL_NEEDS, 'sessions', 'passwordStore', 'events', 'service'],
     async run(h, k) {
       const { a, change } = await changeSetup(h, k);
-      const stored = await h.passwordStore.get(a);
+      const stored = await storedHash(h, a);
       h.flowHooks.refuse('authn.password.change', CODE);
       assert.deepStrictEqual({ ...(await change()) }, { status: 'refused', code: CODE });
-      assert.strictEqual(await h.passwordStore.get(a), stored, 'no hash is stored');
+      assert.strictEqual(await storedHash(h, a), stored, 'no hash is stored');
       assert.deepStrictEqual(phases(h.flowHooks, 'authn.password.change'), ['before'], 'a refused action has no after');
       assert.ok(audited(h, 'password.change', `hook:${CODE}`), 'audited as hook:<code>');
       expectSuccess(await auth(h, k, pw(ALICE.login, ALICE.password)), 'the old password still logs in');
@@ -87,10 +87,10 @@ export const A38: AuthnRule = defineRule('A38', 'action hooks run around the pas
     needs: [...LOCAL_NEEDS, 'sessions', 'passwordStore', 'events'],
     async run(h, k) {
       const { a, change } = await changeSetup(h, k);
-      const stored = await h.passwordStore.get(a);
+      const stored = await storedHash(h, a);
       h.flowHooks.fail('authn.password.change');
       assert.deepStrictEqual({ ...(await change()) }, { status: 'refused', code: 'hook_error' });
-      assert.strictEqual(await h.passwordStore.get(a), stored);
+      assert.strictEqual(await storedHash(h, a), stored);
       assert.ok(audited(h, 'password.change', 'hook_error'), 'audited as hook_error');
     },
   }),
@@ -100,10 +100,10 @@ export const A38: AuthnRule = defineRule('A38', 'action hooks run around the pas
     needs: [...LOCAL_NEEDS, 'passwordStore'],
     async run(h, k) {
       const a = await seedUser(h, ALICE);
-      const stored = await h.passwordStore.get(a);
+      const stored = await storedHash(h, a);
       h.flowHooks.refuse('authn.password.set', CODE);
       assert.deepStrictEqual({ ...(await h.password.set(a, NEW_PW, k.ctx({ purpose: 'request' }), { actor: ADMIN })) }, { status: 'refused', code: CODE });
-      assert.strictEqual(await h.passwordStore.get(a), stored, 'no hash is stored');
+      assert.strictEqual(await storedHash(h, a), stored, 'no hash is stored');
       h.flowHooks.reset();
       assert.strictEqual((await h.password.set(a, NEW_PW, k.ctx({ purpose: 'request' }), { actor: ADMIN })).status, 'set');
       assert.deepStrictEqual(phases(h.flowHooks, 'authn.password.set'), ['before', 'after']);
