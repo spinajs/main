@@ -49,7 +49,7 @@ const UNSUPPORTED: StrategyOutcome = { ok: false, reason: 'unsupported_credentia
 /**
  * `oidc:<name>` (design §22.15, A27): verifies an OIDC callback (state, code, ID token, userinfo) and answers the mapped
  * external subject; AuthnService links, provisions and issues the session. The provider's own linking switches are
- * enforced here (D5), since the core applies only the global ones. The core runs the ExternalLoginHooks.
+ * enforced here (D5), since the core applies only the global ones. The core runs the `authn.login.identified` hooks.
  */
 export class OidcStrategy extends AuthenticationStrategy {
   public readonly name: OidcStrategyName;
