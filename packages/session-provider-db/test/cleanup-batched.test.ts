@@ -7,6 +7,9 @@ import { UserSession } from '@spinajs/authn-session';
 import type { DbSessionStore } from '../src/index.js';
 import { bootStore, disposeStore, sessionConnection, storedKeys } from './support.js';
 
+// The store's own sweep must not run while a test seeds rows.
+const HOUR = 3_600_000;
+
 type Executor = { executeOnDb(sql: string, bindings: unknown[], context: QueryContext): Promise<unknown> };
 
 async function indexColumns(connection: OrmDriver, table: string): Promise<Map<string, string[]>> {
@@ -73,7 +76,7 @@ describe('db session provider cleanup', function () {
   });
 
   it('removes 1250 expired sessions in 3 DELETE statements and reports 1250', async () => {
-    const store = await bootStore();
+    const store = await bootStore({ db: { cleanupInterval: HOUR } });
     await seed(store, 1250, 4);
     deletes = countDeletes(await sessionConnection());
 
@@ -84,7 +87,7 @@ describe('db session provider cleanup', function () {
   });
 
   it('honours a configured cleanupBatch', async () => {
-    const store = await bootStore({ db: { cleanupBatch: 100 } });
+    const store = await bootStore({ db: { cleanupBatch: 100, cleanupInterval: HOUR } });
     await seed(store, 250, 0);
     deletes = countDeletes(await sessionConnection());
 
@@ -94,7 +97,7 @@ describe('db session provider cleanup', function () {
   });
 
   it('answers 0 and issues no DELETE when nothing has expired', async () => {
-    const store = await bootStore();
+    const store = await bootStore({ db: { cleanupInterval: HOUR } });
     await seed(store, 0, 3);
     deletes = countDeletes(await sessionConnection());
 
