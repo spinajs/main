@@ -3,7 +3,7 @@ import { ClassInfo, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
-import { MIGRATION_DI_SOURCE, Migration, MigrationSource, Orm, OrmDriver, OrmException, OrmMigration } from '../src/index.js';
+import { MIGRATION_DI_SOURCE, Migration, MigrationSource, Orm, OrmDriver, OrmException, OrmMigration, OrmMigrator } from '../src/index.js';
 import { ConnectionConf, FakeMysqlDriver, bootstrapAll, registerFakes, stubDb, logText } from './misc.js';
 import '../src/bootstrap.js';
 import '@spinajs/log';
@@ -135,7 +135,7 @@ describe('Orm migration environments', () => {
     stubDb([]);
 
     // and invisible to the report too, not merely skipped by the run
-    const status = await orm.Migration.status();
+    const status = await (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner.status();
     expect(status.map((s) => s.name)).to.not.include('MigrationEnvTest_Local_2026_07_29_10_01_00');
   });
 

@@ -506,4 +506,17 @@ describe('OrmMigrator', function () {
     expect(seeded.calledOnce).to.be.true;
     expect(extractModelDescriptor(models.MigratorTestUser)!.Columns.map((c) => c.Name)).to.include('Active');
   });
+
+  it('migrate({ fake: true }) records the migrations and neither runs nor seeds them', async () => {
+    const Create = createUsersMigration();
+    const up = sinon.spy(Create.prototype, 'up');
+    const seeded = sinon.stub(Create.prototype, 'data').resolves();
+
+    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const executed = await migrator.migrate({ fake: true });
+
+    expect(executed).to.have.length(1);
+    expect(up.called).to.be.false;
+    expect(seeded.called, 'a faked migration never ran up(), so its seed has nothing to seed into').to.be.false;
+  });
 });

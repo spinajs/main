@@ -64,7 +64,7 @@ export class OrmMigrator extends AsyncService {
 
   /**
    * Applies the pending migrations ( `force` defaults to true ), re-reads the table info of the models their
-   * statements touched, then runs their `data()`. What `migrate-up` runs.
+   * statements touched, then runs their `data()`; `fake` records them and seeds nothing. What `migrate-up` runs.
    */
   public async migrate(options: IOrmMigrateOptions = {}): Promise<OrmMigration[]> {
     const { executed, touched } = await this.Runner.up(options.name, options);
@@ -74,7 +74,9 @@ export class OrmMigrator extends AsyncService {
       await this.Orm.reloadTableInfo({ models: touched.models });
     }
 
-    await this.runDataPhase(executed);
+    if (!options.fake) {
+      await this.runDataPhase(executed);
+    }
 
     return executed;
   }
