@@ -36,6 +36,9 @@ A password login can end in a pending session that needs a second factor. The `M
 | `verifyRecovery?(id, code)` | Checks a single-use recovery code |
 | `regenerateRecoveryCodes?(id)` | New codes, the old ones void |
 | `disable(id)` | Removes the factor; the owner path and the admin reset both land here |
+| `challenge?(id, ctx)` | For a step that delivers its code out of band (the [email code](../authn-local/15-email-codes.md)): sends it for a pending session of `id`. `POST /auth/mfa/challenge` calls it. A step without it needs no challenge |
+
+`MfaEnrolmentMarks` (`has`, `mark`, `unmark`) holds the enrolment of a step that keeps no secret of its own. `DbMfaEnrolmentMarks` in [`@spinajs/authn-orm`](../authn-orm/05-mfa-store.md) keeps the marks as confirmed `authn_mfa` rows, so `MfaEnrolments` sees them.
 
 The caller checks fresh authentication before `beginEnrolment`, `regenerateRecoveryCodes` and `disable`. The HTTP routes for enrolment are in [`@spinajs/authn-http`](../authn-http/README.md).
 

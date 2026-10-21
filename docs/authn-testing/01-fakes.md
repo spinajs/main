@@ -64,7 +64,7 @@ Only `Date` is faked. Timers, `performance.now()` and `process.hrtime` stay real
 
 ### `MemorySecretStore`
 
-- `issue()` returns a 32-byte random base64url secret and keeps only its SHA-256. Issuing again for the same identity and purpose replaces the older secret.
+- `issue()` returns a 32-byte random base64url secret and keeps only its SHA-256; with a fourth argument `value` it issues that string instead. Issuing again for the same identity and purpose replaces the older secret.
 - `redeem()` succeeds once, for the right identity and purpose, before `expiresAt`, comparing in constant time.
 - `rows()` lists the stored rows; `seedHash(identity, purpose, hashHex, expiresAt, createdAt)` plants a row directly.
 
@@ -90,6 +90,8 @@ Only `Date` is faked. Timers, `performance.now()` and `process.hrtime` stay real
 | `recoveryCodes` | `number \| false` | `10` | Recovery codes issued by `confirmEnrolment` and `regenerateRecoveryCodes`; `false` removes `verifyRecovery` and `regenerateRecoveryCodes` |
 
 - `enrol(id)` enrols directly. `nextCode(id)` returns a fresh six-digit code that `verify` accepts once.
+- `challenge: true` gives the step a `challenge(id, ctx)` that records its calls in `challenges`, as a step that mails its code has.
+- `MemoryMfaEnrolmentMarks` is the in-memory `MfaEnrolmentMarks`: `mark` answers `false` for an identity marked already.
 - `beginEnrolment` returns `fake://enrol?code=<code>`; `confirmEnrolment` with that code enrols and returns the recovery codes.
 - `new EnrolledMfaPolicy(steps, { methods })` requires the steps the identity is enrolled in, only for logins whose method is in `methods` (default `['password']`).
 

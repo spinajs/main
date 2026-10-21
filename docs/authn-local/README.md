@@ -29,6 +29,7 @@ A working login also needs an `IdentityStore` and a `PasswordCredentialStore` (`
 | [Password service](11-password-service.md) | `LocalPasswordService`: its collaborators, the test seam, and how to replace or extend it |
 | [Audit events](12-audit-events.md) | The `AuthnEvent`s the password flows publish, with their reasons |
 | [Address verification](14-address-verification.md) | `requestVerification()` and `redeemVerification()`: a single-use link proves the address, and `authn.login.requireVerifiedAddress` can require it |
+| [Email codes](15-email-codes.md) | `EmailCodeMfaStep` and `EmailCodeStrategy`: a mailed 6-digit code as a second factor and as a way to log in |
 | [Mail delivery](13-mail-delivery.md) | `AuthnMailDispatcher`, `AuthnMailJob` and `authn.local.mail.delivery`: reset and invite mails delivered from a queue or inline, with no secret waiting anywhere |
 
 ## Quick start
