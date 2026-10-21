@@ -19,6 +19,7 @@ When no connection or alias has the name, `Orm` logs `Cannot find connection ses
 
 1. Creates `user_sessions` with the columns listed under [Schema](#user_sessions).
 2. Creates the unique index `session_id_user_session_idx` on `SessionId`, and the indexes `user_sessions_subject_idx` on `Subject` and `user_sessions_impersonator_idx` on `ImpersonatorId`.
+3. `UserSessionExpirationIndex_2026_10_21_00_00_00` adds the index `user_sessions_expiration_idx` on `Expiration`, which the expired-session sweep reads.
 
 `down()` drops the table.
 
