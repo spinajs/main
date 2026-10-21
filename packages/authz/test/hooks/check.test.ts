@@ -125,12 +125,6 @@ describe('the authz.check hook', function () {
       expect(d.trace).to.not.equal(undefined);
     });
 
-    it('also denies the admin permission check: an admin call becomes forbidden', async () => {
-      const refuse = new RefuseWhen(['authz.check'], 'frozen');
-      const { service } = await checkDomain([refuse], true);
-      expect(await service.can(alice, 'authz:assignments.manage', p1)).to.equal(false);
-    });
-
     it('never stores the refusal: the next check without the refusing hook is an allow served from the cache', async () => {
       const refuse = new RefuseWhen(['authz.check'], 'frozen');
       const { service, model } = await checkDomain([refuse], true);

@@ -233,7 +233,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
         async (merged) => {
           assertBatch(env, merged.commands);
           outcome = await exec(frozenBatch(merged.commands));
-          return { results: outcome.results };
+          return { results: outcome.results, replayed: outcome.replayed, dryRun: outcome.dryRun };
         },
         { mutable: ['commands'] },
       ),
@@ -260,17 +260,16 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
       try {
         let command = c;
         let verdict = await this.check(env, handlers, validators, actor, command, ctx);
-        // A changed command meets validate(), the app validators and the permission check again; the guard sees the changed one too.
+        // The command a hook leaves meets validate(), the app validators and the permission check again; the guard sees the changed one too.
         if (env.hooks.has('authz.admin.command')) {
           await mapRefusal('authz.admin.command', () =>
             env.hooks.run(
               'authz.admin.command',
               { actor, command },
               async (merged) => {
-                if (merged.command !== command) {
-                  command = frozenCommand(merged.command, i);
-                  verdict = await this.check(env, handlers, validators, actor, command, ctx);
-                }
+                // Always: deepFreeze does not stop a hook from changing a Date in place, so identity proves nothing.
+                command = frozenCommand(merged.command, i);
+                verdict = await this.check(env, handlers, validators, actor, command, ctx);
                 return { command };
               },
               { mutable: ['command'] },

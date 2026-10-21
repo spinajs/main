@@ -8,7 +8,7 @@ How to write a hook, and what `before`, `after` and `failed` mean, is in [Writin
 
 | Action | Runs | Input | Mutable | `after` sees |
 | --- | --- | --- | --- | --- |
-| `authz.admin.batch` | In `AuthzAdmin.execute` (and every sugar method), before the first command is validated. Not for an empty batch. | `actor`, `commands`, `opts?` | `commands` | `results` of the batch, also failed ones, and the results of a dry run |
+| `authz.admin.batch` | In `AuthzAdmin.execute` (and every sugar method), before the first command is validated. Not for an empty batch. | `actor`, `commands`, `opts?` | `commands` | `{ results, replayed, dryRun }` of the batch: failed results too, and the results of a dry run or a replay |
 | `authz.admin.command` | Per command, after `validate()` and the app validators, before `AdminGuard.check()`. | `actor`, `command` | `command` | the `command` that passed validation and the hook phase (not yet guarded or committed) |
 | `authz.check` | In `check`, `can` and `assert`, after the engine's decision, only when `authz.hooks.check` is `true`. | `principal`, `permission`, `resource` | none | the `Decision` |
 
@@ -20,7 +20,7 @@ The order inside `AuthzAdmin.execute` is:
 
 1. The `authz.admin.batch` hook.
 2. For each command, in phase A (outside the transaction): the handler's `validate()`, the `AuthzCommandValidator`s, the actor's permission check, then the `authz.admin.command` hook.
-3. When the hook changed `command`, the same `validate()`, validators and permission check run again on the new command.
+3. Whatever `command` the hook leaves, changed or not, is copied, frozen and put through the same `validate()`, validators and permission check again. A `Date` edited in place counts as a change.
 4. In phase B (the transaction), `AdminGuard.check()` and `apply()` for the command the hook left.
 
 A hook can only narrow a command, never widen it. A hook that raises the role of a grant gets `forbidden` or `escalation`, because the permission check and the guard decide on the changed command. A command a hook returns is deep-copied and frozen, so a hook must assign a new object (`ctx.input.command = { ...ctx.input.command, expiresAt }`) instead of editing the one it got. A value that is not plain data fails with `invalid_batch`.
@@ -45,8 +45,7 @@ export class DefaultExpiry extends ActionHook<'authz.admin.command'> {
 ### What `after` means
 
 - **`authz.admin.command` `after`** runs in phase A, when the command has passed `validate()`, the validators, the permission check and the hook phase. It does **not** mean the command was committed: the guard and `apply()` come later, so the command can still be refused by the guard, roll back with the rest of the batch, or be a dry run.
-- **Committed-effect logic** (notify another system, invalidate a copy) belongs in `authz.admin.batch` `after`. It runs once the whole batch is done, with `results`. Look at them: it also runs when a command failed (`ok: false`) and for a dry run (`opts.dryRun`, with `opts` in the input), when nothing was written. Only a batch whose results are all `ok` and whose `opts.dryRun` is not `true` was committed.
-- A replayed batch (stored under an idempotency key) also runs this `after` hook with the stored results.
+- **Committed-effect logic** (notify another system, invalidate a copy) belongs in `authz.admin.batch` `after`. It runs once the whole batch is done and gets `{ results, replayed, dryRun }`. It also runs when a command failed (`ok: false`), for a dry run (`dryRun: true`) and for a replay (`replayed: true`, the stored results of a batch committed earlier). Only a batch with all results `ok`, `dryRun: false` and `replayed: false` was committed just now.
 
 ### Answers
 
