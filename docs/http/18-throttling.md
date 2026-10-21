@@ -15,7 +15,7 @@ At startup (`ThrottleMiddleware.before()`, Order 3, after `RealIp`):
 Per request:
 
 1. Finds the **first** rule whose `path` is a prefix of `req.path` on a segment boundary (case-insensitive) and whose `methods` include the request method (or that has no `methods`). No rule: `next()`.
-2. Builds the key `<ip>:<rule.path>:<methods or *>`. The address is `req.storage.realIp`, else the socket address.
+2. Builds the key `<ip>:<rule.path>:<methods or *>`. The address is `req.storage.realIp`, else the socket address. An IPv6 address is replaced by its network, `<network>/<prefix>` with `http.throttle.ipv6Prefix`, so a client that owns a whole /64 cannot get a fresh window per address. IPv4 and IPv4-mapped addresses are keyed whole.
 3. Calls `ThrottleStore.increment(key, windowSeconds)`.
 4. Sets `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` (Unix seconds).
 5. Over the limit: sets `Retry-After` (seconds, at least 1) and answers 429 with `{ error: { code: 'E_TOO_MANY_REQUESTS', message: 'Too many requests, try again later' } }`.
@@ -28,6 +28,7 @@ Per request:
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `http.throttle.enabled` | `boolean` | `false` | | Turns the middleware on. |
+| `http.throttle.ipv6Prefix` | `integer` | `64` | 16 to 128 | IPv6 clients are counted per prefix of this many bits. |
 | `http.throttle.rules` | `IThrottleRule[]` | `[]` | | Checked in order; the first match wins. |
 | `http.throttle.rules[].path` | `string` | required | non-empty path prefix | Matched against the request path, including `http.controllers.route.prefix`. |
 | `http.throttle.rules[].methods` | `string[]` | all methods | HTTP methods | Methods the rule applies to. |
@@ -49,6 +50,37 @@ export default {
   },
 };
 ```
+
+### Rules match the resolved path
+
+A rule is compared with `req.path`, the path the client requested. A controller whose `@BasePath({ config, default })` is moved by configuration (the credential admin routes under `authn.http.admin.basePath`, the authz admin routes under `authz.http.admin.basePath`) answers on its configured path, so a rule written for the default path stops covering it. Write the rule for the path the app serves, and include `http.controllers.route.prefix`.
+
+### Recommended rules for the authn routes
+
+The authn throttle already limits guessing per account and per IP, but only on the routes that reach it. These rules cap the raw request volume per address before any handler runs. Start from them and adjust the numbers to your traffic; put the most specific rule first.
+
+```ts
+export default {
+  http: {
+    throttle: {
+      enabled: true,
+      ipv6Prefix: 64,
+      rules: [
+        { path: '/auth/register', methods: ['POST'], limit: 10, windowSeconds: 3600 },
+        { path: '/auth/password', methods: ['POST'], limit: 10, windowSeconds: 600 },
+        { path: '/auth/code', methods: ['POST'], limit: 10, windowSeconds: 600 },
+        { path: '/auth/verify', methods: ['POST'], limit: 20, windowSeconds: 600 },
+        { path: '/auth/passkeys/challenge', methods: ['POST'], limit: 30, windowSeconds: 60 },
+        { path: '/auth/keys/challenge', methods: ['POST'], limit: 30, windowSeconds: 60 },
+        { path: '/auth/tokens/revoke', methods: ['POST'], limit: 20, windowSeconds: 600 },
+        { path: '/auth', methods: ['POST'], limit: 60, windowSeconds: 60 },
+      ],
+    },
+  },
+};
+```
+
+The counters are per process unless you register a shared `ThrottleStore`. Behind a proxy set `http.trustProxy`, or every client shares the proxy's address.
 
 ## Services and extension points
 

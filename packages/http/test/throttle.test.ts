@@ -1,9 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Configuration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 
+import { BaseController, BasePath, Ok, Post } from '../src/index.js';
 import { MemoryThrottleStore, ThrottleMiddleware, IThrottleRule, ThrottleStore } from '../src/middlewares/Throttle.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { boot, disposeBooted, readingFrom } from './support/config-boot.js';
@@ -17,7 +20,7 @@ interface IFakeResult {
 }
 
 /** A ThrottleMiddleware reading `http.throttle` (absent when undefined) from a Configuration the http schema checked. */
-async function makeMiddleware(cfg: { enabled?: boolean; rules?: IThrottleRule[] } | undefined, store?: ThrottleStore) {
+async function makeMiddleware(cfg: { enabled?: boolean; rules?: IThrottleRule[]; ipv6Prefix?: number } | undefined, store?: ThrottleStore) {
   const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], cfg === undefined ? {} : { http: { throttle: cfg } });
   const mw = readingFrom(new ThrottleMiddleware(), child);
   // decorator-injected properties are getter-only; redefine them for the unit test
@@ -65,6 +68,27 @@ function request(overrides?: Partial<{ path: string; method: string; ip: string 
     ip,
     storage: { realIp: ip },
   };
+}
+
+/** The paths a controller mounts, given the config values its @BasePath reads. */
+async function mountedPaths(type: new () => BaseController, values: Record<string, unknown>): Promise<string[]> {
+  const controller = new type();
+  const cfg = { get: (path: string, fallback?: unknown) => (path in values ? values[path] : fallback) };
+  const noop = () => {};
+  const log = { trace: noop, debug: noop, info: noop, warn: noop, error: noop, fatal: noop, security: noop, success: noop };
+  for (const [name, value] of Object.entries({ _cfg: cfg, _log: log, _container: DI, _actionLocalStorage: new AsyncLocalStorage() })) {
+    Object.defineProperty(controller, name, { value });
+  }
+  await controller.resolve();
+  return (controller.Router as unknown as { stack: { route: { path: string } }[] }).stack.map((l) => l.route.path);
+}
+
+@BasePath({ config: 'throttle.test.base', default: 'auth/probe' })
+class RelocatableController extends BaseController {
+  @Post()
+  public async probe() {
+    return new Ok('ok');
+  }
 }
 
 describe('ThrottleMiddleware', () => {
@@ -133,6 +157,28 @@ describe('ThrottleMiddleware', () => {
     });
   });
 
+  describe('rules and a controller moved by @BasePath({ config })', () => {
+    const RULE: IThrottleRule[] = [{ path: '/auth/probe', methods: ['POST'], limit: 1, windowSeconds: 60 }];
+
+    it('match the resolved path: a rule on the default path no longer covers the moved route, a rule on the new one does', async () => {
+      const [moved] = await mountedPaths(RelocatableController, { 'throttle.test.base': 'admin/probe' });
+      const [home] = await mountedPaths(RelocatableController, {});
+      expect(moved).to.eq('/admin/probe/probe');
+      expect(home).to.eq('/auth/probe/probe');
+
+      const stale = (await makeMiddleware({ enabled: true, rules: RULE })).before()!;
+      for (let i = 0; i < 3; i++) expect((await run(stale, request({ path: moved }))).nextCalled, 'moved route, default-path rule').to.eq(true);
+
+      const current = (await makeMiddleware({ enabled: true, rules: [{ path: '/admin/probe', methods: ['POST'], limit: 1, windowSeconds: 60 }] })).before()!;
+      expect((await run(current, request({ path: moved }))).nextCalled).to.eq(true);
+      expect((await run(current, request({ path: moved }))).status).to.eq(429);
+
+      const atHome = (await makeMiddleware({ enabled: true, rules: RULE })).before()!;
+      await run(atHome, request({ path: home }));
+      expect((await run(atHome, request({ path: home }))).status).to.eq(429);
+    });
+  });
+
   describe('limiting', () => {
     const RULES: IThrottleRule[] = [{ path: '/auth', methods: ['POST'], limit: 2, windowSeconds: 60 }];
 
@@ -159,6 +205,28 @@ describe('ThrottleMiddleware', () => {
 
       // another address is not affected
       expect((await run(handler, request({ ip: '5.6.7.8' }))).nextCalled).to.eq(true);
+    });
+
+    it('counts the addresses of one IPv6 /64 together and another /64 apart', async () => {
+      const handler = (await makeMiddleware({ enabled: true, rules: RULES })).before()!;
+
+      expect((await run(handler, request({ ip: '2001:db8::1' }))).nextCalled).to.eq(true);
+      expect((await run(handler, request({ ip: '2001:db8::2' }))).nextCalled).to.eq(true);
+      expect((await run(handler, request({ ip: '2001:db8:0:0:ffff::9' }))).status).to.eq(429);
+      expect((await run(handler, request({ ip: '2001:db8:0:1::1' }))).nextCalled).to.eq(true);
+    });
+
+    it('keys IPv6 on http.throttle.ipv6Prefix, and IPv4 whole', async () => {
+      const handler = (await makeMiddleware({ enabled: true, rules: RULES, ipv6Prefix: 48 })).before()!;
+
+      await run(handler, request({ ip: '2001:db8:0:1::1' }));
+      await run(handler, request({ ip: '2001:db8:0:2::1' }));
+      expect((await run(handler, request({ ip: '2001:db8:0:3::1' }))).status).to.eq(429);
+
+      await run(handler, request({ ip: '192.0.2.1' }));
+      await run(handler, request({ ip: '192.0.2.1' }));
+      expect((await run(handler, request({ ip: '192.0.2.1' }))).status).to.eq(429);
+      expect((await run(handler, request({ ip: '192.0.2.2' }))).nextCalled).to.eq(true);
     });
 
     it('ignores paths and methods outside the rules', async () => {

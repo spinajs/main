@@ -25,6 +25,7 @@ Registered strategies and steps never run until the configuration lists them.
 | `userVerification` | `'preferred'` | Asked of the authenticator. Only `'required'` refuses an assertion without user verification. |
 | `challengeTtlSeconds` | `300` | How long a challenge stays usable (30 to 600). |
 | `recoveryCodes` | `10` | Recovery codes issued when the second factor is confirmed (0 to 100). |
+| `challenges.maxRows` | `100000` | Challenges kept for anonymous passkey logins (1 to 16000000). Past it `WebAuthnPasskeyService.challenge` throws `PasskeyChallengesFull` and the route answers 503. Registration and MFA challenges are not capped. |
 
 ## Assurance (D7)
 

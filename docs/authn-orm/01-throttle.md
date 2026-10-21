@@ -13,7 +13,8 @@ The throttle is resolved as `AuthnThrottle`, so every caller below gets `DbAuthn
 | `DefaultAuthnService.authenticate()` ([`@spinajs/authn`](../authn/01-authentication-flow.md)) | `login` | Step 2: `attempt` before verification, or `peek` when every candidate is a per-request strategy; `attempt` again after such a failure. `succeed` on a successful login. |
 | `DefaultAuthnService.completeMfa()` | `mfa` | `attempt` before the step verifies; `succeed` when it passes. |
 | `DefaultAuthnService.reauthenticate()` | `reauth` | `attempt` before the check; `succeed` when it passes. |
-| `LocalPasswordService` ([`@spinajs/authn-local`](../authn-local/README.md)) | `reset`, `reauth` | `requestReset` and `redeemReset` count `reset`; a password change counts `reauth`. |
+| `LocalPasswordService` ([`@spinajs/authn-local`](../authn-local/README.md)) | `reset`, `reauth` | `requestReset`, `redeemReset`, `requestCode` and `redeemVerification` count `reset`; a password change counts `reauth`. |
+| `AuthnRegistrationController` ([`@spinajs/authn-http`](../authn-http/22-registration-route.md)) | `register` | `attempt` per address and per IP before the password policy runs; nothing is cleared. |
 | `TotpService` ([`@spinajs/authn-totp`](../authn-totp/README.md)) | `mfa` | Confirming and disabling an enrolment. |
 | `KeyRegistry` ([`@spinajs/authn-keys`](../authn-keys/README.md)) | `login` | Issuing a login challenge counts the client IP. |
 
@@ -93,6 +94,8 @@ sequenceDiagram
 | `authn.throttle.mfa.ip` | `BackoffParams` | `{ free: 20, baseDelayMs: 1000, maxDelayMs: 300000 }` | as above | `mfa` flow, IP key. |
 | `authn.throttle.reset.account` | `BackoffParams` | `{ free: 1, baseDelayMs: 60000, maxDelayMs: 3600000 }` | as above | `reset` flow, account key. |
 | `authn.throttle.reset.ip` | `BackoffParams` | `{ free: 5, baseDelayMs: 10000, maxDelayMs: 900000 }` | as above | `reset` flow, IP key. |
+| `authn.throttle.register.account` | `BackoffParams` | `{ free: 3, baseDelayMs: 60000, maxDelayMs: 3600000 }` | as above | `register` flow, account key (`register:<email>`). |
+| `authn.throttle.register.ip` | `BackoffParams` | `{ free: 10, baseDelayMs: 30000, maxDelayMs: 3600000 }` | as above | `register` flow, IP key. |
 | `authn.throttle.reauth.account` | `BackoffParams` | `{ free: 3, baseDelayMs: 1000, maxDelayMs: 300000 }` | as above | `reauth` flow, account key. The flow has no IP key. |
 | `authn.throttle.resetAfterSeconds` | `number` | `86400` | integer ≥ 1 | A key with no counted attempt for this long, and no running delay, counts as zero and may be purged. |
 | `authn.throttle.global` | `BackoffParams \| null` | `null` | `null` or a backoff | One gate shared by every caller, per flow. Off by default. |

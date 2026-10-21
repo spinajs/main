@@ -1,6 +1,8 @@
 import 'mocha';
 import assert from 'node:assert/strict';
 
+import { PasskeyChallengesFull } from '@spinajs/authn/contracts';
+
 import { WebAuthnCredentialExists, WebAuthnCredentialStore } from '../src/contracts.js';
 import type { WebAuthnCredential } from '../src/contracts.js';
 import { MemoryWebAuthnChallengeStore, WebAuthnChallengeStore, newChallenge } from '../src/challenge.js';
@@ -181,6 +183,20 @@ for (const kind of KINDS)
         const c = newChallenge('login', START, 300);
         await store.put(c);
         assert.strictEqual(await store.take(c.id, new Date(START.getTime() + 301_000)), null);
+      });
+
+      it('refuses a put at the row cap and frees a slot when a challenge is taken', async () => {
+        const now = new Date();
+        const [a, b, c] = [newChallenge('login', now, 300), newChallenge('login', now, 300), newChallenge('login', now, 300)];
+        await store.put(a, 2);
+        await store.put(b, 2);
+        await assert.rejects(store.put(c, 2), PasskeyChallengesFull);
+        assert.ok(await store.take(a.id, now));
+        await store.put(c, 2);
+      });
+
+      it('takes no cap unless one is given', async () => {
+        for (let i = 0; i < 5; i++) await store.put(newChallenge('login', START, 300));
       });
 
       it('take is null for an unknown id', async () => {

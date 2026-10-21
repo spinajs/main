@@ -56,6 +56,7 @@ export const DEFAULT_THROTTLE: ThrottleParams = Object.freeze({
   mfa: Object.freeze({ account: Object.freeze({ free: 3, baseDelayMs: 1000, maxDelayMs: 300000 }), ip: Object.freeze({ free: 20, baseDelayMs: 1000, maxDelayMs: 300000 }) }),
   reset: Object.freeze({ account: Object.freeze({ free: 1, baseDelayMs: 60000, maxDelayMs: 3600000 }), ip: Object.freeze({ free: 5, baseDelayMs: 10000, maxDelayMs: 900000 }) }),
   reauth: Object.freeze({ account: Object.freeze({ free: 3, baseDelayMs: 1000, maxDelayMs: 300000 }) }),
+  register: Object.freeze({ account: Object.freeze({ free: 3, baseDelayMs: 60000, maxDelayMs: 3600000 }), ip: Object.freeze({ free: 10, baseDelayMs: 30000, maxDelayMs: 3600000 }) }),
   resetAfterSeconds: 86400,
   global: null,
 });

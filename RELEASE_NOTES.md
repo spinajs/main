@@ -148,6 +148,34 @@ own strict mode; to set both, move Ajv's value to `validation.strict.ajvStrict`.
 ## Dependencies
 
 - `@spinajs/authn` depends on `ajv`; `@spinajs/authz-http` on `@spinajs/validation`.
+# Release notes — authn, authn-http, authn-local, authn-keys, authn-webauthn, authn-totp, authn-testing, http, util: rate limits for signup and the anonymous routes
+
+> Branch `feat/hard-rl`. Docs: `docs/authn/05-throttling.md`, `docs/authn-orm/01-throttle.md`, `docs/authn-http/22-registration-route.md`,
+> `docs/authn-http/21-verification-routes.md`, `docs/authn-webauthn/01-setup.md`, `docs/authn-webauthn/02-passkey-login.md`, `docs/http/18-throttling.md`.
+
+## New behavior
+
+- **`register` throttle flow.** `ThrottleFlow` gains `'register'` and `ThrottleParams` gains `register` (`THROTTLE_FLOWS` has five
+  members). Defaults: account 3 free then 60 s up to 1 h; ip 10 free then 30 s up to 1 h; a success clears nothing.
+  `POST /auth/register` uses it, so registration no longer shares its ip counter with password reset, code, verification
+  and token revocation requests. No migration: the flow is part of the key id. A custom `AuthnThrottle` or `ThrottleParams`
+  literal must handle the fifth flow.
+- **IPv6 prefix keys everywhere.** `ipKey(ctx, v6Prefix): ThrottleKey | null` and `ipv6PrefixOf(value)` are new in
+  `@spinajs/authn/contracts`, and `identityThrottleKeys` takes an optional third `v6Prefix` argument (without it the address
+  is keyed whole, as before). Registration, token revocation, the authn-local reset and code flows, key login challenges and the
+  TOTP and reauth identity keys read `authn.throttle.ipv6Prefix`. `throttleIp` and `DEFAULT_IPV6_PREFIX` now live in
+  `@spinajs/util`; `@spinajs/authn` re-exports them from its internal `support/ip-key`.
+- **`POST /auth/verify`** counts the client ip in the `reset` flow before it parses the secret: 429 with `Retry-After`.
+  `AddressVerificationResult` gains `{ status: 'throttled'; retryAfterSeconds }`.
+- **`POST /auth/passkeys/challenge`** (anonymous) counts the client ip in the `login` flow: 429 with `Retry-After`. A pending
+  session's MFA challenge is not throttled.
+- **Cap on stored passkey challenges.** `authn.webauthn.challenges.maxRows` (default 100000). `WebAuthnChallengeStore.put(c, maxRows?)`
+  throws the new `PasskeyChallengesFull` (`@spinajs/authn/contracts`) at the cap, for the in-memory and the ORM store; only
+  anonymous login challenges are capped. The route answers 503 `challenge_store_full` with `Retry-After: 30` and logs one warning.
+- **`http.throttle.ipv6Prefix`** (default 64, 16 to 128): `ThrottleMiddleware` counts an IPv6 client per prefix. Docs list a
+  recommended rule set for the authn routes and note that rules match the resolved path of a controller moved by
+  `@BasePath({ config })`.
+- `@spinajs/authn-testing`: `DEFAULT_THROTTLE` and the A06 flow table include `register`.
 
 # Release notes — authn-http, authn-oidc: fresh re-authentication that refreshes the session
 

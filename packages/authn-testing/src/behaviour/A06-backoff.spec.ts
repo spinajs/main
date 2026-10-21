@@ -5,7 +5,7 @@ import { ALICE, BOB, CAROL, IP_A, IP_B, WRONG, attackerIp, auth, expectAllowed, 
 import { defineCase, defineRule, table } from './types.js';
 import type { AuthnRule } from './types.js';
 
-const FLOWS: readonly ThrottleFlow[] = ['login', 'mfa', 'reset', 'reauth'];
+const FLOWS: readonly ThrottleFlow[] = ['login', 'mfa', 'reset', 'reauth', 'register'];
 
 export const A06: AuthnRule = defineRule('A06', 'backoff per key, never a lock', [
   defineCase({

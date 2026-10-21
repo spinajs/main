@@ -266,7 +266,7 @@ export class DefaultAuthnService extends AuthnService {
     }
     const id = stored.identity;
     const about = { identity: id, strategy: stored.facts.strategy, ...(isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
-    const keys = identityThrottleKeys(id, ctx);
+    const keys = identityThrottleKeys(id, ctx, this.ipv6Prefix);
     const gate = await this.Throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
       await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
@@ -336,7 +336,7 @@ export class DefaultAuthnService extends AuthnService {
       await this.Auditor.publishIn(ctx, { type: 'reauth', outcome: 'failure', reason: 'unsupported_credentials', ...about });
       return false;
     }
-    const keys = identityThrottleKeys(id, ctx);
+    const keys = identityThrottleKeys(id, ctx, this.ipv6Prefix);
     if (!(await this.Throttle.attempt(keys, 'reauth', ctx)).allowed) {
       await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return false;
@@ -380,7 +380,7 @@ export class DefaultAuthnService extends AuthnService {
       const { authenticatedAt: _at, ...current } = stored.facts;
       return { status: 'success', identity: id, facts: current, session: stored.handle };
     }
-    const keys = identityThrottleKeys(id, ctx);
+    const keys = identityThrottleKeys(id, ctx, this.ipv6Prefix);
     const gate = await this.Throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
       await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
