@@ -10,6 +10,8 @@ import { rbacStoreNames } from '../../stores/index.js';
 import { CliUsageError } from '../args.js';
 import { AuthzCliCommand } from '../base.js';
 
+const CONFIG_STORES = ['ConfigRoleStore', 'ConfigRuleStore'];
+
 interface CheckConfigOptions {
   explainRole?: string;
 }
@@ -37,6 +39,15 @@ export class CheckConfigCommand extends AuthzCliCommand {
 
   @Autoinject(Configuration)
   public Configuration: Configuration;
+
+  /**
+   * Validating loads the role stores and boots AuthzService, which loads the rule stores; the config-backed defaults
+   * need no database. A role store the app registers may be DB-backed, so it gets the migrator.
+   */
+  protected touchesDb(): boolean {
+    if (!this.Roles && this.Container.hasRegistered(RoleStore)) return true;
+    return [...rbacStoreNames(this.Configuration, 'roles'), ...rbacStoreNames(this.Configuration, 'rules')].some((n) => !CONFIG_STORES.includes(n));
+  }
 
   public async execute(options: CheckConfigOptions = {}): Promise<void> {
     await this.command(

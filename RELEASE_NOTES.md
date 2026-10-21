@@ -56,8 +56,9 @@ removed. An app that migrates on startup resolves `OrmMigrator` before serving; 
     database-backed identity store (users). `@spinajs/authn-local` now depends on `@spinajs/orm`; without a `db`
     configuration the ORM opens no connection;
   - authn-orm's `authn:audit-purge`, authz-orm's `authz:ancestors-verify`, `authz:ancestors-rebuild` and
-    `authz:audit-unattended` (base `AuthzOrmCliCommand`), and authz-rbac's `authz:*` commands (base
-    `AuthzCliCommand`, before it resolves `AuthzService`).
+    `authz:audit-unattended` (base `AuthzOrmCliCommand`), and authz-rbac's `authz:*` commands that touch the DB
+    stores (base `AuthzCliCommand`, before it resolves `AuthzService`). `authz:check-config` resolves the migrator
+    only for DB-backed role or rule stores, so it validates a config-only setup without a database.
 
 # Release notes — authn-http, authn-oidc: fresh re-authentication that refreshes the session
 
