@@ -3,11 +3,13 @@ import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { PasswordService, SessionIssuer } from '@spinajs/authn/contracts';
+import { Hooks } from '@spinajs/hooks';
 
 import { CodeLoginRegistered, loginField, tooManyRequests } from '../../password/index.js';
 import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
-import { AcceptedResponse, NO_STORE, badRequest } from '../responses.js';
-import { bodyField, boundedString, completeLogin, contextOf } from '../routes.js';
+import { AcceptedResponse, NO_STORE, badRequest, hookRefusalOf } from '../responses.js';
+import { bodyField, boundedString, completeLogin, contextOf, publishAuthnEvent } from '../routes.js';
+import '../../hooks.js';
 
 const ACK: Readonly<{ Ok: true }> = Object.freeze({ Ok: true });
 
@@ -29,23 +31,39 @@ export class AuthnCodeLoginController extends BaseController {
   @Autoinject(PasswordService, { optional: true })
   protected Passwords: PasswordService | undefined;
 
+  @Autoinject(Hooks)
+  protected Hooks!: Hooks;
+
   /**
    * Request a login code
    * Body `{ login }`. Answers 202 `{ Ok: true }` at once, whether or not the account exists and whether or not a mail goes
    * out; the code travels only in the mail. 429 with Retry-After when throttled (per login and per client ip), 400
-   * `invalid_login` without a login.
+   * `invalid_login` without a login. An `authn.code.request` hook that refuses gets the same 202, and no mail goes out.
    * @security []
    */
   @Post('auth/code/request')
   public async request(@Req() req: Request) {
     const login = loginField(req);
     if (login === null) return badRequest('invalid_login', `login must be a non-empty string of at most ${PASSWORD_HARD_CAP} characters`);
+    const ctx = contextOf(req, 'request');
     try {
-      const result = await this.Passwords!.requestCode!(login, contextOf(req, 'request'));
+      const result = await this.Hooks.run('authn.code.request', { login, ctx }, () => this.Passwords!.requestCode!(login, ctx), { mutable: [] });
       if (result.status === 'throttled') return tooManyRequests('too many code requests, try again later', result.retryAfterSeconds);
     } catch (err) {
+      const refusal = hookRefusalOf(err, 'authn.code.request');
+      // The answer of any other login: only the audit tells.
+      if (refusal?.own) return this.refused(req, refusal.reason);
       // The answer must not tell a failed lookup or mail from a sent one; the name only, as an error can carry the login.
       this._log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'A login code request failed: ${errorName}');
+    }
+    return new AcceptedResponse({ ...ACK }, { Headers: [NO_STORE] });
+  }
+
+  private async refused(req: Request, reason: string) {
+    try {
+      await publishAuthnEvent(this.Container, req, { type: 'code.request', outcome: 'failure', reason, data: { via: 'login' } });
+    } catch (err) {
+      this._log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'A refused login code request could not be audited: ${errorName}');
     }
     return new AcceptedResponse({ ...ACK }, { Headers: [NO_STORE] });
   }
