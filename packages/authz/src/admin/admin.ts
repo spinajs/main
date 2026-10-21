@@ -1,6 +1,7 @@
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
 import { deepFreeze, quote as q } from '@spinajs/util';
 
 import { AdminGuard, AuthzAdmin, AuthzAdminFailure, AuthzCommandValidator, AuthzEventSink, AuthzWriteHandler } from '../contracts/admin.js';
@@ -46,6 +47,14 @@ interface Env {
   readonly clock: AuthzClock;
   readonly bus: ChangeBus | undefined;
   readonly audit: DecisionAudit | undefined;
+  readonly hooks: Hooks;
+}
+
+interface BatchOutcome {
+  readonly results: readonly AuthzCommandResult[];
+  readonly rows: readonly unknown[];
+  readonly replayed: boolean;
+  readonly dryRun: boolean;
 }
 
 const describeError = (e: unknown): string => (e instanceof Error ? e.message : q(e));
@@ -203,23 +212,34 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     await requirePermitted(env.service, actor, permission, resource);
   }
 
-  private async run(actor: Principal, commands: readonly AuthzCommand[], opts: AuthzAdminOptions | undefined, what: string, needs: Needs = {}): Promise<{ results: readonly AuthzCommandResult[]; rows: readonly unknown[]; replayed: boolean; dryRun: boolean }> {
+  private async run(actor: Principal, commands: readonly AuthzCommand[], opts: AuthzAdminOptions | undefined, what: string, needs: Needs = {}): Promise<BatchOutcome> {
     const env = await this.env();
     assertActor(actor, env.where, what);
-    if (!Array.isArray(commands)) throw new AuthzAdminFailure('invalid_batch', 'commands must be an array');
-    if (commands.length > env.cfg.maxBatch) throw new AuthzAdminFailure('invalid_batch', `a batch holds at most ${env.cfg.maxBatch} commands (authz.admin.maxBatch), got ${commands.length}`);
+    assertBatch(env, commands);
     const options = readOptions(opts);
     const none = { rows: [], replayed: false, dryRun: options.dryRun };
     if (commands.length === 0) return { results: [], ...none };
-    // One frozen copy: the command checked is the command applied, audited and evented.
-    const list: readonly AuthzCommand[] = commands.map((c, i) => {
-      try {
-        return deepFreeze<AuthzCommand>(structuredClone(c));
-      } catch (e) {
-        throw new AuthzAdminFailure('invalid_batch', `command ${i} is not plain data: ${describeError(e)}`, String(i));
-      }
-    });
+    const list = frozenBatch(commands);
 
+    // The hook narrows only: whatever it returns is frozen, size-checked and validated like the caller's batch.
+    let outcome: BatchOutcome | undefined;
+    await mapRefusal(() =>
+      env.hooks.run(
+        'authz.admin.batch',
+        { actor, commands: list, ...(opts === undefined ? {} : { opts }) },
+        async (merged) => {
+          const final = merged.commands === list ? list : (assertBatch(env, merged.commands), frozenBatch(merged.commands));
+          outcome = final.length === 0 ? { results: [], ...none } : await this.runBatch(env, actor, final, options, what, needs, none);
+          return { results: outcome.results };
+        },
+        { mutable: ['commands'] },
+      ),
+    );
+    return outcome!;
+  }
+
+  private async runBatch(env: Env, actor: Principal, batch: readonly AuthzCommand[], options: ReturnType<typeof readOptions>, what: string, needs: Needs, none: Pick<BatchOutcome, 'rows' | 'replayed' | 'dryRun'>): Promise<BatchOutcome> {
+    const list = [...batch];
     const now = env.clock.now();
     const ctx = this.context(env, actor, now, options.reason, options.dryRun);
     const actorKey = principalKey(actor);
@@ -235,7 +255,25 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     const checked: Checked[] = [];
     for (const [i, c] of list.entries()) {
       try {
-        checked.push(await this.check(env, handlers, validators, actor, c, ctx));
+        let command = c;
+        let verdict = await this.check(env, handlers, validators, actor, command, ctx);
+        // A changed command meets validate(), the app validators and the permission check again; the guard sees the changed one too.
+        await mapRefusal(() =>
+          env.hooks.run(
+            'authz.admin.command',
+            { actor, command },
+            async (merged) => {
+              if (merged.command !== command) {
+                command = frozenCommand(merged.command, i);
+                verdict = await this.check(env, handlers, validators, actor, command, ctx);
+              }
+              return { command };
+            },
+            { mutable: ['command'] },
+          ),
+        );
+        list[i] = command;
+        checked.push(verdict);
       } catch (e) {
         if (e instanceof AuthzAdminFailure) return { results: failedAt(list, i, e), ...none };
         throw e;
@@ -386,7 +424,8 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     const domains: unknown = await c.resolve(AuthzDomains);
     if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError(`${where}: DefaultAuthzAdmin needs DefaultAuthzDomains as the AuthzDomains singleton`);
     // The clock, bus and audit the domain's AuthzService booted with.
-    return { where, domain, service, cfg, guard, backend, clock: domains.clock(domain), bus: domains.bus(domain), audit: domains.audit(domain) };
+    const hooks = (await c.resolve(Hooks)) as Hooks;
+    return { where, domain, service, cfg, guard, backend, clock: domains.clock(domain), bus: domains.bus(domain), audit: domains.audit(domain), hooks };
   }
 
   private async readers(where: string): Promise<ReadonlyMap<string, AuthzAdminReader>> {
@@ -506,6 +545,42 @@ function readQuery(query: unknown, readers: ReadonlyMap<string, unknown>): Authz
     page = { limit: Math.min(limit as number, MAX_LIMIT), offset: offset as number, ...(after === undefined ? {} : { after: after as string }) };
   }
   return { ...(copyOf(query) as object), page } as unknown as AuthzAdminQuery;
+}
+
+/** The refusal of a before hook as the failure every admin caller already handles. */
+async function mapRefusal<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof ActionRefused) throw new AuthzAdminFailure(`hook:${e.code}`, e.message);
+    if (e instanceof ActionHookFailed) throw new AuthzAdminFailure('hook_error', `an action hook failed on ${e.action}`);
+    throw e;
+  }
+}
+
+function assertBatch(env: Env, commands: unknown): asserts commands is readonly AuthzCommand[] {
+  if (!Array.isArray(commands)) throw new AuthzAdminFailure('invalid_batch', 'commands must be an array');
+  if (commands.length > env.cfg.maxBatch) throw new AuthzAdminFailure('invalid_batch', `a batch holds at most ${env.cfg.maxBatch} commands (authz.admin.maxBatch), got ${commands.length}`);
+}
+
+function frozenCommand(c: unknown, index: number): AuthzCommand {
+  try {
+    if (!isObject(c) || typeof c.kind !== 'string') throw new TypeError('a command is an object with a kind');
+    return deepFreeze<AuthzCommand>(structuredClone(c as unknown as AuthzCommand));
+  } catch (e) {
+    throw new AuthzAdminFailure('invalid_batch', `command ${index} is not plain data: ${describeError(e)}`, String(index));
+  }
+}
+
+/** One frozen copy: the command checked is the command applied, audited and evented. */
+function frozenBatch(commands: readonly AuthzCommand[]): readonly AuthzCommand[] {
+  return commands.map((c, i) => {
+    try {
+      return deepFreeze<AuthzCommand>(structuredClone(c));
+    } catch (e) {
+      throw new AuthzAdminFailure('invalid_batch', `command ${i} is not plain data: ${describeError(e)}`, String(i));
+    }
+  });
 }
 
 function okResult(kind: AuthzCommand['kind'], a: Applied): OkResult {
