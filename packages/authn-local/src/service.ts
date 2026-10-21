@@ -6,7 +6,8 @@ import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import type { Hooks } from '@spinajs/hooks';
+import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
+import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
 import { AuthnThrottle, IdentityAddressVerifier, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService, identityThrottleKeys, sameRef } from '@spinajs/authn/contracts';
 import type {
   AddressVerificationRequestResult,
@@ -30,6 +31,7 @@ import type {
 } from '@spinajs/authn/contracts';
 
 import type { AuditLog } from './audit.js';
+import type { PasswordChangeOutput } from './hooks.js';
 import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
 import { DeferredWork } from './deferred.js';
 import { EmailCodes } from './email-code/codes.js';
@@ -42,6 +44,13 @@ import { isLoginLength, LocalPasswordPolicy } from './policy.js';
 import { normalizeLogin } from './strategy.js';
 
 const INVALID = { status: 'invalid' } as const;
+
+/** The answer code and audit reason of `action`'s hooks refusing it, or null for any other error. */
+function hookRefusal(err: unknown, action: ActionName): { code: string; reason: string } | null {
+  if (err instanceof ActionRefused && err.action === action) return { code: err.code, reason: `hook:${err.code}` };
+  if (err instanceof ActionHookFailed && err.action === action) return { code: 'hook_error', reason: 'hook_error' };
+  return null;
+}
 
 export interface LocalPasswordServiceDeps {
   readonly identities: IdentityStore;
@@ -186,6 +195,9 @@ export class LocalPasswordService extends PasswordService {
   @Autoinject(IdentityAddressVerifier, { optional: true })
   protected Verifier: IdentityAddressVerifier | undefined;
 
+  @Autoinject(Hooks)
+  protected Hooks: Hooks;
+
   /** `@spinajs/users` registers one per `authn.local.mail.delivery`; none: inline. */
   @Autoinject(AuthnMailDispatcher, { optional: true })
   protected Dispatcher: AuthnMailDispatcher | undefined;
@@ -228,6 +240,30 @@ export class LocalPasswordService extends PasswordService {
       return INVALID;
     }
 
+    let result: PasswordChangeResult | undefined;
+    try {
+      await this.runHooked(
+        'authn.password.change',
+        { id, session, ctx },
+        async (): Promise<PasswordChangeOutput> => {
+          result = await this.verifyAndChange(id, oldPassword, newPassword, session, ctx, handle);
+          // The rotated session id is a credential: the hooks see only the status.
+          return result.status === 'changed' ? { status: 'changed' } : result;
+        },
+        { mutable: [] },
+      );
+      return result!;
+    } catch (err) {
+      const refusal = hookRefusal(err, 'authn.password.change');
+      if (!refusal) throw err;
+      await this.audit(ctx, { type: 'password.change', outcome: 'failure', identity: id, reason: refusal.reason, session: handle });
+      return { status: 'refused', code: refusal.code };
+    }
+  }
+
+  /** The throttled re-authentication with the old password, then the change itself. */
+  protected async verifyAndChange(id: IdentityRef, oldPassword: string, newPassword: string, session: SessionHandle, ctx: AuthnContext, handle: string | undefined): Promise<PasswordChangeResult> {
+    const sessions = this.sessions();
     const throttle = this.throttle();
     const keys = identityThrottleKeys(id, ctx);
     const gate = await throttle.attempt(keys, 'reauth', ctx);
@@ -263,11 +299,23 @@ export class LocalPasswordService extends PasswordService {
       return { status: 'rejected', violations };
     }
 
+    const actor = opts?.actor ? { actor: opts.actor } : {};
+    try {
+      return await this.runHooked('authn.password.set', { id, ...actor, ctx }, () => this.setNow(id, newPassword, ctx, opts?.actor), { mutable: [] });
+    } catch (err) {
+      const refusal = hookRefusal(err, 'authn.password.set');
+      if (!refusal) throw err;
+      await this.audit(ctx, { type: 'password.change', outcome: 'failure', identity: id, ...actor, reason: refusal.reason, data: { cause: 'set' } });
+      return { status: 'refused', code: refusal.code };
+    }
+  }
+
+  protected async setNow(id: IdentityRef, newPassword: string, ctx: AuthnContext, actor?: PrincipalRef): Promise<PasswordSetResult> {
     await this.storePassword(id, newPassword);
     await this.sessions().revokeAll(id, { includeImpersonations: true });
-    await this.revokeTokensOf(id, ctx, opts?.actor);
+    await this.revokeTokensOf(id, ctx, actor);
 
-    await this.audit(ctx, { type: 'password.change', outcome: 'success', identity: id, ...(opts?.actor ? { actor: opts.actor } : {}), data: { cause: 'set' } });
+    await this.audit(ctx, { type: 'password.change', outcome: 'success', identity: id, ...(actor ? { actor } : {}), data: { cause: 'set' } });
     return { status: 'set' };
   }
 
@@ -291,8 +339,23 @@ export class LocalPasswordService extends PasswordService {
       return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
 
-    this.work().defer(() => this.sendReset(login, ctx));
-    return { status: 'accepted' };
+    try {
+      return await this.runHooked(
+        'authn.password.reset.request',
+        { login, ctx },
+        async () => {
+          this.work().defer(() => this.sendReset(login, ctx));
+          return { status: 'accepted' } as const;
+        },
+        { mutable: [] },
+      );
+    } catch (err) {
+      const refusal = hookRefusal(err, 'authn.password.reset.request');
+      if (!refusal) throw err;
+      await this.audit(ctx, { type: 'password.reset.request', outcome: 'failure', reason: refusal.reason });
+      // The answer of any other login: only the audit tells.
+      return { status: 'accepted' };
+    }
   }
 
   /** D12. Every refusal answers `invalid`; the reason goes to audit only (SR-17). */
@@ -303,6 +366,18 @@ export class LocalPasswordService extends PasswordService {
       return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
 
+    // Before the lookup and the redeems: a refusal tells nothing about the login and spends no secret.
+    try {
+      return await this.runHooked('authn.password.reset.redeem', { login, ctx }, () => this.redeemNow(login, secret, newPassword, ctx), { mutable: [] });
+    } catch (err) {
+      const refusal = hookRefusal(err, 'authn.password.reset.redeem');
+      if (!refusal) throw err;
+      await this.audit(ctx, { type: 'password.reset', outcome: 'failure', reason: refusal.reason });
+      return { status: 'refused', code: refusal.code };
+    }
+  }
+
+  protected async redeemNow(login: string, secret: string, newPassword: string, ctx: AuthnContext): Promise<PasswordResetResult> {
     const identities = await this.identities();
     const secrets = await this.secrets();
     const id = await identities.findByLogin(login);
@@ -348,6 +423,19 @@ export class LocalPasswordService extends PasswordService {
 
   /** D13: an admin action, in the call and not throttled. */
   public async invite(id: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<void> {
+    const actor = opts?.actor ? { actor: opts.actor } : {};
+    try {
+      await this.runHooked('authn.password.invite', { id, ...actor, ctx }, () => this.inviteNow(id, ctx, opts), { mutable: [] });
+    } catch (err) {
+      const refusal = hookRefusal(err, 'authn.password.invite');
+      if (refusal) {
+        await this.audit(ctx, { type: 'password.reset.request', outcome: 'failure', identity: id, ...actor, reason: refusal.reason, data: { purpose: 'invite' } });
+      }
+      throw err;
+    }
+  }
+
+  protected async inviteNow(id: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<void> {
     const sent = await this.dispatchMail(id, 'invite', this.inviteTtlSeconds());
     // No event type exists for issuing an invite; it is recorded as a request of purpose invite.
     await this.audit(ctx, {
@@ -368,6 +456,17 @@ export class LocalPasswordService extends PasswordService {
       return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
 
+    try {
+      return await this.runHooked('authn.address.verify.request', { id, ctx }, () => this.requestVerificationNow(id, ctx), { mutable: [] });
+    } catch (err) {
+      const refusal = hookRefusal(err, 'authn.address.verify.request');
+      if (!refusal) throw err;
+      await this.audit(ctx, { type: 'address.verify.request', outcome: 'failure', identity: id, reason: refusal.reason });
+      return { status: 'accepted' };
+    }
+  }
+
+  protected async requestVerificationNow(id: IdentityRef, ctx: AuthnContext): Promise<AddressVerificationRequestResult> {
     const status = await (await this.identities()).status(id);
     const refused = !eligible(status) ? 'status' : status.addressVerified === true ? 'verified' : null;
     if (refused) {
@@ -409,6 +508,18 @@ export class LocalPasswordService extends PasswordService {
   /** Every refusal answers `invalid`; the reason goes to audit only. */
   public async redeemVerification(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult> {
     const verifier = this.verifier();
+    // Before the secret is read: a refusal spends no secret.
+    try {
+      return await this.runHooked('authn.address.verify', { ctx }, () => this.redeemVerificationNow(secret, ctx, verifier), { mutable: [] });
+    } catch (err) {
+      const refusal = hookRefusal(err, 'authn.address.verify');
+      if (!refusal) throw err;
+      await this.audit(ctx, { type: 'address.verify', outcome: 'failure', reason: refusal.reason });
+      return INVALID;
+    }
+  }
+
+  protected async redeemVerificationNow(secret: string, ctx: AuthnContext, verifier: IdentityAddressVerifier): Promise<AddressVerificationResult> {
     const parsed = parseVerifySecret(secret);
     if (!parsed) {
       await (await this.secrets()).redeem(throwaway(), 'verify', '');
@@ -439,6 +550,20 @@ export class LocalPasswordService extends PasswordService {
 
   /** D15. `admin` revokes tokens under reset.revokeTokens and mails only with `sendReset`; `aged` keeps tokens (H32) and mails. */
   public async expire(id: IdentityRef, opts: PasswordExpiry, ctx: AuthnContext): Promise<void> {
+    try {
+      // An aged password expires whatever a hook says.
+      await this.runHooked('authn.password.expire', { id, opts, ctx }, () => this.expireNow(id, opts, ctx), { mutable: [], refusable: opts.cause !== 'aged' });
+    } catch (err) {
+      const refusal = hookRefusal(err, 'authn.password.expire');
+      if (refusal) {
+        const actor = opts.cause === 'admin' ? opts.actor : undefined;
+        await this.audit(ctx, { type: 'password.change', outcome: 'failure', identity: id, ...(actor ? { actor } : {}), reason: refusal.reason, data: { cause: opts.cause, expired: false } });
+      }
+      throw err;
+    }
+  }
+
+  protected async expireNow(id: IdentityRef, opts: PasswordExpiry, ctx: AuthnContext): Promise<void> {
     const sessions = this.sessions();
     // The job skips marked identities, so for `aged` the marker goes after the revoke: a failed revoke leaves the identity
     // unmarked for the next run. An admin sees the error and retries, so there the password dies first.
@@ -594,6 +719,12 @@ export class LocalPasswordService extends PasswordService {
     if (tokens) {
       await tokens.revokeAllFor(id, ctx, actor ? { actor } : undefined);
     }
+  }
+
+  /** Without hooks (a service built with deps and no `hooks`), `impl` runs alone. */
+  protected runHooked<A extends ActionName>(action: A, input: InputOf<A>, impl: (input: InputOf<A>) => Promise<OutputOf<A>>, opts: RunOptions<A>): Promise<OutputOf<A>> {
+    const hooks = this.Deps ? (this.Deps.hooks ?? null) : this.Hooks;
+    return hooks ? hooks.run(action, input, impl, opts) : impl(input);
   }
 
   protected async audit(ctx: AuthnContext, e: AuthnEventBody): Promise<void> {
