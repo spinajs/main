@@ -42,7 +42,7 @@ async function receiver(respond: Respond = (_req, res) => void res.writeHead(204
       for (const w of waiting.splice(0)) w();
     });
   });
-  await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   return {
     url: `http://127.0.0.1:${port}/hook`,
@@ -51,16 +51,16 @@ async function receiver(respond: Respond = (_req, res) => void res.writeHead(204
       const deadline = Date.now() + ms;
       while (hits.length < count) {
         if (Date.now() > deadline) throw new Error(`expected ${count} requests, got ${hits.length}`);
-        await new Promise<void>((ok) => {
-          waiting.push(ok);
-          setTimeout(ok, 25);
+        await new Promise<void>((resolve) => {
+          waiting.push(resolve);
+          setTimeout(resolve, 25);
         });
       }
     },
     close: () =>
-      new Promise<void>((ok) => {
+      new Promise<void>((resolve) => {
         server.closeAllConnections();
-        server.close(() => ok());
+        server.close(() => resolve());
       }),
   };
 }
@@ -167,7 +167,7 @@ describe('WebhookChangeSink', function () {
     await rx.arrived(1);
     stop();
     await bus.publish(change());
-    await new Promise((ok) => setTimeout(ok, 100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     expect(rx.hits).to.have.length(1);
   });
@@ -214,7 +214,7 @@ describe('WebhookChangeSink', function () {
       await bus.publish(change());
       await rx.arrived(1);
 
-      await new Promise((ok) => setTimeout(ok, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
       expect(warn.callCount).to.equal(1);
     });
   });

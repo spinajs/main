@@ -40,15 +40,15 @@ async function receiver(respond: Respond = (_req, res) => void res.writeHead(204
       respond(req, res);
     });
   });
-  await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   return {
     url: `http://127.0.0.1:${port}/hook`,
     hits,
     close: () =>
-      new Promise<void>((ok) => {
+      new Promise<void>((resolve) => {
         server.closeAllConnections();
-        server.close(() => ok());
+        server.close(() => resolve());
       }),
   };
 }
