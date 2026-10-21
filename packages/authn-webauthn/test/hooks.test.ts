@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access -- the tamper tests write into hook inputs untyped, as a careless hook would */
 import 'mocha';
 import assert from 'node:assert/strict';
 import { ActionRefused } from '@spinajs/hooks';
@@ -72,6 +73,16 @@ describe('WebAuthnPasskeyService action hooks', function () {
     const { challengeId } = await service.registrationOptions(ALICE, ctx());
     assert.deepStrictEqual(await service.register(ALICE, { challengeId, response: {} }, ctx()), { ok: false, code: 'invalid_response' });
     assert.deepStrictEqual(hook.calls(), []);
+  });
+
+  it('a hook writing the identity in place does not move the removal to another identity', async () => {
+    assert.ok((await register()).ok);
+    hook.tamper('authn.passkey.revoke', (i) => {
+      i.identity.id = 'someone-else';
+    });
+    assert.strictEqual(await service.remove(ALICE, key.credentialId, ctx()), true);
+    assert.deepStrictEqual(await credentials.listFor(ALICE), []);
+    assert.deepStrictEqual(hook.landed(), []);
   });
 
   it('a refused removal throws ActionRefused and keeps the passkey', async () => {

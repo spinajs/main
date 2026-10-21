@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call -- the tamper tests write into hook inputs untyped, as a careless hook would */
 import 'mocha';
 import assert from 'node:assert/strict';
 import { AuthnAudit } from '@spinajs/authn/audit';
@@ -53,6 +54,31 @@ describe('DefaultKeyRegistry action hooks', () => {
       w.hook.calls('authn.key.register').map((c) => c.phase),
       ['before', 'after'],
     );
+  });
+
+  it('a hook writing into the registration in place changes neither the stored scope, name and expiry nor the owner revoked', async () => {
+    const w = await world();
+    const kp = generateKeyPair('EdDSA');
+    const expiresAt = new Date(w.ctx().now.getTime() + 86_400_000);
+    w.hook.tamper('authn.key.register', (i) => {
+      i.reg.scope.permissions.push('kit:write');
+      i.reg.expiresAt.setTime(expiresAt.getTime() + 365 * 86_400_000);
+      i.reg.name = 'evil';
+      i.ctx.now.setTime(0);
+    });
+    w.hook.tamper('authn.key.revoke', (i) => {
+      i.owner.id = 'other';
+    });
+    const r = await w.registry.register({ owner: SVC, actor: ADMIN, jwk: kp.publicJwk, kid: kp.kid, name: 'ci', scope: { permissions: ['kit:read'] }, expiresAt }, w.ctx());
+    assert.ok(r.ok, JSON.stringify(r));
+    const stored = await w.store.get(kp.kid);
+    assert.deepStrictEqual(stored?.scope, { permissions: ['kit:read'] });
+    assert.strictEqual(stored?.name, 'ci');
+    assert.strictEqual(stored?.expiresAt?.getTime(), expiresAt.getTime());
+    assert.ok((stored?.createdAt.getTime() ?? 0) > 0);
+    assert.strictEqual(await w.registry.revoke(SVC, kp.kid, w.ctx(), { actor: ADMIN }), true);
+    assert.ok((await w.store.get(kp.kid))?.revokedAt, 'the key of the owner the caller named is revoked');
+    assert.deepStrictEqual(w.hook.landed(), [], 'every write hit a frozen copy');
   });
 
   it('revoke refused answers false and the key stays usable', async () => {

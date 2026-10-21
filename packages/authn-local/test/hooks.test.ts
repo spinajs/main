@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access -- the tamper tests write into hook inputs untyped, as a careless hook would */
 import 'mocha';
 import { expect } from 'chai';
 import { ActionRefused } from '@spinajs/hooks';
@@ -33,6 +34,16 @@ class SpyPasswordStore extends MemoryPasswordCredentialStore {
   }
 }
 
+/** Records the keys of every attempt. */
+class KeyThrottle extends FakeBackoffThrottle {
+  public readonly keys: string[] = [];
+
+  public async attempt(...args: Parameters<FakeBackoffThrottle['attempt']>) {
+    this.keys.push(...args[0].map((k) => `${k.kind}=${k.value}`));
+    return super.attempt(...args);
+  }
+}
+
 class RecordingMailer extends PasswordMailer {
   public readonly mails: PasswordMail[] = [];
   public async send(mail: PasswordMail): Promise<void> {
@@ -58,11 +69,12 @@ async function setup() {
   const hasher = new Argon2PasswordHasher({});
   await hasher.resolve();
   const hook = new ScriptedActionHook();
+  const throttle = new KeyThrottle(DEFAULT_THROTTLE);
   const service = new LocalPasswordService({
     identities,
     passwords,
     sessions,
-    throttle: new FakeBackoffThrottle(DEFAULT_THROTTLE),
+    throttle,
     tokens: null,
     secrets,
     mailer,
@@ -81,7 +93,7 @@ async function setup() {
     await service.drain();
     return mailer.mails.filter((m) => m.purpose === purpose);
   };
-  return { identities, passwords, sessions, events, secrets, mailer, verifier, hook, service, alice, session, audited, mailsOf };
+  return { identities, passwords, sessions, events, secrets, mailer, verifier, hook, service, alice, session, audited, mailsOf, throttle };
 }
 
 /** Requests a reset for alice and returns the secret its mail holds. */
@@ -196,6 +208,52 @@ describe('LocalPasswordService action hooks', function () {
       expect(await x.service.redeemVerification(mail.secret, ctx())).to.deep.equal({ status: 'invalid' });
       expect(x.verifier.marked).to.deep.equal([]);
       expect(x.audited('address.verify', `hook:${CODE}`)).to.equal(true);
+    });
+  });
+
+  describe('hooks get copies', () => {
+    it('a hook writing ctx.ip, the session handle or the id in place reaches neither the throttle nor the change', async () => {
+      const x = await setup();
+      const bob = x.identities.add({ login: 'bob@example.com', email: 'bob@example.com' });
+      x.hook.tamper('authn.password.change', (i) => {
+        i.ctx.ip = '203.0.113.9';
+        i.session.id = 'forged';
+        i.id.id = bob.id;
+      });
+      const r = await x.service.change(x.alice, OLD, NEW, x.session, ctx({ purpose: 'reauth' }));
+      expect(r.status).to.equal('changed');
+      expect(x.throttle.keys.some((k) => k.includes('203.0.113.9'))).to.equal(false);
+      expect(await x.passwords.get(bob)).to.equal(null, "bob's password is untouched");
+      expect(x.hook.landed()).to.deep.equal([]);
+    });
+
+    it('a hook writing the id or the expiry options in place does not move set, invite, the verification request or expire', async () => {
+      const x = await setup();
+      const bob = x.identities.add({ login: 'bob@example.com', email: 'bob@example.com', status: { addressVerified: false } });
+      x.identities.setStatus(x.alice, { addressVerified: false });
+      x.hook.tamper('authn.password.*', (i) => {
+        i.id.id = bob.id;
+      });
+      x.hook.tamper('authn.address.verify.request', (i) => {
+        i.id.id = bob.id;
+      });
+      x.hook.tamper('authn.password.expire', (i) => {
+        i.opts.cause = 'aged';
+      });
+      expect((await x.service.set(x.alice, NEW, ctx(), { actor: ADMIN })).status).to.equal('set');
+      expect(await x.passwords.get(bob)).to.equal(null);
+      await x.service.invite(x.alice, ctx(), { actor: ADMIN });
+      await x.service.requestVerification(x.alice, ctx());
+      for (const purpose of ['invite', 'verify']) {
+        expect((await x.mailsOf(purpose)).map((m) => m.identity.id)).to.deep.equal([x.alice.id], purpose);
+      }
+      x.hook.refuse('authn.password.expire', CODE);
+      const err = await x.service.expire(x.alice, { cause: 'admin', actor: ADMIN }, ctx()).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(err, 'still refusable: the cause the hook rewrote is not the one that decides').to.be.instanceOf(ActionRefused);
+      expect(x.hook.landed()).to.deep.equal([]);
     });
   });
 

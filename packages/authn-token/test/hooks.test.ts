@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call -- the tamper tests write into hook inputs untyped, as a careless hook would */
 import 'mocha';
 import { expect } from 'chai';
 import { randomUUID } from 'node:crypto';
@@ -113,6 +114,33 @@ describe('DbTokenService action hooks', function () {
       const output = hook.calls('authn.token.create')[1].output as Record<string, unknown>;
       expect(output).to.not.have.property('plaintext');
       expect(JSON.stringify(hook.calls())).to.not.contain(t.plaintext);
+    });
+  });
+
+  describe('hooks get copies', () => {
+    it('a hook writing ctx.now or opts in place does not move the expiry check, and the stored record ignores output writes', async () => {
+      const a = await owner();
+      hook.tamper('authn.token.create', (i) => {
+        i.ctx.now.setTime(0);
+      });
+      hook.tamper('authn.token.create', (o) => {
+        o.record.name = 'evil';
+      }, 'after');
+      const t = await pat(a);
+      expect(t.record.name).to.equal('pat');
+      expect(hook.landed()).to.deep.equal([]);
+    });
+
+    it('a hook writing the owner of a rotation in place does not move the rotation', async () => {
+      const a = await owner();
+      const b = await owner();
+      const t = await pat(a);
+      hook.tamper('authn.token.rotate', (i) => {
+        i.owner.id = b.id;
+      });
+      const r = await tokens.rotate(a, t.record.id, ctx());
+      expect(r.ok).to.equal(true);
+      expect(hook.landed()).to.deep.equal([]);
     });
   });
 

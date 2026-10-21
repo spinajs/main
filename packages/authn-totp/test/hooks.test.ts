@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access -- the tamper tests write into hook inputs untyped, as a careless hook would */
 import 'mocha';
 import assert from 'node:assert/strict';
 import { ActionRefused } from '@spinajs/hooks';
@@ -13,6 +14,16 @@ import { totpOpts } from './v3/support/totp-defaults.js';
 const KEY = '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f';
 const ADMIN: PrincipalRef = { type: 'user', id: 'admin-1' };
 const CODE = 'not-today';
+
+/** Records the keys of every attempt. */
+class KeyThrottle extends FakeBackoffThrottle {
+  readonly keys: string[] = [];
+
+  async attempt(...args: Parameters<FakeBackoffThrottle['attempt']>) {
+    this.keys.push(...args[0].map((k) => `${k.kind}=${k.value}`));
+    return super.attempt(...args);
+  }
+}
 
 /** Counts the recovery code sets written. */
 class CountingStore extends MemoryMfaSecretStore {
@@ -39,6 +50,8 @@ describe('TotpService action hooks', () => {
   let service: TotpService;
   let sessions: MemorySessionIssuer;
   let alice: IdentityRef;
+  let step: TotpMfaStep;
+  let throttle: KeyThrottle;
 
   const ctx = (): AuthnContext => clock.ctx({ purpose: 'request' });
 
@@ -67,10 +80,10 @@ describe('TotpService action hooks', () => {
     const passwords = new MemoryPasswordCredentialStore();
     alice = await fakeSeedPort(identities, passwords).user({ login: 'alice', email: 'alice@example.com', password: 'correct horse battery staple' });
     sessions = new MemorySessionIssuer();
-    const throttle = new FakeBackoffThrottle(throttleParams());
+    throttle = new KeyThrottle(throttleParams());
     events = new RecordingEventSink();
     store = new CountingStore();
-    const step = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(), identities: null });
+    step = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(), identities: null });
     const authn = new FakeAuthnService({
       strategies: [FakeStrategy.password({ identities, passwords })],
       throttle,
@@ -122,11 +135,32 @@ describe('TotpService action hooks', () => {
 
   it('regenerateRecoveryCodes refused throws ActionRefused and keeps the codes', async () => {
     const s = await session();
-    await enrolled(s);
+    const { recoveryCodes } = await enrolled(s);
     const replaced = store.replaced;
     hook.refuse('authn.mfa.recovery.regenerate', CODE);
     assert.ok((await rejection(service.regenerateRecoveryCodes(s, ctx()))) instanceof ActionRefused);
     assert.strictEqual(store.replaced, replaced, 'no new codes are written');
+    assert.strictEqual(await step.verifyRecovery(alice, recoveryCodes[0]), true, 'an old code still redeems');
+    hook.reset();
+    assert.ok((await service.regenerateRecoveryCodes(s, ctx())).ok);
+    assert.strictEqual(await step.verifyRecovery(alice, recoveryCodes[1]), false, 'after a regeneration that ran, the old codes no longer redeem');
+  });
+
+  it('a hook writing ctx.ip, the target or the actor in place reaches neither the mfa throttle nor the admin reset', async () => {
+    const s = await session();
+    await enrolled(s);
+    hook.tamper('authn.mfa.*', (i) => {
+      if (i.ctx) i.ctx.ip = '203.0.113.9';
+      if (i.target) i.target.id = 'someone-else';
+      if (i.actor) i.actor.id = 'someone-else';
+    });
+    clock.tick(30_000);
+    await service.disable(s, '000000', clock.ctx({ purpose: 'request', ip: '192.0.2.10' }));
+    assert.ok(!throttle.keys.some((k) => k.includes('203.0.113.9')), JSON.stringify(throttle.keys));
+    assert.deepStrictEqual(await service.adminReset(ADMIN, alice, ctx()), { reset: true });
+    assert.strictEqual(await store.get(alice, 'totp'), null, "alice's enrolment is the one reset");
+    assert.ok(events.all().some((e) => e.type === 'mfa.disable' && e.outcome === 'success' && e.actor?.id === ADMIN.id && e.identity?.id === alice.id));
+    assert.deepStrictEqual(hook.landed(), []);
   });
 
   it('adminReset refused answers { reset: false } and keeps the enrolment', async () => {

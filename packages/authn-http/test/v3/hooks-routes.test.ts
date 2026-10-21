@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access -- the tamper tests write into hook inputs untyped, as a careless hook would */
 /** The action hooks of the 3.0 routes (HOOK-3): each refusal's answer, and that a refused route changes nothing. */
 import 'mocha';
 import { expect } from 'chai';
@@ -128,6 +129,16 @@ describe('action hooks on the 3.0 routes', function () {
       expect(w.events.map((e) => [e.type, e.outcome, e.reason])).to.deep.equal([['logout', 'failure', `hook:${CODE}`]]);
     });
 
+    it('a hook writing the session handle in place still ends the session of the cookie', async () => {
+      const w = await world();
+      w.hook.tamper('authn.logout', (i) => {
+        i.session.handle.id = 'forged';
+      });
+      expect(answerOf(await logout(w).logout(w.request())).status).to.equal(200);
+      expect(await w.sessions.restore(w.session.handle.id)).to.equal(null);
+      expect(w.hook.landed()).to.deep.equal([]);
+    });
+
     it('without a refusal the session ends and the hook sees it once before and once after', async () => {
       const w = await world();
       expect(answerOf(await logout(w).logout(w.request())).status).to.equal(200);
@@ -198,6 +209,18 @@ describe('action hooks on the 3.0 routes', function () {
       expect(w.hook.calls('authn.admin.credentials')[0].input).to.deep.include({ action: 'sessions', target: { type: 'user', id: TARGET_UUID } });
     });
 
+    it('a hook writing the target or the actor in place does not move the effect', async () => {
+      const w = await world();
+      const { controller, revoked } = admin(w, { ok: true });
+      w.hook.tamper('authn.admin.credentials', (i) => {
+        i.target.id = 'someone-else';
+        i.actor.id = 'someone-else';
+      });
+      expect(answerOf(await controller.sessions(w.request(), TARGET_UUID)).status).to.equal(200);
+      expect(revoked).to.deep.equal([{ type: 'user', id: TARGET_UUID }]);
+      expect(w.hook.landed()).to.deep.equal([]);
+    });
+
     it('with the guard denying, the hook is not called', async () => {
       const w = await world();
       const { controller, revoked } = admin(w, { ok: false, code: 'forbidden' });
@@ -221,7 +244,9 @@ describe('action hooks on the 3.0 routes', function () {
   describe('POST /auth/register', () => {
     class Registrar extends IdentityRegistrar {
       public readonly calls: { login: string; email: string }[] = [];
+      public refuse?: Error;
       public async register(data: { login: string; email: string; password: string }) {
+        if (this.refuse) throw this.refuse;
         if (!/^[^\s@]+@[^\s@]+$/.test(data.email)) throw new InvalidArgument('email is not an address', 'email');
         this.calls.push({ login: data.login, email: data.email });
         return { status: 'created', id: { type: 'user', id: 'new-1' } } as const;
@@ -255,6 +280,21 @@ describe('action hooks on the 3.0 routes', function () {
       expect(answerOf(await register({ email: 'Newcomer@Example.TEST' })).status).to.equal(202);
       expect(registrar.calls).to.deep.equal([{ login: 'newcomer', email: 'newcomer@example.test' }]);
     });
+
+    for (const [label, refusal] of [
+      ['a refused authn.password.set inside the registrar', () => new ActionRefused('authn.password.set', CODE)],
+      ['the InvalidArgument users makes of a refused set', () => new InvalidArgument('Password does not meet requirements', 'password')],
+    ] as const) {
+      it(`${label} answers the accepted 202 of a taken address, and the audit tells`, async () => {
+        const { w, registrar, verifications, register } = await registration();
+        registrar.refuse = refusal();
+        const a = answerOf(await register({}));
+        expect(a.status).to.equal(202);
+        expect(a.body).to.deep.equal({ status: 'accepted' });
+        expect(verifications).to.deep.equal([]);
+        expect(w.events.some((e) => e.type === 'identity.register' && e.outcome === 'failure')).to.equal(true);
+      });
+    }
 
     it("an invalid email set by a hook is refused by the registrar's own validation", async () => {
       const { w, registrar, register } = await registration();
@@ -311,6 +351,23 @@ describe('action hooks on the 3.0 routes', function () {
       expectRefused(await w.wire(new AuthnTokensController()).create(w.request({ name: 'ci', expiresAt: new Date(Date.now() + 86_400_000).toISOString() })), 403);
     });
 
+    it('a refusal of another action than the route runs is not answered as the route refusal', async () => {
+      const w = await world();
+      w.services.set(TokenService, {
+        create: async () => {
+          throw new ActionRefused('users.create', CODE);
+        },
+      });
+      const err = await w
+        .wire(new AuthnTokensController())
+        .create(w.request({ name: 'ci', expiresAt: new Date(Date.now() + 86_400_000).toISOString() }))
+        .then(
+          () => null,
+          (e: unknown) => e,
+        );
+      expect(err).to.be.instanceOf(ActionRefused);
+    });
+
     it('DELETE /user/tokens/:uuid answers 403 { code } when the TokenService throws ActionRefused', async () => {
       const w = await world();
       w.services.set(TokenService, {
@@ -352,12 +409,13 @@ describe('action hooks on the 3.0 routes', function () {
   });
 
   describe('authn.request', () => {
-    async function authenticate(w: World, values: Record<string, unknown>): Promise<unknown> {
-      const principal = { authenticated: true, type: 'user', id: 'alice-1' };
+    async function authenticate(w: World, values: Record<string, unknown>, seen: { req?: Request } = {}): Promise<unknown> {
+      const principal = { authenticated: true, type: 'user', id: 'alice-1', ceiling: { roles: ['viewer'] } };
       const middleware = readingFrom(new AuthnMiddleware(), fakeContainer(values));
       Object.assign(middleware, { Container: w.container, Hooks: w.hooks, Sessions: w.sessions, Extractors: [], Resolvers: [{ order: 0, resolve: async () => principal }] });
       Object.defineProperty(middleware, 'Log', { value: { warn: () => undefined } });
       const req = { method: 'GET', originalUrl: '/api/things', headers: {}, rawHeaders: [], storage: { ClientIp: '192.0.2.7' } } as unknown as Request;
+      seen.req = req;
       return (middleware as unknown as { authenticate(req: Request, res: unknown): Promise<void> }).authenticate(req, { setHeader: () => undefined }).then(
         () => null,
         (e: unknown) => e,
@@ -378,6 +436,18 @@ describe('action hooks on the 3.0 routes', function () {
       expect(err).to.be.instanceOf(Forbidden);
       expect((err as { code?: unknown }).code).to.equal(CODE);
       expect(w.hook.calls('authn.request')[0].input).to.deep.include({ method: 'GET', path: '/api/things', ip: '192.0.2.7' });
+    });
+
+    it('on, a hook cannot drop the ceiling or change the id of the principal the request gets', async () => {
+      const w = await world();
+      w.hook.tamper('authn.request', (i) => {
+        delete i.principal.ceiling;
+        i.principal.id = 'someone-else';
+      });
+      const seen: { req?: Request } = {};
+      expect(await authenticate(w, { 'authn.http.hooks.request': true }, seen)).to.equal(null);
+      expect(seen.req!.storage.AuthnPrincipal).to.deep.include({ id: 'alice-1', ceiling: { roles: ['viewer'] } });
+      expect(w.hook.landed()).to.deep.equal([]);
     });
 
     it('on, a request the hooks allow gets its principal', async () => {
