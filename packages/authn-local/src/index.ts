@@ -3,6 +3,7 @@ export * from './defaults.js';
 export * from './pepper.js';
 export * from './hasher.js';
 export * from './policy.js';
+export * from './hibp.js';
 export * from './strategy.js';
 export * from './audit.js';
 export * from './service.js';

@@ -115,6 +115,7 @@ function example(): Json {
       httpSignature: { maxAgeSeconds: 300, requiredComponents: ['@method', '@target-uri', 'content-digest'] },
     },
     linking: { jit: false, byVerifiedEmail: false },
+    login: { requireVerifiedAddress: false },
     impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 },
     audit: { hashIdentifiers: true },
     http: {
@@ -244,7 +245,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] }, steps: [] }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 }, session: SESSION_DEFAULTS, token: TOKEN_DEFAULTS, keys: KEYS_DEFAULTS, http: {} });
+      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] }, steps: [] }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, login: { requireVerifiedAddress: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 }, session: SESSION_DEFAULTS, token: TOKEN_DEFAULTS, keys: KEYS_DEFAULTS, http: {} });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -266,6 +267,7 @@ describe('authn.* configuration schema', () => {
         mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] }, steps: [] },
         freshAuth: { maxAgeSeconds: 300 },
         linking: { jit: false, byVerifiedEmail: false },
+        login: { requireVerifiedAddress: false },
         throttle: THROTTLE_DEFAULTS,
       });
     });

@@ -42,6 +42,7 @@ The fields of authn-local's `PasswordMail`, declared here so this package never 
 | --- | --- | --- | --- |
 | `reset` | `authn/reset.mjml` | `email-builtin-templates` | `Reset your password` |
 | `invite` | `authn/invite.mjml` | `email-builtin-templates` | `Set up your account` |
+| `verify` | `authn/verify.mjml` | `email-builtin-templates` | `Confirm your email address` |
 
 The files ship in the package under `lib/templates/authn/`. The package config registers the `fsNative` provider `email-builtin-templates` over `node_modules/@spinajs/email/lib/templates` (from `WORKSPACE_ROOT_PATH` or `cwd`). Each file is self-contained (no `mj-include`): a header with `AppName`, a button and a plain-link line bound to `ActionUrl`, the lifetime, and a footer that says to ignore an unexpected mail. Without a link the token takes the place of the button.
 
@@ -49,11 +50,11 @@ The files ship in the package under `lib/templates/authn/`. The package config r
 
 | Variable | Type | Value |
 | --- | --- | --- |
-| `Purpose` | `string` | `reset` or `invite`. |
+| `Purpose` | `string` | `reset`, `invite` or `verify`. |
 | `Subject` | `string` | The mail subject. |
 | `Name` | `string` | Recipient display name, or `''`. |
 | `Email` | `string` | Recipient address. |
-| `ActionUrl` | `string` | The redemption link with the secret, or `''` when `authn.local.reset.url` is empty. |
+| `ActionUrl` | `string` | The redemption link with the secret, or `''` when `authn.local.reset.url` (`authn.local.verify.url` for `verify`) is empty. |
 | `ResetUrl` | `string` | The same as `ActionUrl`, for templates written against 3.0. |
 | `Token` | `string` | The raw secret, for apps without a redemption page. |
 | `ExpiresInMinutes` | `number` | Secret lifetime in minutes, rounded. |
@@ -95,6 +96,8 @@ A `template` must be a non-empty `.mjml` path, or `{ file, fs }` with an `.mjml`
 | `email.password.reset.template` | `string \| { file, fs }` | `{ file: 'authn/reset.mjml', fs: 'email-builtin-templates' }` | an `.mjml` file | Reset mail template. |
 | `email.password.invite.subject` | `string` | `'Set up your account'` | | Invite mail subject. |
 | `email.password.invite.template` | `string \| { file, fs }` | `{ file: 'authn/invite.mjml', fs: 'email-builtin-templates' }` | an `.mjml` file | Invite mail template. |
+| `email.password.verify.subject` | `string` | `'Confirm your email address'` | | Address verification mail subject. |
+| `email.password.verify.template` | `string \| { file, fs }` | `{ file: 'authn/verify.mjml', fs: 'email-builtin-templates' }` | an `.mjml` file | Address verification mail template. |
 | `email.defaultConnection` | `string` | not set | a connection name | Fallback connection. |
 
 ```ts

@@ -121,7 +121,7 @@ describe('the identity stores over a user model that is an @AccessResource', fun
     const store = new UserIdentityStore();
 
     for (const [name, caller] of CALLERS) {
-      expect(await as(caller, () => store.status(ref)), name).to.deep.eq({ exists: true, active: false, banned: false, deleted: false, invitePending: true });
+      expect(await as(caller, () => store.status(ref)), name).to.deep.eq({ exists: true, active: false, banned: false, deleted: false, invitePending: true, addressVerified: false });
       expect(await principalAfter(caller, () => store.status(ref)), name).to.eq(caller ?? UNATTENDED);
     }
   });

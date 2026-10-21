@@ -9,7 +9,7 @@ The services through which `@spinajs/authn` and its packages see the `users` tab
 1. authn-local's strategy calls `IdentityStore.findByLogin(login)`.
 2. `UserIdentityStore.findByLogin()` returns `null` for a blank value. Otherwise it boots the ORM if needed and, as `SYSTEM`, reads every user (soft-deleted ones included) whose `Email` or `Login` equals the trimmed input, or whose lower-cased `Email` or `Login` equals its lower-cased or NFKC-folded form.
 3. It ranks the matches: exact `Email` first, exact `Login` second, any folded match third. Exactly one row at the best rank gives `{ type: 'user', id: <Uuid> }`; none or several give `null`.
-4. authn calls `status(ref)`: `exists`, `active` (`IsActive`), `banned` (`IsBanned`, duration aware), `deleted` (`DeletedAt` set), `invitePending` (`user:invite:pending === true`). An unknown ref answers all `false`.
+4. authn calls `status(ref)`: `exists`, `active` (`IsActive`), `banned` (`IsBanned`, duration aware), `deleted` (`DeletedAt` set), `invitePending` (`user:invite:pending === true`), `addressVerified` (`EmailVerifiedAt` set). An unknown ref answers all `false`. `UserAddressVerifier` is the `IdentityAddressVerifier`: it sets `EmailVerifiedAt` once, as `SYSTEM`, when a verify secret of `@spinajs/authn-local` is redeemed ([Address verification](../authn-local/14-address-verification.md)).
 5. The strategy calls `PasswordCredentialStore.get(ref)`. `UserPasswordStore.get()` reads `users.Password` as `SYSTEM`: `null`, `''` and `'!none'` answer `null`; any other value, authn-local's `'!expired'` included, comes back as stored.
 6. A rehash, change, reset or expiry calls `set(ref, hash, expected?)`, one SQL statement:
    - `expected` undefined: unconditional update, answers `true`;

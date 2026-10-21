@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { PasswordViolation } from '@spinajs/authn/contracts';
-import { ALICE, NEW_PW, auth, expectFailure, expectSuccess, factsAal1, pw, seedUser } from './steps.js';
+import { ALICE, DAVE, NEW_PW, auth, expectFailure, expectSuccess, factsAal1, pw, seedUser } from './steps.js';
 import { defineCase, defineRule, table } from './types.js';
 import type { AuthnRule } from './types.js';
 
@@ -23,6 +23,7 @@ const CHECK_ROWS = [
 
 const OUTSIDE_ROWS = [7, 129] as const;
 const BLOCKLIST_PATHS = ['change', 'redeemReset'] as const;
+const SIMILARITY_PATHS = ['change', 'set', 'reset', 'invite'] as const;
 
 export const A04: AuthnRule = defineRule('A04', 'passwords are 8 to 128 characters, never trimmed, policy applied whenever set', [
   table(CHECK_ROWS, (row) =>
@@ -127,6 +128,36 @@ export const A04: AuthnRule = defineRule('A04', 'passwords are 8 to 128 characte
           const x = await h.outbox.secretFor(a, 'reset');
           assert.ok(x, 'the reset mail holds a secret');
           assertRejected(await h.password.redeemReset(ALICE.login, x, BLOCKED, k.ctx()), 'blocklisted');
+        }
+      },
+    }),
+  ),
+  table(SIMILARITY_PATHS, (path) =>
+    defineCase({
+      name: `A04 ${path} refuses a password equal to the login`,
+      facet: 'A04/local',
+      needs: ['password', 'seed', 'sessions', 'outbox'],
+      async run(h, k) {
+        if (path === 'invite') {
+          const d = await seedUser(h, DAVE, { active: false, invitePending: true });
+          await h.password.invite(d, k.ctx());
+          const x = await h.outbox.secretFor(d, 'invite');
+          assert.ok(x, 'the invite mail holds a secret');
+          assertRejected(await h.password.redeemReset(DAVE.login, x, DAVE.login, k.ctx()), 'similar_to_identifier');
+          assert.deepStrictEqual({ ...(await h.password.redeemReset(DAVE.login, x, NEW_PW, k.ctx())) }, { status: 'reset', purpose: 'invite' });
+          return;
+        }
+        const a = await seedUser(h, ALICE);
+        if (path === 'change') {
+          const s = await h.sessions.issue(a, factsAal1(k));
+          assertRejected(await h.password.change(a, ALICE.password, ALICE.login, s, k.ctx({ purpose: 'reauth' })), 'similar_to_identifier');
+        } else if (path === 'set') {
+          assertRejected(await h.password.set(a, ALICE.login, k.ctx()), 'similar_to_identifier');
+        } else {
+          await h.password.requestReset(ALICE.login, k.ctx());
+          const x = await h.outbox.secretFor(a, 'reset');
+          assert.ok(x, 'the reset mail holds a secret');
+          assertRejected(await h.password.redeemReset(ALICE.login, x, ALICE.login, k.ctx()), 'similar_to_identifier');
         }
       },
     }),

@@ -71,7 +71,7 @@ export type AuthenticationResult =
     };
 
 /** Goes to audit only; HTTP answers one shape for all of them (A02). */
-export type AuthnFailure = 'invalid_credentials' | 'throttled' | 'unsupported_credentials' | 'expired' | 'revoked' | 'not_linked';
+export type AuthnFailure = 'invalid_credentials' | 'throttled' | 'unsupported_credentials' | 'expired' | 'revoked' | 'not_linked' | 'unverified_address';
 
 export type StrategyOutcome =
   | {
