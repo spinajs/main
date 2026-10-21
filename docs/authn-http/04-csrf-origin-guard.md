@@ -1,15 +1,16 @@
 # CSRF origin guard
 
-`CsrfOriginGuard` refuses cross-site request forgery against cookie sessions. A request with an unsafe method that carries the session cookie passes only when its `Origin` is the app's own origin or a listed one. It runs before `AuthnMiddleware` (order 4), so a refused request reaches no controller and restores no session. It does **not** use CSRF tokens.
+`CsrfOriginGuard` refuses cross-site request forgery against cookie sessions. A request with an unsafe method that carries the session cookie passes only when its `Origin` is the app's own origin or a listed one. The same check covers the unauthenticated credential posts (login, password reset, key login, MFA verify and recovery), which closes login CSRF: a cross-site form cannot sign a victim in as the attacker. It runs before `AuthnMiddleware` (order 4), so a refused request reaches no controller and restores no session. It does **not** use CSRF tokens.
 
 ## How it works
 
 1. `CsrfOriginGuard.before()` runs once when `HttpServer` resolves. It normalises `authn.http.csrf.allowedOrigins` and compiles the proxy trust, so a bad entry fails the boot even while the guard is off. With `authn.http.csrf.enabled: false` it adds no handler.
 2. Per request, `GET`, `HEAD` and `OPTIONS` pass.
-3. A request whose `Cookie` header carries no session cookie passes. The session cookie name is `authn.session.cookie.name` (default `ssid`), bare or with the `__Host-` prefix.
+3. A request whose `Cookie` header carries no session cookie passes, unless its path is listed in `authn.http.csrf.unauthenticatedRoutes` (see step 6). The session cookie name is `authn.session.cookie.name` (default `ssid`), bare or with the `__Host-` prefix.
 4. With an `Origin` header, the request passes when the origin is in `allowedOrigins` or equals the app's own origin. The own origin is the connection scheme plus the `Host` header, or `X-Forwarded-Proto` and `X-Forwarded-Host` from a trusted proxy only.
 5. Without `Origin`, the request passes only with `Sec-Fetch-Site: same-origin`.
-6. Otherwise the guard answers **403** with `{ "error": { "code": "E_CSRF_ORIGIN", "message": "Cross-origin request refused" } }` and logs a warning.
+6. A listed path without the session cookie is checked with the same `Origin` rule (steps 4 and 5), with one exception: a request that sends neither `Origin` nor `Sec-Fetch-Site` is a non-browser client (curl, a server-side caller) and passes. A browser always sends one of the two on a cross-site POST.
+7. Otherwise the guard answers **403** with `{ "error": { "code": "E_CSRF_ORIGIN", "message": "Cross-origin request refused" } }` and logs a warning.
 
 ```mermaid
 sequenceDiagram
@@ -31,6 +32,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `authn.http.csrf.enabled` | `boolean` | `true` | `true`, `false` | `false` turns the guard off. Absent means on. |
 | `authn.http.csrf.allowedOrigins` | `string[]` | `[]` | origins `scheme://host[:port]` | Origins allowed besides the app's own, which is always allowed. Normalised at boot; an entry that is no origin fails the boot, naming the key. |
+| `authn.http.csrf.unauthenticatedRoutes` | `string[]` | `['/auth/login', '/auth/password/reset-request', '/auth/password/reset', '/auth/keys/login', '/auth/mfa/verify', '/auth/mfa/recovery']` | absolute paths | Paths whose `POST` (any unsafe method) is checked even without the session cookie. Matched against the request path after `http.controllers.route.prefix`, ignoring case and a trailing slash. Config sources concatenate arrays, so an app's entries add to the defaults; to replace the list, call `Configuration.set`. An entry that does not start with `/` fails the boot. |
 | `authn.http.trustProxy` | see [Request authentication](01-request-authentication.md#configuration) | | | Proxies whose `X-Forwarded-Proto` and `X-Forwarded-Host` set the own origin. Falls back to `http.trustProxy`. |
 | `authn.session.cookie.name` | `string` | `'ssid'` | | The cookie the guard looks for; see [`@spinajs/authn-session`](../authn-session/README.md). |
 
@@ -56,8 +58,10 @@ export default {
 
 ## Important behaviour
 
-- **Login is not checked.** `POST /auth/login` without a session cookie passes, since only requests carrying the session cookie are checked.
-- **Token, key and signature requests are exempt.** They carry no session cookie.
+- **Login is checked.** `POST /auth/login` without a session cookie needs the own or a listed `Origin`. A cross-site form post gets 403 `E_CSRF_ORIGIN` and never reaches the controller.
+- **Other cookieless routes are exempt.** A route outside `unauthenticatedRoutes` passes without the session cookie, whatever its `Origin`. That covers token, signature and key-challenge requests, which carry no session cookie.
+- **Non-browser clients pass.** On a listed route, a request with neither `Origin` nor `Sec-Fetch-Site` is let through, so scripts and server-to-server login keep working.
+- **Behind a route prefix**, write the listed paths without it: with `http.controllers.route.prefix: 'api'`, `/auth/login` guards `/api/auth/login`.
 - **`Origin` wins over fetch metadata.** A cross-site `Origin` is refused even with `Sec-Fetch-Site: same-origin`.
 - **Origins compare exactly.** Another port, scheme or a longer host is another origin; `Origin: null` is refused. Default ports are normalised.
 - **No usable `Host`** (absent, or with a path): only listed origins pass.

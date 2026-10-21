@@ -358,6 +358,11 @@ what each fix changes for an app.
   only. `AccountGuard` replaces `rbac.admin.roleGuard`. The full list: `packages/users-http/README.md`.
 - Answers that carry a secret (`POST /user/tokens`, recovery codes, `POST /authz/links`, ...) send
   `Cache-Control: no-store`.
+- **Login CSRF.** `CsrfOriginGuard` also checks `POST /auth/login`, `/auth/password/reset-request`,
+  `/auth/password/reset`, `/auth/keys/login`, `/auth/mfa/verify` and `/auth/mfa/recovery` without a
+  session cookie (`authn.http.csrf.unauthenticatedRoutes`, matched after `http.controllers.route.prefix`).
+  A browser post from another origin gets 403 `E_CSRF_ORIGIN`; a client that sends neither `Origin` nor
+  `Sec-Fetch-Site` still passes. A cross-site form that logged in is the only thing that stops working.
 
 ### Databases
 

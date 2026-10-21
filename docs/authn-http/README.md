@@ -19,7 +19,7 @@ Import the package in the app entry, **before** anything resolves `Controllers` 
 | [Request authentication](01-request-authentication.md) | `ClientIp` and `AuthnMiddleware`: restore the session cookie, extract credentials, resolve `req.storage.AuthnPrincipal`. |
 | [Credential extractors](02-credential-extractors.md) | Turn `Authorization`, `x-api-key` and signature headers into credentials; add your own. |
 | [Principal resolvers](03-principal-resolvers.md) | Turn credentials or a session into a principal, in order; add your own. |
-| [CSRF origin guard](04-csrf-origin-guard.md) | `CsrfOriginGuard`: refuses cross-origin unsafe requests that carry the session cookie. |
+| [CSRF origin guard](04-csrf-origin-guard.md) | `CsrfOriginGuard`: refuses cross-origin unsafe requests that carry the session cookie, and cross-origin posts to login and the other credential routes. |
 | [Policies](05-policies.md) | `Authenticated`, `FreshAuth`, `MfaSatisfied`, `NoSession` and the other route guards. |
 | [Route arguments](06-route-arguments.md) | `@Identity()`, `@AuthnSession()`, `@SessionId()` and `@FromSession(key)`. |
 | [Route groups](07-route-groups.md) | Every route the package mounts, the service that switches each group on, and the shared answers. |
