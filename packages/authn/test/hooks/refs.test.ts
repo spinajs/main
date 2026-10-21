@@ -6,7 +6,7 @@ import type { IContainer } from '@spinajs/di';
 import { ActionHook } from '@spinajs/hooks';
 import type { ActionName, ActionPattern, BeforeContext } from '@spinajs/hooks';
 
-import { AccountLinkService, AuthnImpersonationService, MemoryAuthnThrottle } from '../../src/index.js';
+import { AccountLinkService, AuthnImpersonationService, MemoryAuthnThrottle, hookCopy, hookView } from '../../src/index.js';
 import type { AuthenticationResult, AuthnContext, AuthnFacts, Credentials, ExternalSubject, IdentityRef, SessionHandle, ThrottleFlow, ThrottleKey } from '../../src/index.js';
 import { buildCore, pinConfiguration, useHarnessLog } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts } from '../behaviour/harness.js';
@@ -196,5 +196,29 @@ describe('action hooks get copies: a write in place never reaches the action', f
     assert.deepStrictEqual(await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx()), { status: 'failure', reason: 'invalid_credentials' });
     assert.deepStrictEqual(await p.sessions.storage.storedKeys(), []);
     assert.ok(p.events.ofType('login').some((e) => e.reason === 'hook_error'));
+  });
+});
+
+describe('hookView and hookCopy', () => {
+  it('freeze a cloneable value all the way down, never the original', () => {
+    const nested = { n: 1 };
+    const original = { nested, at: new Date(0) };
+    const view = hookView(original);
+    assert.ok(Object.isFrozen(view) && Object.isFrozen(view.nested));
+    assert.notStrictEqual(view.nested, nested);
+    assert.ok(!Object.isFrozen(original) && !Object.isFrozen(nested));
+  });
+
+  it('a value structuredClone refuses (a function inside) is copied at the top only, and the caller keeps its nested objects writable', () => {
+    const nested = { n: 1 };
+    const original = { fn: () => 1, nested };
+    const view = hookView(original);
+    assert.ok(Object.isFrozen(view), 'the top-level copy is frozen');
+    assert.notStrictEqual(view, original);
+    assert.ok(!Object.isFrozen(original), 'the original is not');
+    assert.ok(!Object.isFrozen(nested), "the caller's nested object stays writable");
+    nested.n = 2;
+    assert.strictEqual(view.nested.n, 2, 'shared by reference below the top, as the runner shares it');
+    assert.strictEqual(hookCopy(original).nested, nested);
   });
 });

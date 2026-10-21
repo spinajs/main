@@ -107,18 +107,30 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-/** A deep copy of `value`, so a hook that changes it in place cannot reach the action's own data. */
-export function hookCopy<T>(value: T): T {
-  if (value === null || typeof value !== 'object') return value;
+/** A deep copy of `value`, or null when structuredClone refuses it (a function or a class with private state inside). */
+function deepCopy<T>(value: T): T | null {
   try {
     return structuredClone(value);
   } catch {
-    // Not cloneable (a function or a class with private state inside): a shallow copy still keeps the top level apart.
-    return (Array.isArray(value) ? [...value] : { ...value }) as T;
+    return null;
   }
 }
 
-/** What a hook gets for a key it may not change: a deep copy, frozen, so a write in place fails in the hook. */
+const shallowCopy = <T>(value: T): T => (Array.isArray(value) ? [...value] : { ...value }) as T;
+
+/** A copy of `value`, so a hook that changes it in place cannot reach the action's own data; shallow when it cannot be cloned. */
+export function hookCopy<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  return deepCopy(value) ?? shallowCopy(value);
+}
+
+/**
+ * What a hook gets for a key it may not change: a deep copy, frozen, so a write in place fails in the hook. A value
+ * that cannot be cloned is copied and frozen at the top level only: freezing deeper would freeze the caller's own
+ * nested objects, which the shallow copy still shares, and break the action's later writes to them.
+ */
 export function hookView<T>(value: T): T {
-  return deepFreeze(hookCopy(value));
+  if (value === null || typeof value !== 'object') return value;
+  const deep = deepCopy(value);
+  return deep !== null ? deepFreeze(deep) : Object.freeze(shallowCopy(value));
 }
