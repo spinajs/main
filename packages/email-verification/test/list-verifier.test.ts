@@ -69,6 +69,58 @@ describe('ListVerifier', () => {
     }
   });
 
+  it('recovers on a later refresh after a failed first load', async () => {
+    const original = MemoryEmailVerificationStore.prototype.loadLists;
+    MemoryEmailVerificationStore.prototype.loadLists = async () => {
+      throw new Error('down');
+    };
+    let v: ListVerifier;
+    try {
+      v = await verifier();
+    } finally {
+      MemoryEmailVerificationStore.prototype.loadLists = original;
+    }
+    await (await store()).upsertEntries([{ domain: 'later.com', kind: 'block', source: 'admin' }]);
+    await v.refresh();
+    expect((await v.verify('later.com')).result).to.eq('refuse');
+  });
+
+  it('keeps the newest snapshot when reloads overlap', async () => {
+    const v = await verifier();
+    const s = await store();
+    const load = s.loadLists.bind(s);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let first = true;
+    let started!: () => void;
+    const slowStarted = new Promise<void>((r) => (started = r));
+    s.loadLists = async () => {
+      const entries = await load();
+      if (first) {
+        first = false;
+        started();
+        await gate;
+      }
+      return entries;
+    };
+    const slow = v.reload();
+    await slowStarted;
+    await s.upsertEntries([{ domain: 'late.com', kind: 'block', source: 'admin' }]);
+    await v.reload();
+    release();
+    await slow;
+    expect((await v.verify('late.com')).result).to.eq('refuse');
+  });
+
+  it('prefers the admin source when two sources list one domain', async () => {
+    const v = await verifier();
+    const s = await store();
+    await s.replaceSource('sync', 'block', ['dup.com']);
+    await s.upsertEntries([{ domain: 'dup.com', kind: 'block', source: 'admin' }]);
+    await v.reload();
+    expect(await v.verify('dup.com')).to.deep.eq({ result: 'refuse', reason: 'listed', source: 'list:admin' });
+  });
+
   it('is never cached', async () => {
     const v = await verifier();
     expect(v.cacheable).to.eq(false);

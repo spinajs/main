@@ -29,12 +29,15 @@ export class ListVerifier extends DomainVerifier {
 
   protected Timer: ReturnType<typeof setInterval> | undefined;
 
+  protected Generation = 0;
+
   public async resolve(): Promise<void> {
     try {
       await this.reload();
     } catch (err) {
       this.Log.error(err as Error, 'Cannot load the email domain lists; the list verifier answers unknown until a refresh succeeds');
     }
+    clearInterval(this.Timer);
     this.Timer = setInterval(() => {
       this.refresh().catch((err: Error) => this.Log.warn({ error: err.message }, 'Email domain list refresh failed: ${error}'));
     }, this.RefreshSeconds * 1000);
@@ -52,6 +55,7 @@ export class ListVerifier extends DomainVerifier {
   }
 
   public async reload(): Promise<void> {
+    const generation = ++this.Generation;
     const version = await this.Store.listVersion();
     const lists = new Map<ListKind, Map<string, string>>();
     for (const e of await this.Store.loadLists()) {
@@ -59,7 +63,7 @@ export class ListVerifier extends DomainVerifier {
       if (!byDomain) lists.set(e.kind, (byDomain = new Map()));
       if (!byDomain.has(e.domain) || e.source === ADMIN_SOURCE) byDomain.set(e.domain, e.source);
     }
-    this.Snapshot = { version, lists };
+    if (generation === this.Generation) this.Snapshot = { version, lists };
   }
 
   /** Source of the entry that lists `domain` or one of its parents. */
