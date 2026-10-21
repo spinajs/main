@@ -5,7 +5,7 @@ import type { IContainer } from '@spinajs/di';
 import { BadRequestResponse, BaseController, BasePath, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { AuthnThrottle, IdentityRegistrar, PasswordService } from '@spinajs/authn/contracts';
+import { AuthnThrottle, IdentityRegistrar, PasswordService, ipKey, ipv6PrefixOf } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
 import { newPasswordField, passwordRejected, tooManyRequests } from '../../password/fields.js';
@@ -26,6 +26,9 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
 export class AuthnRegistrationController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
+
+  @Config('authn.throttle.ipv6Prefix')
+  protected ThrottleIpv6Prefix: unknown;
 
   @Config('authn.http.registration.notifyExisting')
   protected NotifyExisting: boolean;
@@ -50,7 +53,7 @@ export class AuthnRegistrationController extends BaseController {
 
     const ctx = contextOf(req, 'request');
     const throttle = await this.Container.resolve(AuthnThrottle);
-    const gate = await throttle.attempt([{ kind: 'account', value: `register:${email.trim().toLowerCase()}` }, { kind: 'ip', value: ctx.ip ?? 'unknown' }], 'register', ctx);
+    const gate = await throttle.attempt([{ kind: 'account', value: `register:${email.trim().toLowerCase()}` }, ipKey(ctx, ipv6PrefixOf(this.ThrottleIpv6Prefix)) ?? { kind: 'ip', value: 'unknown' }], 'register', ctx);
     if (!gate.allowed) return tooManyRequests('too many registrations, try again later', gate.retryAfterSeconds);
 
     const passwords = await this.Container.resolve(PasswordService);

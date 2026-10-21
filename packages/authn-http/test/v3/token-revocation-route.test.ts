@@ -12,7 +12,7 @@ import authnHttpConfig from '../../src/config/authn-http.js';
 import { CsrfOriginGuard } from '../../src/middleware/csrf.js';
 import { TokenServiceRegistered } from '../../src/token/gate.js';
 import { AuthnTokenRevocationController } from '../../src/v3/controllers/AuthnTokenRevocationController.js';
-import { fakeContainer } from '../support/config-boot.js';
+import { fakeContainer, readingFrom } from '../support/config-boot.js';
 
 const ROUTE = '/auth/tokens/revoke';
 const IP = '192.0.2.7';
@@ -100,7 +100,7 @@ function world(): World {
     [AuthnThrottle, throttle],
   ]);
   const container = { resolve: async (type: unknown) => services.get(type) } as unknown as IContainer;
-  const controller = new AuthnTokenRevocationController();
+  const controller = readingFrom(new AuthnTokenRevocationController(), fakeContainer({}));
   (controller as unknown as { Container: IContainer }).Container = container;
 
   // No session, no principal and no cookie: the route is for a caller who holds nothing but the secret.
@@ -187,6 +187,15 @@ describe('POST /auth/tokens/revoke (self-revocation by plaintext)', () => {
   });
 
   describe('throttle', () => {
+    it('keys an IPv6 client on its /64', async () => {
+      const w = world();
+      await w.controller.revoke(w.request({}, '2001:db8::1'));
+      await w.controller.revoke(w.request({}, '2001:db8::ffff'));
+      await w.controller.revoke(w.request({}, '2001:db8:0:1::1'));
+
+      expect(w.throttle.attempts.map((a) => a.keys)).to.deep.eq([[{ kind: 'ip', value: '2001:db8::/64' }], [{ kind: 'ip', value: '2001:db8::/64' }], [{ kind: 'ip', value: '2001:db8:0:1::/64' }]]);
+    });
+
     it('counts each request in the reset flow, keyed on the client ip alone', async () => {
       const w = world();
       await w.controller.revoke(w.request({ token: LIVE }));

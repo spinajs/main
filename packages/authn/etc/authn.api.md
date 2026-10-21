@@ -1255,7 +1255,7 @@ export declare abstract class AuthenticationStrategy extends AsyncService {
 ```ts
 import type { BackoffParams } from "@spinajs/util";
 import type { AuthnContext, IdentityRef } from "./credentials.js";
-export { backoffDelayMs } from "@spinajs/util";
+export { DEFAULT_IPV6_PREFIX, backoffDelayMs } from "@spinajs/util";
 export type { BackoffParams } from "@spinajs/util";
 export interface ThrottleKey {
     readonly kind: "ip" | "account" | "account-ip" | "global" | (string & {});
@@ -1309,8 +1309,18 @@ export interface ThrottleParams {
 export declare const THROTTLE_FLOWS: readonly ThrottleFlow[];
 /** Design §22.5 `authn.throttle`; the schema defaults equal it (test/boot/config-defaults.test.ts). */
 export declare const DEFAULT_THROTTLE_PARAMS: ThrottleParams;
-/** The keys of the `mfa` and `reauth` flows: AuthnService, PasswordService.change and MFA enrolment share one budget (D14). */
-export declare function identityThrottleKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[];
+/** `authn.throttle.ipv6Prefix` as a config read delivers it: the default for anything but a number. */
+export declare const ipv6PrefixOf: (configured: unknown) => number;
+/**
+ * The `ip` key of the client, or null without an address. An IPv6 client holds a whole prefix of `v6Prefix` bits
+ * (`authn.throttle.ipv6Prefix`), so its addresses share one row (L3).
+ */
+export declare function ipKey(ctx: AuthnContext, v6Prefix: number): ThrottleKey | null;
+/**
+ * The keys of the `mfa` and `reauth` flows: AuthnService, PasswordService.change and MFA enrolment share one budget (D14).
+ * Without `v6Prefix` the address is keyed whole.
+ */
+export declare function identityThrottleKeys(id: IdentityRef, ctx: AuthnContext, v6Prefix?: number): ThrottleKey[];
 
 // values
 const THROTTLE_FLOWS = Object.freeze([

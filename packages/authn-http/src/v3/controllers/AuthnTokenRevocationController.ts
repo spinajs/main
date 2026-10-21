@@ -1,8 +1,9 @@
+import { Config } from '@spinajs/configuration';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
-import { AuthnThrottle, TokenService } from '@spinajs/authn/contracts';
+import { AuthnThrottle, TokenService, ipKey, ipv6PrefixOf } from '@spinajs/authn/contracts';
 
 import { tooManyRequests } from '../../password/fields.js';
 import { TokenServiceRegistered } from '../../token/gate.js';
@@ -24,6 +25,9 @@ export class AuthnTokenRevocationController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Config('authn.throttle.ipv6Prefix')
+  protected ThrottleIpv6Prefix: unknown;
+
   /**
    * Revoke a token by its plaintext
    * Body `{ token }`, as JSON or a form. Answers `200 {}` whether or not a token was revoked (unknown, malformed,
@@ -36,7 +40,7 @@ export class AuthnTokenRevocationController extends BaseController {
   public async revoke(@Req() req: Request) {
     const ctx = contextOf(req, 'request');
     const throttle = await this.Container.resolve(AuthnThrottle);
-    const gate = await throttle.attempt([{ kind: 'ip', value: ctx.ip ?? 'unknown' }], 'reset', ctx);
+    const gate = await throttle.attempt([ipKey(ctx, ipv6PrefixOf(this.ThrottleIpv6Prefix)) ?? { kind: 'ip', value: 'unknown' }], 'reset', ctx);
     if (!gate.allowed) return tooManyRequests('too many revocation requests, try again later', gate.retryAfterSeconds);
 
     const token = boundedString(bodyField(req, 'token'), TOKEN_CAP);

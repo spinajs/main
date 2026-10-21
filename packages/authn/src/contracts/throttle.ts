@@ -1,9 +1,9 @@
-import { isNonEmptyString } from '@spinajs/util';
+import { DEFAULT_IPV6_PREFIX, isNonEmptyString, throttleIp } from '@spinajs/util';
 import type { BackoffParams } from '@spinajs/util';
 
 import type { AuthnContext, IdentityRef } from './credentials.js';
 
-export { backoffDelayMs } from '@spinajs/util';
+export { DEFAULT_IPV6_PREFIX, backoffDelayMs } from '@spinajs/util';
 export type { BackoffParams } from '@spinajs/util';
 
 export interface ThrottleKey {
@@ -63,7 +63,22 @@ export const DEFAULT_THROTTLE_PARAMS: ThrottleParams = Object.freeze({
   global: null,
 });
 
-/** The keys of the `mfa` and `reauth` flows: AuthnService, PasswordService.change and MFA enrolment share one budget (D14). */
-export function identityThrottleKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
-  return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` }, ...(isNonEmptyString(ctx.ip) ? [{ kind: 'ip', value: ctx.ip }] : [])];
+/** `authn.throttle.ipv6Prefix` as a config read delivers it: the default for anything but a number. */
+export const ipv6PrefixOf = (configured: unknown): number => (typeof configured === 'number' ? configured : DEFAULT_IPV6_PREFIX);
+
+/**
+ * The `ip` key of the client, or null without an address. An IPv6 client holds a whole prefix of `v6Prefix` bits
+ * (`authn.throttle.ipv6Prefix`), so its addresses share one row (L3).
+ */
+export function ipKey(ctx: AuthnContext, v6Prefix: number): ThrottleKey | null {
+  return isNonEmptyString(ctx.ip) ? { kind: 'ip', value: throttleIp(ctx.ip, v6Prefix) } : null;
+}
+
+/**
+ * The keys of the `mfa` and `reauth` flows: AuthnService, PasswordService.change and MFA enrolment share one budget (D14).
+ * Without `v6Prefix` the address is keyed whole.
+ */
+export function identityThrottleKeys(id: IdentityRef, ctx: AuthnContext, v6Prefix?: number): ThrottleKey[] {
+  const ip = v6Prefix === undefined ? ctx.ip : ipKey(ctx, v6Prefix)?.value;
+  return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ip ?? ''}` }, ...(isNonEmptyString(ip) ? [{ kind: 'ip', value: ip }] : [])];
 }

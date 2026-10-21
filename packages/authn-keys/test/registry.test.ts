@@ -42,6 +42,18 @@ function world(options = keysOptionsFor({ assertion: { audience: AUD } })) {
 const userReg = (kp: KitKeyPair, proof: unknown, owner = ALICE, over: object = {}): KeyRegistration => ({ owner, jwk: kp.publicJwk, proof, ...over } as unknown as KeyRegistration);
 
 describe('DefaultKeyRegistry', () => {
+  it('throttles login challenges on the IPv6 /64 of the client', async () => {
+    const throttle = new FakeBackoffThrottle(throttleParams({ authn: { throttle: { login: { ip: { free: 1, baseDelayMs: 1000, maxDelayMs: 1000 } } } } }));
+    const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets: new MemorySecretStore(), throttle, audit: AuthnAudit.over([new RecordingEventSink()]), options: keysOptionsFor({ assertion: { audience: AUD } }) });
+    const clock = new FakeClock();
+    const at = (ip: string) => clock.ctx({ ip });
+    const challenge = (ip: string) => registry.challenge({ purpose: 'login', kid: 'k' }, at(ip));
+
+    assert.strictEqual((await challenge('2001:db8::1')).ok, true);
+    assert.deepStrictEqual(await challenge('2001:db8::ffff'), { ok: false, retryAfterSeconds: 1 });
+    assert.strictEqual((await challenge('2001:db8:0:1::1')).ok, true, 'another /64');
+  });
+
   it('refuses a kid outside the grammar and keys outside the configured algorithms', async () => {
     const w = world(keysOptionsFor({ algorithms: ['EdDSA'], assertion: { audience: AUD } }));
     const kp = generateKeyPair('EdDSA');

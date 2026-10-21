@@ -6,7 +6,7 @@ import { AuthnAudit } from '@spinajs/authn/audit';
 // Registers the default CredentialChangeBus.
 import '@spinajs/authn/bus';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
-import { AuthnThrottle, CredentialChangeBus, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
+import { AuthnThrottle, CredentialChangeBus, KeyRegistry, SecretStore, DEFAULT_IPV6_PREFIX, ipKey, ipv6PrefixOf } from '@spinajs/authn/contracts';
 import type { AuthnContext, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
 import { _between, _contains, _is_string, _try_check_arg, isPlainObject } from '@spinajs/util';
 import { InvalidArgument, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
@@ -78,6 +78,8 @@ export interface DefaultKeyRegistryDeps {
   readonly audit?: AuthnAuditor;
   /** Complete options that bypass the configuration. */
   readonly options?: KeysOptions;
+  /** `authn.throttle.ipv6Prefix`; default 64. */
+  readonly ipv6Prefix?: number;
   /** Told about revoked keys, and evicts the key cache; otherwise the registered CredentialChangeBus. */
   readonly bus?: CredentialChangeBus;
 }
@@ -90,6 +92,9 @@ export interface DefaultKeyRegistryDeps {
 export class DefaultKeyRegistry extends KeyRegistry {
   @Config('authn.keys')
   protected KeysConfig: KeysConfig;
+
+  @Config('authn.throttle.ipv6Prefix')
+  protected ThrottleIpv6Prefix: unknown;
 
   @Autoinject(AuthnAudit)
   protected Audit: AuthnAudit;
@@ -268,8 +273,9 @@ export class DefaultKeyRegistry extends KeyRegistry {
       }
       identity = owner;
     } else if (r.purpose === 'login' && typeof r.kid === 'string') {
-      if (ctx.ip) {
-        const t = await this.throttle.attempt([{ kind: 'ip', value: ctx.ip }], 'login', ctx);
+      const ip = ipKey(ctx, this.Deps ? (this.Deps.ipv6Prefix ?? DEFAULT_IPV6_PREFIX) : ipv6PrefixOf(this.ThrottleIpv6Prefix));
+      if (ip) {
+        const t = await this.throttle.attempt([ip], 'login', ctx);
         if (!t.allowed) {
           return { ok: false, retryAfterSeconds: t.retryAfterSeconds };
         }
