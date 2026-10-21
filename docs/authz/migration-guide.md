@@ -1372,11 +1372,13 @@ The decorators, the policy rules and what the middleware cannot see are in
 
 - Importing the package stamps `Initiator` on emitted messages and runs every handler under `runAs`.
   A handler runs unattended unless its job says `@Job({ runAs: 'initiator' })` or `'system'`.
-- The import registers `QueueChangeBus` as the default `ChangeBus` (`authz.bus.service` picks another),
-  `JobModel` as the resource `job` with the relation `initiator`, and a configuration source that grants
-  the `user` role `job:read` on its own jobs. Installing the package without importing it adds nothing,
-  so boot no longer fails with `UnknownPermission 'job:read'` (F8). Import it before the
-  `Configuration` resolves.
+- The import registers `QueueChangeBus` as the default `ChangeBus` (`authz.bus.service` picks another).
+  `import '@spinajs/authz-queue/jobs'` (it needs `@spinajs/authz-orm`) registers `JobModel` as the
+  resource `job` with the relation `owner` (the initiator), and a configuration source that grants the
+  `user` role `job:read` on its own jobs; the root import grants nothing, so without the subpath
+  `GET jobs/v1/:jobId/status` answers 403 to everyone (or the boot fails on the unregistered `job:read`).
+  Installing the package without importing it adds nothing, so boot no longer fails with
+  `UnknownPermission 'job:read'` (F8). Import both before the `Configuration` resolves.
 - The default `InitiatorPrincipalFactory` rebuilds the principal from the stamp alone and warns once
   (`authz.queue.stampedInitiatorWarning: false` silences it). `import '@spinajs/users/queue'`
   registers one that reloads the user: a user deactivated, banned or deleted since the job was queued
