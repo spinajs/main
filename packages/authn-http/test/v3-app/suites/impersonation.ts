@@ -279,7 +279,7 @@ export function impersonationSuite(): void {
     const service = await DI.resolve(AuthnImpersonationService);
     let back: SessionHandle | null = null;
     const stop = sinon.stub(service, 'stop').callsFake(async (h, ctx) => (back = await stop.wrappedMethod.call(service, h, ctx)));
-    const principalOf = sinon.stub(service, 'principalOf').callsFake(async (h, ctx) => (back && h.id === back.id ? null : principalOf.wrappedMethod.call(service, h, ctx)));
+    const principalOf = sinon.stub(service, 'principalOf').callsFake(async (h, ctx) => (back && ('id' in h ? h.id : h.handle.id) === back.id ? null : principalOf.wrappedMethod.call(service, h, ctx)));
     try {
       const res = await c.del('/auth/impersonate');
       expect(res.status).to.eq(200);
