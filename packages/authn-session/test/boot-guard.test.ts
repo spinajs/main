@@ -37,6 +37,10 @@ class SharedTestStore extends SessionProvider {
     return [];
   }
 
+  public async deleteByExternalKey(): Promise<number> {
+    return 0;
+  }
+
   public async truncate(): Promise<void> {}
 }
 
