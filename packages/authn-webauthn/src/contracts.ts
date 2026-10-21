@@ -1,0 +1,37 @@
+import type { IdentityRef } from '@spinajs/authn/contracts';
+import { InvalidOperation } from '@spinajs/exceptions';
+
+/** One registered authenticator credential: a passkey, or a security key used as a second factor. */
+export interface WebAuthnCredential {
+  /** base64url; unique across identities. */
+  readonly credentialId: string;
+  readonly identity: IdentityRef;
+  /** COSE public key, as the attestation carried it. */
+  readonly publicKey: Uint8Array;
+  /** The last signature counter accepted; 0 for authenticators that do not count. */
+  readonly counter: number;
+  readonly transports?: readonly string[];
+  readonly aaguid?: string;
+  readonly name?: string;
+  readonly createdAt: Date;
+  readonly lastUsedAt?: Date;
+}
+
+/** `add` of a credential id that is registered already, to any identity. */
+export class WebAuthnCredentialExists extends InvalidOperation {}
+
+/**
+ * The registered credentials. `MemoryWebAuthnCredentialStore` for tests and single-process apps;
+ * `DbWebAuthnCredentialStore` (`@spinajs/authn-webauthn/db`) on the `authn_webauthn_credential` table.
+ */
+export abstract class WebAuthnCredentialStore {
+  /** Throws `WebAuthnCredentialExists` when the credential id is taken. */
+  abstract add(c: WebAuthnCredential): Promise<void>;
+  abstract get(credentialId: string): Promise<WebAuthnCredential | null>;
+  /** Oldest first. */
+  abstract listFor(id: IdentityRef): Promise<readonly WebAuthnCredential[]>;
+  /** Compare-and-set: false when the stored counter is not `expected`. Sets `lastUsedAt` to `at`. */
+  abstract advance(credentialId: string, expected: number, next: number, at: Date): Promise<boolean>;
+  /** False when the identity holds no such credential. */
+  abstract remove(id: IdentityRef, credentialId: string): Promise<boolean>;
+}
