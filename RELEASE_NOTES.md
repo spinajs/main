@@ -5,6 +5,16 @@
 > re-export shim and no 2.x patch. How to move an app: `docs/authz/migration-guide.md`. Overviews:
 > `docs/authz/README.md`, `docs/authn/README.md`, `docs/authn-oidc/README.md`.
 
+## 3.0.3
+
+Fixes only: no 3.0.2 API, config key or HTTP answer changes.
+
+- **Fix: a user seeded by a boot migration deadlocked the boot.** A migration whose `data()` called users' `create()`
+  waited for the `Orm` resolve that runs it: authn-token's `DbTokenService` and `UsersTableTokenOwnerResolver`
+  injected the `Orm`, and the users stores awaited `DI.resolve(Orm)`. They now await `ormReady()` per call, which
+  does not wait for an ORM that has created its connections. The token cli commands inject the `Orm` instead, so
+  resolving one still boots it.
+
 ## 3.0.2
 
 Additive: no 3.0.1 API, config key or HTTP answer changes, and each new behaviour is off until configured.

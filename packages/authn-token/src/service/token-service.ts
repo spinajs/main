@@ -5,7 +5,7 @@ import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
 import { InvalidArgument, InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { Orm } from '@spinajs/orm';
+import { ormReady } from '@spinajs/orm';
 import { _between, _check_arg, _contains, _custom, _finite, _gte, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, chunk, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
 import { IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '@spinajs/authn/contracts';
@@ -127,6 +127,9 @@ function storedScope(stored: unknown, agent: boolean): TokenScope | undefined | 
 /**
  * `TokenService` over `rbac_access_tokens`. Owners map to `user_id` through {@link TokenOwnerResolver};
  * owner status comes from {@link IdentityStore} on every validate.
+ *
+ * Each call that queries waits for the Orm (`ormReady`) instead of the service injecting it: a boot migration that seeds
+ * users or tokens resolves this service inside the Orm's resolve, and an injected Orm would wait for that resolve.
  */
 @Injectable(TokenService)
 export class DbTokenService extends TokenService {
@@ -162,10 +165,6 @@ export class DbTokenService extends TokenService {
 
   @AutoinjectService('authn.token.generation', AccessTokenGenerationProvider)
   protected Generator: AccessTokenGenerationProvider;
-
-  /** The AccessToken queries run on the Orm's connections, so a cli run that builds only this service must boot it. */
-  @Autoinject(Orm)
-  protected Orm: Orm;
 
   /** `Auditor`: a test seam, published to instead of the container's AuthnAudit. */
   constructor(protected readonly Auditor?: AuthnAuditor) {
@@ -227,6 +226,7 @@ export class DbTokenService extends TokenService {
     const name = typeof raw.name === 'string' ? raw.name.trim() : '';
     _check_arg(_between(1, MAX_NAME_LENGTH, new InvalidArgument(`token name must be 1 to ${MAX_NAME_LENGTH} characters`)))(name, 'name');
 
+    await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
       throw new InvalidOperation(`Token owner ${String(owner?.type)}:${String(owner?.id)} is unknown to ${this.Owners.constructor.name}`);
@@ -259,6 +259,7 @@ export class DbTokenService extends TokenService {
   }
 
   public async list(owner: IdentityRef): Promise<readonly TokenRecord[]> {
+    await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
       return [];
@@ -274,6 +275,7 @@ export class DbTokenService extends TokenService {
     if (!ok) {
       return false;
     }
+    await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
       return false;
@@ -299,6 +301,7 @@ export class DbTokenService extends TokenService {
       return false;
     }
 
+    await ormReady();
     const token = await this.revokeRow(id, now);
     if (!token) {
       return false;
@@ -326,6 +329,7 @@ export class DbTokenService extends TokenService {
       throw new InvalidOperation('now must be a valid Date');
     }
     const cutoff = DateTime.fromMillis(at);
+    await ormReady();
 
     // Selected through the model, so the cutoff is written in the column's stored format; a bare DELETE on the
     // connection would convert it by value type only. A selected row cannot become live again, so deleting by id is
@@ -351,6 +355,7 @@ export class DbTokenService extends TokenService {
 
   public async revokeAllFor(owner: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<number> {
     const now = this.nowOf(ctx);
+    await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
       return 0;
@@ -374,6 +379,7 @@ export class DbTokenService extends TokenService {
       return fail('invalid_credentials');
     }
 
+    await ormReady();
     const token = await AccessToken.where('Token', this.Generator.hash(raw)).first();
     if (!token) {
       return fail('invalid_credentials');
@@ -456,6 +462,7 @@ export class DbTokenService extends TokenService {
     // The model types LastUsedIp as optional, but a use without an ip must clear the previous one, so null is written.
     const values = { LastUsedAt: DateTime.fromMillis(now) as DateTime<true>, LastUsedIp: ip } as unknown as Partial<AccessToken>;
     const staleBefore = DateTime.fromMillis(now - intervalSeconds * 1000);
+    await ormReady();
     // The interval sits in the WHERE clause, so of several requests racing past the same stale read only one writes.
     const result = await AccessToken.update(values)
       .where('Uuid', id)
