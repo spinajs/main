@@ -16,7 +16,7 @@ module.exports = {
       comment: "Reach another package through its name and exports, not a relative path into its files.",
       // Tests may share another package's test suites (e.g. session-provider conformance).
       from: { path: '^packages/([^/]+)/src/' },
-      to: { path: '^packages/', pathNot: '^packages/$1/' },
+      to: { path: '^packages/', pathNot: ['^packages/$1/', '^packages/[^/]+/lib/'] },
     },
     {
       name: 'src-not-to-test',
@@ -39,6 +39,13 @@ module.exports = {
       to: { couldNotResolve: true, pathNot: '^exiftool-vendored[.](exe|pl)$' },
     },
     {
+      name: 'hooks-not-to-auth',
+      severity: 'error',
+      comment: 'The hooks core stays usable by orm, queue or http: authn, authz and users depend on it, never the reverse.',
+      from: { path: '^packages/hooks/' },
+      to: { path: ['^packages/(authn|authz|users)[^/]*/', '(^|/)node_modules/@spinajs/(authn|authz|users)[^/]*/'] },
+    },
+    {
       name: 'no-deprecated-core',
       severity: 'warn',
       from: {},
@@ -46,8 +53,10 @@ module.exports = {
     },
   ],
   options: {
-    doNotFollow: { path: ['node_modules'] },
-    exclude: { path: ['(^|/)lib/', '/test/fixtures/'] },
+    // Built lib/ is a leaf, not excluded: a package import resolves into the other package's lib/, and a rule on
+    // which packages a package imports (hooks-not-to-auth) needs that module in the graph.
+    doNotFollow: { path: ['node_modules', '(^|/)lib/'] },
+    exclude: { path: ['/test/fixtures/'] },
     tsPreCompilationDeps: true,
     tsConfig: { fileName: 'tsconfig.json' },
     enhancedResolveOptions: {
