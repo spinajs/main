@@ -4,7 +4,7 @@
 
 ## The ceremony
 
-1. `POST /auth/passkeys/challenge` (anonymous) answers `{ challengeId, options }`. `options` is a `PublicKeyCredentialRequestOptionsJSON` without `allowCredentials`, so the authenticator offers any passkey it holds for the relying party.
+1. `POST /auth/passkeys/challenge` (anonymous) counts the client ip in the `login` throttle flow (429 with `Retry-After` when refused) and answers `{ challengeId, options }`. A pending session's MFA challenge is not throttled here. While the store holds `authn.webauthn.challenges.maxRows` challenges the route answers `503 { error: 'challenge_store_full' }` with `Retry-After: 30` and logs one warning until a challenge is stored again. `options` is a `PublicKeyCredentialRequestOptionsJSON` without `allowCredentials`, so the authenticator offers any passkey it holds for the relying party.
 2. The browser passes `options` to `navigator.credentials.get()` (or `startAuthentication()` of `@simplewebauthn/browser`).
 3. `POST /auth/passkeys/login` with `{ challengeId, response }` authenticates `{ kind: 'webauthn', challengeId, response }` through `AuthnService.authenticate`, sets the session cookie and answers as `POST /auth/login` does. Any failure is the one login failure answer (A02).
 

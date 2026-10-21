@@ -5,20 +5,27 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn-session/register-schema';
 import { AuthnService, IdentityLinkStore, NonceStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';
-import { proxyTrustOf } from '@spinajs/authn-http';
+import { AuthnSession, proxyTrustOf } from '@spinajs/authn-http';
 import { sessionCookie } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { BaseController, BasePath, CsrfExempt, Del, Get, Param, Post, Req, Response, Unauthorized, _setCoockies, _setHeaders, isTrustedPeer } from '@spinajs/http';
-import type { ICookie, Request, ResponseFunction } from '@spinajs/http';
+import { BaseController, BasePath, Body, CsrfExempt, Del, Get, Header, OnError, Param, Post, Response, Unauthorized, _setCoockies, _setHeaders, isTrustedPeer } from '@spinajs/http';
+import type { ErrorContext, ICookie, Request, ResponseFunction } from '@spinajs/http';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
+import { ValidationFailed } from '@spinajs/validation';
 
 import { OidcLogin } from '../login.js';
-import { OidcBackchannelLogout } from '../token/logout-token.js';
+import { OIDC_LOGOUT_INVALID, OidcBackchannelLogout } from '../token/logout-token.js';
 import type { OidcAnswer, OidcRequest } from '../login.js';
 import { OidcAccountLinks } from '../links.js';
 import { OidcProviders } from '../providers.js';
 import { requestOrigin } from '../origin.js';
 import { isRelaxedEnv } from '../support.js';
+import { flowCookieName } from '../flow/cookie.js';
+import { OidcBeginQuery, OidcCallbackQueryDto, OidcUnlinkQuery, oidcHeader, oidcProviderParam } from '../dto.js';
+import type { BackchannelForm } from '../dto.js';
+import { Connection, QueryObject } from '../args.js';
+import type { OidcConnection } from '../args.js';
 
 const ROUTE_PREFIX = 'auth/oidc';
 const FORM = 'application/x-www-form-urlencoded';
@@ -52,7 +59,43 @@ export class OidcResponse extends Response {
   }
 }
 
-const isNavigation = (req: Request): boolean => req.get('sec-fetch-mode') === 'navigate' || /\btext\/html\b/i.test(req.get('accept') ?? '');
+const isNavigation = (fetchMode: string | undefined, accept: string | undefined): boolean => fetchMode === 'navigate' || /\btext\/html\b/i.test(accept ?? '');
+
+/** The first value of `name` in a Cookie header, as cookie-parser takes it. */
+function cookieOf(header: string | undefined, name: string): string | undefined {
+  for (const part of (header ?? '').split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
+  }
+  return undefined;
+}
+
+const isForm = (contentType: string | undefined): boolean => (contentType ?? '').split(';')[0].trim().toLowerCase() === FORM;
+
+/** What the routes read from decorated arguments. */
+interface RequestFacts {
+  readonly query?: object;
+  readonly cookie?: string;
+  readonly userAgent?: string;
+  readonly host?: string;
+  readonly forwardedProto?: string;
+  readonly forwardedHost?: string;
+  readonly fetchMode?: string;
+  readonly fetchSite?: string;
+  readonly accept?: string;
+  readonly connection: OidcConnection;
+  readonly session: SessionHandle | null;
+}
+
+const PROVIDER = oidcProviderParam;
+const HEADER = oidcHeader();
+const HOST = oidcHeader(2048);
+
+/**
+ * Input that fails validation answers as the login's failure does (303 to the failure page for a navigation, 401
+ * otherwise, flow cookie cleared), not with the validator's 400.
+ */
+const refuseInput = (_err: Error, ctx: ErrorContext) => (ctx.controller as OidcController).refuseInput(ctx.req);
 
 /**
  * `GET /auth/oidc/:provider`, `GET /auth/oidc/:provider/callback`, the link routes `POST` / `DELETE
@@ -61,6 +104,7 @@ const isNavigation = (req: Request): boolean => req.get('sec-fetch-mode') === 'n
  * session comes from authn-http's middleware (`req.storage.AuthnSession`).
  */
 @BasePath(ROUTE_PREFIX)
+@OnError([ValidationFailed, InvalidArgument], refuseInput, { stages: ['arguments'] })
 export class OidcController extends BaseController {
   @Logger('authn-oidc')
   protected Log: Log;
@@ -98,32 +142,81 @@ export class OidcController extends BaseController {
   protected Nonces: NonceStore;
 
   @Get(':provider')
-  public async begin(@Param() provider: string, @Req() req: Request) {
+  public async begin(
+    @Param(PROVIDER) provider: string,
+    @QueryObject() query: OidcBeginQuery,
+    @AuthnSession() session: SessionHandle | null,
+    @Connection() connection: OidcConnection,
+    @Header('user-agent', HEADER) userAgent?: string,
+    @Header('host', HOST) host?: string,
+    @Header('x-forwarded-proto', HOST) forwardedProto?: string,
+    @Header('x-forwarded-host', HOST) forwardedHost?: string,
+    @Header('sec-fetch-mode', HEADER) fetchMode?: string,
+    @Header('sec-fetch-site', HEADER) fetchSite?: string,
+    @Header('accept', HEADER) accept?: string,
+  ) {
     const login = await this.login();
-    return new OidcResponse(await login.begin(provider, this.requestOf(req)));
+    return new OidcResponse(await login.begin(provider, this.requestOf({ session, connection, userAgent, host, forwardedProto, forwardedHost, fetchMode, fetchSite, accept, query })));
   }
 
   @Get(':provider/callback')
-  public async callback(@Param() provider: string, @Req() req: Request) {
+  public async callback(
+    @Param(PROVIDER) provider: string,
+    @QueryObject() query: OidcCallbackQueryDto,
+    @AuthnSession() session: SessionHandle | null,
+    @Connection() connection: OidcConnection,
+    @Header('cookie', HEADER) cookie?: string,
+    @Header('user-agent', HEADER) userAgent?: string,
+    @Header('host', HOST) host?: string,
+    @Header('x-forwarded-proto', HOST) forwardedProto?: string,
+    @Header('x-forwarded-host', HOST) forwardedHost?: string,
+    @Header('sec-fetch-mode', HEADER) fetchMode?: string,
+    @Header('sec-fetch-site', HEADER) fetchSite?: string,
+    @Header('accept', HEADER) accept?: string,
+  ) {
     const login = await this.login();
-    return new OidcResponse(await login.callback(provider, this.requestOf(req)));
+    return new OidcResponse(await login.callback(provider, this.requestOf({ session, connection, userAgent, host, forwardedProto, forwardedHost, fetchMode, fetchSite, accept, query, cookie })));
   }
 
   @Post(':provider/link')
-  public async beginLink(@Param() provider: string, @Req() req: Request) {
+  public async beginLink(
+    @Param(PROVIDER) provider: string,
+    @AuthnSession() session: SessionHandle | null,
+    @Connection() connection: OidcConnection,
+    @Header('user-agent', HEADER) userAgent?: string,
+    @Header('host', HOST) host?: string,
+    @Header('x-forwarded-proto', HOST) forwardedProto?: string,
+    @Header('x-forwarded-host', HOST) forwardedHost?: string,
+    @Header('sec-fetch-mode', HEADER) fetchMode?: string,
+    @Header('sec-fetch-site', HEADER) fetchSite?: string,
+    @Header('accept', HEADER) accept?: string,
+  ) {
     const login = await this.login();
-    return new OidcResponse(await login.beginLink(provider, this.requestOf(req)));
+    return new OidcResponse(await login.beginLink(provider, this.requestOf({ session, connection, userAgent, host, forwardedProto, forwardedHost, fetchMode, fetchSite, accept })));
   }
 
   @Del(':provider/link')
-  public async unlink(@Param() provider: string, @Req() req: Request) {
+  public async unlink(
+    @Param(PROVIDER) provider: string,
+    @QueryObject() query: OidcUnlinkQuery,
+    @AuthnSession() session: SessionHandle | null,
+    @Connection() connection: OidcConnection,
+    @Header('user-agent', HEADER) userAgent?: string,
+    @Header('host', HOST) host?: string,
+    @Header('x-forwarded-proto', HOST) forwardedProto?: string,
+    @Header('x-forwarded-host', HOST) forwardedHost?: string,
+    @Header('sec-fetch-mode', HEADER) fetchMode?: string,
+    @Header('sec-fetch-site', HEADER) fetchSite?: string,
+    @Header('accept', HEADER) accept?: string,
+  ) {
     const login = await this.login();
-    return new OidcResponse(await login.unlink(provider, this.requestOf(req)));
+    return new OidcResponse(await login.unlink(provider, this.requestOf({ session, connection, userAgent, host, forwardedProto, forwardedHost, fetchMode, fetchSite, accept, query })));
   }
 
   @CsrfExempt()
+  @OnError([ValidationFailed, InvalidArgument], () => new OidcResponse(OIDC_LOGOUT_INVALID), { stages: ['arguments'] })
   @Post(':provider/backchannel-logout')
-  public async backchannelLogout(@Param() provider: string, @Req() req: Request): Promise<OidcResponse> {
+  public async backchannelLogout(@Param(PROVIDER) provider: string, @Header('content-type', oidcHeader(256)) contentType?: string, @Body() logoutForm?: BackchannelForm): Promise<OidcResponse> {
     this.logout ??= new OidcBackchannelLogout({
       strategies: this.Providers.strategies(),
       sessions: this.Sessions,
@@ -132,35 +225,52 @@ export class OidcController extends BaseController {
       log: { warn: (...args: unknown[]) => this.Log?.warn(...(args as Parameters<Log['warn']>)) },
     });
     // Section 2.5: the token comes form-encoded only.
-    const form = req.is(FORM) ? req.body : undefined;
+    const form = isForm(contentType) ? logoutForm : undefined;
     return new OidcResponse(await this.logout.receive(provider, form, new Date()));
   }
 
   /** Re-authenticates the current session at the provider; the callback refreshes its authenticatedAt (FreshAuth). */
   @Get(':provider/reauth')
-  public async reauth(@Param() provider: string, @Req() req: Request) {
+  public async reauth(
+    @Param(PROVIDER) provider: string,
+    @QueryObject() query: OidcBeginQuery,
+    @AuthnSession() session: SessionHandle | null,
+    @Connection() connection: OidcConnection,
+    @Header('user-agent', HEADER) userAgent?: string,
+    @Header('host', HOST) host?: string,
+    @Header('x-forwarded-proto', HOST) forwardedProto?: string,
+    @Header('x-forwarded-host', HOST) forwardedHost?: string,
+    @Header('sec-fetch-mode', HEADER) fetchMode?: string,
+    @Header('sec-fetch-site', HEADER) fetchSite?: string,
+    @Header('accept', HEADER) accept?: string,
+  ) {
     const login = await this.login();
-    return new OidcResponse(await login.beginReauth(provider, this.requestOf(req)));
+    return new OidcResponse(await login.beginReauth(provider, this.requestOf({ session, connection, userAgent, host, forwardedProto, forwardedHost, fetchMode, fetchSite, accept, query })));
   }
 
-  protected requestOf(req: Request): OidcRequest {
-    const storage = (req as unknown as { storage?: { ClientIp?: string; AuthnSession?: { handle: SessionHandle } | null } }).storage;
-    const userAgent = req.get('user-agent');
-    const ctx: AuthnContext = { now: new Date(), purpose: 'login', ...(storage?.ClientIp ? { ip: storage.ClientIp } : {}), ...(userAgent ? { userAgent } : {}) };
+  /** The answer to input that failed validation; public for the class-level `@OnError`. */
+  public async refuseInput(req: Request): Promise<OidcResponse> {
+    const login = await this.login();
+    return new OidcResponse(login.failure({ navigation: isNavigation(req.get('sec-fetch-mode'), req.get('accept')) }));
+  }
+
+  protected requestOf(f: RequestFacts): OidcRequest {
+    const ctx: AuthnContext = { now: new Date(), purpose: 'login', ...(f.connection.clientIp ? { ip: f.connection.clientIp } : {}), ...(f.userAgent ? { userAgent: f.userAgent } : {}) };
+    const flowName = flowCookieName(this.env);
+    const flow = cookieOf(f.cookie, flowName);
     return {
-      origin: this.originOf(req),
-      cookies: (req.cookies ?? {}) as Record<string, string>,
-      query: req.query as Record<string, unknown>,
-      navigation: isNavigation(req),
+      origin: this.originOf(f),
+      cookies: flow === undefined ? {} : { [flowName]: flow },
+      query: { ...f.query },
+      navigation: isNavigation(f.fetchMode, f.accept),
       ctx,
-      session: storage?.AuthnSession?.handle ?? null,
-      ...(req.get('sec-fetch-site') ? { fetchSite: req.get('sec-fetch-site') } : {}),
+      session: f.session,
+      ...(f.fetchSite ? { fetchSite: f.fetchSite } : {}),
     };
   }
 
-  protected originOf(req: Request): string {
-    const socket = req.socket as { encrypted?: boolean; remoteAddress?: string };
-    const origin = requestOrigin({ encrypted: socket.encrypted === true, peer: socket.remoteAddress, host: req.get('host'), forwardedProto: req.get('x-forwarded-proto'), forwardedHost: req.get('x-forwarded-host') }, this.trusted);
+  protected originOf(f: RequestFacts): string {
+    const origin = requestOrigin({ encrypted: f.connection.encrypted, peer: f.connection.peer, host: f.host, forwardedProto: f.forwardedProto, forwardedHost: f.forwardedHost }, this.trusted);
     if (!this.warnedHttpOrigin && origin.startsWith('http:') && !isRelaxedEnv(this.env)) {
       this.warnedHttpOrigin = true;
       this.Log?.warn('authn-oidc: the default redirect_uri has an http origin; behind a TLS proxy set authn.http.trustProxy (or http.trustProxy) or the provider redirectUri');

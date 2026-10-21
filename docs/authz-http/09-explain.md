@@ -10,10 +10,10 @@ Two debugging aids show why a check was decided the way it was: the `GET /authz/
 2. `ExplainPolicy` (the route's `@Policy`) refuses an unauthenticated caller with 401. It checks `authz.http.explainRoute.permission` (default `authz:explain`) for the caller on the permission's type-level resource, in the domain `authz.http.access.domain`, or the one the [`AuthzDomainResolver`](../authz/05-domains.md#per-request-domains) names for the request. Anything but an unconditional allow is a 403.
 3. `ExplainController.explain()` reads the query:
    - `principal=<type>:<id>` (required; `%3A` and `%25` in the type are decoded as in principal keys);
-   - `permission=<name>` (required, a valid permission name);
+   - `permission=<name>` (required, a valid permission name of up to 256 characters);
    - `resource=<type>[:<id>]` (optional; default the type-level ref of the permission);
    - `format=decision|tree` (optional; default `decision`).
-   A malformed value is a 400.
+   Each value is validated as its own `@Query()` argument (`EXPLAIN_QUERY_PROPERTIES`: `principal` and `resource` up to 256 characters, `format` one of `''`, `decision`, `tree`). A malformed value is a 400; a `permission` that does not match the name pattern, or a value over its cap, answers the standard validation 400, a malformed `<type>:<id>` an `InvalidArgument` naming the field. A permission that is not registered is still a 500.
 4. It builds a bare principal from `principal` (`authenticated` unless the type is `anonymous` or `unattended`, `source: 'explain'`, no attributes, no ceiling) and calls `AuthzService.explain()` in that domain.
 5. `format=decision` answers the `Decision` with its `trace`. `format=tree` answers `explainTree(decision)`: `{ label, allowed, children }`, one child per model vote with its trace steps, then the engine's combining step.
 

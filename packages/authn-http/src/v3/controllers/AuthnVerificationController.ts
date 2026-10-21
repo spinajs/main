@@ -47,13 +47,14 @@ export class AuthnVerificationController extends BaseController {
   /**
    * Verify the address
    * Body `{ secret }`, the secret of the verification link. 200 `{ Ok: true }`; any refused secret, a missing one
-   * included, 400 `invalid_secret` with one body.
+   * included, 400 `invalid_secret` with one body. 429 with Retry-After while the client ip is throttled (the `reset` flow).
    * @security []
    */
   @Post('auth/verify')
   @OnInvalidInput(byField({ secret: invalidSecret }, unknownField))
   public async verify(@Body({ required: true }) body: AuthnVerifyBody, @ClientContext() client: AuthnClientContext) {
     const result = await this.Passwords!.redeemVerification!(body.secret, contextOf(client, 'request'));
+    if (result.status === 'throttled') return tooManyRequests('too many verification attempts, try again later', result.retryAfterSeconds);
     return result.status === 'verified' ? new Ok({ ...ACK }, { Headers: [NO_STORE] }) : invalidSecret();
   }
 }

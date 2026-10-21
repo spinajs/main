@@ -2,7 +2,8 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, BotCheck, Conflict, Del, Get, NotFound, Ok, Param, Policy, Post, Req } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import { AuthnService, PasskeyService, SessionIssuer } from '@spinajs/authn/contracts';
+import { Config } from '@spinajs/configuration';
+import { AuthnService, AuthnThrottle, PasskeyChallengesFull, PasskeyService, SessionIssuer, ipKey, ipv6PrefixOf } from '@spinajs/authn/contracts';
 import type { Credentials, PasskeyCeremony, PasskeyEntry } from '@spinajs/authn/contracts';
 import { isPlainObject } from '@spinajs/util';
 
@@ -11,7 +12,8 @@ import { notFound } from '../../policies/v3/errors.js';
 import { serviceRegistered } from '../../policies/v3/groups.js';
 import { freshAuthOrAnswer, takeReauthPassword } from '../../policies/v3/fresh-auth.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
-import { NO_STORE, badRequest, instant } from '../responses.js';
+import { tooManyRequests } from '../../password/fields.js';
+import { NO_STORE, ServiceUnavailableResponse, badRequest, instant } from '../responses.js';
 import { bodyField, boundedString, completeLogin, contextOf } from '../routes.js';
 import { clientOf } from '../client.js';
 
@@ -69,11 +71,17 @@ export class AuthnPasskeyController extends BaseController {
   @Autoinject(SessionIssuer)
   protected Sessions!: SessionIssuer;
 
+  @Config('authn.throttle.ipv6Prefix')
+  protected ThrottleIpv6Prefix: unknown;
+
+  private storeFullLogged = false;
+
   /**
    * Passkey challenge
    * Anonymous: assertion options for any discoverable credential. With a pending session, a challenge for the WebAuthn
    * MFA step that allows only that identity's credentials; its answer goes to POST /auth/mfa/verify as the step code.
-   * Answers `{ challengeId, options }`.
+   * Answers `{ challengeId, options }`. An anonymous caller counts in the `login` throttle on its ip: 429 with Retry-After
+   * when refused. 503 with Retry-After while the stored challenges are at `authn.webauthn.challenges.maxRows`.
    * @security []
    */
   @Post('auth/passkeys/challenge')
@@ -82,7 +90,25 @@ export class AuthnPasskeyController extends BaseController {
     const passkeys = await this.passkeys();
     const session = req.storage.AuthnSession;
     if (session?.handle.state === 'pending') return ceremonyAnswer(await passkeys.challenge(contextOf(clientOf(req), 'login', session.handle), session.identity));
-    return ceremonyAnswer(await passkeys.challenge(contextOf(clientOf(req), 'login')));
+
+    const ctx = contextOf(clientOf(req), 'login');
+    const ip = ipKey(ctx, ipv6PrefixOf(this.ThrottleIpv6Prefix));
+    if (ip) {
+      const gate = await (await this.Container.resolve(AuthnThrottle)).attempt([ip], 'login', ctx);
+      if (!gate.allowed) return tooManyRequests('too many passkey challenges, try again later', gate.retryAfterSeconds);
+    }
+    try {
+      const ceremony = await passkeys.challenge(ctx);
+      this.storeFullLogged = false;
+      return ceremonyAnswer(ceremony);
+    } catch (err) {
+      if (!(err instanceof PasskeyChallengesFull)) throw err;
+      if (!this.storeFullLogged) {
+        this.storeFullLogged = true;
+        this._log.warn('passkey challenge store is full (authn.webauthn.challenges.maxRows); anonymous challenges are refused until rows expire');
+      }
+      return new ServiceUnavailableResponse({ error: 'challenge_store_full', message: 'try again later' }, { Headers: [NO_STORE, { Name: 'Retry-After', Value: '30' }] });
+    }
   }
 
   /**

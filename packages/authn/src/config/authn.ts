@@ -19,6 +19,7 @@ const authn = {
       mfa: { account: { free: 3, baseDelayMs: 1000, maxDelayMs: 300000 }, ip: { free: 20, baseDelayMs: 1000, maxDelayMs: 300000 } },
       reset: { account: { free: 1, baseDelayMs: 60000, maxDelayMs: 3600000 }, ip: { free: 5, baseDelayMs: 10000, maxDelayMs: 900000 } },
       reauth: { account: { free: 3, baseDelayMs: 1000, maxDelayMs: 300000 } },
+      register: { account: { free: 3, baseDelayMs: 60000, maxDelayMs: 3600000 }, ip: { free: 10, baseDelayMs: 30000, maxDelayMs: 3600000 } },
       resetAfterSeconds: 86400,
       global: null as null | { free: number; baseDelayMs: number; maxDelayMs: number },
       memory: { sweepBatch: 8, fullRetrySeconds: 60, holdOffMs: 1000 },

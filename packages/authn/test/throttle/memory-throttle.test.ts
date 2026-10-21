@@ -19,7 +19,7 @@ type Make = (p: ThrottleParams) => AuthnThrottle;
 
 const real: Make = (p) => new MemoryAuthnThrottle(p);
 
-const FLOWS: readonly ThrottleFlow[] = ['login', 'mfa', 'reset', 'reauth'];
+const FLOWS: readonly ThrottleFlow[] = ['login', 'mfa', 'reset', 'reauth', 'register'];
 
 /** Reads its rows: the stored ids and how many are held. */
 class Probe extends MemoryAuthnThrottle {
@@ -81,7 +81,7 @@ class ReadModifyWrite extends MemoryAuthnThrottle {
 class AccountOnly extends MemoryAuthnThrottle {
   constructor(p: ThrottleParams) {
     const strip = (f: ThrottleParams['login']) => ({ account: f.account });
-    super({ ...p, login: strip(p.login), mfa: strip(p.mfa), reset: strip(p.reset), reauth: strip(p.reauth) });
+    super({ ...p, login: strip(p.login), mfa: strip(p.mfa), reset: strip(p.reset), reauth: strip(p.reauth), register: strip(p.register) });
   }
 }
 
@@ -356,7 +356,7 @@ describe('MemoryAuthnThrottle', function () {
   });
 
   describe('flows', () => {
-    for (const flow of ['login', 'mfa', 'reset', 'reauth'] as const) {
+    for (const flow of ['login', 'mfa', 'reset', 'reauth', 'register'] as const) {
       it(`${flow} follows its own account parameters`, async () => {
         const p = DEFAULT_THROTTLE[flow].account!;
         await walkBackoff({ throttle: real(DEFAULT_THROTTLE), flow, params: p, clock, attempts: p.free + 4, keysFor: () => [{ kind: 'account', value: `flow-${flow}@example.test` }] });

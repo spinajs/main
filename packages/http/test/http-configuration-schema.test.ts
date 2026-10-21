@@ -17,7 +17,7 @@ describe('http configuration schema', () => {
     it('gives an unconfigured http module no trusted proxy and a disabled throttle', async () => {
       const { configuration } = await boot(SCHEMAS, {});
       expect(configuration.get('http.trustProxy')).to.eq(null);
-      expect(configuration.get('http.throttle')).to.deep.eq({ enabled: false, rules: [] });
+      expect(configuration.get('http.throttle')).to.deep.eq({ enabled: false, rules: [], ipv6Prefix: 64 });
     });
 
     it('keeps a configured throttle and fills the rest', async () => {
@@ -98,6 +98,7 @@ describe('http configuration schema', () => {
       expect(await bad({ throttle: { rules: [{ path: '/a', limit: 0, windowSeconds: 60 }] } })).to.include('http.throttle.rules.0.limit');
       expect(await bad({ throttle: { rules: [{ path: '/a', limit: 5, windowSeconds: 1.5 }] } })).to.include('http.throttle.rules.0.windowSeconds');
       expect(await bad({ throttle: { rules: [{ path: '', limit: 5, windowSeconds: 60 }] } })).to.include('http.throttle.rules.0.path');
+      for (const ipv6Prefix of [15, 129, 64.5]) expect(await bad({ throttle: { ipv6Prefix } }), String(ipv6Prefix)).to.include('http.throttle.ipv6Prefix');
       expect(await bad({ throttle: { rules: [{ limit: 5, windowSeconds: 60 }] } })).to.include('http.throttle.rules.0.path');
       expect(await bad({ throttle: { enabled: 'maybe' } })).to.include('http.throttle.enabled');
     });

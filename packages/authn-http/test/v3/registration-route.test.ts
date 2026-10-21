@@ -362,14 +362,14 @@ describe('POST /auth/register (FEAT-4)', () => {
   });
 
   describe('throttle', () => {
-    it('counts each request in the reset flow, keyed on the client ip and the address', async () => {
+    it('counts each request in the register flow, keyed on the client ip and the address', async () => {
       const w = world();
       await callRoute(w.controller, 'register', w.request(BODY));
       await callRoute(w.controller, 'register', w.request({ ...BODY, email: 'Other@Example.test' }));
 
       expect(w.throttle.attempts).to.deep.eq([
-        { keys: [{ kind: 'account', value: 'register:newcomer@example.test' }, { kind: 'ip', value: IP }], flow: 'reset' },
-        { keys: [{ kind: 'account', value: 'register:other@example.test' }, { kind: 'ip', value: IP }], flow: 'reset' },
+        { keys: [{ kind: 'account', value: 'register:newcomer@example.test' }, { kind: 'ip', value: IP }], flow: 'register' },
+        { keys: [{ kind: 'account', value: 'register:other@example.test' }, { kind: 'ip', value: IP }], flow: 'register' },
       ]);
     });
 
@@ -387,6 +387,23 @@ describe('POST /auth/register (FEAT-4)', () => {
       expect(w.registrar.calls).to.have.length(FREE);
 
       expect(answerOf(await callRoute(w.controller, 'register', w.request({ ...BODY, email: 'late@example.test' }, '192.0.2.99'))).status).to.eq(202);
+    });
+
+    it('keys an IPv6 client on its /64, so its addresses share one counter', async () => {
+      const w = world();
+      await w.controller.register(w.request(BODY, '2001:db8::1'));
+      await w.controller.register(w.request({ ...BODY, email: 'v6@example.test' }, '2001:db8::ffff'));
+      await w.controller.register(w.request({ ...BODY, email: 'v6b@example.test' }, '2001:db8:0:1::1'));
+
+      expect(w.throttle.attempts.map((a) => a.keys[1])).to.deep.eq([{ kind: 'ip', value: '2001:db8::/64' }, { kind: 'ip', value: '2001:db8::/64' }, { kind: 'ip', value: '2001:db8:0:1::/64' }]);
+    });
+
+    it('keeps the ip counter apart from the reset flow', async () => {
+      const w = world();
+      for (let i = 0; i < FREE; i++) await w.throttle.attempt([{ kind: 'ip', value: IP }], 'reset');
+      expect((await w.throttle.attempt([{ kind: 'ip', value: IP }], 'reset')).allowed).to.eq(false);
+
+      expect(answerOf(await w.controller.register(w.request(BODY))).status).to.eq(202);
     });
 
     it('refuses an address that has used up its budget, from any ip', async () => {

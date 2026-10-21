@@ -7,7 +7,7 @@ import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { isValidField, loginField, secretField } from '@spinajs/authn/schemas';
 import { Log, Logger } from '@spinajs/log';
-import { AuthnThrottle, IdentityAddressVerifier, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService, identityThrottleKeys, sameRef } from '@spinajs/authn/contracts';
+import { AuthnThrottle, IdentityAddressVerifier, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService, DEFAULT_IPV6_PREFIX, identityThrottleKeys, ipKey, ipv6PrefixOf, sameRef } from '@spinajs/authn/contracts';
 import type {
   AddressVerificationRequestResult,
   AddressVerificationResult,
@@ -71,6 +71,8 @@ export interface LocalPasswordServiceDeps {
   readonly dispatcher?: AuthnMailDispatcher;
   /** Required by `redeemVerification`. */
   readonly verifier?: IdentityAddressVerifier | null;
+  /** `authn.throttle.ipv6Prefix`; default 64. */
+  readonly ipv6Prefix?: number;
   /** `authn.local.verify.ttlSeconds`; default 86400. */
   readonly verifyTtlSeconds?: number;
   /** `authn.local.verify.url`; default ''. */
@@ -84,12 +86,6 @@ const eligible = (s: IdentityStatus) => s.exists && !s.deleted && !s.banned && (
 
 /** For work that must match a real identity's: a fresh ref no store or cache can know. */
 const throwaway = (): IdentityRef => ({ type: 'user', id: randomUUID() });
-
-/**
- * The reset flow's ip key. Callers without `ctx.ip` share one bucket rather than going unthrottled, so one caller's requests can
- * throttle every other caller that also omits it: HTTP callers must pass the trusted-proxy ip.
- */
-const resetIpKey = (ctx: AuthnContext): ThrottleKey => ({ kind: 'ip', value: ctx.ip ?? 'unknown' });
 
 /** Its own account key: a verify request must not use up the reset request of the same account. */
 const verifyKey = (id: IdentityRef): ThrottleKey => ({ kind: 'account', value: `verify:${id.type}:${id.id}` });
@@ -127,6 +123,9 @@ function parseVerifySecret(secret: string): { id: IdentityRef; raw: string } | n
 /** Local password flows (A04, A13, A30). With `deps` the container is not used at all. */
 @Injectable(PasswordService)
 export class LocalPasswordService extends PasswordService {
+  @Config('authn.throttle.ipv6Prefix')
+  protected ThrottleIpv6Prefix: unknown;
+
   @Config('authn.local.reset.revokeTokens')
   protected RevokeTokens: boolean;
 
@@ -227,7 +226,7 @@ export class LocalPasswordService extends PasswordService {
     }
 
     const throttle = this.throttle();
-    const keys = identityThrottleKeys(id, ctx);
+    const keys = identityThrottleKeys(id, ctx, this.ipv6Prefix);
     const gate = await throttle.attempt(keys, 'reauth', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, { type: 'password.change', outcome: 'failure', identity: id, reason: 'throttled', session: handle });
@@ -286,7 +285,7 @@ export class LocalPasswordService extends PasswordService {
     if (!isValidField(loginField, login)) {
       return { status: 'accepted' };
     }
-    const keys: ThrottleKey[] = [{ kind: 'account', value: normalizeLogin(login) }, resetIpKey(ctx)];
+    const keys: ThrottleKey[] = [{ kind: 'account', value: normalizeLogin(login) }, this.resetIpKey(ctx)];
     const gate = await this.throttle().attempt(keys, 'reset', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', data: { flow: 'reset' } });
@@ -299,7 +298,7 @@ export class LocalPasswordService extends PasswordService {
 
   /** D12. Every refusal answers `invalid`; the reason goes to audit only (SR-17). */
   public async redeemReset(login: string, secret: string, newPassword: string, ctx: AuthnContext): Promise<PasswordResetResult> {
-    const gate = await this.throttle().attempt([resetIpKey(ctx)], 'reset', ctx);
+    const gate = await this.throttle().attempt([this.resetIpKey(ctx)], 'reset', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', data: { flow: 'reset' } });
       return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
@@ -389,7 +388,7 @@ export class LocalPasswordService extends PasswordService {
     if (!isValidField(loginField, login)) {
       return { status: 'accepted' };
     }
-    const keys: ThrottleKey[] = [{ kind: 'account', value: `code:${normalizeLogin(login)}` }, resetIpKey(ctx)];
+    const keys: ThrottleKey[] = [{ kind: 'account', value: `code:${normalizeLogin(login)}` }, this.resetIpKey(ctx)];
     const gate = await this.throttle().attempt(keys, 'reset', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', data: { flow: 'code' } });
@@ -414,6 +413,11 @@ export class LocalPasswordService extends PasswordService {
   /** Every refusal answers `invalid`; the reason goes to audit only. */
   public async redeemVerification(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult> {
     const verifier = this.verifier();
+    const gate = await this.throttle().attempt([this.resetIpKey(ctx)], 'reset', ctx);
+    if (!gate.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', data: { flow: 'verify' } });
+      return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
     const parsed = isValidField(secretField, secret) ? parseVerifySecret(secret) : null;
     if (!parsed) {
       await (await this.secrets()).redeem(throwaway(), 'verify', '');
@@ -671,6 +675,18 @@ export class LocalPasswordService extends PasswordService {
 
   protected throttle(): AuthnThrottle {
     return this.Deps ? this.Deps.throttle : this.Throttle;
+  }
+
+  protected get ipv6Prefix(): number {
+    return this.Deps ? (this.Deps.ipv6Prefix ?? DEFAULT_IPV6_PREFIX) : ipv6PrefixOf(this.ThrottleIpv6Prefix);
+  }
+
+  /**
+   * The reset flow's ip key. Callers without `ctx.ip` share one bucket rather than going unthrottled, so one caller's requests can
+   * throttle every other caller that also omits it: HTTP callers must pass the trusted-proxy ip.
+   */
+  protected resetIpKey(ctx: AuthnContext): ThrottleKey {
+    return ipKey(ctx, this.ipv6Prefix) ?? { kind: 'ip', value: 'unknown' };
   }
 
   protected async passwords(): Promise<PasswordCredentialStore> {

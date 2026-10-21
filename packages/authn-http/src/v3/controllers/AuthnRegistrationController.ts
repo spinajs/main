@@ -4,7 +4,7 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BadRequestResponse, BaseController, BasePath, Body, BotCheck, Policy, Post } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { AuthnThrottle, IdentityRegistrar, PasswordService } from '@spinajs/authn/contracts';
+import { AuthnThrottle, IdentityRegistrar, PasswordService, ipKey, ipv6PrefixOf } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
 import { ClientContext } from '../../args/authn.js';
@@ -27,6 +27,9 @@ export class AuthnRegistrationController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Config('authn.throttle.ipv6Prefix')
+  protected ThrottleIpv6Prefix: unknown;
+
   @Config('authn.http.registration.notifyExisting')
   protected NotifyExisting: boolean;
 
@@ -36,7 +39,7 @@ export class AuthnRegistrationController extends BaseController {
    * the address is taken, so it tells a stranger nothing about who has an account. A new account is sent a verification
    * mail; the owner of a taken address is sent an account-exists mail (`authn.http.registration.notifyExisting`). A
    * password that breaks the policy answers 400 `password_rejected` with its violations: they depend on the input only. 429
-   * with Retry-After when throttled (the `reset` flow, per address and per client ip).
+   * with Retry-After when throttled (the `register` flow, per address and per client ip).
    * @security []
    */
   @Post('auth/register')
@@ -59,7 +62,7 @@ export class AuthnRegistrationController extends BaseController {
 
     const ctx = contextOf(client, 'request');
     const throttle = await this.Container.resolve(AuthnThrottle);
-    const gate = await throttle.attempt([{ kind: 'account', value: `register:${email.trim().toLowerCase()}` }, { kind: 'ip', value: ctx.ip ?? 'unknown' }], 'reset', ctx);
+    const gate = await throttle.attempt([{ kind: 'account', value: `register:${email.trim().toLowerCase()}` }, ipKey(ctx, ipv6PrefixOf(this.ThrottleIpv6Prefix)) ?? { kind: 'ip', value: 'unknown' }], 'register', ctx);
     if (!gate.allowed) return tooManyRequests('too many registrations, try again later', gate.retryAfterSeconds);
 
     const passwords = await this.Container.resolve(PasswordService);
