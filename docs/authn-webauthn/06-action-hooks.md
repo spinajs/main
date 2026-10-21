@@ -13,6 +13,7 @@ No input key is mutable. `ctx.session` is the caller's session. A refusal leaves
 
 ## Important behaviour
 
+- **Hooks get copies.** Each input key is a frozen copy (`hookView`), a mutable key a plain copy (`hookCopy`), and the after hooks get a frozen copy of the output. The action reads what it acts on from its own values, so a write in place in a hook reaches nothing. Without a matching hook nothing is copied.
 - **Registration runs its hooks once the attestation verifies,** so `credentialId` is the new credential's. An invalid response answers `invalid_response` and reaches no hook. The registration challenge is spent before the hooks run.
 - **A refusal throws.** `PasskeyRegisterResult` has no member for it, so a caller other than the passkey routes catches `ActionRefused` and `ActionHookFailed`.
 - **Without hooks.** A service built with `new WebAuthnPasskeyService(deps)` runs `deps.hooks` when given and no hook otherwise.

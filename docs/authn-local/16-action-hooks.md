@@ -71,6 +71,7 @@ Register it with `DI.register(PasswordChangedNotice).as(ActionHook)` before the 
 
 ## Important behaviour
 
+- **Hooks get copies.** Each input key is a frozen copy (`hookView`), a mutable key a plain copy (`hookCopy`), and the after hooks get a frozen copy of the output. The action reads what it acts on from its own values, so a write in place in a hook reaches nothing. Without a matching hook nothing is copied.
 - **No enumeration.** A refused reset request or verification request answers `accepted`, like any other login. Only the audit shows the refusal.
 - **An aged expiry always completes.** The expiration job's `authn.password.expire` runs with `refusable: false`: a refusal or an error in a `before` hook is logged and the password expires anyway.
 - **A refused invite throws.** `users` reports it as `UserCreatedIncomplete` with `resendInvite: true`.

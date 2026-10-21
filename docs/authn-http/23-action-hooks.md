@@ -72,6 +72,10 @@ export class CompanyAddressesOnly extends ActionHook<'authn.registration'> {
 
 ## Important behaviour
 
+- **Hooks get copies.** Each input key is a frozen copy (`hookView`), a mutable key a plain copy (`hookCopy`), and the after hooks get a frozen copy of the output. The action reads what it acts on from its own values, so a write in place in a hook reaches nothing. `authn.request` hooks see a frozen copy of the principal: they cannot drop its ceiling or change its id. Without a matching hook nothing is copied.
+- **A route answers only its own action's refusal.** A refusal of another action that escapes the service is rethrown, not answered as this route's.
+- **A refusal inside the registrar answers 202.** Only a new address reaches what the IdentityRegistrar runs (`users.create`, `authn.password.set`), so its refusal, or the `password` InvalidArgument users makes of a refused set, answers the accepted 202 of a taken address and is audited as `identity.register` with its reason. Only an `authn.registration` refusal answers 400.
+- **No audit event for a refused role switch or `authn.request`:** no event type fits either, so only the 403 answer tells.
 - **`authn.request` costs a hook run per request.** Leave it off unless a rule needs every request. The hooks then see anonymous requests too (`principal: null`).
 - **A registration hook must not branch on whether the account exists.** It runs before the registrar looks the account up, so the answer stays the same for a new and a taken address. A changed `login` or `email` meets the password policy again, then the registrar's own validation.
 - **A code request answers the same when refused.** Only the `code.request` audit event, with `hook:<code>`, tells.

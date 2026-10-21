@@ -23,6 +23,11 @@ A refusal is audited on the method's event (`token.create`, `token.revoke`, `tok
 
 No input or output carries a plaintext. The create and rotate outputs are `{ ok: true, record }` and `{ ok: true, token }`. The self-revocation runs before the plaintext is looked up, so its input is `ctx` alone.
 
+## Important behaviour
+
+- **Hooks get copies.** Each input key is a frozen copy (`hookView`), a mutable key a plain copy (`hookCopy`), and the after hooks get a frozen copy of the output. The action reads what it acts on from its own values, so a write in place in a hook reaches nothing. Without a matching hook nothing is copied.
+- **A create's clock is read before its hooks run:** a hook cannot move `ctx.now`, and with it the TTL cap.
+
 ## Example: cap personal tokens at 30 days
 
 ```ts sample
