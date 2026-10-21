@@ -97,7 +97,7 @@ export function verificationRoutesSuite(): void {
     it('without a session answers 401 and never reaches the service', async () => {
       const res = await new Client().post('/auth/verify/request', {});
       expect(res.status).to.eq(401);
-      expect(res.body.error).to.eq('unauthenticated');
+      expect((res.body as { error?: string }).error).to.eq('unauthenticated');
       expect(fake.of('requestVerification')).to.deep.eq([]);
     });
 
@@ -119,7 +119,7 @@ export function verificationRoutesSuite(): void {
       fake.answer.request = async () => ({ status: 'throttled', retryAfterSeconds: 59.5 });
       const res = await c.post('/auth/verify/request', {});
       expect(res.status).to.eq(429);
-      expect(res.body.error).to.eq('throttled');
+      expect((res.body as { error?: string }).error).to.eq('throttled');
       expect(res.headers['retry-after']).to.eq('60');
     });
 
@@ -135,7 +135,7 @@ export function verificationRoutesSuite(): void {
       tokens.set(token, v.ref);
       const byToken = await new Client().post('/auth/verify/request', {}, { Authorization: `Bearer ${token}` });
       expect(byToken.status).to.eq(403);
-      expect(byToken.body.error).to.eq('session_required');
+      expect((byToken.body as { error?: string }).error).to.eq('session_required');
       expect(fake.of('requestVerification')).to.deep.eq([]);
     });
   });

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 
 /** `users.EmailVerifiedAt`: when the owner proved the address reached them; null: not verified. */
@@ -10,6 +9,5 @@ export class UsersAddressVerified_2026_10_21_00_00_00 extends OrmMigration {
     });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
   public async down(_connection: OrmDriver): Promise<void> {}
 }
