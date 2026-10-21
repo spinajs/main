@@ -5,6 +5,32 @@
 > re-export shim and no 2.x patch. How to move an app: `docs/authz/migration-guide.md`. Overviews:
 > `docs/authz/README.md`, `docs/authn/README.md`, `docs/authn-oidc/README.md`.
 
+## 3.0.2
+
+Additive: no 3.0.1 API, config key or HTTP answer changes, and each new behaviour is off until configured.
+
+- **Initial active role.** New `SessionStartHook` contract (`@spinajs/authn/contracts`): authn-http asks the hooks once
+  a login or an MFA completion has issued the active session, and the first ceiling one answers becomes the session's
+  `ActiveRole`. `@spinajs/users` ships `OrderedActiveRoleHook`, driven by the new
+  `authz.principals.roleSwitch.initial: { order: [...] }`: a session starts on the first listed role the user holds,
+  as 2.x activated the first role. Unset or `null`: every held role, as in 3.0.1.
+- **Pending answers tell verify from enrol.** The pending login answer and the pending `GET /auth` answer gain
+  `MfaEnrol`, the steps of `MfaRequired` the identity must enrol (`POST /user/mfa`) before it can verify them.
+- **Logout keeps the storage when asked.** New `authn.http.logout.clearSiteData` (default
+  `['cache', 'cookies', 'storage']`, the 3.0.1 header; `[]` sends no `Clear-Site-Data`).
+- **OpenAPI.** The 3.0 authn routes document their request bodies, answers and error bodies (`AuthnHttpSchemaProvider`).
+  http-swagger reads a new JSDoc tag, `@body {Type} description`, for a route that reads its body without a body
+  route argument, and expands named types inside `oneOf`/`anyOf`/`allOf`. The operationIds do not change.
+- **`authn.http.routes.prefix` is deprecated.** No source ever read it, and it left the schema; a config that still sets
+  it boots and logs a warning. `http.controllers.route.prefix` moves the authn routes.
+- **Converter** (`spinajs-authz-convert`): `rbac.email.changePassword` is left out with a warning (nothing reads
+  `users.email.changePassword`); `$extend` on `system` is a warning, since no 3.0 package defines `system`; a guard
+  written without `privilegedPermission` is a note (authz-rbac ships `users:update`).
+- **Corrected below:** what migrates (nothing: 3.0 needs an empty auth schema), `rbac.*` leftovers (ignored, not a
+  boot failure), body field spellings (camelCase only), `POST /user/access/checks`, and keys and checks that do not
+  exist (`authz.config.rejectLegacyKeys`, `authz.abac.scopeResiduals`, `authz.orm.allowJit`, a PostgreSQL JIT check,
+  `@OrmScope`/`@ScopeColumn`).
+
 ## Upgrade now: the 2.x security findings stay open
 
 A review of the 2.x authentication code found 3 high, 9 medium and 8 low findings (SR-01 to SR-20).
@@ -15,13 +41,14 @@ what each fix changes for an app.
 
 ## Before the first 3.0 start
 
-1. **Back up the database.** One migration copies `users.Role` into `authz_assignment`, and the next
-   drops the column (H13); the drop's `down()` rebuilds it from the assignments. The authn data migration
-   carries pending resets and invites into `authn_secret`; its `down()` deletes those rows and names the
-   users, who must ask for a new link.
+1. **Start from an empty auth schema, after a backup.** No 3.0 migration upgrades a 2.x database: none copies
+   `users.Role` into `authz_assignment` or drops the column, and none carries 2.x tokens, sessions, pending
+   resets or invites. The migrations create the 3.0 tables in an empty database; you move the data you keep
+   yourself (migration guide, section 7).
 2. **Run the converter** on the compiled config: `npx spinajs-authz-convert lib/mjs/config --out src/config
    --db rbac-facts.json` (`@spinajs/authz-convert`). It writes `authz-generated.ts`, `users-generated.ts`,
-   `authn-generated.ts` and `authz-warnings.md`. Then delete every `rbac.*` key: boot fails on one.
+   `authn-generated.ts` and `authz-warnings.md`. Then delete every `rbac.*` key: no 3.0 package reads one, and a
+   leftover key boots silently and does nothing.
 3. **Set the secrets** from a secret store, never inline: `http.cookie.secret` (the public default
    fails boot), `authn.mfa.encryptionKey.secret` (when any user has 2FA, or the `totp` step is listed),
    `authn.audit.hashKey.secret` (32 characters or more), `authz.rbac.links.secret` (when you use share
@@ -30,17 +57,15 @@ what each fix changes for an app.
    production for authn.
 5. **Set `http.trustProxy`** behind a proxy, and list browser origins in `http.cors.origins` and, for
    cookie sessions on other origins, in `authn.http.csrf.allowedOrigins`.
-6. **PostgreSQL:** `ALTER ROLE <role> SET jit = off` (or per database), version 12 or later.
+6. **PostgreSQL:** version 12 or later; `ALTER ROLE <role> SET jit = off` (or per database) is advised, and
+   nothing checks it.
 7. **Stop every 2.x node** before the first 3.0 node starts.
 8. **Apply the migrations before the first start** (`spinajs migrate-up`, or `Migration.OnStartup: true`).
    The `Orm` boot now fails when a registered model's table is missing (`db.StrictTableCheck`, default
    `true`) and names each model, table and connection. Every `@spinajs/authz*`, `users*` and `authn*`
    package you import registers its models. `db.StrictTableCheck: false` restores the lenient behaviour.
-   **Migrate `default` and the `authz` connection in the same run** when `db.Aliases.authz` points
-   elsewhere: `spinajs migrate-up` without `--connection`, or `Migration.OnStartup` on both connections.
-   The runner orders pending migrations across connections, so `AuthzRbacUserRoles_2026_10_01_00_01_00`
-   (on `authz`) copies `users.Role` before `AuthzRbacDropUserRole_2026_10_01_00_02_00` (on `default`)
-   drops it. Run on `default` alone, the drop fails, changing nothing, while a role is not copied.
+   **Migrate `default` and the `authz` connection** when `db.Aliases.authz` points elsewhere:
+   `spinajs migrate-up` without `--connection`, or `Migration.OnStartup` on both connections.
 9. **Check stored datetimes.** 3.0 writes and reads every datetime as a UTC instant: PostgreSQL sessions
    run with `TimeZone=UTC`, MySQL with `time_zone = '+00:00'`, MSSQL with `useUTC`, and new columns are
    zone-aware (ORM section below). 2.x wrote the local wall clock without an offset: SQLite text, PostgreSQL
@@ -103,9 +128,9 @@ what each fix changes for an app.
 
 ### Configuration
 
-- **`rbac.*` fails boot.** No package reads or ships a `rbac.*` key. `authz.config.rejectLegacyKeys` defaults
-  to `true`: the boot error names each key, its 3.0 target and the converter, never a value. `false` only
-  warns.
+- **`rbac.*` is not read.** No package reads or ships a `rbac.*` key, and nothing checks for one: a leftover key
+  boots silently and does nothing. There is no `authz.config.rejectLegacyKeys`. Run the converter, then delete the
+  keys.
 - authn: 2.x configuration keys are no longer detected; `authn.config` is removed.
 - **The role switch key moved.** `rbac.roleSwitch.requirePassword` is not read, not even as a fallback.
   Set `authz.principals.roleSwitch.requirePassword` to the roles a switch asks the password for; unset,
@@ -124,11 +149,6 @@ what each fix changes for an app.
   besides the memory one need the key.
 - **JIT and email linking need two switches**: the global `authn.linking.jit` / `byVerifiedEmail`, and
   the strategy's own (an OIDC provider's `linking.*`, a JWT issuer's `linking.jit`). All default off.
-- `authz.abac.scopeResiduals` (default `false`; `authz.<name>.scopeResiduals` for an ABAC model with
-  another name) is new and opt-in. On, an ABAC comparison of `scope.<type>.*` on a list becomes a SQL
-  leaf. Off, such a comparison cannot be decided on a list: a deny policy denies the list with
-  `needs_subject` (B19), and a permit makes the ABAC vote indeterminate, which denies the list under
-  `deny-overrides` (B39). It needs `authz-rbac` loaded for lists through authz-orm.
 - `http.trustProxy` is read by `RealIp` and by authn-http's `ClientIp` (`authn.http.trustProxy` wins
   for authn): a hop count, or addresses, CIDRs and `loopback`, `linklocal`, `uniquelocal`. `true` means
   one hop, never "trust all". A trusted proxy must overwrite `X-Forwarded-For`, `-Proto` and `-Host`.
@@ -139,7 +159,7 @@ what each fix changes for an app.
 - `authn.impersonation.clockSkewSeconds` (0 to 300, default 30) is new: how far an impersonation's start
   may lie ahead of now or before the login. A value set at runtime past the schema that is not a finite
   number of 0 or more ends the impersonation.
-- `authz.queue.stampedInitiatorWarning`, `authz.orm.allowJit`, `authz.http.admin.domain`,
+- `authz.queue.stampedInitiatorWarning`, `authz.http.admin.domain`,
   `authz.fsAcl.connection`, `authz.fsAcl.relations`, `fs.middlewareTimeoutMs`, `telemetry.auth.permissions.*`,
   `telemetry.auth.domain` and `telemetry.auth.skipInDevelopment` are new.
 - **The authz tables live on the ORM connection alias `authz`.** Map it to a connection with `db.Aliases.authz`;
@@ -158,14 +178,19 @@ what each fix changes for an app.
 - **Unattended work is denied (H2).** CLI commands, cron jobs, queue handlers, `@Task` bodies, sockets
   without a user and config polling have no principal: every check denies them, and a query on a scoped
   model throws `AccessDenied`. Wrap them in `authz().runAs(SYSTEM, reason, fn)`, or give a job
-  `@Job({ runAs: 'initiator' | 'system' })`.
+  `@Job({ runAs: 'initiator' | 'system' })`. The ORM guard for an unattended multi-row select throws only under
+  the `test` env and warns under `development`; in any other env, or with none, it is off, so production does not
+  block such a select (`guardMode`, `authz-orm`).
 - **Checks.** `@Access('X:read')` replaces `@Resource` + `@Permission` and `RbacPolicy`; class and route
   `@Access` combine with AND. `authz().can`/`assert`/`check` replace `user.can*` and
   `checkUserPermission`. `GET /grants` and `/user/grants` are gone; `GET /user/access` and
-  `POST /user/access/check` replace them, and login, MFA, role switch, impersonation and whoami answers
+  `POST /user/access/checks` replace them, `GET /authz/holders` (`authz-http-admin`) lists who holds a
+  permission at a scope, and login, MFA, role switch, impersonation and whoami answers
   carry `Access`.
 - **ORM.** The 2.x `@OrmResource` scoping is gone: a model without `@AccessResource` (`authz-orm`) is not
-  scoped at all. `@OrmPermission` policies become `@OrmScope` policies. Register `@AccessResource` models
+  scoped at all. `@OrmPermission` policies have no decorator of their own (`@OrmScope` and `@ScopeColumn` are not
+  exported): express them as relations (`@Owner`, `@Relation`) or as role assignments on the rows. Register
+  `@AccessResource` models
   before the authz domain boots; a type registered later makes every check on it throw until the
   domain boots again.
 - **`users.Role` is dropped.** Read roles through `RbacService.rolesOf` or `authz_assignment`.
@@ -247,11 +272,10 @@ what each fix changes for an app.
 - **A password change keeps API tokens (A30)**, ends the identity's other sessions and rotates the
   current one. A reset, an admin password reset and an admin expiry revoke tokens
   (`authn.local.reset.revokeTokens`).
-- **Resets and invites carry over (A32).** A link mailed before the upgrade works once, until its 2.x
-  expiry.
-- **Tokens.** Every token has an expiry, at most `authn.token.maxTtlDays` (90); tokens without one get
-  `CreatedAt + maxTtlDays` at migration. Minting needs fresh auth. A token length below 32 or an empty
-  prefix fails boot. A bearer or `x-api-key` value without the token prefix is ignored, so tokens issued
+- **Resets, invites and tokens do not carry over.** 3.0 starts from an empty database: a link mailed by 2.x
+  stops working (the user asks for a new one), and every 2.x API token is gone.
+- **Tokens.** Every token has an expiry, at most `authn.token.maxTtlDays` (90). Minting needs fresh auth. A
+  token length below 32 or an empty prefix fails boot. A bearer or `x-api-key` value without the token prefix is ignored, so tokens issued
   under another prefix stop working. The CLI is `authn:token-create`, `authn:token-delete`,
   `authn:token-delete-expired`.
 - **MFA.** TOTP is opt-in: list `{ name: 'totp', service: 'TotpMfaStep' }` in `authn.mfa.steps`, set the
@@ -327,14 +351,15 @@ what each fix changes for an app.
 | `PATCH /user/password` (users-http) | `PATCH /user/password` (authn-http, `PasswordService.change`) |
 | `/users/security/{changePassword,password-reset-request,expire-password,reset2fa,2fa/enable,2fa/disable,unlock}` | gone; `POST /authn/admin/users/:uuid/password-reset`, `/mfa-reset`, `DELETE .../sessions`, `DELETE .../tokens` |
 | `DELETE /users/security/sessions/:uuid` | `DELETE /authn/admin/users/:uuid/sessions` |
+| `/users/role/add`, `/users/role/revoke` | gone; `POST /authz/assignments`, `DELETE /authz/assignments/:id` (`authz-http-admin`) |
 | `GET /user/tokens/roles`, `/profiles` (rbac-http-token) | the same paths in users-http |
 | `GET jobs/v1/:jobId/status` for an unknown id: 200 `queued` | 404, as for a job the caller may not read |
 | — | `/user/keys`, `POST /auth/keys/challenge`, `POST /auth/keys/login`, `/auth/oidc/:provider/*` |
 
 - **Body fields.** Login `login` (2.x `Email`) and `password` (`Password`); role switch `role`
   (`Role`); impersonation `target` (`TargetUuid`); password reset `login`, `secret` (`Token`),
-  `password`, `confirmPassword`, `oldPassword`. Both spellings are accepted. Inline re-authentication
-  sends `reauthPassword`.
+  `password`, `confirmPassword`, `oldPassword`. Only these camelCase names are read: a 2.x PascalCase field is
+  ignored, so an unchanged 2.x client's login fails. Inline re-authentication sends `reauthPassword`.
 - **Error bodies.** Every authentication failure (login, MFA, re-auth, reset redemption, key login,
   and OIDC for a client that is not a browser navigation) is 401
   `{ error: { code: 'E_AUTH_FAILED', ... } }`; a throttled login, MFA step or reset redemption adds
@@ -361,9 +386,8 @@ what each fix changes for an app.
 
 ### Databases
 
-- **PostgreSQL must run with `jit = off`** for the app's role or database (or `PGOPTIONS='-c jit=off'`).
-  authz-orm refuses a connection with JIT on at domain boot or at the first scoped query;
-  `authz.orm.allowJit: true` turns the check off.
+- **PostgreSQL `jit = off`** for the app's role or database (or `PGOPTIONS='-c jit=off'`) is advised. Nothing
+  checks it: authz-orm does not refuse a connection with JIT on, and there is no `authz.orm.allowJit` key.
 - **PostgreSQL 12 or SQLite 3.35 at the least** for lists over stored rules (`WITH … AS MATERIALIZED`).
   On SQLite such lists are slow; they suit tests and small tables.
 - **On PostgreSQL a list with RBAC rules mostly works the rules out once per class of rows** (rows that
