@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/queue-templates-pdf",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "description": "Queue job for SpinaJS that renders a PDF template in an isolated worker process and reports progress.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -53,13 +53,13 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "3.0.2",
-    "@spinajs/di": "3.0.2",
-    "@spinajs/exceptions": "3.0.2",
-    "@spinajs/fs": "3.0.2",
-    "@spinajs/log": "3.0.2",
-    "@spinajs/queue": "3.0.2",
-    "@spinajs/templates": "3.0.2",
-    "@spinajs/templates-pdf": "3.0.2"
+    "@spinajs/configuration": "3.0.3",
+    "@spinajs/di": "3.0.3",
+    "@spinajs/exceptions": "3.0.3",
+    "@spinajs/fs": "3.0.3",
+    "@spinajs/log": "3.0.3",
+    "@spinajs/queue": "3.0.3",
+    "@spinajs/templates": "3.0.3",
+    "@spinajs/templates-pdf": "3.0.3"
   }
 }

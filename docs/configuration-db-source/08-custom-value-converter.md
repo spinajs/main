@@ -4,9 +4,9 @@
 
 ## How it works
 
-1. `DbConfigValueConverter` is a `@Singleton` class. It is not registered under another token; callers resolve it by class.
+1. `DbConfigValueConverter` is a `@Singleton` class, registered under itself by `@Injectable()` when the package loads. It is not registered under another token; callers resolve it by class.
 2. `ConfiguratioDbSource` and `DbConfigSourceBotstrapper` get it with `@Autoinject(DbConfigValueConverter)`, when they are first resolved.
-3. The ORM resolves it for every `@DbConfigValue` column with `connection.Container.resolve(DbConfigValueConverter)`, when `Orm` sets up model descriptors.
+3. The ORM resolves it for every `@DbConfigValue` column with `connection.Container.resolve(DbConfigValueConverter)`, when `Orm` sets up model descriptors. It attaches a decorator's converter only when the class is registered in DI, hence the `@Injectable()`: without it `DbConfig` writes and reads `Value` and `Default` unconverted.
 4. `DI.register(MyConverter).as(DbConfigValueConverter)` makes each of those resolves return `MyConverter`: DI resolves the last class registered under a key.
 5. The registration must run before the first of these resolves: before `Configuration` resolves (source), before bootstrappers run (bootstrapper), before `Orm` resolves (model).
 
@@ -14,7 +14,7 @@
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Value converter | class `DbConfigValueConverter`, `@Singleton`, resolved by class | `DbConfigValueConverter extends UniversalValueConverter` (`@spinajs/orm`) | none shipped | `DI.register(MyConverter).as(DbConfigValueConverter)` at module load, before the app starts. |
+| Value converter | class `DbConfigValueConverter`, `@Singleton`, registered under itself at import, resolved by class | `DbConfigValueConverter extends UniversalValueConverter` (`@spinajs/orm`) | none shipped | `DI.register(MyConverter).as(DbConfigValueConverter)` at module load, before the app starts. |
 
 Methods meant for overriding:
 

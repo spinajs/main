@@ -5,7 +5,7 @@ Three `spinajs` commands manage API tokens from a terminal or a scheduler: creat
 ## How it works
 
 1. The package config adds its `lib/<mjs|cjs>/cli` directory to `system.dirs.cli`, under `node_modules/@spinajs/authn-token` of `WORKSPACE_ROOT_PATH` (or the working directory) and one directory up. The `spinajs` bin finds the commands there; see [Command discovery](../cli/05-command-discovery.md).
-2. Every command extends `CliCommand` and injects `TokenService` with `@Autoinject`. The CLI resolves only the command it runs; `DbTokenService` (and `UsersTableTokenOwnerResolver`) inject `Orm`, so resolving the service is what boots the ORM and connects the `AccessToken` model to the database.
+2. Every command extends `CliCommand` and injects `TokenService` with `@Autoinject`. The CLI resolves only the command it runs; the commands inject `Orm`, so resolving the command is what boots the ORM and connects the `AccessToken` model to the database. `DbTokenService` and `UsersTableTokenOwnerResolver` do not inject it: a boot migration that seeds users or tokens resolves them while the ORM resolves.
 3. `authn:token-create` calls the service with `ctx = { now: new Date(), purpose: 'request' }`; `authn:token-delete` with `cliContext()` from `@spinajs/authn/contracts`, which adds `userAgent: 'spinajs-cli'`.
 4. A failure sets `process.exitCode = 1` and logs an error on the `authn-token` logger; the commands never throw out of `execute`.
 

@@ -1,5 +1,4 @@
-import { DI } from '@spinajs/di';
-import { IdentifierQuoter, Orm, OrmDriver, RawQuery, SqlExpressions } from '@spinajs/orm';
+import { IdentifierQuoter, OrmDriver, RawQuery, SqlExpressions, ormReady } from '@spinajs/orm';
 
 import { NO_PASSWORD, USER_COMMON_METADATA, User } from '../models/User.js';
 
@@ -14,9 +13,11 @@ export function isNoPassword(value: unknown): boolean {
 /**
  * @internal A cli process resolves only its command, so nothing else may have booted the Orm and the models are bare. Not
  * `@Autoinject(Orm)` on the stores: an async dependency makes their `DI.resolve` a Promise, and callers use it unawaited.
+ * Not `DI.resolve(Orm)` either: a boot migration's `data()` that seeds a user runs inside the Orm's resolve, and would
+ * wait for it.
  */
 export async function usersOrmUp(): Promise<void> {
-  await DI.resolve(Orm);
+  await ormReady();
 }
 
 /** @internal The users' connection: the one the base `User` model writes to. */

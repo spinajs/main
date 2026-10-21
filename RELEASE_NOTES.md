@@ -489,6 +489,25 @@ Docs: `docs/authn-local/13-mail-delivery.md`, `docs/email/08-password-mailer.md`
 - `@spinajs/authn-testing`: `SoftAuthenticator`, the `webauthn` port, passkey route builders and behaviour rule A33.
 
 Docs: `docs/authn-webauthn/README.md`.
+## 3.0.3
+
+Fixes only: no 3.0.2 API, config key or HTTP answer changes.
+
+- **Fix: a user seeded by a boot migration deadlocked the boot.** A migration whose `data()` called users' `create()`
+  waited for the `Orm` resolve that runs it: authn-token's `DbTokenService` and `UsersTableTokenOwnerResolver`
+  injected the `Orm`, and the users stores awaited `DI.resolve(Orm)`. They now await `ormReady()` per call, which
+  does not wait for an ORM that has created its connections. The token cli commands inject the `Orm` instead, so
+  resolving one still boots it.
+- **Fix: configuration rows were written unconverted.** The ORM attaches a `@DbConfigValue` converter only to a class
+  registered in DI, and `DbConfigValueConverter` was not. An instance update of a `DbConfig` row (the exposed-option
+  sync, the configuration panel's write) sent `Value` and `Default` raw: MySQL failed with `Truncated incorrect DOUBLE
+  value` on `json` and `manyOf` options, and model reads (the watch poll) returned the stored text. The converter now
+  registers itself when the package loads; the workaround `DI.register(DbConfigValueConverter).asSelf()` can go.
+- **Fix: an app with an invalid configuration exited with 0.** `LogBotstrapper`'s `uncaughtException` and
+  `unhandledRejection` handlers log and keep the process running, which also stopped Node from exiting with 1: a
+  `Configuration` refused at boot (awaited at the top level, or in a boot promise nothing catches) ended the process
+  with 0. Both handlers now set `process.exitCode = 1`; they still do not exit. In `@spinajs/di`, a dependency that
+  throws while another one's async resolve is pending no longer leaves that rejection unhandled.
 
 ## 3.0.2
 

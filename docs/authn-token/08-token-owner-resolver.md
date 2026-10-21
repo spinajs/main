@@ -15,7 +15,7 @@
    - `UsersTableTokenOwnerResolver` reads both in one statement, a `LEFT JOIN` of `users` on `user_id`.
 5. `validate` fails the token (`invalid_credentials`) when the owner is `null`; `revokeById` publishes its event without an identity.
 
-The default reads the `users` table directly, so this package does not import `@spinajs/users`. The protected `connection()` takes the `AccessToken` model's connection (`default` unless the model names another) from the injected `Orm`; when the ORM has no such connection it throws `InvalidOperation`.
+The default reads the `users` table directly, so this package does not import `@spinajs/users`. The protected `connection()` takes the `AccessToken` model's connection (`default` unless the model names another) with `modelDriver(AccessToken)`; when the ORM has no such connection it throws `OrmConnectionMissing`. `rowIdOf()` and `refOf()` await `ormReady()` first instead of injecting `Orm`, so they also work from a boot migration's `data()`.
 
 ## Services and extension points
 

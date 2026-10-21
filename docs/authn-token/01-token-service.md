@@ -169,7 +169,7 @@ authn: {
 | Role check at create | `RoleSource` (`@spinajs/authn/contracts`); optional `@Autoinject` property `Roles`, set only when one is registered when `DbTokenService` is resolved | none in this package | `@spinajs/users`' `RbacRoleSource` | `DI.register(Mine).as(RoleSource)` before `TokenService` is first resolved. |
 | Token algorithm | `AccessTokenGenerationProvider`, by the class name in `authn.token.generation.service`; `@AutoinjectService` property `Generator` | `SecureRandomTokenProvider` | none | See [Token generation](07-token-generation.md). |
 | Audit | `AuthnAudit` (`@spinajs/authn/audit`); `@Autoinject` property `Audit`, delivering to every `AuthnEventSink` | none in this package | `@spinajs/authn-orm`'s `DbAuthnAuditSink`, the authn log sink | Register a sink with `@Injectable(AuthnEventSink)`. |
-| ORM | `Orm`; `@Autoinject` property | `@spinajs/orm` | none | Resolving `DbTokenService` boots the ORM, so a CLI run that builds only this service can query `rbac_access_tokens`. |
+| ORM | `Orm`, not injected: every call that queries awaits `ormReady()` | `@spinajs/orm` | none | The first call boots the ORM when nothing did, so a CLI run that builds only this service can query `rbac_access_tokens`; a boot migration's `data()` can use the service while the ORM resolves. |
 
 `DbTokenService` also has three methods outside the contract that shipped code finds by duck typing: `touch` (used by `TokenStrategy`), `revokeById` (used by `authn:token-delete`) and `deleteExpired` (used by `authn:token-delete-expired`). A replacement that drops them loses the last-use stamp and those two commands.
 

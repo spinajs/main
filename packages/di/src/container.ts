@@ -18,8 +18,8 @@ import { ServiceNotFound } from './exceptions.js';
  * Maps `items` with `fn`. When `fn` throws synchronously, promises returned for the
  * earlier items get a no-op handler, so a later rejection is not reported as unhandled.
  */
-function resolveEach<I>(items: I[], fn: (item: I) => unknown): unknown[] {
-  const results: unknown[] = [];
+function resolveEach<I, R>(items: I[], fn: (item: I) => R): R[] {
+  const results: R[] = [];
   try {
     for (const item of items) {
       results.push(fn(item));
@@ -758,7 +758,7 @@ export class Container extends EventEmitter implements IContainer {
   }
 
   protected resolveDependencies(toInject: IToInject<unknown>[]) {
-    const dependencies = toInject.map((t) => {
+    const dependencies = resolveEach(toInject, (t) => {
       if (t.resolveFunc) {
         const injected = (instance: unknown) => ({ autoinject: t.autoinject, autoinjectKey: t.autoinjectKey, instance });
         const value = t.resolveFunc(t.data, this);
@@ -817,7 +817,7 @@ export class Container extends EventEmitter implements IContainer {
 
       let promiseOrVal = null;
       if (_.isArray(tInject)) {
-        const pVals = tInject.map((x) => this.resolve(x.type as any, [t.options ?? x.options], false, x.type));
+        const pVals = resolveEach(tInject, (x) => this.resolve(x.type as any, [t.options ?? x.options], false, x.type));
         if (pVals.some((x) => isPromise(x))) {
           promiseOrVal = Promise.all(pVals);
         } else {

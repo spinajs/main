@@ -1,9 +1,8 @@
-import { Autoinject, Injectable } from '@spinajs/di';
-import { IdentifierQuoter, Orm, RawQuery } from '@spinajs/orm';
+import { Injectable } from '@spinajs/di';
+import { IdentifierQuoter, RawQuery, modelDriver, ormReady } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
-import { InvalidOperation } from '@spinajs/exceptions';
 
 import { AccessToken } from '../models/AccessToken.js';
 
@@ -39,6 +38,7 @@ export abstract class TokenOwnerResolver {
    * checks PreviousValidUntil. Override it to read both in one statement.
    */
   public async tokenByHash(hash: string): Promise<TokenWithOwner | null> {
+    await ormReady();
     const token = await AccessToken.where(byHash(hash)).first();
     return token ? { token, owner: await this.refOf(token.user_id) } : null;
   }
@@ -47,28 +47,31 @@ export abstract class TokenOwnerResolver {
 /**
  * Owners are users: `users.Uuid` ↔ `users.Id`. Reads the table directly so that this package does not
  * import `@spinajs/users`.
+ *
+ * Waits for the Orm per call instead of injecting it: a boot migration that seeds users or tokens runs inside the
+ * Orm's resolve, and an injected Orm would wait for that resolve to finish.
  */
 @Injectable(TokenOwnerResolver)
 export class UsersTableTokenOwnerResolver extends TokenOwnerResolver {
-  @Autoinject(Orm)
-  protected Orm: Orm;
-
   public async rowIdOf(owner: IdentityRef): Promise<number | null> {
     const [ok, uuid] = _try_check_arg(_is_string(_non_empty()))(owner?.id, 'owner.id');
     if (owner?.type !== 'user' || !ok) {
       return null;
     }
 
+    await ormReady();
     const row = (await this.connection().select().from(USERS_TABLE).columns([USER_ID]).where({ [USER_UUID]: uuid }).first()) as { [USER_ID]: number } | undefined;
     return row ? Number(row[USER_ID]) : null;
   }
 
   public async refOf(rowId: number): Promise<IdentityRef | null> {
+    await ormReady();
     const row = (await this.connection().select().from(USERS_TABLE).columns([USER_UUID]).where({ [USER_ID]: rowId }).first()) as { [USER_UUID]: string } | undefined;
     return row ? { type: 'user', id: row[USER_UUID] } : null;
   }
 
   public async tokenByHash(hash: string): Promise<TokenWithOwner | null> {
+    await ormReady();
     const connection = this.connection();
     const quoter = connection.Container.resolve(IdentifierQuoter);
     // The model builder selects only its own columns; the owner's Uuid comes in as a raw, dialect-quoted column.
@@ -86,11 +89,6 @@ export class UsersTableTokenOwnerResolver extends TokenOwnerResolver {
 
   /** The connection of the token rows, whose `user_id` points into the users table. */
   protected connection(): OrmDriver {
-    const name = AccessToken.getModelDescriptor().Connection ?? 'default';
-    const driver = this.Orm.Connections.get(name);
-    if (!driver) {
-      throw new InvalidOperation(`No database connection ${name} for the users table`);
-    }
-    return driver;
+    return modelDriver(AccessToken);
   }
 }

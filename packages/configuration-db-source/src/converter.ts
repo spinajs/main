@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable prettier/prettier */
-import { Singleton } from '@spinajs/di';
+import { Injectable, Singleton } from '@spinajs/di';
 import { extractDecoratorPropertyDescriptor, IColumnDescriptor, IModelDescriptor, IUniversalConverterOptions, ModelBase, UniversalValueConverter } from '@spinajs/orm';
 import _ from 'lodash';
 import { DateTime } from 'luxon';
@@ -26,8 +26,11 @@ import { DateTime } from 'luxon';
  * `DateTime`, or the loose JSON the http layer assigns straight from a request -
  * ISO strings, numeric strings, `'1'`/`'0'` booleans). Callers therefore don't
  * have to pre-coerce; they validate and hand the raw value over.
+ *
+ * `@Injectable()` because the ORM attaches a decorator's converter only when its class is registered in DI.
  */
 @Singleton()
+@Injectable()
 export class DbConfigValueConverter extends UniversalValueConverter {
   public toDB(value: any, model: ModelBase, column: IColumnDescriptor, options: IUniversalConverterOptions): any {
     if (value === null || value === undefined) {
