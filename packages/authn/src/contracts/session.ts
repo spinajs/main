@@ -8,6 +8,13 @@ export interface SessionHandle {
   readonly state: 'pending' | 'active';
 }
 
+/** What `SessionIssuer.reissue` may change in the facts of an active session; it never lowers the assurance. */
+export interface SessionFactsChange {
+  readonly assurance?: 'aal2';
+  readonly mfa?: readonly string[];
+  readonly authenticatedAt?: Date;
+}
+
 /** Implemented by @spinajs/authn-session. */
 export abstract class SessionIssuer {
   /**
@@ -22,8 +29,14 @@ export abstract class SessionIssuer {
   abstract restore(rawId: string): Promise<Session | null>;
   /** New id, same data (fixation). */
   abstract rotate(h: SessionHandle): Promise<SessionHandle>;
-  /** pending → active, aal2; rotates. Refuses an active session: a re-authentication never changes the facts of a live session. */
+  /** pending → active, aal2; rotates. Refuses an active session, whose facts only `reissue` changes. */
   abstract elevate(h: SessionHandle, facts: Partial<AuthnFacts>): Promise<SessionHandle>;
+  /**
+   * Active sessions only: moves the row to a fresh id with `change` merged into its facts; data, subject, impersonator,
+   * creation and expiry are kept. Refuses a pending session. As with `rotate`, a revocation that lands during the move
+   * stays in force, and of parallel reissues of one session exactly one succeeds.
+   */
+  abstract reissue(h: SessionHandle, change: SessionFactsChange): Promise<SessionHandle>;
   /** Holds ActiveRole and the impersonation block. Never changes the subject, impersonator or state: the issuer refuses its reserved keys. */
   abstract set(h: SessionHandle, key: string, value: unknown): Promise<void>;
   /** True only for the call that ended the session, so of parallel revokes of one session exactly one gets true. */

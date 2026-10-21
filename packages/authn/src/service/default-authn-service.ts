@@ -350,6 +350,62 @@ export class DefaultAuthnService extends AuthnService {
     return true;
   }
 
+  public async stepUp(session: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult> {
+    const stored = await restoreHandle(this.Sessions, session);
+    if (!stored || stored.handle.state !== 'active') {
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'not_active' });
+      return fail('invalid_credentials');
+    }
+    const id = stored.identity;
+    const about = { identity: id, strategy: stored.facts.strategy, ...(isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
+    // The target's factor must not raise the session an impersonator acts in (M6).
+    if (stored.facts.impersonator !== undefined) {
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'impersonation', ...about });
+      return fail('invalid_credentials');
+    }
+    if (stored.facts.assurance === 'aal2') {
+      const { authenticatedAt: _at, ...current } = stored.facts;
+      return { status: 'success', identity: id, facts: current, session: stored.handle };
+    }
+    const keys = identityThrottleKeys(id, ctx);
+    const gate = await this.Throttle.attempt(keys, 'mfa', ctx);
+    if (!gate.allowed) {
+      await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
+      return { status: 'failure', reason: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
+
+    let passed: boolean | string;
+    try {
+      passed = await this.passMfa(id, stored.facts, step, response, true);
+    } catch (err) {
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', ...policyRefusal(err, 'step_error'), ...about });
+      return fail('invalid_credentials');
+    }
+    if (passed !== true) {
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: passed === false ? 'invalid_code' : passed, ...about });
+      return fail('invalid_credentials');
+    }
+    if (await this.statusRefused(ctx, stored.handle, about)) return fail('invalid_credentials');
+
+    let next: SessionHandle;
+    let facts: Success['facts'];
+    try {
+      next = await this.Sessions.reissue(stored.handle, { assurance: 'aal2', mfa: [step] });
+      const now = await this.Sessions.restore(next.id);
+      if (!now) throw new InvalidOperation('the reissued session is gone');
+      const { authenticatedAt: _at, ...rest } = now.facts;
+      facts = rest;
+      await this.Throttle.succeed(keys, 'mfa');
+    } catch (err) {
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'session_error', data: { error: errorClass(err) }, ...about });
+      return fail('invalid_credentials');
+    }
+    const done = { identity: id, strategy: facts.strategy, ...(isNonEmptyString(facts.sessionHandle) ? { session: facts.sessionHandle } : {}) };
+    await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'success', ...done });
+    await this.Auditor.publishIn(ctx, { type: 'session.rotate', outcome: 'success', reason: 'step_up', ...done });
+    return { status: 'success', identity: id, facts, session: next };
+  }
+
   public async principalOf(result: Success): Promise<Principal> {
     if (!isPlainObject(result) || result.status !== 'success' || !isRef(result.identity)) {
       throw new InvalidArgument('principalOf takes a success result');
@@ -462,9 +518,11 @@ export class DefaultAuthnService extends AuthnService {
   /**
    * True: passed; false: a wrong code; a string: why the step cannot be taken (audit reason). The steps the policy
    * requires now are alternatives; `recovery` goes to the first enrolled step that takes recovery codes (D6).
+   * `anyEnrolled` (step-up) takes every configured step the identity is enrolled in instead: the login that issued an
+   * aal1 session needed no step, so the policy may require none for its method.
    */
-  private async passMfa(id: IdentityRef, facts: AuthnFacts, step: string, response: string): Promise<boolean | string> {
-    const required = await this.Policy.required(id, { method: facts.method, strategy: facts.strategy });
+  private async passMfa(id: IdentityRef, facts: AuthnFacts, step: string, response: string, anyEnrolled = false): Promise<boolean | string> {
+    const required = anyEnrolled ? await this.enrolledSteps(id) : await this.Policy.required(id, { method: facts.method, strategy: facts.strategy });
     if (required.length === 0) return 'no_steps';
     const steps = await this.Policy.steps();
     if (step === RECOVERY_STEP) {
@@ -478,6 +536,26 @@ export class DefaultAuthnService extends AuthnService {
     // Under force the required step may be one the identity has not enrolled; the MfaStep contract does not oblige verify to refuse that.
     if (!(await s.enrolled(id))) return 'not_enrolled';
     return (await s.verify(id, response)) === true;
+  }
+
+  /** An account banned or deleted since its login must not step up: its session ends. True when refused, audited. */
+  private async statusRefused(ctx: AuthnContext, handle: SessionHandle, about: { readonly identity: IdentityRef; readonly strategy: string; readonly session?: string }): Promise<boolean> {
+    let refused: string | null;
+    try {
+      refused = await statusRefusal(this.Identities, about.identity);
+      if (refused) await this.Sessions.revoke(handle);
+    } catch (err) {
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'store_error', data: { error: errorClass(err) }, ...about });
+      return true;
+    }
+    if (refused) await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: refused, ...about });
+    return refused !== null;
+  }
+
+  private async enrolledSteps(id: IdentityRef): Promise<string[]> {
+    const enrolled: string[] = [];
+    for (const s of (await this.Policy.steps()).values()) if (await s.enrolled(id)) enrolled.push(s.name);
+    return enrolled;
   }
 
   /** A re-authentication proves the session's own identity: a delegation or an unlinked subject does not (A13). */

@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
-import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionHandle } from '@spinajs/authn/contracts';
+import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionFactsChange, SessionHandle } from '@spinajs/authn/contracts';
 import type { SessionStoragePort } from '../harness/ports.js';
 
 export interface MemorySessionOptions {
@@ -135,6 +135,21 @@ export class MemorySessionIssuer extends SessionIssuer {
     const { impersonator: _impersonator, sessionHandle: _handle, ...rest } = facts;
     row.facts = { ...row.facts, ...rest, assurance: 'aal2' };
     row.expiresAt = Math.min(now + this.idleMs, row.creation + this.absoluteMs);
+    this.rows.delete(key);
+    return this.place(row);
+  }
+
+  async reissue(h: SessionHandle, change: SessionFactsChange): Promise<SessionHandle> {
+    const { key, row } = this.need(h);
+    if (row.state !== 'active') {
+      throw new Error('a pending session cannot be reissued');
+    }
+    row.facts = {
+      ...row.facts,
+      ...(change.assurance === 'aal2' ? { assurance: 'aal2' as const } : {}),
+      ...(change.mfa ? { mfa: [...change.mfa] } : {}),
+      ...(change.authenticatedAt ? { authenticatedAt: change.authenticatedAt } : {}),
+    };
     this.rows.delete(key);
     return this.place(row);
   }

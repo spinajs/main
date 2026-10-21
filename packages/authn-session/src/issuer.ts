@@ -8,8 +8,8 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import './register-schema.js';
 import { SessionIssuer, SessionKeys, resolveSession } from '@spinajs/authn/contracts';
-import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionHandle } from '@spinajs/authn/contracts';
-import { SessionProvider } from './contracts.js';
+import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionFactsChange, SessionHandle } from '@spinajs/authn/contracts';
+import { SessionExpirationProvider, SessionProvider } from './contracts.js';
 import type { ISession } from './contracts.js';
 import { UserSession } from './session.js';
 import { refMatches } from './match.js';
@@ -36,7 +36,7 @@ const LAST_SEEN_KEY = 'authn:lastSeenAt';
 /** Typed row members. */
 const REFUSED_KEYS = new Set(['Subject', 'State', 'Impersonator']);
 
-const LAST_SEEN_RESOLUTION_MS = 60_000;
+const DEFAULT_TOUCH_THRESHOLD_MS = 60_000;
 const MAX_RAW_ID_LENGTH = 128;
 const HANDLE_DOMAIN = 'spinajs:authn-session:handle\0';
 
@@ -102,6 +102,13 @@ export class DefaultSessionIssuer extends SessionIssuer {
 
   @Config('authn.session.pendingTtlSeconds')
   protected PendingTtlSeconds!: number;
+
+  @Config('authn.session.touchThresholdSeconds')
+  protected TouchThresholdSeconds!: number;
+
+  /** The strategy the store renews with, so restore can tell whether a touch would move the expiry. */
+  @AutoinjectService('authn.session.expiration', SessionExpirationProvider)
+  protected Expiration: SessionExpirationProvider | undefined;
 
   public async issue(identity: IdentityRef, facts: AuthnFacts, opts?: { pending?: { steps: readonly string[] } }): Promise<SessionHandle> {
     const now = DateTime.now();
@@ -199,6 +206,27 @@ export class DefaultSessionIssuer extends SessionIssuer {
     return this.moveTo(session, data, { State: 'active', Expiration: undefined });
   }
 
+  public async reissue(h: SessionHandle, change: SessionFactsChange): Promise<SessionHandle> {
+    const session = await this.need(h);
+    if (session.State !== 'active') {
+      throw new InvalidOperation('Only an active session can be reissued');
+    }
+    const stored = readStored(session.Data.get(FACTS_KEY));
+    if (!stored) {
+      throw new InvalidOperation('Unknown or expired session');
+    }
+
+    const data = new Map(session.Data);
+    data.set(FACTS_KEY, {
+      ...stored,
+      // Only a raise: a change can never lower the assurance of a live session.
+      assurance: change.assurance === 'aal2' ? 'aal2' : stored.assurance,
+      mfa: Array.isArray(change.mfa) ? [...change.mfa] : stored.mfa,
+      authenticatedAt: change.authenticatedAt instanceof Date ? change.authenticatedAt.getTime() : stored.authenticatedAt,
+    } satisfies StoredFacts);
+    return this.moveTo(session, data, {});
+  }
+
   public async set(h: SessionHandle, key: string, value: unknown): Promise<void> {
     _check_arg(_is_string(_custom((k: string) => !k.startsWith(RESERVED_PREFIX) && !REFUSED_KEYS.has(k), new InvalidArgument(`Session key ${String(key)} is reserved`, 'key'))))(key, 'key');
     const session = await this.need(h);
@@ -281,14 +309,43 @@ export class DefaultSessionIssuer extends SessionIssuer {
     return data;
   }
 
-  /** Slides the idle deadline and records lastSeenAt (at most once a minute) in one update-only write. */
+  /**
+   * Slides the idle deadline and records lastSeenAt in one update-only write, made only once lastSeenAt is
+   * touchThresholdSeconds old or the expiry would move by that much (or back at all), so most requests write nothing.
+   */
   protected async refresh(session: ISession): Promise<void> {
     const now = Date.now();
+    const threshold = this.touchThresholdMs();
     const lastSeen = session.Data.get(LAST_SEEN_KEY);
-    if (typeof lastSeen !== 'number' || now - lastSeen >= LAST_SEEN_RESOLUTION_MS) {
+    const seenMoved = typeof lastSeen !== 'number' || now - lastSeen >= threshold;
+    if (!seenMoved && !this.expiryMoves(session, threshold)) {
+      return;
+    }
+    if (seenMoved) {
       session.Data.set(LAST_SEEN_KEY, now);
     }
     await this.Store.touch(session);
+  }
+
+  private touchThresholdMs(): number {
+    const seconds: unknown = this.TouchThresholdSeconds;
+    // A value set past the schema falls back to the default rather than writing on every request or never.
+    return typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : DEFAULT_TOUCH_THRESHOLD_MS;
+  }
+
+  /** Asks the configured strategy; an issuer built without one (by hand, in tests) writes as before. */
+  private expiryMoves(session: ISession, thresholdMs: number): boolean {
+    if (!this.Expiration) {
+      return true;
+    }
+    const next = this.Expiration.renew(session);
+    const current = session.Expiration;
+    if (!next || !current) {
+      return next !== current;
+    }
+    const delta = next.toMillis() - current.toMillis();
+    // An expiry that moves back (a lowered maxLifetime) is written at once, so restore sees the row expire.
+    return delta < 0 || delta >= thresholdMs;
   }
 
   protected async need(h: SessionHandle): Promise<ISession> {
