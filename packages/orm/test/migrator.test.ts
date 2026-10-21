@@ -461,6 +461,25 @@ describe('OrmMigrator', function () {
     expect(listed).to.eql([]);
   });
 
+  it("(e) a migration's up() queries a model on its gated connection", async () => {
+    let listed: unknown[] | undefined;
+
+    @Migration(CONNECTION)
+    class MigratorTestUpQueries_2026_10_21_00_00_00 extends OrmMigration {
+      public async up() {
+        listed = await models.MigratorTestPost.all();
+      }
+
+      public async down() {}
+    }
+
+    void MigratorTestUpQueries_2026_10_21_00_00_00;
+
+    await DI.resolve(OrmMigrator);
+
+    expect(listed).to.eql([]);
+  });
+
   it("(e) a migration's up() resolving a service that injects the Orm does not hang", async () => {
     let store: MigratorTestUserStore | undefined;
 
@@ -531,6 +550,52 @@ describe('OrmMigrator', function () {
     await DI.resolve(OrmMigrator);
 
     expect(await models.MigratorTestPost.all()).to.eql([]);
+  });
+
+  it('(g) a model query outside the migrator is refused while its pass runs', async () => {
+    let started!: () => void;
+    let release!: () => void;
+    const running = new Promise<void>((r) => (started = r));
+    const held = new Promise<void>((r) => (release = r));
+
+    @Migration(CONNECTION)
+    class MigratorTestHeld_2026_10_21_00_00_00 extends OrmMigration {
+      public async up() {
+        started();
+        await held;
+      }
+
+      public async down() {}
+    }
+
+    void MigratorTestHeld_2026_10_21_00_00_00;
+
+    const resolving = Promise.resolve(DI.resolve(OrmMigrator));
+    await within(3000, running);
+
+    expect(() => models.MigratorTestPost.all()).to.throw(OrmException, 'connection migrator migrates on startup; resolve OrmMigrator before using it');
+
+    release();
+    await resolving;
+
+    expect(await models.MigratorTestPost.all()).to.eql([]);
+  });
+
+  it('(g) the gate stays closed when the migrator pass fails', async () => {
+    @Migration(CONNECTION)
+    class MigratorTestFails_2026_10_21_00_00_00 extends OrmMigration {
+      public async up() {
+        throw new Error('boom');
+      }
+
+      public async down() {}
+    }
+
+    void MigratorTestFails_2026_10_21_00_00_00;
+
+    expect(await rejection(Promise.resolve(DI.resolve(OrmMigrator)))).to.be.instanceOf(OrmException);
+
+    expect(() => models.MigratorTestPost.all()).to.throw(OrmException, 'connection migrator migrates on startup; resolve OrmMigrator before using it');
   });
 
   it('(g) a connection with OnStartup off is not gated', async () => {

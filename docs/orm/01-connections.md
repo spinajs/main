@@ -126,7 +126,7 @@ this.Config = _.merge(this.Config, {
 | `SupportedIsolationLevels` | Isolation levels `transaction()` accepts. Empty by default. |
 | `ResponseSchemaTypes` | Driver-specific JSON-schema shapes for response schemas. See [JSON schema](11-json-schema.md). |
 | `CurrentTransaction` | The `ITransactionContext` in scope on this async path, or `undefined`. |
-| `AwaitsStartupMigration` | `true` on a `Migration.OnStartup` connection from `Orm.resolve()` until `OrmMigrator` resolves. Model queries on it throw `OrmException` (`connection <Name> migrates on startup; resolve OrmMigrator before using it`) meanwhile. |
+| `AwaitsStartupMigration` | `true` on a `Migration.OnStartup` connection from `Orm.resolve()` until `OrmMigrator`'s boot pass succeeded. Model queries on it outside the pass throw `OrmException` (`connection <Name> migrates on startup; resolve OrmMigrator before using it`) meanwhile. |
 | `execute(builder)` | Abstract. Executes a builder on the database. |
 | `ping()` | Abstract. Resolves `false` when the database is unreachable. |
 | `connect()` / `disconnect()` | Abstract. Open and close the connection. |
@@ -168,7 +168,7 @@ export async function bootstrapDatabase(): Promise<Orm> {
 
 - Connections open one after another, in `db.Connections` order. The first failure aborts `Orm.resolve()`; connections opened before it stay open.
 - `Orm.resolve()` runs no migration and writes nothing. A migration's `data()` can therefore resolve any service that injects the `Orm`: the `Orm` is resolved by then.
-- A model query on a `Migration.OnStartup` connection throws until `OrmMigrator` resolved, so an app that forgot the migrator fails instead of querying a schema nobody migrated. Raw driver queries are not gated. Connections with `OnStartup` off are never gated.
+- A model query on a `Migration.OnStartup` connection throws until `OrmMigrator`'s boot pass succeeded, so an app that forgot the migrator fails instead of querying a schema nobody migrated. Only the pass itself queries through the gate: the migrations' `up()` and `data()` and everything they call. Any other code, a service resolved alongside the migrator included, is refused while the pass runs, and after a failed pass the gate stays closed. Raw driver queries are not gated. Connections with `OnStartup` off are never gated.
 - `Orm` logs only `Database`, `User`, `Host`, `Port`, `Filename`, `Driver` and `Name` of a connection. `Password` never reaches the log.
 - `default` and every alias point to the same driver instance as the connection they name. They share one pool and one health probe.
 - `Orm.dispose()` stops the health probe and calls `disconnect()` once per `Orm.Connections` entry. A driver stored under `default` or an alias is disconnected more than once, so `disconnect()` must be idempotent.

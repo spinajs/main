@@ -8,10 +8,12 @@ export type SchemaTouch = string[] | 'all';
 export type SchemaTouches = Map<OrmDriver, Set<string> | 'all'>;
 
 interface ITouchScope {
-  touches: SchemaTouches;
+  touches?: SchemaTouches;
   /** The driver whose migration `up()` is running in this async context. */
   migrationOn?: OrmDriver;
   inBuilder?: boolean;
+  /** Inside `OrmMigrator`'s boot pass: model queries pass the `Migration.OnStartup` gate it has not opened yet. */
+  migrator?: boolean;
 }
 
 const storage = new AsyncLocalStorage<ITouchScope>();
@@ -39,7 +41,17 @@ function note(touches: SchemaTouches, driver: OrmDriver, touch: SchemaTouch): vo
 
 /** Runs `fn`, collecting into `touches` the tables every schema statement executed inside it names. */
 export function recordSchemaTouches<R>(touches: SchemaTouches, fn: () => Promise<R>): Promise<R> {
-  return storage.run({ touches }, fn);
+  return storage.run({ ...storage.getStore(), touches }, fn);
+}
+
+/** Runs `fn` as `OrmMigrator`'s boot pass: its `up()` and `data()` query models on connections still gated. */
+export function runAsMigrator<R>(fn: () => Promise<R>): Promise<R> {
+  return storage.run({ ...storage.getStore(), migrator: true }, fn);
+}
+
+/** True inside {@link runAsMigrator}. */
+export function inMigratorPass(): boolean {
+  return storage.getStore()?.migrator === true;
 }
 
 /** Marks every table of `driver` as changed in the current recording, if there is one. */
@@ -51,7 +63,7 @@ export function touchAllTables(touches: SchemaTouches, driver: OrmDriver): void 
 export function executeRecorded<R>(driver: OrmDriver, touch: () => SchemaTouch, run: () => Promise<R>): Promise<R> {
   const scope = storage.getStore();
 
-  if (!scope) {
+  if (!scope?.touches) {
     return run();
   }
 
@@ -70,7 +82,7 @@ export async function runMigrationUp(driver: OrmDriver, up: () => Promise<void>)
   const target = driver as unknown as { executeOnDb?: (...args: unknown[]) => unknown };
   const previous = target.executeOnDb;
 
-  if (!scope || typeof previous !== 'function') {
+  if (!scope?.touches || typeof previous !== 'function') {
     return up();
   }
 
@@ -79,7 +91,7 @@ export async function runMigrationUp(driver: OrmDriver, up: () => Promise<void>)
   target.executeOnDb = function (this: unknown, ...args: unknown[]) {
     const s = storage.getStore();
 
-    if (s?.migrationOn === driver && !s.inBuilder) {
+    if (s?.touches && s.migrationOn === driver && !s.inBuilder) {
       note(s.touches, driver, 'all');
     }
 

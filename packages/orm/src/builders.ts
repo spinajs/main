@@ -17,7 +17,7 @@ import { Lazy, isNullOrWhitespace, _check_arg, _positive } from '@spinajs/util';
 import { DiscriminationMapMiddleware } from './discrimination-middleware.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { ExistsRelationHandler } from './existsRelationHandlers.js';
-import { executeRecorded, SchemaTouch } from './schema-touches.js';
+import { executeRecorded, inMigratorPass, SchemaTouch } from './schema-touches.js';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -3499,7 +3499,7 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
     throw new OrmConnectionMissing(`model ${model.name} have invalid connection ${dsc.Connection}, please check your db config file or model connection name`, dsc.Connection!);
   }
 
-  if (own.AwaitsStartupMigration) {
+  if (own.AwaitsStartupMigration && !inMigratorPass()) {
     throw new OrmException(`connection ${own.Options.Name} migrates on startup; resolve OrmMigrator before using it`);
   }
 

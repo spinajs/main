@@ -4,6 +4,7 @@ import { OrmException } from './exceptions.js';
 import { OrmMigration } from './interfaces.js';
 import { IMigrationUpOptions, MigrationRunner } from './migration-runner.js';
 import { Orm } from './orm.js';
+import { runAsMigrator } from './schema-touches.js';
 
 /** What `DI.resolve(OrmMigrator, [ ... ])` hands the migrator: a property of the process, not of the deployment. */
 export interface IOrmMigratorOptions {
@@ -40,25 +41,33 @@ export class OrmMigrator extends AsyncService {
 
   /**
    * The boot pass: the pending migrations of every connection whose `Migration.OnStartup` is on, their seeds, then
-   * the `db.StrictTableCheck` check over every model.
+   * the `db.StrictTableCheck` check over every model. Model queries on those connections stay refused outside the
+   * pass until it succeeded; a failed pass leaves them refused.
    */
   public async resolve(): Promise<void> {
     this.Runner = new MigrationRunner(this.Orm);
 
-    for (const [, driver] of this.Orm.Connections) {
-      driver.AwaitsStartupMigration = false;
-    }
-
     if (this.Options.MigrateOnStartup === false) {
       this.Log.trace('Boot migration pass skipped - OrmMigrator was resolved with MigrateOnStartup: false');
+      this.openGate();
       return;
     }
 
-    // force: false honours each connection's OnStartup gate; a run asked for by hand ( migrate() ) does not
-    await this.migrate({ force: false });
+    await runAsMigrator(async () => {
+      // force: false honours each connection's OnStartup gate; a run asked for by hand ( migrate() ) does not
+      await this.migrate({ force: false });
 
-    if (this.Orm.StrictTableCheck) {
-      await this.Orm.reloadTableInfo({ models: [], strict: true });
+      if (this.Orm.StrictTableCheck) {
+        await this.Orm.reloadTableInfo({ models: [], strict: true });
+      }
+    });
+
+    this.openGate();
+  }
+
+  protected openGate(): void {
+    for (const [, driver] of this.Orm.Connections) {
+      driver.AwaitsStartupMigration = false;
     }
   }
 
