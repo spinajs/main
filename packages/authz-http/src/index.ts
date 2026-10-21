@@ -11,3 +11,5 @@ export * from './client-access/index.js';
 export * from './authn-loader.js';
 export { Access, AllowAnonymous, Unscoped } from './access/decorators.js';
 export { fromBody, fromModel, fromParam, fromQuery } from './access/extractors.js';
+export { WebhookChangeSink } from './webhook/change-sink.js';
+export type { AuthzWebhookTarget } from './webhook/change-sink.js';

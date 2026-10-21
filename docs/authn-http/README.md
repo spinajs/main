@@ -36,6 +36,7 @@ Import the package in the app entry, **before** anything resolves `Controllers` 
 | [Answers and response extensions](17-answers-and-response-extensions.md) | The principal summary, `AuthnResponseExtension`, the shared 401 body and the session cookie helpers. |
 | [Socket sessions](18-socket-sessions.md) | `@spinajs/authn-http/socket`: the session cookie as an `http-socket` principal source. |
 | [`authn:check-config` command](19-check-config-command.md) | Reports what the `authn.*` configuration gets wrong. |
+| [Webhooks](20-webhooks.md) | `WebhookAuthnEventSink`: signed POSTs of audit events to your endpoints; `WebhookChangeSink` for authz changes. |
 
 ## Quick start
 

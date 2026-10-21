@@ -205,6 +205,27 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         sinkTimeoutMs: { type: 'integer', minimum: 1, maximum: 60000, default: 2000, description: 'How long one sink may take.' },
       },
     },
+    webhooks: {
+      type: 'array',
+      description: 'Outbound webhook sinks of authn-http: each target receives the audit events whose type is in `types` (all when absent), signed in Spinajs-Signature.',
+      items: {
+        type: 'object',
+        required: ['url', 'secret'],
+        propertyNames: { enum: ['url', 'secret', 'types', 'timeoutMs'] },
+        properties: {
+          url: { type: 'string', pattern: '^https?://[^\\s]+$' },
+          secret: {
+            type: 'object',
+            description: 'A reference the configuration resolves (e.g. aws-parameters://), never an inline value.',
+            propertyNames: { enum: ['secret'] },
+            required: ['secret'],
+            properties: { secret: { type: 'string', minLength: 1 } },
+          },
+          types: { type: 'array', uniqueItems: true, items: { type: 'string', minLength: 1 } },
+          timeoutMs: { type: 'integer', minimum: 1, maximum: 60000, default: 2000 },
+        },
+      },
+    },
     // http-socket reads trustProxy without depending on authn-http, which owns the rest of authn.http.
     http: {
       type: 'object',
