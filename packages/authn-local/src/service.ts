@@ -12,6 +12,7 @@ import type {
   AddressVerificationResult,
   AuthnContext,
   AuthnEventSink,
+  CodeRequestResult,
   IdentityRef,
   IdentityStatus,
   PasswordChangeResult,
@@ -72,6 +73,8 @@ export interface LocalPasswordServiceDeps {
   readonly verifyTtlSeconds?: number;
   /** `authn.local.verify.url`; default ''. */
   readonly verifyUrl?: string;
+  /** `authn.local.emailCode.ttlSeconds`; default 600. */
+  readonly emailCodeTtlSeconds?: number;
 }
 
 /** D11, D12: exists, not deleted, not banned, and active or invite-pending. */
@@ -133,6 +136,9 @@ export class LocalPasswordService extends PasswordService {
 
   @Config('authn.local.verify.url')
   protected VerifyUrl: string;
+
+  @Config('authn.local.emailCode.ttlSeconds')
+  protected EmailCodeTtlSeconds: number;
 
   @Logger('authn-local')
   protected Log: Log;
@@ -363,6 +369,14 @@ export class LocalPasswordService extends PasswordService {
     return { status: 'accepted' };
   }
 
+  public async requestCode(_login: string, _ctx: AuthnContext): Promise<CodeRequestResult> {
+    throw new Error('not implemented: LocalPasswordService.requestCode');
+  }
+
+  public async challengeCode(_id: IdentityRef, _ctx: AuthnContext): Promise<CodeRequestResult> {
+    throw new Error('not implemented: LocalPasswordService.challengeCode');
+  }
+
   /** Every refusal answers `invalid`; the reason goes to audit only. */
   public async redeemVerification(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult> {
     const verifier = this.verifier();
@@ -540,6 +554,10 @@ export class LocalPasswordService extends PasswordService {
 
   protected verifyTtlSeconds(): number {
     return this.Deps ? (this.Deps.verifyTtlSeconds ?? AUTHN_LOCAL_DEFAULTS.verify.ttlSeconds) : this.VerifyTtlSeconds;
+  }
+
+  protected emailCodeTtlSeconds(): number {
+    return this.Deps ? (this.Deps.emailCodeTtlSeconds ?? AUTHN_LOCAL_DEFAULTS.emailCode.ttlSeconds) : this.EmailCodeTtlSeconds;
   }
 
   protected verifyUrl(): string {

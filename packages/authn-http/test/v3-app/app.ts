@@ -68,6 +68,7 @@ export class V3AppConfiguration extends FrameworkConfiguration {
         strategies: [
           { name: 'local', service: 'V3AppPasswordStrategy' },
           { name: 'token', service: 'V3AppTokenStrategy' },
+          { name: 'email-code', service: 'V3AppCodeStrategy' },
         ],
         throttle: { service: 'V3AppThrottle' },
         mfa: { steps: [{ name: 'totp', service: 'V3AppMfaStep' }] },
@@ -91,13 +92,27 @@ export class V3AppResponseExtension extends AuthnResponseExtension {
 export const identities = new FakeIdentityStore();
 export const passwords = new MemoryPasswordCredentialStore();
 export const throttle = new RecordingThrottle();
-export const step = new FakeMfaStep({ name: 'totp' });
+export const step = new FakeMfaStep({ name: 'totp', challenge: true });
 export const guard = new FakeImpersonationGuard();
 export const roles = new FakeRoleSource();
 export const principals = new RecordingPrincipalFactory();
 export const passwordStrategy = FakeStrategy.password({ identities, passwords, name: 'local' });
 export const tokens = new Map<string, IdentityRef>();
 export const tokenStrategy = FakeStrategy.bearer({ tokens, name: 'token' });
+
+/** The code the app's email-code strategy accepts for every known login. */
+export const KIT_CODE = '123456';
+export const codeStrategy = new FakeStrategy({
+  name: 'email-code',
+  kinds: ['email-code'],
+  interactive: true,
+  keys: (c) => (c.kind === 'email-code' ? [{ kind: 'account', value: `code:${String(c.login).toLowerCase()}` }] : []),
+  verify: async (c) => {
+    if (c.kind !== 'email-code') return { ok: false, reason: 'unsupported_credentials' };
+    const id = await identities.findByLogin(String(c.login));
+    return id && c.code === KIT_CODE ? { ok: true, identity: id, method: 'email-code', assurance: 'aal1' } : { ok: false, reason: 'invalid_credentials' };
+  },
+});
 export const events = new RecordingEventSink();
 
 /** The instances the registrations below answer with; the behaviour harness swaps in a fresh set per case. */
@@ -146,6 +161,7 @@ async function wire(): Promise<void> {
   bind(AuthnEventSink, 'V3AppEventSink', () => current.events);
   bind(AuthenticationStrategy, 'V3AppPasswordStrategy', () => current.passwordStrategy);
   bind(AuthenticationStrategy, 'V3AppTokenStrategy', () => current.tokenStrategy);
+  bind(AuthenticationStrategy, 'V3AppCodeStrategy', () => codeStrategy);
   const { MfaStep } = await import('@spinajs/authn/contracts');
   bind(MfaStep, 'V3AppMfaStep', () => current.step);
   DI.register(V3AppResponseExtension).as(AuthnResponseExtension);

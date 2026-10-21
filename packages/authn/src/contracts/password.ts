@@ -53,6 +53,8 @@ export type AddressVerificationRequestResult = { readonly status: 'accepted' } |
 /** 'invalid' is the one answer for a wrong, used, expired or other-purpose secret and for an identity that cannot verify (A02). */
 export type AddressVerificationResult = { readonly status: 'verified' } | { readonly status: 'invalid' };
 
+export type CodeRequestResult = { readonly status: 'accepted' } | { readonly status: 'throttled'; readonly retryAfterSeconds: number };
+
 /** Why a password stops working. */
 export type PasswordExpiry =
   | {
@@ -122,4 +124,12 @@ export abstract class PasswordService {
   requestVerification?(id: IdentityRef, ctx: AuthnContext): Promise<AddressVerificationRequestResult>;
   /** POST /auth/verify. Single use; marks the address verified through IdentityAddressVerifier. */
   redeemVerification?(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult>;
+  /**
+   * POST /auth/code/request. Counts the attempt in the 'reset' flow (login and IP keys) before anything else, then answers at once
+   * with the same result whether or not the account exists; the code is issued when the mail is sent (SR-09). An identity that is
+   * not active, or whose address the store reports unverified, gets none. Optional: without it the code login routes are off.
+   */
+  requestCode?(login: string, ctx: AuthnContext): Promise<CodeRequestResult>;
+  /** Mails a code to `id` for the email code step (POST /auth/mfa/challenge); counted in the 'reset' flow on the account. */
+  challengeCode?(id: IdentityRef, ctx: AuthnContext): Promise<CodeRequestResult>;
 }

@@ -1,0 +1,10 @@
+<mjml>
+  <mj-body>
+    <mj-section>
+      <mj-column>
+        <mj-text>project-custom-code</mj-text>
+        <mj-text>{{Code}}</mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

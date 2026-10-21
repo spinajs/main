@@ -33,6 +33,7 @@ export interface ConfigOverrides {
       reset: { ttlSeconds: number; revokeTokens: boolean };
       invite: { ttlSeconds: number };
       verify: { ttlSeconds: number };
+      emailCode: { ttlSeconds: number };
     };
     login: { requireVerifiedAddress: boolean };
     session: { expiration: { ttl: number; maxLifetime: number }; pendingTtlSeconds: number };

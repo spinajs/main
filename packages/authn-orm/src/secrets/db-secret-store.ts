@@ -31,7 +31,10 @@ const RAW_MAX = 1024;
 export class DbSecretStore extends SecretStore {
   private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
-  public async issue(identity: IdentityRef, purpose: string, ttlSeconds: number): Promise<string> {
+  public async issue(identity: IdentityRef, purpose: string, ttlSeconds: number, value?: string): Promise<string> {
+    if (value !== undefined) {
+      throw new Error('not implemented: DbSecretStore.issue with a value');
+    }
     const key = identityKey(identity);
     checkedText(purpose, PURPOSE_MAX, 'DbSecretStore: purpose');
     _check_arg(_is_number(_finite(), _gt(0)))(ttlSeconds, 'ttlSeconds');

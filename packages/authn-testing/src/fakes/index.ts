@@ -3,6 +3,7 @@ export * from './identity.js';
 export * from './passwords.js';
 export * from './secrets.js';
 export * from './mfa.js';
+export * from './marks.js';
 export * from './strategy.js';
 export * from './sessions.js';
 export * from './links.js';

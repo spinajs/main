@@ -1,8 +1,8 @@
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { InvalidOperation } from '@spinajs/exceptions';
 
-/** Each later feature appends its purpose: FEAT-3 'code', FEAT-4 'account-exists'. */
-export type AuthnMailPurpose = 'reset' | 'invite' | 'verify';
+/** Each later feature appends its purpose: FEAT-4 'account-exists'. */
+export type AuthnMailPurpose = 'reset' | 'invite' | 'verify' | 'code';
 
 /** Holds no secret: the secret or code is issued when the mail is delivered (SR-09). */
 export interface AuthnMailRequest {

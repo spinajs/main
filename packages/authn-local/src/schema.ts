@@ -96,6 +96,13 @@ export const AUTHN_LOCAL_CONFIGURATION_SCHEMA = {
         url: { type: 'string', default: '', description: 'The page that redeems the verify secret (POST /auth/verify); empty: the mail shows the secret instead of a link.' },
       },
     },
+    emailCode: {
+      type: 'object',
+      default: {},
+      properties: {
+        ttlSeconds: { type: 'integer', minimum: 1, default: 600, description: 'Lifetime of a mailed 6-digit code (second factor and code login).' },
+      },
+    },
     expiration: {
       type: 'object',
       default: {},

@@ -25,6 +25,11 @@ export abstract class MfaStep {
    * Admin reset (target guard, A25) also lands here and never receives a secret (A10).
    */
   abstract disable(id: IdentityRef): Promise<void>;
+  /**
+   * Steps that deliver a code out of band (email) send it here, for a pending session of `id` (POST /auth/mfa/challenge).
+   * Steps without it need no challenge.
+   */
+  challenge?(id: IdentityRef, ctx: AuthnContext): Promise<void>;
 }
 
 /**
@@ -61,4 +66,15 @@ export abstract class MfaEnrolmentService {
   abstract regenerateRecoveryCodes(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<MfaRegenerateResult>;
   /** The caller applies the target guard (A25) first; never returns a secret (SR-10). `reset`: an enrolment or a pending one existed. */
   abstract adminReset(actor: PrincipalRef, target: IdentityRef, ctx: AuthnContext): Promise<{ reset: boolean }>;
+}
+
+/**
+ * Enrolment marks of steps that keep no secret of their own (the email code): whether an identity enrolled in a step. authn-orm
+ * keeps them in `authn_mfa`, so MfaEnrolments sees them too.
+ */
+export abstract class MfaEnrolmentMarks {
+  abstract has(id: IdentityRef, step: string): Promise<boolean>;
+  /** False when the identity is marked already. */
+  abstract mark(id: IdentityRef, step: string): Promise<boolean>;
+  abstract unmark(id: IdentityRef, step: string): Promise<void>;
 }

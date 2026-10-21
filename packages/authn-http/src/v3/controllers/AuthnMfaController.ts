@@ -48,6 +48,15 @@ export class AuthnMfaController extends BaseController {
     return this.complete(req, true);
   }
 
+  /**
+   * Send the code of an MFA step
+   * @security cookieAuth
+   */
+  @Post('mfa/challenge')
+  public async challenge(@Req() _req: Request) {
+    throw new Error('not implemented: AuthnMfaController.challenge');
+  }
+
   protected async complete(req: Request, recovery: boolean) {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('this route needs a pending session');
