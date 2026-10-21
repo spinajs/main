@@ -4,8 +4,10 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { AUTHN_CONFIGURATION_SCHEMA, AuthenticationStrategy, AuthnEventSink, AuthnService, ExternalLoginHook, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MemoryNonceStore, MfaStep, NonceStore, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
-import type { AuthenticationResult, Credentials, ExternalSubject, IdentityRef } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MemoryNonceStore, MfaStep, NonceStore, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
+import type { AuthenticationResult, AuthnLoginIdentifiedInput, Credentials, ExternalSubject, IdentityRef } from '@spinajs/authn';
+import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory } from '@spinajs/authn-testing';
 
 import { encodeFlow } from '../src/flow/cookie.js';
@@ -54,7 +56,7 @@ interface Core {
   credentials(sub: string, extra?: Record<string, unknown>): Promise<Credentials>;
 }
 
-async function core(linking: { jit: boolean; byVerifiedEmail: boolean }, providerLinking: { jit?: boolean; byVerifiedEmail?: boolean } = {}): Promise<Core> {
+async function core(linking: { jit: boolean; byVerifiedEmail: boolean }, providerLinking: { jit?: boolean; byVerifiedEmail?: boolean } = {}, hooks: (sessions: MemorySessionIssuer) => readonly ActionHook[] = () => []): Promise<Core> {
   const idp = await FakeIdp.create(FAKE_ISSUER, ['RS256']);
   const identities = new FakeIdentityStore({ jit: linking.jit });
   const links = new MemoryLinkStore();
@@ -86,6 +88,9 @@ async function core(linking: { jit: boolean; byVerifiedEmail: boolean }, provide
   bind(child, OidcHttpClient, 'KitIdp', idp);
   bind(child, NonceStore, 'KitNonces', new MemoryNonceStore());
   registerOidcStrategies(['corp'], child);
+  // The runner reads its hooks when it resolves, before the service that injects it.
+  child.register(DefaultHooks).as(Hooks);
+  hooks(sessions).forEach((h, i) => bind(child, ActionHook, `CoreActionHook${i}`, h));
   // Named here, so a factory another suite left in the root never stands in for the core service.
   child.register(DefaultAuthnService).as(AuthnService);
   const service = await child.resolve(AuthnService);
@@ -154,18 +159,22 @@ describe('authn-oidc under the core service', function () {
     expect(c.identities.calls.provision).to.have.length(0);
   });
 
-  it('the core runs the registered hooks with the mapped subject before the login route gets the session (RFC N10-1)', async () => {
-    const c = await open({ jit: false, byVerifiedEmail: false });
+  it('the core runs authn.login.identified with the mapped subject before the login route gets the session', async () => {
+    const calls: [IdentityRef, ExternalSubject | undefined, number][] = [];
+    class CoreHook extends ActionHook<'authn.login.identified'> {
+      readonly actions: readonly ActionPattern[] = ['authn.login.identified'];
+      constructor(private readonly sessions: MemorySessionIssuer) {
+        super();
+      }
+      async before(ctx: BeforeContext<'authn.login.identified'>): Promise<void> {
+        const input: AuthnLoginIdentifiedInput = ctx.input;
+        calls.push([input.identity, input.external, (await this.sessions.storage.storedKeys()).length]);
+      }
+    }
+    const c = await open({ jit: false, byVerifiedEmail: false }, {}, (sessions) => [new CoreHook(sessions)]);
     const alice = c.identities.add({ login: 'alice' });
     await c.links.link(alice, { provider: 'oidc:corp', subject: 'kc-1' });
     const providers = await c.child.resolve(OidcProviders);
-    const calls: [IdentityRef, ExternalSubject, number][] = [];
-    class CoreHook extends ExternalLoginHook {
-      async afterLogin(identity: IdentityRef, external: ExternalSubject): Promise<void> {
-        calls.push([identity, external, (await c.sessions.storage.storedKeys()).length]);
-      }
-    }
-    c.child.register(CoreHook).as(ExternalLoginHook);
     const login = new OidcLogin({
       strategies: providers.strategies(),
       service: c.service,
@@ -182,7 +191,7 @@ describe('authn-oidc under the core service', function () {
     expect(calls).to.have.length(1);
     expect(calls[0][0]).to.deep.eq(alice);
     expect(calls[0][1]).to.deep.include({ provider: 'oidc:corp', subject: 'kc-1' });
-    expect((calls[0][1].claims as { groups?: string[] }).groups).to.deep.eq(['eng']);
+    expect((calls[0][1]?.claims as { groups?: string[] }).groups).to.deep.eq(['eng']);
     expect(calls[0][2]).to.eq(0, 'no session exists while the hook runs');
   });
 

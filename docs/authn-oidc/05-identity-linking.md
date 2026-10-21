@@ -12,7 +12,7 @@ An OIDC login proves a subject at a provider. Identity linking maps that `(provi
 4. No link, and both `jit` switches on: the subject passes.
 5. Otherwise the strategy answers `not_linked`, and the client gets the failure answer.
 6. The core's `linked()` repeats steps 2 to 4 with `linkingFor()` of the strategy (the provider's switches). For JIT it calls `IdentityStore.provision(external)`, and only when the store has a `provision` method.
-7. A provisioned identity is linked at once, so a retry finds it. The core then checks the identity status and runs the [`ExternalLoginHook`s](07-external-login-hooks.md).
+7. A provisioned identity is linked at once, so a retry finds it. The core then checks the identity status and runs the [`authn.login.identified` hooks](07-login-hooks.md).
 8. An email match is linked only after the hooks pass, so a login a hook refuses leaves no new link. The core audits `identity.link`.
 
 ```mermaid

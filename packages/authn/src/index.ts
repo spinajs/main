@@ -10,3 +10,4 @@ export * from './freshauth/index.js';
 export * from './link/index.js';
 export * from './impersonation/index.js';
 export * from './bus/index.js';
+export * from './hooks.js';

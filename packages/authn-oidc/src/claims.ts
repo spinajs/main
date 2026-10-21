@@ -42,7 +42,7 @@ function groupsOf(v: unknown): readonly string[] | undefined {
   return undefined;
 }
 
-/** Maps the raw claims to the subject every ExternalLoginHook receives (OidcClaimsMapping docs); throws without a subject. */
+/** Maps the raw claims to the subject `authn.login.identified` hooks receive as `input.external` (OidcClaimsMapping docs); throws without a subject. */
 export function mapClaims(provider: OidcStrategyName, mapping: OidcClaimsMapping, raw: Readonly<Record<string, unknown>>, sources: readonly Readonly<Record<string, unknown>>[] = [raw]): OidcExternalSubject {
   const subject = subjectOf(readClaim(raw, mapping.subject));
   if (subject === null) {

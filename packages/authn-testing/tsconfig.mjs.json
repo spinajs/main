@@ -7,5 +7,5 @@
     "moduleResolution": "node16"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../hooks/tsconfig.mjs.json" }, { "path": "../authn/tsconfig.mjs.json" }, { "path": "../exceptions/tsconfig.mjs.json" }, { "path": "../util/tsconfig.mjs.json" }]
+  "references": [{ "path": "../authn/tsconfig.mjs.json" }, { "path": "../exceptions/tsconfig.mjs.json" }, { "path": "../util/tsconfig.mjs.json" }, { "path": "../hooks/tsconfig.mjs.json" }]
 }

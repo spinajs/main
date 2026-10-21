@@ -1,4 +1,4 @@
-import type { ExternalSubject, IdentityRef } from './credentials.js';
+import type { IdentityRef } from './credentials.js';
 import type { Ceiling, Principal } from './principal.js';
 import type { SessionHandle, SessionIssuer } from './session.js';
 
@@ -26,16 +26,6 @@ export abstract class RoleSource {
  */
 export abstract class SessionStartHook {
   abstract onStart(kind: 'login' | 'mfa', session: SessionHandle, principal: Principal, sessions: SessionIssuer): Promise<Ceiling | undefined>;
-}
-
-/**
- * Registered with Array.ofType; runs after a successful external login (OIDC), e.g. an app's group sync through AuthzAdmin.
- * AuthnService calls every hook for an interactive strategy's external outcome, after the identity is resolved and its status
- * checked and before MFA and the session are issued; a throw fails the login with the A02 answer and issues no session (audit
- * reason hook_error). Earlier hooks are not rolled back, so hooks must be idempotent.
- */
-export abstract class ExternalLoginHook {
-  abstract afterLogin(identity: IdentityRef, external: ExternalSubject): Promise<void>;
 }
 
 /** The credential admin routes of authn-http (A25). */

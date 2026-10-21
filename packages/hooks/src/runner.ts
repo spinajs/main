@@ -8,6 +8,7 @@ import { ActionHook, Hooks } from './contracts.js';
 import type { ActionName, ActionPattern, AfterContext, BeforeContext, FailedContext, InputOf, OutputOf, RunOptions } from './contracts.js';
 import { ActionHookFailed, ActionRefused } from './errors.js';
 import { matches } from './match.js';
+import defaults from './config/hooks.js';
 
 const REFUSAL_CODE = /^[a-z0-9][a-z0-9_.-]{0,58}$/;
 
@@ -69,10 +70,10 @@ export class DefaultHooks extends Hooks {
   @Logger('hooks')
   protected Log: Log;
 
-  @Config('hooks.timeoutMs')
+  @Config('hooks.timeoutMs', { defaultValue: defaults.hooks.timeoutMs })
   protected TimeoutMs: number;
 
-  @Config('hooks.maxDepth')
+  @Config('hooks.maxDepth', { defaultValue: defaults.hooks.maxDepth })
   protected MaxDepth: number;
 
   private entries: HookEntry[] = [];
@@ -95,7 +96,13 @@ export class DefaultHooks extends Hooks {
     if (entries.length === 0) return impl(input);
 
     const depth = (hookDepth.getStore() ?? 0) + 1;
-    if (depth > this.MaxDepth) throw new ActionHookFailed(action, entries[0].name, 'depth');
+    if (depth > this.MaxDepth) {
+      const failure = new ActionHookFailed(action, entries[0].name, 'depth');
+      // A non-refusable action (a revocation) must still happen; past the limit it runs without its hooks.
+      if (opts.refusable !== false) throw failure;
+      this.logFailure(entries[0].name, action, failure);
+      return impl(input);
+    }
 
     const refusals = new WeakSet<object>();
     const ctx = this.createContext(action, input, depth, refusals);

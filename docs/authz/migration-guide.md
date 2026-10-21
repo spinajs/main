@@ -1552,7 +1552,8 @@ and guard check runs inside `AuthzAdmin`.
 ### K6: authn core fixes
 
 - `ExternalLoginHook`s run before the session is issued; a hook that throws fails the login with the
-  opaque answer (audit reason `hook_error`).
+  opaque answer (audit reason `hook_error`). `ExternalLoginHook` is removed in 3.x (HOOK-2): use an
+  `ActionHook` on `authn.login.identified` instead ([Action hooks](../authn/14-action-hooks.md)).
 - JIT and email linking need the global switch and the strategy's own: the OIDC provider's
   `linking.*`, or a JWT issuer's `linking.jit`.
 - Per-request backoff keys on the credential and the IP (K5 above). `authn.throttle.service` may stay

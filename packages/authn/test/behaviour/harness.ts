@@ -2,7 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
-import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
+import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, KitActionHooks, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
+import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, MemorySessionOptions } from '@spinajs/authn-testing';
 
 import { AUTHN_CONFIGURATION_SCHEMA, AccountLinkService, AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, ImpersonationGuard, AuthnImpersonationService, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
@@ -45,6 +46,8 @@ export interface CoreOptions {
   readonly unsetEnv?: boolean;
   /** The kit session issuer stands for one over MemorySessionStore. */
   readonly memorySessionStore?: boolean;
+  /** ActionHooks of the child's own Hooks runner, in registration order; it reads them once, when the service resolves. */
+  readonly hooks?: readonly ActionHook[];
 }
 
 export interface CoreParts {
@@ -247,6 +250,9 @@ async function prepareCore(config: ConfigOverrides, opts: CoreOptions): Promise<
     for (const s of strategies) if (s.instance) bind(child, AuthenticationStrategy, s.service, s.instance);
     bind(child, AuthnEventSink, 'KitEvents', events);
     bind(child, AuthnEventSink, 'KitEvents2', second);
+    // A runner per case: the root's would read the hooks of the root only.
+    child.register(DefaultHooks).as(Hooks);
+    (opts.hooks ?? []).forEach((h, i) => bind(child, ActionHook, `KitActionHook${i}`, h));
     opts.register?.(child);
     return { child, configuration, identities, passwords, sessions, throttle, events, second, principals, links, step, guard, tokens, externalSubjects, strategies, dispose: () => child.dispose() };
   } catch (e) {
@@ -315,8 +321,8 @@ const spyOf = (strategies: readonly StrategySpec[]) => ({
   verifyCalls: () => strategies.reduce((n, s) => n + ((s.instance as { verifyCalls?: unknown[] } | undefined)?.verifyCalls?.length ?? 0), 0),
 });
 
-/** Every port the core service has today. */
-export function coreHarnessOf(parts: CoreParts): Harness {
+/** Every port the core service has today; `hooks` when the parts were built with that KitActionHooks. */
+export function coreHarnessOf(parts: CoreParts, hooks?: KitActionHooks): Harness {
   const logStart = TestLog.lines.length;
   return {
     service: parts.service,
@@ -351,11 +357,13 @@ export function coreHarnessOf(parts: CoreParts): Harness {
     attributed: { credentials: async (mode, id) => ({ kind: mode === 'interactive' ? 'kit-attributed-login' : 'kit-attributed-request', id }) },
     principals: { calls: () => parts.principals.calls },
     boot: bootPort(),
+    ...(hooks ? { hooks } : {}),
     dispose: parts.dispose,
   };
 }
 
 /** The lane's harness factory for runAuthnBehaviour. */
 export async function coreHarness(ctx: HarnessContext): Promise<Harness> {
-  return coreHarnessOf(await buildCore(ctx.config));
+  const hooks = new KitActionHooks();
+  return coreHarnessOf(await buildCore(ctx.config, { hooks: [hooks] }), hooks);
 }

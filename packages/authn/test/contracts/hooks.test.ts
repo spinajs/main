@@ -1,7 +1,12 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { AuthnResponseExtension, CredentialAdminGuard, ExternalLoginHook, RoleSource, SessionStartHook } from '../../src/contracts/hooks.js';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
+
+import { AuthnResponseExtension, CredentialAdminGuard, RoleSource, SessionStartHook } from '../../src/contracts/hooks.js';
+import * as hooksModule from '../../src/contracts/hooks.js';
+import type { AuthnLoginIdentifiedInput } from '../../src/hooks.js';
 import type { CredentialAdminAction, IAuthnPrincipalStorage } from '../../src/contracts/hooks.js';
 import type { ExternalSubject, IdentityRef } from '../../src/contracts/credentials.js';
 import type { Ceiling, Principal } from '../../src/contracts/principal.js';
@@ -54,22 +59,34 @@ class FirstRole extends SessionStartHook {
   }
 }
 
-class GroupSync extends ExternalLoginHook {
+/** An app's group sync on authn.login.identified: reads the mapped claims of input.external. */
+class GroupSync extends ActionHook<'authn.login.identified'> {
+  readonly actions: readonly ActionPattern[] = ['authn.login.identified'];
   readonly synced: [IdentityRef, readonly string[]][] = [];
-  async afterLogin(identity: IdentityRef, ext: ExternalSubject): Promise<void> {
-    this.synced.push([identity, (ext.claims?.groups as readonly string[] | undefined) ?? []]);
+  async before(ctx: BeforeContext<'authn.login.identified'>): Promise<void> {
+    const { identity, external: ext } = ctx.input;
+    if (ext) this.synced.push([identity, (ext.claims?.groups as readonly string[] | undefined) ?? []]);
   }
 }
 
+const identifiedCtx = (input: AuthnLoginIdentifiedInput): BeforeContext<'authn.login.identified'> => ({
+  action: 'authn.login.identified',
+  input,
+  bag: new Map(),
+  depth: 1,
+  refuse: (code: string) => {
+    throw new Error(code);
+  },
+});
+
 describe('hand-off and hook contracts', () => {
   describe('runtime', () => {
-    it('exports the five hooks from the contracts index as plain abstract classes', () => {
+    it('exports the four hooks from the contracts index as plain abstract classes', () => {
       expect(index.AuthnResponseExtension).to.eq(AuthnResponseExtension);
       expect(index.RoleSource).to.eq(RoleSource);
       expect(index.SessionStartHook).to.eq(SessionStartHook);
-      expect(index.ExternalLoginHook).to.eq(ExternalLoginHook);
       expect(index.CredentialAdminGuard).to.eq(CredentialAdminGuard);
-      for (const c of [AuthnResponseExtension, RoleSource, SessionStartHook, ExternalLoginHook, CredentialAdminGuard]) {
+      for (const c of [AuthnResponseExtension, RoleSource, SessionStartHook, CredentialAdminGuard]) {
         expect(c).to.be.a('function');
         expect(Object.getPrototypeOf(c)).to.eq(Function.prototype);
       }
@@ -105,9 +122,11 @@ describe('hand-off and hook contracts', () => {
       ]);
     });
 
-    it('every external login hook gets the identity and the mapped claims', async () => {
+    it('ExternalLoginHook is gone (D17): an authn.login.identified hook gets the identity and the mapped claims', async () => {
+      expect((index as unknown as Record<string, unknown>).ExternalLoginHook).to.eq(undefined);
+      expect((hooksModule as unknown as Record<string, unknown>).ExternalLoginHook).to.eq(undefined);
       const hooks = [new GroupSync(), new GroupSync()];
-      for (const h of hooks) await h.afterLogin(alice, external);
+      for (const h of hooks) await h.before(identifiedCtx({ identity: alice, strategy: 'oidc:corp', method: 'oidc', external, attributes: {}, ctx: { now: new Date(), purpose: 'login' } }));
       for (const h of hooks) expect(h.synced).to.deep.eq([[alice, ['eng', 'ops']]]);
     });
 
@@ -122,12 +141,11 @@ describe('hand-off and hook contracts', () => {
   });
 
   describe('source shape (member names, modifiers, parameter names)', () => {
-    it('hooks.ts holds exactly the five hook classes', () => {
+    it('hooks.ts holds exactly the four hook classes', () => {
       expect(shapeOf(classMembers('hooks.ts'))).to.deep.eq({
         AuthnResponseExtension: { base: null, members: [{ name: 'extend', modifiers: ['abstract'], optional: false, params: ['kind', 'principal', 'body'] }] },
         RoleSource: { base: null, members: [{ name: 'rolesOf', modifiers: ['abstract'], optional: false, params: ['principal'] }] },
         SessionStartHook: { base: null, members: [{ name: 'onStart', modifiers: ['abstract'], optional: false, params: ['kind', 'session', 'principal', 'sessions'] }] },
-        ExternalLoginHook: { base: null, members: [{ name: 'afterLogin', modifiers: ['abstract'], optional: false, params: ['identity', 'external'] }] },
         CredentialAdminGuard: { base: null, members: [{ name: 'allowed', modifiers: ['abstract'], optional: false, params: ['actor', 'target', 'action'] }] },
       });
     });
@@ -143,15 +161,6 @@ describe('hand-off and hook contracts', () => {
       expect(c.SessionStartHook.doc).to.contain('ActiveRole');
       expect(c.SessionStartHook.doc).to.contain('at most one role');
       expect(c.SessionStartHook.doc).to.contain('ends the session');
-      expect(c.ExternalLoginHook.doc).to.contain('Array.ofType');
-      expect(c.ExternalLoginHook.doc).to.contain('after a successful external login');
-      expect(c.ExternalLoginHook.doc).to.contain('group');
-      expect(c.ExternalLoginHook.doc).to.contain('AuthnService calls every hook');
-      expect(c.ExternalLoginHook.doc).to.contain('before MFA and the session are issued');
-      expect(c.ExternalLoginHook.doc).to.contain('issues no session');
-      expect(c.ExternalLoginHook.doc).to.contain('a throw fails the login with the A02 answer');
-      expect(c.ExternalLoginHook.doc).to.contain('not rolled back');
-      expect(c.ExternalLoginHook.doc).to.contain('idempotent');
       expect(declarationDocs('hooks.ts').CredentialAdminAction).to.contain('A25');
       expect(c.CredentialAdminGuard.doc).to.contain('None registered ⇒ the credential admin routes are off (404)');
       expect(c.CredentialAdminGuard.doc).to.contain('users:credentials at GLOBAL');
@@ -167,7 +176,6 @@ describe('hand-off and hook contracts', () => {
       same<index.IAuthnPrincipalStorage, IAuthnPrincipalStorage>(true);
       same<index.AuthnResponseExtension, AuthnResponseExtension>(true);
       same<index.RoleSource, RoleSource>(true);
-      same<index.ExternalLoginHook, ExternalLoginHook>(true);
       same<index.SessionStartHook, SessionStartHook>(true);
     });
 
@@ -190,8 +198,8 @@ describe('hand-off and hook contracts', () => {
       same<ReturnType<RoleSource['rolesOf']>, Promise<readonly RoleOption[]>>(true);
       same<Parameters<SessionStartHook['onStart']>, ['login' | 'mfa', SessionHandle, Principal, SessionIssuer]>(true);
       same<ReturnType<SessionStartHook['onStart']>, Promise<Ceiling | undefined>>(true);
-      same<Parameters<ExternalLoginHook['afterLogin']>, [IdentityRef, ExternalSubject]>(true);
-      same<ReturnType<ExternalLoginHook['afterLogin']>, Promise<void>>(true);
+      same<AuthnLoginIdentifiedInput['identity'], IdentityRef>(true);
+      same<AuthnLoginIdentifiedInput['external'], ExternalSubject | undefined>(true);
       same<CredentialAdminAction, 'password-reset' | 'mfa-reset' | 'sessions' | 'tokens'>(true);
       same<Parameters<CredentialAdminGuard['allowed']>, [Principal, IdentityRef, CredentialAdminAction]>(true);
       same<ReturnType<CredentialAdminGuard['allowed']>, Promise<AdminAnswer>>(true);
@@ -213,10 +221,10 @@ describe('hand-off and hook contracts', () => {
       // @ts-expect-error abstract
       const b = () => new RoleSource();
       // @ts-expect-error abstract
-      const c = () => new ExternalLoginHook();
-      const hook: ExternalLoginHook = new GroupSync();
-      // @ts-expect-error the identity is an IdentityRef, the external subject comes second
-      const d = () => hook.afterLogin(external, alice);
+      const c = () => new SessionStartHook();
+      const hook = new GroupSync();
+      // @ts-expect-error the identity is an IdentityRef, not an external subject
+      const d = () => hook.before(identifiedCtx({ identity: external, strategy: 'oidc:corp', method: 'oidc', attributes: {}, ctx: { now: new Date(), purpose: 'login' } }));
       class NoPassword extends RoleSource {
         // @ts-expect-error every role says whether it needs a password
         async rolesOf(): Promise<readonly { role: string }[]> {

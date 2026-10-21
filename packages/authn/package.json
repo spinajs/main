@@ -64,6 +64,11 @@
       "types": "./lib/mjs/support/ip-key.d.ts",
       "import": "./lib/mjs/support/ip-key.js",
       "require": "./lib/cjs/support/ip-key.js"
+    },
+    "./hooks": {
+      "types": "./lib/mjs/hooks.d.ts",
+      "import": "./lib/mjs/hooks.js",
+      "require": "./lib/cjs/hooks.js"
     }
   },
   "typesVersions": {
@@ -100,6 +105,9 @@
       ],
       "ip-key": [
         "lib/cjs/support/ip-key.d.ts"
+      ],
+      "hooks": [
+        "lib/cjs/hooks.d.ts"
       ]
     }
   },
@@ -148,6 +156,7 @@
     "@spinajs/configuration-common": "3.0.4",
     "@spinajs/di": "3.0.4",
     "@spinajs/exceptions": "3.0.4",
+    "@spinajs/hooks": "3.0.4",
     "@spinajs/log-common": "3.0.4",
     "@spinajs/principal": "3.0.4",
     "@spinajs/util": "3.0.4"

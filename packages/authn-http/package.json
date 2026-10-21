@@ -103,6 +103,7 @@
     "@spinajs/authn-totp": "3.0.4",
     "@spinajs/authn-webauthn": "3.0.4",
     "@spinajs/fs": "3.0.4",
+    "@spinajs/hooks": "3.0.4",
     "@spinajs/http-socket": "3.0.4",
     "@spinajs/http-swagger": "3.0.4",
     "@spinajs/orm": "3.0.4",

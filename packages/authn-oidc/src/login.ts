@@ -90,7 +90,7 @@ const errorName = (err: unknown): string => (err instanceof Error ? err.name : t
 
 /**
  * The login routes without a framework: `GET /auth/oidc/:provider` starts a flow, `/callback` completes it through
- * AuthnService, which runs every ExternalLoginHook before it issues the session (D6). Every failure is one answer (D3).
+ * AuthnService, which runs the `authn.login.identified` hooks before it issues the session (D6). Every failure is one answer (D3).
  */
 export class OidcLogin {
   constructor(protected readonly d: OidcLoginDeps) {}
