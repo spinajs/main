@@ -5,10 +5,11 @@ import type { Class } from '@spinajs/di';
 import { AuthorizationModel, AuthzDomains } from '@spinajs/authz';
 import { ForbiddenResponse } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
-import { AuthzDomainResolver } from '@spinajs/authz-http';
+import { AuthzDomainResolver, UnknownAuthzDomain } from '@spinajs/authz-http';
 import { StaticModel, testHost } from '@spinajs/authz-testing';
 
 import { AuthzAdminController } from '../src/controllers/AuthzAdminController.js';
+import { AuthzAdminDomainArg, adminInputAnswer } from '../src/routes/index.js';
 
 const BASE = 'admin-base';
 const TENANT = 'admin-tenant';
@@ -35,7 +36,7 @@ async function createDomain(name: string): Promise<() => Promise<void>> {
   };
 }
 
-type Guarded = { guarded(fn: (admin: unknown) => Promise<unknown>, req?: Request): Promise<unknown> };
+type Guarded = { guarded(fn: (admin: unknown) => Promise<unknown>, domain?: string): Promise<unknown> };
 
 const requestOf = (tenant?: string) => ({ headers: tenant === undefined ? {} : { 'x-tenant': tenant } }) as unknown as Request;
 
@@ -44,11 +45,13 @@ describe('AuthzAdminController with an AuthzDomainResolver (ARCH-2)', function (
 
   let disposers: (() => Promise<void>)[];
   let controller: Guarded;
+  let arg: AuthzAdminDomainArg;
 
   const adminOf = async (name: string) => (await DI.resolve<AuthzDomains>(AuthzDomains)).service(name).then((s) => s.admin());
-  const adminInUse = async (req?: Request) => {
+  const domainOf = async (req: Request): Promise<string> => (await arg.extract({ Payload: {} }, [], {} as never, req)).Args;
+  const adminInUse = async (req: Request) => {
     let used: unknown;
-    await controller.guarded(async (admin) => (used = admin), req);
+    await controller.guarded(async (admin) => (used = admin), await domainOf(req));
     return used;
   };
 
@@ -59,6 +62,7 @@ describe('AuthzAdminController with an AuthzDomainResolver (ARCH-2)', function (
     DI.register(TenantResolver).as(AuthzDomainResolver);
     DI.uncache(AuthzDomainResolver);
     controller = (await DI.resolve(AuthzAdminController)) as unknown as Guarded;
+    arg = await DI.resolve(AuthzAdminDomainArg);
   });
 
   after(async () => {
@@ -78,15 +82,14 @@ describe('AuthzAdminController with an AuthzDomainResolver (ARCH-2)', function (
     expect(await adminInUse(requestOf())).to.equal(await adminOf(BASE));
   });
 
-  it('answers 403 unknown_domain for a domain no live domain bears, and runs nothing', async () => {
-    let ran = false;
-    const res = await controller.guarded(async () => {
-      ran = true;
-      return undefined;
-    }, requestOf('nope'));
-
-    expect(ran).to.eq(false);
+  it('answers 403 unknown_domain for a domain no live domain bears, before the route runs', async () => {
+    const refused = await domainOf(requestOf('nope')).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(refused).to.be.instanceOf(UnknownAuthzDomain);
+    const res = adminInputAnswer(refused as Error);
     expect(res).to.be.instanceOf(ForbiddenResponse);
-    expect((res as { responseData: { error: { code: string } } }).responseData.error.code).to.eq('unknown_domain');
+    expect((res as unknown as { responseData: { error: { code: string } } }).responseData.error.code).to.eq('unknown_domain');
   });
 });

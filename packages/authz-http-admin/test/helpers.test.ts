@@ -131,9 +131,9 @@ describe('query parsing', () => {
     }
   });
 
-  it('builds an assignments query from the query string, with a page only when given', () => {
+  it('builds an assignments query from the validated query string, with a page only when given', () => {
     expect(readAssignmentsQuery({})).to.deep.equal({ kind: 'assignments' });
-    expect(readAssignmentsQuery({ scope: 'project:p1', subject: 'set:g@group:g1', role: 'viewer', includeExpired: 'true', limit: '10', offset: '20' })).to.deep.equal({
+    expect(readAssignmentsQuery({ scope: 'project:p1', subject: 'set:g@group:g1', role: 'viewer', includeExpired: true, limit: 10, offset: 20 })).to.deep.equal({
       kind: 'assignments',
       scope: { type: 'project', id: 'p1' },
       subject: { set: { role: 'g', scope: { type: 'group', id: 'g1' } } },
@@ -141,19 +141,15 @@ describe('query parsing', () => {
       includeExpired: true,
       page: { limit: 10, offset: 20 },
     });
-    expect(readAssignmentsQuery({ includeExpired: 'false', limit: '5' })).to.deep.equal({ kind: 'assignments', includeExpired: false, page: { limit: 5 } });
+    expect(readAssignmentsQuery({ includeExpired: false, limit: 5 })).to.deep.equal({ kind: 'assignments', includeExpired: false, page: { limit: 5 } });
   });
 
-  it('refuses malformed values with the field they came in', () => {
-    const cases: [Record<string, unknown>, string][] = [
-      [{ includeExpired: 'yes' }, 'includeExpired'],
-      [{ limit: 'ten' }, 'limit'],
-      [{ offset: '-1' }, 'offset'],
-      [{ limit: '1.5' }, 'limit'],
-      [{ role: ['a', 'b'] }, 'role'],
-      [{ scope: { type: 'x' } }, 'scope'],
-    ];
-    for (const [q, field] of cases) {
+  it('refuses a scope or subject it cannot split, and after next to offset, with the field', () => {
+    for (const [q, field] of [
+      [{ scope: 'project:' }, 'scope'],
+      [{ subject: 'alice' }, 'subject'],
+      [{ after: 'c1', offset: 0 }, 'after'],
+    ] as const) {
       const e = failure(() => readAssignmentsQuery(q));
       expect(e.code, JSON.stringify(q)).to.equal('invalid_query');
       expect(e.field, JSON.stringify(q)).to.equal(field);
@@ -161,22 +157,13 @@ describe('query parsing', () => {
   });
 
   it('reads the scope and page of rules and policies', () => {
-    expect(readPageQuery('rules', { scope: 'project:p1', offset: '3' })).to.deep.equal({ kind: 'rules', scope: { type: 'project', id: 'p1' }, page: { offset: 3 } });
+    expect(readPageQuery('rules', { scope: 'project:p1', offset: 3 })).to.deep.equal({ kind: 'rules', scope: { type: 'project', id: 'p1' }, page: { offset: 3 } });
     expect(readPageQuery('policies', {})).to.deep.equal({ kind: 'policies' });
   });
 
-  it('reads the options of a single-command route from the query string', () => {
+  it('reads the options of a single-command route from the validated query string', () => {
     expect(readWriteOptions({})).to.deep.equal({});
-    expect(readWriteOptions({ reason: 'audit me', idempotencyKey: 'k1', dryRun: 'true' })).to.deep.equal({ reason: 'audit me', idempotencyKey: 'k1', dryRun: true });
-    expect(readWriteOptions({ dryRun: 'false' })).to.deep.equal({ dryRun: false });
-    for (const [q, field] of [
-      [{ dryRun: '1' }, 'dryRun'],
-      [{ reason: ['a', 'b'] }, 'reason'],
-      [{ idempotencyKey: ['a', 'b'] }, 'idempotencyKey'],
-    ] as [Record<string, unknown>, string][]) {
-      const e = failure(() => readWriteOptions(q));
-      expect(e.code).to.equal('invalid_query');
-      expect(e.field).to.equal(field);
-    }
+    expect(readWriteOptions({ reason: 'audit me', idempotencyKey: 'k1', dryRun: true })).to.deep.equal({ reason: 'audit me', idempotencyKey: 'k1', dryRun: true });
+    expect(readWriteOptions({ dryRun: false })).to.deep.equal({ dryRun: false });
   });
 });

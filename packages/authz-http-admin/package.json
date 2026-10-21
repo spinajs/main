@@ -56,6 +56,7 @@
     "@spinajs/authz-http": "3.0.4",
     "@spinajs/configuration": "3.0.4",
     "@spinajs/di": "3.0.4",
+    "@spinajs/exceptions": "3.0.4",
     "@spinajs/http": "3.0.4",
     "@spinajs/util": "3.0.4",
     "@spinajs/validation": "3.0.4"
