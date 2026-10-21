@@ -136,6 +136,7 @@ graphify-out/
 !/docs/fs-onedrive/
 !/docs/fs-s3/
 !/docs/http/
+!/docs/http-bot/
 !/docs/http-lazy-file-uploader/
 !/docs/http-socket/
 !/docs/http-socket-client/
