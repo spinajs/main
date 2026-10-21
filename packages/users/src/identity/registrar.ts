@@ -2,6 +2,7 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Configuration, cfg } from '@spinajs/configuration';
 import { Log } from '@spinajs/log';
+import { UniqueViolation } from '@spinajs/orm';
 import { SYSTEM } from '@spinajs/authz';
 import { IdentityRegistrar } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef } from '@spinajs/authn/contracts';
@@ -37,8 +38,8 @@ export class UserIdentityRegistrar extends IdentityRegistrar {
     } catch (err) {
       if (err instanceof UserCreatedIncomplete) {
         uuid = err.data.user;
-      } else if (err instanceof UserAlreadyExists) {
-        // Lost a race to a concurrent registration of the same address.
+      } else if (err instanceof UserAlreadyExists || err instanceof UniqueViolation) {
+        // Lost a race to a concurrent registration of the same address: the unique index answers for the check.
         const winner = await this.ownerOf(data);
         if (winner) return { status: 'exists', id: winner };
         throw err;

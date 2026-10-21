@@ -45,6 +45,7 @@ async function boot(registration?: { enabled?: boolean; activate?: boolean }): P
 }
 
 const rowsWithEmail = async (email: string) => (await User.query().withDeleted().where('Email', email)).length;
+const allRows = async () => (await User.query().withDeleted()).length;
 
 describe('users: self-service registration (FEAT-4)', function () {
   this.timeout(30000);
@@ -129,11 +130,12 @@ describe('users: self-service registration (FEAT-4)', function () {
 
     it('answers exists for a taken login with another email, and for an email that differs in case', async () => {
       await on();
+      const before = await allRows();
       const first = await registrar.register(dto(), ctx());
 
       expect(await registrar.register(dto({ email: 'fresh@spinajs.pl' }), ctx())).to.deep.eq({ status: 'exists', id: first.id });
       expect(await registrar.register(dto({ login: 'x', email: 'NEWCOMER@spinajs.pl' }), ctx())).to.deep.eq({ status: 'exists', id: first.id });
-      expect(await User.query().withDeleted().count()).to.eq(1);
+      expect(await allRows()).to.eq(before + 1);
     });
 
     it('does the hash work of a registration on the exists path too, so the two cannot be told apart by time', async () => {
@@ -156,24 +158,26 @@ describe('users: self-service registration (FEAT-4)', function () {
 
     it('refuses a password that breaks the policy with InvalidArgument and writes nothing', async () => {
       await on();
+      const before = await allRows();
       const err = await registrar.register(dto({ password: 'short' }), ctx()).then(
         () => undefined,
         (e: unknown) => e,
       );
 
       expect(err).to.be.instanceOf(InvalidArgument);
-      expect(await User.query().withDeleted().count()).to.eq(0);
+      expect(await allRows()).to.eq(before);
     });
 
     it('refuses a reserved login', async () => {
       await on();
+      const before = await allRows();
       const err = await registrar.register(dto({ login: '__system__' }), ctx()).then(
         () => undefined,
         (e: unknown) => e,
       );
 
       expect(err).to.be.instanceOf(InvalidArgument);
-      expect(await User.query().withDeleted().count()).to.eq(0);
+      expect(await allRows()).to.eq(before);
     });
   });
 });
