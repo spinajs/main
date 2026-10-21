@@ -1141,7 +1141,7 @@ The flow is in the [authentication flow](../authn/01-authentication-flow.md). Wh
 ### N3: password (`authn-local`)
 
 - argon2id at the library defaults (64 MiB, t=3, p=4). No cost keys. A test pins the stored prefix
-  `$argon2id$v=19$m=65536,t=3,p=4$`. Peak memory is `authn.local.hasher.maxConcurrent` (default 8)
+  `$argon2id$v=19$m=65536,t=3,p=4$`. Peak memory is `authn.local.hasher.maxConcurrent` (default `UV_THREADPOOL_SIZE - 1`, 3 with the Node.js pool of 4)
   times 64 MiB. Small hosts lower `maxConcurrent`, never the cost.
 - An optional pepper (`authn.local.pepper.secret`, `version`). To rotate, move the old pair into
   `previous`. Its hashes still verify and are rehashed on the next login. An unpeppered 2.x hash
