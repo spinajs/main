@@ -1,11 +1,7 @@
 import type { ExternalSubject, IdentityRef } from './credentials.js';
 import type { Principal } from './principal.js';
 
-/** req.storage keys written by AuthnMiddleware (D26). */
-export interface IAuthnPrincipalStorage {
-  /** null: no or pending credentials. authz-http's AuthnPrincipalSource reads it. */
-  AuthnPrincipal?: Principal | null;
-}
+export type { IAuthnPrincipalStorage } from '@spinajs/principal';
 
 /** Registered with Array.ofType; users' AccessResponseExtension adds `Access` (D26). */
 export abstract class AuthnResponseExtension {

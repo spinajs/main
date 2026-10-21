@@ -881,8 +881,8 @@ export interface ListPlanRequest {
 ## src/contracts/principal.ts
 
 ```ts
-export { SYSTEM, UNATTENDED, principalKey, ceilingHash } from "@spinajs/authn/contracts";
-export type { PrincipalType, PrincipalRef, Principal, AuthnFacts, Ceiling, ResourceType, ResourceRef, IAuthnPrincipalStorage } from "@spinajs/authn/contracts";
+export { SYSTEM, UNATTENDED, principalKey, ceilingHash } from "@spinajs/principal";
+export type { PrincipalType, PrincipalRef, Principal, AuthnFacts, Ceiling, ResourceType, ResourceRef, IAuthnPrincipalStorage } from "@spinajs/principal";
 ```
 
 ## src/contracts/resource.ts
@@ -1020,7 +1020,7 @@ const DOMAIN_NAME_PATTERN = "^[A-Za-z0-9_.-]{1,64}$";
 ## Re-exported from other packages
 
 ```ts
-// AuthnFacts (@spinajs/authn)
+// AuthnFacts (@spinajs/principal)
 export interface AuthnFacts {
     /** 'password' | 'token' | 'jws' | 'http-signature' | 'oidc' | 'ldap' | 'saml' */
     readonly method: string;
@@ -1037,7 +1037,7 @@ export interface AuthnFacts {
     readonly sessionHandle?: string;
 }
 
-// Ceiling (@spinajs/authn)
+// Ceiling (@spinajs/principal)
 export interface Ceiling {
     readonly roles?: readonly string[];
     /** Globs: 'file:*', 'project:read'. */
@@ -1049,14 +1049,14 @@ export interface Ceiling {
     readonly reason?: string;
 }
 
-// IAuthnPrincipalStorage (@spinajs/authn)
+// IAuthnPrincipalStorage (@spinajs/principal)
 /** req.storage keys written by AuthnMiddleware (D26). */
 export interface IAuthnPrincipalStorage {
     /** null: no or pending credentials. authz-http's AuthnPrincipalSource reads it. */
     AuthnPrincipal?: Principal | null;
 }
 
-// Principal (@spinajs/authn)
+// Principal (@spinajs/principal)
 export interface Principal extends PrincipalRef {
     /** False for anonymous and unattended; true for a link bearer. */
     readonly authenticated: boolean;
@@ -1076,27 +1076,27 @@ export interface Principal extends PrincipalRef {
     readonly authn?: AuthnFacts;
 }
 
-// PrincipalRef (@spinajs/authn)
+// PrincipalRef (@spinajs/principal)
 export interface PrincipalRef {
     readonly type: PrincipalType;
     readonly id: string;
 }
 
-// PrincipalType (@spinajs/authn)
+// PrincipalType (@spinajs/principal)
 export type PrincipalType = "user" | "anonymous" | "unattended" | "system" | "service" | "link" | "agent" | "group" | (string & {});
 
-// ResourceRef (@spinajs/authn)
+// ResourceRef (@spinajs/principal)
 export interface ResourceRef {
     readonly type: ResourceType;
     /** Absent = type-level (collections, "some row"). */
     readonly id?: string;
 }
 
-// ResourceType (@spinajs/authn)
+// ResourceType (@spinajs/principal)
 /** 'users', 'file', 'ArrowCampaign', 'job', 'dir' */
 export type ResourceType = string;
 
-// SYSTEM (@spinajs/authn)
+// SYSTEM (@spinajs/principal)
 export declare const SYSTEM: Principal;
 // value
 const SYSTEM = Object.freeze({
@@ -1107,7 +1107,7 @@ const SYSTEM = Object.freeze({
     attributes: Object.freeze({})
 });
 
-// UNATTENDED (@spinajs/authn)
+// UNATTENDED (@spinajs/principal)
 export declare const UNATTENDED: Principal;
 // value
 const UNATTENDED = Object.freeze({
@@ -1118,9 +1118,9 @@ const UNATTENDED = Object.freeze({
     attributes: Object.freeze({})
 });
 
-// ceilingHash (@spinajs/authn)
+// ceilingHash (@spinajs/principal)
 export declare const ceilingHash: (c: Ceiling | undefined) => string;
 
-// principalKey (@spinajs/authn)
+// principalKey (@spinajs/principal)
 export declare const principalKey: (p: PrincipalRef) => string;
 ```

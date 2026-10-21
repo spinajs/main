@@ -58,18 +58,49 @@ export interface Ceiling {
   readonly reason?: string;
 }
 
-export const SYSTEM: Principal = Object.freeze({} as Principal);
+// Singletons: the engine recognises them by identity, not by shape.
+export const SYSTEM: Principal = Object.freeze({
+  type: 'system',
+  id: 'system',
+  authenticated: true,
+  source: 'runAs',
+  attributes: Object.freeze({}),
+});
 
-export const UNATTENDED: Principal = Object.freeze({} as Principal);
+export const UNATTENDED: Principal = Object.freeze({
+  type: 'unattended',
+  id: 'unattended',
+  authenticated: false,
+  source: 'unattended',
+  attributes: Object.freeze({}),
+});
 
-export const principalKey = (_p: PrincipalRef): string => {
-  throw new Error('not implemented: principalKey');
-};
+// Feeds cache keys and invalidation tags, so it must be injective: the type
+// part never contains ':', which leaves the first ':' as the separator.
+export const principalKey = (p: PrincipalRef): string => `${p.type.replace(/%/g, '%25').replace(/:/g, '%3A')}:${p.id}`;
 
-export const sameRef = (_a: PrincipalRef, _b: PrincipalRef): boolean => {
-  throw new Error('not implemented: sameRef');
-};
+export const sameRef = (a: PrincipalRef, b: PrincipalRef): boolean => a.type === b.type && a.id === b.id;
 
-export const ceilingHash = (_c: Ceiling | undefined): string => {
-  throw new Error('not implemented: ceilingHash');
+const canonicalSet = (values: readonly string[] | undefined): string[] | null => (values == null ? null : [...new Set(values)].sort());
+
+// A collision here would serve one principal another's cached decision, so
+// this is a canonical serialization rather than a short hash. null marks an
+// absent field and stays distinct from [] (absent restricts nothing, [] covers
+// nothing). A null read back from JSON counts as absent; the ceiling
+// evaluator must apply the same rule.
+export const ceilingHash = (c: Ceiling | undefined): string => {
+  if (c == null) {
+    return '';
+  }
+
+  const expires = c.expiresAt == null ? null : c.expiresAt.getTime();
+
+  return JSON.stringify([
+    canonicalSet(c.roles),
+    canonicalSet(c.permissions),
+    canonicalSet(c.resources?.map((r) => JSON.stringify([r.type, r.id ?? null]))),
+    // JSON.stringify(NaN) is 'null', which would equal an absent date
+    expires !== null && Number.isNaN(expires) ? 'invalid' : expires,
+    c.reason ?? null,
+  ]);
 };
