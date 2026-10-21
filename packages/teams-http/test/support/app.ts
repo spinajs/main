@@ -7,7 +7,7 @@ import chaiHttp from 'chai-http';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { fsService } from '@spinajs/fs';
 import { BaseController, Controllers, HttpServer } from '@spinajs/http';
@@ -161,7 +161,7 @@ export async function startTeamsApp(): Promise<number> {
   root.register(testHost.instance(new AbacContributor(abac))).as(AuthzContributor);
   await registerRbac(root, config);
   await DI.resolve(fsService);
-  await DI.resolve(Orm);
+  await DI.resolve(OrmMigrator);
 
   for (const c of TEAMS_HTTP_CONTROLLERS) DI.register(c as Class<BaseController>).as(BaseController);
   await DI.resolve(Controllers);
