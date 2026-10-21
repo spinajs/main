@@ -6,6 +6,7 @@ import { isPlainObject } from './support.js';
 export const MAX_SUBJECT_LENGTH = 255;
 export const MAX_EMAIL_LENGTH = 255;
 const MAX_NAME_LENGTH = 255;
+export const MAX_SID_LENGTH = 255;
 
 /** A top-level claim (dots belong to the name) or a path through nested objects; own properties only. */
 export function readClaim(claims: Readonly<Record<string, unknown>>, path: OidcClaimPath): unknown {
@@ -48,9 +49,11 @@ export function mapClaims(provider: OidcStrategyName, mapping: OidcClaimsMapping
   const hasEmail = typeof email === 'string' && email.length > 0 && email.length <= MAX_EMAIL_LENGTH;
   const name = mapping.name === null ? undefined : readClaim(raw, mapping.name);
   const groups = mapping.groups === null ? undefined : groupsOf(readClaim(raw, mapping.groups));
+  const sid = raw.sid;
   return Object.freeze({
     provider,
     subject,
+    ...(typeof sid === 'string' && sid.length > 0 && sid.length <= MAX_SID_LENGTH ? { sid } : {}),
     ...(hasEmail ? { email, emailVerified: mapping.emailVerified !== null && readClaim(emailSource!, mapping.emailVerified) === true } : {}),
     claims: Object.freeze({
       ...(typeof name === 'string' && name.length <= MAX_NAME_LENGTH ? { name } : {}),
