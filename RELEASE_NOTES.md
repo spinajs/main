@@ -5,6 +5,24 @@
 > re-export shim and no 2.x patch. How to move an app: `docs/authz/migration-guide.md`. Overviews:
 > `docs/authz/README.md`, `docs/authn/README.md`, `docs/authn-oidc/README.md`.
 
+## New: WebAuthn and passkeys (`@spinajs/authn-webauthn`)
+
+- New package `@spinajs/authn-webauthn` on `@simplewebauthn/server`: passkey login (`PasskeyStrategy`,
+  strategy `passkey`, credential kind `webauthn`), a WebAuthn second factor (`WebAuthnMfaStep`, step
+  `webauthn`) and passkey management (`WebAuthnPasskeyService`). `import '@spinajs/authn-webauthn/db'`
+  adds the ORM stores and the `AuthnWebauthn_2026_10_21_00_00_00` migration (tables
+  `authn_webauthn_credential`, `authn_webauthn_challenge`). Configuration: `authn.webauthn.*`.
+- A passkey login with user verification is `aal2`, without it `aal1`. `StrategyOutcome` gains an optional
+  `assurance`, which `DefaultAuthnService` writes into the session facts (default `aal1`).
+- `@spinajs/authn/contracts`: new `PasskeyService` contract; new audit event types `passkey.register` and
+  `passkey.remove`.
+- `@spinajs/authn-http`: `POST /auth/passkeys/challenge`, `POST /auth/passkeys/login`, `POST /user/passkeys/options`,
+  `POST /user/passkeys`, `GET /user/passkeys`, `DELETE /user/passkeys/:id`, off (404) until a `PasskeyService` is
+  registered and a strategy takes `webauthn` credentials.
+- `@spinajs/authn-testing`: `SoftAuthenticator`, the `webauthn` port, passkey route builders and behaviour rule A33.
+
+Docs: `docs/authn-webauthn/README.md`.
+
 ## Upgrade now: the 2.x security findings stay open
 
 A review of the 2.x authentication code found 3 high, 9 medium and 8 low findings (SR-01 to SR-20).
