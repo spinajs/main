@@ -17,3 +17,6 @@ export { registerAuthnHttpV3 } from './v3/register.js';
 export { AUTHN_FAILURE_BODY, authnFailureResponse, authnSessionCookie, authnClearedSessionCookie } from './v3/responses.js';
 export * from './schema.js';
 export * from './bootstrap.js';
+export { WebhookAuthnEventSink } from './webhook/sink.js';
+export type { AuthnWebhookTarget } from './webhook/sink.js';
+export { WEBHOOK_SIGNATURE_HEADER, signWebhook } from './webhook/sign.js';

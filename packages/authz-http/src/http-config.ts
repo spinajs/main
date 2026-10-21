@@ -36,6 +36,8 @@ export interface AuthzHttpConfig {
   readonly admin: { readonly domain: string };
   /** GET /user/access/events: past `maxStreamsPerPrincipal` open streams of one principal, the oldest is closed. */
   readonly events: { readonly maxStreamsPerPrincipal: number };
+  /** Targets of WebhookChangeSink; empty: it posts nothing. */
+  readonly webhooks: readonly { readonly url: string; readonly secret: { readonly secret: string }; readonly timeoutMs: number }[];
 }
 
 const nonEmpty = { type: 'string', minLength: 1 };
@@ -75,6 +77,20 @@ export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
     access: { type: 'object', default: {}, properties: { domain: { ...nonEmpty, default: 'root' } } },
     admin: { type: 'object', default: {}, properties: { domain: { ...nonEmpty, default: 'root' } } },
     events: { type: 'object', default: {}, properties: { maxStreamsPerPrincipal: { type: 'integer', minimum: 1, default: 5 } } },
+    webhooks: {
+      type: 'array',
+      default: [],
+      items: {
+        type: 'object',
+        required: ['url', 'secret'],
+        propertyNames: { enum: ['url', 'secret', 'timeoutMs'] },
+        properties: {
+          url: { type: 'string', pattern: '^https?://[^\\s]+$' },
+          secret: { type: 'object', propertyNames: { enum: ['secret'] }, required: ['secret'], properties: { secret: { type: 'string', minLength: 1 } } },
+          timeoutMs: { type: 'integer', minimum: 1, maximum: 60000, default: 2000 },
+        },
+      },
+    },
   },
 };
 
