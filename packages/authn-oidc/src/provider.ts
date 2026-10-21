@@ -28,6 +28,11 @@ export interface OidcEndpointSet {
   readonly issParameter: boolean;
 }
 
+/** Filled by `complete` with the validated ID token when the provider keeps it for logout. */
+export interface OidcTokenCapture {
+  idToken?: string;
+}
+
 export interface OidcCallbackQuery {
   readonly code?: string;
   readonly state?: string;
@@ -102,7 +107,7 @@ export class OidcProvider {
    * once before any network call; then RFC 9207 iss, the code exchange, the ID token, userinfo and the mapping.
    * Throws on every failure.
    */
-  public async complete(flow: OidcFlow, query: OidcCallbackQuery, now: Date): Promise<OidcExternalSubject> {
+  public async complete(flow: OidcFlow, query: OidcCallbackQuery, now: Date, capture?: OidcTokenCapture): Promise<OidcExternalSubject> {
     const refuse = (what: string): never => {
       throw new AuthenticationFailed(`authn-oidc: callback refused: ${what}`);
     };
@@ -156,6 +161,11 @@ export class OidcProvider {
 
     const raw = rawClaims(idClaims, userinfo);
     if (!hasRequiredClaims(raw, this.options.requiredClaims)) refuse('required claims');
+    this.keepIdToken(capture, tokens.idToken);
     return mapClaims(this.options.strategy, this.options.claims, raw, [idClaims, userinfo].filter((x): x is Readonly<Record<string, unknown>> => x !== null));
+  }
+
+  protected keepIdToken(capture: OidcTokenCapture | undefined, idToken: string | undefined): void {
+    if (capture && idToken !== undefined && this.options.logout.storeIdToken) capture.idToken = idToken;
   }
 }

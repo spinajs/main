@@ -108,6 +108,8 @@ export class OidcDiscovery {
       jwks_uri: endpoint('jwks_uri'),
       ...(d.userinfo_endpoint !== undefined ? { userinfo_endpoint: endpoint('userinfo_endpoint') } : {}),
       authorization_response_iss_parameter_supported: d.authorization_response_iss_parameter_supported === true,
+      // Only logout uses it, so one that is no usable URL is dropped instead of failing every login.
+      ...(checkedUrl(d.end_session_endpoint, { relaxed: this.relaxed, query: true }) ? { end_session_endpoint: d.end_session_endpoint as string } : {}),
     });
   }
 }
