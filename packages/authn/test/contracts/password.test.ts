@@ -148,7 +148,7 @@ describe('password service contract', () => {
   });
 
   describe('source shape (member names, modifiers, parameter names)', () => {
-    it('password.ts holds PasswordService with the design methods plus check, set and expire', () => {
+    it('password.ts holds PasswordService with the design methods plus check, set and expire, and the optional verification methods', () => {
       expect(shapeOf(classMembers('password.ts'))).to.deep.eq({
         PasswordService: {
           base: null,
@@ -161,6 +161,8 @@ describe('password service contract', () => {
             { name: 'check', modifiers: ['abstract'], optional: false, params: ['password'] },
             { name: 'set', modifiers: ['abstract'], optional: false, params: ['id', 'newPassword', 'ctx', 'opts'] },
             { name: 'expire', modifiers: ['abstract'], optional: false, params: ['id', 'opts', 'ctx'] },
+            { name: 'requestVerification', modifiers: [], optional: true, params: ['id', 'ctx'] },
+            { name: 'redeemVerification', modifiers: [], optional: true, params: ['secret', 'ctx'] },
           ],
         },
       });
