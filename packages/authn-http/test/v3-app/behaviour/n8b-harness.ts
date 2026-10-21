@@ -69,7 +69,11 @@ class LaneMailer {
     this.mails.push(mail);
   }
 
-  public secretFor(id: IdentityRef, purpose: 'reset' | 'invite' | 'verify'): string | null {
+  public sentTo(id: IdentityRef, purpose: PasswordMail['purpose']): number {
+    return this.mails.filter((m) => m.identity.type === id.type && m.identity.id === id.id && m.purpose === purpose).length;
+  }
+
+  public secretFor(id: IdentityRef, purpose: 'reset' | 'invite' | 'verify' | 'code'): string | null {
     const mail = [...this.mails].reverse().find((m) => m.identity.type === id.type && m.identity.id === id.id && m.purpose === purpose);
     return mail?.secret ?? null;
   }
@@ -174,6 +178,10 @@ export const passwordPart: LanePart = {
         async secretFor(id, purpose) {
           await service.drain();
           return state.mailer.secretFor(id, purpose);
+        },
+        async sent(id, purpose) {
+          await service.drain();
+          return state.mailer.sentTo(id, purpose);
         },
       },
     };

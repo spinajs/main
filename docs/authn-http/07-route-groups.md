@@ -16,7 +16,9 @@ The package mounts its routes from eleven controllers in `lib/<cjs|mjs>/v3/contr
 | Active role | `RoleSourceRegistered` | a registered `RoleSource` (`RbacRoleSource` of `@spinajs/users`) and a registered `PrincipalFactory` | [Active role routes](10-active-role-routes.md) |
 | Impersonation | `ImpersonationGuardRegistered` | a registered `ImpersonationGuard` (`AuthzImpersonationGuard` of `@spinajs/users`) | [Impersonation routes](11-impersonation-routes.md) |
 | Password | `PasswordServiceRegistered` | a registered `PasswordService` ([`@spinajs/authn-local`](../authn-local/README.md)) | [Password routes](12-password-routes.md) |
+| Registration | `IdentityRegistrarRegistered` | a registered `IdentityRegistrar` that is switched on (`UserIdentityRegistrar` of `@spinajs/users`, `users.registration.enabled`) | [Registration route](22-registration-route.md) |
 | Address verification | `AddressVerificationRegistered` | a registered `PasswordService` that offers `requestVerification` and `redeemVerification` (`LocalPasswordService`) | [Verification routes](21-verification-routes.md) |
+| Code login | `CodeLoginRegistered` | a registered `PasswordService` that offers `requestCode` (`LocalPasswordService`); the login also needs the `email-code` strategy | [Code routes](22-code-routes.md) |
 | MFA enrolment | `TotpEnrolmentOn` | a registered `MfaEnrolmentService` whose `enabled(steps)` is true for the steps of the configured MFA policy. For `TotpService` of [`@spinajs/authn-totp`](../authn-totp/README.md): `authn.mfa.steps` lists `TotpMfaStep` itself, not a subclass, and `authn.mfa.encryptionKey.secret` is set | [MFA enrolment routes](13-mfa-enrolment-routes.md) |
 | API tokens | `TokenServiceRegistered` | a registered `TokenService` ([`@spinajs/authn-token`](../authn-token/README.md)) | [API token routes](14-api-token-routes.md) |
 | Keys | `KeyRoutesOn` | a registered `KeyRegistry` ([`@spinajs/authn-keys`](../authn-keys/README.md)) and `authn.keys.challenge.audience` or `authn.keys.assertion.audience` set | [Key routes](15-key-routes.md) |
@@ -44,6 +46,7 @@ The package mounts its routes from eleven controllers in `lib/<cjs|mjs>/v3/contr
 | `POST` | `/auth/password/reset-request` | `AuthnPasswordController` | | none |
 | `POST` | `/auth/password/reset` | `AuthnPasswordController` | | none |
 | `PATCH` | `/user/password` | `AuthnPasswordController` | `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` | session principal |
+| `POST` | `/auth/register` | `AuthnRegistrationController` | | none |
 | `POST` | `/auth/verify/request` | `AuthnVerificationController` | `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` | session principal |
 | `POST` | `/auth/verify` | `AuthnVerificationController` | | none |
 | `GET` | `/user/mfa` | `AuthnMfaEnrolmentController` | `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` | session principal |
@@ -92,7 +95,7 @@ Answers about an account, its session or its credentials carry `Cache-Control: n
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Route controllers | mounted by the controller scan from the shipped `system.dirs.controllers` entry | the eleven `Authn*Controller` classes | | Not exported. Switch a group through its service and add fields to the answers with `AuthnResponseExtension`. <!-- TODO(docs-hook): verify whether an app can replace or drop a single shipped controller (config arrays concatenate across files) --> |
-| Group gates | resolved by class from `@Policy` | `RoleSourceRegistered`, `ImpersonationGuardRegistered`, `PasswordServiceRegistered`, `AddressVerificationRegistered`, `TotpEnrolmentOn`, `TokenServiceRegistered`, `KeyRoutesOn`, `CredentialAdminGuardRegistered`, `SessionIssuerRegistered`, `AdminMfaResetOn` | | Not exported; switch a group by registering or not registering its service. |
+| Group gates | resolved by class from `@Policy` | `RoleSourceRegistered`, `ImpersonationGuardRegistered`, `PasswordServiceRegistered`, `AddressVerificationRegistered`, `IdentityRegistrarRegistered`, `TotpEnrolmentOn`, `TokenServiceRegistered`, `KeyRoutesOn`, `CredentialAdminGuardRegistered`, `SessionIssuerRegistered`, `AdminMfaResetOn` | | Not exported; switch a group by registering or not registering its service. |
 | `AuthnResponseExtension` | `Array.ofType` | none in this package | `AccessResponseExtension` of `@spinajs/users` | See [Answers and response extensions](17-answers-and-response-extensions.md). |
 
 ## Important behaviour

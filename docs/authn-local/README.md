@@ -30,6 +30,7 @@ A working login also needs an `IdentityStore` and a `PasswordCredentialStore` (`
 | [Audit events](12-audit-events.md) | The `AuthnEvent`s the password flows publish, with their reasons |
 | [Address verification](14-address-verification.md) | `requestVerification()` and `redeemVerification()`: a single-use link proves the address, and `authn.login.requireVerifiedAddress` can require it |
 | [Migrating password hashes](15-migrating-password-hashes.md) | `authn.local.legacyHashes`: bcrypt and PBKDF2 hashes verify through the hasher's limiter and are replaced by argon2 on the first login |
+| [Email codes](15-email-codes.md) | `EmailCodeMfaStep` and `EmailCodeStrategy`: a mailed 6-digit code as a second factor and as a way to log in |
 | [Mail delivery](13-mail-delivery.md) | `AuthnMailDispatcher`, `AuthnMailJob` and `authn.local.mail.delivery`: reset and invite mails delivered from a queue or inline, with no secret waiting anywhere |
 
 ## Quick start

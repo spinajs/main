@@ -66,6 +66,23 @@ describe('MemorySecretStore', () => {
     assert.equal(await store.redeem(A, 'reset', raw2), false);
   });
 
+  it('issues the value it is given instead of a random secret, and redeems that value once', async () => {
+    const raw = await store.issue(A, 'email-code', 60, '123456');
+    assert.equal(raw, '123456');
+    assert.equal(store.rows()[0].hash, createHash('sha256').update('123456').digest('hex'));
+    assert.equal(await store.redeem(A, 'email-code', '654321'), false);
+    assert.equal(await store.redeem(A, 'email-code', '123456'), true);
+    assert.equal(await store.redeem(A, 'email-code', '123456'), false);
+  });
+
+  it('a value replaces the older secret of that purpose', async () => {
+    await store.issue(A, 'email-code', 60, '111111');
+    await store.issue(A, 'email-code', 60, '222222');
+    assert.equal(store.rows().length, 1);
+    assert.equal(await store.redeem(A, 'email-code', '111111'), false);
+    assert.equal(await store.redeem(A, 'email-code', '222222'), true);
+  });
+
   it('seedHash plants a row that a matching raw secret redeems', async () => {
     const hash = createHash('sha256').update('planted').digest('hex');
     store.seedHash(A, 'invite', hash, new Date(Date.now() + 1000), new Date());

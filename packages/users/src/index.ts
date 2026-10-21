@@ -2,6 +2,7 @@ import { Injectable, Bootstrapper, DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { registerConfigurationSchema } from '@spinajs/configuration';
 import { EmailPasswordMailer } from '@spinajs/email';
+import { IdentityRegistrar } from '@spinajs/authn/contracts';
 import { AuthnMailDispatcher, PasswordMailer } from '@spinajs/authn-local';
 
 import { USERS_ACCESS_CONFIGURATION_SCHEMA } from './authn/access-schema.js';
@@ -10,6 +11,7 @@ import { User, USER_SECURITY_METADATA_KEYS } from './models/User.js';
 import { UserMetadataBase } from './models/UserMetadata.js';
 import { RBAC_USER_MODEL } from './model-token.js';
 import { authnMailDispatcher } from './mail/dispatcher.js';
+import { identityRegistrar } from './identity/registrar.js';
 
 export * from './interfaces.js';
 export * from './exceptions.js';
@@ -60,6 +62,11 @@ export class RbacBootstrapper extends Bootstrapper {
     if (!DI.RootContainer.hasRegistered(AuthnMailDispatcher)) {
       // An arrow: the container builds a function declaration with `new`, as if it were a class.
       DI.register((container: IContainer) => authnMailDispatcher(container)).as(AuthnMailDispatcher);
+    }
+
+    // A factory because bootstrappers run before the configuration loads: it yields no registrar until users.registration.enabled.
+    if (!DI.RootContainer.hasRegistered(IdentityRegistrar)) {
+      DI.register((container: IContainer) => identityRegistrar(container)).as(IdentityRegistrar);
     }
   }
 }

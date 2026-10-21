@@ -85,7 +85,7 @@ const N8B_ROUTES: Record<Group, string[]> = {
   admin: ['POST /authn/admin/users/:uuid/password-reset', 'POST /authn/admin/users/:uuid/mfa-reset', 'DELETE /authn/admin/users/:uuid/sessions', 'DELETE /authn/admin/users/:uuid/tokens'],
 };
 
-const V3_CONTROLLERS = ['AuthnActiveRoleController', 'AuthnCredentialAdminController', 'AuthnImpersonationController', 'AuthnJwksController', 'AuthnKeysController', 'AuthnLoginController', 'AuthnMfaController', 'AuthnMfaEnrolmentController', 'AuthnPasskeyController', 'AuthnPasswordController', 'AuthnSessionsController', 'AuthnTokenRevocationController', 'AuthnTokensController', 'AuthnVerificationController'];
+const V3_CONTROLLERS = ['AuthnActiveRoleController', 'AuthnCodeLoginController', 'AuthnCredentialAdminController', 'AuthnImpersonationController', 'AuthnJwksController', 'AuthnKeysController', 'AuthnLoginController', 'AuthnMfaController', 'AuthnMfaEnrolmentController', 'AuthnPasskeyController', 'AuthnPasswordController', 'AuthnRegistrationController', 'AuthnSessionsController', 'AuthnTokenRevocationController', 'AuthnTokensController', 'AuthnVerificationController'];
 
 interface Case {
   mode: 'esm' | 'cjs';
@@ -167,7 +167,7 @@ describe('each 3.0 route group only with its service (N8b task 6, design §22.11
         expect(b.usersModules, 'CJS only: loaded modules of @spinajs/users').to.deep.eq([]);
         expect(b.bootstrappers).to.not.include('RbacBootstrapper');
         expect(b.sessionProviders).to.deep.eq(['MemorySessionStore']);
-        expect([...b.controllers].sort()).to.deep.eq(V3_CONTROLLERS);
+        expect([...b.controllers].sort()).to.deep.eq([...V3_CONTROLLERS].sort());
         expect(readdirSync(cacheDirs.get(c)!), 'the controller cache of this child alone').to.not.be.empty;
         expect(b.registered).to.deep.eq({ PasswordService: isOn(c, 'password'), TotpService: isOn(c, 'mfa'), TokenService: isOn(c, 'tokens'), KeyRegistry: isOn(c, 'keys'), CredentialAdminGuard: isOn(c, 'admin') });
       });

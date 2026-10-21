@@ -22,6 +22,7 @@ The registry is `AUTHN_RULES` (`ReadonlyMap<RuleId, AuthnRule>`); `RULE_IDS` lis
 | An `IdentityLinkStore` | `A19/store` |
 | The local password strategy and `PasswordService` | `A02/local`, `A03/argon2`, `A04/local`, `A11/local`, `A13/local`, `A30/local` |
 | An `MfaStep` | `A10/step`; a TOTP step also `A10/totp` |
+| The email code step and strategy | `A36/step`, `A36/local` |
 | A `TokenService` and token strategies | `A14/token`, `A15/token`, `A16/jwt` |
 | Key registration, JWS and HTTP signatures | `A17/keys`, `A17/jws`, `A17/core`, `A18/core` |
 | The HTTP layer | the `*/http` facets, `A31/config` |
@@ -62,6 +63,7 @@ The repository's `packages/authn-testing/README.md` lists which SpinaJS package 
 | A26 role switch takes only held roles and rotates | A held role sets `ceiling.roles`; others are refused; the switch rotates the session; a `requirePassword` role needs fresh auth | `http` | `http`, `roles`, `seed`, routes `login`, `activeRoleSet`, `whoami`, `fakeDate` |
 | A27 OIDC login is code flow with PKCE and full ID token checks | Code flow with PKCE S256; a linked subject logs in; every tampered ID token fails like a failed login; a replayed state fails; JIT off and on | `oidc` | `oidc`, `http`, `links`, `seed`, route `login` |
 | A30 a voluntary change keeps tokens and ends other sessions | A change keeps API and agent tokens, ends other sessions (impersonations included) and rotates the current one; an admin expiry revokes tokens | `local`, `http` | `password`, `sessions`, `tokens`, `seed`, `service`, `http`, routes `login`, `passwordChange` |
+| A36 an email code is a second factor and a way to log in | A code is accepted once; five wrong codes void it; it expires after `authn.local.emailCode.ttlSeconds`; enrolment needs a verified address; a password login, challenge and code reach `aal2`; a code login (request, mail, login) is `aal1` with method `email-code` and fails alike for a wrong code, another login and an unknown login; an unknown or unverified login is mailed nothing | `step`, `local` | `mfa`, `seed`, `service`, `password`, `outbox`, `fakeDate` |
 | A31 CORS allows only listed origins | An empty list sends no CORS headers; a listed origin is echoed with `Vary: Origin`; origins match exactly; the config check warns on an empty list | `http`, `config` | `http`, `boot` |
 | A34 step-up raises an active session to aal2 under a new id | `reissue` raises an active session and keeps its data under a new id, and refuses a pending one; a route behind `MfaSatisfied` refuses `aal1` and passes the same cookie jar after `POST /auth/mfa/step-up` | `store`, `http` | `sessions`, `seed`, `mfa`, `http`, routes `login`, `mfaStepUp`, `mfaGated` |
 

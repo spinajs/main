@@ -163,6 +163,9 @@ describe('password service contract', () => {
             { name: 'expire', modifiers: ['abstract'], optional: false, params: ['id', 'opts', 'ctx'] },
             { name: 'requestVerification', modifiers: [], optional: true, params: ['id', 'ctx'] },
             { name: 'redeemVerification', modifiers: [], optional: true, params: ['secret', 'ctx'] },
+            { name: 'requestCode', modifiers: [], optional: true, params: ['login', 'ctx'] },
+            { name: 'challengeCode', modifiers: [], optional: true, params: ['id', 'ctx'] },
+            { name: 'notifyAccountExists', modifiers: [], optional: true, params: ['id', 'ctx'] },
           ],
         },
       });

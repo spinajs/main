@@ -17,8 +17,8 @@ const samePair = (r: SecretRow, identity: IdentityRef, purpose: string) => r.ide
 export class MemorySecretStore extends SecretStore {
   private all: SecretRow[] = [];
 
-  async issue(identity: IdentityRef, purpose: string, ttlSeconds: number): Promise<string> {
-    const raw = randomBytes(32).toString('base64url');
+  async issue(identity: IdentityRef, purpose: string, ttlSeconds: number, value?: string): Promise<string> {
+    const raw = value ?? randomBytes(32).toString('base64url');
     const now = Date.now();
     this.all = this.all.filter((r) => !samePair(r, identity, purpose));
     this.all.push({ identity, purpose, hash: sha256hex(raw), createdAt: new Date(now), expiresAt: new Date(now + ttlSeconds * 1000), usedAt: null });

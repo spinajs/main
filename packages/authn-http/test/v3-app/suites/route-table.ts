@@ -29,6 +29,7 @@ export const ACCOUNT_ROUTES_V3 = [
   'GET /auth',
   'POST /auth/mfa/verify',
   'POST /auth/mfa/recovery',
+  'POST /auth/mfa/challenge',
   'GET /user/sessions',
   'DELETE /user/sessions/:handle',
   'DELETE /user/sessions',

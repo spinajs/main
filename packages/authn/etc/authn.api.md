@@ -25,7 +25,7 @@ export interface AuthnEvent {
     /** Never passwords, tokens, secrets or raw session ids (A21). */
     readonly data?: Readonly<Record<string, unknown>>;
 }
-export type AuthnEventType = "login" | "logout" | "mfa.challenge" | "mfa.verify" | "mfa.enrol" | "mfa.disable" | "reauth" | "session.issue" | "session.rotate" | "session.revoke" | "session.expire" | "password.change" | "password.reset.request" | "password.reset" | "invite.redeem" | "token.create" | "token.use" | "token.revoke" | "token.rotate" | "token.update" | "key.register" | "key.use" | "key.revoke" | "identity.link" | "identity.unlink" | "impersonation.start" | "impersonation.end" | "impersonation.expire" | "throttle.block" | "passkey.register" | "passkey.remove" | "address.verify.request" | "address.verify";
+export type AuthnEventType = "login" | "logout" | "mfa.challenge" | "mfa.verify" | "mfa.enrol" | "mfa.disable" | "reauth" | "session.issue" | "session.rotate" | "session.revoke" | "session.expire" | "password.change" | "password.reset.request" | "password.reset" | "invite.redeem" | "token.create" | "token.use" | "token.revoke" | "token.rotate" | "token.update" | "key.register" | "key.use" | "key.revoke" | "identity.link" | "identity.unlink" | "impersonation.start" | "impersonation.end" | "impersonation.expire" | "throttle.block" | "passkey.register" | "passkey.remove" | "address.verify.request" | "address.verify" | "code.request" | "identity.register";
 /**
  * Registered with Array.ofType: every sink gets every event (A21).
  * Log sinks write identifiers (login strings, emails) as keyed hashes (authn.audit.hashIdentifiers, SR-19);
@@ -296,7 +296,7 @@ export declare abstract class CredentialAdminGuard {
 ## src/contracts/identity.ts
 
 ```ts
-import type { ExternalSubject, IdentityRef } from "./credentials.js";
+import type { AuthnContext, ExternalSubject, IdentityRef } from "./credentials.js";
 export interface IdentityStatus {
     readonly exists: boolean;
     readonly active: boolean;
@@ -310,6 +310,24 @@ export interface IdentityStatus {
 export declare abstract class IdentityAddressVerifier {
     /** Idempotent: an address verified earlier keeps its first time. */
     abstract markVerified(id: IdentityRef, at: Date): Promise<void>;
+}
+/** Implemented by @spinajs/users. Absent: the registration route answers 404. */
+export declare abstract class IdentityRegistrar {
+    /**
+     * Creates an account for a stranger; the caller applies the password policy first. A login or an email that is taken answers
+     * `exists` with the account that holds it, so the caller can tell its owner without telling the stranger (A35).
+     */
+    abstract register(data: {
+        readonly login: string;
+        readonly email: string;
+        readonly password: string;
+    }, ctx: AuthnContext): Promise<{
+        readonly status: "created";
+        readonly id: IdentityRef;
+    } | {
+        readonly status: "exists";
+        readonly id: IdentityRef;
+    }>;
 }
 /** Implemented by @spinajs/users. */
 export declare abstract class IdentityStore {
@@ -654,6 +672,12 @@ export declare abstract class MfaStep {
      * Admin reset (target guard, A25) also lands here and never receives a secret (A10).
      */
     abstract disable(id: IdentityRef): Promise<void>;
+    /**
+     * Steps that deliver a code out of band (email) send it here, for a pending session of `id` (POST /auth/mfa/challenge).
+     * Steps without it need no challenge. A step may resolve with what its own client needs (WebAuthn's assertion options,
+     * served by the passkey routes); the route ignores it.
+     */
+    challenge?(id: IdentityRef, ctx: AuthnContext): Promise<unknown>;
 }
 /**
  * DefaultMfaPolicy: required when enrolled; 'force' makes enrolment mandatory. An AsyncService so an implementation can
@@ -714,6 +738,16 @@ export declare abstract class MfaEnrolmentService {
     abstract adminReset(actor: PrincipalRef, target: IdentityRef, ctx: AuthnContext): Promise<{
         reset: boolean;
     }>;
+}
+/**
+ * Enrolment marks of steps that keep no secret of their own (the email code): whether an identity enrolled in a step. authn-orm
+ * keeps them in `authn_mfa`, so MfaEnrolments sees them too.
+ */
+export declare abstract class MfaEnrolmentMarks {
+    abstract has(id: IdentityRef, step: string): Promise<boolean>;
+    /** False when the identity is marked already. */
+    abstract mark(id: IdentityRef, step: string): Promise<boolean>;
+    abstract unmark(id: IdentityRef, step: string): Promise<void>;
 }
 ```
 
@@ -860,6 +894,12 @@ export type AddressVerificationResult = {
 } | {
     readonly status: "invalid";
 };
+export type CodeRequestResult = {
+    readonly status: "accepted";
+} | {
+    readonly status: "throttled";
+    readonly retryAfterSeconds: number;
+};
 /** Why a password stops working. */
 export type PasswordExpiry = {
     /**
@@ -930,6 +970,20 @@ export declare abstract class PasswordService {
     requestVerification?(id: IdentityRef, ctx: AuthnContext): Promise<AddressVerificationRequestResult>;
     /** POST /auth/verify. Single use; marks the address verified through IdentityAddressVerifier. */
     redeemVerification?(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult>;
+    /**
+     * POST /auth/code/request. Counts the attempt in the 'reset' flow (login and IP keys) before anything else, then answers at once
+     * with the same result whether or not the account exists; the code is issued when the mail is sent (SR-09). An identity that is
+     * not active, or whose address the store reports unverified, gets none. Optional: without it the code login routes are off.
+     */
+    requestCode?(login: string, ctx: AuthnContext): Promise<CodeRequestResult>;
+    /** Mails a code to `id` for the email code step (POST /auth/mfa/challenge); counted in the 'reset' flow on the account. */
+    challengeCode?(id: IdentityRef, ctx: AuthnContext): Promise<CodeRequestResult>;
+    /**
+     * Tells the owner of `id` that someone tried to register with their address: a mail of purpose 'account-exists' that holds no
+     * secret and points at the reset page. Dispatched, not awaited to delivery; the registration route calls it for an address
+     * that is taken. Optional: without it that mail is not sent.
+     */
+    notifyAccountExists?(id: IdentityRef, ctx: AuthnContext): Promise<void>;
 }
 
 // values
@@ -949,8 +1003,11 @@ export type { ResourceType, ResourceRef, PrincipalType, PrincipalRef, Principal,
 import type { IdentityRef } from "./credentials.js";
 /** Single-use secrets: reset, invite, email confirm, key challenge. Stored as SHA-256 only (SR-09); DbSecretStore in authn-orm. */
 export declare abstract class SecretStore {
-    /** Returns the raw secret once (≥ 128 bits); replaces older ones of that purpose (A11). */
-    abstract issue(identity: IdentityRef, purpose: string, ttlSeconds: number): Promise<string>;
+    /**
+     * Returns the raw secret once (≥ 128 bits); replaces older ones of that purpose (A11). `value` makes the secret that string
+     * instead, for short codes whose guessing the caller limits itself; a store that cannot keep it returns a random one.
+     */
+    abstract issue(identity: IdentityRef, purpose: string, ttlSeconds: number, value?: string): Promise<string>;
     /** Constant time; single use; false for a wrong, expired, redeemed or other-purpose secret (A11). */
     abstract redeem(identity: IdentityRef, purpose: string, raw: string): Promise<boolean>;
 }

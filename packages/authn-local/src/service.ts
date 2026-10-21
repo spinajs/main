@@ -12,6 +12,7 @@ import type {
   AddressVerificationResult,
   AuthnContext,
   AuthnEventSink,
+  CodeRequestResult,
   IdentityRef,
   IdentityStatus,
   PasswordChangeResult,
@@ -30,6 +31,7 @@ import type {
 import type { AuditLog } from './audit.js';
 import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
 import { DeferredWork } from './deferred.js';
+import { EmailCodes } from './email-code/codes.js';
 import { EXPIRED_PASSWORD_MARKER, PasswordHasher } from './hasher.js';
 import { PasswordMailer } from './mailer.js';
 import { AuthnMailDispatcher } from './mail/contracts.js';
@@ -72,6 +74,8 @@ export interface LocalPasswordServiceDeps {
   readonly verifyTtlSeconds?: number;
   /** `authn.local.verify.url`; default ''. */
   readonly verifyUrl?: string;
+  /** `authn.local.emailCode.ttlSeconds`; default 600. */
+  readonly emailCodeTtlSeconds?: number;
 }
 
 /** D11, D12: exists, not deleted, not banned, and active or invite-pending. */
@@ -88,6 +92,12 @@ const resetIpKey = (ctx: AuthnContext): ThrottleKey => ({ kind: 'ip', value: ctx
 
 /** Its own account key: a verify request must not use up the reset request of the same account. */
 const verifyKey = (id: IdentityRef): ThrottleKey => ({ kind: 'account', value: `verify:${id.type}:${id.id}` });
+
+/** Its own account key: a code request must not use up the reset or verify request of the same account. */
+const codeKey = (id: IdentityRef): ThrottleKey => ({ kind: 'account', value: `code:${id.type}:${id.id}` });
+
+/** A code goes to an active identity whose address the store does not report unverified: whoever owns the mailbox can use it. */
+const codeRefusal = (s: IdentityStatus): string | null => (!s.exists || s.deleted || s.banned || !s.active ? 'status' : s.addressVerified === false ? 'unverified_address' : null);
 
 /**
  * POST /auth/verify takes the secret alone, and a SecretStore redeems per identity, so the mailed secret carries its
@@ -133,6 +143,9 @@ export class LocalPasswordService extends PasswordService {
 
   @Config('authn.local.verify.url')
   protected VerifyUrl: string;
+
+  @Config('authn.local.emailCode.ttlSeconds')
+  protected EmailCodeTtlSeconds: number;
 
   @Logger('authn-local')
   protected Log: Log;
@@ -363,6 +376,33 @@ export class LocalPasswordService extends PasswordService {
     return { status: 'accepted' };
   }
 
+  /**
+   * Counts first; then the lookup, issue, mail and audit run as deferred work, so the answer and its timing are the same for
+   * known and unknown logins (SR-04).
+   */
+  public async requestCode(login: string, ctx: AuthnContext): Promise<CodeRequestResult> {
+    const keys: ThrottleKey[] = [{ kind: 'account', value: `code:${normalizeLogin(login)}` }, resetIpKey(ctx)];
+    const gate = await this.throttle().attempt(keys, 'reset', ctx);
+    if (!gate.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', data: { flow: 'code' } });
+      return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
+
+    this.work().defer(() => this.sendLoginCode(login, ctx));
+    return { status: 'accepted' };
+  }
+
+  /** Counts first; an identity that cannot get a code gets no mail and the same answer. */
+  public async challengeCode(id: IdentityRef, ctx: AuthnContext): Promise<CodeRequestResult> {
+    const gate = await this.throttle().attempt([codeKey(id)], 'reset', ctx);
+    if (!gate.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', identity: id, reason: 'throttled', data: { flow: 'code' } });
+      return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
+    await this.sendCode(id, ctx, 'mfa');
+    return { status: 'accepted' };
+  }
+
   /** Every refusal answers `invalid`; the reason goes to audit only. */
   public async redeemVerification(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult> {
     const verifier = this.verifier();
@@ -385,6 +425,13 @@ export class LocalPasswordService extends PasswordService {
     await verifier.markVerified(target, ctx.now);
     await this.audit(ctx, { type: 'address.verify', outcome: 'success', identity: target });
     return { status: 'verified' };
+  }
+
+  /** Dispatched without a secret: the mail points at the reset page. An identity that cannot sign in gets none. */
+  public async notifyAccountExists(id: IdentityRef, _ctx: AuthnContext): Promise<void> {
+    if (eligible(await (await this.identities()).status(id))) {
+      await this.dispatchMail(id, 'account-exists', this.resetTtlSeconds());
+    }
   }
 
   /** D15. `admin` revokes tokens under reset.revokeTokens and mails only with `sendReset`; `aged` keeps tokens (H32) and mails. */
@@ -438,6 +485,25 @@ export class LocalPasswordService extends PasswordService {
     await this.audit(ctx, { type: 'password.reset.request', outcome: sent ? 'success' : 'failure', identity: id, ...(sent ? {} : { reason: 'no_mailer' }) });
   }
 
+  protected async sendLoginCode(login: string, ctx: AuthnContext): Promise<void> {
+    const id = await (await this.identities()).findByLogin(login);
+    if (!id) {
+      await this.audit(ctx, { type: 'code.request', outcome: 'failure', reason: 'unknown_login', data: { via: 'login' } });
+      return;
+    }
+    await this.sendCode(id, ctx, 'login');
+  }
+
+  protected async sendCode(id: IdentityRef, ctx: AuthnContext, via: 'login' | 'mfa'): Promise<void> {
+    const refused = codeRefusal(await (await this.identities()).status(id));
+    if (refused) {
+      await this.audit(ctx, { type: 'code.request', outcome: 'failure', identity: id, reason: refused, data: { via } });
+      return;
+    }
+    const sent = await this.dispatchMail(id, 'code', this.emailCodeTtlSeconds());
+    await this.audit(ctx, { type: 'code.request', outcome: sent ? 'success' : 'failure', identity: id, ...(sent ? {} : { reason: 'no_mailer' }), data: { via } });
+  }
+
   /** Hands the request on without a secret (SR-09): `deliver` issues it. Without a mailer nothing is dispatched. */
   protected async dispatchMail(id: IdentityRef, purpose: AuthnMailPurpose, ttlSeconds: number): Promise<boolean> {
     if (!(await this.mailer())) {
@@ -476,10 +542,19 @@ export class LocalPasswordService extends PasswordService {
       this.log().warn(log, 'The ${purpose} mail for ${identityType} ${identityId} was not sent: the identity has no email address');
       return false;
     }
-    const raw = await (await this.secrets()).issue(id, purpose, ttlSeconds);
-    const secret = purpose === 'verify' ? verifySecretOf(id, raw) : raw;
-    await mailer.send({ identity: id, purpose, to, secret, url: purpose === 'verify' ? this.verifyUrl() : this.resetUrl(), ttlSeconds, ...(request.lang ? { lang: request.lang } : {}) });
+    await mailer.send({ identity: id, purpose, to, ...(await this.issueFor(id, purpose, ttlSeconds)), ttlSeconds, ...(request.lang ? { lang: request.lang } : {}) });
     return true;
+  }
+
+  /** The secret to mail for `purpose` with the page that redeems it; a code has no page, an account-exists mail no secret. */
+  protected async issueFor(id: IdentityRef, purpose: AuthnMailPurpose, ttlSeconds: number): Promise<{ secret: string; url: string; code?: string }> {
+    if (purpose === 'code') {
+      const code = await new EmailCodes(await this.secrets()).issue(id, ttlSeconds);
+      return { secret: code, code, url: '' };
+    }
+    if (purpose === 'account-exists') return { secret: '', url: this.resetUrl() };
+    const raw = await (await this.secrets()).issue(id, purpose, ttlSeconds);
+    return purpose === 'verify' ? { secret: verifySecretOf(id, raw), url: this.verifyUrl() } : { secret: raw, url: this.resetUrl() };
   }
 
   /**
@@ -540,6 +615,10 @@ export class LocalPasswordService extends PasswordService {
 
   protected verifyTtlSeconds(): number {
     return this.Deps ? (this.Deps.verifyTtlSeconds ?? AUTHN_LOCAL_DEFAULTS.verify.ttlSeconds) : this.VerifyTtlSeconds;
+  }
+
+  protected emailCodeTtlSeconds(): number {
+    return this.Deps ? (this.Deps.emailCodeTtlSeconds ?? AUTHN_LOCAL_DEFAULTS.emailCode.ttlSeconds) : this.EmailCodeTtlSeconds;
   }
 
   protected verifyUrl(): string {
