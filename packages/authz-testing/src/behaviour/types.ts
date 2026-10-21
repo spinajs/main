@@ -9,7 +9,7 @@ import type { FakePermissionInput } from '../registry.js';
 import type { StepContext } from './harness.js';
 import type { BEHAVIOUR_RULES } from './rules.js';
 
-/** 'B01' … 'B49' (design §17 and the Ory-parity plan). */
+/** 'B01' … 'B50' (design §17 and the Ory-parity plan). */
 export type BehaviourId = keyof typeof BEHAVIOUR_RULES;
 
 /** A whole fixture ('B09') or one of its parts ('B09.core'). */
@@ -19,7 +19,7 @@ export type BehaviourSelector = BehaviourId | `${BehaviourId}.${string}`;
  * What a harness can do. A part lists the facets it needs; `runBehaviour` runs it only on a harness
  * that has all of them. {@link FACETS} says what each one promises.
  */
-export type Facet = 'engine' | 'boot' | 'audit' | 'clock' | 'cache' | 'host' | 'bus' | 'rbac' | 'ladders' | 'rules' | 'links' | 'abac' | 'conditions' | 'rebac' | 'admin' | 'scopeAttributes' | 'store' | 'list' | 'sql' | 'orm' | 'http' | 'fs' | 'queue' | 'socket' | 'email' | 'configuration' | 'token' | 'authn' | 'impersonation' | 'canvas';
+export type Facet = 'engine' | 'boot' | 'audit' | 'clock' | 'cache' | 'host' | 'bus' | 'rbac' | 'ladders' | 'rules' | 'links' | 'abac' | 'conditions' | 'rebac' | 'admin' | 'scopeAttributes' | 'store' | 'list' | 'sql' | 'orm' | 'http' | 'fs' | 'queue' | 'socket' | 'email' | 'configuration' | 'token' | 'authn' | 'impersonation' | 'canvas' | 'hooks';
 
 /** The promise behind each facet; a harness that lists a facet keeps it. */
 export const FACETS: Readonly<Record<Facet, string>> = Object.freeze({
@@ -53,6 +53,7 @@ export const FACETS: Readonly<Record<Facet, string>> = Object.freeze({
   authn: 'authn-http flows for world principals: login, MFA completion, role switch and impersonation start, each answering with the principal the session then yields (lane handle `authn`; C3).',
   impersonation: "users' AuthzImpersonationGuard: may an actor impersonate a target (lane handle `impersonationGuard`; C3). The impersonation flow itself is `authn`.",
   canvas: 'the canvas C6 facade over the §8.5 config (a lane handle K1 declares).',
+  hooks: "`world.hooks` are registered as ActionHooks in the domain's container, so the actions of @spinajs/authz run them (HOOK-5).",
 });
 
 /** A world principal by its key in `World.principals`, a principal object (SYSTEM, UNATTENDED, …), or '$current' (`authz.current()`). */
@@ -147,6 +148,13 @@ export interface WorldConfig {
   readonly [section: string]: unknown;
 }
 
+/** An ActionHook as data: before the action `action` it refuses with `refuse` when every key of `when` equals the same key of the input's `command`. */
+export interface WorldHook {
+  readonly action: string;
+  readonly refuse: string;
+  readonly when?: Readonly<Record<string, unknown>>;
+}
+
 /**
  * Everything a case runs against, as data. Kit fakes (`models`, `adapters`, `scopes`, `relations`) are
  * specs that `instantiateWorld` turns into objects; `rbac`, `abac`, `rebac` and `scopeAttributes`
@@ -170,6 +178,8 @@ export interface World {
   readonly rebac?: RebacWorld;
   readonly scopeAttributes?: ScopeAttributeWorld;
   readonly config?: WorldConfig;
+  /** hooks facet: registered before the domain boots. */
+  readonly hooks?: readonly WorldHook[];
 }
 
 // ---------------------------------------------------------------------------------------------
