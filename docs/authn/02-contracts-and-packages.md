@@ -18,14 +18,14 @@ Three families keep one direction:
 | Authentication (`@spinajs/authn*`) | `authn.*` | Who is calling and how sure we are |
 | Authorization (`@spinajs/authz*`) | `authz.*` | What that caller may do |
 
-No `authn*` package imports `authz*` or `users*`. `@spinajs/authz` imports only the principal types from `@spinajs/authn/contracts`. Anything authn needs from authorization is a hook contract that `@spinajs/users` implements: `ImpersonationGuard`, `CredentialAdminGuard`, `RoleSource` and `AuthnResponseExtension`.
+No `authn*` package imports `authz*` or `users*`. `@spinajs/authz` does not import authn at all: the principal contracts live in `@spinajs/principal`, which `@spinajs/authn/contracts` re-exports with the same runtime identity. Anything authn needs from authorization is a hook contract that `@spinajs/users` implements: `ImpersonationGuard`, `CredentialAdminGuard`, `RoleSource` and `AuthnResponseExtension`.
 
 ## Entry points
 
 | Import | Holds | Side effects |
 | --- | --- | --- |
 | `@spinajs/authn` | Everything below except `@spinajs/authn/boot`, plus the services | Registers `DefaultAuthnService`, `DefaultMfaPolicy`, `MemoryAuthnThrottle`, `LogAuthnAuditSink` and `AuthnConfigBootstrapper` |
-| `@spinajs/authn/contracts` | The contracts, `Session`, `SessionKeys`, `isFresh`, `SYSTEM`, `UNATTENDED`, `principalKey`, `ceilingHash`, and the [shared constants and helpers](#shared-constants-and-helpers) | None |
+| `@spinajs/authn/contracts` | The contracts, `Session`, `SessionKeys`, `isFresh`, `SYSTEM`, `UNATTENDED`, `principalKey`, `ceilingHash` (these four re-exported from `@spinajs/principal`), and the [shared constants and helpers](#shared-constants-and-helpers) | None |
 | `@spinajs/authn/schemas` | `AUTHN_CONFIGURATION_SCHEMA` | None |
 | `@spinajs/authn/register-schema` | Registers `AUTHN_CONFIGURATION_SCHEMA` at import | For modules that read `authn.*` and may load where the root never does |
 | `@spinajs/authn/env` | `authnAppEnv`, `authnEnvFellBack`, `isLenientAuthnEnv`, the throttle param checks | None |

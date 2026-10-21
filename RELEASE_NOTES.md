@@ -1,3 +1,14 @@
+# Release notes — principal contracts in `@spinajs/principal`
+
+- The new package `@spinajs/principal` holds `Principal`, `PrincipalRef`, `ResourceRef`, `Ceiling`, `AuthnFacts`,
+  `IAuthnPrincipalStorage`, `SYSTEM`, `UNATTENDED`, `principalKey`, `sameRef` and `ceilingHash`. It has no dependencies.
+- `@spinajs/authn/contracts` and `@spinajs/authz` re-export the same values. Existing imports keep working, and
+  `SYSTEM` stays one object across all three import paths.
+- `@spinajs/authz` no longer depends on `@spinajs/authn`. `@spinajs/authz-http` now lists it as an optional peer.
+  `SseSessionEndSink` moved to the new subpath `@spinajs/authz-http/authn` and is no longer exported from the root
+  entry. `AuthzHttpAuthnBootstrapper` loads that subpath when authn is installed.
+- How to run authz without authn: `docs/authz/14-installing-without-authn.md`.
+
 # Release notes — SpinaJS 3.0.0: authentication and authorization
 
 > 3.0 splits `@spinajs/rbac` into three families: identity (`@spinajs/users*`), authentication
