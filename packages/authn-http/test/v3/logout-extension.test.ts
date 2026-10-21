@@ -12,6 +12,10 @@ import type { AuthnEvent, SessionHandle } from '@spinajs/authn/contracts';
 import { AuthnLogoutExtension } from '../../src/v3/logout-extension.js';
 import { AuthnLoginController } from '../../src/v3/controllers/AuthnLoginController.js';
 import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../src/schema.js';
+import { clientOf } from '../../src/v3/client.js';
+
+// The handler's arguments as the route extracts them from `req`.
+const logoutOf = (c: AuthnLoginController, req: Request) => c.logout(clientOf(req), req.get('sec-fetch-mode') as string, req.get('accept') as string, req);
 
 const END_SESSION = 'https://idp.example.test/realms/corp/logout?client_id=canvas&post_logout_redirect_uri=https%3A%2F%2Fapp.example.test%2F';
 
@@ -109,7 +113,7 @@ describe('POST /auth/logout with logout extensions', () => {
   it('without an extension answers today\'s 200 with the cleared cookie, the site data header and no-store', async () => {
     const w = world();
     for (const headers of [{}, NAVIGATE]) {
-      const res = answerOf(await w.controller.logout(w.request(headers)));
+      const res = answerOf(await logoutOf(w.controller, w.request(headers)));
       expect(res).to.deep.include({ kind: 'ok', status: 200, body: null });
       expect(res.headers['Clear-Site-Data']).to.eq('"cache", "cookies", "storage"');
       expect(res.headers['Cache-Control']).to.eq('no-store');
@@ -122,7 +126,7 @@ describe('POST /auth/logout with logout extensions', () => {
   it('a navigation request gets 303 to the redirect, with the cleared cookie, the site data header and no-store', async () => {
     const w = world();
     w.extension(async () => ({ redirect: END_SESSION }));
-    const res = answerOf(await w.controller.logout(w.request(NAVIGATE)));
+    const res = answerOf(await logoutOf(w.controller, w.request(NAVIGATE)));
     expect(res).to.deep.include({ kind: 'redirect', status: 303, location: END_SESSION });
     expect(res.headers['Clear-Site-Data']).to.eq('"cache", "cookies", "storage"');
     expect(res.headers['Cache-Control']).to.eq('no-store');
@@ -133,14 +137,14 @@ describe('POST /auth/logout with logout extensions', () => {
   it('a request that accepts text/html counts as a navigation', async () => {
     const w = world();
     w.extension(async () => ({ redirect: END_SESSION }));
-    expect(answerOf(await w.controller.logout(w.request({ Accept: 'text/html,application/xhtml+xml;q=0.9' }))).status).to.eq(303);
+    expect(answerOf(await logoutOf(w.controller, w.request({ Accept: 'text/html,application/xhtml+xml;q=0.9' }))).status).to.eq(303);
   });
 
   it('a script gets 200 { endSession } with the same cookie and headers', async () => {
     const w = world();
     w.extension(async () => ({ redirect: END_SESSION }));
     for (const headers of [{}, { Accept: 'application/json' }, { 'Sec-Fetch-Mode': 'cors' }] as Record<string, string>[]) {
-      const res = answerOf(await w.controller.logout(w.request(headers)));
+      const res = answerOf(await logoutOf(w.controller, w.request(headers)));
       expect(res).to.deep.include({ kind: 'ok', status: 200, body: { endSession: END_SESSION } });
       expect(res.headers['Clear-Site-Data']).to.eq('"cache", "cookies", "storage"');
       expect(res.headers['Cache-Control']).to.eq('no-store');
@@ -152,7 +156,7 @@ describe('POST /auth/logout with logout extensions', () => {
     const w = world();
     const ext = w.extension(async () => ({ redirect: END_SESSION }));
     const session = sessionOf();
-    await w.controller.logout(w.request(NAVIGATE, session));
+    await logoutOf(w.controller, w.request(NAVIGATE, session));
     expect(ext.calls).to.have.length(1);
     expect(ext.calls[0].revokedAtCall).to.deep.eq(['raw-session-id']);
     expect(ext.calls[0].session).to.eq(session);
@@ -163,7 +167,7 @@ describe('POST /auth/logout with logout extensions', () => {
     const w = world();
     const ext = w.extension(async () => undefined);
     const req = w.request(NAVIGATE);
-    await w.controller.logout(req);
+    await logoutOf(w.controller, req);
     expect(ext.calls[0].req).to.eq(req);
   });
 
@@ -171,7 +175,7 @@ describe('POST /auth/logout with logout extensions', () => {
     for (const answer of [async () => undefined, async () => ({}), async () => ({ redirect: '' })]) {
       const one = world();
       one.extension(answer);
-      expect(answerOf(await one.controller.logout(one.request(NAVIGATE)))).to.deep.include({ kind: 'ok', status: 200, body: null });
+      expect(answerOf(await logoutOf(one.controller, one.request(NAVIGATE)))).to.deep.include({ kind: 'ok', status: 200, body: null });
     }
   });
 
@@ -180,7 +184,7 @@ describe('POST /auth/logout with logout extensions', () => {
     const first = w.extension(async () => undefined);
     const second = w.extension(async () => ({ redirect: 'https://one.example.test/logout' }));
     const third = w.extension(async () => ({ redirect: 'https://two.example.test/logout' }));
-    const res = answerOf(await w.controller.logout(w.request(NAVIGATE)));
+    const res = answerOf(await logoutOf(w.controller, w.request(NAVIGATE)));
     expect(res.location).to.eq('https://one.example.test/logout');
     expect([first, second, third].map((e) => e.calls.length)).to.deep.eq([1, 1, 1]);
   });
@@ -191,7 +195,7 @@ describe('POST /auth/logout with logout extensions', () => {
       throw new Error('idp lookup failed with secret-value');
     });
     w.extension(async () => ({ redirect: END_SESSION }));
-    const res = answerOf(await w.controller.logout(w.request(NAVIGATE)));
+    const res = answerOf(await logoutOf(w.controller, w.request(NAVIGATE)));
     expect(res).to.deep.include({ kind: 'redirect', status: 303, location: END_SESSION });
     expect(w.revoked).to.deep.eq(['raw-session-id']);
     expect(w.warned).to.have.length(1);
@@ -203,7 +207,7 @@ describe('POST /auth/logout with logout extensions', () => {
     w.extension(async () => {
       throw new Error('boom');
     });
-    expect(answerOf(await w.controller.logout(w.request(NAVIGATE)))).to.deep.include({ kind: 'ok', status: 200, body: null });
+    expect(answerOf(await logoutOf(w.controller, w.request(NAVIGATE)))).to.deep.include({ kind: 'ok', status: 200, body: null });
   });
 
   it('answers 401 without a session, revokes nothing and calls no extension', async () => {
@@ -211,7 +215,7 @@ describe('POST /auth/logout with logout extensions', () => {
     const ext = w.extension(async () => ({ redirect: END_SESSION }));
     let thrown: unknown;
     try {
-      await w.controller.logout(w.request(NAVIGATE, null));
+      await logoutOf(w.controller, w.request(NAVIGATE, null));
     } catch (e) {
       thrown = e;
     }

@@ -2,27 +2,35 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BaseController, BasePath, Ok, Post, Req } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
+import { BaseController, BasePath, Body, Ok, Policy, Post } from '@spinajs/http';
 import { AuthnService, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthenticationResult, Session } from '@spinajs/authn/contracts';
 
+import { ClientContext } from '../../args/authn.js';
+import { AuthnMfaChallengeBody, AuthnMfaCodeBody, AuthnMfaStepUpBody, AuthnMfaVerifyBody } from '../../dto/mfa.js';
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
 import { mfaPolicyOf } from '../../policies/v3/mfa.js';
-import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
+import { ActiveSessionOnly, PendingSessionOnly } from '../../policies/v3/session-state.js';
+import { OnInvalidInput } from '../../validation/answers.js';
+import { uniformFailure } from '../../validation/login.js';
+import type { AuthnClientContext } from '../client.js';
 import { AcceptedResponse, NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
-import { answerFor, bodyField, boundedString, contextOf, pendingSteps, startedSession } from '../routes.js';
+import { answerFor, contextOf, pendingSteps, startedSession } from '../routes.js';
 
 /** completeMfa's step for recovery codes (contracts: MfaStep.name, AuthnService.completeMfa). */
 const RECOVERY_STEP = 'recovery';
 
-const STEP_NAME_CAP = 64;
+const ACK: Readonly<{ Ok: true }> = Object.freeze({ Ok: true });
+
+/** What a challenge answers whatever happened, a body the schema refuses included: it tells nothing about the account. */
+const accepted = (): AcceptedResponse => new AcceptedResponse({ ...ACK }, { Headers: [NO_STORE] });
 
 /**
  * Completes the login of a pending (pre-MFA) session (A09, A10). Only a pending session reaches these routes: none
  * answers 401, an active one 403. Success elevates the session to aal2 under a new id, keeping its data; a failure
  * answers the login failure body and leaves the session pending. The step-up route is the reverse: only an active
- * session reaches it (a pending one answers 403), and success reissues it at aal2 under a new id.
+ * session reaches it (a pending one answers 403), and success reissues it at aal2 under a new id. Those session checks
+ * are policies, so they answer before the body is read; a body the schema refuses then answers the login failure body.
  * @tags Authentication
  */
 @BasePath('auth')
@@ -39,49 +47,54 @@ export class AuthnMfaController extends BaseController {
   /**
    * Verify an MFA step
    * Body `{ code, step? }`: `step` when it is one of the pending steps, else the first pending step.
-   * @body {AuthnMfaVerifyBody} A code of a pending step
    * @returns {AuthnPrincipalAnswer} The principal summary of the elevated session
    * @response 401 {AuthnUnauthorized} No session, or a wrong, missing or throttled code
    * @response 403 {AuthnError} mfa_not_pending: the session is active
    * @security cookieAuth
    */
   @Post('mfa/verify')
-  public async verify(@Req() req: Request) {
-    return this.complete(req, false);
+  @Policy(PendingSessionOnly)
+  @OnInvalidInput(uniformFailure)
+  public async verify(@Body({ required: true }) body: AuthnMfaVerifyBody, @ClientContext() client: AuthnClientContext) {
+    return this.complete(client, body.code, false, body.step);
   }
 
   /**
    * Use a recovery code
    * Body `{ code }`: a single-use recovery code instead of a step.
-   * @body {AuthnMfaCodeBody} A recovery code
    * @returns {AuthnPrincipalAnswer} The principal summary of the elevated session
    * @response 401 {AuthnUnauthorized} No session, or a wrong, used or throttled code
    * @response 403 {AuthnError} mfa_not_pending: the session is active
    * @security cookieAuth
    */
   @Post('mfa/recovery')
-  public async recovery(@Req() req: Request) {
-    return this.complete(req, true);
+  @Policy(PendingSessionOnly)
+  @OnInvalidInput(uniformFailure)
+  public async recovery(@Body({ required: true }) body: AuthnMfaCodeBody, @ClientContext() client: AuthnClientContext) {
+    return this.complete(client, body.code, true);
   }
 
   /**
    * Step up the active session
    * Body `{ step?, code }`: `step` is an MFA step the identity is enrolled in, or `recovery` for a recovery code.
+   * @returns {AuthnPrincipalAnswer} The principal summary of the session at aal2
+   * @response 401 {AuthnUnauthorized} No session, or a wrong, malformed or throttled code
+   * @response 403 {AuthnError} mfa_pending: the session is pending
    * @security cookieAuth
    */
   @Post('mfa/step-up')
-  public async stepUp(@Req() req: Request) {
-    const session = req.storage.AuthnSession;
+  @Policy(ActiveSessionOnly)
+  @OnInvalidInput(uniformFailure)
+  public async stepUp(@Body({ required: true }) body: AuthnMfaStepUpBody, @ClientContext() client: AuthnClientContext) {
+    const session = client.session;
     if (!session) throw unauthenticated('this route needs a session');
     if (session.handle.state !== 'active') throw refused('mfa_pending', 'complete the pending second factor instead');
 
-    const code = boundedString(bodyField(req, 'code'), PASSWORD_HARD_CAP);
-    if (code === null) return authnFailureResponse();
-    const step = boundedString(bodyField(req, 'step'), STEP_NAME_CAP) ?? (await this.firstEnrolledStep(session));
+    const step = body.step ?? (await this.firstEnrolledStep(session));
     if (step === null) return authnFailureResponse();
 
     const authn = await this.Container.resolve(AuthnService);
-    return this.answer(authn, await authn.stepUp(session.handle, step, code, contextOf(req, 'login', session.handle)), false);
+    return this.answer(authn, await authn.stepUp(session.handle, step, body.code, contextOf(client, 'login', session.handle)), false);
   }
 
   /**
@@ -89,50 +102,51 @@ export class AuthnMfaController extends BaseController {
    * Body `{ step? }`: asks the pending step (as in `mfa/verify`) that delivers its code out of band, such as the email
    * code, to send it. 202 `{ Ok: true }` whether or not a step sends anything and whether or not the send worked, so the
    * answer tells nothing about the account; a step with no `challenge` needs none. Repeats are throttled by the step.
+   * @response 202 {AuthnOk} Always { Ok: true }
    * @security cookieAuth
    */
   @Post('mfa/challenge')
-  public async challenge(@Req() req: Request) {
-    const session = this.pendingSession(req);
+  @Policy(PendingSessionOnly)
+  @OnInvalidInput(accepted)
+  public async challenge(@Body() body: AuthnMfaChallengeBody, @ClientContext() client: AuthnClientContext) {
+    const session = this.pendingSession(client);
     const steps = await pendingSteps(this.Container, session, this.MfaPolicyService);
-    const asked = bodyField(req, 'step');
-    const name = typeof asked === 'string' && steps.includes(asked) ? asked : steps[0];
+    const asked = (body as AuthnMfaChallengeBody | null)?.step;
+    const name = asked !== undefined && steps.includes(asked) ? asked : steps[0];
     const step = name === undefined ? undefined : (await (await mfaPolicyOf(this.Container, this.MfaPolicyService)).steps()).get(name);
     if (typeof step?.challenge === 'function') {
       try {
-        await step.challenge(session.identity, contextOf(req, 'login', session.handle));
+        await step.challenge(session.identity, contextOf(client, 'login', session.handle));
       } catch (err) {
         // The name only: an error can carry the address or the code.
         this._log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'An MFA challenge failed: ${errorName}');
       }
     }
-    return new AcceptedResponse({ Ok: true }, { Headers: [NO_STORE] });
+    return accepted();
   }
 
-  protected pendingSession(req: Request) {
-    const session = req.storage.AuthnSession;
+  protected pendingSession(client: AuthnClientContext) {
+    const session = client.session;
     if (!session) throw unauthenticated('this route needs a pending session');
     if (session.handle.state !== 'pending') throw refused('mfa_not_pending', 'this session needs no second factor');
     return session;
   }
 
-  protected async complete(req: Request, recovery: boolean) {
-    const session = this.pendingSession(req);
+  /** The step: `asked` when it is pending, else the first pending one; RECOVERY_STEP for a recovery code. */
+  protected async complete(client: AuthnClientContext, code: string, recovery: boolean, asked?: string) {
+    const session = this.pendingSession(client);
 
-    const code = boundedString(bodyField(req, 'code'), PASSWORD_HARD_CAP);
-    if (code === null) return authnFailureResponse();
     let step = RECOVERY_STEP;
     if (!recovery) {
       const steps = await pendingSteps(this.Container, session, this.MfaPolicyService);
-      const asked = bodyField(req, 'step');
-      const chosen = typeof asked === 'string' && steps.includes(asked) ? asked : steps[0];
+      const chosen = asked !== undefined && steps.includes(asked) ? asked : steps[0];
       if (chosen === undefined) return authnFailureResponse();
       step = chosen;
     }
 
     // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
     const authn = await this.Container.resolve(AuthnService);
-    return this.answer(authn, await authn.completeMfa(session.handle, step, code, contextOf(req, 'login', session.handle)), true);
+    return this.answer(authn, await authn.completeMfa(session.handle, step, code, contextOf(client, 'login', session.handle)), true);
   }
 
   protected async firstEnrolledStep(session: Session): Promise<string | null> {

@@ -247,6 +247,15 @@ export function tokenRoutesSuite(): void {
       expect(tokenEvents('token.create')).to.deep.eq([]);
     });
 
+    it('an unknown field answers 400 invalid_field and a reauthPassword that is no string the login failure body (D5, D6)', async () => {
+      const u = await user();
+      const c = await login(u);
+      expectBadRequest(await create(c, valid({ owner: 'someone-else' })), 'invalid_field');
+      expectFailureBody(await create(c, valid({ reauthPassword: 42 })));
+      expectBadRequest(await rotate(c, 'any-id', { graceSeconds: '60' }), 'invalid_grace');
+      expect(await stored(u.ref)).to.eq(0);
+    });
+
     it('a role the owner does not hold answers 400 invalid_scope; a held one becomes the ceiling (LEDGER AccessTokenController 4)', async () => {
       const u = await user();
       const c = await login(u);

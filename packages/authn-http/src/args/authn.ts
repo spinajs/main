@@ -3,6 +3,7 @@ import type { IRouteArgsResult, IRouteCall, IRouteParameter, Request } from '@sp
 import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
 
 import type { AuthnIdentity } from '../api.js';
+import { clientOf } from '../v3/client.js';
 
 // DI keys classes by name (N8a-D2), so these are named apart from any other route arg. @spinajs/http resolves a route
 // arg by this name from the root container; registerAuthnHttpV3 registers them there.
@@ -57,6 +58,17 @@ export class AuthnSessionDataArg extends RouteArgs {
   }
 }
 
+/** Resolves to the AuthnClientContext of the request: its ClientIp, user agent, restored session and principal. */
+export class AuthnClientContextArg extends RouteArgs {
+  public get SupportedType(): string {
+    return ParameterType.Other;
+  }
+
+  public async extract(callData: IRouteCall, _args: unknown[], _param: IRouteParameter, req: Request): Promise<IRouteArgsResult> {
+    return { CallData: callData, Args: clientOf(req) };
+  }
+}
+
 /** Resolves to the AuthnIdentity of req.storage.AuthnPrincipal, or null without a principal (a pending session gives null). */
 export function Identity(): ReturnType<typeof Route> {
   return Route(Parameter('AuthnIdentityArg'));
@@ -82,4 +94,13 @@ export function SessionId(): ReturnType<typeof Route> {
 export function FromSession(key: string): ReturnType<typeof Route> {
   _check_arg(_is_string(_non_empty()))(key, 'key');
   return Route(Parameter('AuthnSessionDataArg', undefined, { key }));
+}
+
+/**
+ * Resolves to the AuthnClientContext of the request: the ClientIp (never Express's ip, A05), the user agent, the
+ * restored session (pending included, so not authentication) and the principal. What a handler needs of the request
+ * besides its validated input (D12).
+ */
+export function ClientContext(): ReturnType<typeof Route> {
+  return Route(Parameter('AuthnClientContextArg'));
 }

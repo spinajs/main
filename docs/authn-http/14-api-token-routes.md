@@ -6,7 +6,7 @@
 
 1. `TokenServiceRegistered` (controller gate): 404 `not_found` without a `TokenService`.
 2. Every route has `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` and needs an active session: a token or key caller gets 403 `session_required` (no credential mints or manages credentials), an impersonator 403 `impersonating`, an anonymous caller or a pending session 401.
-3. `POST /user/tokens` and `POST /user/tokens/:uuid/rotate` take `reauthPassword` out of the body (`takeReauthPassword()`), then runs [`assertFreshAuth()`](05-policies.md#fresh-authentication) in the handler through `freshAuthOrAnswer()`. A stale session without the password: 403 `fresh_auth_required`; a wrong or throttled password: 401 login failure body without `Retry-After`.
+3. `POST /user/tokens` and `POST /user/tokens/:uuid/rotate` validate their body DTO first (see [Input validation](24-input-validation.md)), which takes `reauthPassword` off the request, then run [`assertFreshAuth()`](05-policies.md#fresh-authentication) in the handler through `freshAuthOrAnswer()`. A stale session without the password: 403 `fresh_auth_required`; a wrong or throttled password: 401 login failure body without `Retry-After`.
 4. The body is checked field by field (see the table below); the first bad field answers 400.
 5. `TokenService.create(identity, options, ctx)` checks the expiry against the caps, the roles against the owner's, the profile against the profile policy and the scope against the kind. A refused expiry: 400 `invalid_expiry`; anything else refused: 400 `invalid_scope`.
 6. The answer is `{ Token, Plaintext }`. The plaintext is shown here once and never again.

@@ -1,13 +1,19 @@
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BaseController, BasePath, Ok, Post, Req } from '@spinajs/http';
-import type { Request, Unauthorized } from '@spinajs/http';
+import { BaseController, BasePath, Body, Ok, Policy, Post } from '@spinajs/http';
+import type { Unauthorized } from '@spinajs/http';
 import { AuthnService, SessionIssuer } from '@spinajs/authn/contracts';
 
+import { ClientContext } from '../../args/authn.js';
+import { AuthnReauthBody } from '../../dto/reauth.js';
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
 import { reauthCredentials } from '../../policies/v3/fresh-auth.js';
+import { ActiveSessionOnly } from '../../policies/v3/session-state.js';
+import { OnInvalidInput } from '../../validation/answers.js';
+import { uniformFailure } from '../../validation/login.js';
+import type { AuthnClientContext } from '../client.js';
 import { NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
-import { answerFor, bodyField, contextOf, onLiveSession } from '../routes.js';
+import { answerFor, contextOf, onLiveSession } from '../routes.js';
 
 /**
  * Fresh authentication that lasts (A13): the password re-authenticates the active session, which then moves to a new
@@ -26,24 +32,26 @@ export class AuthnReauthController extends BaseController {
   /**
    * Re-authenticate the session
    * Body `{ password }`. Success: the session cookie of the new id and the principal summary. 401 with the login failure body for a wrong or throttled password (no Retry-After); 403 for a pending session or an impersonation.
+   * @returns {AuthnPrincipalAnswer} The principal summary of the session under its new id
+   * @response 401 {AuthnUnauthorized} No session, or a wrong, malformed or throttled password
+   * @response 403 {AuthnError} mfa_pending or impersonating
    * @security cookieAuth
    */
   @Post('reauth')
-  public async reauth(@Req() req: Request): Promise<Ok | Unauthorized> {
-    const session = req.storage.AuthnSession;
-    if (!session) throw unauthenticated('this route needs a session');
-    if (session.handle.state !== 'active') throw refused('mfa_pending', 'complete the pending second factor instead');
+  @Policy(ActiveSessionOnly)
+  @OnInvalidInput(uniformFailure)
+  public async reauth(@Body({ required: true }) body: AuthnReauthBody, @ClientContext() client: AuthnClientContext): Promise<Ok | Unauthorized> {
+    const session = client.session;
+    if (session?.handle.state !== 'active') throw unauthenticated('this route needs a session');
     if (session.facts.impersonator !== undefined) throw refused('impersonating', 'no re-authentication while impersonating another user');
 
-    const password = bodyField(req, 'password');
-    if (typeof password !== 'string' || password === '') return authnFailureResponse();
     // Audits an over-long password itself; the core never sees it.
-    const credentials = await reauthCredentials(this.Container, req, session, password);
+    const credentials = await reauthCredentials(this.Container, client, session, body.password);
     if (!credentials) return authnFailureResponse();
 
     // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
     const authn = await this.Container.resolve(AuthnService);
-    const ctx = contextOf(req, 'reauth', session.handle);
+    const ctx = contextOf(client, 'reauth', session.handle);
     if (!(await authn.reauthenticate(session.handle, credentials, ctx))) return authnFailureResponse();
 
     const sessions = this.Sessions;

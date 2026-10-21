@@ -1,13 +1,33 @@
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BaseController, BasePath, Del, Get, Ok, Param, Policy, Post, Req } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
+import { BaseController, BasePath, Body, Del, Get, Ok, Param, Policy, Post } from '@spinajs/http';
 import { KeyRegistry, SessionIssuer } from '@spinajs/authn/contracts';
 import type { KeyChallengeResult } from '@spinajs/authn/contracts';
 
-import { challengeAnswer, challengeRequestOf, challengeThrottled, keyEntry, keyLoginCredentialsOf, keyManager, keyNotFound, keyRequestOf, kidOf, registerRefusal } from '../../keys/fields.js';
+import { ClientContext } from '../../args/authn.js';
+import { AuthnKeyChallengeBody, AuthnKeyLoginBody, AuthnKeyRegisterBody, KID_PARAM } from '../../dto/keys.js';
+import {
+  challengeAnswer,
+  challengeThrottled,
+  invalidKey,
+  invalidKeyExpiry,
+  invalidKeyName,
+  invalidKid,
+  invalidProof,
+  invalidPurpose,
+  keyEntry,
+  keyManager,
+  keyNotFound,
+  keyRequestOf,
+  registerRefusal,
+  unknownKeyField,
+} from '../../keys/fields.js';
 import { KeyRoutesOn } from '../../keys/gate.js';
-import { freshAuthOrAnswer, takeReauthPassword } from '../../policies/v3/fresh-auth.js';
+import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
+import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
+import { IpThrottle } from '../../middleware/ip-throttle.js';
+import { failedLogin, throttledLogin, uniformFailure } from '../../validation/login.js';
+import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE } from '../responses.js';
 import { completeLogin, contextOf } from '../routes.js';
@@ -41,8 +61,8 @@ export class AuthnKeysController extends BaseController {
    */
   @Get('user/keys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async list(@Req() req: Request) {
-    const session = keyManager(req);
+  public async list(@ClientContext() client: AuthnClientContext) {
+    const session = keyManager(client);
     const records = await (await this.registry()).list(session.identity);
     const now = new Date();
     return new Ok(
@@ -57,10 +77,10 @@ export class AuthnKeysController extends BaseController {
    * public JWK and its signature over a register challenge this user asked for (POST /auth/keys/challenge). Needs fresh
    * auth: a login within authn.freshAuth.maxAgeSeconds or the account password in `reauthPassword`, verified for this
    * request only. Answers the key. 400 `invalid_key`, `invalid_kid`, `invalid_name`, `invalid_expiry`, `invalid_scope`
-   * or `invalid_proof` (also a used, expired or foreign challenge); 409 `key_taken` when the kid or the key is
-   * registered already; 403 `fresh_auth_required` for a stale session without the password; a wrong or throttled
-   * password the login failure body without Retry-After.
-   * @body {AuthnKeyRegisterBody} The public key, its proof, and the password for a stale session
+   * or `invalid_proof` (also a used, expired or foreign challenge), `invalid_field` for another unknown field; 409
+   * `key_taken` when the kid or the key is registered already; 403 `fresh_auth_required` for a stale session without
+   * the password; a wrong or throttled password, or one that is no string, the login failure body without Retry-After.
+   * The body is checked before fresh auth, so a malformed one costs no re-authentication.
    * @returns {AuthnKeyEntry} The registered key
    * @response 400 {AuthnError} invalid_key, invalid_kid, invalid_name, invalid_expiry, invalid_scope or invalid_proof
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
@@ -70,13 +90,14 @@ export class AuthnKeysController extends BaseController {
    */
   @Post('user/keys')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async register(@Req() req: Request) {
-    const session = keyManager(req);
-    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+  @OnInvalidInput(byField({ reauthPassword: uniformFailure, jwk: invalidKey, kid: invalidKid, name: invalidKeyName, expiresAt: invalidKeyExpiry, proof: invalidProof }, unknownKeyField))
+  public async register(@Body({ required: true, sensitive: ['reauthPassword'] }) body: AuthnKeyRegisterBody, @ClientContext() client: AuthnClientContext) {
+    const session = keyManager(client);
+    const fresh = await freshAuthOrAnswer(this.Container, client, body.reauthPassword);
     if ('answer' in fresh) return fresh.answer;
-    const parsed = keyRequestOf(req, new Date());
+    const parsed = keyRequestOf(body, new Date());
     if ('answer' in parsed) return parsed.answer;
-    const result = await (await this.registry()).register({ ...parsed.key, owner: { type: 'user', id: session.identity.id } }, contextOf(req, 'request', session.handle));
+    const result = await (await this.registry()).register({ ...parsed.key, owner: { type: 'user', id: session.identity.id } }, contextOf(client, 'request', session.handle));
     if (!result.ok) return registerRefusal(result.code);
     return new Ok(keyEntry(result.key, new Date()), { Headers: [NO_STORE] });
   }
@@ -90,10 +111,10 @@ export class AuthnKeysController extends BaseController {
    */
   @Del('user/keys/:kid')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async revoke(@Req() req: Request, @Param() kid: string) {
-    const session = keyManager(req);
-    const id = kidOf(kid);
-    const revoked = id !== null && (await (await this.registry()).revoke(session.identity, id, contextOf(req, 'request', session.handle)));
+  @OnInvalidInput(keyNotFound)
+  public async revoke(@Param(KID_PARAM) kid: string, @ClientContext() client: AuthnClientContext) {
+    const session = keyManager(client);
+    const revoked = await (await this.registry()).revoke(session.identity, kid, contextOf(client, 'request', session.handle));
     if (!revoked) return keyNotFound();
     return new Ok(null, { Headers: [NO_STORE] });
   }
@@ -106,22 +127,21 @@ export class AuthnKeysController extends BaseController {
    * with Retry-After. Register challenges count against nothing here: each throttle flow (login, mfa, reset, reauth)
    * is a budget of the owner's own, which a burst of challenges would spend; http.throttle caps the route per ip.
    * 400 `invalid_purpose`, `invalid_kid`.
-   * @body {AuthnKeyChallengeBody} The purpose, and the key of a login challenge
    * @returns {AuthnKeyChallenge} The challenge to sign
    * @response 400 {AuthnError} invalid_purpose or invalid_kid
    * @security []
    */
   @Post('auth/keys/challenge')
-  public async challenge(@Req() req: Request) {
-    const parsed = challengeRequestOf(req);
-    if ('answer' in parsed) return parsed.answer;
+  @IpThrottle('login', challengeThrottled)
+  @OnInvalidInput(byField({ purpose: invalidPurpose, kid: invalidKid }, unknownField))
+  public async challenge(@Body({ required: true }) body: AuthnKeyChallengeBody, @ClientContext() client: AuthnClientContext) {
     const registry = await this.registry();
     let result: KeyChallengeResult;
-    if (parsed.purpose === 'register') {
-      const session = keyManager(req);
-      result = await registry.challenge({ purpose: 'register', owner: { type: 'user', id: session.identity.id } }, contextOf(req, 'request', session.handle));
+    if (body.purpose === 'register') {
+      const session = keyManager(client);
+      result = await registry.challenge({ purpose: 'register', owner: { type: 'user', id: session.identity.id } }, contextOf(client, 'request', session.handle));
     } else {
-      result = await registry.challenge({ purpose: 'login', kid: parsed.kid }, contextOf(req, 'login'));
+      result = await registry.challenge({ purpose: 'login', kid: body.kid! }, contextOf(client, 'login'));
     }
     if (!result.ok) return challengeThrottled(result.retryAfterSeconds);
     return challengeAnswer(result.challenge);
@@ -134,14 +154,15 @@ export class AuthnKeysController extends BaseController {
    * summary with the login extensions. Key logins ask for no MFA step under the default MFA policy (a key challenge
    * proves possession); a policy that asks for one gets 200 `{ MfaRequired: [steps] }` with the pending session cookie.
    * Any failure: 401 with the login failure body, plus Retry-After when throttled.
-   * @body {AuthnKeyLoginBody} The signature over a login challenge
    * @returns {AuthnLoginAnswer} The principal summary, or the pending answer when MFA is required
    * @response 401 {AuthnFailure} The login failed (Retry-After when throttled)
    * @security []
    */
   @Post('auth/keys/login')
-  public async login(@Req() req: Request) {
-    return completeLogin(this.Container, this.Sessions, this._cfg, req, keyLoginCredentialsOf(req));
+  @IpThrottle('login', throttledLogin)
+  @OnInvalidInput(failedLogin)
+  public async login(@Body({ required: true }) body: AuthnKeyLoginBody, @ClientContext() client: AuthnClientContext) {
+    return completeLogin(this.Container, this.Sessions, this._cfg, client, { kind: 'key-challenge', keyId: body.keyId, challengeId: body.challengeId, signature: body.signature });
   }
 
   protected async registry(): Promise<KeyRegistry> {

@@ -317,6 +317,35 @@ export function keyRoutesSuite(): void {
     });
   });
 
+  describe('input the DTOs refuse (V2)', () => {
+    it('an unknown field answers 400 invalid_field on registration and challenges, a scope still invalid_scope (D5)', async () => {
+      const u = await user();
+      const c = await login(u);
+      const jwk = generateKeyPair('EdDSA').publicJwk;
+      expectBadRequest(await register(c, { jwk, proof: FAKE_PROOF, label: 'x' }), 'invalid_field');
+      expectBadRequest(await register(c, { jwk, proof: FAKE_PROOF, label: 'x', scope: {} }), 'invalid_scope');
+      expectBadRequest(await register(c, { jwk, proof: { ...FAKE_PROOF, extra: 1 } }), 'invalid_proof');
+      expectBadRequest(await challenge(c, { purpose: 'register', nonce: 'x' }), 'invalid_field');
+      expect(await stored(u.ref)).to.deep.eq([]);
+    });
+
+    it('a malformed body answers before fresh auth: a stale session gets 400, not 403, and no re-authentication is counted', async () => {
+      const u = await user();
+      const c = await login(u);
+      await later(301, async () => {
+        expectBadRequest(await register(c, { jwk: 'jwk', proof: FAKE_PROOF }), 'invalid_key');
+        expectFailureBody(await register(c, { jwk: generateKeyPair('EdDSA').publicJwk, proof: FAKE_PROOF, reauthPassword: 42 }));
+      });
+      expect(laneEvents.filter((e) => e.type === 'reauth')).to.deep.eq([]);
+    });
+
+    it('a key login with an unknown or a mistyped field fails as a wrong signature does', async () => {
+      for (const payload of [{ keyId: 'k', challengeId: 'x', signature: 'y', extra: 1 }, { keyId: ['k'], challengeId: 'x', signature: 'y' }]) {
+        expectFailureBody(await keyLogin(new LaneClient(h), payload));
+      }
+    });
+  });
+
   describe('fresh authentication (A13)', () => {
     it('a stale session: without reauthPassword 403 fresh_auth_required, a wrong one the login failure body without Retry-After, the right one registers for that request only', async () => {
       const u = await user();
