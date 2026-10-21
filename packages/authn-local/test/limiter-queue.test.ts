@@ -13,17 +13,17 @@ import { boot, disposeBooted, violationsOf } from './support/config-boot.js';
 const LOGIN = 'alice@example.com';
 const PASSWORD = 'Correct-Horse-9';
 const CTX: AuthnContext = { now: new Date('2026-10-03T12:00:00Z'), purpose: 'login', ip: '203.0.113.7' };
-const pw = (login: string, password: string): Credentials => ({ kind: 'password', login, password }) as Credentials;
+const pw = (login: string, password: string): Credentials => ({ kind: 'password', login, password });
 
 function deferred() {
   let resolve!: () => void;
-  const promise = new Promise<void>((res) => {
-    resolve = res;
+  const promise = new Promise<void>((_resolve) => {
+    resolve = _resolve;
   });
   return { promise, resolve };
 }
 
-const tick = () => new Promise<void>((res) => setImmediate(res));
+const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 /** Settles to the error a promise rejects with, or fails when it fulfils. */
 async function rejection(p: Promise<unknown>): Promise<unknown> {
