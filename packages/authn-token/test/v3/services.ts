@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
-import { IdentityStore, TokenService } from '@spinajs/authn/contracts';
+import { CredentialChangeBus, IdentityStore, TokenService } from '@spinajs/authn/contracts';
 
 import { DbTokenService, TokenProfilePolicy } from '../../src/service/index.js';
 import { TokenStrategy } from '../../src/strategy/TokenStrategy.js';
@@ -11,17 +11,22 @@ export interface TokenServiceDoubles<T extends DbTokenService> {
   /** Otherwise the registered TokenProfilePolicy. */
   readonly profiles?: TokenProfilePolicy;
   readonly auditor?: AuthnAuditor;
+  /** Otherwise the registered CredentialChangeBus. */
+  readonly bus?: CredentialChangeBus;
   readonly type?: Class<T>;
 }
 
 /** Built by DI in a fresh child container, so the injected IdentityStore and profile policy are these doubles. */
 export async function tokenServiceOver<T extends DbTokenService = DbTokenService>(doubles: TokenServiceDoubles<T>): Promise<T> {
-  const { identities, profiles, auditor } = doubles;
+  const { identities, profiles, auditor, bus } = doubles;
   const type = doubles.type ?? (DbTokenService as unknown as Class<T>);
   const child = DI.child();
   child.register(() => identities).as(IdentityStore);
   if (profiles) {
     child.register(() => profiles).as(TokenProfilePolicy);
+  }
+  if (bus) {
+    child.register(() => bus).as(CredentialChangeBus);
   }
   // Registered in the child too: DI builds a type in the container that registered it.
   child.register(type).as(type);

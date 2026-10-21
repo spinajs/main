@@ -50,6 +50,11 @@
       "import": "./lib/mjs/nonces/index.js",
       "require": "./lib/cjs/nonces/index.js"
     },
+    "./bus": {
+      "types": "./lib/mjs/bus/index.d.ts",
+      "import": "./lib/mjs/bus/index.js",
+      "require": "./lib/cjs/bus/index.js"
+    },
     "./audit": {
       "types": "./lib/mjs/audit/authn-audit.d.ts",
       "import": "./lib/mjs/audit/authn-audit.js",
@@ -81,6 +86,9 @@
       ],
       "nonces": [
         "lib/cjs/nonces/index.d.ts"
+      ],
+      "bus": [
+        "lib/cjs/bus/index.d.ts"
       ],
       "audit": [
         "lib/cjs/audit/authn-audit.d.ts"

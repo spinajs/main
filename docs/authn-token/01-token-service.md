@@ -59,21 +59,35 @@ sequenceDiagram
 1. It answers `false` for an empty or non-string `id` and for an unknown owner.
 2. It finds the unrevoked row with that `Uuid` **and** that owner, so one owner cannot revoke another's token.
 3. It sets `RevokedAt` to `ctx.now` with `WHERE RevokedAt IS NULL`. Of two concurrent revokes only one answers `true`.
-4. It publishes `token.revoke` with `{ token, kind }` and the optional `actor`, and answers `true`. The row stays until the [sweep](#sweep-deleteexpirednow).
+4. It evicts the token from the [validation cache](#validation-cache) and publishes `{ kind: 'token', id }` on the `CredentialChangeBus`.
+5. It publishes `token.revoke` with `{ token, kind }` and the optional `actor`, and answers `true`. The row stays until the [sweep](#sweep-deleteexpirednow).
 
 ### Revoke by id, `revokeById(id, ctx, { actor }?)`
 
 The operator variant behind `authn:token-delete`. It is not part of the `TokenService` contract.
 
-1. It revokes the unrevoked row with that `Uuid`, whoever owns it, under the same conditional update.
+1. It revokes the unrevoked row with that `Uuid`, whoever owns it, under the same conditional update, then evicts and publishes the token like `revoke`.
 2. It looks the owner up with `TokenOwnerResolver.refOf`. A failing lookup is logged; the revocation stands and the event goes out without an `identity`.
 
 ### Revoke all, `revokeAllFor(owner, ctx, { actor }?)`
 
 1. It sets `RevokedAt` on every unrevoked row of the owner, agent tokens acting for the owner included.
-2. It publishes one `token.revoke` with `{ count }` and answers the count. An unknown owner answers `0` and publishes nothing.
+2. When it revoked any, it publishes `{ kind: 'identity', identity: owner }` on the `CredentialChangeBus`, which evicts every cached token of the owner.
+3. It publishes one `token.revoke` with `{ count }` and answers the count. An unknown owner answers `0` and publishes nothing.
 
 Password resets call it when `authn.local.reset.revokeTokens` is on (the default).
+
+### Validation cache
+
+`validate` keeps each successful result in memory, keyed by the token's SHA-256 digest, for `authn.token.cache.ttlSeconds` (10 s):
+
+1. A hit runs no query and no `IdentityStore.status` read. The token's own `expiresAt` is still checked against `ctx.now`.
+2. A miss reads the token row and its owner through `TokenOwnerResolver.tokenByHash` (one statement under the default resolver, which joins `users`), then reads the status.
+3. `revoke`, `revokeById` and `revokeAllFor` evict in this process at once. Every change the `CredentialChangeBus` delivers evicts too: `{ kind: 'token', id }` that token, `{ kind: 'identity', identity }` every token of that owner, agent tokens acting for it included.
+4. A validation that a revoke overtook while it was reading stores nothing.
+5. `touch` updates the cached `lastUsedAt`, so `TokenStrategy` does not stamp a cached token on every request.
+
+The default bus, `InProcessCredentialChangeBus`, only reaches this process (decision D9). Another process sees a revocation, a ban or a profile change within `ttlSeconds`. `ttlSeconds: 0` turns the cache off.
 
 ### Sweep, `deleteExpired(now)`
 
@@ -92,6 +106,8 @@ Housekeeping behind `authn:token-delete-expired`. It is not part of the `TokenSe
 | `authn.token.prefix` | `string` | `'spt_'` | non-empty | Prefix every minted token must carry; checked after generation. See [Token generation](07-token-generation.md). |
 | `authn.token.length` | `integer` | `32` | `>= 32` | Random bytes per token; checked against the minted plaintext. |
 | `authn.token.defaultTtlDays` | `integer` | `30` | `>= 1` | Not read by `DbTokenService`, which never fills in an expiry. The CLI uses it; see [CLI commands](06-cli-commands.md). |
+| `authn.token.cache.ttlSeconds` | `integer` | `10` | `>= 0` | Seconds a successful validation is served from memory. `0` turns the [validation cache](#validation-cache) off. Read when the service first validates. |
+| `authn.token.cache.maxEntries` | `integer` | `10000` | `>= 1` | Cached validations held at most; the least recently used goes first. |
 
 The `authn.token` section comes from the `@spinajs/authn` schema and is filled in whole with its defaults; this package also ships the same values in its config file.
 
@@ -152,6 +168,7 @@ The collaborators are `@Autoinject` properties of `DbTokenService`, so the subcl
 - **Expiry is mandatory.** There is no "never expires" token; `expiresAt` is required by the type and checked at run time. A non-finite cap (a broken config that skipped the schema) refuses every expiry.
 - **Refusals vs throws.** A bad kind, scope, role, profile or expiry is a result (`invalid_scope`, `invalid_expiry`). A bad name (`InvalidArgument`), an unknown owner or an invalid `ctx.now` (`InvalidOperation`), a token format outside the limits (`InvalidOption`), a broken generator (`UnexpectedServerError`) or a database error throws.
 - **Events never undo a write.** `token.create` and `token.revoke` are published after the row is written. `AuthnAudit` runs the sinks concurrently, each bounded by `authn.audit.sinkTimeoutMs`; a sink that fails or times out is logged, and the caller still gets the plaintext or `true`. A refused create and a failed revoke publish nothing.
+- **Status within the ttl.** A cached validation does not re-read the owner's status. A ban through `@spinajs/users` revokes the owner's tokens, which evicts them; any other status change counts once the entry is older than `authn.token.cache.ttlSeconds`, or at once when something publishes `{ kind: 'identity' }` on the bus.
 - **Revocation keeps the row.** `revoke` and `revokeAllFor` only set `RevokedAt`; `deleteExpired` removes the row later.
 - **`service` tokens.** In this package a `service` token behaves like a `pat`; the kind is stored and reported. Both belong to a user owner under the default resolver.
 - **Rotation.** There is no rotate call. Create the new token, deploy it, then revoke the old one; both work in between.

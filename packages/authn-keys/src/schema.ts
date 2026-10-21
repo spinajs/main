@@ -45,5 +45,13 @@ export const AUTHN_KEYS_CONFIGURATION_SCHEMA = {
         requiredComponents: { ...stringList, default: ['@method', '@target-uri', 'content-digest'] },
       },
     },
+    cache: {
+      type: 'object',
+      default: {},
+      properties: {
+        ttlSeconds: { type: 'integer', minimum: 0, default: 10, description: 'Seconds KeyRegistry.byId serves a key from memory; 0 turns the cache off.' },
+        maxEntries: { type: 'integer', minimum: 1, default: 10000 },
+      },
+    },
   },
 };

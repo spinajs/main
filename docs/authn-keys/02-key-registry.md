@@ -53,9 +53,22 @@ The routes, their status codes and the fresh-auth rule belong to [`@spinajs/auth
 | --- | --- |
 | `list(owner)` | Every key of the owner, revoked and expired ones included, through `KeyStore.listByOwner()`. |
 | `revoke(owner, kid, ctx, opts?)` | Sets `revokedAt = ctx.now` when the key exists and belongs to `owner` (same type and id). Returns `false` for an unknown or foreign key or a malformed `kid`. Revoking a revoked key returns `true`, keeps the first time, and publishes nothing. Otherwise publishes `key.revoke` with `data: { kid }` and `opts.actor`. |
-| `byId(kid)` | The record, revoked and expired ones included, or `null`. A malformed `kid` returns `null` without a store read. |
+| `byId(kid)` | The record, revoked and expired ones included, or `null`. A malformed `kid` returns `null` without a store read. Served from the [key cache](#key-cache) for `authn.keys.cache.ttlSeconds`. |
 | `touch(kid, at)` | Stamps `lastUsedAt`, at most once a minute per `kid` per registry instance. Optional on the `KeyRegistry` contract; the key strategies call it after a successful verification when the registry implements it. |
 | `challenge(req, ctx)` | Issues a register or login challenge. See [Challenge login](04-challenge-login.md). |
+
+### Key cache
+
+`DefaultKeyRegistry` wraps its `KeyStore` in a `CachedKeyStore` unless `authn.keys.cache.ttlSeconds` is `0`:
+
+1. `get` (behind `byId`) keeps a found key in memory for `ttlSeconds` (10 s). An unknown kid is not cached, so a key registered right after a miss is found at once.
+2. `insert`, `revoke` and `touch` through the store evict that kid.
+3. `revoke` also publishes `{ kind: 'key', id: kid }` on the `CredentialChangeBus`, also when the key was already revoked. Every change the bus delivers evicts: `{ kind: 'key' }` that kid, `{ kind: 'identity' }` every key of that owner.
+4. A read that an eviction overtook stores nothing.
+
+The default bus only reaches this process (decision D9): a key revoked by `authn:key-revoke` or by another node stops working here within `ttlSeconds`.
+
+`CachedKeyStore` is exported, and passes `runKeyStoreConformance` over `MemoryKeyStore` and `OrmKeyStore`.
 
 ### The CLI
 
@@ -79,6 +92,8 @@ The commands run through the `spinajs` bin (`npx spinajs <command>`). They act a
 | `authn.keys.algorithms` | `string[]` | `['EdDSA', 'ES256']` | `EdDSA`, `ES256` | Key types `register` accepts |
 | `authn.keys.challenge.ttlSeconds` | `integer` | `120` | `1`-`3600` | Lifetime of the register challenge behind a proof |
 | `authn.keys.challenge.audience` | `string \| null` | `null` | non-empty string or `null` | Audience of the proof signature; `null` uses `assertion.audience` |
+| `authn.keys.cache.ttlSeconds` | `integer` | `10` | `>= 0` | Seconds `byId` serves a key from memory; `0` turns the [key cache](#key-cache) off |
+| `authn.keys.cache.maxEntries` | `integer` | `10000` | `>= 1` | Cached keys held at most |
 
 The full table is in [Setup and configuration](01-setup-and-configuration.md#configuration).
 
@@ -132,7 +147,7 @@ The collaborators are `@Autoinject` properties of `DefaultKeyRegistry`, so the s
 
 ## Important behaviour
 
-- A revoked key fails on the next request: every strategy reads the key through `byId()` and accepts it only when `revokedAt` is unset and `ctx.now` is before `expiresAt`.
+- A key revoked through this registry fails on the next request: `revoke` evicts it, and every strategy reads the key through `byId()` and accepts it only when `revokedAt` is unset and `ctx.now` is before `expiresAt`. A key revoked in another process fails within `authn.keys.cache.ttlSeconds`.
 - Revoking a key does not end the sessions it logged in through `keys-challenge`.
 - The `kid` and the thumbprint are unique across all owners. The same public key cannot be registered twice, not even for another owner.
 - `register` checks the key, then the proof, then uniqueness. A duplicate key with a bad proof gets `invalid_proof`, not `duplicate`.

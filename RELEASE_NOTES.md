@@ -1,3 +1,21 @@
+# Release notes — authn-token, authn-keys: credential cache
+
+## New behavior
+
+- `DbTokenService.validate` serves a successful result from memory for `authn.token.cache.ttlSeconds` (default 10;
+  `0` turns it off), keyed by the token hash. A hit runs no query and no `IdentityStore.status` read; the token's
+  expiry is still checked. On a miss the default `UsersTableTokenOwnerResolver` reads the token and its owner in one
+  statement (new `TokenOwnerResolver.tokenByHash`). A subclass that overrides `refOf` to name owners differently must
+  also override `tokenByHash`.
+- `DefaultKeyRegistry.byId` serves a key from memory for `authn.keys.cache.ttlSeconds` (default 10), through the new
+  `CachedKeyStore`.
+- New `CredentialChangeBus` contract in `@spinajs/authn/contracts`, with the in-process default
+  `InProcessCredentialChangeBus` (`@spinajs/authn/bus`). Token revocations publish `{ kind: 'token' }`,
+  `revokeAllFor` publishes `{ kind: 'identity' }`, key revocations publish `{ kind: 'key' }`; the caches evict on
+  every change. Other processes see a change within the ttl (decision D9).
+- A status change of an owner that does not revoke its tokens (a ban through `@spinajs/users` does) takes effect
+  within the token cache ttl, or at once when the code that changes it publishes `{ kind: 'identity' }`.
+
 # Release notes — authn: no per-request writes on the token and key path
 
 ## New behavior

@@ -38,6 +38,14 @@ export const AUTHN_TOKEN_CONFIGURATION_SCHEMA = {
     defaultTtlDays: { type: 'integer', minimum: 1, default: 30 },
     agentMaxTtlMinutes: { type: 'integer', minimum: 1, default: 1440 },
     lastUsedUpdateInterval: { type: 'number', minimum: 0, default: 60, description: 'Seconds.' },
+    cache: {
+      type: 'object',
+      default: {},
+      properties: {
+        ttlSeconds: { type: 'integer', minimum: 0, default: 10, description: 'Seconds a successful validation is served from memory; 0 turns the cache off.' },
+        maxEntries: { type: 'integer', minimum: 1, default: 10000 },
+      },
+    },
   },
 };
 
