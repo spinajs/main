@@ -6,16 +6,35 @@ removed. An app that migrates on startup resolves `OrmMigrator` before serving; 
 
 - **Breaking (`@spinajs/orm`): `Orm.resolve()` no longer migrates; resolve `OrmMigrator`.** The Orm's resolve
   connects, registers models and migrations, reads table info and wires relations; it writes nothing. The new
-  `OrmMigrator` (an `AsyncService` injecting the Orm) runs the boot pass: the pending migrations of every
+  `OrmMigrator` (an `AsyncService` that resolves the Orm) runs the boot pass: the pending migrations of every
   `Migration.OnStartup` connection, a re-read of the table info of the models their statements touched, their `data()`
   seeds, then the `db.StrictTableCheck` check. A seed can therefore resolve any service that injects the Orm (users'
   `create()`, `TokenService.create`): the per-call `ormReady()` wait 3.0.3 added for the seed deadlock is gone. An app
-  that migrates on startup calls `await DI.resolve(OrmMigrator)` before serving; until then a model query on a
-  `Migration.OnStartup` connection throws `connection <name> migrates on startup; resolve OrmMigrator before using
-  it`. `Orm.Migration` moved to `OrmMigrator.Runner`, `MigrateOnStartup` (and `IOrmOptions`) to the migrator's
+  that migrates on startup calls `await DI.resolve(OrmMigrator)` before serving; until its pass succeeded a model
+  query on a `Migration.OnStartup` connection throws `connection <name> migrates on startup; resolve OrmMigrator
+  before using it`. Only the pass itself (the migrations' `up()` and `data()`) queries through: a service resolved
+  alongside the migrator that queries while it runs is refused, and a failed pass leaves the gate closed. A cached
+  `OrmMigrator` leaves the cache once another `Orm` resolves (`DI.uncache(Orm)` alone), so the next
+  `DI.resolve(OrmMigrator)` migrates and opens that `Orm`. `Orm.Migration` moved to `OrmMigrator.Runner`, `MigrateOnStartup` (and `IOrmOptions`) to the migrator's
   options (`DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])`), and `MigrationRunner.up()` returns
-  `{ executed, touched }`. `reloadTableInfo()` takes `models` to read only some models. `ormReady()` is removed:
-  inject the Orm.
+  `{ executed, touched }`. `ormReady()` is removed: inject the Orm.
+- **Breaking for `Orm` subclasses.** The `Orm` constructor takes no options (`IOrmOptions` is gone), and
+  `Migration` and `runDataPhase()` are no longer on the `Orm`. A subclass that passed options to `super()`,
+  overrode `runDataPhase()` or used `this.Migration` moves that to an `OrmMigrator` subclass registered with
+  `DI.register(MyMigrator).as(OrmMigrator)`: `runDataPhase()` is protected there, `Runner` replaces `Migration`, and
+  `this.Orm` is assigned in `resolve()` (no longer `@Autoinject`ed).
+- **`reloadTableInfo(options?)` rebuilds the columns it reads.** Each read sets a model's columns to its decorator
+  columns merged with what the table holds now, instead of merging into the previous read: a column a migration
+  dropped or renamed leaves the model, and a converter mapped to a column's old type goes with it. `models` reads
+  only those models (the others keep their last read). `strict: true` throws one `OrmException` naming every
+  registered model whose table is missing; a model this call did not read but an earlier read found missing is
+  read again first, so a table created since counts. Without `strict` it warns per model read.
+- **Electron renderer (`@spinajs/electron`).** `ElectronRendererOrm` resolves like any `Orm`: on a
+  `Migration.OnStartup` connection the renderer's model queries throw the gate error until a migrator resolved in
+  the renderer. The main process migrates; the renderer resolves `DI.resolve(OrmMigrator, [{ MigrateOnStartup:
+  false }])`, which runs nothing over IPC, skips the table check and opens the gate, instead of resolving only the
+  `Orm`. A plain `DI.resolve(Orm)` in the renderer runs the table check of the connections without
+  `Migration.OnStartup` over IPC and fails on a table main has not created.
 - **`Orm.resolve()` still checks the tables of the connections without `Migration.OnStartup`.** Those are migrated
   before the app starts (`migrate-up`), so with `db.StrictTableCheck` on a missing table there fails
   `Orm.resolve()`, as before 3.0.5, and the Orm closes its connections first. The tables of `Migration.OnStartup`
