@@ -1,6 +1,6 @@
 # CSRF origin guard
 
-`CsrfOriginGuard` refuses cross-site request forgery against cookie sessions. A request with an unsafe method that carries the session cookie passes only when its `Origin` is the app's own origin or a listed one. The same check covers the unauthenticated credential posts (login, password reset, key login, MFA verify and recovery), which closes login CSRF: a cross-site form cannot sign a victim in as the attacker. It runs before `AuthnMiddleware` (order 4), so a refused request reaches no controller and restores no session. It does **not** use CSRF tokens.
+`CsrfOriginGuard` refuses cross-site request forgery against cookie sessions. A request with an unsafe method that carries the session cookie passes only when its `Origin` is the app's own origin or a listed one. The same check covers the unauthenticated credential posts (login, password reset, key login, MFA verify and recovery, code request and code login), which closes login CSRF: a cross-site form cannot sign a victim in as the attacker. It runs before `AuthnMiddleware` (order 4), so a refused request reaches no controller and restores no session. It does **not** use CSRF tokens.
 
 ## How it works
 
@@ -32,7 +32,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `authn.http.csrf.enabled` | `boolean` | `true` | `true`, `false` | `false` turns the guard off. Absent means on. |
 | `authn.http.csrf.allowedOrigins` | `string[]` | `[]` | origins `scheme://host[:port]` | Origins allowed besides the app's own, which is always allowed. Normalised at boot; an entry that is no origin fails the boot, naming the key. |
-| `authn.http.csrf.unauthenticatedRoutes` | `string[]` | `['/auth/login', '/auth/password/reset-request', '/auth/password/reset', '/auth/keys/login', '/auth/mfa/verify', '/auth/mfa/recovery']` | absolute paths | Paths whose `POST` (any unsafe method) is checked even without the session cookie. Matched against the request path after `http.controllers.route.prefix`, ignoring case and a trailing slash. Config sources concatenate arrays, so an app's entries add to the defaults; to replace the list, call `Configuration.set`. An entry that does not start with `/` fails the boot. |
+| `authn.http.csrf.unauthenticatedRoutes` | `string[]` | `['/auth/login', '/auth/password/reset-request', '/auth/password/reset', '/auth/keys/login', '/auth/mfa/verify', '/auth/mfa/recovery', '/auth/code/request', '/auth/code/login']` | absolute paths | Paths whose `POST` (any unsafe method) is checked even without the session cookie. Matched against the request path after `http.controllers.route.prefix`, ignoring case and a trailing slash. Config sources concatenate arrays, so an app's entries add to the defaults; to replace the list, call `Configuration.set`. An entry that does not start with `/` fails the boot. |
 | `authn.http.trustProxy` | see [Request authentication](01-request-authentication.md#configuration) | | | Proxies whose `X-Forwarded-Proto` and `X-Forwarded-Host` set the own origin. Falls back to `http.trustProxy`. |
 | `authn.session.cookie.name` | `string` | `'ssid'` | | The cookie the guard looks for; see [`@spinajs/authn-session`](../authn-session/README.md). |
 

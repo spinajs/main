@@ -11,7 +11,7 @@ import { fakeContainer } from '../support/config-boot.js';
 const OWN = 'http://app.example.test';
 const PARTNER = 'https://partner.example.org';
 const EVIL = 'https://evil.example.net';
-const LISTED = ['/auth/login', '/auth/password/reset-request', '/auth/password/reset', '/auth/keys/login', '/auth/mfa/verify', '/auth/mfa/recovery'];
+const LISTED = ['/auth/login', '/auth/password/reset-request', '/auth/password/reset', '/auth/keys/login', '/auth/mfa/verify', '/auth/mfa/recovery', '/auth/code/request', '/auth/code/login'];
 const REFUSED = { error: { code: 'E_CSRF_ORIGIN', message: 'Cross-origin request refused' } };
 
 const BASE = {
