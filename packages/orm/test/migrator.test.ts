@@ -632,6 +632,28 @@ describe('OrmMigrator', function () {
     expect((err as Error).message).to.equal('Missing tables (db.StrictTableCheck): model MigratorTestOther: table mig_other on connection migrator. Create them (run their migrations) or set db.StrictTableCheck to false');
   });
 
+  it('the Orm resolve fails with db.StrictTableCheck on when a connection without Migration.OnStartup misses a table', async () => {
+    onStartup = false;
+    strictSetting = true;
+    TABLES.set('mig_users', [column('Id', 'INT', { PrimaryKey: true })]);
+    TABLES.delete('mig_other');
+
+    const err = await rejection(Promise.resolve(DI.resolve(Orm)));
+
+    expect(err).to.be.instanceOf(OrmException);
+    expect((err as Error).message).to.equal('Missing tables (db.StrictTableCheck): model MigratorTestOther: table mig_other on connection migrator. Create them (run their migrations) or set db.StrictTableCheck to false');
+  });
+
+  it('a migrator with MigrateOnStartup: false resolves its Orm without the table check, as a migration tool runs before the tables exist', async () => {
+    onStartup = false;
+    strictSetting = true;
+    TABLES.delete('mig_other');
+
+    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+
+    expect(migrator.Runner).to.not.be.undefined;
+  });
+
   it('MigrateOnStartup: false resolves without a pass and opens the gate; migrate() applies and seeds', async () => {
     const Create = createUsersMigration();
     const up = sinon.spy(Create.prototype, 'up');

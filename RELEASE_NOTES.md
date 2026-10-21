@@ -16,6 +16,11 @@ removed. An app that migrates on startup resolves `OrmMigrator` before serving; 
   options (`DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])`), and `MigrationRunner.up()` returns
   `{ executed, touched }`. `reloadTableInfo()` takes `models` to read only some models. `ormReady()` is removed:
   inject the Orm.
+- **`Orm.resolve()` still checks the tables of the connections without `Migration.OnStartup`.** Those are migrated
+  before the app starts (`migrate-up`), so with `db.StrictTableCheck` on a missing table there fails
+  `Orm.resolve()`, as before 3.0.5, and the Orm closes its connections first. The tables of `Migration.OnStartup`
+  connections are checked by `OrmMigrator` after its pass. The `Orm` an `OrmMigrator` resolved with
+  `MigrateOnStartup: false` resolves skips the check, so a migration tool boots before the tables exist.
 - **Breaking (`@spinajs/orm-cli`): the commands run on `OrmMigrator`.** `resolveCliOrm()` and `CLI_ORM_OPTIONS` are
   replaced by `resolveCliMigrator()`. `migrate-up` runs `OrmMigrator.migrate()`, so it now runs the `data()` seeds of
   the migrations it applies (`--fake` seeds nothing).

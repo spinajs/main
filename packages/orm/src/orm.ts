@@ -15,6 +15,7 @@ import { TimeSpan } from '@spinajs/util';
 import { MIGRATION_FILE_REGEXP } from './migration-runner.js';
 import { MIGRATION_DI_SOURCE, mergeMigrationEnv, resolveMigrationEnv } from './migration-environment.js';
 import { MigrationSource } from './migration-sources.js';
+import { inMigrationTool } from './schema-touches.js';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg
@@ -87,11 +88,29 @@ export class Orm extends AsyncService {
   /**
    * Reads the columns of the registered models' tables into their descriptors; call it after creating tables on a
    * resolved Orm. A model whose table is missing keeps only its decorator columns and is logged, or, with `strict`,
-   * fails the call. `Orm.resolve()` calls it lenient; `OrmMigrator` re-reads the models its migrations touched and
-   * checks strict when `db.StrictTableCheck` is on.
+   * fails the call. With `db.StrictTableCheck` on, `Orm.resolve()` fails on a missing table of a connection without
+   * `Migration.OnStartup`; `OrmMigrator` re-reads the models its migrations touched and checks every model after its
+   * pass.
    */
   public async reloadTableInfo(options: IReloadTableInfoOptions = {}): Promise<void> {
-    const read = options.models ? this.Models.filter((m) => options.models!.includes(m.type)) : this.Models;
+    const missing = await this.readTableInfo(options.models);
+
+    if (options.strict) {
+      const all = this.Models.filter((m) => this.MissingTables.has(m.type)).map((m) => this.MissingTables.get(m.type)!);
+
+      if (all.length > 0) {
+        throw new OrmException(missingTablesMessage(all));
+      }
+
+      return;
+    }
+
+    this.warnMissingTables(missing);
+  }
+
+  /** Reads `models` ( default: all ); resolves with the missing tables of the connections no `OrmMigrator` pass awaits. */
+  protected async readTableInfo(models?: Array<Class<ModelBase>>): Promise<IMissingModelTable[]> {
+    const read = models ? this.Models.filter((m) => models.includes(m.type)) : this.Models;
     const missing: IMissingModelTable[] = [];
 
     for (const m of read) {
@@ -193,16 +212,10 @@ export class Orm extends AsyncService {
       }
     }
 
-    if (options.strict) {
-      const all = this.Models.filter((m) => this.MissingTables.has(m.type)).map((m) => this.MissingTables.get(m.type)!);
+    return missing;
+  }
 
-      if (all.length > 0) {
-        throw new OrmException(missingTablesMessage(all));
-      }
-
-      return;
-    }
-
+  protected warnMissingTables(missing: IMissingModelTable[]): void {
     for (const m of missing) {
       this.Log.warn({ model: m.model, table: m.table, connection: m.connection }, 'Table ${table} of model ${model} does not exist on connection ${connection}; the model has no column info');
     }
@@ -230,8 +243,18 @@ export class Orm extends AsyncService {
     // A driver's tableInfo() may read the '__orm_db_value_converters__' map this registers.
     this.registerDefaultConverters();
 
-    // Lenient: on a Migration.OnStartup connection the tables may not exist before OrmMigrator runs.
-    await this.reloadTableInfo({ strict: false });
+    // A connection without Migration.OnStartup was migrated before this process started ( migrate-up ), so it is
+    // checked here; OrmMigrator checks the OnStartup ones after its pass. A migration tool resolves the Orm before
+    // the tables it is about to create exist.
+    const missing = await this.readTableInfo();
+
+    if (missing.length > 0 && this.StrictTableCheck && !inMigrationTool()) {
+      // a rejected resolve caches no Orm, so nobody else could close the connections it opened
+      await this.dispose().catch(() => undefined);
+      throw new OrmException(missingTablesMessage(missing));
+    }
+
+    this.warnMissingTables(missing);
 
     this.wireRelations();
     this.applyModelMixins();

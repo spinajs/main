@@ -4,7 +4,7 @@
 
 ## How it works
 
-1. `DI.resolve(Orm)` constructs the `Orm` singleton and calls `Orm.resolve()`. `DI.resolve(OrmMigrator)` does the same through its `@Autoinject(Orm)`.
+1. `DI.resolve(Orm)` constructs the `Orm` singleton and calls `Orm.resolve()`. `DI.resolve(OrmMigrator)` does the same from its own `resolve()`.
 2. `Orm.resolve()` reads `db.Connections` from `Configuration`. For each entry, in order:
    1. It checks that a class is registered in DI under the token in `Driver`. If not, it throws `OrmException` (`ORM connection driver <Driver> not registerd`).
    2. It resolves the driver with the entry as constructor argument. The `OrmDriver` constructor merges the entry over its defaults, and `OrmDriver.resolve()` creates the driver's own child DI container and logger (`orm-driver-<Name>`). A resolve failure throws `OrmException` with the original error as `inner`.
@@ -15,7 +15,7 @@
 5. `Orm` registers the `OrmConnection` factory in DI: `DI.resolve<OrmDriver>('OrmConnection', [name])` returns the driver stored under `name`, or `null`.
 6. `Orm` discovers migrations (see [Migrations](10-migrations.md)) and registers every class decorated with `@Model` into `Orm.Models`.
 7. `Orm` registers the default value converters.
-8. `Orm.reloadTableInfo({ strict: false })` binds each model to the driver named by its `@Connection`, reads the table's columns with `driver.tableInfo()` and merges them into the model descriptor. A model whose connection is not in `Orm.Connections` is skipped with a warning. A model whose table is missing (`tableInfo()` answers `null`) keeps only its decorator columns and is recorded as missing: logged as a warning, or at trace level on a `Migration.OnStartup` connection, whose tables `OrmMigrator` creates. The `db.StrictTableCheck` check runs in the migrator's boot pass, not here.
+8. `Orm` reads the table info of every model: it binds each model to the driver named by its `@Connection`, reads the table's columns with `driver.tableInfo()` and sets the model's columns to its decorator columns merged with what the table holds. A model whose connection is not in `Orm.Connections` is skipped with a warning. A model whose table is missing (`tableInfo()` answers `null`) keeps only its decorator columns and is recorded as missing: logged at trace level on a `Migration.OnStartup` connection, whose tables `OrmMigrator` creates and checks. On any other connection, `db.StrictTableCheck` on makes `Orm.resolve()` dispose its connections and throw one `OrmException` naming every such model; off, each is logged as a warning. An `OrmMigrator` resolved with `MigrateOnStartup: false` resolves the `Orm` without that check: a migration tool boots before the tables exist.
 9. `Orm` wires relation targets (an unknown target model throws `OrmException`) and installs the model static methods.
 
 ```mermaid
@@ -80,7 +80,7 @@ sequenceDiagram
 | `db.Connections[].Migration.Lock.StaleAfter` | `number` | `600000` | ms | Age after which a held lock is stolen. |
 | `db.DefaultConnection` | `string` | unset | a connection `Name` | Stores that driver under the extra name `default`. |
 | `db.Aliases` | `Record<string, string>` | `{}` | alias → connection `Name` | Stores an existing driver under extra names. |
-| `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fail `OrmMigrator`'s boot pass when a registered model on a configured connection has no table. Checked after the pass whatever `Migration.OnStartup` says. `Orm.resolve()` only warns. |
+| `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fail the boot when a registered model on a configured connection has no table: `Orm.resolve()` for the connections without `Migration.OnStartup`, `OrmMigrator`'s boot pass for every connection, after it migrated. Not checked by the `Orm` an `OrmMigrator` with `MigrateOnStartup: false` resolves. |
 | `system.dirs.migrations` | `string[]` | `[]` | directory paths | Directories scanned for migration files. See [Migrations](10-migrations.md). |
 
 How each driver applies `Pool.*` and `Options` is driver-specific: see [`@spinajs/orm-sqlite`](../orm-sqlite/README.md), [`@spinajs/orm-mysql`](../orm-mysql/README.md) and [`@spinajs/orm-mssql`](../orm-mssql/README.md).
@@ -187,7 +187,7 @@ export async function bootstrapDatabase(): Promise<Orm> {
 - In a reusable package, bind models to a package-specific name (`@Connection('user-sessions')`) and let the application map it with `db.Aliases`.
 - Set `db.DefaultConnection` and use `@Connection('default')` for application models, so switching databases is a config change.
 - Resolve `OrmMigrator` with `MigrateOnStartup: false` in tools that inspect or repair migrations, as `@spinajs/orm-cli` does.
-- Apply migrations before the app starts (`migrate-up` in the deploy step, or `Migration.OnStartup` with `OrmMigrator` at boot). With `db.StrictTableCheck` on, the migrator's boot pass names any table still missing.
+- Apply migrations before the app starts (`migrate-up` in the deploy step, or `Migration.OnStartup` with `OrmMigrator` at boot). With `db.StrictTableCheck` on, `Orm.resolve()` names a missing table of a connection without `Migration.OnStartup`, and the migrator's boot pass any table still missing after it.
 - Use `orm.Connections.get(name)` or `DI.resolve('OrmConnection', [name])` for raw queries; check the result for `undefined` / `null`.
 
 ## Patterns and antipatterns
@@ -324,7 +324,7 @@ export async function pendingMigrations(): Promise<IMigrationStatusEntry[]> {
 
 ### `Orm.resolve()` no longer migrates
 
-The boot migration pass, its `data()` phase and the `db.StrictTableCheck` check moved to `OrmMigrator`. `IOrmOptions` and `Orm.Migration` are removed.
+The boot migration pass and its `data()` phase moved to `OrmMigrator`, and so did the `db.StrictTableCheck` check of the `Migration.OnStartup` connections; `Orm.resolve()` still checks the others. `IOrmOptions` and `Orm.Migration` are removed.
 
 ```ts
 // Before
@@ -340,7 +340,7 @@ An app that only resolves `Orm` on a `Migration.OnStartup` connection fails at i
 
 ### `db.StrictTableCheck` defaults to `true`
 
-`OrmMigrator`'s boot pass fails when any registered model has no table on its connection. Apply the migrations before the app starts, or turn the check off where tables are created after the boot.
+`Orm.resolve()` fails when a registered model on a connection without `Migration.OnStartup` has no table, and `OrmMigrator`'s boot pass when any registered model still has none after it migrated. Apply the migrations before the app starts, or turn the check off where tables are created after the boot.
 
 ```ts
 // Keep the strict check and migrate first (`spinajs migrate-up`, or Migration.OnStartup with OrmMigrator)

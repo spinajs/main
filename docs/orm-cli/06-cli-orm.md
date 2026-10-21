@@ -12,7 +12,7 @@ const entries = await migrator.Runner.status();
 ## How it works
 
 1. `resolveCliMigrator()` calls `DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])`.
-2. `OrmMigrator` injects the `Orm`, so DI resolves the `Orm` first. `Orm.resolve()` never migrates; it reads table info leniently, so a fresh database without tables boots. See [Connections](../orm/01-connections.md).
+2. `OrmMigrator.resolve()` resolves the `Orm` as a migration tool. `Orm.resolve()` never migrates and skips its `db.StrictTableCheck` check, so a fresh database without tables boots. See [Connections](../orm/01-connections.md).
 3. `OrmMigrator.resolve()` assigns `Runner` and opens the model-query gate of every `Migration.OnStartup` connection. It sees `MigrateOnStartup: false` and skips the boot pass, its `data()` phase and its `db.StrictTableCheck` check. See [Migrations: the boot pass](../orm/10-migrations.md#the-boot-pass-diresolveormmigrator).
 4. When an `OrmMigrator` was already resolved in this process, DI returns that singleton and ignores the options.
 

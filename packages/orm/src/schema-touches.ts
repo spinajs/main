@@ -14,6 +14,8 @@ interface ITouchScope {
   inBuilder?: boolean;
   /** Inside `OrmMigrator`'s boot pass: model queries pass the `Migration.OnStartup` gate it has not opened yet. */
   migrator?: boolean;
+  /** An `OrmMigrator` with `MigrateOnStartup: false` resolving its Orm: the tables may not exist yet. */
+  tool?: boolean;
 }
 
 const storage = new AsyncLocalStorage<ITouchScope>();
@@ -52,6 +54,16 @@ export function runAsMigrator<R>(fn: () => Promise<R>): Promise<R> {
 /** True inside {@link runAsMigrator}. */
 export function inMigratorPass(): boolean {
   return storage.getStore()?.migrator === true;
+}
+
+/** Runs `fn` as a migration tool's boot: an Orm resolved in it skips the `db.StrictTableCheck` check. */
+export function runAsMigrationTool<R>(fn: () => Promise<R>): Promise<R> {
+  return storage.run({ ...storage.getStore(), tool: true }, fn);
+}
+
+/** True inside {@link runAsMigrationTool}. */
+export function inMigrationTool(): boolean {
+  return storage.getStore()?.tool === true;
 }
 
 /** Marks every table of `driver` as changed in the current recording, if there is one. */

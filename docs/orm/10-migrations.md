@@ -15,17 +15,18 @@ Migrations change the database schema in ordered, tracked steps. Each migration 
 5. Entries whose environment is set and differs from the normalized `APP_ENV` are dropped. They never reach `orm.Migrations`, so `up`, `down` and `status` all ignore them.
 6. `Orm.registerMigration()` checks each class name against `MIGRATION_FILE_REGEXP` and throws `OrmException` for a name without a valid `_yyyy_MM_dd_HH_mm_ss` timestamp.
 
-`Orm.resolve()` applies nothing. It reads table info leniently, wires relations and installs the model statics; see [Connections](01-connections.md).
+`Orm.resolve()` applies nothing. It reads table info (failing on a missing table of a connection without `Migration.OnStartup` when `db.StrictTableCheck` is on), wires relations and installs the model statics; see [Connections](01-connections.md).
 
 ### The boot pass, `DI.resolve(OrmMigrator)`
 
-1. `OrmMigrator` injects the `Orm` (`@Autoinject(Orm)`), so the `Orm` is fully resolved first.
-2. `OrmMigrator.resolve()` assigns `Runner = new MigrationRunner(orm)` and clears `AwaitsStartupMigration` on every connection: model queries on `Migration.OnStartup` connections work from here on.
-3. Unless resolved with `{ MigrateOnStartup: false }`, it calls `migrate({ force: false })`. `force: false` runs only connections whose `Migration.OnStartup` is `true`.
+1. `OrmMigrator.resolve()` resolves the `Orm` from its container first. With `{ MigrateOnStartup: false }` it resolves it as a migration tool: `Orm.resolve()` skips its `db.StrictTableCheck` check.
+2. It assigns `Runner = new MigrationRunner(orm)`. With `{ MigrateOnStartup: false }` it clears `AwaitsStartupMigration` on every connection and returns.
+3. Otherwise it calls `migrate({ force: false })`. `force: false` runs only connections whose `Migration.OnStartup` is `true`. Model queries of the pass (the migrations' `up()` and `data()` and what they call) pass the `Migration.OnStartup` gate; any other code is refused until step 7.
 4. `migrate()` calls `Runner.up()`, then `orm.reloadTableInfo({ models: touched.models })` for the models whose tables the applied migrations changed, then `runDataPhase(executed)`.
 5. `runDataPhase()` calls `data()` on every migration the pass applied. Every hook runs even when an earlier one throws; the failures are reported together in one `OrmException` whose `inner` is the first one.
 6. With `db.StrictTableCheck` on (the default), it calls `orm.reloadTableInfo({ models: [], strict: true })`: no table is read again, and one `OrmException` names every registered model whose table is still missing, for example `Missing tables (db.StrictTableCheck): model PolicyRecord: table authz_policy on connection authz (main). Create them (run their migrations) or set db.StrictTableCheck to false`.
-7. A migration that throws in step 4 rejects `DI.resolve(OrmMigrator)` with that error. The `data()` phase does not run.
+7. It clears `AwaitsStartupMigration` on every connection: model queries on `Migration.OnStartup` connections work from here on.
+8. A migration that throws in step 4 rejects `DI.resolve(OrmMigrator)` with that error. The `data()` phase does not run. A failed pass leaves the gate closed.
 
 ```mermaid
 sequenceDiagram
@@ -35,7 +36,7 @@ sequenceDiagram
   participant R as MigrationRunner
   participant M as OrmMigration
   App->>Mg: DI.resolve(OrmMigrator)
-  Mg->>Orm: @Autoinject(Orm): connections, models, table info
+  Mg->>Orm: resolve(Orm): connections, models, table info
   Mg->>R: up(undefined, { force: false })
   R->>M: up(driver)
   R-->>Mg: { executed, touched }

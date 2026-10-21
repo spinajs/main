@@ -1,10 +1,10 @@
-import { AsyncService, Autoinject } from '@spinajs/di';
+import { AsyncService, Autoinject, Container } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { OrmException } from './exceptions.js';
 import { OrmMigration } from './interfaces.js';
 import { IMigrationUpOptions, MigrationRunner } from './migration-runner.js';
 import { Orm } from './orm.js';
-import { runAsMigrator } from './schema-touches.js';
+import { runAsMigrationTool, runAsMigrator } from './schema-touches.js';
 
 /** What `DI.resolve(OrmMigrator, [ ... ])` hands the migrator: a property of the process, not of the deployment. */
 export interface IOrmMigratorOptions {
@@ -26,8 +26,11 @@ export interface IOrmMigrateOptions extends IMigrationUpOptions {
  * Such services must not inject the migrator, or the cycle is back.
  */
 export class OrmMigrator extends AsyncService {
-  @Autoinject(Orm)
+  /** Resolved by `resolve()` rather than injected: a migration tool's Orm must resolve without the table check. */
   protected Orm: Orm;
+
+  @Autoinject()
+  protected Container: Container;
 
   @Logger('ORM')
   protected Log: Log;
@@ -45,9 +48,11 @@ export class OrmMigrator extends AsyncService {
    * pass until it succeeded; a failed pass leaves them refused.
    */
   public async resolve(): Promise<void> {
+    const tool = this.Options.MigrateOnStartup === false;
+    this.Orm = await (tool ? runAsMigrationTool(async () => await this.Container.resolve(Orm)) : this.Container.resolve(Orm));
     this.Runner = new MigrationRunner(this.Orm);
 
-    if (this.Options.MigrateOnStartup === false) {
+    if (tool) {
       this.Log.trace('Boot migration pass skipped - OrmMigrator was resolved with MigrateOnStartup: false');
       this.openGate();
       return;

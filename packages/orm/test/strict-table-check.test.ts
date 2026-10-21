@@ -109,11 +109,10 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
     DI.clearCache();
   });
 
-  it('fails the migrator boot naming every model whose table is missing, its table and its connection', async () => {
+  it('fails the Orm resolve naming every model whose table is missing, its table and its connection', async () => {
     TABLES.add('strict_present');
 
-    await DI.resolve(Orm);
-    const err = await rejection(Promise.resolve(DI.resolve(OrmMigrator)));
+    const err = await rejection(Promise.resolve(DI.resolve(Orm)));
 
     expect(err).to.be.instanceOf(OrmException);
     expect((err as Error).message).to.equal(
@@ -141,7 +140,8 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
     expect(extractModelDescriptor(models.StrictMissing)!.Driver).to.equal(orm.Connections.get(CONNECTION));
   });
 
-  it('the Orm resolves before the tables exist; the check is the migrator boot pass', async () => {
+  it('the Orm of a migrator resolved with MigrateOnStartup: false boots before the tables exist', async () => {
+    await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
     const orm = await DI.resolve(Orm);
 
     expect(await rejection(orm.reloadTableInfo({ strict: orm.StrictTableCheck }))).to.be.instanceOf(OrmException);
