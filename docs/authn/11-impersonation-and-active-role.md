@@ -34,6 +34,8 @@ The guard gets the actor as a principal narrowed by the actor's own role switch.
 
 `@spinajs/authn-http` calls it for every request on an active session. It answers the principal, or `null` after ending the session.
 
+`session` is either the `Session` the request already restored or a bare `SessionHandle`. A `Session` is used as it is, and every check below still runs on it. Only a handle is restored through `SessionIssuer.restore`. `AuthnMiddleware` passes its restored `Session`, so a request restores its session once.
+
 For a session that is not an impersonation:
 
 1. Past `authn.session.expiration.maxLifetime` from the login: the session is revoked, `session.expire` (reason `session_lifetime`) is audited, `null`.
