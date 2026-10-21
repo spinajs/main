@@ -96,8 +96,8 @@ export class AuthnImpersonationService extends AsyncService {
   protected Auditor: AuthnAudit;
 
   /** What a request with this session resolves to; null when it yields no principal. */
-  public async principalOf(session: SessionHandle, ctx: AuthnContext): Promise<Principal | null> {
-    const stored = await this.restore(session);
+  public async principalOf(session: Session | SessionHandle, ctx: AuthnContext): Promise<Principal | null> {
+    const stored = await this.restore(session instanceof Session ? session.handle : session);
     if (!stored) return null;
     const impersonator = stored.facts.impersonator;
     if (!impersonator) {
