@@ -1,6 +1,6 @@
 # Route groups
 
-The package mounts its routes from ten controllers in `lib/<cjs|mjs>/v3/controllers`, which the shipped config adds to the controller scan. Most groups switch on by themselves when the service behind them is registered: install the strategy package (or `@spinajs/users`) and the routes appear; leave it out and they answer 404 as if they did not exist.
+The package mounts its routes from eleven controllers in `lib/<cjs|mjs>/v3/controllers`, which the shipped config adds to the controller scan. Most groups switch on by themselves when the service behind them is registered: install the strategy package (or `@spinajs/users`) and the routes appear; leave it out and they answer 404 as if they did not exist.
 
 ## How it works
 
@@ -19,6 +19,7 @@ The package mounts its routes from ten controllers in `lib/<cjs|mjs>/v3/controll
 | MFA enrolment | `TotpEnrolmentOn` | a registered `MfaEnrolmentService` whose `enabled(steps)` is true for the steps of the configured MFA policy. For `TotpService` of [`@spinajs/authn-totp`](../authn-totp/README.md): `authn.mfa.steps` lists `TotpMfaStep` itself, not a subclass, and `authn.mfa.encryptionKey.secret` is set | [MFA enrolment routes](13-mfa-enrolment-routes.md) |
 | API tokens | `TokenServiceRegistered` | a registered `TokenService` ([`@spinajs/authn-token`](../authn-token/README.md)) | [API token routes](14-api-token-routes.md) |
 | Keys | `KeyRoutesOn` | a registered `KeyRegistry` ([`@spinajs/authn-keys`](../authn-keys/README.md)) and `authn.keys.challenge.audience` or `authn.keys.assertion.audience` set | [Key routes](15-key-routes.md) |
+| JWKS | `JwsSignerRegistered` | a registered `JwsSigner` (`authn.keys.signer` of [`@spinajs/authn-keys`](../authn-keys/10-signing-keys.md)) | [JWKS route](20-jwks-route.md) |
 | Credential admin | `CredentialAdminGuardRegistered`, plus a gate per route | a registered `CredentialAdminGuard` (`AuthzCredentialAdminGuard` of `@spinajs/users`); each route also needs its own service | [Credential admin routes](16-credential-admin-routes.md) |
 
 ## Every route
@@ -55,6 +56,7 @@ The package mounts its routes from ten controllers in `lib/<cjs|mjs>/v3/controll
 | `DELETE` | `/user/keys/:kid` | `AuthnKeysController` | same | user session principal |
 | `POST` | `/auth/keys/challenge` | `AuthnKeysController` | | none for `login`; user session for `register` |
 | `POST` | `/auth/keys/login` | `AuthnKeysController` | | none |
+| `GET` | `/.well-known/jwks.json` | `AuthnJwksController` | | none |
 | `POST` | `/authn/admin/users/:uuid/password-reset` | `AuthnCredentialAdminController` | `[PasswordServiceRegistered, Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` | admin session principal, fresh |
 | `POST` | `/authn/admin/users/:uuid/mfa-reset` | `AuthnCredentialAdminController` | `[AdminMfaResetOn, Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` | same |
 | `DELETE` | `/authn/admin/users/:uuid/sessions` | `AuthnCredentialAdminController` | `[SessionIssuerRegistered, Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` | same |
@@ -81,7 +83,7 @@ Answers about an account, its session or its credentials carry `Cache-Control: n
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Route controllers | mounted by the controller scan from the shipped `system.dirs.controllers` entry | the ten `Authn*Controller` classes | | Not exported. Switch a group through its service and add fields to the answers with `AuthnResponseExtension`. <!-- TODO(docs-hook): verify whether an app can replace or drop a single shipped controller (config arrays concatenate across files) --> |
+| Route controllers | mounted by the controller scan from the shipped `system.dirs.controllers` entry | the eleven `Authn*Controller` classes | | Not exported. Switch a group through its service and add fields to the answers with `AuthnResponseExtension`. <!-- TODO(docs-hook): verify whether an app can replace or drop a single shipped controller (config arrays concatenate across files) --> |
 | Group gates | resolved by class from `@Policy` | `RoleSourceRegistered`, `ImpersonationGuardRegistered`, `PasswordServiceRegistered`, `TotpEnrolmentOn`, `TokenServiceRegistered`, `KeyRoutesOn`, `CredentialAdminGuardRegistered`, `SessionIssuerRegistered`, `AdminMfaResetOn` | | Not exported; switch a group by registering or not registering its service. |
 | `AuthnResponseExtension` | `Array.ofType` | none in this package | `AccessResponseExtension` of `@spinajs/users` | See [Answers and response extensions](17-answers-and-response-extensions.md). |
 

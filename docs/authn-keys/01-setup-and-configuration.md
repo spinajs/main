@@ -29,6 +29,7 @@ Importing `@spinajs/authn-keys` registers the key registry, the stores, the JWS 
 | `authn.keys.assertion.skewSeconds` | `integer` | `30` | `0`-`300` | Clock skew allowed on `iat` and `exp` |
 | `authn.keys.httpSignature.maxAgeSeconds` | `integer` | `300` | `1`-`300` | Largest `expires - created` of a signature |
 | `authn.keys.httpSignature.skewSeconds` | `integer` | `30` | `0`-`300` | How far `created` may lie in the future |
+| `authn.keys.signer` | `{ current, keys } | null` | `null` | `keys` non-empty secret references to private JWKs; `current` one of their `kid`s | Registers a `JwsSigner`; see [Signing keys and rotation](10-signing-keys.md) |
 | `authn.keys.httpSignature.requiredComponents` | `string[]` | `['@method', '@target-uri', 'content-digest']` | component names | Components every signature must cover; `content-digest` only applies to a request with a body |
 | `authn.strategies` | `{ name, service }[]` | `[]` | see below | The strategies that run; owned by `@spinajs/authn` |
 
@@ -76,6 +77,7 @@ The tables are on the `default` connection:
 | Key store | `KeyStore`, singleton | `OrmKeyStore` | `MemoryKeyStore` (exported, not registered) | See [Key store](03-key-store.md#services-and-extension-points) |
 | Nonce store | `KeyNonceStore`, singleton | `DbKeyNonceStore` | `MemoryKeyNonceStore` (exported, not registered) | See [Replay protection](07-replay-protection.md#services-and-extension-points) |
 | JWS verifier | `JwsVerifier` (`@spinajs/authn/contracts`), singleton | `StrictJwsVerifier` | none | See [JWS and key material](08-jws-and-key-material.md#services-and-extension-points) |
+| JWS signer | `JwsSigner`, singleton | `LocalJwsSigner`, only when `authn.keys.signer` is set | your own | See [Signing keys and rotation](10-signing-keys.md) |
 | Strategies | `AuthenticationStrategy`, picked by class name from `authn.strategies` | `JwsAssertionStrategy`, `HttpSignatureStrategy`, `KeyChallengeStrategy` | your own | See [Custom key strategies](09-custom-key-strategies.md) |
 
 The registry and the strategies also resolve services this package does not register:
