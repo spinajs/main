@@ -21,6 +21,10 @@ removed. An app that migrates on startup resolves `OrmMigrator` before serving; 
   `Orm.resolve()`, as before 3.0.5, and the Orm closes its connections first. The tables of `Migration.OnStartup`
   connections are checked by `OrmMigrator` after its pass. The `Orm` an `OrmMigrator` resolved with
   `MigrateOnStartup: false` resolves skips the check, so a migration tool boots before the tables exist.
+- **A failed boot pass must be followed by `DI.dispose()`.** When `DI.resolve(OrmMigrator)` rejects (a migration,
+  a seed or the table check), the `Orm` it resolved stays cached with its pools and health probes open; nothing
+  disposes it automatically. Before 3.0.5 the failing `Orm.resolve()` closed its own connections. Catch the boot
+  failure and `await DI.dispose()` before exiting or retrying.
 - **Breaking (`@spinajs/orm-cli`): the commands run on `OrmMigrator`.** `resolveCliOrm()` and `CLI_ORM_OPTIONS` are
   replaced by `resolveCliMigrator()`. `migrate-up` runs `OrmMigrator.migrate()`, so it now runs the `data()` seeds of
   the migrations it applies (`--fake` seeds nothing).

@@ -180,6 +180,7 @@ export async function bootstrapDatabase(): Promise<Orm> {
 - Every model a package registers by import is checked, used or not. An app importing `@spinajs/authz-abac` registers `PolicyRecord`, so with `db.StrictTableCheck` on it needs the `authz_policy` table on the connection `db.Aliases.authz` names, or `db.StrictTableCheck: false`. The same holds for the record models of `@spinajs/authz-rbac` and `@spinajs/authz-orm` on the same alias.
 - `orm.reloadTableInfo(options?: IReloadTableInfoOptions)` only warns unless passed `{ strict: true }`. `models` limits the read to those model classes; `strict` then still covers every registered model, the ones not read counting as the last read found them. `OrmMigrator.migrate()` calls it with the models its migrations touched.
 - Each driver has its own child container. A registration in `driver.Container` affects only that connection.
+- A failed `OrmMigrator` boot pass (a migration, a seed or the table check) leaves the `Orm` resolved and cached, with its connection pools and health probes open: nothing disposes it automatically. A process whose boot failed calls `await DI.dispose()` before it exits or retries, or the open handles keep it running. Only a rejected `Orm.resolve()` closes the connections it opened itself, since no `Orm` gets cached then.
 
 ## Best practices
 
@@ -190,6 +191,7 @@ export async function bootstrapDatabase(): Promise<Orm> {
 - Resolve `OrmMigrator` with `MigrateOnStartup: false` in tools that inspect or repair migrations, as `@spinajs/orm-cli` does.
 - Apply migrations before the app starts (`migrate-up` in the deploy step, or `Migration.OnStartup` with `OrmMigrator` at boot). With `db.StrictTableCheck` on, `Orm.resolve()` names a missing table of a connection without `Migration.OnStartup`, and the migrator's boot pass any table still missing after it.
 - Use `orm.Connections.get(name)` or `DI.resolve('OrmConnection', [name])` for raw queries; check the result for `undefined` / `null`.
+- Wrap the boot in `try` / `catch` and `await DI.dispose()` on failure, so a failed migration does not leave the process hanging on open pools.
 
 ## Patterns and antipatterns
 
@@ -201,6 +203,19 @@ await DI.resolve(Orm);
 // Do
 await DI.resolve(Orm);
 const unpaid = await Invoice.where('Status', 'unpaid');
+```
+
+```ts
+// Don't: a failed pass leaves the cached Orm's pools open, and the process never exits
+await DI.resolve(OrmMigrator);
+
+// Do
+try {
+  await DI.resolve(OrmMigrator);
+} catch (err) {
+  await DI.dispose();
+  throw err;
+}
 ```
 
 ```ts
