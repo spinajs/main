@@ -1,3 +1,52 @@
+## 3.0.5
+
+Breaking changes in the ORM boot: `Orm.resolve()` no longer migrates, the new `OrmMigrator` does, and `ormReady()` is
+removed. An app that migrates on startup resolves `OrmMigrator` before serving; services that query models inject the
+`Orm`.
+
+- **Breaking (`@spinajs/orm`): `Orm.resolve()` no longer migrates; resolve `OrmMigrator`.** The Orm's resolve
+  connects, registers models and migrations, reads table info and wires relations; it writes nothing. The new
+  `OrmMigrator` (an `AsyncService` injecting the Orm) runs the boot pass: the pending migrations of every
+  `Migration.OnStartup` connection, a re-read of the table info of the models their statements touched, their `data()`
+  seeds, then the `db.StrictTableCheck` check. A seed can therefore resolve any service that injects the Orm (users'
+  `create()`, `TokenService.create`): the per-call `ormReady()` wait 3.0.3 added for the seed deadlock is gone. An app
+  that migrates on startup calls `await DI.resolve(OrmMigrator)` before serving; until then a model query on a
+  `Migration.OnStartup` connection throws `connection <name> migrates on startup; resolve OrmMigrator before using
+  it`. `Orm.Migration` moved to `OrmMigrator.Runner`, `MigrateOnStartup` (and `IOrmOptions`) to the migrator's
+  options (`DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])`), and `MigrationRunner.up()` returns
+  `{ executed, touched }`. `reloadTableInfo()` takes `models` to read only some models. `ormReady()` is removed:
+  inject the Orm.
+- **Breaking (`@spinajs/orm-cli`): the commands run on `OrmMigrator`.** `resolveCliOrm()` and `CLI_ORM_OPTIONS` are
+  replaced by `resolveCliMigrator()`. `migrate-up` runs `OrmMigrator.migrate()`, so it now runs the `data()` seeds of
+  the migrations it applies (`--fake` seeds nothing).
+- **`@spinajs/configuration-db-source` syncs exposed options after `OrmMigrator`.** The sweep into the
+  `configuration` table runs on `di.resolved.OrmMigrator`, or on `di.resolved.Orm` when the table already exists on a
+  connection without `Migration.OnStartup` (a database migrated by `migrate-up`).
+- **Breaking: the ORM-backed services inject the `Orm`.** The authn-orm stores, audit sink, `AuthnAuditRetention` and
+  `DbAuthnThrottle`, authn-token's `DbTokenService` and `UsersTableTokenOwnerResolver`, authn-webauthn's
+  `DbWebAuthnCredentialStore` and `DbWebAuthnChallengeStore`, authz-rbac's DB stores and `DbAuthzAdminBackend`, and
+  users' identity, password and password-age stores and `UserAddressVerifier` `@Autoinject(Orm)` instead of awaiting
+  `ormReady()` before each query: resolving one resolves the `Orm`. The `Orm` is an async dependency, so
+  `DI.resolve()` of such a service returns a Promise until the `Orm` resolved; await it. authz-abac's
+  `DbPolicyStore`, authz-orm's `DbScopeAttributeStore`, authz-rebac's `DbTupleStore`, a hand-built `DbThrottleStore`,
+  authz-rbac's `readVersion()` and users' `UserIdentityRegistrar` are not built by DI: resolve the `Orm` (or
+  `OrmMigrator`) before they query.
+- **Breaking (`@spinajs/users`): `usersOrmUp()` is removed.** Its callers inject the `Orm`, as above.
+- **The ORM-backed cli commands run the `OrmMigrator` boot pass.** The cli resolves only the command it runs, so a
+  command that queries models now resolves `OrmMigrator`, as an app process does, instead of only the `Orm`. On a
+  `Migration.OnStartup` connection they migrate on their way in, as they did before 3.0.5:
+  - authn-keys' `authn:key-*` (new base `KeyCliCommand`);
+  - authn-totp's `authn:mfa-reset`;
+  - the scheduler's `scheduler:*`;
+  - authn-token's `authn:token-*` (base `TokenCliCommand`);
+  - users' `rbac:user-*` (base `RbacCliCommand`, which keeps `this.Orm`);
+  - authn-local's `authn:password` and `authn:password-expire` (new base `LocalCliCommand`), so they work with a
+    database-backed identity store (users). `@spinajs/authn-local` now depends on `@spinajs/orm`; without a `db`
+    configuration the ORM opens no connection;
+  - authn-orm's `authn:audit-purge`, authz-orm's `authz:ancestors-verify`, `authz:ancestors-rebuild` and
+    `authz:audit-unattended` (base `AuthzOrmCliCommand`), and authz-rbac's `authz:*` commands (base
+    `AuthzCliCommand`, before it resolves `AuthzService`).
+
 # Release notes — authn-http, authn-oidc: fresh re-authentication that refreshes the session
 
 > Branch `feat/ory-flow-4`. Docs: `docs/authn/09-fresh-authentication.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`,
@@ -489,54 +538,15 @@ Docs: `docs/authn-local/13-mail-delivery.md`, `docs/email/08-password-mailer.md`
 - `@spinajs/authn-testing`: `SoftAuthenticator`, the `webauthn` port, passkey route builders and behaviour rule A33.
 
 Docs: `docs/authn-webauthn/README.md`.
-## 3.0.4
-
-Breaking changes in the ORM boot: `Orm.resolve()` no longer migrates, the new `OrmMigrator` does, and `ormReady()` is
-removed. An app that migrates on startup resolves `OrmMigrator` before serving.
-
-- **The ORM-backed cli commands run the `OrmMigrator` boot pass.** The cli resolves only the command it runs, so a
-  command that queries models now resolves `OrmMigrator`, as an app process does, instead of only the `Orm`:
-  authn-keys' `authn:key-*` (new base `KeyCliCommand`), the scheduler's `scheduler:*` and authn-totp's
-  `authn:mfa-reset`. On a `Migration.OnStartup` connection they migrate on their way in, as they did before.
-- **authn-token's `authn:token-*` and users' `rbac:user-*` commands run the `OrmMigrator` boot pass too**, through
-  their bases `TokenCliCommand` and `RbacCliCommand` (which keeps `this.Orm`).
-- **authn-local's `authn:password` and `authn:password-expire` run the `OrmMigrator` boot pass**, so they work with a
-  database-backed identity store (users) on a `Migration.OnStartup` connection. `@spinajs/authn-local` now depends on
-  `@spinajs/orm`; without a `db` configuration the ORM opens no connection.
-
 ## 3.0.3
 
 Fixes only: no 3.0.2 API, config key or HTTP answer changes.
 
-- **Breaking (`@spinajs/orm`): `Orm.resolve()` no longer migrates; resolve `OrmMigrator`.** The Orm's resolve
-  connects, registers models and migrations, reads table info and wires relations; it writes nothing. The new
-  `OrmMigrator` (an `AsyncService` injecting the Orm) runs the boot pass: the pending migrations of every
-  `Migration.OnStartup` connection, a re-read of the table info of the models their statements touched, their `data()`
-  seeds, then the `db.StrictTableCheck` check. A seed can therefore resolve any service that injects the Orm. An app
-  that migrates on startup calls `await DI.resolve(OrmMigrator)` before serving; until then a model query on a
-  `Migration.OnStartup` connection throws `connection <name> migrates on startup; resolve OrmMigrator before using
-  it`. `Orm.Migration` moved to `OrmMigrator.Runner`, `MigrateOnStartup` (and `IOrmOptions`) to the migrator's
-  options (`DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])`), and `MigrationRunner.up()` returns
-  `{ executed, touched }`. `reloadTableInfo()` takes `models` to read only some models. `ormReady()` is removed:
-  inject the Orm.
-- **Breaking (`@spinajs/orm-cli`): the commands run on `OrmMigrator`.** `resolveCliOrm()` and `CLI_ORM_OPTIONS` are
-  replaced by `resolveCliMigrator()`. `migrate-up` runs `OrmMigrator.migrate()`, so it now runs the `data()` seeds of
-  the migrations it applies (`--fake` seeds nothing).
-- **`@spinajs/configuration-db-source` syncs exposed options after `OrmMigrator`.** The sweep into the
-  `configuration` table runs on `di.resolved.OrmMigrator`, or on `di.resolved.Orm` when the table already exists on a
-  connection without `Migration.OnStartup` (a database migrated by `migrate-up`).
-- **Breaking: the ORM-backed services inject the `Orm`.** The authn-orm stores, audit sink and `DbAuthnThrottle`,
-  authn-token's `DbTokenService` and `UsersTableTokenOwnerResolver`, authz-rbac's DB stores and `DbAuthzAdminBackend`,
-  and the users identity, password and password-age stores `@Autoinject(Orm)` instead of awaiting `ormReady()` before
-  each query: resolving one resolves the `Orm`. The `Orm` is an async dependency, so `DI.resolve()` of such a service
-  returns a Promise until the `Orm` resolved; await it. `DbPolicyStore`, `DbScopeAttributeStore`, a hand-built
-  `DbThrottleStore` and authz-rbac's `readVersion()` are not built by DI: resolve the `Orm` (or `OrmMigrator`) before
-  they query. users' internal `usersOrmUp()` is removed.
 - **Fix: a user seeded by a boot migration deadlocked the boot.** A migration whose `data()` called users' `create()`
-  waited for the `Orm` resolve that ran it: authn-token's `DbTokenService` and `UsersTableTokenOwnerResolver`
-  injected the `Orm`, and the users stores awaited `DI.resolve(Orm)`. `OrmMigrator` now runs the migrations after the
-  `Orm` resolved, so the seed finds it resolved. The token cli commands inject the `Orm` too, so resolving one boots it
-  whichever `TokenService` is registered.
+  waited for the `Orm` resolve that runs it: authn-token's `DbTokenService` and `UsersTableTokenOwnerResolver`
+  injected the `Orm`, and the users stores awaited `DI.resolve(Orm)`. They now await `ormReady()` per call, which
+  does not wait for an ORM that has created its connections. The token cli commands inject the `Orm` instead, so
+  resolving one still boots it.
 - **Fix: configuration rows were written unconverted.** The ORM attaches a `@DbConfigValue` converter only to a class
   registered in DI, and `DbConfigValueConverter` was not. An instance update of a `DbConfig` row (the exposed-option
   sync, the configuration panel's write) sent `Value` and `Default` raw: MySQL failed with `Truncated incorrect DOUBLE
