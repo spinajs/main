@@ -53,6 +53,16 @@ const authnLocal = {
 
         /** Name of a registered `PasswordBlocklist` service; null: none. */
         blocklist: null as string | null,
+
+        /** Refuse passwords equal to, containing or within 2 edits of the login, the email local part or the name. */
+        similarity: true,
+      },
+
+      hibp: {
+        /** Have I Been Pwned range API; only the first 5 hex characters of the password's SHA-1 are sent. */
+        url: 'https://api.pwnedpasswords.com/range/',
+        /** Past it the check lets the password through and logs a warning (fails open). */
+        timeoutMs: 2000,
       },
 
       // `expiration` ships no value here: the schema defaults are `enabled: false`, `maxAgeDays: 31`.

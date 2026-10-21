@@ -6,7 +6,7 @@ import { Config } from '@spinajs/configuration';
 import './register-schema.js';
 import { InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { PASSWORD_HARD_CAP } from '@spinajs/authn/contracts';
-import type { PasswordPolicy, PasswordViolation } from '@spinajs/authn/contracts';
+import type { PasswordPolicy, PasswordPolicyContext, PasswordViolation } from '@spinajs/authn/contracts';
 
 import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
 
@@ -28,7 +28,7 @@ const Ajv = ((AjvModule as unknown as { default?: unknown }).default ?? AjvModul
 
 /** Optional hook (e.g. a k-anonymity breach check), named by `authn.local.policy.blocklist`. */
 export abstract class PasswordBlocklist {
-  public abstract isBlocked(password: string): Promise<boolean>;
+  public abstract isBlocked(password: string, ctx?: PasswordPolicyContext): Promise<boolean>;
 }
 
 export interface GeneratorConfig {
@@ -44,6 +44,8 @@ export interface LocalPasswordPolicyOptions {
   readonly rule?: object | null;
   readonly description?: string;
   readonly blocklist?: PasswordBlocklist | null;
+  /** Refuse passwords too close to the login, email or name; default true. */
+  readonly similarity?: boolean;
   readonly generator?: GeneratorConfig;
 }
 
@@ -91,6 +93,9 @@ export class LocalPasswordPolicy extends SyncService {
   @Config('authn.local.generator')
   protected Generator: GeneratorConfig;
 
+  @Config('authn.local.policy.similarity')
+  protected Similarity: boolean;
+
   // A name read here and resolved below rather than @AutoinjectService, which logs a warning on every boot for the default null.
   @Config('authn.local.policy.blocklist')
   protected BlocklistName: string | null;
@@ -111,7 +116,7 @@ export class LocalPasswordPolicy extends SyncService {
     super.resolve();
   }
 
-  public async check(password: string): Promise<PasswordViolation[]> {
+  public async check(password: string, _ctx?: PasswordPolicyContext): Promise<PasswordViolation[]> {
     if (codePointLength(password) > PASSWORD_HARD_CAP) {
       return ['too_long'];
     }

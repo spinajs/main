@@ -17,6 +17,7 @@ import type {
   PasswordChangeResult,
   PasswordExpiry,
   PasswordPolicy,
+  PasswordPolicyContext,
   PasswordResetRequestResult,
   PasswordResetResult,
   PasswordSetResult,
@@ -254,7 +255,7 @@ export class LocalPasswordService extends PasswordService {
     return { status: 'set' };
   }
 
-  public check(password: string): Promise<readonly PasswordViolation[]> {
+  public check(password: string, _ctx?: PasswordPolicyContext): Promise<readonly PasswordViolation[]> {
     return this.policyComponent().check(password);
   }
 
