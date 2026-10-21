@@ -7,7 +7,7 @@ import 'mocha';
 import '@spinajs/log';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '../src/index.js';
-import { ConnectionConf, db } from './common.js';
+import { ConnectionConf, db, migrations } from './common.js';
 import { Offer } from './models/Offer.js';
 import './migrations/TestMigration_2022_02_08_01_13_00.js';
 
@@ -25,7 +25,7 @@ describe('nested relations under a many-to-many', function () {
       await b.bootstrap();
     }
     await DI.resolve(Orm);
-    await db().Migration.up();
+    await (await migrations()).up();
     await db().reloadTableInfo();
   });
 
