@@ -34,6 +34,8 @@ const NAME = /^[A-Za-z][A-Za-z0-9_.-]*:[A-Za-z][A-Za-z0-9_.-]*$/;
 const GLOB = /^(?:\*|(?:[A-Za-z0-9_.-]|\*(?!\*))+:(?:[A-Za-z0-9_.-]|\*(?!\*))+)$/;
 
 export const PERMISSION_PATTERN: RegExp = Object.freeze(new RegExp(NAME.source));
+/** The longest permission name. */
+export const PERMISSION_MAX_LENGTH = 256;
 export const PERMISSION_GLOB_PATTERN: RegExp = Object.freeze(new RegExp(GLOB.source));
 
 export const isPermission = (name: unknown): name is Permission => typeof name === 'string' && NAME.test(name);

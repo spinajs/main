@@ -650,6 +650,8 @@ export declare abstract class PermissionRegistry {
     abstract all(): readonly PermissionDef[];
 }
 export declare const PERMISSION_PATTERN: RegExp;
+/** The longest permission name. */
+export declare const PERMISSION_MAX_LENGTH = 256;
 export declare const PERMISSION_GLOB_PATTERN: RegExp;
 export declare const isPermission: (name: unknown) => name is Permission;
 export declare const parsePermission: (name: string) => {
@@ -664,6 +666,7 @@ export declare const matchesPermission: (glob: string, name: Permission) => bool
 const NAME = /^[A-Za-z][A-Za-z0-9_.-]*:[A-Za-z][A-Za-z0-9_.-]*$/;
 const GLOB = /^(?:\*|(?:[A-Za-z0-9_.-]|\*(?!\*))+:(?:[A-Za-z0-9_.-]|\*(?!\*))+)$/;
 const PERMISSION_PATTERN = Object.freeze(new RegExp(NAME.source));
+const PERMISSION_MAX_LENGTH = 256;
 const PERMISSION_GLOB_PATTERN = Object.freeze(new RegExp(GLOB.source));
 ```
 
