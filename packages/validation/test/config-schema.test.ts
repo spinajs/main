@@ -39,6 +39,10 @@ describe('validation configuration schema', () => {
       { removeAdditional: 'all', useDefaults: 'empty', coerceTypes: 'array' },
       { removeAdditional: 'failing' },
       { removeAdditional: true, useDefaults: false, coerceTypes: true, allErrors: true, messages: false },
+      { strict: { idPrefixes: ['authn.', 'billing.'] } },
+      { strict: { idPrefixes: [], ajvStrict: 'log' } },
+      { strict: false },
+      { strict: 'log' },
     ]) {
       const config = await boot(validation);
       expect(config.get('validation'), JSON.stringify(validation)).to.deep.eq(validation);
@@ -46,9 +50,9 @@ describe('validation configuration schema', () => {
   });
 
   it('refuses a mode Ajv does not have', async () => {
-    for (const [key, value] of [['removeAdditional', 'empty'], ['useDefaults', 'all'], ['coerceTypes', 'yes']]) {
+    for (const [key, value] of [['removeAdditional', 'empty'], ['useDefaults', 'all'], ['coerceTypes', 'yes'], ['strict', { ajvStrict: true }]] as const) {
       const e = await boot({ [key]: value }).then(() => null, (err: unknown) => err);
-      expect(e, `${key}: ${value}`).to.be.instanceOf(InvalidConfiguration);
+      expect(e, `${key}: ${JSON.stringify(value)}`).to.be.instanceOf(InvalidConfiguration);
       expect((e as InvalidConfiguration).violations.map((v) => v.path)).to.include(`validation.${key}`);
     }
   });
