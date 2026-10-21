@@ -1,14 +1,18 @@
-import { BaseController, BasePath, Body, Get, Ok, Policy, Post, Req } from '@spinajs/http';
+import { BaseController, BasePath, Get, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { Autoinject } from '@spinajs/di';
 import { AuthzDomains } from '@spinajs/authz';
-import { _check_arg, _is_array, _max_length } from '@spinajs/util';
+import type { Principal } from '@spinajs/authz';
 
 import { resolveAuthzDomain } from '../access/domain-resolver.js';
+import { AccessDomain } from '../access/domain-arg.js';
 import { HasPrincipal, IsAuthenticated } from '../access/principal-policies.js';
-import { MAX_ACCESS_CHECKS, answerClientChecks } from '../client-access/checks.js';
+import { answerClientChecks } from '../client-access/checks.js';
+import { AccessChecks } from '../dto/access-checks.js';
+import type { AccessChecksBody } from '../dto/access-checks.js';
+import { CurrentPrincipal } from '../principals/current-principal.js';
 import { AccessEventStream, SseAccessPushTransport } from '../client-access/sse.js';
 import '../storage.js';
 
@@ -40,10 +44,9 @@ export class AccessController extends BaseController {
   /** ckit's `createHttpChecker` wire format: `{ checks }` → `{ results, reasons }` (design §10.2). */
   @Post('checks')
   @Policy(HasPrincipal)
-  public async checks(@Req() req: Request, @Body() checks: unknown[]) {
-    _check_arg(_is_array(), _max_length(MAX_ACCESS_CHECKS))(checks, 'checks');
-    const authz = await this.Domains.service(await resolveAuthzDomain(req, this.AccessDomain));
-    return new Ok(await answerClientChecks(authz, req.storage.Principal!, checks, { authz: this.Authz, domains: this.Domains, log: this.Log }));
+  public async checks(@AccessChecks() checks: AccessChecksBody, @CurrentPrincipal() principal: Principal, @AccessDomain() domain: string) {
+    const authz = await this.Domains.service(domain);
+    return new Ok(await answerClientChecks(authz, principal, checks, { authz: this.Authz, domains: this.Domains, log: this.Log }));
   }
 
   /** `authz.changed` server-sent events for the caller (design §10.4); authenticated only, as the socket transport. */

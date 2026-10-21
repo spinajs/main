@@ -43,9 +43,9 @@ Request and answer:
 ```
 
 1. `HasPrincipal`: any principal, anonymous included; 401 without one.
-2. `checks` must be a list of at most 100 entries (`MAX_ACCESS_CHECKS`); anything else is a 400 for the whole request.
+2. `checks` is validated as a route argument against `ACCESS_CHECKS_SCHEMA` (`authz.http.accessChecks`): a list of at most 100 entries (`MAX_ACCESS_CHECKS`); anything else is a 400 for the whole request. The entries are not validated at this point, so a non-object entry is answered `false` like any malformed one. The route reads the caller with `@CurrentPrincipal()` and the domain with `@AccessDomain()`, not `@Req()`.
 3. `readClientCheck()` reads each entry. A malformed entry gets its own `false` and never fails the batch:
-   - `object.type`, `object.id` and `permission` must be non-empty strings;
+   - the entry must match `CLIENT_CHECK_SCHEMA` (`authz.http.clientCheck`): `object.type` (up to 64 characters), `object.id` (up to 160) and `permission` (up to 256) are non-empty strings, `context.field` is up to 128 characters. Unknown keys are ignored;
    - a `permission` with `:` is used as is; otherwise it becomes `<object.type>:<permission>`;
    - `id: '*'` checks the type (`{ type }`, "may I create one"); `type: '$global'` checks `GLOBAL`;
    - `subject`, when present, must be the caller (`{ type, id }` of the principal, no `relation`); the subject checked is always the request's principal;

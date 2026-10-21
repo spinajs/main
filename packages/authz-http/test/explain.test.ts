@@ -83,6 +83,19 @@ describe('explain route (H19, B41)', function () {
     expect((await running.app.request().get('/authz/explain?principal=user:alice&permission=bad').set('x-user', 'bob')).status).to.eq(400);
   });
 
+  it('refuses an over-long, empty or missing input with 400, and accepts the empty format and resource', async () => {
+    running = await boot({ 'authz.http.explainRoute': { enabled: true, permission: 'authz:explain' }, 'configuration.isProduction': false });
+    const get = (qs: string) => running!.app.request().get(`/authz/explain?${qs}`).set('x-user', 'bob');
+
+    expect((await get(`principal=user:${'a'.repeat(260)}&permission=file:read`)).status).to.eq(400);
+    expect((await get(`principal=user:alice&permission=file:${'r'.repeat(260)}`)).status).to.eq(400);
+    expect((await get(`principal=user:alice&permission=file:read&resource=file:${'f'.repeat(260)}`)).status).to.eq(400);
+    expect((await get('principal=user:alice')).status).to.eq(400);
+    expect((await get('permission=file:read')).status).to.eq(400);
+    expect((await get('principal=user:alice&permission=')).status).to.eq(400);
+    expect((await get('principal=user:alice&permission=file:read&resource=&format=')).status).to.eq(200);
+  });
+
   it('is not registered while disabled (404)', async () => {
     running = await boot({ 'configuration.isProduction': false });
 

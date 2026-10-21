@@ -6,6 +6,20 @@
 
 - `@spinajs/authn-oidc`: the OIDC routes validate their input. `:provider` must match `^[A-Za-z0-9_-]{1,64}$`; the begin, reauth and unlink queries refuse unknown keys; the callback query caps `code`, `state`, `iss`, `error` and `bounce` at 4096 characters and still allows other keys (IdPs append their own); `returnTo` is capped at 1024, `subject` at 255 and the back-channel `logout_token` at 16384. Invalid input answers as the login failure does (303 to the failure page for a navigation, otherwise 401, flow cookie cleared); the back-channel route answers 400 `invalid_request`.
 - `OidcController` action signatures changed (decorated arguments instead of `@Req()`); subclasses that call the actions directly must pass the new arguments. `@spinajs/authn-oidc` now depends on `@spinajs/validation`.
+# Release notes — authz-http: validated inputs of the access checks and explain routes
+
+> Docs: `docs/authz-http/07-client-access-api.md`, `docs/authz-http/09-explain.md`.
+
+## New behavior
+
+- `POST /user/access/checks` validates the list through a route schema (`ACCESS_CHECKS_SCHEMA`, at most 100 entries) and each entry against `CLIENT_CHECK_SCHEMA`, which caps `object.type` at 64, `object.id` at 160, `permission` at 256 and `context.field` at 128 characters. An entry over a cap is answered `false` with `invalid_request`, as any malformed entry.
+- `GET /authz/explain` caps `principal`, `resource` and `permission` at 256 characters and validates `format`; the schemas appear in the OpenAPI document of both routes.
+- New exports: `AccessChecks()`, `ACCESS_CHECKS_SCHEMA`, `CLIENT_CHECK_SCHEMA`, `ExplainQueryArg()`, `EXPLAIN_QUERY_PROPERTIES`, `AccessDomain()` and `AccessDomainArg`.
+
+## Changed answers
+
+- A `permission` of `GET /authz/explain` that does not match the name pattern now answers the standard validation 400 (`{ parameter, details, message }`) instead of an `InvalidArgument` body. The status is unchanged.
+
 
 # Release notes â€” http, validation: route error handlers, per-path body limits, strict schema ids
 
