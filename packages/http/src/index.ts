@@ -14,6 +14,7 @@ export * from './controller-sources.js';
 export * from './route-builder.js';
 export * from './controllers.js';
 export * from './server.js';
+export * from './body-limits.js';
 export * from './transformers/index.js';
 export * from './file-middlewares/index.js';
 export * from './bootstrap.js';

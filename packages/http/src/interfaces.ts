@@ -5,6 +5,7 @@ import formidable from 'formidable';
 import { CookieOptions } from 'express';
 import { IPerfScope } from '@spinajs/log';
 import type { ProxyTrust } from './middlewares/RealIp.js';
+import type { IBodyLimitRule } from './body-limits.js';
 import type { ErrorClass, ErrorStage, OnErrorHandler } from './errors/on-error.js';
 
 /**
@@ -78,6 +79,12 @@ export interface IHttpServerConfiguration {
    * Middlewares used by server
    */
   middlewares: express.RequestHandler[];
+
+  /**
+   * Per-path body size limits, applied before `middlewares`. The first prefix match wins; other paths keep the
+   * limits of the `middlewares` parsers ( 5mb JSON by default ).
+   */
+  bodyLimits?: IBodyLimitRule[];
 
   /**
    * Static files folder. Feel free to override this per app

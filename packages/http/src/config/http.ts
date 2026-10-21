@@ -92,6 +92,9 @@ const http = {
     },
     port: 1337,
 
+    // [{ path: '/auth', limit: '16kb' }]: first prefix match wins, other paths keep the parser limits below
+    bodyLimits: [],
+
     errors: {
       // { service: '<ErrorHandlerService class name>' } entries, see docs/http/11-error-handling.md
       handlers: [],
