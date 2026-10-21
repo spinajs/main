@@ -50,6 +50,32 @@ export const HTTP_CONFIGURATION_SCHEMA = {
       ],
       description: 'Absent or falsy: no CORS middleware. Origins are listed as scheme://host[:port] or the one entry *.',
     },
+    bodyLimits: {
+      type: 'array',
+      default: [],
+      description:
+        'Per-path request body limits, applied before http.middlewares. The first rule whose path prefix (on a segment boundary, matched against the path the client requests) matches wins; other paths keep the 5mb default.',
+      items: {
+        type: 'object',
+        required: ['path', 'limit'],
+        properties: {
+          path: nonEmpty,
+          limit: { type: 'string', pattern: '^\\s*\\d+(\\.\\d+)?\\s*([bB]|[kKmMgG][bB])?\\s*$' },
+        },
+      },
+    },
+    errors: {
+      type: 'object',
+      default: {},
+      properties: {
+        handlers: {
+          type: 'array',
+          default: [],
+          description: 'App-wide route error handlers ( ErrorHandlerService names ), run after the route and controller @OnError handlers, in this order.',
+          items: { type: 'object', required: ['service'], properties: { service: nonEmpty } },
+        },
+      },
+    },
     throttle: {
       type: 'object',
       default: {},

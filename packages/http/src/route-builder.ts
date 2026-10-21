@@ -12,6 +12,7 @@ import { Configuration } from '@spinajs/configuration';
 import { RouteArgs } from './route-args/index.js';
 import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, IPolicyGroup, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext } from './interfaces.js';
 import { RouteRegistrationException } from './exceptions.js';
+import { markStage } from './errors/on-error.js';
 
 /**
  * Controller shape needed by the route wiring helpers: the IController
@@ -140,7 +141,9 @@ export async function resolveRoutePolicies(
 export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute, controller: IController, log: Log): Express.RequestHandler {
   const routeName = `${controller.constructor.name}:${String(route.Method)} ${controller.BasePath}/${String(route.Path || route.Method)}`;
 
-  return (req: Express.Request, _res: Express.Response, next: Express.NextFunction) => {
+  return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+    markStage(res, 'policy');
+
     // Only policies enabled for this concrete route participate in the gate.
     //
     // A group left with no enabled member is DROPPED, not treated as passing:
@@ -218,8 +221,10 @@ export function wrapMiddlewareAction(
   action: (req: Express.Request, res: Express.Response, route: IRoute, controller: IController) => Promise<void>,
   route: IRoute,
   controller: IController,
+  stage: 'middleware' | 'after' = 'middleware',
 ): Express.RequestHandler {
   const wrapper = (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+    markStage(res, stage);
     action(req, res, route, controller)
       .then(() => {
         next();
@@ -252,11 +257,13 @@ export function createActionHandler(
   const actionHandler = async (req: sRequest, res: Express.Response, next: Express.NextFunction) => {
     try {
       await storage.run(req.storage, async () => {
+        markStage(res, 'arguments');
         const args = (await extractRouteArgs(route, req, res, controller.constructor.name)).concat([req, res, next]);
 
         let result: unknown;
 
         try {
+          markStage(res, 'action');
           result = controller[route.Method as string].call(controller, ...args);
 
           if (isPromise(result)) {
