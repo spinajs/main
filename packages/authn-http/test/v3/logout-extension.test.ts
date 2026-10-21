@@ -11,6 +11,7 @@ import type { AuthnEvent, SessionHandle } from '@spinajs/authn/contracts';
 
 import { AuthnLogoutExtension } from '../../src/v3/logout-extension.js';
 import { AuthnLoginController } from '../../src/v3/controllers/AuthnLoginController.js';
+import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../src/schema.js';
 
 const END_SESSION = 'https://idp.example.test/realms/corp/logout?client_id=canvas&post_logout_redirect_uri=https%3A%2F%2Fapp.example.test%2F';
 
@@ -68,6 +69,7 @@ function world(): World {
   const controller = new AuthnLoginController();
   Object.assign(controller, { Container: container, Sessions: sessions, _cfg: { Env: 'test', get: (path: string, fallback?: unknown) => (path === 'process.env.APP_ENV' ? 'test' : fallback) } });
   Object.defineProperty(controller, 'Log', { value: { warn: (...args: unknown[]) => void warned.push(args) } });
+  Object.defineProperty(controller, 'ClearSiteData', { value: DEFAULT_LOGOUT_CLEAR_SITE_DATA });
 
   const extension = (answer: () => Promise<{ redirect?: string } | void>): Recording => {
     const e = new Recording(answer, revoked);

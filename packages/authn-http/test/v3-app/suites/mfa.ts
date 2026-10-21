@@ -147,7 +147,7 @@ export function mfaSuite(): void {
       expect(step.challenges[0].ctx).to.include({ purpose: 'login' });
       expect(step.challenges[0].ctx.ip).to.be.a('string');
       expect(step.challenges[0].ctx.session?.state).to.eq('pending');
-      expect((await c.get('/auth')).body, 'the session stays pending').to.deep.eq({ MfaRequired: ['totp'] });
+      expect((await c.get('/auth')).body, 'the session stays pending').to.deep.eq({ MfaRequired: ['totp'], MfaEnrol: [] });
     });
 
     it('takes the step from the body when it is pending, else the first pending step', async () => {
