@@ -3,7 +3,7 @@ import { Configuration, normalizeEnvironment } from '@spinajs/configuration-comm
 import { AsyncService, ClassInfo, Autoinject, Container, Class, DI, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import _ from 'lodash';
-import { IDriverOptions, OrmMigration } from './interfaces.js';
+import { IColumnDescriptor, IDriverOptions, IModelDescriptor, OrmMigration } from './interfaces.js';
 import { ModelBase, MODEL_STATIC_MIXINS, updateModelDescriptor } from './model.js';
 import { OrmDriver } from './driver.js';
 import { InvalidOperation } from '@spinajs/exceptions';
@@ -40,6 +40,19 @@ export interface IMissingModelTable {
   connection: string;
   /** The configured `Name` of the driver that name resolved to. */
   target: string;
+}
+
+/** Each model's decorator columns, copied before the first table read merged anything into them. */
+const DECLARED_COLUMNS = new WeakMap<Class<ModelBase>, IColumnDescriptor[]>();
+
+function declaredColumns(model: Class<ModelBase>, descriptor: IModelDescriptor): IColumnDescriptor[] {
+  let declared = DECLARED_COLUMNS.get(model);
+  if (!declared) {
+    declared = descriptor.Columns.map((c) => ({ ...c }));
+    DECLARED_COLUMNS.set(model, declared);
+  }
+
+  return declared.map((c) => ({ ...c }));
 }
 
 function missingTablesMessage(missing: IMissingModelTable[]): string {
@@ -101,28 +114,26 @@ export class Orm extends AsyncService {
         const columns = await connection.tableInfo(descriptor.TableName, connection.Options.Database);
         if (columns) {
           updateModelDescriptor(m.type, (d) => {
-            d.Columns = _.unionBy(
-              d.Columns,
-              _.uniqBy(
-                columns.map((c) => {
-                  // Only assign properties from table column that are not undefined
-                  const existingColumn = _.find(descriptor.Columns, { Name: c.Name });
-                  if (existingColumn) {
-                    // Merge only defined properties from table info
-                    Object.keys(c).forEach((key) => {
-                      const columnKey = key as keyof typeof c;
-                      if (c[columnKey] !== undefined) {
-                        (existingColumn as any)[columnKey] = c[columnKey];
-                      }
-                    });
-                    return existingColumn;
-                  }
-                  return c;
-                }),
-                'Name',
-              ),
-              'Name',
-            );
+            // Rebuilt from the declarations on every read: merging into the previous read would keep the columns a
+            // migration dropped or renamed, and the converters their old types mapped to.
+            const declared = declaredColumns(m.type, d);
+            const read = _.uniqBy(columns, 'Name').map((c) => {
+              const own = declared.find((x) => x.Name === c.Name);
+              if (!own) {
+                return { ...c };
+              }
+
+              // Merge only defined properties from table info
+              Object.keys(c).forEach((key) => {
+                const columnKey = key as keyof typeof c;
+                if (c[columnKey] !== undefined) {
+                  (own as any)[columnKey] = c[columnKey];
+                }
+              });
+              return own;
+            });
+
+            d.Columns = _.unionBy(declared, read, 'Name');
 
             /**
              * Add coverters to columns set by decorators
@@ -165,6 +176,10 @@ export class Orm extends AsyncService {
             d.ResponseSchema = buildModelJsonSchema(d, 'response');
           });
         } else {
+          updateModelDescriptor(m.type, (d) => {
+            d.Columns = declaredColumns(m.type, d);
+          });
+
           const entry = { model: m.name, table: descriptor.TableName, connection: descriptor.Connection!, target: connection.Options.Name };
           this.MissingTables.set(m.type, entry);
 

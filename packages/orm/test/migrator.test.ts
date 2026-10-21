@@ -6,8 +6,10 @@ import 'mocha';
 import * as sinon from 'sinon';
 import '@spinajs/log';
 import {
+  AlterColumnQueryBuilder,
   AlterTableQueryBuilder,
   BooleanValueConverter,
+  ColumnAlterationType,
   Connection,
   DropTableQueryBuilder,
   extractModelDescriptor,
@@ -73,8 +75,29 @@ function column(name: string, type = 'INT', over: Partial<IColumnDescriptor> = {
   } as unknown as IColumnDescriptor;
 }
 
+function columnOf(c: any): IColumnDescriptor {
+  return column(c.Name, String(c.Type).toUpperCase(), { PrimaryKey: !!c.PrimaryKey, Nullable: !c.NotNull });
+}
+
 function columnsOf(builder: TableQueryBuilder | AlterTableQueryBuilder): IColumnDescriptor[] {
-  return builder.Columns.map((c: any) => column(c.Name, String(c.Type).toUpperCase(), { PrimaryKey: !!c.PrimaryKey, Nullable: !c.NotNull }));
+  return builder.Columns.map(columnOf);
+}
+
+/** The table after an ALTER: dropped columns removed, renamed and modified ones replaced in place, added ones appended. */
+function altered(existing: IColumnDescriptor[], builder: AlterTableQueryBuilder): IColumnDescriptor[] {
+  let result = existing.filter((c) => !builder.DroppedColumns.includes(c.Name));
+
+  (builder.Columns as AlterColumnQueryBuilder[]).forEach((c) => {
+    const desc = columnOf(c);
+
+    if (c.AlterType === ColumnAlterationType.Add) {
+      result.push(desc);
+    } else {
+      result = result.map((r) => (r.Name === c.OldName ? desc : r));
+    }
+  });
+
+  return result;
 }
 
 const now = new Date();
@@ -104,7 +127,7 @@ class MigratorTestDriver extends FakeSqliteDriver {
     if (b instanceof TableQueryBuilder) {
       TABLES.set(b.Table, columnsOf(b));
     } else if (b instanceof AlterTableQueryBuilder) {
-      TABLES.set(b.Table, [...(TABLES.get(b.Table) ?? []), ...columnsOf(b)]);
+      TABLES.set(b.Table, altered(TABLES.get(b.Table) ?? [], b));
     } else if (b instanceof DropTableQueryBuilder) {
       TABLES.delete(b.Table);
     }
@@ -117,8 +140,10 @@ class MigratorTestDriver extends FakeSqliteDriver {
     return [];
   }
 
+  /** Leaves `Converter` unset, as a driver may: a converter the Orm assigned on an earlier read must not survive. */
   public async tableInfo(table: string): Promise<IColumnDescriptor[]> {
-    return (TABLES.get(table) as IColumnDescriptor[]) ?? (null as any);
+    const columns = TABLES.get(table);
+    return columns ? columns.map(({ Converter: _converter, ...c }) => ({ ...c }) as IColumnDescriptor) : (null as any);
   }
 }
 
@@ -272,6 +297,59 @@ describe('OrmMigrator', function () {
 
     return MigratorTestCreateUsers_2026_10_21_00_00_00;
   }
+
+  function alterMigration(table: string, alter: (t: AlterTableQueryBuilder) => void) {
+    @Migration(CONNECTION)
+    class MigratorTestAlter_2026_10_22_00_00_00 extends OrmMigration {
+      public async up(connection: OrmDriver) {
+        await connection.schema().alterTable(table, alter);
+      }
+
+      public async down() {}
+    }
+
+    return MigratorTestAlter_2026_10_22_00_00_00;
+  }
+
+  const columnNames = (model: Class<ModelBase>) => extractModelDescriptor(model)!.Columns.map((c) => c.Name);
+
+  it('(i) a column a migration dropped leaves the model', async () => {
+    alterMigration('mig_posts', (t) => t.dropColumn('Title'));
+
+    await DI.resolve(Orm);
+    expect(columnNames(models.MigratorTestPost)).to.include('Title');
+
+    await DI.resolve(OrmMigrator);
+
+    expect(columnNames(models.MigratorTestPost)).to.eql(['Id']);
+  });
+
+  it('(i) a column a migration renamed is known by its new name only', async () => {
+    alterMigration('mig_posts', (t) => {
+      t.string('Title').rename('Headline');
+    });
+
+    await DI.resolve(OrmMigrator);
+
+    expect(columnNames(models.MigratorTestPost)).to.eql(['Id', 'Headline']);
+  });
+
+  it('(i) a column whose type a migration changed loses the converter its old type mapped to', async () => {
+    TABLES.set('mig_users', [column('Id', 'INT', { PrimaryKey: true }), column('Active', 'BOOLEAN')]);
+    alterMigration('mig_users', (t) => {
+      t.string('Active').modify();
+    });
+
+    await DI.resolve(Orm);
+    const before = extractModelDescriptor(models.MigratorTestUser)!.Columns.find((c) => c.Name === 'Active')!;
+    expect(before.Converter).to.be.instanceOf(BooleanValueConverter);
+
+    await DI.resolve(OrmMigrator);
+
+    const after = extractModelDescriptor(models.MigratorTestUser)!.Columns.find((c) => c.Name === 'Active')!;
+    expect(after.NativeType).to.equal('STRING');
+    expect(after.Converter).to.not.be.instanceOf(BooleanValueConverter);
+  });
 
   it('(a) resolving the Orm on an empty schema creates no table and applies nothing', async () => {
     const Create = createUsersMigration();
