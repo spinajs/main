@@ -5,7 +5,7 @@ import { Exception, InvalidArgument, InvalidOption } from '@spinajs/exceptions';
 
 import * as root from '../../src/index.js';
 import { AuthzConfigError, UnknownPermission } from '../../src/contracts/errors.js';
-import { PERMISSION_GLOB_PATTERN, PERMISSION_PATTERN, PermissionRegistry, compilePermissionGlob, isPermission, isPermissionGlob, matchesPermission, parsePermission } from '../../src/contracts/permission.js';
+import { PERMISSION_GLOB_PATTERN, PERMISSION_MAX_LENGTH, PERMISSION_PATTERN, PermissionRegistry, compilePermissionGlob, isPermission, isPermissionGlob, matchesPermission, parsePermission } from '../../src/contracts/permission.js';
 import type { Permission, PermissionDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -97,6 +97,13 @@ describe('permission contracts', () => {
       for (const value of [undefined, null, 1, true, {}, [], ['fs:write'], new String('fs:write'), Symbol('fs:write')]) {
         expect(isPermission(value), String(value)).to.eq(false);
       }
+    });
+
+    it(`isPermission is false past PERMISSION_MAX_LENGTH (${PERMISSION_MAX_LENGTH}) characters, and parsePermission throws`, () => {
+      const longest = `a:${'b'.repeat(PERMISSION_MAX_LENGTH - 2)}`;
+      expect(isPermission(longest)).to.eq(true);
+      expect(isPermission(`${longest}b`)).to.eq(false);
+      expect(() => parsePermission(`${longest}b`)).to.throw(AuthzConfigError, `at most ${PERMISSION_MAX_LENGTH}`);
     });
 
     it('exports anchored patterns without flags', () => {
@@ -193,7 +200,7 @@ describe('permission contracts', () => {
 
     it('matches in linear time, whatever the glob', function () {
       this.timeout(1000);
-      const name = `${'a'.repeat(200)}:${'a'.repeat(200)}`;
+      const name = `${'a'.repeat(127)}:${'a'.repeat(128)}`;
       const spaced = `${'a*'.repeat(30)}c`;
       const hostile = [`${spaced}:x`, `*:${spaced}`, `${spaced}:${spaced}`, `${'*a'.repeat(60)}b:*`];
 

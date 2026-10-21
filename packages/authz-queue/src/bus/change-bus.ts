@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
 import { DI, Injectable, Singleton } from '@spinajs/di';
-import { ChangeBus, engineLog, thrownError } from '@spinajs/authz';
+import { ChangeBus, changeTagsField, engineLog, isValidField, thrownError } from '@spinajs/authz';
 import type { AuthzChange } from '@spinajs/authz';
 import { Event, QueueEvent, QueueService } from '@spinajs/queue';
-import { isStringArray } from '@spinajs/util';
 
 interface WireChange {
   domain?: unknown;
@@ -24,7 +23,7 @@ export class AuthzChangeEvent extends QueueEvent {
 export function reviveChange(raw: unknown): AuthzChange | undefined {
   if (raw === null || typeof raw !== 'object') return undefined;
   const c = raw as WireChange;
-  if (!isStringArray(c.tags)) return undefined;
+  if (!isValidField(changeTagsField, c.tags)) return undefined;
   if (c.domain !== undefined && typeof c.domain !== 'string') return undefined;
 
   let actor: AuthzChange['actor'];
@@ -65,7 +64,9 @@ export class QueueChangeBus extends ChangeBus {
     const queue = await this.start();
     const event = new AuthzChangeEvent();
     event.Node = this.node;
-    event.Change = { domain: change.domain, tags: [...change.tags], actor: change.actor, at: change.at };
+    // The other nodes drop a change past the tag caps (reviveChange); every tag keeps their caches correct.
+    const tags = isValidField(changeTagsField, change.tags) ? [...change.tags] : ['*'];
+    event.Change = { domain: change.domain, tags, actor: change.actor, at: change.at };
     await queue.emit(event);
   }
 

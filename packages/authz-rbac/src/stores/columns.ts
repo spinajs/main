@@ -56,6 +56,9 @@ export function parsePrincipalKey(key: string | null | undefined): PrincipalRef 
 /** `authz_assignment.subject_key` and the keys of `authz_subject_membership` hold this many characters. */
 export const SUBJECT_KEY_MAX_LENGTH = 200;
 
+/** Widths of the `authz_assignment` columns a grant fills from its input. */
+export const ASSIGNMENT_COLUMN_WIDTHS = Object.freeze({ role: 128, scope_type: 64, scope_id: 64, tags: 512 });
+
 // '%' first, so an escape is never escaped again.
 const escapeKeyId = (id: string): string => id.replace(/%/g, '%25').replace(/#/g, '%23').replace(/\*/g, '%2A');
 

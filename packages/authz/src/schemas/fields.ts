@@ -83,6 +83,9 @@ export const AUTHZ_FIELD_SCHEMAS = Object.freeze({
   writeOptions: fieldSchema('authz.field.writeOptions', writeOptionsField),
 });
 
+/** What a value that passed `isValidField(schema)` is, as far as the type system can tell. */
+export type FieldValue<S> = S extends { readonly type: 'string' } ? string : S extends { readonly type: 'array' } ? readonly unknown[] : S extends { readonly type: 'object' } ? Readonly<Record<string, unknown>> : unknown;
+
 interface AjvLike {
   compile(schema: object): ValidateFunction;
 }
@@ -92,7 +95,7 @@ let ajv: AjvLike | undefined;
 const compiled = new WeakMap<object, ValidateFunction>();
 
 /** Whether `value` matches `schema`, without coercion, defaults or a container. */
-export function isValidField(schema: object, value: unknown): boolean {
+export function isValidField<S extends object>(schema: S, value: unknown): value is FieldValue<S> {
   let fn = compiled.get(schema);
   if (!fn) {
     ajv ??= new Ajv({ logger: false, allErrors: false, addUsedSchema: false });

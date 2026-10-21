@@ -9,6 +9,7 @@ import { DateTime } from 'luxon';
 import { TupleStore } from '../contracts.js';
 import type { Tuple, TuplePage, TupleQuery, TupleSubject } from '../contracts.js';
 import { isSubjectSet, readTuple, subjectKey, tupleKey } from '../keys.js';
+import type { NamespaceSchema } from '../namespace/compile.js';
 
 export const AUTHZ_REBAC_TUPLE_TABLE = 'authz_rebac_tuple';
 
@@ -109,6 +110,17 @@ function chunks<T>(list: readonly T[]): T[][] {
  */
 export class DbTupleStore extends TupleStore {
   readonly name: string = 'db';
+  private readonly schemas = new Set<() => NamespaceSchema>();
+
+  /**
+   * `write` then refuses a tuple these namespaces cannot hold, as `AuthzAdmin` does for `tuple.write`; RebacModel.init binds
+   * its own. Returns the unbinding.
+   */
+  checkAgainst(schema: () => NamespaceSchema): () => void {
+    const entry = () => schema();
+    this.schemas.add(entry);
+    return () => this.schemas.delete(entry);
+  }
 
   async read(object: ResourceRef, relation: string): Promise<readonly Tuple[]> {
     if (object.id == null) return [];
@@ -134,11 +146,19 @@ export class DbTupleStore extends TupleStore {
   }
 
   async write(add: readonly Tuple[], remove: readonly Tuple[], actor: PrincipalRef): Promise<string> {
-    const adds = add.map((t, i) => checked(t, `add[${i}]`, actor));
+    const adds = add.map((t, i) => this.allowed(checked(t, `add[${i}]`, actor), `add[${i}]`));
     const removes = remove.map((t, i) => checked(t, `remove[${i}]`, actor));
     await ormReady();
     await modelDriver(TupleRecord).transaction((tx) => this.writeIn({ driver: tx }, adds, removes, actor));
     return randomUUID();
+  }
+
+  private allowed(tuple: Tuple, where: string): Tuple {
+    for (const schema of this.schemas) {
+      const problem = schema().problem(tuple);
+      if (problem) throw new AuthzConfigError(`DbTupleStore: ${where}: ${problem.code}: ${problem.message}`);
+    }
+    return tuple;
   }
 
   async writeIn(tx: AuthzTx, add: readonly Tuple[], remove: readonly Tuple[], actor: PrincipalRef, now: Date = new Date()): Promise<{ readonly added: number; readonly removed: number }> {

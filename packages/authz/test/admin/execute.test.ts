@@ -355,6 +355,22 @@ describe('DefaultAuthzAdmin.execute', function () {
       expect((err as AuthzAdminFailure).code).to.equal('invalid_batch');
       expect((err as AuthzAdminFailure).field).to.equal('idempotencyKey');
     });
+
+    it('refuses a key longer than 128 characters and a reason longer than 512', async () => {
+      const d = await adminDomain();
+      for (const [opts, field] of [
+        [{ idempotencyKey: 'k'.repeat(129) }, 'idempotencyKey'],
+        [{ reason: 'r'.repeat(513) }, 'reason'],
+      ] as const) {
+        const err = await rejection(d.admin.execute(alice, [grant('bob')], opts));
+        expect(err).to.be.instanceOf(AuthzAdminFailure);
+        expect((err as AuthzAdminFailure).code).to.equal('invalid_batch');
+        expect((err as AuthzAdminFailure).field).to.equal(field);
+      }
+      expect(d.store.rows.size).to.equal(0);
+      await d.admin.execute(alice, [grant('bob')], { idempotencyKey: 'k'.repeat(128), reason: 'r'.repeat(512) });
+      expect(d.store.rows.size).to.equal(1);
+    });
   });
 
   describe('authz.admin.permissions', () => {

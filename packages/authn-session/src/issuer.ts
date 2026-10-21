@@ -10,6 +10,7 @@ import { AutoinjectService, Config } from '@spinajs/configuration';
 import './register-schema.js';
 import { SessionIssuer, SessionKeys, resolveSession } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionFactsChange, SessionHandle } from '@spinajs/authn/contracts';
+import { isValidField, sessionHandleField } from '@spinajs/authn/schemas';
 import { SessionExpirationProvider, SessionProvider } from './contracts.js';
 import type { ISession } from './contracts.js';
 import { UserSession } from './session.js';
@@ -289,7 +290,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
   }
 
   public async revokeHandle(subject: IdentityRef, handle: string): Promise<boolean> {
-    if (typeof handle !== 'string') {
+    if (!isValidField(sessionHandleField, handle)) {
       return false;
     }
     for (const session of await this.Store.listBySubject(ref(subject))) {

@@ -3,6 +3,7 @@ import { Autoinject, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { AuthenticationStrategy, IdentityStore, PasswordCredentialStore } from '@spinajs/authn/contracts';
+import { isValidField, loginField } from '@spinajs/authn/schemas';
 import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 
 import { PasswordHasher } from './hasher.js';
@@ -110,7 +111,7 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
     const fields = passwordFields(c);
 
     // An empty password keeps the dummy verify cheap for an over-long input; the work is the same argon2 verify.
-    if (!fields || !isLoginLength(fields.password)) {
+    if (!fields || !isLoginLength(fields.password) || !isValidField(loginField, fields.login)) {
       await hasher.verify(null, '');
       return isPasswordKind(c) ? INVALID : UNSUPPORTED;
     }

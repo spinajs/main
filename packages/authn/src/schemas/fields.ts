@@ -75,6 +75,9 @@ export const AUTHN_FIELD_SCHEMAS = Object.freeze({
 const DATE_TIME = /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
 const isDateTime = (s: string): boolean => DATE_TIME.test(s) && !Number.isNaN(Date.parse(s));
 
+/** What a value that passed `isValidField(schema)` is, as far as the type system can tell. */
+export type FieldValue<S> = S extends { readonly type: 'string' } ? string : S extends { readonly type: 'array' } ? readonly unknown[] : S extends { readonly type: 'object' } ? Readonly<Record<string, unknown>> : unknown;
+
 interface AjvLike {
   compile(schema: object): ValidateFunction;
 }
@@ -87,7 +90,7 @@ const compiled = new WeakMap<object, ValidateFunction>();
  * Whether `value` matches `schema`, without coercion, defaults or a container: services that can be called outside a
  * controller check their input against the same fields the DTOs use.
  */
-export function isValidField(schema: object, value: unknown): boolean {
+export function isValidField<S extends object>(schema: S, value: unknown): value is FieldValue<S> {
   let fn = compiled.get(schema);
   if (!fn) {
     ajv ??= new Ajv({ logger: false, allErrors: false, addUsedSchema: false, formats: { 'date-time': isDateTime } });

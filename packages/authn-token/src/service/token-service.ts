@@ -10,6 +10,7 @@ import { Log, Logger } from '@spinajs/log';
 import { ormReady } from '@spinajs/orm';
 import { _between, _check_arg, _contains, _custom, _finite, _gte, _integer, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
 import { CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
+import { isValidField, tokenIdField, tokenSecretField } from '@spinajs/authn/schemas';
 import type { AuthnContext, CredentialChange, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenRotateResult, TokenScope, TokenUpdate, TokenUpdateResult, TokenValidation } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
 
@@ -313,7 +314,7 @@ export class DbTokenService extends TokenService {
   public async revoke(owner: IdentityRef, id: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<boolean> {
     const now = this.nowOf(ctx);
     const [ok] = _try_check_arg(_is_string(_non_empty()))(id, 'id');
-    if (!ok) {
+    if (!ok || !isValidField(tokenIdField, id)) {
       return false;
     }
     await ormReady();
@@ -406,7 +407,7 @@ export class DbTokenService extends TokenService {
   public async revokeById(id: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<boolean> {
     const now = this.nowOf(ctx);
     const [ok] = _try_check_arg(_is_string(_non_empty()))(id, 'id');
-    if (!ok) {
+    if (!ok || !isValidField(tokenIdField, id)) {
       return false;
     }
 
@@ -533,7 +534,7 @@ export class DbTokenService extends TokenService {
     // Without a valid now no token could ever count as expired.
     const now = instant(ctx?.now);
     const [ok] = _try_check_arg(_is_string(_non_empty()))(raw, 'raw');
-    if (!ok || !Number.isFinite(now)) {
+    if (!ok || !Number.isFinite(now) || !isValidField(tokenSecretField, raw)) {
       return fail('invalid_credentials');
     }
 
