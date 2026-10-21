@@ -56,6 +56,7 @@ export const HTTP_CONFIGURATION_SCHEMA = {
       description: 'Per-ip, per-route rate limiting (ThrottleMiddleware). Off by default: the authn throttle is the real login limiter.',
       properties: {
         enabled: { type: 'boolean', default: false },
+        ipv6Prefix: { type: 'integer', minimum: 16, maximum: 128, default: 64, description: 'An IPv6 client is counted per prefix of this many bits, so its addresses share one window; IPv4 is counted whole.' },
         rules: {
           type: 'array',
           default: [],
