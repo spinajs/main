@@ -23,6 +23,7 @@ No output carries a secret. The begin, confirm and regenerate outputs are `{ ok:
 ## Important behaviour
 
 - **Hooks get copies.** Each input key is a frozen copy (`hookView`), a mutable key a plain copy (`hookCopy`), and the after hooks get a frozen copy of the output. The action reads what it acts on from its own values, so a write in place in a hook reaches nothing. Without a matching hook nothing is copied.
+- **The `session` input is a copy of the `SessionHandle`** (`{ id, state }`), plain data like every other input.
 - **The owner actions throw on a refusal.** `MfaBeginResult`, `MfaConfirmResult`, `MfaDisableResult` and `MfaRegenerateResult` have no member for it, so a caller other than the `/user/mfa` routes catches `ActionRefused` and `ActionHookFailed`.
 - **Without hooks.** A service built with `new TotpService(deps)` runs `deps.hooks` when given and no hook otherwise.
 

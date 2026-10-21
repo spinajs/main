@@ -73,6 +73,7 @@ export class CompanyAddressesOnly extends ActionHook<'authn.registration'> {
 ## Important behaviour
 
 - **Hooks get copies.** Each input key is a frozen copy (`hookView`), a mutable key a plain copy (`hookCopy`), and the after hooks get a frozen copy of the output. The action reads what it acts on from its own values, so a write in place in a hook reaches nothing. `authn.request` hooks see a frozen copy of the principal: they cannot drop its ceiling or change its id. Without a matching hook nothing is copied.
+- **A `Session` handed to a hook is a plain copy:** it has the data (`handle`, `identity`, `facts`) but none of the class getters (`state`, `impersonator`, `activeRole`); see [authn action hooks](../authn/14-action-hooks.md).
 - **A route answers only its own action's refusal.** A refusal of another action that escapes the service is rethrown, not answered as this route's.
 - **A refusal inside the registrar answers 202.** Only a new address reaches what the IdentityRegistrar runs (`users.create`, `authn.password.set`), so its refusal, or the `password` InvalidArgument users makes of a refused set, answers the accepted 202 of a taken address and is audited as `identity.register` with its reason. Only an `authn.registration` refusal answers 400.
 - **No audit event for a refused role switch or `authn.request`:** no event type fits either, so only the 403 answer tells.
