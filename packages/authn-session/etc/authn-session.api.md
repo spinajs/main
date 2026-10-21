@@ -28,6 +28,8 @@ export interface ISession {
     Expiration?: DateTime;
     /** Opaque to the store: SessionIssuer.set values plus the issuer's own entries (facts, pending steps). */
     Data: Map<string, unknown>;
+    /** sha256(provider + '\0' + sid) of an external login with an IdP session id; indexed for deleteByExternalKey. */
+    ExternalKey?: string;
 }
 /**
  * Session expiration strategy, resolved by service name at
@@ -63,7 +65,13 @@ export declare abstract class SessionProvider<T extends ISession = ISession> ext
     abstract listBySubject(subject: IdentityRef, opts?: {
         includeImpersonations?: boolean;
     }): Promise<T[]>;
+    /** `externalKey` is sha256(provider + '\0' + sid), written by save when facts.external.sid is set. Counts live rows only. */
+    abstract deleteByExternalKey(externalKey: string): Promise<number>;
     abstract truncate(): Promise<void>;
+    /** Optional; the issuer calls it when the authn service boots, so a store that must not run in this deployment fails the boot. */
+    checkConfiguration?(booting: {
+        get<T>(path: string | string[]): T;
+    }): Promise<void>;
     protected applyInitialExpiration(s: ISession): void;
     protected applyRenewedExpiration(s: ISession): void;
     /** Public so SessionIssuer judges a row the way its store does. */
@@ -150,6 +158,11 @@ export declare const AUTHN_SESSION_CONFIGURATION_SCHEMA: {
                     default: string;
                 };
             };
+        };
+        allowMemoryStore: {
+            type: string;
+            default: boolean;
+            description: string;
         };
         hashIds: {
             type: string;
@@ -245,6 +258,11 @@ const AUTHN_SESSION_CONFIGURATION_SCHEMA = {
                     default: "strict"
                 }
             }
+        },
+        allowMemoryStore: {
+            type: "boolean",
+            default: false,
+            description: "MemorySessionStore loses every session on restart and is not shared between instances: outside development and test the boot refuses it unless this is true."
         },
         hashIds: {
             type: "boolean",

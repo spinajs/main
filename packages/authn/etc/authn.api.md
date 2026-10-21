@@ -25,7 +25,7 @@ export interface AuthnEvent {
     /** Never passwords, tokens, secrets or raw session ids (A21). */
     readonly data?: Readonly<Record<string, unknown>>;
 }
-export type AuthnEventType = "login" | "logout" | "mfa.challenge" | "mfa.verify" | "mfa.enrol" | "mfa.disable" | "reauth" | "session.issue" | "session.rotate" | "session.revoke" | "session.expire" | "password.change" | "password.reset.request" | "password.reset" | "invite.redeem" | "token.create" | "token.use" | "token.revoke" | "key.register" | "key.use" | "key.revoke" | "identity.link" | "identity.unlink" | "impersonation.start" | "impersonation.end" | "impersonation.expire" | "throttle.block" | "passkey.register" | "passkey.remove" | "address.verify.request" | "address.verify";
+export type AuthnEventType = "login" | "logout" | "mfa.challenge" | "mfa.verify" | "mfa.enrol" | "mfa.disable" | "reauth" | "session.issue" | "session.rotate" | "session.revoke" | "session.expire" | "password.change" | "password.reset.request" | "password.reset" | "invite.redeem" | "token.create" | "token.use" | "token.revoke" | "token.rotate" | "token.update" | "key.register" | "key.use" | "key.revoke" | "identity.link" | "identity.unlink" | "impersonation.start" | "impersonation.end" | "impersonation.expire" | "throttle.block" | "passkey.register" | "passkey.remove" | "address.verify.request" | "address.verify";
 /**
  * Registered with Array.ofType: every sink gets every event (A21).
  * Log sinks write identifiers (login strings, emails) as keyed hashes (authn.audit.hashIdentifiers, SR-19);
@@ -134,6 +134,8 @@ export interface ExternalSubject {
     readonly email?: string;
     readonly emailVerified?: boolean;
     readonly claims?: Readonly<Record<string, unknown>>;
+    /** The IdP session id (OIDC `sid`); the session keeps it in AuthnFacts.external for back-channel logout. */
+    readonly sid?: string;
 }
 /** Bad credentials yield a failure result; they are never thrown. */
 export type AuthenticationResult = {
@@ -972,6 +974,12 @@ export declare abstract class AuthnService extends AsyncService {
      * A throttled re-authentication returns false; the route answers like any failed re-authentication.
      */
     abstract reauthenticate(session: SessionHandle, c: Credentials, ctx: AuthnContext): Promise<boolean>;
+    /**
+     * Step-up of an active aal1 session: verifies `step` (an enrolled step of the MFA policy, or 'recovery' for a recovery
+     * code) with `response`; success reissues the session at aal2 under a new id. An aal2 session succeeds as it is.
+     * Throttled like completeMfa (flow 'mfa'); a pending or impersonated session fails.
+     */
+    abstract stepUp(session: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult>;
     /** Via PrincipalFactory. */
     abstract principalOf(result: Extract<AuthenticationResult, {
         status: "success";
@@ -1074,6 +1082,12 @@ export interface SessionHandle {
     readonly id: string;
     readonly state: "pending" | "active";
 }
+/** What `SessionIssuer.reissue` may change in the facts of an active session; it never lowers the assurance. */
+export interface SessionFactsChange {
+    readonly assurance?: "aal2";
+    readonly mfa?: readonly string[];
+    readonly authenticatedAt?: Date;
+}
 /** Implemented by @spinajs/authn-session. */
 export declare abstract class SessionIssuer {
     /**
@@ -1090,8 +1104,14 @@ export declare abstract class SessionIssuer {
     abstract restore(rawId: string): Promise<Session | null>;
     /** New id, same data (fixation). */
     abstract rotate(h: SessionHandle): Promise<SessionHandle>;
-    /** pending → active, aal2; rotates. Refuses an active session: a re-authentication never changes the facts of a live session. */
+    /** pending → active, aal2; rotates. Refuses an active session, whose facts only `reissue` changes. */
     abstract elevate(h: SessionHandle, facts: Partial<AuthnFacts>): Promise<SessionHandle>;
+    /**
+     * Active sessions only: moves the row to a fresh id with `change` merged into its facts; data, subject, impersonator,
+     * creation and expiry are kept. Refuses a pending session. As with `rotate`, a revocation that lands during the move
+     * stays in force, and of parallel reissues of one session exactly one succeeds.
+     */
+    abstract reissue(h: SessionHandle, change: SessionFactsChange): Promise<SessionHandle>;
     /** Holds ActiveRole and the impersonation block. Never changes the subject, impersonator or state: the issuer refuses its reserved keys. */
     abstract set(h: SessionHandle, key: string, value: unknown): Promise<void>;
     /** True only for the call that ended the session, so of parallel revokes of one session exactly one gets true. */
@@ -1123,6 +1143,12 @@ export declare abstract class SessionIssuer {
         userAgent?: string;
         current?: boolean;
     }[]>;
+    /** Ends every session issued from `provider` with IdP session id `sid` (AuthnFacts.external); returns the count. */
+    abstract revokeByExternal(provider: string, sid: string): Promise<number>;
+    /** Optional; the authn service calls it at boot with its configuration, so an issuer that cannot run on it fails the boot. */
+    checkConfiguration?(booting: {
+        get<T>(path: string | string[]): T;
+    }): Promise<void>;
 }
 ```
 
@@ -1307,6 +1333,30 @@ export type TokenCreateResult = {
     readonly ok: false;
     readonly code: "invalid_expiry" | "invalid_scope";
 };
+export type TokenRotateResult = {
+    readonly ok: true;
+    /** The new secret, returned once; never stored or logged (SR-08). */
+    readonly plaintext: string;
+    readonly token: TokenRecord;
+} | {
+    readonly ok: false;
+    readonly reason: "not_found";
+};
+/** The fields `update` can change; each can only narrow the token. */
+export interface TokenUpdate {
+    readonly name?: string;
+    /** A subset of the token's roles; for a token without roles, roles its owner holds. */
+    readonly roles?: readonly string[];
+    /** Not after the current expiry, and after ctx.now. */
+    readonly expiresAt?: Date;
+}
+export type TokenUpdateResult = {
+    readonly ok: true;
+    readonly token: TokenRecord;
+} | {
+    readonly ok: false;
+    readonly reason: "not_found" | "invalid_scope" | "invalid_expiry";
+};
 /**
  * A StrategyOutcome; TokenStrategy returns it with `profile` copied to attributes.profile. ceiling.roles are the token's roles. An agent token yields identity
  * { type: 'agent', id: token id }, delegation 'inherit' on behalf of the owner and a ceiling with reason 'out_of_scope' and no roles (A15).
@@ -1357,10 +1407,30 @@ export declare abstract class TokenService {
     abstract revoke(owner: IdentityRef, id: string, ctx: AuthnContext, opts?: {
         readonly actor?: PrincipalRef;
     }): Promise<boolean>;
+    /**
+     * POST /user/tokens/:uuid/rotate; the route requires fresh auth. Replaces the secret of a live token of `owner` and keeps its id, name,
+     * roles, scope and expiry. The old secret stops working at once, or after `graceSeconds` (default 0, whole seconds, at most
+     * 604800, else InvalidArgument) so a deployment can swap it. Owner-bound: not_found for a token that is
+     * revoked, expired, unknown or someone else's (no IDOR).
+     */
+    abstract rotate(owner: IdentityRef, id: string, ctx: AuthnContext, opts?: {
+        readonly graceSeconds?: number;
+    }): Promise<TokenRotateResult>;
+    /**
+     * PATCH /user/tokens/:uuid. Only narrows: adding a role is invalid_scope (so is roles on an agent token or an empty list), an expiry
+     * past the current one, or not after ctx.now, is invalid_expiry. Owner-bound like revoke; not_found for a revoked token.
+     */
+    abstract update(owner: IdentityRef, id: string, change: TokenUpdate, ctx: AuthnContext): Promise<TokenUpdateResult>;
     /** Password reset and admin credential reset (A11, A25); agent tokens acting for `owner` included. Returns the count. */
     abstract revokeAllFor(owner: IdentityRef, ctx: AuthnContext, opts?: {
         readonly actor?: PrincipalRef;
     }): Promise<number>;
+    /**
+     * POST /auth/tokens/revoke (RFC 7009): the holder of a secret ends its token without a session. True when this call revoked a live token;
+     * false for an unknown, malformed, already revoked or out-of-grace secret, and never thrown, so the route answers the same in every case.
+     * The previous secret of a rotation counts only until its grace ends. Audited as `token.revoke` with reason 'self'.
+     */
+    abstract revokeByPlaintext(raw: string, ctx: AuthnContext): Promise<boolean>;
     /** Hash lookup; checks revocation, expiry and the owner's status on every use (A14, A15). Bad tokens yield a failure; they are never thrown. */
     abstract validate(raw: string, ctx: AuthnContext): Promise<TokenValidation>;
 }
@@ -1384,6 +1454,11 @@ export interface AuthnFacts {
     readonly impersonator?: PrincipalRef;
     /** Hashed session id, never the raw one. */
     readonly sessionHandle?: string;
+    /** The external login the session came from; `sid` is the IdP session id that back-channel logout names. */
+    readonly external?: {
+        readonly provider: string;
+        readonly sid?: string;
+    };
 }
 
 // BackoffParams (@spinajs/util)
