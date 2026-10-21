@@ -120,7 +120,7 @@ const validKeys = (v: unknown): v is readonly ThrottleKey[] => Array.isArray(v) 
  * A throttle class resolves through DI (`MemoryAuthnThrottle` is one root singleton); a throttle registered as a factory
  * is called once per container, so the factory must return a shared instance or the counts split per container.
  *
- * Boot also fails on the secret checks (A24, `checkAuthnSecrets`) and on the throttle's `checkConfiguration`.
+ * Boot also fails on the secret checks (A24, `checkAuthnSecrets`) and on the `checkConfiguration` of the throttle and the session issuer.
  */
 @PerChildInstance()
 @Injectable(AuthnService)
@@ -181,6 +181,7 @@ export class DefaultAuthnService extends AuthnService {
     if (authnEnvFellBack(this.Configuration)) this.warnOnce(AUTHN_ENV_FALLBACK_WARNING);
     await checkAuthnSecrets(this.Configuration, () => this.Policy.steps(), (m) => this.warnOnce(m));
     await this.Throttle.checkConfiguration?.(this.Configuration);
+    await this.Sessions.checkConfiguration?.(this.Configuration);
     if (canPeek(this.Throttle)) this.peeker = this.Throttle;
     else if (this.Registry.strategies().some((s) => !s.interactive)) this.warnOnce(NO_PEEK_WARNING);
     await super.resolve();
