@@ -33,7 +33,7 @@ export interface AuthzHttpConfig {
   /** The domain GET /user/access, POST /user/access/checks and the explain route answer for. */
   readonly access: { readonly domain: string };
   /** The domain whose AuthzAdmin the authz-http-admin routes use. */
-  readonly admin: { readonly domain: string };
+  readonly admin: { readonly domain: string; readonly basePath?: string };
   /** GET /user/access/events: past `maxStreamsPerPrincipal` open streams of one principal, the oldest is closed. */
   readonly events: { readonly maxStreamsPerPrincipal: number };
 }
@@ -73,7 +73,8 @@ export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
       properties: { query: { ...nullableName, default: 'link' }, header: { ...nullableName, default: 'X-Authz-Link' }, cookie: { ...nullableName, default: null } },
     },
     access: { type: 'object', default: {}, properties: { domain: { ...nonEmpty, default: 'root' } } },
-    admin: { type: 'object', default: {}, properties: { domain: { ...nonEmpty, default: 'root' } } },
+    // No default: the controller's own @BasePath default ('authz') applies while the key is unset.
+    admin: { type: 'object', default: {}, properties: { domain: { ...nonEmpty, default: 'root' }, basePath: nonEmpty } },
     events: { type: 'object', default: {}, properties: { maxStreamsPerPrincipal: { type: 'integer', minimum: 1, default: 5 } } },
   },
 };

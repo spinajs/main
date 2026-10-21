@@ -367,9 +367,19 @@ export function Accepts(accepts: HttpAcceptHeaders) {
   });
 }
 
-export function BasePath(path: string) {
+/**
+ * Sets the URL segment of every route of the controller. The object form reads `config` from the
+ * configuration when the routes are built and falls back to `default` while the key is unset.
+ */
+export function BasePath(path: string | { readonly config: string; readonly default: string }) {
   return Controller((metadata: IControllerDescriptor) => {
-    metadata.BasePath = path;
+    if (typeof path === 'string') {
+      metadata.BasePath = path;
+      metadata.BasePathConfig = null;
+    } else {
+      metadata.BasePath = path.default;
+      metadata.BasePathConfig = path.config;
+    }
   });
 }
 

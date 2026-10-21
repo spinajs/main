@@ -1,6 +1,6 @@
 # OpenAPI documentation
 
-The package documents its routes for `@spinajs/http-swagger` in two parts. `AuthzAdminSchemaProvider` serves the named answer schemas, and `describeAuthzAdminDocument(doc)` adds the request bodies and query parameters that http-swagger cannot see.
+The package documents its routes for `@spinajs/http-swagger` in two parts. `AuthzAdminSchemaProvider` serves the named answer schemas, and `describeAuthzAdminDocument(doc, basePath?)` adds the request bodies and query parameters that http-swagger cannot see.
 
 The routes read their body and query string from `@Req()` on purpose, so no http-layer step can refuse what `AuthzAdmin` would answer. The price is that the swagger builder sees no body or query argument; you add them with `describeAuthzAdminDocument`.
 
@@ -8,7 +8,7 @@ The routes read their body and query string from `@Req()` on purpose, so no http
 
 1. Importing the package registers `AuthzAdminSchemaProvider` as a `SchemaProvider`. Its `getSchema(typeName)` answers the names in `AUTHZ_ADMIN_SCHEMAS` and `undefined` for any other.
 2. http-swagger reads the controller's JSDoc. Every operation is tagged `Authz admin`, with a summary and a description. The `@response` tags name `AuthzAdminResults`, `AuthzAdminPage` and `AuthzAdminError`, which the provider resolves.
-3. You call `describeAuthzAdminDocument(doc)` on the built document. For each entry of `AUTHZ_ADMIN_ROUTES` it finds the operation by method and path suffix, so a route prefix does not matter, and:
+3. You call `describeAuthzAdminDocument(doc)` on the built document. For each entry of `AUTHZ_ADMIN_ROUTES` it finds the operation by method and path suffix, so a route prefix does not matter (`basePath` is the value of `authz.http.admin.basePath` when the app moved the routes; it defaults to `authz`), and:
    - adds every schema of `AUTHZ_ADMIN_SCHEMAS` under `components.schemas`, keeping one that already exists;
    - sets the JSON `requestBody` to the route's body schema;
    - adds the missing query parameters with their encodings;

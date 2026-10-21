@@ -64,6 +64,8 @@ The package mounts its routes from eleven controllers in `lib/<cjs|mjs>/v3/contr
 
 "Session principal" means a principal from a session cookie: an API token, JWT, key or signature caller gets 403 `session_required`. "Fresh" means a login within `authn.freshAuth.maxAgeSeconds` or the account password in the body; see [Fresh authentication](05-policies.md#fresh-authentication).
 
+The credential admin paths above mount under `authn.http.admin.basePath` (default `authn/admin/users`), and every route of the group moves with it; see [Credential admin routes](16-credential-admin-routes.md#configuration).
+
 ## Shared answers
 
 | Status | Body | When |

@@ -43,6 +43,7 @@ sequenceDiagram
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authz.http.admin.domain` | `string` | `'root'` | a non-empty domain name | The authz domain whose `AuthzAdmin` the routes use. |
+| `authz.http.admin.basePath` | `string` | not set, the routes mount under `authz` | a non-empty path without the route prefix | Where `commands`, `assignments`, `holders`, `links`, `rules`, `policies` and `scopes/:type/:id/attributes` mount. They move together. |
 | `system.dirs.controllers` | `string[]` | the package's `lib/mjs/controllers` or `lib/cjs/controllers` | | Set by the package config; it is how http finds `AuthzAdminController`. |
 
 ```ts
@@ -89,7 +90,9 @@ The permission is the default one; `AuthzAdmin` checks it at the resource in the
 
 `assignment.revokeWhere`, `set.addMember`, `set.removeMember` and `scope.forget` have no route of their own; send them through [`POST /authz/commands`](02-command-batches.md).
 
-The paths sit under the app's route prefix (`http.controllers.route.prefix`) when one is set.
+The paths sit under the app's route prefix (`http.controllers.route.prefix`) when one is set. With `authz.http.admin.basePath: 'internal/authz'` every `/authz` above reads `/internal/authz` (`/api/internal/authz` under the prefix `api`). Pass the same value as the second argument of `describeAuthzAdminDocument(doc, basePath)` so the [OpenAPI document](06-openapi-documentation.md) keeps its bodies and query parameters.
+
+To change the permission or the guard of a route instead of its path, subclass `AuthzAdminController`, give it its own `@BasePath`, and register it with `DI.register(Mine).as(AuthzAdminController)`; see [Moving a controller to another path](../http/02-controllers-and-routing.md#moving-a-controller-to-another-path).
 
 ### Permissions
 
