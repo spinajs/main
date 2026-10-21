@@ -44,6 +44,7 @@
     { "path": "packages/reflection/tsconfig.mjs.json" },
     { "path": "packages/session-provider-db/tsconfig.mjs.json" },
     { "path": "packages/session-provider-dynamodb/tsconfig.mjs.json" },
+    { "path": "packages/email-verification/tsconfig.mjs.json" },
     { "path": "packages/templates/tsconfig.mjs.json" },
     { "path": "packages/templates-handlebars/tsconfig.mjs.json" },
     { "path": "packages/templates-pug/tsconfig.mjs.json" },
