@@ -1,13 +1,15 @@
 import { Injectable, Bootstrapper, DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { registerConfigurationSchema } from '@spinajs/configuration';
 import { EmailPasswordMailer } from '@spinajs/email';
-import { PasswordMailer } from '@spinajs/authn-local';
+import { AuthnMailDispatcher, PasswordMailer } from '@spinajs/authn-local';
 
 import { USERS_ACCESS_CONFIGURATION_SCHEMA } from './authn/access-schema.js';
 
 import { User, USER_SECURITY_METADATA_KEYS } from './models/User.js';
 import { UserMetadataBase } from './models/UserMetadata.js';
 import { RBAC_USER_MODEL } from './model-token.js';
+import { authnMailDispatcher } from './mail/dispatcher.js';
 
 export * from './interfaces.js';
 export * from './exceptions.js';
@@ -27,6 +29,8 @@ export * from './user-resource-adapter.js';
 export * from './default-roles-check.js';
 export * from './identity/index.js';
 export * from './authn/index.js';
+export * from './mail/check.js';
+export * from './mail/dispatcher.js';
 
 @Injectable(Bootstrapper)
 export class RbacBootstrapper extends Bootstrapper {
@@ -51,6 +55,11 @@ export class RbacBootstrapper extends Bootstrapper {
     // on it). Bootstrappers run after the application's imports, so a mailer it registered is seen here and kept.
     if (!DI.RootContainer.hasRegistered(PasswordMailer)) {
       DI.register(EmailPasswordMailer).as(PasswordMailer);
+    }
+
+    if (!DI.RootContainer.hasRegistered(AuthnMailDispatcher)) {
+      // An arrow: the container builds a function declaration with `new`, as if it were a class.
+      DI.register((container: IContainer) => authnMailDispatcher(container)).as(AuthnMailDispatcher);
     }
   }
 }

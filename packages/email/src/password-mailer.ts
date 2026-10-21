@@ -1,19 +1,24 @@
 import { DI } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation, IOFail } from '@spinajs/exceptions';
-import { EmailService, IEmail, PasswordMailConfiguration } from './interfaces.js';
+import { EmailService, IEmail, IEmailTemplate, PasswordMailConfiguration } from './interfaces.js';
 import { redactText } from './redact.js';
+
+/** `AuthnMailPurpose` of `@spinajs/authn-local`. */
+export type PasswordMailPurpose = 'reset' | 'invite';
 
 /** The fields of `PasswordMail` from `@spinajs/authn-local`, declared here so this package never imports it. */
 export interface IPasswordMail {
   readonly identity: { readonly type: string; readonly id: string };
-  readonly purpose: 'reset' | 'invite';
+  readonly purpose: PasswordMailPurpose;
   readonly to: { readonly email?: string; readonly name?: string };
   /** The raw single-use secret. */
   readonly secret: string;
   /** The page that redeems the secret, or ''. */
   readonly url: string;
   readonly ttlSeconds: number;
+  /** Overrides `email.password.lang`. */
+  readonly lang?: string;
 }
 
 export interface EmailPasswordMailerDeps {
@@ -26,6 +31,12 @@ export interface EmailPasswordMailerDeps {
 
 const DEFAULT_SUBJECTS = { reset: 'Reset your password', invite: 'Set up your account' } as const;
 
+/** What the package config ships as `email.password.<purpose>.template`, for the `deps` seam and a config without it. */
+const BUILTIN_TEMPLATES: Readonly<Record<PasswordMailPurpose, IEmailTemplate>> = {
+  reset: { file: 'authn/reset.mjml', fs: 'email-builtin-templates' },
+  invite: { file: 'authn/invite.mjml', fs: 'email-builtin-templates' },
+};
+
 /** `base` with the `token` and `email` query parameters the redemption page reads. */
 function resetUrl(base: string, secret: string, email: string): string {
   if (!base) {
@@ -37,16 +48,10 @@ function resetUrl(base: string, secret: string, email: string): string {
   return url.toString();
 }
 
-function plainText(purpose: IPasswordMail['purpose'], link: string, secret: string, minutes: number): string {
-  const intro = purpose === 'invite' ? 'An account was created for you. Set its password to start using it.' : 'We received a request to reset your password.';
-  const action = link ? `Open this link to set a new password:\n${link}` : `Use this code to set a new password:\n${secret}`;
-  const outro = purpose === 'invite' ? `It expires in ${minutes} minutes.` : `It expires in ${minutes} minutes. If you did not ask for it, ignore this mail.`;
-  return [intro, action, outro].join('\n\n');
-}
-
 /**
- * The `PasswordMailer` of `@spinajs/authn-local` over `EmailService.send`: it renders and sends at once, never queues, and marks
- * the secret and the link for redaction, so neither reaches a queued payload, the `EmailSent` event, a log or an error (SR-09).
+ * The `PasswordMailer` of `@spinajs/authn-local` over `EmailService.send`: it sends the `.mjml` template of the purpose at once,
+ * never queues, and marks the secret and the link for redaction, so neither reaches a queued payload, the `EmailSent` event, a
+ * log or an error (SR-09).
  *
  * Not registered here: importing authn-local registers local password login, which would switch it on in every app that sends
  * mail. `@spinajs/users` registers it as the `PasswordMailer` unless the app registered its own.
@@ -57,6 +62,9 @@ export class EmailPasswordMailer {
 
   @Config('email.defaultConnection')
   protected DefaultConnection: string;
+
+  @Config('app.name', { defaultValue: '' })
+  protected AppName: string;
 
   /** With `deps`, neither the configuration nor the container is used. */
   constructor(protected readonly Deps?: EmailPasswordMailerDeps) {}
@@ -88,26 +96,35 @@ export class EmailPasswordMailer {
       throw new InvalidOperation('set email.password.connection or email.defaultConnection');
     }
     const purpose = options[mail.purpose] ?? {};
-    const minutes = Math.round(mail.ttlSeconds / 60);
+    const subject = purpose.subject || DEFAULT_SUBJECTS[mail.purpose];
+    const lang = mail.lang || options.lang;
 
     return {
       to: [address],
       connection,
-      subject: purpose.subject || DEFAULT_SUBJECTS[mail.purpose],
+      subject,
       tag: `authn-password-${mail.purpose}`,
+      template: purpose.template || { ...BUILTIN_TEMPLATES[mail.purpose] },
       model: {
-        Token: mail.secret,
-        ResetUrl: link,
-        ExpiresInMinutes: minutes,
-        IsInvite: mail.purpose === 'invite',
+        Purpose: mail.purpose,
+        Subject: subject,
         Name: mail.to.name ?? '',
         Email: address,
-        Purpose: mail.purpose,
+        ActionUrl: link,
+        // 3.0 templates read the link under this name.
+        ResetUrl: link,
+        Token: mail.secret,
+        ExpiresInMinutes: Math.round(mail.ttlSeconds / 60),
+        AppName: this.appName(options),
+        IsInvite: mail.purpose === 'invite',
       },
       redact: [...secrets],
       ...(options.from ? { from: options.from } : {}),
-      ...(options.lang ? { lang: options.lang } : {}),
-      ...(purpose.template ? { template: purpose.template } : { text: plainText(mail.purpose, link, mail.secret, minutes) }),
+      ...(lang ? { lang } : {}),
     };
+  }
+
+  private appName(options: PasswordMailConfiguration): string {
+    return options.appName || (this.Deps ? '' : this.AppName) || '';
   }
 }

@@ -7,6 +7,7 @@ export * from './strategy.js';
 export * from './audit.js';
 export * from './service.js';
 export * from './mailer.js';
+export * from './mail/index.js';
 export * from './deferred.js';
 export * from './expiration.js';
 export * from './schema.js';

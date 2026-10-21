@@ -13,10 +13,11 @@ A user who forgot their password asks for a reset link, then redeems the secret 
 3. It answers `{ status: 'accepted' }` at once, for a known and an unknown login alike.
 4. Deferred: `IdentityStore.findByLogin(login)`. Unknown: audit `unknown_login`, stop.
 5. Deferred: `IdentityStore.status(id)`. The identity must exist, not be deleted or banned, and be active or invite-pending. Otherwise: audit `status`, stop.
-6. Deferred: with a `PasswordMailer` registered, `IdentityStore.display(id)`, then `SecretStore.issue(id, 'reset', ttl)`, then `PasswordMailer.send(mail)` at once. Without a mailer, a warning is logged and no secret is issued.
+6. Deferred: with a `PasswordMailer` registered, an `AuthnMailRequest` (identity, purpose `reset`, lifetime, time) goes to the `AuthnMailDispatcher`. Without a mailer, a warning is logged and nothing is dispatched.
 7. Deferred: a `password.reset.request` event.
+8. When the request is delivered (a queue job, or inline after the answer): `IdentityStore.display(id)`, then `SecretStore.issue(id, 'reset', ttl)`, then `PasswordMailer.send(mail)` at once. See [Mail delivery](13-mail-delivery.md).
 
-An error in the deferred work is logged by error name and never reaches the caller.
+An error in the deferred work or in an inline delivery is logged by error name and never reaches the caller.
 
 ### `redeemReset(login, secret, newPassword, ctx)`
 
@@ -65,7 +66,7 @@ sequenceDiagram
 
 An admin action: it is not throttled and does not check the identity's status.
 
-1. With a `PasswordMailer`: `SecretStore.issue(id, 'invite', authn.local.invite.ttlSeconds)` and `PasswordMailer.send()` with purpose `invite`.
+1. With a `PasswordMailer`: an `AuthnMailRequest` of purpose `invite` goes to the `AuthnMailDispatcher`. `invite()` returns without waiting for the mail; the secret is issued (`SecretStore.issue(id, 'invite', authn.local.invite.ttlSeconds)`) and sent when the request is delivered.
 2. A `password.reset.request` event with `data: { purpose: 'invite' }`: success, or failure `no_mailer`.
 
 The invite secret redeems through `redeemReset()` only while `IdentityStatus.invitePending` is `true`. `@spinajs/users` marks the identity invite-pending and calls `invite()` when it creates an account without a password.
@@ -99,25 +100,26 @@ The `reset` throttle is `authn.throttle.reset` in the [authn core](../authn/READ
 | --- | --- | --- | --- | --- |
 | Secret store | `SecretStore`, optional `@Autoinject` of `LocalPasswordService`; required for reset and invite, which throw `InvalidOperation` without it | `DbSecretStore` from [`@spinajs/authn-orm`](../authn-orm/02-secret-store.md) | your `SecretStore` | `DI.register(MyStore).as(SecretStore)`. `redeem()` must be constant time and single use. |
 | Mailer | `PasswordMailer`, optional `@Autoinject` of `LocalPasswordService` | `EmailPasswordMailer`, registered by `@spinajs/users` | your `PasswordMailer` | See [Password mailer](07-password-mailer.md). |
+| Mail dispatcher | `AuthnMailDispatcher`, optional `@Autoinject` of `LocalPasswordService` | inline; with `@spinajs/users`, per `authn.local.mail.delivery` | `QueueAuthnMailDispatcher`, your own | See [Mail delivery](13-mail-delivery.md). |
 | Password service | `PasswordService` | `LocalPasswordService` | | See [Password service](11-password-service.md). |
 
 ## Important behaviour
 
 - **No account enumeration (A11, SR-04).** `requestReset()` answers `accepted` before any lookup, with the same timing for every login. `redeemReset()` answers `invalid` for every refusal: unknown login, ineligible account, wrong, expired, used or other-purpose secret. The reason goes to audit only.
 - **Equal redeem work (A02).** Every redeem path runs exactly two `SecretStore.redeem()` calls, so the timing does not tell a pending invite from a missing login.
-- **The secret exists only in the mail (SR-09).** It is issued right before `send()`, never returned to the caller, never put in an event or a log line. Without a mailer no secret is issued.
+- **The secret exists only in the mail (SR-09).** It is issued when the mail is delivered, right before `send()`, never returned to the caller, never put in a queued job, an event or a log line. Without a mailer no secret is issued.
 - **A new request replaces the older secret.** `SecretStore.issue()` voids earlier secrets of the same purpose for that identity.
 - **A policy violation does not spend the secret.** The policy runs before the redeem.
 - **A reset ends everything.** Every session, including those where the user is the impersonator, and, by default, every token.
 - **A reset secret also completes a pending invite.** The redeem publishes `invite.redeem` with `data: { via: 'reset' }`, so an invite that expired can be finished with a reset link.
 - **Calls without an IP share one bucket.** `ctx.ip` missing means the key `ip: unknown`, so one such caller can throttle every other. authn-http passes the IP from the trusted proxy chain; set `http.trustProxy` behind a proxy.
-- **`invite()` lets a mailer error through.** `requestReset()` and the expiry mail log it instead.
+- **No mailer error reaches the caller.** The mail is delivered after the flow answered: inline, an error is logged by name; queued, the job fails and the queue retries it with a fresh secret. A dispatch error (the queue refused the job) reaches the caller of `invite()`.
 
 ## Best practices
 
-- Set `authn.local.reset.url`. With `''`, `EmailPasswordMailer` builds no link, and its plain-text body carries the bare code.
+- Set `authn.local.reset.url`. With `''`, `EmailPasswordMailer` builds no link, and its template shows the bare code.
 - Keep the invite lifetime short unless your users need days to accept; the secret is a password-setting credential.
-- Call `LocalPasswordService.drain()` in tests and on shutdown, so the deferred reset work finishes.
+- Call `LocalPasswordService.drain()` in tests and on shutdown, so the deferred reset work and the dispatched mails finish.
 
 ## Patterns and antipatterns
 
