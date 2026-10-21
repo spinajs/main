@@ -3,15 +3,17 @@ import type { IContainer } from '@spinajs/di';
 import { BadRequestResponse, BaseController, BasePath, Get, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { PrincipalFactory, RoleSource, SessionIssuer } from '@spinajs/authn/contracts';
-import type { Session } from '@spinajs/authn/contracts';
+import type { Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
+import { Hooks } from '@spinajs/hooks';
 
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, RoleSourceRegistered } from '../index.js';
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
 import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
 import { ACTIVE_ROLE_KEY } from '../../resolvers/session.js';
-import { NO_STORE, authnSessionCookie } from '../responses.js';
-import { answerFor, bodyField, boundedString, onLiveSession } from '../routes.js';
+import { NO_STORE, authnSessionCookie, refusedByHook } from '../responses.js';
+import { answerFor, bodyField, boundedString, contextOf, onLiveSession } from '../routes.js';
+import '../../hooks.js';
 
 const ROLE_CAP = 256;
 
@@ -37,6 +39,9 @@ export class AuthnActiveRoleController extends BaseController {
   @Autoinject(RoleSource, { optional: true })
   protected Roles: RoleSource | undefined;
 
+  @Autoinject(Hooks)
+  protected Hooks!: Hooks;
+
   /**
    * Get the active role
    * `ActiveRole` (null before any switch: every held role applies) and the roles RoleSource gives.
@@ -58,7 +63,7 @@ export class AuthnActiveRoleController extends BaseController {
    * @returns {AuthnRoleSwitchAnswer} The principal summary narrowed to the role
    * @response 400 {AuthnError} invalid_role
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
-   * @response 403 {AuthnError} role_not_held, fresh_auth_required, session_required or impersonating
+   * @response 403 {AuthnError} role_not_held, fresh_auth_required, session_required, impersonating, or action_refused when an `authn.role.switch` hook refuses
    * @security cookieAuth
    */
   @Post('active-role')
@@ -76,13 +81,26 @@ export class AuthnActiveRoleController extends BaseController {
     }
 
     const sessions = this.Sessions;
-    const rotated = await onLiveSession(() => sessions.rotate(session.handle));
-    await onLiveSession(() => sessions.set(rotated, ACTIVE_ROLE_KEY, role));
-    const now = await sessions.restore(rotated.id);
-    if (!now) throw unauthenticated('the session has ended');
-    const factory = this.Principals!;
-    const principal = await factory.principalOf(now.identity, now.facts, { ceiling: { roles: [role] } });
-    return new Ok(await answerFor(this.Container, 'role-switch', principal, { ActiveRole: role }), { Coockies: [authnSessionCookie(this._cfg, rotated)], Headers: [NO_STORE] });
+    let rotated: SessionHandle | undefined;
+    let principal: Principal;
+    try {
+      principal = await this.Hooks.run(
+        'authn.role.switch',
+        { session, role, ctx: contextOf(req, 'request', session.handle) },
+        async () => {
+          const next = await onLiveSession(() => sessions.rotate(session.handle));
+          rotated = next;
+          await onLiveSession(() => sessions.set(next, ACTIVE_ROLE_KEY, role));
+          const now = await sessions.restore(next.id);
+          if (!now) throw unauthenticated('the session has ended');
+          return this.Principals!.principalOf(now.identity, now.facts, { ceiling: { roles: [role] } });
+        },
+        { mutable: [] },
+      );
+    } catch (err) {
+      return refusedByHook(err);
+    }
+    return new Ok(await answerFor(this.Container, 'role-switch', principal, { ActiveRole: role }), { Coockies: [authnSessionCookie(this._cfg, rotated!)], Headers: [NO_STORE] });
   }
 
   /** The roles of the session's identity without the current narrowing, so a narrowed session can switch back. */
