@@ -21,6 +21,7 @@ const authn = {
       resetAfterSeconds: 86400,
       global: null as null | { free: number; baseDelayMs: number; maxDelayMs: number },
       memory: { sweepBatch: 8, fullRetrySeconds: 60, holdOffMs: 1000 },
+      ipv6Prefix: 64,
     },
     freshAuth: {
       maxAgeSeconds: 300,

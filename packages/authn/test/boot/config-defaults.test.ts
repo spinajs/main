@@ -53,9 +53,10 @@ describe('authn shipped config', () => {
   });
 
   it('keeps the throttle block equal to the schema defaults, maxRows aside', () => {
-    const { maxRows, memory, ...limits } = check({}).config.throttle;
+    const { maxRows, memory, ipv6Prefix, ...limits } = check({}).config.throttle;
     expect(maxRows).to.eq(DEFAULT_THROTTLE_MAX_ROWS);
-    expect(authn.throttle).to.deep.eq({ ...limits, memory });
+    expect(ipv6Prefix).to.eq(64);
+    expect(authn.throttle).to.deep.eq({ ...limits, memory, ipv6Prefix });
     expect(limits).to.deep.eq(clone(DEFAULT_THROTTLE_PARAMS));
     expect(memory).to.deep.eq(clone(DEFAULT_MEMORY_THROTTLE));
   });

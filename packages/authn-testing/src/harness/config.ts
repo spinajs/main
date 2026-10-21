@@ -35,7 +35,7 @@ export interface ConfigOverrides {
     };
     session: { expiration: { ttl: number; maxLifetime: number }; pendingTtlSeconds: number };
     mfa: { policy: { force: boolean }; totp: { recoveryCodes: number } };
-    throttle: Partial<ThrottleParams>;
+    throttle: Partial<ThrottleParams> & { ipv6Prefix: number };
     freshAuth: { maxAgeSeconds: number };
     token: { maxTtlDays: number; agentMaxTtlMinutes: number };
     jwt: { issuers: readonly JwtIssuerOverride[] };
