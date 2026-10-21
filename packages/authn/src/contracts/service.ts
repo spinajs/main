@@ -14,6 +14,12 @@ export abstract class AuthnService extends AsyncService {
    * A throttled re-authentication returns false; the route answers like any failed re-authentication.
    */
   abstract reauthenticate(session: SessionHandle, c: Credentials, ctx: AuthnContext): Promise<boolean>;
+  /**
+   * Step-up of an active aal1 session: verifies `step` (an enrolled step of the MFA policy, or 'recovery' for a recovery
+   * code) with `response`; success reissues the session at aal2 under a new id. An aal2 session succeeds as it is.
+   * Throttled like completeMfa (flow 'mfa'); a pending or impersonated session fails.
+   */
+  abstract stepUp(session: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult>;
   /** Via PrincipalFactory. */
   abstract principalOf(result: Extract<AuthenticationResult, { status: 'success' }>): Promise<Principal>;
   abstract strategies(): readonly AuthenticationStrategy[];

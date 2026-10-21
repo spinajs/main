@@ -8,7 +8,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import './register-schema.js';
 import { SessionIssuer, SessionKeys, resolveSession } from '@spinajs/authn/contracts';
-import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionHandle } from '@spinajs/authn/contracts';
+import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionFactsChange, SessionHandle } from '@spinajs/authn/contracts';
 import { SessionExpirationProvider, SessionProvider } from './contracts.js';
 import type { ISession } from './contracts.js';
 import { UserSession } from './session.js';
@@ -204,6 +204,27 @@ export class DefaultSessionIssuer extends SessionIssuer {
     );
     // No expiration: the store gives the now-active session its initial one.
     return this.moveTo(session, data, { State: 'active', Expiration: undefined });
+  }
+
+  public async reissue(h: SessionHandle, change: SessionFactsChange): Promise<SessionHandle> {
+    const session = await this.need(h);
+    if (session.State !== 'active') {
+      throw new InvalidOperation('Only an active session can be reissued');
+    }
+    const stored = readStored(session.Data.get(FACTS_KEY));
+    if (!stored) {
+      throw new InvalidOperation('Unknown or expired session');
+    }
+
+    const data = new Map(session.Data);
+    data.set(FACTS_KEY, {
+      ...stored,
+      // Only a raise: a change can never lower the assurance of a live session.
+      assurance: change.assurance === 'aal2' ? 'aal2' : stored.assurance,
+      mfa: Array.isArray(change.mfa) ? [...change.mfa] : stored.mfa,
+      authenticatedAt: change.authenticatedAt instanceof Date ? change.authenticatedAt.getTime() : stored.authenticatedAt,
+    } satisfies StoredFacts);
+    return this.moveTo(session, data, {});
   }
 
   public async set(h: SessionHandle, key: string, value: unknown): Promise<void> {

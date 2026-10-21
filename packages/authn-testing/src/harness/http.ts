@@ -26,6 +26,10 @@ export interface HttpRoutes {
   whoami(): HttpRequest;
   mfaVerify(code: string): HttpRequest;
   mfaRecovery(code: string): HttpRequest;
+  /** Step-up of the active session the jar holds, with `code` for `step`. */
+  mfaStepUp(step: string, code: string): HttpRequest;
+  /** A route behind Authenticated and MfaSatisfied that answers 200 when both pass. */
+  mfaGated(): HttpRequest;
   mfaEnrol(): HttpRequest;
   mfaConfirm(code: string): HttpRequest;
   mfaDisable(code: string): HttpRequest;

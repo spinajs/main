@@ -8,7 +8,7 @@
 2. Each request restores the session with `SessionIssuer.restore(rawId)`, which returns a `Session` or `null`.
 3. The issuer builds the `Session` with `resolveSession(container, init)`: the class registered as `Session` in the container, or `Session` itself.
 4. Code reads typed data with `session.get(key)`, where `key` is a `SessionKey` made by `sessionKey(name, decode)`.
-5. `SessionIssuer.set(handle, key, value)` writes data; `rotate`, `elevate` and `revoke` change the session itself.
+5. `SessionIssuer.set(handle, key, value)` writes data; `rotate`, `elevate`, `reissue` and `revoke` change the session itself.
 
 ## The `SessionIssuer` contract
 
@@ -18,6 +18,7 @@
 | `restore(rawId)` | Looks the session up by `sha256(rawId)` only, so a stored hash never works as an id |
 | `rotate(handle)` | New id, same data |
 | `elevate(handle, facts)` | `pending` to `active` at `aal2`, with a new id. Refuses an active session |
+| `reissue(handle, change)` | An active session under a new id with `change` (`assurance: 'aal2'`, `mfa`, `authenticatedAt`) merged into its facts; data, subject and impersonator kept. Refuses a pending session. A revocation during the move stays in force |
 | `set(handle, key, value)` | Writes one data entry. Never changes the subject, the impersonator or the state; the issuer refuses its reserved keys |
 | `revoke(handle)` | Resolves `true` only for the call that ended the session, so of parallel revokes exactly one gets `true` |
 | `revokeAll(subject, { except?, includeImpersonations? })` | Ends every session of an identity and returns the count. `includeImpersonations` also ends sessions where it is the impersonator |
@@ -81,7 +82,7 @@ Write the value with `SessionIssuer.set(handle, TenantId.name, tenantId)`. Every
 
 - A pending session yields no principal and accepts only the MFA routes.
 - The raw session id is never stored. Facts and events carry the hashed handle (`AuthnFacts.sessionHandle`, `AuthnEvent.session`).
-- `elevate` refuses an active session: a re-authentication never changes the facts of a live session.
+- `elevate` refuses an active session, and `reissue` a pending one. Only `reissue` changes the facts of a live session, and the core calls it only from `AuthnService.stepUp`, after a verified factor. Earlier releases documented that the facts of a live session never change; an issuer outside this repository must now implement `reissue`.
 
 ## Related
 

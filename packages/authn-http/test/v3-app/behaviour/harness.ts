@@ -71,6 +71,8 @@ export const ROUTES: Partial<HttpRoutes> = {
   whoami: () => ({ method: 'GET', path: '/auth' }),
   mfaVerify: (code) => ({ method: 'POST', path: '/auth/mfa/verify', body: { code } }),
   mfaRecovery: (code) => ({ method: 'POST', path: '/auth/mfa/recovery', body: { code } }),
+  mfaStepUp: (step, code) => ({ method: 'POST', path: '/auth/mfa/step-up', body: { step, code } }),
+  mfaGated: () => ({ method: 'GET', path: '/v3-app-mfa-gated' }),
   sessionsList: () => ({ method: 'GET', path: '/user/sessions' }),
   impersonateStart: (target, password) => ({ method: 'POST', path: '/auth/impersonate', body: { target: { type: target.type, id: target.id }, ...(password !== undefined ? { password } : {}) } }),
   impersonateStop: () => ({ method: 'DELETE', path: '/auth/impersonate' }),

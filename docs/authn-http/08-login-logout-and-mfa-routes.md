@@ -99,6 +99,19 @@ Works for any authenticated principal, including API tokens and keys.
 | Request body | `{ "code": string }`: a single-use recovery code |
 | Answers | as `POST /auth/mfa/verify` |
 
+### `POST /auth/mfa/step-up`
+
+Raises an active `aal1` session to `aal2`, for a route behind `MfaSatisfied` that answered `403 mfa_required`. It calls `AuthnService.stepUp`.
+
+| | |
+| --- | --- |
+| Request body | `{ "code": string, "step"?: string }` and the session cookie. `step` is a step the identity is enrolled in, or `recovery` for a recovery code. Without it, the first enrolled step of `authn.mfa.steps` is used |
+| 200 | Principal summary plus extensions (kind `mfa`), `Set-Cookie` with the new session id. An `aal2` session keeps its id |
+| 401 | `unauthenticated` without a session. Login failure body for a missing or wrong code, an impersonated session or no enrolled step, with `Retry-After` when throttled |
+| 403 | `mfa_pending`: the session is pending; complete it with `POST /auth/mfa/verify` |
+
+The CSRF guard checks it like any other request with the session cookie.
+
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
@@ -121,7 +134,7 @@ Works for any authenticated principal, including API tokens and keys.
 - **One answer for every failure.** Unknown login, wrong password, inactive or banned account, over-long fields and a missing body all answer the same 401 body. The real reason goes to the audit only.
 - **Logging in ends the held session.** A second login on the same browser revokes the first session, even an active one; the route has no `NotLoggedPolicy`.
 - **A pending session answers only `MfaRequired`.** `GET /auth` reveals no identity until the second factor passed.
-- **MFA success rotates the session id.** The pending cookie stops working; the answer carries the new one.
+- **MFA success rotates the session id.** The pending cookie stops working; the answer carries the new one. A step-up does the same to the `aal1` cookie.
 - **The client ip and user agent are stored** with each new session (user agent cut to 512 characters); `GET /user/sessions` shows them.
 - **The cookie is a browser-session cookie** with no max-age; the server enforces idle and total lifetime.
 

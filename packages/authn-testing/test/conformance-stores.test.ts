@@ -22,12 +22,12 @@ const notGreen = (r: readonly CaseOutcome[]) => r.filter((c) => c.status === 'fa
 describe('store conformance wrappers', function () {
   this.timeout(300_000);
 
-  it('runSessionIssuerConformance runs the claimed A07, A08 and A09 store facets green on MemorySessionIssuer', async () => {
+  it('runSessionIssuerConformance runs the claimed A07, A08, A09 and A34 store facets green on MemorySessionIssuer', async () => {
     const r = await runSuite((bdd) => runSessionIssuerConformance((ctx) => fakeStoreHarness(ctx), { bdd }));
     assert.deepStrictEqual(notGreen(r), []);
     assert.deepStrictEqual(
       r.map((c) => c.title),
-      titlesOf(['A07', 'A08', 'A09'], ['A07/store', 'A08/store', 'A09/store']),
+      titlesOf(['A07', 'A08', 'A09', 'A34'], ['A07/store', 'A08/store', 'A09/store', 'A34/store']),
     );
   });
 
