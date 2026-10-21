@@ -44,7 +44,8 @@ A failing or slow sink is logged by `AuthnAudit` and never fails the login.
 
 - `purge(now?)` runs one purge and answers how many rows went.
 - With `purgeInterval` set, the instance starts a timer when DI resolves it and stops it in `dispose()`. Resolve it once at start-up (`await DI.resolve(AuthnAuditRetention)`); nothing else resolves it.
-- `authn:audit-purge` runs `purge()` once from a scheduler (cron, worker). It logs a warning and deletes nothing while `retentionDays` is unset.
+- `authn:audit-purge` runs `purge()` once from a scheduler (cron, worker). It logs a warning and deletes nothing while `retentionDays` is unset. The CLI resolves only the command, so the command injects [`OrmMigrator`](../orm/10-migrations.md): it boots the ORM and runs the `Migration.OnStartup` pass, as an app process does.
+- `AuthnAuditRetention` injects the `Orm`, so resolving it binds `AuthnAudit`.
 
 ## Schema
 
