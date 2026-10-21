@@ -26,10 +26,11 @@ const APP_PROCESS = `
   const { AuthnService, SessionIssuer } = await import('@spinajs/authn/contracts');
   DI.register(() => ({})).as(AuthnService);
   DI.register(() => ({})).as(SessionIssuer);
-  const req = { get: () => undefined, socket: { remoteAddress: '127.0.0.1' }, query: {}, cookies: {} };
+  const { OidcBeginQuery } = await import('./lib/mjs/dto.js');
+  const connection = { encrypted: false, peer: '127.0.0.1', clientIp: undefined };
   try {
     const controller = await DI.resolve(OidcController);
-    const response = await controller.begin('corp', req);
+    const response = await controller.begin('corp', new OidcBeginQuery({}), null, connection);
     const { OidcProviders } = await import('./lib/mjs/providers.js');
     const providers = await DI.resolve(OidcProviders);
     console.log(JSON.stringify({ status: response.answer.status, providers: providers.options.providers.size, redirects: providers.options.redirects }));
