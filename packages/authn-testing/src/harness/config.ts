@@ -34,7 +34,7 @@ export interface ConfigOverrides {
       invite: { ttlSeconds: number };
     };
     session: { expiration: { ttl: number; maxLifetime: number }; pendingTtlSeconds: number };
-    mfa: { policy: { force: boolean }; totp: { recoveryCodes: number } };
+    mfa: { policy: { force: boolean; methods: readonly string[] }; totp: { recoveryCodes: number } };
     throttle: Partial<ThrottleParams>;
     freshAuth: { maxAgeSeconds: number };
     token: { maxTtlDays: number; agentMaxTtlMinutes: number };

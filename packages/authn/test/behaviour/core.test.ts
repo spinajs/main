@@ -8,7 +8,7 @@ import { bootPort, coreHarness, useHarnessLog } from './harness.js';
 
 // A10/core is N8b's in the kit README; N1 claims it too because completeMfa counts codes in the mfa flow (task 3).
 // A05/store and A06/store run in test/throttle/memory-throttle.test.ts (runThrottleConformance).
-const FACETS: Facet[] = ['A01/core', 'A02/core', 'A02/external', 'A05/core', 'A06/core', 'A09/core', 'A10/core', 'A13/core', 'A19/core', 'A20/core', 'A21/core', 'A23/core', 'A24/boot'];
+const FACETS: Facet[] = ['A01/core', 'A02/core', 'A02/external', 'A05/core', 'A06/core', 'A09/core', 'A10/core', 'A10/flow', 'A13/core', 'A19/core', 'A20/core', 'A21/core', 'A23/core', 'A24/boot'];
 
 describe('N1 core behaviour', function () {
   useHarnessLog();

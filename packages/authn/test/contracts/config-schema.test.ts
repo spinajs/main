@@ -99,7 +99,7 @@ function example(): Json {
       hashIds: true,
     },
     mfa: {
-      policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] },
+      policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] },
       steps: [{ name: 'totp', service: 'TotpMfaStep' }],
       encryptionKey: { secret: null },
       totp: { issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 },
@@ -243,7 +243,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [] }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 }, session: SESSION_DEFAULTS, token: TOKEN_DEFAULTS, keys: KEYS_DEFAULTS, http: {} });
+      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] }, steps: [] }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 }, session: SESSION_DEFAULTS, token: TOKEN_DEFAULTS, keys: KEYS_DEFAULTS, http: {} });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -262,7 +262,7 @@ describe('authn.* configuration schema', () => {
         audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 },
         http: {},
         strategies: [],
-        mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [] },
+        mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] }, steps: [] },
         freshAuth: { maxAgeSeconds: 300 },
         linking: { jit: false, byVerifiedEmail: false },
         throttle: THROTTLE_DEFAULTS,
