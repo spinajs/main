@@ -4,11 +4,9 @@ import { randomUUID } from 'node:crypto';
 import type { AuthnContext, Credentials, KeyAlgorithm, KeyOwner, KeyRegistry } from '@spinajs/authn/contracts';
 import { FakeClock, generateKeyPair, runStrategyConformance, signCompactJws } from '@spinajs/authn-testing';
 import type { KitKeyPair } from '@spinajs/authn-testing';
-import { DbKeyNonceStore, MemoryKeyNonceStore } from '../src/nonce/index.js';
-import type { KeyNonceStore } from '../src/nonce/index.js';
+import { MemoryNonceStore } from '@spinajs/authn/nonces';
 import { keysOptionsFor } from './support/keys-options.js';
 import { JwsAssertionStrategy, assertionIssuer } from '../src/strategies/index.js';
-import { bootSqlite, clearKeys } from './db.js';
 import { KIT_AUDIENCE, keysParts } from './harness.js';
 
 const SVC: KeyOwner & { type: 'service' } = { type: 'service', id: 'runner-1' };
@@ -197,59 +195,9 @@ describe('JwsAssertionStrategy', () => {
 
   it('cannot be built without an audience', async () => {
     const p = await keysParts({}, 'memory');
-    await assert.rejects(new JwsAssertionStrategy({ registry: p.registry, verifier: p.verifier, nonces: new MemoryKeyNonceStore(), options: keysOptionsFor() }).resolve(), /audience/);
+    await assert.rejects(new JwsAssertionStrategy({ registry: p.registry, verifier: p.verifier, nonces: new MemoryNonceStore(), options: keysOptionsFor() }).resolve(), /audience/);
   });
 });
-
-for (const kind of ['memory', 'sqlite'] as const) {
-  describe(`KeyNonceStore (${kind})`, () => {
-    let store: KeyNonceStore;
-    beforeEach(async () => {
-      if (kind === 'sqlite') {
-        await bootSqlite();
-        await clearKeys();
-        store = new DbKeyNonceStore();
-      } else {
-        store = new MemoryKeyNonceStore();
-      }
-    });
-
-    it('claims a live key once and an expired one again', async () => {
-      const t0 = new Date(1_800_000_000_000);
-      const later = (ms: number) => new Date(t0.getTime() + ms);
-      assert.strictEqual(await store.claim('jti:a', later(60_000), t0), true);
-      assert.strictEqual(await store.claim('jti:a', later(120_000), later(59_000)), false);
-      assert.strictEqual(await store.claim('jti:b', later(60_000), t0), true);
-      assert.strictEqual(await store.claim('jti:a', later(120_000), later(60_000)), true, 'expired at expiresAt');
-      assert.strictEqual(await store.claim('jti:a', later(180_000), later(61_000)), false);
-    });
-
-    const zoned = kind === 'sqlite' ? it : null;
-    zoned?.('keeps a live value whatever the process time zone (UTC columns)', async () => {
-      const before = process.env.TZ;
-      const t0 = new Date();
-      try {
-        process.env.TZ = 'America/New_York';
-        assert.strictEqual(await store.claim('jti:tz', new Date(t0.getTime() + 60_000), t0), true);
-        process.env.TZ = 'Asia/Tokyo';
-        assert.strictEqual(await store.claim('jti:tz', new Date(t0.getTime() + 120_000), new Date(t0.getTime() + 30_000)), false);
-      } finally {
-        process.env.TZ = before ?? '';
-        if (before === undefined) {
-          delete process.env.TZ;
-        }
-      }
-    });
-
-    it('lets one of many parallel claims win', async () => {
-      const t0 = new Date(1_800_000_000_000);
-      const results = await Promise.all(Array.from({ length: 20 }, () => store.claim('sig:race', new Date(t0.getTime() + 1000), t0)));
-      assert.strictEqual(results.filter(Boolean).length, 1);
-      const again = await Promise.all(Array.from({ length: 20 }, () => store.claim('sig:race', new Date(t0.getTime() + 5000), new Date(t0.getTime() + 2000))));
-      assert.strictEqual(again.filter(Boolean).length, 1, 'one claimant takes over the expired key');
-    });
-  });
-}
 
 runStrategyConformance(
   async ({ clock }) => {

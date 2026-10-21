@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { AuthnAudit } from '@spinajs/authn/audit';
-import { AuthnEventSink, AuthnThrottle, JwsVerifier, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
+import { AuthnEventSink, AuthnThrottle, JwsVerifier, KeyRegistry, NonceStore, SecretStore } from '@spinajs/authn/contracts';
+import { MemoryNonceStore } from '@spinajs/authn/nonces';
 import type { AuthnContext, KeyChallenge, KeyOwner, KeyRegistration } from '@spinajs/authn/contracts';
 import { FakeBackoffThrottle, FakeClock, MemorySecretStore, RecordingEventSink, generateKeyPair, throttleParams } from '@spinajs/authn-testing';
 import type { KitKeyPair } from '@spinajs/authn-testing';
@@ -11,7 +12,6 @@ import { challengeSecretPurpose, parseChallengeId, signChallenge } from '../src/
 import { keysOptionsFor } from './support/keys-options.js';
 import { DefaultKeyRegistry, KeyStore, MemoryKeyStore } from '../src/registry/index.js';
 import { StrictJwsVerifier } from '../src/jws/index.js';
-import { KeyNonceStore, MemoryKeyNonceStore } from '../src/nonce/index.js';
 import { HttpSignatureStrategy, JwsAssertionStrategy } from '../src/strategies/index.js';
 
 const ALICE: KeyOwner & { type: 'user' } = { type: 'user', id: 'alice' };
@@ -284,9 +284,9 @@ describe('DefaultKeyRegistry', () => {
     class UncheckedAssertion extends JwsAssertionStrategy {
       public async resolve(): Promise<void> {}
     }
-    const types = [MemoryKeyStore, MemorySecretStore, TestThrottle, SpySink, MemoryKeyNonceStore, UncheckedAssertion];
+    const types = [MemoryKeyStore, MemorySecretStore, TestThrottle, SpySink, MemoryNonceStore, UncheckedAssertion];
     DI.register(MemoryKeyStore).as(KeyStore);
-    DI.register(MemoryKeyNonceStore).as(KeyNonceStore);
+    DI.register(MemoryNonceStore).as(NonceStore);
     DI.register(MemorySecretStore).as(SecretStore);
     DI.register(TestThrottle).as(AuthnThrottle);
     DI.register(SpySink).as(AuthnEventSink);
@@ -298,16 +298,16 @@ describe('DefaultKeyRegistry', () => {
       assert.ok(r.ok);
       assert.strictEqual(SpySink.last?.all().length, 1, 'the registered sink got the event');
 
-      type Wired = { registry: KeyRegistry; nonces: KeyNonceStore; verifier?: JwsVerifier };
+      type Wired = { registry: KeyRegistry; nonces: NonceStore; verifier?: JwsVerifier };
       const httpsig = (await DI.resolve(HttpSignatureStrategy)) as unknown as Wired;
       const assertion = (await DI.resolve(UncheckedAssertion)) as unknown as Wired;
       assert.strictEqual(httpsig.registry, registry);
       assert.strictEqual(assertion.registry, registry);
-      assert.ok(httpsig.nonces instanceof MemoryKeyNonceStore);
+      assert.ok(httpsig.nonces instanceof MemoryNonceStore);
       assert.strictEqual(assertion.nonces, httpsig.nonces);
       assert.ok(assertion.verifier instanceof StrictJwsVerifier);
     } finally {
-      for (const t of [KeyRegistry, KeyStore, SecretStore, AuthnThrottle, AuthnEventSink, AuthnAudit, KeyNonceStore, HttpSignatureStrategy, ...types] as unknown as (new () => unknown)[]) {
+      for (const t of [KeyRegistry, KeyStore, SecretStore, AuthnThrottle, AuthnEventSink, AuthnAudit, NonceStore, HttpSignatureStrategy, ...types] as unknown as (new () => unknown)[]) {
         DI.uncache(t);
       }
       for (const t of types) {

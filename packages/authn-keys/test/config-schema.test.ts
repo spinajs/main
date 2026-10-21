@@ -8,7 +8,7 @@ import { MemorySecretStore, FakeBackoffThrottle, throttleParams } from '@spinajs
 
 import { keysOptionsOf } from '../src/options/index.js';
 import type { KeysConfig } from '../src/options/index.js';
-import { MemoryKeyNonceStore } from '../src/nonce/index.js';
+import { MemoryNonceStore } from '@spinajs/authn/nonces';
 import { DefaultKeyRegistry, MemoryKeyStore } from '../src/registry/index.js';
 import { HttpSignatureStrategy, JwsAssertionStrategy, KeyChallengeStrategy } from '../src/strategies/index.js';
 import { StrictJwsVerifier } from '../src/jws/index.js';
@@ -139,7 +139,7 @@ describe('authn.keys through the schema', () => {
 
     it('JwsAssertionStrategy and KeyChallengeStrategy fail their boot without an audience', async () => {
       const { child, registry } = await parts({});
-      const assertion = readingFrom(new JwsAssertionStrategy({ registry, verifier: new StrictJwsVerifier(), nonces: new MemoryKeyNonceStore() }), child);
+      const assertion = readingFrom(new JwsAssertionStrategy({ registry, verifier: new StrictJwsVerifier(), nonces: new MemoryNonceStore() }), child);
       let error: unknown;
       try {
         await assertion.resolve();
@@ -159,9 +159,9 @@ describe('authn.keys through the schema', () => {
 
     it('the strategies boot with an audience, and HttpSignatureStrategy needs none', async () => {
       const { child, registry } = await parts({ assertion: { audience: AUD } });
-      await readingFrom(new JwsAssertionStrategy({ registry, verifier: new StrictJwsVerifier(), nonces: new MemoryKeyNonceStore() }), child).resolve();
+      await readingFrom(new JwsAssertionStrategy({ registry, verifier: new StrictJwsVerifier(), nonces: new MemoryNonceStore() }), child).resolve();
       await readingFrom(new KeyChallengeStrategy({ registry, secrets: new MemorySecretStore() }), child).resolve();
-      await readingFrom(new HttpSignatureStrategy({ registry, nonces: new MemoryKeyNonceStore() }), child).resolve();
+      await readingFrom(new HttpSignatureStrategy({ registry, nonces: new MemoryNonceStore() }), child).resolve();
     });
   });
 });
