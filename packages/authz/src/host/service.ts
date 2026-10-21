@@ -262,9 +262,12 @@ export class DefaultAuthzService extends AuthzService {
     } catch (e) {
       // A hook only narrows: a deny stays the engine's deny, with its reason.
       if (!decision.allowed) return decision;
-      if (e instanceof ActionRefused) return deniedByHook(decision, `hook:${e.code}`);
-      if (e instanceof ActionHookFailed) return deniedByHook(decision, 'hook_error');
-      throw e;
+      let code: string;
+      if (e instanceof ActionRefused) code = `hook:${e.code}`;
+      else if (e instanceof ActionHookFailed) code = 'hook_error';
+      else throw e;
+      if (s.audit && s.cfg.audit.denials) this.record(s, { kind: 'deny', principal: decision.principal, permission: decision.permission, resource: decision.resource, reason: code });
+      return deniedByHook(decision, code);
     }
   }
 
@@ -614,7 +617,7 @@ export class DefaultAuthzService extends AuthzService {
 }
 
 function deniedByHook(d: Decision, code: string): Decision {
-  const { validUntil: _validUntil, trace: _trace, ...rest } = d;
+  const { validUntil: _validUntil, ...rest } = d;
   return Object.freeze({ ...rest, allowed: false, residual: FALSE, fields: Object.freeze({ read: [], write: [] }), reason: Object.freeze({ code }) });
 }
 

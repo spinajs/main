@@ -1,11 +1,11 @@
 import * as chai from 'chai';
 import 'mocha';
-import { ManualClock, userPrincipal } from '@spinajs/authz-testing';
+import { ManualClock, RecordingAudit, userPrincipal } from '@spinajs/authz-testing';
 import { ActionHook } from '@spinajs/hooks';
 import type { AfterContext } from '@spinajs/hooks';
 import { RecordingActionHook } from '@spinajs/hooks/testing';
 
-import { AccessDenied, AuthorizationModel, AuthzClock } from '@spinajs/authz';
+import { AccessDenied, AuthorizationModel, AuthzClock, DecisionAudit } from '@spinajs/authz';
 import type { AuthzService, Decision, ResourceRef } from '@spinajs/authz';
 import { PERMISSIONS, START, domains, grantsModel, installHost, instance, rejection, resetHost, setConfig, uninstallHost } from '../admin/support.js';
 import { childWith, violationPaths } from '../host/support.js';
@@ -25,10 +25,12 @@ async function checkDomain(hooks: readonly ActionHook<any>[], enabled?: boolean)
   const c = ds.create('test', 'root');
   const model = grantsModel();
   c.register(instance(model)).as(AuthorizationModel);
+  const audit = new RecordingAudit();
+  c.register(instance(audit)).as(DecisionAudit);
   c.register(instance(new ManualClock(START))).as(AuthzClock);
   registerHooks(c, hooks);
   const service: AuthzService = await ds.service('test');
-  return { service, model };
+  return { service, model, audit };
 }
 
 describe('the authz.check hook', function () {
@@ -95,6 +97,38 @@ describe('the authz.check hook', function () {
       const err = await rejection(service.assert(alice, PERMISSION, p1));
       expect(err).to.be.instanceOf(AccessDenied);
       expect((err as AccessDenied).decision.reason?.code).to.equal('hook:frozen');
+    });
+
+    it('audits the forced deny with reason hook:<code>', async () => {
+      const refuse = new RefuseWhen(['authz.check'], 'frozen');
+      const { service, audit } = await checkDomain([refuse], true);
+      await service.check({ principal: alice, permission: PERMISSION, resource: p1 });
+      const denies = audit.entries.filter((e) => e.kind === 'deny');
+      expect(denies).to.have.length(1);
+      expect(denies[0].reason).to.equal('hook:frozen');
+      expect(denies[0].permission).to.equal(PERMISSION);
+    });
+
+    it('does not audit the forced deny with audit.denials off', async () => {
+      setConfig(['authz', 'audit', 'denials'], false);
+      const refuse = new RefuseWhen(['authz.check'], 'frozen');
+      const { service, audit } = await checkDomain([refuse], true);
+      await service.check({ principal: alice, permission: PERMISSION, resource: p1 });
+      expect(audit.entries.filter((e) => e.kind === 'deny')).to.deep.equal([]);
+    });
+
+    it('keeps the trace of an explain request on the forced deny', async () => {
+      const refuse = new RefuseWhen(['authz.check'], 'frozen');
+      const { service } = await checkDomain([refuse], true);
+      const d = await service.check({ principal: alice, permission: PERMISSION, resource: p1, explain: true });
+      expect(d.reason?.code).to.equal('hook:frozen');
+      expect(d.trace).to.not.equal(undefined);
+    });
+
+    it('also denies the admin permission check: an admin call becomes forbidden', async () => {
+      const refuse = new RefuseWhen(['authz.check'], 'frozen');
+      const { service } = await checkDomain([refuse], true);
+      expect(await service.can(alice, 'authz:assignments.manage', p1)).to.equal(false);
     });
 
     it('never stores the refusal: the next check without the refusing hook is an allow served from the cache', async () => {
