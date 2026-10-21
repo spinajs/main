@@ -92,7 +92,7 @@ Importing `@spinajs/authn-orm` registers the stores, the seven models and the mi
 - [`@spinajs/authn-local`](../authn-local/README.md): password reset and invite secrets, and the `reset` and `reauth` throttle flows.
 - [`@spinajs/authn-oidc`](../authn-oidc/README.md): links external subjects through `authn_identity` and claims each OIDC `state` in `authn_nonce`.
 - [`@spinajs/authn-totp`](../authn-totp/README.md): `DbMfaSecretStore` over `DbMfaStore`, and the MFA cipher.
-- [`@spinajs/authn-keys`](../authn-keys/README.md): key challenges in `authn_secret`; its own `DbKeyNonceStore` shares `authn_nonce`.
+- [`@spinajs/authn-keys`](../authn-keys/README.md): key challenges in `authn_secret`; its `jti` and signature nonce claims go through `DbNonceStore` into `authn_nonce`.
 - [`@spinajs/authn-token`](../authn-token/README.md): JWT bearer subjects that the core maps through `authn_identity`.
 - [`@spinajs/orm`](../orm/README.md): models, [connections](../orm/01-connections.md) and [migrations](../orm/10-migrations.md) the stores run on.
 - [`@spinajs/util` throttle](../util/10-throttle.md): the `Throttle` and `ThrottleStore` mechanics `DbThrottleStore` implements.

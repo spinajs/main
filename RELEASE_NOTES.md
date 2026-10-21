@@ -796,3 +796,24 @@ status so tracking no longer depends on a DB default.
 - Renderers no longer mutate the caller's model object during rendering.
 - Render timing log entries report real durations (a timer-key bug made handlebars
   always report 0 ms).
+
+
+# Release notes — authn-keys uses the core NonceStore
+
+## BREAKING CHANGES
+
+### `@spinajs/authn-keys` — `KeyNonceStore` is gone
+
+`JwsAssertionStrategy` and `HttpSignatureStrategy` claim each `jti` and signature nonce in the core `NonceStore` (`@spinajs/authn/contracts`), the store `@spinajs/authn-oidc` already uses. Removed from `@spinajs/authn-keys`: `KeyNonceStore`, `DbKeyNonceStore`, `MemoryKeyNonceStore` and the `AuthnNonce` model. `nonceKey` stays. The `authn_nonce` table and its model now belong to `@spinajs/authn-orm` alone.
+
+Only `@spinajs/authn-orm` registers a `NonceStore` (`DbNonceStore`). Without one, the two strategies refuse to boot with an error that names `@spinajs/authn-orm`; there is no memory fallback.
+
+| Before | After |
+| --- | --- |
+| `DbKeyNonceStore` registered by importing `@spinajs/authn-keys` | `import '@spinajs/authn-orm'` (`DbNonceStore`) |
+| `DI.register(MemoryKeyNonceStore).as(KeyNonceStore)` | `DI.register(MemoryNonceStore).as(NonceStore)`, with `MemoryNonceStore` from `@spinajs/authn/nonces` |
+| `@Injectable(KeyNonceStore) class X extends KeyNonceStore` | `@Injectable(NonceStore) class X extends NonceStore` |
+| `@Autoinject(KeyNonceStore)` in a custom key strategy | `@Autoinject(NonceStore)` |
+| `new HttpSignatureStrategy({ registry, nonces: new MemoryKeyNonceStore() })` | the same with `new MemoryNonceStore()` |
+
+The claim semantics are the same, so existing `authn_nonce` rows stay valid. `DbNonceStore` also rejects keys over 160 characters, which `nonceKey` never produces. A replaced `NonceStore` now serves the OIDC `state` claims too.

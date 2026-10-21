@@ -28,7 +28,7 @@ The models use these `@spinajs/orm` decorators:
 | `AuthnThrottle` | `authn_throttle` | `k` | [`DbThrottleStore`](01-throttle.md) |
 | `AuthnSecret` | `authn_secret` | `id` | [`DbSecretStore`](02-secret-store.md) |
 | `AuthnIdentity` | `authn_identity` | `id` | [`DbIdentityLinkStore`](03-identity-links.md) |
-| `AuthnNonce` | `authn_nonce` | `k` | [`DbNonceStore`](04-nonce-store.md); `@spinajs/authn-keys` has its own `AuthnNonce` model on the same table |
+| `AuthnNonce` | `authn_nonce` | `k` | [`DbNonceStore`](04-nonce-store.md) |
 | `AuthnMfa` | `authn_mfa` | `(identity, step)` | [`DbMfaStore`](05-mfa-store.md), and through it `DbMfaEnrolments` |
 | `AuthnRecoveryCode` | `authn_recovery_code` | `id` | [`DbMfaStore`](05-mfa-store.md) |
 | `AuthnAudit` | `authn_audit` | `id` | [`DbAuthnAuditSink`](06-audit-sink.md) |
@@ -149,7 +149,7 @@ Indexes `authn_audit_at`: `at`; `authn_audit_identity`: `(identity, at)`.
 | --- | --- | --- | --- |
 | `AuthnInitial_2026_10_02_00_00_00` | `default` | Creates the seven tables and their indexes. | Drops the seven tables in reverse order. |
 
-`@spinajs/authn-keys` ships no migration for `authn_nonce`: its `DbKeyNonceStore` writes into the table this migration creates.
+`@spinajs/authn-keys` ships no migration or model for `authn_nonce`: its strategies claim through `DbNonceStore` into the table this migration creates.
 
 No migration copies 2.x `users_metadata` rows (TOTP secrets, pending resets, invites) into the `authn_*` tables: 3.0 starts from an empty database.
 

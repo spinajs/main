@@ -6,11 +6,13 @@ A nonce store answers "is this the first use of this value?" for single-use valu
 
 | Caller | Key | When it calls |
 | --- | --- | --- |
+| `JwsAssertionStrategy.verify()` ([`@spinajs/authn-keys`](../authn-keys/05-jws-assertions.md)) | `jti:<base64url SHA-256 of kid and jti>` | After the signature and every other check pass, so a forged assertion cannot use up a real client's `jti`. A second use fails with `invalid_credentials`. The claim lasts until `exp` plus the skew. |
+| `HttpSignatureStrategy.verify()` ([`@spinajs/authn-keys`](../authn-keys/06-http-signatures.md)) | `sig:<base64url SHA-256 of kid and nonce>` | After the signature and the time window pass. The claim lasts until `expires` plus the skew. |
 | `OidcProvider.complete()` ([`@spinajs/authn-oidc`](../authn-oidc/README.md)) | `oidc-state:<hex SHA-256 of the state>` | Login step 3 of [How a login runs](../authn/01-authentication-flow.md): `OidcStrategy.verify()` completes the callback, which claims the `state` once before any network call. A second use refuses the callback. The claim expires with the OIDC flow. |
 
 `OidcProviders` injects `NonceStore` with `@Autoinject(NonceStore)`, so an app with `@spinajs/authn-oidc` needs this package or its own `NonceStore` registration.
 
-[`@spinajs/authn-keys`](../authn-keys/README.md) does not call this store. Its own `DbKeyNonceStore` (token `KeyNonceStore`) claims assertion `jti`s and HTTP signature nonces in the same `authn_nonce` table, through its own `AuthnNonce` model. Its keys are `jti:` or `sig:` followed by the base64url SHA-256 of the key id and the value, so they never collide with OIDC states.
+`@spinajs/authn-keys` has no nonce store of its own: its strategies resolve `NonceStore` and refuse to boot without one, and this package is the one that registers it. Their keys are `jti:` or `sig:` followed by the base64url SHA-256 of the key id and the value, so they never collide with OIDC states.
 
 ## How it works
 
@@ -52,8 +54,6 @@ The nonce store reads no key. Callers pick `expiresAt`, usually the end of the t
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Nonce store | `NonceStore` (`@spinajs/authn/contracts`), per child container; also registered as `DbNonceStore` | `DbNonceStore` | `MemoryNonceStore` (exported, not registered) | `DI.register(MemoryNonceStore).as(NonceStore)` for one process, or subclass `DbNonceStore` with `@Injectable(NonceStore)`. Register after this package is imported: a single resolve takes the last registration. |
-
-`@spinajs/authn-keys` has its own `KeyNonceStore` contract with the same semantics; see [Where it runs in the authn flow](#where-it-runs-in-the-authn-flow).
 
 ### Nonce store: custom implementation
 
@@ -142,5 +142,5 @@ export function useInMemoryNonces(): void {
 ## Related
 
 - [`@spinajs/authn-oidc`](../authn-oidc/README.md): the OIDC `state` claimed once on callback.
-- [`@spinajs/authn-keys`](../authn-keys/README.md): `DbKeyNonceStore`, which shares the `authn_nonce` table.
+- [`@spinajs/authn-keys`](../authn-keys/README.md): the `jti` and signature nonce claims that go through this store.
 - [Models and schema](07-models-and-schema.md#authn_nonce): the `AuthnNonce` model.
