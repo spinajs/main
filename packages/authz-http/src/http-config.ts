@@ -36,6 +36,8 @@ export interface AuthzHttpConfig {
   readonly admin: { readonly domain: string; readonly basePath?: string };
   /** GET /user/access/events: past `maxStreamsPerPrincipal` open streams of one principal, the oldest is closed. */
   readonly events: { readonly maxStreamsPerPrincipal: number };
+  /** A route with no `@Access`, `@Policy` or `@AllowAnonymous` on it or its class: logged once at boot, stops the server, or ignored. */
+  readonly unguardedRoutes: 'warn' | 'throw' | 'off';
 }
 
 const nonEmpty = { type: 'string', minLength: 1 };
@@ -76,6 +78,7 @@ export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
     // No default: the controller's own @BasePath default ('authz') applies while the key is unset.
     admin: { type: 'object', default: {}, properties: { domain: { ...nonEmpty, default: 'root' }, basePath: nonEmpty } },
     events: { type: 'object', default: {}, properties: { maxStreamsPerPrincipal: { type: 'integer', minimum: 1, default: 5 } } },
+    unguardedRoutes: { type: 'string', enum: ['warn', 'throw', 'off'], default: 'warn' },
   },
 };
 
