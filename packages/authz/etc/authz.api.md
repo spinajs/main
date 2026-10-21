@@ -96,90 +96,36 @@ export declare abstract class ScopeAttributeStore {
 
 ```ts
 import { Exception } from "@spinajs/exceptions";
-import type { Assignment, AssignmentSubject, LinkDef, Policy, RuleDef } from "./data.js";
+import type { ScopeAttributesQuery, ScopeForgetCommand, ScopeReplaceAttributesCommand, ScopeSetAttributesCommand } from "./data.js";
 import type { Permission } from "./permission.js";
 import type { Principal, PrincipalRef, ResourceRef } from "./principal.js";
 import type { AuthzService } from "./service.js";
-export type AuthzCommand = {
-    readonly kind: "assignment.grant";
-    readonly subject: AssignmentSubject;
-    readonly role: string;
-    readonly scope: ResourceRef;
-    readonly tags?: readonly string[];
-    readonly expiresAt?: Date | null;
-    readonly replaceLadder?: boolean;
-} | {
-    readonly kind: "assignment.revoke";
-    readonly id: string;
-} | {
-    readonly kind: "assignment.revokeWhere";
-    readonly scope: ResourceRef;
-    readonly subject?: AssignmentSubject;
-    readonly role?: string;
-} | {
-    readonly kind: "assignment.setTags" | "assignment.addTags" | "assignment.removeTags";
-    readonly id: string;
-    readonly tags: readonly string[];
-} | {
-    readonly kind: "assignment.setExpiry";
-    readonly id: string;
-    readonly expiresAt: Date | null;
-} | {
-    readonly kind: "set.addMember";
-    readonly set: {
-        readonly role: string;
-        readonly scope: ResourceRef;
-    };
-    readonly member: PrincipalRef;
-    readonly expiresAt?: Date | null;
-} | {
-    readonly kind: "set.removeMember";
-    readonly set: {
-        readonly role: string;
-        readonly scope: ResourceRef;
-    };
-    readonly member: PrincipalRef;
-} | {
-    readonly kind: "link.create";
-    readonly scope: ResourceRef;
-    readonly role: string;
-    readonly tags?: readonly string[];
-    readonly expiresAt?: Date | null;
-    readonly attributes?: Readonly<Record<string, unknown>>;
-} | {
-    readonly kind: "link.update";
-    readonly id: string;
-    readonly expiresAt?: Date | null;
-    readonly attributes?: Readonly<Record<string, unknown>>;
-    readonly role?: string;
-    readonly tags?: readonly string[];
-} | {
-    readonly kind: "link.revoke";
-    readonly id: string;
-} | {
-    readonly kind: "rule.put";
-    readonly rule: Omit<RuleDef, "source">;
-} | {
-    readonly kind: "rule.delete";
-    readonly id: string;
-} | {
-    readonly kind: "policy.put";
-    readonly policy: Omit<Policy, "source">;
-} | {
-    readonly kind: "policy.delete";
-    readonly id: string;
-} | {
-    readonly kind: "scope.setAttributes";
-    readonly scope: ResourceRef;
-    readonly patch: Readonly<Record<string, unknown>>;
-} | {
-    readonly kind: "scope.replaceAttributes";
-    readonly scope: ResourceRef;
-    readonly attributes: Readonly<Record<string, unknown>>;
-} | {
-    readonly kind: "scope.forget";
-    readonly scope: ResourceRef;
-};
+/**
+ * Command kind -> command shape. A model declares its commands by augmenting this interface
+ * (`declare module '@spinajs/authz' { interface AuthzCommandMap { ... } }`) and registers an AuthzWriteHandler for them.
+ */
+export interface AuthzCommandMap {
+    "scope.setAttributes": ScopeSetAttributesCommand;
+    "scope.replaceAttributes": ScopeReplaceAttributesCommand;
+    "scope.forget": ScopeForgetCommand;
+}
+/** Every command a model declared in AuthzCommandMap; the core alone declares the scope commands. */
+export type AuthzCommand = AuthzCommandMap[keyof AuthzCommandMap];
+/** The command of kind K; never until a model declares K. */
+export type AuthzCommandOf<K extends string> = K extends keyof AuthzCommandMap ? AuthzCommandMap[K] : never;
+/** The fields of the command of kind K without `kind`, as the sugar methods of AuthzAdmin take them. */
+export type AuthzCommandFields<K extends string> = Omit<AuthzCommandOf<K>, "kind">;
+/** Kind -> the row a sugar method returns for it; authz-rbac declares the rows of assignment.grant and link.create. */
+export interface AuthzCommandRowMap {
+}
+/** The row a sugar method returns for kind K; unknown until a model declares it. */
+export type AuthzCommandRow<K extends string> = K extends keyof AuthzCommandRowMap ? AuthzCommandRowMap[K] : unknown;
+/** Query kind -> query shape; a model adds its queries by augmentation and registers an AuthzAdminReader for them. */
+export interface AuthzAdminQueryMap {
+    attributes: ScopeAttributesQuery;
+}
+/** Every query a model declared in AuthzAdminQueryMap. */
+export type AuthzAdminQuery = AuthzAdminQueryMap[keyof AuthzAdminQueryMap];
 export type AuthzCommandResult = {
     readonly ok: true;
     readonly kind: AuthzCommand["kind"];
@@ -210,63 +156,32 @@ export interface AuthzAdminOptions {
 /**
  * Root singleton; per-domain variants via (await AuthzDomains.service(name)).admin().
  * The typed sugar methods throw AuthzAdminFailure with the failed result's error code (and field) instead of returning it.
+ * They run the commands of the first-party models, so their types come from the model's AuthzCommandMap entries:
+ * without @spinajs/authz-rbac (assign … deleteRule) or @spinajs/authz-abac (putPolicy, deletePolicy) they take never.
  */
 export declare abstract class AuthzAdmin {
     /** All commands in one transaction; the first failure rolls back the batch and is reported with its index. */
     abstract execute(actor: Principal, commands: readonly AuthzCommand[], opts?: AuthzAdminOptions): Promise<readonly AuthzCommandResult[]>;
-    abstract assign(actor: Principal, a: Omit<Extract<AuthzCommand, {
-        kind: "assignment.grant";
-    }>, "kind">, opts?: AuthzAdminOptions): Promise<Assignment>;
+    abstract assign(actor: Principal, a: AuthzCommandFields<"assignment.grant">, opts?: AuthzAdminOptions): Promise<AuthzCommandRow<"assignment.grant">>;
     abstract revoke(actor: Principal, id: string, opts?: AuthzAdminOptions): Promise<void>;
-    abstract createLink(actor: Principal, l: Omit<Extract<AuthzCommand, {
-        kind: "link.create";
-    }>, "kind">, opts?: AuthzAdminOptions): Promise<{
-        link: LinkDef;
+    abstract createLink(actor: Principal, l: AuthzCommandFields<"link.create">, opts?: AuthzAdminOptions): Promise<{
+        link: AuthzCommandRow<"link.create">;
         token: string;
     }>;
     abstract revokeLink(actor: Principal, id: string, opts?: AuthzAdminOptions): Promise<void>;
     abstract setTags(actor: Principal, assignmentId: string, tags: readonly string[], opts?: AuthzAdminOptions): Promise<void>;
-    abstract putRule(actor: Principal, rule: Omit<RuleDef, "source">, opts?: AuthzAdminOptions): Promise<void>;
+    abstract putRule(actor: Principal, rule: AuthzCommandOf<"rule.put">["rule"], opts?: AuthzAdminOptions): Promise<void>;
     abstract deleteRule(actor: Principal, id: string, opts?: AuthzAdminOptions): Promise<void>;
-    abstract putPolicy(actor: Principal, policy: Omit<Policy, "source">, opts?: AuthzAdminOptions): Promise<void>;
+    abstract putPolicy(actor: Principal, policy: AuthzCommandOf<"policy.put">["policy"], opts?: AuthzAdminOptions): Promise<void>;
     abstract deletePolicy(actor: Principal, id: string, opts?: AuthzAdminOptions): Promise<void>;
     abstract setScopeAttributes(actor: Principal, scope: ResourceRef, patch: Readonly<Record<string, unknown>>, opts?: AuthzAdminOptions): Promise<void>;
     abstract forgetScope(actor: Principal, scope: ResourceRef, opts?: AuthzAdminOptions): Promise<void>;
     abstract list(actor: Principal, q: AuthzAdminQuery): Promise<{
         items: readonly unknown[];
         total: number;
+        next?: string;
     }>;
 }
-export type AuthzAdminQuery = {
-    readonly kind: "assignments";
-    readonly scope?: ResourceRef;
-    readonly subject?: AssignmentSubject;
-    readonly role?: string;
-    readonly includeExpired?: boolean;
-    readonly page?: {
-        limit: number;
-        offset: number;
-    };
-} | {
-    readonly kind: "links" | "rules" | "policies";
-    readonly scope?: ResourceRef;
-    readonly page?: {
-        limit: number;
-        offset: number;
-    };
-} | {
-    readonly kind: "attributes";
-    readonly scope: ResourceRef;
-} | {
-    readonly kind: "holders";
-    readonly scope: ResourceRef;
-    readonly permission: Permission;
-    readonly expandSets?: boolean;
-    readonly page?: {
-        limit: number;
-        offset: number;
-    };
-};
 /** One per command kind family; registered by the model that owns the data (RBAC: assignment, set, link, rule; ABAC: policy; core: scope). */
 export declare abstract class AuthzWriteHandler {
     abstract readonly kinds: readonly AuthzCommand["kind"][];
@@ -319,92 +234,27 @@ export interface AdminContext {
 ## src/contracts/data.ts
 
 ```ts
-import type { Condition } from "../conditions/contracts.js";
-import type { DenyReason, FieldSet } from "./decision.js";
-import type { PrincipalRef, PrincipalType, ResourceRef, ResourceType } from "./principal.js";
-/** Subject of an assignment: a principal, or the set of holders of `role` at `scope` (one level; never nested). */
-export type AssignmentSubject = PrincipalRef | {
-    readonly set: {
-        readonly role: string;
-        readonly scope: ResourceRef;
-    };
-};
-export interface Assignment {
-    readonly id: string;
-    readonly subject: AssignmentSubject;
-    readonly role: string;
+import type { ResourceRef } from "./principal.js";
+/** Deep-merges `patch` into the attributes of `scope`; null deletes a path. */
+export interface ScopeSetAttributesCommand {
+    readonly kind: "scope.setAttributes";
     readonly scope: ResourceRef;
-    readonly tags?: readonly string[];
-    readonly expiresAt?: Date | null;
-    readonly grantedBy?: PrincipalRef;
-    readonly source: string;
+    readonly patch: Readonly<Record<string, unknown>>;
 }
-/** Which principals a rule applies to; all fields AND. */
-export interface SubjectSelector {
-    readonly principalTypes?: readonly PrincipalType[];
-    readonly actorTypes?: readonly PrincipalType[];
-    readonly refs?: readonly PrincipalRef[];
-    readonly rank?: {
-        readonly ladder: string;
-        readonly at: ResourceType;
-        readonly lt?: string;
-        readonly eq?: string;
-        readonly gte?: string;
-    };
-    readonly when?: Condition;
-}
-/** RBAC rules (D15). */
-export interface RuleDef {
-    readonly id: string;
-    readonly kind: "restrict" | "cap" | "threshold";
+export interface ScopeReplaceAttributesCommand {
+    readonly kind: "scope.replaceAttributes";
     readonly scope: ResourceRef;
-    readonly resourceTypes?: readonly ResourceType[];
-    readonly subjects?: SubjectSelector;
-    readonly when?: Condition;
-    readonly expiresAt?: Date | null;
-    readonly source: string;
-    readonly allow?: readonly AssignmentSubject[];
-    readonly ladder?: string;
-    readonly maxRole?: string | {
-        readonly ref: string;
-    } | null;
-    readonly stripTags?: boolean;
-    readonly assignments?: {
-        readonly scopeTypes?: readonly ResourceType[];
-        readonly subjectTypes?: readonly PrincipalType[];
-    };
-    readonly permissions?: readonly string[];
-    readonly resource?: Condition;
-    readonly minRole?: string | {
-        readonly ref: string;
-    };
-    readonly at?: ResourceType;
-    readonly reason?: DenyReason & {
-        readonly model?: never;
-    };
-}
-/** Share link: bearer secret + scope + expiry; its grant is an assignment to link:<id>. */
-export interface LinkDef {
-    readonly id: string;
-    readonly scope: ResourceRef;
-    readonly expiresAt?: Date | null;
     readonly attributes: Readonly<Record<string, unknown>>;
-    readonly createdBy?: PrincipalRef;
 }
-export interface Policy {
-    readonly id: string;
-    readonly effect: "permit" | "deny";
-    readonly permissions: readonly string[];
-    readonly resourceTypes?: readonly ResourceType[];
-    readonly principalTypes?: readonly PrincipalType[];
-    readonly actorTypes?: readonly PrincipalType[];
-    readonly scope?: ResourceRef;
-    readonly when?: Condition;
-    readonly fields?: FieldSet;
-    readonly reason?: string;
-    readonly priority?: number;
-    readonly expiresAt?: Date | null;
-    readonly source: string;
+/** Lifecycle of a scope node (project or file deleted): removes everything held AT this scope. */
+export interface ScopeForgetCommand {
+    readonly kind: "scope.forget";
+    readonly scope: ResourceRef;
+}
+/** The stored attributes of a scope node. */
+export interface ScopeAttributesQuery {
+    readonly kind: "attributes";
+    readonly scope: ResourceRef;
 }
 ```
 
@@ -881,8 +731,8 @@ export interface ListPlanRequest {
 ## src/contracts/principal.ts
 
 ```ts
-export { SYSTEM, UNATTENDED, principalKey, ceilingHash } from "@spinajs/authn/contracts";
-export type { PrincipalType, PrincipalRef, Principal, AuthnFacts, Ceiling, ResourceType, ResourceRef, IAuthnPrincipalStorage } from "@spinajs/authn/contracts";
+export { SYSTEM, UNATTENDED, principalKey, ceilingHash } from "@spinajs/principal";
+export type { PrincipalType, PrincipalRef, Principal, AuthnFacts, Ceiling, ResourceType, ResourceRef, IAuthnPrincipalStorage } from "@spinajs/principal";
 ```
 
 ## src/contracts/resource.ts
@@ -1020,7 +870,7 @@ const DOMAIN_NAME_PATTERN = "^[A-Za-z0-9_.-]{1,64}$";
 ## Re-exported from other packages
 
 ```ts
-// AuthnFacts (@spinajs/authn)
+// AuthnFacts (@spinajs/principal)
 export interface AuthnFacts {
     /** 'password' | 'token' | 'jws' | 'http-signature' | 'oidc' | 'ldap' | 'saml' */
     readonly method: string;
@@ -1035,9 +885,14 @@ export interface AuthnFacts {
     readonly impersonator?: PrincipalRef;
     /** Hashed session id, never the raw one. */
     readonly sessionHandle?: string;
+    /** The external login the session came from; `sid` is the IdP session id that back-channel logout names. */
+    readonly external?: {
+        readonly provider: string;
+        readonly sid?: string;
+    };
 }
 
-// Ceiling (@spinajs/authn)
+// Ceiling (@spinajs/principal)
 export interface Ceiling {
     readonly roles?: readonly string[];
     /** Globs: 'file:*', 'project:read'. */
@@ -1049,14 +904,14 @@ export interface Ceiling {
     readonly reason?: string;
 }
 
-// IAuthnPrincipalStorage (@spinajs/authn)
+// IAuthnPrincipalStorage (@spinajs/principal)
 /** req.storage keys written by AuthnMiddleware (D26). */
 export interface IAuthnPrincipalStorage {
     /** null: no or pending credentials. authz-http's AuthnPrincipalSource reads it. */
     AuthnPrincipal?: Principal | null;
 }
 
-// Principal (@spinajs/authn)
+// Principal (@spinajs/principal)
 export interface Principal extends PrincipalRef {
     /** False for anonymous and unattended; true for a link bearer. */
     readonly authenticated: boolean;
@@ -1076,27 +931,27 @@ export interface Principal extends PrincipalRef {
     readonly authn?: AuthnFacts;
 }
 
-// PrincipalRef (@spinajs/authn)
+// PrincipalRef (@spinajs/principal)
 export interface PrincipalRef {
     readonly type: PrincipalType;
     readonly id: string;
 }
 
-// PrincipalType (@spinajs/authn)
+// PrincipalType (@spinajs/principal)
 export type PrincipalType = "user" | "anonymous" | "unattended" | "system" | "service" | "link" | "agent" | "group" | (string & {});
 
-// ResourceRef (@spinajs/authn)
+// ResourceRef (@spinajs/principal)
 export interface ResourceRef {
     readonly type: ResourceType;
     /** Absent = type-level (collections, "some row"). */
     readonly id?: string;
 }
 
-// ResourceType (@spinajs/authn)
+// ResourceType (@spinajs/principal)
 /** 'users', 'file', 'ArrowCampaign', 'job', 'dir' */
 export type ResourceType = string;
 
-// SYSTEM (@spinajs/authn)
+// SYSTEM (@spinajs/principal)
 export declare const SYSTEM: Principal;
 // value
 const SYSTEM = Object.freeze({
@@ -1107,7 +962,7 @@ const SYSTEM = Object.freeze({
     attributes: Object.freeze({})
 });
 
-// UNATTENDED (@spinajs/authn)
+// UNATTENDED (@spinajs/principal)
 export declare const UNATTENDED: Principal;
 // value
 const UNATTENDED = Object.freeze({
@@ -1118,9 +973,9 @@ const UNATTENDED = Object.freeze({
     attributes: Object.freeze({})
 });
 
-// ceilingHash (@spinajs/authn)
+// ceilingHash (@spinajs/principal)
 export declare const ceilingHash: (c: Ceiling | undefined) => string;
 
-// principalKey (@spinajs/authn)
+// principalKey (@spinajs/principal)
 export declare const principalKey: (p: PrincipalRef) => string;
 ```

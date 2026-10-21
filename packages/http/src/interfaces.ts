@@ -949,6 +949,11 @@ export interface IControllerDescriptor {
   BasePath: string | null;
 
   /**
+   * Configuration key that overrides `BasePath` when set; `BasePath` then holds the default.
+   */
+  BasePathConfig?: string | null;
+
+  /**
    * Absolute path of the source file that declared the controller, captured
    * from the V8 stack frame the first time a route decorator runs on the
    * class. Used by ControllersCache when a controller is registered through

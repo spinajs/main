@@ -63,6 +63,28 @@ export type TokenCreateResult =
     }
   | { readonly ok: false; readonly code: 'invalid_expiry' | 'invalid_scope' };
 
+export type TokenRotateResult =
+  | {
+      readonly ok: true;
+      /** The new secret, returned once; never stored or logged (SR-08). */
+      readonly plaintext: string;
+      readonly token: TokenRecord;
+    }
+  | { readonly ok: false; readonly reason: 'not_found' };
+
+/** The fields `update` can change; each can only narrow the token. */
+export interface TokenUpdate {
+  readonly name?: string;
+  /** A subset of the token's roles; for a token without roles, roles its owner holds. */
+  readonly roles?: readonly string[];
+  /** Not after the current expiry, and after ctx.now. */
+  readonly expiresAt?: Date;
+}
+
+export type TokenUpdateResult =
+  | { readonly ok: true; readonly token: TokenRecord }
+  | { readonly ok: false; readonly reason: 'not_found' | 'invalid_scope' | 'invalid_expiry' };
+
 /**
  * A StrategyOutcome; TokenStrategy returns it with `profile` copied to attributes.profile. ceiling.roles are the token's roles. An agent token yields identity
  * { type: 'agent', id: token id }, delegation 'inherit' on behalf of the owner and a ceiling with reason 'out_of_scope' and no roles (A15).
@@ -103,8 +125,26 @@ export abstract class TokenService {
    * (no IDOR). The admin route passes the target as owner.
    */
   abstract revoke(owner: IdentityRef, id: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<boolean>;
+  /**
+   * POST /user/tokens/:uuid/rotate; the route requires fresh auth. Replaces the secret of a live token of `owner` and keeps its id, name,
+   * roles, scope and expiry. The old secret stops working at once, or after `graceSeconds` (default 0, whole seconds, at most
+   * 604800, else InvalidArgument) so a deployment can swap it. Owner-bound: not_found for a token that is
+   * revoked, expired, unknown or someone else's (no IDOR).
+   */
+  abstract rotate(owner: IdentityRef, id: string, ctx: AuthnContext, opts?: { readonly graceSeconds?: number }): Promise<TokenRotateResult>;
+  /**
+   * PATCH /user/tokens/:uuid. Only narrows: adding a role is invalid_scope (so is roles on an agent token or an empty list), an expiry
+   * past the current one, or not after ctx.now, is invalid_expiry. Owner-bound like revoke; not_found for a revoked token.
+   */
+  abstract update(owner: IdentityRef, id: string, change: TokenUpdate, ctx: AuthnContext): Promise<TokenUpdateResult>;
   /** Password reset and admin credential reset (A11, A25); agent tokens acting for `owner` included. Returns the count. */
   abstract revokeAllFor(owner: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<number>;
+  /**
+   * POST /auth/tokens/revoke (RFC 7009): the holder of a secret ends its token without a session. True when this call revoked a live token;
+   * false for an unknown, malformed, already revoked or out-of-grace secret, and never thrown, so the route answers the same in every case.
+   * The previous secret of a rotation counts only until its grace ends. Audited as `token.revoke` with reason 'self'.
+   */
+  abstract revokeByPlaintext(raw: string, ctx: AuthnContext): Promise<boolean>;
   /** Hash lookup; checks revocation, expiry and the owner's status on every use (A14, A15). Bad tokens yield a failure; they are never thrown. */
   abstract validate(raw: string, ctx: AuthnContext): Promise<TokenValidation>;
 }

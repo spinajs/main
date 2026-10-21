@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 
 import { SYSTEM } from '@spinajs/authz';
-import type { Assignment, AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, AuthzCommandResult, AuthzEvent, Permission, Principal, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, AuthzCommandResult, AuthzEvent, Permission, Principal, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { TestAdminCommand, TestAdminQuery, TestAssignment } from '../model-shapes.js';
 
 import { FakeScopeResolver } from '../fakes/index.js';
 import { assertDecision } from './expect.js';
@@ -29,7 +30,7 @@ export interface RbacLinksHandle {
  * reads `authz_version` only.
  */
 export interface RbacStoreHandle {
-  insertAssignment(a: Assignment): Promise<void>;
+  insertAssignment(a: TestAssignment): Promise<void>;
   linkRows(): Promise<readonly Readonly<Record<string, unknown>>[]>;
 }
 
@@ -45,8 +46,8 @@ export interface AdminEventsHandle {
  * build this handle on it, adding the mapping of the response body to AuthzCommandResult.
  */
 export interface AdminHttpHandle {
-  execute(actor: Principal | undefined, body: { readonly commands: readonly AuthzCommand[] } & AuthzAdminOptions): Promise<{ readonly status: number; readonly results?: readonly AuthzCommandResult[] }>;
-  list(actor: Principal | undefined, q: AuthzAdminQuery): Promise<{ readonly status: number; readonly items?: readonly unknown[] }>;
+  execute(actor: Principal | undefined, body: { readonly commands: readonly TestAdminCommand[] } & AuthzAdminOptions): Promise<{ readonly status: number; readonly results?: readonly AuthzCommandResult[] }>;
+  list(actor: Principal | undefined, q: TestAdminQuery): Promise<{ readonly status: number; readonly items?: readonly unknown[] }>;
 }
 
 /**
@@ -127,7 +128,7 @@ export interface ExecOptions extends AuthzAdminOptions {
   readonly sameAs?: string;
 }
 
-async function execute(ctx: StepContext, via: Via, actor: Principal | undefined, commands: readonly AuthzCommand[], options: AuthzAdminOptions): Promise<readonly AuthzCommandResult[]> {
+async function execute(ctx: StepContext, via: Via, actor: Principal | undefined, commands: readonly TestAdminCommand[], options: AuthzAdminOptions): Promise<readonly AuthzCommandResult[]> {
   if (via === 'http') {
     const res = await laneHandle(ctx, 'adminHttp').execute(actor, { commands, ...options });
     assert.ok(res.results, `POST /authz/commands answered ${res.status} without command results`);
@@ -135,10 +136,12 @@ async function execute(ctx: StepContext, via: Via, actor: Principal | undefined,
   }
   assert.ok(ctx.session.admin, 'the session has no admin handle');
   assert.ok(actor, 'AuthzAdmin.execute needs an actor');
-  return ctx.session.admin.execute(actor, commands, options);
+  // The kit's own build cannot see the models' AuthzCommandMap entries; a program that imports them can.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+  return ctx.session.admin.execute(actor, commands as readonly AuthzCommand[], options);
 }
 
-function checkOutcome(results: readonly AuthzCommandResult[], commands: readonly AuthzCommand[], outcome: AdminOutcome, what: string): void {
+function checkOutcome(results: readonly AuthzCommandResult[], commands: readonly TestAdminCommand[], outcome: AdminOutcome, what: string): void {
   const all = JSON.stringify(results);
   results.forEach((r, i) => {
     if (commands[i]) assert.equal(r.kind, commands[i].kind, `${what}: result ${i} answers another command kind: ${all}`);
@@ -159,7 +162,7 @@ function checkOutcome(results: readonly AuthzCommandResult[], commands: readonly
  * `AuthzAdmin.execute(as, commands, opts)`, or POST /authz/commands with `via: 'http'`; checks the
  * outcome (kinds, first failure, error code) and can keep the results for later steps.
  */
-export function exec(as: Who | undefined, commands: readonly AuthzCommand[] | ((s: Saved) => readonly AuthzCommand[]), outcome: AdminOutcome, opts: ExecOptions = {}): DoStep {
+export function exec(as: Who | undefined, commands: readonly TestAdminCommand[] | ((s: Saved) => readonly TestAdminCommand[]), outcome: AdminOutcome, opts: ExecOptions = {}): DoStep {
   const { via = 'admin', save, sameAs, ...options } = opts;
   const kinds = typeof commands === 'function' ? 'commands from saved results' : commands.map((c) => c.kind).join(', ');
   return {
@@ -175,7 +178,7 @@ export function exec(as: Who | undefined, commands: readonly AuthzCommand[] | ((
 }
 
 /** POST /authz/commands is refused with `status` before any command runs. */
-export function httpRefuses(as: Who | undefined, commands: readonly AuthzCommand[], status: number): DoStep {
+export function httpRefuses(as: Who | undefined, commands: readonly TestAdminCommand[], status: number): DoStep {
   return {
     note: `POST /authz/commands answers ${status}`,
     do: async (ctx) => {
@@ -372,7 +375,7 @@ export function tokenOnlyInResult(name: string, index = 0, via: Via = 'admin', l
       absent('the published changes', ctx.session.bus?.published);
       absent('the AuthzEvents', ctx.session.lane?.adminEvents?.events);
       const actor = ctx.principal(lister);
-      const items = via === 'http' ? (await laneHandle(ctx, 'adminHttp').list(actor, { kind: 'links' })).items : (await ctx.session.admin?.list(actor, { kind: 'links' }))?.items;
+      const items = via === 'http' ? (await laneHandle(ctx, 'adminHttp').list(actor, { kind: 'links' })).items : (await ctx.session.admin?.list(actor, { kind: 'links' } as unknown as AuthzAdminQuery))?.items;
       assert.ok(items, 'no link listing');
       assert.ok(items.length > 0, 'the link listing is empty');
       absent('the link listing', items);
@@ -381,7 +384,7 @@ export function tokenOnlyInResult(name: string, index = 0, via: Via = 'admin', l
 }
 
 /** Writes a stored assignment row directly (lane handle rbacStore). */
-export function storedAssignment(a: Assignment): DoStep {
+export function storedAssignment(a: TestAssignment): DoStep {
   return { note: `stored row ${a.id} (${a.role})`, do: (ctx) => laneHandle(ctx, 'rbacStore').insertAssignment(a) };
 }
 

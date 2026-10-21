@@ -10,7 +10,7 @@ Every step of [How a login runs](../authn/01-authentication-flow.md) that publis
 | --- | --- |
 | `DefaultAuthnService` and `AuthnAudit` ([`@spinajs/authn`](../authn/06-audit-events.md)) | Logins, `completeMfa`, `reauthenticate`, links, sessions, impersonation. |
 | `LocalPasswordService` ([`@spinajs/authn-local`](../authn-local/README.md)) | `password.change`, `password.reset.request`, `password.reset`, `invite.redeem`, `throttle.block`. |
-| [`@spinajs/authn-token`](../authn-token/README.md) | `token.create`, `token.revoke`. |
+| [`@spinajs/authn-token`](../authn-token/README.md) | `token.create`, `token.revoke`, `token.rotate`, `token.update`. |
 | `KeyRegistry` ([`@spinajs/authn-keys`](../authn-keys/README.md)) | `key.register`, `key.revoke`. |
 | `TotpService` ([`@spinajs/authn-totp`](../authn-totp/README.md)) | `mfa.enrol`, `mfa.disable`, `throttle.block`. |
 
@@ -35,6 +35,16 @@ A failing or slow sink is logged by `AuthnAudit` and never fails the login.
 | --- | --- | --- | --- | --- |
 | `authn.audit.sinkTimeoutMs` | `number` | `2000` | integer 1 to 60000 | How long `AuthnAudit` waits for one sink, this one included. |
 | `authn.audit.hashIdentifiers` | `boolean` | `true` | `true`, `false` | Read by `LogAuthnAuditSink`. `DbAuthnAuditSink` never hashes. |
+| `authn.audit.retentionDays` | `number` or `null` | unset | integer 1 or more | Age in days after which `AuthnAuditRetention` deletes a row. Unset or `null` keeps every row. |
+| `authn.audit.purgeInterval` | `number` or `null` | unset | integer 1 or more, milliseconds | Period of the purge timer. Unset or `null` runs none. |
+
+## Retention
+
+`authn_audit` only grows. `AuthnAuditRetention` deletes the rows whose `at` is older than `now - retentionDays`, in batches of 500 (the `at` column is indexed). It does nothing while `retentionDays` is unset.
+
+- `purge(now?)` runs one purge and answers how many rows went.
+- With `purgeInterval` set, the instance starts a timer when DI resolves it and stops it in `dispose()`. Resolve it once at start-up (`await DI.resolve(AuthnAuditRetention)`); nothing else resolves it.
+- `authn:audit-purge` runs `purge()` once from a scheduler (cron, worker). It logs a warning and deletes nothing while `retentionDays` is unset.
 
 ## Schema
 

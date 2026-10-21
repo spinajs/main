@@ -90,6 +90,40 @@ export const A24: AuthnRule = defineRule('A24', 'secrets refuse public or missin
       assert.ok(await boots(h, baseSpec('production', { pepper: 'off' })), 'the boot starts');
     },
   }),
+  defineCase({
+    name: 'A24 an in-memory session store fails boot in production',
+    facet: 'A24/boot',
+    needs: ['boot'],
+    async run(h) {
+      assert.strictEqual(await boots(h, baseSpec('production', {}, { sessionStore: 'memory' })), false);
+    },
+  }),
+  defineCase({
+    name: 'A24 an in-memory session store boots in production with authn.session.allowMemoryStore',
+    facet: 'A24/boot',
+    needs: ['boot'],
+    async run(h) {
+      assert.ok(await boots(h, baseSpec('production', {}, { sessionStore: 'memory', config: { authn: { session: { allowMemoryStore: true } } } })), 'the boot starts');
+    },
+  }),
+  table(['development', 'test'] as const, (env) =>
+    defineCase({
+      name: `A24 an in-memory session store boots in ${env}`,
+      facet: 'A24/boot',
+      needs: ['boot'],
+      async run(h) {
+        assert.ok(await boots(h, baseSpec(env, {}, { sessionStore: 'memory' })), 'the boot starts');
+      },
+    }),
+  ),
+  defineCase({
+    name: 'A24 a durable session store boots in production',
+    facet: 'A24/boot',
+    needs: ['boot'],
+    async run(h) {
+      assert.ok(await boots(h, baseSpec('production', {}, { sessionStore: 'durable' })), 'the boot starts');
+    },
+  }),
   table(CHECK_ROWS, (row) =>
     defineCase({
       name: `A24 check-config reports ${row.topic}`,

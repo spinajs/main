@@ -1,5 +1,5 @@
 import { GLOBAL } from '@spinajs/authz';
-import type { Assignment, RuleDef } from '@spinajs/authz';
+import type { TestAssignment as Assignment, TestRuleDef as RuleDef } from '../model-shapes.js';
 
 import { agentPrincipal, servicePrincipal, userPrincipal } from '../principals.js';
 import { assignment, combine, fixture, later, ref, role } from './dsl.js';

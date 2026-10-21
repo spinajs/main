@@ -16,6 +16,12 @@ export const AUTHN_SESSION_CONFIGURATION_SCHEMA = {
       },
     },
     pendingTtlSeconds: { type: 'integer', minimum: 1, default: 300, description: 'Pre-MFA session (D25).' },
+    touchThresholdSeconds: {
+      type: 'integer',
+      minimum: 0,
+      default: 60,
+      description: 'A restore writes the session only once lastSeenAt or the idle expiry would move by this much; 0 writes on every restore.',
+    },
     cookie: {
       type: 'object',
       default: {},
@@ -28,6 +34,11 @@ export const AUTHN_SESSION_CONFIGURATION_SCHEMA = {
         // What the cookie writers (http and express) accept: booleans and any letter case.
         sameSite: { anyOf: [{ enum: [true, false] }, { type: 'string', pattern: '^([Ss][Tt][Rr][Ii][Cc][Tt]|[Ll][Aa][Xx]|[Nn][Oo][Nn][Ee])$' }], default: 'strict' },
       },
+    },
+    allowMemoryStore: {
+      type: 'boolean',
+      default: false,
+      description: 'MemorySessionStore loses every session on restart and is not shared between instances: outside development and test the boot refuses it unless this is true.',
     },
     hashIds: { type: 'boolean', enum: [true], default: true, description: 'Session ids are always stored hashed (SR-18); only true is accepted.' },
   },

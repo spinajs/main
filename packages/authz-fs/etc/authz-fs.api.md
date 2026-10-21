@@ -7,7 +7,8 @@ Entries: `src/acl/store.ts`.
 ## src/acl/store.ts
 
 ```ts
-import type { AssignmentSubject, PrincipalRef } from "@spinajs/authz";
+import type { PrincipalRef } from "@spinajs/authz";
+import type { AssignmentSubject } from "@spinajs/authz-rbac";
 /** One row of the file ACL: `subject` holds `relation` on `path` of `fs` and on everything under it (D7). */
 export interface FsAclRow {
     readonly fs: string;

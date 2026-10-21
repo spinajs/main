@@ -15,7 +15,7 @@ import { recorder } from './recorder.js';
 const ALL: readonly (BehaviourFixture | FixtureExtension)[] = BEHAVIOUR_FIXTURES;
 const merged = mergeFixtures(ALL);
 
-const MINE: readonly BehaviourId[] = ['B11', 'B12', 'B13', 'B15', 'B16', 'B18', 'B19', 'B26', 'B31', 'B32', 'B33', 'B34', 'B35', 'B38', 'B40', 'B42', 'B43', 'B44', 'B45', 'B46'];
+const MINE: readonly BehaviourId[] = ['B11', 'B12', 'B13', 'B15', 'B16', 'B18', 'B19', 'B26', 'B31', 'B32', 'B33', 'B34', 'B35', 'B38', 'B40', 'B42', 'B43', 'B44', 'B45', 'B46', 'B49'];
 const FILLED: readonly string[] = ['B06.rules', 'B27.events', 'B27.policyEvents', 'B36.rbac', 'B39.store'];
 
 const part = (sel: string): FixturePart => {

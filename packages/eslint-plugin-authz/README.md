@@ -62,3 +62,17 @@ the decorator or the class is imported or renamed.
 A builder kept in a variable and executed later, a builder returned unexecuted from an `async` function,
 `Promise.all` over builders, instance relations, and `populate()` of an access-resource child. The runtime
 guard (an `AuthzConfigError` in the `test` env) catches those.
+
+## `require-access`
+
+An http route method (`@Get`, `@Post`, `@Put`, `@Patch`, `@Del`, `@Head`) must have `@Access`, `@Policy` or
+`@AllowAnonymous` on it or on its class. The rule reads the syntax tree only, so it needs no type
+information. The root `eslint.config.mjs` of this repo switches it off: it would flag the open endpoints of
+existing controllers and many test fixtures.
+
+### Options
+
+- `routeDecorators: string[]`: extra decorator names that mark a method as a route.
+- `guardDecorators: string[]`: extra decorator names that guard a route.
+
+A guard on a base class is not seen: repeat it on the subclass or list your wrapper in `guardDecorators`.

@@ -1,7 +1,8 @@
 import * as chai from 'chai';
 import 'mocha';
 import { Authorizer, DefaultConditionCompiler, GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
-import type { Policy, Principal } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
+import type { Policy } from '../../src/contracts.js';
 import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
 
 import { AbacModel, ConfigPolicyStore } from '../../src/index.js';

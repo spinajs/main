@@ -12,6 +12,8 @@ const FACETS = ['A02/external', 'A19/oidc', 'A27/oidc'] as const;
 
 runAuthnBehaviour(['A02', 'A19', 'A27'], oidcHarness, { title: 'authn-oidc: A02, A19, A27', claim: [...FACETS], facets: [...FACETS] });
 
+runAuthnBehaviour(['A13'], oidcHarness, { title: 'authn-oidc: A13 re-authentication', claim: ['A13/oidc'], facets: ['A13/oidc'] });
+
 async function oidcSubject(): Promise<StrategySubject> {
   const w = await world();
   await w.links.link({ type: 'user', id: 'conformance-user' }, { provider: 'oidc:corp', subject: 'conf-1' });

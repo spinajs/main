@@ -1,4 +1,5 @@
 import { AuthnService } from '@spinajs/authn/contracts';
+import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/authn/ip-key';
 import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalLoginHook, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 
 export interface FakeAuthnServiceDeps {
@@ -13,8 +14,12 @@ export interface FakeAuthnServiceDeps {
   /** Read at publish time, so a sink may be added after the service is built. */
   readonly sinks: readonly AuthnEventSink[];
   readonly principals: PrincipalFactory;
+  /** `authn.throttle.ipv6Prefix`; 64 when unset. */
+  readonly ipv6Prefix?: number;
   /** ExternalLoginHooks, read per login; they run for an interactive external outcome before MFA and the session (RFC N10-1). */
   readonly hooks?: () => readonly ExternalLoginHook[];
+  /** `authn.login.requireVerifiedAddress`: an interactive login of an address the store reports unverified answers `unverified_address`. */
+  readonly requireVerifiedAddress?: boolean;
 }
 
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
@@ -33,7 +38,7 @@ type Peek = (keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext
  * route by credential kind, count the attempt (strategy keys + ip) before verify (a per-request strategy over a throttle
  * with `peek`: peek before verify and count failures only, K5), audit every failure with its real reason, answer
  * status refusals as invalid_credentials, link or provision external subjects, run the external login hooks before
- * any session, issue a pending session when MFA is required, elevate on completeMfa, and re-authenticate without
+ * any session, issue a pending session when MFA is required, elevate on completeMfa, reissue on stepUp, and re-authenticate without
  * touching the session. A fake, not N1's implementation: unlike the core it links before the status check.
  */
 export class FakeAuthnService extends AuthnService {
@@ -94,21 +99,31 @@ export class FakeAuthnService extends AuthnService {
     return (await this.d.sessions.restore(h.id))?.facts.sessionHandle;
   }
 
+  /**
+   * As the core (K6): account keys apart per kind of strategy, and a per-request one scoped by ip, so nobody elsewhere
+   * can hold it in backoff. The ip is its throttle form: an IPv6 client shares its prefix (L3).
+   */
+  private loginKeys(s: AuthenticationStrategy, c: Credentials, ctx: AuthnContext): ThrottleKey[] {
+    const prefix = s.interactive ? 'login:' : 'request:';
+    const ip = ctx.ip ? throttleIp(ctx.ip, this.d.ipv6Prefix ?? DEFAULT_IPV6_PREFIX) : undefined;
+    const given = s.throttleKeys(c, ctx).filter((k) => !ip || k.kind !== 'account-ip');
+    const accounts = given.filter((k) => k.kind === 'account').map((k) => ({ kind: k.kind, value: `${prefix}${k.value}` }));
+    const own = given.map((k) => {
+      if (k.kind === 'account-ip') return { kind: k.kind, value: `${prefix}${k.value}` };
+      if (k.kind !== 'account') return k;
+      return { kind: k.kind, value: s.interactive ? `${prefix}${k.value}` : `${prefix}${k.value}|${ip ?? ''}` };
+    });
+    if (!ip) return own;
+    return [...own, ...accounts.map((k) => ({ kind: 'account-ip', value: `${k.value}|${ip}` })), { kind: 'ip', value: ip }];
+  }
+
   async authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
     const s = this.d.strategies.find((x) => x.kinds.includes(c.kind));
     if (!s) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials' });
       return failure('unsupported_credentials');
     }
-    // As the core (K6): account keys apart per kind of strategy, and a per-request one scoped by ip, so nobody
-    // elsewhere can hold it in backoff.
-    const prefix = s.interactive ? 'login:' : 'request:';
-    const own = s.throttleKeys(c, ctx).map((k) => {
-      if (k.kind === 'account-ip') return { kind: k.kind, value: `${prefix}${k.value}` };
-      if (k.kind !== 'account') return k;
-      return { kind: k.kind, value: s.interactive ? `${prefix}${k.value}` : `${prefix}${k.value}|${ctx.ip ?? ''}` };
-    });
-    const keys = this.keysFor(own, ctx);
+    const keys = this.loginKeys(s, c, ctx);
     const refuse = async (t: Verdict) => {
       if (t.allowed) return null;
       await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', strategy: s.name, reason: 'throttled' });
@@ -133,17 +148,19 @@ export class FakeAuthnService extends AuthnService {
   private async settle(s: AuthenticationStrategy, r: StrategyOutcome, keys: readonly ThrottleKey[], ctx: AuthnContext): Promise<AuthenticationResult> {
     if (!r.ok) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, reason: r.reason });
-      return failure(r.reason);
+      return r.reason === 'throttled' ? throttled(Number.isInteger(r.retryAfterSeconds) && r.retryAfterSeconds! > 0 ? r.retryAfterSeconds! : 1) : failure(r.reason);
     }
     const id = r.identity ?? (r.external ? await this.linkedIdentity(s, r.external) : null);
     if (!id) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, reason: 'not_linked' });
       return failure('not_linked');
     }
-    const refused = this.statusReason(await this.d.identities.status(id));
+    const status = await this.d.identities.status(id);
+    const unverified = s.interactive && this.d.requireVerifiedAddress === true && status.addressVerified === false;
+    const refused = this.statusReason(status) ?? (unverified ? 'unverified_address' : null);
     if (refused) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, reason: refused });
-      return failure('invalid_credentials');
+      return failure(refused === 'unverified_address' ? 'unverified_address' : 'invalid_credentials');
     }
     if (s.interactive && r.external && this.d.hooks) {
       try {
@@ -154,7 +171,8 @@ export class FakeAuthnService extends AuthnService {
       }
     }
     await this.d.throttle.succeed(keys, 'login');
-    const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[] };
+    const external = r.external ? { external: { provider: r.external.provider, ...(typeof r.external.sid === 'string' && r.external.sid.length > 0 ? { sid: r.external.sid } : {}) } } : {};
+    const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[], ...external };
     const extra = { ...(r.ceiling ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(r.attributes ? { attributes: r.attributes } : {}) };
     if (!s.interactive) {
       await this.audit(ctx, { type: 'token.use', outcome: 'success', strategy: s.name, identity: id });
@@ -234,12 +252,54 @@ export class FakeAuthnService extends AuthnService {
       return false;
     }
     const r = await s.verify(c, ctx);
-    const ok = r.ok && r.identity !== undefined && r.identity.type === id.type && r.identity.id === id.id;
+    // As the core: an external subject proves the session's identity only through its existing link.
+    const verified = r.ok ? (r.identity ?? (r.external ? (await this.d.links.find(r.external.provider, r.external.subject))?.identity : undefined)) : undefined;
+    const ok = verified !== undefined && verified.type === id.type && verified.id === id.id;
     await this.audit(ctx, { type: 'reauth', outcome: ok ? 'success' : 'failure', identity: id, strategy: s.name });
     if (ok) {
       await this.d.throttle.succeed(keys, 'reauth');
     }
     return ok;
+  }
+
+  async stepUp(session: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult> {
+    const restored = await this.d.sessions.restore(session.id);
+    if (!restored || restored.handle.state !== 'active' || restored.facts.impersonator) {
+      return failure('invalid_credentials');
+    }
+    const id = restored.identity;
+    if (restored.facts.assurance === 'aal2') {
+      const { authenticatedAt: _at, ...current } = restored.facts;
+      return { status: 'success', identity: id, facts: current, session: restored.handle };
+    }
+    const keys = this.keysFor(
+      [
+        { kind: 'account', value: id.id },
+        { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` },
+      ],
+      ctx,
+    );
+    const t = await this.d.throttle.attempt(keys, 'mfa', ctx);
+    if (!t.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', identity: id, reason: 'throttled' });
+      return throttled(t.retryAfterSeconds);
+    }
+    let ok = false;
+    for (const s of this.d.steps) {
+      if (!(await s.enrolled(id))) continue;
+      if (step === 'recovery' && typeof s.verifyRecovery === 'function') ok = ok || (await s.verifyRecovery(id, response));
+      else if (s.name === step) ok = await s.verify(id, response);
+    }
+    if (!ok) {
+      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', identity: id, reason: 'invalid_code' });
+      return failure('invalid_credentials');
+    }
+    await this.d.throttle.succeed(keys, 'mfa');
+    const next = await this.d.sessions.reissue(session, { assurance: 'aal2', mfa: [step] });
+    const { authenticatedAt: _at, ...facts } = (await this.d.sessions.restore(next.id))!.facts;
+    await this.audit(ctx, { type: 'mfa.verify', outcome: 'success', identity: id, session: facts.sessionHandle });
+    await this.audit(ctx, { type: 'session.rotate', outcome: 'success', identity: id, session: facts.sessionHandle });
+    return { status: 'success', identity: id, facts, session: next };
   }
 
   async principalOf(result: Success): Promise<Principal> {

@@ -55,6 +55,9 @@ class TestAuthnService extends AuthnService {
   async reauthenticate(_session: SessionHandle, _c: Credentials, _ctx: AuthnContext): Promise<boolean> {
     return false;
   }
+  async stepUp(_session: SessionHandle, _step: string, _response: string, _ctx: AuthnContext): Promise<AuthenticationResult> {
+    return { status: 'failure', reason: 'invalid_credentials' };
+  }
   async principalOf(result: Success): Promise<Principal> {
     return { type: result.identity.type, id: result.identity.id, authenticated: true, source: 'session', attributes: {} };
   }
@@ -151,6 +154,7 @@ describe('strategy, service and principal factory contracts', () => {
             { name: 'authenticate', modifiers: ['abstract'], params: ['c', 'ctx'] },
             { name: 'completeMfa', modifiers: ['abstract'], params: ['pending', 'step', 'response', 'ctx'] },
             { name: 'reauthenticate', modifiers: ['abstract'], params: ['session', 'c', 'ctx'] },
+            { name: 'stepUp', modifiers: ['abstract'], params: ['session', 'step', 'response', 'ctx'] },
             { name: 'principalOf', modifiers: ['abstract'], params: ['result'] },
             { name: 'strategies', modifiers: ['abstract'], params: [] },
           ],
@@ -174,6 +178,7 @@ describe('strategy, service and principal factory contracts', () => {
       const reauth = docOf(c.AuthnService.members, 'reauthenticate');
       for (const s of ['A13', 'counts for the current request only', 'changes no session facts', 'does not rotate', 'throttled re-authentication returns false', 'like any failed re-authentication']) expect(reauth).to.contain(s);
       for (const s of ["Step 'recovery'", 'POST /auth/mfa/recovery', 'MfaStep.verifyRecovery']) expect(docOf(c.AuthnService.members, 'completeMfa')).to.contain(s);
+      for (const s of ['active aal1 session', "'recovery'", 'reissues the session at aal2', "flow 'mfa'", 'pending or impersonated session fails']) expect(docOf(c.AuthnService.members, 'stepUp')).to.contain(s);
       for (const s of ['extra.attributes', 'StrategyOutcome.attributes', 'PrincipalAttributeProvider derives win']) expect(docOf(c.PrincipalFactory.members, 'principalOf')).to.contain(s);
     });
   });
@@ -213,6 +218,8 @@ describe('strategy, service and principal factory contracts', () => {
       same<ReturnType<AuthnService['completeMfa']>, Promise<AuthenticationResult>>(true);
       same<Parameters<AuthnService['reauthenticate']>, [SessionHandle, Credentials, AuthnContext]>(true);
       same<ReturnType<AuthnService['reauthenticate']>, Promise<boolean>>(true);
+      same<Parameters<AuthnService['stepUp']>, [SessionHandle, string, string, AuthnContext]>(true);
+      same<ReturnType<AuthnService['stepUp']>, Promise<AuthenticationResult>>(true);
       same<Parameters<AuthnService['principalOf']>, [Success]>(true);
       same<ReturnType<AuthnService['principalOf']>, Promise<Principal>>(true);
       same<Parameters<AuthnService['strategies']>, []>(true);
@@ -301,6 +308,9 @@ describe('strategy, service and principal factory contracts', () => {
         }
         async reauthenticate(): Promise<boolean> {
           return false;
+        }
+        async stepUp(): Promise<AuthenticationResult> {
+          return { status: 'failure', reason: 'invalid_credentials' };
         }
         async principalOf(): Promise<Principal> {
           throw new Error();

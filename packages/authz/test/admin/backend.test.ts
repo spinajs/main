@@ -5,6 +5,9 @@ import { AuthzConfigError, MemoryAuthzAdminBackend, memoryTx } from '@spinajs/au
 import type { AuthzCommandResult, AuthzTx, RememberedBatch } from '@spinajs/authz';
 import { installTestLog } from '@spinajs/authz-testing';
 
+// Results name RBAC command kinds.
+import './model-commands.js';
+
 const expect = chai.expect;
 
 const T0 = new Date('2026-10-03T00:00:00.000Z');

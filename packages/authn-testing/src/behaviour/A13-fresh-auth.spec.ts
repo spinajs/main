@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { DEFAULT_THROTTLE } from '../harness/config.js';
-import { ALICE, BOB, NEW_PW, WRONG, auth, expectSuccess, factsAal1, in4xx, pw, routes, seedUser, send } from './steps.js';
+import type { ProbeBody } from '../harness/http.js';
+import type { CookieJar } from '../helpers/cookies.js';
+import { ALICE, BOB, NEW_PW, WRONG, auth, expectSuccess, factsAal1, in4xx, probe, pw, routes, seedUser, send, sessionJar } from './steps.js';
 import { defineCase, defineRule, table } from './types.js';
-import type { AuthnRule } from './types.js';
+import type { AuthnRule, HarnessWith } from './types.js';
 
 const SECOND = 1000;
 const DAY = 86_400 * SECOND;
@@ -15,6 +17,22 @@ const tokenCount = (body: unknown): number => {
 };
 
 const REAUTH_FREE = DEFAULT_THROTTLE.reauth.account!.free;
+const FRESH_AUTH = { authn: { freshAuth: { maxAgeSeconds: 300 } } };
+
+type OidcHarness = HarnessWith<'oidc' | 'http'>;
+
+/** GET an OIDC start route; the provider's authorization URL it redirects to. */
+async function oidcStart(h: OidcHarness, path: string, jar: CookieJar): Promise<URL> {
+  const res = await send(h, { method: 'GET', path }, jar);
+  assert.ok(res.status >= 300 && res.status <= 399, `${path} answered ${res.status}`);
+  const location = res.headers['location'];
+  assert.ok(location, 'the redirect has a location');
+  return new URL(location);
+}
+
+const oidcCallback = (h: OidcHarness, query: Readonly<Record<string, string>>, jar: CookieJar) => send(h, { method: 'GET', path: `/auth/oidc/${h.oidc.provider}/callback?${new URLSearchParams(query)}` }, jar);
+
+const principalOf = async (h: OidcHarness, jar: CookieJar) => ((await send(h, probe(h, 'GET'), jar)).body as ProbeBody).principal;
 
 const MINT_ROWS = [
   { label: 'fresh', title: 'A13 minting a token needs fresh auth', staleSeconds: 0, reauth: false, minted: true },
@@ -116,4 +134,86 @@ export const A13: AuthnRule = defineRule('A13', 'sensitive actions need fresh au
       },
     }),
   ),
+  defineCase({
+    name: 'A13 POST /auth/reauth refreshes authenticatedAt under a new session id; a fresh-auth route then needs no password',
+    facet: 'A13/http',
+    needs: ['http', 'http.routes.login', 'http.routes.reauth', 'http.routes.tokenCreate', 'http.routes.tokenList', 'seed', 'fakeDate'],
+    config: FRESH_AUTH,
+    async run(h, k) {
+      await seedUser(h, ALICE);
+      const R = routes(h);
+      const jar = k.jar();
+      assert.strictEqual((await send(h, R.login(ALICE.login, ALICE.password), jar)).status, 200, 'the login');
+      const old = jar.get(h.http.sessionCookie) ?? assert.fail('the login sets the session cookie');
+      k.clock.tick(301 * SECOND);
+
+      const reauth = await send(h, R.reauth(ALICE.password), jar);
+      assert.strictEqual(reauth.status, 200, `the re-authentication answered ${reauth.status} ${JSON.stringify(reauth.body)}`);
+      const next = jar.get(h.http.sessionCookie);
+      assert.ok(next && next !== old, 'the re-authentication sets a new session cookie');
+
+      const created = await send(h, R.tokenCreate({ name: 'kit', expiresAt: new Date(k.clock.now().getTime() + DAY) }), jar);
+      assert.ok(created.status >= 200 && created.status < 300, `token creation without a password answered ${created.status}`);
+      assert.strictEqual(tokenCount((await send(h, R.tokenList(), jar)).body), 1);
+      const stale = await send(h, R.tokenList(), sessionJar(h, old));
+      assert.ok(in4xx(stale.status), `the old session cookie answered ${stale.status}`);
+    },
+  }),
+  defineCase({
+    name: 'A13 a wrong password on POST /auth/reauth answers 401, keeps the session and counts into the reauth throttle',
+    facet: 'A13/http',
+    needs: ['http', 'http.routes.login', 'http.routes.reauth', 'http.routes.tokenCreate', 'seed', 'fakeDate'],
+    config: FRESH_AUTH,
+    async run(h, k) {
+      await seedUser(h, ALICE);
+      const R = routes(h);
+      const jar = k.jar();
+      assert.strictEqual((await send(h, R.login(ALICE.login, ALICE.password), jar)).status, 200, 'the login');
+      const cookie = jar.get(h.http.sessionCookie) ?? assert.fail('the login sets the session cookie');
+      k.clock.tick(301 * SECOND);
+
+      for (let i = 0; i < REAUTH_FREE; i++) {
+        const wrong = await send(h, R.reauth(WRONG), jar);
+        assert.strictEqual(wrong.status, 401, `wrong password ${i + 1} answered ${wrong.status}`);
+        assert.strictEqual(wrong.headers['retry-after'], undefined, 'a re-authentication never tells the backoff');
+      }
+      assert.strictEqual(jar.get(h.http.sessionCookie), cookie, 'the session id stays');
+      assert.strictEqual((await send(h, R.reauth(ALICE.password), jar)).status, 401, 'the right password at the same instant is throttled');
+      const refused = await send(h, R.tokenCreate({ name: 'kit', expiresAt: new Date(k.clock.now().getTime() + DAY) }), jar);
+      assert.ok(in4xx(refused.status), `the session is still stale: token creation answered ${refused.status}`);
+
+      k.clock.tick(SECOND);
+      assert.strictEqual((await send(h, R.reauth(ALICE.password), jar)).status, 200, 'one second later');
+    },
+  }),
+  defineCase({
+    name: 'A13 an OIDC re-authentication asks for prompt=login and max_age=0 and refreshes authenticatedAt under a new session id',
+    facet: 'A13/oidc',
+    needs: ['oidc', 'http', 'links', 'seed', 'fakeDate'],
+    async run(h, k) {
+      const a = await seedUser(h, ALICE);
+      const subject = { provider: h.oidc.linkProvider, subject: 'kit-oidc-reauth' };
+      await h.links.link(a, subject);
+      const jar = k.jar();
+      const login = await oidcStart(h, `/auth/oidc/${h.oidc.provider}`, jar);
+      assert.ok((await oidcCallback(h, await h.oidc.authorize(login.href, subject), jar)).status < 400, 'the OIDC login');
+      const old = jar.get(h.http.sessionCookie) ?? assert.fail('the login sets the session cookie');
+      const before = (await principalOf(h, jar))?.authn?.authenticatedAt;
+      assert.ok(before, 'the login yields a session principal');
+      k.clock.tick(301 * SECOND);
+
+      const reauth = await oidcStart(h, `/auth/oidc/${h.oidc.provider}/reauth`, jar);
+      assert.strictEqual(reauth.searchParams.get('prompt'), 'login');
+      assert.strictEqual(reauth.searchParams.get('max_age'), '0');
+      const done = await oidcCallback(h, await h.oidc.authorize(reauth.href, subject), jar);
+      assert.ok(done.status < 400, `the re-authentication callback answered ${done.status}`);
+      const next = jar.get(h.http.sessionCookie);
+      assert.ok(next && next !== old, 'the re-authentication sets a new session cookie');
+
+      const p = await principalOf(h, jar);
+      assert.strictEqual(p?.id, a.id);
+      assert.strictEqual(p?.authn?.authenticatedAt, k.clock.now().toISOString(), `authenticatedAt was ${before}`);
+      assert.strictEqual(((await send(h, probe(h, 'GET'), sessionJar(h, old))).body as ProbeBody).principal, null, 'the old session id is dead');
+    },
+  }),
 ]);

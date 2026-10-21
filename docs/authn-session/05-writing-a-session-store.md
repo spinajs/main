@@ -20,7 +20,9 @@ The rules every store keeps (the issuer's guarantees depend on them):
 | `delete(sessionId)` | One atomic operation; `true` only for the call that removed the row |
 | `deleteBySubject(subject, opts)` | Match `Subject` (and `Impersonator` with `includeImpersonations: true`) by `type` and `id`; skip the `except` key; answer the number of live rows deleted |
 | `listBySubject(subject, opts)` | The same matching; live rows only |
+| `deleteByExternalKey(externalKey)` | Delete every row whose `ExternalKey` equals it (back-channel logout); answer the number of live rows deleted. Persist `ExternalKey` in `save` and give it back in `restore` |
 | `truncate()` | Delete every row |
+| `checkConfiguration(booting)` | Optional. Throw to fail the boot when the store cannot run in this deployment; `DefaultSessionIssuer` forwards its own `checkConfiguration` here, and `DefaultAuthnService` calls it when it resolves |
 
 ## Configuration
 
@@ -75,6 +77,7 @@ interface StoredRow {
   Creation: number;
   Expiration?: number;
   Data: string;
+  ExternalKey?: string;
 }
 
 const PREFIX = 'session:';
@@ -134,6 +137,18 @@ export class KvSessionStore extends SessionProvider {
     return out;
   }
 
+  public async deleteByExternalKey(externalKey: string): Promise<number> {
+    let count = 0;
+    for (const key of await this.Kv.keys(PREFIX)) {
+      const raw = await this.Kv.get(key);
+      const session = raw === null ? null : this.live(raw);
+      if (session?.ExternalKey === externalKey && (await this.delete(session.SessionId))) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   public async truncate(): Promise<void> {
     for (const key of await this.Kv.keys(PREFIX)) {
       await this.Kv.del(key);
@@ -150,6 +165,7 @@ export class KvSessionStore extends SessionProvider {
       Creation: DateTime.fromMillis(row.Creation),
       Expiration: row.Expiration === undefined ? undefined : DateTime.fromMillis(row.Expiration),
       Data: decodeSessionData(row.Data),
+      ExternalKey: row.ExternalKey,
     });
     return this.isExpired(session) ? null : session;
   }
@@ -163,13 +179,14 @@ export class KvSessionStore extends SessionProvider {
       Creation: s.Creation.toMillis(),
       Expiration: s.Expiration?.toMillis(),
       Data: encodeSessionData(s.Data),
+      ExternalKey: s.ExternalKey,
     };
     return JSON.stringify(row);
   }
 }
 ```
 
-The example scans every key in `listBySubject`. A production store keeps a secondary index per subject and per impersonator instead, as `RedisSessionStore` does with sets and `DbSessionStore` with indexed columns.
+The example scans every key in `listBySubject` and `deleteByExternalKey`. A production store keeps a secondary index per subject, per impersonator and per external key instead, as `RedisSessionStore` does with sets and `DbSessionStore` with indexed columns.
 
 ## Important behaviour
 

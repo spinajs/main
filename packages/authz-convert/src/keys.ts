@@ -190,10 +190,24 @@ export function convertKeys(layer: Plain, merged: Plain, f: Findings, common?: P
         break;
 
       case 'user':
-      case 'email':
       case 'actions':
         w.data(at, value, `users.${key}`);
         break;
+
+      case 'email': {
+        if (!isPlain(value) || value.changePassword === undefined) {
+          w.data(at, value, 'users.email');
+          break;
+        }
+        const { changePassword: _unread, ...rest } = value;
+        f.warn(
+          'email-change-password',
+          'Left out: nothing in 3.0 reads users.email.changePassword. The password reset mail comes from the PasswordMailer; the default EmailPasswordMailer takes email.password.reset.subject and email.password.reset.template.',
+          keyPath(at, 'changePassword'),
+        );
+        if (Object.keys(rest).length > 0) w.data(at, rest, 'users.email');
+        break;
+      }
 
       case 'auth': {
         if (!isPlain(value)) {
@@ -294,9 +308,9 @@ function convertAdmin(value: unknown, at: string, m: (path: string) => unknown, 
     }
   }
   if (wroteGuard && !hasPermission && !unresolved && !(lockout.preventSelfLockout === false && lockout.preventLastPrivilegedRemoval === false)) {
-    f.manual(
+    f.info(
       'guard-privileged-permission',
-      'Set authz.admin.guard.privilegedPermission: boot requires it while the self-lockout and last-holder checks are on, and the converter cannot pick it for a guard it did not write.',
+      "authz.admin.guard.privilegedPermission was not written, so the self-lockout and last-holder checks count @spinajs/authz-rbac's default 'users:update'. Set it if the guard should count another permission.",
       gat,
     );
   }

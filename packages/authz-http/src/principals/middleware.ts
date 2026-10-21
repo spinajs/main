@@ -7,6 +7,7 @@ import type { Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 import type * as express from 'express';
 
+import { UnguardedRoutesReport } from '../access/unguarded.js';
 import { PrincipalSource } from '../api.js';
 import { LinkPrincipalSource } from './link-source.js';
 import '../storage.js';
@@ -42,6 +43,9 @@ export class PrincipalMiddleware extends ServerMiddleware {
   @Autoinject(PrincipalSource)
   protected Sources: PrincipalSource[];
 
+  @Autoinject(UnguardedRoutesReport)
+  protected Unguarded: UnguardedRoutesReport;
+
   private authz: Promise<AuthzService> | undefined;
 
   constructor() {
@@ -62,14 +66,23 @@ export class PrincipalMiddleware extends ServerMiddleware {
     await super.dispose();
   }
 
-  // The server swallows a listener's errors, so a root that cannot boot stops it: a bad authz config must not serve.
+  // The server swallows a listener's errors, so a root that cannot boot, or routes that must be guarded and are not, stop it: a bad authz setup must not serve.
   private readonly onListening = (server?: unknown): void => {
-    this.rootService().catch((err: unknown) => {
-      this.Log.error(err as Error, 'the root authz domain failed to boot; stopping the http server');
-      const stop = (server as { stop?: () => Promise<void> } | undefined)?.stop;
-      if (typeof stop === 'function') stop.call(server).catch(() => undefined);
-    });
+    try {
+      this.Unguarded.run();
+    } catch (err) {
+      this.halt(server, err, 'unguarded routes');
+      return;
+    }
+
+    this.rootService().catch((err: unknown) => this.halt(server, err, 'the root authz domain failed to boot'));
   };
+
+  private halt(server: unknown, err: unknown, why: string): void {
+    this.Log.error(err as Error, `${why}; stopping the http server`);
+    const stop = (server as { stop?: () => Promise<void> } | undefined)?.stop;
+    if (typeof stop === 'function') stop.call(server).catch(() => undefined);
+  }
 
   public before(): (req: Request, res: express.Response, next: express.NextFunction) => void {
     return (req, _res, next) => {
@@ -83,7 +96,8 @@ export class PrincipalMiddleware extends ServerMiddleware {
 
   /** The root AuthzService, booted once; `authz()` works in actions after it. */
   protected rootService(): Promise<AuthzService> {
-    this.authz ??= (DI.resolve(AuthzService) as Promise<AuthzService>).catch((err: unknown) => {
+    // DI.resolve answers the cached instance itself, not a promise, once the app resolved AuthzService first.
+    this.authz ??= (async () => (await DI.resolve(AuthzService)) as AuthzService)().catch((err: unknown) => {
       this.authz = undefined;
       throw err;
     });

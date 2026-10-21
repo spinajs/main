@@ -26,6 +26,7 @@ A controller whose `file` is a placeholder such as `<dynamic>` (added with `Cont
 | `@param` | method | `@param id Invoice number` or `@param {InvoiceDto} body Invoice to create` | Parameter or body description. A `{Type}` replaces the schema read from decorators |
 | `@returns`, `@return` | method | `@returns {InvoiceDto} The invoice` | The `200` response, its description and its schema |
 | `@response` | method | `@response 404 Invoice not found` or `@response 409 {ConflictDto} Already paid` | One more response per status code |
+| `@body` | method | `@body {LoginBody} The credentials` | The JSON request body of a route that reads it without a body route argument (for example from `@Req()`): `requestBody` with the schema of the type, `required: true`. Ignored when the route has a body argument or the tag has no `{Type}` |
 | `@example` | method | `@example <caption>Paid invoice</caption> {"id": 7}` | An example on the request body, or on the `200` response when there is no body |
 | `@tags`, `@tag`, `@category` | method | `@tags Billing, Reports` | Replaces the controller tag for this operation |
 | `@deprecated` | method | `@deprecated Use listV2` | `deprecated: true` |
@@ -114,6 +115,7 @@ Scopes cannot be written in the tag; every scheme gets an empty scope list.
 - Only the first class tag names the controller's routes; `@tags A, B` on a class does not put the routes under `B`.
 - Only the controller tags go into the top-level `tags` list. Tags named only on methods still work in Swagger UI, without a description.
 - `@response <code> text` with a code outside the standard list gets no content schema.
+- A named type inside `oneOf`, `anyOf` or `allOf` of a provider's schema becomes a `$ref` to its own component, as it does under `properties` and `items`.
 
 ## Best practices
 

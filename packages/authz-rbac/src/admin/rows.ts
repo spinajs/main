@@ -34,8 +34,3 @@ export const copyDate = (d: Date | null | undefined): Date | null => (d == null 
 export const isLiveAt = (expiresAt: Date | null | undefined, at: Date): boolean => expiresAt == null || expiresAt.getTime() > at.getTime();
 
 export const deepFreeze = <T>(value: T): Readonly<T> => freeze(value, { skipDates: true });
-
-export function paged<T>(items: readonly T[], page?: { readonly limit: number; readonly offset: number }): { items: readonly T[]; total: number } {
-  if (!page) return { items, total: items.length };
-  return { items: items.slice(page.offset, page.offset + page.limit), total: items.length };
-}

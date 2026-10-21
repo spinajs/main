@@ -8,7 +8,7 @@ Permissions are not granted one by one: a role carries them. To give a user a pe
 
 | Route | Command | Body | Query |
 | --- | --- | --- | --- |
-| `GET /authz/assignments` | `list({ kind: 'assignments' })` | none | `scope`, `subject`, `role`, `includeExpired`, `limit`, `offset` |
+| `GET /authz/assignments` | `list({ kind: 'assignments' })` | none | `scope`, `subject`, `role`, `includeExpired`, `limit`, `offset` or `after` |
 | `POST /authz/assignments` | `assignment.grant` | `{ subject, role, scope, tags?, expiresAt?, replaceLadder? }` | `reason`, `idempotencyKey`, `dryRun` |
 | `PATCH /authz/assignments/:id` | `assignment.setTags`, `addTags`, `removeTags`, `setExpiry` | `{ tags?, addTags?, removeTags?, expiresAt? }`, at least one key | `reason`, `idempotencyKey`, `dryRun` |
 | `DELETE /authz/assignments/:id` | `assignment.revoke` | none | `reason`, `idempotencyKey`, `dryRun` |

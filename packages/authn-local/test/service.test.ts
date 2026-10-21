@@ -669,6 +669,7 @@ describe('LocalPasswordService DI wiring', function () {
     expect(await service.requestReset('erin@example.com', ctx({ purpose: 'request' }))).to.deep.equal({ status: 'accepted' });
     await service.drain();
     await service.invite(erin, ctx({ purpose: 'request' }));
+    await service.drain();
 
     expect(mailer.mails.map((m) => [m.purpose, m.url, m.ttlSeconds])).to.deep.equal([
       ['reset', 'https://di.example.com/reset', 3600],

@@ -44,7 +44,7 @@
 
 ### Expired-session sweep, `cleanupExpired()`
 
-1. A single `DELETE ... WHERE Expiration <= now` removes the expired rows, so a row renewed meanwhile is not deleted.
+1. It selects up to `authn.session.db.cleanupBatch` keys with `Expiration <= now`, oldest first, and deletes them with `DELETE ... WHERE SessionId IN (...) AND Expiration <= now`, so a row renewed meanwhile is not deleted. It repeats until a round selects fewer keys than the batch size.
 2. It returns the number of deleted rows. The timer logs a positive count at `info` level; a thrown error is logged at `error` level and the next tick tries again.
 
 ```mermaid
@@ -70,6 +70,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `authn.session.service` | `string` | `MemorySessionStore` (from `@spinajs/authn-session`) | class name of a registered `SessionProvider` | Set to `DbSessionStore` to use this store. |
 | `authn.session.db.cleanupInterval` | `number` | `600000` | milliseconds | Period of the expired-session sweep. |
+| `authn.session.db.cleanupBatch` | `number` | `500` | positive integer | Rows selected and deleted per statement by the sweep. |
 | `authn.session.expiration.service` | `string` | `SlidingCappedExpiration` | `AbsoluteExpiration`, `SlidingExpiration`, `SlidingCappedExpiration`, or a custom class name | Strategy the store calls in `save()` and `touch()`. Owned by `@spinajs/authn-session`. |
 | `authn.session.expiration.ttl` | `number` | `30` | minutes | Idle lifetime for the shipped strategies. |
 | `authn.session.expiration.maxLifetime` | `number` | `480` | minutes | Absolute cap for `SlidingCappedExpiration`. |
@@ -121,7 +122,7 @@ this.Config = _.merge(this.Config, {
 | `resolve()` / `dispose()` | public | Start and stop the sweep timer. |
 | `toSession(row, lenient?)` | protected | Row to `ISession`. Override to read extra columns. |
 | `matching(subject, includeImpersonations?)` | protected | Rows of a subject, expired included. |
-| `CleanupInterval`, `CleanupTimer`, `Log` | protected | Sweep period, timer handle, `db-session-store` logger. |
+| `CleanupInterval`, `CleanupBatch`, `CleanupTimer`, `Log` | protected | Sweep period, sweep batch size, timer handle, `db-session-store` logger. |
 
 ## Important behaviour
 
@@ -132,7 +133,7 @@ this.Config = _.merge(this.Config, {
 - The store does not hash ids. It keys rows by whatever `SessionId` it gets; the issuer passes `sha256(rawId)`.
 - `user_sessions` has no foreign key to `users`, so deleting a user does not end the user's sessions; call `SessionIssuer.revokeAll()` first.
 - A session with `Expiration` `NULL` never expires and the sweep never deletes it.
-- `cleanupExpired()` is one `DELETE` and loads no rows, so a large backlog costs no memory.
+- `cleanupExpired()` holds at most `cleanupBatch` keys at a time and reads them through the `user_sessions_expiration_idx` index, so a large backlog costs neither memory nor a table scan, and no single `DELETE` locks the table for long.
 - Each `DbSessionStore` instance runs its own sweep. With several application instances, each sweeps the same table; the deletes are conditional on `Expiration`, so the overlap is harmless.
 
 ## Best practices

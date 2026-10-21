@@ -1,5 +1,4 @@
-import { DI } from '@spinajs/di';
-import { IdentifierQuoter, Orm, OrmDriver, RawQuery, SqlExpressions } from '@spinajs/orm';
+import { IdentifierQuoter, OrmDriver, RawQuery, SqlExpressions, ormReady } from '@spinajs/orm';
 
 import { NO_PASSWORD, USER_COMMON_METADATA, User } from '../models/User.js';
 
@@ -14,9 +13,11 @@ export function isNoPassword(value: unknown): boolean {
 /**
  * @internal A cli process resolves only its command, so nothing else may have booted the Orm and the models are bare. Not
  * `@Autoinject(Orm)` on the stores: an async dependency makes their `DI.resolve` a Promise, and callers use it unawaited.
+ * Not `DI.resolve(Orm)` either: a boot migration's `data()` that seeds a user runs inside the Orm's resolve, and would
+ * wait for it.
  */
 export async function usersOrmUp(): Promise<void> {
-  await DI.resolve(Orm);
+  await ormReady();
 }
 
 /** @internal The users' connection: the one the base `User` model writes to. */
@@ -92,6 +93,17 @@ export function invitePending(driver: OrmDriver): Condition {
 /** @internal */
 export function raw(condition: Condition): RawQuery {
   return RawQuery.create(condition.sql, condition.bindings);
+}
+
+/** @internal Sets `EmailVerifiedAt` once: a later verification keeps the first time. */
+export async function recordAddressVerifiedAt(uuid: string, at: Date): Promise<void> {
+  const driver = usersDriver();
+  await driver
+    .update()
+    .in(USERS_TABLE)
+    .update({ EmailVerifiedAt: at })
+    .where('Uuid', uuid)
+    .where(raw({ sql: `${quoted(driver, 'EmailVerifiedAt')} IS NULL`, bindings: [] }));
 }
 
 /** @internal Stamps `users.PasswordSetAt` forward only, so writes that arrive out of order never move it back. */

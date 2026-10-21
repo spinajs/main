@@ -2,18 +2,22 @@ import { Autoinject, Injectable } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import '../register-schema.js';
 import { AuthnAudit } from '@spinajs/authn/audit';
+// Registers the default CredentialChangeBus.
+import '@spinajs/authn/bus';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
 import { InvalidArgument, InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { Orm } from '@spinajs/orm';
-import { _between, _check_arg, _contains, _custom, _finite, _gte, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, chunk, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
-import { IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '@spinajs/authn/contracts';
+import { ormReady } from '@spinajs/orm';
+import { _between, _check_arg, _contains, _custom, _finite, _gte, _integer, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
+import { CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
+import type { AuthnContext, CredentialChange, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenRotateResult, TokenScope, TokenUpdate, TokenUpdateResult, TokenValidation } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
 
 import { AccessTokenGenerationProvider } from '../generation.js';
 import { MAX_TOKEN_LENGTH, checkTokenSize } from '../generator.js';
 import { AccessToken, TOKEN_KINDS } from '../models/AccessToken.js';
+import { DEFAULT_TOKEN_CACHE, TokenValidationCache } from './cache.js';
+import type { TokenCacheConfig, ValidatedToken } from './cache.js';
 import { TokenOwnerResolver } from './owner-resolver.js';
 import { TokenProfilePolicy } from './profile-policy.js';
 
@@ -26,6 +30,8 @@ const MAX_IP_LENGTH = 64;
 const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
+/** The longest grace a rotation may leave the old secret: seven days. */
+const MAX_GRACE_SECONDS = 604_800;
 /** Ids per DELETE, well under the bound-parameter limits of the drivers. */
 const DELETE_BATCH = 500;
 
@@ -34,6 +40,9 @@ type Failure = Extract<TokenValidation, { ok: false }>;
 
 const INVALID_SCOPE: Refusal = Object.freeze({ ok: false, code: 'invalid_scope' });
 const INVALID_EXPIRY: Refusal = Object.freeze({ ok: false, code: 'invalid_expiry' });
+const NOT_FOUND: Extract<TokenRotateResult, { ok: false }> = Object.freeze({ ok: false, reason: 'not_found' });
+const UPDATE_INVALID_SCOPE: Extract<TokenUpdateResult, { ok: false }> = Object.freeze({ ok: false, reason: 'invalid_scope' });
+const UPDATE_INVALID_EXPIRY: Extract<TokenUpdateResult, { ok: false }> = Object.freeze({ ok: false, reason: 'invalid_expiry' });
 const fail = (reason: AuthnFailure): Failure => ({ ok: false, reason });
 
 /** NaN for anything but a valid Date. */
@@ -100,6 +109,24 @@ function parseScope(scope: unknown, agent: boolean): TokenScope | undefined | nu
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** The trimmed name; InvalidArgument for anything but 1 to 128 characters. */
+function checkedName(value: unknown): string {
+  const name = typeof value === 'string' ? value.trim() : '';
+  _check_arg(_between(1, MAX_NAME_LENGTH, new InvalidArgument(`token name must be 1 to ${MAX_NAME_LENGTH} characters`)))(name, 'name');
+  return name;
+}
+
+/** The columns an update writes and the names of the fields it changes. */
+function updateValues(name: string | undefined, roles: string[] | undefined, expiresAt: number | undefined): { values: Partial<AccessToken>; fields: string[] } {
+  const values: Partial<AccessToken> = {
+    ...(name !== undefined ? { Name: name } : {}),
+    ...(roles !== undefined ? { Roles: roles } : {}),
+    ...(expiresAt !== undefined ? { ExpiresAt: DateTime.fromMillis(expiresAt) as DateTime<true> } : {}),
+  };
+  const fields = [name !== undefined && 'name', roles !== undefined && 'roles', expiresAt !== undefined && 'expiresAt'].filter((f): f is string => f !== false);
+  return { values, fields };
+}
+
 const SCOPE_KEYS: readonly string[] = ['permissions', 'resources', 'agent'];
 const RESOURCE_KEYS: readonly string[] = ['type', 'id'];
 
@@ -126,7 +153,11 @@ function storedScope(stored: unknown, agent: boolean): TokenScope | undefined | 
 
 /**
  * `TokenService` over `rbac_access_tokens`. Owners map to `user_id` through {@link TokenOwnerResolver};
- * owner status comes from {@link IdentityStore} on every validate.
+ * owner status comes from {@link IdentityStore}. A successful validate is served from memory for
+ * `authn.token.cache.ttlSeconds`; revocations, rotations and updates evict it and go out on the {@link CredentialChangeBus}.
+ *
+ * Each call that queries waits for the Orm (`ormReady`) instead of the service injecting it: a boot migration that seeds
+ * users or tokens resolves this service inside the Orm's resolve, and an injected Orm would wait for that resolve.
  */
 @Injectable(TokenService)
 export class DbTokenService extends TokenService {
@@ -141,6 +172,9 @@ export class DbTokenService extends TokenService {
 
   @Config('authn.token.length')
   protected Length: number;
+
+  @Config('authn.token.cache', { defaultValue: DEFAULT_TOKEN_CACHE })
+  protected CacheConfig: TokenCacheConfig;
 
   @Logger('authn-token')
   protected Log: Log;
@@ -160,16 +194,22 @@ export class DbTokenService extends TokenService {
   @Autoinject(RoleSource, { optional: true })
   protected Roles: RoleSource | undefined;
 
+  @Autoinject(CredentialChangeBus, { optional: true })
+  protected Bus: CredentialChangeBus | undefined;
+
+  private validations: TokenValidationCache | undefined;
+
   @AutoinjectService('authn.token.generation', AccessTokenGenerationProvider)
   protected Generator: AccessTokenGenerationProvider;
-
-  /** The AccessToken queries run on the Orm's connections, so a cli run that builds only this service must boot it. */
-  @Autoinject(Orm)
-  protected Orm: Orm;
 
   /** `Auditor`: a test seam, published to instead of the container's AuthnAudit. */
   constructor(protected readonly Auditor?: AuthnAuditor) {
     super();
+  }
+
+  /** Built on first use, once the configuration and the bus are injected. */
+  protected get cache(): TokenValidationCache {
+    return (this.validations ??= new TokenValidationCache(this.CacheConfig ?? DEFAULT_TOKEN_CACHE, this.Bus));
   }
 
   /** The format size cap; checked at each create, because this service has no boot hook. */
@@ -227,6 +267,7 @@ export class DbTokenService extends TokenService {
     const name = typeof raw.name === 'string' ? raw.name.trim() : '';
     _check_arg(_between(1, MAX_NAME_LENGTH, new InvalidArgument(`token name must be 1 to ${MAX_NAME_LENGTH} characters`)))(name, 'name');
 
+    await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
       throw new InvalidOperation(`Token owner ${String(owner?.type)}:${String(owner?.id)} is unknown to ${this.Owners.constructor.name}`);
@@ -259,6 +300,7 @@ export class DbTokenService extends TokenService {
   }
 
   public async list(owner: IdentityRef): Promise<readonly TokenRecord[]> {
+    await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
       return [];
@@ -274,6 +316,7 @@ export class DbTokenService extends TokenService {
     if (!ok) {
       return false;
     }
+    await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
       return false;
@@ -284,8 +327,76 @@ export class DbTokenService extends TokenService {
       return false;
     }
 
+    await this.changed({ kind: 'token', id: token.Uuid });
     await this.publish(ctx, now, 'token.revoke', owner, { token: token.Uuid, kind: token.Kind }, opts?.actor);
     return true;
+  }
+
+  public async rotate(owner: IdentityRef, id: string, ctx: AuthnContext, opts?: { readonly graceSeconds?: number }): Promise<TokenRotateResult> {
+    const now = this.nowOf(ctx);
+    const graceSeconds = opts?.graceSeconds === undefined ? 0 : opts.graceSeconds;
+    _check_arg(_is_number(_integer(), _between(0, MAX_GRACE_SECONDS, new InvalidArgument(`graceSeconds must be a whole number of seconds from 0 to ${MAX_GRACE_SECONDS}`))))(graceSeconds, 'graceSeconds');
+    this.checkFormat();
+
+    const token = await this.liveToken(owner, id);
+    const expiresAt = token ? toDate(token.ExpiresAt) : null;
+    if (!token || expiresAt === null || expiresAt.getTime() <= now) {
+      return NOT_FOUND;
+    }
+
+    const generated = await this.Generator.generate();
+    this.checkGenerated(generated?.Plaintext);
+
+    const grace = graceSeconds > 0;
+    const values = {
+      Token: generated.Hash,
+      PreviousToken: grace ? token.Token : null,
+      PreviousValidUntil: grace ? DateTime.fromMillis(now + graceSeconds * 1000) : null,
+    } as unknown as Partial<AccessToken>;
+    // Conditional on the stored hash, so of two racing rotations only one wins and no caller holds a secret that is already dead.
+    const result = await AccessToken.update(values)
+      .where('Id', token.Id)
+      .where('Token', token.Token)
+      .whereNull('RevokedAt');
+    if (this.affected(result) === 0) {
+      return NOT_FOUND;
+    }
+
+    await this.changed({ kind: 'token', id: token.Uuid });
+    await this.publish(ctx, now, 'token.rotate', owner, { token: token.Uuid, kind: token.Kind, graceSeconds });
+    return { ok: true, plaintext: generated.Plaintext, token: this.recordOf(token, owner) };
+  }
+
+  public async update(owner: IdentityRef, id: string, change: TokenUpdate, ctx: AuthnContext): Promise<TokenUpdateResult> {
+    const now = this.nowOf(ctx);
+    // Callers can bypass the types, and only these three keys are read.
+    const raw: Record<string, unknown> = isPlainObject(change) ? change : {};
+    const name = raw.name === undefined ? undefined : checkedName(raw.name);
+    const roles = parseRoles(raw.roles);
+    const expiresAt = raw.expiresAt === undefined ? undefined : instant(raw.expiresAt);
+
+    const token = await this.liveToken(owner, id);
+    if (!token) {
+      return NOT_FOUND;
+    }
+    const refusal = await this.narrowingRefusal(owner, token, roles, expiresAt, now);
+    if (refusal) {
+      return refusal;
+    }
+
+    const { values, fields } = updateValues(name, roles ?? undefined, expiresAt);
+    if (fields.length === 0) {
+      return { ok: true, token: this.recordOf(token, owner) };
+    }
+    const result = await AccessToken.update(values).where('Id', token.Id).whereNull('RevokedAt');
+    if (this.affected(result) === 0) {
+      return NOT_FOUND;
+    }
+    Object.assign(token, values);
+
+    await this.changed({ kind: 'token', id: token.Uuid });
+    await this.publish(ctx, now, 'token.update', owner, { token: token.Uuid, kind: token.Kind, fields });
+    return { ok: true, token: this.recordOf(token, owner) };
   }
 
   /**
@@ -299,10 +410,12 @@ export class DbTokenService extends TokenService {
       return false;
     }
 
+    await ormReady();
     const token = await this.revokeRow(id, now);
     if (!token) {
       return false;
     }
+    await this.changed({ kind: 'token', id: token.Uuid });
 
     // The owner only names the event's identity; a failing lookup must not undo or hide the revocation.
     let owner: IdentityRef | null = null;
@@ -326,31 +439,47 @@ export class DbTokenService extends TokenService {
       throw new InvalidOperation('now must be a valid Date');
     }
     const cutoff = DateTime.fromMillis(at);
+    await ormReady();
 
     // Selected through the model, so the cutoff is written in the column's stored format; a bare DELETE on the
     // connection would convert it by value type only. A selected row cannot become live again, so deleting by id is
     // safe against concurrent writes. Only ids are read: a row that no longer hydrates must not stop the sweep.
-    const doomed = await AccessToken.where(function () {
-      this.whereNull('ExpiresAt');
-      this.orWhere(function () {
-        this.where('ExpiresAt', '<=', cutoff);
-      });
-      this.orWhere(function () {
-        this.whereNotNull('RevokedAt');
-      });
-    })
-      .select('Id')
-      .asRaw<Array<{ Id: number }>>();
+    const due = () =>
+      AccessToken.where(function () {
+        this.whereNull('ExpiresAt');
+        this.orWhere(function () {
+          this.where('ExpiresAt', '<=', cutoff);
+        });
+        this.orWhere(function () {
+          this.whereNotNull('RevokedAt');
+        });
+      })
+        .select('Id')
+        // MSSQL pages with OFFSET ... FETCH, which needs an ORDER BY.
+        .orderBy('Id')
+        .take(DELETE_BATCH)
+        .asRaw<Array<{ Id: number }>>();
 
     let count = 0;
-    for (const batch of chunk(doomed, DELETE_BATCH)) {
-      count += this.affected(await AccessToken.destroy(batch.map((t) => t.Id)));
+    for (;;) {
+      const doomed = await due();
+      if (doomed.length === 0) {
+        break;
+      }
+
+      const deleted = this.affected(await AccessToken.destroy(doomed.map((t) => t.Id)));
+      count += deleted;
+      if (doomed.length < DELETE_BATCH || deleted === 0) {
+        break;
+      }
     }
+
     return count;
   }
 
   public async revokeAllFor(owner: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<number> {
     const now = this.nowOf(ctx);
+    await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
       return 0;
@@ -361,9 +490,43 @@ export class DbTokenService extends TokenService {
       .where('user_id', rowId)
       .whereNull('RevokedAt');
     const count = this.affected(result);
+    if (count > 0) {
+      await this.changed({ kind: 'identity', identity: owner });
+    }
 
     await this.publish(ctx, now, 'token.revoke', owner, { count }, opts?.actor);
     return count;
+  }
+
+  public async revokeByPlaintext(raw: string, ctx: AuthnContext): Promise<boolean> {
+    const now = this.nowOf(ctx);
+    const [ok] = _try_check_arg(_is_string(_non_empty()))(raw, 'raw');
+    if (!ok || raw.length > MAX_TOKEN_LENGTH) {
+      return false;
+    }
+
+    const hash = this.Generator.hash(raw);
+    await ormReady();
+    const found = await this.Owners.tokenByHash(hash);
+    if (!found) {
+      return false;
+    }
+    const { token, owner } = found;
+    // The previous secret is a credential only until PreviousValidUntil, like in validate.
+    if (token.Token !== hash) {
+      const until = toDate(token.PreviousValidUntil);
+      if (token.PreviousToken !== hash || until === null || until.getTime() <= now) {
+        return false;
+      }
+    }
+
+    const revoked = await this.revokeRow(token.Uuid, now);
+    if (!revoked) {
+      return false;
+    }
+    await this.changed({ kind: 'token', id: revoked.Uuid });
+    await this.publish(ctx, now, 'token.revoke', owner, { token: revoked.Uuid, kind: revoked.Kind }, undefined, 'self');
+    return true;
   }
 
   public async validate(raw: string, ctx: AuthnContext): Promise<TokenValidation> {
@@ -374,9 +537,28 @@ export class DbTokenService extends TokenService {
       return fail('invalid_credentials');
     }
 
-    const token = await AccessToken.where('Token', this.Generator.hash(raw)).first();
-    if (!token) {
+    const hash = this.Generator.hash(raw);
+    const cached = this.cache.get(hash, now);
+    if (cached) {
+      return cached;
+    }
+    const since = this.cache.mark();
+
+    await ormReady();
+    const found = await this.Owners.tokenByHash(hash);
+    if (!found) {
       return fail('invalid_credentials');
+    }
+    const { token, owner } = found;
+    // A match on the previous hash counts only until PreviousValidUntil, and a stored hash that differs from the
+    // presented one in case or padding (a collation quirk) matches nothing.
+    let graceEndsAt = Number.POSITIVE_INFINITY;
+    if (token.Token !== hash) {
+      const until = toDate(token.PreviousValidUntil);
+      if (token.PreviousToken !== hash || until === null || until.getTime() <= now) {
+        return fail('invalid_credentials');
+      }
+      graceEndsAt = until.getTime();
     }
     if (token.RevokedAt) {
       return fail('revoked');
@@ -397,7 +579,6 @@ export class DbTokenService extends TokenService {
       return fail('invalid_credentials');
     }
 
-    const owner = await this.Owners.refOf(token.user_id);
     if (owner === null) {
       return fail('invalid_credentials');
     }
@@ -415,17 +596,23 @@ export class DbTokenService extends TokenService {
       ...(scope?.resources !== undefined ? { resources: scope.resources } : {}),
     };
 
-    if (agent) {
-      return {
-        ok: true,
-        identity: { type: 'agent', id: record.id },
-        method: 'token',
-        ceiling: { ...limits, reason: 'out_of_scope' },
-        delegation: { onBehalfOf: owner, mode: 'inherit' },
-        token: record,
-      };
-    }
+    const validation = agent ? this.agentValidation(record, owner, limits) : this.ownerValidation(record, owner, limits);
+    this.cache.set(hash, validation, Math.min(expiresAt.getTime(), graceEndsAt), since);
+    return validation;
+  }
 
+  private agentValidation(record: TokenRecord, owner: IdentityRef, limits: Pick<Ceiling, 'permissions' | 'resources'>): ValidatedToken {
+    return {
+      ok: true,
+      identity: { type: 'agent', id: record.id },
+      method: 'token',
+      ceiling: { ...limits, reason: 'out_of_scope' },
+      delegation: { onBehalfOf: owner, mode: 'inherit' },
+      token: record,
+    };
+  }
+
+  private ownerValidation(record: TokenRecord, owner: IdentityRef, limits: Pick<Ceiling, 'permissions' | 'resources'>): ValidatedToken {
     const ceiling: Ceiling = { ...(record.roles !== undefined ? { roles: record.roles } : {}), ...limits };
     return {
       ok: true,
@@ -456,6 +643,7 @@ export class DbTokenService extends TokenService {
     // The model types LastUsedIp as optional, but a use without an ip must clear the previous one, so null is written.
     const values = { LastUsedAt: DateTime.fromMillis(now) as DateTime<true>, LastUsedIp: ip } as unknown as Partial<AccessToken>;
     const staleBefore = DateTime.fromMillis(now - intervalSeconds * 1000);
+    await ormReady();
     // The interval sits in the WHERE clause, so of several requests racing past the same stale read only one writes.
     const result = await AccessToken.update(values)
       .where('Uuid', id)
@@ -463,7 +651,10 @@ export class DbTokenService extends TokenService {
         this.whereNull('LastUsedAt');
         this.orWhere('LastUsedAt', '<', staleBefore);
       });
-    return this.affected(result) > 0;
+    const wrote = this.affected(result) > 0;
+    // Also when another request wrote first: the stored stamp is then younger than the interval either way.
+    this.cache.stamp(id, new Date(now), ip);
+    return wrote;
   }
 
   protected recordOf(t: AccessToken, owner: IdentityRef): TokenRecord {
@@ -510,15 +701,59 @@ export class DbTokenService extends TokenService {
     return roles.every((r) => held.has(r));
   }
 
-  protected publish(ctx: AuthnContext, now: number, type: 'token.create' | 'token.revoke', owner: IdentityRef | null, data: Record<string, unknown>, actor?: PrincipalRef): Promise<void> {
+  /** Evicts this process's cache, then tells the other caches; a bus failure never undoes the revocation. */
+  protected async changed(change: CredentialChange): Promise<void> {
+    this.cache.evict(change);
+    try {
+      await this.Bus?.publish(change);
+    } catch (err) {
+      this.Log.error({ error: err, kind: change.kind }, 'Could not publish a ${kind} credential change');
+    }
+  }
+
+  protected publish(ctx: AuthnContext, now: number, type: 'token.create' | 'token.revoke' | 'token.rotate' | 'token.update', owner: IdentityRef | null, data: Record<string, unknown>, actor?: PrincipalRef, reason?: string): Promise<void> {
     return (this.Auditor ?? this.Audit).publishIn({ ...ctx, now: new Date(now) }, {
       type,
       outcome: 'success',
+      ...(reason ? { reason } : {}),
       // null: revokeById could not resolve the owner (row gone or lookup failed).
       ...(owner ? { identity: { type: owner.type, id: owner.id } } : {}),
       ...(actor ? { actor } : {}),
       data,
     });
+  }
+
+  /** Why `update` cannot make these changes to `token`, or null; a change may only narrow it. */
+  private async narrowingRefusal(owner: IdentityRef, token: AccessToken, roles: string[] | undefined | null, expiresAt: number | undefined, now: number): Promise<Extract<TokenUpdateResult, { ok: false }> | null> {
+    if (roles === null) {
+      return UPDATE_INVALID_SCOPE;
+    }
+    if (roles !== undefined) {
+      const current = (token.Roles ?? []).filter(isNonEmptyString);
+      // A token without roles holds all its owner's; pinning it to some narrows it, but only to roles the owner has.
+      const allowed = token.Kind === 'agent' ? false : current.length > 0 ? roles.every((r) => current.includes(r)) : await this.ownerHolds(owner, roles);
+      if (!allowed) {
+        return UPDATE_INVALID_SCOPE;
+      }
+    }
+    if (expiresAt !== undefined && !(expiresAt > now && expiresAt <= (toDate(token.ExpiresAt)?.getTime() ?? 0))) {
+      return UPDATE_INVALID_EXPIRY;
+    }
+    return null;
+  }
+
+  /** The unrevoked token `id` of `owner`, or null; an expired one is returned too. */
+  private async liveToken(owner: IdentityRef, id: string): Promise<AccessToken | null> {
+    const [ok] = _try_check_arg(_is_string(_non_empty()))(id, 'id');
+    if (!ok) {
+      return null;
+    }
+    await ormReady();
+    const rowId = await this.Owners.rowIdOf(owner);
+    if (rowId === null) {
+      return null;
+    }
+    return (await AccessToken.where('Uuid', id).where('user_id', rowId).whereNull('RevokedAt').first()) ?? null;
   }
 
   /** Revokes the live token `id`, of the owner's row when `rowId` is given; null when this call revoked nothing. */

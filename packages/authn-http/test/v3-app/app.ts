@@ -12,8 +12,8 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { MemoryTarget } from '@spinajs/log';
-import { AuthenticationStrategy, AuthnEventSink, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
-import type { IdentityRef, Principal } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, AuthnEventSink, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource, SessionStartHook } from '@spinajs/authn/contracts';
+import type { Ceiling, IdentityRef, Principal, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
@@ -64,10 +64,11 @@ export class V3AppConfiguration extends FrameworkConfiguration {
       },
       authn: {
         // No authn.session.cookie: the shipped flags apply (SR-16).
-        session: { service: 'MemorySessionStore', expiration: { service: 'SlidingCappedExpiration', ttl: 120, maxLifetime: 1440 }, pendingTtlSeconds: 300 },
+        session: { service: 'MemorySessionStore', allowMemoryStore: true, expiration: { service: 'SlidingCappedExpiration', ttl: 120, maxLifetime: 1440 }, pendingTtlSeconds: 300 },
         strategies: [
           { name: 'local', service: 'V3AppPasswordStrategy' },
           { name: 'token', service: 'V3AppTokenStrategy' },
+          { name: 'email-code', service: 'V3AppCodeStrategy' },
         ],
         throttle: { service: 'V3AppThrottle' },
         mfa: { steps: [{ name: 'totp', service: 'V3AppMfaStep' }] },
@@ -88,16 +89,41 @@ export class V3AppResponseExtension extends AuthnResponseExtension {
   }
 }
 
+/** Answers `answer` (none by default, the 3.0.1 behaviour) and records the calls. */
+export class V3AppSessionStartHook extends SessionStartHook {
+  public static answer: ((kind: 'login' | 'mfa', principal: Principal) => Ceiling | undefined) | undefined;
+  public static calls: { kind: 'login' | 'mfa'; session: SessionHandle; principal: Principal }[] = [];
+
+  public async onStart(kind: 'login' | 'mfa', session: SessionHandle, principal: Principal, _sessions: SessionIssuer): Promise<Ceiling | undefined> {
+    V3AppSessionStartHook.calls.push({ kind, session, principal });
+    return V3AppSessionStartHook.answer?.(kind, principal);
+  }
+}
+
 export const identities = new FakeIdentityStore();
 export const passwords = new MemoryPasswordCredentialStore();
 export const throttle = new RecordingThrottle();
-export const step = new FakeMfaStep({ name: 'totp' });
+export const step = new FakeMfaStep({ name: 'totp', challenge: true });
 export const guard = new FakeImpersonationGuard();
 export const roles = new FakeRoleSource();
 export const principals = new RecordingPrincipalFactory();
 export const passwordStrategy = FakeStrategy.password({ identities, passwords, name: 'local' });
 export const tokens = new Map<string, IdentityRef>();
 export const tokenStrategy = FakeStrategy.bearer({ tokens, name: 'token' });
+
+/** The code the app's email-code strategy accepts for every known login. */
+export const KIT_CODE = '123456';
+export const codeStrategy = new FakeStrategy({
+  name: 'email-code',
+  kinds: ['email-code'],
+  interactive: true,
+  keys: (c) => (c.kind === 'email-code' ? [{ kind: 'account', value: `code:${String(c.login).toLowerCase()}` }] : []),
+  verify: async (c) => {
+    if (c.kind !== 'email-code') return { ok: false, reason: 'unsupported_credentials' };
+    const id = await identities.findByLogin(String(c.login));
+    return id && c.code === KIT_CODE ? { ok: true, identity: id, method: 'email-code', assurance: 'aal1' } : { ok: false, reason: 'invalid_credentials' };
+  },
+});
 export const events = new RecordingEventSink();
 
 /** The instances the registrations below answer with; the behaviour harness swaps in a fresh set per case. */
@@ -146,9 +172,11 @@ async function wire(): Promise<void> {
   bind(AuthnEventSink, 'V3AppEventSink', () => current.events);
   bind(AuthenticationStrategy, 'V3AppPasswordStrategy', () => current.passwordStrategy);
   bind(AuthenticationStrategy, 'V3AppTokenStrategy', () => current.tokenStrategy);
+  bind(AuthenticationStrategy, 'V3AppCodeStrategy', () => codeStrategy);
   const { MfaStep } = await import('@spinajs/authn/contracts');
   bind(MfaStep, 'V3AppMfaStep', () => current.step);
   DI.register(V3AppResponseExtension).as(AuthnResponseExtension);
+  DI.register(V3AppSessionStartHook).as(SessionStartHook);
   await registerAuthnHttpV3();
 }
 
@@ -338,6 +366,8 @@ export function resetRecorders(): void {
   throttle.succeeds.length = 0;
   passwordStrategy.verifyCalls.length = 0;
   V3AppResponseExtension.calls.length = 0;
+  V3AppSessionStartHook.calls.length = 0;
+  V3AppSessionStartHook.answer = undefined;
   events.clear();
 }
 

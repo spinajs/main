@@ -7,14 +7,14 @@ Two debugging aids show why a check was decided the way it was: the `GET /authz/
 ### The explain route
 
 1. At startup, http asks every `ControllerSource` for controllers. `ExplainControllerSource.getControllers()` returns `ExplainController` only when `authz.http.explainRoute.enabled` is exactly `true` and the app is not in production. Enabled in production, it logs a warning and registers nothing, so the route answers 404.
-2. `ExplainPolicy` (the route's `@Policy`) refuses an unauthenticated caller with 401. It checks `authz.http.explainRoute.permission` (default `authz:explain`) for the caller on the permission's type-level resource, in the domain `authz.http.access.domain`. Anything but an unconditional allow is a 403.
+2. `ExplainPolicy` (the route's `@Policy`) refuses an unauthenticated caller with 401. It checks `authz.http.explainRoute.permission` (default `authz:explain`) for the caller on the permission's type-level resource, in the domain `authz.http.access.domain`, or the one the [`AuthzDomainResolver`](../authz/05-domains.md#per-request-domains) names for the request. Anything but an unconditional allow is a 403.
 3. `ExplainController.explain()` reads the query:
    - `principal=<type>:<id>` (required; `%3A` and `%25` in the type are decoded as in principal keys);
    - `permission=<name>` (required, a valid permission name);
    - `resource=<type>[:<id>]` (optional; default the type-level ref of the permission);
    - `format=decision|tree` (optional; default `decision`).
    A malformed value is a 400.
-4. It builds a bare principal from `principal` (`authenticated` unless the type is `anonymous` or `unattended`, `source: 'explain'`, no attributes, no ceiling) and calls `AuthzService.explain()` in the access domain.
+4. It builds a bare principal from `principal` (`authenticated` unless the type is `anonymous` or `unattended`, `source: 'explain'`, no attributes, no ceiling) and calls `AuthzService.explain()` in that domain.
 5. `format=decision` answers the `Decision` with its `trace`. `format=tree` answers `explainTree(decision)`: `{ label, allowed, children }`, one child per model vote with its trace steps, then the engine's combining step.
 
 ```text
@@ -43,7 +43,7 @@ The trace is the one `AuthzService.explain()` returns for the denied permission 
 | --- | --- | --- | --- | --- |
 | `authz.http.explainRoute.enabled` | `boolean` | `false` | `true`, `false` | `true` mounts `GET /authz/explain` outside production. Any other value (`'true'`, `1`) keeps it off. |
 | `authz.http.explainRoute.permission` | `string` | `'authz:explain'` | a permission name | What a caller must hold, unconditionally, to use the route and to see traces in a 403. |
-| `authz.http.access.domain` | `string` | `'root'` | a domain name | The domain the route explains in and checks its permission in. |
+| `authz.http.access.domain` | `string` | `'root'` | a domain name | The domain the route explains in and checks its permission in; the fallback of the `AuthzDomainResolver`. |
 | `authz.engine.explain` | `boolean` | `false` | | Per domain: lets a 403 carry the trace. |
 | `configuration.isProduction` | `boolean` | `false` | | `true` turns both aids off. When it is not a boolean, `APP_ENV` (else `NODE_ENV`) naming production does. |
 

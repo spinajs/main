@@ -426,7 +426,9 @@ export function mfaEnrolmentRoutesSuite(): void {
 
     it('a pending session forced to enrol reaches begin and confirm and nothing else, then completes the login with the new step', async () => {
       const u = await user();
-      const c = await login(u);
+      const c = new LaneClient(h);
+      const pending = await c.send(ROUTES.login!(u.login, u.password));
+      expect(pending.body, 'the pending answer asks to enrol').to.deep.eq({ MfaRequired: ['totp'], MfaEnrol: ['totp'] });
       expect(c.cookie, 'a pending session').to.be.a('string');
       expectRefused(await c.status(), 401, 'unauthenticated');
       expectRefused(await c.disable('123456'), 401, 'unauthenticated');
@@ -434,7 +436,8 @@ export function mfaEnrolmentRoutesSuite(): void {
       expect((await c.send(ROUTES.sessionsList!())).status).to.eq(401);
       const { code, recoveryCodes } = await enrolled(c);
       expect(recoveryCodes).to.have.length(10);
-      expect((await c.begin()).status, 'enrolled now: the pending session must complete the step').to.eq(401);
+      expectRefused(await c.begin(), 403, 'enrolment_closed');
+      expect((await c.send(ROUTES.whoami!())).body, 'enrolled now: the pending session must complete the step').to.deep.eq({ MfaRequired: ['totp'], MfaEnrol: [] });
       const verified = await later(30, () => c.send(ROUTES.mfaVerify!(code(30))));
       expect(verified.status, JSON.stringify(verified.body)).to.eq(200);
       expect((await c.status()).body).to.deep.eq({ steps: [{ name: 'totp', enrolled: true }] });
@@ -497,12 +500,13 @@ export function mfaEnrolmentRoutesSuite(): void {
   describe('callers that may not enrol', () => {
     beforeEach(() => open());
 
-    it('a pending session of an enrolled identity is refused 401 and changes nothing', async () => {
+    it('a pending session of an enrolled identity is refused (403 enrolment_closed on begin and confirm, 401 on status) and changes nothing', async () => {
       const u = await user();
       await h.mfa!.enrol(u.ref);
       const c = await login(u);
       expect(c.cookie).to.be.a('string');
-      for (const res of [await c.begin(), await c.confirm(await h.mfa!.code(u.ref)), await c.status()]) expectRefused(res, 401, 'unauthenticated');
+      for (const res of [await c.begin(), await c.confirm(await h.mfa!.code(u.ref))]) expectRefused(res, 403, 'enrolment_closed');
+      expectRefused(await c.status(), 401, 'unauthenticated');
       expect(laneEvents.filter((e) => e.type === 'mfa.enrol')).to.deep.eq([]);
     });
 

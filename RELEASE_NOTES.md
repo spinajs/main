@@ -1,9 +1,546 @@
+# Release notes — authn-http, authn-oidc: fresh re-authentication that refreshes the session
+
+> Branch `feat/ory-flow-4`. Docs: `docs/authn/09-fresh-authentication.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`,
+> `docs/authn-oidc/01-login-flow.md`, `docs/authn-oidc/09-security.md`.
+
+## New behavior
+
+- `POST /auth/reauth` in `@spinajs/authn-http` (`AuthnReauthController`): body `{ password }` with the session cookie.
+  It re-authenticates through `AuthnService.reauthenticate` (the `reauth` throttle) and then moves the session to a new
+  id with `SessionIssuer.reissue(h, { authenticatedAt: now })`, so `FreshAuth` routes pass without `reauthPassword`
+  for `authn.freshAuth.maxAgeSeconds`. 200 with the new session cookie; the login failure body without `Retry-After`
+  for a wrong or throttled password; 401 without a session; 403 `mfa_pending` or `impersonating`.
+- `GET /auth/oidc/:provider/reauth` in `@spinajs/authn-oidc`: the same for a user who logs in through the provider. The
+  authorization request carries `prompt=login` and `max_age=0`; the callback refuses an ID token whose `auth_time` is
+  missing, in the future or before the flow start minus `clockSkewSeconds`, needs the session that started the flow
+  and a subject already linked to its identity, and then reissues the session with a fresh `authenticatedAt`.
+- The inline `reauthPassword` of a `FreshAuth` route is unchanged: it counts for that request only.
+- `@spinajs/authn-oidc`: the flow cookie has a third mode, `reauth` (`OidcFlowMode`), bound to a session like `link`.
+  `AuthorizationRequest.reauth` and `IdTokenRules.authenticatedSince` are new optional members.
+- `@spinajs/authn-testing`: the `reauth` route builder, the `A13/oidc` facet and three A13 cases.
+  `FakeAuthnService.reauthenticate` resolves an external subject through its link, as the core does, and
+  `MemorySessionIssuer` throws `InvalidOperation` for a session that is gone.
+
+# Release notes — authn, authn-session, authn-http: step-up of an active session
+
+> Branch `feat/ory-flow-1`. Docs: `docs/authn/01-authentication-flow.md`, `docs/authn/08-session-contract.md`,
+> `docs/authn-session/01-issuing-and-restoring-sessions.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn` — `SessionIssuer` and `AuthnService` have new abstract methods
+
+`SessionIssuer.reissue(h, change)` and `AuthnService.stepUp(session, step, response, ctx)` are abstract. A class that
+extends either outside this repository must implement it, or the build fails. `DefaultSessionIssuer`,
+`DefaultAuthnService` and the `MemorySessionIssuer` and `FakeAuthnService` fakes of `@spinajs/authn-testing` do.
+
+The `SessionIssuer` contract changes: it no longer promises that the facts of a live session never change.
+`elevate` still refuses an active session; `reissue` is the one way to change an active session's facts.
+
+## New behavior
+
+- `SessionIssuer.reissue(h, change)` moves an active session to a new id with `change` (`assurance: 'aal2'`, `mfa`,
+  `authenticatedAt`) merged into its facts. Data, subject, impersonator, creation and expiry are kept, a pending
+  session is refused, and a revocation that lands during the move stays in force.
+- `AuthnService.stepUp(session, step, response, ctx)` raises an active `aal1` session to `aal2` with any step the
+  identity is enrolled in, or a recovery code (step `recovery`). It counts in the `mfa` throttle flow and audits
+  `mfa.verify` and `session.rotate` (reason `step_up`). An `aal2` session succeeds unchanged; a pending or impersonated
+  session fails.
+- `POST /auth/mfa/step-up` in `@spinajs/authn-http`: body `{ code, step? }` with the session cookie. 200 with the new
+  session cookie, the login failure body on a wrong code (with `Retry-After` when throttled), 401 without a session,
+  403 `mfa_pending` for a pending session.
+- `@spinajs/authn-testing`: behaviour rule A34 (`A34/store` in `runSessionIssuerConformance`, `A34/http`) and the
+  `mfaStepUp` and `mfaGated` route builders.
+# Release notes — authn-http, authn-oidc: OIDC RP-initiated logout
+
+> Branch `feat/ory-flow-3`. Docs: `docs/authn-oidc/12-rp-initiated-logout.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`.
+
+## New behavior
+
+- `@spinajs/authn-http`: `AuthnLogoutExtension` (`afterLogout(session, req)`, registered with `Array.ofType`). `POST /auth/logout`
+  runs the extensions after it revoked and audited the session. The first redirect wins: a navigation request gets
+  `303` to it, any other client `200 { endSession }`. Without an extension, or when none names a redirect, the answer is
+  today's `200`. A failing extension is logged and skipped.
+- `@spinajs/authn-oidc`: `OidcLogoutExtension` sends an OIDC session to the provider's `end_session_endpoint` with
+  `client_id`, `post_logout_redirect_uri` and `logout_hint` (the IdP `sid`). Discovery reads `end_session_endpoint`; a
+  provider without one, a password session and any other session are not redirected.
+- New config `authn.oidc.providers.<name>.logout.storeIdToken` (default `false`): keep the validated ID token in the
+  session and send it as `id_token_hint`. `logout.postLogoutRedirectUri` overrides the default `<origin>/`.
+
+# Release notes — authn, authn-session, authn-oidc, session stores: OIDC back-channel logout
+
+> Branch `feat/ory-flow-2`. Docs: `docs/authn-oidc/11-backchannel-logout.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn` — `SessionIssuer` has a new abstract method
+
+`revokeByExternal(provider, sid)` is abstract. A class that extends `SessionIssuer` outside this repository must
+implement it. `DefaultSessionIssuer` and the kit's `MemorySessionIssuer` do.
+
+### `@spinajs/authn-session` — `SessionProvider` has a new abstract method
+
+`deleteByExternalKey(externalKey)` is abstract, and a store should persist the new optional `ISession.ExternalKey`.
+`MemorySessionStore`, `DbSessionStore`, `RedisSessionStore` and `DynamoDbSessionProvider` do.
+
+## New behavior
+
+- `POST /auth/oidc/:provider/backchannel-logout` (OpenID Connect Back-Channel Logout 1.0): a valid `logout_token`
+  with `sid` ends the sessions of that IdP session; one with only `sub` ends every session of the linked identity.
+  `200` with `Cache-Control: no-store`, else `400 { "error": "invalid_request" }`. Each `jti` is claimed once in the
+  `NonceStore`.
+- An OIDC login whose ID token carries `sid` stores `AuthnFacts.external = { provider, sid }`; other external logins
+  store `{ provider }`. `ExternalSubject.sid` carries it from the strategy.
+- `session-provider-db`: migration `UserSessionExternalKey_2026_10_21_00_01_00` adds the indexed `ExternalKey`
+  column. `session-provider-redis`: sets `session:external:<ExternalKey>`. `session-provider-dynamodb`: attribute
+  `ExternalKey`, found with a consistent Scan.
+# Release notes — authn, authn-session: the memory session store is refused in production
+
+> Docs: `docs/authn-session/04-session-stores.md`, `docs/authn/13-configuration-and-boot-checks.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn-session` — `MemorySessionStore` fails the boot outside development and test
+
+When `DefaultAuthnService` resolves, `DefaultSessionIssuer.checkConfiguration` asks its store, and
+`MemorySessionStore` throws `InvalidOption` unless the app env is development or test. An unset env counts as
+production. Sessions in process memory vanish on restart and are not shared between instances.
+
+Migrate with one of:
+
+- use a shared store, for example `authn.session.service: 'DbSessionStore'` from `@spinajs/session-provider-db`;
+- set `authn.session.allowMemoryStore: true` for a single-process deployment that accepts the loss.
+
+## New behavior
+
+- `authn.session.allowMemoryStore` (boolean, default `false`).
+- `SessionIssuer.checkConfiguration?(booting)` and `SessionProvider.checkConfiguration?(booting)` are optional boot
+  hooks, called like the throttle hook. A custom issuer or store may refuse a configuration it cannot run on.
+- `@spinajs/authn-testing`: `BootSpec.sessionStore` (`'memory'` or `'durable'`) and the A24 cases for it.
+# Release notes — authn-local: legacy password hashes with rehash on login
+
+> Branch `feat/ory-feat-7`. Docs: `docs/authn-local/15-migrating-password-hashes.md`.
+
+## New behavior
+
+- `authn.local.legacyHashes` (default `[]`) lists the imported hash formats that verify: `'bcrypt'` (`$2a$`, `$2b$`,
+  `$2y$`, via the new dependency `bcryptjs`) and `'pbkdf2'` (`$pbkdf2-sha256$<iterations>$<salt>$<hash>`, via
+  `node:crypto`). Both are off unless listed, so nothing changes for an existing deployment.
+- A legacy verify runs through the same `ConcurrencyLimiter` as argon2, so `hasher.maxConcurrent` and
+  `hasher.maxQueue` bound it and a full queue still answers `throttled`.
+- A successful login replaces the legacy hash with argon2id through the existing compare-and-set rehash. The argon2 cost
+  stays pinned.
+- `Argon2PasswordHasherOptions.legacyHashes` and the exported `LegacyHashKind` type.
+
+# Release notes — authn, authn-local, authn-http, authn-orm, email: email one-time code
+
+> Branch `feat/ory-feat-3`. Docs: `docs/authn-local/15-email-codes.md`, `docs/authn-http/22-code-routes.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`.
+
+## New behavior
+
+- `EmailCodeMfaStep` (step `email-code`) is a second factor by a 6-digit code mailed to the account's verified address. List it in `authn.mfa.steps`. After a password login the client calls the new `POST /auth/mfa/challenge` (pending session; 202 always), then `POST /auth/mfa/verify` with the code. The session becomes `aal2`.
+- `EmailCodeStrategy` (strategy `email-code`, credentials `{ kind: 'email-code', login, code }`) logs in with a mailed code: `POST /auth/code/request` answers 202 for every login, `POST /auth/code/login` logs in once with method `email-code` at `aal1`. List it in `authn.strategies`.
+- A code is a `SecretStore` secret of purpose `email-code`, valid for `authn.local.emailCode.ttlSeconds` (default 600) and single use, with five verify attempts per code, counted with single-use tickets in the `SecretStore`. The queued `AuthnMailJob` holds no code: `PasswordService.deliver` issues it when the mail is delivered.
+- Enrolment in the step needs `IdentityStatus.addressVerified === true`. A code login mails nothing to an address the store reports unverified.
+- New mail purpose `code`, template `authn/code.mjml` (the code large, no link), `email.password.code.subject` (default "Your sign-in code") and `email.password.code.template`. The template model has `Code`; the code is redacted like a secret.
+- `POST /auth/code/request` and `POST /auth/code/login` are in the default `authn.http.csrf.unauthenticatedRoutes`, so the origin guard checks them without a session cookie.
+- New audit event type `code.request`.
+
+## For implementers
+
+- `MfaStep.challenge?(id, ctx)` is optional; a step that delivers a code out of band implements it.
+- `MfaEnrolmentMarks` (`has`, `mark`, `unmark`) is a new contract for steps that keep no secret. `@spinajs/authn-orm` registers `DbMfaEnrolmentMarks`, which keeps marks as confirmed `authn_mfa` rows, so `MfaEnrolments` and the login refusal for an unlisted step cover them.
+- `SecretStore.issue(identity, purpose, ttlSeconds, value?)` takes an optional chosen value. `DbSecretStore` and `MemorySecretStore` support it; a custom store that ignores it makes the email code throw `InvalidOperation`.
+- `PasswordService` has two more optional methods, `requestCode(login, ctx)` and `challengeCode(id, ctx)`, which `LocalPasswordService` implements; `PasswordMail` has an optional `code`.
+- `@spinajs/authn-testing`: rule `A36`, `MemoryMfaEnrolmentMarks`, `FakeMfaStep({ challenge: true })`, and `OutboxPort.secretFor(id, 'code')`.
+- There are no HTTP routes to enrol, confirm or disable the step yet: call `EmailCodeMfaStep` from your own routes.
+
+# Release notes — authn, authn-http, users, email: self-service registration
+
+> Docs: `docs/authn-http/22-registration-route.md`, `docs/users/18-self-service-registration.md`.
+
+Not breaking: registration is off until `users.registration.enabled` is set, and every new contract member is optional or new.
+
+## New behavior
+
+- `POST /auth/register` in `@spinajs/authn-http`: body `{ login, email, password, confirmPassword? }`. It answers
+  `202 { "status": "accepted" }` for a new address and for a taken one alike. A new account is sent a verification mail
+  (address verification). The owner of a taken address is sent an `account-exists` mail with no secret that links to the
+  reset page; `authn.http.registration.notifyExisting: false` turns that mail off. The password policy runs with the login
+  and the email as context (400 `password_rejected`). Each request counts in the `reset` throttle flow, keyed on the
+  client ip and the address.
+- `@spinajs/authn`: the `IdentityRegistrar` contract, the audit type `identity.register` and the optional
+  `PasswordService.notifyAccountExists()`.
+- `@spinajs/users`: `UserIdentityRegistrar` over `create()`, provided while `users.registration.enabled` is `true`
+  (default `false`). `users.registration.activate` (default `true`) activates the new account at once.
+- `@spinajs/authn-local`: the mail purpose `account-exists`; `LocalPasswordService.notifyAccountExists()` dispatches it
+  and `deliver()` sends it without issuing a secret.
+- `@spinajs/email`: the built-in `authn/account-exists.mjml`, subject `You already have an account`
+  (`email.password.account-exists.*`). A mail without a secret links to the page as it is and redacts nothing.
+- `@spinajs/authn-testing`: the A35 behaviour rule, the `registrar` harness port and `FakeIdentityRegistrar`;
+  `OutboxPort.sent()` counts the mails of a purpose.
+
+# Release notes — authn, authn-token, authn-http: revoke a token by its plaintext
+
+> Branch `feat/ory-flow-5`. Docs: `docs/authn-token/01-token-service.md`, `docs/authn-http/14-api-token-routes.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn` — `TokenService` has a new abstract method
+
+`revokeByPlaintext(raw, ctx)` is abstract. A class that extends `TokenService` outside this repository must implement
+it, or the build fails. `DbTokenService` and `MemoryTokenService` of `@spinajs/authn-testing` do.
+
+## New behavior
+
+- `TokenService.revokeByPlaintext(raw, ctx)` revokes the token a secret belongs to and answers `true`; an unknown,
+  malformed, already revoked or out-of-grace secret answers `false`. The previous secret of a rotation revokes the
+  token while its grace lasts. It evicts the validation cache, publishes on the `CredentialChangeBus` and audits
+  `token.revoke` with `reason: 'self'`.
+- `POST /auth/tokens/revoke` in `@spinajs/authn-http` (RFC 7009 style): body `token`, no session, always `200 {}`.
+  Each request counts in the `reset` throttle flow keyed on the client ip, shared with the password reset routes; a
+  refusal answers 429 with `Retry-After`.
+- `runTokenServiceConformance` covers the method.
+# Release notes — authn-local: breached-password check and identifier similarity
+
+## New behavior
+
+- `HibpPasswordBlocklist` checks every new password (change, set, reset, invite redeem) against the Have I Been Pwned
+  range API: only the first five hex characters of the SHA-1 are sent, with `Add-Padding: true`. It fails open after
+  `authn.local.hibp.timeoutMs` (default 2000) or on a network or HTTP error, and logs one warning.
+  `authn.local.hibp.url` (default `https://api.pwnedpasswords.com/range/`) can point at a mirror.
+- The identifier similarity rule refuses with the new violation `similar_to_identifier` a password equal to,
+  containing (ignoring case) or within two edits of the login, the email, its local part or the name.
+  `authn.local.policy.similarity` (default `true`) turns it off.
+- `redeemReset` resolves the login before the policy, so the similarity rule sees the account's identifiers; a
+  violation still leaves the secret usable.
+
+## Breaking changes
+
+- The shipped `authn.local.policy.blocklist` is `'HibpPasswordBlocklist'` unless the app env (`--env`, `APP_ENV`,
+  `NODE_ENV`) is development or test, so production deployments make an outbound HTTPS call per password change. Set
+  `authn.local.policy.blocklist: null` to opt out.
+- `PasswordViolation` gains `similar_to_identifier`; an exhaustive `Record<PasswordViolation, …>` needs the new key.
+- `PasswordService.check`, `LocalPasswordPolicy.check` and `PasswordBlocklist.isBlocked` take an optional
+  `PasswordPolicyContext` (`{ login?, email?, name? }`, exported by `@spinajs/authn`). Existing implementations stay
+  source-compatible; a custom `PasswordService` should forward it to its policy.
+# Release notes — authz-rebac: relationship-based access (ReBAC)
+
+## New behavior
+
+- New package `@spinajs/authz-rebac`: `RebacModel`, an `AuthorizationModel` that answers from relation tuples
+  (`doc:d1#viewer@group:eng#member`) under namespaces configured in `authz.rebac.namespaces`, Keto's OPL as JSON:
+  relations with their allowed subject types, and permissions as rewrites (computed userset `'viewer'`,
+  tuple-to-userset `'parent->view'`, `union`, `intersection`, `exclusion`). `authz.rebac.permissions` maps a
+  permission to `<namespace>#<name>`. Bad namespaces fail the boot with `AuthzConfigError`.
+- A check whose only proof lies deeper than `authz.rebac.limit.maxDepth` tuple hops (default 8), or that runs past
+  `limit.maxCalls` node evaluations (default 10000), is indeterminate (`model_error`). Cycles of subject sets end
+  without a grant.
+- Tuples live in a `MemoryTupleStore` or a `DbTupleStore` over the new `authz_rebac_tuple` table (migration
+  `AuthzRebac_2026_10_21_00_00_00` on the `authz` connection alias).
+- `filter()` gets the residual `native:rebac.check`; `.accessible()` lists get the SQL plan term `rebac.tuples`
+  (`RebacTuplesTerm`), for every rewrite but exclusion.
+- `AuthzAdmin` gains `tuple.write`, `tuple.delete` (permission `authz:tuples.manage` on the tuple's object), the
+  `tuples` query (`authz:tuples.read`) and the tuple part of `scope.forget`. Importing
+  `@spinajs/authz-rebac/http` adds both commands to `POST /authz/commands` of `@spinajs/authz-http-admin`.
+- `@spinajs/authz-testing` adds behaviour rule B49 (facets `engine`, `rebac`), run by `@spinajs/authz-rebac`.
+
+## Migration
+
+Nothing changes for apps that do not install the package. To use it, register a `RebacModel` and its store, run
+the migration, and grant `authz:tuples.manage` / `authz:tuples.read` to tuple administrators.
+
+# Release notes — bounded cleanup and the `Expiration` index
+
+## New behavior
+
+- `DbSessionStore.cleanupExpired` deletes expired sessions `authn.session.db.cleanupBatch` rows at a time (default 500)
+  instead of with one unbounded `DELETE`. A new migration, `UserSessionExpirationIndex_2026_10_21_00_00_00`, adds
+  `user_sessions_expiration_idx`; it runs with the other `session-provider-connection` migrations.
+- `DbTokenService.deleteExpired` pages through the due rows 500 ids at a time instead of reading every id first.
+- `AuthnAuditRetention` in `@spinajs/authn-orm` deletes `authn_audit` rows older than `authn.audit.retentionDays`,
+  on a timer when `authn.audit.purgeInterval` (ms) is set, and `authn:audit-purge` runs it once. Both keys are unset
+  by default, so existing deployments keep every row. `@spinajs/authn-orm` now depends on `@spinajs/cli`.
+# Release notes — authn, authn-token, authn-http: token rotation and narrowing
+
+> Branch `feat/ory-feat-6`. Docs: `docs/authn-token/01-token-service.md`, `docs/authn-http/14-api-token-routes.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn` — `TokenService` has two new abstract methods
+
+`rotate` and `update` are abstract. A class that extends `TokenService` outside this repository must implement them, or
+the build fails. `DbTokenService` and the new `MemoryTokenService` of `@spinajs/authn-testing` do.
+
+### `@spinajs/authn-token` — a migration to run
+
+`AuthnTokenRotation_2026_10_21_00_00_00` adds the nullable `PreviousToken` and `PreviousValidUntil` columns to
+`rbac_access_tokens` and a unique index on `PreviousToken`. Run the ORM migrations before starting the new version.
+A subclass of `TokenOwnerResolver` that overrides `tokenByHash` must now match the token whose `Token` **or**
+`PreviousToken` equals the hash.
+
+## New behavior
+
+- `TokenService.rotate(owner, id, ctx, { graceSeconds? })` replaces the secret of a live token and keeps its id, name,
+  roles, scope and expiry. The old secret stops at once, or after `graceSeconds` (0 to 604800). It evicts the validation
+  cache, publishes on the `CredentialChangeBus` and audits `token.rotate`.
+- `TokenService.update(owner, id, change, ctx)` renames a token, narrows its roles to a subset and shortens its expiry. It
+  never widens: an added role is `invalid_scope`, a later expiry `invalid_expiry`. It audits `token.update`.
+- `POST /user/tokens/:uuid/rotate` (fresh auth) and `PATCH /user/tokens/:uuid` in `@spinajs/authn-http`.
+- `AuthnEventType` gains `token.rotate` and `token.update`.
+- `runTokenServiceConformance` covers both methods; `MemoryTokenService` is a token service over memory for tests.
+
+# Release notes — authn-token, authn-keys: credential cache
+
+## New behavior
+
+- `DbTokenService.validate` serves a successful result from memory for `authn.token.cache.ttlSeconds` (default 10;
+  `0` turns it off), keyed by the token hash. A hit runs no query and no `IdentityStore.status` read; the token's
+  expiry is still checked. On a miss the default `UsersTableTokenOwnerResolver` reads the token and its owner in one
+  statement (new `TokenOwnerResolver.tokenByHash`). A subclass that overrides `refOf` to name owners differently must
+  also override `tokenByHash`.
+- `DefaultKeyRegistry.byId` serves a key from memory for `authn.keys.cache.ttlSeconds` (default 10), through the new
+  `CachedKeyStore`.
+- New `CredentialChangeBus` contract in `@spinajs/authn/contracts`, with the in-process default
+  `InProcessCredentialChangeBus` (`@spinajs/authn/bus`). Token revocations publish `{ kind: 'token' }`,
+  `revokeAllFor` publishes `{ kind: 'identity' }`, key revocations publish `{ kind: 'key' }`; the caches evict on
+  every change. Other processes see a change within the ttl (decision D9).
+- A status change of an owner that does not revoke its tokens (a ban through `@spinajs/users` does) takes effect
+  within the token cache ttl, or at once when the code that changes it publishes `{ kind: 'identity' }`.
+
+# Release notes — authn: no per-request writes on the token and key path
+# Release notes — per-request authz domain resolver
+
+> Branch `feat/ory-arch-2`. Docs: `docs/authz/05-domains.md#per-request-domains`.
+
+## Features
+
+### `@spinajs/authz-http`, `@spinajs/authz-http-admin` — the domain of a request can be chosen per request
+
+- New `AuthzDomainResolver` (`resolve(req, fallback)`). `@Access`, the explain route, `/user/access`,
+  `/user/access/checks` and the `/authz` admin routes check in the domain it names. `fallback` is the
+  domain the route, the controller or the config names today.
+- The default `StaticDomainResolver` returns the fallback: an app that registers no resolver behaves as before.
+  Register your own with `@Injectable(AuthzDomainResolver)`; the last registered wins.
+- A name that is not the fallback and that no live domain bears answers 403 `unknown_domain` (admin routes:
+  `{ error: { code: 'unknown_domain' } }`) and the action does not run.
+- `AuthzDomainResolver`, `StaticDomainResolver`, `UnknownAuthzDomain` and `resolveAuthzDomain(req, fallback)` are exported.
+  `resolveAuthzDomain` asks the resolver once per request and fallback.
+- New behaviour rule B48. The authz-http test harness resolves the domain from the `x-authz-domain` header.
+
+# Release notes — conditional allows are settled on the row (M1)
+
+> Branch `feat/ory-sec-1`. Docs: `docs/authz-http/01-protecting-routes.md#conditional-allows`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authz-http`, `@spinajs/http-socket` — a conditional allow loads the row by default
+
+- `@Access` and `@SocketAccess` on a resource with an id now settle a conditional allow (an owner
+  rule, a relation grant, an ABAC condition on `resource.*`) against the row the domain's
+  `ResourceAdapter` loads. The route runs with a `TRUE` residual, or answers 403 with the reason of the
+  check against the row. No adapter that can load the type, or no row: 403 `unknown_resource`.
+- Before, such an allow reached the action unless the route said `subject: 'load'`. A route that did
+  not apply `req.storage.AuthzDecision.residual` itself let every caller holding the conditional grant
+  reach every id.
+- New option `conditional: 'load' | 'action'` (default `'load'`). `'action'` restores the old
+  behaviour for a route whose action applies the residual itself.
+- `subject: 'load'` still works and means `conditional: 'load'`. `subject: 'none'` no longer opts out:
+  use `conditional: 'action'`.
+- A type-level resource (no extractor, `{ type }`) loads nothing: list routes keep their residual for
+  `.accessible()`.
+- How to move: give every route that relies on a conditional allow reaching its action, and applies
+  the residual there, `conditional: 'action'`. A route with an id whose type no adapter can load (no
+  `load()`) now answers 403 on a conditional allow; give the adapter `load()`.
+
+### `@spinajs/authz-orm` — the runtime guard flags a primary-key load under a conditional route decision
+
+- In the `test` env (and as a warning in `development`), `get(id)`, `where(pk, id)` and
+  `findOrFail([id])` of an `@AccessResource` model inside a route whose decision is conditional (a
+  type-level rule, or `conditional: 'action'`) are flagged like any unguarded select. Use
+  `.accessible(permission)`, or drop `conditional: 'action'` so the route settles the decision on the
+  row. Code outside a request is unchanged.
+
+---
+# Release notes — principal contracts in `@spinajs/principal`
+
+- The new package `@spinajs/principal` holds `Principal`, `PrincipalRef`, `ResourceRef`, `Ceiling`, `AuthnFacts`,
+  `IAuthnPrincipalStorage`, `SYSTEM`, `UNATTENDED`, `principalKey`, `sameRef` and `ceilingHash`. It has no dependencies.
+- `@spinajs/authn/contracts` and `@spinajs/authz` re-export the same values. Existing imports keep working, and
+  `SYSTEM` stays one object across all three import paths.
+- `@spinajs/authz` no longer depends on `@spinajs/authn`. `@spinajs/authz-http` now lists it as an optional peer.
+  `SseSessionEndSink` moved to the new subpath `@spinajs/authz-http/authn` and is no longer exported from the root
+  entry. `AuthzHttpAuthnBootstrapper` loads that subpath when authn is installed.
+- How to run authz without authn: `docs/authz/14-installing-without-authn.md`.
+# Release notes — authz: keyset pagination and the fs_acl path index
+
+## New behavior
+
+- The admin lists page by cursor as well as by offset. `AuthzAdmin.list` takes `page: { limit, after }`
+  for assignments, links, rules and holders, and answers `{ items, total, next? }`. `next` is set when
+  more rows follow a first or `after` page and is absent on the last page. A page read with `offset`
+  works as before and gets no `next`. The RBAC stores read the rows behind the cursor in
+  `(created_at, id)` order instead of skipping `offset` rows, so a deep page costs what the first one does;
+  `total` is still counted for every page. Holders page by subject key.
+- `GET /authz/assignments`, `/holders`, `/links` and `/rules` take `after`, the `next` of the previous
+  page. It replaces `offset`; both together, an empty `after` and an `after` on `/authz/policies` answer
+  `400 invalid_query`. A cursor the store did not issue answers `400 invalid_page`. See
+  `docs/authz-http-admin/01-admin-routes.md`.
+- A custom `AuthzAdminReader` that cannot page by cursor needs no change: it ignores `after` and returns
+  no `next`. A custom store behind the RBAC reader may return `next` from `find`.
+
+## Before you upgrade
+
+- Run the new `@spinajs/authz-fs` migration `AuthzFsAclPathIndex_2026_10_21_00_00_00`. It adds the index
+  `fs_acl_fs_path` on `(fs, path)`, which the prefix reads of `deleteTree` and `moveTree` use. It creates
+  an index only; the `fs_acl` table and its rows are untouched. `moveTree` still rewrites the moved rows
+  one by one in a transaction.
+# Release notes — authn: IPv6 throttle keys by prefix
+
+## New behavior
+
+- The login throttle keys the `ip`, `account-ip` and per-request `account` rows of an IPv6 client by its
+  network (`2001:db8::/64`), not its address, so one client with a whole /64 cannot reset its backoff by
+  changing address. `authn.throttle.ipv6Prefix` sets the prefix length (16 to 128, default 64). IPv4 and
+  IPv4-mapped addresses are keyed whole; audit events and `ClientIp` keep the full address.
+
+# Release notes — authn: no per-request writes on the token and key path
+
+## New behavior
+
+- `DefaultAuthnService` no longer waits for the audit sinks on a successful `token.use` or `key.use`:
+  it publishes them with the new `AuthnAudit.publishDetached`. Failure events are still awaited.
+  `AuthnAudit.settled()` resolves when the detached deliveries have settled; `AuthnAudit.dispose()`
+  awaits it. A test that reads a sink right after a token or key success should `await audit.settled()`.
+- `PeekableThrottle.peek` resolves the new `PeekVerdict`: an allowed peek carries `clean`. When no live
+  throttle row holds the keys, a token or key success skips `succeed`, so a credential with no failures
+  on record writes nothing to the throttle. `DbThrottleStore.peek` stays one `SELECT`. A custom
+  `PeekableThrottle` must return `clean`; `false` keeps the old behaviour.
+
+---
+
 # Release notes — SpinaJS 3.0.0: authentication and authorization
 
 > 3.0 splits `@spinajs/rbac` into three families: identity (`@spinajs/users*`), authentication
 > (`@spinajs/authn*`) and authorization (`@spinajs/authz*`). There is no compatibility mode, no
 > re-export shim and no 2.x patch. How to move an app: `docs/authz/migration-guide.md`. Overviews:
 > `docs/authz/README.md`, `docs/authn/README.md`, `docs/authn-oidc/README.md`.
+
+## Unreleased: email address verification
+
+Not breaking: the new field is optional, the login switch is off and the routes need a `PasswordService` that offers
+verification.
+
+- **`@spinajs/authn`.** `IdentityStatus.addressVerified` (undefined: the store does not track it), the
+  `IdentityAddressVerifier` contract, the `unverified_address` failure, the audit types `address.verify.request` and
+  `address.verify`, and the optional `PasswordService.requestVerification()` and `redeemVerification()`. With
+  `authn.login.requireVerifiedAddress: true`, a login method whose credentials verify answers `unverified_address`
+  while the store reports the address unverified.
+- **`@spinajs/authn-local`.** `LocalPasswordService` mails a single-use secret of purpose `verify` through the authn
+  mail pipeline (`authn.local.verify.ttlSeconds`, default one day; `authn.local.verify.url`) and redeems it once.
+- **`@spinajs/users`.** Migration `UsersAddressVerified_2026_10_21_00_00_00` adds `users.EmailVerifiedAt`.
+  `UserIdentityStore.status()` reports `addressVerified`, `UserAddressVerifier` stores it, and redeeming an invite marks
+  the address verified.
+- **`@spinajs/email`.** The built-in `authn/verify.mjml` template, subject `Confirm your email address`
+  (`email.password.verify.*`).
+- **`@spinajs/authn-http`.** `POST /auth/verify/request` (a session, 202) and `POST /auth/verify` with `{ secret }`
+  (anonymous, 200 or 400 `invalid_secret`).
+
+Docs: `docs/authn-local/14-address-verification.md`, `docs/authn-http/21-verification-routes.md`.
+
+## Unreleased: queued authn mails and MJML templates
+
+**Breaking for deployments.** Reset and invite mails of `@spinajs/authn-local` are now delivered from a queue by
+default, and rendered from MJML templates.
+
+- **Queue delivery (`authn.local.mail.delivery`, default `'queue'`).** `requestReset()`, `invite()` and `expire()`
+  dispatch an `AuthnMailRequest`. With `@spinajs/users`, it becomes an `AuthnMailJob` (`@spinajs/authn-local/queue`)
+  that holds only the identity, the purpose, the lifetime, the request time and the language: the job issues the
+  secret and sends with `EmailService.send()` when it runs (SR-09). A retry issues a fresh secret and voids the older
+  one; a job older than its lifetime is dropped. Production needs a real queue connection for `AuthnMailJob`
+  (`queue.routing.AuthnMailJob`, shipped as the black-hole connection `authn-mail`) and a running consumer: outside
+  development and test, building the `PasswordService` fails with `InvalidOption` when the route reaches a missing
+  connection or a `BlackHoleQueueClient`. `'inline'` keeps delivering in the process, after the answer.
+- **`invite()` no longer waits for the mail**, and a mailer error no longer reaches its caller.
+- **No address, no secret.** A mail for an identity without an email address is not sent and issues nothing.
+- **MJML templates.** `EmailPasswordMailer` always sends the template of `email.password.<purpose>.template`, which
+  defaults to the built-in `authn/reset.mjml` and `authn/invite.mjml` (filesystem `email-builtin-templates`, shipped in
+  `@spinajs/email` under `lib/templates`). The plain-text body is gone. A template must be an `.mjml` file, or boot
+  fails; set the key to your own file to replace one mail. `@spinajs/email` now depends on `@spinajs/templates-mjml`
+  and registers `MjmlRenderer`.
+- **Template model.** New: `ActionUrl` (the link, `ResetUrl` stays as an alias), `AppName`
+  (`email.password.appName`, default `app.name`) and `Subject`.
+
+Docs: `docs/authn-local/13-mail-delivery.md`, `docs/email/08-password-mailer.md`.
+## New: WebAuthn and passkeys (`@spinajs/authn-webauthn`)
+
+- New package `@spinajs/authn-webauthn` on `@simplewebauthn/server`: passkey login (`PasskeyStrategy`,
+  strategy `passkey`, credential kind `webauthn`), a WebAuthn second factor (`WebAuthnMfaStep`, step
+  `webauthn`) and passkey management (`WebAuthnPasskeyService`). `import '@spinajs/authn-webauthn/db'`
+  adds the ORM stores and the `AuthnWebauthn_2026_10_21_00_00_00` migration (tables
+  `authn_webauthn_credential`, `authn_webauthn_challenge`). Configuration: `authn.webauthn.*`.
+- A passkey login with user verification is `aal2`, without it `aal1`. `StrategyOutcome` gains an optional
+  `assurance`, which `DefaultAuthnService` writes into the session facts (default `aal1`).
+- `@spinajs/authn/contracts`: new `PasskeyService` contract; new audit event types `passkey.register` and
+  `passkey.remove`.
+- `@spinajs/authn-http`: `POST /auth/passkeys/challenge`, `POST /auth/passkeys/login`, `POST /user/passkeys/options`,
+  `POST /user/passkeys`, `GET /user/passkeys`, `DELETE /user/passkeys/:id`, off (404) until a `PasskeyService` is
+  registered and a strategy takes `webauthn` credentials.
+- `@spinajs/authn-testing`: `SoftAuthenticator`, the `webauthn` port, passkey route builders and behaviour rule A33.
+
+Docs: `docs/authn-webauthn/README.md`.
+## 3.0.3
+
+Fixes only: no 3.0.2 API, config key or HTTP answer changes.
+
+- **Fix: a user seeded by a boot migration deadlocked the boot.** A migration whose `data()` called users' `create()`
+  waited for the `Orm` resolve that runs it: authn-token's `DbTokenService` and `UsersTableTokenOwnerResolver`
+  injected the `Orm`, and the users stores awaited `DI.resolve(Orm)`. They now await `ormReady()` per call, which
+  does not wait for an ORM that has created its connections. The token cli commands inject the `Orm` instead, so
+  resolving one still boots it.
+- **Fix: configuration rows were written unconverted.** The ORM attaches a `@DbConfigValue` converter only to a class
+  registered in DI, and `DbConfigValueConverter` was not. An instance update of a `DbConfig` row (the exposed-option
+  sync, the configuration panel's write) sent `Value` and `Default` raw: MySQL failed with `Truncated incorrect DOUBLE
+  value` on `json` and `manyOf` options, and model reads (the watch poll) returned the stored text. The converter now
+  registers itself when the package loads; the workaround `DI.register(DbConfigValueConverter).asSelf()` can go.
+- **Fix: an app with an invalid configuration exited with 0.** `LogBotstrapper`'s `uncaughtException` and
+  `unhandledRejection` handlers log and keep the process running, which also stopped Node from exiting with 1: a
+  `Configuration` refused at boot (awaited at the top level, or in a boot promise nothing catches) ended the process
+  with 0. Both handlers now set `process.exitCode = 1`; they still do not exit. In `@spinajs/di`, a dependency that
+  throws while another one's async resolve is pending no longer leaves that rejection unhandled.
+
+## 3.0.2
+
+Additive: no 3.0.1 API, config key or HTTP answer changes, and each new behaviour is off until configured.
+
+- **Initial active role.** New `SessionStartHook` contract (`@spinajs/authn/contracts`): authn-http asks the hooks once
+  a login or an MFA completion has issued the active session, and the first ceiling one answers becomes the session's
+  `ActiveRole`. `@spinajs/users` ships `OrderedActiveRoleHook`, driven by the new
+  `authz.principals.roleSwitch.initial: { order: [...] }`: a session starts on the first listed role the user holds,
+  as 2.x activated the first role. Unset or `null`: every held role, as in 3.0.1.
+- **Pending answers tell verify from enrol.** The pending login answer and the pending `GET /auth` answer gain
+  `MfaEnrol`, the steps of `MfaRequired` the identity must enrol (`POST /user/mfa`) before it can verify them.
+- **Logout keeps the storage when asked.** New `authn.http.logout.clearSiteData` (default
+  `['cache', 'cookies', 'storage']`, the 3.0.1 header; `[]` sends no `Clear-Site-Data`).
+- **OpenAPI.** The 3.0 authn routes document their request bodies, answers and error bodies (`AuthnHttpSchemaProvider`).
+  http-swagger reads a new JSDoc tag, `@body {Type} description`, for a route that reads its body without a body
+  route argument, and expands named types inside `oneOf`/`anyOf`/`allOf`. The operationIds do not change.
+- **`authn.http.routes.prefix` is removed.** No source ever read it. `http.controllers.route.prefix` moves the authn routes.
+- **Converter** (`spinajs-authz-convert`): `rbac.email.changePassword` is left out with a warning (nothing reads
+  `users.email.changePassword`); `$extend` on `system` is a warning, since no 3.0 package defines `system`; a guard
+  written without `privilegedPermission` is a note (authz-rbac ships `users:update`).
+- **Fix: `PrincipalMiddleware` with an early `AuthzService`.** An app that resolved `AuthzService` before the http
+  server listened got 500 `DI.resolve(...).catch is not a function` on every request; the root domain now boots
+  either way.
+- **Fix: MySQL 5.7 with `explicit_defaults_for_timestamp=OFF`** (its default). The MySQL driver now writes `NULL` for
+  a nullable `TIMESTAMP` column, so `Queue_2022_10_18_01_13_00` (and `Queue_2026_07_02_00_00_00`'s `UpdatedAt`) no
+  longer fail with "Invalid default value"; on MySQL 8 the DDL means the same as before.
+- **Password mails carry attachments.** New `email.password.attachments` (`{ name, path, provider?, cid? }[]`): sent
+  with every reset and invite mail, so a template's inline `cid:` images are no longer empty.
+- **Corrected below:** what migrates (nothing: 3.0 needs an empty auth schema), `rbac.*` leftovers (ignored, not a
+  boot failure), body field spellings (camelCase only), `POST /user/access/checks`, and keys and checks that do not
+  exist (`authz.config.rejectLegacyKeys`, `authz.abac.scopeResiduals`, `authz.orm.allowJit`, a PostgreSQL JIT check,
+  `@OrmScope`/`@ScopeColumn`).
 
 ## Upgrade now: the 2.x security findings stay open
 
@@ -15,13 +552,14 @@ what each fix changes for an app.
 
 ## Before the first 3.0 start
 
-1. **Back up the database.** One migration copies `users.Role` into `authz_assignment`, and the next
-   drops the column (H13); the drop's `down()` rebuilds it from the assignments. The authn data migration
-   carries pending resets and invites into `authn_secret`; its `down()` deletes those rows and names the
-   users, who must ask for a new link.
+1. **Start from an empty auth schema, after a backup.** No 3.0 migration upgrades a 2.x database: none copies
+   `users.Role` into `authz_assignment` or drops the column, and none carries 2.x tokens, sessions, pending
+   resets or invites. The migrations create the 3.0 tables in an empty database; you move the data you keep
+   yourself (migration guide, section 7).
 2. **Run the converter** on the compiled config: `npx spinajs-authz-convert lib/mjs/config --out src/config
    --db rbac-facts.json` (`@spinajs/authz-convert`). It writes `authz-generated.ts`, `users-generated.ts`,
-   `authn-generated.ts` and `authz-warnings.md`. Then delete every `rbac.*` key: boot fails on one.
+   `authn-generated.ts` and `authz-warnings.md`. Then delete every `rbac.*` key: no 3.0 package reads one, and a
+   leftover key boots silently and does nothing.
 3. **Set the secrets** from a secret store, never inline: `http.cookie.secret` (the public default
    fails boot), `authn.mfa.encryptionKey.secret` (when any user has 2FA, or the `totp` step is listed),
    `authn.audit.hashKey.secret` (32 characters or more), `authz.rbac.links.secret` (when you use share
@@ -30,17 +568,15 @@ what each fix changes for an app.
    production for authn.
 5. **Set `http.trustProxy`** behind a proxy, and list browser origins in `http.cors.origins` and, for
    cookie sessions on other origins, in `authn.http.csrf.allowedOrigins`.
-6. **PostgreSQL:** `ALTER ROLE <role> SET jit = off` (or per database), version 12 or later.
+6. **PostgreSQL:** version 12 or later; `ALTER ROLE <role> SET jit = off` (or per database) is advised, and
+   nothing checks it.
 7. **Stop every 2.x node** before the first 3.0 node starts.
 8. **Apply the migrations before the first start** (`spinajs migrate-up`, or `Migration.OnStartup: true`).
    The `Orm` boot now fails when a registered model's table is missing (`db.StrictTableCheck`, default
    `true`) and names each model, table and connection. Every `@spinajs/authz*`, `users*` and `authn*`
    package you import registers its models. `db.StrictTableCheck: false` restores the lenient behaviour.
-   **Migrate `default` and the `authz` connection in the same run** when `db.Aliases.authz` points
-   elsewhere: `spinajs migrate-up` without `--connection`, or `Migration.OnStartup` on both connections.
-   The runner orders pending migrations across connections, so `AuthzRbacUserRoles_2026_10_01_00_01_00`
-   (on `authz`) copies `users.Role` before `AuthzRbacDropUserRole_2026_10_01_00_02_00` (on `default`)
-   drops it. Run on `default` alone, the drop fails, changing nothing, while a role is not copied.
+   **Migrate `default` and the `authz` connection** when `db.Aliases.authz` points elsewhere:
+   `spinajs migrate-up` without `--connection`, or `Migration.OnStartup` on both connections.
 9. **Check stored datetimes.** 3.0 writes and reads every datetime as a UTC instant: PostgreSQL sessions
    run with `TimeZone=UTC`, MySQL with `time_zone = '+00:00'`, MSSQL with `useUTC`, and new columns are
    zone-aware (ORM section below). 2.x wrote the local wall clock without an offset: SQLite text, PostgreSQL
@@ -66,6 +602,14 @@ what each fix changes for an app.
   parsed.
 - HTTP: `BufferResponse`; a policy refusal (403) wins over a missing credential (401) from another group;
   `SseStream` closes when the client left before open.
+
+## Outbound webhook sinks
+
+- `authn.webhooks`: `WebhookAuthnEventSink` of `@spinajs/authn-http` POSTs each audit event to the listed URLs, optionally
+  filtered by event type, with `Spinajs-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. Secrets are
+  configuration references. A failed delivery is logged and dropped. Off until an entry is configured.
+- `authz.http.webhooks`: `WebhookChangeSink` of `@spinajs/authz-http` POSTs `{ kind, domain, tags, at }` per `ChangeBus`
+  publish; start it with `start(bus)` once the domain has booted. See `docs/authn-http/20-webhooks.md`.
 
 ## BREAKING CHANGES
 
@@ -103,9 +647,9 @@ what each fix changes for an app.
 
 ### Configuration
 
-- **`rbac.*` fails boot.** No package reads or ships a `rbac.*` key. `authz.config.rejectLegacyKeys` defaults
-  to `true`: the boot error names each key, its 3.0 target and the converter, never a value. `false` only
-  warns.
+- **`rbac.*` is not read.** No package reads or ships a `rbac.*` key, and nothing checks for one: a leftover key
+  boots silently and does nothing. There is no `authz.config.rejectLegacyKeys`. Run the converter, then delete the
+  keys.
 - authn: 2.x configuration keys are no longer detected; `authn.config` is removed.
 - **The role switch key moved.** `rbac.roleSwitch.requirePassword` is not read, not even as a fallback.
   Set `authz.principals.roleSwitch.requirePassword` to the roles a switch asks the password for; unset,
@@ -124,11 +668,6 @@ what each fix changes for an app.
   besides the memory one need the key.
 - **JIT and email linking need two switches**: the global `authn.linking.jit` / `byVerifiedEmail`, and
   the strategy's own (an OIDC provider's `linking.*`, a JWT issuer's `linking.jit`). All default off.
-- `authz.abac.scopeResiduals` (default `false`; `authz.<name>.scopeResiduals` for an ABAC model with
-  another name) is new and opt-in. On, an ABAC comparison of `scope.<type>.*` on a list becomes a SQL
-  leaf. Off, such a comparison cannot be decided on a list: a deny policy denies the list with
-  `needs_subject` (B19), and a permit makes the ABAC vote indeterminate, which denies the list under
-  `deny-overrides` (B39). It needs `authz-rbac` loaded for lists through authz-orm.
 - `http.trustProxy` is read by `RealIp` and by authn-http's `ClientIp` (`authn.http.trustProxy` wins
   for authn): a hop count, or addresses, CIDRs and `loopback`, `linklocal`, `uniquelocal`. `true` means
   one hop, never "trust all". A trusted proxy must overwrite `X-Forwarded-For`, `-Proto` and `-Host`.
@@ -139,7 +678,7 @@ what each fix changes for an app.
 - `authn.impersonation.clockSkewSeconds` (0 to 300, default 30) is new: how far an impersonation's start
   may lie ahead of now or before the login. A value set at runtime past the schema that is not a finite
   number of 0 or more ends the impersonation.
-- `authz.queue.stampedInitiatorWarning`, `authz.orm.allowJit`, `authz.http.admin.domain`,
+- `authz.queue.stampedInitiatorWarning`, `authz.http.admin.domain`,
   `authz.fsAcl.connection`, `authz.fsAcl.relations`, `fs.middlewareTimeoutMs`, `telemetry.auth.permissions.*`,
   `telemetry.auth.domain` and `telemetry.auth.skipInDevelopment` are new.
 - **The authz tables live on the ORM connection alias `authz`.** Map it to a connection with `db.Aliases.authz`;
@@ -158,14 +697,19 @@ what each fix changes for an app.
 - **Unattended work is denied (H2).** CLI commands, cron jobs, queue handlers, `@Task` bodies, sockets
   without a user and config polling have no principal: every check denies them, and a query on a scoped
   model throws `AccessDenied`. Wrap them in `authz().runAs(SYSTEM, reason, fn)`, or give a job
-  `@Job({ runAs: 'initiator' | 'system' })`.
+  `@Job({ runAs: 'initiator' | 'system' })`. The ORM guard for an unattended multi-row select throws only under
+  the `test` env and warns under `development`; in any other env, or with none, it is off, so production does not
+  block such a select (`guardMode`, `authz-orm`).
 - **Checks.** `@Access('X:read')` replaces `@Resource` + `@Permission` and `RbacPolicy`; class and route
   `@Access` combine with AND. `authz().can`/`assert`/`check` replace `user.can*` and
   `checkUserPermission`. `GET /grants` and `/user/grants` are gone; `GET /user/access` and
-  `POST /user/access/check` replace them, and login, MFA, role switch, impersonation and whoami answers
+  `POST /user/access/checks` replace them, `GET /authz/holders` (`authz-http-admin`) lists who holds a
+  permission at a scope, and login, MFA, role switch, impersonation and whoami answers
   carry `Access`.
 - **ORM.** The 2.x `@OrmResource` scoping is gone: a model without `@AccessResource` (`authz-orm`) is not
-  scoped at all. `@OrmPermission` policies become `@OrmScope` policies. Register `@AccessResource` models
+  scoped at all. `@OrmPermission` policies have no decorator of their own (`@OrmScope` and `@ScopeColumn` are not
+  exported): express them as relations (`@Owner`, `@Relation`) or as role assignments on the rows. Register
+  `@AccessResource` models
   before the authz domain boots; a type registered later makes every check on it throw until the
   domain boots again.
 - **`users.Role` is dropped.** Read roles through `RbacService.rolesOf` or `authz_assignment`.
@@ -247,11 +791,10 @@ what each fix changes for an app.
 - **A password change keeps API tokens (A30)**, ends the identity's other sessions and rotates the
   current one. A reset, an admin password reset and an admin expiry revoke tokens
   (`authn.local.reset.revokeTokens`).
-- **Resets and invites carry over (A32).** A link mailed before the upgrade works once, until its 2.x
-  expiry.
-- **Tokens.** Every token has an expiry, at most `authn.token.maxTtlDays` (90); tokens without one get
-  `CreatedAt + maxTtlDays` at migration. Minting needs fresh auth. A token length below 32 or an empty
-  prefix fails boot. A bearer or `x-api-key` value without the token prefix is ignored, so tokens issued
+- **Resets, invites and tokens do not carry over.** 3.0 starts from an empty database: a link mailed by 2.x
+  stops working (the user asks for a new one), and every 2.x API token is gone.
+- **Tokens.** Every token has an expiry, at most `authn.token.maxTtlDays` (90). Minting needs fresh auth. A
+  token length below 32 or an empty prefix fails boot. A bearer or `x-api-key` value without the token prefix is ignored, so tokens issued
   under another prefix stop working. The CLI is `authn:token-create`, `authn:token-delete`,
   `authn:token-delete-expired`.
 - **MFA.** TOTP is opt-in: list `{ name: 'totp', service: 'TotpMfaStep' }` in `authn.mfa.steps`, set the
@@ -327,14 +870,15 @@ what each fix changes for an app.
 | `PATCH /user/password` (users-http) | `PATCH /user/password` (authn-http, `PasswordService.change`) |
 | `/users/security/{changePassword,password-reset-request,expire-password,reset2fa,2fa/enable,2fa/disable,unlock}` | gone; `POST /authn/admin/users/:uuid/password-reset`, `/mfa-reset`, `DELETE .../sessions`, `DELETE .../tokens` |
 | `DELETE /users/security/sessions/:uuid` | `DELETE /authn/admin/users/:uuid/sessions` |
+| `/users/role/add`, `/users/role/revoke` | gone; `POST /authz/assignments`, `DELETE /authz/assignments/:id` (`authz-http-admin`) |
 | `GET /user/tokens/roles`, `/profiles` (rbac-http-token) | the same paths in users-http |
 | `GET jobs/v1/:jobId/status` for an unknown id: 200 `queued` | 404, as for a job the caller may not read |
 | — | `/user/keys`, `POST /auth/keys/challenge`, `POST /auth/keys/login`, `/auth/oidc/:provider/*` |
 
 - **Body fields.** Login `login` (2.x `Email`) and `password` (`Password`); role switch `role`
   (`Role`); impersonation `target` (`TargetUuid`); password reset `login`, `secret` (`Token`),
-  `password`, `confirmPassword`, `oldPassword`. Both spellings are accepted. Inline re-authentication
-  sends `reauthPassword`.
+  `password`, `confirmPassword`, `oldPassword`. Only these camelCase names are read: a 2.x PascalCase field is
+  ignored, so an unchanged 2.x client's login fails. Inline re-authentication sends `reauthPassword`.
 - **Error bodies.** Every authentication failure (login, MFA, re-auth, reset redemption, key login,
   and OIDC for a client that is not a browser navigation) is 401
   `{ error: { code: 'E_AUTH_FAILED', ... } }`; a throttled login, MFA step or reset redemption adds
@@ -358,12 +902,22 @@ what each fix changes for an app.
   only. `AccountGuard` replaces `rbac.admin.roleGuard`. The full list: `packages/users-http/README.md`.
 - Answers that carry a secret (`POST /user/tokens`, recovery codes, `POST /authz/links`, ...) send
   `Cache-Control: no-store`.
+- The admin routes can move to their own prefix, so a reverse proxy can fence them off:
+  `authn.http.admin.basePath` (credential admin, default `authn/admin/users`) and
+  `authz.http.admin.basePath` (authz admin, default `authz`). Both are unset by default, so no path
+  changes. They rest on `@BasePath({ config, default })` in `@spinajs/http`. A controller without a
+  key is moved by subclassing it with its own `@BasePath` and `DI.register(Mine).as(Theirs)`; see
+  `docs/http/02-controllers-and-routing.md`.
+- **Login CSRF.** `CsrfOriginGuard` also checks `POST /auth/login`, `/auth/password/reset-request`,
+  `/auth/password/reset`, `/auth/keys/login`, `/auth/mfa/verify` and `/auth/mfa/recovery` without a
+  session cookie (`authn.http.csrf.unauthenticatedRoutes`, matched after `http.controllers.route.prefix`).
+  A browser post from another origin gets 403 `E_CSRF_ORIGIN`; a client that sends neither `Origin` nor
+  `Sec-Fetch-Site` still passes. A cross-site form that logged in is the only thing that stops working.
 
 ### Databases
 
-- **PostgreSQL must run with `jit = off`** for the app's role or database (or `PGOPTIONS='-c jit=off'`).
-  authz-orm refuses a connection with JIT on at domain boot or at the first scoped query;
-  `authz.orm.allowJit: true` turns the check off.
+- **PostgreSQL `jit = off`** for the app's role or database (or `PGOPTIONS='-c jit=off'`) is advised. Nothing
+  checks it: authz-orm does not refuse a connection with JIT on, and there is no `authz.orm.allowJit` key.
 - **PostgreSQL 12 or SQLite 3.35 at the least** for lists over stored rules (`WITH … AS MATERIALIZED`).
   On SQLite such lists are slow; they suit tests and small tables.
 - **On PostgreSQL a list with RBAC rules mostly works the rules out once per class of rows** (rows that
@@ -631,6 +1185,30 @@ The v2 API is gone; no package in the repository used it. The full notes are in
   checked at startup and on every frame. `SocketHub` refuses `to([])`, empty room names and `sys.*`
   names.
 
+### ARCH-6: RBAC and ABAC data shapes live in their own packages
+
+`AuthzCommand` and `AuthzAdminQuery` are now built from `AuthzCommandMap` and `AuthzAdminQueryMap`, which
+models extend by module augmentation. `@spinajs/authz` no longer exports the RBAC and ABAC data shapes:
+
+| Type | Import it from |
+| --- | --- |
+| `Assignment`, `AssignmentSubject`, `SubjectSelector`, `RuleDef`, `LinkDef` | `@spinajs/authz-rbac` |
+| `Policy` | `@spinajs/authz-abac` |
+
+- Code that builds RBAC commands (`assignment.*`, `set.*`, `link.*`, `rule.*`) or ABAC commands (`policy.*`)
+  as `AuthzCommand` must import something from `@spinajs/authz-rbac` or `@spinajs/authz-abac`, which brings
+  the augmentation along. Otherwise those kinds do not type-check. The same goes for the RBAC queries
+  (`assignments`, `links`, `rules`, `holders`) and `policies`.
+- The sugar methods of `AuthzAdmin` (`assign`, `createLink`, `putRule`, `putPolicy`, ...) are typed from
+  those packages. Without them their parameters are `never`.
+- `AuthzAdmin.list()` accepts any query kind a registered `AuthzAdminReader` claims.
+- `@spinajs/authz-http-admin`: the batch body schema is built from `AuthzCommandSchemaSource`
+  contributions. `describeAuthzAdminDocument(doc, basePath?, schemas?)` takes the schemas to document, and
+  `AuthzAdminSchemaProvider.schemas()` returns them with every registered source.
+- `@spinajs/authz-testing` carries structural copies (`TestAssignment`, `TestRuleDef`, `TestAbacPolicy`,
+  `TestAdminCommand`, `TestAdminQuery`, ...); the kit's `AdminHttpHandle` takes `TestAdminCommand` and
+  `TestAdminQuery`.
+
 ## Notes for maintainers
 
 - Static analysis runs in the `analysis` job of `build.yml` after a build: `npm run lint` (one root
@@ -796,3 +1374,48 @@ status so tracking no longer depends on a DB default.
 - Renderers no longer mutate the caller's model object during rendering.
 - Render timing log entries report real durations (a timer-key bug made handlebars
   always report 0 ms).
+
+---
+
+# Release notes — argon2 limiter safety (`@spinajs/authn-local`)
+
+## New behavior
+
+- The hasher queue is bounded. `authn.local.hasher.maxQueue` (default **64**) is the number of hash and
+  verify operations that may wait for a slot. Beyond it they reject with `HasherBusy` at once, and the
+  local strategy answers the login with a `throttled` failure and `Retry-After: 1`.
+- `authn.local.hasher.maxConcurrent` has no fixed default any more: unset, it is
+  `max(1, UV_THREADPOOL_SIZE - 1)`, so 3 with the Node.js thread pool of 4 (it was 8). Apps that rely on 8
+  must set it, and should raise `UV_THREADPOOL_SIZE` with it.
+- A strategy may answer `{ ok: false, reason: 'throttled', retryAfterSeconds }` when it is short of
+  capacity; the core passes the wait on. The argon2 cost stays pinned; the schema still refuses cost keys.
+
+# Release notes — authn-keys uses the core NonceStore
+
+## BREAKING CHANGES
+
+### `@spinajs/authn-keys` — `KeyNonceStore` is gone
+
+`JwsAssertionStrategy` and `HttpSignatureStrategy` claim each `jti` and signature nonce in the core `NonceStore` (`@spinajs/authn/contracts`), the store `@spinajs/authn-oidc` already uses. Removed from `@spinajs/authn-keys`: `KeyNonceStore`, `DbKeyNonceStore`, `MemoryKeyNonceStore` and the `AuthnNonce` model. `nonceKey` stays. The `authn_nonce` table and its model now belong to `@spinajs/authn-orm` alone.
+
+Only `@spinajs/authn-orm` registers a `NonceStore` (`DbNonceStore`). Without one, the two strategies refuse to boot with an error that names `@spinajs/authn-orm`; there is no memory fallback.
+
+| Before | After |
+| --- | --- |
+| `DbKeyNonceStore` registered by importing `@spinajs/authn-keys` | `import '@spinajs/authn-orm'` (`DbNonceStore`) |
+| `DI.register(MemoryKeyNonceStore).as(KeyNonceStore)` | `DI.register(MemoryNonceStore).as(NonceStore)`, with `MemoryNonceStore` from `@spinajs/authn/nonces` |
+| `@Injectable(KeyNonceStore) class X extends KeyNonceStore` | `@Injectable(NonceStore) class X extends NonceStore` |
+| `@Autoinject(KeyNonceStore)` in a custom key strategy | `@Autoinject(NonceStore)` |
+| `new HttpSignatureStrategy({ registry, nonces: new MemoryKeyNonceStore() })` | the same with `new MemoryNonceStore()` |
+
+The claim semantics are the same, so existing `authn_nonce` rows stay valid. `DbNonceStore` also rejects keys over 160 characters, which `nonceKey` never produces. A replaced `NonceStore` now serves the OIDC `state` claims too.
+# Release notes — session restore: one read, no write per request
+
+- `@spinajs/authn-http`: an authenticated cookie request now restores its session once.
+  `AuthnImpersonationService.principalOf(session, ctx)` accepts the restored `Session` and runs every
+  lifetime, status, max-minutes and guard check on it. A bare `SessionHandle` still works and is restored
+  as before.
+- `@spinajs/authn-session`: `DefaultSessionIssuer.restore` writes the row only when the last-seen time or
+  the expiry moves by `authn.session.touchThresholdSeconds` (new key, default `60`). Otherwise it does not
+  write at all. As a result, the stored idle deadline can trail the last request by up to the threshold.
+  Set the key to `0` to get the old write on every restore.

@@ -1,0 +1,92 @@
+{
+  "name": "@spinajs/authn-webauthn",
+  "version": "3.0.4",
+  "description": "WebAuthn second factor and passkey login for SpinaJS",
+  "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/mjs/index.d.ts",
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    },
+    "./schemas": {
+      "types": "./lib/mjs/schema.d.ts",
+      "import": "./lib/mjs/schema.js",
+      "require": "./lib/cjs/schema.js"
+    },
+    "./db": {
+      "types": "./lib/mjs/db.d.ts",
+      "import": "./lib/mjs/db.js",
+      "require": "./lib/cjs/db.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "schemas": [
+        "lib/cjs/schema.d.ts"
+      ],
+      "db": [
+        "lib/cjs/db.d.ts"
+      ]
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.mjs.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "pretest": "npm run compile",
+    "test": "ts-mocha -p tsconfig.json",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/authn-webauthn",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "authn",
+    "webauthn",
+    "passkey"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@simplewebauthn/server": "^14.0.3",
+    "@spinajs/authn": "3.0.4",
+    "@spinajs/authn-orm": "3.0.4",
+    "@spinajs/configuration": "3.0.4",
+    "@spinajs/di": "3.0.4",
+    "@spinajs/exceptions": "3.0.4",
+    "@spinajs/orm": "3.0.4",
+    "@spinajs/util": "3.0.4",
+    "luxon": "^3.6.1"
+  },
+  "devDependencies": {
+    "@spinajs/authn-testing": "3.0.4",
+    "@spinajs/log": "3.0.4",
+    "@spinajs/orm-sqlite": "3.0.4"
+  }
+}

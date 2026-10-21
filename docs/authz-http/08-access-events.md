@@ -29,7 +29,7 @@ data: {"objects":[{"type":"invoice","id":"42"}]}
 
 Ending streams with the session:
 
-1. `SseSessionEndSink` (an authn `AuthnEventSink`) hears successful `logout`, `session.revoke` and `session.expire` events.
+1. `SseSessionEndSink` (an authn `AuthnEventSink` from `@spinajs/authz-http/authn`, which `AuthzHttpAuthnBootstrapper` loads when `@spinajs/authn` is installed) hears successful `logout`, `session.revoke` and `session.expire` events.
 2. It ends the identity's streams whose session handle the event names.
 3. When a `SessionIssuer` is registered, it also lists the identity's live sessions and ends every other session stream whose handle is no longer listed. This catches a revoke that names no session (revoke all, revoke the others) and a handle that went stale through a rotation or role switch.
 4. `impersonation.start`, `impersonation.end` and `impersonation.expire` re-check the impersonated identity's and the actor's streams against the `SessionIssuer` only, because their `session` is not always the ended one.
@@ -73,7 +73,7 @@ export default {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `SseAccessPushTransport` | `AccessPushTransport` list, `@Injectable(AccessPushTransport)`, `@Singleton`, `name` `'sse'` | `SseAccessPushTransport` | the socket transport of `@spinajs/http-socket` | Register another `AccessPushTransport` for a new channel; `count(principalKey?)` and `closeAll()` help in tests and shutdown hooks. |
-| `SseSessionEndSink` | `AuthnEventSink` list, `@Injectable(AuthnEventSink)` | `SseSessionEndSink` | | Not meant to be replaced. |
+| `SseSessionEndSink` | `AuthnEventSink` list, `@Injectable(AuthnEventSink)`, in `@spinajs/authz-http/authn` | `SseSessionEndSink` | | Not meant to be replaced. Import `@spinajs/authz-http/authn` yourself when the bootstrappers do not run before authn builds its audit. |
 | `SessionIssuer` (`@spinajs/authn`) | resolved per session end, only when registered | the one your authn setup registers | | Without one, only streams whose handle the event names end. |
 
 ## Important behaviour

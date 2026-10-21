@@ -11,7 +11,7 @@ A session store keeps session rows. It is a `SessionProvider`: storage only. The
 
 | Store | Package | Select with | Notes |
 | --- | --- | --- | --- |
-| `MemorySessionStore` | `@spinajs/authn-session` | `'MemorySessionStore'` (shipped default) | One process; sessions are lost on restart. For tests and single-instance tools |
+| `MemorySessionStore` | `@spinajs/authn-session` | `'MemorySessionStore'` (shipped default) | One process; sessions are lost on restart. For tests and single-instance tools; refused at boot outside development and test unless `authn.session.allowMemoryStore` is `true` |
 | `DbSessionStore` | [`@spinajs/session-provider-db`](../session-provider-db/README.md) | `'DbSessionStore'` | MySQL / MariaDB, PostgreSQL, SQLite through `@spinajs/orm`; table `user_sessions` |
 | `RedisSessionStore` | [`@spinajs/session-provider-redis`](../session-provider-redis/README.md) | `'RedisSessionStore'` | One Redis server or a Sentinel group; not Redis Cluster |
 | `DynamoDbSessionProvider` | [`@spinajs/session-provider-dynamodb`](../session-provider-dynamodb/README.md) | `'DynamoDbSessionProvider'` | One DynamoDB item per session |
@@ -80,6 +80,7 @@ Protected helpers for stores: `applyInitialExpiration(s)`, `applyRenewedExpirati
 - Every 256th `save` also drops every expired row, so abandoned sessions that are never restored again do not pile up.
 - `deleteBySubject` and `listBySubject` scan every row.
 - It is per process: two app instances do not see each other's sessions, and a restart logs everyone out.
+- `checkConfiguration` fails the boot when the app env is neither development nor test (an unset env counts as production), unless `authn.session.allowMemoryStore` is `true`. The error names the key and `@spinajs/session-provider-db`. `DefaultSessionIssuer.checkConfiguration` forwards to the store, and `DefaultAuthnService` calls it when it resolves.
 
 ## Important behaviour
 
@@ -91,7 +92,7 @@ Protected helpers for stores: `applyInitialExpiration(s)`, `applyRenewedExpirati
 
 ## Best practices
 
-- Use `MemorySessionStore` only in tests and single-process tools. Any app behind a load balancer, or one that restarts while users are signed in, needs a shared store.
+- Use `MemorySessionStore` only in tests and single-process tools; set `authn.session.allowMemoryStore: true` for a production single-process tool that accepts the loss. Any app behind a load balancer, or one that restarts while users are signed in, needs a shared store.
 - Select stores by name in config and inject `SessionIssuer` in your code, not a store class; the issuer adds hashing and the revocation guarantees.
 - Read a store directly only for operations the issuer does not offer, such as a count of active sessions for a dashboard (`listBySubject`).
 

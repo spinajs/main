@@ -1,6 +1,6 @@
-import type { AssignmentSubject, PrincipalRef } from '@spinajs/authz';
+import type { PrincipalRef } from '@spinajs/authz';
 import { AssignmentStore, MembershipStore, parseSetKey, subjectKeyOf } from '@spinajs/authz-rbac';
-import type { SetSubject } from '@spinajs/authz-rbac';
+import type { AssignmentSubject, SetSubject } from '@spinajs/authz-rbac';
 import { InvalidOperation } from '@spinajs/exceptions';
 
 import { GROUP_MEMBER_ROLE, GROUP_TYPE, TEAM_MEMBER_ROLE, TEAM_TYPE } from './api.js';

@@ -1,5 +1,6 @@
 import { AuthzAdminFailure, AuthzConfigError, AuthzWriteHandler, GLOBAL, UnknownPermission, assertAdminPermission, invalid, memoryTx, principalKey, readId } from '@spinajs/authz';
-import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx, Permission, Policy, ResourceRef } from '@spinajs/authz';
+import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx, Permission, ResourceRef } from '@spinajs/authz';
+import type { Policy } from '../contracts.js';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import { DbPolicyStore, policyTags } from '../model/stores/db.js';

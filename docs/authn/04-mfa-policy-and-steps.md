@@ -8,10 +8,11 @@ A password login can end in a pending session that needs a second factor. The `M
 2. An empty list means no second factor: the session is issued at `aal1`.
 3. A non-empty list means a pending session and `{ status: 'mfa_required', pending, steps }`. The steps are alternatives.
 4. `AuthnService.completeMfa(pending, step, response, ctx)` asks the policy again, checks one step or a recovery code, and elevates the session to `aal2`. See [Authentication flow](01-authentication-flow.md#second-factor-completemfa).
+5. Later, `AuthnService.stepUp(session, step, response, ctx)` raises an active `aal1` session to `aal2` with any step the identity is enrolled in, or with a recovery code. See [Authentication flow](01-authentication-flow.md#step-up-of-an-active-session-stepup).
 
 ### What `DefaultMfaPolicy.required` returns
 
-1. A login whose `method` is not `password` gets `[]`. A key challenge proves possession of a key and an identity provider does its own MFA.
+1. A login whose `method` is not in `authn.mfa.policy.methods` gets `[]`. The default list is `['password']`, so key, token and OIDC logins are exempt: a key challenge proves possession of a key and an identity provider does its own MFA.
 2. The steps of `authn.mfa.steps` the identity is enrolled in (`MfaStep.enrolled`), in list order. When there is at least one, that list is the answer.
 3. Enrolled in no listed step: every `MfaEnrolments` source of the container lineage is asked for the identity's confirmed steps.
    - A confirmed step that `authn.mfa.steps` does not list throws `MfaStepNotListed`.
@@ -36,6 +37,9 @@ A password login can end in a pending session that needs a second factor. The `M
 | `verifyRecovery?(id, code)` | Checks a single-use recovery code |
 | `regenerateRecoveryCodes?(id)` | New codes, the old ones void |
 | `disable(id)` | Removes the factor; the owner path and the admin reset both land here |
+| `challenge?(id, ctx)` | For a step that delivers its code out of band (the [email code](../authn-local/15-email-codes.md)): sends it for a pending session of `id`. `POST /auth/mfa/challenge` calls it. A step without it needs no challenge |
+
+`MfaEnrolmentMarks` (`has`, `mark`, `unmark`) holds the enrolment of a step that keeps no secret of its own. `DbMfaEnrolmentMarks` in [`@spinajs/authn-orm`](../authn-orm/05-mfa-store.md) keeps the marks as confirmed `authn_mfa` rows, so `MfaEnrolments` sees them.
 
 The caller checks fresh authentication before `beginEnrolment`, `regenerateRecoveryCodes` and `disable`. The HTTP routes for enrolment are in [`@spinajs/authn-http`](../authn-http/README.md).
 
@@ -44,7 +48,8 @@ The caller checks fresh authentication before `beginEnrolment`, `regenerateRecov
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authn.mfa.policy.service` | `string` | `'DefaultMfaPolicy'` | A registered `MfaPolicy` class name | The policy `AuthnService` uses |
-| `authn.mfa.policy.force` | `boolean` | `false` | | Every password login of an identity with no enrolment must pass the first step |
+| `authn.mfa.policy.methods` | `string[]` | `['password']` | Login methods such as `password`, `oidc`, `jws`, `token` | The logins that must pass a step. Add `oidc` to ask for a step after an identity provider login, and to refuse an existing `aal1` OIDC session on `MfaSatisfied` routes |
+| `authn.mfa.policy.force` | `boolean` | `false` | | Every login of a listed method of an identity with no enrolment must pass the first step |
 | `authn.mfa.policy.forceForRoles` | `string[]` | `[]` | Role names | Like `force`, for identities that hold one of these roles |
 | `authn.mfa.steps` | `{ name, service }[]` | `[]` | Unique names; `recovery` refused | The steps that run, in list order |
 | `authn.mfa.encryptionKey.secret` | `string \| null` | unset | 32 bytes as 64 hex characters, base64 or base64url | AES-256-GCM key for stored MFA secrets. Set it from a secret reference, never inline |
@@ -54,7 +59,7 @@ The caller checks fresh authentication before `beginEnrolment`, `regenerateRecov
 ```ts
 authn: {
   mfa: {
-    policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: ['admin'] },
+    policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: ['admin'], methods: ['password', 'oidc'] },
     steps: [{ name: 'totp', service: 'TotpMfaStep' }],
     encryptionKey: { secret: '<32 random bytes as 64 hex characters, from a secret reference>' },
   },
@@ -138,12 +143,13 @@ authn: {
 
 ## Important behaviour
 
-- Steps run only for logins whose `method` is `password`.
+- Steps run only for logins whose `method` is in `authn.mfa.policy.methods` (default `password`). An OIDC login of an identity enrolled in TOTP gets a session at `aal1` and `MfaSatisfied` passes it; list `oidc` to change that.
 - The required steps are alternatives: passing any one elevates the session to `aal2`.
 - A recovery code enters as `completeMfa(pending, 'recovery', code, ctx)` (`RECOVERY_STEP`). The first enrolled step that implements `verifyRecovery` checks it.
 - Under `force` the required step may be one the identity has not enrolled. `completeMfa` refuses it (`not_enrolled`): the pending session can only enrol.
 - A policy that throws refuses the login, and the throttle keeps the count.
-- Each `completeMfa` call counts into the `mfa` throttle flow before the step runs.
+- Each `completeMfa` and `stepUp` call counts into the `mfa` throttle flow before the step runs.
+- `stepUp` does not ask `required`. An `aal1` session exists because its login needed no step, so `stepUp` takes every listed step the identity is enrolled in.
 - A later `Configuration.set` changes the step list only once the policy and the `AuthnService` that holds it are resolved anew.
 - `authn:check-config` names every enrolled step the list lacks. It cannot see a mismatch.
 

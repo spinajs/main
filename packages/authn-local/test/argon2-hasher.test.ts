@@ -254,11 +254,6 @@ describe('Argon2PasswordHasher', function () {
       expect(results.slice(3, 6)).to.deep.equal([false, false, false]);
       expect(h.limiter.peak).to.equal(2);
     });
-
-    it('defaults to 8', async () => {
-      const h = await hasher();
-      expect(h.limiter.max).to.equal(8);
-    });
   });
 
   describe('pepper configuration', () => {

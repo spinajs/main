@@ -2,15 +2,19 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AuthnAudit } from '@spinajs/authn/audit';
 import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
-import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
-import type { AuthnContext, IdentityRef, PrincipalRef, TokenCreateOptions, TokenCreateResult, TokenRecord, TokenValidation } from '@spinajs/authn/contracts';
+import { Autoinject } from '@spinajs/di';
+import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IdentityAddressVerifier, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import type { AuthnContext, IdentityRef, PrincipalRef, TokenCreateOptions, TokenCreateResult, TokenRecord, TokenRotateResult, TokenUpdateResult, TokenValidation } from '@spinajs/authn/contracts';
 import {
   EnrolledMfaPolicy,
   FakeAuthnService,
   FakeBackoffThrottle,
+  FakeIdentityRegistrar,
   FakeIdentityStore,
   MemoryLinkStore,
+  MemoryMfaEnrolmentMarks,
   MemoryPasswordCredentialStore,
   MemorySecretStore,
   MemorySessionIssuer,
@@ -22,8 +26,11 @@ import {
 import type { ConfigOverrides, Harness, HarnessContext, StrategySubject, ThrottleParams } from '@spinajs/authn-testing';
 
 import packageConfig from '../src/config/authn-local.js';
+import { EmailCodeMfaStep } from '../src/email-code/step.js';
+import { EmailCodeStrategy } from '../src/email-code/strategy.js';
 import { Argon2PasswordHasher, PasswordHasher } from '../src/hasher.js';
 import { PasswordMail, PasswordMailer } from '../src/mailer.js';
+import type { AuthnMailPurpose } from '../src/mail/contracts.js';
 import { LocalPasswordPolicy, PasswordBlocklist } from '../src/policy.js';
 import { LocalPasswordService } from '../src/service.js';
 import { LocalPasswordStrategy } from '../src/strategy.js';
@@ -31,6 +38,7 @@ import { LocalPasswordStrategy } from '../src/strategy.js';
 /** The ConfigOverrides keys this harness applies; any other key makes a case pending (or fail when claimed). */
 const SUPPORTED = [
   'authn.local.hasher.maxConcurrent',
+  'authn.local.hasher.maxQueue',
   'authn.local.pepper.secret',
   'authn.local.pepper.version',
   'authn.local.policy.minLength',
@@ -40,6 +48,9 @@ const SUPPORTED = [
   'authn.local.reset.ttlSeconds',
   'authn.local.reset.revokeTokens',
   'authn.local.invite.ttlSeconds',
+  'authn.local.verify.ttlSeconds',
+  'authn.local.emailCode.ttlSeconds',
+  'authn.login.requireVerifiedAddress',
   'authn.throttle',
 ];
 
@@ -62,9 +73,10 @@ interface CaseState {
   values: Record<string, unknown>;
   params: ThrottleParams;
   blocklist: readonly string[];
+  requireVerifiedAddress: boolean;
 }
 
-let current: CaseState = { values: {}, params: throttleParams({}), blocklist: [] };
+let current: CaseState = { values: {}, params: throttleParams({}), blocklist: [], requireVerifiedAddress: false };
 
 const BLACK_HOLE_LOGGER = {
   targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
@@ -154,9 +166,22 @@ class HarnessMailer extends PasswordMailer {
   public async send(mail: PasswordMail): Promise<void> {
     this.mails.push(mail);
   }
-  public secretFor(id: IdentityRef, purpose: 'reset' | 'invite'): string | null {
+  public sentTo(id: IdentityRef, purpose: AuthnMailPurpose): number {
+    return this.mails.filter((x) => x.identity.type === id.type && x.identity.id === id.id && x.purpose === purpose).length;
+  }
+  public secretFor(id: IdentityRef, purpose: 'reset' | 'invite' | 'verify' | 'code'): string | null {
     const m = [...this.mails].reverse().find((x) => x.identity.type === id.type && x.identity.id === id.id && x.purpose === purpose);
     return m ? m.secret : null;
+  }
+}
+
+/** What @spinajs/users does with a redeemed verify secret, over the harness identities. */
+class HarnessAddressVerifier extends IdentityAddressVerifier {
+  @Autoinject(IdentityStore)
+  protected Identities: HarnessIdentityStore;
+
+  public async markVerified(id: IdentityRef): Promise<void> {
+    this.Identities.setStatus(id, { addressVerified: true });
   }
 }
 
@@ -196,6 +221,18 @@ class HarnessTokenService extends TokenService {
 
   public async list(owner: IdentityRef): Promise<readonly TokenRecord[]> {
     return this.tokens.filter((t) => !t.revoked && sameRef(t.record.owner, owner)).map((t) => t.record);
+  }
+
+  public async rotate(): Promise<TokenRotateResult> {
+    throw new Error('HarnessTokenService.rotate is not used');
+  }
+
+  public async update(): Promise<TokenUpdateResult> {
+    throw new Error('HarnessTokenService.update is not used');
+  }
+
+  public async revokeByPlaintext(): Promise<boolean> {
+    throw new Error('HarnessTokenService.revokeByPlaintext is not used');
   }
 
   public async revoke(owner: IdentityRef, id: string): Promise<boolean> {
@@ -254,11 +291,13 @@ const REGISTRATIONS: [Function, Function][] = [
   [HarnessTokenService, TokenService],
   [HarnessMailer, PasswordMailer],
   [HarnessBlocklist, PasswordBlocklist],
+  [HarnessAddressVerifier, IdentityAddressVerifier],
 ];
 
 /** Everything the container may cache for a case: the abstract keys, the fakes and the N3 classes. */
 const CACHED: Function[] = [
-  ...new Set([...REGISTRATIONS.flat(), PasswordHasher, Argon2PasswordHasher, LocalPasswordPolicy, PasswordService, LocalPasswordService, AuthenticationStrategy, LocalPasswordStrategy]),
+  // AuthnAudit holds the sinks it was built with: a cached one would audit to an earlier case's sinks.
+  ...new Set([...REGISTRATIONS.flat(), AuthnAudit, PasswordHasher, Argon2PasswordHasher, LocalPasswordPolicy, PasswordService, LocalPasswordService, AuthenticationStrategy, LocalPasswordStrategy]),
 ];
 
 /** Registers the per-case types; call once before the kit suites run (in a `before`). */
@@ -308,6 +347,7 @@ function applyConfig(config: ConfigOverrides): void {
     values: { logger: BLACK_HOLE_LOGGER, authn: mergeOver(packageConfig.authn, { local: { ...local, policy } }) },
     params: throttleParams(config),
     blocklist: blocklist ?? [],
+    requireVerifiedAddress: config.authn?.login?.requireVerifiedAddress === true,
   };
 }
 
@@ -323,6 +363,9 @@ export interface LocalParts {
   readonly hasher: Argon2PasswordHasher;
   readonly strategy: LocalPasswordStrategy;
   readonly password: LocalPasswordService;
+  readonly codeStrategy: EmailCodeStrategy;
+  readonly codeStep: EmailCodeMfaStep;
+  readonly marks: MemoryMfaEnrolmentMarks;
 }
 
 /** A fresh container for `config`, resolved as at boot (the hasher's dummy hash is made here, D4). */
@@ -331,23 +374,33 @@ async function buildParts(config: ConfigOverrides): Promise<LocalParts> {
   freshContainer();
   await DI.resolve(Configuration);
   const strategy = (await DI.resolve(LocalPasswordStrategy)) as LocalPasswordStrategy;
+  const identities = DI.resolve(IdentityStore) as HarnessIdentityStore;
+  const secrets = DI.resolve(SecretStore) as HarnessSecretStore;
+  const password = (await DI.resolve(PasswordService)) as LocalPasswordService;
+  const marks = new MemoryMfaEnrolmentMarks();
   return {
-    identities: DI.resolve(IdentityStore) as HarnessIdentityStore,
+    identities,
     passwords: DI.resolve(PasswordCredentialStore) as HarnessPasswordStore,
     sessions: DI.resolve(SessionIssuer) as HarnessSessionIssuer,
-    secrets: DI.resolve(SecretStore) as HarnessSecretStore,
+    secrets,
     throttle: DI.resolve(AuthnThrottle) as HarnessThrottle,
     sinks: ((await DI.resolve(Array.ofType(AuthnEventSink))) as unknown[]).filter((s): s is RecordingEventSink => s instanceof RecordingEventSink),
     tokens: DI.resolve(TokenService) as HarnessTokenService,
     mailer: DI.resolve(PasswordMailer) as HarnessMailer,
     hasher: (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher,
     strategy,
-    password: (await DI.resolve(PasswordService)) as LocalPasswordService,
+    password,
+    codeStrategy: new EmailCodeStrategy({ identities, secrets }),
+    codeStep: new EmailCodeMfaStep({ identities, secrets, marks, passwords: password }),
+    marks,
   };
 }
 
-/** The kit harness for N3 (README "Fakes for the service port"): the real N3 classes in DI, kit fakes around them. */
-export async function localHarness(ctx: HarnessContext): Promise<Harness> {
+/**
+ * The kit harness for N3 (README "Fakes for the service port"): the real N3 classes in DI, kit fakes around them. With
+ * `emailCode`, the email code strategy and step are in the service and the `mfa` port is the step.
+ */
+export async function localHarness(ctx: HarnessContext, emailCode = false): Promise<Harness> {
   const p = await buildParts(ctx.config);
   const params = current.params;
   const [events, second] = p.sinks;
@@ -358,23 +411,24 @@ export async function localHarness(ctx: HarnessContext): Promise<Harness> {
     return verify(c, vctx);
   };
   const service = new FakeAuthnService({
-    strategies: [p.strategy],
+    strategies: emailCode ? [p.strategy, p.codeStrategy] : [p.strategy],
     throttle: p.throttle,
     identities: p.identities,
     links: new MemoryLinkStore(),
     linking: { jit: false, byVerifiedEmail: false },
-    policy: new EnrolledMfaPolicy([]),
-    steps: [],
+    policy: new EnrolledMfaPolicy(emailCode ? [p.codeStep] : []),
+    steps: emailCode ? [p.codeStep] : [],
     sessions: p.sessions,
     sinks: p.sinks,
     principals: new RecordingPrincipalFactory(),
+    requireVerifiedAddress: current.requireVerifiedAddress,
   });
 
   return {
     service,
     seed: {
       async user(spec) {
-        const ref = p.identities.add({ login: spec.login, email: spec.email, status: spec.status });
+        const ref = p.identities.add({ login: spec.login, email: spec.email ?? spec.login, status: spec.status });
         if (spec.password !== undefined) {
           await p.passwords.set(ref, await p.hasher.hash(spec.password));
         }
@@ -395,22 +449,46 @@ export async function localHarness(ctx: HarnessContext): Promise<Harness> {
       hashWith: (password, opts) => p.hasher.hashWith(password, opts),
       peakConcurrent: () => p.hasher.limiter.peak,
     },
+    registrar: new FakeIdentityRegistrar(p.identities, p.passwords, (password) => p.hasher.hash(password)),
     outbox: {
       async secretFor(id, purpose) {
         await p.password.drain();
         return p.mailer.secretFor(id, purpose);
+      },
+      async sent(id, purpose) {
+        await p.password.drain();
+        return p.mailer.sentTo(id, purpose);
       },
     },
     secrets: p.secrets,
     secretStorage: { rows: async () => p.secrets.rows() },
     tokens: p.tokens,
     spy: { verifyCalls: () => verifyCalls },
+    ...(emailCode
+      ? {
+          mfa: {
+            step: p.codeStep,
+            enrol: async (id: IdentityRef) => {
+              await p.marks.mark(id, p.codeStep.name);
+            },
+            // A challenge, then the code its mail holds.
+            code: async (id: IdentityRef) => {
+              await p.codeStep.challenge(id, { now: new Date(), purpose: 'request' });
+              await p.password.drain();
+              return p.mailer.secretFor(id, 'code') ?? '';
+            },
+          },
+        }
+      : {}),
     async dispose() {
       await p.password.drain();
       freshContainer();
     },
   };
 }
+
+/** The harness of A36: `localHarness` with the email code strategy and step. */
+export const emailCodeHarness = (ctx: HarnessContext): Promise<Harness> => localHarness(ctx, true);
 
 const KNOWN = { login: 'conformance@example.test', password: 'Conformance-Pass-1' };
 

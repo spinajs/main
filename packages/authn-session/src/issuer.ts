@@ -3,13 +3,14 @@ import { createHash, randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
 import { _check_arg, _custom, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import { Autoinject, Container, Injectable, PerChildInstance } from '@spinajs/di';
+import { Perf } from '@spinajs/log-common';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import './register-schema.js';
 import { SessionIssuer, SessionKeys, resolveSession } from '@spinajs/authn/contracts';
-import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionHandle } from '@spinajs/authn/contracts';
-import { SessionProvider } from './contracts.js';
+import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionFactsChange, SessionHandle } from '@spinajs/authn/contracts';
+import { SessionExpirationProvider, SessionProvider } from './contracts.js';
 import type { ISession } from './contracts.js';
 import { UserSession } from './session.js';
 import { refMatches } from './match.js';
@@ -36,7 +37,7 @@ const LAST_SEEN_KEY = 'authn:lastSeenAt';
 /** Typed row members. */
 const REFUSED_KEYS = new Set(['Subject', 'State', 'Impersonator']);
 
-const LAST_SEEN_RESOLUTION_MS = 60_000;
+const DEFAULT_TOUCH_THRESHOLD_MS = 60_000;
 const MAX_RAW_ID_LENGTH = 128;
 const HANDLE_DOMAIN = 'spinajs:authn-session:handle\0';
 
@@ -46,11 +47,19 @@ interface StoredFacts {
   assurance: 'aal1' | 'aal2';
   mfa: string[];
   authenticatedAt: number;
+  external?: { provider: string; sid?: string };
 }
 
 const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex');
 
 export const storageKeyOf = (rawId: string): string => sha256hex(rawId);
+
+/** ISession.ExternalKey of a session issued from `provider` with IdP session id `sid`. */
+const externalKeyOf = (provider: string, sid: string): string => sha256hex(`${provider}\0${sid}`);
+
+const MAX_EXTERNAL_LENGTH = 255;
+
+const isExternalPart = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= MAX_EXTERNAL_LENGTH;
 
 const PEEKING = new AsyncLocalStorage<true>();
 
@@ -73,8 +82,24 @@ export const sessionHandleOf = (storageKey: string): string => sha256hex(HANDLE_
 
 const ref = (r: IdentityRef | PrincipalRef): IdentityRef => ({ type: r.type, id: r.id });
 
+/** A well-formed external block, or undefined: a stored row is read as untrusted input. */
+function externalOf(v: unknown): StoredFacts['external'] {
+  const e = v as { provider?: unknown; sid?: unknown } | null | undefined;
+  if (!e || typeof e !== 'object' || !isExternalPart(e.provider)) {
+    return undefined;
+  }
+  return isExternalPart(e.sid) ? { provider: e.provider, sid: e.sid } : { provider: e.provider };
+}
+
 function toStored(f: AuthnFacts): StoredFacts {
-  return { method: f.method, strategy: f.strategy, assurance: f.assurance, mfa: [...f.mfa], authenticatedAt: f.authenticatedAt.getTime() };
+  const external = externalOf(f.external);
+  return { method: f.method, strategy: f.strategy, assurance: f.assurance, mfa: [...f.mfa], authenticatedAt: f.authenticatedAt.getTime(), ...(external ? { external } : {}) };
+}
+
+/** ISession.ExternalKey of a row holding these facts. */
+function externalKeyOfStored(f: StoredFacts | null): string | undefined {
+  const external = externalOf(f?.external);
+  return external?.sid !== undefined ? externalKeyOf(external.provider, external.sid) : undefined;
 }
 
 function pendingStepsOf(v: unknown): readonly string[] | null {
@@ -103,6 +128,17 @@ export class DefaultSessionIssuer extends SessionIssuer {
   @Config('authn.session.pendingTtlSeconds')
   protected PendingTtlSeconds!: number;
 
+  @Config('authn.session.touchThresholdSeconds')
+  protected TouchThresholdSeconds!: number;
+
+  /** The strategy the store renews with, so restore can tell whether a touch would move the expiry. */
+  @AutoinjectService('authn.session.expiration', SessionExpirationProvider)
+  protected Expiration: SessionExpirationProvider | undefined;
+
+  public async checkConfiguration(booting: { get<T>(path: string | string[]): T }): Promise<void> {
+    await this.Store.checkConfiguration?.(booting);
+  }
+
   public async issue(identity: IdentityRef, facts: AuthnFacts, opts?: { pending?: { steps: readonly string[] } }): Promise<SessionHandle> {
     const now = DateTime.now();
     const pending = opts?.pending !== undefined;
@@ -124,6 +160,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
         Creation: now,
         Expiration: pending ? now.plus({ seconds: this.PendingTtlSeconds }) : undefined,
         Data: data,
+        ExternalKey: externalKeyOfStored(readStored(data.get(FACTS_KEY))),
       }),
     );
     return { id: rawId, state: pending ? 'pending' : 'active' };
@@ -134,7 +171,11 @@ export class DefaultSessionIssuer extends SessionIssuer {
     return peekingSessions(() => this.restore(rawId));
   }
 
-  public async restore(rawId: string): Promise<Session | null> {
+  public restore(rawId: string): Promise<Session | null> {
+    return Perf.measure('authn.session.restore', () => this.restoreTimed(rawId)) as Promise<Session | null>;
+  }
+
+  private async restoreTimed(rawId: string): Promise<Session | null> {
     const [ok] = _try_check_arg(_is_string(_non_empty(), _max_length(MAX_RAW_ID_LENGTH)))(rawId, 'rawId');
     if (!ok) {
       return null;
@@ -193,10 +234,32 @@ export class DefaultSessionIssuer extends SessionIssuer {
         assurance: 'aal2',
         mfa: facts.mfa ?? stored.mfa,
         authenticatedAt: facts.authenticatedAt ?? new Date(stored.authenticatedAt),
+        ...(stored.external ? { external: stored.external } : {}),
       }),
     );
     // No expiration: the store gives the now-active session its initial one.
     return this.moveTo(session, data, { State: 'active', Expiration: undefined });
+  }
+
+  public async reissue(h: SessionHandle, change: SessionFactsChange): Promise<SessionHandle> {
+    const session = await this.need(h);
+    if (session.State !== 'active') {
+      throw new InvalidOperation('Only an active session can be reissued');
+    }
+    const stored = readStored(session.Data.get(FACTS_KEY));
+    if (!stored) {
+      throw new InvalidOperation('Unknown or expired session');
+    }
+
+    const data = new Map(session.Data);
+    data.set(FACTS_KEY, {
+      ...stored,
+      // Only a raise: a change can never lower the assurance of a live session.
+      assurance: change.assurance === 'aal2' ? 'aal2' : stored.assurance,
+      mfa: Array.isArray(change.mfa) ? [...change.mfa] : stored.mfa,
+      authenticatedAt: change.authenticatedAt instanceof Date ? change.authenticatedAt.getTime() : stored.authenticatedAt,
+    } satisfies StoredFacts);
+    return this.moveTo(session, data, {});
   }
 
   public async set(h: SessionHandle, key: string, value: unknown): Promise<void> {
@@ -260,7 +323,15 @@ export class DefaultSessionIssuer extends SessionIssuer {
     return out;
   }
 
+  public async revokeByExternal(provider: string, sid: string): Promise<number> {
+    if (!isExternalPart(provider) || !isExternalPart(sid)) {
+      return 0;
+    }
+    return this.Store.deleteByExternalKey(externalKeyOf(provider, sid));
+  }
+
   protected factsOf(session: ISession, stored: StoredFacts): AuthnFacts {
+    const external = externalOf(stored.external);
     return {
       method: stored.method,
       strategy: stored.strategy,
@@ -268,6 +339,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
       mfa: [...stored.mfa],
       authenticatedAt: new Date(stored.authenticatedAt),
       ...(session.Impersonator ? { impersonator: ref(session.Impersonator) as PrincipalRef } : {}),
+      ...(external ? { external } : {}),
       sessionHandle: sessionHandleOf(session.SessionId),
     };
   }
@@ -281,14 +353,43 @@ export class DefaultSessionIssuer extends SessionIssuer {
     return data;
   }
 
-  /** Slides the idle deadline and records lastSeenAt (at most once a minute) in one update-only write. */
+  /**
+   * Slides the idle deadline and records lastSeenAt in one update-only write, made only once lastSeenAt is
+   * touchThresholdSeconds old or the expiry would move by that much (or back at all), so most requests write nothing.
+   */
   protected async refresh(session: ISession): Promise<void> {
     const now = Date.now();
+    const threshold = this.touchThresholdMs();
     const lastSeen = session.Data.get(LAST_SEEN_KEY);
-    if (typeof lastSeen !== 'number' || now - lastSeen >= LAST_SEEN_RESOLUTION_MS) {
+    const seenMoved = typeof lastSeen !== 'number' || now - lastSeen >= threshold;
+    if (!seenMoved && !this.expiryMoves(session, threshold)) {
+      return;
+    }
+    if (seenMoved) {
       session.Data.set(LAST_SEEN_KEY, now);
     }
     await this.Store.touch(session);
+  }
+
+  private touchThresholdMs(): number {
+    const seconds: unknown = this.TouchThresholdSeconds;
+    // A value set past the schema falls back to the default rather than writing on every request or never.
+    return typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : DEFAULT_TOUCH_THRESHOLD_MS;
+  }
+
+  /** Asks the configured strategy; an issuer built without one (by hand, in tests) writes as before. */
+  private expiryMoves(session: ISession, thresholdMs: number): boolean {
+    if (!this.Expiration) {
+      return true;
+    }
+    const next = this.Expiration.renew(session);
+    const current = session.Expiration;
+    if (!next || !current) {
+      return next !== current;
+    }
+    const delta = next.toMillis() - current.toMillis();
+    // An expiry that moves back (a lowered maxLifetime) is written at once, so restore sees the row expire.
+    return delta < 0 || delta >= thresholdMs;
   }
 
   protected async need(h: SessionHandle): Promise<ISession> {
@@ -321,6 +422,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
       Creation: session.Creation,
       Expiration: session.Expiration,
       Data: data,
+      ExternalKey: externalKeyOfStored(readStored(data.get(FACTS_KEY))),
       ...over,
     });
     await this.Store.save(moved);

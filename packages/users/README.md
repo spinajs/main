@@ -22,6 +22,7 @@ administrator off accounts it does not cover (SR-10); revoke the permission from
 
 Install `@spinajs/authz-queue` (an optional peer dependency) and import `@spinajs/users/queue` (it loads authz-queue) so
 a job with `runAs: 'initiator'` reloads its user: one deactivated, banned or deleted since the job was queued runs it as
-`UNATTENDED`, and an active one gets its attributes. Importing authz-queue (this subpath does) also grants the `user` role
-`job:read` on the jobs it started; installing it without an import adds nothing. Import it before the `Configuration`
-resolves, or the grant waits for the next resolve.
+`UNATTENDED`, and an active one gets its attributes. This subpath loads only the authz-queue root, which grants no
+`job:read`: for the `job` resource and the `user` role's `job:read` grant on the jobs it started, also
+`import '@spinajs/authz-queue/jobs'` (it needs `@spinajs/authz-orm`) before the `Configuration` resolves, or the grant
+waits for the next resolve.

@@ -1,26 +1,12 @@
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { Migration, MigrationTransactionMode, Orm, OrmDriver, OrmMigration } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthnKeys_2026_10_02_00_00_00 } from '../src/migrations/index.js';
-import { AuthnKey, AuthnNonce } from '../src/models/index.js';
+import { AuthnNonce } from '@spinajs/authn-orm';
+import { AuthnKey } from '../src/models/index.js';
 
-/** authn_nonce comes with authn-orm's AuthnInitial migration (N4); this is its design §22.16 DDL for the tests. */
-@Migration('default')
-export class TestAuthnNonce_2026_10_01_00_00_00 extends OrmMigration {
-  public async up(connection: OrmDriver): Promise<void> {
-    await connection.schema().createTable('authn_nonce', (table) => {
-      table.string('k', 160).primaryKey();
-      table.dateTime('expires_at').notNull();
-    });
-  }
-
-  public async down(connection: OrmDriver): Promise<void> {
-    await connection.schema().dropTable('authn_nonce');
-  }
-}
-
-/** In-memory sqlite with the authn-keys migration; the other packages' shipped config stays as apps get it. */
+/** In-memory sqlite with the authn-keys migration and authn-orm's (authn_nonce); the other packages' shipped config stays as apps get it. */
 export class KeysDbConfiguration extends FrameworkConfiguration {
   protected onLoad(): unknown {
     return {

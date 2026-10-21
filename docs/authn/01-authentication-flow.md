@@ -6,12 +6,13 @@ Use this page to see what runs, in which order, and what each step can refuse. T
 
 ## How it works
 
-`AuthnService` has four entry points:
+`AuthnService` has five entry points:
 
 | Method | Called by | Result |
 | --- | --- | --- |
 | `authenticate(credentials, ctx)` | A login route, the request middleware for tokens and keys, your code | `AuthenticationResult`: `success`, `mfa_required` or `failure` |
 | `completeMfa(pending, step, response, ctx)` | The MFA route, with the pending session | `success` with an `aal2` session, or `failure` |
+| `stepUp(session, step, response, ctx)` | The step-up route, with an active session | `success` with an `aal2` session under a new id, or `failure` |
 | `reauthenticate(session, credentials, ctx)` | `FreshAuthCheck`, routes that ask for the password again | `true` or `false` |
 | `principalOf(result)` | Whoever got a `success` | The `Principal` that authorization uses |
 
@@ -107,6 +108,18 @@ sequenceDiagram
   H-->>C: new session cookie
 ```
 
+### Step-up of an active session: `stepUp`
+
+An `aal1` session meets a route behind `MfaSatisfied`: its login method needed no second factor, or the identity enrolled after the login. `stepUp` raises the session without a new login.
+
+1. `SessionIssuer.restore(session.id)` must return an `active` session that is not an impersonation: the target's factor must not raise the session an impersonator acts in. Otherwise the result is `invalid_credentials` (audit reason `not_active` or `impersonation`), and nothing is counted.
+2. A session already at `aal2` answers `success` with the same handle. Nothing is verified, counted or reissued.
+3. `AuthnThrottle.attempt(keys, 'mfa', ctx)` counts the attempt with the identity keys, as in `completeMfa`.
+4. The step must be one of `MfaPolicy.steps()` that the identity is enrolled in, whatever its login method. With step `recovery`, the first enrolled step that has `verifyRecovery` checks the code, which works once.
+5. The identity status is read again. A banned, deactivated or deleted identity gets nothing, and its session is revoked.
+6. `SessionIssuer.reissue(session, { assurance: 'aal2', mfa: [step] })` moves the session and its data to a new id. `AuthnThrottle.succeed(keys, 'mfa')` resets the keys.
+7. `mfa.verify` and `session.rotate` (reason `step_up`) successes are audited. The result is a `success` with the new session.
+
 ### Re-authentication: `reauthenticate`
 
 1. The session must be `active` and must not be an impersonation. The target's password must not let an impersonator act as the target.
@@ -145,9 +158,10 @@ Audit reasons the core writes:
 | Flow | Event | Reasons |
 | --- | --- | --- |
 | `authenticate` | `login`, `token.use`, `key.use` | `unsupported_credentials`, `strategy_error`, `strategy_contract`, the strategy's own reason, `not_linked`, `non_user_session`, `unknown_identity`, `deleted`, `banned`, `inactive`, `hook_error`, `policy_error`, `mfa_step_not_listed`, `mfa_enrolment_mismatch`, `store_error` |
-| `authenticate`, `completeMfa`, `reauthenticate` | `throttle.block` | `throttled` |
+| `authenticate`, `completeMfa`, `stepUp`, `reauthenticate` | `throttle.block` | `throttled` |
 | `completeMfa` | `mfa.verify` | `not_pending`, `no_steps`, `unknown_step`, `not_enrolled`, `no_recovery_step`, `invalid_code`, `step_error`, `store_error`, `session_error` |
 | `completeMfa` | `login` | `unknown_identity`, `deleted`, `banned`, `inactive` |
+| `stepUp` | `mfa.verify` | `not_active`, `impersonation`, `no_steps`, `unknown_step`, `not_enrolled`, `no_recovery_step`, `invalid_code`, `step_error`, `store_error`, the status reasons, `session_error` |
 | `reauthenticate` | `reauth` | `not_active`, `impersonation`, `unsupported_credentials`, `other_identity`, the strategy's own reason, the status reasons, `store_error` |
 
 An error thrown by a strategy, a store or a hook is audited by its class name only (`data.error`). Its message may echo the credential.
@@ -177,7 +191,7 @@ An error thrown by a strategy, a store or a hook is audited by its class name on
 - A login the MFA policy refuses keeps its count in the throttle.
 - `DefaultAuthnService` is one instance per container, so a child container reads its own `authn.strategies`.
 - The service never puts a login, a password, a code or a raw session id into an event. Sessions appear by their hashed handle.
-- `completeMfa` refuses an active session: `elevate` never raises a live session.
+- `completeMfa` refuses an active session and `stepUp` a pending one: `elevate` only completes a login, `reissue` only raises a live session.
 
 ## Best practices
 

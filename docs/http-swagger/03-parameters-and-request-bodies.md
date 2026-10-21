@@ -15,7 +15,7 @@ The builder turns every route argument into a path, query, header or cookie para
    - any other type is dropped.
 3. **Path parameters.** One required parameter per placeholder, in template order. A bound argument gives it a schema and a description; an unbound placeholder is `{ type: 'string' }`.
 4. **Other parameters** follow the path ones.
-5. **Body.** `buildRequestBody()` builds `requestBody` from the collected body arguments.
+5. **Body.** `buildRequestBody()` builds `requestBody` from the collected body arguments. A route with no body argument gets its `requestBody` from the method's `@body {Type}` tag instead, when it has one.
 6. Named types in the body are swapped for `$ref`s to components; see [Named schemas and schema providers](04-named-schemas-and-schema-providers.md).
 
 ## Decorators
@@ -80,11 +80,14 @@ A placeholder without an argument is still documented, so a handler that never r
 | Several, none a form or file | `application/json` | `{ type: 'object', properties }`, one property per argument name |
 | Any `@File()`, `@Files()`, `@Form()`, `@FormField()`, `@CsvFile()`, `@JsonFile()` | `multipart/form-data` | `{ type: 'object', properties }`, one property per argument name |
 | Any `@FromXml()`, none a form or file | `application/xml` | As for JSON |
+| None, and a `@body {Type} description` tag on the method | `application/json` | The schema of `Type` ([type strings](02-documenting-routes.md#type-strings)), named types as `$ref`s; `description` from the tag; `required: true` |
+| None, and no `@body` tag | | No `requestBody` |
 
 - A `@Form()` DTO is not nested under its argument name: its properties and its `required` list are lifted to the root, as the runtime reads them.
 - `@File({ required: true })` puts the argument name into the body's `required` list.
 - `@CsvFile()` and `@JsonFile()` are one binary file, whatever the argument type says about the parsed rows.
 - The `requestBody` itself is always `required: true`.
+- A body argument wins over `@body`: the tag is ignored on a route that has one. Use `@body` for a handler that reads its JSON body from `@Req()`, as the `@spinajs/authn-http` routes do with the named schemas of `AUTHN_HTTP_SCHEMAS` ([Route groups](../authn-http/07-route-groups.md)).
 
 ## `@spinajs/orm-http` arguments
 

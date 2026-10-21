@@ -64,3 +64,8 @@ tsconfig.tsbuildinfo
 docs
 
 lib
+
+# compiled output next to sources
+src/**/*.js
+src/**/*.d.ts
+src/**/*.map

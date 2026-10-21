@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Policy } from '@spinajs/authz';
+import type { Policy } from '../../contracts.js';
 
 import { PolicyStore } from '../../contracts.js';
 

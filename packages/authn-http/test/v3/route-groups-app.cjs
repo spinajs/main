@@ -48,6 +48,9 @@ const ROUTES = {
     ['GET', '/user/tokens'],
     ['POST', '/user/tokens', { name: 'boot', expiresAt: new Date(Date.now() + 86400000).toISOString(), reauthPassword: USER.password }],
     ['DELETE', '/user/tokens/00000000-0000-4000-8000-000000000000'],
+    ['POST', '/user/tokens/00000000-0000-4000-8000-000000000000/rotate', { reauthPassword: USER.password }],
+    ['PATCH', '/user/tokens/00000000-0000-4000-8000-000000000000', { name: 'renamed' }],
+    ['POST', '/auth/tokens/revoke', { token: 'spt_unknown' }, {}],
   ],
   keys: [
     ['GET', '/user/keys'],
@@ -132,7 +135,7 @@ async function main() {
         fs: { defaultProvider: 'fs-temp', providers: [{ service: 'fsNative', name: 'fs-temp', basePath: join(PKG_ROOT, 'test', 'files') }] },
         http: { port: 0, cookie: { secret: 'route-groups-' + 'Zq8Lw2Rt'.repeat(6) }, middlewares: [express.json(), cookieParser()], AcceptHeaders: 1 },
         authn: {
-          session: { service: 'MemorySessionStore', expiration: { service: 'SlidingCappedExpiration', ttl: 120, maxLifetime: 1440 }, pendingTtlSeconds: 300 },
+          session: { service: 'MemorySessionStore', allowMemoryStore: true, expiration: { service: 'SlidingCappedExpiration', ttl: 120, maxLifetime: 1440 }, pendingTtlSeconds: 300 },
           strategies: [{ name: 'local', service: 'RouteGroupsPasswordStrategy' }],
           throttle: { service: 'RouteGroupsThrottle' },
           freshAuth: { maxAgeSeconds: 1 },

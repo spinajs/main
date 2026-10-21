@@ -1,5 +1,6 @@
 import { AuthzConfigError, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
-import type { AdminContext, AuthzEvent, AuthzTx, Policy, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import type { AdminContext, AuthzEvent, AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import type { Policy } from '../contracts.js';
 import { deepFreeze as freeze, isPlainObject } from '@spinajs/util';
 
 import { PolicyStore } from '../contracts.js';

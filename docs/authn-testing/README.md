@@ -18,7 +18,7 @@ The package depends on `@spinajs/authn` and imports its contracts from `@spinajs
 | --- | --- |
 | [Fakes](01-fakes.md) | In-memory implementations of the authn contracts: clock, identities, passwords, secrets, sessions, MFA, links, throttles, events, hooks |
 | [Fake authentication service](02-fake-authn-service.md) | `FakeAuthnService`: the login, MFA and re-authentication flow over the fakes, to log a test user in |
-| [Conformance suites](03-conformance-suites.md) | `runStrategyConformance`, `runIdentityStoreConformance` and the store wrappers: check your own strategy or store against the contract |
+| [Conformance suites](03-conformance-suites.md) | `runStrategyConformance`, `runIdentityStoreConformance`, the store wrappers and the nonce, key, MFA and token runners: check your own strategy, store or service against the contract |
 | [Behaviour runner](04-behaviour-runner.md) | `runAuthnBehaviour`: runs the behaviour rules against a harness you build, with facets, claims, pending cases and a fake `Date` |
 | [Behaviour rules](05-behaviour-rules.md) | The catalogue of rules A01 to A31: what each one checks, its facets and the ports it needs |
 | [HTTP port](06-http-port.md) | `HttpPort`, the route builders, the probe route, the cookie jar and the request helpers for the HTTP facets |
@@ -33,6 +33,7 @@ The package depends on `@spinajs/authn` and imports its contracts from `@spinajs
 | Ship your own `AuthenticationStrategy` | [`runStrategyConformance`](03-conformance-suites.md#strategy-conformance) |
 | Ship your own `IdentityStore` and `PasswordCredentialStore` | [`runIdentityStoreConformance`](03-conformance-suites.md#identity-store-conformance) |
 | Ship your own session issuer, secret store, link store or throttle | [The store wrappers](03-conformance-suites.md#store-conformance-wrappers) |
+| Ship your own nonce store, key store, MFA store or token service | [The direct runners](03-conformance-suites.md#direct-store-and-service-runners) |
 | Check a whole authn stack (service, HTTP layer, boot) against the security rules | [`runAuthnBehaviour`](04-behaviour-runner.md) |
 
 ## Quick start

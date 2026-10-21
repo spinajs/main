@@ -65,6 +65,9 @@ const OPEN: Record<string, Omit<Answer, 'group'>> = {
   'GET /user/tokens': { status: 401, error: 'unauthenticated' },
   'POST /user/tokens': { status: 401, error: 'unauthenticated' },
   'DELETE /user/tokens/00000000-0000-4000-8000-000000000000': { status: 401, error: 'unauthenticated' },
+  'POST /user/tokens/00000000-0000-4000-8000-000000000000/rotate': { status: 401, error: 'unauthenticated' },
+  'PATCH /user/tokens/00000000-0000-4000-8000-000000000000': { status: 401, error: 'unauthenticated' },
+  'POST /auth/tokens/revoke': { status: 200, error: null },
   'GET /user/keys': { status: 401, error: 'unauthenticated' },
   'POST /user/keys': { status: 401, error: 'unauthenticated' },
   'DELETE /user/keys/some-kid': { status: 401, error: 'unauthenticated' },
@@ -73,16 +76,16 @@ const OPEN: Record<string, Omit<Answer, 'group'>> = {
   ...Object.fromEntries(Object.keys(ADMIN_ROUTE_PACKAGE).map((route) => [route, { status: 401, error: 'unauthenticated' }])),
 };
 
-/** The routes N8b mounts (password 4, MFA 5, tokens 3, keys 5), as express lists them. */
+/** The routes N8b mounts (password 4, MFA 5, tokens 5, keys 5), as express lists them. */
 const N8B_ROUTES: Record<Group, string[]> = {
   password: ['GET /auth/password/policy', 'POST /auth/password/reset-request', 'POST /auth/password/reset', 'PATCH /user/password'],
   mfa: ['GET /user/mfa', 'POST /user/mfa', 'POST /user/mfa/confirm', 'POST /user/mfa/disable', 'POST /user/mfa/recovery-codes'],
-  tokens: ['GET /user/tokens', 'POST /user/tokens', 'DELETE /user/tokens/:uuid'],
+  tokens: ['GET /user/tokens', 'POST /user/tokens', 'DELETE /user/tokens/:uuid', 'POST /user/tokens/:uuid/rotate', 'PATCH /user/tokens/:uuid', 'POST /auth/tokens/revoke'],
   keys: ['GET /user/keys', 'POST /user/keys', 'DELETE /user/keys/:kid', 'POST /auth/keys/challenge', 'POST /auth/keys/login'],
   admin: ['POST /authn/admin/users/:uuid/password-reset', 'POST /authn/admin/users/:uuid/mfa-reset', 'DELETE /authn/admin/users/:uuid/sessions', 'DELETE /authn/admin/users/:uuid/tokens'],
 };
 
-const V3_CONTROLLERS = ['AuthnActiveRoleController', 'AuthnCredentialAdminController', 'AuthnImpersonationController', 'AuthnKeysController', 'AuthnLoginController', 'AuthnMfaController', 'AuthnMfaEnrolmentController', 'AuthnPasswordController', 'AuthnSessionsController', 'AuthnTokensController'];
+const V3_CONTROLLERS = ['AuthnActiveRoleController', 'AuthnCodeLoginController', 'AuthnCredentialAdminController', 'AuthnImpersonationController', 'AuthnJwksController', 'AuthnKeysController', 'AuthnLoginController', 'AuthnMfaController', 'AuthnMfaEnrolmentController', 'AuthnPasskeyController', 'AuthnPasswordController', 'AuthnReauthController', 'AuthnRegistrationController', 'AuthnSessionsController', 'AuthnTokenRevocationController', 'AuthnTokensController', 'AuthnVerificationController'];
 
 interface Case {
   mode: 'esm' | 'cjs';
@@ -164,7 +167,7 @@ describe('each 3.0 route group only with its service (N8b task 6, design §22.11
         expect(b.usersModules, 'CJS only: loaded modules of @spinajs/users').to.deep.eq([]);
         expect(b.bootstrappers).to.not.include('RbacBootstrapper');
         expect(b.sessionProviders).to.deep.eq(['MemorySessionStore']);
-        expect([...b.controllers].sort()).to.deep.eq(V3_CONTROLLERS);
+        expect([...b.controllers].sort()).to.deep.eq([...V3_CONTROLLERS].sort());
         expect(readdirSync(cacheDirs.get(c)!), 'the controller cache of this child alone').to.not.be.empty;
         expect(b.registered).to.deep.eq({ PasswordService: isOn(c, 'password'), TotpService: isOn(c, 'mfa'), TokenService: isOn(c, 'tokens'), KeyRegistry: isOn(c, 'keys'), CredentialAdminGuard: isOn(c, 'admin') });
       });

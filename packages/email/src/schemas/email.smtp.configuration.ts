@@ -1,16 +1,20 @@
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
+const MJML_FILE = { type: 'string', minLength: 1, pattern: '\\.mjml$' };
+
 const PASSWORD_MAIL_PURPOSE = {
   type: 'object',
   properties: {
     subject: { type: 'string' },
     template: {
+      description: 'An .mjml file in email.templateFs, or { file, fs } with an .mjml file.',
       anyOf: [
-        { type: 'string' },
+        MJML_FILE,
         {
           type: 'object',
-          properties: { file: { type: 'string' }, fs: { type: 'string' } },
+          properties: { file: MJML_FILE, fs: { type: 'string', minLength: 1 } },
           required: ['file', 'fs'],
+          additionalProperties: false,
         },
       ],
     },
@@ -44,8 +48,20 @@ const CONFIGURATION_SCHEMA = {
         connection: { type: 'string' },
         from: { type: 'string' },
         lang: { type: 'string' },
+        appName: { type: 'string' },
+        attachments: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['name', 'path'],
+            properties: { name: { type: 'string' }, path: { type: 'string' }, provider: { type: 'string' }, cid: { type: 'string' } },
+          },
+        },
         reset: PASSWORD_MAIL_PURPOSE,
         invite: PASSWORD_MAIL_PURPOSE,
+        verify: PASSWORD_MAIL_PURPOSE,
+        code: PASSWORD_MAIL_PURPOSE,
+        'account-exists': PASSWORD_MAIL_PURPOSE,
       },
     },
     connections: {

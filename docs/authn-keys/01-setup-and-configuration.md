@@ -7,13 +7,12 @@ Importing `@spinajs/authn-keys` registers the key registry, the stores, the JWS 
 1. Importing the package runs the `@Injectable` decorators. Each one registers a class in the root DI container, under its contract and under itself:
    - `DefaultKeyRegistry` as `KeyRegistry`,
    - `OrmKeyStore` as `KeyStore`,
-   - `DbKeyNonceStore` as `KeyNonceStore`,
    - `StrictJwsVerifier` as `JwsVerifier`,
    - `JwsAssertionStrategy`, `HttpSignatureStrategy` and `KeyChallengeStrategy` as `AuthenticationStrategy`.
-2. The `@Model` and `@Migration` decorators register the `AuthnKey` and `AuthnNonce` models and the `AuthnKeys_2026_10_02_00_00_00` migration on the `default` connection.
+2. The `@Model` and `@Migration` decorators register the `AuthnKey` model and the `AuthnKeys_2026_10_02_00_00_00` migration on the `default` connection.
 3. The package's config file adds its `lib/<cjs|mjs>/cli` folder to `system.dirs.cli`, so the `spinajs` bin finds `authn:key-add`, `authn:key-list` and `authn:key-revoke`. It adds nothing else: the `authn.keys` defaults come from the `@spinajs/authn` schema.
 4. At boot, the authn core's `StrategyRegistry` reads `authn.strategies` and picks each listed strategy by class name. A registered strategy that is not listed never runs. See [Strategies](../authn/03-strategies.md).
-5. `JwsAssertionStrategy.resolve()` throws when `authn.keys.assertion.audience` is `null`. `KeyChallengeStrategy.resolve()` throws when both `authn.keys.challenge.audience` and `authn.keys.assertion.audience` are `null`. `HttpSignatureStrategy` needs no audience.
+5. `JwsAssertionStrategy.resolve()` throws when `authn.keys.assertion.audience` is `null`. `KeyChallengeStrategy.resolve()` throws when both `authn.keys.challenge.audience` and `authn.keys.assertion.audience` are `null`. `HttpSignatureStrategy` needs no audience. Both also throw when no `NonceStore` is registered; see [Replay protection](07-replay-protection.md#booting-without-a-noncestore).
 6. Every class reads `authn.keys` through `@Config('authn.keys')` and passes it to `keysOptionsOf()`. That function checks the numeric ranges, freezes the result, and fills `challenge.audience` from `assertion.audience` when it is `null`. A value outside a range throws `InvalidOption('authn.keys.<block>.<key> must be an integer from <min> to <max>')`.
 
 ## Configuration
@@ -29,7 +28,10 @@ Importing `@spinajs/authn-keys` registers the key registry, the stores, the JWS 
 | `authn.keys.assertion.skewSeconds` | `integer` | `30` | `0`-`300` | Clock skew allowed on `iat` and `exp` |
 | `authn.keys.httpSignature.maxAgeSeconds` | `integer` | `300` | `1`-`300` | Largest `expires - created` of a signature |
 | `authn.keys.httpSignature.skewSeconds` | `integer` | `30` | `0`-`300` | How far `created` may lie in the future |
+| `authn.keys.signer` | `{ current, keys } | null` | `null` | `keys` non-empty secret references to private JWKs; `current` one of their `kid`s | Registers a `JwsSigner`; see [Signing keys and rotation](10-signing-keys.md) |
 | `authn.keys.httpSignature.requiredComponents` | `string[]` | `['@method', '@target-uri', 'content-digest']` | component names | Components every signature must cover; `content-digest` only applies to a request with a body |
+| `authn.keys.cache.ttlSeconds` | `integer` | `10` | `>= 0` | Seconds `KeyRegistry.byId` serves a key from memory; `0` turns the cache off. See [Key cache](02-key-registry.md#key-cache) |
+| `authn.keys.cache.maxEntries` | `integer` | `10000` | `>= 1` | Cached keys held at most |
 | `authn.strategies` | `{ name, service }[]` | `[]` | see below | The strategies that run; owned by `@spinajs/authn` |
 
 The strategy entries this package provides:
@@ -74,8 +76,9 @@ The tables are on the `default` connection:
 | --- | --- | --- | --- | --- |
 | Key registry | `KeyRegistry` (`@spinajs/authn/contracts`), singleton | `DefaultKeyRegistry` | none | Subclass `DefaultKeyRegistry`, see [Key registry](02-key-registry.md#services-and-extension-points) |
 | Key store | `KeyStore`, singleton | `OrmKeyStore` | `MemoryKeyStore` (exported, not registered) | See [Key store](03-key-store.md#services-and-extension-points) |
-| Nonce store | `KeyNonceStore`, singleton | `DbKeyNonceStore` | `MemoryKeyNonceStore` (exported, not registered) | See [Replay protection](07-replay-protection.md#services-and-extension-points) |
+| Nonce store | `NonceStore` (`@spinajs/authn/contracts`) | `DbNonceStore`, registered by `@spinajs/authn-orm`; this package registers none | `MemoryNonceStore` (`@spinajs/authn/nonces`, not registered) | See [Replay protection](07-replay-protection.md#services-and-extension-points) |
 | JWS verifier | `JwsVerifier` (`@spinajs/authn/contracts`), singleton | `StrictJwsVerifier` | none | See [JWS and key material](08-jws-and-key-material.md#services-and-extension-points) |
+| JWS signer | `JwsSigner`, singleton | `LocalJwsSigner`, only when `authn.keys.signer` is set | your own | See [Signing keys and rotation](10-signing-keys.md) |
 | Strategies | `AuthenticationStrategy`, picked by class name from `authn.strategies` | `JwsAssertionStrategy`, `HttpSignatureStrategy`, `KeyChallengeStrategy` | your own | See [Custom key strategies](09-custom-key-strategies.md) |
 
 The registry and the strategies also resolve services this package does not register:

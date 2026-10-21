@@ -40,6 +40,8 @@ They decide **who** may call, not **what** the caller may do. Permissions belong
 
 With a `maxAgeSeconds` stricter than `authn.freshAuth.maxAgeSeconds`, the password is verified through `AuthnService.reauthenticate()`; otherwise through `FreshAuthCheck.check()` of `@spinajs/authn`.
 
+An inline `reauthPassword` counts for that request only. [`POST /auth/reauth`](08-login-logout-and-mfa-routes.md#post-authreauth) refreshes the session's `authenticatedAt` instead, so the following requests pass step 4.
+
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |

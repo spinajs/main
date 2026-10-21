@@ -43,6 +43,7 @@ The checks run in the order of the [login flow](01-login-flow.md). Any failed ch
 9. `nonce` equals the flow's nonce (constant-time compare).
 10. `sub` is a string of 1 to 255 characters.
 11. `at_hash`, when present, matches the access token (the left half of its hash with the algorithm's hash function).
+12. For a re-authentication only: `auth_time` is a finite number, not after now and not before the flow start, each within `clockSkewSeconds`.
 
 The userinfo `sub` must then equal the ID token's.
 
@@ -77,7 +78,7 @@ The userinfo `sub` must then equal the ID token's.
 ## Limits in 3.0
 
 - No public clients (no client without a secret).
-- No `max_age` or `acr_values`: nothing checks `auth_time` or `acr`.
+- No `max_age` or `acr_values` in `authorizationParams`. Only a re-authentication sends `max_age=0` and checks `auth_time`; nothing checks `acr`.
 - Entra ID by one tenant GUID only; no multi-tenant.
 - No signed or encrypted userinfo answers.
 - The route prefix is fixed at `auth/oidc`.

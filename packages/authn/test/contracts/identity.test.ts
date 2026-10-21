@@ -139,9 +139,13 @@ describe('identity store and account link contracts', () => {
   });
 
   describe('source shape (member names, modifiers, parameter names)', () => {
-    it('IdentityStore and PasswordCredentialStore', () => {
+    it('IdentityAddressVerifier, IdentityRegistrar, IdentityStore and PasswordCredentialStore', () => {
       const c = classMembers('identity.ts');
-      expect(Object.keys(c)).to.deep.eq(['IdentityStore', 'PasswordCredentialStore']);
+      expect(Object.keys(c)).to.deep.eq(['IdentityAddressVerifier', 'IdentityRegistrar', 'IdentityStore', 'PasswordCredentialStore']);
+      expect(c.IdentityAddressVerifier.base).to.eq(null);
+      expect(shape(c.IdentityAddressVerifier.members)).to.deep.eq([{ name: 'markVerified', modifiers: ['abstract'], optional: false, params: ['id', 'at'] }]);
+      expect(c.IdentityRegistrar.base).to.eq(null);
+      expect(shape(c.IdentityRegistrar.members)).to.deep.eq([{ name: 'register', modifiers: ['abstract'], optional: false, params: ['data', 'ctx'] }]);
       expect(c.IdentityStore.base).to.eq(null);
       expect(shape(c.IdentityStore.members)).to.deep.eq([
         { name: 'findByLogin', modifiers: ['abstract'], optional: false, params: ['login'] },
@@ -190,7 +194,7 @@ describe('identity store and account link contracts', () => {
     });
 
     it('IdentityStatus is exactly the design shape', () => {
-      same<IdentityStatus, { readonly exists: boolean; readonly active: boolean; readonly banned: boolean; readonly deleted: boolean; readonly invitePending?: boolean }>(true);
+      same<IdentityStatus, { readonly exists: boolean; readonly active: boolean; readonly banned: boolean; readonly deleted: boolean; readonly invitePending?: boolean; readonly addressVerified?: boolean }>(true);
       const invited: IdentityStatus = { ...ok, active: false, invitePending: true };
       expect(invited.invitePending).to.eq(true);
       // @ts-expect-error banned is required

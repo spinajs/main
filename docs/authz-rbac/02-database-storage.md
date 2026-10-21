@@ -213,7 +213,8 @@ Extend a DB store to add a check before a write; keep the transaction and the ve
 ```ts
 import { Injectable, PerChildInstance, Inject, Container } from '@spinajs/di';
 import { AuthzAdminFailure } from '@spinajs/authz';
-import type { Assignment, AuthzTx, PrincipalRef } from '@spinajs/authz';
+import type { AuthzTx, PrincipalRef } from '@spinajs/authz';
+import type { Assignment } from '@spinajs/authz-rbac';
 import { DbAssignmentStore } from '@spinajs/authz-rbac';
 
 @PerChildInstance()

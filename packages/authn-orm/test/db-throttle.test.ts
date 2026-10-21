@@ -134,7 +134,7 @@ describe('DbAuthnThrottle arguments', () => {
       }
     }
     // A peek checks only the keys that gate.
-    expect(await new DbAuthnThrottle(DEFAULT_THROTTLE).peek([{ kind: 'device', value: 42 }] as unknown as ThrottleKey[], 'login', ctxAt(T0))).to.deep.eq({ allowed: true });
+    expect(await new DbAuthnThrottle(DEFAULT_THROTTLE).peek([{ kind: 'device', value: 42 }] as unknown as ThrottleKey[], 'login', ctxAt(T0))).to.deep.eq({ allowed: true, clean: true });
   });
 
   it('rejects ctx.now first, then the flow, before it loads anything', async () => {
@@ -239,15 +239,15 @@ for (const kind of DB_KINDS) {
       const params: ThrottleParams = { ...DEFAULT_THROTTLE, login: { account: { free: 1, baseDelayMs: 2000, maxDelayMs: 2000 } } };
       const throttle = new DbAuthnThrottle(params);
       const keys = pwKeys('peek@example.test', IP);
-      expect(await throttle.peek(keys, 'login', ctxAt(T0))).to.deep.eq({ allowed: true });
+      expect(await throttle.peek(keys, 'login', ctxAt(T0))).to.deep.eq({ allowed: true, clean: true });
       expect(await rows(db)).to.deep.eq([]);
       expect(await throttle.attempt(keys, 'login', ctxAt(T0))).to.deep.eq({ allowed: true });
       const before = await rows(db);
       expect(await throttle.peek(keys, 'login', ctxAt(T0))).to.deep.eq({ allowed: false, retryAfterSeconds: 2 });
-      expect(await throttle.peek(keys, 'mfa', ctxAt(T0))).to.deep.eq({ allowed: true });
+      expect(await throttle.peek(keys, 'mfa', ctxAt(T0))).to.deep.eq({ allowed: true, clean: true });
       expect(await rows(db)).to.deep.eq(before);
       const later = new Date(T0.getTime() + 2000);
-      expect(await throttle.peek(keys, 'login', ctxAt(later))).to.deep.eq({ allowed: true });
+      expect(await throttle.peek(keys, 'login', ctxAt(later))).to.deep.eq({ allowed: true, clean: false });
       expect(await throttle.attempt(keys, 'login', ctxAt(later))).to.deep.eq({ allowed: true });
     });
 

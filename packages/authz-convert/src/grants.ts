@@ -19,6 +19,10 @@ const ROLE_NAME = new RegExp(ROLE_NAME_PATTERN, 'u');
 /** 2.x's virtual resource for impersonation; 2.x only ever asked `createAny` of it (design §18.1). */
 export const IMPERSONATE_RESOURCE = 'user:impersonate';
 
+// The roles @spinajs/users ships (users/src/config/users.ts). The loader concatenates config arrays, so their `extends`
+// joins the app's as 2.x did; a 2.x package role outside this set loses its package part.
+const PACKAGE_ROLES_3: ReadonlySet<string> = new Set(['guest', 'user', 'admin.users', 'admin']);
+
 /**
  * 2.x resources whose "own" row is the caller's own account; their :own grants become relation 'self'.
  * Only the route-level resource of the 2.x self-service controllers: a resource backed by a model
@@ -271,7 +275,11 @@ export function convertGrants(rbac: Plain, opts: GrantsOptions, f: Findings, ctx
           out.extends = [...new Set(actions as string[])];
           for (const r of out.extends) checkName(r, keyPath(at, '$extend'));
           const pkg = RBAC_2X_PACKAGE_EXTENDS[role];
-          if (pkg) f.info('package-extends', `2.x joined this $extend with the package's ${JSON.stringify(pkg)}; only the app's part was written, and the 3.0 packages define their own '${role}'.`, keyPath(at, '$extend'));
+          if (pkg) {
+            const joined = `2.x joined this $extend with the package's ${JSON.stringify(pkg)}; only the app's part was written`;
+            if (PACKAGE_ROLES_3.has(role)) f.info('package-extends', `${joined}, and the 3.0 packages define their own '${role}'.`, keyPath(at, '$extend'));
+            else f.warn('package-extends', `${joined}. No 3.0 package defines a '${role}' role, so it no longer extends ${JSON.stringify(pkg)}: add them to its extends if its holders need them.`, keyPath(at, '$extend'));
+          }
         }
         continue;
       }

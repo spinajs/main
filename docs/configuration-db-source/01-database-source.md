@@ -102,7 +102,7 @@ The migration's `down()` drops the `configuration` table.
 | Database source | `ConfigurationSource` (list, resolved with `Array.ofType`), `@Singleton`; registered at import by `@Injectable(ConfigurationSource)` | `ConfiguratioDbSource` | none shipped; file sources and `StaticConfigurationSource` from `@spinajs/configuration` sit in the same list | Subclass and override `Load()`, `Connect()`, `CheckTable()` or `Order`; `DI.unregister(ConfiguratioDbSource)` to drop the default. See [Custom configuration source](07-custom-configuration-source.md). |
 | Table migration | `@Migration('default')`, picked up by the ORM migration runner | `configuration_db_source_2022_02_08_01_13_00` | none | Write your own `OrmMigration` for another connection or table name, see the example below. |
 | Row model | `@Model('configuration')` on `@Connection('default')` | `DbConfig` | none | Not replaceable: the bootstrapper and `@spinajs/configuration-http` import it directly. |
-| Value conversion | `DbConfigValueConverter`, `@Singleton`, resolved by class | `DbConfigValueConverter` | none | `DI.register(MyConverter).as(DbConfigValueConverter)`. See [Custom value converter](08-custom-value-converter.md). |
+| Value conversion | `DbConfigValueConverter`, `@Singleton`, registered under itself at import, resolved by class | `DbConfigValueConverter` | none | `DI.register(MyConverter).as(DbConfigValueConverter)`. See [Custom value converter](08-custom-value-converter.md). |
 
 ## Important behaviour
 

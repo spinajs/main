@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn",
-  "version": "3.0.1",
+  "version": "3.0.4",
   "description": "Authentication core for SpinaJS: contracts, flow, throttling",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -50,10 +50,20 @@
       "import": "./lib/mjs/nonces/index.js",
       "require": "./lib/cjs/nonces/index.js"
     },
+    "./bus": {
+      "types": "./lib/mjs/bus/index.d.ts",
+      "import": "./lib/mjs/bus/index.js",
+      "require": "./lib/cjs/bus/index.js"
+    },
     "./audit": {
       "types": "./lib/mjs/audit/authn-audit.d.ts",
       "import": "./lib/mjs/audit/authn-audit.js",
       "require": "./lib/cjs/audit/authn-audit.js"
+    },
+    "./ip-key": {
+      "types": "./lib/mjs/support/ip-key.d.ts",
+      "import": "./lib/mjs/support/ip-key.js",
+      "require": "./lib/cjs/support/ip-key.js"
     }
   },
   "typesVersions": {
@@ -82,8 +92,14 @@
       "nonces": [
         "lib/cjs/nonces/index.d.ts"
       ],
+      "bus": [
+        "lib/cjs/bus/index.d.ts"
+      ],
       "audit": [
         "lib/cjs/audit/authn-audit.d.ts"
+      ],
+      "ip-key": [
+        "lib/cjs/support/ip-key.d.ts"
       ]
     }
   },
@@ -128,14 +144,15 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "3.0.1",
-    "@spinajs/configuration-common": "3.0.1",
-    "@spinajs/di": "3.0.1",
-    "@spinajs/exceptions": "3.0.1",
-    "@spinajs/log-common": "3.0.1",
-    "@spinajs/util": "3.0.1"
+    "@spinajs/configuration": "3.0.4",
+    "@spinajs/configuration-common": "3.0.4",
+    "@spinajs/di": "3.0.4",
+    "@spinajs/exceptions": "3.0.4",
+    "@spinajs/log-common": "3.0.4",
+    "@spinajs/principal": "3.0.4",
+    "@spinajs/util": "3.0.4"
   },
   "devDependencies": {
-    "@spinajs/authn-testing": "3.0.1"
+    "@spinajs/authn-testing": "3.0.4"
   }
 }

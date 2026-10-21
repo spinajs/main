@@ -2,7 +2,7 @@ import { Autoinject, Container, Injectable, PerChildInstance } from '@spinajs/di
 import type { IContainer } from '@spinajs/di';
 import { AutoinjectNamedService, Config, Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { Log, Logger } from '@spinajs/log-common';
+import { Log, Logger, Perf } from '@spinajs/log-common';
 
 import { asciiLower, isNonEmptyString, isPlainObject, uniqueBy } from '@spinajs/util';
 
@@ -10,6 +10,7 @@ import type { AuthnEventType } from '../contracts/audit.js';
 import type { AuthenticationResult, AuthnContext, AuthnFailure, Credentials, ExternalSubject, IdentityRef, StrategyOutcome } from '../contracts/credentials.js';
 import { errorClass, isRef } from '../support/guards.js';
 import { restoreHandle, statusRefusal } from '../support/identity.js';
+import { DEFAULT_IPV6_PREFIX, throttleIp } from '../support/ip-key.js';
 import { IdentityStore } from '../contracts/identity.js';
 import { IdentityLinkStore } from '../contracts/link.js';
 import { MfaPolicy } from '../contracts/mfa.js';
@@ -30,6 +31,7 @@ import { MFA_POLICY_SERVICE } from '../flow/select-policy.js';
 import { linkingSwitchesOf } from '../link/switches.js';
 import { StrategyRegistry } from '../registry/strategy-registry.js';
 import { canPeek } from '../throttle/peek.js';
+import { timedThrottle } from '../throttle/timing.js';
 import type { PeekableThrottle } from '../throttle/peek.js';
 import { AUTHN_THROTTLE_SERVICE } from '../throttle/select.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
@@ -65,13 +67,16 @@ interface Keyed {
 const dedupe = (keys: ThrottleKey[]): ThrottleKey[] => uniqueBy(keys, (k) => `${k.kind}\u0000${k.value}`);
 
 /** A strategy may answer these; anything else breaks the contract (D5). */
-const STRATEGY_FAILURES: ReadonlySet<string> = new Set<AuthnFailure>(['invalid_credentials', 'unsupported_credentials', 'expired', 'revoked', 'not_linked']);
+const STRATEGY_FAILURES: ReadonlySet<string> = new Set<AuthnFailure>(['invalid_credentials', 'unsupported_credentials', 'expired', 'revoked', 'not_linked', 'throttled']);
 
 const KEY_KINDS: ReadonlySet<string> = new Set(['jws-assertion', 'http-signature']);
 
 const sameEmail = (stored: unknown, verified: string): boolean => isNonEmptyString(stored) && asciiLower(stored) === asciiLower(verified);
 
 const fail = (reason: AuthnFailure): Failure => ({ status: 'failure', reason });
+
+/** A strategy short of capacity names no usable wait: ask for one second. */
+const retryAfterOf = (o: { readonly retryAfterSeconds?: number }): number => (Number.isInteger(o.retryAfterSeconds) && o.retryAfterSeconds! > 0 ? o.retryAfterSeconds! : 1);
 
 /** The audit reason and data of an MFA policy that threw: the step names of a refusal over stored enrolments, else the error class. */
 const policyRefusal = (err: unknown, otherwise: string): { reason: string; data: Readonly<Record<string, unknown>> } => {
@@ -88,8 +93,13 @@ function checkOutcome(o: unknown): StrategyOutcome | null {
   if (hasIdentity ? !isRef(o.identity) : !(isPlainObject(o.external) && isNonEmptyString(o.external.provider) && isNonEmptyString(o.external.subject))) return null;
   if (o.delegation !== undefined && !(isPlainObject(o.delegation) && isRef(o.delegation.onBehalfOf) && (o.delegation.mode === 'inherit' || o.delegation.mode === 'intersect'))) return null;
   if ((o.ceiling !== undefined && !isPlainObject(o.ceiling)) || (o.attributes !== undefined && !isPlainObject(o.attributes))) return null;
+  if (o.assurance !== undefined && o.assurance !== 'aal1' && o.assurance !== 'aal2') return null;
   return o as StrategyOutcome;
 }
+
+/** AuthnFacts.external of an external login: the provider, and the IdP session id back-channel logout names. */
+const externalFactsOf = (e: ExternalSubject | undefined): { external?: { provider: string; sid?: string } } =>
+  e ? { external: { provider: e.provider, ...(isNonEmptyString(e.sid) ? { sid: e.sid } : {}) } } : {};
 
 const validKeys = (v: unknown): v is readonly ThrottleKey[] => Array.isArray(v) && v.every((k) => isPlainObject(k) && isNonEmptyString(k.kind) && typeof k.value === 'string');
 
@@ -115,7 +125,7 @@ const validKeys = (v: unknown): v is readonly ThrottleKey[] => Array.isArray(v) 
  * A throttle class resolves through DI (`MemoryAuthnThrottle` is one root singleton); a throttle registered as a factory
  * is called once per container, so the factory must return a shared instance or the counts split per container.
  *
- * Boot also fails on the secret checks (A24, `checkAuthnSecrets`) and on the throttle's `checkConfiguration`.
+ * Boot also fails on the secret checks (A24, `checkAuthnSecrets`) and on the `checkConfiguration` of the throttle and the session issuer.
  */
 @PerChildInstance()
 @Injectable(AuthnService)
@@ -158,8 +168,18 @@ export class DefaultAuthnService extends AuthnService {
   @Config('authn.linking')
   protected Linking!: Linking;
 
+  @Config('authn.login.requireVerifiedAddress', { defaultValue: false })
+  protected RequireVerifiedAddress: boolean;
+
   @Config('authn.throttle.global')
   protected ThrottleGlobal: unknown;
+
+  @Config('authn.throttle.ipv6Prefix')
+  protected ThrottleIpv6Prefix: unknown;
+
+  private get ipv6Prefix(): number {
+    return typeof this.ThrottleIpv6Prefix === 'number' ? this.ThrottleIpv6Prefix : DEFAULT_IPV6_PREFIX;
+  }
 
   private get globalGate(): boolean {
     return isPlainObject(this.ThrottleGlobal);
@@ -169,6 +189,7 @@ export class DefaultAuthnService extends AuthnService {
     if (authnEnvFellBack(this.Configuration)) this.warnOnce(AUTHN_ENV_FALLBACK_WARNING);
     await checkAuthnSecrets(this.Configuration, () => this.Policy.steps(), (m) => this.warnOnce(m));
     await this.Throttle.checkConfiguration?.(this.Configuration);
+    await this.Sessions.checkConfiguration?.(this.Configuration);
     if (canPeek(this.Throttle)) this.peeker = this.Throttle;
     else if (this.Registry.strategies().some((s) => !s.interactive)) this.warnOnce(NO_PEEK_WARNING);
     await super.resolve();
@@ -183,13 +204,19 @@ export class DefaultAuthnService extends AuthnService {
     return this.Registry.strategies();
   }
 
-  public async authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
+  public authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
+    const labels = { strategy: 'none' };
+    return Perf.measure('authn.authenticate', () => this.authenticateTimed(c, ctx, labels), { labels }) as Promise<AuthenticationResult>;
+  }
+
+  private async authenticateTimed(c: Credentials, ctx: AuthnContext, labels: { strategy: string }): Promise<AuthenticationResult> {
     const candidates = this.Registry.candidates(c);
     if (candidates.length === 0) {
       await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials' });
       return fail('unsupported_credentials');
     }
     const only = candidates.length === 1 ? { strategy: candidates[0].name } : {};
+    labels.strategy = candidates.map((s) => s.name).join(',');
 
     const keyed = this.keysFor(candidates, c, ctx);
     if ('error' in keyed) {
@@ -200,25 +227,30 @@ export class DefaultAuthnService extends AuthnService {
     // in flight with a valid token or key would add up to a backoff. A login method keeps A05's count before verify.
     // A parallel burst of failures is then verified in full (PeekableThrottle), which only unguessable credentials allow.
     const failuresOnly = this.peeker !== undefined && candidates.every((s) => !s.interactive);
-    const gate = failuresOnly ? await this.peeker!.peek(keyed.all, 'login', ctx) : await this.Throttle.attempt(keyed.all, 'login', ctx);
+    const gate = await timedThrottle(() => (failuresOnly ? this.peeker!.peek(keyed.all, 'login', ctx) : this.Throttle.attempt(keyed.all, 'login', ctx)));
     if (!gate.allowed) return this.throttled(ctx, gate.retryAfterSeconds, only);
+    const clean = 'clean' in gate && gate.clean === true;
 
-    const result = await this.verified(candidates, keyed, c, ctx, only);
+    const result = await this.verified(candidates, keyed, c, ctx, only, clean);
     if (!failuresOnly || result.status === 'success') return result;
-    const counted = await this.Throttle.attempt(keyed.all, 'login', ctx);
+    const counted = await timedThrottle(() => this.Throttle.attempt(keyed.all, 'login', ctx));
     return counted.allowed ? result : this.throttled(ctx, counted.retryAfterSeconds, only);
   }
 
-  private async verified(candidates: readonly AuthenticationStrategy[], keyed: Keyed, c: Credentials, ctx: AuthnContext, only: { strategy?: string }): Promise<AuthenticationResult> {
+  /** `clean`: the peek found no row a success would lower or clear, so a per-request success skips `succeed`. */
+  private async verified(candidates: readonly AuthenticationStrategy[], keyed: Keyed, c: Credentials, ctx: AuthnContext, only: { strategy?: string }, clean: boolean): Promise<AuthenticationResult> {
     const v = await this.verifyWith(candidates, c, ctx);
     if (v === null) {
       await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials', ...only });
       return fail('unsupported_credentials');
     }
     if ('broken' in v) return this.refuse(ctx, v.s, v.broken, 'invalid_credentials', v.data ? { data: v.data } : {});
-    if (!v.outcome.ok) return this.refuse(ctx, v.s, v.outcome.reason, v.outcome.reason);
+    if (!v.outcome.ok) {
+      const refused = await this.refuse(ctx, v.s, v.outcome.reason, v.outcome.reason);
+      return v.outcome.reason === 'throttled' ? { ...refused, retryAfterSeconds: retryAfterOf(v.outcome) } : refused;
+    }
     try {
-      return await this.accept(v.s, v.outcome, keyed.of(v.s), ctx);
+      return await this.accept(v.s, v.outcome, keyed.of(v.s), ctx, clean);
     } catch (err) {
       // Only a verified credential gets here: a rejection would tell it apart from a wrong one (A02).
       return this.refuse(ctx, v.s, 'store_error', 'invalid_credentials', { data: { error: errorClass(err) } });
@@ -330,6 +362,62 @@ export class DefaultAuthnService extends AuthnService {
     return true;
   }
 
+  public async stepUp(session: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult> {
+    const stored = await restoreHandle(this.Sessions, session);
+    if (!stored || stored.handle.state !== 'active') {
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'not_active' });
+      return fail('invalid_credentials');
+    }
+    const id = stored.identity;
+    const about = { identity: id, strategy: stored.facts.strategy, ...(isNonEmptyString(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
+    // The target's factor must not raise the session an impersonator acts in (M6).
+    if (stored.facts.impersonator !== undefined) {
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'impersonation', ...about });
+      return fail('invalid_credentials');
+    }
+    if (stored.facts.assurance === 'aal2') {
+      const { authenticatedAt: _at, ...current } = stored.facts;
+      return { status: 'success', identity: id, facts: current, session: stored.handle };
+    }
+    const keys = identityThrottleKeys(id, ctx);
+    const gate = await this.Throttle.attempt(keys, 'mfa', ctx);
+    if (!gate.allowed) {
+      await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
+      return { status: 'failure', reason: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
+
+    let passed: boolean | string;
+    try {
+      passed = await this.passMfa(id, stored.facts, step, response, true);
+    } catch (err) {
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', ...policyRefusal(err, 'step_error'), ...about });
+      return fail('invalid_credentials');
+    }
+    if (passed !== true) {
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: passed === false ? 'invalid_code' : passed, ...about });
+      return fail('invalid_credentials');
+    }
+    if (await this.statusRefused(ctx, stored.handle, about)) return fail('invalid_credentials');
+
+    let next: SessionHandle;
+    let facts: Success['facts'];
+    try {
+      next = await this.Sessions.reissue(stored.handle, { assurance: 'aal2', mfa: [step] });
+      const now = await this.Sessions.restore(next.id);
+      if (!now) throw new InvalidOperation('the reissued session is gone');
+      const { authenticatedAt: _at, ...rest } = now.facts;
+      facts = rest;
+      await this.Throttle.succeed(keys, 'mfa');
+    } catch (err) {
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'session_error', data: { error: errorClass(err) }, ...about });
+      return fail('invalid_credentials');
+    }
+    const done = { identity: id, strategy: facts.strategy, ...(isNonEmptyString(facts.sessionHandle) ? { session: facts.sessionHandle } : {}) };
+    await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'success', ...done });
+    await this.Auditor.publishIn(ctx, { type: 'session.rotate', outcome: 'success', reason: 'step_up', ...done });
+    return { status: 'success', identity: id, facts, session: next };
+  }
+
   public async principalOf(result: Success): Promise<Principal> {
     if (!isPlainObject(result) || result.status !== 'success' || !isRef(result.identity)) {
       throw new InvalidArgument('principalOf takes a success result');
@@ -370,7 +458,7 @@ export class DefaultAuthnService extends AuthnService {
     return null;
   }
 
-  private async accept(s: AuthenticationStrategy, r: Verified, keys: readonly ThrottleKey[], ctx: AuthnContext): Promise<AuthenticationResult> {
+  private async accept(s: AuthenticationStrategy, r: Verified, keys: readonly ThrottleKey[], ctx: AuthnContext, clean: boolean): Promise<AuthenticationResult> {
     let id: IdentityRef | null = r.identity ?? null;
     let found: Found = { id: null };
     if (!id && r.external) {
@@ -382,8 +470,9 @@ export class DefaultAuthnService extends AuthnService {
     if (found.link && found.provisioned) await this.link(ctx, s, id, found.link);
     // Service and agent identities authenticate per request only (D12).
     if (s.interactive && id.type !== 'user') return this.refuse(ctx, s, 'non_user_session', 'invalid_credentials', { identity: id });
-    const refused = await statusRefusal(this.Identities, r.delegation?.onBehalfOf ?? id);
-    if (refused) return this.refuse(ctx, s, refused, 'invalid_credentials', { identity: id });
+    // A token or key is no login: only a login method is held to authn.login.requireVerifiedAddress.
+    const refused = await statusRefusal(this.Identities, r.delegation?.onBehalfOf ?? id, { requireVerifiedAddress: s.interactive && this.RequireVerifiedAddress === true });
+    if (refused) return this.refuse(ctx, s, refused, refused === 'unverified_address' ? 'unverified_address' : 'invalid_credentials', { identity: id });
     // Before the link by verified email, so a login a hook refuses leaves neither a session nor a new email link.
     if (s.interactive && r.external) {
       const hookError = await this.runLoginHooks(id, r.external);
@@ -392,11 +481,12 @@ export class DefaultAuthnService extends AuthnService {
 
     if (found.link && !found.provisioned) await this.link(ctx, s, id, found.link);
 
-    const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[] };
+    const facts = { method: r.method, strategy: s.name, assurance: r.assurance ?? ('aal1' as const), mfa: [] as string[], ...externalFactsOf(r.external) };
     const extra = { ...(r.ceiling !== undefined ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(r.attributes !== undefined ? { attributes: r.attributes } : {}) };
+    // A token or key is used on every request: its success skips a succeed with nothing to do and waits for no sink.
     if (!s.interactive) {
-      await this.Throttle.succeed(keys, 'login');
-      await this.Auditor.publishIn(ctx, { type: this.eventOf(s), outcome: 'success', strategy: s.name, identity: id });
+      if (!clean) await this.Throttle.succeed(keys, 'login');
+      this.Auditor.publishDetached(ctx, { type: this.eventOf(s), outcome: 'success', strategy: s.name, identity: id });
       return { status: 'success', identity: id, facts, ...extra };
     }
 
@@ -440,9 +530,11 @@ export class DefaultAuthnService extends AuthnService {
   /**
    * True: passed; false: a wrong code; a string: why the step cannot be taken (audit reason). The steps the policy
    * requires now are alternatives; `recovery` goes to the first enrolled step that takes recovery codes (D6).
+   * `anyEnrolled` (step-up) takes every configured step the identity is enrolled in instead: the login that issued an
+   * aal1 session needed no step, so the policy may require none for its method.
    */
-  private async passMfa(id: IdentityRef, facts: AuthnFacts, step: string, response: string): Promise<boolean | string> {
-    const required = await this.Policy.required(id, { method: facts.method, strategy: facts.strategy });
+  private async passMfa(id: IdentityRef, facts: AuthnFacts, step: string, response: string, anyEnrolled = false): Promise<boolean | string> {
+    const required = anyEnrolled ? await this.enrolledSteps(id) : await this.Policy.required(id, { method: facts.method, strategy: facts.strategy });
     if (required.length === 0) return 'no_steps';
     const steps = await this.Policy.steps();
     if (step === RECOVERY_STEP) {
@@ -456,6 +548,26 @@ export class DefaultAuthnService extends AuthnService {
     // Under force the required step may be one the identity has not enrolled; the MfaStep contract does not oblige verify to refuse that.
     if (!(await s.enrolled(id))) return 'not_enrolled';
     return (await s.verify(id, response)) === true;
+  }
+
+  /** An account banned or deleted since its login must not step up: its session ends. True when refused, audited. */
+  private async statusRefused(ctx: AuthnContext, handle: SessionHandle, about: { readonly identity: IdentityRef; readonly strategy: string; readonly session?: string }): Promise<boolean> {
+    let refused: string | null;
+    try {
+      refused = await statusRefusal(this.Identities, about.identity);
+      if (refused) await this.Sessions.revoke(handle);
+    } catch (err) {
+      await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'store_error', data: { error: errorClass(err) }, ...about });
+      return true;
+    }
+    if (refused) await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: refused, ...about });
+    return refused !== null;
+  }
+
+  private async enrolledSteps(id: IdentityRef): Promise<string[]> {
+    const enrolled: string[] = [];
+    for (const s of (await this.Policy.steps()).values()) if (await s.enrolled(id)) enrolled.push(s.name);
+    return enrolled;
   }
 
   /** A re-authentication proves the session's own identity: a delegation or an unlinked subject does not (A13). */
@@ -498,6 +610,8 @@ export class DefaultAuthnService extends AuthnService {
    * in a success off the ip key, so a value without this ip would clear another ip's failures. The attempt counts
    * the union; `succeed` gets only the answering strategy's keys (D8).
    *
+   * The ip in all three keys is the throttleIp form: an IPv6 client holds a whole prefix, so its addresses share one row (L3).
+   *
    * A per-request strategy's `account` key is `request:<account>|<ip>` (K6): its credential ids travel in clear (a key
    * id in every signed request), so a credential-wide key would let anyone keep a victim's key or token in backoff.
    * Guessing stays bounded by that key per ip and by the ip key. An interactive strategy's is `login:<account>`, so no
@@ -505,6 +619,7 @@ export class DefaultAuthnService extends AuthnService {
    */
   private keysFor(candidates: readonly AuthenticationStrategy[], c: Credentials, ctx: AuthnContext): Keyed | { strategy: AuthenticationStrategy; error: string } {
     const own = new Map<AuthenticationStrategy, ThrottleKey[]>();
+    const ip = isNonEmptyString(ctx.ip) ? throttleIp(ctx.ip, this.ipv6Prefix) : undefined;
     for (const s of candidates) {
       let given: unknown;
       try {
@@ -515,15 +630,15 @@ export class DefaultAuthnService extends AuthnService {
       if (!validKeys(given)) return { strategy: s, error: 'malformed_throttle_keys' };
       const keys = given.filter((k) => k.kind !== 'account-ip').map((k) => ({ kind: k.kind, value: k.kind === 'account' ? `${s.interactive ? 'login' : 'request'}:${k.value}` : k.value }));
       const accounts = keys.filter((x) => x.kind === 'account');
-      if (isNonEmptyString(ctx.ip)) {
-        for (const k of accounts) keys.push({ kind: 'account-ip', value: `${k.value}|${ctx.ip}` });
+      if (ip !== undefined) {
+        for (const k of accounts) keys.push({ kind: 'account-ip', value: `${k.value}|${ip}` });
       }
       if (!s.interactive) {
-        for (const k of accounts) k.value = `${k.value}|${ctx.ip ?? ''}`;
+        for (const k of accounts) k.value = `${k.value}|${ip ?? ''}`;
       }
       own.set(s, keys);
     }
-    const shared: ThrottleKey[] = [...(isNonEmptyString(ctx.ip) ? [{ kind: 'ip', value: ctx.ip }] : []), ...(this.globalGate ? [{ kind: 'global', value: 'login' }] : [])];
+    const shared: ThrottleKey[] = [...(ip !== undefined ? [{ kind: 'ip', value: ip }] : []), ...(this.globalGate ? [{ kind: 'global', value: 'login' }] : [])];
     return { all: dedupe([...[...own.values()].flat(), ...shared]), of: (s) => dedupe([...(own.get(s) ?? []), ...shared]) };
   }
 

@@ -33,6 +33,8 @@ describe('authz.http through @Config and its schema', () => {
       access: { domain: 'root' },
       admin: { domain: 'root' },
       events: { maxStreamsPerPrincipal: 5 },
+      unguardedRoutes: 'warn',
+      webhooks: [],
     });
   });
 
@@ -57,6 +59,7 @@ describe('authz.http through @Config and its schema', () => {
     expect(await refused({ access: { domain: '' } })).to.include('authz.http.access.domain');
     expect(await refused({ events: { maxStreamsPerPrincipal: 0 } })).to.include('authz.http.events.maxStreamsPerPrincipal');
     expect(await refused({ events: { maxStreamsPerPrincipal: 1.5 } })).to.include('authz.http.events.maxStreamsPerPrincipal');
+    expect(await refused({ unguardedRoutes: 'loud' })).to.include('authz.http.unguardedRoutes');
   });
 
   it('ServicePrincipalSource reads the services of the Configuration its container resolves', async () => {

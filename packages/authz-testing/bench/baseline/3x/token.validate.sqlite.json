@@ -1,0 +1,57 @@
+{
+  "name": "token.validate.sqlite",
+  "description": "DbTokenService.validate of a valid pat over in-memory sqlite: token row, owner row, in-memory identity status",
+  "unit": "ns",
+  "iterations": 5000,
+  "warmup": 500,
+  "batch": 1,
+  "repeats": 5,
+  "p50": 20796400,
+  "p95": 55092000,
+  "p99": 74606000,
+  "mean": 23805103.8,
+  "opsPerSec": 42.00779834448779,
+  "perRepeat": [
+    {
+      "p50": 24174200,
+      "p95": 70476900,
+      "p99": 101074300,
+      "mean": 29426672.94,
+      "opsPerSec": 33.98277481246237
+    },
+    {
+      "p50": 20796400,
+      "p95": 50190300,
+      "p99": 69209500,
+      "mean": 23736764.62,
+      "opsPerSec": 42.128740626994514
+    },
+    {
+      "p50": 18790900,
+      "p95": 55420800,
+      "p99": 115660700,
+      "mean": 23805103.8,
+      "opsPerSec": 42.00779834448779
+    },
+    {
+      "p50": 13881400,
+      "p95": 31861100,
+      "p99": 46544000,
+      "mean": 15468042.3,
+      "opsPerSec": 64.64942237712913
+    },
+    {
+      "p50": 24621900,
+      "p95": 55092000,
+      "p99": 74606000,
+      "mean": 27361568.52,
+      "opsPerSec": 36.5476123661934
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

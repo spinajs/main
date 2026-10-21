@@ -9,7 +9,7 @@ import { USER_COMMON_METADATA, User, UserIdentityStore } from '../src/index.js';
 import { TEST_USER_UUID, TEST_USER_UUID_3 } from './migration/rbac.migration.js';
 import { bootUsersDb, registerUsersTestHost, seedUser } from './support/users-db.js';
 
-const UNKNOWN = { exists: false, active: false, banned: false, deleted: false, invitePending: false };
+const UNKNOWN = { exists: false, active: false, banned: false, deleted: false, invitePending: false, addressVerified: false };
 
 describe('UserIdentityStore', function () {
   this.timeout(30000);
@@ -94,7 +94,7 @@ describe('UserIdentityStore', function () {
 
   describe('status', () => {
     it('reports an active user', async () => {
-      expect(await store.status({ type: 'user', id: TEST_USER_UUID })).to.deep.eq({ exists: true, active: true, banned: false, deleted: false, invitePending: false });
+      expect(await store.status({ type: 'user', id: TEST_USER_UUID })).to.deep.eq({ exists: true, active: true, banned: false, deleted: false, invitePending: false, addressVerified: false });
     });
 
     it('reports a ban without start or duration as banned', async () => {
@@ -123,7 +123,7 @@ describe('UserIdentityStore', function () {
       user.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING] = 'true';
       await user.Metadata.update();
 
-      expect(await store.status(pending)).to.deep.eq({ exists: true, active: false, banned: false, deleted: false, invitePending: true });
+      expect(await store.status(pending)).to.deep.eq({ exists: true, active: false, banned: false, deleted: false, invitePending: true, addressVerified: false });
       expect((await store.status(text)).invitePending).to.eq(false);
     });
 

@@ -1,0 +1,2820 @@
+{
+  "paths": {
+    "/auth/active-role": {
+      "get": {
+        "operationId": "AuthnActiveRoleController_state",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Get the active role",
+        "description": "`ActiveRole` (null before any switch: every held role applies) and the roles RoleSource gives.\n\n**Policies applied:**\n- [`RoleSourceRegistered`](#policy-rolesourceregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)",
+        "responses": {
+          "200": {
+            "description": "The active role and the roles held",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnActiveRoleState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "RoleSourceRegistered",
+          "Authenticated",
+          "NoTokenAuthPolicy"
+        ]
+      },
+      "post": {
+        "operationId": "AuthnActiveRoleController_switch",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Switch the active role",
+        "description": "Body `{ role, password? }`. 400 for a malformed role, 403 for a role not held, 401 with the login failure body when the password fails (no Retry-After). Not while impersonating.\n\n**Policies applied:**\n- [`RoleSourceRegistered`](#policy-rolesourceregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "responses": {
+          "200": {
+            "description": "The principal summary narrowed to the role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnRoleSwitchAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session, or the inline password or code failed (the login failure body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnUnauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "role_not_held, fresh_auth_required, session_required or impersonating",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "The role, and the password when the role asks for a fresh one",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnActiveRoleBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "RoleSourceRegistered",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/authn/admin/users/{uuid}/password-reset": {
+      "post": {
+        "operationId": "AuthnCredentialAdminController_passwordReset",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Reset a user's password",
+        "description": "Body `{ sendReset?, reauthPassword? }`. The current password stops working at once; every session of the user ends,\r\nthose where it impersonates included, and with authn.local.reset.revokeTokens every token. With `sendReset`\r\n(default true) the owner gets a reset mail; the secret is never in this answer. Answers\r\n`{ expired: true, resetMailRequested }`. `resetMailRequested` echoes `sendReset` only: the password service decides\r\nwhether a mail goes out (none without a PasswordMailer or for a user it finds not eligible). 400\r\n`invalid_send_reset` for a `sendReset` that is not a boolean.\n\n**Policies applied:**\n- [`CredentialAdminGuardRegistered`](#policy-credentialadminguardregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminGuard is registered.\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) — 404 while no PasswordService is registered: the password routes are off (design §22.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The password is expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnPasswordResetAdminAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_send_reset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Whether to mail a reset link, and the password for a stale session",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnPasswordResetAdminBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "CredentialAdminGuardRegistered",
+          "PasswordServiceRegistered",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/authn/admin/users/{uuid}/mfa-reset": {
+      "post": {
+        "operationId": "AuthnCredentialAdminController_mfaReset",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Reset a user's TOTP",
+        "description": "Removes the enrolment, confirmed or begun, and its recovery codes; the owner enrols again. Answers `{ reset }`, false\r\nwhen there was nothing to remove. Never a secret. 404 while the MFA enrolment routes are off.\n\n**Policies applied:**\n- [`CredentialAdminGuardRegistered`](#policy-credentialadminguardregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminGuard is registered.\n- [`AdminMfaResetOn`](#policy-adminmfareseton) — 404 `not_found` unless `mfaEnrolmentOn`, as for the enrolment routes: an MFA that login never asks for has nothing to reset.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether there was an enrolment to remove",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnMfaResetAnswer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "The password, for a stale session",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnReauthBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "CredentialAdminGuardRegistered",
+          "AdminMfaResetOn",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/authn/admin/users/{uuid}/sessions": {
+      "delete": {
+        "operationId": "AuthnCredentialAdminController_sessions",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "End a user's sessions",
+        "description": "Every session of the user, those where it impersonates included. Answers `{ revoked }`, the count.\n\n**Policies applied:**\n- [`CredentialAdminGuardRegistered`](#policy-credentialadminguardregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminGuard is registered.\n- [`SessionIssuerRegistered`](#policy-sessionissuerregistered) — 404 `not_found` while no SessionIssuer is registered: the admin sessions revoke is off.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The count of ended sessions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnRevokedCount"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "The password, for a stale session",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnReauthBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "CredentialAdminGuardRegistered",
+          "SessionIssuerRegistered",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/authn/admin/users/{uuid}/tokens": {
+      "delete": {
+        "operationId": "AuthnCredentialAdminController_tokens",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Revoke a user's tokens",
+        "description": "Every API and agent token of the user. Answers `{ revoked }`, the count.\n\n**Policies applied:**\n- [`CredentialAdminGuardRegistered`](#policy-credentialadminguardregistered) (controller) — The first policy of the credential admin controller: 404 `not_found` while no CredentialAdminGuard is registered.\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The count of revoked tokens",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnRevokedCount"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "The password, for a stale session",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnReauthBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "CredentialAdminGuardRegistered",
+          "TokenServiceRegistered",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/auth/impersonate": {
+      "get": {
+        "operationId": "AuthnImpersonationController_state",
+        "tags": [
+          "Impersonation"
+        ],
+        "summary": "Impersonation state",
+        "description": "`{ Active: false }`, or the impersonator, the target and the start time.\n\n**Policies applied:**\n- [`ImpersonationGuardRegistered`](#policy-impersonationguardregistered) (controller)\n- [`Authenticated`](#policy-authenticated)",
+        "responses": {
+          "200": {
+            "description": "Whether the session impersonates, and whom",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnImpersonationState"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "ImpersonationGuardRegistered",
+          "Authenticated"
+        ]
+      },
+      "post": {
+        "operationId": "AuthnImpersonationController_start",
+        "tags": [
+          "Impersonation"
+        ],
+        "summary": "Start impersonating",
+        "description": "Body `{ target, password? }`: `target` is a user id or `{ type, id }`. 400 for a malformed target, 401 with the login failure body when the password fails, 403 when refused.\n\n**Policies applied:**\n- [`ImpersonationGuardRegistered`](#policy-impersonationguardregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`MfaSatisfied`](#policy-mfasatisfied)",
+        "responses": {
+          "200": {
+            "description": "The principal summary of the target",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnImpersonationAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed target",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session, or the inline password or code failed (the login failure body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnUnauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The impersonation is refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "The target, and the password for a stale session",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnImpersonationBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "ImpersonationGuardRegistered",
+          "Authenticated",
+          "MfaSatisfied"
+        ]
+      },
+      "delete": {
+        "operationId": "AuthnImpersonationController_stop",
+        "tags": [
+          "Impersonation"
+        ],
+        "summary": "Stop impersonating",
+        "description": "A new session for the impersonator. When the impersonator may no longer log in, the impersonation ends anyway, the\r\ncookie is cleared and the answer is `{ Active: false }`. 400 when no impersonation is active.\n\n**Policies applied:**\n- [`ImpersonationGuardRegistered`](#policy-impersonationguardregistered) (controller)\n- [`Authenticated`](#policy-authenticated)",
+        "responses": {
+          "200": {
+            "description": "The principal summary of the impersonator, or { Active: false }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnImpersonationAnswer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "ImpersonationGuardRegistered",
+          "Authenticated"
+        ]
+      }
+    },
+    "/user/keys": {
+      "get": {
+        "operationId": "AuthnKeysController_list",
+        "tags": [
+          "Keys"
+        ],
+        "summary": "List own keys",
+        "description": "Every key of the caller, revoked and expired ones included and marked.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "responses": {
+          "200": {
+            "description": "The own keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuthnKeyEntry"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "KeyRoutesOn",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      },
+      "post": {
+        "operationId": "AuthnKeysController_register",
+        "tags": [
+          "Keys"
+        ],
+        "summary": "Register a key",
+        "description": "Body `{ jwk, proof: { challengeId, signature }, kid?, name?, expiresAt?, reauthPassword? }`: an Ed25519 or P-256\r\npublic JWK and its signature over a register challenge this user asked for (POST /auth/keys/challenge). Needs fresh\r\nauth: a login within authn.freshAuth.maxAgeSeconds or the account password in `reauthPassword`, verified for this\r\nrequest only. Answers the key. 400 `invalid_key`, `invalid_kid`, `invalid_name`, `invalid_expiry`, `invalid_scope`\r\nor `invalid_proof` (also a used, expired or foreign challenge); 409 `key_taken` when the kid or the key is\r\nregistered already; 403 `fresh_auth_required` for a stale session without the password; a wrong or throttled\r\npassword the login failure body without Retry-After.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "responses": {
+          "200": {
+            "description": "The registered key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnKeyEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_key, invalid_kid, invalid_name, invalid_expiry, invalid_scope or invalid_proof",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session, or the inline password or code failed (the login failure body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnUnauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "fresh_auth_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "key_taken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "The public key, its proof, and the password for a stale session",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnKeyRegisterBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "KeyRoutesOn",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/user/keys/{kid}": {
+      "delete": {
+        "operationId": "AuthnKeysController_revoke",
+        "tags": [
+          "Keys"
+        ],
+        "summary": "Revoke an own key",
+        "description": "The key fails on its next request. 404 `key_not_found` for any kid that is not a key of the caller, whoever owns\r\nit; revoking a revoked key of the caller changes nothing.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "parameters": [
+          {
+            "name": "kid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "404": {
+            "description": "key_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "KeyRoutesOn",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/auth/keys/challenge": {
+      "post": {
+        "operationId": "AuthnKeysController_challenge",
+        "tags": [
+          "Keys"
+        ],
+        "summary": "Key challenge",
+        "description": "Body `{ purpose: 'login', kid }` (anonymous) or `{ purpose: 'register' }` (the caller's own full session, the\r\nchallenge bound to its user). Answers `{ id, nonce, expiresAt }`. A login challenge for an unknown kid looks the\r\nsame as one for a known kid (A02); login challenges count against the client ip, and a throttled one answers 429\r\nwith Retry-After. Register challenges count against nothing here: each throttle flow (login, mfa, reset, reauth)\r\nis a budget of the owner's own, which a burst of challenges would spend; http.throttle caps the route per ip.\r\n400 `invalid_purpose`, `invalid_kid`.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.",
+        "responses": {
+          "200": {
+            "description": "The challenge to sign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnKeyChallenge"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_purpose or invalid_kid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "description": "The purpose, and the key of a login challenge",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnKeyChallengeBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "KeyRoutesOn"
+        ]
+      }
+    },
+    "/auth/keys/login": {
+      "post": {
+        "operationId": "AuthnKeysController_login",
+        "tags": [
+          "Keys"
+        ],
+        "summary": "Key login",
+        "description": "Body `{ keyId, challengeId, signature }`: the key's signature over a login challenge for it. Logs in as POST\r\n/auth/login does: ends a session the caller already holds, sets the session cookie and answers the principal\r\nsummary with the login extensions. Key logins ask for no MFA step under the default MFA policy (a key challenge\r\nproves possession); a policy that asks for one gets 200 `{ MfaRequired: [steps] }` with the pending session cookie.\r\nAny failure: 401 with the login failure body, plus Retry-After when throttled.\n\n**Policies applied:**\n- [`KeyRoutesOn`](#policy-keyrouteson) (controller) — The first policy of the key routes: 404 `not_found` while no KeyRegistry is registered, or while authn.",
+        "responses": {
+          "200": {
+            "description": "The principal summary, or the pending answer when MFA is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnLoginAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The login failed (Retry-After when throttled)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnFailure"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "description": "The signature over a login challenge",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnKeyLoginBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "KeyRoutesOn"
+        ]
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "operationId": "AuthnLoginController_login",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Login",
+        "description": "Body `{ login, password }`. Ends a session the caller already holds. Success: the session cookie and the principal summary with the login extensions. MFA required: 200\r\n`{ MfaRequired: [steps], MfaEnrol: [steps to enrol first] }` with the pending session cookie. Any failure: 401 with one\r\nbody, plus Retry-After when throttled.",
+        "responses": {
+          "200": {
+            "description": "The principal summary, or the pending answer when MFA is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnLoginAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The login failed (Retry-After when throttled)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnFailure"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "description": "The credentials",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnLoginBody"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "AuthnLoginController_logout",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Logout",
+        "description": "Ends the session of the cookie, pending ones included (an impersonation ends with it), and clears the cookie and\r\nthe site data of `authn.http.logout.clearSiteData` (default cache, cookies and storage). Audited as `logout`, and as\r\n`impersonation.end` (reason `logout`) for an impersonation (A20, A21).\r\nPOST, so no cross-site link can log anyone out. After the revoke every AuthnLogoutExtension may name a redirect (an OIDC\r\nprovider's end_session_endpoint): a navigation request gets 303 to it, any other client 200 `{ endSession }`.",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "303": {
+            "description": "The session ended; continue at the extension's redirect"
+          },
+          "401": {
+            "description": "No session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ]
+      }
+    },
+    "/auth": {
+      "get": {
+        "operationId": "AuthnLoginController_whoami",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Who am I",
+        "description": "The principal summary with the whoami extensions. A pending session gets only `{ MfaRequired: [steps], MfaEnrol: [steps to enrol first] }`.",
+        "responses": {
+          "200": {
+            "description": "The principal summary, or the pending answer of a pending session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnLoginAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No principal and no pending session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ]
+      }
+    },
+    "/auth/mfa/verify": {
+      "post": {
+        "operationId": "AuthnMfaController_verify",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Verify an MFA step",
+        "description": "Body `{ code, step? }`: `step` when it is one of the pending steps, else the first pending step.",
+        "responses": {
+          "200": {
+            "description": "The principal summary of the elevated session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnPrincipalAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session, or a wrong, missing or throttled code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnUnauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "mfa_not_pending: the session is active",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "A code of a pending step",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnMfaVerifyBody"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/mfa/recovery": {
+      "post": {
+        "operationId": "AuthnMfaController_recovery",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Use a recovery code",
+        "description": "Body `{ code }`: a single-use recovery code instead of a step.",
+        "responses": {
+          "200": {
+            "description": "The principal summary of the elevated session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnPrincipalAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session, or a wrong, used or throttled code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnUnauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "mfa_not_pending: the session is active",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "A recovery code",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnMfaCodeBody"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/user/mfa": {
+      "get": {
+        "operationId": "AuthnMfaEnrolmentController_status",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "MFA status",
+        "description": "`{ steps: [{ name, enrolled }] }` for each step of authn.mfa.steps; a begun but unconfirmed enrolment is not\r\nenrolled. Never a secret.\n\n**Policies applied:**\n- [`TotpEnrolmentOn`](#policy-totpenrolmenton) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "responses": {
+          "200": {
+            "description": "Each configured step and whether the caller is enrolled in it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnMfaStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "TotpEnrolmentOn",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      },
+      "post": {
+        "operationId": "AuthnMfaEnrolmentController_begin",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Begin a TOTP enrolment",
+        "description": "Body `{ reauthPassword? }`. Answers `{ provisioning }`, the otpauth URI, once; a later begin replaces a begun\r\nenrolment with a new secret.\n\n**Policies applied:**\n- [`TotpEnrolmentOn`](#policy-totpenrolmenton) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)\n- [`PendingMfaEnrolment`](#policy-pendingmfaenrolment)",
+        "responses": {
+          "200": {
+            "description": "The otpauth URI",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnMfaProvisioning"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session, or the inline password or code failed (the login failure body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnUnauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "fresh_auth_required, enrolment_closed, session_required or impersonating",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "mfa_enrolled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "The password, for a stale session",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnReauthBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "TotpEnrolmentOn",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy",
+          "PendingMfaEnrolment"
+        ]
+      }
+    },
+    "/user/mfa/confirm": {
+      "post": {
+        "operationId": "AuthnMfaEnrolmentController_confirm",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Confirm the TOTP enrolment",
+        "description": "Body `{ code }`: a code of the begun secret. Answers `{ recoveryCodes }` once; each is single use.\n\n**Policies applied:**\n- [`TotpEnrolmentOn`](#policy-totpenrolmenton) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)\n- [`PendingMfaEnrolment`](#policy-pendingmfaenrolment)",
+        "responses": {
+          "200": {
+            "description": "The recovery codes, shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnRecoveryCodes"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session, or the inline password or code failed (the login failure body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnUnauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "enrolment_closed, session_required or impersonating",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "mfa_enrolled or mfa_not_begun",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "A code of the begun secret",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnMfaCodeBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "TotpEnrolmentOn",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy",
+          "PendingMfaEnrolment"
+        ]
+      }
+    },
+    "/user/mfa/disable": {
+      "post": {
+        "operationId": "AuthnMfaEnrolmentController_disable",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Disable TOTP",
+        "description": "Body `{ code, reauthPassword? }`: a TOTP code or a recovery code. Removes the secret and the recovery codes.\n\n**Policies applied:**\n- [`TotpEnrolmentOn`](#policy-totpenrolmenton) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "401": {
+            "description": "No session, or the inline password or code failed (the login failure body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnUnauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "fresh_auth_required, session_required or impersonating",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "mfa_not_enrolled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "A TOTP code or a recovery code, and the password for a stale session",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnMfaDisableBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "TotpEnrolmentOn",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/user/mfa/recovery-codes": {
+      "post": {
+        "operationId": "AuthnMfaEnrolmentController_recoveryCodes",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "New recovery codes",
+        "description": "Body `{ reauthPassword? }`. Answers `{ recoveryCodes }` once and voids every older code.\n\n**Policies applied:**\n- [`TotpEnrolmentOn`](#policy-totpenrolmenton) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "responses": {
+          "200": {
+            "description": "New recovery codes, shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnRecoveryCodes"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session, or the inline password or code failed (the login failure body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnUnauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "fresh_auth_required, session_required or impersonating",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "mfa_not_enrolled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "The password, for a stale session",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnReauthBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "TotpEnrolmentOn",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/auth/password/policy": {
+      "get": {
+        "operationId": "AuthnPasswordController_policy",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Password policy",
+        "description": "What every new password must satisfy: `minLength`, `maxLength`, and `pattern` and `description` when a rule is\r\nconfigured. Public: the reset flow needs it before there is a session.\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)",
+        "responses": {
+          "200": {
+            "description": "The rules a new password must satisfy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnPasswordPolicy"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-policies": [
+          "PasswordServiceRegistered"
+        ]
+      }
+    },
+    "/auth/password/reset-request": {
+      "post": {
+        "operationId": "AuthnPasswordController_requestReset",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Request a password reset",
+        "description": "Body `{ login }`. Answers at once with `{ Ok: true }`, whether or not the account exists and whether or not the\r\nmail goes out (A11, SR-04); the secret travels only in the mail. 429 with Retry-After when throttled (per login\r\nand per client ip), 400 `invalid_login` without a login.\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)",
+        "responses": {
+          "200": {
+            "description": "Always { Ok: true }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnOk"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_login",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "description": "The login",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnPasswordResetRequestBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "PasswordServiceRegistered"
+        ]
+      }
+    },
+    "/auth/password/reset": {
+      "post": {
+        "operationId": "AuthnPasswordController_reset",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Reset the password",
+        "description": "Body `{ login, secret, password, confirmPassword? }`. Redeems a reset secret, or an invite secret while the\r\naccount is invite-pending (A32), once, and sets the password; ends every session of the account. `{ Ok: true }`\r\non success; 400 `password_rejected` with `violations` before the secret is spent; 400 `password_mismatch` or\r\n`invalid_password`; any other failure the login failure body (A02, A11).\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)",
+        "responses": {
+          "200": {
+            "description": "The password is set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnOk"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "password_rejected (with violations), password_mismatch or invalid_password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Any other failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnFailure"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "description": "The secret and the new password",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnPasswordResetBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "PasswordServiceRegistered"
+        ]
+      }
+    },
+    "/user/password": {
+      "patch": {
+        "operationId": "AuthnPasswordController_change",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Change the own password",
+        "description": "Body `{ oldPassword, password, confirmPassword? }`. The old password is the fresh authentication, verified inline\r\nand counted in the reauth throttle. Success: 200 with the rotated session cookie; every other session of the\r\naccount ends, API tokens stay (A30). 400 `password_rejected` with `violations`, `password_mismatch` or\r\n`invalid_password`; a wrong old password or a throttled change: the login failure body without Retry-After. A\r\nsession only: 403 `session_required` for a token or key, 403 `impersonating` while impersonating.\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "password_rejected (with violations), password_mismatch or invalid_password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session, a wrong old password or a throttled change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnUnauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "session_required or impersonating",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "The old and the new password",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnPasswordChangeBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "PasswordServiceRegistered",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/user/sessions": {
+      "get": {
+        "operationId": "AuthnSessionsController_list",
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "List own sessions",
+        "description": "Newest first; `Current` marks the one making the request. Sessions in which someone impersonates the caller are\r\nlisted too, with the impersonator's ip and user agent.\n\n**Policies applied:**\n- [`Authenticated`](#policy-authenticated) (controller)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy) (controller)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy) (controller)",
+        "responses": {
+          "200": {
+            "description": "The own sessions, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuthnSessionEntry"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      },
+      "delete": {
+        "operationId": "AuthnSessionsController_revokeOthers",
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Revoke every other session",
+        "description": "Ends all own sessions but the current one.\n\n**Policies applied:**\n- [`Authenticated`](#policy-authenticated) (controller)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy) (controller)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy) (controller)",
+        "responses": {
+          "200": {
+            "description": "The count of ended sessions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnSessionsRevoked"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/user/sessions/{handle}": {
+      "delete": {
+        "operationId": "AuthnSessionsController_revoke",
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Revoke one session",
+        "description": "Ends the own session with that handle; ending the current one logs the caller out. 404 for any other handle.\n\n**Policies applied:**\n- [`Authenticated`](#policy-authenticated) (controller)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy) (controller)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy) (controller)",
+        "parameters": [
+          {
+            "name": "handle",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "404": {
+            "description": "session_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/user/tokens": {
+      "get": {
+        "operationId": "AuthnTokensController_list",
+        "tags": [
+          "AccessTokens"
+        ],
+        "summary": "List own tokens",
+        "description": "A bare list of the caller's live and expired tokens (`Expired` tells them apart); revoked ones are left out.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "responses": {
+          "200": {
+            "description": "The own tokens",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuthnTokenEntry"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "TokenServiceRegistered",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      },
+      "post": {
+        "operationId": "AuthnTokensController_create",
+        "tags": [
+          "AccessTokens"
+        ],
+        "summary": "Create a token",
+        "description": "Body `{ name, expiresAt, roles?, profile?, kind?, scope?, reauthPassword? }`. Needs fresh auth: a login within\r\nauthn.freshAuth.maxAgeSeconds or the account password in `reauthPassword`, verified for this request only. Answers\r\n`{ Token, Plaintext }`; the plaintext is shown here once and never again. `expiresAt` is mandatory, at most\r\nauthn.token.maxTtlDays ahead (an agent token authn.token.agentMaxTtlMinutes). 400 `invalid_name`,\r\n`invalid_expiry`, `invalid_kind`, `invalid_roles`, `invalid_profile`, or `invalid_scope` (also a role the owner\r\ndoes not hold, a profile the profile policy does not offer, or a scope that does not fit the kind); 403\r\n`fresh_auth_required` for a stale session without the password; a wrong or throttled password the login failure\r\nbody without Retry-After.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "responses": {
+          "200": {
+            "description": "The token and its plaintext, shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnTokenCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed field (invalid_name, invalid_expiry, invalid_kind, invalid_roles, invalid_profile, invalid_scope) or a refused one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session, or the inline password or code failed (the login failure body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnUnauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "fresh_auth_required, session_required or impersonating",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "The token to create, and the password for a stale session",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthnTokenCreateBody"
+              }
+            }
+          }
+        },
+        "x-policies": [
+          "TokenServiceRegistered",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    },
+    "/user/tokens/{uuid}": {
+      "delete": {
+        "operationId": "AuthnTokensController_revoke",
+        "tags": [
+          "AccessTokens"
+        ],
+        "summary": "Revoke an own token",
+        "description": "The token stops working on its next request. 404 `token_not_found` for any id that is not a live token of the\r\ncaller, whoever owns it.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "404": {
+            "description": "token_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthnError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-policies": [
+          "TokenServiceRegistered",
+          "Authenticated",
+          "NoTokenAuthPolicy",
+          "NoImpersonationPolicy"
+        ]
+      }
+    }
+  },
+  "schemas": {
+    "AuthnActiveRoleState": {
+      "type": "object",
+      "required": [
+        "ActiveRole",
+        "Roles"
+      ],
+      "properties": {
+        "ActiveRole": {
+          "type": "string",
+          "description": "null before any switch: every held role applies; '' for none",
+          "nullable": true
+        },
+        "Roles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "role",
+              "requirePassword"
+            ],
+            "properties": {
+              "role": {
+                "type": "string"
+              },
+              "requirePassword": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "AuthnError": {
+      "type": "object",
+      "description": "The body of a refused request",
+      "required": [
+        "error",
+        "message"
+      ],
+      "properties": {
+        "error": {
+          "type": "string",
+          "description": "a stable code: unauthenticated, session_required, fresh_auth_required, role_not_held, ..."
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "AuthnRoleSwitchAnswer": {
+      "type": "object",
+      "description": "The principal summary narrowed to the active role",
+      "required": [
+        "Identity",
+        "Authn",
+        "ActiveRole"
+      ],
+      "properties": {
+        "Identity": {
+          "type": "object",
+          "required": [
+            "type",
+            "id"
+          ],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "Authn": {
+          "type": "object",
+          "required": [
+            "method",
+            "strategy",
+            "assurance",
+            "mfa",
+            "authenticatedAt"
+          ],
+          "nullable": true,
+          "properties": {
+            "method": {
+              "type": "string"
+            },
+            "strategy": {
+              "type": "string"
+            },
+            "assurance": {
+              "type": "string",
+              "enum": [
+                "aal1",
+                "aal2"
+              ]
+            },
+            "mfa": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "authenticatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "impersonator": {
+              "type": "object",
+              "required": [
+                "type",
+                "id"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "Access": {
+          "type": "object",
+          "description": "@spinajs/users: the principal's access summary (GET /user/access)",
+          "additionalProperties": true
+        },
+        "ActiveRole": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "AuthnFailure": {
+      "type": "object",
+      "description": "The one body of a failed authentication (login, MFA, re-authentication)",
+      "required": [
+        "error",
+        "message"
+      ],
+      "properties": {
+        "error": {
+          "type": "object",
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "enum": [
+                "E_AUTH_FAILED"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "AuthnUnauthorized": {
+      "oneOf": [
+        {
+          "$ref": "#/components/schemas/AuthnFailure"
+        },
+        {
+          "$ref": "#/components/schemas/AuthnError"
+        }
+      ]
+    },
+    "AuthnActiveRoleBody": {
+      "type": "object",
+      "required": [
+        "role"
+      ],
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string",
+          "description": "when the role asks for a fresh password"
+        }
+      }
+    },
+    "AuthnPasswordResetAdminAnswer": {
+      "type": "object",
+      "required": [
+        "expired",
+        "resetMailRequested"
+      ],
+      "properties": {
+        "expired": {
+          "type": "boolean"
+        },
+        "resetMailRequested": {
+          "type": "boolean"
+        }
+      }
+    },
+    "AuthnPasswordResetAdminBody": {
+      "type": "object",
+      "properties": {
+        "sendReset": {
+          "type": "boolean",
+          "description": "also mail the user a reset link"
+        },
+        "reauthPassword": {
+          "type": "string",
+          "description": "the account password, when the session is not fresh"
+        }
+      }
+    },
+    "AuthnMfaResetAnswer": {
+      "type": "object",
+      "required": [
+        "reset"
+      ],
+      "properties": {
+        "reset": {
+          "type": "boolean",
+          "description": "an enrolment or a begun one existed"
+        }
+      }
+    },
+    "AuthnReauthBody": {
+      "type": "object",
+      "properties": {
+        "reauthPassword": {
+          "type": "string",
+          "description": "the account password, when the session is not fresh"
+        }
+      }
+    },
+    "AuthnRevokedCount": {
+      "type": "object",
+      "required": [
+        "revoked"
+      ],
+      "properties": {
+        "revoked": {
+          "type": "integer"
+        }
+      }
+    },
+    "AuthnImpersonationState": {
+      "type": "object",
+      "required": [
+        "Active"
+      ],
+      "properties": {
+        "Active": {
+          "type": "boolean"
+        },
+        "Impersonator": {
+          "type": "object",
+          "required": [
+            "type",
+            "id"
+          ],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "Target": {
+          "type": "object",
+          "required": [
+            "type",
+            "id"
+          ],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "StartedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "AuthnPrincipalAnswer": {
+      "type": "object",
+      "description": "The principal summary; AuthnResponseExtensions add fields",
+      "required": [
+        "Identity",
+        "Authn"
+      ],
+      "properties": {
+        "Identity": {
+          "type": "object",
+          "required": [
+            "type",
+            "id"
+          ],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "Authn": {
+          "type": "object",
+          "required": [
+            "method",
+            "strategy",
+            "assurance",
+            "mfa",
+            "authenticatedAt"
+          ],
+          "nullable": true,
+          "properties": {
+            "method": {
+              "type": "string"
+            },
+            "strategy": {
+              "type": "string"
+            },
+            "assurance": {
+              "type": "string",
+              "enum": [
+                "aal1",
+                "aal2"
+              ]
+            },
+            "mfa": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "authenticatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "impersonator": {
+              "type": "object",
+              "required": [
+                "type",
+                "id"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "Access": {
+          "type": "object",
+          "description": "@spinajs/users: the principal's access summary (GET /user/access)",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "AuthnImpersonationAnswer": {
+      "oneOf": [
+        {
+          "$ref": "#/components/schemas/AuthnPrincipalAnswer"
+        },
+        {
+          "$ref": "#/components/schemas/AuthnImpersonationState"
+        }
+      ]
+    },
+    "AuthnImpersonationBody": {
+      "type": "object",
+      "required": [
+        "target"
+      ],
+      "properties": {
+        "target": {
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "a user id"
+            },
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "id"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "password": {
+          "type": "string"
+        }
+      }
+    },
+    "AuthnKeyEntry": {
+      "type": "object",
+      "required": [
+        "kid",
+        "name",
+        "alg",
+        "jwk",
+        "thumbprint",
+        "scope",
+        "createdAt",
+        "expiresAt",
+        "lastUsedAt",
+        "revokedAt",
+        "revoked",
+        "expired"
+      ],
+      "properties": {
+        "kid": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "nullable": true
+        },
+        "alg": {
+          "type": "string"
+        },
+        "jwk": {
+          "type": "object",
+          "required": [
+            "kty",
+            "crv",
+            "x"
+          ],
+          "properties": {
+            "kty": {
+              "type": "string"
+            },
+            "crv": {
+              "type": "string"
+            },
+            "x": {
+              "type": "string"
+            },
+            "y": {
+              "type": "string"
+            }
+          }
+        },
+        "thumbprint": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "object",
+          "nullable": true,
+          "additionalProperties": true
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "lastUsedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "revokedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "revoked": {
+          "type": "boolean"
+        },
+        "expired": {
+          "type": "boolean"
+        }
+      }
+    },
+    "AuthnKeyRegisterBody": {
+      "type": "object",
+      "required": [
+        "jwk",
+        "proof"
+      ],
+      "properties": {
+        "jwk": {
+          "type": "object",
+          "description": "an Ed25519 (OKP) or P-256 (EC) public JWK",
+          "additionalProperties": true
+        },
+        "proof": {
+          "type": "object",
+          "description": "the signature over a register challenge of this user",
+          "required": [
+            "challengeId",
+            "signature"
+          ],
+          "properties": {
+            "challengeId": {
+              "type": "string"
+            },
+            "signature": {
+              "type": "string"
+            }
+          }
+        },
+        "kid": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "reauthPassword": {
+          "type": "string",
+          "description": "the account password, when the session is not fresh"
+        }
+      }
+    },
+    "AuthnKeyChallenge": {
+      "type": "object",
+      "required": [
+        "id",
+        "nonce",
+        "expiresAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "nonce": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "AuthnKeyChallengeBody": {
+      "type": "object",
+      "required": [
+        "purpose"
+      ],
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "login",
+            "register"
+          ]
+        },
+        "kid": {
+          "type": "string",
+          "description": "the key to log in with (purpose login)"
+        }
+      }
+    },
+    "AuthnPendingAnswer": {
+      "type": "object",
+      "description": "A pending (pre-MFA) session",
+      "required": [
+        "MfaRequired",
+        "MfaEnrol"
+      ],
+      "properties": {
+        "MfaRequired": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "MfaEnrol": {
+          "type": "array",
+          "description": "the steps of MfaRequired to enrol (POST /user/mfa) before they can be verified",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "AuthnLoginAnswer": {
+      "oneOf": [
+        {
+          "$ref": "#/components/schemas/AuthnPrincipalAnswer"
+        },
+        {
+          "$ref": "#/components/schemas/AuthnPendingAnswer"
+        }
+      ]
+    },
+    "AuthnKeyLoginBody": {
+      "type": "object",
+      "required": [
+        "keyId",
+        "challengeId",
+        "signature"
+      ],
+      "properties": {
+        "keyId": {
+          "type": "string"
+        },
+        "challengeId": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string"
+        }
+      }
+    },
+    "AuthnLoginBody": {
+      "type": "object",
+      "required": [
+        "login",
+        "password"
+      ],
+      "properties": {
+        "login": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        }
+      }
+    },
+    "AuthnMfaVerifyBody": {
+      "type": "object",
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "step": {
+          "type": "string",
+          "description": "one of the pending steps; default the first"
+        }
+      }
+    },
+    "AuthnMfaCodeBody": {
+      "type": "object",
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        }
+      }
+    },
+    "AuthnMfaStatus": {
+      "type": "object",
+      "required": [
+        "steps"
+      ],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "enrolled"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "enrolled": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "AuthnMfaProvisioning": {
+      "type": "object",
+      "required": [
+        "provisioning"
+      ],
+      "properties": {
+        "provisioning": {
+          "type": "string",
+          "description": "the otpauth:// URI, shown once"
+        }
+      }
+    },
+    "AuthnRecoveryCodes": {
+      "type": "object",
+      "required": [
+        "recoveryCodes"
+      ],
+      "properties": {
+        "recoveryCodes": {
+          "type": "array",
+          "description": "single use, shown once",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "AuthnMfaDisableBody": {
+      "type": "object",
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "a TOTP code or a recovery code"
+        },
+        "reauthPassword": {
+          "type": "string",
+          "description": "the account password, when the session is not fresh"
+        }
+      }
+    },
+    "AuthnPasswordPolicy": {
+      "type": "object",
+      "required": [
+        "minLength",
+        "maxLength"
+      ],
+      "properties": {
+        "minLength": {
+          "type": "integer"
+        },
+        "maxLength": {
+          "type": "integer"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "AuthnOk": {
+      "type": "object",
+      "required": [
+        "Ok"
+      ],
+      "properties": {
+        "Ok": {
+          "type": "boolean",
+          "enum": [
+            true
+          ]
+        }
+      }
+    },
+    "AuthnPasswordResetRequestBody": {
+      "type": "object",
+      "required": [
+        "login"
+      ],
+      "properties": {
+        "login": {
+          "type": "string"
+        }
+      }
+    },
+    "AuthnPasswordResetBody": {
+      "type": "object",
+      "required": [
+        "login",
+        "secret",
+        "password"
+      ],
+      "properties": {
+        "login": {
+          "type": "string"
+        },
+        "secret": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        },
+        "confirmPassword": {
+          "type": "string"
+        }
+      }
+    },
+    "AuthnPasswordChangeBody": {
+      "type": "object",
+      "required": [
+        "oldPassword",
+        "password"
+      ],
+      "properties": {
+        "oldPassword": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        },
+        "confirmPassword": {
+          "type": "string"
+        }
+      }
+    },
+    "AuthnSessionEntry": {
+      "type": "object",
+      "required": [
+        "Handle",
+        "Created",
+        "LastSeen",
+        "Current"
+      ],
+      "properties": {
+        "Handle": {
+          "type": "string"
+        },
+        "Created": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "LastSeen": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "Ip": {
+          "type": "string"
+        },
+        "UserAgent": {
+          "type": "string"
+        },
+        "Current": {
+          "type": "boolean"
+        }
+      }
+    },
+    "AuthnSessionsRevoked": {
+      "type": "object",
+      "required": [
+        "Revoked"
+      ],
+      "properties": {
+        "Revoked": {
+          "type": "integer"
+        }
+      }
+    },
+    "AuthnTokenEntry": {
+      "type": "object",
+      "required": [
+        "Uuid",
+        "Name",
+        "Kind",
+        "Roles",
+        "Profile",
+        "Scope",
+        "CreatedAt",
+        "ExpiresAt",
+        "LastUsedAt",
+        "LastUsedIp",
+        "Expired"
+      ],
+      "properties": {
+        "Uuid": {
+          "type": "string"
+        },
+        "Name": {
+          "type": "string"
+        },
+        "Kind": {
+          "type": "string",
+          "enum": [
+            "pat",
+            "service",
+            "agent"
+          ]
+        },
+        "Roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "Profile": {
+          "type": "string",
+          "nullable": true
+        },
+        "Scope": {
+          "type": "object",
+          "nullable": true,
+          "properties": {
+            "permissions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "resources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "agent": {
+              "type": "boolean"
+            }
+          }
+        },
+        "CreatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ExpiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "LastUsedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "LastUsedIp": {
+          "type": "string",
+          "nullable": true
+        },
+        "Expired": {
+          "type": "boolean"
+        }
+      }
+    },
+    "AuthnTokenCreated": {
+      "type": "object",
+      "required": [
+        "Token",
+        "Plaintext"
+      ],
+      "properties": {
+        "Token": {
+          "$ref": "#/components/schemas/AuthnTokenEntry"
+        },
+        "Plaintext": {
+          "type": "string",
+          "description": "shown once"
+        }
+      }
+    },
+    "AuthnTokenCreateBody": {
+      "type": "object",
+      "required": [
+        "name",
+        "expiresAt"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "profile": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "pat",
+            "service",
+            "agent"
+          ]
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "permissions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "resources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "agent": {
+              "type": "boolean"
+            }
+          }
+        },
+        "reauthPassword": {
+          "type": "string",
+          "description": "the account password, when the session is not fresh"
+        }
+      }
+    }
+  }
+}

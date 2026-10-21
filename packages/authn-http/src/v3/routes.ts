@@ -1,17 +1,18 @@
 import type { Configuration } from '@spinajs/configuration';
 import type { IContainer } from '@spinajs/di';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 import { Ok } from '@spinajs/http';
 import type { ICookie, Request, Unauthorized } from '@spinajs/http';
-import { mfaEnrolmentRefusal } from '@spinajs/authn';
-import { AuthnResponseExtension, AuthnService, SessionIssuer } from '@spinajs/authn/contracts';
-import type { Credentials, IdentityRef, Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
+import { ACTIVE_ROLE_KEY, mfaEnrolmentRefusal } from '@spinajs/authn';
+import { AuthnResponseExtension, AuthnService, SessionIssuer, SessionStartHook } from '@spinajs/authn/contracts';
+import type { Ceiling, Credentials, IdentityRef, MfaStep, Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
 import { SESSION_IP_KEY, SESSION_USER_AGENT_KEY } from '@spinajs/authn-session';
-import { isPlainObject } from '@spinajs/util';
+import { isNonEmptyString, isPlainObject } from '@spinajs/util';
 
 import { publishAuthnEvent } from '../policies/v3/audit.js';
 import { unauthenticated } from '../policies/v3/errors.js';
 import { mfaPolicyOf } from '../policies/v3/mfa.js';
+import { narrowedBySwitch } from '../resolvers/session.js';
 import { contextOf } from './context.js';
 import { NO_STORE, authnClearedSessionCookie, authnFailureResponse, authnSessionCookie } from './responses.js';
 
@@ -31,6 +32,9 @@ export function bodyField(req: Request, name: string): unknown {
   return body[name];
 }
 
+/** A browser navigation (Sec-Fetch-Mode: navigate, or Accept lists text/html) as opposed to a script's request. */
+export const isNavigation = (req: Request): boolean => req.get('sec-fetch-mode') === 'navigate' || /\btext\/html\b/i.test(req.get('accept') ?? '');
+
 /** A non-empty string of at most `cap` characters, else null. */
 export const boundedString = (value: unknown, cap: number): string | null => (typeof value === 'string' && value !== '' && value.length <= cap ? value : null);
 
@@ -45,8 +49,8 @@ export async function stampClient(sessions: SessionIssuer, handle: SessionHandle
 /**
  * A login route's answer: ends a session the caller already holds, then authenticates `credentials` (null: missing or
  * malformed, a failed login). Success: the session cookie and the principal summary with the login extensions; MFA
- * required: `{ MfaRequired: [steps] }` with the pending session cookie; any failure: the login failure answer, plus
- * Retry-After when throttled, clearing the ended session's cookie.
+ * required: `{ MfaRequired, MfaEnrol }` (pendingAnswer) with the pending session cookie; any failure: the login failure
+ * answer, plus Retry-After when throttled, clearing the ended session's cookie.
  */
 export async function completeLogin(container: IContainer, sessions: SessionIssuer, config: Configuration, req: Request, credentials: Credentials | null): Promise<Ok | Unauthorized> {
   const held = req.storage.AuthnSession;
@@ -63,13 +67,51 @@ export async function completeLogin(container: IContainer, sessions: SessionIssu
   if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined, cleared);
   if (result.status === 'mfa_required') {
     await stampClient(sessions, result.pending, req);
-    return new Ok({ MfaRequired: [...result.steps] }, { Coockies: [authnSessionCookie(config, result.pending)], Headers: [NO_STORE] });
+    const pending = await sessions.restore(result.pending.id);
+    if (!pending) return authnFailureResponse(undefined, cleared);
+    const body = await pendingAnswer(container, config.get<string>('authn.mfa.policy.service'), pending.identity, result.steps);
+    return new Ok(body, { Coockies: [authnSessionCookie(config, result.pending)], Headers: [NO_STORE] });
   }
   // A strategy that takes these credentials but issues no session cannot log anyone in here.
   if (!result.session) return authnFailureResponse(undefined, cleared);
   await stampClient(sessions, result.session, req);
-  const principal = await authn.principalOf(result);
+  const principal = await startedSession(container, sessions, 'login', result.session, await authn.principalOf(result));
   return new Ok(await answerFor(container, 'login', principal), { Coockies: [authnSessionCookie(config, result.session)], Headers: [NO_STORE] });
+}
+
+/**
+ * Asks the SessionStartHooks, in registration order, about `handle`, the active session a login or an MFA completion has
+ * just issued for `principal`. The first ceiling answered is stored as the session's ActiveRole, as a role switch stores
+ * it, and the principal is narrowed by it; with none, `principal` as it is. A hook that throws or answers a ceiling
+ * ActiveRole cannot hold ends the session, which must never live on with every held role, and fails the request.
+ */
+export async function startedSession(container: IContainer, sessions: SessionIssuer, kind: 'login' | 'mfa', handle: SessionHandle, principal: Principal): Promise<Principal> {
+  const hooks = (await container.resolve(Array.ofType(SessionStartHook))) as SessionStartHook[];
+  try {
+    // A resolve of the abstract base itself would leave an instance of it in the list; it answers nothing.
+    for (const hook of hooks.filter((h) => h?.constructor !== SessionStartHook && typeof h?.onStart === 'function')) {
+      const ceiling = await hook.onStart(kind, handle, principal, sessions);
+      if (ceiling === undefined) continue;
+      await sessions.set(handle, ACTIVE_ROLE_KEY, activeRoleOf(hook, ceiling));
+      const session = await sessions.restore(handle.id);
+      if (!session) throw unauthenticated('the session has ended');
+      return await narrowedBySwitch(container, session, principal);
+    }
+    return principal;
+  } catch (err) {
+    await sessions.revoke(handle);
+    throw err;
+  }
+}
+
+/** The ActiveRole that holds `ceiling`: one role, or '' for none. */
+function activeRoleOf(hook: SessionStartHook, ceiling: Ceiling): string {
+  const { roles, ...narrowing } = ceiling;
+  const one = Array.isArray(roles) && roles.length <= 1 && roles.every(isNonEmptyString);
+  if (!one || Object.values(narrowing).some((v) => v !== undefined)) {
+    throw new UnexpectedServerError(`${hook.constructor.name} answered a ceiling a session's ActiveRole cannot hold: ${JSON.stringify(ceiling)}. A SessionStartHook answers { roles: [role] } or { roles: [] }`);
+  }
+  return roles[0] ?? '';
 }
 
 /**
@@ -139,6 +181,21 @@ export async function pendingSteps(container: IContainer, session: Session, poli
     if (mfaEnrolmentRefusal(err)) return [];
     throw err;
   }
+}
+
+/**
+ * What a pending session is told (SR-07: nothing about the principal): `MfaRequired`, the steps it waits for, and
+ * `MfaEnrol`, those of them the identity has not enrolled in, which it must enrol (`POST /user/mfa`) before it can verify
+ * them. A step the MFA policy does not list counts as enrolled: no route could enrol it.
+ */
+export async function pendingAnswer(container: IContainer, policyService: string, identity: IdentityRef, steps: readonly string[]): Promise<{ MfaRequired: string[]; MfaEnrol: string[] }> {
+  const listed: ReadonlyMap<string, MfaStep> = steps.length > 0 ? await (await mfaPolicyOf(container, policyService)).steps() : new Map();
+  const enrol: string[] = [];
+  for (const name of steps) {
+    const step = listed.get(name);
+    if (step && !(await step.enrolled(identity))) enrol.push(name);
+  }
+  return { MfaRequired: [...steps], MfaEnrol: enrol };
 }
 
 /** A user id, or `{ type, id }`, each part a non-empty string of at most `cap` characters. */

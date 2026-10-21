@@ -3,7 +3,8 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 
 import { AuthzAdminFailure, AuthzClock, AuthzConfigError, AuthzDomains, GLOBAL } from '@spinajs/authz';
-import type { AuthzTx, PrincipalRef, ResourceRef, RuleDef } from '@spinajs/authz';
+import type { AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import type { RuleDef } from '../../src/contracts.js';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';

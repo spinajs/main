@@ -25,7 +25,7 @@ export interface AuthnEvent {
     /** Never passwords, tokens, secrets or raw session ids (A21). */
     readonly data?: Readonly<Record<string, unknown>>;
 }
-export type AuthnEventType = "login" | "logout" | "mfa.challenge" | "mfa.verify" | "mfa.enrol" | "mfa.disable" | "reauth" | "session.issue" | "session.rotate" | "session.revoke" | "session.expire" | "password.change" | "password.reset.request" | "password.reset" | "invite.redeem" | "token.create" | "token.use" | "token.revoke" | "key.register" | "key.use" | "key.revoke" | "identity.link" | "identity.unlink" | "impersonation.start" | "impersonation.end" | "impersonation.expire" | "throttle.block";
+export type AuthnEventType = "login" | "logout" | "mfa.challenge" | "mfa.verify" | "mfa.enrol" | "mfa.disable" | "reauth" | "session.issue" | "session.rotate" | "session.revoke" | "session.expire" | "password.change" | "password.reset.request" | "password.reset" | "invite.redeem" | "token.create" | "token.use" | "token.revoke" | "token.rotate" | "token.update" | "key.register" | "key.use" | "key.revoke" | "identity.link" | "identity.unlink" | "impersonation.start" | "impersonation.end" | "impersonation.expire" | "throttle.block" | "passkey.register" | "passkey.remove" | "address.verify.request" | "address.verify" | "code.request" | "identity.register";
 /**
  * Registered with Array.ofType: every sink gets every event (A21).
  * Log sinks write identifiers (login strings, emails) as keyed hashes (authn.audit.hashIdentifiers, SR-19);
@@ -50,6 +50,29 @@ const CLI_ACTOR = Object.freeze({
     type: "system",
     id: "cli"
 });
+```
+
+## src/contracts/credential-bus.ts
+
+```ts
+import type { IdentityRef } from "./credentials.js";
+/** A credential that changed: a revoked token or key, or an identity whose status or credentials changed. */
+export type CredentialChange = {
+    readonly kind: "token" | "key";
+    readonly id: string;
+} | {
+    readonly kind: "identity";
+    readonly identity: IdentityRef;
+};
+/**
+ * Tells credential caches that a credential changed, so they evict it before their TTL runs out. The default bus only
+ * reaches the current process; other processes rely on the cache TTL (D9).
+ */
+export declare abstract class CredentialChangeBus {
+    abstract publish(change: CredentialChange): Promise<void>;
+    /** Returns the unsubscribe function. */
+    abstract subscribe(listener: (change: CredentialChange) => void): () => void;
+}
 ```
 
 ## src/contracts/credentials.ts
@@ -111,6 +134,8 @@ export interface ExternalSubject {
     readonly email?: string;
     readonly emailVerified?: boolean;
     readonly claims?: Readonly<Record<string, unknown>>;
+    /** The IdP session id (OIDC `sid`); the session keeps it in AuthnFacts.external for back-channel logout. */
+    readonly sid?: string;
 }
 /** Bad credentials yield a failure result; they are never thrown. */
 export type AuthenticationResult = {
@@ -139,7 +164,7 @@ export type AuthenticationResult = {
     readonly retryAfterSeconds?: number;
 };
 /** Goes to audit only; HTTP answers one shape for all of them (A02). */
-export type AuthnFailure = "invalid_credentials" | "throttled" | "unsupported_credentials" | "expired" | "revoked" | "not_linked";
+export type AuthnFailure = "invalid_credentials" | "throttled" | "unsupported_credentials" | "expired" | "revoked" | "not_linked" | "unverified_address";
 export type StrategyOutcome = {
     readonly ok: true;
     /** One of identity and external. */
@@ -158,9 +183,13 @@ export type StrategyOutcome = {
      * credentials; sessions do not keep them.
      */
     readonly attributes?: Readonly<Record<string, unknown>>;
+    /** Default 'aal1'. 'aal2' only for a credential that is two factors on its own: a passkey with user verification (D7). */
+    readonly assurance?: "aal1" | "aal2";
 } | {
     readonly ok: false;
     readonly reason: AuthnFailure;
+    /** Only with reason 'throttled' (a strategy short of capacity, not a backoff): seconds the client should wait; the service answers 1 when absent. */
+    readonly retryAfterSeconds?: number;
 };
 ```
 
@@ -222,12 +251,9 @@ export declare function isFresh(facts: Pick<AuthnFacts, "authenticatedAt" | "imp
 
 ```ts
 import type { ExternalSubject, IdentityRef } from "./credentials.js";
-import type { Principal } from "./principal.js";
-/** req.storage keys written by AuthnMiddleware (D26). */
-export interface IAuthnPrincipalStorage {
-    /** null: no or pending credentials. authz-http's AuthnPrincipalSource reads it. */
-    AuthnPrincipal?: Principal | null;
-}
+import type { Ceiling, Principal } from "./principal.js";
+import type { SessionHandle, SessionIssuer } from "./session.js";
+export type { IAuthnPrincipalStorage } from "@spinajs/principal";
 /** Registered with Array.ofType; users' AccessResponseExtension adds `Access` (D26). */
 export declare abstract class AuthnResponseExtension {
     /** Adds fields to body, the answer being built. */
@@ -239,6 +265,18 @@ export declare abstract class RoleSource {
         role: string;
         requirePassword: boolean;
     }[]>;
+}
+/**
+ * Registered with Array.ofType; users: OrderedActiveRoleHook (`authz.principals.roleSwitch.initial`). authn-http asks the hooks
+ * in registration order once its login routes (password, key challenge, email code, passkey) or MFA completion have
+ * issued the active session, before the answer is built; a step-up or re-authentication asks none. The first ceiling
+ * answered is stored as the session's ActiveRole, the key a role switch writes, and narrows the principal of the answer
+ * and of every later request on the session; undefined passes to the next hook. The ceiling must name at most one role
+ * and nothing else (`{ roles: [role] }`, or `{ roles: [] }` for none).
+ * A throw, or any other ceiling, ends the session and fails the request: it never lives on with every held role.
+ */
+export declare abstract class SessionStartHook {
+    abstract onStart(kind: "login" | "mfa", session: SessionHandle, principal: Principal, sessions: SessionIssuer): Promise<Ceiling | undefined>;
 }
 /**
  * Registered with Array.ofType; runs after a successful external login (OIDC), e.g. an app's group sync through AuthzAdmin.
@@ -271,13 +309,38 @@ export declare abstract class CredentialAdminGuard {
 ## src/contracts/identity.ts
 
 ```ts
-import type { ExternalSubject, IdentityRef } from "./credentials.js";
+import type { AuthnContext, ExternalSubject, IdentityRef } from "./credentials.js";
 export interface IdentityStatus {
     readonly exists: boolean;
     readonly active: boolean;
     readonly banned: boolean;
     readonly deleted: boolean;
     readonly invitePending?: boolean;
+    /** undefined: the store does not track it. */
+    readonly addressVerified?: boolean;
+}
+/** Implemented by @spinajs/users. */
+export declare abstract class IdentityAddressVerifier {
+    /** Idempotent: an address verified earlier keeps its first time. */
+    abstract markVerified(id: IdentityRef, at: Date): Promise<void>;
+}
+/** Implemented by @spinajs/users. Absent: the registration route answers 404. */
+export declare abstract class IdentityRegistrar {
+    /**
+     * Creates an account for a stranger; the caller applies the password policy first. A login or an email that is taken answers
+     * `exists` with the account that holds it, so the caller can tell its owner without telling the stranger (A35).
+     */
+    abstract register(data: {
+        readonly login: string;
+        readonly email: string;
+        readonly password: string;
+    }, ctx: AuthnContext): Promise<{
+        readonly status: "created";
+        readonly id: IdentityRef;
+    } | {
+        readonly status: "exists";
+        readonly id: IdentityRef;
+    }>;
 }
 /** Implemented by @spinajs/users. */
 export declare abstract class IdentityStore {
@@ -351,6 +414,8 @@ export * from "./fresh.js";
 export * from "./cli.js";
 export * from "./failure.js";
 export * from "./nonce.js";
+export * from "./passkeys.js";
+export * from "./credential-bus.js";
 ```
 
 ## src/contracts/jws.ts
@@ -620,6 +685,12 @@ export declare abstract class MfaStep {
      * Admin reset (target guard, A25) also lands here and never receives a secret (A10).
      */
     abstract disable(id: IdentityRef): Promise<void>;
+    /**
+     * Steps that deliver a code out of band (email) send it here, for a pending session of `id` (POST /auth/mfa/challenge).
+     * Steps without it need no challenge. A step may resolve with what its own client needs (WebAuthn's assertion options,
+     * served by the passkey routes); the route ignores it.
+     */
+    challenge?(id: IdentityRef, ctx: AuthnContext): Promise<unknown>;
 }
 /**
  * DefaultMfaPolicy: required when enrolled; 'force' makes enrolment mandatory. An AsyncService so an implementation can
@@ -681,6 +752,16 @@ export declare abstract class MfaEnrolmentService {
         reset: boolean;
     }>;
 }
+/**
+ * Enrolment marks of steps that keep no secret of their own (the email code): whether an identity enrolled in a step. authn-orm
+ * keeps them in `authn_mfa`, so MfaEnrolments sees them too.
+ */
+export declare abstract class MfaEnrolmentMarks {
+    abstract has(id: IdentityRef, step: string): Promise<boolean>;
+    /** False when the identity is marked already. */
+    abstract mark(id: IdentityRef, step: string): Promise<boolean>;
+    abstract unmark(id: IdentityRef, step: string): Promise<void>;
+}
 ```
 
 ## src/contracts/nonce.ts
@@ -688,7 +769,7 @@ export declare abstract class MfaEnrolmentService {
 ```ts
 /**
  * Single-use values (assertion jti, HTTP signature nonces, OIDC state) until they expire. `MemoryNonceStore` (core) and
- * `DbNonceStore` (authn-orm) implement it; authn-keys' `KeyNonceStore` has the same semantics, so it can delegate here.
+ * `DbNonceStore` (authn-orm) implement it; the authn-keys strategies claim here too.
  */
 export declare abstract class NonceStore {
     /**
@@ -696,6 +777,59 @@ export declare abstract class NonceStore {
      * `expiresAt` at or before `now` is never live, so such a claim is always true: callers refuse expired tokens first.
      */
     abstract claim(key: string, expiresAt: Date, now: Date): Promise<boolean>;
+}
+```
+
+## src/contracts/passkeys.ts
+
+```ts
+import type { AuthnContext, IdentityRef } from "./credentials.js";
+/** WebAuthn options for the browser (`PublicKeyCredential*OptionsJSON`) and the id of the challenge they carry. */
+export interface PasskeyCeremony {
+    readonly challengeId: string;
+    readonly options: Readonly<Record<string, unknown>>;
+}
+/** A registered passkey as its owner sees it; never the public key. */
+export interface PasskeyEntry {
+    /** The credential id, base64url. */
+    readonly id: string;
+    readonly name?: string;
+    readonly transports?: readonly string[];
+    readonly createdAt: Date;
+    readonly lastUsedAt?: Date;
+}
+export interface PasskeyRegistration {
+    readonly challengeId: string;
+    /** The browser's `RegistrationResponseJSON`, unparsed. */
+    readonly response: unknown;
+    readonly name?: string;
+}
+/** `invalid_response`: a wrong, used, expired or foreign challenge, or an attestation that does not verify. */
+export type PasskeyRegisterResult = {
+    readonly ok: true;
+    readonly passkey: PasskeyEntry;
+} | {
+    readonly ok: false;
+    readonly code: "invalid_response" | "duplicate";
+};
+/**
+ * The passkeys of an identity behind the passkey routes; authn-webauthn's WebAuthnPasskeyService. The caller requires
+ * fresh auth before registrationOptions and register (A13) and acts only on the identity of its own session. Login
+ * itself goes through AuthnService.authenticate with `{ kind: 'webauthn', challengeId, response }`.
+ */
+export declare abstract class PasskeyService {
+    /**
+     * Assertion options for a login. With `identity` (a pending session's), a challenge for the WebAuthn MFA step that
+     * allows only that identity's credentials.
+     */
+    abstract challenge(ctx: AuthnContext, identity?: IdentityRef): Promise<PasskeyCeremony>;
+    /** Creation options for a discoverable credential bound to `id`. */
+    abstract registrationOptions(id: IdentityRef, ctx: AuthnContext): Promise<PasskeyCeremony>;
+    abstract register(id: IdentityRef, registration: PasskeyRegistration, ctx: AuthnContext): Promise<PasskeyRegisterResult>;
+    /** Oldest first. */
+    abstract list(id: IdentityRef): Promise<readonly PasskeyEntry[]>;
+    /** False when `id` holds no passkey with that credential id. */
+    abstract remove(id: IdentityRef, credentialId: string, ctx: AuthnContext): Promise<boolean>;
 }
 ```
 
@@ -716,8 +850,17 @@ export interface PasswordPolicy {
 }
 /** Longer passwords never verify, so no strategy hashes them; HTTP routes cap their credential fields at it too (N3). */
 export declare const PASSWORD_HARD_CAP = 1024;
-/** A policy violation says nothing about the account, so the caller may show it. */
-export type PasswordViolation = "too_short" | "too_long" | "rule" | "blocklisted";
+/**
+ * A policy violation says nothing about the account, so the caller may show it. `similar_to_identifier` compares the password
+ * only with the identifiers the caller passed or the account it is set for already shows its owner.
+ */
+export type PasswordViolation = "too_short" | "too_long" | "rule" | "blocklisted" | "similar_to_identifier";
+/** The identifiers of the account a password is checked for; a policy refuses passwords too close to them. */
+export interface PasswordPolicyContext {
+    readonly login?: string;
+    readonly email?: string;
+    readonly name?: string;
+}
 /**
  * 'invalid' is the one answer for an unknown or inactive account, a wrong password, and a missing, expired, used or wrong secret
  * (A02, A11, SR-17); the real reason goes to audit only.
@@ -751,6 +894,24 @@ export type PasswordSetResult = {
 } | {
     readonly status: "rejected";
     readonly violations: readonly PasswordViolation[];
+};
+export type AddressVerificationRequestResult = {
+    readonly status: "accepted";
+} | {
+    readonly status: "throttled";
+    readonly retryAfterSeconds: number;
+};
+/** 'invalid' is the one answer for a wrong, used, expired or other-purpose secret and for an identity that cannot verify (A02). */
+export type AddressVerificationResult = {
+    readonly status: "verified";
+} | {
+    readonly status: "invalid";
+};
+export type CodeRequestResult = {
+    readonly status: "accepted";
+} | {
+    readonly status: "throttled";
+    readonly retryAfterSeconds: number;
 };
 /** Why a password stops working. */
 export type PasswordExpiry = {
@@ -787,8 +948,9 @@ export declare abstract class PasswordService {
     abstract requestReset(login: string, ctx: AuthnContext): Promise<PasswordResetRequestResult>;
     /**
      * POST /auth/password/reset. Counts the attempt against the 'reset' flow's IP key only (the account key would refuse a link redeemed
-     * soon after its request), then checks the policy, then the secret, so a violation tells nothing about the account and does not use
-     * up the secret. Single use; takes the same time for an unknown login (A02). Accepts purpose 'reset', or 'invite' while the identity
+     * soon after its request), resolves the login, then checks the policy, then the secret, so a violation does not use up the secret.
+     * Only `similar_to_identifier` depends on the account: the policy compares the password with the identifiers of an eligible one.
+     * Single use; takes the same time for an unknown login (A02). Accepts purpose 'reset', or 'invite' while the identity
      * has a pending invite (A32). Revokes every session of the identity, incl. those where it is the impersonator, and with
      * authn.local.reset.revokeTokens every token (A11, A30).
      */
@@ -799,8 +961,11 @@ export declare abstract class PasswordService {
     }): Promise<void>;
     /** GET /auth/password/policy. */
     abstract policy(): PasswordPolicy;
-    /** Length, rule and blocklist, as every method that sets a password applies them (A04); empty: acceptable. Lets users check before it creates an identity. */
-    abstract check(password: string): Promise<readonly PasswordViolation[]>;
+    /**
+     * Length, rule, identifier similarity and blocklist, as every method that sets a password applies them (A04); empty: acceptable.
+     * Lets users check before it creates an identity. Without `ctx` the similarity rule is skipped.
+     */
+    abstract check(password: string, ctx?: PasswordPolicyContext): Promise<readonly PasswordViolation[]>;
     /**
      * Sets a password without the old one: users' create and the CLI. Applies `check` (A04). Not a voluntary change: revokes every session
      * of `id`, incl. those where it is the impersonator, and with authn.local.reset.revokeTokens every token (A30).
@@ -810,6 +975,28 @@ export declare abstract class PasswordService {
     }): Promise<PasswordSetResult>;
     /** Makes the current password unusable; the rest depends on the cause. */
     abstract expire(id: IdentityRef, opts: PasswordExpiry, ctx: AuthnContext): Promise<void>;
+    /**
+     * POST /auth/verify/request. Counts the attempt in the 'reset' flow (account key), then answers at once; the secret of purpose
+     * 'verify' is issued when the mail is sent (SR-09). An address already verified gets no mail and the same answer. Optional:
+     * without it the verification routes are off.
+     */
+    requestVerification?(id: IdentityRef, ctx: AuthnContext): Promise<AddressVerificationRequestResult>;
+    /** POST /auth/verify. Single use; marks the address verified through IdentityAddressVerifier. */
+    redeemVerification?(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult>;
+    /**
+     * POST /auth/code/request. Counts the attempt in the 'reset' flow (login and IP keys) before anything else, then answers at once
+     * with the same result whether or not the account exists; the code is issued when the mail is sent (SR-09). An identity that is
+     * not active, or whose address the store reports unverified, gets none. Optional: without it the code login routes are off.
+     */
+    requestCode?(login: string, ctx: AuthnContext): Promise<CodeRequestResult>;
+    /** Mails a code to `id` for the email code step (POST /auth/mfa/challenge); counted in the 'reset' flow on the account. */
+    challengeCode?(id: IdentityRef, ctx: AuthnContext): Promise<CodeRequestResult>;
+    /**
+     * Tells the owner of `id` that someone tried to register with their address: a mail of purpose 'account-exists' that holds no
+     * secret and points at the reset page. Dispatched, not awaited to delivery; the registration route calls it for an address
+     * that is taken. Optional: without it that mail is not sent.
+     */
+    notifyAccountExists?(id: IdentityRef, ctx: AuthnContext): Promise<void>;
 }
 
 // values
@@ -819,82 +1006,8 @@ const PASSWORD_HARD_CAP = 1024;
 ## src/contracts/principal.ts
 
 ```ts
-/** 'users', 'file', 'ArrowCampaign', 'job', 'dir' */
-export type ResourceType = string;
-export interface ResourceRef {
-    readonly type: ResourceType;
-    /** Absent = type-level (collections, "some row"). */
-    readonly id?: string;
-}
-export type PrincipalType = "user" | "anonymous" | "unattended" | "system" | "service" | "link" | "agent" | "group" | (string & {});
-export interface PrincipalRef {
-    readonly type: PrincipalType;
-    readonly id: string;
-}
-export interface Principal extends PrincipalRef {
-    /** False for anonymous and unattended; true for a link bearer. */
-    readonly authenticated: boolean;
-    /** 'session' | 'token' | 'link' | 'runAs' | 'queue' | app */
-    readonly source: string;
-    /** Agents, delegated tokens; the answer is at most the delegate's. */
-    readonly onBehalfOf?: Principal;
-    /** With onBehalfOf; default 'intersect'. */
-    readonly delegation?: "intersect" | "inherit";
-    /** Identities that also speak in this request (the signed-in user behind a link). */
-    readonly companions?: readonly PrincipalRef[];
-    readonly ceiling?: Ceiling;
-    readonly attributes: Readonly<Record<string, unknown>>;
-    /** The User model or app object; opaque to authz. */
-    readonly identity?: unknown;
-    /** Set by authn; conditions read 'principal.authn.*'. */
-    readonly authn?: AuthnFacts;
-}
-export interface AuthnFacts {
-    /** 'password' | 'token' | 'jws' | 'http-signature' | 'oidc' | 'ldap' | 'saml' */
-    readonly method: string;
-    /** Configured strategy name: 'local', 'token', 'keys', 'oidc:google'. */
-    readonly strategy: string;
-    /** 'aal2' when an MFA step passed. */
-    readonly assurance: "aal1" | "aal2";
-    /** Passed steps: ['totp']. */
-    readonly mfa: readonly string[];
-    readonly authenticatedAt: Date;
-    /** Set while impersonating. */
-    readonly impersonator?: PrincipalRef;
-    /** Hashed session id, never the raw one. */
-    readonly sessionHandle?: string;
-}
-export interface Ceiling {
-    readonly roles?: readonly string[];
-    /** Globs: 'file:*', 'project:read'. */
-    readonly permissions?: readonly string[];
-    /** Each covers itself and its descendants; [] covers nothing. */
-    readonly resources?: readonly ResourceRef[];
-    readonly expiresAt?: Date;
-    /** Deny code when the ceiling fails; default 'ceiling'. */
-    readonly reason?: string;
-}
-export declare const SYSTEM: Principal;
-export declare const UNATTENDED: Principal;
-export declare const principalKey: (p: PrincipalRef) => string;
-export declare const sameRef: (a: PrincipalRef, b: PrincipalRef) => boolean;
-export declare const ceilingHash: (c: Ceiling | undefined) => string;
-
-// values
-const SYSTEM = Object.freeze({
-    type: "system",
-    id: "system",
-    authenticated: true,
-    source: "runAs",
-    attributes: Object.freeze({})
-});
-const UNATTENDED = Object.freeze({
-    type: "unattended",
-    id: "unattended",
-    authenticated: false,
-    source: "unattended",
-    attributes: Object.freeze({})
-});
+export { SYSTEM, UNATTENDED, principalKey, sameRef, ceilingHash } from "@spinajs/principal";
+export type { ResourceType, ResourceRef, PrincipalType, PrincipalRef, Principal, AuthnFacts, Ceiling } from "@spinajs/principal";
 ```
 
 ## src/contracts/secrets.ts
@@ -903,8 +1016,11 @@ const UNATTENDED = Object.freeze({
 import type { IdentityRef } from "./credentials.js";
 /** Single-use secrets: reset, invite, email confirm, key challenge. Stored as SHA-256 only (SR-09); DbSecretStore in authn-orm. */
 export declare abstract class SecretStore {
-    /** Returns the raw secret once (≥ 128 bits); replaces older ones of that purpose (A11). */
-    abstract issue(identity: IdentityRef, purpose: string, ttlSeconds: number): Promise<string>;
+    /**
+     * Returns the raw secret once (≥ 128 bits); replaces older ones of that purpose (A11). `value` makes the secret that string
+     * instead, for short codes whose guessing the caller limits itself; a store that cannot keep it returns a random one.
+     */
+    abstract issue(identity: IdentityRef, purpose: string, ttlSeconds: number, value?: string): Promise<string>;
     /** Constant time; single use; false for a wrong, expired, redeemed or other-purpose secret (A11). */
     abstract redeem(identity: IdentityRef, purpose: string, raw: string): Promise<boolean>;
 }
@@ -928,6 +1044,12 @@ export declare abstract class AuthnService extends AsyncService {
      * A throttled re-authentication returns false; the route answers like any failed re-authentication.
      */
     abstract reauthenticate(session: SessionHandle, c: Credentials, ctx: AuthnContext): Promise<boolean>;
+    /**
+     * Step-up of an active aal1 session: verifies `step` (an enrolled step of the MFA policy, or 'recovery' for a recovery
+     * code) with `response`; success reissues the session at aal2 under a new id. An aal2 session succeeds as it is.
+     * Throttled like completeMfa (flow 'mfa'); a pending or impersonated session fails.
+     */
+    abstract stepUp(session: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult>;
     /** Via PrincipalFactory. */
     abstract principalOf(result: Extract<AuthenticationResult, {
         status: "success";
@@ -1030,6 +1152,12 @@ export interface SessionHandle {
     readonly id: string;
     readonly state: "pending" | "active";
 }
+/** What `SessionIssuer.reissue` may change in the facts of an active session; it never lowers the assurance. */
+export interface SessionFactsChange {
+    readonly assurance?: "aal2";
+    readonly mfa?: readonly string[];
+    readonly authenticatedAt?: Date;
+}
 /** Implemented by @spinajs/authn-session. */
 export declare abstract class SessionIssuer {
     /**
@@ -1046,8 +1174,14 @@ export declare abstract class SessionIssuer {
     abstract restore(rawId: string): Promise<Session | null>;
     /** New id, same data (fixation). */
     abstract rotate(h: SessionHandle): Promise<SessionHandle>;
-    /** pending → active, aal2; rotates. Refuses an active session: a re-authentication never changes the facts of a live session. */
+    /** pending → active, aal2; rotates. Refuses an active session, whose facts only `reissue` changes. */
     abstract elevate(h: SessionHandle, facts: Partial<AuthnFacts>): Promise<SessionHandle>;
+    /**
+     * Active sessions only: moves the row to a fresh id with `change` merged into its facts; data, subject, impersonator,
+     * creation and expiry are kept. Refuses a pending session. As with `rotate`, a revocation that lands during the move
+     * stays in force, and of parallel reissues of one session exactly one succeeds.
+     */
+    abstract reissue(h: SessionHandle, change: SessionFactsChange): Promise<SessionHandle>;
     /** Holds ActiveRole and the impersonation block. Never changes the subject, impersonator or state: the issuer refuses its reserved keys. */
     abstract set(h: SessionHandle, key: string, value: unknown): Promise<void>;
     /** True only for the call that ended the session, so of parallel revokes of one session exactly one gets true. */
@@ -1079,6 +1213,12 @@ export declare abstract class SessionIssuer {
         userAgent?: string;
         current?: boolean;
     }[]>;
+    /** Ends every session issued from `provider` with IdP session id `sid` (AuthnFacts.external); returns the count. */
+    abstract revokeByExternal(provider: string, sid: string): Promise<number>;
+    /** Optional; the authn service calls it at boot with its configuration, so an issuer that cannot run on it fails the boot. */
+    checkConfiguration?(booting: {
+        get<T>(path: string | string[]): T;
+    }): Promise<void>;
 }
 ```
 
@@ -1123,6 +1263,14 @@ export interface ThrottleKey {
     readonly value: string;
 }
 export type ThrottleFlow = "login" | "mfa" | "reset" | "reauth";
+/** `clean`: no live row holds any of the keys, so a success has nothing to lower or clear and `succeed` may be skipped. */
+export type PeekVerdict = {
+    readonly allowed: true;
+    readonly clean: boolean;
+} | {
+    readonly allowed: false;
+    readonly retryAfterSeconds: number;
+};
 /** Backoff, never a lock (H31). MemoryAuthnThrottle (core), DbAuthnThrottle (authn-orm). */
 export declare abstract class AuthnThrottle {
     /**
@@ -1255,6 +1403,30 @@ export type TokenCreateResult = {
     readonly ok: false;
     readonly code: "invalid_expiry" | "invalid_scope";
 };
+export type TokenRotateResult = {
+    readonly ok: true;
+    /** The new secret, returned once; never stored or logged (SR-08). */
+    readonly plaintext: string;
+    readonly token: TokenRecord;
+} | {
+    readonly ok: false;
+    readonly reason: "not_found";
+};
+/** The fields `update` can change; each can only narrow the token. */
+export interface TokenUpdate {
+    readonly name?: string;
+    /** A subset of the token's roles; for a token without roles, roles its owner holds. */
+    readonly roles?: readonly string[];
+    /** Not after the current expiry, and after ctx.now. */
+    readonly expiresAt?: Date;
+}
+export type TokenUpdateResult = {
+    readonly ok: true;
+    readonly token: TokenRecord;
+} | {
+    readonly ok: false;
+    readonly reason: "not_found" | "invalid_scope" | "invalid_expiry";
+};
 /**
  * A StrategyOutcome; TokenStrategy returns it with `profile` copied to attributes.profile. ceiling.roles are the token's roles. An agent token yields identity
  * { type: 'agent', id: token id }, delegation 'inherit' on behalf of the owner and a ceiling with reason 'out_of_scope' and no roles (A15).
@@ -1305,10 +1477,30 @@ export declare abstract class TokenService {
     abstract revoke(owner: IdentityRef, id: string, ctx: AuthnContext, opts?: {
         readonly actor?: PrincipalRef;
     }): Promise<boolean>;
+    /**
+     * POST /user/tokens/:uuid/rotate; the route requires fresh auth. Replaces the secret of a live token of `owner` and keeps its id, name,
+     * roles, scope and expiry. The old secret stops working at once, or after `graceSeconds` (default 0, whole seconds, at most
+     * 604800, else InvalidArgument) so a deployment can swap it. Owner-bound: not_found for a token that is
+     * revoked, expired, unknown or someone else's (no IDOR).
+     */
+    abstract rotate(owner: IdentityRef, id: string, ctx: AuthnContext, opts?: {
+        readonly graceSeconds?: number;
+    }): Promise<TokenRotateResult>;
+    /**
+     * PATCH /user/tokens/:uuid. Only narrows: adding a role is invalid_scope (so is roles on an agent token or an empty list), an expiry
+     * past the current one, or not after ctx.now, is invalid_expiry. Owner-bound like revoke; not_found for a revoked token.
+     */
+    abstract update(owner: IdentityRef, id: string, change: TokenUpdate, ctx: AuthnContext): Promise<TokenUpdateResult>;
     /** Password reset and admin credential reset (A11, A25); agent tokens acting for `owner` included. Returns the count. */
     abstract revokeAllFor(owner: IdentityRef, ctx: AuthnContext, opts?: {
         readonly actor?: PrincipalRef;
     }): Promise<number>;
+    /**
+     * POST /auth/tokens/revoke (RFC 7009): the holder of a secret ends its token without a session. True when this call revoked a live token;
+     * false for an unknown, malformed, already revoked or out-of-grace secret, and never thrown, so the route answers the same in every case.
+     * The previous secret of a rotation counts only until its grace ends. Audited as `token.revoke` with reason 'self'.
+     */
+    abstract revokeByPlaintext(raw: string, ctx: AuthnContext): Promise<boolean>;
     /** Hash lookup; checks revocation, expiry and the owner's status on every use (A14, A15). Bad tokens yield a failure; they are never thrown. */
     abstract validate(raw: string, ctx: AuthnContext): Promise<TokenValidation>;
 }
@@ -1317,6 +1509,28 @@ export declare abstract class TokenService {
 ## Re-exported from other packages
 
 ```ts
+// AuthnFacts (@spinajs/principal)
+export interface AuthnFacts {
+    /** 'password' | 'token' | 'jws' | 'http-signature' | 'oidc' | 'ldap' | 'saml' */
+    readonly method: string;
+    /** Configured strategy name: 'local', 'token', 'keys', 'oidc:google'. */
+    readonly strategy: string;
+    /** 'aal2' when an MFA step passed. */
+    readonly assurance: "aal1" | "aal2";
+    /** Passed steps: ['totp']. */
+    readonly mfa: readonly string[];
+    readonly authenticatedAt: Date;
+    /** Set while impersonating. */
+    readonly impersonator?: PrincipalRef;
+    /** Hashed session id, never the raw one. */
+    readonly sessionHandle?: string;
+    /** The external login the session came from; `sid` is the IdP session id that back-channel logout names. */
+    readonly external?: {
+        readonly provider: string;
+        readonly sid?: string;
+    };
+}
+
 // BackoffParams (@spinajs/util)
 export interface BackoffParams {
     readonly free: number;
@@ -1324,7 +1538,97 @@ export interface BackoffParams {
     readonly maxDelayMs: number;
 }
 
+// Ceiling (@spinajs/principal)
+export interface Ceiling {
+    readonly roles?: readonly string[];
+    /** Globs: 'file:*', 'project:read'. */
+    readonly permissions?: readonly string[];
+    /** Each covers itself and its descendants; [] covers nothing. */
+    readonly resources?: readonly ResourceRef[];
+    readonly expiresAt?: Date;
+    /** Deny code when the ceiling fails; default 'ceiling'. */
+    readonly reason?: string;
+}
+
+// IAuthnPrincipalStorage (@spinajs/principal)
+/** req.storage keys written by AuthnMiddleware (D26). */
+export interface IAuthnPrincipalStorage {
+    /** null: no or pending credentials. authz-http's AuthnPrincipalSource reads it. */
+    AuthnPrincipal?: Principal | null;
+}
+
+// Principal (@spinajs/principal)
+export interface Principal extends PrincipalRef {
+    /** False for anonymous and unattended; true for a link bearer. */
+    readonly authenticated: boolean;
+    /** 'session' | 'token' | 'link' | 'runAs' | 'queue' | app */
+    readonly source: string;
+    /** Agents, delegated tokens; the answer is at most the delegate's. */
+    readonly onBehalfOf?: Principal;
+    /** With onBehalfOf; default 'intersect'. */
+    readonly delegation?: "intersect" | "inherit";
+    /** Identities that also speak in this request (the signed-in user behind a link). */
+    readonly companions?: readonly PrincipalRef[];
+    readonly ceiling?: Ceiling;
+    readonly attributes: Readonly<Record<string, unknown>>;
+    /** The User model or app object; opaque to authz. */
+    readonly identity?: unknown;
+    /** Set by authn; conditions read 'principal.authn.*'. */
+    readonly authn?: AuthnFacts;
+}
+
+// PrincipalRef (@spinajs/principal)
+export interface PrincipalRef {
+    readonly type: PrincipalType;
+    readonly id: string;
+}
+
+// PrincipalType (@spinajs/principal)
+export type PrincipalType = "user" | "anonymous" | "unattended" | "system" | "service" | "link" | "agent" | "group" | (string & {});
+
+// ResourceRef (@spinajs/principal)
+export interface ResourceRef {
+    readonly type: ResourceType;
+    /** Absent = type-level (collections, "some row"). */
+    readonly id?: string;
+}
+
+// ResourceType (@spinajs/principal)
+/** 'users', 'file', 'ArrowCampaign', 'job', 'dir' */
+export type ResourceType = string;
+
+// SYSTEM (@spinajs/principal)
+export declare const SYSTEM: Principal;
+// value
+const SYSTEM = Object.freeze({
+    type: "system",
+    id: "system",
+    authenticated: true,
+    source: "runAs",
+    attributes: Object.freeze({})
+});
+
+// UNATTENDED (@spinajs/principal)
+export declare const UNATTENDED: Principal;
+// value
+const UNATTENDED = Object.freeze({
+    type: "unattended",
+    id: "unattended",
+    authenticated: false,
+    source: "unattended",
+    attributes: Object.freeze({})
+});
+
 // backoffDelayMs (@spinajs/util)
 /** The wait after counted attempt n (1-based): 0 until n reaches free, then min(baseDelayMs × 2^(n − free), maxDelayMs). */
 export declare function backoffDelayMs(p: BackoffParams, n: number): number;
+
+// ceilingHash (@spinajs/principal)
+export declare const ceilingHash: (c: Ceiling | undefined) => string;
+
+// principalKey (@spinajs/principal)
+export declare const principalKey: (p: PrincipalRef) => string;
+
+// sameRef (@spinajs/principal)
+export declare const sameRef: (a: PrincipalRef, b: PrincipalRef) => boolean;
 ```

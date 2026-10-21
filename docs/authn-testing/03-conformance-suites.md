@@ -6,10 +6,16 @@ Mocha suites that check your own implementation of an authn contract: an `Authen
 | --- | --- | --- |
 | `runStrategyConformance` | One `AuthenticationStrategy` | `StrategySubject` |
 | `runIdentityStoreConformance` | `IdentityStore` and `PasswordCredentialStore` | `IdentitySubject` |
-| `runSessionIssuerConformance` | `SessionIssuer`: rules A07, A08, A09 (store facets) | `Harness` with `sessions`, `sessionStorage`, `seed` |
+| `runSessionIssuerConformance` | `SessionIssuer`: rules A07, A08, A09, A34 (store facets) | `Harness` with `sessions`, `sessionStorage`, `seed` |
 | `runSecretStoreConformance` | `SecretStore`: rule A11 (store facet) | `Harness` with `secrets`, `secretStorage`, `seed` |
 | `runLinkStoreConformance` | `IdentityLinkStore`: rule A19 (store facet) | `Harness` with `links`, `seed` |
 | `runThrottleConformance` | `AuthnThrottle`: rules A05, A06 (store facets) | `Harness` with `throttle` |
+| `runNonceStoreConformance` | `NonceStore` | The store |
+| `runKeyStoreConformance` | The `KeyStore` of `@spinajs/authn-keys` | `KeyStorePort` |
+| `runMfaStoreConformance` | The `MfaSecretStore` of `@spinajs/authn-totp` | `MfaStorePort` |
+| `runTokenServiceConformance` | `TokenService` | `TokenServiceUnderTest` |
+
+The last four rows are the [direct store runners](#direct-store-and-service-runners), which take a plain factory and need no harness.
 
 ## How it works
 
@@ -90,6 +96,46 @@ Apply `ctx.config` in your factory. The store cases set these keys:
 | `runThrottleConformance` | `throttle` (`{ throttle, params }`) | `authn.throttle.*`; build the throttle from `throttleParams(ctx.config)` and report the same `params` |
 
 `sessionStorage` needs `storedKeys()` (every storage key the store holds). `secretStorage.rows()` lists the stored rows with `identity`, `purpose`, `hash`, `expiresAt` and `usedAt`. For `seed`, `fakeSeedPort(new FakeIdentityStore(), new MemoryPasswordCredentialStore())` is enough when the store under test keeps no identities.
+
+## Direct store and service runners
+
+`runNonceStoreConformance`, `runKeyStoreConformance`, `runMfaStoreConformance` and `runTokenServiceConformance` share one signature:
+
+```ts
+runNonceStoreConformance(name: string, make: () => Promise<NonceStore>, opts?: ConformanceOptions): void
+```
+
+`name` titles the outer `describe`. `make` runs once per case and must return a store that holds no data, so clear shared tables at its start. If the subject has a `dispose()` it runs after the case. `ConformanceOptions` is `{ timeoutMs?: number; bdd?: BddApi }`; `timeoutMs` bounds one case (10 s by default).
+
+`KeyStorePort` and `MfaStorePort` describe the shape of `KeyStore` and `MfaSecretStore` structurally, because the kit does not depend on `@spinajs/authn-keys` or `@spinajs/authn-totp`. The stores of those packages are assignable to them as they are.
+
+| Runner | Cases |
+| --- | --- |
+| `runNonceStoreConformance` | The first `claim` is `true` and the second `false`; keys are independent; of 10 parallel claims one wins; an expired key can be claimed again, once; of 10 parallel claims over an expired key one takes it over; an `expiresAt` at or before `now` is never live; 160 characters are accepted and 161 throw `InvalidArgument` |
+| `runKeyStoreConformance` | `insert` then `get` round-trips every field; an unknown `kid` is `null`; a taken `kid` or thumbprint is `duplicate`; of 10 parallel inserts one wins; `revoke` keeps the key readable with `revokedAt` and listed; a second `revoke` is `already` and keeps the first time; `revoke` by another owner, another owner type or of an unknown `kid` is `none`; of 10 parallel revokes one wins; `touch` sets `lastUsedAt` only; `listByOwner` never returns another owner's key |
+| `runMfaStoreConformance` | `put` stores the cipher text verbatim and unconfirmed; `put` replaces an unconfirmed step but never a confirmed one; `confirm` is `true` once and honours `expectedSecretEnc`; `acceptStep` is `true` once per time step, `false` for the same or a lower one, `true` for the next, and one of 10 parallel calls wins; steps and identities are independent; a recovery code is single use, bound to its identity, and one of 10 parallel redeems wins; `replaceRecoveryCodes` voids the old set and refuses repeated or empty codes; `removeRecoveryCodes` leaves none |
+| `runTokenServiceConformance` | `create` returns the plaintext once and `list` never holds it; `validate` accepts the plaintext, fails with `invalid_credentials` for an unknown token, `revoked` after `revoke` and `expired` after expiry; `revoke` by another owner is `false` (no IDOR); `revokeAllFor` returns the count of live tokens and invalidates them, agent tokens included; `create` refuses a missing expiry or one not after now with `invalid_expiry`; `rotate` returns a new plaintext for the same token, ends the old one at once or after `graceSeconds` (and at the token's own expiry or revoke), keeps only one old secret in grace, is owner-bound (`not_found`) and refuses a bad grace; `update` narrows roles to a subset (`invalid_scope` for an added role, an empty list or an agent token), moves the expiry earlier only (`invalid_expiry`), renames, and is owner-bound; a cached validation sees a rotation or an update at once |
+
+`runMfaStoreConformance` also checks that the storage holds no raw recovery code. Give the store a `dump(id)` that returns everything it holds for the identity as text (raw SQL for a database store); without it that case passes without checking.
+
+`TokenServiceUnderTest` is `{ service, owners, dispose? }`. `owners.make()` returns a new identity the service accepts as a token owner (for a database service, one with its user row inserted). The cases pass `clock.ctx()` as the context and tick the clock to expire tokens, so the service must take its time from `ctx.now`.
+
+### Example: check a store against memory and a database
+
+```ts
+runKeyStoreConformance('MemoryKeyStore conformance', async () => new MemoryKeyStore());
+
+describe('OrmKeyStore conformance', function () {
+  before(async () => {
+    await bootSqlite();
+  });
+
+  runKeyStoreConformance('OrmKeyStore conformance (sqlite)', async () => {
+    await clearKeys();
+    return new OrmKeyStore();
+  });
+});
+```
 
 ## Services and extension points
 

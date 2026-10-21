@@ -1,5 +1,6 @@
 import { AuthzAdminFailure, GLOBAL, PermissionRegistryImpl, readScope } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, EvaluationContext, ResourceRef } from '@spinajs/authz';
+import type { EvaluationContext, ResourceRef } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject } from '../../src/contracts.js';
 import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';

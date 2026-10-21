@@ -73,6 +73,7 @@ const THROTTLE_DEFAULTS = {
   global: null as null | Json,
   maxRows: 1_000_000,
   memory: { sweepBatch: 8, fullRetrySeconds: 60, holdOffMs: 1000 },
+  ipv6Prefix: 64,
 };
 
 // Design §22.5; authn.oidc has a schema of its own in @spinajs/authn-oidc.
@@ -99,7 +100,7 @@ function example(): Json {
       hashIds: true,
     },
     mfa: {
-      policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] },
+      policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] },
       steps: [{ name: 'totp', service: 'TotpMfaStep' }],
       encryptionKey: { secret: null },
       totp: { issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 },
@@ -114,12 +115,12 @@ function example(): Json {
       httpSignature: { maxAgeSeconds: 300, requiredComponents: ['@method', '@target-uri', 'content-digest'] },
     },
     linking: { jit: false, byVerifiedEmail: false },
+    login: { requireVerifiedAddress: false },
     impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 },
     audit: { hashIdentifiers: true },
     http: {
       trustProxy: null,
       csrf: { enabled: true, allowedOrigins: [] },
-      routes: { prefix: 'auth' },
     },
   };
 }
@@ -195,7 +196,7 @@ describe('authn.* configuration schema', () => {
     it('accepts the design §22.5 example and keeps every value', () => {
       const r = check(example());
       expect(r.errors).to.deep.eq([]);
-      expect(r.config).to.deep.eq({ ...example(), audit: { ...example().audit, sinkTimeoutMs: 2000 } });
+      expect(r.config).to.deep.eq({ ...example(), throttle: { ...example().throttle, ipv6Prefix: 64 }, audit: { ...example().audit, sinkTimeoutMs: 2000 } });
     });
 
     it('accepts the keys F0b put in the tree and keeps every value', () => {
@@ -243,7 +244,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [] }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 }, session: SESSION_DEFAULTS, token: TOKEN_DEFAULTS, keys: KEYS_DEFAULTS, http: {} });
+      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] }, steps: [] }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, login: { requireVerifiedAddress: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 }, throttle: THROTTLE_DEFAULTS, audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 }, session: SESSION_DEFAULTS, token: TOKEN_DEFAULTS, keys: KEYS_DEFAULTS, http: {} });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -262,9 +263,10 @@ describe('authn.* configuration schema', () => {
         audit: { hashIdentifiers: true, sinkTimeoutMs: 2000 },
         http: {},
         strategies: [],
-        mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [] },
+        mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [], methods: ['password'] }, steps: [] },
         freshAuth: { maxAgeSeconds: 300 },
         linking: { jit: false, byVerifiedEmail: false },
+        login: { requireVerifiedAddress: false },
         throttle: THROTTLE_DEFAULTS,
       });
     });

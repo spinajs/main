@@ -3,6 +3,7 @@ const sessionDb = {
     session: {
       db: {
         cleanupInterval: 10 * 60 * 1000,
+        cleanupBatch: 500,
       },
     },
   },

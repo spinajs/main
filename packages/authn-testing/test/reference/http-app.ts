@@ -9,6 +9,7 @@ export const REFERENCE_SOCKET = '127.0.0.1';
 const PROBE_PATH = '/kit/probe';
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 const MFA_STEPS = 'KitMfaSteps';
+const UNAUTHENTICATED_ROUTES = ['/auth/login', '/auth/password/reset-request', '/auth/password/reset', '/auth/keys/login', '/auth/mfa/verify', '/auth/mfa/recovery'];
 
 type Restored = NonNullable<Awaited<ReturnType<ReferenceParts['sessions']['restore']>>>;
 
@@ -62,13 +63,19 @@ class ReferenceHttpApp {
     return chain[i];
   }
 
-  /** A22: an unsafe request carrying the session cookie needs the app's own (or a listed) origin. */
+  /** A22: an unsafe request carrying the session cookie, or posting to a credential route, needs the app's own (or a listed) origin. */
   private csrfRefuses(req: HttpRequest, headers: Record<string, string>): boolean {
     const csrf = this.config?.csrf;
-    if (csrf?.enabled === false || SAFE.has(req.method) || req.cookies?.[this.cookie] === undefined) {
+    if (csrf?.enabled === false || SAFE.has(req.method)) {
       return false;
     }
     const origin = headers['origin'];
+    if (req.cookies?.[this.cookie] === undefined) {
+      const listed = csrf?.unauthenticatedRoutes ?? UNAUTHENTICATED_ROUTES;
+      if (!listed.includes(req.path) || (origin === undefined && headers['sec-fetch-site'] === undefined)) {
+        return false;
+      }
+    }
     if (origin !== undefined) {
       return origin !== REFERENCE_ORIGIN && !(csrf?.allowedOrigins ?? []).includes(origin);
     }
@@ -112,7 +119,8 @@ class ReferenceHttpApp {
         if (r.status === 'failure') return this.failed(r);
         if (r.status === 'mfa_required') {
           await sessions.set(r.pending, MFA_STEPS, r.steps);
-          return this.json(200, { MfaRequired: r.steps }, { setCookie: [this.setCookie(r.pending.id)] });
+          const pending = await sessions.restore(r.pending.id);
+          return this.json(200, { MfaRequired: r.steps, MfaEnrol: pending ? await this.toEnrol(pending) : [] }, { setCookie: [this.setCookie(r.pending.id)] });
         }
         return this.json(200, {}, { setCookie: [this.setCookie(r.session!.id)] });
       }
@@ -120,7 +128,7 @@ class ReferenceHttpApp {
         if (session) await sessions.revoke(session.handle);
         return this.json(200, {}, { setCookie: [this.setCookie(null)] });
       case 'GET /auth':
-        if (session?.handle.state === 'pending') return this.json(200, { MfaRequired: this.steps(session) });
+        if (session?.handle.state === 'pending') return this.json(200, { MfaRequired: this.steps(session), MfaEnrol: await this.toEnrol(session) });
         return active ? this.json(200, { id: active.identity.id, type: active.identity.type }) : this.failed(null);
       case 'POST /auth/mfa/verify': {
         if (session?.handle.state !== 'pending') return this.failed(null);
@@ -140,6 +148,12 @@ class ReferenceHttpApp {
 
   private steps(s: Restored): string[] {
     return (s.data.get(MFA_STEPS) as string[] | undefined) ?? [this.parts.step.name];
+  }
+
+  /** The pending steps the identity still has to enrol, as authn-http's `MfaEnrol`. */
+  private async toEnrol(s: Restored): Promise<string[]> {
+    const step = this.parts.step;
+    return this.steps(s).includes(step.name) && !(await step.enrolled(s.identity)) ? [step.name] : [];
   }
 
   port(): HttpPort {

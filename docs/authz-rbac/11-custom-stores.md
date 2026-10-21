@@ -97,8 +97,9 @@ Subclass a DB store to add a rule before a write and keep its transaction handli
 
 ```ts
 import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
-import type { AssignmentSubject, Principal } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
 import { RbacContributor, RbacModel, RbacSubjectResolver } from '@spinajs/authz-rbac';
+import type { AssignmentSubject } from '@spinajs/authz-rbac';
 
 class DepartmentSubjects extends RbacSubjectResolver {
   subjects(p: Principal): readonly AssignmentSubject[] {

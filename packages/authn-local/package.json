@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn-local",
-  "version": "3.0.1",
+  "version": "3.0.4",
   "description": "Local password authentication for SpinaJS",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -14,12 +14,28 @@
       "types": "./lib/mjs/schema.d.ts",
       "import": "./lib/mjs/schema.js",
       "require": "./lib/cjs/schema.js"
+    },
+    "./register-schema": {
+      "types": "./lib/mjs/register-schema.d.ts",
+      "import": "./lib/mjs/register-schema.js",
+      "require": "./lib/cjs/register-schema.js"
+    },
+    "./queue": {
+      "types": "./lib/mjs/queue/index.d.ts",
+      "import": "./lib/mjs/queue/index.js",
+      "require": "./lib/cjs/queue/index.js"
     }
   },
   "typesVersions": {
     "*": {
       "schemas": [
         "lib/cjs/schema.d.ts"
+      ],
+      "register-schema": [
+        "lib/cjs/register-schema.d.ts"
+      ],
+      "queue": [
+        "lib/cjs/queue/index.d.ts"
       ]
     }
   },
@@ -64,17 +80,27 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.1",
-    "@spinajs/cli": "3.0.1",
-    "@spinajs/configuration": "3.0.1",
-    "@spinajs/di": "3.0.1",
-    "@spinajs/exceptions": "3.0.1",
-    "@spinajs/log": "3.0.1",
-    "@spinajs/util": "3.0.1",
+    "@spinajs/authn": "3.0.4",
+    "@spinajs/cli": "3.0.4",
+    "@spinajs/configuration": "3.0.4",
+    "@spinajs/di": "3.0.4",
+    "@spinajs/exceptions": "3.0.4",
+    "@spinajs/log": "3.0.4",
+    "@spinajs/util": "3.0.4",
     "ajv": "^8.12.0",
-    "argon2": "^0.44.0"
+    "argon2": "^0.44.0",
+    "bcryptjs": "^3.0.3"
+  },
+  "peerDependencies": {
+    "@spinajs/queue": "3.0.4"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/queue": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@spinajs/authn-testing": "3.0.1"
+    "@spinajs/authn-testing": "3.0.4",
+    "@spinajs/queue": "3.0.4"
   }
 }

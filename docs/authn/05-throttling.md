@@ -8,7 +8,7 @@ The generic mechanics (`Throttle`, `ThrottleStore`, `KeyedBackoff`) are in [`@sp
 
 1. `DefaultAuthnService` builds the keys of an attempt (below) and picks the flow: `login`, `mfa` or `reauth`. `@spinajs/authn-local` uses `reset` for password resets.
 2. `attempt(keys, flow, ctx)` checks every gating key and counts the attempt in one step. It resolves `{ allowed: true }`, or `{ allowed: false, retryAfterSeconds }` with the longest delay among the gating keys. A refused attempt is counted nowhere.
-3. `peek(keys, flow, ctx)` answers the same way and counts nothing. With a throttle that has it, per-request strategies count only their failures: the service peeks before verify and calls `attempt` after a failure.
+3. `peek(keys, flow, ctx)` answers the same way and counts nothing. With a throttle that has it, per-request strategies count only their failures: the service peeks before verify and calls `attempt` after a failure. An allowed peek also says `clean`: `{ allowed: true, clean: true }` means no live row holds the keys, so a success has nothing to lower or clear and the service skips `succeed`. A token or key with no failures on record then writes nothing to the throttle.
 4. `succeed(keys, flow)` applies the success rule (below).
 
 ### Backoff
@@ -34,6 +34,7 @@ For `login`, from each candidate strategy's `throttleKeys`:
 - An `account` key of an interactive strategy becomes `login:<value>`. A per-request strategy's becomes `request:<value>|<ip>`, so failures sent from another address never delay the credential's owner.
 - For each account key, when `ctx.ip` is set, the service adds `account-ip` = `<account key>|<ip>`. A strategy's own `account-ip` keys are dropped.
 - The shared keys: `ip` (when `ctx.ip` is set) and `global` with value `login` (when `authn.throttle.global` is set).
+- In all three keys that carry the address (`ip`, `account-ip` and a per-request `account`), an IPv6 address is replaced by its network, `<network>/<prefix>`, with the prefix from `authn.throttle.ipv6Prefix`: a client that owns a whole /64 cannot get a fresh row for each address. IPv4 and IPv4-mapped addresses are keyed whole. Audit events and `ClientIp` keep the full address. The `mfa`, `reauth` and reset keys still use the plain address.
 - The attempt counts the union of every candidate's keys, once. `succeed` gets only the answering strategy's keys and the shared ones.
 
 For `mfa` and `reauth`: `account` = the identity id, `account-ip` = `<identity id>|<ip>`, and `ip` when `ctx.ip` is set.
@@ -62,6 +63,7 @@ A login to your own account cannot clear failures spent on other accounts.
 | `authn.throttle.resetAfterSeconds` | `integer` | `86400` | ≥ 1 | A key with no counted attempt for this long starts from zero |
 | `authn.throttle.global` | `BackoffParams \| null` | `null` | as above | One key for all logins. Off by default: one attacker could slow every login |
 | `authn.throttle.maxRows` | `integer` | `1000000` | 4 to 16000000 | Rows a `MemoryAuthnThrottle` keeps per flow; memory grows with 4 × `maxRows` |
+| `authn.throttle.ipv6Prefix` | `integer` | `64` | 16 to 128 | Prefix length that IPv6 clients are grouped by in the login throttle keys |
 | `authn.throttle.memory.sweepBatch` | `integer` | `8` | 1 to 1000 | Expired rows `MemoryAuthnThrottle` checks per attempt |
 | `authn.throttle.memory.fullRetrySeconds` | `integer` | `60` | 1 to 3600 | `Retry-After` of a full table with no delay to wait for |
 | `authn.throttle.memory.holdOffMs` | `integer` | `1000` | 0 to 60000 | Pause before the next scan of a nearly full table |
@@ -85,7 +87,7 @@ An unknown key under `authn.throttle` or `authn.throttle.memory` fails the boot.
 | --- | --- | --- | --- | --- |
 | `AuthnThrottle` | `AuthnThrottle`, named by `authn.throttle.service` or picked | `MemoryAuthnThrottle` (root singleton) | `DbAuthnThrottle` ([`@spinajs/authn-orm`](../authn-orm/README.md)) | Extend `StoreAuthnThrottle`, register with `@Injectable(AuthnThrottle)` and name it |
 | `FlowLimiter` | Class token, new instance per flow | `FlowLimiter` | Your subclass | Register a subclass as `FlowLimiter` to replace the table of every flow of `MemoryAuthnThrottle` |
-| `PeekableThrottle` | Interface | `StoreAuthnThrottle.peek` | | Implement `peek` on your own `AuthnThrottle` |
+| `PeekableThrottle` | Interface | `StoreAuthnThrottle.peek` | | Implement `peek` on your own `AuthnThrottle`; answer `clean: false` when unsure, since a `clean: true` skips `succeed` |
 
 ### Choosing the throttle
 

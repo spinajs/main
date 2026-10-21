@@ -56,7 +56,6 @@ function uncacheOwn(): void {
   DI.uncache(V3DbConfiguration);
   DI.uncache('orm-driver-sqlite');
   DI.uncache(SqliteOrmDriver);
-  // The owner resolver holds the Orm it was built with.
   DI.uncache(UsersTableTokenOwnerResolver);
   DI.uncache(TokenOwnerResolver);
 }
@@ -124,9 +123,7 @@ export function v3Connection(): OrmDriver {
  * with the columns `@spinajs/users` leaves after its migrations and authz-rbac's
  * `AuthzRbacDropUserRole` (no `Role`); this package does not depend on users.
  */
-export async function insertUserRow(uuid: string): Promise<number> {
-  const connection = v3Connection();
-
+export async function insertUserRow(uuid: string, connection: OrmDriver = v3Connection()): Promise<number> {
   if (!(await connection.schema().tableExists('users'))) {
     await connection.schema().createTable('users', (table) => {
       table.int('Id').primaryKey().autoIncrement();

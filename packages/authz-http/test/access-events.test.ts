@@ -8,7 +8,8 @@ import { AuthnEventSink, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
 import { testHost } from '@spinajs/authz-testing';
 
-import { AccessController, SSE_RETRY_MS, SseAccessPushTransport, SseSessionEndSink } from '../src/index.js';
+import { AccessController, SSE_RETRY_MS, SseAccessPushTransport } from '../src/index.js';
+import { SseSessionEndSink } from '../src/authn/index.js';
 import { startApp, stopApp } from './support/app.js';
 import type { TestApp } from './support/app.js';
 import { registerHeaderSource } from './support/principals.js';
@@ -72,6 +73,9 @@ class ListOnlySessions extends SessionIssuer {
   public elevate(): never {
     throw new Error('unused');
   }
+  public reissue(): never {
+    throw new Error('unused');
+  }
   public set(): never {
     throw new Error('unused');
   }
@@ -82,6 +86,9 @@ class ListOnlySessions extends SessionIssuer {
     throw new Error('unused');
   }
   public revokeHandle(): never {
+    throw new Error('unused');
+  }
+  public revokeByExternal(): never {
     throw new Error('unused');
   }
   public async list(subject: IdentityRef) {

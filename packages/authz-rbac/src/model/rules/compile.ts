@@ -1,5 +1,6 @@
 import { AuthzConfigError, resourceKey } from '@spinajs/authz';
-import type { Condition, ParsedCondition, Permission, PermissionRefDecl, PermissionRegistry, RuleDef, ScopeRefDecl } from '@spinajs/authz';
+import type { Condition, ParsedCondition, Permission, PermissionRefDecl, PermissionRegistry, ScopeRefDecl } from '@spinajs/authz';
+import type { RuleDef } from '../../contracts.js';
 
 import type { LadderIndex } from '../ladder/ladders.js';
 import type { RoleGraph } from '../roles.js';

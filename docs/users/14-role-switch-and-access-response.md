@@ -27,13 +27,22 @@ An impersonation session gets the target's roles, which are the session's.
 | --- | --- | --- | --- | --- |
 | `authz.http.access.domain` | `string` | `'root'` | an authz domain | Domain the roles and the summary come from. |
 | `authz.principals.roleSwitch.requirePassword` | `string[] \| null` | unset: every role | role names | Roles a role switch activates only after a fresh password (`ROLE_SWITCH_PASSWORD_KEY`). |
+| `authz.principals.roleSwitch.initial` | `{ order: string[] } \| null` | unset: every held role | `order`: unique role names, at least one | The role a new session starts on (`INITIAL_ROLE_KEY`): the first role of `order` the user holds. No listed role held: every held role, as unset. |
+
+### Initial active role
+
+`OrderedActiveRoleHook` is the `SessionStartHook` users registers ([Integration hooks](../authn/12-integration-hooks.md#sessionstarthook)). With `authz.principals.roleSwitch.initial` set, a login or an MFA completion asks `RbacRoleSource` for the user's roles and starts the session as if it had switched to the first role of `order` the user holds: `ActiveRole` is that role, and the login answer's `Access` shows only its grants. 2.x activated the user's first role at login; set `order` to your roles in that priority to keep it. The user can still switch to any held role with `POST /auth/active-role`.
 
 ```ts
 // config/authz.ts in your app
 export default {
   authz: {
     principals: {
-      roleSwitch: { requirePassword: ['admin', 'admin.users'] },
+      roleSwitch: {
+        requirePassword: ['admin', 'admin.users'],
+        // Start every session on the user's first role in this order.
+        initial: { order: ['user', 'admin'] },
+      },
     },
   },
 };

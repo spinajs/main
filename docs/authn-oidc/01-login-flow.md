@@ -64,6 +64,19 @@ sequenceDiagram
   B->>C: GET /reports
 ```
 
+### Re-authentication, `GET /auth/oidc/:provider/reauth`
+
+A user who logs in through the provider has no password for a `FreshAuth` route. This route re-authenticates the current active session at the provider and refreshes its `authenticatedAt`:
+
+1. Without an active session (none, or a pending one) it answers the failure. A provider with `idToken: false` cannot start one.
+2. It starts a flow of mode `reauth`, bound to the session like a link flow (the cookie member `h`) and keeping an app-relative `returnTo`. The authorization request carries `prompt=login` and `max_age=0`, whatever `authorizationParams` say, so the provider logs the user in again.
+3. The callback runs the checks of a login. The ID token must carry `auth_time`, not in the future and not before the flow start minus `clockSkewSeconds`.
+4. The session that started the flow must come back. A browser navigation that arrived without the `SameSite=Strict` session cookie takes one same-site hop first, as a link callback does.
+5. `AuthnService.reauthenticate(session, credentials, ctx)` with purpose `reauth` decides: the subject must already be linked to the session's identity (no JIT, no link by email), the `reauth` throttle counts, and an impersonation is refused.
+6. Success: `SessionIssuer.reissue(h, { authenticatedAt: now })` moves the session to a new id. The answer clears the flow cookie, sets the new session cookie and goes on to `returnTo`, or `redirects.success`, as a login does. Any failure is the usual failure answer and leaves the session as it was.
+
+`ExternalLoginHook`s do not run: a re-authentication is no login.
+
 ### Token exchange
 
 `exchangeCode()` sends `grant_type=authorization_code`, `code`, `redirect_uri` and `code_verifier` as a form post.
@@ -86,7 +99,7 @@ The answer must be HTTP 200 with a JSON object, `token_type` `Bearer` (any case)
 - Every answer carries `Cache-Control: no-store`.
 - The 401 body is the login route's body (`AUTHN_FAILURE_BODY` of `@spinajs/authn/contracts`), so a client cannot tell an OIDC failure from a wrong password.
 - The success page is a `<meta http-equiv="refresh">` page with `referrer` `no-referrer`. A `SameSite=Strict` session cookie does not travel on the cross-site redirect chain from the IdP, so the last hop starts on your site.
-- A core result `mfa_required` (a custom `MfaPolicy` that asks steps for `oidc` logins) sets the pending session cookie and moves on the same way. `DefaultMfaPolicy` asks no step for an `oidc` login: it requires steps for password logins only.
+- A core result `mfa_required` (a custom `MfaPolicy` that asks steps for `oidc` logins) sets the pending session cookie and moves on the same way. By default `DefaultMfaPolicy` asks no step for an `oidc` login; list `oidc` in `authn.mfa.policy.methods` to make it do so.
 
 ## Flow cookie
 
@@ -107,7 +120,7 @@ The flow lives in one cookie; the server keeps no flow state until the callback 
 
 ## HTTP routes
 
-The controller has the fixed prefix `auth/oidc`. `authn.http.routes.prefix` does not move it.
+The controller has the fixed prefix `auth/oidc`.
 
 | Route | Does | Page |
 | --- | --- | --- |
@@ -115,6 +128,7 @@ The controller has the fixed prefix `auth/oidc`. `authn.http.routes.prefix` does
 | `GET /auth/oidc/:provider/callback` | Completes a login or a link flow. | this page, [Account linking](06-account-linking.md) |
 | `POST /auth/oidc/:provider/link` | Starts linking for the current session. | [Account linking](06-account-linking.md) |
 | `DELETE /auth/oidc/:provider/link` | Removes a link of the current identity. | [Account linking](06-account-linking.md) |
+| `GET /auth/oidc/:provider/reauth` | Re-authenticates the current session. Optional `?returnTo=/path`. | this page |
 
 `OidcController` is not exported. The package config file adds its `lib/<cjs|mjs>/controllers` directory to `system.dirs.controllers`, and the HTTP server finds it by that scan.
 

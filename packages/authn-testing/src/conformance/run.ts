@@ -1,7 +1,7 @@
 import type { FakeClock } from '../fakes/clock.js';
 import { DEFAULT_CASE_TIMEOUT_MS, MOCHA_SLACK_MS, bddOf, cleanUp, markPending, startCaseClock, withCleanupErrors, withDeadline } from '../behaviour/runner.js';
 import type { PendingLog } from '../behaviour/runner.js';
-import type { TestThis } from '../behaviour/types.js';
+import type { BddApi, TestThis } from '../behaviour/types.js';
 
 export { bddOf };
 
@@ -55,4 +55,30 @@ export async function withSubject<S extends { dispose?(): Promise<void> }>(make:
       throw withCleanupErrors(failed ? primary : undefined, cleanup, opts.name);
     }
   }
+}
+
+export interface ConformanceOptions {
+  readonly bdd?: BddApi;
+  readonly timeoutMs?: number;
+}
+
+/** One `describe`; `kase` registers a case that runs on a fresh subject from `make`, whose optional `dispose` runs after it. */
+export function conformanceSuite<T extends object>(
+  name: string,
+  make: (k: { clock: FakeClock }) => Promise<T>,
+  opts: ConformanceOptions,
+  fakeDate: boolean,
+  define: (kase: (title: string, body: (subject: T, clock: FakeClock) => Promise<void>) => void) => void,
+): void {
+  const bdd = bddOf(opts.bdd);
+  const subjectOf = async (k: { clock: FakeClock }) => {
+    const subject = await make(k);
+    return { subject, dispose: async () => (subject as { dispose?(): Promise<void> }).dispose?.() };
+  };
+  const register = (title: string, body: (subject: T, clock: FakeClock) => Promise<void>): void =>
+    bdd.it(title, async function (this: TestThis) {
+      const timeoutMs = caseTimeout(this, opts.timeoutMs);
+      await withSubject(subjectOf, fakeDate, ({ subject }, clock) => body(subject, clock), { timeoutMs, name: `${name}: ${title}` });
+    });
+  bdd.describe(name, () => define(register));
 }

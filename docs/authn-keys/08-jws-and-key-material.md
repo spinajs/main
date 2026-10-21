@@ -69,7 +69,7 @@ Neither class reads configuration. The assertion strategy passes `authn.keys.alg
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | JWS verifier | `JwsVerifier` (`@spinajs/authn/contracts`), singleton; also registered as `StrictJwsVerifier` | `StrictJwsVerifier` | none | `@Injectable(JwsVerifier)` on your class, imported after `@spinajs/authn-keys`. Keep the check order and codes: `JwsAssertionStrategy` relies on `unknown_key` |
-| JWS signer | `JwsSigner` (`@spinajs/authn/contracts`) | none registered | `LocalJwsSigner` | Subclass `LocalJwsSigner` with a no-argument constructor and `@Injectable(JwsSigner)`, as below |
+| JWS signer | `JwsSigner` (`@spinajs/authn/contracts`) | `LocalJwsSigner`, registered only when `authn.keys.signer` is set, see [Signing keys and rotation](10-signing-keys.md) | `LocalJwsSigner` | Subclass `LocalJwsSigner` with a no-argument constructor and `@Injectable(JwsSigner)`, as below |
 
 ### JWS signer: custom implementation
 
@@ -101,7 +101,7 @@ To rotate: add the new key to the list and publish `publicKeys()` so verifiers l
 - The JSON reader agrees with `serde_json`, so this verifier and the C8 Rust one accept and refuse the same tokens.
 - Header members `__proto__` and non-string values are `bad_header`; a duplicate member keeps its last value.
 - `iat` and `exp` must be written as plain integers: `1.0e9` or `1790000000.0` is `invalid_claims`.
-- `LocalJwsSigner` is not registered in DI. Nothing in the package signs on its own.
+- `LocalJwsSigner` is registered in DI only through `authn.keys.signer`. Nothing in the package signs on its own.
 
 ## Best practices
 

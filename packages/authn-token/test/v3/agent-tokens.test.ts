@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
+import { CredentialChangeBus } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, TokenCreateOptions, TokenCreateResult, TokenValidation } from '@spinajs/authn/contracts';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 import { AuthnAudit } from '@spinajs/authn/audit';
@@ -68,6 +69,11 @@ describe('agent tokens (A15)', function () {
       setToken(key, value);
     }
   });
+
+  /** What the code that changes an identity does, so cached validations see the change. */
+  async function identityChanged(who: IdentityRef): Promise<void> {
+    await (await DI.resolve(CredentialChangeBus)).publish({ kind: 'identity', identity: who });
+  }
 
   async function owner(): Promise<IdentityRef> {
     const ref = identities.add({ login: randomUUID() });
@@ -227,8 +233,10 @@ describe('agent tokens (A15)', function () {
       const g = await agent(a);
       for (const status of [{ banned: true }, { active: false }, { deleted: true }]) {
         identities.setStatus(a, status);
+        await identityChanged(a);
         await failsClosed(g.plaintext, JSON.stringify(status));
         identities.setStatus(a, { active: true, banned: false, deleted: false });
+        await identityChanged(a);
         expect((await valid(g.plaintext)).identity).to.deep.equal({ type: 'agent', id: g.record.id });
       }
     });

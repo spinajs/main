@@ -16,6 +16,7 @@ module.exports = {
       comment: "Reach another package through its name and exports, not a relative path into its files.",
       // Tests may share another package's test suites (e.g. session-provider conformance).
       from: { path: '^packages/([^/]+)/src/' },
+      // Imports by package name resolve into the target's lib/, which this rule leaves alone.
       to: { path: '^packages/', pathNot: ['^packages/$1/', '^packages/[^/]+/lib/'] },
     },
     {
@@ -30,6 +31,13 @@ module.exports = {
       comment: 'Published code imports a devDependency: it is missing for consumers at runtime.',
       from: { path: '^packages/[^/]+/src/' },
       to: { dependencyTypes: ['npm-dev'], dependencyTypesNot: ['type-only'], pathNot: ['node_modules/@types/'] },
+    },
+    {
+      name: 'authz-not-to-authn',
+      severity: 'error',
+      comment: 'authz installs without authn (D11): principal contracts come from @spinajs/principal. Only the optional @spinajs/authz-http/authn subpath may import authn.',
+      from: { path: '^packages/authz[^/]*/src/', pathNot: '^packages/authz-http/src/authn/' },
+      to: { path: ['^packages/authn[^/]*/', 'node_modules/@spinajs/authn[^/]*/'] },
     },
     {
       name: 'not-to-unresolvable',
@@ -53,8 +61,7 @@ module.exports = {
     },
   ],
   options: {
-    // Built lib/ is a leaf, not excluded: a package import resolves into the other package's lib/, and a rule on
-    // which packages a package imports (hooks-not-to-auth) needs that module in the graph.
+    // lib/ is not followed rather than excluded: an import by package name resolves there, and authz-not-to-authn needs the target.
     doNotFollow: { path: ['node_modules', '(^|/)lib/'] },
     exclude: { path: ['/test/fixtures/'] },
     tsPreCompilationDeps: true,

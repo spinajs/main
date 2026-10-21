@@ -12,7 +12,7 @@ import { StaticModel, hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, HarnessSession, HttpHandle, HttpRequest, HttpResponse, LinkSourceHandle, LogRecord, RouteSpec, TestPolicy, World, WorldLink } from '@spinajs/authz-testing';
 import { linkPrincipal } from '@spinajs/authz-testing';
 
-import { Access, AccessController, AllowAnonymous, ExplainController, ExplainControllerSource, LinkResolver, PrincipalSource, Unscoped, fromBody, fromParam, fromQuery } from '../../src/index.js';
+import { Access, AccessController, AllowAnonymous, AuthzDomainResolver, ExplainController, ExplainControllerSource, LinkResolver, PrincipalSource, Unscoped, fromBody, fromParam, fromQuery } from '../../src/index.js';
 import { startApp, stopApp } from './app.js';
 import type { TestApp } from './app.js';
 
@@ -39,6 +39,16 @@ class BehaviourPrincipalSource extends PrincipalSource {
   public async authenticate(req: Request): Promise<Principal | null> {
     const key = req.headers[PRINCIPAL_HEADER];
     return typeof key === 'string' ? principals.get(key) ?? null : null;
+  }
+}
+
+const DOMAIN_HEADER = 'x-authz-domain';
+
+/** Header `x-authz-domain` names the domain of the request; absent, the route's own. */
+class HeaderDomainResolver extends AuthzDomainResolver {
+  public resolve(req: Request, fallback: string): string {
+    const name = req.headers[DOMAIN_HEADER];
+    return typeof name === 'string' && name !== '' ? name : fallback;
   }
 }
 
@@ -114,6 +124,7 @@ function caseController(prefix: string, world: World, domain: string): Class<Bas
     proto[key] = async function (req: Request, body: unknown) {
       if (handler === 'principal') return new Ok({ principal: req.storage.Principal ?? null });
       if (handler === 'echo') return new Ok(body ?? null);
+      if (handler === 'decision') return new Ok({ allowed: req.storage.AuthzDecision?.allowed ?? null, residual: req.storage.AuthzDecision?.residual.op ?? null });
       if ('returns' in handler) return new Ok(rowOf(world, handler.returns));
       throw new Error('the http harness has no ORM: route handler { orm } needs the orm facet (L4)');
     };
@@ -130,6 +141,7 @@ function caseController(prefix: string, world: World, domain: string): Class<Bas
           ...(resource ? { resource } : {}),
           ...(access.also ? { also: access.also.map(testPolicy) } : {}),
           ...(access.subject ? { subject: access.subject } : {}),
+          ...(access.conditional ? { conditional: access.conditional } : {}),
           ...(access.fields ? { fields: access.fields } : {}),
         }) as never,
       );
@@ -246,6 +258,8 @@ export function httpHarness(opts: HttpHarnessOptions = {}): BehaviourHarness {
     async beforeAll() {
       DI.register(BehaviourPrincipalSource).as(PrincipalSource);
       DI.register(WorldLinkResolver).as(LinkResolver);
+      DI.register(HeaderDomainResolver).as(AuthzDomainResolver);
+      DI.uncache(AuthzDomainResolver);
       restoreLogs = captureLogs();
       app = await startApp();
       await base.beforeAll?.();
@@ -254,12 +268,13 @@ export function httpHarness(opts: HttpHarnessOptions = {}): BehaviourHarness {
       await base.afterAll?.();
       await stopApp();
       restoreLogs?.();
-      for (const t of [BehaviourPrincipalSource, WorldLinkResolver] as Class<unknown>[]) {
+      for (const t of [BehaviourPrincipalSource, WorldLinkResolver, HeaderDomainResolver] as Class<unknown>[]) {
         DI.unregister(t);
         DI.uncache(t);
       }
       DI.uncache(PrincipalSource);
       DI.uncache(LinkResolver);
+      DI.uncache(AuthzDomainResolver);
       principals.clear();
     },
     async setup(world, ctx) {

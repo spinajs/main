@@ -1,5 +1,6 @@
 import { AuthzConfigError, SYSTEM, currentPrincipal, engineLog, principalKey } from '@spinajs/authz';
-import type { AssignmentSubject, Principal } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
+import type { AssignmentSubject } from '@spinajs/authz-rbac';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { publishedFs } from '@spinajs/fs';

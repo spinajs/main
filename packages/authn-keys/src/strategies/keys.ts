@@ -3,7 +3,8 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import '../register-schema.js';
 import { AuthenticationStrategy, KeyRegistry } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnFailure, KeyAlgorithm, IdentityRef, KeyOwner, KeyRecord, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnFailure, KeyAlgorithm, IdentityRef, KeyOwner, KeyRecord, NonceStore, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
+import { InvalidOption } from '@spinajs/exceptions';
 import { isValidKid } from '../jwk/keys.js';
 import { dummyVerify } from '../jwk/signature.js';
 import { keysOptionsOf } from '../options/options.js';
@@ -38,6 +39,14 @@ export async function usableKey(registry: KeyRegistry, kid: string, ctx: AuthnCo
     return { key: null, reason: key.revokedAt ? 'revoked' : 'expired', alg: key.alg };
   }
   return { key };
+}
+
+/** Only authn-orm registers a NonceStore, so an app without it fails when the strategy boots, not on the first request. */
+export function requireNonceStore(nonces: NonceStore | undefined, strategy: string): NonceStore {
+  if (!nonces) {
+    throw new InvalidOption(`${strategy} needs a NonceStore: import @spinajs/authn-orm (DbNonceStore) or register your own NonceStore`);
+  }
+  return nonces;
 }
 
 export const failure = (reason: AuthnFailure): StrategyOutcome => ({ ok: false, reason });

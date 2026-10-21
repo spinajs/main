@@ -1,13 +1,13 @@
 import { Autoinject, Injectable } from '@spinajs/di';
-import { AuthenticationStrategy, JwsVerifier } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, JwsVerifier, NonceStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFailure, Credentials, JwsClaims, KeyAlgorithm, KeyRecord, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { _is_string, _max_length, _try_check_arg, isPlainObject } from '@spinajs/util';
 import { InvalidOption } from '@spinajs/exceptions';
 import { decodeB64url } from '../jwk/base64url.js';
 import { KEY_ALGORITHMS } from '../jwk/keys.js';
 import { parseStrictJson } from '../jws/json.js';
-import { KeyNonceStore, nonceKey } from '../nonce/store.js';
-import { KeyStrategy, MAX_CREDENTIAL_LENGTH, assertionIssuer, failure, keyThrottleKeys, usableKey } from './keys.js';
+import { nonceKey } from './nonce-key.js';
+import { KeyStrategy, MAX_CREDENTIAL_LENGTH, assertionIssuer, failure, keyThrottleKeys, requireNonceStore, usableKey } from './keys.js';
 import type { KeyStrategyDeps } from './keys.js';
 
 const MAX_JTI = 128;
@@ -28,7 +28,7 @@ function headerOf(jws: unknown): { kid: string | null; alg: KeyAlgorithm } {
 
 export interface JwsAssertionStrategyDeps extends KeyStrategyDeps {
   readonly verifier?: JwsVerifier;
-  readonly nonces?: KeyNonceStore;
+  readonly nonces?: NonceStore;
 }
 
 /**
@@ -45,15 +45,15 @@ export class JwsAssertionStrategy extends KeyStrategy<JwsAssertionStrategyDeps> 
   @Autoinject(JwsVerifier)
   protected Verifier: JwsVerifier;
 
-  @Autoinject(KeyNonceStore)
-  protected Nonces: KeyNonceStore;
+  @Autoinject(NonceStore, { optional: true })
+  protected Nonces: NonceStore | undefined;
 
   protected get verifier(): JwsVerifier {
     return this.Deps?.verifier ?? this.Verifier;
   }
 
-  protected get nonces(): KeyNonceStore {
-    return this.Deps?.nonces ?? this.Nonces;
+  protected get nonces(): NonceStore {
+    return requireNonceStore(this.Deps?.nonces ?? this.Nonces, this.name);
   }
 
   /** The audience the assertions name; which strategies are listed decides that one is required, so this is a boot check, not a schema rule. */
@@ -66,6 +66,7 @@ export class JwsAssertionStrategy extends KeyStrategy<JwsAssertionStrategyDeps> 
   }
 
   public async resolve(): Promise<void> {
+    void this.nonces;
     void this.audience;
     await super.resolve();
   }

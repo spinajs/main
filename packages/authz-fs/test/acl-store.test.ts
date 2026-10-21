@@ -2,7 +2,8 @@ import * as chai from 'chai';
 import 'mocha';
 import { createHash } from 'node:crypto';
 
-import type { AssignmentSubject, PrincipalRef } from '@spinajs/authz';
+import type { PrincipalRef } from '@spinajs/authz';
+import type { AssignmentSubject } from '@spinajs/authz-rbac';
 
 import { FS_ACL_LIMITS, FS_ACL_TABLE, FileAclStore } from '../src/index.js';
 import type { FsAclRow } from '../src/index.js';

@@ -43,7 +43,7 @@ Every row stores `Value` and `Default` as text. The row's `Type` column decides 
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Value converter | class `DbConfigValueConverter`, `@Singleton`; not registered under another token, resolved by class | `DbConfigValueConverter extends UniversalValueConverter` | none shipped | `DI.register(MyConverter).as(DbConfigValueConverter)` before bootstrappers and `Orm` resolve. Override `toDB()` and `fromDB()`, call `super` for the rest. See [Custom value converter](08-custom-value-converter.md). |
+| Value converter | class `DbConfigValueConverter`, `@Singleton`; registered under itself at import, not under another token, resolved by class | `DbConfigValueConverter extends UniversalValueConverter` | none shipped | `DI.register(MyConverter).as(DbConfigValueConverter)` before bootstrappers and `Orm` resolve. Override `toDB()` and `fromDB()`, call `super` for the rest. See [Custom value converter](08-custom-value-converter.md). |
 | Column binding | `@DbConfigValue(typeColumn)` decorator, stored in the model descriptor's `Converters` | `DbConfig.Value`, `DbConfig.Default` | your own models | Put it on your own "type column" model, see the example below. The ORM resolves the converter class through the connection's container, so a DI replacement applies here too. |
 
 ## Important behaviour

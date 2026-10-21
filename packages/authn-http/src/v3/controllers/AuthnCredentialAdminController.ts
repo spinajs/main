@@ -29,7 +29,7 @@ type Admitted = { readonly answer: unknown } | { readonly actor: PrincipalRef; r
  * call changes nothing. Every answer the routes build carries no-store and no secret. The admin is the audit actor.
  * @tags Authentication
  */
-@BasePath('authn/admin/users')
+@BasePath({ config: 'authn.http.admin.basePath', default: 'authn/admin/users' })
 @Policy(CredentialAdminGuardRegistered)
 export class AuthnCredentialAdminController extends BaseController {
   @Autoinject(Container)
@@ -55,6 +55,9 @@ export class AuthnCredentialAdminController extends BaseController {
    * `{ expired: true, resetMailRequested }`. `resetMailRequested` echoes `sendReset` only: the password service decides
    * whether a mail goes out (none without a PasswordMailer or for a user it finds not eligible). 400
    * `invalid_send_reset` for a `sendReset` that is not a boolean.
+   * @body {AuthnPasswordResetAdminBody} Whether to mail a reset link, and the password for a stale session
+   * @returns {AuthnPasswordResetAdminAnswer} The password is expired
+   * @response 400 {AuthnError} invalid_send_reset
    * @security cookieAuth
    */
   @Post(':uuid/password-reset')
@@ -76,6 +79,8 @@ export class AuthnCredentialAdminController extends BaseController {
    * Reset a user's TOTP
    * Removes the enrolment, confirmed or begun, and its recovery codes; the owner enrols again. Answers `{ reset }`, false
    * when there was nothing to remove. Never a secret. 404 while the MFA enrolment routes are off.
+   * @body {AuthnReauthBody} The password, for a stale session
+   * @returns {AuthnMfaResetAnswer} Whether there was an enrolment to remove
    * @security cookieAuth
    */
   @Post(':uuid/mfa-reset')
@@ -90,6 +95,8 @@ export class AuthnCredentialAdminController extends BaseController {
   /**
    * End a user's sessions
    * Every session of the user, those where it impersonates included. Answers `{ revoked }`, the count.
+   * @body {AuthnReauthBody} The password, for a stale session
+   * @returns {AuthnRevokedCount} The count of ended sessions
    * @security cookieAuth
    */
   @Del(':uuid/sessions')
@@ -106,6 +113,8 @@ export class AuthnCredentialAdminController extends BaseController {
   /**
    * Revoke a user's tokens
    * Every API and agent token of the user. Answers `{ revoked }`, the count.
+   * @body {AuthnReauthBody} The password, for a stale session
+   * @returns {AuthnRevokedCount} The count of revoked tokens
    * @security cookieAuth
    */
   @Del(':uuid/tokens')

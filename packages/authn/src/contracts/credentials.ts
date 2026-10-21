@@ -45,6 +45,8 @@ export interface ExternalSubject {
   readonly email?: string;
   readonly emailVerified?: boolean;
   readonly claims?: Readonly<Record<string, unknown>>;
+  /** The IdP session id (OIDC `sid`); the session keeps it in AuthnFacts.external for back-channel logout. */
+  readonly sid?: string;
 }
 
 /** Bad credentials yield a failure result; they are never thrown. */
@@ -71,7 +73,7 @@ export type AuthenticationResult =
     };
 
 /** Goes to audit only; HTTP answers one shape for all of them (A02). */
-export type AuthnFailure = 'invalid_credentials' | 'throttled' | 'unsupported_credentials' | 'expired' | 'revoked' | 'not_linked';
+export type AuthnFailure = 'invalid_credentials' | 'throttled' | 'unsupported_credentials' | 'expired' | 'revoked' | 'not_linked' | 'unverified_address';
 
 export type StrategyOutcome =
   | {
@@ -89,5 +91,12 @@ export type StrategyOutcome =
        * credentials; sessions do not keep them.
        */
       readonly attributes?: Readonly<Record<string, unknown>>;
+      /** Default 'aal1'. 'aal2' only for a credential that is two factors on its own: a passkey with user verification (D7). */
+      readonly assurance?: 'aal1' | 'aal2';
     }
-  | { readonly ok: false; readonly reason: AuthnFailure };
+  | {
+      readonly ok: false;
+      readonly reason: AuthnFailure;
+      /** Only with reason 'throttled' (a strategy short of capacity, not a backoff): seconds the client should wait; the service answers 1 when absent. */
+      readonly retryAfterSeconds?: number;
+    };

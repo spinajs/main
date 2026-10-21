@@ -8,7 +8,7 @@ import { UserActivated } from '../events/UserActivated.js';
 import { UserChanged } from '../events/UserPropertyChanged.js';
 import { USER_COMMON_METADATA, User } from '../models/User.js';
 import { runAsSystem } from '../system.js';
-import { USERS_TABLE, invitePending, raw, recordPasswordSetAt, rowsAffected, usersDriver } from './sql.js';
+import { USERS_TABLE, invitePending, raw, recordAddressVerifiedAt, recordPasswordSetAt, rowsAffected, usersDriver } from './sql.js';
 
 /**
  * Keeps the users row in step with authn-local's password flows:
@@ -18,6 +18,7 @@ import { USERS_TABLE, invitePending, raw, recordPasswordSetAt, rowsAffected, use
  *   the `'!expired'` marker, which also go through `PasswordCredentialStore.set`.
  * - On `invite.redeem`, an identity still marked `user:invite:pending` becomes active, loses the marker and
  *   `UserActivated` is emitted (no mail: the owner is on the page that did it).
+ * - On `invite.redeem`, `EmailVerifiedAt` = `event.at` unless set: the invite secret was mailed to that address.
  *
  * Its statements run as SYSTEM: the event's caller may be anonymous (a reset or an invite link). Failures are logged
  * by class and never thrown: the publishers only log a sink's error, and the password was stored already.
@@ -39,6 +40,7 @@ export class UserAccountSink extends AuthnEventSink {
 
     if (e.type === 'invite.redeem') {
       await this.guarded(e, 'Could not activate its invited account on ${eventType} of user ${userId}: ${errorClass}', () => this.activateInvited(e.identity!));
+      await this.guarded(e, 'Could not record its verified address on ${eventType} of user ${userId}: ${errorClass}', () => runAsSystem('account-sink', () => recordAddressVerifiedAt(e.identity!.id, e.at)));
     }
   }
 

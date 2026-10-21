@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto';
 
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import type { AssignmentSubject, AuthzAdminQuery, AuthzCommandResult, Principal, ResourceRef } from '@spinajs/authz';
+import type { AuthzAdminQuery, AuthzCommandResult, Principal, ResourceRef } from '@spinajs/authz';
+import type { AssignmentSubject } from '../../../authz-rbac/src/index.js';
+// The ABAC commands and the policies query join AuthzCommand and AuthzAdminQuery through authz-abac's types.
+import type {} from '../../../authz-abac/src/contracts.js';
 import type { Request } from '@spinajs/http';
 import { PrincipalSource } from '@spinajs/authz-http';
 import { testHost } from '@spinajs/authz-testing';
@@ -73,7 +76,8 @@ function listPath(q: AuthzAdminQuery): string {
   }
   if (q.page) {
     params.set('limit', String(q.page.limit));
-    params.set('offset', String(q.page.offset));
+    if (q.page.after === undefined) params.set('offset', String(q.page.offset));
+    else params.set('after', q.page.after);
   }
   const qs = params.toString();
   return `/authz/${q.kind}${qs ? `?${qs}` : ''}`;

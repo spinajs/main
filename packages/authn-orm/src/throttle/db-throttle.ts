@@ -161,7 +161,7 @@ export class DbAuthnThrottle extends StoreAuthnThrottle {
   // Read once and frozen: Configuration hands out live objects, and the rows assume fixed limits.
   private snapshotConfigured(): ThrottleParams {
     if (!this.ConfiguredParams) throw new InvalidOperation('authn.throttle is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
-    const { service: _service, maxRows: _maxRows, memory: _memory, ...params } = structuredClone(this.ConfiguredParams) as ThrottleParams & { service?: string; maxRows?: number; memory?: unknown };
+    const { service: _service, maxRows: _maxRows, memory: _memory, ipv6Prefix: _ipv6Prefix, ...params } = structuredClone(this.ConfiguredParams) as ThrottleParams & { service?: string; maxRows?: number; memory?: unknown; ipv6Prefix?: number };
     checkThrottleParams(params);
     return deepFreeze(params);
   }

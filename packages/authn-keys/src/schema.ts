@@ -25,6 +25,17 @@ export const AUTHN_KEYS_CONFIGURATION_SCHEMA = {
         skewSeconds: { type: 'integer', minimum: 0, maximum: 300, default: 30 },
       },
     },
+    signer: {
+      type: 'object',
+      nullable: true,
+      default: null,
+      description: 'Private signing keys for the JwsSigner (and its JWKS route); null registers no signer.',
+      properties: {
+        current: { type: 'string', minLength: 1, description: 'kid of the key that signs by default; one of the keys.' },
+        keys: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 }, description: 'Secret references the configuration resolves to private JWKs (JSON text), never inline keys.' },
+      },
+      required: ['current', 'keys'],
+    },
     httpSignature: {
       type: 'object',
       default: {},
@@ -32,6 +43,14 @@ export const AUTHN_KEYS_CONFIGURATION_SCHEMA = {
         maxAgeSeconds: { type: 'integer', minimum: 1, maximum: 300, default: 300 },
         skewSeconds: { type: 'integer', minimum: 0, maximum: 300, default: 30 },
         requiredComponents: { ...stringList, default: ['@method', '@target-uri', 'content-digest'] },
+      },
+    },
+    cache: {
+      type: 'object',
+      default: {},
+      properties: {
+        ttlSeconds: { type: 'integer', minimum: 0, default: 10, description: 'Seconds KeyRegistry.byId serves a key from memory; 0 turns the cache off.' },
+        maxEntries: { type: 'integer', minimum: 1, default: 10000 },
       },
     },
   },

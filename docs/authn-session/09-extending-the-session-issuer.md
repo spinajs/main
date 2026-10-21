@@ -21,7 +21,7 @@ Protected members of `DefaultSessionIssuer`:
 | `Store: SessionProvider` | The store, injected from `authn.session` | Read rows directly in your own methods |
 | `Container: IContainer` | The container `resolveSession` builds sessions in | |
 | `PendingTtlSeconds: number` | `authn.session.pendingTtlSeconds` | |
-| `refresh(session)` | Records last-seen (at most once a minute) and calls `Store.touch`; runs on every non-peeking `restore` of an active session | Record more per-request data in the same write |
+| `refresh(session)` | Records last-seen and calls `Store.touch`, only once last-seen or the expiry moves by `authn.session.touchThresholdSeconds`; runs on every non-peeking `restore` of an active session | Record more data in the same write |
 | `publicData(session)` | The entries `Session.data` gets: all except `authn:` ones, plus the pending steps | Hide or add entries |
 | `factsOf(session, stored)` | Builds `AuthnFacts` from the stored facts, the row's impersonator and the handle | Rarely; its `stored` parameter type is not exported |
 | `need(h)` | Reads the row of a handle or throws `InvalidArgument` / `InvalidOperation` | |

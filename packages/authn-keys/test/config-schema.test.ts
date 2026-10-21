@@ -8,7 +8,7 @@ import { MemorySecretStore, FakeBackoffThrottle, throttleParams } from '@spinajs
 
 import { keysOptionsOf } from '../src/options/index.js';
 import type { KeysConfig } from '../src/options/index.js';
-import { MemoryKeyNonceStore } from '../src/nonce/index.js';
+import { MemoryNonceStore } from '@spinajs/authn/nonces';
 import { DefaultKeyRegistry, MemoryKeyStore } from '../src/registry/index.js';
 import { HttpSignatureStrategy, JwsAssertionStrategy, KeyChallengeStrategy } from '../src/strategies/index.js';
 import { StrictJwsVerifier } from '../src/jws/index.js';
@@ -42,12 +42,14 @@ describe('authn.keys through the schema', () => {
         challenge: { ttlSeconds: 120, audience: null },
         assertion: { typ: 'spinajs-client+jwt', audience: null, maxLifetimeSeconds: 300, skewSeconds: 30 },
         httpSignature: { maxAgeSeconds: 300, skewSeconds: 30, requiredComponents: ['@method', '@target-uri', 'content-digest'] },
+        signer: null,
+        cache: { ttlSeconds: 10, maxEntries: 10000 },
       });
     });
 
     it('fills the whole block, equal to the test fixture', async () => {
       const { configuration } = await boot(SCHEMAS, {});
-      expect(configuration.get('authn.keys')).to.deep.eq({ ...TEST_KEYS_CONFIG });
+      expect(configuration.get('authn.keys')).to.deep.eq({ ...TEST_KEYS_CONFIG, signer: null });
     });
 
     it('keeps a configured value and fills the rest of its block', async () => {
@@ -139,7 +141,7 @@ describe('authn.keys through the schema', () => {
 
     it('JwsAssertionStrategy and KeyChallengeStrategy fail their boot without an audience', async () => {
       const { child, registry } = await parts({});
-      const assertion = readingFrom(new JwsAssertionStrategy({ registry, verifier: new StrictJwsVerifier(), nonces: new MemoryKeyNonceStore() }), child);
+      const assertion = readingFrom(new JwsAssertionStrategy({ registry, verifier: new StrictJwsVerifier(), nonces: new MemoryNonceStore() }), child);
       let error: unknown;
       try {
         await assertion.resolve();
@@ -159,9 +161,9 @@ describe('authn.keys through the schema', () => {
 
     it('the strategies boot with an audience, and HttpSignatureStrategy needs none', async () => {
       const { child, registry } = await parts({ assertion: { audience: AUD } });
-      await readingFrom(new JwsAssertionStrategy({ registry, verifier: new StrictJwsVerifier(), nonces: new MemoryKeyNonceStore() }), child).resolve();
+      await readingFrom(new JwsAssertionStrategy({ registry, verifier: new StrictJwsVerifier(), nonces: new MemoryNonceStore() }), child).resolve();
       await readingFrom(new KeyChallengeStrategy({ registry, secrets: new MemorySecretStore() }), child).resolve();
-      await readingFrom(new HttpSignatureStrategy({ registry, nonces: new MemoryKeyNonceStore() }), child).resolve();
+      await readingFrom(new HttpSignatureStrategy({ registry, nonces: new MemoryNonceStore() }), child).resolve();
     });
   });
 });

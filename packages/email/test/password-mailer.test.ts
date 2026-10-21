@@ -4,6 +4,7 @@ import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 
 import { EmailPasswordMailer, EmailSend, EmailSent, EmailService, IEmail, IPasswordMail, PasswordMailConfiguration } from '../src/index.js';
+import CONFIGURATION_SCHEMA from '../src/schemas/email.smtp.configuration.js';
 import { capturingEmailService, dump, holds, recordPerf } from './capture.js';
 
 const SECRET = 'Zx9-secret_Q7w';
@@ -38,7 +39,7 @@ async function failure(p: Promise<unknown>): Promise<Error> {
 describe('EmailPasswordMailer', () => {
   recordPerf();
 
-  it('sends a reset mail at once with the template model, the link, the tag and the secrets to redact', async () => {
+  it('sends a reset mail at once with the built-in template, its model, the link, the tag and the secrets to redact', async () => {
     const { mailer, sender, emitted } = mailerWith();
     await mailer.send(aMail());
 
@@ -49,18 +50,21 @@ describe('EmailPasswordMailer', () => {
     expect(m.subject).to.equal('Reset your password');
     expect(m.tag).to.equal('authn-password-reset');
     expect(m.model).to.deep.equal({
-      Token: SECRET,
-      ResetUrl: RESET_URL,
-      ExpiresInMinutes: 60,
-      IsInvite: false,
+      Purpose: 'reset',
+      Subject: 'Reset your password',
       Name: 'Alice',
       Email: 'alice@example.com',
-      Purpose: 'reset',
+      ActionUrl: RESET_URL,
+      ResetUrl: RESET_URL,
+      Token: SECRET,
+      Code: '',
+      ExpiresInMinutes: 60,
+      AppName: '',
+      IsInvite: false,
     });
     expect(m.redact).to.deep.equal([SECRET, RESET_URL]);
-    expect(m.template).to.equal(undefined);
-    expect(m.text).to.contain(RESET_URL);
-    expect(m.text).to.contain('60 minutes');
+    expect(m.template).to.deep.equal({ file: 'authn/reset.mjml', fs: 'email-builtin-templates' });
+    expect(m.text).to.equal(undefined);
 
     expect(emitted.some((e) => e instanceof EmailSend)).to.equal(false);
     expect(emitted.every((e) => e instanceof EmailSent)).to.equal(true);
@@ -74,38 +78,73 @@ describe('EmailPasswordMailer', () => {
     const m = sender.Captured[0];
     expect(m.subject).to.equal('Set up your account');
     expect(m.tag).to.equal('authn-password-invite');
-    expect(m.model).to.include({ IsInvite: true, ExpiresInMinutes: 15, Purpose: 'invite', Token: SECRET, ResetUrl: RESET_URL });
-    expect(m.text).to.contain(RESET_URL);
-    expect(m.text).to.contain('15 minutes');
+    expect(m.model).to.include({ IsInvite: true, ExpiresInMinutes: 15, Purpose: 'invite', Token: SECRET, ActionUrl: RESET_URL, ResetUrl: RESET_URL, Subject: 'Set up your account' });
+    expect(m.template).to.deep.equal({ file: 'authn/invite.mjml', fs: 'email-builtin-templates' });
+    expect(m.text).to.equal(undefined);
   });
 
-  it('without a url puts the token into the text and leaves ResetUrl empty', async () => {
+  it('without a url leaves ActionUrl and ResetUrl empty and keeps the token in the model', async () => {
     const { mailer, sender } = mailerWith();
     await mailer.send(aMail({ url: '' }));
 
     const m = sender.Captured[0];
-    expect(m.model.ResetUrl).to.equal('');
-    expect(m.text).to.contain(SECRET);
+    expect(m.model).to.include({ ActionUrl: '', ResetUrl: '', Token: SECRET });
+    expect(m.text).to.equal(undefined);
     expect(m.redact).to.deep.equal([SECRET]);
   });
 
-  it('renders the configured template with from, lang and subject from the configuration', async () => {
+  it('sends the configured template with from, lang, appName and subject from the configuration', async () => {
     const { mailer, sender } = mailerWith({
       connection: 'test',
       from: 'no-reply@example.com',
       lang: 'pl',
-      reset: { subject: 'Zmień hasło', template: 'password-reset.hbs' },
-      invite: { subject: 'Witamy', template: { file: 'invite.hbs', fs: 'mail-templates' } },
+      appName: 'Acme',
+      reset: { subject: 'Zmień hasło', template: 'password-reset.mjml' },
+      invite: { subject: 'Witamy', template: { file: 'invite.mjml', fs: 'mail-templates' } },
     });
     await mailer.send(aMail());
     await mailer.send(aMail({ purpose: 'invite' }));
 
     const [reset, invite] = sender.Captured;
-    expect(reset).to.include({ from: 'no-reply@example.com', lang: 'pl', subject: 'Zmień hasło', template: 'password-reset.hbs' });
+    expect(reset).to.include({ from: 'no-reply@example.com', lang: 'pl', subject: 'Zmień hasło', template: 'password-reset.mjml' });
     expect(reset.text).to.equal(undefined);
-    expect(reset.model.Token).to.equal(SECRET);
+    expect(reset.model).to.include({ Token: SECRET, AppName: 'Acme', Subject: 'Zmień hasło' });
     expect(invite.subject).to.equal('Witamy');
-    expect(invite.template).to.deep.equal({ file: 'invite.hbs', fs: 'mail-templates' });
+    expect(invite.template).to.deep.equal({ file: 'invite.mjml', fs: 'mail-templates' });
+  });
+
+  it('takes the language of the mail over email.password.lang', async () => {
+    const { mailer, sender } = mailerWith({ connection: 'test', lang: 'pl' });
+    await mailer.send(aMail({ lang: 'de' }));
+    expect(sender.Captured[0].lang).to.equal('de');
+  });
+
+  it('sends the attachments of email.password with each mail, so a template can show inline cid: images', async () => {
+    const logo = { name: 'logo.png', path: 'images/logo.png', provider: 'mail-assets', cid: 'logo' };
+    const { mailer, sender, service } = mailerWith({ connection: 'test', attachments: [logo], reset: { template: 'account-mail.mjml' } });
+    // Reading each attachment through its filesystem is DefaultEmailService's part (attachments.test.ts).
+    Object.defineProperty(service, 'CheckAttachments', { value: false, configurable: true });
+    await mailer.send(aMail());
+    await mailer.send(aMail({ purpose: 'invite' }));
+
+    const [reset, invite] = sender.Captured;
+    expect(reset.template).to.equal('account-mail.mjml');
+    expect(reset.attachements).to.deep.equal([logo]);
+    expect(invite.attachements).to.deep.equal([logo]);
+  });
+
+  it('takes email.password.attachments through the configuration schema; an entry needs a name and a path', async () => {
+    const { default: Ajv } = (await import('ajv')) as unknown as { default: new (o: object) => { compile(s: object): (d: unknown) => boolean } };
+    const validate = new Ajv({ allErrors: true, strict: false }).compile(CONFIGURATION_SCHEMA);
+    const email = (attachments: unknown) => ({ connections: [], defaultConnection: 'main', password: { attachments } });
+    expect(validate(email([{ name: 'logo.png', path: 'images/logo.png', provider: 'mail-assets', cid: 'logo' }]))).to.equal(true);
+    expect(validate(email([{ cid: 'logo' }]))).to.equal(false);
+  });
+
+  it('sends no attachment list without email.password.attachments', async () => {
+    const { mailer, sender } = mailerWith({ connection: 'test', attachments: [] });
+    await mailer.send(aMail());
+    expect(sender.Captured[0]).to.not.have.property('attachements');
   });
 
   it('falls back to email.defaultConnection', async () => {
@@ -173,7 +212,7 @@ class PasswordMailConf extends FrameworkConfiguration {
       email: {
         connections: [],
         defaultConnection: 'main',
-        password: { from: 'no-reply@example.com', reset: { subject: 'Zmień hasło' } },
+        password: { from: 'no-reply@example.com', reset: { subject: 'Zmień hasło' }, attachments: [{ name: 'logo.png', path: 'images/logo.png', cid: 'logo' }] },
       },
     };
   }
@@ -209,6 +248,7 @@ describe('EmailPasswordMailer from the container', function () {
     const service = (await DI.resolve(EmailService)) as RecordingEmailService;
     const [reset, invite] = service.Sent;
     expect(reset).to.include({ connection: 'main', from: 'no-reply@example.com', subject: 'Zmień hasło' });
+    expect(reset.attachements).to.deep.equal([{ name: 'logo.png', path: 'images/logo.png', cid: 'logo' }]);
     expect(invite.subject).to.equal('Set up your account');
   });
 });

@@ -39,9 +39,9 @@ admin.list(actor, { kind: 'holders', scope, permission, expandSets?, page? })
 | `scope` | `ResourceRef` | The resource to inspect. |
 | `permission` | `Permission` | The permission whose holders are listed. |
 | `expandSets` | `boolean` | List members of subject sets. Needs a `MembershipStore`, else `invalid_query`. |
-| `page` | `{ limit, offset }` | Page of the sorted list. A limit above 100 is refused with `invalid_query` on `page.limit`. |
+| `page` | `{ limit, offset, after? }` | Page of the sorted list. `after` is the `next` of an earlier answer and replaces `offset`; holders are then read behind that subject key. A limit above 100 is refused with `invalid_query` on `page.limit`. |
 
-`list` answers `{ items, total }`. Each item is a holder:
+`list` answers `{ items, total, next? }`; `next` is there when more holders follow a page without `offset`. Each item is a holder:
 
 | Field | Meaning |
 | --- | --- |

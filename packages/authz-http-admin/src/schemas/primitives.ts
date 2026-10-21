@@ -27,6 +27,17 @@ export function obj(required: readonly string[], properties: Record<string, Json
   return { type: 'object', ...(description ? { description } : {}), ...(required.length ? { required } : {}), properties };
 }
 
+const writeOptions = {
+  reason: { ...text, description: 'goes to the audit trail' },
+  idempotencyKey: { ...text, description: 'a retried batch with the same key returns the first result' },
+  dryRun: { type: 'boolean', description: 'validate and guard, then roll back' },
+};
+
+/** The body of POST /authz/commands over the given command schemas. */
+export function commandBatch(commands: readonly JsonSchema[]): JsonSchema {
+  return obj(['commands'], { commands: { type: 'array', items: { oneOf: commands } }, ...writeOptions }, 'POST /authz/commands: the commands run in one transaction, in order; the first failure rolls the batch back');
+}
+
 export function command(kind: string, required: readonly string[], properties: Record<string, JsonSchema>, description: string): JsonSchema {
   return obj(['kind', ...required], { kind: { type: 'string', enum: [kind] }, ...properties }, description);
 }

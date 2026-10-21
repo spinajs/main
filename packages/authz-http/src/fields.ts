@@ -139,7 +139,7 @@ export class AuthzFieldsMiddleware extends RouteMiddleware {
   // http calls this without awaiting it, so the data is replaced before the first await.
   public async onResponse(response: Response, route: IRoute, controller: IController): Promise<void> {
     const decision = authzStorage().getStore()?.AuthzDecision;
-    const domain = routeDomain(routeAccess(controller, route.Method));
+    const domain = (authzStorage().getStore()?.AuthzHttpRoute as AuthzHttpRouteMark | undefined)?.domain ?? routeDomain(routeAccess(controller, route.Method));
     const authz = this.Authz;
     const domains = this.Domains;
     const holder = response as unknown as { responseData?: unknown };

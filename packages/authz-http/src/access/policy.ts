@@ -8,6 +8,7 @@ import type { IController, IRoute, Request } from '@spinajs/http';
 
 import { domainConfig } from '../domains.js';
 import { routeAccess, routeDomain } from './descriptor.js';
+import { resolveAuthzDomain } from './domain-resolver.js';
 import { isUnloadedModel } from './extractors.js';
 import type { IAccessRule } from './descriptor.js';
 import '../storage.js';
@@ -47,9 +48,10 @@ const isRef = (v: unknown): v is ResourceRef => typeof v === 'object' && v !== n
  * Decides the `@Access` of its scope (design §11.2), read from the controller's descriptor at
  * request time: a request without a principal, or with an unauthenticated one on a route without
  * `@AllowAnonymous`, is refused 401; several permissions mean any of them; a denial throws a 403
- * with `{ error, permission, resource, reason }`. With `subject: 'load'` a conditional allow is
- * settled against the row the domain's adapter loads. The allowing decision of the route's own
- * `@Access` (else the class's) goes to `req.storage.AuthzDecision`.
+ * with `{ error, permission, resource, reason }`. The domain is the one the registered `AuthzDomainResolver`
+ * names for the request; the rule's own, else root, is its fallback. A conditional allow on a resource with
+ * an id is settled against the row the domain's adapter loads, unless the rule says `conditional: 'action'`.
+ * The allowing decision of the route's own `@Access` (else the class's) goes to `req.storage.AuthzDecision`.
  */
 @NewInstance()
 export class AccessPolicy extends BasePolicy {
@@ -77,8 +79,6 @@ export class AccessPolicy extends BasePolicy {
       throw new AuthzConfigError(`AccessPolicy on ${controller.constructor.name}.${String(route.Method)} finds no ${this.scope} @Access`);
     }
 
-    req.storage.AuthzHttpRoute = { domain: routeDomain(access), ...(access.unfilteredInput !== undefined ? { unfilteredInput: access.unfilteredInput } : {}) };
-
     const principal = req.storage.Principal;
     if (!principal) {
       throw unauthenticated('this route needs a principal');
@@ -87,7 +87,8 @@ export class AccessPolicy extends BasePolicy {
       throw unauthenticated('this route needs an authenticated principal');
     }
 
-    const domain = rule.options.domain ?? 'root';
+    const domain = await resolveAuthzDomain(req, rule.options.domain ?? 'root');
+    req.storage.AuthzHttpRoute = { domain: await resolveAuthzDomain(req, routeDomain(access)), ...(access.unfilteredInput !== undefined ? { unfilteredInput: access.unfilteredInput } : {}) };
     const authz = await (await this.domains()).service(domain);
     const extracted = rule.options.resource ? await rule.options.resource(req) : undefined;
     if (rule.options.resource && (extracted === null || extracted === undefined)) {
@@ -117,11 +118,13 @@ export class AccessPolicy extends BasePolicy {
   protected async decide(authz: AuthzService, domain: string, rule: IAccessRule, principal: Principal, resource: ResourceRef | object | undefined): Promise<Decision> {
     let denied: Decision | undefined;
     let subject: Promise<unknown> | undefined;
+    const settles = (rule.options.conditional ?? 'load') === 'load';
 
     for (const permission of rule.permissions) {
       let decision = await authz.check({ principal, permission, resource: resource ?? { type: parsePermission(permission).resource } });
 
-      if (decision.allowed && decision.residual.op !== 'true' && rule.options.subject === 'load') {
+      // A type-level allow keeps its residual: the action's `.accessible()` applies it to the list.
+      if (decision.allowed && decision.residual.op !== 'true' && settles && decision.resource.id !== undefined) {
         subject ??= this.load(domain, decision.resource);
         const row = await subject;
         decision = row === null ? Object.freeze({ ...decision, allowed: false, residual: FALSE, reason: { code: 'unknown_resource' } }) : await authz.check({ principal, permission, resource: decision.resource, subject: row });

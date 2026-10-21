@@ -11,7 +11,7 @@ import { AUTHN_PUBLIC_COOKIE_SECRET, checkAuthnConfig } from '../../src/service/
 import { TestLog, useTestLog } from '../audit/test-log.js';
 
 /** Config keys the harness applies; any other key makes the factory throw UnsupportedConfig. */
-export const CORE_SUPPORTED: readonly string[] = ['env', 'authn.throttle', 'authn.linking', 'authn.session', 'authn.mfa.policy.force', 'authn.freshAuth', 'authn.impersonation'];
+export const CORE_SUPPORTED: readonly string[] = ['env', 'authn.throttle', 'authn.linking', 'authn.session', 'authn.mfa.policy.force', 'authn.mfa.policy.methods', 'authn.freshAuth', 'authn.impersonation', 'authn.login'];
 
 /** The service name of the kit MFA step, listed in authn.mfa.steps. */
 export const KIT_MFA_STEP = 'KitMfaStep';
@@ -43,6 +43,8 @@ export interface CoreOptions {
   readonly secretStoringStep?: boolean;
   /** Names no env, as an app started without --env, APP_ENV or NODE_ENV (else `config.env`, else test). */
   readonly unsetEnv?: boolean;
+  /** The kit session issuer stands for one over MemorySessionStore. */
+  readonly memorySessionStore?: boolean;
 }
 
 export interface CoreParts {
@@ -209,7 +211,7 @@ async function prepareCore(config: ConfigOverrides, opts: CoreOptions): Promise<
   const jit = config.authn?.linking?.jit ?? false;
   const identities = new FakeIdentityStore({ jit });
   const passwords = new MemoryPasswordCredentialStore();
-  const sessions = new MemorySessionIssuer(sessionOptions(config));
+  const sessions = new MemorySessionIssuer({ ...sessionOptions(config), memoryBacked: opts.memorySessionStore });
   const events = new RecordingEventSink();
   const second = new RecordingEventSink();
   const principals = new RecordingPrincipalFactory();
@@ -281,7 +283,7 @@ function bootInput(spec: BootSpec): { config: ConfigOverrides; opts: CoreOptions
   );
   return {
     config: { env: spec.env ?? given.env, authn: authnRest },
-    opts: { strategies: spec.strategies ?? [], raw, secretStoringStep: spec.mfaStep === 'secret-storing' },
+    opts: { strategies: spec.strategies ?? [], raw, secretStoringStep: spec.mfaStep === 'secret-storing', memorySessionStore: spec.sessionStore === 'memory' },
   };
 }
 

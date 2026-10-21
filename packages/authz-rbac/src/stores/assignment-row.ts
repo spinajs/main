@@ -1,4 +1,4 @@
-import type { Assignment } from '@spinajs/authz';
+import type { Assignment } from '../contracts.js';
 
 import { parsePrincipalKey, scopeFromColumns, subjectFromColumns } from './columns.js';
 import { fromDateTime } from './records.js';

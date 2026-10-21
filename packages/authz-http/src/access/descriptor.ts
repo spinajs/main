@@ -62,7 +62,7 @@ export function routeAccess(controller: object, method: AccessKey): RouteAccess 
   };
 }
 
-/** The authz domain a route checks in: its own `@Access`, else the class's, else root. */
+/** The domain a route checks in unless an AuthzDomainResolver names another: its own `@Access`, else the class's, else root. */
 export function routeDomain(access: RouteAccess): string {
   return access.route?.options.domain ?? access.controller?.options.domain ?? 'root';
 }

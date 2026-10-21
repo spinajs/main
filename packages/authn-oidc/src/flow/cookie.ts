@@ -17,14 +17,17 @@ export interface OidcFlow {
   readonly s: string;
   /** Issued at, unix seconds. */
   readonly t: number;
-  /** App-relative path to return to after a login, or null. */
+  /** App-relative path to return to after a login or a re-authentication, or null. */
   readonly r: string | null;
   /** The redirect_uri sent to the provider, sent again to the token endpoint. */
   readonly u: string;
-  readonly m: 'login' | 'link';
-  /** Link flows only: SHA-256 hex of the raw id of the session that started it. */
+  readonly m: OidcFlowMode;
+  /** Link and reauth flows only: sessionBindingOf the raw id of the session that started it. */
   readonly h?: string;
 }
+
+/** A login, a link of the current session's identity, or a re-authentication of the current session. */
+export type OidcFlowMode = 'login' | 'link' | 'reauth';
 
 export interface OidcFlowSecrets {
   readonly state: string;
@@ -68,13 +71,13 @@ function canonical(f: OidcFlow): string {
   return JSON.stringify({ v: f.v, p: f.p, s: f.s, t: f.t, r: f.r, u: f.u, m: f.m, ...(f.h !== undefined ? { h: f.h } : {}) });
 }
 
-export function newFlow(input: { provider: string; redirectUri: string; returnTo?: unknown; mode: 'login' | 'link'; sessionHash?: string; now: Date }): OidcFlow {
+export function newFlow(input: { provider: string; redirectUri: string; returnTo?: unknown; mode: OidcFlowMode; sessionHash?: string; now: Date }): OidcFlow {
   return Object.freeze({
     v: 1,
     p: input.provider,
     s: randomBytes(SEED_BYTES).toString('base64url'),
     t: Math.floor(input.now.getTime() / 1000),
-    r: input.mode === 'login' ? appPathOrNull(input.returnTo) : null,
+    r: input.mode === 'link' ? null : appPathOrNull(input.returnTo),
     u: input.redirectUri,
     m: input.mode,
     ...(input.sessionHash !== undefined ? { h: input.sessionHash } : {}),
@@ -115,9 +118,9 @@ export function decodeFlow(value: unknown): OidcFlow | null {
     Number.isSafeInteger(f.t) &&
     (f.r === null || appPathOrNull(f.r) !== null) &&
     checkedUrl(f.u, { relaxed: true, query: true }) !== null &&
-    (f.m === 'login' || f.m === 'link') &&
+    (f.m === 'login' || f.m === 'link' || f.m === 'reauth') &&
     (f.h === undefined || (typeof f.h === 'string' && SHA256_HEX.test(f.h))) &&
-    (f.m === 'link') === (f.h !== undefined);
+    (f.m === 'login') === (f.h === undefined);
   return ok ? Object.freeze(f as unknown as OidcFlow) : null;
 }
 
