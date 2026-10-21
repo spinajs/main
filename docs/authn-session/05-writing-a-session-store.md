@@ -21,6 +21,7 @@ The rules every store keeps (the issuer's guarantees depend on them):
 | `deleteBySubject(subject, opts)` | Match `Subject` (and `Impersonator` with `includeImpersonations: true`) by `type` and `id`; skip the `except` key; answer the number of live rows deleted |
 | `listBySubject(subject, opts)` | The same matching; live rows only |
 | `truncate()` | Delete every row |
+| `checkConfiguration(booting)` | Optional. Throw to fail the boot when the store cannot run in this deployment; `DefaultSessionIssuer` forwards its own `checkConfiguration` here, and `DefaultAuthnService` calls it when it resolves |
 
 ## Configuration
 
