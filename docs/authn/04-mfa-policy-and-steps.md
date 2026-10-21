@@ -8,6 +8,7 @@ A password login can end in a pending session that needs a second factor. The `M
 2. An empty list means no second factor: the session is issued at `aal1`.
 3. A non-empty list means a pending session and `{ status: 'mfa_required', pending, steps }`. The steps are alternatives.
 4. `AuthnService.completeMfa(pending, step, response, ctx)` asks the policy again, checks one step or a recovery code, and elevates the session to `aal2`. See [Authentication flow](01-authentication-flow.md#second-factor-completemfa).
+5. Later, `AuthnService.stepUp(session, step, response, ctx)` raises an active `aal1` session to `aal2` with any step the identity is enrolled in, or with a recovery code. See [Authentication flow](01-authentication-flow.md#step-up-of-an-active-session-stepup).
 
 ### What `DefaultMfaPolicy.required` returns
 
@@ -144,7 +145,8 @@ authn: {
 - A recovery code enters as `completeMfa(pending, 'recovery', code, ctx)` (`RECOVERY_STEP`). The first enrolled step that implements `verifyRecovery` checks it.
 - Under `force` the required step may be one the identity has not enrolled. `completeMfa` refuses it (`not_enrolled`): the pending session can only enrol.
 - A policy that throws refuses the login, and the throttle keeps the count.
-- Each `completeMfa` call counts into the `mfa` throttle flow before the step runs.
+- Each `completeMfa` and `stepUp` call counts into the `mfa` throttle flow before the step runs.
+- `stepUp` does not ask `required`. An `aal1` session exists because its login needed no step, so `stepUp` takes every listed step the identity is enrolled in.
 - A later `Configuration.set` changes the step list only once the policy and the `AuthnService` that holds it are resolved anew.
 - `authn:check-config` names every enrolled step the list lacks. It cannot see a mismatch.
 

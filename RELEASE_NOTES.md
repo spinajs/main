@@ -1,3 +1,34 @@
+# Release notes — authn, authn-session, authn-http: step-up of an active session
+
+> Branch `feat/ory-flow-1`. Docs: `docs/authn/01-authentication-flow.md`, `docs/authn/08-session-contract.md`,
+> `docs/authn-session/01-issuing-and-restoring-sessions.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn` — `SessionIssuer` and `AuthnService` have new abstract methods
+
+`SessionIssuer.reissue(h, change)` and `AuthnService.stepUp(session, step, response, ctx)` are abstract. A class that
+extends either outside this repository must implement it, or the build fails. `DefaultSessionIssuer`,
+`DefaultAuthnService` and the `MemorySessionIssuer` and `FakeAuthnService` fakes of `@spinajs/authn-testing` do.
+
+The `SessionIssuer` contract changes: it no longer promises that the facts of a live session never change.
+`elevate` still refuses an active session; `reissue` is the one way to change an active session's facts.
+
+## New behavior
+
+- `SessionIssuer.reissue(h, change)` moves an active session to a new id with `change` (`assurance: 'aal2'`, `mfa`,
+  `authenticatedAt`) merged into its facts. Data, subject, impersonator, creation and expiry are kept, a pending
+  session is refused, and a revocation that lands during the move stays in force.
+- `AuthnService.stepUp(session, step, response, ctx)` raises an active `aal1` session to `aal2` with any step the
+  identity is enrolled in, or a recovery code (step `recovery`). It counts in the `mfa` throttle flow and audits
+  `mfa.verify` and `session.rotate` (reason `step_up`). An `aal2` session succeeds unchanged; a pending or impersonated
+  session fails.
+- `POST /auth/mfa/step-up` in `@spinajs/authn-http`: body `{ code, step? }` with the session cookie. 200 with the new
+  session cookie, the login failure body on a wrong code (with `Retry-After` when throttled), 401 without a session,
+  403 `mfa_pending` for a pending session.
+- `@spinajs/authn-testing`: behaviour rule A34 (`A34/store` in `runSessionIssuerConformance`, `A34/http`) and the
+  `mfaStepUp` and `mfaGated` route builders.
+
 # Release notes — authn, authn-token, authn-http: revoke a token by its plaintext
 
 > Branch `feat/ory-flow-5`. Docs: `docs/authn-token/01-token-service.md`, `docs/authn-http/14-api-token-routes.md`.

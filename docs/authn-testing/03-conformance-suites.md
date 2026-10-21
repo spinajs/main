@@ -6,7 +6,7 @@ Mocha suites that check your own implementation of an authn contract: an `Authen
 | --- | --- | --- |
 | `runStrategyConformance` | One `AuthenticationStrategy` | `StrategySubject` |
 | `runIdentityStoreConformance` | `IdentityStore` and `PasswordCredentialStore` | `IdentitySubject` |
-| `runSessionIssuerConformance` | `SessionIssuer`: rules A07, A08, A09 (store facets) | `Harness` with `sessions`, `sessionStorage`, `seed` |
+| `runSessionIssuerConformance` | `SessionIssuer`: rules A07, A08, A09, A34 (store facets) | `Harness` with `sessions`, `sessionStorage`, `seed` |
 | `runSecretStoreConformance` | `SecretStore`: rule A11 (store facet) | `Harness` with `secrets`, `secretStorage`, `seed` |
 | `runLinkStoreConformance` | `IdentityLinkStore`: rule A19 (store facet) | `Harness` with `links`, `seed` |
 | `runThrottleConformance` | `AuthnThrottle`: rules A05, A06 (store facets) | `Harness` with `throttle` |

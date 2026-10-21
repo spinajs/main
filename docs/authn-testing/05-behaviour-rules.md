@@ -63,6 +63,7 @@ The repository's `packages/authn-testing/README.md` lists which SpinaJS package 
 | A27 OIDC login is code flow with PKCE and full ID token checks | Code flow with PKCE S256; a linked subject logs in; every tampered ID token fails like a failed login; a replayed state fails; JIT off and on | `oidc` | `oidc`, `http`, `links`, `seed`, route `login` |
 | A30 a voluntary change keeps tokens and ends other sessions | A change keeps API and agent tokens, ends other sessions (impersonations included) and rotates the current one; an admin expiry revokes tokens | `local`, `http` | `password`, `sessions`, `tokens`, `seed`, `service`, `http`, routes `login`, `passwordChange` |
 | A31 CORS allows only listed origins | An empty list sends no CORS headers; a listed origin is echoed with `Vary: Origin`; origins match exactly; the config check warns on an empty list | `http`, `config` | `http`, `boot` |
+| A34 step-up raises an active session to aal2 under a new id | `reissue` raises an active session and keeps its data under a new id, and refuses a pending one; a route behind `MfaSatisfied` refuses `aal1` and passes the same cookie jar after `POST /auth/mfa/step-up` | `store`, `http` | `sessions`, `seed`, `mfa`, `http`, routes `login`, `mfaStepUp`, `mfaGated` |
 
 The `needs` of every case are in `src/behaviour/A*.spec.ts` of the package; a harness that lacks one sees the exact list in the pending reason.
 
