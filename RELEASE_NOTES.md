@@ -631,6 +631,30 @@ The v2 API is gone; no package in the repository used it. The full notes are in
   checked at startup and on every frame. `SocketHub` refuses `to([])`, empty room names and `sys.*`
   names.
 
+### ARCH-6: RBAC and ABAC data shapes live in their own packages
+
+`AuthzCommand` and `AuthzAdminQuery` are now built from `AuthzCommandMap` and `AuthzAdminQueryMap`, which
+models extend by module augmentation. `@spinajs/authz` no longer exports the RBAC and ABAC data shapes:
+
+| Type | Import it from |
+| --- | --- |
+| `Assignment`, `AssignmentSubject`, `SubjectSelector`, `RuleDef`, `LinkDef` | `@spinajs/authz-rbac` |
+| `Policy` | `@spinajs/authz-abac` |
+
+- Code that builds RBAC commands (`assignment.*`, `set.*`, `link.*`, `rule.*`) or ABAC commands (`policy.*`)
+  as `AuthzCommand` must import something from `@spinajs/authz-rbac` or `@spinajs/authz-abac`, which brings
+  the augmentation along. Otherwise those kinds do not type-check. The same goes for the RBAC queries
+  (`assignments`, `links`, `rules`, `holders`) and `policies`.
+- The sugar methods of `AuthzAdmin` (`assign`, `createLink`, `putRule`, `putPolicy`, ...) are typed from
+  those packages. Without them their parameters are `never`.
+- `AuthzAdmin.list()` accepts any query kind a registered `AuthzAdminReader` claims.
+- `@spinajs/authz-http-admin`: the batch body schema is built from `AuthzCommandSchemaSource`
+  contributions. `describeAuthzAdminDocument(doc, schemas?)` takes the schemas to document, and
+  `AuthzAdminSchemaProvider.schemas()` returns them with every registered source.
+- `@spinajs/authz-testing` carries structural copies (`TestAssignment`, `TestRuleDef`, `TestAbacPolicy`,
+  `TestAdminCommand`, `TestAdminQuery`, ...); the kit's `AdminHttpHandle` takes `TestAdminCommand` and
+  `TestAdminQuery`.
+
 ## Notes for maintainers
 
 - Static analysis runs in the `analysis` job of `build.yml` after a build: `npm run lint` (one root

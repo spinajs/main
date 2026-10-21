@@ -36,7 +36,7 @@ The routes read their body and query string from `@Req()` on purpose, so no http
 | `AuthzAdminResults`, `AuthzCommandResult` | The answer of a write and one of its entries. |
 | `AuthzAdminPage`, `AuthzAdminAttributes` | The answer of a list, and a scope's attributes. |
 | `AuthzAdminError` | The body of a refused request, with every error code and its status. |
-| `COMMAND_KINDS`, `commandSchemas` | The 19 command kinds of `AuthzCommand` and a schema for each. |
+| `COMMAND_KINDS`, `commandSchemas` | The 19 built-in command kinds (authz-rbac, authz-abac and the core) and a schema for each. |
 | `ruleBody`, `policyBody` | A rule as `rule.put` takes it, a policy as `policy.put` takes it. |
 | `JsonSchema` | The type of all of the above (`Record<string, unknown>`). |
 
@@ -71,3 +71,41 @@ DI.register(AppSwaggerService).as(SwaggerService);
 - [Swagger service](../http-swagger/06-swagger-service.md): `buildSpec()` and how to replace the service.
 - [Named schemas and schema providers](../http-swagger/04-named-schemas-and-schema-providers.md): how `{AuthzAdminResults}` resolves to a schema.
 - [Admin routes](01-admin-routes.md): the routes these schemas describe.
+
+## Commands of other models
+
+The body of `POST /authz/commands` (`AuthzAdminBatch`) lists one schema per command kind. The schemas come from `AuthzCommandSchemaSource` contributions, one per model: the package registers `RbacCommandSchemas`, `AbacCommandSchemas` and `CoreCommandSchemas`. A model that declares its own commands in `AuthzCommandMap` registers a source for them:
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { AuthzCommandSchemaSource } from '@spinajs/authz-http-admin';
+
+@Injectable(AuthzCommandSchemaSource)
+export class QuotaCommandSchemas extends AuthzCommandSchemaSource {
+  schemas(): Readonly<Record<string, object>> {
+    return {
+      'quota.set': {
+        type: 'object',
+        required: ['kind', 'scope', 'limit'],
+        properties: { kind: { type: 'string', enum: ['quota.set'] }, scope: { type: 'object' }, limit: { type: 'integer' } },
+      },
+    };
+  }
+}
+```
+
+| Name | What it does |
+| --- | --- |
+| `AuthzCommandSchemaSource` | Abstract: `schemas()` returns command kind -> JSON schema. Each schema's `properties.kind.enum` must be `[kind]`. |
+| `AuthzCommandSchemaRegistry` | `commands()` merges the sources of the container and its ancestors on each call; `batch()` is `AuthzAdminBatch` over them. Two sources for one kind, or a schema that names another kind, fail with `AuthzConfigError`. |
+| `AuthzAdminSchemaProvider.schemas()` | `AUTHZ_ADMIN_SCHEMAS` with `AuthzAdminBatch` over the registered sources. `getSchema('AuthzAdminBatch')` answers the same. |
+
+`describeAuthzAdminDocument(doc)` uses the built-in schemas. Pass the registered ones to document your own commands too:
+
+```ts
+import { DI } from '@spinajs/di';
+import { AuthzAdminSchemaProvider, describeAuthzAdminDocument } from '@spinajs/authz-http-admin';
+
+const schemas = (await DI.resolve(AuthzAdminSchemaProvider)).schemas();
+describeAuthzAdminDocument(document, schemas);
+```
