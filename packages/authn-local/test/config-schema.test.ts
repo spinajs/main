@@ -30,7 +30,7 @@ describe('authn.local through the schema', function () {
     // The single authn schema filled authn.local only when the app named it; the fragment is there only with authn-local.
     it('with no user config, the effective authn.local equals what the former single authn schema filled for authn.local: {}', async () => {
       const expected = {
-        hasher: { maxConcurrent: 8 },
+        hasher: { maxQueue: 64 },
         pepper: { secret: null, version: 1 },
         policy: { minLength: 8, maxLength: 128, rule: null, blocklist: null },
         generator: { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] },
@@ -44,7 +44,8 @@ describe('authn.local through the schema', function () {
 
     it('fills every key the classes used to default in code', async () => {
       const { configuration } = await boot(SCHEMAS, LOCAL);
-      expect(configuration.get('authn.local.hasher.maxConcurrent')).to.eq(8);
+      expect(configuration.get('authn.local.hasher.maxConcurrent')).to.eq(undefined);
+      expect(configuration.get('authn.local.hasher.maxQueue')).to.eq(64);
       expect(configuration.get('authn.local.pepper')).to.deep.eq({ secret: null, version: 1 });
       expect(configuration.get('authn.local.policy')).to.deep.eq({ minLength: 8, maxLength: 128, rule: null, blocklist: null });
       expect(configuration.get('authn.local.generator.length')).to.eq(16);
@@ -58,7 +59,7 @@ describe('authn.local through the schema', function () {
       const { configuration } = await boot(SCHEMAS, LOCAL);
       const filled = configuration.get<Record<string, Record<string, unknown>>>('authn.local');
       expect(AUTHN_LOCAL_DEFAULTS).to.deep.eq({
-        hasher: { maxConcurrent: filled.hasher.maxConcurrent },
+        hasher: { maxQueue: filled.hasher.maxQueue },
         policy: { minLength: filled.policy.minLength, maxLength: filled.policy.maxLength },
         generator: filled.generator,
         reset: filled.reset,
@@ -70,7 +71,7 @@ describe('authn.local through the schema', function () {
     it('keeps the shipped package config equal to the schema defaults it repeats', async () => {
       const { configuration } = await boot(SCHEMAS, LOCAL);
       const shipped = authnLocal.authn.local;
-      expect(configuration.get('authn.local.hasher.maxConcurrent')).to.eq(shipped.hasher.maxConcurrent);
+      expect(configuration.get('authn.local.hasher.maxQueue')).to.eq(shipped.hasher.maxQueue);
       expect(configuration.get('authn.local.pepper.version')).to.eq(shipped.pepper.version);
       expect(configuration.get('authn.local.policy.minLength')).to.eq(shipped.policy.minLength);
       expect(configuration.get('authn.local.policy.maxLength')).to.eq(shipped.policy.maxLength);
@@ -89,6 +90,8 @@ describe('authn.local through the schema', function () {
       const cases: [Record<string, unknown>, string][] = [
         [{ hasher: { maxConcurrent: 0 } }, 'authn.local.hasher.maxConcurrent'],
         [{ hasher: { maxConcurrent: 1.5 } }, 'authn.local.hasher.maxConcurrent'],
+        [{ hasher: { maxQueue: -1 } }, 'authn.local.hasher.maxQueue'],
+        [{ hasher: { maxQueue: 1.5 } }, 'authn.local.hasher.maxQueue'],
         [{ hasher: { cost: 4 } }, 'authn.local.hasher.cost'],
         [{ pepper: { secret: 'x', version: 0 } }, 'authn.local.pepper.version'],
         [{ pepper: { secret: 'x', version: 1_000_000_000 } }, 'authn.local.pepper.version'],

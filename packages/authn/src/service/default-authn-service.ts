@@ -65,13 +65,16 @@ interface Keyed {
 const dedupe = (keys: ThrottleKey[]): ThrottleKey[] => uniqueBy(keys, (k) => `${k.kind}\u0000${k.value}`);
 
 /** A strategy may answer these; anything else breaks the contract (D5). */
-const STRATEGY_FAILURES: ReadonlySet<string> = new Set<AuthnFailure>(['invalid_credentials', 'unsupported_credentials', 'expired', 'revoked', 'not_linked']);
+const STRATEGY_FAILURES: ReadonlySet<string> = new Set<AuthnFailure>(['invalid_credentials', 'unsupported_credentials', 'expired', 'revoked', 'not_linked', 'throttled']);
 
 const KEY_KINDS: ReadonlySet<string> = new Set(['jws-assertion', 'http-signature']);
 
 const sameEmail = (stored: unknown, verified: string): boolean => isNonEmptyString(stored) && asciiLower(stored) === asciiLower(verified);
 
 const fail = (reason: AuthnFailure): Failure => ({ status: 'failure', reason });
+
+/** A strategy short of capacity names no usable wait: ask for one second. */
+const retryAfterOf = (o: { readonly retryAfterSeconds?: number }): number => (Number.isInteger(o.retryAfterSeconds) && o.retryAfterSeconds! > 0 ? o.retryAfterSeconds! : 1);
 
 /** The audit reason and data of an MFA policy that threw: the step names of a refusal over stored enrolments, else the error class. */
 const policyRefusal = (err: unknown, otherwise: string): { reason: string; data: Readonly<Record<string, unknown>> } => {
@@ -216,7 +219,10 @@ export class DefaultAuthnService extends AuthnService {
       return fail('unsupported_credentials');
     }
     if ('broken' in v) return this.refuse(ctx, v.s, v.broken, 'invalid_credentials', v.data ? { data: v.data } : {});
-    if (!v.outcome.ok) return this.refuse(ctx, v.s, v.outcome.reason, v.outcome.reason);
+    if (!v.outcome.ok) {
+      const refused = await this.refuse(ctx, v.s, v.outcome.reason, v.outcome.reason);
+      return v.outcome.reason === 'throttled' ? { ...refused, retryAfterSeconds: retryAfterOf(v.outcome) } : refused;
+    }
     try {
       return await this.accept(v.s, v.outcome, keyed.of(v.s), ctx);
     } catch (err) {

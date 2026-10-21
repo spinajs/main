@@ -796,3 +796,18 @@ status so tracking no longer depends on a DB default.
 - Renderers no longer mutate the caller's model object during rendering.
 - Render timing log entries report real durations (a timer-key bug made handlebars
   always report 0 ms).
+
+---
+
+# Release notes — argon2 limiter safety (`@spinajs/authn-local`)
+
+## New behavior
+
+- The hasher queue is bounded. `authn.local.hasher.maxQueue` (default **64**) is the number of hash and
+  verify operations that may wait for a slot. Beyond it they reject with `HasherBusy` at once, and the
+  local strategy answers the login with a `throttled` failure and `Retry-After: 1`.
+- `authn.local.hasher.maxConcurrent` has no fixed default any more: unset, it is
+  `max(1, UV_THREADPOOL_SIZE - 1)`, so 3 with the Node.js thread pool of 4 (it was 8). Apps that rely on 8
+  must set it, and should raise `UV_THREADPOOL_SIZE` with it.
+- A strategy may answer `{ ok: false, reason: 'throttled', retryAfterSeconds }` when it is short of
+  capacity; the core passes the wait on. The argon2 cost stays pinned; the schema still refuses cost keys.

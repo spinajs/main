@@ -122,6 +122,7 @@ The config a case asks your factory to apply. Keys mirror the `authn.*` config o
 | `env` | `'development' \| 'test' \| 'production' \| 'staging'` | App environment of the case |
 | `authn.strategies` | `{ name, service }[]` | Listed strategies |
 | `authn.local.hasher.maxConcurrent` | `number` | Parallel argon2 operations |
+| `authn.local.hasher.maxQueue` | `number` | Operations that may wait for a slot before the hasher is busy |
 | `authn.local.pepper` | `{ secret: string \| null; version: number }` | Password pepper; the secret is the value itself |
 | `authn.local.policy` | `{ minLength, maxLength, rule, blocklist }` | `blocklist` means a blocklist hook that refuses exactly these strings |
 | `authn.local.reset` | `{ ttlSeconds, revokeTokens }` | Reset secret lifetime; whether a reset revokes tokens |
