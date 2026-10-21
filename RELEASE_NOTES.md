@@ -498,6 +498,8 @@ removed. An app that migrates on startup resolves `OrmMigrator` before serving.
   command that queries models now resolves `OrmMigrator`, as an app process does, instead of only the `Orm`:
   authn-keys' `authn:key-*` (new base `KeyCliCommand`), the scheduler's `scheduler:*` and authn-totp's
   `authn:mfa-reset`. On a `Migration.OnStartup` connection they migrate on their way in, as they did before.
+- **authn-token's `authn:token-*` and users' `rbac:user-*` commands run the `OrmMigrator` boot pass too**, through
+  their bases `TokenCliCommand` and `RbacCliCommand` (which keeps `this.Orm`).
 
 ## 3.0.3
 
