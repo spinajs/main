@@ -80,9 +80,13 @@ export class EmailPasswordMailer {
       if (!address) {
         throw new InvalidArgument('the recipient has no email address');
       }
-      const link = resetUrl(mail.url, mail.secret, address);
+      // A code is typed, not followed: it has no link, whatever url the mail was given.
+      const link = mail.purpose === 'code' ? '' : resetUrl(mail.url, mail.secret, address);
       if (link) {
         secrets.push(link);
+      }
+      if (mail.code && mail.code !== mail.secret) {
+        secrets.push(mail.code);
       }
       const email = this.compose(mail, address, link, secrets);
       const service = this.Deps ? this.Deps.email : await DI.resolve(EmailService);
@@ -118,6 +122,7 @@ export class EmailPasswordMailer {
         // 3.0 templates read the link under this name.
         ResetUrl: link,
         Token: mail.secret,
+        Code: mail.code ?? '',
         ExpiresInMinutes: Math.round(mail.ttlSeconds / 60),
         AppName: this.appName(options),
         IsInvite: mail.purpose === 'invite',
