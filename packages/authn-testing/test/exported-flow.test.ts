@@ -46,6 +46,7 @@ function laneHarness(ctx: HarnessContext): Harness {
     sessions,
     sinks: [events],
     principals: new RecordingPrincipalFactory(),
+    ...(ctx.config.authn?.throttle?.ipv6Prefix !== undefined ? { ipv6Prefix: ctx.config.authn.throttle.ipv6Prefix } : {}),
   });
   return {
     service,

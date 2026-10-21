@@ -79,7 +79,7 @@ export class MemoryAuthnThrottle extends StoreAuthnThrottle {
   private get configured(): Loaded {
     if (!this.loaded) {
       if (!this.Throttle) throw new InvalidOperation('authn.throttle is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
-      const { service: _service, maxRows, memory, ...params } = structuredClone(this.Throttle);
+      const { service: _service, maxRows, memory, ipv6Prefix: _ipv6Prefix, ...params } = structuredClone(this.Throttle);
       checkThrottleParams(params);
       if (maxRows !== undefined) checkThrottleMaxRows(maxRows);
       this.loaded = { params: deepFreeze(params), maxRows, memory: deepFreeze({ ...DEFAULT_MEMORY_THROTTLE, ...memory }) };

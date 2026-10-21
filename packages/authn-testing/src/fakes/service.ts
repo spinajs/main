@@ -1,4 +1,5 @@
 import { AuthnService } from '@spinajs/authn/contracts';
+import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/authn/ip-key';
 import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalLoginHook, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 
 export interface FakeAuthnServiceDeps {
@@ -13,6 +14,8 @@ export interface FakeAuthnServiceDeps {
   /** Read at publish time, so a sink may be added after the service is built. */
   readonly sinks: readonly AuthnEventSink[];
   readonly principals: PrincipalFactory;
+  /** `authn.throttle.ipv6Prefix`; 64 when unset. */
+  readonly ipv6Prefix?: number;
   /** ExternalLoginHooks, read per login; they run for an interactive external outcome before MFA and the session (RFC N10-1). */
   readonly hooks?: () => readonly ExternalLoginHook[];
 }
@@ -94,21 +97,31 @@ export class FakeAuthnService extends AuthnService {
     return (await this.d.sessions.restore(h.id))?.facts.sessionHandle;
   }
 
+  /**
+   * As the core (K6): account keys apart per kind of strategy, and a per-request one scoped by ip, so nobody elsewhere
+   * can hold it in backoff. The ip is its throttle form: an IPv6 client shares its prefix (L3).
+   */
+  private loginKeys(s: AuthenticationStrategy, c: Credentials, ctx: AuthnContext): ThrottleKey[] {
+    const prefix = s.interactive ? 'login:' : 'request:';
+    const ip = ctx.ip ? throttleIp(ctx.ip, this.d.ipv6Prefix ?? DEFAULT_IPV6_PREFIX) : undefined;
+    const given = s.throttleKeys(c, ctx).filter((k) => !ip || k.kind !== 'account-ip');
+    const accounts = given.filter((k) => k.kind === 'account').map((k) => ({ kind: k.kind, value: `${prefix}${k.value}` }));
+    const own = given.map((k) => {
+      if (k.kind === 'account-ip') return { kind: k.kind, value: `${prefix}${k.value}` };
+      if (k.kind !== 'account') return k;
+      return { kind: k.kind, value: s.interactive ? `${prefix}${k.value}` : `${prefix}${k.value}|${ip ?? ''}` };
+    });
+    if (!ip) return own;
+    return [...own, ...accounts.map((k) => ({ kind: 'account-ip', value: `${k.value}|${ip}` })), { kind: 'ip', value: ip }];
+  }
+
   async authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
     const s = this.d.strategies.find((x) => x.kinds.includes(c.kind));
     if (!s) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials' });
       return failure('unsupported_credentials');
     }
-    // As the core (K6): account keys apart per kind of strategy, and a per-request one scoped by ip, so nobody
-    // elsewhere can hold it in backoff.
-    const prefix = s.interactive ? 'login:' : 'request:';
-    const own = s.throttleKeys(c, ctx).map((k) => {
-      if (k.kind === 'account-ip') return { kind: k.kind, value: `${prefix}${k.value}` };
-      if (k.kind !== 'account') return k;
-      return { kind: k.kind, value: s.interactive ? `${prefix}${k.value}` : `${prefix}${k.value}|${ctx.ip ?? ''}` };
-    });
-    const keys = this.keysFor(own, ctx);
+    const keys = this.loginKeys(s, c, ctx);
     const refuse = async (t: Verdict) => {
       if (t.allowed) return null;
       await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', strategy: s.name, reason: 'throttled' });

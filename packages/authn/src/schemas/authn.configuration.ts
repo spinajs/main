@@ -102,7 +102,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     throttle: {
       type: 'object',
       default: {},
-      propertyNames: { enum: ['service', 'login', 'mfa', 'reset', 'reauth', 'resetAfterSeconds', 'global', 'maxRows', 'memory'] },
+      propertyNames: { enum: ['service', 'login', 'mfa', 'reset', 'reauth', 'resetAfterSeconds', 'global', 'maxRows', 'memory', 'ipv6Prefix'] },
       properties: {
         service: { type: 'string', minLength: 1 },
         login: flow({ free: 5, baseDelayMs: 1000, maxDelayMs: 60000 }, { free: 20, baseDelayMs: 1000, maxDelayMs: 300000 }),
@@ -112,6 +112,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         resetAfterSeconds: { type: 'integer', minimum: 1, default: 86400, description: 'A key with no counted attempt for this long starts from zero.' },
         global: { ...backoff(), type: ['object', 'null'], default: null, description: 'Off (null) by default: one attacker could slow every login. Counted per flow: each flow keeps its own global row.' },
         maxRows: { type: 'integer', minimum: 4, maximum: 16000000, default: 1000000, description: 'Rows a MemoryAuthnThrottle keeps per flow (memory grows with 4 × maxRows).' },
+        ipv6Prefix: { type: 'integer', minimum: 16, maximum: 128, default: 64, description: 'IPv6 clients share the ip throttle keys of their prefix of this many bits (L3); IPv4 is keyed whole.' },
         memory: {
           type: 'object',
           default: {},
