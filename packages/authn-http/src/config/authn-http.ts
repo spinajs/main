@@ -20,6 +20,18 @@ const authnHttp = {
       },
     },
   },
+  http: {
+    bot: {
+      // reCAPTCHA v3 actions allow only letters, digits, / and _, hence the underscores.
+      checks: {
+        login: { enabled: false, verifier: 'recaptcha-v3', action: 'login', onUnavailable: 'refuse' },
+        register: { enabled: false, verifier: 'recaptcha-v3', action: 'register', onUnavailable: 'refuse' },
+        password_reset: { enabled: false, verifier: 'recaptcha-v3', action: 'password_reset', onUnavailable: 'refuse' },
+        code_request: { enabled: false, verifier: 'recaptcha-v3', action: 'code_request', onUnavailable: 'refuse' },
+        passkey_challenge: { enabled: false, verifier: 'recaptcha-v3', action: 'passkey_challenge', onUnavailable: 'refuse' },
+      },
+    },
+  },
   system: {
     dirs: {
       // Controllers are found by a filesystem scan, not by import.

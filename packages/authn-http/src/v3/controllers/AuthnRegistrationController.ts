@@ -2,7 +2,7 @@ import { Config } from '@spinajs/configuration';
 import '../../register-schema.js';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BadRequestResponse, BaseController, BasePath, Policy, Post, Req } from '@spinajs/http';
+import { BadRequestResponse, BaseController, BasePath, BotCheck, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { AuthnThrottle, IdentityRegistrar, PasswordService } from '@spinajs/authn/contracts';
@@ -40,6 +40,7 @@ export class AuthnRegistrationController extends BaseController {
    * @security []
    */
   @Post('auth/register')
+  @BotCheck('register')
   public async register(@Req() req: Request) {
     const login = boundedString(bodyField(req, 'login'), IDENTIFIER_CAP);
     if (login === null) return badRequest('invalid_login', `login must be a non-empty string of at most ${IDENTIFIER_CAP} characters`);

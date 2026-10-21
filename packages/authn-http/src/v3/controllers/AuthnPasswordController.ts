@@ -1,5 +1,5 @@
 import { Autoinject } from '@spinajs/di';
-import { BaseController, BasePath, Get, Ok, Patch, Policy, Post, Req } from '@spinajs/http';
+import { BaseController, BasePath, BotCheck, Get, Ok, Patch, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { PasswordService } from '@spinajs/authn/contracts';
 
@@ -52,6 +52,7 @@ export class AuthnPasswordController extends BaseController {
    * @security []
    */
   @Post('auth/password/reset-request')
+  @BotCheck('password_reset')
   public async requestReset(@Req() req: Request) {
     const login = loginField(req);
     if (login === null) return badRequest('invalid_login', `login must be a non-empty string of at most ${PASSWORD_HARD_CAP} characters`);
