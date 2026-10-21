@@ -49,7 +49,7 @@ Any other key under `logout` fails validation. Register the `post_logout_redirec
 | --- | --- |
 | `AuthnLogoutExtension` (`@spinajs/authn-http`) | The extension point; register your own with `@Injectable(AuthnLogoutExtension)`. The first redirect any extension answers wins |
 | `OidcLogoutExtension` | Built-in implementation; resolves the origin and calls `OidcRpLogout` |
-| `OidcRpLogout` | Framework-free: `endSessionUrl(session, origin)` answers the URL or `undefined` |
+| `OidcRpLogout` (internal, `src/logout-extension.ts`) | Framework-free: `endSessionUrl(session, origin)` answers the URL or `undefined` |
 | `OIDC_ID_TOKEN_KEY` | The session data key of the stored ID token; read it with `session.get(OIDC_ID_TOKEN_KEY)` |
 
 ## Important behaviour

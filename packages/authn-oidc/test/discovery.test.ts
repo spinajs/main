@@ -69,8 +69,8 @@ describe('authn-oidc discovery', () => {
     });
 
     it('drops members the flow does not use', async () => {
-      idp.discovery.end_session_endpoint = `${FAKE_ISSUER}/logout`;
-      expect(await discovery.metadata(T0)).to.not.have.property('end_session_endpoint');
+      idp.discovery.revocation_endpoint = `${FAKE_ISSUER}/revoke`;
+      expect(await discovery.metadata(T0)).to.not.have.property('revocation_endpoint');
     });
   });
 

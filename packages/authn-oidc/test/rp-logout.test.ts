@@ -21,10 +21,10 @@ const CLAIMS = { sub: 'kc-1', sid: 'idp-1' };
 
 type World = Awaited<ReturnType<typeof world>>;
 
-/** A provider whose discovery advertises `endpoint` (none: the member is left out). */
+/** A provider whose discovery advertises `endpoint` (null: the member is left out). */
 async function worldWith(endpoint: unknown = END, o: WorldOptions = {}): Promise<World> {
   const idp = o.idp ?? (await FakeIdp.create());
-  if (endpoint === undefined) delete idp.discovery.end_session_endpoint;
+  if (endpoint === null) delete idp.discovery.end_session_endpoint;
   else idp.discovery.end_session_endpoint = endpoint;
   return world({ ...o, idp });
 }
@@ -128,7 +128,7 @@ describe('authn-oidc RP-initiated logout (FLOW-3)', () => {
     });
 
     it('answers nothing for a provider without an end_session_endpoint', async () => {
-      const w = await worldWith(undefined);
+      const w = await worldWith(null);
       expect(await rp(w).endSessionUrl(await loggedIn(w), ORIGIN)).to.eq(undefined);
     });
 
