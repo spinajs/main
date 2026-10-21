@@ -61,6 +61,13 @@ A successful re-authentication counts for the current request only. It does
 not change `authenticatedAt` and does not rotate the session id, so the next
 sensitive request asks again once the window has passed.
 
+To refresh the window instead, re-authenticate through `POST /auth/reauth`
+(`@spinajs/authn-http`, password) or `GET /auth/oidc/:provider/reauth`
+(`@spinajs/authn-oidc`). Both call `reauthenticate` and then
+`SessionIssuer.reissue(h, { authenticatedAt: ctx.now })`: the session moves
+to a new id with a fresh `authenticatedAt`, and every `FreshAuth` route
+passes without a password until `maxAgeSeconds` has passed again.
+
 ```ts
 import { FreshAuthCheck } from '@spinajs/authn';
 import type { AuthnContext, SessionHandle } from '@spinajs/authn';
