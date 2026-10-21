@@ -8,7 +8,6 @@ import type { IControllerDescriptor, Request } from '@spinajs/http';
 import { AuthnThrottle, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 
-import authnHttpConfig from '../../src/config/authn-http.js';
 import { CsrfOriginGuard } from '../../src/middleware/csrf.js';
 import { TokenServiceRegistered } from '../../src/token/gate.js';
 import { AuthnTokenRevocationController } from '../../src/v3/controllers/AuthnTokenRevocationController.js';
@@ -237,13 +236,13 @@ describe('POST /auth/tokens/revoke (self-revocation by plaintext)', () => {
       const values = {
         'authn.http.csrf.enabled': true,
         'authn.http.csrf.allowedOrigins': [],
-        'authn.http.csrf.unauthenticatedRoutes': authnHttpConfig.authn.http.csrf.unauthenticatedRoutes,
         'authn.session.cookie': { name: 'ssid' },
         'authn.http.trustProxy': null,
         'http.trustProxy': null,
         'http.controllers.route.prefix': '',
       };
       Object.defineProperty(mw, CONFIGURATION_CONTAINER_KEY, { value: fakeContainer(values) });
+      Object.defineProperty(mw, 'Log', { value: { warn: () => undefined } });
       return mw;
     }
 
@@ -255,15 +254,11 @@ describe('POST /auth/tokens/revoke (self-revocation by plaintext)', () => {
       return next.calledOnce;
     }
 
-    it('is not one of the credential-taking routes the guard checks without a cookie', () => {
-      expect(authnHttpConfig.authn.http.csrf.unauthenticatedRoutes).to.not.include(ROUTE);
-    });
-
-    it('lets a cookieless post through whatever its Origin or Sec-Fetch-Site says', () => {
+    it('X1 lets a non-browser client post without a cookie, and checks a browser like on any route', () => {
       expect(passes({})).to.eq(true);
-      expect(passes({ origin: EVIL })).to.eq(true);
       expect(passes({ origin: OWN })).to.eq(true);
-      expect(passes({ 'sec-fetch-site': 'cross-site' })).to.eq(true);
+      expect(passes({ origin: EVIL })).to.eq(false);
+      expect(passes({ 'sec-fetch-site': 'cross-site' })).to.eq(false);
     });
   });
 });

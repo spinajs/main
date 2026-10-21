@@ -8,7 +8,7 @@ import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';
 import { proxyTrustOf } from '@spinajs/authn-http';
 import { sessionCookie } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { BaseController, BasePath, Del, Get, Param, Post, Req, Response, Unauthorized, _setCoockies, _setHeaders, isTrustedPeer } from '@spinajs/http';
+import { BaseController, BasePath, CsrfExempt, Del, Get, Param, Post, Req, Response, Unauthorized, _setCoockies, _setHeaders, isTrustedPeer } from '@spinajs/http';
 import type { ICookie, Request, ResponseFunction } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 
@@ -57,7 +57,7 @@ const isNavigation = (req: Request): boolean => req.get('sec-fetch-mode') === 'n
 /**
  * `GET /auth/oidc/:provider`, `GET /auth/oidc/:provider/callback`, the link routes `POST` / `DELETE
  * /auth/oidc/:provider/link` (design §22.15), and `POST /auth/oidc/:provider/backchannel-logout`, which the IdP calls
- * without a session cookie, so the CSRF guard lets it through. The logic lives in OidcLogin; this maps express to it. The restored
+ * server to server, so it is `@CsrfExempt()`. The logic lives in OidcLogin; this maps express to it. The restored
  * session comes from authn-http's middleware (`req.storage.AuthnSession`).
  */
 @BasePath(ROUTE_PREFIX)
@@ -121,6 +121,7 @@ export class OidcController extends BaseController {
     return new OidcResponse(await login.unlink(provider, this.requestOf(req)));
   }
 
+  @CsrfExempt()
   @Post(':provider/backchannel-logout')
   public async backchannelLogout(@Param() provider: string, @Req() req: Request): Promise<OidcResponse> {
     this.logout ??= new OidcBackchannelLogout({

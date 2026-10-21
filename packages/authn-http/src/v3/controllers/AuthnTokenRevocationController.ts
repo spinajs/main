@@ -14,8 +14,8 @@ const TOKEN_CAP = 1024;
 
 /**
  * Self-revocation of a token by its plaintext (RFC 7009 style), for the holder of a leaked secret. Off (404) while no
- * TokenService is registered. Needs no session: the secret in the body is the whole authorisation, and the route is not in
- * authn.http.csrf.unauthenticatedRoutes, so a request without the session cookie is not origin-checked.
+ * TokenService is registered. Needs no session: the secret in the body is the whole authorisation. A browser request is
+ * origin-checked like any other; a server or CLI sending no Origin is not.
  * @tags AccessTokens
  */
 @BasePath('/')
