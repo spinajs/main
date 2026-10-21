@@ -128,7 +128,8 @@ describe('DbTokenService action hooks', function () {
       }, 'after');
       const t = await pat(a);
       expect(t.record.name).to.equal('pat');
-      expect(hook.landed()).to.deep.equal([]);
+      // Freezing a Date does not stop setTime: the before write lands, on the hook's own copy.
+      expect(hook.landed()).to.deep.equal(['authn.token.create:before']);
     });
 
     it('a hook writing the owner of a rotation in place does not move the rotation', async () => {
