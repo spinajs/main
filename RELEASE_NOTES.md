@@ -14,6 +14,11 @@ Fixes only: no 3.0.2 API, config key or HTTP answer changes.
   injected the `Orm`, and the users stores awaited `DI.resolve(Orm)`. They now await `ormReady()` per call, which
   does not wait for an ORM that has created its connections. The token cli commands inject the `Orm` instead, so
   resolving one still boots it.
+- **Fix: configuration rows were written unconverted.** The ORM attaches a `@DbConfigValue` converter only to a class
+  registered in DI, and `DbConfigValueConverter` was not. An instance update of a `DbConfig` row (the exposed-option
+  sync, the configuration panel's write) sent `Value` and `Default` raw: MySQL failed with `Truncated incorrect DOUBLE
+  value` on `json` and `manyOf` options, and model reads (the watch poll) returned the stored text. The converter now
+  registers itself when the package loads; the workaround `DI.register(DbConfigValueConverter).asSelf()` can go.
 
 ## 3.0.2
 
