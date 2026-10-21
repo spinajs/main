@@ -6,3 +6,5 @@ export { AccessPolicy } from './policy.js';
 export type { AccessScope } from './policy.js';
 export { UnscopedMiddleware, UnfilteredInput } from './decorators.js';
 export { AccessContributor } from './contributor.js';
+export { UnguardedRoutesReport, findUnguardedRoutes } from './unguarded.js';
+export type { UnguardedRoutesMode } from './unguarded.js';

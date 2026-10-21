@@ -1,12 +1,15 @@
 import type { TSESLint } from '@typescript-eslint/utils';
 
+import { requireAccess } from './rules/require-access.js';
 import { requireAccessible } from './rules/require-accessible.js';
 
 export { isAccessResourceClass, primaryKeyOf } from './access-resource.js';
+export * from './rules/require-access.js';
 export * from './rules/require-accessible.js';
 
 export const rules = {
   'require-accessible': requireAccessible,
+  'require-access': requireAccess,
 };
 
 const plugin = { meta: { name: '@spinajs/eslint-plugin-authz' }, rules } satisfies TSESLint.FlatConfig.Plugin;
@@ -15,7 +18,7 @@ export const configs = {
   recommended: {
     name: '@spinajs/authz/recommended',
     plugins: { '@spinajs/authz': plugin },
-    rules: { '@spinajs/authz/require-accessible': 'error' },
+    rules: { '@spinajs/authz/require-accessible': 'error', '@spinajs/authz/require-access': 'error' },
   } satisfies TSESLint.FlatConfig.Config,
 };
 
