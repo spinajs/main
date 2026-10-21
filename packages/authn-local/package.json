@@ -14,12 +14,20 @@
       "types": "./lib/mjs/schema.d.ts",
       "import": "./lib/mjs/schema.js",
       "require": "./lib/cjs/schema.js"
+    },
+    "./queue": {
+      "types": "./lib/mjs/queue/index.d.ts",
+      "import": "./lib/mjs/queue/index.js",
+      "require": "./lib/cjs/queue/index.js"
     }
   },
   "typesVersions": {
     "*": {
       "schemas": [
         "lib/cjs/schema.d.ts"
+      ],
+      "queue": [
+        "lib/cjs/queue/index.d.ts"
       ]
     }
   },
@@ -74,7 +82,16 @@
     "ajv": "^8.12.0",
     "argon2": "^0.44.0"
   },
+  "peerDependencies": {
+    "@spinajs/queue": "3.0.1"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/queue": {
+      "optional": true
+    }
+  },
   "devDependencies": {
-    "@spinajs/authn-testing": "3.0.1"
+    "@spinajs/authn-testing": "3.0.1",
+    "@spinajs/queue": "3.0.1"
   }
 }

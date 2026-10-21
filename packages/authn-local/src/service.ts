@@ -29,6 +29,7 @@ import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
 import { DeferredWork } from './deferred.js';
 import { EXPIRED_PASSWORD_MARKER, PasswordHasher } from './hasher.js';
 import { PasswordMailer } from './mailer.js';
+import type { AuthnMailDispatcher, AuthnMailRequest } from './mail/contracts.js';
 import { isLoginLength, LocalPasswordPolicy } from './policy.js';
 import { normalizeLogin } from './strategy.js';
 
@@ -58,6 +59,8 @@ export interface LocalPasswordServiceDeps {
   readonly resetUrl?: string;
   /** `authn.local.invite.ttlSeconds`; default 900. */
   readonly inviteTtlSeconds?: number;
+  /** Missing: an `InlineAuthnMailDispatcher` over `deliver`. */
+  readonly dispatcher?: AuthnMailDispatcher;
 }
 
 /** D11, D12: exists, not deleted, not banned, and active or invite-pending. */
@@ -348,6 +351,14 @@ export class LocalPasswordService extends PasswordService {
     const secret = await (await this.secrets()).issue(id, purpose, ttlSeconds);
     await mailer.send({ identity: id, purpose, to, secret, url: this.resetUrl(), ttlSeconds });
     return true;
+  }
+
+  /**
+   * Issues the secret, resolves the address and sends through the PasswordMailer at once. False when there is no mailer, no
+   * address, or the request is older than its ttl.
+   */
+  public deliver(_request: AuthnMailRequest): Promise<boolean> {
+    throw new Error('not implemented: LocalPasswordService.deliver');
   }
 
   /**

@@ -1,14 +1,17 @@
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
+import type { AuthnMailPurpose } from './mail/contracts.js';
+
 export interface PasswordMail {
   readonly identity: IdentityRef;
-  readonly purpose: 'reset' | 'invite';
+  readonly purpose: AuthnMailPurpose;
   readonly to: { readonly email?: string; readonly name?: string };
   /** The raw single-use secret; the link is built from it and `url`. */
   readonly secret: string;
   /** `authn.local.reset.url`, the page that redeems the secret. */
   readonly url: string;
   readonly ttlSeconds: number;
+  readonly lang?: string;
 }
 
 /**

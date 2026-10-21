@@ -27,6 +27,7 @@ export * from './user-resource-adapter.js';
 export * from './default-roles-check.js';
 export * from './identity/index.js';
 export * from './authn/index.js';
+export * from './mail/check.js';
 
 @Injectable(Bootstrapper)
 export class RbacBootstrapper extends Bootstrapper {

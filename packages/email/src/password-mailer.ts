@@ -4,16 +4,21 @@ import { InvalidArgument, InvalidOperation, IOFail } from '@spinajs/exceptions';
 import { EmailService, IEmail, PasswordMailConfiguration } from './interfaces.js';
 import { redactText } from './redact.js';
 
+/** `AuthnMailPurpose` of `@spinajs/authn-local`. */
+export type PasswordMailPurpose = 'reset' | 'invite';
+
 /** The fields of `PasswordMail` from `@spinajs/authn-local`, declared here so this package never imports it. */
 export interface IPasswordMail {
   readonly identity: { readonly type: string; readonly id: string };
-  readonly purpose: 'reset' | 'invite';
+  readonly purpose: PasswordMailPurpose;
   readonly to: { readonly email?: string; readonly name?: string };
   /** The raw single-use secret. */
   readonly secret: string;
   /** The page that redeems the secret, or ''. */
   readonly url: string;
   readonly ttlSeconds: number;
+  /** Overrides `email.password.lang`. */
+  readonly lang?: string;
 }
 
 export interface EmailPasswordMailerDeps {

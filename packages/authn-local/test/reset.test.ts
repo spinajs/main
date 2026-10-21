@@ -386,7 +386,7 @@ describe('LocalPasswordService reset and invite', function () {
     it('a made-up secret costs exactly two redeems on every path, so a pending invite does not show in the timing (A02)', async () => {
       const x = await setup();
       const bob = x.identities.add({ login: 'bob@example.com' });
-      const dave = x.identities.add({ login: 'dave@example.com', status: { active: false, invitePending: true } });
+      const dave = x.identities.add({ login: 'dave@example.com', email: 'dave@example.com', status: { active: false, invitePending: true } });
       x.identities.setStatus(x.alice, { banned: true });
       const real = [x.alice, bob, dave];
       const isReal = (r: IdentityRef) => real.some((i) => i.type === r.type && i.id === r.id);
@@ -460,6 +460,7 @@ describe('LocalPasswordService reset and invite', function () {
       const dave = x.identities.add({ login: 'dave@example.com', email: 'dave@example.com', status: { active: false, invitePending: true } });
       await x.service.invite(dave, ctx());
 
+      await x.service.drain();
       expect(x.mailer.mails).to.have.length(1);
       expect(x.mailer.mails[0]).to.include({ purpose: 'invite', ttlSeconds: 900, url: 'https://app.example.com/password-reset' });
       const secret = x.mailer.secretFor(dave, 'invite')!;
@@ -472,8 +473,9 @@ describe('LocalPasswordService reset and invite', function () {
 
     it('an invite secret is invalid once the invite is no longer pending', async () => {
       const x = await setup();
-      const dave = x.identities.add({ login: 'dave@example.com', status: { active: true } });
+      const dave = x.identities.add({ login: 'dave@example.com', email: 'dave@example.com', status: { active: true } });
       await x.service.invite(dave, ctx());
+      await x.service.drain();
       const secret = x.mailer.secretFor(dave, 'invite')!;
       expect(await x.service.redeemReset('dave@example.com', secret, NEW, later(1))).to.deep.equal({ status: 'invalid' });
     });
@@ -484,9 +486,10 @@ describe('LocalPasswordService reset and invite', function () {
     ] as const) {
       it(`a ${label} identity never redeems its invite`, async () => {
         const x = await setup();
-        const dave = x.identities.add({ login: 'dave@example.com', status: { active: false, invitePending: true } });
+        const dave = x.identities.add({ login: 'dave@example.com', email: 'dave@example.com', status: { active: false, invitePending: true } });
         await x.service.invite(dave, ctx());
         x.identities.setStatus(dave, status);
+        await x.service.drain();
         const secret = x.mailer.secretFor(dave, 'invite')!;
         expect(await x.service.redeemReset('dave@example.com', secret, NEW, later(1))).to.deep.equal({ status: 'invalid' });
       });
@@ -494,8 +497,9 @@ describe('LocalPasswordService reset and invite', function () {
 
     it('an invite never holds the secret in an event', async () => {
       const x = await setup();
-      const dave = x.identities.add({ login: 'dave@example.com', status: { active: false, invitePending: true } });
+      const dave = x.identities.add({ login: 'dave@example.com', email: 'dave@example.com', status: { active: false, invitePending: true } });
       await x.service.invite(dave, ctx(), { actor: { type: 'user', id: 'admin-1' } });
+      await x.service.drain();
       const secret = x.mailer.secretFor(dave, 'invite')!;
       expect(JSON.stringify(x.events.all())).to.not.contain(secret);
     });

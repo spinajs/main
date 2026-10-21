@@ -15,6 +15,7 @@ const authnLocal = {
     dirs: {
       // Commands are found by a filesystem scan (`@ListFromFiles`).
       cli: [...dir('cli')],
+      jobs: [...dir('queue')],
     },
   },
   authn: {
@@ -63,7 +64,31 @@ const authnLocal = {
          */
         revokeTokens: true,
       },
+
+      mail: {
+        /**
+         * 'queue': each mail is an AuthnMailJob that a queue consumer delivers; it needs a real connection for
+         * `queue.routing.AuthnMailJob`. 'inline': delivered in this process after the caller has its answer.
+         */
+        delivery: 'queue' as 'queue' | 'inline',
+      },
     },
+  },
+  queue: {
+    routing: {
+      AuthnMailJob: { connection: 'authn-mail' },
+    },
+
+    // Drops every job until an app configures its own `authn-mail` connection; outside development and test
+    // `@spinajs/users` refuses to boot with it.
+    connections: [
+      {
+        name: 'authn-mail',
+        service: 'BlackHoleQueueClient',
+        defaultQueueChannel: 'authn-mail-jobs',
+        defaultQueueDeadLetterChannel: 'authn-mail-jobs-dlq',
+      },
+    ],
   },
 };
 

@@ -85,5 +85,13 @@ export const AUTHN_LOCAL_CONFIGURATION_SCHEMA = {
         maxAgeDays: { type: 'number', exclusiveMinimum: 0, default: 31 },
       },
     },
+    mail: {
+      type: 'object',
+      default: {},
+      propertyNames: { enum: ['delivery'] },
+      properties: {
+        delivery: { enum: ['queue', 'inline'], default: 'queue', description: 'queue: an AuthnMailJob per mail; inline: delivered in this process after the answer.' },
+      },
+    },
   },
 };
