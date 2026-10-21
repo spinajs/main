@@ -6,3 +6,5 @@ export * from './stores/memory.js';
 export * from './lru.js';
 export * from './timeout.js';
 export * from './service.js';
+
+export * from './safe-fetch.js';
