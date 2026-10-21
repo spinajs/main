@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn-session",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "description": "Session issuing, stores and codecs for SpinaJS authentication",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -72,15 +72,15 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.2",
-    "@spinajs/configuration": "3.0.2",
-    "@spinajs/configuration-common": "3.0.2",
-    "@spinajs/di": "3.0.2",
-    "@spinajs/exceptions": "3.0.2",
-    "@spinajs/util": "3.0.2",
+    "@spinajs/authn": "3.0.3",
+    "@spinajs/configuration": "3.0.3",
+    "@spinajs/configuration-common": "3.0.3",
+    "@spinajs/di": "3.0.3",
+    "@spinajs/exceptions": "3.0.3",
+    "@spinajs/util": "3.0.3",
     "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "@spinajs/authn-testing": "3.0.2"
+    "@spinajs/authn-testing": "3.0.3"
   }
 }

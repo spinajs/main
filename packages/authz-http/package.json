@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authz-http",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "description": "HTTP integration for SpinaJS authorization",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -52,18 +52,18 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.2",
-    "@spinajs/authz": "3.0.2",
-    "@spinajs/configuration": "3.0.2",
-    "@spinajs/di": "3.0.2",
-    "@spinajs/exceptions": "3.0.2",
-    "@spinajs/http": "3.0.2",
-    "@spinajs/log": "3.0.2",
-    "@spinajs/orm": "3.0.2",
-    "@spinajs/util": "3.0.2"
+    "@spinajs/authn": "3.0.3",
+    "@spinajs/authz": "3.0.3",
+    "@spinajs/configuration": "3.0.3",
+    "@spinajs/di": "3.0.3",
+    "@spinajs/exceptions": "3.0.3",
+    "@spinajs/http": "3.0.3",
+    "@spinajs/log": "3.0.3",
+    "@spinajs/orm": "3.0.3",
+    "@spinajs/util": "3.0.3"
   },
   "devDependencies": {
-    "@spinajs/authz-testing": "3.0.2",
-    "@spinajs/fs": "3.0.2"
+    "@spinajs/authz-testing": "3.0.3",
+    "@spinajs/fs": "3.0.3"
   }
 }
