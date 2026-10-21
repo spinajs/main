@@ -56,6 +56,20 @@ describe('ServicePrincipalSource', () => {
     }
   });
 
+  it('yields nothing for a header longer than 1024 characters, even one equal to a configured token', async () => {
+    const longest = 't'.repeat(1024);
+    configure([{ name: 'long', header: 'X-Long-Token', token: [longest, `${longest}t`] }]);
+
+    expect(await source.authenticate(request({ 'x-long-token': longest }))).to.deep.include({ id: 'long' });
+    expect(await source.authenticate(request({ 'x-long-token': `${longest}t` }))).to.eq(null);
+  });
+
+  it('the configuration schema caps a service token at 1024 characters', () => {
+    const token = (AUTHZ_HTTP_CONFIGURATION_SCHEMA.properties.services.items.properties.token as { anyOf: { maxLength?: number; items?: { maxLength?: number } }[] }).anyOf;
+    expect(token[0].maxLength).to.eq(1024);
+    expect(token[1].items!.maxLength).to.eq(1024);
+  });
+
   it('picks the service whose header matched when several are configured', async () => {
     configure([
       { name: 'legacy-v1', header: 'X-Token', token: 'one' },

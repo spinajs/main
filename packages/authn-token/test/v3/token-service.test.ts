@@ -689,6 +689,30 @@ describe('DbTokenService', function () {
     });
   });
 
+  // Only a direct write makes a token whose uuid or secret is longer than the service mints.
+  describe('input caps (VAL V9)', () => {
+    it('revoke and revokeById answer false for an id longer than 64 characters', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      const long = 'u'.repeat(65);
+      await AccessToken.update({ Uuid: long }).where('Uuid', t.record.id);
+
+      expect(await tokens.revoke(a, long, ctx())).to.equal(false);
+      expect(await tokens.revokeById(long, ctx())).to.equal(false);
+      expect((await row(long)).RevokedAt).to.equal(null);
+    });
+
+    it('validate answers invalid_credentials for a token longer than 1024 characters', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      const long = t.plaintext.padEnd(1025, 'x');
+      const hash = (tokens as unknown as { Generator: AccessTokenGenerationProvider }).Generator.hash(long);
+      await AccessToken.update({ Token: hash }).where('Uuid', t.record.id);
+
+      expect(await validate(long)).to.deep.equal({ ok: false, reason: 'invalid_credentials' });
+    });
+  });
+
   describe('validate', () => {
     // LEDGER actions-validate rows 2 and 3
     it('answers invalid_credentials for unknown and degenerate input without throwing', async () => {

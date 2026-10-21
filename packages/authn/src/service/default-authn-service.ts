@@ -34,6 +34,7 @@ import { canPeek } from '../throttle/peek.js';
 import { timedThrottle } from '../throttle/timing.js';
 import type { PeekableThrottle } from '../throttle/peek.js';
 import { AUTHN_THROTTLE_SERVICE } from '../throttle/select.js';
+import { isValidField, mfaResponseField, mfaStepField } from '../schemas/fields.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
 import { checkAuthnSecrets } from './boot/secrets.js';
 
@@ -534,6 +535,7 @@ export class DefaultAuthnService extends AuthnService {
    * aal1 session needed no step, so the policy may require none for its method.
    */
   private async passMfa(id: IdentityRef, facts: AuthnFacts, step: string, response: string, anyEnrolled = false): Promise<boolean | string> {
+    if (!isValidField(mfaStepField, step) || !isValidField(mfaResponseField, response)) return 'malformed';
     const required = anyEnrolled ? await this.enrolledSteps(id) : await this.Policy.required(id, { method: facts.method, strategy: facts.strategy });
     if (required.length === 0) return 'no_steps';
     const steps = await this.Policy.steps();

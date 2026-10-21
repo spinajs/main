@@ -1,4 +1,5 @@
 import { AuthenticationFailed } from '@spinajs/exceptions';
+import { isValidField, oidcGroupField, oidcGroupsField } from '@spinajs/authn/schemas';
 import type { OidcClaimPath, OidcClaimsMapping, OidcExternalSubject, OidcStrategyName } from './contracts.js';
 import { isPlainObject } from './support.js';
 
@@ -36,9 +37,11 @@ function sidOf(v: unknown): { sid?: string } {
   return typeof v === 'string' && v.length > 0 && v.length <= MAX_SID_LENGTH ? { sid: v } : {};
 }
 
+const isGroup = (g: unknown): g is string => isValidField(oidcGroupField, g);
+
 function groupsOf(v: unknown): readonly string[] | undefined {
-  if (typeof v === 'string') return Object.freeze([v]);
-  if (Array.isArray(v)) return Object.freeze(v.filter((g): g is string => typeof g === 'string'));
+  if (typeof v === 'string') return Object.freeze(isGroup(v) ? [v] : []);
+  if (Array.isArray(v)) return v.length > oidcGroupsField.maxItems ? undefined : Object.freeze(v.filter(isGroup));
   return undefined;
 }
 

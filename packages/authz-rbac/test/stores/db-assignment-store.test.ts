@@ -277,6 +277,35 @@ for (const kind of DB_KINDS) {
         expect(await rows()).to.deep.eq([]);
       });
 
+      it('refuses a role, scope type, scope id or tag text wider than its column, writing nothing', async () => {
+        const assign = (over: Partial<Omit<Assignment, 'id' | 'source'>>) => inTx((tx) => store.assign({ subject: alice, role: 'editor', scope: P1, ...over }, root, tx));
+        const refusal = async (over: Partial<Omit<Assignment, 'id' | 'source'>>): Promise<AuthzAdminFailure> => {
+          try {
+            await assign(over);
+          } catch (e) {
+            return e as AuthzAdminFailure;
+          }
+          throw new Error(`not refused: ${JSON.stringify(over).slice(0, 80)}`);
+        };
+
+        for (const [over, code, field] of [
+          [{ role: 'r'.repeat(129) }, 'invalid_command', 'role'],
+          [{ scope: { type: 't'.repeat(65), id: 'p1' } }, 'invalid_command', 'scope'],
+          [{ scope: { type: 'project', id: 'i'.repeat(65) } }, 'invalid_command', 'scope'],
+          // Stored as ',<tag>,': 513 characters.
+          [{ tags: ['t'.repeat(511)] }, 'invalid_tags', 'tags'],
+        ] as const) {
+          const err = await refusal(over);
+          expect(err, field).to.be.instanceOf(AuthzAdminFailure);
+          expect(err.code, field).to.eq(code);
+          expect(err.field, field).to.eq(field);
+        }
+        expect(await rows()).to.deep.eq([]);
+
+        await assign({ role: 'r'.repeat(128), scope: { type: 't'.repeat(64), id: 'i'.repeat(64) }, tags: ['t'.repeat(510)] });
+        expect(await rows()).to.have.length(1);
+      });
+
       it('keeps % and _ in tags', async () => {
         const a = await inTx((tx) => store.assign({ subject: alice, role: 'editor', scope: P1, tags: ['50%', 'a_b'] }, root, tx));
 
@@ -514,6 +543,12 @@ for (const kind of DB_KINDS) {
 
       it('refuses invalid tags', async () => {
         await expect(inTx((tx) => store.addTags('t1', ['x,y'], tx))).to.be.rejectedWith(AuthzAdminFailure, /"x,y"/);
+        expect((await rows())[0].tags).to.eq(',a,b,');
+      });
+
+      it('refuses tags whose stored text is wider than 512 characters', async () => {
+        await expect(inTx((tx) => store.setTags('t1', ['t'.repeat(511)], tx))).to.be.rejectedWith(AuthzAdminFailure, /512/);
+        await expect(inTx((tx) => store.addTags('t1', ['t'.repeat(507)], tx))).to.be.rejectedWith(AuthzAdminFailure, /512/);
         expect((await rows())[0].tags).to.eq(',a,b,');
       });
 

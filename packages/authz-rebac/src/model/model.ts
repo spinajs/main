@@ -69,6 +69,7 @@ export class RebacModel extends AuthorizationModel {
   private permissionsChecked = false;
   private generation = 0;
   private unsubscribe?: () => void;
+  private unbindSchema?: () => void;
 
   constructor(private readonly opts: RebacModelOptions = {}) {
     super();
@@ -89,6 +90,8 @@ export class RebacModel extends AuthorizationModel {
     this.tuples = this.opts.store ?? (ctx.container.hasRegistered(TupleStore) ? await ctx.container.resolve(TupleStore) : storeFromConfig(this.name, ctx));
     this.unsubscribe?.();
     this.unsubscribe = this.tuples instanceof MemoryTupleStore ? this.tuples.onWrite(() => this.generation++) : undefined;
+    this.unbindSchema?.();
+    this.unbindSchema = this.tuples instanceof DbTupleStore ? this.tuples.checkAgainst(() => this.schema()) : undefined;
     ctx.registerNativeFilter(this.nativeFilter);
   }
 
@@ -139,6 +142,8 @@ export class RebacModel extends AuthorizationModel {
   async dispose(): Promise<void> {
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    this.unbindSchema?.();
+    this.unbindSchema = undefined;
   }
 
   /** The compiled namespaces. @throws AuthzConfigError before init */

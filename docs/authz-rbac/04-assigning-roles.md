@@ -140,7 +140,8 @@ Config assignments live in no store: `authz:revoke` and `AuthzAdmin` cannot remo
 | `not_assignable` | The role has `assignable: false`. |
 | `wrong_scope_type` | The role's `scopeTypes` leave out the scope type. |
 | `unknown_ladder` | `replaceLadder: true` on a role that sits on no ladder. |
-| `invalid_command` | A malformed field, a type-level scope, a past `expiresAt`. |
+| `invalid_command` | A malformed field, a type-level scope, a past `expiresAt`, a role longer than 128 characters or a scope type or id longer than 64 (`DbAssignmentStore`). |
+| `invalid_tags` | An empty tag, a tag holding `,`, or tags longer than 512 characters as stored (`,a,b,`). |
 | `not_found` | No assignment with that id; no member to remove. |
 | `conflict` | The subject is a share link; a concurrent batch granted the same subject, role and scope. |
 | `forbidden` | The actor lacks the command's permission at the scope. |

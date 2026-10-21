@@ -1,5 +1,5 @@
 import { DI, Injectable } from '@spinajs/di';
-import { LinkResolver } from '@spinajs/authz';
+import { AUTHZ_FIELD_SCHEMAS, LinkResolver } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import type { Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
@@ -8,6 +8,7 @@ import { Config } from '@spinajs/configuration';
 import { PrincipalSource } from '../api.js';
 import type { LinksConfig } from '../http-config.js';
 import '../storage.js';
+import { isValidInput } from './input.js';
 
 export { LinkResolver };
 
@@ -50,6 +51,10 @@ export class LinkPrincipalSource extends PrincipalSource {
     }
 
     const companion = req.storage?.Principal;
+    // No link store holds a longer token, so the resolver is not asked.
+    if (!(await isValidInput(AUTHZ_FIELD_SCHEMAS.linkToken, token))) {
+      return deadLinkPrincipal(companion);
+    }
     // Per call: registerRbac binds the resolver at the root domain's boot, after this source is built.
     const resolver = (await DI.RootContainer.resolveOptional(LinkResolver)) as LinkResolver | undefined;
     if (!resolver) {

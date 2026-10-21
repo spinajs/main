@@ -46,6 +46,7 @@ Indexes: `authz_rebac_tuple_object (namespace, object_id, relation)` for checks 
 
 - `write` runs in its own transaction; `writeIn(tx, add, remove, actor)` joins an `AuthzAdmin` transaction and reports how many tuples it added and removed.
 - A value wider than its column fails with `AuthzConfigError` naming the column.
+- `write` refuses an added tuple that the namespaces of a `RebacModel` over the store cannot hold (`NamespaceSchema.problem`: `unknown_relation`, `subject_not_allowed`) with `AuthzConfigError`. `RebacModel.init` binds its namespaces with `checkAgainst(schema)`; `dispose` unbinds them.
 - A concurrent insert of the same tuple counts as already present.
 
 ## See also

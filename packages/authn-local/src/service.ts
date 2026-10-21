@@ -5,6 +5,7 @@ import './register-schema.js';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { InvalidOperation } from '@spinajs/exceptions';
+import { isValidField, loginField, secretField } from '@spinajs/authn/schemas';
 import { Log, Logger } from '@spinajs/log';
 import { AuthnThrottle, IdentityAddressVerifier, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService, identityThrottleKeys, sameRef } from '@spinajs/authn/contracts';
 import type {
@@ -281,6 +282,10 @@ export class LocalPasswordService extends PasswordService {
    * known and unknown logins (A11, SR-04).
    */
   public async requestReset(login: string, ctx: AuthnContext): Promise<PasswordResetRequestResult> {
+    // No account has such a login: the answer of an unknown one, without a throttle key or a lookup.
+    if (!isValidField(loginField, login)) {
+      return { status: 'accepted' };
+    }
     const keys: ThrottleKey[] = [{ kind: 'account', value: normalizeLogin(login) }, resetIpKey(ctx)];
     const gate = await this.throttle().attempt(keys, 'reset', ctx);
     if (!gate.allowed) {
@@ -381,6 +386,9 @@ export class LocalPasswordService extends PasswordService {
    * known and unknown logins (SR-04).
    */
   public async requestCode(login: string, ctx: AuthnContext): Promise<CodeRequestResult> {
+    if (!isValidField(loginField, login)) {
+      return { status: 'accepted' };
+    }
     const keys: ThrottleKey[] = [{ kind: 'account', value: `code:${normalizeLogin(login)}` }, resetIpKey(ctx)];
     const gate = await this.throttle().attempt(keys, 'reset', ctx);
     if (!gate.allowed) {
@@ -406,7 +414,7 @@ export class LocalPasswordService extends PasswordService {
   /** Every refusal answers `invalid`; the reason goes to audit only. */
   public async redeemVerification(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult> {
     const verifier = this.verifier();
-    const parsed = parseVerifySecret(secret);
+    const parsed = isValidField(secretField, secret) ? parseVerifySecret(secret) : null;
     if (!parsed) {
       await (await this.secrets()).redeem(throwaway(), 'verify', '');
       await this.audit(ctx, { type: 'address.verify', outcome: 'failure', reason: 'malformed' });
