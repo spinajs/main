@@ -4,22 +4,7 @@ import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import {
-  Connection,
-  BelongsTo,
-  HasMany,
-  HasManyToMany,
-  Migration,
-  Model,
-  ModelBase,
-  Orm,
-  OrmDriver,
-  OrmMigration,
-  Primary,
-  Relation,
-  SingleRelation,
-  extractModelDescriptor,
-} from '@spinajs/orm';
+import { Connection, BelongsTo, HasMany, HasManyToMany, Migration, Model, ModelBase, OrmDriver, OrmMigration, Primary, Relation, SingleRelation, extractModelDescriptor, OrmMigrator } from '@spinajs/orm';
 import '@spinajs/log';
 
 import { TestConfiguration } from './common.js';
@@ -147,7 +132,7 @@ describe('@Filterable on a property with no column (virtual filter column)', fun
     for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
       await b.bootstrap();
     }
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
 
     // orm-http's bootstrapper installs these on every loaded model in a full app boot.
     for (const model of [VItem, VTag, VOwner]) {

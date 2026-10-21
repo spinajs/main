@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm } from '@spinajs/orm';
+import { OrmMigrator } from '@spinajs/orm';
 import { FromDbModel } from '../src/index.js';
 import { Test } from './models/Test.js';
 import { Test5 } from './models/Test5.js';
@@ -91,7 +91,7 @@ describe('from-model-override: FromDbModel model override (@FromModel({ model })
       await b.bootstrap();
     }
 
-    await DI.resolve(Orm); // runs migrations, seeds `test` table (Id 1 = 'witaj')
+    await DI.resolve(OrmMigrator); // runs migrations, seeds `test` table (Id 1 = 'witaj')
   });
 
   const req = (params: Record<string, unknown>) => ({ params, query: {}, headers: {}, body: null }) as any;
