@@ -675,7 +675,7 @@ export class DefaultMigrationService extends OrmMigrationService {
         await this.upsertStart(u.name, existing);
 
         this.warnOnChecksumDrift(u, records);
-        await runMigrationUp(this.driver, () => migration.up(this.driver));
+        await runMigrationUp(() => migration.up(this.driver));
         await this.markFinished(u.name, batch, migrationChecksum(u.type));
 
         executed.push(migration);

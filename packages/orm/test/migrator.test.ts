@@ -25,6 +25,7 @@ import {
   OrmException,
   OrmMigration,
   OrmMigrator,
+  ormConnection,
   Primary,
   SelectQueryBuilder,
   TableExistsQueryBuilder,
@@ -432,6 +433,61 @@ describe('OrmMigrator', function () {
 
     expect(modelTableReads(tableInfo).sort()).to.eql(['mig_other', 'mig_posts', 'mig_users']);
     expect(Object.prototype.hasOwnProperty.call((await DI.resolve(Orm)).Connections.get(CONNECTION), 'executeOnDb'), 'the raw-SQL detector must not outlive the migration').to.be.false;
+  });
+
+  it('(c) a table created through another driver instance of the connection re-reads its model', async () => {
+    @Migration(CONNECTION)
+    class MigratorTestTwin_2026_10_21_00_00_00 extends OrmMigration {
+      public async up() {
+        const twin = await DI.resolve<OrmDriver>('migrator-test-driver', [{ Driver: 'migrator-test-driver', Name: CONNECTION }]);
+        await twin.schema().createTable('mig_users', (t) => {
+          t.int('Id').primaryKey();
+          t.string('Email');
+        });
+      }
+
+      public async down() {}
+    }
+
+    void MigratorTestTwin_2026_10_21_00_00_00;
+
+    await DI.resolve(OrmMigrator);
+
+    expect(columnNames(models.MigratorTestUser)).to.include('Email');
+  });
+
+  it('(c) SQL a migration sends straight to another connection re-reads every model of that connection', async () => {
+    @Migration(CONNECTION)
+    class MigratorTestDirectOther_2026_10_21_00_00_00 extends OrmMigration {
+      public async up() {
+        await (ormConnection(OTHER_CONNECTION) as MigratorTestDriver).executeOnDb('ALTER TABLE mig_b ADD COLUMN Extra TEXT');
+        TABLES.set('mig_b', [...TABLES.get('mig_b')!, column('Extra', 'TEXT')]);
+      }
+
+      public async down() {}
+    }
+
+    void MigratorTestDirectOther_2026_10_21_00_00_00;
+
+    await DI.resolve(Orm);
+    const tableInfo = sinon.spy(MigratorTestDriver.prototype, 'tableInfo');
+    await DI.resolve(OrmMigrator);
+
+    expect(modelTableReads(tableInfo)).to.include('mig_b');
+    expect(columnNames(models.MigratorTestB)).to.include('Extra');
+  });
+
+  it('the strict check asks the driver again about a table the Orm resolve found missing', async () => {
+    strictSetting = true;
+    TABLES.set('mig_users', [column('Id', 'INT', { PrimaryKey: true })]);
+    TABLES.delete('mig_other');
+
+    await DI.resolve(Orm);
+    TABLES.set('mig_other', [column('Id', 'INT', { PrimaryKey: true }), column('Note', 'VARCHAR')]);
+
+    await DI.resolve(OrmMigrator);
+
+    expect(columnNames(models.MigratorTestOther)).to.include('Note');
   });
 
   it("(d) a migration's data() resolving a service that injects the Orm and querying a model completes", async () => {

@@ -28,7 +28,7 @@ export interface IReloadTableInfoOptions {
 
   /**
    * Throw one OrmException listing every registered model whose table is missing, the models this call did not
-   * read counted as the last read found them. Default false: warn per model read.
+   * read but recorded missing by an earlier read asked about again. Default false: warn per model read.
    */
   strict?: boolean;
 }
@@ -96,6 +96,13 @@ export class Orm extends AsyncService {
     const missing = await this.readTableInfo(options.models);
 
     if (options.strict) {
+      // what an earlier read found missing may exist by now ( created through a path no touch recorded, or by
+      // another process ), so the driver is asked again rather than the record trusted
+      const unread = options.models ? this.Models.filter((m) => this.MissingTables.has(m.type) && !options.models!.includes(m.type)).map((m) => m.type) : [];
+      if (unread.length > 0) {
+        await this.readTableInfo(unread);
+      }
+
       const all = this.Models.filter((m) => this.MissingTables.has(m.type)).map((m) => this.MissingTables.get(m.type)!);
 
       if (all.length > 0) {

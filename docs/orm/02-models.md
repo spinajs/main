@@ -27,7 +27,7 @@ table itself when it starts.
      its lower-cased `NativeType`;
    - builds `descriptor.Schema` and `descriptor.ResponseSchema` (see
      [JSON schema](11-json-schema.md));
-   - when `tableInfo()` answers `null` (no such table), leaves the descriptor's columns as the decorators made them and records the model as missing; at the end, called strict (the `OrmMigrator` boot pass does, under `db.StrictTableCheck`), it throws one `OrmException` for every registered model recorded missing, read in this call or not; otherwise it logs a warning per model read. See [Connections](01-connections.md).
+   - when `tableInfo()` answers `null` (no such table), leaves the descriptor's columns as the decorators made them and records the model as missing; at the end, called strict (the `OrmMigrator` boot pass does, under `db.StrictTableCheck`), it reads again every other model an earlier read recorded missing, then throws one `OrmException` for every registered model whose table is still missing; otherwise it logs a warning per model read. See [Connections](01-connections.md).
 6. `Orm.wireRelations()` resolves relation targets, and `applyModelMixins()` binds the static query
    API (`get`, `where`, `select`, ...) onto every registered model.
 

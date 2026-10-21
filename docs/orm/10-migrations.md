@@ -55,10 +55,10 @@ sequenceDiagram
 | `schema().createTable()`, `alterTable()` (including `rename()`), `dropTable()`, `cloneTable()`, `createView()`, `dropView()`, `index()` | the table or view names |
 | `createEvent()`, `dropEvent()`, `createDatabase()`, `tableExists()`, any DML | nothing |
 | `schema().raw()`, `dropDatabase()`, another builder in schema context | every table of the connection |
-| SQL sent to the driver directly (`executeOnDb()`) inside `up()` | every table of the connection |
+| SQL sent straight to any connection's driver (`executeOnDb()`) inside `up()` | every table of that connection |
 | any migration applied by a custom `OrmMigrationService` | every table of the connection |
 
-`touched.models` are the registered models whose `TableName` (case-insensitive) and connection match. `wireRelations()` reads no column info, so relations are not wired again. A faked run (`fake: true`) touches nothing.
+`touched.models` are the registered models whose `TableName` (case-insensitive) and connection match. Connections are matched by the driver's `Name`, so a statement through an alias, or through another driver instance of the same connection, counts for it. `wireRelations()` reads no column info, so relations are not wired again. A faked run (`fake: true`) touches nothing.
 
 ### A run, `MigrationRunner.up()`
 

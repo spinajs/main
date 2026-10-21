@@ -117,10 +117,11 @@ export class MigrationRunner {
     const executed: OrmMigration[] = [];
     const opened = new Set<OrmDriver>();
     const touches: SchemaTouches = new Map();
+    const drivers = new Set(this.orm.Connections.values());
 
     for (const [driver, units] of await this.stretches(this.plan(name, options?.force ?? true, options?.connection))) {
       const service = await this.service(driver);
-      const ran = await recordSchemaTouches(touches, () => service.up(units, { fake: options?.fake, continueBatch: opened.has(driver) }));
+      const ran = await recordSchemaTouches(touches, () => service.up(units, { fake: options?.fake, continueBatch: opened.has(driver) }), drivers);
 
       // only the built-in service runs up() where SQL sent straight to the driver is noticed
       if (ran.length > 0 && !options?.fake && !(service instanceof DefaultMigrationService)) {
@@ -142,8 +143,8 @@ export class MigrationRunner {
     return (this.orm.Models ?? [])
       .filter((m) => {
         const descriptor = extractModelDescriptor(m.type);
-        const driver = descriptor?.Connection ? this.orm.Connections.get(descriptor.Connection) : undefined;
-        const touched = driver ? touches.get(driver) : undefined;
+        const connection = descriptor?.Connection ? this.orm.Connections.get(descriptor.Connection)?.Options.Name : undefined;
+        const touched = connection ? touches.get(connection) : undefined;
 
         return touched === 'all' || (touched !== undefined && !!descriptor?.TableName && touched.has(descriptor.TableName.toLowerCase()));
       })
