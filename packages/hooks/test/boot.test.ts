@@ -247,6 +247,26 @@ describe('DefaultHooks boot', function () {
     }
   });
 
+  describe('a factory that returns no hook instance', () => {
+    for (const [title, value] of [
+      ['null', null],
+      ['a primitive', 42],
+    ] as const) {
+      it(`fails boot with a named error for ${title}`, async () => {
+        const factory = () => value as never;
+        const e = await rejectionOf(boot({}, (c) => c.register(factory).as(ActionHook)));
+
+        expect((e as Error).message).to.contain('Hook factory factory returned no hook instance');
+      });
+    }
+
+    it('names an anonymous factory', async () => {
+      const e = await rejectionOf(boot({}, (c) => c.register((() => undefined) as never).as(ActionHook)));
+
+      expect((e as Error).message).to.contain('Hook factory anonymous factory returned no hook instance');
+    });
+  });
+
   describe('a hook whose DI resolution hangs', () => {
     let clock: sinon.SinonFakeTimers | undefined;
 

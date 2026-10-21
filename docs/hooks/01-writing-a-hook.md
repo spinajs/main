@@ -83,7 +83,7 @@ The action also checks again the invariants that guard the changed values, so a 
 
 ## Constructor rules
 
-The runner reads `actions`, `order` and which of `before`, `after` and `failed` the hook defines at boot, from a probe instance built with `new`, outside DI. A constructor that throws on the probe fails the boot with `Hook <name> could not be constructed to read its actions`. A hook whose `actions` is not an array of strings, or whose `order` is not a finite number, fails the boot with `Hook <name> declares no valid actions/order`. The same check applies to the instance a factory registration returns.
+The runner reads `actions`, `order` and which of `before`, `after` and `failed` the hook defines at boot, from a probe instance built with `new`, outside DI. A constructor that throws on the probe fails the boot with `Hook <name> could not be constructed to read its actions`. A hook whose `actions` is not an array of strings, or whose `order` is not a finite number, fails the boot with `Hook <name> declares no valid actions/order`. The same check applies to the instance a factory registration returns. A factory that returns `null`, `undefined` or any other non-object fails the boot with `Hook factory <function name or anonymous factory> returned no hook instance`.
 
 - Declare `actions` and `order` as plain field initializers, or as getters with no dependencies.
 - Define `before`, `after` and `failed` as class methods. A phase added to the instance later is never called.

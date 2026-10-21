@@ -145,6 +145,7 @@ export class DefaultHooks extends Hooks {
     }
 
     const instance = (type as Factory<ActionHook>)(this.Container);
+    if (!isObject(instance)) throw new Error(`Hook factory ${(type as Factory<ActionHook>).name || 'anonymous factory'} returned no hook instance`);
     return { ...this.entryOf(type, instance, index, instance.constructor.name), instance: Promise.resolve(instance) };
   }
 
