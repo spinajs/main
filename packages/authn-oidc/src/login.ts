@@ -136,6 +136,15 @@ export class OidcLogin {
   }
 
   /**
+   * `GET /auth/oidc/:provider/reauth`: re-authenticates the current active session at the provider (prompt=login,
+   * max_age=0). The callback checks auth_time, proves the session's own identity through AuthnService.reauthenticate and
+   * moves the session to a new id with a fresh authenticatedAt; a failure leaves the session as it was.
+   */
+  public async beginReauth(_provider: string, _req: OidcRequest): Promise<OidcAnswer> {
+    throw new Error('not implemented: OidcLogin.beginReauth');
+  }
+
+  /**
    * `POST /auth/oidc/:provider/link`: starts a flow bound to the current active session (D16). A POST, so authn-http's
    * origin check (A22) guards it; a cross-site start would let another site link its own account to this session's
    * identity (account-linking CSRF), whatever SameSite the session cookie has.

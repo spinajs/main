@@ -17,6 +17,8 @@ export interface IdTokenRules {
   readonly nonce: string;
   readonly accessToken: string;
   readonly now: Date;
+  /** A re-authentication's flow start, unix seconds: auth_time must be given and no earlier, within the clock skew. */
+  readonly authenticatedSince?: number;
 }
 
 export type IdTokenClaims = Readonly<Record<string, unknown>>;

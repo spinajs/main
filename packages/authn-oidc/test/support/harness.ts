@@ -106,8 +106,9 @@ export async function oidcHarness(ctx: HarnessContext): Promise<Harness> {
     }));
     const restored = cookies[SESSION_COOKIE] ? await sessions.restore(cookies[SESSION_COOKIE]) : null;
     const oidcReq = { origin: ORIGIN, cookies, query, navigation: false, ctx: { now: new Date(), purpose: 'login' as const, ip: '192.0.2.10' }, session: restored?.handle ?? null };
-    const route = /^\/auth\/oidc\/([^/]+)(\/callback)?$/.exec(url.pathname);
+    const route = /^\/auth\/oidc\/([^/]+)(\/callback|\/reauth)?$/.exec(url.pathname);
     if (req.method === 'GET' && route) {
+      if (route[2] === '/reauth') return answer(await login.beginReauth(route[1], oidcReq));
       return answer(route[2] ? await login.callback(route[1], oidcReq) : await login.begin(route[1], oidcReq));
     }
     if (req.method === 'POST' && url.pathname === '/auth/login') {

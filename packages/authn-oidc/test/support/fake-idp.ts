@@ -51,6 +51,8 @@ interface IssuedCode {
   readonly codeChallenge: string | null;
   readonly codeChallengeMethod: string | null;
   readonly nonce: string | null;
+  /** The max_age the authorization request asked for, if any. */
+  readonly maxAge?: string;
 }
 
 const b64url = (b: Buffer | string): string => Buffer.from(b).toString('base64url');
@@ -156,12 +158,13 @@ export class FakeIdp extends OidcHttpClient {
       codeChallenge: q.get('code_challenge'),
       codeChallengeMethod: q.get('code_challenge_method'),
       nonce: q.get('nonce'),
+      ...(q.has('max_age') ? { maxAge: q.get('max_age')! } : {}),
     });
     return { code, state: q.get('state')!, ...(opts.withIss ? { iss: this.issuer } : {}) };
   }
 
   /** An ID token for an issued code, with the login's tamper applied. */
-  async idToken(issued: { readonly login: FakeLogin; readonly nonce: string | null }, accessToken: string): Promise<string> {
+  async idToken(issued: { readonly login: FakeLogin; readonly nonce: string | null; readonly maxAge?: string }, accessToken: string): Promise<string> {
     const login = issued.login;
     const key = login.key ?? this.keys[0];
     const now = Math.floor(Date.now() / 1000);
@@ -171,6 +174,8 @@ export class FakeIdp extends OidcHttpClient {
       aud: this.clientId,
       iat: now,
       exp: now + 300,
+      // OIDC Core §3.1.2.1: a request with max_age gets auth_time; every login here is immediate.
+      ...(issued.maxAge !== undefined ? { auth_time: now } : {}),
       ...(issued.nonce !== null ? { nonce: issued.nonce } : {}),
       at_hash: atHash(accessToken, key.alg),
       ...login.claims,

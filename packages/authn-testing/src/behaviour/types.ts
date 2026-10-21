@@ -63,6 +63,7 @@ const routeNames = {
   mfaRecovery: 1,
   mfaStepUp: 1,
   mfaGated: 1,
+  reauth: 1,
   mfaEnrol: 1,
   mfaConfirm: 1,
   mfaDisable: 1,

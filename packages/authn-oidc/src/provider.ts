@@ -8,7 +8,7 @@ import { OidcDiscovery } from './discovery.js';
 import type { OidcHttpClient } from './http/client.js';
 import { OidcJwks } from './jwks.js';
 import { flowIsLive, flowSecrets, newFlow, stateClaim } from './flow/cookie.js';
-import type { OidcFlow } from './flow/cookie.js';
+import type { OidcFlow, OidcFlowMode } from './flow/cookie.js';
 import { authorizationUrl } from './flow/authorize.js';
 import { exchangeCode } from './token/exchange.js';
 import { validateIdToken } from './token/id-token.js';
@@ -82,7 +82,7 @@ export class OidcProvider {
   }
 
   /** A new flow and the authorization request URL for it. */
-  public async begin(input: { redirectUri: string; returnTo?: unknown; mode: 'login' | 'link'; sessionHash?: string; now: Date }): Promise<{ flow: OidcFlow; location: string }> {
+  public async begin(input: { redirectUri: string; returnTo?: unknown; mode: OidcFlowMode; sessionHash?: string; now: Date }): Promise<{ flow: OidcFlow; location: string }> {
     const endpoints = await this.endpoints(input.now);
     const flow = newFlow({ provider: this.name, redirectUri: this.options.redirectUri ?? input.redirectUri, returnTo: input.returnTo, mode: input.mode, sessionHash: input.sessionHash, now: input.now });
     const location = authorizationUrl({

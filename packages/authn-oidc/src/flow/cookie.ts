@@ -21,10 +21,13 @@ export interface OidcFlow {
   readonly r: string | null;
   /** The redirect_uri sent to the provider, sent again to the token endpoint. */
   readonly u: string;
-  readonly m: 'login' | 'link';
-  /** Link flows only: SHA-256 hex of the raw id of the session that started it. */
+  readonly m: OidcFlowMode;
+  /** Link and reauth flows only: sessionBindingOf the raw id of the session that started it. */
   readonly h?: string;
 }
+
+/** A login, a link of the current session's identity, or a re-authentication of the current session. */
+export type OidcFlowMode = 'login' | 'link' | 'reauth';
 
 export interface OidcFlowSecrets {
   readonly state: string;
@@ -68,7 +71,7 @@ function canonical(f: OidcFlow): string {
   return JSON.stringify({ v: f.v, p: f.p, s: f.s, t: f.t, r: f.r, u: f.u, m: f.m, ...(f.h !== undefined ? { h: f.h } : {}) });
 }
 
-export function newFlow(input: { provider: string; redirectUri: string; returnTo?: unknown; mode: 'login' | 'link'; sessionHash?: string; now: Date }): OidcFlow {
+export function newFlow(input: { provider: string; redirectUri: string; returnTo?: unknown; mode: OidcFlowMode; sessionHash?: string; now: Date }): OidcFlow {
   return Object.freeze({
     v: 1,
     p: input.provider,

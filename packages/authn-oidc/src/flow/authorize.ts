@@ -10,6 +10,8 @@ export interface AuthorizationRequest {
   /** False for plain OAuth2, which has no ID token to carry a nonce. */
   readonly nonce: boolean;
   readonly extra: OidcAuthorizationParams;
+  /** A re-authentication: the provider must log the user in again (prompt=login, max_age=0), whatever the extras say. */
+  readonly reauth?: boolean;
 }
 
 /** The authorization code request with PKCE S256 (RFC 6749 §4.1.1, RFC 7636 §4.3); never an implicit or hybrid flow. */
