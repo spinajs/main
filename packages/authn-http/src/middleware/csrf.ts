@@ -1,10 +1,12 @@
-import { Injectable } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { Config, Configuration } from '@spinajs/configuration';
+import { InvalidOption } from '@spinajs/exceptions';
+import { isLenientAuthnEnv } from '@spinajs/authn/env';
 import '../register-schema.js';
 import '@spinajs/authn-session/register-schema';
 import { CsrfGuard, HTTP_STATUS_CODE, CSRF_REFUSED_BODY, ServerMiddleware, parseAllowedOrigins, parseOrigin, requestOrigin } from '@spinajs/http';
 import type { OriginRefusal, ProxyTrust, Request } from '@spinajs/http';
-import { SESSION_COOKIE_BASE_NAME } from '@spinajs/authn-session';
+import { SESSION_COOKIE_BASE_NAME, appEnvOf, sessionCookieSameSite } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { Log, Logger } from '@spinajs/log';
 import type * as express from 'express';
@@ -13,6 +15,29 @@ import { proxyTrustOf } from './client-ip.js';
 import { CSRF_REFUSED_EVENT } from './csrf-log.js';
 
 const DEPRECATED_ALLOWED_ORIGINS_KEY = 'authn.http.csrf.allowedOrigins';
+
+export interface SameSiteNoneCheck {
+  /** From `sessionCookieSameSite`. */
+  readonly sameSite: 'strict' | 'lax' | 'none' | false;
+  readonly csrfEnabled: boolean;
+  readonly allowedOrigins: ReadonlySet<string>;
+  /** From `appEnvOf`; absent means production. */
+  readonly env: string | undefined;
+}
+
+/**
+ * With SameSite=None browsers send the session cookie on cross-site requests, so the origin check is the only CSRF
+ * defence, and a cross-site embed needs its origin listed anyway. Outside development and test, throws when the guard is
+ * off or lists no allowed origin.
+ */
+export function assertSameSiteNoneProtected(check: SameSiteNoneCheck): void {
+  if (check.sameSite !== 'none' || isLenientAuthnEnv(check.env)) return;
+  if (!check.csrfEnabled || check.allowedOrigins.size === 0) {
+    throw new InvalidOption(
+      'authn.session.cookie.sameSite is none, so browsers send the session cookie on cross-site requests: keep the CSRF guard on (http.csrf.enabled) and list the cross-site origins that use the session in http.csrf.allowedOrigins, or use SameSite strict or lax',
+    );
+  }
+}
 
 /**
  * The app's own origin for this request: scheme from the connection and host from Host, or X-Forwarded-Proto and
@@ -68,6 +93,10 @@ export class CsrfOriginGuard extends CsrfGuard {
   @Config('authn.session.cookie')
   protected SessionCookie: ISessionCookieConfig;
 
+  // An injected Configuration: appEnvOf reads its Env for the SR-16 rule, which @Config cannot express.
+  @Autoinject(Configuration)
+  protected Configuration!: Configuration;
+
   @Logger('authn-http')
   protected Log!: Log;
 
@@ -95,6 +124,11 @@ export class CsrfOriginGuard extends CsrfGuard {
   protected refuse(_reason: OriginRefusal, req: Request, res: express.Response, _next: express.NextFunction): void {
     warnRefused(this.Log, req.headers.origin, req.headers['sec-fetch-site'], this.ownOrigin(req));
     res.status(HTTP_STATUS_CODE.FORBIDDEN).json(CSRF_REFUSED_BODY);
+  }
+
+  public async resolve(): Promise<void> {
+    assertSameSiteNoneProtected({ sameSite: sessionCookieSameSite(this.SessionCookie ?? {}), csrfEnabled: this.enabled(), allowedOrigins: this.allowedOrigins(), env: appEnvOf(this.Configuration) });
+    await super.resolve();
   }
 
   public before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null {
