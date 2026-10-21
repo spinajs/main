@@ -36,7 +36,7 @@ function asQuery<T>(read: () => T): T {
 export class RbacAdminReader extends AuthzAdminReader {
   readonly kinds = ['assignments', 'links', 'rules', 'holders'] as const;
 
-  async list(q: AuthzAdminQuery, ctx: AdminContext): Promise<{ items: readonly unknown[]; total: number }> {
+  async list(q: AuthzAdminQuery, ctx: AdminContext): Promise<{ items: readonly unknown[]; total: number; next?: string }> {
     switch (q.kind) {
       case 'assignments': {
         const page = pageOf(q);

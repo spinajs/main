@@ -17,7 +17,7 @@ export interface HoldersQuery {
   readonly permission: Permission;
   readonly scope: ResourceRef;
   readonly expandSets: boolean;
-  readonly page: { readonly limit: number; readonly offset: number };
+  readonly page: { readonly limit: number; readonly offset: number; readonly after?: string };
 }
 
 export interface HolderVia {
@@ -120,7 +120,7 @@ async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) 
   return out;
 }
 
-export async function listHolders(q: HoldersQuery, ctx: AdminContext): Promise<{ items: readonly Holder[]; total: number }> {
+export async function listHolders(q: HoldersQuery, ctx: AdminContext): Promise<{ items: readonly Holder[]; total: number; next?: string }> {
   const model = ctx.authz.models().find((m): m is RbacModel => m instanceof RbacModel);
   if (!model) throw new AuthzConfigError(`Authz domain ${JSON.stringify(ctx.domain)}: a holders query needs an RbacModel among the domain's models`);
   if (typeof ctx.authz.ancestors !== 'function') throw new AuthzConfigError(`Authz domain ${JSON.stringify(ctx.domain)}: a holders query needs an AuthzService with ancestors()`);

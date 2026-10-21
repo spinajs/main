@@ -3,7 +3,7 @@ import type { AuthzTx, MemoryTx, PrincipalRef, ResourceRef } from '@spinajs/auth
 
 import type { RuleDef } from '../../contracts.js';
 import { AdminRuleStore } from '../ports.js';
-import type { Page } from '../ports.js';
+import type { ListResult, Page } from '../ports.js';
 import { deepFreeze, isLiveAt, paged, sameRef } from '../rows.js';
 
 // structuredClone keeps Dates and drops nothing a RuleDef holds (plain data).
@@ -44,7 +44,7 @@ export class MemoryRuleStore extends AdminRuleStore {
     this.write(undo, id, undefined);
   }
 
-  async find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<{ items: readonly RuleDef[]; total: number }> {
+  async find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<ListResult<RuleDef>> {
     return paged([...this.rows.values()].filter((r) => q.scope === undefined || sameRef(r.scope, q.scope)).map(copy), page);
   }
 

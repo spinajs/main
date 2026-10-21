@@ -18,7 +18,7 @@ export interface AppliedRow {
  */
 export abstract class AuthzAdminReader {
   abstract readonly kinds: readonly AuthzAdminQuery['kind'][];
-  abstract list(q: AuthzAdminQuery, ctx: AdminContext): Promise<{ items: readonly unknown[]; total: number }>;
+  abstract list(q: AuthzAdminQuery, ctx: AdminContext): Promise<{ items: readonly unknown[]; total: number; next?: string }>;
 }
 
 /** scope.forget fans out to every registered forgetter, inside the batch transaction. */

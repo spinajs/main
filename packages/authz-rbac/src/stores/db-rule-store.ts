@@ -7,7 +7,7 @@ import type { IWhereBuilder } from '@spinajs/orm';
 import { compareStrings, uniqueBy } from '@spinajs/util';
 
 import { AdminRuleStore } from '../admin/ports.js';
-import type { Page } from '../admin/ports.js';
+import type { ListResult, Page } from '../admin/ports.js';
 import { scopeFromColumns, scopeToColumns, subjectFromColumns, subjectToColumns } from './columns.js';
 import type { ScopeRefColumns } from './columns.js';
 import { requireTransaction } from './context.js';
@@ -22,7 +22,7 @@ import { bumpVersion, readVersion } from './version.js';
 /** `AuthzAdmin.list({ kind: 'rules' })` without the kind. */
 export interface RuleListQuery {
   readonly scope?: ResourceRef;
-  readonly page?: { readonly limit: number; readonly offset: number };
+  readonly page?: { readonly limit: number; readonly offset: number; readonly after?: string };
 }
 
 /** An `authz_rule_subject` row as a subject of a rule's list. */
@@ -176,19 +176,19 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
    * the unpaged result. At most {@link RULE_LIST_MAX_LIMIT} rows; a negative or fractional `limit`
    * or `offset` is `invalid_page`.
    */
-  async list(q: RuleListQuery = {}): Promise<{ items: readonly RuleDef[]; total: number }> {
+  async list(q: RuleListQuery = {}): Promise<ListResult<RuleDef>> {
     await this.ready();
     return this.select(q.scope, pageWindow(q.page, this.maxListLimit, `${this.name}.list`));
   }
 
   /** `AdminRuleStore.find`: with a page, as {@link list}; without one, every rule of the scope (one rule query). */
-  async find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<{ items: readonly RuleDef[]; total: number }> {
+  async find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<ListResult<RuleDef>> {
     await this.ready();
     return this.select(q.scope, page ? pageWindow(page, this.maxListLimit, `${this.name}.find`) : undefined);
   }
 
   /** Rules oldest first; `window` undefined reads every match in one rule query. */
-  private async select(scope: ResourceRef | undefined, window: { limit: number; offset: number } | undefined): Promise<{ items: readonly RuleDef[]; total: number }> {
+  private async select(scope: ResourceRef | undefined, window: { limit: number; offset: number } | undefined): Promise<ListResult<RuleDef>> {
     const filtered = () => {
       const query = RuleRecord.query();
       if (scope) query.where(scopeToColumns(scope));

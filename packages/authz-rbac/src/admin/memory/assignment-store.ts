@@ -5,7 +5,7 @@ import type { AuthzTx, MemoryTx, PrincipalRef, ResourceRef } from '@spinajs/auth
 
 import type { Assignment, AssignmentSubject } from '../../contracts.js';
 import { AdminAssignmentStore } from '../ports.js';
-import type { AssignmentQuery, Page } from '../ports.js';
+import type { AssignmentQuery, ListResult, Page } from '../ports.js';
 import { copyDate, copyPrincipalRef, copyRef, copySubject, deepFreeze, isLiveAt, isSetSubject, paged, sameRef, sortedTags } from '../rows.js';
 import { subjectKeyOf } from '../../stores/columns.js';
 
@@ -99,7 +99,7 @@ export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
     return copy(row);
   }
 
-  async find(q: AssignmentQuery, page?: Page): Promise<{ items: readonly Assignment[]; total: number }> {
+  async find(q: AssignmentQuery, page?: Page): Promise<ListResult<Assignment>> {
     const subject = q.subject ? subjectKeyOf(q.subject) : undefined;
     const items = [...this.rows.values()].filter((a) => (q.scope === undefined || sameRef(a.scope, q.scope)) && (subject === undefined || subjectKeyOf(a.subject) === subject) && (q.role === undefined || a.role === q.role) && (q.includeExpired === true || isLiveAt(a.expiresAt, q.at)));
     return paged(items.map(copy), page);

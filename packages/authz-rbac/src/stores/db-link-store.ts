@@ -7,6 +7,7 @@ import type { DateTime } from 'luxon';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { AdminLinkStore } from '../admin/ports.js';
+import type { ListResult, Page } from '../admin/ports.js';
 import { parsePrincipalKey, scopeFromColumns, scopeToColumns } from './columns.js';
 import { requireTransaction } from './context.js';
 import { DbAssignmentStore } from './db-assignment-store.js';
@@ -188,7 +189,7 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
    * most {@link LINK_LIST_MAX_LIMIT} rows. A negative or fractional `limit` or `offset` is
    * `invalid_page`.
    */
-  async find(q: LinkQuery, page?: { limit: number; offset: number }): Promise<{ items: readonly LinkDef[]; total: number }> {
+  async find(q: LinkQuery, page?: Page): Promise<ListResult<LinkDef>> {
     await this.ready();
     const window = page ? pageWindow(page, this.maxListLimit, `${this.name}.find`) : undefined;
 

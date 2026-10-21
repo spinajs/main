@@ -141,6 +141,22 @@ describe('holders query on the RbacModel', function () {
     expect(await rejection(holders({}, D1, 'doc:read', alice))).to.equal('forbidden');
   });
 
+  it('pages by cursor: every holder once, no next on the last page, and a cursor refuses an offset or a bad value', async () => {
+    const keys = (r: { items: readonly unknown[] }) => (r.items as Holder[]).map((h) => JSON.stringify(h.subject));
+    const everyone = await holders();
+    const first = await holders({ page: { limit: 2, offset: 0 } });
+    expect(first.next).to.be.a('string');
+
+    const second = await holders({ page: { limit: 2, offset: 0, after: first.next } });
+
+    expect(second).to.not.have.property('next');
+    expect(second.total).to.equal(4);
+    expect([...keys(first), ...keys(second)]).to.deep.equal(keys(everyone));
+    expect(await holders({ page: { limit: 2, offset: 2 } })).to.not.have.property('next');
+    expect(await rejection(holders({ page: { limit: 2, offset: 1, after: first.next } }))).to.equal('invalid_query');
+    expect(await rejection(holders({ page: { limit: 2, offset: 0, after: 'bm9wZQ' } }))).to.equal('invalid_page');
+  });
+
   it('refuses an unknown permission, an unknown resource (denied by the actor check first) and a permission not checked on the scope type', async () => {
     expect(await rejection(holders({}, D1, 'doc:nope'))).to.equal('invalid_query');
     expect(await rejection(holders({}, ref('doc', 'missing')))).to.equal('forbidden');

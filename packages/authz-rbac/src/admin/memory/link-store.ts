@@ -5,7 +5,7 @@ import type { AuthzTx, MemoryTx, PrincipalRef, ResourceRef } from '@spinajs/auth
 
 import type { LinkDef } from '../../contracts.js';
 import { AdminLinkStore } from '../ports.js';
-import type { AdminAssignmentStore, Page } from '../ports.js';
+import type { AdminAssignmentStore, ListResult, Page } from '../ports.js';
 import { copyDate, copyPrincipalRef, copyRef, deepFreeze, paged, sameRef, sortedTags } from '../rows.js';
 import { MemoryAdminAssignmentStore } from './assignment-store.js';
 
@@ -97,7 +97,7 @@ export class MemoryLinkStore extends AdminLinkStore {
     return copy(link);
   }
 
-  async find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<{ items: readonly LinkDef[]; total: number }> {
+  async find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<ListResult<LinkDef>> {
     const items = [...this.rows.values()].filter((r) => q.scope === undefined || sameRef(r.link.scope, q.scope)).map((r) => copy(r.link));
     return paged(items, page);
   }
