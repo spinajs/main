@@ -50,6 +50,7 @@ const email = {
     password: {
       reset: { subject: 'Reset your password', template: { file: 'authn/reset.mjml', fs: 'email-builtin-templates' } },
       invite: { subject: 'Set up your account', template: { file: 'authn/invite.mjml', fs: 'email-builtin-templates' } },
+      verify: { subject: 'Confirm your email address', template: { file: 'authn/verify.mjml', fs: 'email-builtin-templates' } },
     },
   },
   fs: {

@@ -6,6 +6,14 @@ export interface IdentityStatus {
   readonly banned: boolean;
   readonly deleted: boolean;
   readonly invitePending?: boolean;
+  /** undefined: the store does not track it. */
+  readonly addressVerified?: boolean;
+}
+
+/** Implemented by @spinajs/users. */
+export abstract class IdentityAddressVerifier {
+  /** Idempotent: an address verified earlier keeps its first time. */
+  abstract markVerified(id: IdentityRef, at: Date): Promise<void>;
 }
 
 /** Implemented by @spinajs/users. */
