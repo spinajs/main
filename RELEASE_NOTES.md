@@ -1,3 +1,33 @@
+# Release notes — http, validation: route error handlers, per-path body limits, strict schema ids
+
+> Branch `feat/hard-val0`. Docs: `docs/http/11-error-handling.md`, `docs/http/04-route-arguments.md`,
+> `docs/http/01-http-server.md`, `docs/validation/02-validator-options.md`, `docs/validation/08-customizing-the-validator.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/validation` — `authn.*` and `authz.*` schemas are validated without type coercion
+
+A schema whose `$id` starts with `authn.` or `authz.` no longer coerces types: `{ "login": 123 }` fails a string field.
+No schema in this repository uses these ids yet. Set `validation.strict.idPrefixes: []` to keep coercion everywhere.
+
+`validation.strict` is now an object (`{ idPrefixes, ajvStrict? }`). A boolean or `'log'` there is still read as Ajv's
+own strict mode; to set both, move Ajv's value to `validation.strict.ajvStrict`.
+
+## New behavior
+
+- `@spinajs/http`: `@OnError(on, handler, { stages? })` on an action or a controller handles errors of the route chain
+  (`policy`, `middleware`, `arguments`, `action`, `after`) by error class and stage. The handler returns a `Response`
+  (answers and swallows the error), an `Error` (replaces it) or nothing (observes it). Route handlers run first, then
+  the controller's, then the app-wide `ErrorHandlerService`s listed in `http.errors.handlers` (default `[]`). Routes
+  without handlers behave as before. New exports: `OnError`, `ErrorStage`, `ErrorContext`, `ErrorClass`,
+  `OnErrorHandler`, `OnErrorOptions`, `OnErrorResult`, `ErrorHandlerService`, `IOnErrorDescriptor`, `markStage`,
+  `stageOf`, `createOnErrorHandler`, `resolveConfigErrorHandlers`.
+- `@spinajs/http`: `http.bodyLimits: [{ path, limit }]` (default `[]`) parses bodies under a path prefix with a smaller
+  limit before `http.middlewares`; the first prefix match wins, a body over the limit answers 413 and other paths keep
+  the 5mb default. New exports: `createBodyLimitMiddleware`, `parseBodyLimit`, `IBodyLimitRule`.
+- `@spinajs/validation`: `DataValidator.isStrict()`, the protected `StrictValidator` and `createAjv()`, and the exported
+  `DEFAULT_STRICT_ID_PREFIXES`.
+
 # Release notes — authn-http, authn-oidc: fresh re-authentication that refreshes the session
 
 > Branch `feat/ory-flow-4`. Docs: `docs/authn/09-fresh-authentication.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`,

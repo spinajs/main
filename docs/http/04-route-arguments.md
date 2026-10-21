@@ -36,6 +36,32 @@ File and form arguments (`@File`, `@Files`, `@CsvFile`, `@JsonFile`, `@Form`, `@
    - Invalid JSON throws `InvalidArgument` (400): `Argument '<name>' is invalid JSON`.
 6. `null` and `undefined` results are never validated: an absent optional argument stays `undefined`.
 
+Validation runs after the policies and the route middlewares' `onBefore`, right before the action. A failure throws `ValidationFailed`, which answers 400 unless an [`@OnError`](11-error-handling.md#route-error-handlers) handler with the `'arguments'` stage answers it differently, for example with the uniform 401 of a login route.
+
+A schema whose `$id` starts with a `validation.strict.idPrefixes` entry (by default `authn.` and `authz.`) is validated without type coercion: `{ "login": 123 }` fails a `type: 'string'` field instead of becoming `"123"`. See [Validator options](../validation/02-validator-options.md#strict-schema-ids).
+
+### Body size limits
+
+The body parsers of `http.middlewares` accept JSON bodies up to 5mb. `http.bodyLimits` sets a smaller limit under a path prefix:
+
+```ts
+// config/http.ts in your app
+export default {
+  http: {
+    bodyLimits: [
+      { path: '/auth/passkeys', limit: '96kb' },
+      { path: '/auth', limit: '16kb' },
+    ],
+  },
+};
+```
+
+- A rule matches the path the client requests, on a segment boundary and case-insensitively: `/auth` covers `/auth` and `/auth/login`, not `/authority`. Include `http.controllers.route.prefix` in the path when the app sets one. A controller with `@BasePath({ config, default })` is matched at its configured path, the one it is served at.
+- Rules are checked in order and the first match wins, so list the more specific paths first. Other paths keep the limits of the `http.middlewares` parsers.
+- The limit gate runs before `http.middlewares`. On a matching path it parses JSON, urlencoded and XML text bodies itself with the rule's limit, sets `req.rawBody` for JSON like the default parser, and the `http.middlewares` parsers then skip the body. A `verify` hook of your own JSON parser does not run on these paths.
+- A declared `Content-Length` over the limit answers 413 for any content type, before the body is read. A body that turns out larger while it is read answers 413 too (`EntityTooLargeException`).
+- The gate runs before routing, so a 413 never reaches `@OnError`.
+
 ## Decorators
 
 | Decorator | Target | Options | Effect |
@@ -94,6 +120,8 @@ File and form arguments (`@File`, `@Files`, `@CsvFile`, `@JsonFile`, `@Form`, `@
 | --- | --- | --- | --- | --- |
 | `http.middlewares` | `express.RequestHandler[]` | includes `express.json`, `express.urlencoded`, `express.text` for XML | | The body parsers that fill `req.body` and `req.rawBody`; see [HTTP server](01-http-server.md#configuration). |
 | `http.trustProxy` | see [Client IP](17-client-ip-and-trust-proxy.md) | `null` | | Decides what `@Ip()` returns. |
+| `http.bodyLimits` | `{ path: string; limit: string }[]` | `[]` | `limit` as `512b`, `16kb`, `1.5mb`, `1gb` | Per-path body limits applied before `http.middlewares`; the first prefix match wins. See [Body size limits](#body-size-limits). |
+| `validation.strict.idPrefixes` | `string[]` | `['authn.', 'authz.']` | | Schema `$id` prefixes validated without type coercion. |
 
 ## Services and extension points
 
@@ -112,7 +140,7 @@ File and form arguments (`@File`, `@Files`, `@CsvFile`, `@JsonFile`, `@Form`, `@
 - A DTO class is built with `new Dto(value)`: its constructor receives the plain object and must copy what it needs.
 - `@FromDI()` resolves from the **root** container on every request; the service's own lifetime decides whether it is shared.
 - `@Header()` without a key reads the header named like the parameter in lower case: `@Header() authorization: string`.
-- Validation errors throw `ValidationFailed`, answered as 400 by `ValidationError`; see [Error handling](11-error-handling.md).
+- Validation errors throw `ValidationFailed`, answered as 400 by `ValidationError`; see [Error handling](11-error-handling.md). An action cannot catch it, because it is thrown before the action runs; use `@OnError` with `stages: ['arguments']`.
 - The action also receives `req`, `res` and `next` after the decorated arguments.
 
 ## Best practices
