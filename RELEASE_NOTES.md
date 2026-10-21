@@ -1,3 +1,16 @@
+# Release notes — authn: no per-request writes on the token and key path
+
+## New behavior
+
+- `DefaultAuthnService` no longer waits for the audit sinks on a successful `token.use` or `key.use`:
+  it publishes them with the new `AuthnAudit.publishDetached`. Failure events are still awaited.
+  `AuthnAudit.settled()` resolves when the detached deliveries have settled; `AuthnAudit.dispose()`
+  awaits it. A test that reads a sink right after a token or key success should `await audit.settled()`.
+- `PeekableThrottle.peek` resolves the new `PeekVerdict`: an allowed peek carries `clean`. When no live
+  throttle row holds the keys, a token or key success skips `succeed`, so a credential with no failures
+  on record writes nothing to the throttle. `DbThrottleStore.peek` stays one `SELECT`. A custom
+  `PeekableThrottle` must return `clean`; `false` keeps the old behaviour.
+
 # Release notes — SpinaJS 3.0.0: authentication and authorization
 
 > 3.0 splits `@spinajs/rbac` into three families: identity (`@spinajs/users*`), authentication
