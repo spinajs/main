@@ -126,6 +126,7 @@ describe('authn-local cli commands', function () {
 
       const command = await DI.resolve(ExpirePasswords);
       await command.execute();
+      await ((await DI.resolve(PasswordService)) as LocalPasswordService).drain();
 
       expect(await passwords.get(stale)).to.equal(EXPIRED_PASSWORD_MARKER);
       expect(await passwords.get(recent)).to.equal(hash);
