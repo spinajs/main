@@ -77,7 +77,7 @@ export async function bootstrap(): Promise<Orm> {
 | Set membership | `FIND_IN_SET` |
 | `DECIMAL` values | strings |
 | Session time zone | UTC (`timezone: 'Z'` and `SET time_zone = '+00:00'`); a connection that cannot be pinned fails the acquire |
-| `dateTime()` / `timestamp()` columns | `DATETIME(3)` / `TIMESTAMP(3)` |
+| `dateTime()` / `timestamp()` columns | `DATETIME(3)` / `TIMESTAMP(3)`; a `timestamp()` without `notNull()` is written `NULL`, so it stays nullable on MySQL 5.7 |
 | `driver.now()` | `UTC_TIMESTAMP(3)` |
 | Duplicate key | `UniqueViolation`; NOT NULL, FK and CHECK failures `ConstraintViolation` |
 | Bind-parameter limit | `MaxBindings` `65535`; `mysql2` interpolates on the client, so `max_allowed_packet` bounds a statement |
