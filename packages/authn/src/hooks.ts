@@ -2,6 +2,7 @@ import type { AuthenticationResult, AuthnContext, Credentials, ExternalSubject, 
 import type { SessionHandle } from './contracts/session.js';
 import type { ImpersonationStart } from './impersonation/impersonation-service.js';
 import type { LinkResult } from './link/account-link-service.js';
+import { ActionHookFailed, ActionRefused } from '@spinajs/hooks';
 import type { ActionName } from '@spinajs/hooks';
 
 /**
@@ -91,6 +92,9 @@ export interface HookRefusal {
 }
 
 /** The audit reason of an error `Hooks.run(action, ...)` threw for its own hooks, or null for any other error, which the caller handles as before. */
-export function hookRefusalOf(_err: unknown, _action: ActionName): HookRefusal | null {
-  throw new Error('not implemented: hookRefusalOf');
+export function hookRefusalOf(err: unknown, action: ActionName): HookRefusal | null {
+  // A nested action's refusal is that action's to answer; one escaping it is not this action's refusal.
+  if (err instanceof ActionRefused && err.action === action) return { reason: `hook:${err.code}` };
+  if (err instanceof ActionHookFailed && err.action === action) return { reason: 'hook_error', data: { hook: err.hook, failure: err.reason } };
+  return null;
 }

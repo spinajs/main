@@ -3,6 +3,7 @@ import type { IContainer } from '@spinajs/di';
 import { AutoinjectNamedService, Config, Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger, Perf } from '@spinajs/log-common';
+import { Hooks } from '@spinajs/hooks';
 
 import { asciiLower, isNonEmptyString, isPlainObject, uniqueBy } from '@spinajs/util';
 
@@ -14,12 +15,12 @@ import { DEFAULT_IPV6_PREFIX, throttleIp } from '../support/ip-key.js';
 import { IdentityStore } from '../contracts/identity.js';
 import { IdentityLinkStore } from '../contracts/link.js';
 import { MfaPolicy } from '../contracts/mfa.js';
-import { ExternalLoginHook } from '../contracts/hooks.js';
 import { sameRef } from '../contracts/principal.js';
 import type { AuthnFacts, Ceiling, Principal } from '../contracts/principal.js';
 import { AuthnService, PrincipalFactory } from '../contracts/service.js';
 import { SessionIssuer } from '../contracts/session.js';
 import type { SessionHandle } from '../contracts/session.js';
+import type { Session } from '../contracts/session-state.js';
 import type { AuthenticationStrategy } from '../contracts/strategy.js';
 import { AuthnThrottle, identityThrottleKeys } from '../contracts/throttle.js';
 import type { ThrottleKey } from '../contracts/throttle.js';
@@ -36,8 +37,10 @@ import type { PeekableThrottle } from '../throttle/peek.js';
 import { AUTHN_THROTTLE_SERVICE } from '../throttle/select.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
 import { checkAuthnSecrets } from './boot/secrets.js';
+import { hookRefusalOf } from '../hooks.js';
 
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
+type MfaAbout = { readonly identity: IdentityRef; readonly strategy: string; readonly session?: string };
 type Failure = Extract<AuthenticationResult, { status: 'failure' }>;
 type Verified = Extract<StrategyOutcome, { ok: true }>;
 
@@ -160,6 +163,9 @@ export class DefaultAuthnService extends AuthnService {
   @AutoinjectNamedService('authn.throttle.service', AuthnThrottle, AUTHN_THROTTLE_SERVICE)
   protected Throttle: AuthnThrottle;
 
+  @Autoinject(Hooks)
+  protected Hooks: Hooks;
+
   private peeker: PeekableThrottle | undefined;
 
   @Logger('authn-boot')
@@ -206,7 +212,21 @@ export class DefaultAuthnService extends AuthnService {
 
   public authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
     const labels = { strategy: 'none' };
-    return Perf.measure('authn.authenticate', () => this.authenticateTimed(c, ctx, labels), { labels }) as Promise<AuthenticationResult>;
+    return Perf.measure('authn.authenticate', () => this.login(c, ctx, labels), { labels }) as Promise<AuthenticationResult>;
+  }
+
+  /** `authn.login`; a token or key used on every request runs no action hook (`ctx.purpose: 'request'`). */
+  private async login(c: Credentials, ctx: AuthnContext, labels: { strategy: string }): Promise<AuthenticationResult> {
+    if (ctx.purpose === 'request') return this.authenticateTimed(c, ctx, labels);
+    try {
+      // The input's ctx is not mutable: the action keeps the caller's.
+      return await this.Hooks.run('authn.login', { credentials: c, ctx }, (i) => this.authenticateTimed(i.credentials, ctx, labels), { mutable: ['credentials'] });
+    } catch (err) {
+      const refused = hookRefusalOf(err, 'authn.login');
+      if (!refused) throw err;
+      await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'failure', ...refused });
+      return fail('invalid_credentials');
+    }
   }
 
   private async authenticateTimed(c: Credentials, ctx: AuthnContext, labels: { strategy: string }): Promise<AuthenticationResult> {
@@ -271,7 +291,16 @@ export class DefaultAuthnService extends AuthnService {
       await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return { status: 'failure', reason: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
+    try {
+      return await this.Hooks.run('authn.mfa.verify', { pending, step, response, ctx }, () => this.elevatePending(stored, pending, step, response, keys, about, ctx), { mutable: [] });
+    } catch (err) {
+      return this.hookStopped(err, 'authn.mfa.verify', ctx, about);
+    }
+  }
 
+  /** completeMfa past its throttle: the code, the status read again, the elevation. */
+  private async elevatePending(stored: Session, pending: SessionHandle, step: string, response: string, keys: readonly ThrottleKey[], about: MfaAbout, ctx: AuthnContext): Promise<AuthenticationResult> {
+    const id = stored.identity;
     let passed: boolean | string;
     try {
       passed = await this.passMfa(id, stored.facts, step, response);
@@ -340,7 +369,18 @@ export class DefaultAuthnService extends AuthnService {
       await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return false;
     }
+    try {
+      return await this.Hooks.run('authn.reauth', { session, credentials: c, ctx }, () => this.reverify(candidates, c, id, keys, about, ctx), { mutable: [] });
+    } catch (err) {
+      const stopped = hookRefusalOf(err, 'authn.reauth');
+      if (!stopped) throw err;
+      await this.Auditor.publishIn(ctx, { type: 'reauth', outcome: 'failure', ...stopped, ...about });
+      return false;
+    }
+  }
 
+  /** reauthenticate past its throttle: the strategy, then the session's own identity and its status. */
+  private async reverify(candidates: readonly AuthenticationStrategy[], c: Credentials, id: IdentityRef, keys: readonly ThrottleKey[], about: { readonly identity: IdentityRef; readonly session?: string }, ctx: AuthnContext): Promise<boolean> {
     const v = await this.verifyWith(candidates, c, ctx);
     const strategy = v ? { strategy: v.s.name } : {};
     let reason: string | null;
@@ -385,7 +425,16 @@ export class DefaultAuthnService extends AuthnService {
       await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return { status: 'failure', reason: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
+    try {
+      return await this.Hooks.run('authn.session.stepUp', { session, step, response, ctx }, () => this.reissueStepped(stored, step, response, keys, about, ctx), { mutable: [] });
+    } catch (err) {
+      return this.hookStopped(err, 'authn.session.stepUp', ctx, about);
+    }
+  }
 
+  /** stepUp past its throttle: the code, the status read again, the reissue. */
+  private async reissueStepped(stored: Session, step: string, response: string, keys: readonly ThrottleKey[], about: MfaAbout, ctx: AuthnContext): Promise<AuthenticationResult> {
+    const id = stored.identity;
     let passed: boolean | string;
     try {
       passed = await this.passMfa(id, stored.facts, step, response, true);
@@ -473,16 +522,32 @@ export class DefaultAuthnService extends AuthnService {
     // A token or key is no login: only a login method is held to authn.login.requireVerifiedAddress.
     const refused = await statusRefusal(this.Identities, r.delegation?.onBehalfOf ?? id, { requireVerifiedAddress: s.interactive && this.RequireVerifiedAddress === true });
     if (refused) return this.refuse(ctx, s, refused, refused === 'unverified_address' ? 'unverified_address' : 'invalid_credentials', { identity: id });
+    if (!s.interactive) return this.admit(s, r, id, found, keys, ctx, clean, r.attributes);
+    const identity = id;
     // Before the link by verified email, so a login a hook refuses leaves neither a session nor a new email link.
-    if (s.interactive && r.external) {
-      const hookError = await this.runLoginHooks(id, r.external);
-      if (hookError !== null) return this.refuse(ctx, s, 'hook_error', 'invalid_credentials', { identity: id, data: { error: hookError } });
+    const input = { identity, strategy: s.name, method: r.method, ...(r.external ? { external: r.external } : {}), attributes: { ...r.attributes }, ctx };
+    try {
+      return await this.Hooks.run('authn.login.identified', input, (i) => this.admitIdentified(s, r, identity, found, keys, ctx, clean, i.attributes), { mutable: ['attributes'] });
+    } catch (err) {
+      const stopped = hookRefusalOf(err, 'authn.login.identified');
+      if (!stopped) throw err;
+      return this.refuse(ctx, s, stopped.reason, 'invalid_credentials', { identity, ...(stopped.data ? { data: stopped.data } : {}) });
     }
+  }
 
+  /** The attributes a hook replaced must still be a plain object; a strategy's own were checked with its outcome. */
+  private async admitIdentified(s: AuthenticationStrategy, r: Verified, id: IdentityRef, found: Found, keys: readonly ThrottleKey[], ctx: AuthnContext, clean: boolean, attributes: unknown): Promise<AuthenticationResult> {
+    if (!isPlainObject(attributes)) return this.refuse(ctx, s, 'hook_error', 'invalid_credentials', { identity: id, data: { failure: 'attributes' } });
+    // An interactive login answers attributes only when its strategy gave some or a hook added some.
+    return this.admit(s, r, id, found, keys, ctx, clean, r.attributes !== undefined || Object.keys(attributes).length > 0 ? attributes : undefined);
+  }
+
+  /** The login past its identity and status checks: the email link, then a per-request success, or the MFA policy and the session. */
+  private async admit(s: AuthenticationStrategy, r: Verified, id: IdentityRef, found: Found, keys: readonly ThrottleKey[], ctx: AuthnContext, clean: boolean, attributes: Readonly<Record<string, unknown>> | undefined): Promise<AuthenticationResult> {
     if (found.link && !found.provisioned) await this.link(ctx, s, id, found.link);
 
     const facts = { method: r.method, strategy: s.name, assurance: r.assurance ?? ('aal1' as const), mfa: [] as string[], ...externalFactsOf(r.external) };
-    const extra = { ...(r.ceiling !== undefined ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(r.attributes !== undefined ? { attributes: r.attributes } : {}) };
+    const extra = { ...(r.ceiling !== undefined ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(attributes !== undefined ? { attributes } : {}) };
     // A token or key is used on every request: its success skips a succeed with nothing to do and waits for no sink.
     if (!s.interactive) {
       if (!clean) await this.Throttle.succeed(keys, 'login');
@@ -513,18 +578,12 @@ export class DefaultAuthnService extends AuthnService {
     return { status: 'success', identity: id, facts: { ...facts, ...(handle !== undefined ? { sessionHandle: handle } : {}) }, session, ...extra };
   }
 
-  /**
-   * Every ExternalLoginHook of this container's lineage (as AuthnAudit takes its sinks), resolved per login so hooks
-   * registered late run; the error class of the first that throws, or null.
-   */
-  private async runLoginHooks(id: IdentityRef, external: ExternalSubject): Promise<string | null> {
-    try {
-      const chain = (await this.Container.resolve(Array.chainOf(ExternalLoginHook))) as readonly ExternalLoginHook[];
-      for (const hook of chain) await hook.afterLogin(id, external);
-      return null;
-    } catch (err) {
-      return errorClass(err);
-    }
+  /** A refused or failed MFA hook answers as a wrong code does; any other error is the caller's. */
+  private async hookStopped(err: unknown, action: 'authn.mfa.verify' | 'authn.session.stepUp', ctx: AuthnContext, about: MfaAbout): Promise<Failure> {
+    const stopped = hookRefusalOf(err, action);
+    if (!stopped) throw err;
+    await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', ...stopped, ...about });
+    return fail('invalid_credentials');
   }
 
   /**
@@ -551,7 +610,7 @@ export class DefaultAuthnService extends AuthnService {
   }
 
   /** An account banned or deleted since its login must not step up: its session ends. True when refused, audited. */
-  private async statusRefused(ctx: AuthnContext, handle: SessionHandle, about: { readonly identity: IdentityRef; readonly strategy: string; readonly session?: string }): Promise<boolean> {
+  private async statusRefused(ctx: AuthnContext, handle: SessionHandle, about: MfaAbout): Promise<boolean> {
     let refused: string | null;
     try {
       refused = await statusRefusal(this.Identities, about.identity);
