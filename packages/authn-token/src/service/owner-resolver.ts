@@ -1,5 +1,5 @@
 import { Autoinject, Injectable } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { IdentifierQuoter, Orm, RawQuery } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
@@ -10,6 +10,15 @@ import { AccessToken } from '../models/AccessToken.js';
 const USERS_TABLE = 'users';
 const USER_ID = 'Id';
 const USER_UUID = 'Uuid';
+const OWNER_ALIAS = '$token_owner$';
+/** Not a column of the model, so the hydrator leaves it as a plain property of the row. */
+const OWNER_UUID = '$OwnerUuid';
+
+/** A token row and its owner; `owner` is null when the owner is gone. */
+export interface TokenWithOwner {
+  readonly token: AccessToken;
+  readonly owner: IdentityRef | null;
+}
 
 /** Maps a token owner to `rbac_access_tokens.user_id` and back. */
 export abstract class TokenOwnerResolver {
@@ -17,6 +26,12 @@ export abstract class TokenOwnerResolver {
   abstract rowIdOf(owner: IdentityRef): Promise<number | null>;
 
   abstract refOf(rowId: number): Promise<IdentityRef | null>;
+
+  /** The token stored under `hash` with its owner. Override it to read both in one statement. */
+  public async tokenByHash(hash: string): Promise<TokenWithOwner | null> {
+    const token = await AccessToken.where('Token', hash).first();
+    return token ? { token, owner: await this.refOf(token.user_id) } : null;
+  }
 }
 
 /**
@@ -41,6 +56,22 @@ export class UsersTableTokenOwnerResolver extends TokenOwnerResolver {
   public async refOf(rowId: number): Promise<IdentityRef | null> {
     const row = (await this.connection().select().from(USERS_TABLE).columns([USER_UUID]).where({ [USER_ID]: rowId }).first()) as { [USER_UUID]: string } | undefined;
     return row ? { type: 'user', id: row[USER_UUID] } : null;
+  }
+
+  public async tokenByHash(hash: string): Promise<TokenWithOwner | null> {
+    const connection = this.connection();
+    const quoter = connection.Container.resolve(IdentifierQuoter);
+    // The model builder selects only its own columns; the owner's Uuid comes in as a raw, dialect-quoted column.
+    const ownerUuid = new RawQuery(`${quoter.quote(OWNER_ALIAS)}.${quoter.quote(USER_UUID)} AS ${quoter.quote(OWNER_UUID)}`);
+    const token = await AccessToken.where('Token', hash)
+      .select(ownerUuid)
+      .leftJoin({ joinTable: USERS_TABLE, joinTableAlias: OWNER_ALIAS, joinTableForeignKey: USER_ID, sourceTablePrimaryKey: 'user_id', joinTableDriver: connection })
+      .first();
+    if (!token) {
+      return null;
+    }
+    const uuid = (token as unknown as Record<string, unknown>)[OWNER_UUID];
+    return { token, owner: typeof uuid === 'string' && uuid.length > 0 ? { type: 'user', id: uuid } : null };
   }
 
   /** The connection of the token rows, whose `user_id` points into the users table. */

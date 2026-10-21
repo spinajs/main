@@ -6,7 +6,7 @@ import type { IContainer } from '@spinajs/di';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { AuthnEventSink, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
+import { AuthnEventSink, CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
 import type { AuthnContext, AuthnEvent, IdentityRef, IdentityStatus, Principal, TokenCreateOptions, TokenCreateResult } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, RecordingEventSink } from '@spinajs/authn-testing';
@@ -114,6 +114,11 @@ describe('DbTokenService', function () {
       setToken(key, value);
     }
   });
+
+  /** What the code that changes an identity does, so cached validations see the change. */
+  async function identityChanged(who: IdentityRef): Promise<void> {
+    await (await DI.resolve(CredentialChangeBus)).publish({ kind: 'identity', identity: who });
+  }
 
   function build(over: { profiles?: TokenProfilePolicy; auditor?: AuthnAuditor } = {}): Promise<DbTokenService> {
     return tokenServiceOver({ identities, profiles: over.profiles ?? profiles, auditor: over.auditor ?? AuthnAudit.over([sink]) });
@@ -721,10 +726,12 @@ describe('DbTokenService', function () {
         expect((await validate(t.plaintext)).ok).to.equal(true);
 
         identities.setStatus(a, status);
+        await identityChanged(a);
         expect(await validate(t.plaintext)).to.deep.equal({ ok: false, reason: 'invalid_credentials' });
         expect(await validate(g.plaintext)).to.deep.equal({ ok: false, reason: 'invalid_credentials' });
 
         identities.setStatus(a, { active: true, banned: false, deleted: false });
+        await identityChanged(a);
         expect((await validate(t.plaintext)).ok).to.equal(true);
       });
     }
@@ -748,6 +755,7 @@ describe('DbTokenService', function () {
       expect((await validate(t.plaintext)).ok).to.equal(true);
 
       profiles.allowed = [];
+      await identityChanged(a);
       expect(await validate(t.plaintext)).to.deep.equal({ ok: false, reason: 'invalid_credentials' });
     });
 

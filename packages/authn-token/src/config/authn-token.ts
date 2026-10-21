@@ -66,6 +66,15 @@ const authnToken = {
        * Seconds between LastUsedAt writes for a busy token.
        */
       lastUsedUpdateInterval: 60,
+
+      /**
+       * Successful validations served from memory for `ttlSeconds`; a revoke in this process evicts at once,
+       * other processes see it within the TTL. `ttlSeconds: 0` turns the cache off.
+       */
+      cache: {
+        ttlSeconds: 10,
+        maxEntries: 10000,
+      },
     },
   },
 };

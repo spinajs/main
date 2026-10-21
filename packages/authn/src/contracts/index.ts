@@ -22,3 +22,4 @@ export * from './cli.js';
 export * from './failure.js';
 export * from './nonce.js';
 export * from './passkeys.js';
+export * from './credential-bus.js';

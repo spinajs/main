@@ -34,6 +34,7 @@ No `authn*` package imports `authz*` or `users*`. `@spinajs/authz` does not impo
 | `@spinajs/authn/store-throttle` | `StoreAuthnThrottle` | None |
 | `@spinajs/authn/nonces` | `MemoryNonceStore` | None |
 | `@spinajs/authn/audit` | `AuthnAudit`, `AuthnEventBody`, `AuthnAuditor` | None |
+| `@spinajs/authn/bus` | `InProcessCredentialChangeBus`, `credentialTag`, `identityTag`, `credentialChangeTags` | Registers `InProcessCredentialChangeBus` as the `CredentialChangeBus` |
 
 A store package imports a subpath, not the root, when it must not register the core services.
 
@@ -68,6 +69,7 @@ The satellite packages take these from `@spinajs/authn/contracts` instead of kee
 | `MfaEnrolmentService` | The owner's enrolment in one MFA step and its admin reset, behind the `/user/mfa` routes | `TotpService` (authn-totp) | [`@spinajs/authn-totp`](../authn-totp/README.md) |
 | `PasswordService` | Change, reset, invite, expire a password | `LocalPasswordService` (authn-local) | [`@spinajs/authn-local`](../authn-local/README.md) |
 | `TokenService` | API and agent tokens | `DbTokenService` (authn-token) | [`@spinajs/authn-token`](../authn-token/README.md) |
+| `CredentialChangeBus` | Tells credential caches that a token, a key or an identity changed: `publish({ kind: 'token' \| 'key', id })` or `publish({ kind: 'identity', identity })`, and `subscribe(listener)` | `InProcessCredentialChangeBus` (core, this process only; a failing listener is logged and skipped) | [Validation cache](../authn-token/01-token-service.md#validation-cache), [Key cache](../authn-keys/02-key-registry.md#key-cache) |
 | `KeyRegistry`, `JwsVerifier`, `JwsSigner` | Public keys, strict JWS | `DefaultKeyRegistry` and the verifier (authn-keys) | [`@spinajs/authn-keys`](../authn-keys/README.md) |
 | `ImpersonationGuard`, `RoleSource`, `CredentialAdminGuard`, `AuthnResponseExtension` | Authorization questions authn asks | `AuthzImpersonationGuard`, `RbacRoleSource`, `AuthzCredentialAdminGuard`, `AccessResponseExtension` (users) | [Integration hooks](12-integration-hooks.md) |
 | `ExternalLoginHook` | Runs after an external login | Your app | [Integration hooks](12-integration-hooks.md#externalloginhook) |
