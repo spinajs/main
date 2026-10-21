@@ -391,9 +391,9 @@ describe('POST /auth/register (FEAT-4)', () => {
 
     it('keys an IPv6 client on its /64, so its addresses share one counter', async () => {
       const w = world();
-      await w.controller.register(w.request(BODY, '2001:db8::1'));
-      await w.controller.register(w.request({ ...BODY, email: 'v6@example.test' }, '2001:db8::ffff'));
-      await w.controller.register(w.request({ ...BODY, email: 'v6b@example.test' }, '2001:db8:0:1::1'));
+      await callRoute(w.controller, 'register', w.request(BODY, '2001:db8::1'));
+      await callRoute(w.controller, 'register', w.request({ ...BODY, email: 'v6@example.test' }, '2001:db8::ffff'));
+      await callRoute(w.controller, 'register', w.request({ ...BODY, email: 'v6b@example.test' }, '2001:db8:0:1::1'));
 
       expect(w.throttle.attempts.map((a) => a.keys[1])).to.deep.eq([{ kind: 'ip', value: '2001:db8::/64' }, { kind: 'ip', value: '2001:db8::/64' }, { kind: 'ip', value: '2001:db8:0:1::/64' }]);
     });
@@ -403,7 +403,7 @@ describe('POST /auth/register (FEAT-4)', () => {
       for (let i = 0; i < FREE; i++) await w.throttle.attempt([{ kind: 'ip', value: IP }], 'reset');
       expect((await w.throttle.attempt([{ kind: 'ip', value: IP }], 'reset')).allowed).to.eq(false);
 
-      expect(answerOf(await w.controller.register(w.request(BODY))).status).to.eq(202);
+      expect(answerOf(await callRoute(w.controller, 'register', w.request(BODY))).status).to.eq(202);
     });
 
     it('refuses an address that has used up its budget, from any ip', async () => {

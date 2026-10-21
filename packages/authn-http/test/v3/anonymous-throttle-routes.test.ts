@@ -8,6 +8,7 @@ import type { AuthnContext, PasskeyCeremony, ThrottleFlow, ThrottleKey } from '@
 import { AuthnPasskeyController } from '../../src/v3/controllers/AuthnPasskeyController.js';
 import { AuthnVerificationController } from '../../src/v3/controllers/AuthnVerificationController.js';
 import { fakeContainer, readingFrom } from '../support/config-boot.js';
+import { callRoute } from '../support/route-call.js';
 
 const IP = '192.0.2.7';
 const RETRY_AFTER = 29;
@@ -97,7 +98,7 @@ describe('anonymous routes with an ip throttle', () => {
     it('answers 429 with Retry-After when the service reports a throttled ip, and not invalid_secret', async () => {
       const w = world();
       w.passwords.result = { status: 'throttled', retryAfterSeconds: RETRY_AFTER };
-      const res = answerOf(await w.controller.verify(request({ secret: 'some.secret' })));
+      const res = answerOf(await callRoute(w.controller, 'verify', request({ secret: 'some.secret' })));
       expect(res.status).to.eq(429);
       expect(res.retryAfter).to.eq(String(RETRY_AFTER));
       expect(res.noStore).to.eq(true);
@@ -106,7 +107,7 @@ describe('anonymous routes with an ip throttle', () => {
 
     it('keeps the one invalid_secret answer for a refused secret', async () => {
       const w = world();
-      const res = answerOf(await w.controller.verify(request({ secret: 'wrong' })));
+      const res = answerOf(await callRoute(w.controller, 'verify', request({ secret: 'wrong' })));
       expect(res.status).to.eq(400);
       expect(res.body).to.deep.include({ error: 'invalid_secret' });
     });
