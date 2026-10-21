@@ -1,3 +1,50 @@
+# Release notes — authz-http-admin: validated admin route inputs (DTOs)
+
+> Branch `feat/hard-val5`. Docs: `docs/authz-http-admin/01-admin-routes.md` (Input validation),
+> `docs/authz-http-admin/02-command-batches.md`, `docs/authz-http-admin/06-openapi-documentation.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authz-http-admin` — malformed input is refused before `AuthzAdmin`
+
+Every admin route takes its inputs through DTOs with closed `authz.*` schemas, validated without type coercion. The
+answer keeps the `{ error: { code, message, field } }` shape:
+
+- a query string that breaks its DTO (an unknown key, `limit` over 500, `reason` over 512 characters, `idempotencyKey`
+  over 128): `400 invalid_query`;
+- a body or path parameter that breaks its schema (an unknown key, also `kind`, a string for a boolean, an id over
+  160 characters, a role over 128, an expiry that is not a date-time): `400 invalid_request`;
+- a `POST /authz/commands` body: an unknown top-level key (such as `actor`), a command of a kind no
+  `AuthzCommandSchemaSource` describes, or a command that breaks the schema of its kind: `400 invalid_batch` with
+  `field` `commands.<n>.<path>`.
+
+Before, such input reached `AuthzAdmin`, which answered some of it as a `400` with `{ results }` (`invalid_command`)
+and ignored unknown keys. A model with its own command kinds must register an `AuthzCommandSchemaSource` for them, or
+`POST /authz/commands` refuses them. The built-in and the ReBAC command schemas are closed and capped.
+
+### `@spinajs/authz-http-admin` — removed and changed exports
+
+- `AUTHZ_ADMIN_ROUTES` is removed; `describeAuthzAdminDocument` reads the controller's route table.
+- `AUTHZ_ADMIN_SCHEMAS` holds the answer and error schemas only. `AuthzAdminBatch` is exported from the commands
+  module; `AuthzAssignmentGrant`, `AuthzAssignmentPatch`, `AuthzLinkCreate`, `AuthzLinkPatch`, `AuthzRuleBody`,
+  `AuthzPolicyBody`, `AuthzAttributesPatch` and `AuthzAttributesBody` are now DTO classes (their schemas are
+  `ASSIGNMENT_GRANT_SCHEMA`, ..., `ATTRIBUTES_BODY_SCHEMA`).
+- `readAssignmentsQuery`, `readHoldersQuery`, `readPageQuery` and `readWriteOptions` take the validated query DTOs
+  (numbers and booleans, not strings); `QueryInput` is removed.
+- `AuthzAdminController.guarded(fn, domain?)` takes the resolved domain name instead of the request.
+
+## New behavior
+
+- `@spinajs/authz-http-admin`: no route reads `@Req()`. New route args and decorators: `@AdminQuery()`
+  (`AuthzAdminQueryArg`), `@AdminBody()` (`AuthzAdminBodyArg`, the whole body), `@AdminBatch()` (`AuthzAdminBatchArg`,
+  validates each command against `AuthzCommandSchemaRegistry` at request time) and `@AdminDomain()`
+  (`AuthzAdminDomainArg`). New exports: the DTO classes and schemas in `dto/`, `ID_PARAM`, `TYPE_PARAM`,
+  `BATCH_ENVELOPE_SCHEMA`, `AuthzAdminCommandBatch`, `adminInputAnswer`, `inputFailure`, `respond`, `refused`, and the
+  `NoStore` route middleware (which now sets `Cache-Control: no-store` on `POST /authz/commands` and `POST /authz/links`).
+- `@spinajs/authz-http-admin`: http-swagger documents the single-command bodies from their DTOs (inline schemas
+  instead of `$ref`s to `AuthzAssignmentGrant` and the others); `describeAuthzAdminDocument` adds the batch body, the
+  attribute bodies and the query parameters, with the caps.
+
 # Release notes — http, validation: route error handlers, per-path body limits, strict schema ids
 
 > Branch `feat/hard-val0`. Docs: `docs/http/11-error-handling.md`, `docs/http/04-route-arguments.md`,

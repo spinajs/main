@@ -17,9 +17,11 @@ design §6.6.5).
 | `GET`/`PATCH`/`PUT /authz/scopes/:type/:id/attributes` | `scope.*` |
 
 - The routes check only that the caller is authenticated (401 otherwise).
-  The caller's principal is the actor; every permission, validation and
-  guard check runs inside `AuthzAdmin`, so an HTTP call and an in-process
-  call get the same answer.
+  The caller's principal is the actor. The inputs are DTOs checked against
+  closed schemas first (400 `invalid_request`, `invalid_query` or
+  `invalid_batch` with the `field`); every permission and guard check runs
+  inside `AuthzAdmin`, so a well-formed HTTP call and an in-process call get
+  the same answer.
 - Query encodings: `scope` is `<type>` or `<type>:<id>`; `subject` is
   `<type>:<id>` or `set:<role>@<type>:<id>`. On the single-command routes
   `reason`, `idempotencyKey` and `dryRun` go in the query string.
@@ -46,8 +48,7 @@ design §6.6.5).
 
 ## Swagger
 
-http-swagger documents the routes and their answers. It cannot see the
-request bodies and query parameters, because the routes read them from the
-request so that no http-layer check can refuse what `AuthzAdmin` would
-answer. Pass the built document through `describeAuthzAdminDocument(doc)` to
-add them.
+http-swagger documents the routes, their answers and the `@Body()` DTOs.
+Pass the built document through `describeAuthzAdminDocument(doc)` to add the
+batch body, the attribute bodies and the query parameters, which the routes
+take through their own route arguments.

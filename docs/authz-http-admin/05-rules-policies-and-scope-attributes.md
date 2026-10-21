@@ -18,7 +18,7 @@ Routes that store RBAC rules and ABAC policies as rows, and edit the attributes 
 
 Put a rule or a policy:
 
-1. `putRule()` or `putPolicy()` takes the body object (else `400 invalid_request`) and sets its `id` to the path id. An `id` in the body that differs answers `400 invalid_request`, `field: 'id'`.
+1. `putRule()` or `putPolicy()` takes the body as an `AuthzRuleBody` or `AuthzPolicyBody` DTO (closed: `source`, which the server sets, is refused like any unknown key) and sets its `id` to the path id. An `id` in the body that differs answers `400 invalid_request`, `field: 'id'`.
 2. `decodeCommand` turns `rule.expiresAt` or `policy.expiresAt` from an ISO 8601 string into a `Date`.
 3. The route runs `{ kind: 'rule.put', rule }` or `{ kind: 'policy.put', policy }`: insert, or replace by id. The server sets `source`.
 4. `AuthzAdmin` validates the row (`rule_not_compilable`, `not_list_filterable`, ...), checks `authz:rules.manage` at the rule's `scope` or `authz:policies.manage` at the policy's `scope` (`$global` without one), and applies it.
@@ -58,7 +58,8 @@ What each field means is part of the models: see [the RBAC model](../authz-rbac/
 - **A rule id is bound to its scope.** Putting an existing rule id at another scope answers `409 conflict`.
 - **Policies need `@spinajs/authz-abac`.** It registers the policy handler and reader; without it the policy routes answer `404 not_found`.
 - **Rules need `@spinajs/authz-rbac`**, which registers the rule handler and the reader of rules, assignments and links.
-- **A bad date reaches `AuthzAdmin` as a string.** `expiresAt: 'soon'` is not decoded and is refused as `400 invalid_command` with the field `rule.expiresAt` or `policy.expiresAt`.
+- **A bad date is refused before `AuthzAdmin`.** `expiresAt: 'soon'` answers `400 invalid_request` with `field: 'expiresAt'`.
+- **The attribute bodies are taken whole.** `@AdminBody()` reads the entire body, so an attribute named `body` is kept as an attribute; a body that is not a JSON object answers `400 invalid_request`.
 - **`scope.forget`** (remove everything held at a node) has no route; send it through [`POST /authz/commands`](02-command-batches.md).
 
 ## Examples

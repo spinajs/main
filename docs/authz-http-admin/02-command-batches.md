@@ -6,8 +6,8 @@
 
 1. `IsAuthenticated` refuses a request without a signed-in principal with `401`.
 2. `AuthzAdminController.commands()` sets `Cache-Control: no-store` and `Pragma: no-cache` first, so every answer of the route carries them.
-3. The body must be an object; anything else answers `400 invalid_request`.
-4. `reason`, `idempotencyKey` and `dryRun` are copied from the body, as given, into the `AuthzAdminOptions`. `AuthzAdmin` checks their types (`dryRun: 'yes'` answers `400 invalid_batch` with `field: 'dryRun'`).
+3. `@AdminBatch()` checks the body. It must be an object (else `400 invalid_request`) holding only `commands`, `reason` (up to 512 characters), `idempotencyKey` (1 to 128) and `dryRun` (a boolean); `commands` must be a list of objects with a `kind`. Each command is then checked against the schema the `AuthzCommandSchemaRegistry` holds for its kind, read on every request, so a model registered late counts. A kind no `AuthzCommandSchemaSource` describes is refused. A failure answers `400 invalid_batch` with the `field` (`dryRun`, `commands.1.expiresAt`, `commands.0.kind`) and runs nothing.
+4. `reason`, `idempotencyKey` and `dryRun` go into the `AuthzAdminOptions`.
 5. `decodeCommands(body.commands)` turns each ISO 8601 `expiresAt` into a `Date` at the expiry paths of `assignment.grant`, `assignment.setExpiry`, `set.addMember`, `link.create`, `link.update`, `rule.put` (`rule.expiresAt`) and `policy.put` (`policy.expiresAt`). Every other value goes through as it came.
 6. `AuthzAdmin.execute(principal, commands, options)` runs the batch. `commands` that is not an array, or holds more than `authz.admin.maxBatch` (default `100`) commands, answers `400 invalid_batch` with `{ error }`.
 7. The route answers `{ results }`: `200` when every command succeeded, else the status of the failed command.
@@ -41,7 +41,7 @@ The command kinds and their fields are those of `AuthzCommand`: the core's, auth
 | --- | --- |
 | `200` | `{ results }`, one `{ ok: true, kind, id?, token?, affected }` per command. |
 | `400`, `403`, `404`, `409` | `{ results }`: the commands before the failure as `{ ok: true, affected: 0 }`, then the failed one as `{ ok: false, kind, error }`. Commands after it are not listed. |
-| `400` | `{ error }` for `invalid_request` (body not an object) and `invalid_batch` (bad `commands` or options, batch too large). |
+| `400` | `{ error }` for `invalid_request` (body not an object) and `invalid_batch` (a command or an option that breaks its schema, an unknown kind or key, a batch too large). |
 | `401` | `IsAuthenticated` refused the request. |
 
 ## Important behaviour

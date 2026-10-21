@@ -2,7 +2,7 @@
 
 HTTP routes under `/authz` over the `AuthzAdmin` management API of `@spinajs/authz`: grant and revoke roles, manage share links, rules, policies and scope attributes, and run command batches.
 
-The routes check only that the caller is signed in. They do **not** check permissions, validate commands or run the admin guard themselves: `AuthzAdmin` does all of it, with the caller's principal as the actor. The package ships no `AdminGuard` and does not load `@spinajs/authz-rbac`.
+The routes check that the caller is signed in and that every input fits its schema (closed DTOs, the command schemas of the registered models, length caps); a malformed input answers `400` with `{ error: { code, field } }`. They do **not** check permissions or run the admin guard themselves: `AuthzAdmin` does, with the caller's principal as the actor. The package ships no `AdminGuard` and does not load `@spinajs/authz-rbac`.
 
 It takes over the role routes of the 2.x `@spinajs/rbac-http-admin`; see [the migration guide, C4](../authz/migration-guide.md#c4-authz-http-admin).
 
@@ -27,7 +27,7 @@ The package config adds its controllers directory to `system.dirs.controllers`, 
 | [Role assignments](03-role-assignments.md) | Grant, change, revoke and list role assignments over HTTP. |
 | [Share links](04-share-links.md) | Create, change, revoke and list share links; the token is shown once. |
 | [Rules, policies and scope attributes](05-rules-policies-and-scope-attributes.md) | Put, delete and list RBAC rules and ABAC policies; read, merge and replace the attributes of a scope node. |
-| [OpenAPI documentation](06-openapi-documentation.md) | `AuthzAdminSchemaProvider` and `describeAuthzAdminDocument` add the request bodies and query parameters to the http-swagger document. |
+| [OpenAPI documentation](06-openapi-documentation.md) | The request DTOs document the bodies; `AuthzAdminSchemaProvider` and `describeAuthzAdminDocument` add the batch body and the query parameters to the http-swagger document. |
 | [Custom admin routes](07-custom-admin-routes.md) | Build your own routes over `AuthzAdmin` with the exported decoding, query and status helpers. |
 
 ## Quick start
