@@ -1,3 +1,12 @@
+# Release notes — authn: IPv6 throttle keys by prefix
+
+## New behavior
+
+- The login throttle keys the `ip`, `account-ip` and per-request `account` rows of an IPv6 client by its
+  network (`2001:db8::/64`), not its address, so one client with a whole /64 cannot reset its backoff by
+  changing address. `authn.throttle.ipv6Prefix` sets the prefix length (16 to 128, default 64). IPv4 and
+  IPv4-mapped addresses are keyed whole; audit events and `ClientIp` keep the full address.
+
 # Release notes — authn: no per-request writes on the token and key path
 
 ## New behavior

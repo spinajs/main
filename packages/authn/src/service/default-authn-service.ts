@@ -10,6 +10,7 @@ import type { AuthnEventType } from '../contracts/audit.js';
 import type { AuthenticationResult, AuthnContext, AuthnFailure, Credentials, ExternalSubject, IdentityRef, StrategyOutcome } from '../contracts/credentials.js';
 import { errorClass, isRef } from '../support/guards.js';
 import { restoreHandle, statusRefusal } from '../support/identity.js';
+import { DEFAULT_IPV6_PREFIX, throttleIp } from '../support/ip-key.js';
 import { IdentityStore } from '../contracts/identity.js';
 import { IdentityLinkStore } from '../contracts/link.js';
 import { MfaPolicy } from '../contracts/mfa.js';
@@ -164,6 +165,13 @@ export class DefaultAuthnService extends AuthnService {
 
   @Config('authn.throttle.global')
   protected ThrottleGlobal: unknown;
+
+  @Config('authn.throttle.ipv6Prefix')
+  protected ThrottleIpv6Prefix: unknown;
+
+  private get ipv6Prefix(): number {
+    return typeof this.ThrottleIpv6Prefix === 'number' ? this.ThrottleIpv6Prefix : DEFAULT_IPV6_PREFIX;
+  }
 
   private get globalGate(): boolean {
     return isPlainObject(this.ThrottleGlobal);
@@ -508,6 +516,8 @@ export class DefaultAuthnService extends AuthnService {
    * in a success off the ip key, so a value without this ip would clear another ip's failures. The attempt counts
    * the union; `succeed` gets only the answering strategy's keys (D8).
    *
+   * The ip in all three keys is the throttleIp form: an IPv6 client holds a whole prefix, so its addresses share one row (L3).
+   *
    * A per-request strategy's `account` key is `request:<account>|<ip>` (K6): its credential ids travel in clear (a key
    * id in every signed request), so a credential-wide key would let anyone keep a victim's key or token in backoff.
    * Guessing stays bounded by that key per ip and by the ip key. An interactive strategy's is `login:<account>`, so no
@@ -515,6 +525,7 @@ export class DefaultAuthnService extends AuthnService {
    */
   private keysFor(candidates: readonly AuthenticationStrategy[], c: Credentials, ctx: AuthnContext): Keyed | { strategy: AuthenticationStrategy; error: string } {
     const own = new Map<AuthenticationStrategy, ThrottleKey[]>();
+    const ip = isNonEmptyString(ctx.ip) ? throttleIp(ctx.ip, this.ipv6Prefix) : undefined;
     for (const s of candidates) {
       let given: unknown;
       try {
@@ -525,15 +536,15 @@ export class DefaultAuthnService extends AuthnService {
       if (!validKeys(given)) return { strategy: s, error: 'malformed_throttle_keys' };
       const keys = given.filter((k) => k.kind !== 'account-ip').map((k) => ({ kind: k.kind, value: k.kind === 'account' ? `${s.interactive ? 'login' : 'request'}:${k.value}` : k.value }));
       const accounts = keys.filter((x) => x.kind === 'account');
-      if (isNonEmptyString(ctx.ip)) {
-        for (const k of accounts) keys.push({ kind: 'account-ip', value: `${k.value}|${ctx.ip}` });
+      if (ip !== undefined) {
+        for (const k of accounts) keys.push({ kind: 'account-ip', value: `${k.value}|${ip}` });
       }
       if (!s.interactive) {
-        for (const k of accounts) k.value = `${k.value}|${ctx.ip ?? ''}`;
+        for (const k of accounts) k.value = `${k.value}|${ip ?? ''}`;
       }
       own.set(s, keys);
     }
-    const shared: ThrottleKey[] = [...(isNonEmptyString(ctx.ip) ? [{ kind: 'ip', value: ctx.ip }] : []), ...(this.globalGate ? [{ kind: 'global', value: 'login' }] : [])];
+    const shared: ThrottleKey[] = [...(ip !== undefined ? [{ kind: 'ip', value: ip }] : []), ...(this.globalGate ? [{ kind: 'global', value: 'login' }] : [])];
     return { all: dedupe([...[...own.values()].flat(), ...shared]), of: (s) => dedupe([...(own.get(s) ?? []), ...shared]) };
   }
 
