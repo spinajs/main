@@ -71,8 +71,16 @@ The action also checks again the invariants that guard the changed values, so a 
 - An `after` hook that throws or times out is logged and swallowed; the output is returned unchanged.
 - A `failed` hook that throws is logged. It never masks the error of `impl`, which is rethrown.
 - A `failed` hook runs only when `impl` throws. A result such as `status: 'failure'` is a result, so it reaches `after`.
+- `hooks.timeoutMs` bounds every hook call: `before`, `after` and `failed`. A timed-out `after` or `failed` hook is logged.
+- A timed-out hook is abandoned, not cancelled: its promise keeps running. Do not start work in a hook that must not outlive the timeout.
 
-<!-- TODO(docs-hook): verify whether hooks.timeoutMs also bounds a failed hook, and whether a timed-out hook is cancelled or only abandoned -->
+## Constructor rules
+
+The runner reads `actions` and `order` at boot from a probe instance built with `new`, outside DI.
+
+- Declare `actions` and `order` as plain field initializers, or as getters with no dependencies.
+- Keep the constructor free of side effects and of required arguments.
+- Injected dependencies (`@Autoinject`) are available only inside `before`, `after` and `failed`.
 
 ## Shared state: `bag`
 
@@ -91,9 +99,8 @@ Import the module that registers your hook before the application boots.
 
 ## Logging
 
-Hook failures are logged on the `hooks` log with the hook class name, the action and the error class. The error message and the input are never logged, since an input can hold a password. Keep input values out of your own `refuse` messages for the same reason.
-
-<!-- TODO(docs-hook): verify whether the refuse message reaches the caller or the log -->
+Hook failures are logged on the `hooks` log with the hook class name, the action and the error class. The error message and the input are never logged, since an input can hold a password. 
+The `refuse` message is not logged. It reaches the caller as `ActionRefused.message` (default `<action> refused: <code>`), so keep input values out of it. An action may map a refusal to its own answer (authn keeps opaque answers), so callers must not rely on seeing the message.
 
 ## Configuration
 
@@ -115,10 +122,8 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Hooks | `Hooks` (abstract), singleton in the root container | `DefaultHooks` | none | Inject `Hooks`. |
-| Action hooks | `ActionHook` (abstract), the type list is read at boot | none | any number | `@Injectable(ActionHook)` on your class, imported before boot. |
-
-<!-- TODO(docs-hook): verify the registration form for a hook class (@Injectable(ActionHook) vs DI.register(...).as(ActionHook)) and how to replace Hooks -->
+| Hooks | `Hooks` (abstract), singleton in the root container | `DefaultHooks` (`@Injectable(Hooks)`) | none | `DI.register(MyHooks).as(Hooks)`, before boot. |
+| Action hooks | `ActionHook` (abstract), the type list is read at boot | none | any number | `@Injectable(ActionHook)` on your class, `DI.register(X).as(ActionHook)`, or a factory `() => instance`. Register before `Hooks` boots. |
 
 ## Important behaviour
 
@@ -165,7 +170,7 @@ const stamp = mutatingHook('orders.place', { note: 'checked' });
 // After a run: recorder.calls[0].phase === 'before'
 ```
 
-<!-- TODO(docs-hook): verify how a test registers these hook instances in the container, and which actions RecordingActionHook matches -->
+Register a kit hook with `container.register(() => hook).as(ActionHook)` before `Hooks` resolves. `RecordingActionHook` matches `['*']` by default; pass patterns to its constructor to narrow it.
 
 ## Examples
 

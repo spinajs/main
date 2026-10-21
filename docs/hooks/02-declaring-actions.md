@@ -64,11 +64,9 @@ Hooks.run(action, input, impl, { mutable, refusable })
 A hook can narrow an action, never widen it.
 
 - Run the action's own security checks **before** `Hooks.run`.
-- Run again, on the values a hook changed, the checks that guard those values.
+- Run again, inside the action's own `impl`, on the values a hook changed, the checks that guard each mutable key.
 - Declare in `mutable` only the keys you check again.
 - Revocations that follow from a security event (a ban, a deactivation, a delete, a password expiry revoking sessions, a back-channel logout, a token self-revocation) are not refusable. Pass `refusable: false` for an action that must complete.
-
-<!-- TODO(docs-hook): verify where the second invariant check belongs (inside impl, or between before and impl) -->
 
 ## Example: a hookable action
 
