@@ -24,17 +24,18 @@ type Executor = { executeOnDb(stmt: unknown, params: unknown[], context: unknown
 /** Every statement the sqlite connection runs until `restore()`. */
 function recordStatements(): { readonly statements: string[]; reset(): void; restore(): void } {
   const driver = v3Connection() as unknown as Executor;
-  const original = driver.executeOnDb;
+  const run = driver.executeOnDb.bind(driver);
   const statements: string[] = [];
-  driver.executeOnDb = function (this: Executor, stmt: unknown, params: unknown[], context: unknown) {
+  driver.executeOnDb = (stmt: unknown, params: unknown[], context: unknown) => {
     statements.push(String(stmt));
-    return original.call(this, stmt, params, context);
+    return run(stmt, params, context);
   };
   return {
     statements,
     reset: () => void statements.splice(0),
     restore: () => {
-      driver.executeOnDb = original;
+      // The own property shadows the driver's method; removing it brings the method back.
+      delete (driver as Partial<Executor>).executeOnDb;
     },
   };
 }
@@ -165,6 +166,7 @@ describe('DbTokenService validation cache', function () {
     const owner = await w.owner();
     const a = await w.mint(owner);
     const b = await w.mint(owner);
+    await w.mint(owner);
     const seen: unknown[] = [];
     w.bus.subscribe((c) => seen.push(c));
 

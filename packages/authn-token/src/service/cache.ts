@@ -98,7 +98,7 @@ export class TokenValidationCache {
     }
     const { lastUsedIp: _previous, ...rest } = entry.validation.token;
     const token: TokenRecord = { ...rest, lastUsedAt: at, ...(ip !== null ? { lastUsedIp: ip } : {}) };
-    this.put(hash, { ...entry, validation: { ...entry.validation, token } as ValidatedToken }, remaining);
+    this.put(hash, { ...entry, validation: { ...entry.validation, token } }, remaining);
   }
 
   public evict(change: CredentialChange): void {
