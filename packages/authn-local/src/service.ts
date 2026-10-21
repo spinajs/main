@@ -292,6 +292,8 @@ export class LocalPasswordService extends PasswordService {
     } catch (err) {
       const refusal = hookRefusalOf(err, 'authn.password.set');
       if (!refusal) throw err;
+      // The hash a set makes: a refusal nested in a registration then costs what the taken address's spent hash does.
+      await (await this.hasher()).hash(newPassword);
       await this.audit(ctx, { type: 'password.change', outcome: 'failure', identity: id, ...actor, reason: refusal.reason, data: { cause: 'set' } });
       return { status: 'refused', code: refusal.code };
     }
