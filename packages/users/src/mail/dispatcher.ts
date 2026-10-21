@@ -7,6 +7,7 @@ import { PasswordService } from '@spinajs/authn/contracts';
 import { InlineAuthnMailDispatcher, authnMailDeliveryOf } from '@spinajs/authn-local';
 import type { AuthnMailDispatcher } from '@spinajs/authn-local';
 import { QueueAuthnMailDispatcher } from '@spinajs/authn-local/queue';
+import '@spinajs/authn-local/register-schema';
 
 import { checkAuthnMailRouting } from './check.js';
 
