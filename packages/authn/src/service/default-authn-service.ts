@@ -202,14 +202,16 @@ export class DefaultAuthnService extends AuthnService {
     const failuresOnly = this.peeker !== undefined && candidates.every((s) => !s.interactive);
     const gate = failuresOnly ? await this.peeker!.peek(keyed.all, 'login', ctx) : await this.Throttle.attempt(keyed.all, 'login', ctx);
     if (!gate.allowed) return this.throttled(ctx, gate.retryAfterSeconds, only);
+    const clean = 'clean' in gate && gate.clean === true;
 
-    const result = await this.verified(candidates, keyed, c, ctx, only);
+    const result = await this.verified(candidates, keyed, c, ctx, only, clean);
     if (!failuresOnly || result.status === 'success') return result;
     const counted = await this.Throttle.attempt(keyed.all, 'login', ctx);
     return counted.allowed ? result : this.throttled(ctx, counted.retryAfterSeconds, only);
   }
 
-  private async verified(candidates: readonly AuthenticationStrategy[], keyed: Keyed, c: Credentials, ctx: AuthnContext, only: { strategy?: string }): Promise<AuthenticationResult> {
+  /** `clean`: the peek found no row a success would lower or clear, so a per-request success skips `succeed`. */
+  private async verified(candidates: readonly AuthenticationStrategy[], keyed: Keyed, c: Credentials, ctx: AuthnContext, only: { strategy?: string }, clean: boolean): Promise<AuthenticationResult> {
     const v = await this.verifyWith(candidates, c, ctx);
     if (v === null) {
       await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials', ...only });
@@ -218,7 +220,7 @@ export class DefaultAuthnService extends AuthnService {
     if ('broken' in v) return this.refuse(ctx, v.s, v.broken, 'invalid_credentials', v.data ? { data: v.data } : {});
     if (!v.outcome.ok) return this.refuse(ctx, v.s, v.outcome.reason, v.outcome.reason);
     try {
-      return await this.accept(v.s, v.outcome, keyed.of(v.s), ctx);
+      return await this.accept(v.s, v.outcome, keyed.of(v.s), ctx, clean);
     } catch (err) {
       // Only a verified credential gets here: a rejection would tell it apart from a wrong one (A02).
       return this.refuse(ctx, v.s, 'store_error', 'invalid_credentials', { data: { error: errorClass(err) } });
@@ -370,7 +372,7 @@ export class DefaultAuthnService extends AuthnService {
     return null;
   }
 
-  private async accept(s: AuthenticationStrategy, r: Verified, keys: readonly ThrottleKey[], ctx: AuthnContext): Promise<AuthenticationResult> {
+  private async accept(s: AuthenticationStrategy, r: Verified, keys: readonly ThrottleKey[], ctx: AuthnContext, clean: boolean): Promise<AuthenticationResult> {
     let id: IdentityRef | null = r.identity ?? null;
     let found: Found = { id: null };
     if (!id && r.external) {
@@ -394,9 +396,10 @@ export class DefaultAuthnService extends AuthnService {
 
     const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[] };
     const extra = { ...(r.ceiling !== undefined ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(r.attributes !== undefined ? { attributes: r.attributes } : {}) };
+    // A token or key is used on every request: its success skips a succeed with nothing to do and waits for no sink.
     if (!s.interactive) {
-      await this.Throttle.succeed(keys, 'login');
-      await this.Auditor.publishIn(ctx, { type: this.eventOf(s), outcome: 'success', strategy: s.name, identity: id });
+      if (!clean) await this.Throttle.succeed(keys, 'login');
+      this.Auditor.publishDetached(ctx, { type: this.eventOf(s), outcome: 'success', strategy: s.name, identity: id });
       return { status: 'success', identity: id, facts, ...extra };
     }
 
