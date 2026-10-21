@@ -223,11 +223,7 @@ export declare function isFresh(facts: Pick<AuthnFacts, "authenticatedAt" | "imp
 ```ts
 import type { ExternalSubject, IdentityRef } from "./credentials.js";
 import type { Principal } from "./principal.js";
-/** req.storage keys written by AuthnMiddleware (D26). */
-export interface IAuthnPrincipalStorage {
-    /** null: no or pending credentials. authz-http's AuthnPrincipalSource reads it. */
-    AuthnPrincipal?: Principal | null;
-}
+export type { IAuthnPrincipalStorage } from "@spinajs/principal";
 /** Registered with Array.ofType; users' AccessResponseExtension adds `Access` (D26). */
 export declare abstract class AuthnResponseExtension {
     /** Adds fields to body, the answer being built. */
@@ -819,82 +815,8 @@ const PASSWORD_HARD_CAP = 1024;
 ## src/contracts/principal.ts
 
 ```ts
-/** 'users', 'file', 'ArrowCampaign', 'job', 'dir' */
-export type ResourceType = string;
-export interface ResourceRef {
-    readonly type: ResourceType;
-    /** Absent = type-level (collections, "some row"). */
-    readonly id?: string;
-}
-export type PrincipalType = "user" | "anonymous" | "unattended" | "system" | "service" | "link" | "agent" | "group" | (string & {});
-export interface PrincipalRef {
-    readonly type: PrincipalType;
-    readonly id: string;
-}
-export interface Principal extends PrincipalRef {
-    /** False for anonymous and unattended; true for a link bearer. */
-    readonly authenticated: boolean;
-    /** 'session' | 'token' | 'link' | 'runAs' | 'queue' | app */
-    readonly source: string;
-    /** Agents, delegated tokens; the answer is at most the delegate's. */
-    readonly onBehalfOf?: Principal;
-    /** With onBehalfOf; default 'intersect'. */
-    readonly delegation?: "intersect" | "inherit";
-    /** Identities that also speak in this request (the signed-in user behind a link). */
-    readonly companions?: readonly PrincipalRef[];
-    readonly ceiling?: Ceiling;
-    readonly attributes: Readonly<Record<string, unknown>>;
-    /** The User model or app object; opaque to authz. */
-    readonly identity?: unknown;
-    /** Set by authn; conditions read 'principal.authn.*'. */
-    readonly authn?: AuthnFacts;
-}
-export interface AuthnFacts {
-    /** 'password' | 'token' | 'jws' | 'http-signature' | 'oidc' | 'ldap' | 'saml' */
-    readonly method: string;
-    /** Configured strategy name: 'local', 'token', 'keys', 'oidc:google'. */
-    readonly strategy: string;
-    /** 'aal2' when an MFA step passed. */
-    readonly assurance: "aal1" | "aal2";
-    /** Passed steps: ['totp']. */
-    readonly mfa: readonly string[];
-    readonly authenticatedAt: Date;
-    /** Set while impersonating. */
-    readonly impersonator?: PrincipalRef;
-    /** Hashed session id, never the raw one. */
-    readonly sessionHandle?: string;
-}
-export interface Ceiling {
-    readonly roles?: readonly string[];
-    /** Globs: 'file:*', 'project:read'. */
-    readonly permissions?: readonly string[];
-    /** Each covers itself and its descendants; [] covers nothing. */
-    readonly resources?: readonly ResourceRef[];
-    readonly expiresAt?: Date;
-    /** Deny code when the ceiling fails; default 'ceiling'. */
-    readonly reason?: string;
-}
-export declare const SYSTEM: Principal;
-export declare const UNATTENDED: Principal;
-export declare const principalKey: (p: PrincipalRef) => string;
-export declare const sameRef: (a: PrincipalRef, b: PrincipalRef) => boolean;
-export declare const ceilingHash: (c: Ceiling | undefined) => string;
-
-// values
-const SYSTEM = Object.freeze({
-    type: "system",
-    id: "system",
-    authenticated: true,
-    source: "runAs",
-    attributes: Object.freeze({})
-});
-const UNATTENDED = Object.freeze({
-    type: "unattended",
-    id: "unattended",
-    authenticated: false,
-    source: "unattended",
-    attributes: Object.freeze({})
-});
+export { SYSTEM, UNATTENDED, principalKey, sameRef, ceilingHash } from "@spinajs/principal";
+export type { ResourceType, ResourceRef, PrincipalType, PrincipalRef, Principal, AuthnFacts, Ceiling } from "@spinajs/principal";
 ```
 
 ## src/contracts/secrets.ts
@@ -1317,6 +1239,23 @@ export declare abstract class TokenService {
 ## Re-exported from other packages
 
 ```ts
+// AuthnFacts (@spinajs/principal)
+export interface AuthnFacts {
+    /** 'password' | 'token' | 'jws' | 'http-signature' | 'oidc' | 'ldap' | 'saml' */
+    readonly method: string;
+    /** Configured strategy name: 'local', 'token', 'keys', 'oidc:google'. */
+    readonly strategy: string;
+    /** 'aal2' when an MFA step passed. */
+    readonly assurance: "aal1" | "aal2";
+    /** Passed steps: ['totp']. */
+    readonly mfa: readonly string[];
+    readonly authenticatedAt: Date;
+    /** Set while impersonating. */
+    readonly impersonator?: PrincipalRef;
+    /** Hashed session id, never the raw one. */
+    readonly sessionHandle?: string;
+}
+
 // BackoffParams (@spinajs/util)
 export interface BackoffParams {
     readonly free: number;
@@ -1324,7 +1263,97 @@ export interface BackoffParams {
     readonly maxDelayMs: number;
 }
 
+// Ceiling (@spinajs/principal)
+export interface Ceiling {
+    readonly roles?: readonly string[];
+    /** Globs: 'file:*', 'project:read'. */
+    readonly permissions?: readonly string[];
+    /** Each covers itself and its descendants; [] covers nothing. */
+    readonly resources?: readonly ResourceRef[];
+    readonly expiresAt?: Date;
+    /** Deny code when the ceiling fails; default 'ceiling'. */
+    readonly reason?: string;
+}
+
+// IAuthnPrincipalStorage (@spinajs/principal)
+/** req.storage keys written by AuthnMiddleware (D26). */
+export interface IAuthnPrincipalStorage {
+    /** null: no or pending credentials. authz-http's AuthnPrincipalSource reads it. */
+    AuthnPrincipal?: Principal | null;
+}
+
+// Principal (@spinajs/principal)
+export interface Principal extends PrincipalRef {
+    /** False for anonymous and unattended; true for a link bearer. */
+    readonly authenticated: boolean;
+    /** 'session' | 'token' | 'link' | 'runAs' | 'queue' | app */
+    readonly source: string;
+    /** Agents, delegated tokens; the answer is at most the delegate's. */
+    readonly onBehalfOf?: Principal;
+    /** With onBehalfOf; default 'intersect'. */
+    readonly delegation?: "intersect" | "inherit";
+    /** Identities that also speak in this request (the signed-in user behind a link). */
+    readonly companions?: readonly PrincipalRef[];
+    readonly ceiling?: Ceiling;
+    readonly attributes: Readonly<Record<string, unknown>>;
+    /** The User model or app object; opaque to authz. */
+    readonly identity?: unknown;
+    /** Set by authn; conditions read 'principal.authn.*'. */
+    readonly authn?: AuthnFacts;
+}
+
+// PrincipalRef (@spinajs/principal)
+export interface PrincipalRef {
+    readonly type: PrincipalType;
+    readonly id: string;
+}
+
+// PrincipalType (@spinajs/principal)
+export type PrincipalType = "user" | "anonymous" | "unattended" | "system" | "service" | "link" | "agent" | "group" | (string & {});
+
+// ResourceRef (@spinajs/principal)
+export interface ResourceRef {
+    readonly type: ResourceType;
+    /** Absent = type-level (collections, "some row"). */
+    readonly id?: string;
+}
+
+// ResourceType (@spinajs/principal)
+/** 'users', 'file', 'ArrowCampaign', 'job', 'dir' */
+export type ResourceType = string;
+
+// SYSTEM (@spinajs/principal)
+export declare const SYSTEM: Principal;
+// value
+const SYSTEM = Object.freeze({
+    type: "system",
+    id: "system",
+    authenticated: true,
+    source: "runAs",
+    attributes: Object.freeze({})
+});
+
+// UNATTENDED (@spinajs/principal)
+export declare const UNATTENDED: Principal;
+// value
+const UNATTENDED = Object.freeze({
+    type: "unattended",
+    id: "unattended",
+    authenticated: false,
+    source: "unattended",
+    attributes: Object.freeze({})
+});
+
 // backoffDelayMs (@spinajs/util)
 /** The wait after counted attempt n (1-based): 0 until n reaches free, then min(baseDelayMs × 2^(n − free), maxDelayMs). */
 export declare function backoffDelayMs(p: BackoffParams, n: number): number;
+
+// ceilingHash (@spinajs/principal)
+export declare const ceilingHash: (c: Ceiling | undefined) => string;
+
+// principalKey (@spinajs/principal)
+export declare const principalKey: (p: PrincipalRef) => string;
+
+// sameRef (@spinajs/principal)
+export declare const sameRef: (a: PrincipalRef, b: PrincipalRef) => boolean;
 ```

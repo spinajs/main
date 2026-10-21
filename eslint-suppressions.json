@@ -1400,11 +1400,6 @@
       "count": 1
     }
   },
-  "packages/authz-http/src/client-access/sse.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "packages/authz-http/src/fields.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1

@@ -2,7 +2,7 @@
 
 The authorization core of SpinaJS. It answers one question: may this principal do this action on this resource? It holds the contracts, the decision engine, the condition language, the host that runs one `AuthzService` per domain, and `AuthzAdmin`, the one write path for authorization data. It replaces the 2.x `rbac` authorization code (`accesscontrol`, `@Permission`, `RbacPolicy`).
 
-It knows no model: RBAC and ABAC are plug-ins, and the app registers them. It does **not** authenticate (the principal comes from `@spinajs/authn`), does **not** read HTTP requests, and does **not** rewrite queries; adapters do that.
+It knows no model: RBAC and ABAC are plug-ins, and the app registers them. It does **not** authenticate (the principal comes from `@spinajs/authn` or from your own code; authz does not need authn installed, see [installing authz without authn](14-installing-without-authn.md)), does **not** read HTTP requests, and does **not** rewrite queries; adapters do that.
 
 - Moving a 2.x app: [the migration guide](./migration-guide.md). What is still open in `3.0.0-rc.1` is in [its section 11](./migration-guide.md#11-open-items-in-300-rc1).
 - Authentication (who is calling) is a separate family: [docs/authn](../authn/README.md).
@@ -33,6 +33,7 @@ Importing the package registers the host (`AuthzService`, `AuthzDomains`), the d
 | [Audit](11-audit.md) | `DecisionAudit`: denials, `runAs`, `SYSTEM`, `explain` and admin entries. |
 | [Column relations](12-column-relations.md) | `@Relation` columns that hold a principal, for single checks and `.accessible()` lists. |
 | [Holders](13-holders.md) | Who holds a permission on a resource: the `holders` admin query, `inspect()` and `ancestors()`. |
+| [Installing without authn](14-installing-without-authn.md) | `@spinajs/principal`, what each package re-exports, and running authz-http without `@spinajs/authn`. |
 
 ## Quick start
 
@@ -69,7 +70,8 @@ export async function approveInvoice(invoiceId: string): Promise<void> {
 
 ## Related packages
 
-- [`@spinajs/authn`](../authn/README.md): authentication. It defines the `Principal` (who is calling, its ceiling, delegation and `authn` facts) that every check takes; `@spinajs/authz` re-exports the principal types, `SYSTEM` and `UNATTENDED`. How authn hands the principal to authz: [Principal and authz](../authn/07-principal-and-authz.md).
+- `@spinajs/principal`: the `Principal` (who is calling, its ceiling, delegation and `authn` facts) that every check takes. `@spinajs/authz` re-exports the principal types, `SYSTEM` and `UNATTENDED`. See [installing authz without authn](14-installing-without-authn.md).
+- [`@spinajs/authn`](../authn/README.md): authentication. It builds the principal, and `@spinajs/authn/contracts` also re-exports the principal contracts. How authn hands the principal to authz: [Principal and authz](../authn/07-principal-and-authz.md).
 - [`@spinajs/authz-rbac`](../authz-rbac/README.md): the RBAC model (roles, grants, assignments, ladders, rules, share links), its stores, `DefaultAdminGuard` and `DbAuthzAdminBackend`.
 - [`@spinajs/authz-abac`](../authz-abac/README.md): the ABAC model (permit and deny policies over [conditions](07-conditions.md)) and its policy stores.
 - [`@spinajs/authz-orm`](../authz-orm/README.md): the ORM adapter: `@AccessResource` models, the ancestor table, `.accessible()` lists, `$access`, `DbDecisionAudit` and `DbScopeAttributeStore`.

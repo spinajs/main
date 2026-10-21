@@ -8,5 +8,6 @@ export * from './controllers/AccessController.js';
 export * from './explain/index.js';
 export * from './swagger.js';
 export * from './client-access/index.js';
+export * from './authn-loader.js';
 export { Access, AllowAnonymous, Unscoped } from './access/decorators.js';
 export { fromBody, fromModel, fromParam, fromQuery } from './access/extractors.js';

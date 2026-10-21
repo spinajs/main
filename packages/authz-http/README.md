@@ -65,7 +65,9 @@ Only an authenticated principal may open a stream (401 otherwise, anonymous incl
 authenticated socket connections join their principal's rooms. Each principal holds at most
 `authz.http.events.maxStreamsPerPrincipal` streams (default 5); a new one past that closes the oldest.
 `SseAccessPushTransport.dispose()` ends the open streams and stops listening for the server shutdown.
-A stream opened by a session ends with the session: `SseSessionEndSink`, an `AuthnEventSink`, acts on
+A stream opened by a session ends with the session: `SseSessionEndSink`, an `AuthnEventSink` in
+`@spinajs/authz-http/authn` (`@spinajs/authn` is an optional peer; `AuthzHttpAuthnBootstrapper` loads
+the subpath when authn is installed), acts on
 a successful `logout`, `session.revoke` or `session.expire` event. It ends the principal's streams
 whose handle the event names. When a `SessionIssuer` is registered, it also re-checks the principal's
 other session streams against `SessionIssuer.list` and ends those whose handle is no longer listed. The

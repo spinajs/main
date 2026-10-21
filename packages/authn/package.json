@@ -133,6 +133,7 @@
     "@spinajs/di": "3.0.1",
     "@spinajs/exceptions": "3.0.1",
     "@spinajs/log-common": "3.0.1",
+    "@spinajs/principal": "3.0.1",
     "@spinajs/util": "3.0.1"
   },
   "devDependencies": {

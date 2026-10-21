@@ -1,9 +1,7 @@
-import { Autoinject, DI, Injectable, Singleton } from '@spinajs/di';
+import { DI, Injectable, Singleton } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { AUTHZ_CHANGED_EVENT, AccessPushTransport, principalKey } from '@spinajs/authz';
 import type { AccessChangedEvent, Principal, PrincipalRef } from '@spinajs/authz';
-import { AuthnEventSink, SessionIssuer } from '@spinajs/authn/contracts';
-import type { AuthnEvent, AuthnEventType } from '@spinajs/authn/contracts';
 import { Response as HttpResponse } from '@spinajs/http';
 import type * as express from 'express';
 
@@ -103,20 +101,19 @@ export class SseAccessPushTransport extends AccessPushTransport {
     }
   }
 
-  /**
-   * Ends the session streams of `identity` that `session` names or the SessionIssuer no longer lists. The re-check also
-   * catches a stream whose handle went stale while it was open: a rotation or role switch re-keys the session row and
-   * publishes no event, so the logout names a handle the stream never saw.
-   */
-  public async sessionEnded(identity: PrincipalRef, session?: string): Promise<void> {
-    if (session !== undefined) for (const s of this.sessionStreams(identity)) if (s.session === session) this.end(s);
-    const rest = this.sessionStreams(identity);
-    // Per call: authz boot builds this transport, sse in use or not, and must not build the issuer's session provider then.
-    if (rest.length === 0) return;
-    const issuer = (await DI.RootContainer.resolveOptional(SessionIssuer)) as SessionIssuer | undefined;
-    if (!issuer) return;
-    const live = new Set((await issuer.list({ type: identity.type, id: identity.id })).map((r) => r.handle));
-    for (const s of rest) if (!live.has(s.session!)) this.end(s);
+  /** Session handles of the open streams of `identity` that a session signed in. */
+  public sessionHandles(identity: PrincipalRef): string[] {
+    return this.sessionStreams(identity).map((s) => s.session!);
+  }
+
+  /** Ends the streams of `identity` that `session` signed in. */
+  public endSession(identity: PrincipalRef, session: string): void {
+    for (const s of this.sessionStreams(identity)) if (s.session === session) this.end(s);
+  }
+
+  /** Ends the session streams of `identity` whose handle `live` does not list. */
+  public endSessionsExcept(identity: PrincipalRef, live: ReadonlySet<string>): void {
+    for (const s of this.sessionStreams(identity)) if (!live.has(s.session!)) this.end(s);
   }
 
   protected sessionStreams(identity: PrincipalRef): EventStream[] {
@@ -170,28 +167,5 @@ export class AccessEventStream extends HttpResponse {
 
   public async execute(req: express.Request, res: express.Response): Promise<void> {
     this.transport.open(req, res, this.principal);
-  }
-}
-
-const SESSION_ENDS: ReadonlySet<AuthnEventType> = new Set<AuthnEventType>(['logout', 'session.revoke', 'session.expire']);
-
-/**
- * Their `session` is not always the ended one (stop names the impersonator's new session, start the
- * impersonation's), so the identity's and the actor's streams are only re-checked against the SessionIssuer.
- */
-const IMPERSONATION: ReadonlySet<AuthnEventType> = new Set<AuthnEventType>(['impersonation.start', 'impersonation.end', 'impersonation.expire']);
-
-/** Ends a session's event streams when authn reports the session's end (logout, revoke, impersonation start and end). */
-@Injectable(AuthnEventSink)
-export class SseSessionEndSink extends AuthnEventSink {
-  @Autoinject(SseAccessPushTransport)
-  protected Transport: SseAccessPushTransport;
-
-  public async publish(e: AuthnEvent): Promise<void> {
-    const ends = SESSION_ENDS.has(e.type);
-    if (e.outcome !== 'success' || !e.identity || (!ends && !IMPERSONATION.has(e.type))) return;
-    const transport = this.Transport;
-    if (ends) await transport.sessionEnded(e.identity, e.session);
-    else await Promise.all([e.identity, ...(e.actor ? [e.actor] : [])].map((who) => transport.sessionEnded(who)));
   }
 }
