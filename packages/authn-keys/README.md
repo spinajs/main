@@ -24,8 +24,15 @@ The registry and the strategies get their dependencies through DI. Tests
 build them with `new`, passing the dependencies in one object, e.g.
 `new DefaultKeyRegistry({ store, secrets, throttle, options })` or
 `new HttpSignatureStrategy({ registry, nonces, options })`. `OrmKeyStore`
-and `DbKeyNonceStore` inject the `Orm`, so the `authn:key-*` commands bring
-the database up on their own.
+injects the `Orm`, so the `authn:key-*` commands bring the database up on
+their own.
+
+`JwsAssertionStrategy` and `HttpSignatureStrategy` claim each `jti` and
+signature nonce in the core `NonceStore` (`@spinajs/authn/contracts`). Only
+`@spinajs/authn-orm` registers one (`DbNonceStore`), so import it, or register
+your own `NonceStore`; without one the strategies fail at boot with an error
+naming `@spinajs/authn-orm`. `MemoryNonceStore` from `@spinajs/authn/nonces`
+is for tests and single-process apps, and is not registered for you.
 
 ## Challenges
 
@@ -146,7 +153,8 @@ unknown key with the same work and result as a bad signature, throttles by
 | `httpSignature.skewSeconds` | `30` |
 | `httpSignature.requiredComponents` | `['@method', '@target-uri', 'content-digest']` |
 
-`authn_nonce` comes with `@spinajs/authn-orm`'s `AuthnInitial` migration.
+`authn_nonce` and the `NonceStore` that fills it (`DbNonceStore`) come with
+`@spinajs/authn-orm`; this package has no nonce table or model of its own.
 
 List the strategies an app uses in `authn.strategies`; `service` is the
 class name:

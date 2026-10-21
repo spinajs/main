@@ -12,7 +12,7 @@ A key strategy follows the steps the shipped ones do:
 4. `usableKey(registry, kid, ctx)` returns `{ key }` for a key that is neither revoked nor expired at `ctx.now` (`isUsableKey`), or `{ key: null, reason, alg? }` with `reason` `invalid_credentials`, `revoked` or `expired`.
 5. With no usable key, run `unknownKeyWork(alg, data, signature)` (on `KeyStrategy`; `dummyVerify` outside it) and return `failure(reason)`. The failure then costs what a real verification costs (A02), and `reason` reaches audit only.
 6. `verifySignature(key, data, signature)` checks the signature with the key's own algorithm.
-7. Claim any single-use value in `KeyNonceStore` after the signature holds.
+7. Claim any single-use value in `NonceStore` after the signature holds.
 8. The protected `success(key, method, ctx)` of `KeyStrategy` calls `KeyRegistry.touch(kid, ctx.now)` when the registry implements it and returns `{ ok: true, identity: owner, method, ceiling: key.scope }`. A `touch` that throws is logged and the login still succeeds.
 
 `throttleKeys(credentials, ctx)` returns `keyThrottleKeys(kid, ctx)`: an `account` key `key:<kid>` and an `account-ip` key `key:<kid>|<ip>`. A kid that is not valid becomes `key:?`. Read the kid from the unverified credential: throttling runs before verification. The core drops the strategy's `account-ip` key and builds its own from each `account` key and `ctx.ip`.
@@ -96,7 +96,7 @@ export class PaymentsSignatureStrategy extends HttpSignatureStrategy {
 
 - Return `unsupported_credentials` only for another kind. For your own kind, every refusal is `invalid_credentials`, `revoked` or `expired`.
 - Call `unknownKeyWork` (or `dummyVerify`) on every path that finds no usable key, with the key's algorithm when the lookup reports one.
-- Bind a signed value to a time window and claim it in `KeyNonceStore`, as the shipped strategies do. A signature alone can be replayed.
+- Bind a signed value to a time window and claim it in `NonceStore`, as the shipped strategies do. A signature alone can be replayed.
 
 ## Patterns and antipatterns
 
@@ -118,9 +118,9 @@ if (!found.key) {
 
 ```ts sample
 import { Autoinject, Injectable } from '@spinajs/di';
-import { AuthenticationStrategy } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, NonceStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
-import { KeyNonceStore, KeyStrategy, MAX_CREDENTIAL_LENGTH, decodeB64url, failure, keyThrottleKeys, nonceKey, usableKey, verifySignature } from '@spinajs/authn-keys';
+import { KeyStrategy, MAX_CREDENTIAL_LENGTH, decodeB64url, failure, keyThrottleKeys, nonceKey, usableKey, verifySignature } from '@spinajs/authn-keys';
 
 const WINDOW_SECONDS = 300;
 
@@ -138,8 +138,8 @@ export class PartnerWebhookStrategy extends KeyStrategy {
   public readonly kinds = ['partner-webhook'];
   public readonly interactive = false;
 
-  @Autoinject(KeyNonceStore)
-  protected Nonces: KeyNonceStore;
+  @Autoinject(NonceStore)
+  protected Nonces: NonceStore;
 
   public throttleKeys(c: Credentials, ctx: AuthnContext): readonly ThrottleKey[] {
     const { kid } = c as WebhookCredentials;
@@ -181,5 +181,5 @@ Register the partner's key with `authn:key-add service <partner>`, and list `{ n
 ## Related
 
 - [JWS and key material](08-jws-and-key-material.md): `verifySignature`, `dummyVerify` and the key checks.
-- [Replay protection](07-replay-protection.md): `KeyNonceStore` and `nonceKey`.
+- [Replay protection](07-replay-protection.md): `NonceStore` and `nonceKey`.
 - [Strategies](../authn/03-strategies.md): the strategy contract and how the registry picks strategies.

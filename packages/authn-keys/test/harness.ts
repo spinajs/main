@@ -1,12 +1,12 @@
 import { AuthnAudit } from '@spinajs/authn/audit';
-import type { AuthenticationStrategy, AuthnEventSink } from '@spinajs/authn/contracts';
+import type { AuthenticationStrategy, AuthnEventSink, NonceStore } from '@spinajs/authn/contracts';
+import { MemoryNonceStore } from '@spinajs/authn/nonces';
+import { DbNonceStore } from '@spinajs/authn-orm';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort, generateKeyPair, throttleParams } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HarnessContext, KitKeyPair } from '@spinajs/authn-testing';
 import { signChallenge } from '../src/challenge/index.js';
 import { LocalJwsSigner, StrictJwsVerifier } from '../src/jws/index.js';
 import type { PrivateJwk } from '../src/jws/index.js';
-import { DbKeyNonceStore, MemoryKeyNonceStore } from '../src/nonce/index.js';
-import type { KeyNonceStore } from '../src/nonce/index.js';
 import { keysOptionsFor } from './support/keys-options.js';
 import type { KeysOptions } from '../src/options/index.js';
 import { DefaultKeyRegistry, MemoryKeyStore, OrmKeyStore } from '../src/registry/index.js';
@@ -42,7 +42,7 @@ export const privateJwkOf = (kp: KitKeyPair, kid = kp.kid): PrivateJwk => {
 export interface KeysParts {
   readonly options: KeysOptions;
   readonly store: KeyStore;
-  readonly nonces: KeyNonceStore;
+  readonly nonces: NonceStore;
   readonly secrets: MemorySecretStore;
   readonly throttle: FakeBackoffThrottle;
   readonly events: RecordingEventSink;
@@ -60,15 +60,15 @@ export async function keysParts(config: ConfigOverrides, kind: StoreKind): Promi
   checkConfig(config);
   const options = keysOptionsFor({ assertion: { audience: KIT_AUDIENCE, ...config.authn?.keys?.assertion } });
   let store: KeyStore;
-  let nonces: KeyNonceStore;
+  let nonces: NonceStore;
   if (kind === 'sqlite') {
     await bootSqlite();
     await clearKeys();
     store = new OrmKeyStore();
-    nonces = new DbKeyNonceStore();
+    nonces = new DbNonceStore();
   } else {
     store = new MemoryKeyStore();
-    nonces = new MemoryKeyNonceStore();
+    nonces = new MemoryNonceStore();
   }
   const secrets = new MemorySecretStore();
   const params = throttleParams(config);

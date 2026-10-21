@@ -688,7 +688,7 @@ export declare abstract class MfaEnrolmentService {
 ```ts
 /**
  * Single-use values (assertion jti, HTTP signature nonces, OIDC state) until they expire. `MemoryNonceStore` (core) and
- * `DbNonceStore` (authn-orm) implement it; authn-keys' `KeyNonceStore` has the same semantics, so it can delegate here.
+ * `DbNonceStore` (authn-orm) implement it; the authn-keys strategies claim here too.
  */
 export declare abstract class NonceStore {
     /**

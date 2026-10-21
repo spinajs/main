@@ -1,6 +1,6 @@
 /**
  * Single-use values (assertion jti, HTTP signature nonces, OIDC state) until they expire. `MemoryNonceStore` (core) and
- * `DbNonceStore` (authn-orm) implement it; authn-keys' `KeyNonceStore` has the same semantics, so it can delegate here.
+ * `DbNonceStore` (authn-orm) implement it; the authn-keys strategies claim here too.
  */
 export abstract class NonceStore {
   /** True exactly once while `key` is live: the first claim keeps it until `expiresAt`; an expired key may be claimed again. Keys over 160 chars throw.
