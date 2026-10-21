@@ -35,6 +35,7 @@ npm install @spinajs/authn-totp @spinajs/authn @spinajs/authn-orm
 | [Encryption keys](07-encryption-keys.md) | `MfaKeyRing` and `mfaKeyRingFrom`: AES-256-GCM secrets, key ids, key rotation |
 | [CLI and QR codes](08-cli-and-qr.md) | `authn:mfa-reset`, `authn:mfa-qr` and `buildOtpAuthUrl` |
 | [Wiring and testing](09-wiring-and-testing.md) | How `TotpMfaStep` and `TotpService` find their dependencies, and how to pass them yourself |
+| [Action hooks](10-action-hooks.md) | The `authn.mfa.enrol.*`, `authn.mfa.disable`, `authn.mfa.recovery.regenerate` and `authn.mfa.adminReset` actions: refuse an enrolment change with an `ActionHook` |
 
 ## Quick start
 
