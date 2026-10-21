@@ -27,7 +27,7 @@ npm install @spinajs/email-smtp-transport
 | [Attachments](05-attachments.md) | Attachments read through `@spinajs/fs` as the sending principal before the transport runs. |
 | [Recipient redirect](06-recipient-redirect.md) | `redirectTo` sends every mail of a dev or staging connection to a test inbox; refused on production. |
 | [Secret redaction](07-secret-redaction.md) | `IEmail.redact` keeps reset tokens and links out of the queue, events, logs and errors. |
-| [Password mails](08-password-mailer.md) | `EmailPasswordMailer` sends `@spinajs/authn-local` reset and invite mails. |
+| [Password mails](08-password-mailer.md) | `EmailPasswordMailer` sends `@spinajs/authn-local` reset and invite mails from built-in MJML templates a project can replace. |
 | [CLI commands](09-cli-commands.md) | `email-send` and `email-server`. |
 
 ## Quick start

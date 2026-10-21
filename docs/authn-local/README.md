@@ -28,6 +28,7 @@ A working login also needs an `IdentityStore` and a `PasswordCredentialStore` (`
 | [CLI commands](10-cli-commands.md) | `authn:password` and `authn:password-expire` |
 | [Password service](11-password-service.md) | `LocalPasswordService`: its collaborators, the test seam, and how to replace or extend it |
 | [Audit events](12-audit-events.md) | The `AuthnEvent`s the password flows publish, with their reasons |
+| [Mail delivery](13-mail-delivery.md) | `AuthnMailDispatcher`, `AuthnMailJob` and `authn.local.mail.delivery`: reset and invite mails delivered from a queue or inline, with no secret waiting anywhere |
 
 ## Quick start
 
@@ -81,6 +82,7 @@ Every key lives under `authn.local` and is validated by the `@spinajs/authn` con
 | `authn.local.policy.*`, `authn.local.generator.*` | [Password policy](03-password-policy.md#configuration) |
 | `authn.local.reset.*`, `authn.local.invite.*` | [Reset and invite](06-reset-and-invite.md#configuration) |
 | `authn.local.expiration.*` | [Password expiry](08-password-expiry.md#configuration) |
+| `authn.local.mail.*`, `queue.routing.AuthnMailJob` | [Mail delivery](13-mail-delivery.md#configuration) |
 
 Throttling (`authn.throttle.login`, `reset`, `reauth`), MFA (`authn.mfa.*`) and sessions are configured in the [authn core](../authn/README.md).
 
