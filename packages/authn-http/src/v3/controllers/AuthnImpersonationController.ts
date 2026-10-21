@@ -1,9 +1,15 @@
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BadRequestResponse, BaseController, BasePath, Del, Get, Ok, Policy, Post, Req } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
+import { BadRequestResponse, BaseController, BasePath, Body, Del, Get, Ok, Policy, Post } from '@spinajs/http';
 import { AuthnImpersonationService } from '@spinajs/authn';
 import { SessionIssuer } from '@spinajs/authn/contracts';
+import type { IdentityRef } from '@spinajs/authn/contracts';
+
+import { ClientContext } from '../../args/authn.js';
+import { AuthnImpersonationBody } from '../../dto/impersonation.js';
+import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
+import { uniformFailure } from '../../validation/login.js';
+import type { AuthnClientContext } from '../client.js';
 
 import { Authenticated, ImpersonationGuardRegistered, MfaSatisfied } from '../index.js';
 import { refused } from '../../policies/v3/errors.js';
@@ -11,10 +17,9 @@ import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
 import { isSessionPrincipal } from '../../policies/v3/principal.js';
 import { narrowedBySwitch } from '../../resolvers/session.js';
 import { NO_STORE, authnClearedSessionCookie, authnSessionCookie } from '../responses.js';
-import { answerFor, bodyField, contextOf, identityRefOf, stampClient } from '../routes.js';
-import { clientOf } from '../client.js';
+import { answerFor, contextOf, stampClient } from '../routes.js';
 
-const TARGET_CAP = 256;
+const invalidTarget = (): BadRequestResponse => new BadRequestResponse({ error: 'invalid_target', message: 'target must be a user id or { type, id }' });
 
 /**
  * Impersonation over AuthnImpersonationService (A20, design §22.14). Off (404) while no ImpersonationGuard is
@@ -40,11 +45,11 @@ export class AuthnImpersonationController extends BaseController {
    */
   @Get('impersonate')
   @Policy(Authenticated)
-  public async state(@Req() req: Request) {
-    const principal = req.storage.AuthnPrincipal!;
+  public async state(@ClientContext() client: AuthnClientContext) {
+    const principal = client.principal!;
     const impersonator = principal.authn?.impersonator;
     if (!impersonator) return new Ok({ Active: false }, { Headers: [NO_STORE] });
-    const startedAt = req.storage.AuthnSession?.impersonation?.startedAt;
+    const startedAt = client.session?.impersonation?.startedAt;
     return new Ok(
       {
         Active: true,
@@ -58,7 +63,7 @@ export class AuthnImpersonationController extends BaseController {
 
   /**
    * Start impersonating
-   * Body `{ target, password? }`: `target` is a user id or `{ type, id }`. 400 for a malformed target, 401 with the login failure body when the password fails, 403 when refused.
+   * Body `{ target, password? }`: `target` is a user id or `{ type, id }`. 400 for a malformed target (`invalid_field` for an unknown field), 401 with the login failure body when the password fails or is no string, 403 when refused.
    * @body {AuthnImpersonationBody} The target, and the password for a stale session
    * @returns {AuthnImpersonationAnswer} The principal summary of the target
    * @response 400 {AuthnError} A malformed target
@@ -68,24 +73,24 @@ export class AuthnImpersonationController extends BaseController {
    */
   @Post('impersonate')
   @Policy([Authenticated, MfaSatisfied])
-  public async start(@Req() req: Request) {
-    const session = req.storage.AuthnSession;
-    if (!isSessionPrincipal(req.storage.AuthnPrincipal!) || session?.handle.state !== 'active') throw refused('session_required', 'impersonation needs a session');
-    const target = identityRefOf(bodyField(req, 'target'), TARGET_CAP);
-    if (!target) return new BadRequestResponse({ error: 'invalid_target', message: 'target must be a user id or { type, id }' });
+  @OnInvalidInput(byField({ target: invalidTarget, password: uniformFailure }, unknownField))
+  public async start(@Body({ required: true, sensitive: ['password'] }) body: AuthnImpersonationBody, @ClientContext() client: AuthnClientContext) {
+    const session = client.session;
+    if (!isSessionPrincipal(client.principal!) || session?.handle.state !== 'active') throw refused('session_required', 'impersonation needs a session');
+    const target: IdentityRef = typeof body.target === 'string' ? { type: 'user', id: body.target } : { type: body.target.type, id: body.target.id };
 
-    const fresh = await freshAuthOrAnswer(this.Container, clientOf(req), bodyField(req, 'password'));
+    const fresh = await freshAuthOrAnswer(this.Container, client, body.password);
     if ('answer' in fresh) return fresh.answer;
     const reauth = fresh.credentials;
 
     // Per call: apps that don't enable impersonation register none of its collaborators.
     const service = await this.Container.resolve(AuthnImpersonationService);
-    const ctx = contextOf(clientOf(req), 'request', session.handle);
+    const ctx = contextOf(client, 'request', session.handle);
     // The service checks freshness again when authn.impersonation.requirePassword is on; a stale session passed above
     // only with the password, which it then needs too.
     const started = await service.start(session.handle, target, ctx, reauth ?? undefined);
     if (!started.ok) throw refused('impersonation_refused', 'impersonation refused');
-    await stampClient(this.Sessions, started.session, clientOf(req));
+    await stampClient(this.Sessions, started.session, client);
     const principal = await service.principalOf(started.session, ctx);
     if (!principal) return new Ok({ Active: false }, { Coockies: [authnClearedSessionCookie(this._cfg)], Headers: [NO_STORE] });
     return new Ok(await answerFor(this.Container, 'impersonation', principal), { Coockies: [authnSessionCookie(this._cfg, started.session)], Headers: [NO_STORE] });
@@ -100,14 +105,14 @@ export class AuthnImpersonationController extends BaseController {
    */
   @Del('impersonate')
   @Policy(Authenticated)
-  public async stop(@Req() req: Request) {
-    const session = req.storage.AuthnSession;
-    if (!req.storage.AuthnPrincipal?.authn?.impersonator || session?.handle.state !== 'active') {
+  public async stop(@ClientContext() client: AuthnClientContext) {
+    const session = client.session;
+    if (!client.principal?.authn?.impersonator || session?.handle.state !== 'active') {
       return new BadRequestResponse({ error: 'not_impersonating', message: 'no impersonation is active' });
     }
     // Per call: apps that don't enable impersonation register none of its collaborators.
     const service = await this.Container.resolve(AuthnImpersonationService);
-    const ctx = contextOf(clientOf(req), 'request', session.handle);
+    const ctx = contextOf(client, 'request', session.handle);
     const back = await service.stop(session.handle, ctx);
     const sessions = this.Sessions;
     const own = back ? await service.principalOf(back, ctx) : null;
@@ -117,7 +122,7 @@ export class AuthnImpersonationController extends BaseController {
       if (back) await sessions.revoke(back);
       return new Ok({ Active: false }, { Coockies: [authnClearedSessionCookie(this._cfg)], Headers: [NO_STORE] });
     }
-    await stampClient(sessions, back, clientOf(req));
+    await stampClient(sessions, back, client);
     // stop gave the actor its role switch back; answer with the principal the next request resolves to.
     const narrowed = await narrowedBySwitch(this.Container, restored, own);
     return new Ok(await answerFor(this.Container, 'impersonation', narrowed), { Coockies: [authnSessionCookie(this._cfg, back)], Headers: [NO_STORE] });

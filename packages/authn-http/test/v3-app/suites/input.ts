@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 
 import { AUTHN_FAILURE_BODY, PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
-import { Client, events, loggedIn, passwordStrategy, resetRecorders, seedUser, sessionSetCookie, step, throttle } from '../app.js';
+import { Client, events, loggedIn, loggedInAal2, passwordStrategy, resetRecorders, roles, seedUser, sessionSetCookie, step, throttle } from '../app.js';
 import type { Res } from '../app.js';
 
 /** The uniform login failure (A02): 401, the one body, no-store, no Retry-After. */
@@ -88,6 +88,39 @@ export function accountInputSuite(): void {
       const res = await pending.post('/auth/reauth', {});
       expect(res.status).to.eq(403);
       expect((res.body as { error?: unknown }).error).to.eq('mfa_pending');
+    });
+  });
+
+  describe('DELETE /user/sessions/:handle', () => {
+    it('a handle over 128 characters answers the 404 of an unknown one and ends nothing', async () => {
+      const c = await loggedIn(await seedUser());
+      const res = await c.del(`/user/sessions/${'h'.repeat(129)}`);
+      expect(res.status).to.eq(404);
+      expect((res.body as { error?: unknown }).error).to.eq('session_not_found');
+      expect((await c.get('/auth')).status).to.eq(200);
+    });
+  });
+
+  describe('POST /auth/active-role', () => {
+    it('a missing or over-long role answers 400 invalid_role, an unknown field 400 invalid_field, a password that is no string the login failure', async () => {
+      const u = await seedUser();
+      await roles.grant(u.ref, [{ role: 'editor', requirePassword: false }]);
+      const c = await loggedIn(u);
+      for (const body of [{}, { role: '' }, { role: 'r'.repeat(257) }, { role: 7 }]) expectCode(await c.post('/auth/active-role', body), 'invalid_role', JSON.stringify(body).slice(0, 30), false);
+      expectCode(await c.post('/auth/active-role', { role: 'editor', remember: true }), 'invalid_field', 'unknown field');
+      expectUniformFailure(await c.post('/auth/active-role', { role: 'editor', password: 42 }), 'password 42');
+      expect((await c.get('/auth/active-role')).body).to.deep.include({ ActiveRole: null });
+    });
+  });
+
+  describe('POST /auth/impersonate', () => {
+    it('a malformed target answers 400 invalid_target, an unknown field 400 invalid_field, a password that is no string the login failure', async () => {
+      const c = await loggedInAal2(await seedUser());
+      for (const body of [{}, { target: '' }, { target: { type: 'user' } }, { target: { type: 'user', id: 'x', extra: 1 } }, { target: 't'.repeat(257) }, { target: { type: 't'.repeat(65), id: 'x' } }]) {
+        expectCode(await c.post('/auth/impersonate', body), 'invalid_target', JSON.stringify(body).slice(0, 40), false);
+      }
+      expectCode(await c.post('/auth/impersonate', { target: 'someone', reason: 'x' }), 'invalid_field', 'unknown field');
+      expectUniformFailure(await c.post('/auth/impersonate', { target: 'someone', password: ['p'] }), 'password list');
     });
   });
 }
