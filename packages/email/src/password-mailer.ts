@@ -106,6 +106,7 @@ export class EmailPasswordMailer {
       },
       redact: [...secrets],
       ...(options.from ? { from: options.from } : {}),
+      ...(options.attachments?.length ? { attachements: options.attachments.map((a) => ({ ...a })) } : {}),
       ...(options.lang ? { lang: options.lang } : {}),
       ...(purpose.template ? { template: purpose.template } : { text: plainText(mail.purpose, link, mail.secret, minutes) }),
     };

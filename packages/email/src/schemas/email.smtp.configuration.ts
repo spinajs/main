@@ -44,6 +44,14 @@ const CONFIGURATION_SCHEMA = {
         connection: { type: 'string' },
         from: { type: 'string' },
         lang: { type: 'string' },
+        attachments: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['name', 'path'],
+            properties: { name: { type: 'string' }, path: { type: 'string' }, provider: { type: 'string' }, cid: { type: 'string' } },
+          },
+        },
         reset: PASSWORD_MAIL_PURPOSE,
         invite: PASSWORD_MAIL_PURPOSE,
       },

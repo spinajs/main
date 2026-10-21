@@ -32,6 +32,8 @@ Additive: no 3.0.1 API, config key or HTTP answer changes, and each new behaviou
 - **Fix: MySQL 5.7 with `explicit_defaults_for_timestamp=OFF`** (its default). The MySQL driver now writes `NULL` for
   a nullable `TIMESTAMP` column, so `Queue_2022_10_18_01_13_00` (and `Queue_2026_07_02_00_00_00`'s `UpdatedAt`) no
   longer fail with "Invalid default value"; on MySQL 8 the DDL means the same as before.
+- **Password mails carry attachments.** New `email.password.attachments` (`{ name, path, provider?, cid? }[]`): sent
+  with every reset and invite mail, so a template's inline `cid:` images are no longer empty.
 - **Corrected below:** what migrates (nothing: 3.0 needs an empty auth schema), `rbac.*` leftovers (ignored, not a
   boot failure), body field spellings (camelCase only), `POST /user/access/checks`, and keys and checks that do not
   exist (`authz.config.rejectLegacyKeys`, `authz.abac.scopeResiduals`, `authz.orm.allowJit`, a PostgreSQL JIT check,

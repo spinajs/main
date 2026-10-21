@@ -4,6 +4,7 @@ import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 
 import { EmailPasswordMailer, EmailSend, EmailSent, EmailService, IEmail, IPasswordMail, PasswordMailConfiguration } from '../src/index.js';
+import CONFIGURATION_SCHEMA from '../src/schemas/email.smtp.configuration.js';
 import { capturingEmailService, dump, holds, recordPerf } from './capture.js';
 
 const SECRET = 'Zx9-secret_Q7w';
@@ -108,6 +109,34 @@ describe('EmailPasswordMailer', () => {
     expect(invite.template).to.deep.equal({ file: 'invite.hbs', fs: 'mail-templates' });
   });
 
+  it('sends the attachments of email.password with each mail, so a template can show inline cid: images', async () => {
+    const logo = { name: 'logo.png', path: 'images/logo.png', provider: 'mail-assets', cid: 'logo' };
+    const { mailer, sender, service } = mailerWith({ connection: 'test', attachments: [logo], reset: { template: 'account-mail.mjml' } });
+    // Reading each attachment through its filesystem is DefaultEmailService's part (attachments.test.ts).
+    Object.defineProperty(service, 'CheckAttachments', { value: false, configurable: true });
+    await mailer.send(aMail());
+    await mailer.send(aMail({ purpose: 'invite' }));
+
+    const [reset, invite] = sender.Captured;
+    expect(reset.template).to.equal('account-mail.mjml');
+    expect(reset.attachements).to.deep.equal([logo]);
+    expect(invite.attachements).to.deep.equal([logo]);
+  });
+
+  it('takes email.password.attachments through the configuration schema; an entry needs a name and a path', async () => {
+    const { default: Ajv } = (await import('ajv')) as unknown as { default: new (o: object) => { compile(s: object): (d: unknown) => boolean } };
+    const validate = new Ajv({ allErrors: true, strict: false }).compile(CONFIGURATION_SCHEMA);
+    const email = (attachments: unknown) => ({ connections: [], defaultConnection: 'main', password: { attachments } });
+    expect(validate(email([{ name: 'logo.png', path: 'images/logo.png', provider: 'mail-assets', cid: 'logo' }]))).to.equal(true);
+    expect(validate(email([{ cid: 'logo' }]))).to.equal(false);
+  });
+
+  it('sends no attachment list without email.password.attachments', async () => {
+    const { mailer, sender } = mailerWith({ connection: 'test', attachments: [] });
+    await mailer.send(aMail());
+    expect(sender.Captured[0]).to.not.have.property('attachements');
+  });
+
   it('falls back to email.defaultConnection', async () => {
     const { mailer, sender } = mailerWith({}, 'test');
     await mailer.send(aMail());
@@ -173,7 +202,7 @@ class PasswordMailConf extends FrameworkConfiguration {
       email: {
         connections: [],
         defaultConnection: 'main',
-        password: { from: 'no-reply@example.com', reset: { subject: 'Zmień hasło' } },
+        password: { from: 'no-reply@example.com', reset: { subject: 'Zmień hasło' }, attachments: [{ name: 'logo.png', path: 'images/logo.png', cid: 'logo' }] },
       },
     };
   }
@@ -209,6 +238,7 @@ describe('EmailPasswordMailer from the container', function () {
     const service = (await DI.resolve(EmailService)) as RecordingEmailService;
     const [reset, invite] = service.Sent;
     expect(reset).to.include({ connection: 'main', from: 'no-reply@example.com', subject: 'Zmień hasło' });
+    expect(reset.attachements).to.deep.equal([{ name: 'logo.png', path: 'images/logo.png', cid: 'logo' }]);
     expect(invite.subject).to.equal('Set up your account');
   });
 });
