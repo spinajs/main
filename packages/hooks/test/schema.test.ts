@@ -32,6 +32,10 @@ describe('hooks configuration schema', function () {
     });
   }
 
+  it('accepts the __file__ marker the file sources add to a loaded root object', async () => {
+    await boot({ hooks: { timeoutMs: 100, __file__: ['config/hooks.js'] } });
+  });
+
   it('accepts the bounds', async () => {
     await boot({ hooks: { timeoutMs: 60000, maxDepth: 32 } });
     await boot({ hooks: { timeoutMs: 1, maxDepth: 1 } });
