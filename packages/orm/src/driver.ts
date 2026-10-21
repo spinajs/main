@@ -74,6 +74,12 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
   public readonly MaxInsertRows: number = Number.POSITIVE_INFINITY;
 
   /**
+   * Set by the Orm on a `Migration.OnStartup` connection and cleared when `OrmMigrator` resolves; model queries on
+   * the connection throw until then, so an app that forgot the migrator fails instead of querying a stale schema.
+   */
+  public AwaitsStartupMigration = false;
+
+  /**
    * The transaction currently in scope on this async execution path, or `undefined` outside
    * a transaction.
    */

@@ -12,7 +12,7 @@ import { DateTime } from 'luxon';
 import { extractModelDescriptor, extractOwnMigrationDescriptor } from './descriptor.js';
 import { buildModelJsonSchema } from './schema.js';
 import { TimeSpan } from '@spinajs/util';
-import { MIGRATION_FILE_REGEXP, MigrationRunner } from './migration-runner.js';
+import { MIGRATION_FILE_REGEXP } from './migration-runner.js';
 import { MIGRATION_DI_SOURCE, mergeMigrationEnv, resolveMigrationEnv } from './migration-environment.js';
 import { MigrationSource } from './migration-sources.js';
 
@@ -21,37 +21,14 @@ import { MigrationSource } from './migration-sources.js';
  */
 const CFG_PROPS = ['Database', 'User', 'Host', 'Port', 'Filename', 'Driver', 'Name'];
 
-/**
- * What `DI.resolve(Orm, [ ... ])` hands the Orm at construction - the same way a driver is
- * handed its `IDriverOptions`. Not configuration: nothing here comes from a config file, because
- * the one thing it controls has to be a property of THIS PROCESS rather than of the deployment.
- */
-export interface IOrmOptions {
-  /**
-   * Run the boot migration pass - `Migration.up(undefined, { force: false })` and the `data()`
-   * phase that seeds whatever it applied? Defaults to true, and an ordinary application never
-   * passes it: leaving it out is what keeps `db.Connections[n].Migration.OnStartup` meaning what
-   * it says.
-   *
-   * `false` is for a process whose job is to operate ON the migrations - `@spinajs/orm-cli`
-   * passes it. Such a process needs everything else resolve() does ( connections, models,
-   * converters, `orm.Migration` ) but must not have the schema move underneath it as a side
-   * effect of booting: a boot pass that meets a FAILED row takes down even the command invoked
-   * to clear that row, and a boot pass that succeeds turns `migrate-status` from a report into a
-   * migration.
-   *
-   * It is deliberately not a `force` variation. `force` chooses whether the `OnStartup` gate is
-   * honoured, and both of its values RUN migrations - `force: false` runs every connection whose
-   * gate is on, which is exactly the set a migration tool must not touch on its way in.
-   *
-   * `false` also turns the `db.StrictTableCheck` boot check into warnings: such a process runs
-   * before the migrations created the tables. `migrate-up` checks after its run instead.
-   */
-  MigrateOnStartup?: boolean;
-}
-
 export interface IReloadTableInfoOptions {
-  /** Throw one OrmException listing every registered model whose table is missing. Default false: warn per model. */
+  /** Read only these models; the others keep what the last read found. Default: every registered model. */
+  models?: Array<Class<ModelBase>>;
+
+  /**
+   * Throw one OrmException listing every registered model whose table is missing, the models this call did not
+   * read counted as the last read found them. Default false: warn per model read.
+   */
   strict?: boolean;
 }
 
@@ -77,11 +54,8 @@ export class Orm extends AsyncService {
 
   public Connections: Map<string, OrmDriver> = new Map<string, OrmDriver>();
 
-  /**
-   * Everything migration-related: `up`, `down`, `status`, `resolve`. Assigned in `resolve()`,
-   * once the connections it dispatches to exist - so it is only usable on a resolved Orm.
-   */
-  public Migration: MigrationRunner;
+  /** What the last read of each model's table found missing, for a strict check over models a pass did not read. */
+  protected MissingTables = new Map<Class<ModelBase>, IMissingModelTable>();
 
   @Autoinject()
   public Container: Container;
@@ -92,28 +66,23 @@ export class Orm extends AsyncService {
   @Autoinject()
   protected Configuration: Configuration;
 
-  /**
-   * `DI.resolve(Orm)` leaves this empty, which is every application: the defaults are the
-   * documented behaviour and nothing has to opt into them.
-   */
-  constructor(protected Options: IOrmOptions = {}) {
-    super();
-  }
-
   /** `db.StrictTableCheck`: only an explicit `false` turns it off, so a configuration replaced after validation keeps it on. */
   public get StrictTableCheck(): boolean {
     return this.Configuration.get<boolean>('db.StrictTableCheck', true) !== false;
   }
 
   /**
-   * Reads the columns of every registered model's table into its descriptor; call it after creating tables on a
-   * booted Orm. A model whose table is missing keeps only its decorator columns and is logged, or, with `strict`,
-   * fails the call. `Orm.resolve()` calls it strict when `db.StrictTableCheck` is on.
+   * Reads the columns of the registered models' tables into their descriptors; call it after creating tables on a
+   * resolved Orm. A model whose table is missing keeps only its decorator columns and is logged, or, with `strict`,
+   * fails the call. `Orm.resolve()` calls it lenient; `OrmMigrator` re-reads the models its migrations touched and
+   * checks strict when `db.StrictTableCheck` is on.
    */
   public async reloadTableInfo(options: IReloadTableInfoOptions = {}): Promise<void> {
+    const read = options.models ? this.Models.filter((m) => options.models!.includes(m.type)) : this.Models;
     const missing: IMissingModelTable[] = [];
 
-    for (const m of this.Models) {
+    for (const m of read) {
+      this.MissingTables.delete(m.type);
       const descriptor = extractModelDescriptor(m.type);
       if (descriptor) {
         const connection = this.Connections.get(descriptor.Connection!);
@@ -196,17 +165,27 @@ export class Orm extends AsyncService {
             d.ResponseSchema = buildModelJsonSchema(d, 'response');
           });
         } else {
-          missing.push({ model: m.name, table: descriptor.TableName, connection: descriptor.Connection!, target: connection.Options.Name });
+          const entry = { model: m.name, table: descriptor.TableName, connection: descriptor.Connection!, target: connection.Options.Name };
+          this.MissingTables.set(m.type, entry);
+
+          // the migrator creates it and its strict check reports it if it does not
+          if (connection.AwaitsStartupMigration) {
+            this.Log.trace(entry, 'Table ${table} of model ${model} does not exist on connection ${connection} yet; OrmMigrator runs its migrations');
+          } else {
+            missing.push(entry);
+          }
         }
       }
     }
 
-    if (missing.length === 0) {
-      return;
-    }
-
     if (options.strict) {
-      throw new OrmException(missingTablesMessage(missing));
+      const all = this.Models.filter((m) => this.MissingTables.has(m.type)).map((m) => this.MissingTables.get(m.type)!);
+
+      if (all.length > 0) {
+        throw new OrmException(missingTablesMessage(all));
+      }
+
+      return;
     }
 
     for (const m of missing) {
@@ -233,103 +212,14 @@ export class Orm extends AsyncService {
       });
     }
 
-    this.Migration = new MigrationRunner(this);
-
-    // Must precede the migration pass below: `Migration.up()` reaches `ensureStorage()`, which
-    // probes the tracking table with `driver.tableInfo()` - and a driver's `tableInfo()` may read
-    // the '__orm_db_value_converters__' container map that this call is what puts there. Running
-    // it afterwards left that map absent for the whole boot pass, which crashed every restart of
-    // an already-migrated database ( the first boot creates the table and skips the probe, so it
-    // never showed ). Nothing here touches the database or the models, so it is free to move up.
+    // A driver's tableInfo() may read the '__orm_db_value_converters__' map this registers.
     this.registerDefaultConverters();
 
-    // The boot migration pass, unless this Orm was resolved with MigrateOnStartup: false - see
-    // IOrmOptions. Suppressed here rather than inside the runner on purpose: `plan()` reads the
-    // OnStartup gate, so no `force` value can express "run nothing at all".
-    //
-    // force: false - the boot run honours each connection's Migration.OnStartup gate. Every
-    // other caller ( CLI, an explicit orm.Migration.up() ) defaults to force: true, because
-    // asking for a migration by hand is the explicit intent that gate exists to require.
-    const migrateOnStartup = this.Options.MigrateOnStartup !== false;
-
-    if (!migrateOnStartup) {
-      this.Log.trace('Boot migration pass skipped - this Orm was resolved with MigrateOnStartup: false. Nothing is applied by resolving it; orm.Migration is assigned and usable.');
-    }
-
-    // [] when suppressed, so the data() phase below has nothing to seed - which is correct: it
-    // seeds exactly what this pass applied, and this pass applied nothing.
-    const executedMigrations = migrateOnStartup ? await this.Migration.up(undefined, { force: false }) : [];
-
-    // reloadTableInfo / wireRelations / applyModelMixins and the data() phase all stay AFTER the
-    // migration pass: up() runs against a schema no model is wired to yet, data() against one
-    // that is.
-    // Not tied to Migration.OnStartup, which is off unless set: most deployments migrate through the CLI before the boot.
-    try {
-      await this.reloadTableInfo({ strict: migrateOnStartup && this.StrictTableCheck });
-    } catch (err) {
-      // The caller never gets an Orm to dispose, and the open connections and health-check timers would keep the process alive.
-      await this.dispose().catch(() => undefined);
-      throw err;
-    }
+    // Lenient: on a Migration.OnStartup connection the tables may not exist before OrmMigrator runs.
+    await this.reloadTableInfo({ strict: false });
 
     this.wireRelations();
     this.applyModelMixins();
-
-    // Reached only if the pass above completed. A migration that throws takes this resolve down
-    // with it, and the migrations that had already succeeded in that pass keep their recorded
-    // schema while never reaching their `data()` - see the note on `runDataPhase`.
-    await this.runDataPhase(executedMigrations);
-  }
-
-  /**
-   * Runs the `data()` hook of every migration that was just applied - the seeding pass, which
-   * happens after models and relations are wired because that is what it is allowed to use.
-   *
-   * Every hook runs even when an earlier one throws, and the failures are reported together.
-   * Stopping at the first one leaves the migrations after it unseeded while their schema is
-   * already applied and recorded, so a rerun will not retry them: their tracking rows say
-   * "applied", and nothing would ever mention the seeds that never ran.
-   *
-   * KNOWN LOSS, and it is the same shape one level up: `executed` is what THIS run applied, and
-   * this phase runs after the whole run. A run in which M1 applies and M2 throws never reaches
-   * here at all - and M1's schema is already recorded, so the next boot does not find it pending,
-   * it never enters `executed`, and `M1.data()` never runs on any boot. Nothing reports it: the
-   * migration is applied and `status()` is clean.
-   *
-   * Not fixed here, because the tracking table has no notion of "applied but unseeded" and
-   * inventing one would make the seed phase a second, weaker migration state machine - `data()`
-   * has no `down()`, no checksum and no failure row, so a "seeded" column would be a claim
-   * nothing could verify or undo. It is documented instead ( docs/orm,
-   * 10-schema-and-migrations.md ), where the guidance is the one thing that actually holds:
-   * write `data()` so that running it again is harmless.
-   */
-  protected async runDataPhase(executed: OrmMigration[]): Promise<void> {
-    // `error` is deliberately `unknown` and kept verbatim - a rejection value is not promoted to
-    // an Error, so `inner` still carries whatever the hook actually threw. `reason` is the
-    // human-readable rendering of it for the aggregate.
-    const errors: Array<{ name: string; reason: string; error: unknown }> = [];
-
-    for (const m of executed) {
-      this.Log.trace({ migration: m.constructor.name }, 'Migrating data function for migration ${migration} ...');
-
-      try {
-        await m.data();
-      } catch (err) {
-        // a hook is free to reject with something that is not an Error - `throw 'boom'`,
-        // `Promise.reject(someCode)` - and reading `.message` off that yields undefined, so the
-        // message reporting the failure would name no reason for it at all
-        const reason = err instanceof Error ? err.message : String(err);
-
-        this.Log.error({ error: err, migration: m.constructor.name }, 'Migration ${migration}:data() failed');
-        errors.push({ name: m.constructor.name, reason, error: err });
-      }
-    }
-
-    if (errors.length > 0) {
-      // the first failure is carried as `inner` - the aggregate message names them all, but a
-      // caller unwinding the chain gets the original rejection rather than this summary
-      throw new OrmException(`Migration data() phase failed for: ${errors.map((e) => `${e.name} (${e.reason})`).join(', ')}`, undefined, undefined, undefined, errors[0].error);
-    }
   }
 
   protected registerDefaultConverters() {
@@ -517,6 +407,7 @@ export class Orm extends AsyncService {
       }
 
       this.Connections.set(c.Name, driver);
+      driver.AwaitsStartupMigration = c.Migration?.OnStartup === true;
 
       // a connection that was healthy at boot says nothing about one whose server has since
       // restarted, so the probe keeps running for the lifetime of the connection
