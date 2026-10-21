@@ -16,6 +16,12 @@ export const AUTHN_SESSION_CONFIGURATION_SCHEMA = {
       },
     },
     pendingTtlSeconds: { type: 'integer', minimum: 1, default: 300, description: 'Pre-MFA session (D25).' },
+    touchThresholdSeconds: {
+      type: 'integer',
+      minimum: 0,
+      default: 60,
+      description: 'A restore writes the session only once lastSeenAt or the idle expiry would move by this much; 0 writes on every restore.',
+    },
     cookie: {
       type: 'object',
       default: {},
