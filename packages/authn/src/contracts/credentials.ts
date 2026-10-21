@@ -89,6 +89,8 @@ export type StrategyOutcome =
        * credentials; sessions do not keep them.
        */
       readonly attributes?: Readonly<Record<string, unknown>>;
+      /** Default 'aal1'. 'aal2' only for a credential that is two factors on its own: a passkey with user verification (D7). */
+      readonly assurance?: 'aal1' | 'aal2';
     }
   | {
       readonly ok: false;

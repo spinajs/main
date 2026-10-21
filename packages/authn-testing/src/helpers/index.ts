@@ -8,3 +8,4 @@ export * from './totp.js';
 export * from './cookies.js';
 export * from './ids.js';
 export * from './jwks-server.js';
+export * from './webauthn.js';

@@ -86,6 +86,23 @@ default, and rendered from MJML templates.
   (`email.password.appName`, default `app.name`) and `Subject`.
 
 Docs: `docs/authn-local/13-mail-delivery.md`, `docs/email/08-password-mailer.md`.
+## New: WebAuthn and passkeys (`@spinajs/authn-webauthn`)
+
+- New package `@spinajs/authn-webauthn` on `@simplewebauthn/server`: passkey login (`PasskeyStrategy`,
+  strategy `passkey`, credential kind `webauthn`), a WebAuthn second factor (`WebAuthnMfaStep`, step
+  `webauthn`) and passkey management (`WebAuthnPasskeyService`). `import '@spinajs/authn-webauthn/db'`
+  adds the ORM stores and the `AuthnWebauthn_2026_10_21_00_00_00` migration (tables
+  `authn_webauthn_credential`, `authn_webauthn_challenge`). Configuration: `authn.webauthn.*`.
+- A passkey login with user verification is `aal2`, without it `aal1`. `StrategyOutcome` gains an optional
+  `assurance`, which `DefaultAuthnService` writes into the session facts (default `aal1`).
+- `@spinajs/authn/contracts`: new `PasskeyService` contract; new audit event types `passkey.register` and
+  `passkey.remove`.
+- `@spinajs/authn-http`: `POST /auth/passkeys/challenge`, `POST /auth/passkeys/login`, `POST /user/passkeys/options`,
+  `POST /user/passkeys`, `GET /user/passkeys`, `DELETE /user/passkeys/:id`, off (404) until a `PasskeyService` is
+  registered and a strategy takes `webauthn` credentials.
+- `@spinajs/authn-testing`: `SoftAuthenticator`, the `webauthn` port, passkey route builders and behaviour rule A33.
+
+Docs: `docs/authn-webauthn/README.md`.
 
 ## Upgrade now: the 2.x security findings stay open
 

@@ -91,6 +91,7 @@
     { "path": "packages/authn-session/tsconfig.mjs.json" },
     { "path": "packages/authn-local/tsconfig.mjs.json" },
     { "path": "packages/authn-totp/tsconfig.mjs.json" },
+    { "path": "packages/authn-webauthn/tsconfig.mjs.json" },
     { "path": "packages/authn-token/tsconfig.mjs.json" },
     { "path": "packages/authn-keys/tsconfig.mjs.json" },
     { "path": "packages/authn-http/tsconfig.mjs.json" },

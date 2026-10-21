@@ -193,7 +193,7 @@ describe('credential, context and result contracts', () => {
 
   describe('StrategyOutcome', () => {
     it('is exactly the design union', () => {
-      same<StrategyOutcome, { readonly ok: true; readonly identity?: IdentityRef; readonly external?: ExternalSubject; readonly method: string; readonly ceiling?: Ceiling; readonly delegation?: Delegation; readonly attributes?: Attributes } | { readonly ok: false; readonly reason: AuthnFailure; readonly retryAfterSeconds?: number }>(true);
+      same<StrategyOutcome, { readonly ok: true; readonly identity?: IdentityRef; readonly external?: ExternalSubject; readonly method: string; readonly ceiling?: Ceiling; readonly delegation?: Delegation; readonly attributes?: Attributes; readonly assurance?: 'aal1' | 'aal2' } | { readonly ok: false; readonly reason: AuthnFailure; readonly retryAfterSeconds?: number }>(true);
     });
 
     it('attributes are strategy-owned keys that lose to derived ones (review I3, R2)', () => {

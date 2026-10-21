@@ -91,6 +91,7 @@ function checkOutcome(o: unknown): StrategyOutcome | null {
   if (hasIdentity ? !isRef(o.identity) : !(isPlainObject(o.external) && isNonEmptyString(o.external.provider) && isNonEmptyString(o.external.subject))) return null;
   if (o.delegation !== undefined && !(isPlainObject(o.delegation) && isRef(o.delegation.onBehalfOf) && (o.delegation.mode === 'inherit' || o.delegation.mode === 'intersect'))) return null;
   if ((o.ceiling !== undefined && !isPlainObject(o.ceiling)) || (o.attributes !== undefined && !isPlainObject(o.attributes))) return null;
+  if (o.assurance !== undefined && o.assurance !== 'aal1' && o.assurance !== 'aal2') return null;
   return o as StrategyOutcome;
 }
 
@@ -400,7 +401,7 @@ export class DefaultAuthnService extends AuthnService {
 
     if (found.link && !found.provisioned) await this.link(ctx, s, id, found.link);
 
-    const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[] };
+    const facts = { method: r.method, strategy: s.name, assurance: r.assurance ?? ('aal1' as const), mfa: [] as string[] };
     const extra = { ...(r.ceiling !== undefined ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(r.attributes !== undefined ? { attributes: r.attributes } : {}) };
     // A token or key is used on every request: its success skips a succeed with nothing to do and waits for no sink.
     if (!s.interactive) {

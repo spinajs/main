@@ -44,6 +44,12 @@ export interface HttpRoutes {
   adminMfaReset(target: IdentityRef): HttpRequest;
   adminSessionsRevoke(target: IdentityRef): HttpRequest;
   adminTokensRevoke(target: IdentityRef): HttpRequest;
+  passkeyChallenge(): HttpRequest;
+  passkeyLogin(body: { challengeId: string; response: unknown }): HttpRequest;
+  passkeyOptions(o: { reauthPassword?: string }): HttpRequest;
+  passkeyRegister(body: { challengeId: string; response: unknown; name?: string; reauthPassword?: string }): HttpRequest;
+  passkeyList(): HttpRequest;
+  passkeyDelete(id: string): HttpRequest;
 }
 
 export interface HttpPort {
