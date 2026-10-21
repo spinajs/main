@@ -1,3 +1,27 @@
+# Release notes — authn-local: breached-password check and identifier similarity
+
+## New behavior
+
+- `HibpPasswordBlocklist` checks every new password (change, set, reset, invite redeem) against the Have I Been Pwned
+  range API: only the first five hex characters of the SHA-1 are sent, with `Add-Padding: true`. It fails open after
+  `authn.local.hibp.timeoutMs` (default 2000) or on a network or HTTP error, and logs one warning.
+  `authn.local.hibp.url` (default `https://api.pwnedpasswords.com/range/`) can point at a mirror.
+- The identifier similarity rule refuses with the new violation `similar_to_identifier` a password equal to,
+  containing (ignoring case) or within two edits of the login, the email, its local part or the name.
+  `authn.local.policy.similarity` (default `true`) turns it off.
+- `redeemReset` resolves the login before the policy, so the similarity rule sees the account's identifiers; a
+  violation still leaves the secret usable.
+
+## Breaking changes
+
+- The shipped `authn.local.policy.blocklist` is `'HibpPasswordBlocklist'` unless the app env (`--env`, `APP_ENV`,
+  `NODE_ENV`) is development or test, so production deployments make an outbound HTTPS call per password change. Set
+  `authn.local.policy.blocklist: null` to opt out.
+- `PasswordViolation` gains `similar_to_identifier`; an exhaustive `Record<PasswordViolation, …>` needs the new key.
+- `PasswordService.check`, `LocalPasswordPolicy.check` and `PasswordBlocklist.isBlocked` take an optional
+  `PasswordPolicyContext` (`{ login?, email?, name? }`, exported by `@spinajs/authn`). Existing implementations stay
+  source-compatible; a custom `PasswordService` should forward it to its policy.
+
 # Release notes — bounded cleanup and the `Expiration` index
 
 ## New behavior

@@ -18,8 +18,8 @@ A working login also needs an `IdentityStore` and a `PasswordCredentialStore` (`
 | --- | --- |
 | [Password login](01-password-login.md) | `LocalPasswordStrategy`: the `local` strategy for `password` credentials, with equal timing for unknown accounts and a rehash on login |
 | [Password hashing](02-password-hashing.md) | `PasswordHasher` and `Argon2PasswordHasher`: argon2id at library defaults, optional HMAC pepper with rotation, a concurrency cap |
-| [Password policy](03-password-policy.md) | `LocalPasswordPolicy`: length bounds, a JSON schema rule, the public policy, and the password generator |
-| [Password blocklist](04-password-blocklist.md) | `PasswordBlocklist`: a named hook that refuses known-bad passwords when one is set |
+| [Password policy](03-password-policy.md) | `LocalPasswordPolicy`: length bounds, a JSON schema rule, the identifier similarity rule, the public policy, and the password generator |
+| [Password blocklist](04-password-blocklist.md) | `PasswordBlocklist`: a named hook that refuses known-bad passwords; `HibpPasswordBlocklist`, the breached-password check on by default outside development and test |
 | [Change and set](05-change-and-set.md) | `PasswordService.change()` with the old password, and `set()` without it |
 | [Reset and invite](06-reset-and-invite.md) | `requestReset()`, `redeemReset()` and `invite()`: single-use secrets mailed at once, the same answer for every account |
 | [Password mailer](07-password-mailer.md) | `PasswordMailer`: the hook that sends reset and invite mails |
@@ -81,6 +81,7 @@ Every key lives under `authn.local` and is validated by the `@spinajs/authn` con
 | --- | --- |
 | `authn.local.hasher.*`, `authn.local.pepper.*` | [Password hashing](02-password-hashing.md#configuration) |
 | `authn.local.policy.*`, `authn.local.generator.*` | [Password policy](03-password-policy.md#configuration) |
+| `authn.local.hibp.*` | [Password blocklist](04-password-blocklist.md#configuration) |
 | `authn.local.reset.*`, `authn.local.invite.*` | [Reset and invite](06-reset-and-invite.md#configuration) |
 | `authn.local.expiration.*` | [Password expiry](08-password-expiry.md#configuration) |
 | `authn.local.mail.*`, `queue.routing.AuthnMailJob` | [Mail delivery](13-mail-delivery.md#configuration) |
