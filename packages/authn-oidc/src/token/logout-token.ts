@@ -3,6 +3,7 @@ import { compactVerify, decodeProtectedHeader } from 'jose';
 import { isFiniteNumber } from '@spinajs/util';
 import { AuthenticationFailed } from '@spinajs/exceptions';
 import type { AuthnContext, IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
+import { hookView } from '@spinajs/authn/hooks';
 import type { Hooks } from '@spinajs/hooks';
 
 import type { OidcSigningAlgorithm } from '../contracts.js';
@@ -192,7 +193,7 @@ export class OidcBackchannelLogout {
   /** The IdP already ended the session, so a hook observes the revocation and cannot keep it (refusable: false). */
   protected async revokeHooked(provider: string, claims: LogoutTokenClaims, ctx: AuthnContext): Promise<void> {
     if (!this.d.hooks) return this.revoke(provider, claims);
-    await this.d.hooks.run(AUTHN_LOGOUT_BACKCHANNEL, { provider, ...(claims.sid !== undefined ? { sid: claims.sid } : {}), ctx }, () => this.revoke(provider, claims), { mutable: [], refusable: false });
+    await this.d.hooks.run(AUTHN_LOGOUT_BACKCHANNEL, { provider, ...(claims.sid !== undefined ? { sid: claims.sid } : {}), ctx: hookView(ctx) }, () => this.revoke(provider, claims), { mutable: [], refusable: false });
   }
 
   protected async revoke(provider: string, claims: LogoutTokenClaims): Promise<void> {

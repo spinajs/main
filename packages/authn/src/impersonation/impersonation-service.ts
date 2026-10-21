@@ -20,7 +20,7 @@ import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
 import { Session, SessionKeys, resolveSession } from '../contracts/session-state.js';
 import type { SessionInit } from '../contracts/session-state.js';
 import { ACTIVE_ROLE_KEY, activeRoleCeiling } from './active-role.js';
-import { hookRefusalOf } from '../hooks.js';
+import { hookRefusalOf, hookView } from '../hooks.js';
 
 /**
  * The session data key of the impersonation block: `{ startedAt, actorRoles? }`, the start as an ISO string and the
@@ -154,11 +154,12 @@ export class AuthnImpersonationService extends AsyncService {
       const refused = await this.startRefusal(stored, target, ctx, actorCeiling, reauth);
       if (refused) return await this.refuseStart(ctx, refused.reason, about, refused.data);
 
+      const targetRef = refOf(target);
       return await this.Hooks.run(
         'authn.impersonation.start',
-        { session, target, ctx },
+        { session: hookView(session), target: hookView(targetRef), ctx: hookView(ctx) },
         async () => {
-          issued = await this.Sessions.issue(refOf(target), { ...ownFacts(stored.facts), impersonator: actor });
+          issued = await this.Sessions.issue(targetRef, { ...ownFacts(stored.facts), impersonator: actor });
           await this.Sessions.set(issued, IMPERSONATION_BLOCK, { startedAt: ctx.now.toISOString(), ...(actorCeiling ? { actorRoles: [...(actorCeiling.roles ?? [])] } : {}) });
           const now = await this.Sessions.restore(issued.id);
           // A parallel start, or an endFor of the actor, ended the old session first.
@@ -166,7 +167,7 @@ export class AuthnImpersonationService extends AsyncService {
             await this.Sessions.revoke(issued);
             return this.refuseStart(ctx, 'revoked', about);
           }
-          await this.Auditor.publishIn(ctx, { type: 'impersonation.start', outcome: 'success', identity: refOf(target), actor, ...(now ? this.handleOf(now) : {}) });
+          await this.Auditor.publishIn(ctx, { type: 'impersonation.start', outcome: 'success', identity: targetRef, actor, ...(now ? this.handleOf(now) : {}) });
           return { ok: true, session: issued };
         },
         { mutable: [] },
@@ -197,7 +198,7 @@ export class AuthnImpersonationService extends AsyncService {
       // Not refusable: going back to one's own session ends a privilege, which a hook must not keep.
       return await this.Hooks.run(
         'authn.impersonation.stop',
-        { session, ctx },
+        { session: hookView(session), ctx: hookView(ctx) },
         async () => {
           issued = await this.Sessions.issue(refOf(impersonator), ownFacts(stored.facts));
           const { actorCeiling } = live.block;

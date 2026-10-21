@@ -37,7 +37,7 @@ import type { PeekableThrottle } from '../throttle/peek.js';
 import { AUTHN_THROTTLE_SERVICE } from '../throttle/select.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
 import { checkAuthnSecrets } from './boot/secrets.js';
-import { hookRefusalOf } from '../hooks.js';
+import { hookCopy, hookRefusalOf, hookView } from '../hooks.js';
 
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
 type MfaAbout = { readonly identity: IdentityRef; readonly strategy: string; readonly session?: string };
@@ -219,8 +219,8 @@ export class DefaultAuthnService extends AuthnService {
   private async login(c: Credentials, ctx: AuthnContext, labels: { strategy: string }): Promise<AuthenticationResult> {
     if (ctx.purpose === 'request') return this.authenticateTimed(c, ctx, labels);
     try {
-      // The input's ctx is not mutable: the action keeps the caller's.
-      return await this.Hooks.run('authn.login', { credentials: c, ctx }, (i) => this.authenticateTimed(i.credentials, ctx, labels), { mutable: ['credentials'] });
+      // Hooks get copies: the action reads the caller's ctx, and the credentials only as a hook may have replaced them.
+      return await this.Hooks.run('authn.login', { credentials: hookCopy(c), ctx: hookView(ctx) }, (i) => this.authenticateTimed(i.credentials, ctx, labels), { mutable: ['credentials'] });
     } catch (err) {
       const refused = hookRefusalOf(err, 'authn.login');
       if (!refused) throw err;
@@ -292,14 +292,14 @@ export class DefaultAuthnService extends AuthnService {
       return { status: 'failure', reason: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
     try {
-      return await this.Hooks.run('authn.mfa.verify', { pending, step, response, ctx }, () => this.elevatePending(stored, pending, step, response, keys, about, ctx), { mutable: [] });
+      return await this.Hooks.run('authn.mfa.verify', { pending: hookView(pending), step, response, ctx: hookView(ctx) }, () => this.elevatePending(stored, pending.id, step, response, keys, about, ctx), { mutable: [] });
     } catch (err) {
       return this.hookStopped(err, 'authn.mfa.verify', ctx, about);
     }
   }
 
   /** completeMfa past its throttle: the code, the status read again, the elevation. */
-  private async elevatePending(stored: Session, pending: SessionHandle, step: string, response: string, keys: readonly ThrottleKey[], about: MfaAbout, ctx: AuthnContext): Promise<AuthenticationResult> {
+  private async elevatePending(stored: Session, pendingId: string, step: string, response: string, keys: readonly ThrottleKey[], about: MfaAbout, ctx: AuthnContext): Promise<AuthenticationResult> {
     const id = stored.identity;
     let passed: boolean | string;
     try {
@@ -329,7 +329,7 @@ export class DefaultAuthnService extends AuthnService {
     let session: SessionHandle;
     let facts: Success['facts'];
     try {
-      session = await this.Sessions.elevate({ id: pending.id, state: 'pending' }, { assurance: 'aal2', mfa: [step] });
+      session = await this.Sessions.elevate({ id: pendingId, state: 'pending' }, { assurance: 'aal2', mfa: [step] });
       const now = await this.Sessions.restore(session.id);
       if (!now) throw new InvalidOperation('the elevated session is gone');
       const { authenticatedAt: _at, ...rest } = now.facts;
@@ -370,7 +370,7 @@ export class DefaultAuthnService extends AuthnService {
       return false;
     }
     try {
-      return await this.Hooks.run('authn.reauth', { session, credentials: c, ctx }, () => this.reverify(candidates, c, id, keys, about, ctx), { mutable: [] });
+      return await this.Hooks.run('authn.reauth', { session: hookView(session), credentials: hookView(c), ctx: hookView(ctx) }, () => this.reverify(candidates, c, id, keys, about, ctx), { mutable: [] });
     } catch (err) {
       const stopped = hookRefusalOf(err, 'authn.reauth');
       if (!stopped) throw err;
@@ -426,7 +426,7 @@ export class DefaultAuthnService extends AuthnService {
       return { status: 'failure', reason: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
     try {
-      return await this.Hooks.run('authn.session.stepUp', { session, step, response, ctx }, () => this.reissueStepped(stored, step, response, keys, about, ctx), { mutable: [] });
+      return await this.Hooks.run('authn.session.stepUp', { session: hookView(session), step, response, ctx: hookView(ctx) }, () => this.reissueStepped(stored, step, response, keys, about, ctx), { mutable: [] });
     } catch (err) {
       return this.hookStopped(err, 'authn.session.stepUp', ctx, about);
     }
@@ -525,7 +525,7 @@ export class DefaultAuthnService extends AuthnService {
     if (!s.interactive) return this.admit(s, r, id, found, keys, ctx, clean, r.attributes);
     const identity = id;
     // Before the link by verified email, so a login a hook refuses leaves neither a session nor a new email link.
-    const input = { identity, strategy: s.name, method: r.method, ...(r.external ? { external: r.external } : {}), attributes: { ...r.attributes }, ctx };
+    const input = { identity: hookView(identity), strategy: s.name, method: r.method, ...(r.external ? { external: hookView(r.external) } : {}), attributes: hookCopy(r.attributes ?? {}), ctx: hookView(ctx) };
     try {
       return await this.Hooks.run('authn.login.identified', input, (i) => this.admitIdentified(s, r, identity, found, keys, ctx, clean, i.attributes), { mutable: ['attributes'] });
     } catch (err) {

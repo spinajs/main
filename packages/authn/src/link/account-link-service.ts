@@ -16,7 +16,7 @@ import { SessionIssuer } from '../contracts/session.js';
 import type { SessionHandle } from '../contracts/session.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
 import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
-import { hookRefusalOf } from '../hooks.js';
+import { hookRefusalOf, hookView } from '../hooks.js';
 
 export type LinkResult = { readonly ok: true; readonly link: IdentityLink } | { readonly ok: false };
 
@@ -95,7 +95,7 @@ export class AccountLinkService extends AsyncService {
       if (guard.refused !== undefined || !holder) return await this.refuse(ctx, 'identity.link', guard.refused ?? 'not_active', holder);
       if (!isPlainObject(external) || !isNonEmptyString(external.provider) || !isNonEmptyString(external.subject)) return await this.refuse(ctx, 'identity.link', 'invalid_subject', holder);
       const h = holder;
-      return await this.Hooks.run('authn.link', { session, external, ctx }, () => this.linkTo(h, external, ctx), { mutable: [] });
+      return await this.Hooks.run('authn.link', { session: hookView(session), external: hookView(external), ctx: hookView(ctx) }, () => this.linkTo(h, external, ctx), { mutable: [] });
     } catch (err) {
       const stopped = hookRefusalOf(err, 'authn.link');
       if (stopped) return this.refuse(ctx, 'identity.link', stopped.reason, holder, stopped.data);
@@ -120,7 +120,7 @@ export class AccountLinkService extends AsyncService {
       holder = guard.holder;
       if (guard.refused !== undefined || !holder) return await this.refuse(ctx, 'identity.unlink', guard.refused ?? 'not_active', holder);
       const h = holder;
-      return await this.Hooks.run('authn.unlink', { session, linkId, ctx }, () => this.unlinkFrom(h, linkId, ctx), { mutable: [] });
+      return await this.Hooks.run('authn.unlink', { session: hookView(session), linkId, ctx: hookView(ctx) }, () => this.unlinkFrom(h, linkId, ctx), { mutable: [] });
     } catch (err) {
       const stopped = hookRefusalOf(err, 'authn.unlink');
       if (stopped) return this.refuse(ctx, 'identity.unlink', stopped.reason, holder, stopped.data);

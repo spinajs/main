@@ -98,3 +98,27 @@ export function hookRefusalOf(err: unknown, action: ActionName): HookRefusal | n
   if (err instanceof ActionHookFailed && err.action === action) return { reason: 'hook_error', data: { hook: err.hook, failure: err.reason } };
   return null;
 }
+
+function deepFreeze<T>(value: T): T {
+  // A typed array with elements cannot be frozen; its bytes are a copy anyway.
+  if (value === null || typeof value !== 'object' || Object.isFrozen(value) || ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
+  Object.freeze(value);
+  for (const v of Object.values(value)) deepFreeze(v);
+  return value;
+}
+
+/** A deep copy of `value`, so a hook that changes it in place cannot reach the action's own data. */
+export function hookCopy<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  try {
+    return structuredClone(value);
+  } catch {
+    // Not cloneable (a function or a class with private state inside): a shallow copy still keeps the top level apart.
+    return (Array.isArray(value) ? [...value] : { ...value }) as T;
+  }
+}
+
+/** What a hook gets for a key it may not change: a deep copy, frozen, so a write in place fails in the hook. */
+export function hookView<T>(value: T): T {
+  return deepFreeze(hookCopy(value));
+}
