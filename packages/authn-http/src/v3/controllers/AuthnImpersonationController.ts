@@ -64,7 +64,6 @@ export class AuthnImpersonationController extends BaseController {
   /**
    * Start impersonating
    * Body `{ target, password? }`: `target` is a user id or `{ type, id }`. 400 for a malformed target (`invalid_field` for an unknown field), 401 with the login failure body when the password fails or is no string, 403 when refused.
-   * @body {AuthnImpersonationBody} The target, and the password for a stale session
    * @returns {AuthnImpersonationAnswer} The principal summary of the target
    * @response 400 {AuthnError} A malformed target
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)

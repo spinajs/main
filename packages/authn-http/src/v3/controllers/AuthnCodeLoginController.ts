@@ -38,6 +38,8 @@ export class AuthnCodeLoginController extends BaseController {
    * Body `{ login }`. Answers 202 `{ Ok: true }` at once, whether or not the account exists and whether or not a mail goes
    * out; the code travels only in the mail. 429 with Retry-After when throttled (per login and per client ip), 400
    * `invalid_login` without a login.
+   * @response 202 {AuthnOk} Always { Ok: true }
+   * @response 400 {AuthnError} invalid_login or invalid_field
    * @security []
    */
   @Post('auth/code/request')
@@ -60,6 +62,8 @@ export class AuthnCodeLoginController extends BaseController {
    * Body `{ login, code }`. Ends a session the caller already holds. Success: the session cookie and the principal summary
    * with the login extensions. Any failure, a wrong or spent code included: 401 with the one login failure body, plus
    * Retry-After when throttled.
+   * @returns {AuthnLoginAnswer} The principal summary, or the pending answer when MFA is required
+   * @response 401 {AuthnFailure} The login failed (Retry-After when throttled)
    * @security []
    */
   @Post('auth/code/login')

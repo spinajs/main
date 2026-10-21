@@ -81,7 +81,6 @@ export class AuthnTokensController extends BaseController {
    * for an unknown field; 403 `fresh_auth_required` for a stale session without the password; a wrong or throttled
    * password, or one that is no string, the login failure body without Retry-After. The body is checked before fresh
    * auth.
-   * @body {AuthnTokenCreateBody} The token to create, and the password for a stale session
    * @returns {AuthnTokenCreated} The token and its plaintext, shown once
    * @response 400 {AuthnError} A malformed field (invalid_name, invalid_expiry, invalid_kind, invalid_roles, invalid_profile, invalid_scope) or a refused one
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
@@ -128,6 +127,9 @@ export class AuthnTokensController extends BaseController {
    * Body `{ graceSeconds?, reauthPassword? }`: the old secret works for `graceSeconds` more (0 to 604800, default 0).
    * Answers `{ Token, Plaintext }`; the new plaintext is shown here once. 400 `invalid_grace` or `invalid_field`; 404
    * `token_not_found` for any id that is not a live token of the caller.
+   * @returns {AuthnTokenCreated} The token and its new plaintext, shown once
+   * @response 400 {AuthnError} invalid_grace or invalid_field
+   * @response 404 {AuthnError} token_not_found
    * @security cookieAuth
    */
   @Post('tokens/:uuid/rotate')
@@ -151,6 +153,9 @@ export class AuthnTokensController extends BaseController {
    * Body `{ name?, roles?, expiresAt? }`. Only narrows: roles must be a subset of the token's (or of the owner's, for a token
    * without roles) and expiresAt not later than the current one. No fresh auth. 400 `invalid_name`, `invalid_roles`,
    * `invalid_expiry`, `invalid_scope` or `invalid_field` (any other key, before the others); 404 `token_not_found`.
+   * @returns {AuthnTokenUpdated} The narrowed token
+   * @response 400 {AuthnError} invalid_name, invalid_roles, invalid_expiry, invalid_scope or invalid_field
+   * @response 404 {AuthnError} token_not_found
    * @security cookieAuth
    */
   @Patch('tokens/:uuid')

@@ -34,6 +34,7 @@ export class AuthnVerificationController extends BaseController {
    * Mails a single-use link to the address of the session's account. 202 `{ Ok: true }` whether or not a mail goes out
    * (an address already verified gets none); 429 with Retry-After when throttled. A session only: 403
    * `session_required` for a token or key, 403 `impersonating` while impersonating.
+   * @response 202 {AuthnOk} Always { Ok: true }
    * @security cookieAuth
    */
   @Post('auth/verify/request')
@@ -49,6 +50,8 @@ export class AuthnVerificationController extends BaseController {
    * Verify the address
    * Body `{ secret }`, the secret of the verification link. 200 `{ Ok: true }`; any refused secret, a missing one
    * included, 400 `invalid_secret` with one body. 429 with Retry-After while the client ip is throttled (the `reset` flow).
+   * @returns {AuthnOk} The address is verified
+   * @response 400 {AuthnError} invalid_secret or invalid_field
    * @security []
    */
   @Post('auth/verify')

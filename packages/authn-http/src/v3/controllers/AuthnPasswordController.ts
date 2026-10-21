@@ -51,7 +51,6 @@ export class AuthnPasswordController extends BaseController {
    * Body `{ login }`. Answers at once with `{ Ok: true }`, whether or not the account exists and whether or not the
    * mail goes out (A11, SR-04); the secret travels only in the mail. 429 with Retry-After when throttled (per login
    * and per client ip), 400 `invalid_login` without a login.
-   * @body {AuthnPasswordResetRequestBody} The login
    * @returns {AuthnOk} Always { Ok: true }
    * @response 400 {AuthnError} invalid_login
    * @security []
@@ -78,7 +77,6 @@ export class AuthnPasswordController extends BaseController {
    * on success; 400 `password_rejected` with `violations` before the secret is spent; 400 `password_mismatch` or
    * `invalid_password`; any other failure, a malformed login or secret and an unknown field included, the login
    * failure body (A02, A11).
-   * @body {AuthnPasswordResetBody} The secret and the new password
    * @returns {AuthnOk} The password is set
    * @response 400 {AuthnError} password_rejected (with violations), password_mismatch or invalid_password
    * @response 401 {AuthnFailure} Any other failure
@@ -111,7 +109,6 @@ export class AuthnPasswordController extends BaseController {
    * account ends, API tokens stay (A30). 400 `password_rejected` with `violations`, `password_mismatch` or
    * `invalid_password`; a wrong old password or a throttled change: the login failure body without Retry-After. A
    * session only: 403 `session_required` for a token or key, 403 `impersonating` while impersonating.
-   * @body {AuthnPasswordChangeBody} The old and the new password
    * @response 400 {AuthnError} password_rejected (with violations), password_mismatch or invalid_password
    * @response 401 {AuthnUnauthorized} No session, a wrong old password or a throttled change
    * @response 403 {AuthnError} session_required or impersonating

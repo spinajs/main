@@ -59,7 +59,6 @@ export class AuthnActiveRoleController extends BaseController {
   /**
    * Switch the active role
    * Body `{ role, password? }`. 400 for a malformed role (`invalid_field` for an unknown field), 403 for a role not held, 401 with the login failure body when the password fails or is no string (no Retry-After). Not while impersonating.
-   * @body {AuthnActiveRoleBody} The role, and the password when the role asks for a fresh one
    * @returns {AuthnRoleSwitchAnswer} The principal summary narrowed to the role
    * @response 400 {AuthnError} invalid_role
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)

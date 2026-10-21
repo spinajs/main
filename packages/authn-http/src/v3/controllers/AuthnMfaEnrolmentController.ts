@@ -71,7 +71,6 @@ export class AuthnMfaEnrolmentController extends BaseController {
    * Begin a TOTP enrolment
    * Body `{ reauthPassword? }`. Answers `{ provisioning }`, the otpauth URI, once; a later begin replaces a begun
    * enrolment with a new secret.
-   * @body {AuthnReauthBody} The password, for a stale session
    * @returns {AuthnMfaProvisioning} The otpauth URI
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
    * @response 403 {AuthnError} fresh_auth_required, enrolment_closed, session_required or impersonating
@@ -96,7 +95,6 @@ export class AuthnMfaEnrolmentController extends BaseController {
   /**
    * Confirm the TOTP enrolment
    * Body `{ code }`: a code of the begun secret. Answers `{ recoveryCodes }` once; each is single use.
-   * @body {AuthnMfaCodeBody} A code of the begun secret
    * @returns {AuthnRecoveryCodes} The recovery codes, shown once
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
    * @response 403 {AuthnError} enrolment_closed, session_required or impersonating
@@ -117,7 +115,6 @@ export class AuthnMfaEnrolmentController extends BaseController {
   /**
    * Disable TOTP
    * Body `{ code, reauthPassword? }`: a TOTP code or a recovery code. Removes the secret and the recovery codes.
-   * @body {AuthnMfaDisableBody} A TOTP code or a recovery code, and the password for a stale session
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
    * @response 403 {AuthnError} fresh_auth_required, session_required or impersonating
    * @response 409 {AuthnError} mfa_not_enrolled
@@ -138,7 +135,6 @@ export class AuthnMfaEnrolmentController extends BaseController {
   /**
    * New recovery codes
    * Body `{ reauthPassword? }`. Answers `{ recoveryCodes }` once and voids every older code.
-   * @body {AuthnReauthBody} The password, for a stale session
    * @returns {AuthnRecoveryCodes} New recovery codes, shown once
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
    * @response 403 {AuthnError} fresh_auth_required, session_required or impersonating

@@ -33,6 +33,7 @@ export class AuthnTokenRevocationController extends BaseController {
    * already revoked, or a previous secret whose grace has ended), so the answer tells nothing about any token. Every
    * request counts in the `reset` throttle flow keyed on the client ip, shared with the password reset routes, before
    * its body is read; a refused one answers 429 with Retry-After and revokes nothing.
+   * @returns {AuthnEmpty} Always {}
    * @security []
    */
   @Post('auth/tokens/revoke')

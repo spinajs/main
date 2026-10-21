@@ -47,7 +47,6 @@ export class AuthnMfaController extends BaseController {
   /**
    * Verify an MFA step
    * Body `{ code, step? }`: `step` when it is one of the pending steps, else the first pending step.
-   * @body {AuthnMfaVerifyBody} A code of a pending step
    * @returns {AuthnPrincipalAnswer} The principal summary of the elevated session
    * @response 401 {AuthnUnauthorized} No session, or a wrong, missing or throttled code
    * @response 403 {AuthnError} mfa_not_pending: the session is active
@@ -63,7 +62,6 @@ export class AuthnMfaController extends BaseController {
   /**
    * Use a recovery code
    * Body `{ code }`: a single-use recovery code instead of a step.
-   * @body {AuthnMfaCodeBody} A recovery code
    * @returns {AuthnPrincipalAnswer} The principal summary of the elevated session
    * @response 401 {AuthnUnauthorized} No session, or a wrong, used or throttled code
    * @response 403 {AuthnError} mfa_not_pending: the session is active
@@ -79,6 +77,9 @@ export class AuthnMfaController extends BaseController {
   /**
    * Step up the active session
    * Body `{ step?, code }`: `step` is an MFA step the identity is enrolled in, or `recovery` for a recovery code.
+   * @returns {AuthnPrincipalAnswer} The principal summary of the session at aal2
+   * @response 401 {AuthnUnauthorized} No session, or a wrong, malformed or throttled code
+   * @response 403 {AuthnError} mfa_pending: the session is pending
    * @security cookieAuth
    */
   @Post('mfa/step-up')
@@ -101,6 +102,7 @@ export class AuthnMfaController extends BaseController {
    * Body `{ step? }`: asks the pending step (as in `mfa/verify`) that delivers its code out of band, such as the email
    * code, to send it. 202 `{ Ok: true }` whether or not a step sends anything and whether or not the send worked, so the
    * answer tells nothing about the account; a step with no `challenge` needs none. Repeats are throttled by the step.
+   * @response 202 {AuthnOk} Always { Ok: true }
    * @security cookieAuth
    */
   @Post('mfa/challenge')

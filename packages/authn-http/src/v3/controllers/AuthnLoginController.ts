@@ -51,7 +51,6 @@ export class AuthnLoginController extends BaseController {
    * Body `{ login, password }`. Ends a session the caller already holds. Success: the session cookie and the principal summary with the login extensions. MFA required: 200
    * `{ MfaRequired: [steps], MfaEnrol: [steps to enrol first] }` with the pending session cookie. Any failure, a body
    * the schema refuses included: 401 with one body, plus Retry-After when throttled.
-   * @body {AuthnLoginBody} The credentials
    * @returns {AuthnLoginAnswer} The principal summary, or the pending answer when MFA is required
    * @response 401 {AuthnFailure} The login failed (Retry-After when throttled)
    * @security []

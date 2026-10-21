@@ -75,6 +75,7 @@ export class AuthnPasskeyController extends BaseController {
    * MFA step that allows only that identity's credentials; its answer goes to POST /auth/mfa/verify as the step code.
    * Answers `{ challengeId, options }`. An anonymous caller counts in the `login` throttle on its ip: 429 with Retry-After
    * when refused. 503 with Retry-After while the stored challenges are at `authn.webauthn.challenges.maxRows`.
+   * @returns {AuthnPasskeyCeremony} The challenge and the options for navigator.credentials.get()
    * @security []
    */
   @Post('auth/passkeys/challenge')
@@ -109,6 +110,8 @@ export class AuthnPasskeyController extends BaseController {
    * Body `{ challengeId, response }`: a login challenge and the browser's AuthenticationResponseJSON. Logs in as POST
    * /auth/login does: ends a session the caller already holds, sets the session cookie and answers the principal
    * summary with the login extensions. Any failure: 401 with the login failure body, plus Retry-After when throttled.
+   * @returns {AuthnLoginAnswer} The principal summary, or the pending answer when MFA is required
+   * @response 401 {AuthnFailure} The login failed (Retry-After when throttled)
    * @security []
    */
   @Post('auth/passkeys/login')
@@ -122,6 +125,7 @@ export class AuthnPasskeyController extends BaseController {
    * Passkey registration options
    * Body `{ reauthPassword? }`. Answers `{ challengeId, options }` for navigator.credentials.create(): a discoverable
    * credential bound to the caller, the caller's passkeys excluded.
+   * @returns {AuthnPasskeyCeremony} The challenge and the options for navigator.credentials.create()
    * @security cookieAuth
    */
   @Post('user/passkeys/options')
@@ -140,6 +144,9 @@ export class AuthnPasskeyController extends BaseController {
    * browser's RegistrationResponseJSON. Answers the passkey `{ id, name, transports, createdAt, lastUsedAt }`. 400
    * `invalid_response` (also a used, expired or foreign challenge), `invalid_name` or `invalid_field`; 409
    * `passkey_taken`. The body is checked before fresh auth.
+   * @returns {AuthnPasskeyEntry} The registered passkey
+   * @response 400 {AuthnError} invalid_response, invalid_name or invalid_field
+   * @response 409 {AuthnError} passkey_taken
    * @security cookieAuth
    */
   @Post('user/passkeys')
@@ -160,6 +167,7 @@ export class AuthnPasskeyController extends BaseController {
 
   /**
    * List own passkeys
+   * @returns {AuthnPasskeyEntry[]} The own passkeys
    * @security cookieAuth
    */
   @Get('user/passkeys')
@@ -172,6 +180,7 @@ export class AuthnPasskeyController extends BaseController {
   /**
    * Delete an own passkey
    * 404 `passkey_not_found` for any id that is not a passkey of the caller, whoever holds it.
+   * @response 404 {AuthnError} passkey_not_found
    * @security cookieAuth
    */
   @Del('user/passkeys/:id')

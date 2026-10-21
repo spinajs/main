@@ -32,6 +32,9 @@ export class AuthnReauthController extends BaseController {
   /**
    * Re-authenticate the session
    * Body `{ password }`. Success: the session cookie of the new id and the principal summary. 401 with the login failure body for a wrong or throttled password (no Retry-After); 403 for a pending session or an impersonation.
+   * @returns {AuthnPrincipalAnswer} The principal summary of the session under its new id
+   * @response 401 {AuthnUnauthorized} No session, or a wrong, malformed or throttled password
+   * @response 403 {AuthnError} mfa_pending or impersonating
    * @security cookieAuth
    */
   @Post('reauth')

@@ -2,12 +2,12 @@ import type { Configuration } from '@spinajs/configuration';
 import type { IContainer } from '@spinajs/di';
 import { InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 import { Ok } from '@spinajs/http';
-import type { ICookie, Request, Unauthorized } from '@spinajs/http';
+import type { ICookie, Unauthorized } from '@spinajs/http';
 import { ACTIVE_ROLE_KEY, mfaEnrolmentRefusal } from '@spinajs/authn';
 import { AuthnResponseExtension, AuthnService, SessionIssuer, SessionStartHook } from '@spinajs/authn/contracts';
 import type { Ceiling, Credentials, IdentityRef, MfaStep, Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
 import { SESSION_IP_KEY, SESSION_USER_AGENT_KEY } from '@spinajs/authn-session';
-import { isNonEmptyString, isPlainObject } from '@spinajs/util';
+import { isNonEmptyString } from '@spinajs/util';
 
 import { publishAuthnEvent } from '../policies/v3/audit.js';
 import { unauthenticated } from '../policies/v3/errors.js';
@@ -26,18 +26,8 @@ export type AnswerKind = 'login' | 'mfa' | 'role-switch' | 'impersonation' | 'wh
 // A client sends the user agent, so the stored copy is bounded.
 const USER_AGENT_CAP = 512;
 
-/** The `name` field of a JSON object body. */
-export function bodyField(req: Request, name: string): unknown {
-  const body: unknown = req.body;
-  if (!isPlainObject(body)) return undefined;
-  return body[name];
-}
-
 /** A browser navigation (Sec-Fetch-Mode: navigate, or Accept lists text/html) as opposed to a script's request. */
 export const isNavigation = (fetchMode: string | undefined, accept: string | undefined): boolean => fetchMode === 'navigate' || /\btext\/html\b/i.test(accept ?? '');
-
-/** A non-empty string of at most `cap` characters, else null. */
-export const boundedString = (value: unknown, cap: number): string | null => (typeof value === 'string' && value !== '' && value.length <= cap ? value : null);
 
 /** Stores the client ip and user agent that GET /user/sessions shows (the issuer takes no request context, N2). */
 export async function stampClient(sessions: SessionIssuer, handle: SessionHandle, client: AuthnClientContext): Promise<void> {
@@ -196,14 +186,4 @@ export async function pendingAnswer(container: IContainer, policyService: string
     if (step && !(await step.enrolled(identity))) enrol.push(name);
   }
   return { MfaRequired: [...steps], MfaEnrol: enrol };
-}
-
-/** A user id, or `{ type, id }`, each part a non-empty string of at most `cap` characters. */
-export function identityRefOf(value: unknown, cap: number): IdentityRef | null {
-  if (typeof value === 'string') return boundedString(value, cap) === null ? null : { type: 'user', id: value };
-  if (typeof value !== 'object' || value === null) return null;
-  const { type, id } = value as Record<string, unknown>;
-  const t = boundedString(type, cap);
-  const i = boundedString(id, cap);
-  return t !== null && i !== null ? { type: t, id: i } : null;
 }

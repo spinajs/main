@@ -41,6 +41,8 @@ export class AuthnRegistrationController extends BaseController {
    * mail; the owner of a taken address is sent an account-exists mail (`authn.http.registration.notifyExisting`). A
    * password that breaks the policy answers 400 `password_rejected` with its violations: they depend on the input only. 429
    * with Retry-After when throttled (the `register` flow, per address and per client ip).
+   * @response 202 {AuthnRegistrationAnswer} Always { status: 'accepted' }
+   * @response 400 {AuthnError} invalid_login, invalid_email, invalid_password, password_mismatch, password_rejected, invalid_field or invalid_registration
    * @security []
    */
   @Post('auth/register')

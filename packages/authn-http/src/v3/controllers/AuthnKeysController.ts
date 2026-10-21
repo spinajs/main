@@ -81,7 +81,6 @@ export class AuthnKeysController extends BaseController {
    * `key_taken` when the kid or the key is registered already; 403 `fresh_auth_required` for a stale session without
    * the password; a wrong or throttled password, or one that is no string, the login failure body without Retry-After.
    * The body is checked before fresh auth, so a malformed one costs no re-authentication.
-   * @body {AuthnKeyRegisterBody} The public key, its proof, and the password for a stale session
    * @returns {AuthnKeyEntry} The registered key
    * @response 400 {AuthnError} invalid_key, invalid_kid, invalid_name, invalid_expiry, invalid_scope or invalid_proof
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
@@ -128,7 +127,6 @@ export class AuthnKeysController extends BaseController {
    * with Retry-After. Register challenges count against nothing here: each throttle flow (login, mfa, reset, reauth)
    * is a budget of the owner's own, which a burst of challenges would spend; http.throttle caps the route per ip.
    * 400 `invalid_purpose`, `invalid_kid`.
-   * @body {AuthnKeyChallengeBody} The purpose, and the key of a login challenge
    * @returns {AuthnKeyChallenge} The challenge to sign
    * @response 400 {AuthnError} invalid_purpose or invalid_kid
    * @security []
@@ -156,7 +154,6 @@ export class AuthnKeysController extends BaseController {
    * summary with the login extensions. Key logins ask for no MFA step under the default MFA policy (a key challenge
    * proves possession); a policy that asks for one gets 200 `{ MfaRequired: [steps] }` with the pending session cookie.
    * Any failure: 401 with the login failure body, plus Retry-After when throttled.
-   * @body {AuthnKeyLoginBody} The signature over a login challenge
    * @returns {AuthnLoginAnswer} The principal summary, or the pending answer when MFA is required
    * @response 401 {AuthnFailure} The login failed (Retry-After when throttled)
    * @security []
