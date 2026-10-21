@@ -10,7 +10,7 @@ Every step of [How a login runs](../authn/01-authentication-flow.md) that publis
 | --- | --- |
 | `DefaultAuthnService` and `AuthnAudit` ([`@spinajs/authn`](../authn/06-audit-events.md)) | Logins, `completeMfa`, `reauthenticate`, links, sessions, impersonation. |
 | `LocalPasswordService` ([`@spinajs/authn-local`](../authn-local/README.md)) | `password.change`, `password.reset.request`, `password.reset`, `invite.redeem`, `throttle.block`. |
-| [`@spinajs/authn-token`](../authn-token/README.md) | `token.create`, `token.revoke`. |
+| [`@spinajs/authn-token`](../authn-token/README.md) | `token.create`, `token.revoke`, `token.rotate`, `token.update`. |
 | `KeyRegistry` ([`@spinajs/authn-keys`](../authn-keys/README.md)) | `key.register`, `key.revoke`. |
 | `TotpService` ([`@spinajs/authn-totp`](../authn-totp/README.md)) | `mfa.enrol`, `mfa.disable`, `throttle.block`. |
 

@@ -1,3 +1,32 @@
+# Release notes — authn, authn-token, authn-http: token rotation and narrowing
+
+> Branch `feat/ory-feat-6`. Docs: `docs/authn-token/01-token-service.md`, `docs/authn-http/14-api-token-routes.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn` — `TokenService` has two new abstract methods
+
+`rotate` and `update` are abstract. A class that extends `TokenService` outside this repository must implement them, or
+the build fails. `DbTokenService` and the new `MemoryTokenService` of `@spinajs/authn-testing` do.
+
+### `@spinajs/authn-token` — a migration to run
+
+`AuthnTokenRotation_2026_10_21_00_00_00` adds the nullable `PreviousToken` and `PreviousValidUntil` columns to
+`rbac_access_tokens` and a unique index on `PreviousToken`. Run the ORM migrations before starting the new version.
+A subclass of `TokenOwnerResolver` that overrides `tokenByHash` must now match the token whose `Token` **or**
+`PreviousToken` equals the hash.
+
+## New behavior
+
+- `TokenService.rotate(owner, id, ctx, { graceSeconds? })` replaces the secret of a live token and keeps its id, name,
+  roles, scope and expiry. The old secret stops at once, or after `graceSeconds` (0 to 604800). It evicts the validation
+  cache, publishes on the `CredentialChangeBus` and audits `token.rotate`.
+- `TokenService.update(owner, id, change, ctx)` renames a token, narrows its roles to a subset and shortens its expiry. It
+  never widens: an added role is `invalid_scope`, a later expiry `invalid_expiry`. It audits `token.update`.
+- `POST /user/tokens/:uuid/rotate` (fresh auth) and `PATCH /user/tokens/:uuid` in `@spinajs/authn-http`.
+- `AuthnEventType` gains `token.rotate` and `token.update`.
+- `runTokenServiceConformance` covers both methods; `MemoryTokenService` is a token service over memory for tests.
+
 # Release notes — authn-token, authn-keys: credential cache
 
 ## New behavior

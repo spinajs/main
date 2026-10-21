@@ -1,12 +1,12 @@
 # API token routes
 
-`AuthnTokensController` lets a signed-in user list, create and revoke their own API tokens, over the `TokenService` contract. The group is on while a `TokenService` is registered, which [`@spinajs/authn-token`](../authn-token/README.md) does when a token strategy is listed; otherwise every route answers 404. Tokens then authenticate requests through `Authorization: Bearer` or `x-api-key` (see [Credential extractors](02-credential-extractors.md)).
+`AuthnTokensController` lets a signed-in user list, create, rotate, narrow and revoke their own API tokens, over the `TokenService` contract. The group is on while a `TokenService` is registered, which [`@spinajs/authn-token`](../authn-token/README.md) does when a token strategy is listed; otherwise every route answers 404. Tokens then authenticate requests through `Authorization: Bearer` or `x-api-key` (see [Credential extractors](02-credential-extractors.md)).
 
 ## How it works
 
 1. `TokenServiceRegistered` (controller gate): 404 `not_found` without a `TokenService`.
 2. Every route has `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` and needs an active session: a token or key caller gets 403 `session_required` (no credential mints or manages credentials), an impersonator 403 `impersonating`, an anonymous caller or a pending session 401.
-3. `POST /user/tokens` takes `reauthPassword` out of the body (`takeReauthPassword()`), then runs [`assertFreshAuth()`](05-policies.md#fresh-authentication) in the handler through `freshAuthOrAnswer()`. A stale session without the password: 403 `fresh_auth_required`; a wrong or throttled password: 401 login failure body without `Retry-After`.
+3. `POST /user/tokens` and `POST /user/tokens/:uuid/rotate` take `reauthPassword` out of the body (`takeReauthPassword()`), then runs [`assertFreshAuth()`](05-policies.md#fresh-authentication) in the handler through `freshAuthOrAnswer()`. A stale session without the password: 403 `fresh_auth_required`; a wrong or throttled password: 401 login failure body without `Retry-After`.
 4. The body is checked field by field (see the table below); the first bad field answers 400.
 5. `TokenService.create(identity, options, ctx)` checks the expiry against the caps, the roles against the owner's, the profile against the profile policy and the scope against the kind. A refused expiry: 400 `invalid_expiry`; anything else refused: 400 `invalid_scope`.
 6. The answer is `{ Token, Plaintext }`. The plaintext is shown here once and never again.
@@ -54,6 +54,41 @@ sequenceDiagram
 | `profile` | Non-empty string of at most 128 characters that the profile policy offers. An empty string is refused, not read as "none". |
 | `scope` | `{ permissions?: string[], resources?: [{ type, id? }], agent?: boolean }`, no other keys, at most 1000 permissions and 1000 resources of at most 256 characters each. |
 
+### `POST /user/tokens/:uuid/rotate`
+
+Replaces the secret of a live token of the caller and keeps its id, name, roles and expiry. The old secret stops working at once, or after `graceSeconds`.
+
+| | |
+| --- | --- |
+| Request body | `{ "graceSeconds"?, "reauthPassword"? }` |
+| 200 | `{ "Token": <token entry>, "Plaintext": string }`; the new plaintext is shown here once |
+| 400 | `invalid_grace` |
+| 401 | login failure body (wrong or throttled `reauthPassword`) |
+| 403 | `fresh_auth_required`, `session_required`, `impersonating` |
+| 404 | `token_not_found` for any id that is not a live token of the caller |
+
+`graceSeconds` is a whole number from 0 to 604800 (seven days) and defaults to 0. Rotating a token a deployment already uses: rotate with a grace, roll the new secret out, and let the old one lapse.
+
+### `PATCH /user/tokens/:uuid`
+
+Narrows a token. It needs no fresh auth, because it can only reduce what the token may do.
+
+| | |
+| --- | --- |
+| Request body | `{ "name"?, "roles"?, "expiresAt"? }` |
+| 200 | `{ "Token": <token entry> }` |
+| 400 | `invalid_name`, `invalid_roles`, `invalid_expiry`, `invalid_scope`, `invalid_field` |
+| 403 | `session_required`, `impersonating` |
+| 404 | `token_not_found` |
+
+| Field | Rule |
+| --- | --- |
+| `name` | Non-blank string of at most 128 characters. |
+| `roles` | A non-empty list of at most 64 role names of at most 128 characters, each one the token already has (for a token without roles, one the owner holds). Adding a role: 400 `invalid_scope`. |
+| `expiresAt` | ISO 8601 instant, as for create, after now and not later than the current expiry. A later one: 400 `invalid_expiry`. |
+
+Any other key, `kind`, `profile` and `scope` included, answers 400 `invalid_field` and changes nothing.
+
 ### `DELETE /user/tokens/:uuid`
 
 | | |
@@ -71,7 +106,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `authn.token.maxTtlDays` | `integer` | `90` | `>= 1` | Longest lifetime of a token. |
 | `authn.token.agentMaxTtlMinutes` | `integer` | `1440` | `>= 1` | Longest lifetime of an agent token. |
-| `authn.freshAuth.maxAgeSeconds` | `integer` | `300` | `>= 1` | Freshness for creating a token. |
+| `authn.freshAuth.maxAgeSeconds` | `integer` | `300` | `>= 1` | Freshness for creating or rotating a token. |
 
 ## Services and extension points
 

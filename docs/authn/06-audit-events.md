@@ -50,7 +50,7 @@ Event types (`AuthnEventType`):
 | MFA | `mfa.challenge`, `mfa.verify`, `mfa.enrol`, `mfa.disable` |
 | Session | `session.issue`, `session.rotate`, `session.revoke`, `session.expire` |
 | Password | `password.change`, `password.reset.request`, `password.reset`, `invite.redeem` |
-| Tokens and keys | `token.create`, `token.use`, `token.revoke`, `key.register`, `key.use`, `key.revoke` |
+| Tokens and keys | `token.create`, `token.use`, `token.revoke`, `token.rotate`, `token.update`, `key.register`, `key.use`, `key.revoke` |
 | Identity links | `identity.link`, `identity.unlink` |
 | Impersonation | `impersonation.start`, `impersonation.end`, `impersonation.expire` |
 
