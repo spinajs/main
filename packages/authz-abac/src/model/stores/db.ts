@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { AuthzAdminFailure, AuthzConfigError, GLOBAL, parseCondition, principalKey } from '@spinajs/authz';
-import type { AuthzTx, Policy, PrincipalRef } from '@spinajs/authz';
+import type { AuthzTx, PrincipalRef } from '@spinajs/authz';
+import type { Policy } from '../../contracts.js';
 import { UniqueViolation, ormReady } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
