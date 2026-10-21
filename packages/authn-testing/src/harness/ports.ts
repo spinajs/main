@@ -48,6 +48,7 @@ export interface Harness {
   readonly identityMeta?: IdentityMetaPort;
   readonly boot?: BootPort;
   readonly actors?: ActorsPort;
+  readonly webauthn?: WebAuthnPort;
   readonly http?: HttpPort;
   dispose?(): Promise<void>;
 }
@@ -271,4 +272,10 @@ export interface BootPort {
 
 export interface ActorsPort {
   admin(opts: { credentialsRight: boolean }): Promise<{ ref: IdentityRef; login: string; password: string }>;
+}
+
+/** The relying party the lane configured (authn.webauthn): the kit's SoftAuthenticator signs for `rpId` and `origin`, one of its origins. */
+export interface WebAuthnPort {
+  readonly rpId: string;
+  readonly origin: string;
 }
