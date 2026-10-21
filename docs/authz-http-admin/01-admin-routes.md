@@ -7,12 +7,15 @@ Use it to drive an admin UI or a script over HTTP with the same answers an in-pr
 ## How it works
 
 1. `@Policy(IsAuthenticated)` on the controller runs first. A request without a principal, or with an anonymous one, answers `401` and never reaches the route.
-2. The route reads its domain from `authz.http.admin.domain` (through `@Config`, on every call), lets the [`AuthzDomainResolver`](../authz/05-domains.md#per-request-domains) replace it for the request, and gets that domain's `AuthzAdmin` with `domainAdmin(domain)`: `root` resolves `AuthzService.admin()`, any other name `AuthzDomains.service(domain).admin()`.
-3. The route builds its input from the path, the body and the query string:
-   - a write route builds a command list (`decodeCommand` turns ISO 8601 expiry strings into `Date`s) and its options (`readWriteOptions`);
-   - a list route builds an `AuthzAdminQuery` (`readAssignmentsQuery`, `readPageQuery`).
-   A malformed input throws `AuthzAdminFailure` with `invalid_request` or `invalid_query`.
-4. The route calls `admin.execute(principal, commands, options)` or `admin.list(principal, query)`. The actor is always `req.storage.Principal`; the body cannot name another one.
+2. The route arguments are extracted. No route reads the raw request (`@Req()`):
+   - `@AdminDomain()` reads the domain from `authz.http.admin.domain` (on every call) and lets the [`AuthzDomainResolver`](../authz/05-domains.md#per-request-domains) replace it for the request;
+   - `@CurrentPrincipal()` (`@spinajs/authz-http`) is the actor;
+   - `@Param()` checks `:id` (1 to 160 characters) and `:type` (1 to 64);
+   - `@Body()` builds the body DTO (`AuthzAssignmentGrant`, `AuthzLinkPatch`, ...) and validates it against its `@Schema`; `@AdminBody()` does the same for the open attribute bodies, and `@AdminBatch()` for `POST /authz/commands` (see [Command batches](02-command-batches.md));
+   - `@AdminQuery()` builds the query DTO (`AuthzAssignmentsQuery`, `AuthzWriteOptionsQuery`, ...) from the whole query string and validates it.
+   Every DTO schema is closed (an unknown key is refused) and has an `authz.` id, so it is validated without type coercion. See [Input validation](#input-validation).
+3. The route builds a command list (`decodeCommand` turns ISO 8601 expiry strings into `Date`s) or an `AuthzAdminQuery` (`readAssignmentsQuery`, `readPageQuery`) from the validated input, and gets the domain's `AuthzAdmin`: `AuthzDomains.service(domain).admin()`.
+4. The route calls `admin.execute(principal, commands, options)` or `admin.list(principal, query)`. The actor is always the request principal; the body cannot name another one.
 5. `AuthzAdmin` validates, checks the actor's permission, runs the guard and applies the batch in one transaction. See [AuthzAdmin](../authz/10-authz-admin.md).
 6. The route answers:
    - a write: `{ results }` with `200` when every command succeeded, else the status of the failed command (`resultsStatus`);
@@ -117,12 +120,30 @@ authz: {
 | `scope` query | `<type>` or `<type>:<id>`, split at the first `:` (`file:uploads:a/b.pdf` is type `file`, id `uploads:a/b.pdf`); `$global` is the global scope. |
 | `subject` query | `<type>:<id>` (a principal) or `set:<role>@<type>:<id>` (the holders of a role at a scope). |
 | `includeExpired`, `dryRun` query | `true` or `false`. |
-| `limit`, `offset` query | non-negative integers; `AuthzAdmin` defaults the one you leave out and may refuse a value, such as `limit=0`. |
+| `limit`, `offset` query | non-negative integers, `limit` at most `500`; `AuthzAdmin` defaults the one you leave out and may refuse a value, such as `limit=0`. |
 | `after` query | the `next` of the previous page, taken as is. It replaces `offset`: both together, or an empty `after`, answer `400 invalid_query` on `after`. `/authz/policies` takes no `after`. |
-| `reason`, `idempotencyKey` query | text, on the single-command write routes. `POST /authz/commands` takes them in the body. |
+| `reason`, `idempotencyKey` query | text, on the single-command write routes: `reason` up to 512 characters, `idempotencyKey` 1 to 128. `POST /authz/commands` takes them in the body. |
 | expiry dates in a body | ISO 8601 date-time with `Z` or an offset, such as `2027-01-01T00:00:00Z`. Seconds and fraction are optional. `null` clears the expiry. |
 
-A query key given twice (`role=a&role=b`) answers `400 invalid_query`.
+A query key given twice (`role=a&role=b`) or a key the route does not take answers `400 invalid_query`.
+
+## Input validation
+
+Each input is checked against its schema before the route runs. A refusal answers `400` with `{ error: { code, message, field } }` and runs nothing, through the controller's `@OnError(..., { stages: ['arguments'] })`:
+
+| Input | Code | `field` |
+| --- | --- | --- |
+| Query string (`@AdminQuery()`) | `invalid_query` | the query key, such as `limit` or `reason` |
+| Body of a single-command route (`@Body()`, `@AdminBody()`) | `invalid_request` | the path in the body, such as `scope.id` or an unknown key |
+| Path parameter | `invalid_request` | `id` or `type` |
+| Body of `POST /authz/commands` | `invalid_request` when the body is not an object, else `invalid_batch` | `commands.<n>.<path>` for a command, or the option name |
+
+- **Caps.** Ids (rows, scope and principal ids) 1 to 160 characters, types 1 to 64, roles 1 to 128, `reason` 512, `idempotencyKey` 1 to 128, `limit` 500.
+- **No coercion.** `replaceLadder: "true"` or `dryRun: 1` in a body is refused; a query string value is read as the type its schema names (`true`/`false`, digits).
+- **Unknown keys are refused**, also `kind` in the body of a single-command route.
+- **Expiry dates** must be `date-time` strings (seconds included) or `null`; another string is refused here instead of reaching `AuthzAdmin`.
+- **Scope attributes** are an open object; `AuthzAdmin` still checks their keys, depth, size and the scope type's attribute schema (`invalid_attributes`).
+- A domain the resolver names that no live domain bears is refused in the same step (`403 unknown_domain`), before the input is checked.
 
 ## Answers and status codes
 
@@ -170,7 +191,7 @@ GET /authz/assignments?scope=project:p1&limit=100&after=MjAyNi0xMC0wMVQxMjowMDow
 
 ## Important behaviour
 
-- **Authentication only at the http layer.** No http policy, validator or schema refuses a request that `AuthzAdmin` would answer. An HTTP call and an in-process call with the same principal get the same answer.
+- **Authentication and input shape at the http layer.** The only policy is `IsAuthenticated`; the DTO schemas refuse malformed input. Every permission, guard and semantic check runs in `AuthzAdmin`, so a well-formed HTTP call and an in-process call with the same principal get the same answer.
 - **The actor is the principal.** No body key or query parameter names another actor; `POST /authz/commands` reads only `commands`, `reason`, `idempotencyKey` and `dryRun` from its body.
 - **One transaction per request.** A write route runs one `execute` batch. The first failure rolls the whole batch back; the entries before it report `affected: 0`.
 - **A resolver-named domain that does not exist is a 403.** `{ error: { code: 'unknown_domain', message } }`, and no command runs. Only a domain the resolver names is refused this way; a misconfigured `authz.http.admin.domain` stays a 500.

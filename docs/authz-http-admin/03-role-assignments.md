@@ -15,14 +15,14 @@ Permissions are not granted one by one: a role carries them. To give a user a pe
 
 Grant:
 
-1. `AuthzAdminController.grant()` takes the body object (else `400 invalid_request`) and sets `kind: 'assignment.grant'`, overriding any `kind` in the body.
-2. `decodeCommand` turns an ISO 8601 `expiresAt` into a `Date`. A string that is not a full date-time, such as `2027-01-01`, stays a string and `AuthzAdmin` refuses it with `400 invalid_command`, `field: 'expiresAt'`.
+1. `AuthzAdminController.grant()` takes the body as an `AuthzAssignmentGrant` DTO and sets `kind: 'assignment.grant'`. A body that breaks the schema, including one with a `kind` or any other unknown key, answers `400 invalid_request` with the `field`.
+2. `decodeCommand` turns the ISO 8601 `expiresAt` into a `Date`. A string that is not a date-time, such as `2027-01-01`, is refused by the schema with `400 invalid_request`, `field: 'expiresAt'`.
 3. `AuthzAdmin` validates the role (`unknown_role`, `not_assignable`, `wrong_scope_type`), checks `authz:assignments.manage` at `scope` (`forbidden`) and runs the guard (`escalation`, `protected_role`).
 4. The answer is `{ results: [{ ok: true, kind: 'assignment.grant', id, affected }] }`. An identical grant answers `200` with the existing row's `id` and adds no row.
 
 Patch:
 
-1. `patchAssignment()` refuses a key other than `tags`, `addTags`, `removeTags` and `expiresAt` with `400 invalid_request`, `field` set to that key. An empty body answers `400 invalid_request`.
+1. The `AuthzAssignmentPatch` schema refuses a key other than `tags`, `addTags`, `removeTags` and `expiresAt` with `400 invalid_request`, `field` set to that key. An empty body answers `400 invalid_request`.
 2. It builds one command per key, always in the order `setTags`, `addTags`, `removeTags`, `setExpiry`, and runs them as one batch.
 3. `tags` replaces the tags; `addTags` and `removeTags` change them; `expiresAt: null` clears the expiry.
 
@@ -33,7 +33,7 @@ Revoke:
 
 List:
 
-1. `readAssignmentsQuery` parses the query (`400 invalid_query` with the `field` on a malformed value).
+1. The `AuthzAssignmentsQuery` schema checks the query and `readAssignmentsQuery` splits `scope` and `subject` (`400 invalid_query` with the `field` on a malformed value).
 2. `AuthzAdmin.list` checks `authz:assignments.read` at `scope`, or at `$global` without one, and answers `{ items, total }`.
 
 ## Important behaviour

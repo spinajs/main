@@ -217,10 +217,13 @@ describe('authz-http-admin routes', function () {
       expect(row).to.deep.include({ id: res.body.results[0].id, role: 'viewer', scope: P1 });
     });
 
-    it('takes no actor from the body: the principal is the actor', async () => {
+    it('takes no actor from the body: an actor field is refused, the principal is the actor', async () => {
       const res = await commands(carol, { commands: [grant('carol')], actor: { type: 'user', id: 'root' }, principal: root });
-      expect(res.status).to.equal(403);
-      expect(res.body.results[0].error.code).to.equal('forbidden');
+      expect(res.status).to.equal(400);
+      expect(res.body.error).to.deep.include({ code: 'invalid_batch', field: 'actor' });
+      const refused = await commands(carol, { commands: [grant('carol')] });
+      expect(refused.status).to.equal(403);
+      expect(refused.body.results[0].error.code).to.equal('forbidden');
       expect(await assignments('?subject=user:carol')).to.deep.equal([]);
     });
 
@@ -292,7 +295,7 @@ describe('authz-http-admin routes', function () {
       expect(await assignments('?subject=user:carol')).to.deep.equal([]);
     });
 
-    it('turns ISO dates into Dates at the expiry paths; a bad date is refused by AuthzAdmin', async () => {
+    it('turns ISO dates into Dates at the expiry paths; a bad date is refused by the command schema', async () => {
       const ok = await commands(root, {
         commands: [
           { ...grant('carol'), expiresAt: LATER },
@@ -317,10 +320,12 @@ describe('authz-http-admin routes', function () {
       expect(rule.body.items[0].expiresAt).to.equal(LATER);
 
       for (const bad of ['2027-01-01', 'next year']) {
-        const res = await commands(root, { commands: [{ ...grant('carol', 'editor'), expiresAt: bad }] });
+        const res = await commands(root, { commands: [grant('dave'), { ...grant('carol', 'editor'), expiresAt: bad }] });
         expect(res.status, bad).to.equal(400);
-        expect(res.body.results[0].error).to.deep.include({ code: 'invalid_command', field: 'expiresAt' });
+        expect(res.body.error, bad).to.deep.include({ code: 'invalid_batch', field: 'commands.1.expiresAt' });
+        expect(res.body.results, bad).to.equal(undefined);
       }
+      expect(await assignments('?subject=user:dave')).to.deep.equal([]);
     });
   });
 
@@ -329,7 +334,7 @@ describe('authz-http-admin routes', function () {
       // The harness model is not an RbacModel, so the reader is stubbed: this tests the route, not the RBAC answer.
       const seen: AuthzAdminQuery[] = [];
       const original = RbacAdminReader.prototype.list;
-      RbacAdminReader.prototype.list = async function (q: AuthzAdminQuery) {
+      RbacAdminReader.prototype.list = async function (this: RbacAdminReader, q: AuthzAdminQuery) {
         if (q.kind !== 'holders') return original.apply(this, arguments as never);
         seen.push(q);
         return { items: [{ subject: { type: 'user', id: 'root' }, via: [] }], total: 1 };
@@ -400,7 +405,10 @@ describe('authz-http-admin routes', function () {
     });
 
     it('POST grants one assignment; DELETE revokes it', async () => {
-      const res = await call('POST', '/authz/assignments?reason=onboarding', bob, { subject: { type: 'user', id: 'carol' }, role: 'viewer', scope: P1, expiresAt: LATER, kind: 'assignment.revoke' });
+      const kind = await call('POST', '/authz/assignments', bob, { ...grantBody('viewer'), kind: 'assignment.revoke' });
+      expect(kind.status).to.equal(400);
+      expect(kind.body.error).to.deep.include({ code: 'invalid_request', field: 'kind' });
+      const res = await call('POST', '/authz/assignments?reason=onboarding', bob, { subject: { type: 'user', id: 'carol' }, role: 'viewer', scope: P1, expiresAt: LATER });
       expect(res.status, JSON.stringify(res.body)).to.equal(200);
       expect(res.body.results).to.have.length(1);
       expect(res.body.results[0]).to.include({ ok: true, kind: 'assignment.grant' });
@@ -516,11 +524,11 @@ describe('authz-http-admin routes', function () {
       expect(policyCommands[1]).to.deep.equal({ kind: 'policy.delete', id: 'p1' });
     });
 
-    it('PUT refuses a body id that is not the path id, and a bad date reaches the handler as a string', async () => {
+    it('PUT refuses a body id that is not the path id, and a bad date before the handler', async () => {
       expect((await call('PUT', '/authz/policies/p1', root, { ...policy, id: 'p2' })).status).to.equal(400);
       const bad = await call('PUT', '/authz/policies/p1', root, { ...policy, expiresAt: 'soon' });
       expect(bad.status).to.equal(400);
-      expect(bad.body.results[0].error).to.deep.include({ code: 'invalid_command', field: 'policy.expiresAt' });
+      expect(bad.body.error).to.deep.include({ code: 'invalid_request', field: 'expiresAt' });
       expect(policyCommands).to.deep.equal([]);
     });
 
@@ -690,11 +698,11 @@ describe('authz-http-admin routes', function () {
       expect((await assignments(`?subject=link:${id}`))[0].role).to.equal('viewer');
     });
 
-    it('PATCH answers the status of a failed command: a bad date 400, no permission 403, an unknown id 404', async () => {
+    it('PATCH answers a bad date with 400 and the status of a failed command: no permission 403, an unknown id 404', async () => {
       const { id } = await created();
       const bad = await call('PATCH', `/authz/links/${id}`, root, { expiresAt: 'soon' });
       expect(bad.status).to.equal(400);
-      expect(bad.body.results[0].error).to.deep.include({ code: 'invalid_command', field: 'expiresAt' });
+      expect(bad.body.error).to.deep.include({ code: 'invalid_request', field: 'expiresAt' });
       const refused = await call('PATCH', `/authz/links/${id}`, carol, { expiresAt: LATER });
       expect(refused.status).to.equal(403);
       expect(refused.body.results[0].error.code).to.equal('forbidden');
@@ -720,6 +728,68 @@ describe('authz-http-admin routes', function () {
       expect(del.body.results[0]).to.include({ ok: true, kind: 'link.revoke', id });
       expect(await links()).to.deep.equal([]);
       expect(await assignments(`?subject=link:${id}`)).to.deep.equal([]);
+    });
+  });
+
+  describe('input validation', () => {
+    const long = (n: number): string => 'x'.repeat(n);
+    const refusedWith = async (res: Promise<RawResponse>, code: string, field: string | undefined, what: string) => {
+      const r = await res;
+      expect(r.status, what).to.equal(400);
+      expect(r.body.error, what).to.deep.include({ code, ...(field === undefined ? {} : { field }) });
+      expect(r.body.results, what).to.equal(undefined);
+    };
+
+    it('refuses an unknown query parameter, an uncapped option and a value of the wrong type with 400 invalid_query', async () => {
+      await refusedWith(call('GET', '/authz/assignments?colour=red'), 'invalid_query', 'colour', 'unknown parameter');
+      await refusedWith(call('GET', '/authz/policies?after=c1'), 'invalid_query', 'after', 'policies page by offset');
+      await refusedWith(call('GET', '/authz/holders?scope=project:p1&permission=file:read&limit=501'), 'invalid_query', 'limit', 'limit over 500');
+      await refusedWith(call('POST', `/authz/assignments?reason=${long(513)}`, root, grantBody('viewer')), 'invalid_query', 'reason', 'reason over 512');
+      await refusedWith(call('POST', `/authz/assignments?idempotencyKey=${long(129)}`, root, grantBody('viewer')), 'invalid_query', 'idempotencyKey', 'key over 128');
+      await refusedWith(call('DELETE', '/authz/assignments/u1?dryRun=yes'), 'invalid_query', 'dryRun', 'dryRun not a boolean');
+      expect(await call('POST', `/authz/assignments?reason=${long(512)}&idempotencyKey=${long(128)}&dryRun=true`, root, grantBody('viewer'))).to.have.property('status', 200);
+      expect(await assignments('?subject=user:carol')).to.deep.equal([]);
+    });
+
+    it('refuses a body that breaks its DTO with 400 invalid_request naming the field, before AuthzAdmin', async () => {
+      await refusedWith(call('POST', '/authz/assignments', root, { ...grantBody('viewer'), extra: 1 }), 'invalid_request', 'extra', 'unknown key');
+      await refusedWith(call('POST', '/authz/assignments', root, { ...grantBody('viewer'), replaceLadder: 'true' }), 'invalid_request', 'replaceLadder', 'a string is not coerced');
+      await refusedWith(call('POST', '/authz/assignments', root, { ...grantBody('viewer'), scope: { type: 'project', id: long(161) } }), 'invalid_request', 'scope.id', 'id over 160');
+      await refusedWith(call('POST', '/authz/assignments', root, { role: 'viewer', scope: P1 }), 'invalid_request', 'subject', 'missing subject');
+      await refusedWith(call('POST', '/authz/links', root, { scope: P1, role: long(129) }), 'invalid_request', 'role', 'role over 128');
+      await refusedWith(call('PUT', '/authz/rules/thr', root, { kind: 'threshold', scope: P1, source: 'http' }), 'invalid_request', 'source', 'the server sets source');
+      await refusedWith(call('PATCH', '/authz/assignments/u1', root, { tags: 'a' }), 'invalid_request', 'tags', 'tags not a list');
+      expect(await assignments('?subject=user:carol')).to.deep.equal([]);
+    });
+
+    it('refuses a path id over 160 characters with 400 invalid_request', async () => {
+      await refusedWith(call('DELETE', `/authz/assignments/${long(161)}`), 'invalid_request', 'id', 'path id');
+      await refusedWith(call('GET', `/authz/scopes/${long(65)}/o1/attributes`), 'invalid_request', 'type', 'path type');
+    });
+
+    it('checks each command of a batch against the schema of its kind', async () => {
+      await refusedWith(commands(root, { commands: [{ kind: 'no.such' }] }), 'invalid_batch', 'commands.0.kind', 'unknown kind');
+      await refusedWith(commands(root, { commands: [{ grant: 'carol' }] }), 'invalid_batch', 'commands.0.kind', 'no kind');
+      await refusedWith(commands(root, { commands: [grant('carol'), { kind: 'assignment.revoke', id: long(161) }] }), 'invalid_batch', 'commands.1.id', 'id over 160');
+      await refusedWith(commands(root, { commands: [{ ...grant('carol'), extra: true }] }), 'invalid_batch', 'commands.0.extra', 'unknown key');
+      await refusedWith(commands(root, { commands: [grant('carol')], reason: long(513) }), 'invalid_batch', 'reason', 'reason over 512');
+      await refusedWith(commands(root, { commands: [grant('carol')], idempotencyKey: '' }), 'invalid_batch', 'idempotencyKey', 'empty key');
+      expect(await assignments('?subject=user:carol')).to.deep.equal([]);
+    });
+
+    it('answers a refused input of the token routes with Cache-Control: no-store', async () => {
+      for (const res of [await commands(root, { commands: [{ kind: 'no.such' }] }), await call('POST', '/authz/links', root, { scope: P1 })]) {
+        expect(res.status).to.equal(400);
+        expect(res.headers['cache-control']).to.equal('no-store');
+      }
+    });
+
+    it('takes the whole attribute body, even with a key named like the argument, and refuses a list', async () => {
+      // Were only the inner object taken, it would fit the org schema and answer 200.
+      const put = await call('PUT', '/authz/scopes/org/o1/attributes', root, { body: { policies: { public_links: false } }, policies: { public_links: true } });
+      expect(put.status, JSON.stringify(put.body)).to.equal(400);
+      expect(put.body.results[0].error.code).to.equal('invalid_attributes');
+      await refusedWith(call('PATCH', '/authz/scopes/org/o1/attributes', root, [{ policies: {} }]), 'invalid_request', undefined, 'a list');
     });
   });
 

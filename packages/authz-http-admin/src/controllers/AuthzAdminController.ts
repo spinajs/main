@@ -1,93 +1,53 @@
 import { AuthzAdminFailure, AuthzDomains } from '@spinajs/authz';
 import { Config } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
-import type { AuthzAdmin, AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, Principal, ResourceRef } from '@spinajs/authz';
-import { BadRequestResponse, BaseController, BasePath, Conflict, Del, ForbiddenResponse, Get, NotFound, Ok, Patch, Policy, Post, Put, Req } from '@spinajs/http';
-import type { Request, Response } from '@spinajs/http';
-import { IsAuthenticated, UnknownAuthzDomain, resolveAuthzDomain } from '@spinajs/authz-http';
-import { isPlainObject } from '@spinajs/util';
+import type { AuthzAdmin, AuthzAdminQuery, AuthzCommand, Principal } from '@spinajs/authz';
+import { BaseController, BasePath, Body, Del, Get, Middleware, OnError, Param, Patch, Policy, Post, Put } from '@spinajs/http';
+import type { Response } from '@spinajs/http';
+import { CurrentPrincipal, IsAuthenticated, UnknownAuthzDomain } from '@spinajs/authz-http';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { ValidationFailed } from '@spinajs/validation';
 
 import '../schemas/provider.js';
-import { decodeCommand, decodeCommands } from '../routes/decode.js';
+import { AuthzAssignmentGrant, AuthzAssignmentPatch } from '../dto/assignments.js';
+import { AuthzAttributesBody, AuthzAttributesPatch } from '../dto/attributes.js';
+import type { AuthzAdminCommandBatch } from '../dto/batch.js';
+import { AuthzLinkCreate, AuthzLinkPatch } from '../dto/links.js';
+import { ID_PARAM, TYPE_PARAM } from '../dto/params.js';
+import { AuthzAssignmentsQuery, AuthzHoldersQuery, AuthzListQuery, AuthzOffsetListQuery, AuthzWriteOptionsQuery } from '../dto/queries.js';
+import { AuthzPolicyBody, AuthzRuleBody } from '../dto/rules.js';
+import { adminInputAnswer, refused, respond } from '../routes/answers.js';
+import { AdminBatch, AdminBody, AdminDomain, AdminQuery } from '../routes/args.js';
+import { decodeCommand } from '../routes/decode.js';
+import { NoStore } from '../routes/no-store.js';
 import { readAssignmentsQuery, readHoldersQuery, readPageQuery, readWriteOptions } from '../routes/query.js';
-import type { QueryInput } from '../routes/query.js';
-import { adminErrorStatus, resultsStatus } from '../routes/status.js';
+import { resultsStatus } from '../routes/status.js';
 
-const PATCH_KEYS = ['tags', 'addTags', 'removeTags', 'expiresAt'] as const;
 const PATCH_KINDS = { tags: 'assignment.setTags', addTags: 'assignment.addTags', removeTags: 'assignment.removeTags' } as const;
 
-function respond(status: number, body: unknown): Response {
-  switch (status) {
-    case 200:
-      return new Ok(body);
-    case 403:
-      return new ForbiddenResponse(body);
-    case 404:
-      return new NotFound(body);
-    case 409:
-      return new Conflict(body);
-    default:
-      return new BadRequestResponse(body);
-  }
-}
-
-function refused(e: AuthzAdminFailure): Response {
-  return respond(adminErrorStatus(e.code), { error: { code: e.code, message: e.message, ...(e.field === undefined ? {} : { field: e.field }) } });
-}
-
-function badRequest(message: string, field?: string): never {
-  throw new AuthzAdminFailure('invalid_request', message, field);
-}
-
-function objectBody(body: unknown, what: string): Record<string, unknown> {
-  if (!isPlainObject(body)) badRequest(`the body must be ${what}`);
-  return body;
-}
-
-/** The body of PUT /authz/rules/:id or /authz/policies/:id with the path id; an id in the body must equal it. */
-function withPathId(body: unknown, id: string, what: string): Record<string, unknown> {
-  const o = objectBody(body, what);
-  if (o.id !== undefined && o.id !== id) badRequest(`the body id ${JSON.stringify(o.id)} is not the path id ${JSON.stringify(id)}`, 'id');
-  return { ...o, id };
+/** A body the route runs under its path id; an id in the body must equal it. */
+function withPathId<T extends { id?: string }>(body: T, id: string): T & { id: string } {
+  if (body.id !== undefined && body.id !== id) throw new AuthzAdminFailure('invalid_request', `the body id ${JSON.stringify(body.id)} is not the path id ${JSON.stringify(id)}`, 'id');
+  return { ...body, id };
 }
 
 // The routes serve the RBAC and ABAC commands, whose AuthzCommandMap entries this package does not import.
 const byId = (kind: string, id: string): AuthzCommand => ({ kind, id }) as unknown as AuthzCommand;
-
-const LINK_PATCH_KEYS = ['expiresAt', 'attributes', 'role', 'tags'] as const;
-
-/** PATCH /authz/links/:id as one link.update; like the assignment patch, a key it does not serve is refused, not ignored. */
-function linkUpdate(body: unknown, id: string): AuthzCommand {
-  const patch = withPathId(body, id, 'an object { expiresAt?, attributes?, role?, tags? }');
-  const unknown = Object.keys(patch).find((k) => k !== 'id' && !(LINK_PATCH_KEYS as readonly string[]).includes(k));
-  if (unknown !== undefined) badRequest(`a link patch takes ${LINK_PATCH_KEYS.join(', ')}, not ${JSON.stringify(unknown)}`, unknown);
-  if (!LINK_PATCH_KEYS.some((k) => k in patch)) badRequest(`a link patch needs one of ${LINK_PATCH_KEYS.join(', ')}`);
-  return decodeCommand({ ...patch, kind: 'link.update' }) as AuthzCommand;
-}
-
-/** For answers that may hold a link token: no proxy or browser cache may keep one. Set first, so it goes out with any answer the route gives. */
-function noStore(req: Request): void {
-  req.res?.setHeader('Cache-Control', 'no-store');
-  req.res?.setHeader('Pragma', 'no-cache');
-}
-
-const query = (req: Request): QueryInput => (req.query ?? {}) as QueryInput;
-const param = (req: Request, name: string): string => req.params[name] as string;
-const actorOf = (req: Request): Principal => req.storage.Principal!;
-const scopeOf = (req: Request): ResourceRef => ({ type: param(req, 'type'), id: param(req, 'id') });
+const asCommand = (c: unknown): AuthzCommand => decodeCommand(c) as AuthzCommand;
 
 /**
  * Admin routes over the management API of the configured domain (`authz.http.admin.domain`).
  *
  * The routes check authentication only: the actor is always the request principal, and every
- * permission, validation and guard check runs in AuthzAdmin, as for an in-process caller (design
- * §6.6.5). A refused request answers `{ error: { code, message, field? } }`; a write answers
- * `{ results }`, one entry per command.
+ * permission and guard check runs in AuthzAdmin, as for an in-process caller (design §6.6.5). The
+ * inputs are DTOs checked against their schemas first; a refused request answers
+ * `{ error: { code, message, field? } }`, a write `{ results }`, one entry per command.
  *
  * @tags Authz admin
  */
 @Policy(IsAuthenticated)
 @BasePath({ config: 'authz.http.admin.basePath', default: 'authz' })
+@OnError([ValidationFailed, InvalidArgument, AuthzAdminFailure, UnknownAuthzDomain], adminInputAnswer, { stages: ['arguments'] })
 export class AuthzAdminController extends BaseController {
   @Config('authz.http.admin.domain')
   protected AdminDomain: string;
@@ -96,17 +56,11 @@ export class AuthzAdminController extends BaseController {
   protected Domains: AuthzDomains;
 
   /**
-   * Runs a route on the AuthzAdmin of the domain the AuthzDomainResolver names for `req`, `authz.http.admin.domain` being its fallback and the domain without a request.
-   * An AuthzAdminFailure becomes its status with `{ error }`, a domain no live domain bears 403 `unknown_domain`, anything else propagates.
+   * Runs a route on the AuthzAdmin of `domain` (the one `@AdminDomain()` resolved), `authz.http.admin.domain` without one.
+   * An AuthzAdminFailure becomes its status with `{ error }`, anything else propagates.
    */
-  protected async guarded(fn: (admin: AuthzAdmin) => Promise<Response>, req?: Request): Promise<Response> {
-    let admin: AuthzAdmin;
-    try {
-      admin = (await this.Domains.service(req ? await resolveAuthzDomain(req, this.AdminDomain) : this.AdminDomain)).admin();
-    } catch (e) {
-      if (e instanceof UnknownAuthzDomain) return respond(403, { error: { code: 'unknown_domain', message: e.message } });
-      throw e;
-    }
+  protected async guarded(fn: (admin: AuthzAdmin) => Promise<Response>, domain?: string): Promise<Response> {
+    const admin = (await this.Domains.service(domain ?? this.AdminDomain)).admin();
     try {
       return await fn(admin);
     } catch (e) {
@@ -116,15 +70,12 @@ export class AuthzAdminController extends BaseController {
   }
 
   /** One batch built from the route, with the options of the query string. */
-  protected single(req: Request, build: () => AuthzCommand[]) {
-    return this.guarded(async (admin) => {
-      const opts = readWriteOptions(query(req));
-      return results(await admin.execute(actorOf(req), build(), opts));
-    }, req);
+  protected single(domain: string, actor: Principal, options: AuthzWriteOptionsQuery, build: () => AuthzCommand[]) {
+    return this.guarded(async (admin) => results(await admin.execute(actor, build(), readWriteOptions(options))), domain);
   }
 
-  protected list(req: Request, build: () => AuthzAdminQuery) {
-    return this.guarded(async (admin) => respond(200, await admin.list(actorOf(req), build())), req);
+  protected list(domain: string, actor: Principal, build: () => AuthzAdminQuery) {
+    return this.guarded(async (admin) => respond(200, await admin.list(actor, build())), domain);
   }
 
   /**
@@ -140,14 +91,9 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Post('commands')
-  public async commands(@Req() req: Request) {
-    noStore(req);
-    return this.guarded(async (admin) => {
-      const body = objectBody(req.body, 'an object { commands, reason?, idempotencyKey?, dryRun? }');
-      const opts: Record<string, unknown> = {};
-      for (const key of ['reason', 'idempotencyKey', 'dryRun'] as const) if (key in body) opts[key] = body[key];
-      return results(await admin.execute(actorOf(req), decodeCommands(body.commands) as AuthzCommand[], opts as AuthzAdminOptions));
-    }, req);
+  @Middleware(NoStore)
+  public async commands(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @AdminBatch() batch: AuthzAdminCommandBatch) {
+    return this.guarded(async (admin) => results(await admin.execute(actor, batch.commands as AuthzCommand[], batch.options)), domain);
   }
 
   /**
@@ -160,8 +106,8 @@ export class AuthzAdminController extends BaseController {
    * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
    */
   @Get('assignments')
-  public async listAssignments(@Req() req: Request) {
-    return this.list(req, () => readAssignmentsQuery(query(req)));
+  public async listAssignments(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @AdminQuery() query: AuthzAssignmentsQuery) {
+    return this.list(domain, actor, () => readAssignmentsQuery(query));
   }
 
   /**
@@ -174,8 +120,8 @@ export class AuthzAdminController extends BaseController {
    * @response 403 {AuthzAdminError} forbidden: the caller lacks authz:holders.read at the resource, or the resource is unknown
    */
   @Get('holders')
-  public async listHolders(@Req() req: Request) {
-    return this.list(req, () => readHoldersQuery(query(req)));
+  public async listHolders(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @AdminQuery() query: AuthzHoldersQuery) {
+    return this.list(domain, actor, () => readHoldersQuery(query));
   }
 
   /**
@@ -191,8 +137,8 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Post('assignments')
-  public async grant(@Req() req: Request) {
-    return this.single(req, () => [decodeCommand({ ...objectBody(req.body, 'the fields of assignment.grant'), kind: 'assignment.grant' }) as AuthzCommand]);
+  public async grant(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Body({ required: true }) body: AuthzAssignmentGrant, @AdminQuery() options: AuthzWriteOptionsQuery) {
+    return this.single(domain, actor, options, () => [asCommand({ ...body, kind: 'assignment.grant' })]);
   }
 
   /**
@@ -208,17 +154,12 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Patch('assignments/:id')
-  public async patchAssignment(@Req() req: Request) {
-    return this.single(req, () => {
-      const body = objectBody(req.body, 'an object { tags?, addTags?, removeTags?, expiresAt? }');
-      const unknown = Object.keys(body).find((k) => !(PATCH_KEYS as readonly string[]).includes(k));
-      if (unknown !== undefined) badRequest(`an assignment patch takes ${PATCH_KEYS.join(', ')}, not ${JSON.stringify(unknown)}`, unknown);
-      const id = param(req, 'id');
-      const commands: unknown[] = [];
-      for (const key of ['tags', 'addTags', 'removeTags'] as const) if (key in body) commands.push({ kind: PATCH_KINDS[key], id, tags: body[key] });
-      if ('expiresAt' in body) commands.push(decodeCommand({ kind: 'assignment.setExpiry', id, expiresAt: body.expiresAt }));
-      if (commands.length === 0) badRequest(`an assignment patch needs one of ${PATCH_KEYS.join(', ')}`);
-      return commands as AuthzCommand[];
+  public async patchAssignment(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @Body({ required: true }) body: AuthzAssignmentPatch, @AdminQuery() options: AuthzWriteOptionsQuery) {
+    return this.single(domain, actor, options, () => {
+      const commands: AuthzCommand[] = [];
+      for (const key of ['tags', 'addTags', 'removeTags'] as const) if (body[key] !== undefined) commands.push({ kind: PATCH_KINDS[key], id, tags: body[key] } as unknown as AuthzCommand);
+      if (body.expiresAt !== undefined) commands.push(asCommand({ kind: 'assignment.setExpiry', id, expiresAt: body.expiresAt }));
+      return commands;
     });
   }
 
@@ -234,8 +175,8 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Del('assignments/:id')
-  public async revoke(@Req() req: Request) {
-    return this.single(req, () => [byId('assignment.revoke', param(req, 'id'))]);
+  public async revoke(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @AdminQuery() options: AuthzWriteOptionsQuery) {
+    return this.single(domain, actor, options, () => [byId('assignment.revoke', id)]);
   }
 
   /**
@@ -248,8 +189,8 @@ export class AuthzAdminController extends BaseController {
    * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
    */
   @Get('links')
-  public async listLinks(@Req() req: Request) {
-    return this.list(req, () => readPageQuery('links', query(req)));
+  public async listLinks(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @AdminQuery() query: AuthzListQuery) {
+    return this.list(domain, actor, () => readPageQuery('links', query));
   }
 
   /**
@@ -265,9 +206,9 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Post('links')
-  public async createLink(@Req() req: Request) {
-    noStore(req);
-    return this.single(req, () => [decodeCommand({ ...objectBody(req.body, 'the fields of link.create'), kind: 'link.create' }) as AuthzCommand]);
+  @Middleware(NoStore)
+  public async createLink(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Body({ required: true }) body: AuthzLinkCreate, @AdminQuery() options: AuthzWriteOptionsQuery) {
+    return this.single(domain, actor, options, () => [asCommand({ ...body, kind: 'link.create' })]);
   }
 
   /**
@@ -283,8 +224,8 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Patch('links/:id')
-  public async patchLink(@Req() req: Request) {
-    return this.single(req, () => [linkUpdate(req.body, param(req, 'id'))]);
+  public async patchLink(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @Body({ required: true }) body: AuthzLinkPatch, @AdminQuery() options: AuthzWriteOptionsQuery) {
+    return this.single(domain, actor, options, () => [asCommand({ ...withPathId(body, id), kind: 'link.update' })]);
   }
 
   /**
@@ -299,8 +240,8 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Del('links/:id')
-  public async revokeLink(@Req() req: Request) {
-    return this.single(req, () => [byId('link.revoke', param(req, 'id'))]);
+  public async revokeLink(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @AdminQuery() options: AuthzWriteOptionsQuery) {
+    return this.single(domain, actor, options, () => [byId('link.revoke', id)]);
   }
 
   /**
@@ -313,8 +254,8 @@ export class AuthzAdminController extends BaseController {
    * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
    */
   @Get('rules')
-  public async listRules(@Req() req: Request) {
-    return this.list(req, () => readPageQuery('rules', query(req)));
+  public async listRules(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @AdminQuery() query: AuthzListQuery) {
+    return this.list(domain, actor, () => readPageQuery('rules', query));
   }
 
   /**
@@ -330,8 +271,8 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Put('rules/:id')
-  public async putRule(@Req() req: Request) {
-    return this.single(req, () => [decodeCommand({ kind: 'rule.put', rule: withPathId(req.body, param(req, 'id'), 'a rule') }) as AuthzCommand]);
+  public async putRule(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @Body({ required: true }) body: AuthzRuleBody, @AdminQuery() options: AuthzWriteOptionsQuery) {
+    return this.single(domain, actor, options, () => [asCommand({ kind: 'rule.put', rule: withPathId(body, id) })]);
   }
 
   /**
@@ -346,8 +287,8 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Del('rules/:id')
-  public async deleteRule(@Req() req: Request) {
-    return this.single(req, () => [byId('rule.delete', param(req, 'id'))]);
+  public async deleteRule(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @AdminQuery() options: AuthzWriteOptionsQuery) {
+    return this.single(domain, actor, options, () => [byId('rule.delete', id)]);
   }
 
   /**
@@ -360,8 +301,8 @@ export class AuthzAdminController extends BaseController {
    * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
    */
   @Get('policies')
-  public async listPolicies(@Req() req: Request) {
-    return this.list(req, () => readPageQuery('policies', query(req)));
+  public async listPolicies(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @AdminQuery() query: AuthzOffsetListQuery) {
+    return this.list(domain, actor, () => readPageQuery('policies', query));
   }
 
   /**
@@ -377,8 +318,8 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Put('policies/:id')
-  public async putPolicy(@Req() req: Request) {
-    return this.single(req, () => [decodeCommand({ kind: 'policy.put', policy: withPathId(req.body, param(req, 'id'), 'a policy') }) as AuthzCommand]);
+  public async putPolicy(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @Body({ required: true }) body: AuthzPolicyBody, @AdminQuery() options: AuthzWriteOptionsQuery) {
+    return this.single(domain, actor, options, () => [asCommand({ kind: 'policy.put', policy: withPathId(body, id) })]);
   }
 
   /**
@@ -393,8 +334,8 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Del('policies/:id')
-  public async deletePolicy(@Req() req: Request) {
-    return this.single(req, () => [byId('policy.delete', param(req, 'id'))]);
+  public async deletePolicy(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(ID_PARAM) id: string, @AdminQuery() options: AuthzWriteOptionsQuery) {
+    return this.single(domain, actor, options, () => [byId('policy.delete', id)]);
   }
 
   /**
@@ -406,8 +347,8 @@ export class AuthzAdminController extends BaseController {
    * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
    */
   @Get('scopes/:type/:id/attributes')
-  public async attributes(@Req() req: Request) {
-    return this.list(req, () => ({ kind: 'attributes', scope: scopeOf(req) }));
+  public async attributes(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(TYPE_PARAM) type: string, @Param(ID_PARAM) id: string) {
+    return this.list(domain, actor, () => ({ kind: 'attributes', scope: { type, id } }));
   }
 
   /**
@@ -423,8 +364,8 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Patch('scopes/:type/:id/attributes')
-  public async patchAttributes(@Req() req: Request) {
-    return this.single(req, () => [{ kind: 'scope.setAttributes', scope: scopeOf(req), patch: req.body }]);
+  public async patchAttributes(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(TYPE_PARAM) type: string, @Param(ID_PARAM) id: string, @AdminBody() body: AuthzAttributesPatch, @AdminQuery() options: AuthzWriteOptionsQuery) {
+    return this.single(domain, actor, options, () => [{ kind: 'scope.setAttributes', scope: { type, id }, patch: { ...body } }]);
   }
 
   /**
@@ -440,8 +381,8 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Put('scopes/:type/:id/attributes')
-  public async replaceAttributes(@Req() req: Request) {
-    return this.single(req, () => [{ kind: 'scope.replaceAttributes', scope: scopeOf(req), attributes: req.body }]);
+  public async replaceAttributes(@AdminDomain() domain: string, @CurrentPrincipal() actor: Principal, @Param(TYPE_PARAM) type: string, @Param(ID_PARAM) id: string, @AdminBody() body: AuthzAttributesBody, @AdminQuery() options: AuthzWriteOptionsQuery) {
+    return this.single(domain, actor, options, () => [{ kind: 'scope.replaceAttributes', scope: { type, id }, attributes: { ...body } }]);
   }
 }
 

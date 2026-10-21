@@ -1,8 +1,7 @@
 import { AuthzAdminFailure, GLOBAL } from '@spinajs/authz';
 import type { AuthzAdminOptions, AuthzAdminQuery, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
-/** A parsed query string (express: string, string[] or a nested object per key). */
-export type QueryInput = Readonly<Record<string, unknown>>;
+import type { AuthzAdminPageQuery, AuthzAssignmentsQuery, AuthzHoldersQuery, AuthzWriteOptionsQuery } from '../dto/queries.js';
 
 type Page = { limit?: number; offset?: number; after?: string };
 
@@ -11,13 +10,6 @@ type AssignmentSubject = PrincipalRef | { readonly set: { readonly role: string;
 
 function invalid(field: string, message: string): never {
   throw new AuthzAdminFailure('invalid_query', message, field);
-}
-
-function text(q: QueryInput, field: string): string | undefined {
-  const v = q[field];
-  if (v === undefined) return undefined;
-  if (typeof v !== 'string') invalid(field, `${field} must be given once, as text`);
-  return v;
 }
 
 /** `<type>` or `<type>:<id>`, split at the first `:` (ids may hold more); `$global` is GLOBAL. */
@@ -48,87 +40,52 @@ export function parseAssignmentSubject(value: string, field = 'subject'): Assign
   return { type: value.slice(0, at), id: value.slice(at + 1) };
 }
 
-function flag(q: QueryInput, field: string): boolean | undefined {
-  const v = text(q, field);
-  if (v === undefined) return undefined;
-  if (v !== 'true' && v !== 'false') invalid(field, `${field} must be true or false`);
-  return v === 'true';
-}
-
-function count(q: QueryInput, field: string): number | undefined {
-  const v = text(q, field);
-  if (v === undefined) return undefined;
-  if (!/^\d+$/.test(v)) invalid(field, `${field} must be a non-negative integer`);
-  return Number(v);
-}
-
-/** `after`, the `next` of the previous page; it replaces `offset`. */
-function cursor(q: QueryInput, offset: number | undefined): string | undefined {
-  const after = text(q, 'after');
-  if (after === '') invalid('after', 'after must not be empty');
+/** `limit`, `offset` and `after` as AuthzAdmin's page, only the ones given; AuthzAdmin defaults the rest. `after` replaces `offset`. */
+function page(q: AuthzAdminPageQuery): { page?: Page } {
+  const { limit, offset, after } = q;
   if (after !== undefined && offset !== undefined) invalid('after', 'after replaces offset: give one of them');
-  return after;
-}
-
-/** `limit`, `offset` and `after` as AuthzAdmin's page, only the ones given; AuthzAdmin defaults the rest. */
-function page(q: QueryInput): { page?: Page } {
-  const limit = count(q, 'limit');
-  const offset = count(q, 'offset');
-  const after = cursor(q, offset);
   if (limit === undefined && offset === undefined && after === undefined) return {};
   return { page: { ...(limit === undefined ? {} : { limit }), ...(offset === undefined ? {} : { offset }), ...(after === undefined ? {} : { after }) } };
 }
 
-function scope(q: QueryInput): { scope?: ResourceRef } {
-  const v = text(q, 'scope');
-  return v === undefined ? {} : { scope: parseResourceRef(v, 'scope') };
+function scope(q: AuthzAdminPageQuery): { scope?: ResourceRef } {
+  return q.scope === undefined ? {} : { scope: parseResourceRef(q.scope, 'scope') };
 }
 
 /** GET /authz/assignments: `scope`, `subject`, `role`, `includeExpired`, `limit`, `offset` or `after`. */
-export function readAssignmentsQuery(q: QueryInput): AuthzAdminQuery {
-  const subject = text(q, 'subject');
-  const role = text(q, 'role');
-  const includeExpired = flag(q, 'includeExpired');
+export function readAssignmentsQuery(q: AuthzAssignmentsQuery): AuthzAdminQuery {
   return {
     kind: 'assignments',
     ...scope(q),
-    ...(subject === undefined ? {} : { subject: parseAssignmentSubject(subject) }),
-    ...(role === undefined ? {} : { role }),
-    ...(includeExpired === undefined ? {} : { includeExpired }),
+    ...(q.subject === undefined ? {} : { subject: parseAssignmentSubject(q.subject) }),
+    ...(q.role === undefined ? {} : { role: q.role }),
+    ...(q.includeExpired === undefined ? {} : { includeExpired: q.includeExpired }),
     ...page(q),
   } as unknown as AuthzAdminQuery;
 }
 
 /** GET /authz/holders: `scope` and `permission` (both required), `expandSets`, `limit`, `offset` or `after`. */
-export function readHoldersQuery(q: QueryInput): AuthzAdminQuery {
-  const scope = text(q, 'scope');
-  const permission = text(q, 'permission');
-  if (scope === undefined) invalid('scope', 'scope is required');
-  if (permission === undefined || permission === '') invalid('permission', 'permission is required');
-  const expandSets = flag(q, 'expandSets');
+export function readHoldersQuery(q: AuthzHoldersQuery): AuthzAdminQuery {
+  if (q.scope === undefined) invalid('scope', 'scope is required');
   return {
     kind: 'holders',
-    scope: parseResourceRef(scope, 'scope'),
-    permission,
-    ...(expandSets === undefined ? {} : { expandSets }),
+    scope: parseResourceRef(q.scope, 'scope'),
+    permission: q.permission,
+    ...(q.expandSets === undefined ? {} : { expandSets: q.expandSets }),
     ...page(q),
   } as unknown as AuthzAdminQuery;
 }
 
-/** GET /authz/links and /authz/rules: `scope`, `limit`, `offset` or `after`; GET /authz/policies has no `after`. */
-export function readPageQuery(kind: 'links' | 'rules' | 'policies', q: QueryInput): AuthzAdminQuery {
-  if (kind === 'policies' && text(q, 'after') !== undefined) invalid('after', 'policies are paged by offset: after is not supported');
+/** GET /authz/links, /authz/rules and /authz/policies: `scope`, `limit`, `offset` or `after` (policies have no `after`, which their query DTO refuses). */
+export function readPageQuery(kind: 'links' | 'rules' | 'policies', q: AuthzAdminPageQuery): AuthzAdminQuery {
   return { kind, ...scope(q), ...page(q) } as unknown as AuthzAdminQuery;
 }
 
 /** The AuthzAdminOptions of a single-command route: `reason`, `idempotencyKey`, `dryRun`. */
-export function readWriteOptions(q: QueryInput): AuthzAdminOptions {
-  const reason = text(q, 'reason');
-  const idempotencyKey = text(q, 'idempotencyKey');
-  const dryRun = flag(q, 'dryRun');
+export function readWriteOptions(q: AuthzWriteOptionsQuery): AuthzAdminOptions {
   return {
-    ...(reason === undefined ? {} : { reason }),
-    ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
-    ...(dryRun === undefined ? {} : { dryRun }),
+    ...(q.reason === undefined ? {} : { reason: q.reason }),
+    ...(q.idempotencyKey === undefined ? {} : { idempotencyKey: q.idempotencyKey }),
+    ...(q.dryRun === undefined ? {} : { dryRun: q.dryRun }),
   };
 }
