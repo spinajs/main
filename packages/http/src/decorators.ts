@@ -405,6 +405,27 @@ export function BasePath(path: string | { readonly config: string; readonly defa
   });
 }
 
+const CSRF_EXEMPT_SYMBOL = Symbol.for('spinajs:http:csrf-exempt');
+
+/**
+ * Takes the route, or on a class every route of the controller, out of the CsrfGuard check. For server-to-server
+ * callbacks (webhooks, OIDC back-channel logout) that never act on the browser's ambient credentials.
+ */
+export function CsrfExempt() {
+  return (target: object, propertyKey?: string | symbol, _descriptor?: PropertyDescriptor) => {
+    if (propertyKey === undefined) {
+      Reflect.defineMetadata(CSRF_EXEMPT_SYMBOL, true, (target as { prototype: object }).prototype);
+    } else {
+      Reflect.defineMetadata(CSRF_EXEMPT_SYMBOL, true, target, propertyKey);
+    }
+  };
+}
+
+/** Whether `@CsrfExempt()` marks the route `member` of `controller`, or the whole controller class (inherited too). */
+export function isCsrfExempt(controller: object, member: string | symbol): boolean {
+  return Reflect.getMetadata(CSRF_EXEMPT_SYMBOL, controller, member) === true || Reflect.getMetadata(CSRF_EXEMPT_SYMBOL, controller) === true;
+}
+
 export function FromDI() {
   return Route(Parameter(ParameterType.FromDi));
 }

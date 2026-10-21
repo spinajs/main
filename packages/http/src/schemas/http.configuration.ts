@@ -77,6 +77,23 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         },
       },
     },
+    csrf: {
+      type: 'object',
+      default: {},
+      description: 'CsrfGuard: an unsafe request that carries Origin, Sec-Fetch-Site or an ambient cookie must come from the own origin or an allowed one.',
+      properties: {
+        // Not `type: 'boolean'`: coerceTypes would turn a null into false and switch the guard off.
+        enabled: { enum: [true, false], default: true },
+        allowedOrigins: { type: 'array', default: [], items: { type: 'string', pattern: ORIGIN_PATTERN }, description: 'Besides the own origin, which is always allowed.' },
+        exempt: {
+          type: 'array',
+          default: [],
+          items: { type: 'string', pattern: '^/' },
+          description: 'Route paths never checked, after http.controllers.route.prefix, matched as the router matches routes (:params allowed). Prefer @CsrfExempt() on routes you own.',
+        },
+        ambientCookies: { type: 'array', default: [], items: nonEmpty, description: 'Cookies browsers attach on their own: a request carrying one is checked even without Origin and Sec-Fetch-Site.' },
+      },
+    },
     throttle: {
       type: 'object',
       default: {},

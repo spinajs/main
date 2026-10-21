@@ -150,7 +150,7 @@ describe('authn http middlewares through @Config and the schemas', () => {
       expect(guardOf((await boot(SCHEMAS, { authn: { http: { csrf: { enabled: false } } } })).child).before()).to.eq(null);
       const { child } = await boot(SCHEMAS, { authn: { session: { cookie: { name: 'sid2' } } } });
       const handler = guardOf(child).before()!;
-      expect(run(handler, reqFrom('10.0.0.5', { cookie: 'ssid=x', origin: 'https://evil.example.org', host: 'app.example.org' }, 'POST')).passed, 'another cookie').to.eq(true);
+      expect(run(handler, reqFrom('10.0.0.5', { cookie: 'ssid=x', host: 'app.example.org' }, 'POST')).passed, 'another cookie').to.eq(true);
       expect(run(handler, reqFrom('10.0.0.5', { cookie: 'sid2=x', origin: 'https://evil.example.org', host: 'app.example.org' }, 'POST')).passed).to.eq(false);
     });
 

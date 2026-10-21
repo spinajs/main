@@ -98,7 +98,7 @@ Any other key, `kind`, `profile` and `scope` included, answers 400 `invalid_fiel
 
 ### `POST /auth/tokens/revoke`
 
-Self-revocation by plaintext, RFC 7009 style, from `AuthnTokenRevocationController`. It is for the holder of a leaked secret, so it needs **no session and no cookie**: none of the policies above apply, only the `TokenServiceRegistered` gate. The secret in the body is the authorisation, and the route is not in [`authn.http.csrf.unauthenticatedRoutes`](04-csrf-origin-guard.md), so a cookieless request is not origin-checked.
+Self-revocation by plaintext, RFC 7009 style, from `AuthnTokenRevocationController`. It is for the holder of a leaked secret, so it needs **no session and no cookie**: none of the policies above apply, only the `TokenServiceRegistered` gate. The secret in the body is the authorisation. The [CSRF origin guard](04-csrf-origin-guard.md) checks a browser request like any other; a server or CLI sending no `Origin` is not checked.
 
 | | |
 | --- | --- |

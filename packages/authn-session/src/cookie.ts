@@ -87,6 +87,15 @@ export function sessionCookieName(config: ISessionCookieConfig = {}, env?: strin
   return flagOn(config.hostPrefix, env) ? `__Host-${base}` : base;
 }
 
+/** The SameSite attribute the session cookie is sent with, lower-cased; `false` sends none and leaves it to the browser. */
+export function sessionCookieSameSite(config: ISessionCookieConfig = {}): 'strict' | 'lax' | 'none' | false {
+  const sameSite = config.sameSite ?? DEFAULT_SAME_SITE;
+  if (sameSite === false) return false;
+  // express sends true as Strict.
+  if (sameSite === true || sameSite === undefined) return 'strict';
+  return String(sameSite).toLowerCase() as 'strict' | 'lax' | 'none';
+}
+
 /**
  * Cookie options for the session cookie. The configuration is spread first
  * and the security flags last, so a stray `httpOnly: false` cannot downgrade

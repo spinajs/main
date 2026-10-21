@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import * as express from 'express';
 import { Container } from '@spinajs/di';
-import { BasePolicy, Ip, ServerMiddleware, Route } from '@spinajs/http';
+import { BasePolicy, CsrfGuard, Ip, ServerMiddleware, Route } from '@spinajs/http';
 import type { IActionLocalStoregeContext, IController, IRoute, Request } from '@spinajs/http';
 import type { AuthnContext, AuthnFacts, Credentials, IdentityRef, Principal, Session } from '@spinajs/authn/contracts';
 
@@ -113,7 +113,8 @@ describe('authn-http contracts (api.ts)', function () {
 
     it('policies extend BasePolicy, middlewares ServerMiddleware, resolvers AuthnPrincipalResolver', () => {
       for (const p of Object.values(POLICIES)) expect(Object.getPrototypeOf(p), p.name).to.eq(BasePolicy);
-      for (const m of Object.values(MIDDLEWARES)) expect(Object.getPrototypeOf(m), m.name).to.eq(ServerMiddleware);
+      for (const m of Object.values(MIDDLEWARES)) expect(m.prototype, m.name).to.be.instanceOf(ServerMiddleware);
+      expect(Object.getPrototypeOf(CsrfOriginGuard), 'the authn guard is the @spinajs/http CsrfGuard plus the session cookie').to.eq(CsrfGuard);
       for (const r of Object.values(RESOLVERS)) expect(Object.getPrototypeOf(r), r.name).to.eq(AuthnPrincipalResolver);
       expect(Object.getPrototypeOf(AuthnPrincipalResolver)).to.eq(Function.prototype);
       for (const f of Object.values(ROUTE_ARGS)) expect(f).to.be.a('function');

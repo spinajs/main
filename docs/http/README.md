@@ -39,6 +39,7 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [Request storage and tracing](19-request-storage-and-tracing.md) | `req.storage`, `AsyncLocalStorage`, request id and `traceparent`, access log, timing headers, slow-request warnings, perf rollups |
 | [Cookies](20-cookies.md) | Signed cookies, `http.cookie.*`, `@Cookie`, setting cookies on a response |
 | [Controller cache and CLI](21-controller-cache-and-cli.md) | `DefaultControllerCache`, JSDoc tag extractors, `spinajs http:controllers:cache` |
+| [CSRF guard](23-csrf-guard.md) | `CsrfGuard`, `@CsrfExempt()`, `http.csrf.*`: default-deny CSRF protection by `Origin` and `Sec-Fetch-Site` |
 | [Same-origin guard](22-same-origin-guard.md) | `checkSameOrigin`, `SameOriginGuard`: refuse cross-origin state-changing requests by `Origin` and `Sec-Fetch-Site` |
 | [Header and cookie helpers](22-header-and-cookie-helpers.md) | `parseBearer`, `normalizeHeaders`, `parseCookieHeader`, `basicAuthHeader`, `retryAfterHeader`, `hostPrefixedCookie`, `clearCookie`, `isPublicCookieSecret`, `parseCidr`, `cidrMatcher` |
 | [Bot checks](23-bot-check.md) | `@BotCheck`, `BotVerifier`, `BotCheckService`, `http.bot`: captcha or score checks on chosen routes; adapters in [`@spinajs/http-bot`](../http-bot/README.md) |

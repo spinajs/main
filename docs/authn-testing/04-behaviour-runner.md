@@ -139,7 +139,7 @@ The config a case asks your factory to apply. Keys mirror the `authn.*` config o
 | `authn.linking` | `{ jit, byVerifiedEmail }` | Applies globally and to the provider under test |
 | `authn.impersonation` | `{ requirePassword, requireMfa, maxMinutes, clockSkewSeconds }` | Impersonation limits |
 | `authn.http.trustProxy` | `number \| string[] \| null` | Trusted proxy hops or addresses |
-| `authn.http.csrf` | `{ enabled, allowedOrigins }` | Origin check for cookie-authenticated unsafe requests |
+| `authn.http.csrf` | `{ enabled, allowedOrigins }` | Origin check for unsafe browser requests and cookie-authenticated ones (A22, default-deny) |
 | `http.cors.origins` | `string[] \| null` | CORS allow list |
 
 ### `DEFAULT_THROTTLE`
