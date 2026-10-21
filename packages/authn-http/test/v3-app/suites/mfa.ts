@@ -196,7 +196,7 @@ export function mfaSuite(): void {
       const active = await loggedIn(await seedUser());
       const res = await active.post('/auth/mfa/challenge', {});
       expect(res.status).to.eq(403);
-      expect(res.body.error).to.eq('mfa_not_pending');
+      expect((res.body as { error?: string }).error).to.eq('mfa_not_pending');
     });
   });
 

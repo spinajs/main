@@ -1,7 +1,6 @@
 import { MfaEnrolmentMarks } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
 import { QueryContext } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
@@ -14,7 +13,7 @@ const BOB: IdentityRef = { type: 'user', id: '5e0d7f3a-2b44-4d8e-a1c9-6f2e8b3d0c
 
 describe('DbMfaEnrolmentMarks', () => {
   it('is the MfaEnrolmentMarks of the root container once authn-orm is imported', () => {
-    expect(DI.RootContainer.getRegisteredTypes(MfaEnrolmentMarks as unknown as Class<MfaEnrolmentMarks>)).to.include(DbMfaEnrolmentMarks);
+    expect(DI.RootContainer.getRegisteredTypes(MfaEnrolmentMarks)).to.include(DbMfaEnrolmentMarks);
   });
 });
 

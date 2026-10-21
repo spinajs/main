@@ -66,7 +66,7 @@ class CodingPasswordService extends PasswordService {
 const fake = new CodingPasswordService();
 
 const ACK = { Ok: true };
-const probe = async (c: Client) => (await c.get(`/${AUTHN_PROBE_PATH}`)).body;
+const probe = async (c: Client) => (await c.get(`/${AUTHN_PROBE_PATH}`)).body as { principal: { id: string } };
 
 /** The gate on containers of its own: closed until a PasswordService that sends codes is registered. */
 export function codeGateSuite(): void {
@@ -168,8 +168,9 @@ export function codeRoutesSuite(): void {
       const c = new Client();
       const res = await c.post('/auth/code/login', { login: u.login, code: KIT_CODE });
       expect(res.status, JSON.stringify(res.body)).to.eq(200);
-      expect(res.body.Identity).to.deep.eq({ type: 'user', id: u.ref.id });
-      expect(res.body.Authn).to.include({ method: 'email-code', strategy: 'email-code', assurance: 'aal1' });
+      const body = res.body as { Identity: unknown; Authn: Record<string, unknown> };
+      expect(body.Identity).to.deep.eq({ type: 'user', id: u.ref.id });
+      expect(body.Authn).to.include({ method: 'email-code', strategy: 'email-code', assurance: 'aal1' });
       expect(V3AppResponseExtension.calls.map((x) => x.kind)).to.deep.eq(['login']);
       expect(res.headers['cache-control']).to.eq('no-store');
       expect((await probe(c)).principal.id).to.eq(u.ref.id);

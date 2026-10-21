@@ -33,7 +33,7 @@ async function deliveredCode(x: Setup): Promise<string> {
 }
 
 async function challenged(x: Setup): Promise<string> {
-  await x.step.challenge!(x.alice, ctx());
+  await x.step.challenge(x.alice, ctx());
   return deliveredCode(x);
 }
 
@@ -55,14 +55,14 @@ describe('EmailCodeMfaStep (FEAT-3)', function () {
     const x = await stepSetup();
     expect(x.step.name).to.equal('email-code');
     expect(x.step.storesSecrets).to.equal(false);
-    expect(x.step.verifyRecovery).to.equal(undefined);
+    expect('verifyRecovery' in x.step).to.equal(false);
   });
 
   describe('challenge', () => {
     it('dispatches one code request whose payload holds no code and issues nothing before the delivery', async () => {
       const x = await stepSetup();
       await enrol(x);
-      await x.step.challenge!(x.alice, ctx());
+      await x.step.challenge(x.alice, ctx());
       expect(x.secrets.rows(), 'nothing is issued before the delivery').to.have.length(0);
       await x.service.drain();
 
@@ -98,7 +98,7 @@ describe('EmailCodeMfaStep (FEAT-3)', function () {
 
     it('sends nothing for an identity that is not enrolled', async () => {
       const x = await stepSetup();
-      await x.step.challenge!(x.alice, ctx());
+      await x.step.challenge(x.alice, ctx());
       await x.service.drain();
       expect(x.dispatcher!.requests).to.have.length(0);
       expect(x.mailer.mails).to.have.length(0);
@@ -108,7 +108,7 @@ describe('EmailCodeMfaStep (FEAT-3)', function () {
       const x = await stepSetup();
       await enrol(x);
       x.identities.setStatus(x.alice, { banned: true });
-      await x.step.challenge!(x.alice, ctx());
+      await x.step.challenge(x.alice, ctx());
       await x.service.drain();
       expect(x.mailer.mails).to.have.length(0);
     });
@@ -116,8 +116,8 @@ describe('EmailCodeMfaStep (FEAT-3)', function () {
     it('a second challenge inside the reset backoff sends no second mail', async () => {
       const x = await stepSetup({}, true);
       await enrol(x);
-      await x.step.challenge!(x.alice, ctx());
-      await x.step.challenge!(x.alice, ctx({ ip: '203.0.113.9' }));
+      await x.step.challenge(x.alice, ctx());
+      await x.step.challenge(x.alice, ctx({ ip: '203.0.113.9' }));
       await x.service.drain();
       expect(x.dispatcher!.requests).to.have.length(1);
       expect(x.events.all().some((e) => e.type === 'throttle.block' && e.data?.flow === 'code')).to.equal(true);

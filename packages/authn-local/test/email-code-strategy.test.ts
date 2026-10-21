@@ -10,7 +10,7 @@ import { LOGIN, RecordingDispatcher, ctx, setup } from './mail/support.js';
 
 const recording = (deliver: AuthnMailDelivery) => new RecordingDispatcher(new InlineAuthnMailDispatcher(deliver, { warn: () => undefined }));
 
-const code = (login: unknown, value: unknown): Credentials => ({ kind: 'email-code', login, code: value }) as Credentials;
+const code = (login: unknown, value: unknown): Credentials => ({ kind: 'email-code', login, code: value });
 const INVALID = { ok: false, reason: 'invalid_credentials' };
 
 async function strategySetup(over: Parameters<typeof setup>[0] = {}, backoff = false) {
@@ -24,7 +24,7 @@ type Setup = Awaited<ReturnType<typeof strategySetup>>;
 
 /** requestCode for LOGIN, delivered: the code in the mail. */
 async function requested(x: Setup, login = LOGIN): Promise<string> {
-  expect(await x.service.requestCode!(login, ctx())).to.deep.equal({ status: 'accepted' });
+  expect(await x.service.requestCode(login, ctx())).to.deep.equal({ status: 'accepted' });
   await x.service.drain();
   const mails = x.mailer.mails.filter((m) => m.purpose === 'code');
   expect(mails).to.have.length(1);
@@ -105,7 +105,7 @@ describe('EmailCodeStrategy and code requests (FEAT-3)', function () {
   describe('requestCode', () => {
     it('dispatches one code request without the code, then delivers a 6-digit code to the address', async () => {
       const x = await strategySetup();
-      expect(await x.service.requestCode!(LOGIN, ctx())).to.deep.equal({ status: 'accepted' });
+      expect(await x.service.requestCode(LOGIN, ctx())).to.deep.equal({ status: 'accepted' });
       expect(x.secrets.rows(), 'nothing is issued before the delivery').to.have.length(0);
       await x.service.drain();
 
@@ -120,7 +120,7 @@ describe('EmailCodeStrategy and code requests (FEAT-3)', function () {
 
     it('answers accepted for an unknown login and sends nothing, with the same throttle count as a known one', async () => {
       const x = await strategySetup({}, true);
-      expect(await x.service.requestCode!('nobody@example.com', ctx())).to.deep.equal({ status: 'accepted' });
+      expect(await x.service.requestCode('nobody@example.com', ctx())).to.deep.equal({ status: 'accepted' });
       await x.service.drain();
       expect(x.dispatcher!.requests).to.have.length(0);
       expect(x.mailer.mails).to.have.length(0);
@@ -129,7 +129,7 @@ describe('EmailCodeStrategy and code requests (FEAT-3)', function () {
 
     it('answers before the lookup and the delivery run', async () => {
       const x = await strategySetup();
-      const pending = x.service.requestCode!(LOGIN, ctx());
+      const pending = x.service.requestCode(LOGIN, ctx());
       expect(await pending).to.deep.equal({ status: 'accepted' });
       expect(x.mailer.mails, 'not yet delivered').to.have.length(0);
       await x.service.drain();
@@ -139,13 +139,13 @@ describe('EmailCodeStrategy and code requests (FEAT-3)', function () {
     it('sends nothing to a banned identity or to an address the store reports unverified', async () => {
       const x = await strategySetup();
       x.identities.setStatus(x.alice, { banned: true });
-      await x.service.requestCode!(LOGIN, ctx());
+      await x.service.requestCode(LOGIN, ctx());
       await x.service.drain();
       expect(x.mailer.mails).to.have.length(0);
 
       const y = await strategySetup();
       y.identities.setStatus(y.alice, { addressVerified: false });
-      expect(await y.service.requestCode!(LOGIN, ctx())).to.deep.equal({ status: 'accepted' });
+      expect(await y.service.requestCode(LOGIN, ctx())).to.deep.equal({ status: 'accepted' });
       await y.service.drain();
       expect(y.mailer.mails).to.have.length(0);
       expect(y.events.all().some((e) => e.type === 'code.request' && e.reason === 'unverified_address')).to.equal(true);
@@ -154,15 +154,15 @@ describe('EmailCodeStrategy and code requests (FEAT-3)', function () {
     it('sends to an address the store does not track', async () => {
       const x = await strategySetup();
       x.identities.setStatus(x.alice, { addressVerified: undefined });
-      await x.service.requestCode!(LOGIN, ctx());
+      await x.service.requestCode(LOGIN, ctx());
       await x.service.drain();
       expect(x.mailer.mails).to.have.length(1);
     });
 
     it('a second request inside the reset backoff is throttled, keyed on the login and the ip', async () => {
       const x = await strategySetup({}, true);
-      expect(await x.service.requestCode!(LOGIN, ctx())).to.deep.equal({ status: 'accepted' });
-      const second = await x.service.requestCode!(LOGIN, ctx({ ip: '203.0.113.9' }));
+      expect(await x.service.requestCode(LOGIN, ctx())).to.deep.equal({ status: 'accepted' });
+      const second = await x.service.requestCode(LOGIN, ctx({ ip: '203.0.113.9' }));
       expect(second.status).to.equal('throttled');
       await x.service.drain();
       expect(x.dispatcher!.requests).to.have.length(1);
@@ -170,7 +170,7 @@ describe('EmailCodeStrategy and code requests (FEAT-3)', function () {
 
     it('does not use up the reset request of the same account', async () => {
       const x = await strategySetup({}, true);
-      await x.service.requestCode!(LOGIN, ctx());
+      await x.service.requestCode(LOGIN, ctx());
       expect(await x.service.requestReset(LOGIN, ctx({ ip: '203.0.113.9' }))).to.deep.equal({ status: 'accepted' });
     });
 
