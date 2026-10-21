@@ -29,7 +29,7 @@ export interface EmailPasswordMailerDeps {
   readonly defaultConnection?: string;
 }
 
-const DEFAULT_SUBJECTS: Readonly<Record<PasswordMailPurpose, string>> = { reset: 'Reset your password', invite: 'Set up your account', verify: '' };
+const DEFAULT_SUBJECTS: Readonly<Record<PasswordMailPurpose, string>> = { reset: 'Reset your password', invite: 'Set up your account', verify: 'Confirm your email address' };
 
 /** What the package config ships as `email.password.<purpose>.template`, for the `deps` seam and a config without it. */
 const BUILTIN_TEMPLATES: Readonly<Record<PasswordMailPurpose, IEmailTemplate>> = {
