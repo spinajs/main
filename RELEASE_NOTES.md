@@ -92,6 +92,7 @@ Migrate with one of:
 - A successful login replaces the legacy hash with argon2id through the existing compare-and-set rehash. The argon2 cost
   stays pinned.
 - `Argon2PasswordHasherOptions.legacyHashes` and the exported `LegacyHashKind` type.
+
 # Release notes — authn, authn-local, authn-http, authn-orm, email: email one-time code
 
 > Branch `feat/ory-feat-3`. Docs: `docs/authn-local/15-email-codes.md`, `docs/authn-http/22-code-routes.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`.
@@ -114,6 +115,7 @@ Migrate with one of:
 - `PasswordService` has two more optional methods, `requestCode(login, ctx)` and `challengeCode(id, ctx)`, which `LocalPasswordService` implements; `PasswordMail` has an optional `code`.
 - `@spinajs/authn-testing`: rule `A36`, `MemoryMfaEnrolmentMarks`, `FakeMfaStep({ challenge: true })`, and `OutboxPort.secretFor(id, 'code')`.
 - There are no HTTP routes to enrol, confirm or disable the step yet: call `EmailCodeMfaStep` from your own routes.
+
 # Release notes — authn, authn-http, users, email: self-service registration
 
 > Docs: `docs/authn-http/22-registration-route.md`, `docs/users/18-self-service-registration.md`.
