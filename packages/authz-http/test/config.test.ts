@@ -34,6 +34,7 @@ describe('authz.http through @Config and its schema', () => {
       admin: { domain: 'root' },
       events: { maxStreamsPerPrincipal: 5 },
       unguardedRoutes: 'warn',
+      webhooks: [],
     });
   });
 

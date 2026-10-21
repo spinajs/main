@@ -1,3 +1,4 @@
+import '@spinajs/authn/register-schema';
 import { AsyncService, Injectable, PerChildInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
