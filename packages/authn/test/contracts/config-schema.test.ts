@@ -73,6 +73,7 @@ const THROTTLE_DEFAULTS = {
   global: null as null | Json,
   maxRows: 1_000_000,
   memory: { sweepBatch: 8, fullRetrySeconds: 60, holdOffMs: 1000 },
+  ipv6Prefix: 64,
 };
 
 // Design §22.5; authn.oidc has a schema of its own in @spinajs/authn-oidc.
@@ -195,7 +196,7 @@ describe('authn.* configuration schema', () => {
     it('accepts the design §22.5 example and keeps every value', () => {
       const r = check(example());
       expect(r.errors).to.deep.eq([]);
-      expect(r.config).to.deep.eq({ ...example(), audit: { ...example().audit, sinkTimeoutMs: 2000 } });
+      expect(r.config).to.deep.eq({ ...example(), throttle: { ...example().throttle, ipv6Prefix: 64 }, audit: { ...example().audit, sinkTimeoutMs: 2000 } });
     });
 
     it('accepts the keys F0b put in the tree and keeps every value', () => {
