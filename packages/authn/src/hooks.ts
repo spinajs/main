@@ -118,23 +118,69 @@ function deepCopy<T>(value: T): T | null {
   }
 }
 
-const shallowCopy = <T>(value: T): T => (Array.isArray(value) ? [...value] : { ...value }) as T;
+const isPlainObject = (v: object): boolean => {
+  const proto: unknown = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+};
 
-/** A copy of `value`, so a hook that changes it in place cannot reach the action's own data; shallow when it cannot be cloned. */
+/**
+ * The copy of a value structuredClone refused: plain objects, arrays, Dates, Maps, Sets and typed arrays are copied
+ * depth-first (frozen when `freeze`); a class instance (an ORM model holding its container) or a function is passed
+ * through as is and never frozen, because it is the caller's. `seen` keeps a cycle through plain data one copy.
+ */
+function partialCopy(value: unknown, freeze: boolean, seen: Map<object, unknown>): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) return seen.get(value);
+  if (value instanceof Date) return finish(new Date(value.getTime()), freeze);
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return deepCopy(value) ?? value;
+  if (value instanceof Map || value instanceof Set || Array.isArray(value)) return copyCollection(value, freeze, seen);
+  if (!isPlainObject(value)) return value;
+  const out = Object.create(Object.getPrototypeOf(value) as object | null) as object;
+  seen.set(value, out);
+  Object.assign(out, Object.fromEntries(Object.entries(value).map(([k, v]) => [k, partialCopy(v, freeze, seen)])));
+  return finish(out, freeze);
+}
+
+const finish = <V>(copy: V, freeze: boolean): V => (freeze ? Object.freeze(copy) : copy);
+
+function copyCollection(value: Map<unknown, unknown> | Set<unknown> | unknown[], freeze: boolean, seen: Map<object, unknown>): unknown {
+  if (Array.isArray(value)) {
+    const out: unknown[] = [];
+    seen.set(value, out);
+    for (const v of value) out.push(partialCopy(v, freeze, seen));
+    return finish(out, freeze);
+  }
+  if (value instanceof Map) {
+    const out = new Map<unknown, unknown>();
+    seen.set(value, out);
+    for (const [k, v] of value) out.set(k, partialCopy(v, freeze, seen));
+    return finish(out, freeze);
+  }
+  const out = new Set<unknown>();
+  seen.set(value, out);
+  for (const v of value) out.add(partialCopy(v, freeze, seen));
+  return finish(out, freeze);
+}
+
+/**
+ * A copy of `value`, so a hook that changes it in place cannot reach the action's own data. A value structuredClone
+ * refuses is copied as far as it is plain data; its class instances and functions are the caller's, shared.
+ */
 export function hookCopy<T>(value: T): T {
   if (value === null || typeof value !== 'object') return value;
-  return deepCopy(value) ?? shallowCopy(value);
+  return deepCopy(value) ?? (partialCopy(value, false, new Map()) as T);
 }
 
 /**
  * What a hook gets for a key it may not change: a deep copy, frozen, so a write in place fails in the hook. A value
- * that cannot be cloned is copied and frozen at the top level only: freezing deeper would freeze the caller's own
- * nested objects, which the shallow copy still shares, and break the action's later writes to them.
+ * structuredClone refuses keeps its plain data as frozen copies; only the leaves that cannot be cloned (a class
+ * instance such as an ORM model, a function) are passed through, unfrozen: they are the caller's, and must not be
+ * changed by a hook.
  */
 export function hookView<T>(value: T): T {
   if (value === null || typeof value !== 'object') return value;
   const deep = deepCopy(value);
-  return deep !== null ? deepFreeze(deep) : Object.freeze(shallowCopy(value));
+  return deep !== null ? deepFreeze(deep) : (partialCopy(value, true, new Map()) as T);
 }
 
 /**

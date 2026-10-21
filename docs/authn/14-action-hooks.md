@@ -8,7 +8,9 @@
 2. It calls `Hooks.run(action, input, impl, { mutable, refusable })`. With no matching hook (`Hooks.has(action)` is false) the action runs as is: no input, no copies, no runner call.
 3. The `before` hooks run. They may change the mutable keys or refuse with `ctx.refuse(code)`.
 4. The action runs with the merged input. A change to any other key is dropped.
-   The values under the keys a hook may not change (the identity, the target, the session handles, the external subject, `ctx`) reach it as deep, frozen copies: a write in place throws in the hook, and the action only ever reads the values it held before the hooks ran. A mutable key (`credentials`, `attributes`) is a copy the hook may change.
+   The values under the keys a hook may not change (the identity, the target, the session handles, the external subject, `ctx`) reach it as deep, frozen copies (`hookView`): a write in place throws in the hook, and the action only ever reads the values it held before the hooks ran. A mutable key (`credentials`, `attributes`) is a copy the hook may change (`hookCopy`).
+   A value `structuredClone` cannot copy (a function, or a class instance such as an ORM model holding its container) is copied as far as it is plain data: plain objects, arrays, `Date`s, `Map`s and `Set`s become frozen copies (`ceiling.roles` included), and only the leaves that cannot be cloned are shared by reference, unfrozen. Such a leaf (for example `principal.identity`, the users `User` model) is the caller's object: a hook must not change it.
+   A copy loses the getters of its class: a `Session` copied for a hook is plain data, without `state`, `impersonator` or `activeRole`. Read those from the session handle and facts in the input.
 5. The `after` hooks see the input and the result, failure results included. The `failed` hooks see an error the action threw.
 6. A refusal, or a `before` hook that throws or times out, never reaches the caller as an error. The action answers what it answers today for a refusal, and audits the real reason: `hook:<code>` for a refusal, `hook_error` for a hook that failed (its data names the hook class and `failure`: `error`, `timeout` or `depth`).
 
@@ -82,6 +84,75 @@ export class IdentityProviderGroups extends ActionHook<'authn.login.identified'>
 ## Non-refusable actions
 
 `authn.impersonation.stop` and `authn.logout.backchannel` end sessions: an impersonator going back to their own session, an IdP that ended a session. A hook may observe them, but a refusal, a throw or a timeout in `before` is only logged on the `hooks` log, and the action completes.
+
+## Running an action from another package
+
+The helpers the core uses to run its actions are exported from `@spinajs/authn` and from the `@spinajs/authn/hooks` subpath. `@spinajs/authn-oidc` runs `authn.logout.backchannel` with them; use them when your package runs an action of its own the same way.
+
+| Export | What it does |
+| --- | --- |
+| `hookView(value)` | A deep, frozen copy for a key hooks may not change. For a value `structuredClone` refuses, its plain data is copied and frozen and only the uncloneable leaves (class instances, functions) are shared, unfrozen. A primitive is returned as is. |
+| `hookCopy(value)` | A deep copy for a mutable key; for a value `structuredClone` refuses, its plain data is copied and the uncloneable leaves are shared. A hook's in-place change to the plain data never reaches the caller's object. |
+| `hookRefusalOf(err, action)` | Maps an error `Hooks.run(action, ...)` threw to an audit reason: `{ reason: 'hook:<code>' }` for an `ActionRefused`, `{ reason: 'hook_error', data: { hook, failure } }` for an `ActionHookFailed`. Returns `null` for any other error, and for a refusal or failure of another action (a nested run). |
+| `HookRefusal` | The `{ reason, data? }` type `hookRefusalOf` returns. |
+| `AuthnLoginInput`, `AuthnLoginIdentifiedInput`, `AuthnMfaVerifyInput`, `AuthnReauthInput`, `AuthnStepUpInput`, `AuthnImpersonationStartInput`, `AuthnImpersonationStopInput`, `AuthnLinkInput`, `AuthnUnlinkInput` | The input types of the authn actions. Importing the module also brings their `HookActions` declaration. |
+
+The core follows the same steps for every action:
+
+1. Ask `Hooks.has(action)`. With no matching hook, run the body directly: no input, no copies, no runner call.
+2. Build the input from `hookView` copies of the fixed keys and `hookCopy` copies of the mutable keys.
+3. Call `Hooks.run`. The body reads its fixed values from what it held before the run, and only the mutable keys from the merged input.
+4. Catch the error and pass it to `hookRefusalOf`. A non-null answer is this action's refusal: audit its `reason` and `data`, and answer the action's refused answer. Rethrow or handle any other error as before.
+
+```ts sample
+import type { AuthnContext, IdentityRef } from '@spinajs/authn/contracts';
+import { hookCopy, hookRefusalOf, hookView } from '@spinajs/authn/hooks';
+import type { Hooks } from '@spinajs/hooks';
+
+export interface DeviceTrustInput {
+  readonly identity: IdentityRef;
+  labels: Readonly<Record<string, string>>;
+  readonly ctx: AuthnContext;
+}
+
+declare module '@spinajs/hooks' {
+  interface HookActions {
+    'devices.trust': { input: DeviceTrustInput; output: { ok: boolean } };
+  }
+}
+
+export abstract class TrustedDevices {
+  abstract trust(identity: IdentityRef, labels: Readonly<Record<string, string>>): Promise<void>;
+}
+
+/** Trusts a device for an identity; hooks may relabel it or refuse. */
+export class DeviceTrust {
+  constructor(
+    private readonly hooks: Hooks,
+    private readonly devices: TrustedDevices,
+    private readonly audit: (reason: string, data?: Readonly<Record<string, unknown>>) => Promise<void>,
+  ) {}
+
+  async trust(identity: IdentityRef, labels: Record<string, string>, ctx: AuthnContext): Promise<{ ok: boolean }> {
+    // The identity comes from the closure, never from the hooks' input.
+    const body = async (input: DeviceTrustInput) => {
+      await this.devices.trust(identity, input.labels);
+      return { ok: true };
+    };
+    if (!this.hooks.has('devices.trust')) return body({ identity, labels, ctx });
+    try {
+      return await this.hooks.run('devices.trust', { identity: hookView(identity), labels: hookCopy(labels), ctx: hookView(ctx) }, body, { mutable: ['labels'] });
+    } catch (err) {
+      const refusal = hookRefusalOf(err, 'devices.trust');
+      if (!refusal) throw err;
+      await this.audit(refusal.reason, refusal.data);
+      return { ok: false };
+    }
+  }
+}
+```
+
+`@spinajs/authn/hooks` imports the `@spinajs/hooks` root, which registers `DefaultHooks` as `Hooks` and the `hooks.*` configuration schema.
 
 ## Related
 
