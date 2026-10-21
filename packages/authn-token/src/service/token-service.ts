@@ -7,6 +7,8 @@ import '@spinajs/authn/bus';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
 import { InvalidArgument, InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
+import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
+import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
 import { ormReady } from '@spinajs/orm';
 import { _between, _check_arg, _contains, _custom, _finite, _gte, _integer, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
 import { CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
@@ -14,6 +16,7 @@ import type { AuthnContext, CredentialChange, AuthnFailure, Ceiling, IdentityRef
 import { DateTime } from 'luxon';
 
 import { AccessTokenGenerationProvider } from '../generation.js';
+import '../hooks.js';
 import { MAX_TOKEN_LENGTH, checkTokenSize } from '../generator.js';
 import { AccessToken, TOKEN_KINDS } from '../models/AccessToken.js';
 import { DEFAULT_TOKEN_CACHE, TokenValidationCache } from './cache.js';
@@ -44,6 +47,37 @@ const NOT_FOUND: Extract<TokenRotateResult, { ok: false }> = Object.freeze({ ok:
 const UPDATE_INVALID_SCOPE: Extract<TokenUpdateResult, { ok: false }> = Object.freeze({ ok: false, reason: 'invalid_scope' });
 const UPDATE_INVALID_EXPIRY: Extract<TokenUpdateResult, { ok: false }> = Object.freeze({ ok: false, reason: 'invalid_expiry' });
 const fail = (reason: AuthnFailure): Failure => ({ ok: false, reason });
+
+/** The audit reason of `action`'s hooks refusing it, or null for any other error. */
+function hookReason(err: unknown, action: ActionName): string | null {
+  if (err instanceof ActionRefused && err.action === action) return `hook:${err.code}`;
+  if (err instanceof ActionHookFailed && err.action === action) return 'hook_error';
+  return null;
+}
+
+/** What a create asked for, parsed before the hooks run: a hook may only narrow it. */
+interface AskedToken {
+  readonly kind: unknown;
+  readonly roles: string[] | undefined | null;
+  readonly scope: TokenScope | undefined | null;
+  readonly profile: unknown;
+}
+
+const sameResource = (a: ResourceRef, b: ResourceRef): boolean => a.type === b.type && a.id === b.id;
+
+/** True when `got` keeps within `limit`; an undefined limit is none. */
+function within<T>(limit: readonly T[] | undefined, got: readonly T[] | undefined, same: (a: T, b: T) => boolean = Object.is): boolean {
+  return limit === undefined || (got !== undefined && got.every((g) => limit.some((l) => same(l, g))));
+}
+
+/** False when the hooked request asks for more than the caller did: another kind or profile, a role, a permission or a resource it left out. */
+function narrows(asked: AskedToken, kind: unknown, roles: string[] | undefined, scope: TokenScope | undefined, profile: string | undefined): boolean {
+  if (kind !== asked.kind || profile !== asked.profile || asked.roles === null || asked.scope === null) {
+    return false;
+  }
+  const limits = asked.scope;
+  return within(asked.roles, roles) && (limits === undefined || (within(limits.permissions, scope?.permissions) && within(limits.resources, scope?.resources, sameResource)));
+}
 
 /** NaN for anything but a valid Date. */
 const instant = (v: unknown): number => toEpochMs(v) ?? Number.NaN;
@@ -199,6 +233,9 @@ export class DbTokenService extends TokenService {
 
   private validations: TokenValidationCache | undefined;
 
+  @Autoinject(Hooks)
+  protected Hooks: Hooks;
+
   @AutoinjectService('authn.token.generation', AccessTokenGenerationProvider)
   protected Generator: AccessTokenGenerationProvider;
 
@@ -219,6 +256,30 @@ export class DbTokenService extends TokenService {
 
   public async create(owner: IdentityRef, opts: TokenCreateOptions, ctx: AuthnContext): Promise<TokenCreateResult> {
     this.checkFormat();
+    const raw: Record<string, unknown> = isPlainObject(opts) ? opts : {};
+    const agent = raw.kind === 'agent';
+    // Parsed before the hooks run, so a hook that changes opts in place cannot move the limits it is held to.
+    const asked: AskedToken = { kind: raw.kind, roles: parseRoles(raw.roles), scope: parseScope(raw.scope, agent), profile: raw.profile };
+    let result: TokenCreateResult | undefined;
+    try {
+      await this.runHooked(
+        'authn.token.create',
+        { owner, opts, ctx },
+        async (input) => {
+          result = await this.createChecked(owner, input.opts, ctx, asked);
+          return result.ok ? { ok: true as const, record: result.record } : result;
+        },
+        { mutable: ['opts'] },
+      );
+    } catch (err) {
+      await this.publishRefusal(err, 'authn.token.create', ctx, 'token.create', owner);
+      throw err;
+    }
+    return result!;
+  }
+
+  /** Every check of create on `opts`, which hooks may have changed, then the insert. */
+  protected async createChecked(owner: IdentityRef, opts: TokenCreateOptions, ctx: AuthnContext, asked: AskedToken): Promise<TokenCreateResult> {
     const now = this.nowOf(ctx);
 
     // Callers can bypass the types, so every field is checked as unknown.
@@ -262,6 +323,10 @@ export class DbTokenService extends TokenService {
     // The schema is the gate; this floor holds for values that never went through it. Each cap is checked on its own: Math.min would hide an infinite agent cap behind the PAT cap.
     if (!(Number.isFinite(patCap) && (!agent || Number.isFinite(agentCap)) && expiresAt > now && expiresAt <= cap)) {
       return INVALID_EXPIRY;
+    }
+
+    if (!narrows(asked, kind, roles, scope, profile)) {
+      return INVALID_SCOPE;
     }
 
     const name = typeof raw.name === 'string' ? raw.name.trim() : '';
@@ -311,11 +376,21 @@ export class DbTokenService extends TokenService {
   }
 
   public async revoke(owner: IdentityRef, id: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<boolean> {
-    const now = this.nowOf(ctx);
     const [ok] = _try_check_arg(_is_string(_non_empty()))(id, 'id');
     if (!ok) {
       return false;
     }
+    const actor = opts?.actor ? { actor: opts.actor } : {};
+    try {
+      return await this.runHooked('authn.token.revoke', { owner, id, ...actor, ctx }, () => this.revokeOwn(owner, id, ctx, opts?.actor), { mutable: [] });
+    } catch (err) {
+      await this.publishRefusal(err, 'authn.token.revoke', ctx, 'token.revoke', owner, opts?.actor, { token: id });
+      throw err;
+    }
+  }
+
+  protected async revokeOwn(owner: IdentityRef, id: string, ctx: AuthnContext, actor?: PrincipalRef): Promise<boolean> {
+    const now = this.nowOf(ctx);
     await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
@@ -328,7 +403,7 @@ export class DbTokenService extends TokenService {
     }
 
     await this.changed({ kind: 'token', id: token.Uuid });
-    await this.publish(ctx, now, 'token.revoke', owner, { token: token.Uuid, kind: token.Kind }, opts?.actor);
+    await this.publish(ctx, now, 'token.revoke', owner, { token: token.Uuid, kind: token.Kind }, actor);
     return true;
   }
 
@@ -338,6 +413,25 @@ export class DbTokenService extends TokenService {
     _check_arg(_is_number(_integer(), _between(0, MAX_GRACE_SECONDS, new InvalidArgument(`graceSeconds must be a whole number of seconds from 0 to ${MAX_GRACE_SECONDS}`))))(graceSeconds, 'graceSeconds');
     this.checkFormat();
 
+    let result: TokenRotateResult | undefined;
+    try {
+      await this.runHooked(
+        'authn.token.rotate',
+        { owner, id, ...(opts ? { opts } : {}), ctx },
+        async () => {
+          result = await this.rotateNow(owner, id, ctx, now, graceSeconds);
+          return result.ok ? { ok: true as const, token: result.token } : result;
+        },
+        { mutable: [] },
+      );
+    } catch (err) {
+      await this.publishRefusal(err, 'authn.token.rotate', ctx, 'token.rotate', owner, undefined, { token: id });
+      throw err;
+    }
+    return result!;
+  }
+
+  protected async rotateNow(owner: IdentityRef, id: string, ctx: AuthnContext, now: number, graceSeconds: number): Promise<TokenRotateResult> {
     const token = await this.liveToken(owner, id);
     const expiresAt = token ? toDate(token.ExpiresAt) : null;
     if (!token || expiresAt === null || expiresAt.getTime() <= now) {
@@ -368,6 +462,16 @@ export class DbTokenService extends TokenService {
   }
 
   public async update(owner: IdentityRef, id: string, change: TokenUpdate, ctx: AuthnContext): Promise<TokenUpdateResult> {
+    try {
+      // The narrowing check runs inside, on what the hooks left.
+      return await this.runHooked('authn.token.update', { owner, id, opts: change, ctx }, (input) => this.updateNow(owner, id, input.opts, ctx), { mutable: ['opts'] });
+    } catch (err) {
+      await this.publishRefusal(err, 'authn.token.update', ctx, 'token.update', owner, undefined, { token: id });
+      throw err;
+    }
+  }
+
+  protected async updateNow(owner: IdentityRef, id: string, change: TokenUpdate, ctx: AuthnContext): Promise<TokenUpdateResult> {
     const now = this.nowOf(ctx);
     // Callers can bypass the types, and only these three keys are read.
     const raw: Record<string, unknown> = isPlainObject(change) ? change : {};
@@ -498,7 +602,12 @@ export class DbTokenService extends TokenService {
     return count;
   }
 
+  /** A credential's holder revoking it is never refused: its hooks only observe. */
   public async revokeByPlaintext(raw: string, ctx: AuthnContext): Promise<boolean> {
+    return this.runHooked('authn.token.selfRevoke', { ctx }, () => this.revokeByPlaintextNow(raw, ctx), { mutable: [], refusable: false });
+  }
+
+  protected async revokeByPlaintextNow(raw: string, ctx: AuthnContext): Promise<boolean> {
     const now = this.nowOf(ctx);
     const [ok] = _try_check_arg(_is_string(_non_empty()))(raw, 'raw');
     if (!ok || raw.length > MAX_TOKEN_LENGTH) {
@@ -708,6 +817,19 @@ export class DbTokenService extends TokenService {
       await this.Bus?.publish(change);
     } catch (err) {
       this.Log.error({ error: err, kind: change.kind }, 'Could not publish a ${kind} credential change');
+    }
+  }
+
+  protected runHooked<A extends ActionName>(action: A, input: InputOf<A>, impl: (input: InputOf<A>) => Promise<OutputOf<A>>, opts: RunOptions<A>): Promise<OutputOf<A>> {
+    // Built with `new` (a test seam), nothing injects Hooks.
+    return this.Hooks ? this.Hooks.run(action, input, impl, opts) : impl(input);
+  }
+
+  /** Audits a refusal by `action`'s hooks; any other error is left to the caller. */
+  protected async publishRefusal(err: unknown, action: ActionName, ctx: AuthnContext, type: 'token.create' | 'token.revoke' | 'token.rotate' | 'token.update', owner: IdentityRef, actor?: PrincipalRef, data: Record<string, unknown> = {}): Promise<void> {
+    const reason = hookReason(err, action);
+    if (reason) {
+      await (this.Auditor ?? this.Audit).publishIn(ctx, { type, outcome: 'failure', reason, identity: { type: owner.type, id: owner.id }, ...(actor ? { actor } : {}), data });
     }
   }
 
