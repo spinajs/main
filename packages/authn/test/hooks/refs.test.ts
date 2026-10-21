@@ -35,14 +35,14 @@ class InPlaceHook extends ActionHook {
 
   constructor(
     readonly actions: readonly ActionPattern[],
-    private readonly write: (input: Record<string, any>) => void,
+    private readonly write: (input: Record<string, Record<string, unknown>>) => void,
   ) {
     super();
   }
 
   before(ctx: BeforeContext<ActionName>): void {
     try {
-      this.write(ctx.input as Record<string, any>);
+      this.write(ctx.input as unknown as Record<string, Record<string, unknown>>);
       this.landed.push(ctx.action);
     } catch (e) {
       if (!(e instanceof TypeError)) throw e;
@@ -118,7 +118,7 @@ describe('action hooks get copies: a write in place never reaches the action', f
     const a = await seed(p);
     await p.links.link(a, subject);
     p.externalSubjects.set('sub-1', subject);
-    const r = await p.service.authenticate({ kind: 'external', provider: 'kit-idp', payload: { subject: 'sub-1' } } as Credentials, ctx());
+    const r = await p.service.authenticate({ kind: 'external', provider: 'kit-idp', payload: { subject: 'sub-1' } }, ctx());
     assert.strictEqual(r.status, 'success', JSON.stringify(r));
     assert.deepStrictEqual(hook.landed, []);
     assert.strictEqual((await p.sessions.restore((r as { session: SessionHandle }).session.id))?.facts.external?.sid, 'idp-1');
