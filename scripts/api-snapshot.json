@@ -18,5 +18,5 @@
     "authn-http": ["src/api.ts"],
     "principal": ["src/index.ts"]
   },
-  "augmentationAllowlist": ["packages/authz-orm/src/lists/augment.ts", "packages/authz-rbac/src/admin/commands.ts", "packages/authz-abac/src/admin/commands.ts"]
+  "augmentationAllowlist": ["packages/authz-orm/src/lists/augment.ts", "packages/authz-rbac/src/admin/commands.ts", "packages/authz-abac/src/admin/commands.ts", "packages/authz-rebac/src/admin/commands.ts"]
 }

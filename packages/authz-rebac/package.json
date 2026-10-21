@@ -9,6 +9,11 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./http": {
+      "types": "./lib/mjs/http/index.d.ts",
+      "import": "./lib/mjs/http/index.js",
+      "require": "./lib/cjs/http/index.js"
     }
   },
   "type": "module",
@@ -53,9 +58,26 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.1"
+    "@spinajs/authz": "3.0.1",
+    "@spinajs/authz-orm": "3.0.1",
+    "@spinajs/configuration": "3.0.1",
+    "@spinajs/di": "3.0.1",
+    "@spinajs/orm": "3.0.1",
+    "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "@spinajs/authz-testing": "3.0.1"
+    "@spinajs/authz-http-admin": "3.0.1",
+    "@spinajs/authz-testing": "3.0.1",
+    "@spinajs/log": "3.0.1",
+    "@spinajs/orm-sqlite": "3.0.1",
+    "@types/luxon": "^3.6.1"
+  },
+  "peerDependencies": {
+    "@spinajs/authz-http-admin": "3.0.1"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/authz-http-admin": {
+      "optional": true
+    }
   }
 }

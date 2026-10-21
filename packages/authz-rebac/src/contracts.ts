@@ -1,4 +1,7 @@
-import type { PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { Permission, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
+
+// The ReBAC admin commands; importing them adds them to AuthzCommand and AuthzAdminQuery.
+export type { TupleWriteCommand, TupleDeleteCommand, TuplesAdminQuery } from './admin/commands.js';
 
 /** Everyone who holds `relation` on `object`: a Zanzibar userset, a Keto subject set. */
 export interface SubjectSet {
@@ -45,4 +48,37 @@ export abstract class TupleStore {
     for (const subject of subjects) for (const ref of await this.reverse(subject, relation, objectType)) out.set(ref.id ?? '', ref);
     return [...out.values()];
   }
+}
+
+/**
+ * A permission's rewrite, Keto's OPL as JSON. A string is a computed userset (`'viewer'`: the relation or
+ * permission of the same object) or, with an arrow, a tuple-to-userset (`'parent->view'`: `view` on every
+ * object the `parent` tuples name).
+ */
+export type Rewrite =
+  | string
+  | { readonly computed: string }
+  | { readonly tupleToUserset: { readonly tupleset: string; readonly computed: string } }
+  | { readonly union: readonly Rewrite[] }
+  | { readonly intersection: readonly Rewrite[] }
+  | { readonly exclusion: { readonly base: Rewrite; readonly subtract: Rewrite } };
+
+export interface NamespaceDef {
+  /** Relation -> allowed subject types: `'user'` (a principal or object of that type) or `'group#member'` (a subject set). */
+  readonly relations?: Readonly<Record<string, readonly string[]>>;
+  /** Permission -> its rewrite; a permission holds no tuples. */
+  readonly permissions?: Readonly<Record<string, Rewrite>>;
+}
+
+/** Namespace (resource type) -> its relations and permissions. */
+export type NamespaceConfig = Readonly<Record<ResourceType, NamespaceDef>>;
+
+/** SpinaJS permission -> `<namespace>#<relation or permission>`, e.g. `'doc:read': 'doc#view'`. */
+export type PermissionMap = Readonly<Record<Permission, string>>;
+
+export interface RebacLimits {
+  /** Tuple hops a proof may take from the requested object (default 8). */
+  readonly maxDepth?: number;
+  /** Node evaluations per check (default 10000). */
+  readonly maxCalls?: number;
 }
