@@ -51,6 +51,7 @@ export class OrmMigrator extends AsyncService {
     const tool = this.Options.MigrateOnStartup === false;
     this.Orm = await (tool ? runAsMigrationTool(async () => await this.Container.resolve(Orm)) : this.Container.resolve(Orm));
     this.Runner = new MigrationRunner(this.Orm);
+    this.followOrm();
 
     if (tool) {
       this.Log.trace('Boot migration pass skipped - OrmMigrator was resolved with MigrateOnStartup: false');
@@ -68,6 +69,18 @@ export class OrmMigrator extends AsyncService {
     });
 
     this.openGate();
+  }
+
+  /**
+   * Drops this migrator from the cache once another Orm resolves ( `DI.uncache(Orm)` alone, as test harnesses do ), so
+   * the next `DI.resolve(OrmMigrator)` migrates and opens that Orm instead of returning a migrator bound to the old one.
+   */
+  protected followOrm(): void {
+    this.Container.once('di.resolved.Orm', (_container: unknown, orm: unknown) => {
+      if (orm !== this.Orm && this.Container.get(OrmMigrator) === this) {
+        this.Container.uncache(OrmMigrator);
+      }
+    });
   }
 
   protected openGate(): void {

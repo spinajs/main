@@ -598,6 +598,18 @@ describe('OrmMigrator', function () {
     expect(() => models.MigratorTestPost.all()).to.throw(OrmException, 'connection migrator migrates on startup; resolve OrmMigrator before using it');
   });
 
+  it('(g) after only the Orm was uncached, the migrator resolved next opens the new Orm', async () => {
+    const first = await DI.resolve(OrmMigrator);
+    DI.uncache(Orm);
+
+    const orm = await DI.resolve(Orm);
+    const second = await DI.resolve(OrmMigrator);
+
+    expect(second).to.not.equal(first);
+    expect(orm.Connections.get(CONNECTION)!.AwaitsStartupMigration).to.equal(false);
+    expect(await models.MigratorTestPost.all()).to.eql([]);
+  });
+
   it('(g) a connection with OnStartup off is not gated', async () => {
     onStartup = false;
 
