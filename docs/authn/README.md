@@ -27,7 +27,7 @@ npm install @spinajs/authn
 | [Fresh authentication](09-fresh-authentication.md) | `FreshAuthCheck`, `isFresh` and `authn.freshAuth.maxAgeSeconds` |
 | [Account linking](10-account-linking.md) | Linking at login, `AccountLinkService`, `IdentityLinkStore` and `authn.linking.*` |
 | [Impersonation and the active role](11-impersonation-and-active-role.md) | `AuthnImpersonationService`, `ImpersonationGuard`, the role switch and `authn.impersonation.*` |
-| [Integration hooks](12-integration-hooks.md) | `ExternalLoginHook`, `AuthnResponseExtension`, `RoleSource`, `CredentialAdminGuard`, `CredentialExtractor` |
+| [Integration hooks](12-integration-hooks.md) | `ExternalLoginHook`, `AuthnResponseExtension`, `RoleSource`, `SessionStartHook`, `CredentialAdminGuard`, `CredentialExtractor` |
 | [Configuration and boot checks](13-configuration-and-boot-checks.md) | `AUTHN_CONFIGURATION_SCHEMA`, every `authn.*` key, the secret and env checks, `checkAuthnConfig` |
 
 ## Quick start

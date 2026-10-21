@@ -3,7 +3,10 @@ import { randomUUID } from 'node:crypto';
 
 import { AUTHN_FAILURE_BODY } from '../../../src/v3/index.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
-import { Client, V3AppResponseExtension, clearLog, config, cookieName, events, logLines, loggedIn, passwordStrategy, resetRecorders, seedUser, sessionSetCookie, step, throttle, tokens } from '../app.js';
+import { DI } from '@spinajs/di';
+import { SessionIssuer } from '@spinajs/authn/contracts';
+
+import { Client, V3AppResponseExtension, V3AppSessionStartHook, clearLog, config, cookieName, events, logLines, loggedIn, passwordStrategy, resetRecorders, roles, seedUser, sessionSetCookie, step, throttle, tokens } from '../app.js';
 import type { Res } from '../app.js';
 
 const probe = async (c: Client) => (await c.get(`/${AUTHN_PROBE_PATH}`)).body;
@@ -157,6 +160,88 @@ export function loginSuite(): void {
         expect(lines.filter((l) => l.includes(needle)), needle).to.deep.eq([]);
       }
     });
+  });
+
+  describe('SessionStartHook: the initial active role', () => {
+    const holdingBAndA = async () => {
+      const u = await seedUser();
+      await roles.grant(u.ref, [
+        { role: 'b', requirePassword: true },
+        { role: 'a', requirePassword: true },
+      ]);
+      return u;
+    };
+    const first = (role: string) => () => ({ roles: [role] });
+    const sessionsOf = async (u: { ref: { type: string; id: string } }) => ((await DI.resolve(SessionIssuer)) as SessionIssuer).list(u.ref);
+
+    it('no hook answers a ceiling: the login answer and the session keep every held role, as in 3.0.1', async () => {
+      const u = await holdingBAndA();
+      const c = new Client();
+      const res = await c.post('/auth/login', { login: u.login, password: u.password });
+      expect(res.status, JSON.stringify(res.body)).to.eq(200);
+      expect(res.body.Access).to.deep.eq({ kind: 'login', id: u.ref.id, roles: null });
+      expect(V3AppSessionStartHook.calls.map((x) => [x.kind, x.principal.id])).to.deep.eq([['login', u.ref.id]]);
+      expect(V3AppSessionStartHook.calls[0].session.state).to.eq('active');
+      expect((await c.get('/auth/active-role')).body.ActiveRole).to.eq(null);
+    });
+
+    it('the ceiling a hook answers at login becomes the ActiveRole: the answer, GET /auth/active-role and later requests are narrowed', async () => {
+      V3AppSessionStartHook.answer = first('a');
+      const u = await holdingBAndA();
+      const c = new Client();
+      const res = await c.post('/auth/login', { login: u.login, password: u.password });
+      expect(res.status, JSON.stringify(res.body)).to.eq(200);
+      expect(res.body.Access).to.deep.eq({ kind: 'login', id: u.ref.id, roles: ['a'] });
+      const state = await c.get('/auth/active-role');
+      expect(state.body.ActiveRole).to.eq('a');
+      expect(state.body.Roles.map((r: { role: string }) => r.role)).to.deep.eq(['b', 'a']);
+      expect((await c.get('/auth')).body.Access.roles).to.deep.eq(['a']);
+    });
+
+    it('a pending login asks no hook; the MFA completion does, with the same effect', async () => {
+      V3AppSessionStartHook.answer = first('a');
+      const u = await holdingBAndA();
+      step.enrol(u.ref);
+      const c = new Client();
+      const pending = await c.post('/auth/login', { login: u.login, password: u.password });
+      expect(pending.body.MfaRequired).to.deep.eq(['totp']);
+      expect(V3AppSessionStartHook.calls, 'no hook sees a pending session').to.deep.eq([]);
+      const verified = await c.post('/auth/mfa/verify', { code: step.nextCode(u.ref) });
+      expect(verified.status, JSON.stringify(verified.body)).to.eq(200);
+      expect(verified.body.Access).to.deep.eq({ kind: 'mfa', id: u.ref.id, roles: ['a'] });
+      expect(V3AppSessionStartHook.calls.map((x) => x.kind)).to.deep.eq(['mfa']);
+      expect((await c.get('/auth/active-role')).body.ActiveRole).to.eq('a');
+    });
+
+    it('a ceiling of no role narrows to none', async () => {
+      V3AppSessionStartHook.answer = () => ({ roles: [] });
+      const u = await holdingBAndA();
+      const c = new Client();
+      const res = await c.post('/auth/login', { login: u.login, password: u.password });
+      expect(res.body.Access.roles).to.deep.eq([]);
+      expect((await c.get('/auth/active-role')).body.ActiveRole).to.eq('');
+    });
+
+    const BAD: [string, () => ReturnType<NonNullable<typeof V3AppSessionStartHook.answer>>][] = [
+      [
+        'throws',
+        () => {
+          throw new Error('hook down');
+        },
+      ],
+      ['answers two roles', () => ({ roles: ['a', 'b'] })],
+      ['answers a permission ceiling', () => ({ roles: ['a'], permissions: ['doc:read'] })],
+    ];
+    for (const [label, answer] of BAD) {
+      it(`a hook that ${label} fails the login and ends the session it was asked about`, async () => {
+        V3AppSessionStartHook.answer = answer;
+        const u = await holdingBAndA();
+        const res = await new Client().post('/auth/login', { login: u.login, password: u.password });
+        expect(res.status, JSON.stringify(res.body)).to.eq(500);
+        expect(sessionSetCookie(res), 'no session cookie').to.eq(undefined);
+        expect(await sessionsOf(u), 'the session is gone').to.deep.eq([]);
+      });
+    }
   });
 
   describe('GET /auth (whoami)', () => {

@@ -38,7 +38,7 @@ What bites, on one screen:
 
 | Change | What you see | What you do |
 |---|---|---|
-| **Union of roles (H1)** | A user with several roles gets the grants of all of them. 2.x mixed the active role and all roles. A role switch now only narrows. | Before you leave 2.x, list users with several roles (step 5). Decide that the union is meant. |
+| **Union of roles (H1)** | A user with several roles gets the grants of all of them. 2.x mixed the active role and all roles. A role switch now only narrows. | Before you leave 2.x, list users with several roles (step 5). Decide that the union is meant, or start every session on one role with `authz.principals.roleSwitch.initial`. |
 | **Unattended work is denied (H2)** | CLI commands, cron jobs, queue handlers, `@Task` bodies, sockets without a user and config polling have no principal. Every check denies them, and a query on a scoped ORM model throws. | Wrap the entry point in `authz().runAs(SYSTEM, 'reason', fn)`, or run the job as its initiator (step 4). |
 | **Roles live in `authz_assignment` (H13)** | 3.0 has no `users.Role` column and no `User.Role`; raw SQL on them stops working. No migration copies 2.x roles. | Export the roles from the 2.x database (section 4.2), grant them as assignments (step 7), and remove every read of the column. |
 | **Empty CORS list allows nothing (H33, A31)** | 2.x answered every origin, with credentials, when `http.cors.origins` was empty. 3.0 sends no CORS headers. | List every origin a browser client uses (step 8). |
@@ -1433,6 +1433,12 @@ field and error code a client sees. For an app:
   an email cannot re-authenticate inline: the login is taken from `IdentityStore.display(id).email`.
 - **Role switch** asks the password for every role unless `authz.principals.roleSwitch.requirePassword`
   lists the roles that need it.
+- **Keeping v2's first-role behaviour.** 2.x activated the user's first role at login; 3.0 starts a
+  session on every held role. Set `authz.principals.roleSwitch.initial: { order: [...] }`, your roles in
+  priority order: a login or an MFA completion then starts the session switched to the first listed role
+  the user holds (`@spinajs/users`' `OrderedActiveRoleHook`, a `SessionStartHook`). The login answer's
+  `Access` and `GET /auth/active-role` show that role, and the user switches with `POST /auth/active-role`
+  as before. Other logic belongs in a `SessionStartHook` of your own.
 - **Impersonation** needs an actor session at `aal2` (`authn.impersonation.requireMfa`, default
   `true`) and fresh auth (`requirePassword`, default `true`). The actor is judged again on every
   request; impersonators lose `/user/sessions`.
