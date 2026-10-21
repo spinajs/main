@@ -27,7 +27,14 @@ function routeOf(controller: IController, method: string): { route: IRoute; desc
   return { route, descriptor };
 }
 
-async function argOf(v: DataValidator, param: IRoute['Parameters'] extends Map<unknown, infer P> ? P : never, req: Request): Promise<unknown> {
+/** The parameter names of a method, which @spinajs/http reads from its source when it builds the routes. */
+function paramNames(fn: (...args: never[]) => unknown): string[] {
+  const src = fn.toString();
+  const list = src.slice(src.indexOf('(') + 1, src.indexOf(')'));
+  return list.split(',').map((p) => p.trim().split(/[\s=]/)[0]).filter((p) => p !== '');
+}
+
+async function argOf(v: DataValidator, param: IRoute['Parameters'] extends Map<unknown, infer P> ? P : never, name: string, req: Request): Promise<unknown> {
   const options = (param.Options ?? {}) as { required?: boolean; key?: string };
   switch (String(param.Type)) {
     case String(ParameterType.FromBody): {
@@ -37,11 +44,15 @@ async function argOf(v: DataValidator, param: IRoute['Parameters'] extends Map<u
       }
       const Dto = param.RuntimeType as new (data: unknown) => object;
       const dto = new Dto(req.body);
-      v.validate(dto);
+      try {
+        v.validate(dto);
+      } finally {
+        for (const field of (param.Options as { sensitive?: string[] } | undefined)?.sensitive ?? []) delete (req.body as Record<string, unknown>)[field];
+      }
       return dto;
     }
     case String(ParameterType.FromParams): {
-      const value = (req.params as Record<string, string> | undefined)?.[param.Name];
+      const value = (req.params as Record<string, string> | undefined)?.[name];
       if (param.Schema && value !== undefined) v.validate(param.Schema as object, value as unknown as object);
       return value;
     }
@@ -71,6 +82,9 @@ async function handled(err: unknown, stage: ErrorStage, handlers: readonly IOnEr
   throw current;
 }
 
+/** `req` with these route params. */
+export const withParams = (req: Request, params: Record<string, string>): Request => Object.assign(req, { params: { ...(req.params as object | undefined), ...params } });
+
 /**
  * Calls `method` of `controller` as its route does: the arguments from `req` (a body DTO validated, strict for authn.*
  * schemas), then the action, an error of either going through the route's and the controller's `@OnError` handlers.
@@ -85,7 +99,8 @@ export async function callRoute(controller: IController, method: string, req: Re
   let args: unknown[];
   try {
     args = [];
-    for (const p of params) args[p.Index] = await argOf(v, p, req);
+    const names = paramNames((controller as unknown as Record<string, (...a: never[]) => unknown>)[method]);
+    for (const p of params) args[p.Index] = await argOf(v, p, names[p.Index], req);
   } catch (err) {
     return handled(err, 'arguments', handlers, ctx);
   }

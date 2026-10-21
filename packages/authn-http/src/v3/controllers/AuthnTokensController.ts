@@ -1,17 +1,39 @@
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BaseController, BasePath, Del, Get, Ok, Param, Patch, Policy, Post, Req } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
+import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Policy, Post } from '@spinajs/http';
 import { TokenService } from '@spinajs/authn/contracts';
 
-import { freshAuthOrAnswer, takeReauthPassword } from '../../policies/v3/fresh-auth.js';
+import { ClientContext } from '../../args/authn.js';
+import { AuthnTokenCreateBody, AuthnTokenRotateBody, AuthnTokenUpdateBody, TOKEN_ID_PARAM } from '../../dto/tokens.js';
+import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
-import { TOKEN_ID_CAP, invalidExpiry, rotateRequestOf, tokenEntry, tokenNotFound, tokenRequestOf, tokenUpdateOf } from '../../token/fields.js';
+import {
+  invalidExpiry,
+  invalidGrace,
+  invalidKind,
+  invalidProfile,
+  invalidRoles,
+  invalidTokenName,
+  invalidTokenScope,
+  invalidUpdateRoles,
+  tokenEntry,
+  tokenNotFound,
+  tokenRequestOf,
+  tokenUpdateOf,
+} from '../../token/fields.js';
 import { TokenServiceRegistered } from '../../token/gate.js';
+import { OnInvalidInput, byField, bySchema, unknownField } from '../../validation/answers.js';
+import type { InputAnswer } from '../../validation/answers.js';
+import { uniformFailure } from '../../validation/login.js';
+import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, badRequest } from '../responses.js';
-import { boundedString, contextOf } from '../routes.js';
-import { clientOf } from '../client.js';
+import { contextOf } from '../routes.js';
+
+const TOKEN_ID = TOKEN_ID_PARAM.$id;
+
+// Before any other field: a body cannot reach the kind, profile or scope of a token.
+const updateRefused: InputAnswer = (input, err, ctx) => (input.unknown.length > 0 ? unknownField(input, err, ctx) : byField({ name: invalidTokenName, roles: invalidUpdateRoles, expiresAt: invalidExpiry }, unknownField)(input, err, ctx));
 
 /**
  * The owner's API tokens over the TokenService contract (design §22.9, §22.11; A13, A14, SR-08). Off (404) while no
@@ -38,8 +60,8 @@ export class AuthnTokensController extends BaseController {
    */
   @Get('tokens')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async list(@Req() req: Request) {
-    const session = activeSessionOf(clientOf(req));
+  public async list(@ClientContext() client: AuthnClientContext) {
+    const session = activeSessionOf(client);
     const records = await (await this.service()).list(session.identity);
     const now = new Date();
     return new Ok(
@@ -55,9 +77,10 @@ export class AuthnTokensController extends BaseController {
    * `{ Token, Plaintext }`; the plaintext is shown here once and never again. `expiresAt` is mandatory, at most
    * authn.token.maxTtlDays ahead (an agent token authn.token.agentMaxTtlMinutes). 400 `invalid_name`,
    * `invalid_expiry`, `invalid_kind`, `invalid_roles`, `invalid_profile`, or `invalid_scope` (also a role the owner
-   * does not hold, a profile the profile policy does not offer, or a scope that does not fit the kind); 403
-   * `fresh_auth_required` for a stale session without the password; a wrong or throttled password the login failure
-   * body without Retry-After.
+   * does not hold, a profile the profile policy does not offer, or a scope that does not fit the kind), `invalid_field`
+   * for an unknown field; 403 `fresh_auth_required` for a stale session without the password; a wrong or throttled
+   * password, or one that is no string, the login failure body without Retry-After. The body is checked before fresh
+   * auth.
    * @body {AuthnTokenCreateBody} The token to create, and the password for a stale session
    * @returns {AuthnTokenCreated} The token and its plaintext, shown once
    * @response 400 {AuthnError} A malformed field (invalid_name, invalid_expiry, invalid_kind, invalid_roles, invalid_profile, invalid_scope) or a refused one
@@ -67,14 +90,15 @@ export class AuthnTokensController extends BaseController {
    */
   @Post('tokens')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async create(@Req() req: Request) {
-    const session = activeSessionOf(clientOf(req));
-    const fresh = await freshAuthOrAnswer(this.Container, clientOf(req), takeReauthPassword(req));
+  @OnInvalidInput(byField({ reauthPassword: uniformFailure, name: invalidTokenName, expiresAt: invalidExpiry, kind: invalidKind, roles: invalidRoles, profile: invalidProfile, scope: invalidTokenScope }, unknownField))
+  public async create(@Body({ required: true, sensitive: ['reauthPassword'] }) body: AuthnTokenCreateBody, @ClientContext() client: AuthnClientContext) {
+    const session = activeSessionOf(client);
+    const fresh = await freshAuthOrAnswer(this.Container, client, body.reauthPassword);
     if ('answer' in fresh) return fresh.answer;
-    const parsed = tokenRequestOf(req);
+    const parsed = tokenRequestOf(body);
     if ('answer' in parsed) return parsed.answer;
 
-    const result = await (await this.service()).create(session.identity, parsed.opts, contextOf(clientOf(req), 'request', session.handle));
+    const result = await (await this.service()).create(session.identity, parsed.opts, contextOf(client, 'request', session.handle));
     if (!result.ok) {
       return result.code === 'invalid_expiry' ? invalidExpiry() : badRequest('invalid_scope', 'the roles, profile or scope are not allowed for this token');
     }
@@ -90,10 +114,10 @@ export class AuthnTokensController extends BaseController {
    */
   @Del('tokens/:uuid')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async revoke(@Req() req: Request, @Param() uuid: string) {
-    const session = activeSessionOf(clientOf(req));
-    const id = boundedString(uuid, TOKEN_ID_CAP);
-    const revoked = id !== null && (await (await this.service()).revoke(session.identity, id, contextOf(clientOf(req), 'request', session.handle)));
+  @OnInvalidInput(tokenNotFound)
+  public async revoke(@Param(TOKEN_ID_PARAM) uuid: string, @ClientContext() client: AuthnClientContext) {
+    const session = activeSessionOf(client);
+    const revoked = await (await this.service()).revoke(session.identity, uuid, contextOf(client, 'request', session.handle));
     if (!revoked) return tokenNotFound();
     return new Ok(null, { Headers: [NO_STORE] });
   }
@@ -102,22 +126,22 @@ export class AuthnTokensController extends BaseController {
    * Rotate an own token
    * Replaces the secret of a live token; the id, name, roles and expiry stay. Needs fresh auth like the create route.
    * Body `{ graceSeconds?, reauthPassword? }`: the old secret works for `graceSeconds` more (0 to 604800, default 0).
-   * Answers `{ Token, Plaintext }`; the new plaintext is shown here once. 400 `invalid_grace`; 404 `token_not_found` for any id
-   * that is not a live token of the caller.
+   * Answers `{ Token, Plaintext }`; the new plaintext is shown here once. 400 `invalid_grace` or `invalid_field`; 404
+   * `token_not_found` for any id that is not a live token of the caller.
    * @security cookieAuth
    */
   @Post('tokens/:uuid/rotate')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async rotate(@Req() req: Request, @Param() uuid: string) {
-    const session = activeSessionOf(clientOf(req));
-    const fresh = await freshAuthOrAnswer(this.Container, clientOf(req), takeReauthPassword(req));
+  @OnInvalidInput(bySchema(TOKEN_ID, tokenNotFound, byField({ reauthPassword: uniformFailure, graceSeconds: invalidGrace }, unknownField)))
+  // The body last: route args are extracted from the last parameter on, so the body is checked before the id, as before.
+  public async rotate(@Param(TOKEN_ID_PARAM) uuid: string, @ClientContext() client: AuthnClientContext, @Body({ sensitive: ['reauthPassword'] }) body: AuthnTokenRotateBody) {
+    const input = body as AuthnTokenRotateBody | null;
+    const session = activeSessionOf(client);
+    const fresh = await freshAuthOrAnswer(this.Container, client, input?.reauthPassword);
     if ('answer' in fresh) return fresh.answer;
-    const parsed = rotateRequestOf(req);
-    if ('answer' in parsed) return parsed.answer;
-    const id = boundedString(uuid, TOKEN_ID_CAP);
-    if (id === null) return tokenNotFound();
+    const grace = input?.graceSeconds;
 
-    const result = await (await this.service()).rotate(session.identity, id, contextOf(clientOf(req), 'request', session.handle), parsed.opts);
+    const result = await (await this.service()).rotate(session.identity, uuid, contextOf(client, 'request', session.handle), grace === undefined ? undefined : { graceSeconds: grace });
     if (!result.ok) return tokenNotFound();
     return new Ok({ Token: tokenEntry(result.token, new Date()), Plaintext: result.plaintext }, { Headers: [NO_STORE] });
   }
@@ -126,19 +150,19 @@ export class AuthnTokensController extends BaseController {
    * Narrow an own token
    * Body `{ name?, roles?, expiresAt? }`. Only narrows: roles must be a subset of the token's (or of the owner's, for a token
    * without roles) and expiresAt not later than the current one. No fresh auth. 400 `invalid_name`, `invalid_roles`,
-   * `invalid_expiry`, `invalid_scope` or `invalid_field` (any other key); 404 `token_not_found`.
+   * `invalid_expiry`, `invalid_scope` or `invalid_field` (any other key, before the others); 404 `token_not_found`.
    * @security cookieAuth
    */
   @Patch('tokens/:uuid')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async update(@Req() req: Request, @Param() uuid: string) {
-    const session = activeSessionOf(clientOf(req));
-    const parsed = tokenUpdateOf(req);
+  @OnInvalidInput(bySchema(TOKEN_ID, tokenNotFound, updateRefused))
+  // The body last, so it is checked before the id, as before.
+  public async update(@Param(TOKEN_ID_PARAM) uuid: string, @ClientContext() client: AuthnClientContext, @Body() body: AuthnTokenUpdateBody) {
+    const session = activeSessionOf(client);
+    const parsed = tokenUpdateOf(body);
     if ('answer' in parsed) return parsed.answer;
-    const id = boundedString(uuid, TOKEN_ID_CAP);
-    if (id === null) return tokenNotFound();
 
-    const result = await (await this.service()).update(session.identity, id, parsed.change, contextOf(clientOf(req), 'request', session.handle));
+    const result = await (await this.service()).update(session.identity, uuid, parsed.change, contextOf(client, 'request', session.handle));
     if (result.ok) return new Ok({ Token: tokenEntry(result.token, new Date()) }, { Headers: [NO_STORE] });
     if (result.reason === 'not_found') return tokenNotFound();
     return result.reason === 'invalid_expiry' ? invalidExpiry() : badRequest('invalid_scope', 'the roles are not allowed for this token');
