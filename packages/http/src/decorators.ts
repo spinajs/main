@@ -367,8 +367,11 @@ export function Accepts(accepts: HttpAcceptHeaders) {
   });
 }
 
-export function BasePath(path: string) {
+export function BasePath(path: string | { readonly config: string; readonly default: string }) {
   return Controller((metadata: IControllerDescriptor) => {
+    if (typeof path !== 'string') {
+      throw new Error('not implemented: BasePath config');
+    }
     metadata.BasePath = path;
   });
 }
