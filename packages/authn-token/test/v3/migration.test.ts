@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 
 import { AccessToken } from '../../src/models/AccessToken.js';
+import { AuthnTokenRotation_2026_10_21_00_00_00 } from '../../src/migrations/AuthnTokenRotation_2026_10_21_00_00_00.js';
 import { RbacHttpTokenInitial_2026_08_11_01_00_00 } from '../../src/migrations/RbacHttpTokenInitial_2026_08_11_01_00_00.js';
 import { bootV3Db, insertUserRow, shutdownV3Db } from './db.js';
 
@@ -118,6 +119,7 @@ describe('RbacHttpTokenInitial migration', function () {
       expect(await connection.schema().tableExists('rbac_access_tokens')).to.equal(false);
     } finally {
       await migration.up(connection);
+      await new AuthnTokenRotation_2026_10_21_00_00_00().up(connection);
     }
 
     expect(await columns()).to.have.members(COLUMNS);
