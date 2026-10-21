@@ -228,6 +228,27 @@ describe('KitActionHooks (the hooks port)', () => {
     assert.deepEqual(log, ['after b', 'after a']);
   });
 
+  it('for an action that is not refusable, runs every before hook past a refusal, then rethrows the first error', async () => {
+    const log: string[] = [];
+    const kit = new KitActionHooks();
+    kit.add(refusingHook('authn.impersonation.stop', 'kit-stay'), new Named(['*'], log, 'a'), refusingHook('authn.login', 'kit-no'));
+    await assert.rejects(Promise.resolve(kit.before(before('authn.impersonation.stop', {}))), (e: { refused?: string }) => e.refused === 'kit-stay');
+    assert.deepEqual(log, ['before a']);
+    log.length = 0;
+    kit.clear();
+    kit.add(refusingHook('authn.login', 'kit-no'), new Named(['*'], log, 'a'));
+    await assert.rejects(Promise.resolve(kit.before(before('authn.login', {}))));
+    assert.deepEqual(log, [], 'a refusable action stops at the refusal, as the runner does');
+  });
+
+  it('takes the actions that are not refusable from its options', async () => {
+    const log: string[] = [];
+    const kit = new KitActionHooks({ notRefusable: ['kit.revoke'] });
+    kit.add(refusingHook('*', 'kit-stay'), new Named(['*'], log, 'a'));
+    await assert.rejects(Promise.resolve(kit.before(before('kit.revoke', {}))));
+    assert.deepEqual(log, ['before a']);
+  });
+
   it('clear drops every added hook', async () => {
     const log: string[] = [];
     const kit = new KitActionHooks();
