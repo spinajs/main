@@ -12,6 +12,7 @@ import type { OidcStateStore } from '../provider.js';
 import type { OidcStrategy } from '../strategy.js';
 import { MAX_SUBJECT_LENGTH } from '../claims.js';
 import { isPlainObject } from '../support.js';
+import { AUTHN_LOGOUT_BACKCHANNEL } from '../hooks.js';
 
 /** The `events` member that makes a JWT a logout token (OpenID Back-Channel Logout 1.0, section 2.4). */
 export const BACKCHANNEL_LOGOUT_EVENT = 'http://schemas.openid.net/event/backchannel-logout';
@@ -191,7 +192,7 @@ export class OidcBackchannelLogout {
   /** The IdP already ended the session, so a hook observes the revocation and cannot keep it (refusable: false). */
   protected async revokeHooked(provider: string, claims: LogoutTokenClaims, ctx: AuthnContext): Promise<void> {
     if (!this.d.hooks) return this.revoke(provider, claims);
-    await this.d.hooks.run('authn.logout.backchannel', { provider, ...(claims.sid !== undefined ? { sid: claims.sid } : {}), ctx }, () => this.revoke(provider, claims), { mutable: [], refusable: false });
+    await this.d.hooks.run(AUTHN_LOGOUT_BACKCHANNEL, { provider, ...(claims.sid !== undefined ? { sid: claims.sid } : {}), ctx }, () => this.revoke(provider, claims), { mutable: [], refusable: false });
   }
 
   protected async revoke(provider: string, claims: LogoutTokenClaims): Promise<void> {

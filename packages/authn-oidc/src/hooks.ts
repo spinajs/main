@@ -15,3 +15,6 @@ declare module '@spinajs/hooks' {
     'authn.logout.backchannel': { input: AuthnLogoutBackchannelInput; output: void };
   }
 }
+
+/** The action name; a module that runs it imports this, which also brings the declaration above into its program. */
+export const AUTHN_LOGOUT_BACKCHANNEL = 'authn.logout.backchannel';
