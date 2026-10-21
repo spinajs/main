@@ -112,6 +112,13 @@ const usersConfig = {
       profile: 'BasicProfileProvider',
     },
 
+    // Self-service registration (POST /auth/register): off unless enabled. activate: false leaves the new account inactive
+    // until an administrator activates it.
+    registration: {
+      enabled: false,
+      activate: true,
+    },
+
     /**
      * Middleware functions for user actions.
      * Each action can have before and after middleware arrays.

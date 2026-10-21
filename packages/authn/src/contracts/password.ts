@@ -122,4 +122,10 @@ export abstract class PasswordService {
   requestVerification?(id: IdentityRef, ctx: AuthnContext): Promise<AddressVerificationRequestResult>;
   /** POST /auth/verify. Single use; marks the address verified through IdentityAddressVerifier. */
   redeemVerification?(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult>;
+  /**
+   * Tells the owner of `id` that someone tried to register with their address: a mail of purpose 'account-exists' that holds no
+   * secret and points at the reset page. Dispatched, not awaited to delivery; the registration route calls it for an address
+   * that is taken. Optional: without it that mail is not sent.
+   */
+  notifyAccountExists?(id: IdentityRef, ctx: AuthnContext): Promise<void>;
 }

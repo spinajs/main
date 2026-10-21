@@ -14,3 +14,4 @@ export * from './seed.js';
 export * from './backoff.js';
 export * from './service.js';
 export * from './tokens.js';
+export * from './registrar.js';

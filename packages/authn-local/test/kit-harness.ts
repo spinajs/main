@@ -11,6 +11,7 @@ import {
   EnrolledMfaPolicy,
   FakeAuthnService,
   FakeBackoffThrottle,
+  FakeIdentityRegistrar,
   FakeIdentityStore,
   MemoryLinkStore,
   MemoryPasswordCredentialStore,
@@ -26,6 +27,7 @@ import type { ConfigOverrides, Harness, HarnessContext, StrategySubject, Throttl
 import packageConfig from '../src/config/authn-local.js';
 import { Argon2PasswordHasher, PasswordHasher } from '../src/hasher.js';
 import { PasswordMail, PasswordMailer } from '../src/mailer.js';
+import type { AuthnMailPurpose } from '../src/mail/contracts.js';
 import { LocalPasswordPolicy, PasswordBlocklist } from '../src/policy.js';
 import { LocalPasswordService } from '../src/service.js';
 import { LocalPasswordStrategy } from '../src/strategy.js';
@@ -159,6 +161,9 @@ class HarnessMailer extends PasswordMailer {
   public readonly mails: PasswordMail[] = [];
   public async send(mail: PasswordMail): Promise<void> {
     this.mails.push(mail);
+  }
+  public sentTo(id: IdentityRef, purpose: AuthnMailPurpose): number {
+    return this.mails.filter((x) => x.identity.type === id.type && x.identity.id === id.id && x.purpose === purpose).length;
   }
   public secretFor(id: IdentityRef, purpose: 'reset' | 'invite' | 'verify'): string | null {
     const m = [...this.mails].reverse().find((x) => x.identity.type === id.type && x.identity.id === id.id && x.purpose === purpose);
@@ -427,10 +432,15 @@ export async function localHarness(ctx: HarnessContext): Promise<Harness> {
       hashWith: (password, opts) => p.hasher.hashWith(password, opts),
       peakConcurrent: () => p.hasher.limiter.peak,
     },
+    registrar: new FakeIdentityRegistrar(p.identities, p.passwords, (password) => p.hasher.hash(password)),
     outbox: {
       async secretFor(id, purpose) {
         await p.password.drain();
         return p.mailer.secretFor(id, purpose);
+      },
+      async sent(id, purpose) {
+        await p.password.drain();
+        return p.mailer.sentTo(id, purpose);
       },
     },
     secrets: p.secrets,

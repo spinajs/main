@@ -387,6 +387,10 @@ export class LocalPasswordService extends PasswordService {
     return { status: 'verified' };
   }
 
+  public notifyAccountExists(_id: IdentityRef, _ctx: AuthnContext): Promise<void> {
+    return Promise.reject(new Error('not implemented: notifyAccountExists'));
+  }
+
   /** D15. `admin` revokes tokens under reset.revokeTokens and mails only with `sendReset`; `aged` keeps tokens (H32) and mails. */
   public async expire(id: IdentityRef, opts: PasswordExpiry, ctx: AuthnContext): Promise<void> {
     const sessions = this.sessions();
