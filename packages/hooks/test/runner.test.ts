@@ -792,6 +792,32 @@ describe('DefaultHooks.run', function () {
       expect((errors[0] as ActionHookFailed).action).to.eq('run.nest');
       expect(levels).to.deep.eq([2, 1, 0]);
     });
+
+    it('runs a non-refusable action past hooks.maxDepth without its hooks', async () => {
+      const ref: { hooks?: Hooks } = {};
+      const depths: number[] = [];
+      const levels: number[] = [];
+      const impl = async (i: { level: number }) => {
+        levels.push(i.level);
+        return i.level;
+      };
+      class Recursing extends ActionHook {
+        readonly actions: readonly ActionPattern[] = ['run.nest'];
+
+        async before(ctx: BeforeContext<'run.nest'>): Promise<void> {
+          depths.push(ctx.depth);
+          await ref.hooks!.run('run.nest', { level: ctx.input.level + 1 }, impl, { mutable: [], refusable: false });
+        }
+      }
+      const { hooks } = await boot({ hooks: { maxDepth: 3 } }, (c) => addHook(c, new Recursing()));
+      ref.hooks = hooks;
+
+      expect(await hooks.run('run.nest', { level: 0 }, impl, { mutable: [], refusable: false })).to.eq(0);
+
+      expect(depths).to.deep.eq([1, 2, 3]);
+      expect(levels).to.deep.eq([3, 2, 1, 0]);
+      expect(TestLog.of('hooks', 'warn').some((l) => l.text.includes('ActionHookFailed'))).to.be.true;
+    });
   });
 
   describe('zero cost', () => {
