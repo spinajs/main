@@ -489,6 +489,16 @@ Docs: `docs/authn-local/13-mail-delivery.md`, `docs/email/08-password-mailer.md`
 - `@spinajs/authn-testing`: `SoftAuthenticator`, the `webauthn` port, passkey route builders and behaviour rule A33.
 
 Docs: `docs/authn-webauthn/README.md`.
+## 3.0.4
+
+Breaking changes in the ORM boot: `Orm.resolve()` no longer migrates, the new `OrmMigrator` does, and `ormReady()` is
+removed. An app that migrates on startup resolves `OrmMigrator` before serving.
+
+- **The ORM-backed cli commands run the `OrmMigrator` boot pass.** The cli resolves only the command it runs, so a
+  command that queries models now resolves `OrmMigrator`, as an app process does, instead of only the `Orm`:
+  authn-keys' `authn:key-*` (new base `KeyCliCommand`), the scheduler's `scheduler:*` and authn-totp's
+  `authn:mfa-reset`. On a `Migration.OnStartup` connection they migrate on their way in, as they did before.
+
 ## 3.0.3
 
 Fixes only: no 3.0.2 API, config key or HTTP answer changes.
