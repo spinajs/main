@@ -1158,7 +1158,7 @@ describe('DbTokenService', function () {
       const a = await owner();
       const t = await pat(a);
       const g = await agent(a);
-      const next = await tokens.rotate(a, t.record.id, ctx(at(MINUTE)), { graceSeconds: 30 });
+      const next = await tokens.rotate(a, t.record.id, ctx(at(MINUTE)), { graceSeconds: 300 });
       if (!next.ok) {
         throw new Error('not rotated');
       }
