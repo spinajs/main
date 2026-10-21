@@ -307,7 +307,8 @@ describe('v3 store: DbMfaSecretStore', () => {
 
   it('is the MfaSecretStore that DI resolves once the db entry is imported', async () => {
     DI.clearCache();
-    assert.ok((await DI.resolve(MfaSecretStore)) instanceof DbMfaSecretStore);
+    // the db container's Orm: a root resolve would boot a second Orm whose connections every model then uses
+    assert.ok((await db.container.resolve(MfaSecretStore)) instanceof DbMfaSecretStore);
   });
 
   it('injects the DbMfaStore registered in DI', async () => {
@@ -317,7 +318,7 @@ describe('v3 store: DbMfaSecretStore', () => {
     DI.clearCache();
     try {
       await clearMfaTables(driver);
-      const store = await DI.resolve(DbMfaSecretStore);
+      const store = await db.container.resolve(DbMfaSecretStore);
       assert.strictEqual(await store.put(ALICE, 'totp', 'v1.a.b.c', 'kid'), true);
       assert.deepStrictEqual(await rawQuery(driver, 'SELECT identity, secret_enc FROM authn_mfa'), [{ identity: identityKey(ALICE), secret_enc: 'v1.a.b.c' }]);
     } finally {
