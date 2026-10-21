@@ -1226,6 +1226,8 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     }
     if (this.builder.NotNull) {
       _stmt.push(this._statementsMappings.notnull());
+    } else {
+      _stmt.push(this.explicitNull());
     }
     if (this.builder.Default) {
       _stmt.push(this._statementsMappings.default());
@@ -1244,6 +1246,11 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
       bindings: [],
       expression: _stmt.filter((x) => !_.isEmpty(x)).join(' '),
     };
+  }
+
+  /** The attribute of a column without NOT NULL; '' leaves its nullability to the database. */
+  protected explicitNull(): string {
+    return '';
   }
 
   /** `charset()`, else utf8mb4 for an exact column without a collation: its binary collation names a character set. */

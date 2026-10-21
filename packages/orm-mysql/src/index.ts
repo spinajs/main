@@ -7,10 +7,10 @@ import { Injectable, NewInstance } from '@spinajs/di';
 // the old `{ commit, rollback }` transaction shape this branch replaced. ConnectionState /
 // IPoolMetrics are orm-infra's connection-resilience + pool-telemetry work.
 import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, CreateViewCompiler, LiteralQuoter, InsertQueryCompiler, NowExpression, TextWrapper, SqlExpressions } from '@spinajs/orm';
-import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlColumnQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTableHistoryQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
+import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTableHistoryQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
-import { MySqlCreateViewCompiler, MySqlInsertQueryCompiler, MySqlTableExistsCompiler } from './compilers.js';
+import { MySqlColumnQueryCompiler, MySqlCreateViewCompiler, MySqlInsertQueryCompiler, MySqlTableExistsCompiler } from './compilers.js';
 import { MySqlInSetStatement, MySqlLiteralQuoter, MySqlNowExpression, MySqlTextWrapper } from './statements.js';
 import { mapMySqlError } from './errors.js';
 
@@ -277,7 +277,7 @@ export class MySqlOrmDriver extends SqlDriver {
     this.Container.register(BacktickIdentifierQuoter).as(IdentifierQuoter);
     this.Container.register(MySqlSqlExpressions).as(SqlExpressions);
     this.Container.register(SqlOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
-    this.Container.register(SqlColumnQueryCompiler).as(ColumnQueryCompiler);
+    this.Container.register(MySqlColumnQueryCompiler).as(ColumnQueryCompiler);
     this.Container.register(SqlAlterColumnQueryCompiler).as(AlterColumnQueryCompiler);
     this.Container.register(SqlAlterTableQueryCompiler).as(AlterTableQueryCompiler);
     this.Container.register(SqlTableCloneQueryCompiler).as(TableCloneQueryCompiler);

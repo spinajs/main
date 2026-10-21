@@ -1,6 +1,6 @@
 import { Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { CreateViewQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, InsertQueryBuilder, TableAliasCompiler } from '@spinajs/orm';
-import { SqlCreateViewQueryCompiler, SqlInsertQueryCompiler } from '@spinajs/orm-sql';
+import { SqlColumnQueryCompiler, SqlCreateViewQueryCompiler, SqlInsertQueryCompiler } from '@spinajs/orm-sql';
 
 @NewInstance()
 export class MySqlTableExistsCompiler implements TableExistsCompiler {
@@ -79,5 +79,17 @@ export class MySqlInsertQueryCompiler extends SqlInsertQueryCompiler {
     }
 
     return `INSERT${this._builder.Ignore ? ' IGNORE' : ''} INTO ${table}`;
+  }
+}
+
+/**
+ * MySQL 5.7 defaults to explicit_defaults_for_timestamp=OFF: there a TIMESTAMP column without the NULL attribute is NOT NULL,
+ * and after the first one DEFAULT '0000-00-00 00:00:00', which strict mode refuses. Naming NULL keeps a nullable TIMESTAMP
+ * nullable under either setting, as MySQL 8 has it.
+ */
+@NewInstance()
+export class MySqlColumnQueryCompiler extends SqlColumnQueryCompiler {
+  protected explicitNull(): string {
+    return this.builder.Type === 'timestamp' ? 'NULL' : '';
   }
 }

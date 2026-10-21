@@ -58,9 +58,16 @@ jobs:
   mysql:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        # 5.7 runs with its defaults ( explicit_defaults_for_timestamp=OFF, strict sql_mode ), where a TIMESTAMP
+        # column without the NULL attribute gets an invalid zero default.
+        image: ['mysql:8.0', 'mysql:5.7']
+
     services:
       mysql:
-        image: mysql:8.0
+        image: ${{ matrix.image }}
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: spinajs_queue_test
