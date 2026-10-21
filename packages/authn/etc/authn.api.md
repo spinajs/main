@@ -1337,7 +1337,8 @@ const THROTTLE_FLOWS = Object.freeze([
     "login",
     "mfa",
     "reset",
-    "reauth"
+    "reauth",
+    "register"
 ]);
 const DEFAULT_THROTTLE_PARAMS = Object.freeze({
     login: Object.freeze({
@@ -1354,6 +1355,10 @@ const DEFAULT_THROTTLE_PARAMS = Object.freeze({
     }),
     reauth: Object.freeze({
         account: backoff(3, 1000, 300000)
+    }),
+    register: Object.freeze({
+        account: backoff(3, 60000, 3600000),
+        ip: backoff(10, 30000, 3600000)
     }),
     resetAfterSeconds: 86400,
     global: null
@@ -1570,6 +1575,11 @@ export interface Ceiling {
     /** Deny code when the ceiling fails; default 'ceiling'. */
     readonly reason?: string;
 }
+
+// DEFAULT_IPV6_PREFIX (@spinajs/util)
+export declare const DEFAULT_IPV6_PREFIX = 64;
+// value
+const DEFAULT_IPV6_PREFIX = 64;
 
 // IAuthnPrincipalStorage (@spinajs/principal)
 /** req.storage keys written by AuthnMiddleware (D26). */
