@@ -469,7 +469,7 @@ export class DefaultAuthzService extends AuthzService {
     const store = (await container.resolveOptional(ScopeAttributeStore)) as ScopeAttributeStore | undefined;
     const conditions = (await container.resolveOptional(ConditionCompiler)) as ConditionCompiler | undefined;
     const admin = (await container.resolveOptional(AuthzAdmin)) as AuthzAdmin | undefined;
-    const hooks = configAt(this.Config, ['hooks', 'check']) === true ? ((await container.resolve(Hooks)) as Hooks) : undefined;
+    const hooks = configAt(this.Config, ['hooks', 'check']) === true ? await container.resolve<Hooks>(Hooks) : undefined;
     const clock = (await container.resolve(AuthzClock)) as unknown;
     if (!isObject(clock) || typeof clock.now !== 'function') throw new AuthzConfigError(`${where}: the resolved AuthzClock has no now()`);
     const now = () => (clock as unknown as AuthzClock).now();

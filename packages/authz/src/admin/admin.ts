@@ -272,7 +272,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
             { mutable: ['command'] },
           ),
         );
-        list[i] = command;
+        list.splice(i, 1, command);
         checked.push(verdict);
       } catch (e) {
         if (e instanceof AuthzAdminFailure) return { results: failedAt(list, i, e), ...none };
@@ -424,7 +424,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     const domains: unknown = await c.resolve(AuthzDomains);
     if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError(`${where}: DefaultAuthzAdmin needs DefaultAuthzDomains as the AuthzDomains singleton`);
     // The clock, bus and audit the domain's AuthzService booted with.
-    const hooks = (await c.resolve(Hooks)) as Hooks;
+    const hooks = await c.resolve<Hooks>(Hooks);
     return { where, domain, service, cfg, guard, backend, clock: domains.clock(domain), bus: domains.bus(domain), audit: domains.audit(domain), hooks };
   }
 

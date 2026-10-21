@@ -14,9 +14,9 @@ class WorldActionHook extends ActionHook<ActionName> {
 
   before(ctx: BeforeContext<ActionName>): void {
     const input = ctx.input as { readonly command?: Readonly<Record<string, unknown>> };
-    const target: Readonly<Record<string, unknown>> = input.command ?? (ctx.input as Record<string, unknown>);
+    const target: Readonly<Record<string, unknown>> = input.command ?? ctx.input;
     const { when = {} } = this.spec;
-    if (Object.entries(when).every(([key, value]) => target[key] === value)) ctx.refuse(this.spec.refuse);
+    if (Object.entries(when).every(([key, value]) => Reflect.get(target, key) === value)) ctx.refuse(this.spec.refuse);
   }
 }
 
