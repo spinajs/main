@@ -6,7 +6,7 @@ The API is generic and tied to no UI kit; ckit's `createHttpChecker` talks to it
 
 ## How it works
 
-The package config adds the package's `controllers` folder to `system.dirs.controllers`, so http discovers `AccessController` (`@BasePath('user/access')`) like an app controller ([Controller discovery](../http/03-controller-discovery.md)). Both routes answer in the domain `authz.http.access.domain` (default `root`).
+The package config adds the package's `controllers` folder to `system.dirs.controllers`, so http discovers `AccessController` (`@BasePath('user/access')`) like an app controller ([Controller discovery](../http/03-controller-discovery.md)). Both routes answer in the domain `authz.http.access.domain` (default `root`), or the one the [`AuthzDomainResolver`](../authz/05-domains.md#per-request-domains) names for the request; an unknown name is a 403 with reason `unknown_domain`.
 
 ### `GET /user/access`
 
@@ -73,7 +73,7 @@ The value, `accessEpoch(principal)`, is the first 16 hex characters of a SHA-256
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `authz.http.access.domain` | `string` | `'root'` | a domain name | The domain `GET /user/access`, `POST /user/access/checks` and the explain route answer for. |
+| `authz.http.access.domain` | `string` | `'root'` | a domain name | The domain `GET /user/access`, `POST /user/access/checks` and the explain route answer for; the fallback of the `AuthzDomainResolver`. |
 | `system.dirs.controllers` | `string[]` | the package's `lib/<mjs\|cjs>/controllers` folder (added by the package config) | | Where http finds `AccessController`. |
 | `http.cors.exposedHeaders` | `string[] \| string \| null` | not set | header names | Add `X-Access-Epoch` so cross-origin browser clients can read it ([CORS](../http/16-cors.md)). |
 

@@ -1,6 +1,6 @@
 # `@spinajs/authz-testing`
 
-The test kit of SpinaJS authorization: principal builders, fake models, adapters and resolvers, an in-memory test host, conformance suites for the models and adapters you write, and the behaviour fixtures B01-B47 that every authz package runs.
+The test kit of SpinaJS authorization: principal builders, fake models, adapters and resolvers, an in-memory test host, conformance suites for the models and adapters you write, and the behaviour fixtures B01-B48 that every authz package runs.
 
 It does **not** ship a real RBAC or ABAC model. A package plugs its own model into a harness ([authz-rbac](../authz-rbac/README.md), [authz-abac](../authz-abac/README.md)). The suites register mocha tests through the mocha globals, so call them at the top level of a mocha test file.
 
@@ -24,7 +24,7 @@ It depends on `@spinajs/authz`, `@spinajs/configuration`, `@spinajs/di` and `fas
 | [Model conformance](06-model-conformance.md) | `runModelConformance` checks any `AuthorizationModel`, and the store behind it, against the model contract. |
 | [Adapter conformance](07-adapter-conformance.md) | `runAdapterConformance` checks any `ResourceAdapter`, including that its query side selects what the residual says. |
 | [Client access conformance](08-client-access-conformance.md) | `runClientAccessConformance` drives a running app's `/user/access/checks`, `$access`, epoch and push events. |
-| [Behaviour fixtures](09-behaviour-fixtures.md) | `runBehaviour` runs the rules B01-B47 against a harness; what each rule covers and which parts it has. |
+| [Behaviour fixtures](09-behaviour-fixtures.md) | `runBehaviour` runs the rules B01-B48 against a harness; what each rule covers and which parts it has. |
 | [Behaviour harnesses](10-behaviour-harnesses.md) | `BehaviourHarness`, `hostHarness` and `instantiateWorld`: plug your system into the fixtures. |
 | [Writing fixtures](11-writing-fixtures.md) | `fixtureDsl`, worlds, steps and expectations; lane-local fixture parts. |
 | [Reference residual evaluator](12-filter-oracle.md) | `evaluateFilter`: the kit's oracle for what a residual selects, in SQL three-valued logic. |

@@ -8,7 +8,7 @@ Test kit for SpinaJS authorization: fakes, conformance suites, behaviour fixture
 - fast-check arbitraries for principals, ceilings, filters, votes, role graphs and rules, exported under
   the `arb` namespace (`import { arb } from '@spinajs/authz-testing'`, then `arb.filter`, `arb.principal`, …).
 - Conformance suites for models and adapters.
-- Behaviour fixtures B01–B47 (design §17) and `runBehaviour`.
+- Behaviour fixtures B01–B48 (design §17) and `runBehaviour`.
 
 ## Client access conformance
 

@@ -1,3 +1,22 @@
+# Release notes — per-request authz domain resolver
+
+> Branch `feat/ory-arch-2`. Docs: `docs/authz/05-domains.md#per-request-domains`.
+
+## Features
+
+### `@spinajs/authz-http`, `@spinajs/authz-http-admin` — the domain of a request can be chosen per request
+
+- New `AuthzDomainResolver` (`resolve(req, fallback)`). `@Access`, the explain route, `/user/access`,
+  `/user/access/checks` and the `/authz` admin routes check in the domain it names. `fallback` is the
+  domain the route, the controller or the config names today.
+- The default `StaticDomainResolver` returns the fallback: an app that registers no resolver behaves as before.
+  Register your own with `@Injectable(AuthzDomainResolver)`; the last registered wins.
+- A name that is not the fallback and that no live domain bears answers 403 `unknown_domain` (admin routes:
+  `{ error: { code: 'unknown_domain' } }`) and the action does not run.
+- `AuthzDomainResolver`, `StaticDomainResolver`, `UnknownAuthzDomain` and `resolveAuthzDomain(req, fallback)` are exported.
+  `resolveAuthzDomain` asks the resolver once per request and fallback.
+- New behaviour rule B48. The authz-http test harness resolves the domain from the `x-authz-domain` header.
+
 # Release notes — conditional allows are settled on the row (M1)
 
 > Branch `feat/ory-sec-1`. Docs: `docs/authz-http/01-protecting-routes.md#conditional-allows`.

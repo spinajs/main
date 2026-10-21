@@ -77,6 +77,6 @@ export async function approveInvoice(invoiceId: string): Promise<void> {
 - [`@spinajs/authz-http-admin`](../authz-http-admin/README.md): HTTP routes over [AuthzAdmin](10-authz-admin.md).
 - [`@spinajs/authz-queue`](../authz-queue/README.md): who started a job, `@Job({ runAs })`, and `QueueChangeBus` for several nodes.
 - [`@spinajs/authz-fs`](../authz-fs/README.md): file checks (`AuthzFsMiddleware`) and the per-path file ACL (`fs_acl`).
-- [`@spinajs/authz-testing`](../authz-testing/README.md): fakes, harnesses, conformance suites and the behaviour fixtures B01-B47.
+- [`@spinajs/authz-testing`](../authz-testing/README.md): fakes, harnesses, conformance suites and the behaviour fixtures B01-B48.
 - [`@spinajs/authz-convert`](../authz-convert/README.md): the `spinajs-authz-convert` tool that turns 2.x configs into `authz.*`.
 - [`@spinajs/eslint-plugin-authz`](../eslint-plugin-authz/README.md): flags list queries without `.accessible()` at edit time.
