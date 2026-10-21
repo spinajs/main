@@ -217,7 +217,8 @@ export class DefaultAuthnService extends AuthnService {
 
   /** `authn.login`; a token or key used on every request runs no action hook (`ctx.purpose: 'request'`). */
   private async login(c: Credentials, ctx: AuthnContext, labels: { strategy: string }): Promise<AuthenticationResult> {
-    if (ctx.purpose === 'request') return this.authenticateTimed(c, ctx, labels);
+    // Without a hook the action runs as is: no copies for hooks, no runner.
+    if (ctx.purpose === 'request' || !this.Hooks.has('authn.login')) return this.authenticateTimed(c, ctx, labels);
     try {
       // Hooks get copies: the action reads the caller's ctx, and the credentials only as a hook may have replaced them.
       return await this.Hooks.run('authn.login', { credentials: hookCopy(c), ctx: hookView(ctx) }, (i) => this.authenticateTimed(i.credentials, ctx, labels), { mutable: ['credentials'] });
@@ -291,6 +292,7 @@ export class DefaultAuthnService extends AuthnService {
       await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return { status: 'failure', reason: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
+    if (!this.Hooks.has('authn.mfa.verify')) return this.elevatePending(stored, pending.id, step, response, keys, about, ctx);
     try {
       return await this.Hooks.run('authn.mfa.verify', { pending: hookView(pending), step, response, ctx: hookView(ctx) }, () => this.elevatePending(stored, pending.id, step, response, keys, about, ctx), { mutable: [] });
     } catch (err) {
@@ -369,6 +371,7 @@ export class DefaultAuthnService extends AuthnService {
       await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return false;
     }
+    if (!this.Hooks.has('authn.reauth')) return this.reverify(candidates, c, id, keys, about, ctx);
     try {
       return await this.Hooks.run('authn.reauth', { session: hookView(session), credentials: hookView(c), ctx: hookView(ctx) }, () => this.reverify(candidates, c, id, keys, about, ctx), { mutable: [] });
     } catch (err) {
@@ -425,6 +428,7 @@ export class DefaultAuthnService extends AuthnService {
       await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return { status: 'failure', reason: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
+    if (!this.Hooks.has('authn.session.stepUp')) return this.reissueStepped(stored, step, response, keys, about, ctx);
     try {
       return await this.Hooks.run('authn.session.stepUp', { session: hookView(session), step, response, ctx: hookView(ctx) }, () => this.reissueStepped(stored, step, response, keys, about, ctx), { mutable: [] });
     } catch (err) {
@@ -522,7 +526,7 @@ export class DefaultAuthnService extends AuthnService {
     // A token or key is no login: only a login method is held to authn.login.requireVerifiedAddress.
     const refused = await statusRefusal(this.Identities, r.delegation?.onBehalfOf ?? id, { requireVerifiedAddress: s.interactive && this.RequireVerifiedAddress === true });
     if (refused) return this.refuse(ctx, s, refused, refused === 'unverified_address' ? 'unverified_address' : 'invalid_credentials', { identity: id });
-    if (!s.interactive) return this.admit(s, r, id, found, keys, ctx, clean, r.attributes);
+    if (!s.interactive || !this.Hooks.has('authn.login.identified')) return this.admit(s, r, id, found, keys, ctx, clean, r.attributes);
     const identity = id;
     // Before the link by verified email, so a login a hook refuses leaves neither a session nor a new email link.
     const input = { identity: hookView(identity), strategy: s.name, method: r.method, ...(r.external ? { external: hookView(r.external) } : {}), attributes: hookCopy(r.attributes ?? {}), ctx: hookView(ctx) };

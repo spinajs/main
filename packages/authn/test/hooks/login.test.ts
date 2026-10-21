@@ -9,7 +9,7 @@ import type { ActionName, ActionPattern, BeforeContext } from '@spinajs/hooks';
 import { RecordingActionHook, mutatingHook, refusingHook } from '@spinajs/hooks/testing';
 
 import { MemoryAuthnThrottle, PrincipalFactory } from '../../src/index.js';
-import type { AuthenticationResult, AuthnContext, Credentials, ExternalSubject, IdentityRef, ThrottleFlow, ThrottleKey } from '../../src/index.js';
+import type { AuthenticationResult, AuthnContext, Credentials, ExternalSubject, IdentityRef, SessionHandle, ThrottleFlow, ThrottleKey } from '../../src/index.js';
 import { bind, buildCore, pinConfiguration, useHarnessLog } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts, StrategySpec } from '../behaviour/harness.js';
 
@@ -304,18 +304,42 @@ describe('action hooks: authn.login and authn.login.identified', function () {
   });
 
   describe('zero cost', () => {
-    it('with no hook registered, Hooks.run builds no context', async () => {
+    it('with no hook registered, the login asks Hooks.has and never runs the runner or builds a context', async () => {
+      const has = sinon.spy(DefaultHooks.prototype, 'has');
       const run = sinon.spy(DefaultHooks.prototype, 'run');
       const createContext = sinon.spy(DefaultHooks.prototype as unknown as { createContext: () => unknown }, 'createContext');
       const p = await boot([]);
       await seed(p);
       success(await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx()));
       assert.deepStrictEqual(
-        run.getCalls().map((c) => c.args[0]),
+        has.getCalls().map((c) => c.args[0]),
         ['authn.login', 'authn.login.identified'],
       );
+      assert.strictEqual(run.callCount, 0);
       assert.strictEqual(createContext.callCount, 0);
     });
+
+    for (const [action, title] of [
+      ['authn.mfa.verify', 'completeMfa'],
+      ['authn.session.stepUp', 'stepUp'],
+    ] as const) {
+      it(`with no hook registered, ${title} runs no action either`, async () => {
+        const p = await boot([]);
+        const a = await seed(p);
+        const run = sinon.spy(DefaultHooks.prototype, 'run');
+        if (action === 'authn.mfa.verify') {
+          p.step.enrol(a);
+          const r = await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx());
+          assert.strictEqual(r.status, 'mfa_required');
+          success(await p.service.completeMfa((r as { pending: SessionHandle }).pending, p.step.name, p.step.nextCode(a), ctx()));
+        } else {
+          const r = success(await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx()));
+          p.step.enrol(a);
+          success(await p.service.stepUp(r.session!, p.step.name, p.step.nextCode(a), ctx()));
+        }
+        assert.strictEqual(run.callCount, 0);
+      });
+    }
 
     it('a per-request credential runs no action at all', async () => {
       const run = sinon.spy(DefaultHooks.prototype, 'run');
