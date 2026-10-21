@@ -51,8 +51,8 @@ export class WebAuthnPasskeyService extends PasskeyService {
   @Autoinject(IdentityStore, { optional: true })
   protected IdentityStore: IdentityStore | undefined;
 
-  @Autoinject(AuthnAudit, { optional: true })
-  protected Audit: AuthnAudit | undefined;
+  @Autoinject(AuthnAudit)
+  protected Audit: AuthnAudit;
 
   private readonly sinkAudit: AuthnAuditor | undefined;
 
