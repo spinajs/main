@@ -310,7 +310,7 @@ describe('mfa and secret contracts', () => {
       same<ReturnType<MfaStep['disable']>, Promise<void>>(true);
       same<MfaStep['verifyRecovery'], ((id: IdentityRef, code: string) => Promise<boolean>) | undefined>(true);
       same<MfaStep['regenerateRecoveryCodes'], ((id: IdentityRef) => Promise<readonly string[]>) | undefined>(true);
-      same<MfaStep['challenge'], ((id: IdentityRef, ctx: AuthnContext) => Promise<void>) | undefined>(true);
+      same<MfaStep['challenge'], ((id: IdentityRef, ctx: AuthnContext) => Promise<unknown>) | undefined>(true);
     });
 
     it('MfaPolicy.required takes only method and strategy', () => {

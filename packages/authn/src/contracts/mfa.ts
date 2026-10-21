@@ -27,9 +27,10 @@ export abstract class MfaStep {
   abstract disable(id: IdentityRef): Promise<void>;
   /**
    * Steps that deliver a code out of band (email) send it here, for a pending session of `id` (POST /auth/mfa/challenge).
-   * Steps without it need no challenge.
+   * Steps without it need no challenge. A step may resolve with what its own client needs (WebAuthn's assertion options,
+   * served by the passkey routes); the route ignores it.
    */
-  challenge?(id: IdentityRef, ctx: AuthnContext): Promise<void>;
+  challenge?(id: IdentityRef, ctx: AuthnContext): Promise<unknown>;
 }
 
 /**
