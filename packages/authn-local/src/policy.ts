@@ -23,6 +23,10 @@ export { PASSWORD_HARD_CAP };
  */
 const GENERATE_ATTEMPTS = 10;
 
+/** Shorter identifiers would match inside too many unrelated passwords. */
+const MIN_IDENTIFIER_LENGTH = 3;
+const MAX_IDENTIFIER_EDITS = 2;
+
 // ajv is CommonJS; depending on the build its default import is the class itself or an object holding it in `default`.
 const Ajv = ((AjvModule as unknown as { default?: unknown }).default ?? AjvModule) as new (opts?: object) => { compile(schema: object): ValidateFunction };
 
@@ -64,6 +68,57 @@ export function codePointLength(password: string): number {
     n++;
   }
   return n;
+}
+
+/** Lower-cased login, email and name, plus the local part of each that is an address. */
+function identifiersOf(ctx: PasswordPolicyContext): string[] {
+  const out = new Set<string>();
+  const add = (value: string) => {
+    const v = value.trim().toLowerCase();
+    if (codePointLength(v) >= MIN_IDENTIFIER_LENGTH) {
+      out.add(v);
+    }
+  };
+  for (const value of [ctx.login, ctx.email, ctx.name]) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+    add(value);
+    const at = value.lastIndexOf('@');
+    if (at > 0) {
+      add(value.slice(0, at));
+    }
+  }
+  return [...out];
+}
+
+/** Levenshtein distance over code points, given up as soon as it must exceed `max`. */
+function withinEdits(a: string, b: string, max: number): boolean {
+  const x = [...a];
+  const y = [...b];
+  if (Math.abs(x.length - y.length) > max) {
+    return false;
+  }
+  let previous = Array.from({ length: y.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= x.length; i++) {
+    const current = [i];
+    let rowMin = i;
+    for (let j = 1; j <= y.length; j++) {
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1));
+      rowMin = Math.min(rowMin, current[j]);
+    }
+    if (rowMin > max) {
+      return false;
+    }
+    previous = current;
+  }
+  return previous[y.length] <= max;
+}
+
+/** Equal to, containing (ignoring case) or within two edits of the login, the email, its local part or the name. */
+function isSimilarToIdentifier(password: string, ctx: PasswordPolicyContext): boolean {
+  const p = password.toLowerCase();
+  return identifiersOf(ctx).some((id) => p.includes(id) || withinEdits(p, id, MAX_IDENTIFIER_EDITS));
 }
 
 /**
@@ -122,6 +177,9 @@ export class LocalPasswordPolicy extends SyncService {
     }
 
     const violations = this.checkSync(password);
+    if (ctx && this.similarity() && isSimilarToIdentifier(password, ctx)) {
+      violations.push('similar_to_identifier');
+    }
     const blocklist = await this.blocklist();
     if (blocklist && (await blocklist.isBlocked(password, ctx))) {
       violations.push('blocklisted');
@@ -182,6 +240,10 @@ export class LocalPasswordPolicy extends SyncService {
     }
 
     return violations;
+  }
+
+  protected similarity(): boolean {
+    return this.Options ? (this.Options.similarity ?? AUTHN_LOCAL_DEFAULTS.policy.similarity) : this.Similarity !== false;
   }
 
   protected async blocklist(): Promise<PasswordBlocklist | null> {
