@@ -1,6 +1,7 @@
 import { AsyncService, Autoinject, Container, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { Hooks } from '@spinajs/hooks';
 import { TimeSpan, isFiniteNumber, isNonEmptyString, isPlainObject, isValidDate } from '@spinajs/util';
 
 import type { AuthnEventType } from '../contracts/audit.js';
@@ -19,6 +20,7 @@ import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
 import { Session, SessionKeys, resolveSession } from '../contracts/session-state.js';
 import type { SessionInit } from '../contracts/session-state.js';
 import { ACTIVE_ROLE_KEY, activeRoleCeiling } from './active-role.js';
+import { hookRefusalOf } from '../hooks.js';
 
 /**
  * The session data key of the impersonation block: `{ startedAt, actorRoles? }`, the start as an ISO string and the
@@ -99,6 +101,9 @@ export class AuthnImpersonationService extends AsyncService {
   @Autoinject(AuthnAudit)
   protected Auditor: AuthnAudit;
 
+  @Autoinject(Hooks)
+  protected Hooks: Hooks;
+
   /**
    * What a request with this session resolves to; null when it yields no principal. A restored Session is used as
    * is, so a request that already restored its session does not restore (and slide) it again; a bare handle is restored.
@@ -149,17 +154,26 @@ export class AuthnImpersonationService extends AsyncService {
       const refused = await this.startRefusal(stored, target, ctx, actorCeiling, reauth);
       if (refused) return await this.refuseStart(ctx, refused.reason, about, refused.data);
 
-      issued = await this.Sessions.issue(refOf(target), { ...ownFacts(stored.facts), impersonator: actor });
-      await this.Sessions.set(issued, IMPERSONATION_BLOCK, { startedAt: ctx.now.toISOString(), ...(actorCeiling ? { actorRoles: [...(actorCeiling.roles ?? [])] } : {}) });
-      const now = await this.Sessions.restore(issued.id);
-      // A parallel start, or an endFor of the actor, ended the old session first.
-      if (!(await this.Sessions.revoke(stored.handle))) {
-        await this.Sessions.revoke(issued);
-        return await this.refuseStart(ctx, 'revoked', about);
-      }
-      await this.Auditor.publishIn(ctx, { type: 'impersonation.start', outcome: 'success', identity: refOf(target), actor, ...(now ? this.handleOf(now) : {}) });
-      return { ok: true, session: issued };
+      return await this.Hooks.run(
+        'authn.impersonation.start',
+        { session, target, ctx },
+        async () => {
+          issued = await this.Sessions.issue(refOf(target), { ...ownFacts(stored.facts), impersonator: actor });
+          await this.Sessions.set(issued, IMPERSONATION_BLOCK, { startedAt: ctx.now.toISOString(), ...(actorCeiling ? { actorRoles: [...(actorCeiling.roles ?? [])] } : {}) });
+          const now = await this.Sessions.restore(issued.id);
+          // A parallel start, or an endFor of the actor, ended the old session first.
+          if (!(await this.Sessions.revoke(stored.handle))) {
+            await this.Sessions.revoke(issued);
+            return this.refuseStart(ctx, 'revoked', about);
+          }
+          await this.Auditor.publishIn(ctx, { type: 'impersonation.start', outcome: 'success', identity: refOf(target), actor, ...(now ? this.handleOf(now) : {}) });
+          return { ok: true, session: issued };
+        },
+        { mutable: [] },
+      );
     } catch (err) {
+      const stopped = hookRefusalOf(err, 'authn.impersonation.start');
+      if (stopped) return this.refuseStart(ctx, stopped.reason, about, stopped.data);
       if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
       return this.refuseStart(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClass(err) });
     }
@@ -180,17 +194,25 @@ export class AuthnImpersonationService extends AsyncService {
       const refused = await statusRefusal(this.Identities, refOf(impersonator));
       if (refused) return await this.end(ctx, stored, 'impersonation.end', `impersonator_${refused}`);
 
-      issued = await this.Sessions.issue(refOf(impersonator), ownFacts(stored.facts));
-      const { actorCeiling } = live.block;
-      // No role is stored as '', which activeRoleCeiling narrows to no role as it did the actor's malformed value.
-      if (actorCeiling) await this.Sessions.set(issued, ACTIVE_ROLE_KEY, actorCeiling.roles?.[0] ?? '');
-      const now = await this.Sessions.restore(issued.id);
-      if (!(await this.Sessions.revoke(stored.handle))) {
-        await this.Sessions.revoke(issued);
-        return await this.refuseStop(ctx, 'revoked', about);
-      }
-      await this.Auditor.publishIn(ctx, { type: 'impersonation.end', outcome: 'success', identity: refOf(stored.identity), actor: refOf(impersonator), ...(now ? this.handleOf(now) : {}) });
-      return issued;
+      // Not refusable: going back to one's own session ends a privilege, which a hook must not keep.
+      return await this.Hooks.run(
+        'authn.impersonation.stop',
+        { session, ctx },
+        async () => {
+          issued = await this.Sessions.issue(refOf(impersonator), ownFacts(stored.facts));
+          const { actorCeiling } = live.block;
+          // No role is stored as '', which activeRoleCeiling narrows to no role as it did the actor's malformed value.
+          if (actorCeiling) await this.Sessions.set(issued, ACTIVE_ROLE_KEY, actorCeiling.roles?.[0] ?? '');
+          const now = await this.Sessions.restore(issued.id);
+          if (!(await this.Sessions.revoke(stored.handle))) {
+            await this.Sessions.revoke(issued);
+            return this.refuseStop(ctx, 'revoked', about);
+          }
+          await this.Auditor.publishIn(ctx, { type: 'impersonation.end', outcome: 'success', identity: refOf(stored.identity), actor: refOf(impersonator), ...(now ? this.handleOf(now) : {}) });
+          return issued;
+        },
+        { mutable: [], refusable: false },
+      );
     } catch (err) {
       if (issued) await this.Sessions.revoke(issued).catch(() => undefined);
       return this.refuseStop(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClass(err) });

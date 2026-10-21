@@ -1,4 +1,5 @@
 import { AsyncService, Autoinject, PerChildInstance } from '@spinajs/di';
+import { Hooks } from '@spinajs/hooks';
 
 import { isNonEmptyString, isPlainObject } from '@spinajs/util';
 
@@ -15,6 +16,7 @@ import { SessionIssuer } from '../contracts/session.js';
 import type { SessionHandle } from '../contracts/session.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
 import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
+import { hookRefusalOf } from '../hooks.js';
 
 export type LinkResult = { readonly ok: true; readonly link: IdentityLink } | { readonly ok: false };
 
@@ -81,6 +83,9 @@ export class AccountLinkService extends AsyncService {
   @Autoinject(AuthnAudit)
   protected Auditor: AuthnAudit;
 
+  @Autoinject(Hooks)
+  protected Hooks: Hooks;
+
   /** `reauth` is verified only when the session is not fresh. */
   public async link(session: SessionHandle, external: ExternalSubject, ctx: AuthnContext, reauth?: Credentials): Promise<LinkResult> {
     let holder: Holder | undefined;
@@ -89,15 +94,22 @@ export class AccountLinkService extends AsyncService {
       holder = guard.holder;
       if (guard.refused !== undefined || !holder) return await this.refuse(ctx, 'identity.link', guard.refused ?? 'not_active', holder);
       if (!isPlainObject(external) || !isNonEmptyString(external.provider) || !isNonEmptyString(external.subject)) return await this.refuse(ctx, 'identity.link', 'invalid_subject', holder);
-      const taken = await this.Links.find(external.provider, external.subject);
-      if (taken) return await this.refuse(ctx, 'identity.link', sameRef(taken.identity, holder.identity) ? 'already_linked' : 'linked_elsewhere', holder);
-      // The store's unique (provider, subject) index decides a race between two links of one subject; its error lands below.
-      const link = await this.Links.link(holder.identity, external);
-      await this.Auditor.publishIn(ctx, { type: 'identity.link', outcome: 'success', ...holder, data: { provider: link.provider, link: link.id } });
-      return { ok: true, link };
+      const h = holder;
+      return await this.Hooks.run('authn.link', { session, external, ctx }, () => this.linkTo(h, external, ctx), { mutable: [] });
     } catch (err) {
+      const stopped = hookRefusalOf(err, 'authn.link');
+      if (stopped) return this.refuse(ctx, 'identity.link', stopped.reason, holder, stopped.data);
       return this.refuse(ctx, 'identity.link', 'store_error', holder, { error: errorClass(err) });
     }
+  }
+
+  private async linkTo(holder: Holder, external: ExternalSubject, ctx: AuthnContext): Promise<LinkResult> {
+    const taken = await this.Links.find(external.provider, external.subject);
+    if (taken) return this.refuse(ctx, 'identity.link', sameRef(taken.identity, holder.identity) ? 'already_linked' : 'linked_elsewhere', holder);
+    // The store's unique (provider, subject) index decides a race between two links of one subject; its error lands in link().
+    const link = await this.Links.link(holder.identity, external);
+    await this.Auditor.publishIn(ctx, { type: 'identity.link', outcome: 'success', ...holder, data: { provider: link.provider, link: link.id } });
+    return { ok: true, link };
   }
 
   /** `reauth` is verified only when the session is not fresh. */
@@ -108,19 +120,25 @@ export class AccountLinkService extends AsyncService {
       holder = guard.holder;
       if (guard.refused !== undefined || !holder) return await this.refuse(ctx, 'identity.unlink', guard.refused ?? 'not_active', holder);
       const h = holder;
-      return await oneAtATime(h.identity, async () => {
-        // Found among the holder's own links, never by id alone.
-        const own = await this.Links.list(h.identity);
-        const target = isNonEmptyString(linkId) ? own.find((l) => l.id === linkId) : undefined;
-        if (!target) return this.refuse(ctx, 'identity.unlink', 'unknown_link', h);
-        if (!(await this.hasOtherCredential(h.identity, own.length - 1, ctx.now))) return this.refuse(ctx, 'identity.unlink', 'last_credential', h);
-        await this.Links.unlink(target.id);
-        await this.Auditor.publishIn(ctx, { type: 'identity.unlink', outcome: 'success', ...h, data: { provider: target.provider, link: target.id } });
-        return { ok: true };
-      });
+      return await this.Hooks.run('authn.unlink', { session, linkId, ctx }, () => this.unlinkFrom(h, linkId, ctx), { mutable: [] });
     } catch (err) {
+      const stopped = hookRefusalOf(err, 'authn.unlink');
+      if (stopped) return this.refuse(ctx, 'identity.unlink', stopped.reason, holder, stopped.data);
       return this.refuse(ctx, 'identity.unlink', 'store_error', holder, { error: errorClass(err) });
     }
+  }
+
+  private unlinkFrom(h: Holder, linkId: string, ctx: AuthnContext): Promise<{ ok: boolean }> {
+    return oneAtATime(h.identity, async () => {
+      // Found among the holder's own links, never by id alone.
+      const own = await this.Links.list(h.identity);
+      const target = isNonEmptyString(linkId) ? own.find((l) => l.id === linkId) : undefined;
+      if (!target) return this.refuse(ctx, 'identity.unlink', 'unknown_link', h);
+      if (!(await this.hasOtherCredential(h.identity, own.length - 1, ctx.now))) return this.refuse(ctx, 'identity.unlink', 'last_credential', h);
+      await this.Links.unlink(target.id);
+      await this.Auditor.publishIn(ctx, { type: 'identity.unlink', outcome: 'success', ...h, data: { provider: target.provider, link: target.id } });
+      return { ok: true };
+    });
   }
 
   /** The session's identity, and the audit reason when it may not change its links. */
