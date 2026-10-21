@@ -1,10 +1,13 @@
 import { AuthzAdminFailure, GLOBAL } from '@spinajs/authz';
-import type { AssignmentSubject, AuthzAdminOptions, AuthzAdminQuery, ResourceRef } from '@spinajs/authz';
+import type { AuthzAdminOptions, AuthzAdminQuery, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
 /** A parsed query string (express: string, string[] or a nested object per key). */
 export type QueryInput = Readonly<Record<string, unknown>>;
 
 type Page = { limit?: number; offset?: number };
+
+/** authz-rbac's AssignmentSubject; the list queries belong to models this package does not import. */
+type AssignmentSubject = PrincipalRef | { readonly set: { readonly role: string; readonly scope: ResourceRef } };
 
 function invalid(field: string, message: string): never {
   throw new AuthzAdminFailure('invalid_query', message, field);
@@ -84,7 +87,7 @@ export function readAssignmentsQuery(q: QueryInput): AuthzAdminQuery {
     ...(role === undefined ? {} : { role }),
     ...(includeExpired === undefined ? {} : { includeExpired }),
     ...page(q),
-  } as AuthzAdminQuery;
+  } as unknown as AuthzAdminQuery;
 }
 
 /** GET /authz/holders: `scope` and `permission` (both required), `expandSets`, `limit`, `offset`. */
@@ -100,12 +103,12 @@ export function readHoldersQuery(q: QueryInput): AuthzAdminQuery {
     permission,
     ...(expandSets === undefined ? {} : { expandSets }),
     ...page(q),
-  } as AuthzAdminQuery;
+  } as unknown as AuthzAdminQuery;
 }
 
 /** GET /authz/links, /authz/rules and /authz/policies: `scope`, `limit`, `offset`. */
 export function readPageQuery(kind: 'links' | 'rules' | 'policies', q: QueryInput): AuthzAdminQuery {
-  return { kind, ...scope(q), ...page(q) } as AuthzAdminQuery;
+  return { kind, ...scope(q), ...page(q) } as unknown as AuthzAdminQuery;
 }
 
 /** The AuthzAdminOptions of a single-command route: `reason`, `idempotencyKey`, `dryRun`. */

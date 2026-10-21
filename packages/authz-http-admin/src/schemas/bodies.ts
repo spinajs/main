@@ -1,17 +1,12 @@
 import { commandSchemas, policyBody, ruleBody } from './commands.js';
-import { anyObject, assignmentSubject, nullableDateTime, obj, resourceRef, tags, text } from './primitives.js';
+import { anyObject, assignmentSubject, commandBatch, nullableDateTime, obj, resourceRef, tags, text } from './primitives.js';
 import type { JsonSchema } from './primitives.js';
 
 const { id: _ruleId, ...ruleFields } = ruleBody.properties as Record<string, JsonSchema>;
 const { id: _policyId, ...policyFields } = policyBody.properties as Record<string, JsonSchema>;
 
-const writeOptions = {
-  reason: { ...text, description: 'goes to the audit trail' },
-  idempotencyKey: { ...text, description: 'a retried batch with the same key returns the first result' },
-  dryRun: { type: 'boolean', description: 'validate and guard, then roll back' },
-};
-
-export const AuthzAdminBatch: JsonSchema = obj(['commands'], { commands: { type: 'array', items: { oneOf: commandSchemas } }, ...writeOptions }, 'POST /authz/commands: the commands run in one transaction, in order; the first failure rolls the batch back');
+/** Over the built-in command schemas; AuthzAdminSchemaProvider serves it over every registered source. */
+export const AuthzAdminBatch: JsonSchema = commandBatch(commandSchemas);
 
 export const AuthzAssignmentGrant: JsonSchema = obj(['subject', 'role', 'scope'], { subject: assignmentSubject, role: text, scope: resourceRef, tags, expiresAt: nullableDateTime, replaceLadder: { type: 'boolean' } }, 'POST /authz/assignments: the fields of assignment.grant (reason, idempotencyKey and dryRun go in the query string)');
 
