@@ -93,10 +93,11 @@ describe('authz admin hooks', function () {
     });
 
     it('checks the actor permission again on the changed command', async () => {
-      const d = await hookedAdminDomain([new PatchCommand((c) => ({ ...c, scope: { type: 'folder', id: 'nope' } }))]);
+      const d = await hookedAdminDomain([new PatchCommand((c) => ({ ...c, scope: { type: 'doc', id: 'd1' } }))]);
       const out = await d.admin.execute(alice, [grant('bob')]);
-      expect(out[0].ok).to.equal(false);
-      expect(d.store.rows.size).to.equal(0);
+      expect(out[0].ok).to.equal(true);
+      const scopes = d.model.requests.filter((r) => r.permission === 'authz:assignments.manage').map((r) => `${r.resource.type}:${r.resource.id}`);
+      expect(scopes).to.deep.equal(['project:p1', 'doc:d1']);
     });
 
     it('drops a change to a key other than command', async () => {
