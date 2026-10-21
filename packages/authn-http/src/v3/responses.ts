@@ -1,6 +1,6 @@
 import type { Configuration } from '@spinajs/configuration';
 import '@spinajs/authn-session/register-schema';
-import { BadRequestResponse, Unauthorized } from '@spinajs/http';
+import { BadRequestResponse, HTTP_STATUS_CODE, Ok, Unauthorized } from '@spinajs/http';
 import type { ICookie, IResponseHeader } from '@spinajs/http';
 import { AUTHN_FAILURE_BODY } from '@spinajs/authn/contracts';
 import type { SessionHandle } from '@spinajs/authn/contracts';
@@ -12,6 +12,11 @@ export { AUTHN_FAILURE_BODY };
 
 /** Authenticated answers and session cookies must not be cached. */
 export const NO_STORE: IResponseHeader = Object.freeze({ Name: 'Cache-Control', Value: 'no-store' });
+
+/** @spinajs/http has no 202 response. */
+export class AcceptedResponse<T = unknown> extends Ok<T> {
+  protected _errorCode = HTTP_STATUS_CODE.ACCEPTED;
+}
 
 export const badRequest = (error: string, message: string): BadRequestResponse => new BadRequestResponse({ error, message }, { Headers: [NO_STORE] });
 

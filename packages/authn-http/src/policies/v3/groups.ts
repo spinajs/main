@@ -58,5 +58,10 @@ export class ImpersonationGuardRegistered extends serviceRegistered(Impersonatio
 /** 404 while no JwsSigner is registered: the JWKS route is off. */
 export class JwsSignerRegistered extends serviceRegistered(JwsSigner, 'the JWKS route is off: no JwsSigner is registered') {}
 
-/** 404 while no IdentityRegistrar is registered: the registration route is off. */
-export class IdentityRegistrarRegistered extends serviceRegistered(IdentityRegistrar, 'registration is off: no IdentityRegistrar is registered') {}
+/** 404 while no IdentityRegistrar is registered, or the registered factory yields none (users.registration.enabled is off). */
+export class IdentityRegistrarRegistered extends serviceRegistered(IdentityRegistrar, 'registration is off: no IdentityRegistrar is registered') {
+  public async execute(req: Request, action: IRoute, instance: IController): Promise<void> {
+    await super.execute(req, action, instance);
+    if (!(await this.Container.resolve(IdentityRegistrar))) throw notFound('not_found', 'registration is off: the IdentityRegistrar is switched off');
+  }
+}
