@@ -1,6 +1,5 @@
 import 'mocha';
 import { expect } from 'chai';
-import type { IContainer } from '@spinajs/di';
 import { DefaultMfaPolicy } from '@spinajs/authn';
 import { MfaPolicy, MfaStep } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef } from '@spinajs/authn/contracts';
@@ -32,7 +31,7 @@ describe('MfaSatisfied by login method (SEC-7)', () => {
     child.register({ MethodsSuiteStep: () => step }.MethodsSuiteStep).as(MfaStep as never);
     child.register(DefaultMfaPolicy).as(MfaPolicy as never);
     const satisfied = readingFrom(new MfaSatisfied(), child);
-    Object.defineProperty(satisfied, 'Container', { value: child as IContainer });
+    Object.defineProperty(satisfied, 'Container', { value: child });
     return satisfied;
   }
 
