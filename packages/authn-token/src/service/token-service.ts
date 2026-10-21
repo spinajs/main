@@ -2,18 +2,22 @@ import { Autoinject, Injectable } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import '../register-schema.js';
 import { AuthnAudit } from '@spinajs/authn/audit';
+// Registers the default CredentialChangeBus.
+import '@spinajs/authn/bus';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
 import { InvalidArgument, InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Orm } from '@spinajs/orm';
 import { _between, _check_arg, _contains, _custom, _finite, _gte, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, chunk, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
-import { IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '@spinajs/authn/contracts';
+import { CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
+import type { AuthnContext, CredentialChange, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
 
 import { AccessTokenGenerationProvider } from '../generation.js';
 import { MAX_TOKEN_LENGTH, checkTokenSize } from '../generator.js';
 import { AccessToken, TOKEN_KINDS } from '../models/AccessToken.js';
+import { DEFAULT_TOKEN_CACHE, TokenValidationCache } from './cache.js';
+import type { TokenCacheConfig, ValidatedToken } from './cache.js';
 import { TokenOwnerResolver } from './owner-resolver.js';
 import { TokenProfilePolicy } from './profile-policy.js';
 
@@ -126,7 +130,8 @@ function storedScope(stored: unknown, agent: boolean): TokenScope | undefined | 
 
 /**
  * `TokenService` over `rbac_access_tokens`. Owners map to `user_id` through {@link TokenOwnerResolver};
- * owner status comes from {@link IdentityStore} on every validate.
+ * owner status comes from {@link IdentityStore}. A successful validate is served from memory for
+ * `authn.token.cache.ttlSeconds`; revocations evict it and go out on the {@link CredentialChangeBus}.
  */
 @Injectable(TokenService)
 export class DbTokenService extends TokenService {
@@ -141,6 +146,9 @@ export class DbTokenService extends TokenService {
 
   @Config('authn.token.length')
   protected Length: number;
+
+  @Config('authn.token.cache', { defaultValue: DEFAULT_TOKEN_CACHE })
+  protected CacheConfig: TokenCacheConfig;
 
   @Logger('authn-token')
   protected Log: Log;
@@ -160,6 +168,11 @@ export class DbTokenService extends TokenService {
   @Autoinject(RoleSource, { optional: true })
   protected Roles: RoleSource | undefined;
 
+  @Autoinject(CredentialChangeBus, { optional: true })
+  protected Bus: CredentialChangeBus | undefined;
+
+  private validations: TokenValidationCache | undefined;
+
   @AutoinjectService('authn.token.generation', AccessTokenGenerationProvider)
   protected Generator: AccessTokenGenerationProvider;
 
@@ -170,6 +183,11 @@ export class DbTokenService extends TokenService {
   /** `Auditor`: a test seam, published to instead of the container's AuthnAudit. */
   constructor(protected readonly Auditor?: AuthnAuditor) {
     super();
+  }
+
+  /** Built on first use, once the configuration and the bus are injected. */
+  protected get cache(): TokenValidationCache {
+    return (this.validations ??= new TokenValidationCache(this.CacheConfig ?? DEFAULT_TOKEN_CACHE, this.Bus));
   }
 
   /** The format size cap; checked at each create, because this service has no boot hook. */
@@ -284,6 +302,7 @@ export class DbTokenService extends TokenService {
       return false;
     }
 
+    await this.changed({ kind: 'token', id: token.Uuid });
     await this.publish(ctx, now, 'token.revoke', owner, { token: token.Uuid, kind: token.Kind }, opts?.actor);
     return true;
   }
@@ -303,6 +322,7 @@ export class DbTokenService extends TokenService {
     if (!token) {
       return false;
     }
+    await this.changed({ kind: 'token', id: token.Uuid });
 
     // The owner only names the event's identity; a failing lookup must not undo or hide the revocation.
     let owner: IdentityRef | null = null;
@@ -361,6 +381,9 @@ export class DbTokenService extends TokenService {
       .where('user_id', rowId)
       .whereNull('RevokedAt');
     const count = this.affected(result);
+    if (count > 0) {
+      await this.changed({ kind: 'identity', identity: owner });
+    }
 
     await this.publish(ctx, now, 'token.revoke', owner, { count }, opts?.actor);
     return count;
@@ -374,10 +397,18 @@ export class DbTokenService extends TokenService {
       return fail('invalid_credentials');
     }
 
-    const token = await AccessToken.where('Token', this.Generator.hash(raw)).first();
-    if (!token) {
+    const hash = this.Generator.hash(raw);
+    const cached = this.cache.get(hash, now);
+    if (cached) {
+      return cached;
+    }
+    const since = this.cache.mark();
+
+    const found = await this.Owners.tokenByHash(hash);
+    if (!found) {
       return fail('invalid_credentials');
     }
+    const { token, owner } = found;
     if (token.RevokedAt) {
       return fail('revoked');
     }
@@ -397,7 +428,6 @@ export class DbTokenService extends TokenService {
       return fail('invalid_credentials');
     }
 
-    const owner = await this.Owners.refOf(token.user_id);
     if (owner === null) {
       return fail('invalid_credentials');
     }
@@ -415,17 +445,23 @@ export class DbTokenService extends TokenService {
       ...(scope?.resources !== undefined ? { resources: scope.resources } : {}),
     };
 
-    if (agent) {
-      return {
-        ok: true,
-        identity: { type: 'agent', id: record.id },
-        method: 'token',
-        ceiling: { ...limits, reason: 'out_of_scope' },
-        delegation: { onBehalfOf: owner, mode: 'inherit' },
-        token: record,
-      };
-    }
+    const validation = agent ? this.agentValidation(record, owner, limits) : this.ownerValidation(record, owner, limits);
+    this.cache.set(hash, validation, expiresAt.getTime(), since);
+    return validation;
+  }
 
+  private agentValidation(record: TokenRecord, owner: IdentityRef, limits: Pick<Ceiling, 'permissions' | 'resources'>): ValidatedToken {
+    return {
+      ok: true,
+      identity: { type: 'agent', id: record.id },
+      method: 'token',
+      ceiling: { ...limits, reason: 'out_of_scope' },
+      delegation: { onBehalfOf: owner, mode: 'inherit' },
+      token: record,
+    };
+  }
+
+  private ownerValidation(record: TokenRecord, owner: IdentityRef, limits: Pick<Ceiling, 'permissions' | 'resources'>): ValidatedToken {
     const ceiling: Ceiling = { ...(record.roles !== undefined ? { roles: record.roles } : {}), ...limits };
     return {
       ok: true,
@@ -463,7 +499,10 @@ export class DbTokenService extends TokenService {
         this.whereNull('LastUsedAt');
         this.orWhere('LastUsedAt', '<', staleBefore);
       });
-    return this.affected(result) > 0;
+    const wrote = this.affected(result) > 0;
+    // Also when another request wrote first: the stored stamp is then younger than the interval either way.
+    this.cache.stamp(id, new Date(now), ip);
+    return wrote;
   }
 
   protected recordOf(t: AccessToken, owner: IdentityRef): TokenRecord {
@@ -508,6 +547,16 @@ export class DbTokenService extends TokenService {
     const principal: Principal = { type: owner.type, id: owner.id, authenticated: true, source: 'token', attributes: {} };
     const held = new Set((await source.rolesOf(principal)).map((r) => r.role));
     return roles.every((r) => held.has(r));
+  }
+
+  /** Evicts this process's cache, then tells the other caches; a bus failure never undoes the revocation. */
+  protected async changed(change: CredentialChange): Promise<void> {
+    this.cache.evict(change);
+    try {
+      await this.Bus?.publish(change);
+    } catch (err) {
+      this.Log.error({ error: err, kind: change.kind }, 'Could not publish a ${kind} credential change');
+    }
   }
 
   protected publish(ctx: AuthnContext, now: number, type: 'token.create' | 'token.revoke', owner: IdentityRef | null, data: Record<string, unknown>, actor?: PrincipalRef): Promise<void> {

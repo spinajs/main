@@ -40,7 +40,7 @@ describe('authn.token and authn.jwt through the schema', () => {
 
     it('with no user config, the effective authn.token and authn.jwt equal the defaults of the former single authn schema', async () => {
       const { configuration } = await boot(SCHEMAS, {});
-      expect(configuration.get('authn.token')).to.deep.eq({ prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 });
+      expect(configuration.get('authn.token')).to.deep.eq({ prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60, cache: { ttlSeconds: 10, maxEntries: 10000 } });
       expect(configuration.get('authn.jwt')).to.deep.eq({ issuers: [] });
     });
 
