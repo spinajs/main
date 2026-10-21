@@ -1,8 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
+import { InvalidOption } from '@spinajs/exceptions';
 import type { IContainer } from '@spinajs/di';
 import { SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionFactsChange, SessionHandle } from '@spinajs/authn/contracts';
+import { authnAppEnv, isLenientAuthnEnv } from '@spinajs/authn/env';
 import type { SessionStoragePort } from '../harness/ports.js';
 
 export interface MemorySessionOptions {
@@ -10,6 +12,8 @@ export interface MemorySessionOptions {
   readonly absoluteMinutes?: number;
   readonly pendingTtlSeconds?: number;
   readonly container?: IContainer;
+  /** Behaves as an issuer over MemorySessionStore: the boot refuses it outside development and test unless authn.session.allowMemoryStore is true. */
+  readonly memoryBacked?: boolean;
 }
 
 interface Row {
@@ -36,6 +40,7 @@ export class MemorySessionIssuer extends SessionIssuer {
   private readonly absoluteMs: number;
   private readonly pendingMs: number;
   private readonly container: IContainer;
+  private readonly memoryBacked: boolean;
 
   constructor(opts: MemorySessionOptions = {}) {
     super();
@@ -43,9 +48,18 @@ export class MemorySessionIssuer extends SessionIssuer {
     this.absoluteMs = (opts.absoluteMinutes ?? 480) * 60_000;
     this.pendingMs = (opts.pendingTtlSeconds ?? 300) * 1000;
     this.container = opts.container ?? DI.RootContainer;
+    this.memoryBacked = opts.memoryBacked ?? false;
     this.storage = {
       storedKeys: async () => [...this.rows.keys()],
     };
+  }
+
+  async checkConfiguration(booting: { get<T>(path: string | string[]): T }): Promise<void> {
+    if (!this.memoryBacked || booting.get<boolean | undefined>('authn.session.allowMemoryStore') === true) return;
+    const env = authnAppEnv(booting);
+    if (!isLenientAuthnEnv(env)) {
+      throw new InvalidOption(`MemorySessionStore is refused in env ${JSON.stringify(env ?? 'unset')}: sessions would vanish on restart and not be shared; use @spinajs/session-provider-db, or set authn.session.allowMemoryStore to true`);
+    }
   }
 
   private newId(): string {

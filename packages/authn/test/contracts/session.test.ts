@@ -191,6 +191,7 @@ describe('session issuer contract', () => {
         { name: 'revokeHandle', modifiers: ['abstract'], optional: false, params: ['subject', 'handle'] },
         { name: 'list', modifiers: ['abstract'], optional: false, params: ['subject', 'opts'] },
         { name: 'revokeByExternal', modifiers: ['abstract'], optional: false, params: ['provider', 'sid'] },
+        { name: 'checkConfiguration', modifiers: [], optional: true, params: ['booting'] },
       ]);
     });
 

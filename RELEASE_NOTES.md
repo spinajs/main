@@ -55,6 +55,29 @@ implement it. `DefaultSessionIssuer` and the kit's `MemorySessionIssuer` do.
 - `session-provider-db`: migration `UserSessionExternalKey_2026_10_21_00_01_00` adds the indexed `ExternalKey`
   column. `session-provider-redis`: sets `session:external:<ExternalKey>`. `session-provider-dynamodb`: attribute
   `ExternalKey`, found with a consistent Scan.
+# Release notes — authn, authn-session: the memory session store is refused in production
+
+> Docs: `docs/authn-session/04-session-stores.md`, `docs/authn/13-configuration-and-boot-checks.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn-session` — `MemorySessionStore` fails the boot outside development and test
+
+When `DefaultAuthnService` resolves, `DefaultSessionIssuer.checkConfiguration` asks its store, and
+`MemorySessionStore` throws `InvalidOption` unless the app env is development or test. An unset env counts as
+production. Sessions in process memory vanish on restart and are not shared between instances.
+
+Migrate with one of:
+
+- use a shared store, for example `authn.session.service: 'DbSessionStore'` from `@spinajs/session-provider-db`;
+- set `authn.session.allowMemoryStore: true` for a single-process deployment that accepts the loss.
+
+## New behavior
+
+- `authn.session.allowMemoryStore` (boolean, default `false`).
+- `SessionIssuer.checkConfiguration?(booting)` and `SessionProvider.checkConfiguration?(booting)` are optional boot
+  hooks, called like the throttle hook. A custom issuer or store may refuse a configuration it cannot run on.
+- `@spinajs/authn-testing`: `BootSpec.sessionStore` (`'memory'` or `'durable'`) and the A24 cases for it.
 
 # Release notes — authn, authn-token, authn-http: revoke a token by its plaintext
 

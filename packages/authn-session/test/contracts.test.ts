@@ -356,6 +356,7 @@ describe('@spinajs/authn-session contracts', function () {
         { name: 'listBySubject', modifiers: ['public', 'abstract'], params: ['subject', 'opts'], decorators: [] },
         { name: 'deleteByExternalKey', modifiers: ['public', 'abstract'], params: ['externalKey'], decorators: [] },
         { name: 'truncate', modifiers: ['public', 'abstract'], params: [], decorators: [] },
+        { name: 'checkConfiguration', modifiers: ['public'], params: ['booting'], decorators: [] },
         { name: 'applyInitialExpiration', modifiers: ['protected'], params: ['s'], decorators: [] },
         { name: 'applyRenewedExpiration', modifiers: ['protected'], params: ['s'], decorators: [] },
         { name: 'isExpired', modifiers: ['public'], params: ['s'], decorators: [] },

@@ -22,6 +22,7 @@ The rules every store keeps (the issuer's guarantees depend on them):
 | `listBySubject(subject, opts)` | The same matching; live rows only |
 | `deleteByExternalKey(externalKey)` | Delete every row whose `ExternalKey` equals it (back-channel logout); answer the number of live rows deleted. Persist `ExternalKey` in `save` and give it back in `restore` |
 | `truncate()` | Delete every row |
+| `checkConfiguration(booting)` | Optional. Throw to fail the boot when the store cannot run in this deployment; `DefaultSessionIssuer` forwards its own `checkConfiguration` here, and `DefaultAuthnService` calls it when it resolves |
 
 ## Configuration
 

@@ -12,7 +12,8 @@ Every authentication package reads the `authn.*` root. `@spinajs/authn` owns `AU
    1. logs a warning when no app env was set (see [App env](#app-env));
    2. runs `checkAuthnSecrets` and fails the boot on its errors;
    3. calls the throttle's `checkConfiguration` (a throw fails the boot);
-   4. warns when the throttle has no `peek` and a per-request strategy is listed.
+   4. calls the session issuer's `checkConfiguration`, which asks the session store: `MemorySessionStore` fails the boot outside development and test unless `authn.session.allowMemoryStore` is `true`;
+   5. warns when the throttle has no `peek` and a per-request strategy is listed.
 6. `checkAuthnConfig(container)` (from `@spinajs/authn/boot`) returns `AuthnConfigFinding[]` (`topic`, `level`, `message`). It validates against the authn schema and every `authn.*` schema registered in the container lineage. `@spinajs/authn-http` serves it as the CLI command `authn:check-config`.
 
 ## Configuration
@@ -59,6 +60,7 @@ Keys of the other packages. Each is validated by the schema of the package in th
 | `authn.session.cookie.name` | `string` | `'ssid'` | | `authn-session` |
 | `authn.session.cookie.hostPrefix`, `.secure` | `boolean \| 'auto'` | `'auto'` | `true`, `false`, `'auto'`, `'true'`, `'false'` | `authn-session` |
 | `authn.session.cookie.sameSite` | `string \| boolean` | `'strict'` | `strict`, `lax`, `none` (any case), `true`, `false` | `authn-session` |
+| `authn.session.allowMemoryStore` | `boolean` | `false` | | `authn-session`; lets `MemorySessionStore` boot outside development and test |
 | `authn.session.hashIds` | `boolean` | `true` | `true` only | `authn-session` |
 | `authn.mfa.totp.*` | object | issuer `SpinaJS`, `SHA1`, 6 digits, 30 s, window 1, 10 codes | | [`authn-totp`](../authn-totp/README.md) |
 | `authn.token.prefix`, `.length` | `string`, `integer` | `'spt_'`, `32` | non-empty, ≥ 32 | [`authn-token`](../authn-token/README.md) |

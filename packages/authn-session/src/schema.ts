@@ -35,6 +35,11 @@ export const AUTHN_SESSION_CONFIGURATION_SCHEMA = {
         sameSite: { anyOf: [{ enum: [true, false] }, { type: 'string', pattern: '^([Ss][Tt][Rr][Ii][Cc][Tt]|[Ll][Aa][Xx]|[Nn][Oo][Nn][Ee])$' }], default: 'strict' },
       },
     },
+    allowMemoryStore: {
+      type: 'boolean',
+      default: false,
+      description: 'MemorySessionStore loses every session on restart and is not shared between instances: outside development and test the boot refuses it unless this is true.',
+    },
     hashIds: { type: 'boolean', enum: [true], default: true, description: 'Session ids are always stored hashed (SR-18); only true is accepted.' },
   },
 };

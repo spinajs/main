@@ -69,6 +69,7 @@ sequenceDiagram
 | --- | --- | --- | --- | --- |
 | `authn.session.pendingTtlSeconds` | integer | `300` | 1 or more | Lifetime of a pending (pre-MFA) session, counted from `issue`, never extended by use |
 | `authn.session.service` | string | `'MemorySessionStore'` (shipped config; the schema has no default) | a registered `SessionProvider` class name | The store, see [Session stores](04-session-stores.md) |
+| `authn.session.allowMemoryStore` | boolean | `false` | | `MemorySessionStore` fails the boot outside development and test unless this is `true` (see [Session stores](04-session-stores.md#memorysessionstore)) |
 | `authn.session.hashIds` | boolean | `true` | `true` only | Session ids are always stored hashed; the schema refuses `false` |
 
 The expiration keys are on [Expiration strategies](03-expiration-strategies.md#configuration), the cookie keys on [Session cookie](07-session-cookie.md#configuration).

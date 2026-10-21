@@ -253,6 +253,8 @@ export interface BootSpec {
   readonly secrets?: { readonly cookie?: 'strong' | 'public' | 'missing'; readonly pepper?: 'strong' | 'off'; readonly mfaKey?: 'strong' | 'missing' };
   /** 'secret-storing': one MFA step that stores secrets is configured (the lane's TOTP step, or a fake declaring it stores secrets); 'none': no such step. Default 'none'. */
   readonly mfaStep?: 'secret-storing' | 'none';
+  /** 'memory': the app keeps its sessions in process memory (MemorySessionStore); 'durable': in a shared store. Default 'durable'. */
+  readonly sessionStore?: 'memory' | 'durable';
 }
 
 export type BootResult = { readonly ok: true; readonly service: AuthnService; dispose(): Promise<void> } | { readonly ok: false; readonly error: unknown };

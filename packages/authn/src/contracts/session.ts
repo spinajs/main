@@ -58,4 +58,6 @@ export abstract class SessionIssuer {
   abstract list(subject: IdentityRef, opts?: { current?: SessionHandle }): Promise<readonly { handle: string; createdAt: Date; lastSeenAt: Date; ip?: string; userAgent?: string; current?: boolean }[]>;
   /** Ends every session issued from `provider` with IdP session id `sid` (AuthnFacts.external); returns the count. */
   abstract revokeByExternal(provider: string, sid: string): Promise<number>;
+  /** Optional; the authn service calls it at boot with its configuration, so an issuer that cannot run on it fails the boot. */
+  checkConfiguration?(booting: { get<T>(path: string | string[]): T }): Promise<void>;
 }

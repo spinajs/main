@@ -35,7 +35,7 @@ export interface ConfigOverrides {
       verify: { ttlSeconds: number };
     };
     login: { requireVerifiedAddress: boolean };
-    session: { expiration: { ttl: number; maxLifetime: number }; pendingTtlSeconds: number };
+    session: { expiration: { ttl: number; maxLifetime: number }; pendingTtlSeconds: number; allowMemoryStore: boolean };
     mfa: { policy: { force: boolean; methods: readonly string[] }; totp: { recoveryCodes: number } };
     throttle: Partial<ThrottleParams> & { ipv6Prefix: number };
     freshAuth: { maxAgeSeconds: number };

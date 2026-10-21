@@ -146,6 +146,7 @@ export class TestConfiguration extends FrameworkConfiguration {
       authn: {
         session: {
           service: 'MemorySessionStore',
+          allowMemoryStore: true,
           expiration: {
             service: 'SlidingCappedExpiration',
             ttl: 120,

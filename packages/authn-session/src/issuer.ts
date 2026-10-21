@@ -134,6 +134,10 @@ export class DefaultSessionIssuer extends SessionIssuer {
   @AutoinjectService('authn.session.expiration', SessionExpirationProvider)
   protected Expiration: SessionExpirationProvider | undefined;
 
+  public async checkConfiguration(booting: { get<T>(path: string | string[]): T }): Promise<void> {
+    await this.Store.checkConfiguration?.(booting);
+  }
+
   public async issue(identity: IdentityRef, facts: AuthnFacts, opts?: { pending?: { steps: readonly string[] } }): Promise<SessionHandle> {
     const now = DateTime.now();
     const pending = opts?.pending !== undefined;

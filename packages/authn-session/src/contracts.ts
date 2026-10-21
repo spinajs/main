@@ -77,6 +77,9 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
 
   public abstract truncate(): Promise<void>;
 
+  /** Optional; the issuer calls it when the authn service boots, so a store that must not run in this deployment fails the boot. */
+  public checkConfiguration?(booting: { get<T>(path: string | string[]): T }): Promise<void>;
+
   protected applyInitialExpiration(s: ISession): void {
     if (s.State === 'pending') {
       throw new InvalidOperation('A pending session must carry its own expiration (authn.session.pendingTtlSeconds)');
