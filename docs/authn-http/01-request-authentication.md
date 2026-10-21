@@ -77,7 +77,8 @@ sequenceDiagram
 | `authn.http.publicOrigin` | `string` or `null` | unset | `scheme://host[:port]` | The origin clients put in an HTTP signature's `@target-uri`. Unset: signed requests get no principal, and `AuthnMiddleware` warns at boot. |
 | `http.cookie.secret` | `string` | `@spinajs/http` default | your own secret | Verifies the session cookie signature. Missing: boot fails. The public default: boot fails outside development and test, warns inside them. |
 | `authn.session.cookie` | object | see [Session cookie](../authn-session/07-session-cookie.md) | | Cookie name and flags; `AuthnMiddleware` reads the name through `sessionCookieName()`. |
-| `authn.http.routes.prefix` | `string` | unset | | Accepted by the schema; no `authn-http` source reads it. <!-- TODO(docs-hook): verify whether authn.http.routes.prefix has any effect --> |
+
+The authn routes have no prefix of their own: `http.controllers.route.prefix` moves them with every other controller. `authn.http.routes.prefix` is deprecated and not in the schema; a config that still sets it boots, and `AuthnMiddleware` warns at boot that the key is never read.
 
 ```ts
 export default {

@@ -97,6 +97,9 @@ export class AuthnMiddleware extends ServerMiddleware {
     if (publicOriginOf(this.PublicOrigin) === undefined) {
       this.Log.warn('authn.http.publicOrigin is not set: requests signed with HTTP message signatures get no principal');
     }
+    if (this.Configuration.get('authn.http.routes.prefix') !== undefined) {
+      this.Log.warn('authn.http.routes.prefix is deprecated and never read: the authn routes take http.controllers.route.prefix like every controller. Remove the key');
+    }
     this.CookieSecret = secret;
     this.CookieName = sessionCookieName(this.SessionCookie, env);
     this.Extractors = [...this.Extractors].sort(byOrder);

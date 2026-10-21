@@ -77,6 +77,11 @@ describe('authn http middlewares through @Config and the schemas', () => {
     it('accepts csrf off', async () => {
       expect(await bad({ authn: { http: { csrf: { enabled: false } } } })).to.deep.eq([]);
     });
+
+    it('no longer declares authn.http.routes.prefix, and a config that still sets it boots', async () => {
+      expect(AUTHN_HTTP_CONFIGURATION_SCHEMA.properties).to.not.have.property('routes');
+      expect(await bad({ authn: { http: { routes: { prefix: 'auth' } } } })).to.deep.eq([]);
+    });
   });
 
   describe('proxyTrustOf', () => {
@@ -185,6 +190,13 @@ describe('authn http middlewares through @Config and the schemas', () => {
       const set = await middleware({ http: { cookie: { secret: STRONG } }, authn: { http: { publicOrigin: 'https://app.example.org' } } }, 'test');
       await set.mw.resolve();
       expect(set.warnings).to.deep.eq([]);
+    });
+
+    it('warns that authn.http.routes.prefix is deprecated and names the prefix that applies', async () => {
+      const { mw, warnings } = await middleware({ http: { cookie: { secret: STRONG } }, authn: { http: { publicOrigin: 'https://app.example.org', routes: { prefix: 'auth' } } } }, 'test');
+      await mw.resolve();
+      expect(warnings).to.have.length(1);
+      expect(warnings[0]).to.contain('authn.http.routes.prefix').and.to.contain('deprecated').and.to.contain('http.controllers.route.prefix');
     });
 
     it('takes the cookie name from authn.session.cookie and the env flags from the app env', async () => {
