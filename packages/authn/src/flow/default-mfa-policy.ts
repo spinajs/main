@@ -42,8 +42,9 @@ export abstract class ConfiguredMfaPolicy extends MfaPolicy {
 }
 
 /**
- * Design §22.3: the steps of `authn.mfa.steps` the identity is enrolled in, for password logins only (D13: a key
- * challenge proves possession and an IdP does its own MFA). When none is enrolled, every MfaEnrolments source of the
+ * Design §22.3: the steps of `authn.mfa.steps` the identity is enrolled in, for logins whose method `authn.mfa.policy.methods`
+ * lists. The default is password only (D13): a key challenge proves possession and an IdP does its own MFA, so list
+ * `oidc` to ask for a step after an IdP login too. When none is enrolled, every MfaEnrolments source of the
  * container lineage is asked, and any step a source reports refuses the login, forced or not, as the identity never
  * logs in with the password alone (§22.4, §22.18): MfaStepNotListed for a step the list leaves out, else
  * MfaEnrolmentMismatch (a listed step that does not see the stored enrolment). Otherwise `force`, or a role of
@@ -69,8 +70,15 @@ export class DefaultMfaPolicy extends ConfiguredMfaPolicy {
   @Autoinject(RoleSource, { optional: true })
   protected Roles: RoleSource | undefined;
 
+  @Config('authn.mfa.policy.methods')
+  protected Methods: string[];
+
   public get force(): boolean {
     return this.Force === true;
+  }
+
+  public get methods(): readonly string[] {
+    return this.Methods ?? ['password'];
   }
 
   public get forceForRoles(): readonly string[] {
@@ -91,7 +99,7 @@ export class DefaultMfaPolicy extends ConfiguredMfaPolicy {
   }
 
   public async required(id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<readonly string[]> {
-    if (facts.method !== 'password') return [];
+    if (!this.methods.includes(facts.method)) return [];
     const steps = [...(await this.steps()).values()];
     const enrolled: string[] = [];
     for (const s of steps) if (await s.enrolled(id)) enrolled.push(s.name);
