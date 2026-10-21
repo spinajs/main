@@ -11,7 +11,8 @@ The provider posts an `application/x-www-form-urlencoded` body with one member, 
 1. The provider must be configured with an `issuer`: the token is checked against the JWKS that discovery names (`jwks_uri`). A plain OAuth2 provider (GitHub) has no keys, so its route answers 400.
 2. `validateLogoutToken()` checks the token (next section).
 3. The token's `jti` is claimed once in the `NonceStore` until the token expires. A replayed token answers 400.
-4. With a `sid`, `SessionIssuer.revokeByExternal('oidc:<name>', sid)` ends every session issued from a login whose ID token carried that `sid`. With only a `sub`, the identity linked to `(oidc:<name>, sub)` loses every session, impersonations included (`revokeAll`).
+4. The [`authn.logout.backchannel` hooks](07-login-hooks.md#authnlogoutbackchannel) run around the revocation. They cannot keep the sessions: a refusal or a failing hook is logged and the revocation goes on.
+   With a `sid`, `SessionIssuer.revokeByExternal('oidc:<name>', sid)` ends every session issued from a login whose ID token carried that `sid`. With only a `sub`, the identity linked to `(oidc:<name>, sub)` loses every session, impersonations included (`revokeAll`).
 5. The answer is `200` with `Cache-Control: no-store` and no body, also when no session matched. Any failure answers `400` with `{ "error": "invalid_request" }` (section 2.8).
 
 ### Token checks

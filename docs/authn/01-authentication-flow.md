@@ -20,13 +20,15 @@ Use this page to see what runs, in which order, and what each step can refuse. T
 
 ### Login: `authenticate`
 
+A login (any `ctx.purpose` but `request`) first runs the `authn.login` [action hooks](14-action-hooks.md). A refusal, or a hook that throws, answers `invalid_credentials` and audits a `login` failure (`hook:<code>` or `hook_error`) before anything is counted or verified. A hook may change the credentials, never the context. Per-request credentials skip it.
+
 1. **Pick the candidates.** `StrategyRegistry.candidates(credentials)` returns the strategies of `authn.strategies` whose `kinds` include `credentials.kind`, in list order. A strategy with an `accepts(credentials)` method that does not return `true` is left out. No candidate: the result is `unsupported_credentials`, nothing is counted, and a `login` failure event is audited.
 2. **Build the throttle keys.** Each candidate's `throttleKeys(credentials, ctx)` gives its keys. The service rewrites them (see [Throttle keys](05-throttling.md#keys-the-service-builds)) and adds the shared `ip` key and, when `authn.throttle.global` is set, the `global` key. A strategy that throws or returns malformed keys fails the attempt with `invalid_credentials`, before any verify.
 3. **Ask the throttle.** When every candidate is per-request (`interactive: false`) and the throttle has `peek`, the service only peeks: nothing is counted yet. Otherwise `AuthnThrottle.attempt(keys, 'login', ctx)` counts the attempt **before** the credentials are checked, once, with the union of the candidates' keys. A refusal returns `{ status: 'failure', reason: 'throttled', retryAfterSeconds }` and audits `throttle.block`. A refused attempt is neither verified nor counted.
 4. **Verify.** `verifyWith` calls `verify(credentials, ctx)` on each candidate in order. Only an `unsupported_credentials` answer passes the credentials to the next candidate. Any other answer stops the loop. A strategy that throws, or answers a shape the contract does not allow, fails the attempt with `invalid_credentials`.
 5. **Resolve the identity** (`accept`). A strategy answers either an `identity` or an `external` subject. An external subject resolves through the `IdentityLinkStore`: an existing link, else a link by verified email, else JIT provisioning, else `not_linked`. See [Account linking](10-account-linking.md#linking-at-login).
 6. **Check the identity.** An interactive strategy must answer a `user` identity, since only users get sessions. Then `IdentityStore.status()` must report the identity as existing, active, not banned and not deleted. For a delegation (agent tokens), the status of the identity it acts for is checked. Identities of type `service` and `agent` are not asked: their strategies vouch for them.
-7. **Run the external login hooks.** For an interactive strategy that answered an external subject, every `ExternalLoginHook` runs. A hook that throws fails the login. See [Integration hooks](12-integration-hooks.md#externalloginhook).
+7. **Run `authn.login.identified`.** For an interactive strategy, the [action hooks](14-action-hooks.md) of `authn.login.identified` run with the identity, the strategy, the method, the external subject of an external login and the attributes. A refusal, or a hook that throws, fails the login with `invalid_credentials` and no session; a hook may replace the attributes. A link by verified email is written only after they pass.
 8. **Per-request strategy: finish.** `AuthnThrottle.succeed(keys, 'login')` resets the answering strategy's keys, a `token.use` or `key.use` success is audited, and the result is a `success` with no session.
 9. **Interactive strategy: ask the MFA policy.** `MfaPolicy.required(identity, { method, strategy })` returns the steps still to pass. A policy that throws fails the login, and the throttle keeps the count.
 10. **Reset the throttle.** Only now `AuthnThrottle.succeed(keys, 'login')` runs, so a login the policy refuses cannot be told apart from a wrong password by its backoff.
@@ -79,6 +81,7 @@ sequenceDiagram
 
 1. `SessionIssuer.restore(pending.id)` must return a `pending` session. Otherwise the result is `invalid_credentials` (audit reason `not_pending`), and nothing is counted.
 2. `AuthnThrottle.attempt(keys, 'mfa', ctx)` counts the attempt, keyed by the identity id, the identity id with the IP, and the IP. A refusal is `throttled` with `retryAfterSeconds`.
+   The `authn.mfa.verify` [action hooks](14-action-hooks.md) run around the steps below. A refusal answers as a wrong code does (audit reason `hook:<code>`), and the session stays pending.
 3. The policy is asked again with `MfaPolicy.required`: the session does not keep the steps it was issued with. The required steps are alternatives; passing any one is enough.
 4. The step must be one of the required steps and the identity must be enrolled in it. Then `MfaStep.verify(identity, response)`. With step `recovery` (`RECOVERY_STEP`), the first enrolled step that has `verifyRecovery` checks the code.
 5. The identity status is read again. An identity banned, deactivated or deleted between the two steps gets no session, and the pending session is revoked.
@@ -114,7 +117,7 @@ An `aal1` session meets a route behind `MfaSatisfied`: its login method needed n
 
 1. `SessionIssuer.restore(session.id)` must return an `active` session that is not an impersonation: the target's factor must not raise the session an impersonator acts in. Otherwise the result is `invalid_credentials` (audit reason `not_active` or `impersonation`), and nothing is counted.
 2. A session already at `aal2` answers `success` with the same handle. Nothing is verified, counted or reissued.
-3. `AuthnThrottle.attempt(keys, 'mfa', ctx)` counts the attempt with the identity keys, as in `completeMfa`.
+3. `AuthnThrottle.attempt(keys, 'mfa', ctx)` counts the attempt with the identity keys, as in `completeMfa`. The `authn.session.stepUp` [action hooks](14-action-hooks.md) run around the steps below; a refusal answers as a wrong code does, with no reissue.
 4. The step must be one of `MfaPolicy.steps()` that the identity is enrolled in, whatever its login method. With step `recovery`, the first enrolled step that has `verifyRecovery` checks the code, which works once.
 5. The identity status is read again. A banned, deactivated or deleted identity gets nothing, and its session is revoked.
 6. `SessionIssuer.reissue(session, { assurance: 'aal2', mfa: [step] })` moves the session and its data to a new id. `AuthnThrottle.succeed(keys, 'mfa')` resets the keys.
@@ -124,7 +127,7 @@ An `aal1` session meets a route behind `MfaSatisfied`: its login method needed n
 
 1. The session must be `active` and must not be an impersonation. The target's password must not let an impersonator act as the target.
 2. Only interactive candidates count: a token or a key the client holds does not show that the user is present.
-3. `AuthnThrottle.attempt(keys, 'reauth', ctx)` counts the attempt with the identity keys. A refusal answers `false`.
+3. `AuthnThrottle.attempt(keys, 'reauth', ctx)` counts the attempt with the identity keys. A refusal answers `false`. The `authn.reauth` [action hooks](14-action-hooks.md) run around the steps below; a refusal answers `false`.
 4. The strategy verifies. The verified identity must be the session's own identity, a delegation never is. Its status must still allow a login.
 5. `AuthnThrottle.succeed(keys, 'reauth')`, a `reauth` success event, and `true`.
 
@@ -157,14 +160,14 @@ Audit reasons the core writes:
 
 | Flow | Event | Reasons |
 | --- | --- | --- |
-| `authenticate` | `login`, `token.use`, `key.use` | `unsupported_credentials`, `strategy_error`, `strategy_contract`, the strategy's own reason, `not_linked`, `non_user_session`, `unknown_identity`, `deleted`, `banned`, `inactive`, `hook_error`, `policy_error`, `mfa_step_not_listed`, `mfa_enrolment_mismatch`, `store_error` |
+| `authenticate` | `login`, `token.use`, `key.use` | `unsupported_credentials`, `strategy_error`, `strategy_contract`, the strategy's own reason, `not_linked`, `non_user_session`, `unknown_identity`, `deleted`, `banned`, `inactive`, `hook:<code>`, `hook_error`, `policy_error`, `mfa_step_not_listed`, `mfa_enrolment_mismatch`, `store_error` |
 | `authenticate`, `completeMfa`, `stepUp`, `reauthenticate` | `throttle.block` | `throttled` |
-| `completeMfa` | `mfa.verify` | `not_pending`, `no_steps`, `unknown_step`, `not_enrolled`, `no_recovery_step`, `invalid_code`, `step_error`, `store_error`, `session_error` |
+| `completeMfa` | `mfa.verify` | `not_pending`, `no_steps`, `unknown_step`, `not_enrolled`, `no_recovery_step`, `invalid_code`, `step_error`, `store_error`, `session_error`, `hook:<code>`, `hook_error` |
 | `completeMfa` | `login` | `unknown_identity`, `deleted`, `banned`, `inactive` |
-| `stepUp` | `mfa.verify` | `not_active`, `impersonation`, `no_steps`, `unknown_step`, `not_enrolled`, `no_recovery_step`, `invalid_code`, `step_error`, `store_error`, the status reasons, `session_error` |
-| `reauthenticate` | `reauth` | `not_active`, `impersonation`, `unsupported_credentials`, `other_identity`, the strategy's own reason, the status reasons, `store_error` |
+| `stepUp` | `mfa.verify` | `not_active`, `impersonation`, `no_steps`, `unknown_step`, `not_enrolled`, `no_recovery_step`, `invalid_code`, `step_error`, `store_error`, the status reasons, `session_error`, `hook:<code>`, `hook_error` |
+| `reauthenticate` | `reauth` | `not_active`, `impersonation`, `unsupported_credentials`, `other_identity`, the strategy's own reason, the status reasons, `store_error`, `hook:<code>`, `hook_error` |
 
-An error thrown by a strategy, a store or a hook is audited by its class name only (`data.error`). Its message may echo the credential.
+An error thrown by a strategy or a store is audited by its class name only (`data.error`). Its message may echo the credential. A failing action hook is audited as `hook_error` with `data.hook` (the hook class) and `data.failure` (`error`, `timeout` or `depth`).
 
 ## Services and extension points
 

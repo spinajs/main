@@ -89,6 +89,21 @@ Each port is an optional member of `Harness`. The contract types come from `@spi
 | `boot` | `BootPort` | Boot an app with given strategies, env and secrets; run the config check |
 | `actors` | `ActorsPort` | Create an admin with or without the `users:credentials` right |
 | `http` | `HttpPort` | Send HTTP requests to the app; see [HTTP port](06-http-port.md) |
+| `hooks` | `HooksPort` | Add action hooks for the rest of the case (A37); see below |
+
+### The `hooks` port
+
+The hooks runner of `@spinajs/hooks` reads its hooks once, when it boots, so a case cannot register one later. A lane registers one `KitActionHooks` as an `ActionHook` before its `Hooks` resolves and hands it out as the `hooks` port; `h.hooks.add(...hooks)` makes the lane's actions run those hooks for the rest of the case, matched by their own patterns and ordered by their own `order`, as if they had been registered at boot. Clear it between cases with `clear()` when the lane reuses one app.
+
+```ts
+import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
+import { KitActionHooks } from '@spinajs/authn-testing';
+
+const hooks = new KitActionHooks();
+child.register(DefaultHooks).as(Hooks);
+child.register(() => hooks).as(ActionHook);
+// ...resolve AuthnService, then return { ...ports, hooks } from the harness factory
+```
 
 ### Facets, claims and pending cases
 

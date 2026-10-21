@@ -72,7 +72,7 @@ The satellite packages take these from `@spinajs/authn/contracts` instead of kee
 | `CredentialChangeBus` | Tells credential caches that a token, a key or an identity changed: `publish({ kind: 'token' \| 'key', id })` or `publish({ kind: 'identity', identity })`, and `subscribe(listener)` | `InProcessCredentialChangeBus` (core, this process only; a failing listener is logged and skipped) | [Validation cache](../authn-token/01-token-service.md#validation-cache), [Key cache](../authn-keys/02-key-registry.md#key-cache) |
 | `KeyRegistry`, `JwsVerifier`, `JwsSigner` | Public keys, strict JWS | `DefaultKeyRegistry` and the verifier (authn-keys) | [`@spinajs/authn-keys`](../authn-keys/README.md) |
 | `ImpersonationGuard`, `RoleSource`, `CredentialAdminGuard`, `AuthnResponseExtension` | Authorization questions authn asks | `AuthzImpersonationGuard`, `RbacRoleSource`, `AuthzCredentialAdminGuard`, `AccessResponseExtension` (users) | [Integration hooks](12-integration-hooks.md) |
-| `ExternalLoginHook` | Runs after an external login | Your app | [Integration hooks](12-integration-hooks.md#externalloginhook) |
+| `ActionHook` (`@spinajs/hooks`) | Runs around `authn.login`, `authn.login.identified` and the other authn actions | Your app | [Action hooks](14-action-hooks.md) |
 
 The contract files describe the obligations of each method. Read them before you implement one: for example `SessionIssuer.revoke` resolves `true` only for the call that ended the session.
 

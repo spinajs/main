@@ -18,7 +18,7 @@ It is a test double. It is **not** the `AuthnService` that `@spinajs/authn` regi
 4. Calls `strategy.verify()`. A failed outcome publishes a `login` failure with the strategy's reason and answers that reason.
 5. Resolves the identity: the outcome's `identity`, or for an `external` subject an existing link, then a verified-email match, then JIT provisioning. Email matching needs `linking.byVerifiedEmail` and the strategy's own `linkingFor().byVerifiedEmail`; JIT needs `linking.jit`, the strategy's `linkingFor().jit` and `IdentityStore.provision`. A new match is linked through the link store. No identity: answers `not_linked`.
 6. Checks `IdentityStore.status()`. An unknown, deleted, banned or inactive identity publishes a failure with that reason and answers `invalid_credentials`.
-7. For an interactive external login, runs every `ExternalLoginHook.afterLogin()`. A throwing hook publishes `hook_error` and answers `invalid_credentials`.
+7. For an interactive login, with `hooks` given, runs the rest of the login (steps 8 to 10) through `authn.login.identified`, as the core does: the input carries `identity`, `strategy`, `method`, `external` (an external login only), `attributes` and `ctx`, and only `attributes` is mutable. A refusal publishes a `login` failure with reason `hook:<code>`, a hook that throws or times out one with `hook_error`; both answer `invalid_credentials`. The fake runs no other action.
 8. Calls `throttle.succeed(keys, 'login')`.
 9. Per-request strategy: publishes `token.use` and answers success with no session, carrying the outcome's `ceiling`, `delegation` and `attributes`.
 10. Interactive strategy: asks `MfaPolicy.required()`. Steps required: issues a pending session, publishes `mfa.challenge` and answers `mfa_required` with `pending` and `steps`. Otherwise: issues a session, publishes `login` and `session.issue`, and answers success with `session` and `facts.sessionHandle`.
@@ -67,7 +67,7 @@ sequenceDiagram
 | `sessions` | `SessionIssuer` | required | `MemorySessionIssuer`, your own | Issues, restores and elevates sessions |
 | `sinks` | `readonly AuthnEventSink[]` | required | `RecordingEventSink`, your own | Every event goes to every sink; the array is read at publish time |
 | `principals` | `PrincipalFactory` | required | `RecordingPrincipalFactory`, your own | Builds the `Principal` |
-| `hooks` | `() => readonly ExternalLoginHook[]` | none | `RecordingExternalLoginHook`, your own | Called per login; hooks run for interactive external logins only |
+| `hooks` | `Hooks` (`@spinajs/hooks`) | none | a `DefaultHooks` over your `ActionHook`s | Runs `authn.login.identified` for interactive logins; without it no hook runs |
 
 ## Services and extension points
 
