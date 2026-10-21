@@ -1,6 +1,6 @@
 import { NotFound } from '@spinajs/http';
 import type { BadRequestResponse, Request } from '@spinajs/http';
-import type { ResourceRef, TokenCreateOptions, TokenRecord, TokenScope } from '@spinajs/authn/contracts';
+import type { ResourceRef, TokenCreateOptions, TokenRecord, TokenScope, TokenUpdate } from '@spinajs/authn/contracts';
 import { isPlainObject, parseIsoInstant } from '@spinajs/util';
 
 import { NO_STORE, badRequest, instant } from '../v3/responses.js';
@@ -17,10 +17,13 @@ const PROFILE_CAP = 128;
 const SCOPE_STRING_CAP = 256;
 /** authn-token's own limit on scope permissions and resources. */
 const SCOPE_ENTRIES_MAX = 1000;
+/** The longest grace a rotation may leave the old secret: seven days, as in authn-token. */
+const GRACE_MAX = 604_800;
 /** Longer than any rbac_access_tokens.Uuid. */
 export const TOKEN_ID_CAP = 64;
 
 const KINDS: readonly string[] = ['pat', 'service', 'agent'];
+const UPDATE_KEYS: readonly string[] = ['name', 'roles', 'expiresAt'];
 const SCOPE_KEYS: readonly string[] = ['permissions', 'resources', 'agent'];
 const RESOURCE_KEYS: readonly string[] = ['type', 'id'];
 
@@ -93,6 +96,41 @@ export function tokenRequestOf(req: Request): { opts: TokenCreateOptions } | { a
   if (scope === null) return { answer: badRequest('invalid_scope', 'scope must be { permissions?, resources?, agent? } within the limits') };
   const opts = { name, expiresAt, kind, ...(roles !== undefined ? { roles } : {}), ...(profile !== undefined ? { profile } : {}), ...(scope !== undefined ? { scope } : {}) };
   return { opts: opts as TokenCreateOptions };
+}
+
+/** The rotate options of a POST /user/tokens/:uuid/rotate body (`graceSeconds`, a whole number from 0 to 604800), or its 400 answer. */
+export function rotateRequestOf(req: Request): { opts: { graceSeconds: number } | undefined } | { answer: BadRequestResponse } {
+  const grace = bodyField(req, 'graceSeconds');
+  if (grace === undefined) return { opts: undefined };
+  if (typeof grace !== 'number' || !Number.isInteger(grace) || grace < 0 || grace > GRACE_MAX) return { answer: badRequest('invalid_grace', `graceSeconds must be a whole number of seconds from 0 to ${GRACE_MAX}`) };
+  return { opts: { graceSeconds: grace } };
+}
+
+/**
+ * The change of a PATCH /user/tokens/:uuid body, or its 400 answer. Only `name`, `roles` and `expiresAt` can change; any other
+ * key is refused, so a body cannot reach the kind, profile or scope. TokenService checks that the change only narrows.
+ */
+export function tokenUpdateOf(req: Request): { change: TokenUpdate } | { answer: BadRequestResponse } {
+  const body: unknown = req.body;
+  if (isPlainObject(body) && !onlyKeys(body, UPDATE_KEYS)) return { answer: badRequest('invalid_field', `only ${UPDATE_KEYS.join(', ')} can change`) };
+
+  const change: { name?: string; roles?: string[]; expiresAt?: Date } = {};
+  const name = bodyField(req, 'name');
+  if (name !== undefined) {
+    if (typeof name !== 'string' || name.trim() === '' || name.length > NAME_CAP) return { answer: badRequest('invalid_name', `name must be a non-blank string of at most ${NAME_CAP} characters`) };
+    change.name = name;
+  }
+  const roles = rolesOf(bodyField(req, 'roles'));
+  // An empty list would unpin the token, which is not narrowing.
+  if (roles === null || roles?.length === 0) return { answer: badRequest('invalid_roles', `roles must be a list of 1 to ${ROLES_MAX} role names of at most ${ROLE_CAP} characters`) };
+  if (roles !== undefined) change.roles = roles;
+  const rawExpiry = bodyField(req, 'expiresAt');
+  if (rawExpiry !== undefined) {
+    const expiresAt = expiryOf(rawExpiry);
+    if (expiresAt === null) return { answer: invalidExpiry() };
+    change.expiresAt = expiresAt;
+  }
+  return { change };
 }
 
 function scopeEntry(s: TokenScope): Record<string, unknown> {

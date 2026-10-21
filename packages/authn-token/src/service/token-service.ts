@@ -8,9 +8,9 @@ import type { AuthnAuditor } from '@spinajs/authn/audit';
 import { InvalidArgument, InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Orm } from '@spinajs/orm';
-import { _between, _check_arg, _contains, _custom, _finite, _gte, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
+import { _between, _check_arg, _contains, _custom, _finite, _gte, _integer, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
 import { CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
-import type { AuthnContext, CredentialChange, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '@spinajs/authn/contracts';
+import type { AuthnContext, CredentialChange, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenRotateResult, TokenScope, TokenUpdate, TokenUpdateResult, TokenValidation } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
 
 import { AccessTokenGenerationProvider } from '../generation.js';
@@ -30,6 +30,8 @@ const MAX_IP_LENGTH = 64;
 const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
+/** The longest grace a rotation may leave the old secret: seven days. */
+const MAX_GRACE_SECONDS = 604_800;
 /** Ids per DELETE, well under the bound-parameter limits of the drivers. */
 const DELETE_BATCH = 500;
 
@@ -38,6 +40,9 @@ type Failure = Extract<TokenValidation, { ok: false }>;
 
 const INVALID_SCOPE: Refusal = Object.freeze({ ok: false, code: 'invalid_scope' });
 const INVALID_EXPIRY: Refusal = Object.freeze({ ok: false, code: 'invalid_expiry' });
+const NOT_FOUND: Extract<TokenRotateResult, { ok: false }> = Object.freeze({ ok: false, reason: 'not_found' });
+const UPDATE_INVALID_SCOPE: Extract<TokenUpdateResult, { ok: false }> = Object.freeze({ ok: false, reason: 'invalid_scope' });
+const UPDATE_INVALID_EXPIRY: Extract<TokenUpdateResult, { ok: false }> = Object.freeze({ ok: false, reason: 'invalid_expiry' });
 const fail = (reason: AuthnFailure): Failure => ({ ok: false, reason });
 
 /** NaN for anything but a valid Date. */
@@ -104,6 +109,24 @@ function parseScope(scope: unknown, agent: boolean): TokenScope | undefined | nu
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** The trimmed name; InvalidArgument for anything but 1 to 128 characters. */
+function checkedName(value: unknown): string {
+  const name = typeof value === 'string' ? value.trim() : '';
+  _check_arg(_between(1, MAX_NAME_LENGTH, new InvalidArgument(`token name must be 1 to ${MAX_NAME_LENGTH} characters`)))(name, 'name');
+  return name;
+}
+
+/** The columns an update writes and the names of the fields it changes. */
+function updateValues(name: string | undefined, roles: string[] | undefined, expiresAt: number | undefined): { values: Partial<AccessToken>; fields: string[] } {
+  const values: Partial<AccessToken> = {
+    ...(name !== undefined ? { Name: name } : {}),
+    ...(roles !== undefined ? { Roles: roles } : {}),
+    ...(expiresAt !== undefined ? { ExpiresAt: DateTime.fromMillis(expiresAt) as DateTime<true> } : {}),
+  };
+  const fields = [name !== undefined && 'name', roles !== undefined && 'roles', expiresAt !== undefined && 'expiresAt'].filter((f): f is string => f !== false);
+  return { values, fields };
+}
+
 const SCOPE_KEYS: readonly string[] = ['permissions', 'resources', 'agent'];
 const RESOURCE_KEYS: readonly string[] = ['type', 'id'];
 
@@ -131,7 +154,7 @@ function storedScope(stored: unknown, agent: boolean): TokenScope | undefined | 
 /**
  * `TokenService` over `rbac_access_tokens`. Owners map to `user_id` through {@link TokenOwnerResolver};
  * owner status comes from {@link IdentityStore}. A successful validate is served from memory for
- * `authn.token.cache.ttlSeconds`; revocations evict it and go out on the {@link CredentialChangeBus}.
+ * `authn.token.cache.ttlSeconds`; revocations, rotations and updates evict it and go out on the {@link CredentialChangeBus}.
  */
 @Injectable(TokenService)
 export class DbTokenService extends TokenService {
@@ -307,6 +330,73 @@ export class DbTokenService extends TokenService {
     return true;
   }
 
+  public async rotate(owner: IdentityRef, id: string, ctx: AuthnContext, opts?: { readonly graceSeconds?: number }): Promise<TokenRotateResult> {
+    const now = this.nowOf(ctx);
+    const graceSeconds = opts?.graceSeconds === undefined ? 0 : opts.graceSeconds;
+    _check_arg(_is_number(_integer(), _between(0, MAX_GRACE_SECONDS, new InvalidArgument(`graceSeconds must be a whole number of seconds from 0 to ${MAX_GRACE_SECONDS}`))))(graceSeconds, 'graceSeconds');
+    this.checkFormat();
+
+    const token = await this.liveToken(owner, id);
+    const expiresAt = token ? toDate(token.ExpiresAt) : null;
+    if (!token || expiresAt === null || expiresAt.getTime() <= now) {
+      return NOT_FOUND;
+    }
+
+    const generated = await this.Generator.generate();
+    this.checkGenerated(generated?.Plaintext);
+
+    const grace = graceSeconds > 0;
+    const values = {
+      Token: generated.Hash,
+      PreviousToken: grace ? token.Token : null,
+      PreviousValidUntil: grace ? DateTime.fromMillis(now + graceSeconds * 1000) : null,
+    } as unknown as Partial<AccessToken>;
+    // Conditional on the stored hash, so of two racing rotations only one wins and no caller holds a secret that is already dead.
+    const result = await AccessToken.update(values)
+      .where('Id', token.Id)
+      .where('Token', token.Token)
+      .whereNull('RevokedAt');
+    if (this.affected(result) === 0) {
+      return NOT_FOUND;
+    }
+
+    await this.changed({ kind: 'token', id: token.Uuid });
+    await this.publish(ctx, now, 'token.rotate', owner, { token: token.Uuid, kind: token.Kind, graceSeconds });
+    return { ok: true, plaintext: generated.Plaintext, token: this.recordOf(token, owner) };
+  }
+
+  public async update(owner: IdentityRef, id: string, change: TokenUpdate, ctx: AuthnContext): Promise<TokenUpdateResult> {
+    const now = this.nowOf(ctx);
+    // Callers can bypass the types, and only these three keys are read.
+    const raw: Record<string, unknown> = isPlainObject(change) ? change : {};
+    const name = raw.name === undefined ? undefined : checkedName(raw.name);
+    const roles = parseRoles(raw.roles);
+    const expiresAt = raw.expiresAt === undefined ? undefined : instant(raw.expiresAt);
+
+    const token = await this.liveToken(owner, id);
+    if (!token) {
+      return NOT_FOUND;
+    }
+    const refusal = await this.narrowingRefusal(owner, token, roles, expiresAt, now);
+    if (refusal) {
+      return refusal;
+    }
+
+    const { values, fields } = updateValues(name, roles ?? undefined, expiresAt);
+    if (fields.length === 0) {
+      return { ok: true, token: this.recordOf(token, owner) };
+    }
+    const result = await AccessToken.update(values).where('Id', token.Id).whereNull('RevokedAt');
+    if (this.affected(result) === 0) {
+      return NOT_FOUND;
+    }
+    Object.assign(token, values);
+
+    await this.changed({ kind: 'token', id: token.Uuid });
+    await this.publish(ctx, now, 'token.update', owner, { token: token.Uuid, kind: token.Kind, fields });
+    return { ok: true, token: this.recordOf(token, owner) };
+  }
+
   /**
    * Revokes a token whoever owns it, for operator tools such as `authn:token-delete`. Not part of the TokenService
    * contract, which only revokes on behalf of an owner.
@@ -423,6 +513,16 @@ export class DbTokenService extends TokenService {
       return fail('invalid_credentials');
     }
     const { token, owner } = found;
+    // A match on the previous hash counts only until PreviousValidUntil, and a stored hash that differs from the
+    // presented one in case or padding (a collation quirk) matches nothing.
+    let graceEndsAt = Number.POSITIVE_INFINITY;
+    if (token.Token !== hash) {
+      const until = toDate(token.PreviousValidUntil);
+      if (token.PreviousToken !== hash || until === null || until.getTime() <= now) {
+        return fail('invalid_credentials');
+      }
+      graceEndsAt = until.getTime();
+    }
     if (token.RevokedAt) {
       return fail('revoked');
     }
@@ -460,7 +560,7 @@ export class DbTokenService extends TokenService {
     };
 
     const validation = agent ? this.agentValidation(record, owner, limits) : this.ownerValidation(record, owner, limits);
-    this.cache.set(hash, validation, expiresAt.getTime(), since);
+    this.cache.set(hash, validation, Math.min(expiresAt.getTime(), graceEndsAt), since);
     return validation;
   }
 
@@ -573,7 +673,7 @@ export class DbTokenService extends TokenService {
     }
   }
 
-  protected publish(ctx: AuthnContext, now: number, type: 'token.create' | 'token.revoke', owner: IdentityRef | null, data: Record<string, unknown>, actor?: PrincipalRef): Promise<void> {
+  protected publish(ctx: AuthnContext, now: number, type: 'token.create' | 'token.revoke' | 'token.rotate' | 'token.update', owner: IdentityRef | null, data: Record<string, unknown>, actor?: PrincipalRef): Promise<void> {
     return (this.Auditor ?? this.Audit).publishIn({ ...ctx, now: new Date(now) }, {
       type,
       outcome: 'success',
@@ -582,6 +682,38 @@ export class DbTokenService extends TokenService {
       ...(actor ? { actor } : {}),
       data,
     });
+  }
+
+  /** Why `update` cannot make these changes to `token`, or null; a change may only narrow it. */
+  private async narrowingRefusal(owner: IdentityRef, token: AccessToken, roles: string[] | undefined | null, expiresAt: number | undefined, now: number): Promise<Extract<TokenUpdateResult, { ok: false }> | null> {
+    if (roles === null) {
+      return UPDATE_INVALID_SCOPE;
+    }
+    if (roles !== undefined) {
+      const current = (token.Roles ?? []).filter(isNonEmptyString);
+      // A token without roles holds all its owner's; pinning it to some narrows it, but only to roles the owner has.
+      const allowed = token.Kind === 'agent' ? false : current.length > 0 ? roles.every((r) => current.includes(r)) : await this.ownerHolds(owner, roles);
+      if (!allowed) {
+        return UPDATE_INVALID_SCOPE;
+      }
+    }
+    if (expiresAt !== undefined && !(expiresAt > now && expiresAt <= (toDate(token.ExpiresAt)?.getTime() ?? 0))) {
+      return UPDATE_INVALID_EXPIRY;
+    }
+    return null;
+  }
+
+  /** The unrevoked token `id` of `owner`, or null; an expired one is returned too. */
+  private async liveToken(owner: IdentityRef, id: string): Promise<AccessToken | null> {
+    const [ok] = _try_check_arg(_is_string(_non_empty()))(id, 'id');
+    if (!ok) {
+      return null;
+    }
+    const rowId = await this.Owners.rowIdOf(owner);
+    if (rowId === null) {
+      return null;
+    }
+    return (await AccessToken.where('Uuid', id).where('user_id', rowId).whereNull('RevokedAt').first()) ?? null;
   }
 
   /** Revokes the live token `id`, of the owner's row when `rowId` is given; null when this call revoked nothing. */

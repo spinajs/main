@@ -29,7 +29,7 @@ Import the package in the app entry, **before** anything resolves `Controllers` 
 | [Impersonation routes](11-impersonation-routes.md) | Start, inspect and stop impersonation under `/auth/impersonate`. |
 | [Password routes](12-password-routes.md) | Password policy, reset request, reset and change. |
 | [MFA enrolment routes](13-mfa-enrolment-routes.md) | Enrol, confirm and disable TOTP, regenerate recovery codes under `/user/mfa`. |
-| [API token routes](14-api-token-routes.md) | List, create and revoke the caller's API tokens under `/user/tokens`. |
+| [API token routes](14-api-token-routes.md) | List, create, rotate, narrow and revoke the caller's API tokens under `/user/tokens`. |
 | [JWKS route](20-jwks-route.md) | Publish the public keys of the registered `JwsSigner`. |
 | [Key routes](15-key-routes.md) | Register and revoke public keys, issue challenges, log in with a key. |
 | [Credential admin routes](16-credential-admin-routes.md) | Reset another user's password or TOTP, end their sessions, revoke their tokens. |

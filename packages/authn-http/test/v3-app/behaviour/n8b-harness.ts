@@ -450,6 +450,8 @@ export const keysPart: LanePart = {
   name: 'keys',
   async beforeDb() {
     keysModule = await import('@spinajs/authn-keys');
+    // JwsAssertionStrategy claims its jtis in the NonceStore, which only authn-orm registers; its root is not loaded here.
+    await ormModule('nonces/nonce-store.js');
     if (!keyPolicyBound) {
       keyPolicyBound = true;
       // Declared here: ConfiguredMfaPolicy comes from the @spinajs/authn root, which registers its services as it loads.

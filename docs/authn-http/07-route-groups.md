@@ -51,6 +51,8 @@ The package mounts its routes from eleven controllers in `lib/<cjs|mjs>/v3/contr
 | `GET` | `/user/tokens` | `AuthnTokensController` | `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` | session principal |
 | `POST` | `/user/tokens` | `AuthnTokensController` | same | session principal, fresh |
 | `DELETE` | `/user/tokens/:uuid` | `AuthnTokensController` | same | session principal |
+| `POST` | `/user/tokens/:uuid/rotate` | `AuthnTokensController` | same | session principal, fresh |
+| `PATCH` | `/user/tokens/:uuid` | `AuthnTokensController` | same | session principal |
 | `GET` | `/user/keys` | `AuthnKeysController` | `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` | user session principal |
 | `POST` | `/user/keys` | `AuthnKeysController` | same | user session principal, fresh |
 | `DELETE` | `/user/keys/:kid` | `AuthnKeysController` | same | user session principal |
@@ -93,7 +95,7 @@ Answers about an account, its session or its credentials carry `Cache-Control: n
 
 - Switching a group off is a registration decision, not a config flag. A group whose service is not registered answers 404 on every route.
 - Gates check the registration per request, so a service registered after boot switches its group on.
-- A route's own policies run in parallel with the gate. Routes that verify a password (`POST /user/tokens`, `POST /user/keys`, the admin routes) therefore do it in the handler, after the gate, never as a `FreshAuth` policy.
+- A route's own policies run in parallel with the gate. Routes that verify a password (`POST /user/tokens`, `POST /user/tokens/:uuid/rotate`, `POST /user/keys`, the admin routes) therefore do it in the handler, after the gate, never as a `FreshAuth` policy.
 - Request bodies are read by their camelCase field names only (`login`, `password`, `role`, `target`, `expiresAt`, ...); each route page lists them. Any other key is ignored: a body with `Email` instead of `login` reads as a body without `login`.
 - The JSDoc of each route carries `@tags` and `@security` for [`@spinajs/http-swagger`](../http-swagger/README.md).
 

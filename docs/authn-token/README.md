@@ -18,7 +18,7 @@ Import the package once in the app's bootstrap (`import '@spinajs/authn-token';`
 
 | Feature | What it does |
 | --- | --- |
-| [Issuing and revoking tokens](01-token-service.md) | `DbTokenService`: create, list, revoke, revoke all, revoke by id and sweep expired tokens; plaintext shown once, SHA-256 stored, audit events. |
+| [Issuing and revoking tokens](01-token-service.md) | `DbTokenService`: create, list, rotate with a grace period, narrow, revoke, revoke all, revoke by id and sweep expired tokens; plaintext shown once, SHA-256 stored, audit events. |
 | [API token authentication](02-token-authentication.md) | `TokenStrategy`: verifies a `bearer` token per request, checks revocation, expiry and the owner, stamps the last use. |
 | [Token roles, scopes and agent tokens](03-token-scopes.md) | How `roles`, `scope`, `profile` and `kind: 'agent'` become a ceiling and a delegation that authz enforces. |
 | [JWT bearer](04-jwt-bearer.md) | `JwtBearerStrategy`: verifies JWTs from `authn.jwt.issuers` against a JWKS or fixed keys and maps the subject through identity links. |
@@ -74,7 +74,7 @@ The `AccessToken` model uses the ORM's `default` connection, and the table comes
 ## Related packages
 
 - [`@spinajs/authn`](../authn/README.md): the `TokenService`, `AuthenticationStrategy` and `IdentityStore` contracts, the [authentication flow](../authn/01-authentication-flow.md), [throttling](../authn/05-throttling.md) and the `authn.*` config schema.
-- [`@spinajs/authn-http`](../authn-http/README.md): extracts `bearer` credentials from `Authorization` and `authn.token.headerName`, and serves `GET`, `POST` and `DELETE /user/tokens`.
+- [`@spinajs/authn-http`](../authn-http/README.md): extracts `bearer` credentials from `Authorization` and `authn.token.headerName`, and serves `GET`, `POST`, `PATCH` and `DELETE` under `/user/tokens`, and `POST /user/tokens/:uuid/rotate`.
 - [`@spinajs/authn-orm`](../authn-orm/README.md): the [`authn_identity` links](../authn-orm/03-identity-links.md) that map a JWT subject to an identity, the audit sink and the throttle.
 - [`@spinajs/authn-keys`](../authn-keys/README.md): client assertions (`typ: spinajs-client+jwt`), which `JwtBearerStrategy` refuses so they never pass as a bearer JWT.
 - [`@spinajs/authz`](../authz/README.md): applies the token's ceiling (permission globs, resources, roles) and the agent delegation at check time.

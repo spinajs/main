@@ -18,8 +18,8 @@ describe('AuthnTokensController guard layout (token-controller 10, token-control
     expect(groups[0].map((p) => p.Type)).to.deep.eq([TokenServiceRegistered]);
   });
 
-  it('serves list, create and revoke, and nothing that edits a token role', () => {
-    expect([...descriptor().Routes.keys()].sort()).to.deep.eq(['create', 'list', 'revoke']);
+  it('serves list, create, revoke, rotate and update, and nothing that widens a token', () => {
+    expect([...descriptor().Routes.keys()].sort()).to.deep.eq(['create', 'list', 'revoke', 'rotate', 'update']);
   });
 
   it('each route carries exactly one group with Authenticated, NoTokenAuthPolicy and NoImpersonationPolicy together', () => {
