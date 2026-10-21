@@ -14,6 +14,9 @@ export interface ThrottleKey {
 
 export type ThrottleFlow = 'login' | 'mfa' | 'reset' | 'reauth';
 
+/** `clean`: no live row holds any of the keys, so a success has nothing to lower or clear and `succeed` may be skipped. */
+export type PeekVerdict = { readonly allowed: true; readonly clean: boolean } | { readonly allowed: false; readonly retryAfterSeconds: number };
+
 /** Backoff, never a lock (H31). MemoryAuthnThrottle (core), DbAuthnThrottle (authn-orm). */
 export abstract class AuthnThrottle {
   /**

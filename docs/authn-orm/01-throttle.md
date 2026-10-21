@@ -41,8 +41,9 @@ The throttle is resolved as `AuthnThrottle`, so every caller below gets `DbAuthn
 
 ### Peek, `peek(keys, flow, ctx)`
 
-1. With no gates it resolves `{ allowed: true }` without a query.
-2. Otherwise it reads the delaying gate rows, as step 4 above, and writes nothing.
+1. With no gates it resolves `{ allowed: true, clean: true }` without a query.
+2. Otherwise it runs one `SELECT` of the live gate rows (a stale row, idle for `resetAfterMs` and delaying nobody, is left out) and writes nothing.
+3. A row that delays refuses with the longest wait, as step 4 above. Otherwise it resolves `{ allowed: true, clean }`, where `clean` is true when no live row holds a gate. A clean peek lets `DefaultAuthnService` skip `succeed` for a token or key success: an attempt writes `account-ip` next to the `account` gate, so with no live gate row a success has nothing to lower or clear.
 
 ### Success, `succeed(keys, flow)`
 

@@ -8,7 +8,7 @@ The generic mechanics (`Throttle`, `ThrottleStore`, `KeyedBackoff`) are in [`@sp
 
 1. `DefaultAuthnService` builds the keys of an attempt (below) and picks the flow: `login`, `mfa` or `reauth`. `@spinajs/authn-local` uses `reset` for password resets.
 2. `attempt(keys, flow, ctx)` checks every gating key and counts the attempt in one step. It resolves `{ allowed: true }`, or `{ allowed: false, retryAfterSeconds }` with the longest delay among the gating keys. A refused attempt is counted nowhere.
-3. `peek(keys, flow, ctx)` answers the same way and counts nothing. With a throttle that has it, per-request strategies count only their failures: the service peeks before verify and calls `attempt` after a failure.
+3. `peek(keys, flow, ctx)` answers the same way and counts nothing. With a throttle that has it, per-request strategies count only their failures: the service peeks before verify and calls `attempt` after a failure. An allowed peek also says `clean`: `{ allowed: true, clean: true }` means no live row holds the keys, so a success has nothing to lower or clear and the service skips `succeed`. A token or key with no failures on record then writes nothing to the throttle.
 4. `succeed(keys, flow)` applies the success rule (below).
 
 ### Backoff
@@ -85,7 +85,7 @@ An unknown key under `authn.throttle` or `authn.throttle.memory` fails the boot.
 | --- | --- | --- | --- | --- |
 | `AuthnThrottle` | `AuthnThrottle`, named by `authn.throttle.service` or picked | `MemoryAuthnThrottle` (root singleton) | `DbAuthnThrottle` ([`@spinajs/authn-orm`](../authn-orm/README.md)) | Extend `StoreAuthnThrottle`, register with `@Injectable(AuthnThrottle)` and name it |
 | `FlowLimiter` | Class token, new instance per flow | `FlowLimiter` | Your subclass | Register a subclass as `FlowLimiter` to replace the table of every flow of `MemoryAuthnThrottle` |
-| `PeekableThrottle` | Interface | `StoreAuthnThrottle.peek` | | Implement `peek` on your own `AuthnThrottle` |
+| `PeekableThrottle` | Interface | `StoreAuthnThrottle.peek` | | Implement `peek` on your own `AuthnThrottle`; answer `clean: false` when unsure, since a `clean: true` skips `succeed` |
 
 ### Choosing the throttle
 
