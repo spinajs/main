@@ -18,6 +18,7 @@ import { Orm } from '@spinajs/orm';
 
 import { ConfigFileValidator, DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from './../src/index.js';
 import './migration/test_config_data_2022_02_08_01_13_00.js';
+import { typedRowCases } from './support/typed-rows.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -387,5 +388,9 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
 
     const row = await DbConfig.where('Slug', 'test-file-template').first();
     expect(row.Meta).to.deep.equal({ file: { fs: 'fs-templates', extensions: ['xlsx'], validator: 'SampleTemplateValidator' } });
+  });
+
+  describe('typed rows', () => {
+    typedRowCases('sqlite-typed', async () => (await db()).Connections.get('sqlite')!, () => wait(500));
   });
 });

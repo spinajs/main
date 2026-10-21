@@ -41,6 +41,10 @@ describe('a cli command that resolves only the IdentityStore', function () {
     resetPasswordCalls();
     releaseUsersHost();
     DI.uncache(IdentityStore);
+    // The stores wait for ormReady(), which a connection lookup an earlier suite's Orm registered would satisfy.
+    for (const lookup of [...(DI.getRegisteredTypes('OrmConnection') ?? [])]) {
+      DI.unregister('OrmConnection', lookup);
+    }
 
     for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
       await b.bootstrap();

@@ -160,7 +160,7 @@ DI.register(LeaveAwareStatusSource).as(AccountStatusSource);
 - `set()` with `expected` compares byte for byte with the connection's `SqlExpressions.equalsExactly()`: `CAST(? AS BINARY)` on MySQL, `COLLATE Latin1_General_BIN2` plus a length check on SQL Server (their default collations ignore case, and SQL Server also trailing spaces), plain `=` on SQLite and PostgreSQL. A driver without `SqlExpressions` throws `NotSupported`. See [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions).
 - A driver error in `set()` becomes `UnexpectedServerError` naming only the error class: the driver message carries the hash.
 - A password past `authn.local.expiration.maxAgeDays` still logs in until the expiration job writes `'!expired'`; `UserAccountStatusSource` counts it in service until then.
-- The stores boot the ORM themselves (`DI.resolve(Orm)`) because a CLI process resolves only its command.
+- The stores boot the ORM themselves (`ormReady()`) because a CLI process resolves only its command. They do not wait for an ORM that has created its connections, so a boot migration's `data()` can seed users through them.
 
 ## Best practices
 
