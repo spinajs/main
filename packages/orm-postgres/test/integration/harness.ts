@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm, QueryContext } from '@spinajs/orm';
+import { Orm, QueryContext, OrmMigrator } from '@spinajs/orm';
 // Orm types its logger as the abstract Log from log-common; this import registers the concrete one.
 import '@spinajs/log';
 import { execSync } from 'node:child_process';
@@ -151,9 +151,9 @@ export async function openSuite(ctx: Mocha.Context, options: IPgSuiteOptions): P
   DI.register(PgIntegrationConf).as(Configuration);
   DI.register(PostgresOrmDriver).as('orm-driver-postgres');
 
-  await DI.resolve(Orm);
+  const migrator = await DI.resolve(OrmMigrator);
   const orm = DI.get(Orm)!;
-  await orm.Migration.up();
+  await migrator.Runner.up();
   // model descriptors take their columns from the live schema
   await orm.reloadTableInfo();
   const driver = orm.Connections.get(CONNECTION) as PostgresOrmDriver;
