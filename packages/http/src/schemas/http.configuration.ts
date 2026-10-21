@@ -1,4 +1,5 @@
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
+import { BOT_CONFIGURATION_SCHEMA } from '../bot/schema.js';
 
 const nonEmpty = { type: 'string', minLength: 1 };
 
@@ -73,6 +74,7 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         },
       },
     },
+    bot: BOT_CONFIGURATION_SCHEMA,
   },
 };
 
