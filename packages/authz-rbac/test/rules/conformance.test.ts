@@ -1,5 +1,6 @@
 import { DefaultConditionCompiler, GLOBAL } from '@spinajs/authz';
-import type { Assignment, PermissionInput, ResourceRef, RuleDef } from '@spinajs/authz';
+import type { PermissionInput, ResourceRef } from '@spinajs/authz';
+import type { Assignment, RuleDef } from '../../src/contracts.js';
 import { CONFORMANCE_NOW, FakeAdapter, FakeScopeResolver, runModelConformance, userPrincipal, withCeiling, withCompanions, worldRows } from '@spinajs/authz-testing';
 import type { ModelFactory } from '@spinajs/authz-testing';
 import * as fc from 'fast-check';

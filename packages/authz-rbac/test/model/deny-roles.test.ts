@@ -1,5 +1,6 @@
 import { AuthzConfigError, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, PermissionRegistryImpl, SYSTEM, TRUE } from '@spinajs/authz';
-import type { Assignment, ResourceRef } from '@spinajs/authz';
+import type { ResourceRef } from '@spinajs/authz';
+import type { Assignment } from '../../src/contracts.js';
 import { fakeModelInitContext, userPrincipal, withCeiling } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';

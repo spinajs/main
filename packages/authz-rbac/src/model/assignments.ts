@@ -1,5 +1,5 @@
 import { principalKey, resourceKey } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject } from '../contracts.js';
 import { toEpochMs } from '@spinajs/util';
 
 // '%' never starts a principalKey unescaped, so a set key cannot equal a principal's.

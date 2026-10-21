@@ -1,6 +1,6 @@
-import type { Assignment, AssignmentSubject, EvaluationContext } from '@spinajs/authz';
+import type { EvaluationContext } from '@spinajs/authz';
 
-import type { AssignmentStore } from '../contracts.js';
+import type { Assignment, AssignmentStore, AssignmentSubject } from '../contracts.js';
 import { subjectKey } from './assignments.js';
 
 type Rows = readonly Assignment[];

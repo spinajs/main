@@ -1,4 +1,5 @@
-import type { Assignment, CombiningAlgorithm, LinkDef, Permission, Policy, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, RuleDef, ScopeAttributeSchema } from '@spinajs/authz';
+import type { CombiningAlgorithm, Permission, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, ScopeAttributeSchema } from '@spinajs/authz';
+import type { TestAssignment as Assignment, TestLinkDef as LinkDef, TestAbacPolicy as Policy, TestRuleDef as RuleDef } from '../model-shapes.js';
 
 import type { TestLadderDef, TestRoleDef } from '../arbitraries/rbac.js';
 import type { FakeAdapterOptions, FakeRbacOptions, FakeScopeResolverOptions, FakeTupleModelOptions, HoldsFn, ListStaticModelOptions, ModelCall } from '../fakes/index.js';

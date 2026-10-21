@@ -1,7 +1,8 @@
 import * as chai from 'chai';
 import 'mocha';
 import { AuthzAdminFailure, AuthzConfigError, DefaultConditionCompiler, FALSE, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
-import type { AdminCallContext, AuthzCommand, AuthzService, AuthzTx, Policy, Principal } from '@spinajs/authz';
+import type { AdminCallContext, AuthzCommand, AuthzService, AuthzTx, Principal } from '@spinajs/authz';
+import type { Policy } from '../../src/contracts.js';
 import { fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';

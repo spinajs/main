@@ -61,7 +61,7 @@ Write a store when policies live somewhere the shipped stores do not reach: a fi
 import { readFile, stat } from 'node:fs/promises';
 import { DI } from '@spinajs/di';
 import { AuthorizationModel, AuthzContributor, authz } from '@spinajs/authz';
-import type { Policy } from '@spinajs/authz';
+import type { Policy } from '@spinajs/authz-abac';
 import { AbacContributor, AbacModel, ConfigPolicyStore, PolicyStore } from '@spinajs/authz-abac';
 
 // Policies the security team ships as a JSON file next to the app.
@@ -124,7 +124,7 @@ authz: { abac: { stores: ['ConfigPolicyStore', 'DbPolicyStore'] } }
 ### Change a policy in a test
 
 ```ts sample
-import type { Policy } from '@spinajs/authz';
+import type { Policy } from '@spinajs/authz-abac';
 import { AbacModel, MemoryPolicyStore } from '@spinajs/authz-abac';
 
 export function freezeInvoices(store: MemoryPolicyStore, model: AbacModel): void {

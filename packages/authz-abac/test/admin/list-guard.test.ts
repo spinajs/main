@@ -47,6 +47,7 @@ describe('authz-abac: AbacListSupportGuard', () => {
     const guard = new AbacListSupportGuard();
     await guard.checkCommand(put({ id: 'w', permissions: ['doc:write'], when: { attr: 'resource.status', eq: 'x' } }), await context());
     await guard.checkCommand(put({ id: 'p', when: { attr: 'principal.attributes.dept', eq: 'ops' } }), await context());
-    await guard.checkCommand({ kind: 'rule.put', rule: { id: 'r', kind: 'cap', scope: { type: '$global' } } } as AuthzCommand, await context());
+    // rule.put is declared by authz-rbac, which this package does not import.
+    await guard.checkCommand({ kind: 'rule.put', rule: { id: 'r', kind: 'cap', scope: { type: '$global' } } } as unknown as AuthzCommand, await context());
   });
 });

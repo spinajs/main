@@ -1,5 +1,6 @@
 import { AUTHZ_CONNECTION, AuthzConfigError } from '@spinajs/authz';
-import type { AuthzTx, Policy } from '@spinajs/authz';
+import type { AuthzTx } from '@spinajs/authz';
+import type { Policy } from '../../contracts.js';
 import { Connection, ConnectionMismatch, DateTime as DateTimeColumn, Json, Model, ModelBase, NotAnOrmDriver, OrmConnectionMissing, OrmNotResolved, Primary, TransactionRequired, requireModelTransaction } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 // A value import: @DateTime() reads the property's design type.

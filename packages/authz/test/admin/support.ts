@@ -5,6 +5,9 @@ import { ManualClock, RecordingAudit, RecordingChangeBus, StaticModel, testHost 
 import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzCommandValidator, AuthzEventSink, AuthzWriteHandler, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, TRUE, adminContainer, memoryTx, principalKey } from '@spinajs/authz';
 import type { AdminContext, AuthzAdmin, AuthzCommand, AuthzEvent, AuthzService, AuthzTx, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
+// The RBAC and ABAC command kinds the fakes handle.
+import './model-commands.js';
+
 type Path = string | readonly string[];
 
 const segments = (path: Path): string[] => (Array.isArray(path) ? [...path] : (path as string).split('.').filter((s) => s !== ''));

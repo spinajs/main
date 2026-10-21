@@ -1,7 +1,8 @@
 import * as chai from 'chai';
 import 'mocha';
 import { Authorizer, AuthzConfigError, CONDITION_UNKNOWN, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, UnknownPermission } from '@spinajs/authz';
-import type { DecisionRequest, EvaluationContext, Policy, Principal, ResourceRef, Vote } from '@spinajs/authz';
+import type { DecisionRequest, EvaluationContext, Principal, ResourceRef, Vote } from '@spinajs/authz';
+import type { Policy } from '../../src/contracts.js';
 import { FakeScopeResolver, agentPrincipal, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 

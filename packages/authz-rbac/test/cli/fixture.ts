@@ -1,5 +1,6 @@
 import { SYSTEM } from '@spinajs/authz';
-import type { Assignment, AuthzCommand, AuthzService, Principal } from '@spinajs/authz';
+import type { AuthzCommand, AuthzService, Principal } from '@spinajs/authz';
+import type { Assignment } from '../../src/contracts.js';
 
 import type { AuthzCliCommand } from '../../src/cli/index.js';
 

@@ -1,5 +1,6 @@
 import { AuthorizationModel, AuthzConfigError, AuthzContributor, GLOBAL, LinkResolver, PermissionRegistryImpl } from '@spinajs/authz';
-import type { Assignment, PermissionInput, Principal, ResourceRef, Vote } from '@spinajs/authz';
+import type { PermissionInput, Principal, ResourceRef, Vote } from '@spinajs/authz';
+import type { Assignment } from '../../src/contracts.js';
 import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, testHost, userPrincipal } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';

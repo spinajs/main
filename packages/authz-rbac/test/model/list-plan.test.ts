@@ -1,5 +1,6 @@
 import { DEFAULT_DENY_PRIORITY, GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, EvaluationContext, Principal, RelationResolver, ResourceRef } from '@spinajs/authz';
+import type { EvaluationContext, Principal, RelationResolver, ResourceRef } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject } from '../../src/contracts.js';
 import { fakeEvaluationContext, fakeModelInitContext, userPrincipal, withCeiling } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
@@ -172,7 +173,7 @@ describe('authz-rbac listPlan (design §6.2)', () => {
 
   it('warns once that authz.rbac.maxPlanSubjects is no longer read', async () => {
     const warnings: string[] = [];
-    const m = new RbacModel({ roles: new MemoryRoleStore(ROLES), assignments: new MemoryAssignmentStore([]), log: { warn: (_fields: unknown, template: string) => void warnings.push(template) } as never });
+    const m = new RbacModel({ roles: new MemoryRoleStore(ROLES), assignments: new MemoryAssignmentStore([]), log: { warn: (_fields: unknown, template: string) => void warnings.push(template) } });
     const init = (config: Record<string, unknown>) => m.init(fakeModelInitContext({ model: 'rbac', permissions: registry(), config }));
     await init({});
     expect(warnings).to.deep.equal([]);

@@ -84,7 +84,7 @@
 
 ```ts sample
 import { GLOBAL } from '@spinajs/authz';
-import type { Assignment } from '@spinajs/authz';
+import type { Assignment } from '@spinajs/authz-rbac';
 import { MemoryAssignmentStore, MemoryRoleStore, RbacModel } from '@spinajs/authz-rbac';
 import { FakeAdapter, runModelConformance, userPrincipal, worldRows } from '@spinajs/authz-testing';
 import type { ModelFactory } from '@spinajs/authz-testing';

@@ -7,7 +7,8 @@ import * as sinon from 'sinon';
 import { DefaultQueueService } from '@spinajs/queue';
 import { InvalidArgument, ResourceNotFound } from '@spinajs/exceptions';
 import { GLOBAL, SYSTEM } from '@spinajs/authz';
-import type { AssignmentSubject, Principal } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
+import type { AssignmentSubject } from '@spinajs/authz-rbac';
 import type { AuthnFacts, Ceiling, IdentityRef, PrincipalFactory } from '@spinajs/authn/contracts';
 
 import { UserIsBanned, UserNotActive, UserPrincipalFactory } from '../src/index.js';

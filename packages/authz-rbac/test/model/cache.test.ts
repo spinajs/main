@@ -1,5 +1,6 @@
 import { GLOBAL } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, ResourceRef } from '@spinajs/authz';
+import type { ResourceRef } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject } from '../../src/contracts.js';
 import { ManualClock, fakeEvaluationContext } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';

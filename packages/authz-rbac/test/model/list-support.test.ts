@@ -1,5 +1,6 @@
 import { GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
-import type { ListSupportContext, RelationResolver, RuleDef } from '@spinajs/authz';
+import type { ListSupportContext, RelationResolver } from '@spinajs/authz';
+import type { RuleDef } from '../../src/contracts.js';
 import { fakeModelInitContext } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';

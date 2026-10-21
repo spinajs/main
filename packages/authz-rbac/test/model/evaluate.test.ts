@@ -1,5 +1,6 @@
 import { AuthzConfigError, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, compileFieldGlobs } from '@spinajs/authz';
-import type { Assignment, FieldSet, PermissionInput, Principal, ResourceRef } from '@spinajs/authz';
+import type { FieldSet, PermissionInput, Principal, ResourceRef } from '@spinajs/authz';
+import type { Assignment } from '../../src/contracts.js';
 import { FakeScopeResolver, fakeEvaluationContext, userPrincipal, withCeiling, withCompanions } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';

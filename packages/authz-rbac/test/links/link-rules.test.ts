@@ -1,5 +1,6 @@
 import { DefaultConditionCompiler, GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
-import type { Assignment, PermissionInput, Principal, ResourceRef, RuleDef } from '@spinajs/authz';
+import type { PermissionInput, Principal, ResourceRef } from '@spinajs/authz';
+import type { Assignment, RuleDef } from '../../src/contracts.js';
 import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';

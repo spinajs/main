@@ -1,8 +1,8 @@
 import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, thrownError, unionFieldGlobs } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ListSupportContext, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, HostLog, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, RuleDef, Vote } from '@spinajs/authz';
+import type { DecisionRequest, EvaluationContext, FieldSet, ListPlanRequest, ListSupport, ListSupportContext, ModelCapabilities, ModelListPlan, ModelInitContext, ModelSummary, HostLog, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { AdminRuleStore } from '../admin/ports.js';
-import type { AssignmentStore, LinkStore, MembershipStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
+import type { Assignment, AssignmentStore, AssignmentSubject, LinkStore, MembershipStore, RoleStore, RuleDef, RuleStore, SubjectResolver } from '../contracts.js';
 import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS } from './cache.js';
 import { RBAC_SUMMARY_STEPS, createRbacExtensions, liveAssignments, rbacTables, rbacState, readRbacInput, runRbacPipeline } from './evaluate.js';
 import { effectiveRole } from './ladder/steps.js';

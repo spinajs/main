@@ -51,6 +51,9 @@ function withPathId(body: unknown, id: string, what: string): Record<string, unk
   return { ...o, id };
 }
 
+// The routes serve the RBAC and ABAC commands, whose AuthzCommandMap entries this package does not import.
+const byId = (kind: string, id: string): AuthzCommand => ({ kind, id }) as unknown as AuthzCommand;
+
 const LINK_PATCH_KEYS = ['expiresAt', 'attributes', 'role', 'tags'] as const;
 
 /** PATCH /authz/links/:id as one link.update; like the assignment patch, a key it does not serve is refused, not ignored. */
@@ -232,7 +235,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Del('assignments/:id')
   public async revoke(@Req() req: Request) {
-    return this.single(req, () => [{ kind: 'assignment.revoke', id: param(req, 'id') }]);
+    return this.single(req, () => [byId('assignment.revoke', param(req, 'id'))]);
   }
 
   /**
@@ -297,7 +300,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Del('links/:id')
   public async revokeLink(@Req() req: Request) {
-    return this.single(req, () => [{ kind: 'link.revoke', id: param(req, 'id') }]);
+    return this.single(req, () => [byId('link.revoke', param(req, 'id'))]);
   }
 
   /**
@@ -344,7 +347,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Del('rules/:id')
   public async deleteRule(@Req() req: Request) {
-    return this.single(req, () => [{ kind: 'rule.delete', id: param(req, 'id') }]);
+    return this.single(req, () => [byId('rule.delete', param(req, 'id'))]);
   }
 
   /**
@@ -391,7 +394,7 @@ export class AuthzAdminController extends BaseController {
    */
   @Del('policies/:id')
   public async deletePolicy(@Req() req: Request) {
-    return this.single(req, () => [{ kind: 'policy.delete', id: param(req, 'id') }]);
+    return this.single(req, () => [byId('policy.delete', param(req, 'id'))]);
   }
 
   /**

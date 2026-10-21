@@ -1,7 +1,7 @@
 import { AuthzConfigError, GLOBAL, principalKey } from '@spinajs/authz';
-import type { AssignmentSubject, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import type { PrincipalRef, ResourceRef } from '@spinajs/authz';
 
-import type { SubjectKey } from '../contracts.js';
+import type { AssignmentSubject, SubjectKey } from '../contracts.js';
 
 /** A subject as `authz_assignment` and `authz_rule_subject` store it. */
 export interface SubjectColumns {

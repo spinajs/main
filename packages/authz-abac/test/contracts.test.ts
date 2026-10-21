@@ -1,11 +1,10 @@
-import type * as core from '@spinajs/authz';
+import type { AuthzAdmin, AuthzAdminQuery, AuthzCommand, Condition, FieldSet, Principal, PrincipalType, ResourceRef, ResourceType } from '@spinajs/authz';
 import * as chai from 'chai';
 import 'mocha';
 
 import { PolicyStore } from '../src/index.js';
 import * as root from '../src/index.js';
 import type { Policy } from '../src/index.js';
-import type { Policy as CorePolicy } from '@spinajs/authz';
 
 const expect = chai.expect;
 
@@ -26,8 +25,7 @@ describe('authz-abac contracts', () => {
       expiresAt: null,
       source: 'config',
     };
-    const core: CorePolicy = p;
-    expect(core.id).to.equal('p1');
+    expect(p.id).to.equal('p1');
   });
 
   it('effect rejects values other than permit and deny', () => {
@@ -58,7 +56,39 @@ const yes = <_T extends true>(): void => {};
 describe('authz-abac pinned shapes', () => {
   it('match the design exactly', () => {
     yes<Equal<Shape<PolicyStore>, { readonly name: string; load(): Promise<readonly Policy[]>; version(): Promise<string> }>>();
-    yes<Equal<Policy, core.Policy>>();
     expect(true).to.equal(true);
+  });
+});
+
+describe('authz-abac admin commands (declared in AuthzCommandMap)', () => {
+  type DCommand = { readonly kind: 'policy.put'; readonly policy: Omit<Policy, 'source'> } | { readonly kind: 'policy.delete'; readonly id: string };
+  type DQuery = { readonly kind: 'policies'; readonly scope?: ResourceRef; readonly page?: { limit: number; offset: number; after?: string } };
+  type Opts = { readonly reason?: string; readonly idempotencyKey?: string; readonly dryRun?: boolean };
+
+  interface DPolicy {
+    readonly id: string;
+    readonly effect: 'permit' | 'deny';
+    readonly permissions: readonly string[];
+    readonly resourceTypes?: readonly ResourceType[];
+    readonly principalTypes?: readonly PrincipalType[];
+    readonly actorTypes?: readonly PrincipalType[];
+    readonly scope?: ResourceRef;
+    readonly when?: Condition;
+    readonly fields?: FieldSet;
+    readonly reason?: string;
+    readonly priority?: number;
+    readonly expiresAt?: Date | null;
+    readonly source: string;
+  }
+
+  it('owns Policy and adds its commands and query', () => {
+    yes<Equal<Policy, DPolicy>>();
+    yes<Equal<Extract<AuthzCommand, { kind: `policy.${string}` }>, DCommand>>();
+    yes<Equal<Extract<AuthzAdminQuery, { kind: 'policies' }>, DQuery>>();
+    yes<Equal<Parameters<AuthzAdmin['putPolicy']>, [actor: Principal, policy: Omit<DPolicy, 'source'>, opts?: Opts]>>();
+    const commands: AuthzCommand[] = [{ kind: 'policy.put', policy: { id: 'p', effect: 'permit', permissions: ['*:read'] } }, { kind: 'policy.delete', id: 'p' }];
+    // @ts-expect-error source is set by the server
+    const withSource: AuthzCommand = { kind: 'policy.put', policy: { id: 'p', effect: 'permit', permissions: [], source: 'db' } };
+    expect([...commands, withSource]).to.have.length(3);
   });
 });

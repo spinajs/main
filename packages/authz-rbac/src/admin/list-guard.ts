@@ -1,5 +1,6 @@
 import { AuthzAdminFailure, AuthzConfigError, ListSupportGuard } from '@spinajs/authz';
-import type { AdminContext, AuthzCommand, RuleDef } from '@spinajs/authz';
+import type { AdminContext, AuthzCommand } from '@spinajs/authz';
+import type { RuleDef } from '../contracts.js';
 import { Injectable, Singleton } from '@spinajs/di';
 import { compareStrings } from '@spinajs/util';
 
