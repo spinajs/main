@@ -111,7 +111,7 @@ export class EmailVerification extends AsyncService {
 
   protected async readStore(verifier: string, domain: string): Promise<CachedVerdict | null> {
     try {
-      const cached = await this.Store.getVerdict(verifier, domain);
+      const cached = await withTimeout(this.Store.getVerdict(verifier, domain), this.Options.timeoutMs);
       if (cached) this.Lru.set(`${verifier}:${domain}`, cached, this.Options.lru.ttlSeconds * 1000);
       return cached;
     } catch (err) {
@@ -122,7 +122,7 @@ export class EmailVerification extends AsyncService {
 
   protected async writeStore(verifier: string, domain: string, verdict: CachedVerdict, ttl: number): Promise<void> {
     try {
-      await this.Store.setVerdict(verifier, domain, verdict, ttl);
+      await withTimeout(this.Store.setVerdict(verifier, domain, verdict, ttl), this.Options.timeoutMs);
     } catch (err) {
       this.Log.warn({ verifier, domain, error: (err as Error).message }, 'Cannot cache the ${verifier} verdict of ${domain}: ${error}');
     }

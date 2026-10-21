@@ -152,11 +152,35 @@ describe('EmailVerification', () => {
     const s = await service();
     await s.check('a@x.com');
     const explained = await s.explain('a@x.com');
+    expect(calls.filter((c) => c === 'first:x.com')).to.have.length(2);
     expect(explained.domain).to.eq('x.com');
     expect(explained.outcomes).to.deep.eq([
       { verifier: 'first', verdict: { result: 'refuse', reason: 'listed' } },
       { verifier: 'second', verdict: UNKNOWN, error: 'boom' },
     ]);
+  });
+
+  it('falls back to the verifier when the store read hangs', async () => {
+    answers.first = { result: 'refuse', reason: 'listed' };
+    const s = await service({ timeoutMs: 50 });
+    (await store()).getVerdict = () => new Promise(() => undefined);
+    expect(await s.check('a@x.com')).to.include({ allowed: false, reason: 'listed' });
+    expect(calls).to.deep.eq(['first:x.com']);
+  });
+
+  it('completes when the store write hangs', async () => {
+    answers.first = { result: 'refuse', reason: 'listed' };
+    const s = await service({ timeoutMs: 50 });
+    (await store()).setVerdict = () => new Promise(() => undefined);
+    expect(await s.check('a@x.com')).to.include({ allowed: false, reason: 'listed' });
+  });
+
+  it('falls back to the verifier when the store read throws', async () => {
+    answers.first = { result: 'refuse', reason: 'listed' };
+    const s = await service();
+    (await store()).getVerdict = () => Promise.reject(new Error('store down'));
+    expect(await s.check('a@x.com')).to.include({ allowed: false, reason: 'listed' });
+    expect(calls).to.deep.eq(['first:x.com']);
   });
 
   it('fails the boot when a configured verifier is not registered', async () => {
