@@ -1,5 +1,5 @@
 import { GLOBAL } from '@spinajs/authz';
-import type { RuleDef } from '@spinajs/authz';
+import type { TestRuleDef as RuleDef } from '../model-shapes.js';
 
 import { userPrincipal } from '../principals.js';
 import { assignment, combine, extension, ref, role } from './dsl.js';

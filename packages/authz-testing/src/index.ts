@@ -12,3 +12,4 @@ export type { AccessWorld, AccessWorldOptions } from './arbitraries/access.js';
 export * from './conformance/index.js';
 export * from './behaviour/index.js';
 export * from './host/index.js';
+export * from './model-shapes.js';
