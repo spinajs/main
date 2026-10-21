@@ -37,8 +37,8 @@ const recent = await User.where('Email', 'like', '%@example.com').take(10);
 ```
 
 Connections are declared under the `db` key of `@spinajs/configuration`. Resolving `Orm` opens
-them, runs pending migrations, reflects each table's columns onto its model, and installs the
-static methods used above.
+them, reflects each table's columns onto its model, and installs the static methods used above.
+It runs no migration: resolve `OrmMigrator` for that, which also resolves the `Orm`.
 
 ## Documentation
 

@@ -74,25 +74,24 @@ export class MailService {
 }
 ```
 
-## When it runs — gated on ORM resolution
+## When it runs — gated on the configuration table
 
-This package writes to the database **only after the ORM module is resolved**.
-The bootstrapper does no db work when it runs; instead it hooks DI's resolve
-event and defers everything until the ORM is available:
+This package writes to the database **only once the `configuration` table is ready**.
+The bootstrapper does no db work when it runs; it hooks DI's resolve events and
+defers everything until then:
 
-- It subscribes with `DI.once('di.resolved.Orm', …)`. `@spinajs/di` emits a
-  `di.resolved.<Type>` event the first time a type is resolved/cached (see the
-  container cache in `@spinajs/di`), so this handler fires the first time `Orm`
-  is resolved. At that point the package **(1)** inserts every exposed `@Config`
-  option into the table (InsertOrIgnore) and **(2)** starts the watch timer.
-- `@Config` properties registered *after* the ORM is up are persisted/loaded
-  live by a `di.registered.__configuration_property__` handler — but it is
-  guarded by `DI.has(Orm)`, so before the ORM exists it does nothing (those vars
-  are handled by the `di.resolved.Orm` step above).
+- `DI.once('di.resolved.OrmMigrator', …)`: the migrator ran the bundled migration.
+- `DI.once('di.resolved.Orm', …)`: only when `DbConfig`'s connection is not a
+  `Migration.OnStartup` connection and the table already exists (a database
+  migrated by `migrate-up`, no migrator at boot).
 
-**Implication:** the ORM must actually be resolved somewhere in your app
-(injected, or `await DI.resolve(Orm)`) for exposed options to be written and
-watched. If nothing resolves the ORM, those hooks never fire. Reading existing
+Whichever fires first **(1)** inserts every exposed `@Config` option into the
+table (InsertOrIgnore) and **(2)** starts the watch timer. `@Config` properties
+registered after that are persisted/loaded live by a
+`di.registered.__configuration_property__` handler; before it, the sweep handles them.
+
+**Implication:** resolve `OrmMigrator` (or, on a pre-migrated database, the `Orm`)
+somewhere in your app for exposed options to be written and watched. Reading existing
 rows is independent of this — it happens during `Configuration.load()` via the
 source, which uses the resolved ORM connection when one is available.
 

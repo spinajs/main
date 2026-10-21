@@ -5,7 +5,7 @@
 ## How it works
 
 1. Importing the package registers `DbConfigSourceBotstrapper` with `@Injectable(Bootstrapper)`: under `Bootstrapper` and under itself, as a singleton.
-2. The app resolves `Array.ofType(Bootstrapper)` and calls `bootstrap()` on each. `DbConfigSourceBotstrapper.bootstrap()` registers the config schema and subscribes to `di.registered.__configuration_property__` and `di.resolved.Orm`. See [Exposing options](02-exposing-options.md).
+2. The app resolves `Array.ofType(Bootstrapper)` and calls `bootstrap()` on each. `DbConfigSourceBotstrapper.bootstrap()` registers the config schema and subscribes to `di.registered.__configuration_property__`, `di.resolved.Orm` and `di.resolved.OrmMigrator`. See [Exposing options](02-exposing-options.md).
 3. `DI.resolve(DbConfigSourceBotstrapper)` returns that same instance, so you can call its public members later.
 4. A subclass registered with `@Injectable(Bootstrapper)` joins the list. `DI.unregister(DbConfigSourceBotstrapper)` removes the base class, so only the subclass subscribes.
 

@@ -12,9 +12,9 @@ table itself when it starts.
    under `MODEL_DESCTRIPTION_SYMBOL`. The first decorator on a subclass seeds that descriptor from
    the parent's (see [Descriptor inheritance](#descriptor-inheritance)).
 3. `@Model(tableName)` sets `TableName` and registers the class in DI under `__models__`.
-4. `Orm.resolve()` calls `registerModel()` for every `__models__` class, runs the boot migrations,
-   then calls `Orm.reloadTableInfo()`.
-5. `reloadTableInfo()` handles each registered model:
+4. `Orm.resolve()` calls `registerModel()` for every `__models__` class, then calls
+   `Orm.reloadTableInfo({ strict: false })`. `OrmMigrator` calls it again, for the models its migrations touched only.
+5. `reloadTableInfo()` handles each registered model, or only those in `options.models`:
    - looks up the connection named by `descriptor.Connection`; when none exists it logs a warning
      and skips the model, which then has no `Driver` and no table columns;
    - sets `descriptor.Driver` and calls `OrmDriver.tableInfo(TableName, Database)`;
@@ -27,7 +27,7 @@ table itself when it starts.
      its lower-cased `NativeType`;
    - builds `descriptor.Schema` and `descriptor.ResponseSchema` (see
      [JSON schema](11-json-schema.md));
-   - when `tableInfo()` answers `null` (no such table), leaves the descriptor's columns as the decorators made them and records the model; at the end it throws one `OrmException` for all of them when called strict (the boot does, under `db.StrictTableCheck`), or logs a warning per model. See [Connections](01-connections.md).
+   - when `tableInfo()` answers `null` (no such table), leaves the descriptor's columns as the decorators made them and records the model as missing; at the end, called strict (the `OrmMigrator` boot pass does, under `db.StrictTableCheck`), it throws one `OrmException` for every registered model recorded missing, read in this call or not; otherwise it logs a warning per model read. See [Connections](01-connections.md).
 6. `Orm.wireRelations()` resolves relation targets, and `applyModelMixins()` binds the static query
    API (`get`, `where`, `select`, ...) onto every registered model.
 

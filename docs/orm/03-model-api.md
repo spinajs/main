@@ -5,7 +5,7 @@
 ## How it works
 
 1. `@Model()` registers the class under `__models__` (see [Models](02-models.md)).
-2. `Orm.resolve()` runs the boot migrations, loads table info, wires relations, then calls `applyModelMixins()`. It binds every function of `MODEL_STATIC_MIXINS` onto each registered model class.
+2. `Orm.resolve()` loads table info, wires relations, then calls `applyModelMixins()`, which binds every function of `MODEL_STATIC_MIXINS` onto each registered model class. Migrations run later, in `OrmMigrator`.
 3. A static call such as `Invoice.getOrFail(5)` runs the mixin. It calls `createQuery()`, which resolves the model's connection (`OrmConnection`), builds the builder in the connection's container, binds the model's query scopes and adds the default soft-delete and archive filters.
 4. The mixin adds its conditions (`wherePk()`, ordering) and awaits the builder. The driver executes the SQL.
 5. The builder creates a model per row through `__orm_model_factory__`, calls `hydrate()` and `takeSnapshot()` (see [Converters and hydration](04-converters-and-hydration.md)).
@@ -115,12 +115,11 @@ A scope is a reusable set of conditions you call on a builder: `Invoice.query().
 
 ### Driver and transaction helpers
 
-For code that runs outside the model statics: migrations, which run before the Orm installs the statics, and
+For code that runs outside the model statics: migrations that need the driver a model runs on, and
 stores that must refuse a write outside their transaction.
 
 | Function | Behaviour |
 | --- | --- |
-| `ormReady()` | Resolves the Orm unless one already created its connections; concurrent callers share one resolve. Await it before the first model call in a process that may not have booted the Orm (a cli command). |
 | `ormConnection(name)` | The driver of connection `name`, an alias from `db.Aliases` included. |
 | `modelDriver(Model)` | The driver `Model`'s queries run on; a transaction open on it is the one they join. Works inside migrations. |
 | `requireModelConnection(Model, driver)` | Returns `driver` when it is `Model`'s driver; throws `NotAnOrmDriver` or `ConnectionMismatch`. |
@@ -170,7 +169,9 @@ its connections and `OrmConnectionMissing` (with `connection`) when no connectio
 
 ## Important behaviour
 
-- Static methods exist only after `Orm.resolve()` reaches `applyModelMixins()`. Migration `up()` runs before that, `data()` after it. See [Migrations](10-migrations.md).
+- Static methods exist only after `Orm.resolve()` reaches `applyModelMixins()`. `OrmMigrator` runs migrations after that, so `up()` and `data()` can use them. See [Migrations](10-migrations.md).
+- On a `Migration.OnStartup` connection the statics throw `OrmException` (`connection <Name> migrates on startup; resolve OrmMigrator before using it`) until `OrmMigrator` resolved.
+- A service that queries models injects the `Orm` (`@Autoinject(Orm)`); resolving the service then resolves the `Orm` first.
 - Construct a model after `Orm` has resolved. `hydrate()` resolves the connection's container and throws `model <Name> have invalid connection ...` when it cannot.
 - `get()`, `first()`, `last()`, `newest()` and `oldest()` resolve `undefined` when nothing matches, although their return type is the model.
 - Static `insert()` is `async`: it returns a promise, not the `InsertQueryBuilder` its type declares. Pass everything through `data` and `behaviour`.

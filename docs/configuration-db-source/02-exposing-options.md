@@ -8,20 +8,24 @@ Use it for settings an operator changes at runtime: sender addresses, limits, fe
 
 1. `@Config(path, options)` from `@spinajs/configuration` registers `{ path, options }` in DI under the value list `__configuration_property__`. The DI container emits `di.registered.__configuration_property__`.
 2. `DbConfigSourceBotstrapper.bootstrap()` runs with the other bootstrappers. It registers the `configuration_db_source` schema and subscribes to two DI events. It does no database work.
-3. **When `Orm` resolves** (`DI.once('di.resolved.Orm')`), the bootstrapper reads every `__configuration_property__` entry with `expose: true`:
+3. **When the `configuration` table is ready**, the bootstrapper sweeps the exposed options into it once. It is ready when either fires first:
+   - `di.resolved.OrmMigrator`: the migrator ran its boot pass, so the bundled migration created the table;
+   - `di.resolved.Orm`, when `DbConfig`'s connection is not a `Migration.OnStartup` connection (`driver.AwaitsStartupMigration` is false) and `driver.schema().tableExists('configuration')` answers `true`: a deployment migrated by `migrate-up` that resolves no migrator.
+
+   The sweep reads every `__configuration_property__` entry with `expose: true`:
    1. `normalizeFileEntryOptions()` checks each entry; a `type: 'file'` entry without `meta.file.fs` throws. See [File entries](05-file-entries-and-validators.md).
    2. For each entry in parallel, `DbConfigValueConverter.toDB()` turns `defaultValue` into canonical text for `exposeOptions.type`.
    3. `DbConfig.insert(row, InsertBehaviour.InsertOrIgnore)` writes the row. An existing `Slug` is left untouched.
    4. `syncMetadata()` reads the row back and rewrites `Group`, `Label`, `Description`, `Meta`, `Type`, `Watch`, `Required` and `Default` when any differs from the code. `Value` is never rewritten.
    5. Entries with `watch: true` join the watched set and the watch timer starts. See [Watching options](03-watching-options.md).
    6. Database errors are logged as `Failed to persist exposed config options to db`, not thrown.
-4. **After `Orm` resolved**, every new `__configuration_property__` registration (a lazily imported service, a plugin) runs `syncConfigOption()`:
+4. **After the sweep**, every new `__configuration_property__` registration (a lazily imported service, a plugin) runs `syncConfigOption()`:
    1. `normalizeFileEntryOptions()` runs synchronously, so a misdeclared file entry throws out of the `@Config` decorator or `DI.register()` call.
    2. The row is inserted and its metadata synced as in step 3.
    3. The stored row is read back and `Configuration.set(path, row.Value ?? defaultValue)` updates the live configuration. A row whose `Exposed` flag an admin cleared is left out, as the source does.
    4. With `watch: true` the slug joins the watched set and arms the timer if it was idle.
    5. Errors are logged as `Failed to sync exposed config option ... with db`, not thrown.
-5. Registrations made before `Orm` resolves are skipped by the step 4 handler (`DI.has(Orm)` is false) and handled in step 3.
+5. Registrations made before the sweep are skipped by the step 4 handler and handled in step 3.
 
 The values themselves reach the configuration through the [database source](01-database-source.md) on `Configuration.load()`, or through step 4.3 for late registrations.
 
@@ -33,11 +37,15 @@ sequenceDiagram
   participant DB as configuration table
   participant C as Configuration
   D->>DI: register { path, options } as __configuration_property__
-  B->>DI: on(di.registered...), once(di.resolved.Orm)
-  DI-->>B: di.resolved.Orm
+  B->>DI: on(di.registered...), once(di.resolved.Orm), once(di.resolved.OrmMigrator)
+  alt OrmMigrator resolved
+    DI-->>B: di.resolved.OrmMigrator
+  else Orm resolved, connection not gated, table exists
+    DI-->>B: di.resolved.Orm
+  end
   B->>DB: INSERT OR IGNORE each exposed option
   B->>DB: UPDATE metadata where it differs
-  D->>DI: late registration (after Orm)
+  D->>DI: late registration (after the sweep)
   DI-->>B: di.registered.__configuration_property__
   B->>DB: INSERT OR IGNORE, sync metadata, read row
   B->>C: set(path, row.Value ?? defaultValue)
@@ -116,7 +124,8 @@ export async function senderOf(channel: string): Promise<string> {
 
 ## Important behaviour
 
-- **The ORM gates everything.** Nothing is written until `Orm` is resolved somewhere (injected or `await DI.resolve(Orm)`). An app that never resolves `Orm` never writes rows.
+- **The table gates everything.** Nothing is written until `OrmMigrator` resolved, or the `Orm` resolved on a database whose `configuration` table already exists. On a `Migration.OnStartup` connection an app that resolves only `Orm` never writes rows: model queries there wait for the migrator.
+- **One sweep per `bootstrap()`.** Whichever event comes first sweeps; the other one does nothing.
 - **Code never overwrites an admin's value.** `InsertOrIgnore` keeps an existing row; the metadata sync touches every column except `Value` and `Exposed`.
 - **The unique index makes it idempotent.** `InsertOrIgnore` relies on `configuration_unique_slug`. A custom table without it gets a duplicate row per restart.
 - **`Default` is overwritten.** A changed `defaultValue` in code updates `Default` on the next start, never `Value`.

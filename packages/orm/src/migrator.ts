@@ -88,7 +88,7 @@ export class OrmMigrator extends AsyncService {
    *
    * Known loss: a run in which M1 applies and M2 throws never reaches here, M1 is recorded, and `M1.data()` never
    * runs on any later pass. The tracking table has no "applied but unseeded" state, so `data()` must be safe to rerun
-   * by hand ( docs/orm, 10-schema-and-migrations.md ).
+   * by hand ( docs/orm/10-migrations.md ).
    */
   protected async runDataPhase(executed: OrmMigration[]): Promise<void> {
     const errors: Array<{ name: string; reason: string; error: unknown }> = [];
