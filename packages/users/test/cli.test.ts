@@ -2,9 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { Bootstrapper, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Orm, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 import { join, normalize, resolve } from 'path';
@@ -22,18 +20,11 @@ function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
-async function command<T>(type: Class<T>): Promise<T> {
-  const cmd = (await DI.resolve(type)) as T;
-  expect(DI.get(Orm), 'the command booted the Orm').to.not.be.undefined;
-  await DI.resolve(OrmMigrator);
-  return cmd;
-}
-
 /**
  * The cli resolves only the command it runs, and nothing resolves the Orm for it - unlike every
  * other test here, these deliberately never call `DI.resolve(Orm)` themselves. A command that
- * does not bring the Orm up runs against bare models, whose statics throw "Not implemented". OrmMigrator creates
- * the test database once the command booted the Orm, as a deploy would have migrated it.
+ * does not bring the Orm up runs against bare models, whose statics throw "Not implemented". The test connection
+ * migrates on startup, so a command must also run the OrmMigrator boot pass, or its first query throws.
  */
 describe('rbac cli commands', function () {
   this.timeout(15000);
@@ -65,7 +56,7 @@ describe('rbac cli commands', function () {
   });
 
   it('rbac:user-find brings the Orm up and reports the user', async () => {
-    const cmd = await command(FindUser);
+    const cmd = await DI.resolve(FindUser);
     const info = sinon.spy((cmd as unknown as { Log: { info: (m: string) => void } }).Log, 'info');
 
     await cmd.execute({ identifier: 'test@spinajs.pl' });
@@ -75,7 +66,7 @@ describe('rbac cli commands', function () {
   });
 
   it('rbac:user-create grants its roles through AuthzAdmin as SYSTEM, under runAs(SYSTEM, cli)', async () => {
-    const cmd = await command(CreateUser);
+    const cmd = await DI.resolve(CreateUser);
     const runAs = sinon.spy(await rootAuthz(), 'runAs');
 
     await cmd.execute({ email: 'cli@spinajs.pl', login: 'cli', roles: 'user,editor', password: 'passw0rd123' });
@@ -87,7 +78,7 @@ describe('rbac cli commands', function () {
   });
 
   it('rbac:user-create reports a refused role and creates nothing', async () => {
-    const cmd = await command(CreateUser);
+    const cmd = await DI.resolve(CreateUser);
     const error = sinon.spy((cmd as unknown as { Log: { error: (m: string) => void } }).Log, 'error');
 
     await cmd.execute({ email: 'cli-bad@spinajs.pl', login: 'cli-bad', roles: 'not-a-role', password: 'passw0rd123' });
@@ -97,7 +88,7 @@ describe('rbac cli commands', function () {
   });
 
   it('rbac:user-ban takes the duration in minutes', async () => {
-    const cmd = await command(BanUser);
+    const cmd = await DI.resolve(BanUser);
 
     await cmd.execute('test@spinajs.pl', true, 60, 'reason');
 
@@ -106,7 +97,7 @@ describe('rbac cli commands', function () {
   });
 
   it('a failed command sets a non-zero exit code', async () => {
-    const cmd = await command(FindUser);
+    const cmd = await DI.resolve(FindUser);
 
     await cmd.execute({ identifier: 'nobody@spinajs.pl' });
 
