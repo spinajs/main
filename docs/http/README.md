@@ -41,6 +41,7 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [Controller cache and CLI](21-controller-cache-and-cli.md) | `DefaultControllerCache`, JSDoc tag extractors, `spinajs http:controllers:cache` |
 | [Same-origin guard](22-same-origin-guard.md) | `checkSameOrigin`, `SameOriginGuard`: refuse cross-origin state-changing requests by `Origin` and `Sec-Fetch-Site` |
 | [Header and cookie helpers](22-header-and-cookie-helpers.md) | `parseBearer`, `normalizeHeaders`, `parseCookieHeader`, `basicAuthHeader`, `retryAfterHeader`, `hostPrefixedCookie`, `clearCookie`, `isPublicCookieSecret`, `parseCidr`, `cidrMatcher` |
+| [Bot checks](23-bot-check.md) | `@BotCheck`, `BotVerifier`, `BotCheckService`, `http.bot`: captcha or score checks on chosen routes; adapters in [`@spinajs/http-bot`](../http-bot/README.md) |
 
 ## Quick start
 
