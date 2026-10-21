@@ -5,7 +5,7 @@ Three server middlewares find the caller of every request: `ClientIp` (order 1),
 ## How it works
 
 1. **`ClientIp.before()`** writes `req.storage.ClientIp`: the socket address, or the client address behind trusted proxy hops only. Trust comes from `authn.http.trustProxy`, else `http.trustProxy` (through `proxyTrustOf()`). Every `AuthnContext.ip` the package builds comes from this value, never from Express's `req.ip`.
-2. **`CsrfOriginGuard.before()`** refuses a cross-origin unsafe request that carries the session cookie with 403, before any authentication. See [CSRF origin guard](04-csrf-origin-guard.md).
+2. **`CsrfOriginGuard.before()`** refuses a cross-origin unsafe request from a browser, or one that carries the session cookie, with 403, before any authentication. See [CSRF origin guard](04-csrf-origin-guard.md).
 3. **`AuthnMiddleware.authenticate()`** sets `req.storage.AuthnSession` and `req.storage.AuthnPrincipal` to `null`, then builds an `AuthnContext` with `contextOf(req, 'request')`: `ip` from `req.storage.ClientIp` and `userAgent`, each only when it is a string, `now` and purpose `'request'`.
 4. **`AuthnMiddleware.restoreSession()`** reads the session cookie (name from `authn.session.cookie`, see [`@spinajs/authn-session`](../authn-session/README.md)):
    - a raw cookie in `req.cookies` is unsigned with `http.cookie.secret` (`cookie-signature`);

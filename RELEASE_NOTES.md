@@ -1,3 +1,51 @@
+# Release notes — http, authn-http, authn-oidc, authn-session: default-deny CSRF guard
+
+> Feature HARD-CSRF. Docs: `docs/http/23-csrf-guard.md`, `docs/authn-http/04-csrf-origin-guard.md`,
+> `docs/authn-oidc/11-backchannel-logout.md`, `docs/authn-session/07-session-cookie.md`.
+
+## BREAKING CHANGES
+
+- **Every unsafe request a browser sends is CSRF-checked (default-deny).** A `POST`, `PUT`, `PATCH` or `DELETE` that
+  carries `Origin` or `Sec-Fetch-Site` must come from the app's own origin or one in `http.csrf.allowedOrigins`, on
+  every route, with or without a session cookie; otherwise 403 `{ error: { code: 'E_CSRF_ORIGIN' } }`. Before, a
+  request without the session cookie was checked only on the listed credential routes. Requests that send neither
+  header nor an ambient cookie (servers, CLIs) still pass.
+  - A browser app on another origin that posts to the API, also with a bearer token, must be listed in
+    `http.csrf.allowedOrigins` (listing it in `http.cors.origins` is not enough).
+  - The guard is registered by `@spinajs/http` itself and is on in apps without `@spinajs/authn-http` too. Turn it off
+    with `http.csrf.enabled: false`.
+- **Boot check for `SameSite=None`.** Outside development and test, the boot fails when `authn.session.cookie.sameSite`
+  resolves to `none` and the guard is off or `http.csrf.allowedOrigins` is empty.
+
+## New behavior
+
+- `@spinajs/http`: `CsrfGuard` (`ServerMiddleware`, Order 4, built on `SameOriginGuard`) with `http.csrf.enabled`,
+  `allowedOrigins`, `exempt` (route paths after the route prefix, matched as the router matches them) and
+  `ambientCookies`. `@CsrfExempt()` on a route or a controller class takes it out of the check, at the path the
+  controller is actually served at (`@BasePath({ config })` and `Controllers.add()` included). `isCsrfExempt()` and
+  `CSRF_REFUSED_BODY` are exported. A registered subclass of `CsrfGuard` replaces it.
+- `@spinajs/authn-http`: `CsrfOriginGuard` now extends `CsrfGuard` and replaces it: the session cookie is an ambient
+  cookie, the own origin follows `authn.http.trustProxy`, refusals keep the rate-limited warning. The routes the old
+  allowlist missed (`/auth/register`, `/auth/verify`, `/auth/passkeys/login` and `/challenge`, `/auth/keys/challenge`,
+  `/auth/tokens/revoke`) are now checked. `assertSameSiteNoneProtected()` is exported.
+- `@spinajs/authn-oidc`: `POST /auth/oidc/:provider/backchannel-logout` is `@CsrfExempt()`.
+- `@spinajs/authn-session`: `sessionCookieSameSite(config)`.
+- `@spinajs/authn-testing`: A22 follows default-deny. "requests without the session cookie are exempt" became "X1
+  without the session cookie a cross-origin request is refused", and the login case with an empty
+  `unauthenticatedRoutes` now expects a refusal.
+
+## Deprecated
+
+- `authn.http.csrf.enabled` and `authn.http.csrf.allowedOrigins` are aliases of `http.csrf.*` until the next major:
+  `false` in either key turns the guard off, and both origin lists count. `authn.http.csrf.unauthenticatedRoutes` is
+  ignored and no longer shipped. A boot warning names a deprecated key in use.
+
+## Unchanged
+
+- The 403 body `{ error: { code: 'E_CSRF_ORIGIN', message: 'Cross-origin request refused' } }`, Order 4 before
+  `AuthnMiddleware`, and the cookie rule: a request with the session cookie and neither an allowed `Origin` nor
+  `Sec-Fetch-Site: same-origin` is refused.
+
 # Release notes — authn-http, authn-oidc: fresh re-authentication that refreshes the session
 
 > Branch `feat/ory-flow-4`. Docs: `docs/authn/09-fresh-authentication.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`,

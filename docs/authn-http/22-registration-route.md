@@ -36,7 +36,7 @@ Cache-Control: no-store
 
 - The answer never tells a new address from a taken one: same status, same body, same code path. The `exists` path also spends one password hash, so the two do not differ by that cost. Timing is not constant beyond that: a new account also writes rows.
 - A refused input the registrar judges itself (a reserved login, a login or email longer than users allows) answers `400 invalid_registration` with the `field`. It depends on the input only.
-- The route is not in `authn.http.csrf.unauthenticatedRoutes`. Add `/auth/register` there to require an allowed origin on every browser request that has no session cookie.
+- The [CSRF origin guard](04-csrf-origin-guard.md) refuses a browser request from a foreign origin, with or without a session cookie.
 - `authn.http.registration.notifyExisting: false` sends no mail to the owner of a taken address.
 
 ## Configuration
