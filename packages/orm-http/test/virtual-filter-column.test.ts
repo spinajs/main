@@ -4,7 +4,22 @@ import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Connection, BelongsTo, HasMany, HasManyToMany, Migration, Model, ModelBase, OrmDriver, OrmMigration, Primary, Relation, SingleRelation, extractModelDescriptor, OrmMigrator } from '@spinajs/orm';
+import {
+  Connection,
+  BelongsTo,
+  HasMany,
+  HasManyToMany,
+  Migration,
+  Model,
+  ModelBase,
+  OrmDriver,
+  OrmMigration,
+  OrmMigrator,
+  Primary,
+  Relation,
+  SingleRelation,
+  extractModelDescriptor,
+} from '@spinajs/orm';
 import '@spinajs/log';
 
 import { TestConfiguration } from './common.js';
