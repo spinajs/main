@@ -68,7 +68,7 @@ export default {
 | --- | --- | --- | --- |
 | `@Query(schema?, options?)` | parameter | JSON schema; `{ required?: boolean }` | `req.query[name]`; a name starting with `_` falls back to the name without it. Converted and validated. |
 | `@Param(schema?, options?)` | parameter | JSON schema; `{ required?: boolean }` | `req.params[name]`, same `_` fallback. Converted and validated. |
-| `@Body(options?)` | parameter | `{ required?: boolean }` | `req.body[name]` when the body has that field; the whole body when the route has exactly one `@Body`; else `null`. Converted and validated. |
+| `@Body(options?)` | parameter | `{ required?: boolean; sensitive?: string[] }` | `req.body[name]` when the body has that field; the whole body when the route has exactly one `@Body`; else `null`. Converted and validated. |
 | `@BodyField()` | parameter | none | The whole `req.body`, through the input filters, without validation or hydration. |
 | `@Header(key?, schema?, options?)` | parameter | header name (default: parameter name in lower case); JSON schema; `{ required?: boolean }` | `req.headers[key]`. Converted and validated. |
 | `@Cookie(secure = false)` | parameter | `secure`: verify the signature | `req.cookies[name]`; see [Cookies](20-cookies.md). |
@@ -138,6 +138,7 @@ export default {
 - A `string` parameter without your own schema is limited to 512 characters by the default schema.
 - `@Body()` with one body parameter receives the whole body unless the body has a field with the parameter's name: `create(@Body() user: UserDto)` gets `req.body.user` when the client sends `{ "user": {...} }`, and `req.body` otherwise.
 - A DTO class is built with `new Dto(value)`: its constructor receives the plain object and must copy what it needs.
+- `@Body({ sensitive: ['reauthPassword'] })`: once the argument holds its value (or failed validation), the named fields are deleted from `req.body` and `req.rawBody` is dropped, so no later reader of the request, a log or another argument, gets them. An untyped body argument, which is `req.body` itself, receives a copy that keeps them.
 - `@FromDI()` resolves from the **root** container on every request; the service's own lifetime decides whether it is shared.
 - `@Header()` without a key reads the header named like the parameter in lower case: `@Header() authorization: string`.
 - Validation errors throw `ValidationFailed`, answered as 400 by `ValidationError`; see [Error handling](11-error-handling.md). An action cannot catch it, because it is thrown before the action runs; use `@OnError` with `stages: ['arguments']`.

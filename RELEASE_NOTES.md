@@ -1,3 +1,25 @@
+# Release notes - authn-http: validated route inputs (DTOs), IP throttle gate
+
+> Branch `feat/hard-val2`. Docs: `docs/authn-http/24-input-validation.md`, `docs/authn-http/06-route-arguments.md`,
+> `docs/authn-http/07-route-groups.md`, `docs/http/04-route-arguments.md`.
+
+## BREAKING CHANGES
+
+- `@spinajs/authn-http`: every route takes its body as a closed DTO validated without coercion. A field the route does not take is refused: 400 `invalid_field` on most routes, the route's own answer on the credential routes (401 login failure body), the MFA challenge (202) and token revocation (200 `{}`, revoking nothing). A login, code or secret that is a number no longer reaches a strategy as a string. `POST /user/keys` with a `scope` still answers `invalid_scope`.
+- The body is now checked before fresh authentication, the key, token and passkey state checks and the credential admin guard: a stale session sending a malformed body gets the 400 of that field instead of `fresh_auth_required`, and spends no re-authentication. A `reauthPassword` (or role switch or impersonation `password`) that is no string answers the login failure body instead of counting as none.
+- Stricter fields: the registration `email` uses the `email` format; `expiresAt` must be an RFC 3339 date-time with seconds; an impersonation `target.type` is at most 64 characters; a session handle in `DELETE /user/sessions/:handle` at most 128 (longer answers 404); a passkey `response` must carry `id`, `type` and `response`.
+- `AUTHN_HTTP_SCHEMAS` keeps answer and error schemas only; the 3.0.2 request body schemas (`AuthnLoginBody`, `AuthnKeyRegisterBody`, `AuthnReauthBody`, ...) are gone, and the OpenAPI document shows the DTO schemas inline as request bodies. Handlers carry no `@body` tags.
+- Controller action signatures changed (route arguments instead of `@Req()`); subclasses calling the actions directly pass the new arguments.
+
+## New behavior
+
+- `AuthnIpThrottleMiddleware` and `@IpThrottle(flow, answer, mode)`: on the anonymous routes that read a body (login, code login and request, key login and challenge, passkey login, password reset request and redemption, verification, registration, token revocation) the client ip is gated in the route's throttle flow before `@BotCheck` and before validation; a body the DTO refuses counts against the ip key, so invalid bodies reach the throttled answer after the flow's free limit. Registration uses the `register` flow.
+- `@ClientContext()` and the `AuthnClientContext` type are exported: the caller's ClientIp, user agent, session and principal as one route argument.
+- MFA completion and step-up, and re-authentication, check the session state in the new `PendingSessionOnly` and `ActiveSessionOnly` policies, so those 401/403 answers still come before the body.
+- `POST /auth/tokens/revoke` takes RFC 7009's `token_type_hint` (ignored).
+- New answer schemas for the parity routes: `AuthnPasskeyCeremony`, `AuthnPasskeyEntry`, `AuthnRegistrationAnswer`, `AuthnTokenUpdated`, `AuthnEmpty`.
+- `@spinajs/http`: `@Body({ sensitive: [...] })` deletes the named fields from `req.body` and drops `req.rawBody` once the argument holds them; the authn-http bodies with an inline password use it.
+
 # Release notes — authn-oidc: validated route inputs
 
 > Branch `feat/hard-val3`. Docs: `docs/authn-oidc/09-security.md`.
