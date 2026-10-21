@@ -1,5 +1,6 @@
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
+import '../../register-schema.js';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Get, Ok, Post, Req } from '@spinajs/http';
@@ -8,6 +9,7 @@ import { SessionIssuer } from '@spinajs/authn/contracts';
 
 import { unauthenticated } from '../../policies/v3/errors.js';
 import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
+import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../schema.js';
 import { NO_STORE, authnClearedSessionCookie } from '../responses.js';
 import { answerFor, auditEnded, bodyField, boundedString, completeLogin, pendingSteps } from '../routes.js';
 
@@ -27,6 +29,9 @@ export class AuthnLoginController extends BaseController {
   @Config('authn.mfa.policy.service')
   protected MfaPolicyService: string;
 
+  @Config('authn.http.logout.clearSiteData', { defaultValue: DEFAULT_LOGOUT_CLEAR_SITE_DATA })
+  protected ClearSiteData: readonly string[];
+
   /**
    * Login
    * Body `{ login, password }`. Ends a session the caller already holds. Success: the session cookie and the principal summary with the login extensions. MFA required: 200
@@ -45,7 +50,8 @@ export class AuthnLoginController extends BaseController {
   /**
    * Logout
    * Ends the session of the cookie, pending ones included (an impersonation ends with it), and clears the cookie and
-   * the site data. Audited as `logout`, and as `impersonation.end` (reason `logout`) for an impersonation (A20, A21).
+   * the site data of `authn.http.logout.clearSiteData` (default cache, cookies and storage). Audited as `logout`, and as
+   * `impersonation.end` (reason `logout`) for an impersonation (A20, A21).
    * POST, so no cross-site link can log anyone out.
    * @security cookieAuth
    * @response 401 No session
@@ -56,9 +62,10 @@ export class AuthnLoginController extends BaseController {
     if (!session) throw unauthenticated('there is no session to end');
     await this.Sessions.revoke(session.handle);
     await auditEnded(this.Container, req, session, 'logout', 'logout');
+    const directives = this.ClearSiteData;
     return new Ok(null, {
       Coockies: [authnClearedSessionCookie(this._cfg)],
-      Headers: [{ Name: 'Clear-Site-Data', Value: '"cache", "cookies", "storage"' }, NO_STORE],
+      Headers: directives.length > 0 ? [{ Name: 'Clear-Site-Data', Value: directives.map((d) => `"${d}"`).join(', ') }, NO_STORE] : [NO_STORE],
     });
   }
 

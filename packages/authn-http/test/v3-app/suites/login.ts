@@ -204,9 +204,26 @@ export function loginSuite(): void {
       const ck = sessionSetCookie(res)!;
       expect(ck.value).to.eq('');
       expect(ck.attrs.has('expires') || ck.attrs.get('max-age') === '0', res.setCookie.join(' | ')).to.eq(true);
-      expect(res.headers['clear-site-data']).to.include('"cookies"');
+      expect(res.headers['clear-site-data']).to.eq('"cache", "cookies", "storage"');
       expect(res.headers['cache-control']).to.eq('no-store');
       expect((await new Client(held).get('/auth')).status).to.eq(401);
+    });
+
+    it('sends the Clear-Site-Data directives of authn.http.logout.clearSiteData, and no header for an empty list', async () => {
+      try {
+        config().set('authn.http.logout', { clearSiteData: ['cache', 'cookies'] });
+        const narrowed = await (await loggedIn(await seedUser())).post('/auth/logout');
+        expect(narrowed.status).to.eq(200);
+        expect(narrowed.headers['clear-site-data']).to.eq('"cache", "cookies"');
+
+        config().set('authn.http.logout.clearSiteData', []);
+        const none = await (await loggedIn(await seedUser())).post('/auth/logout');
+        expect(none.status).to.eq(200);
+        expect(none.headers).to.not.have.property('clear-site-data');
+        expect(sessionSetCookie(none)?.value, 'the cookie is still cleared').to.eq('');
+      } finally {
+        config().set('authn.http.logout.clearSiteData', ['cache', 'cookies', 'storage']);
+      }
     });
 
     it('A21 the logout is audited: identity, hashed session handle, ip, user agent, never the raw id', async () => {

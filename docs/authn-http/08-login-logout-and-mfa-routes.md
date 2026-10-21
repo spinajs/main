@@ -68,7 +68,7 @@ sequenceDiagram
 | | |
 | --- | --- |
 | Request | the session cookie, active or pending |
-| 200 | No data; the cookie cleared, `Clear-Site-Data: "cache", "cookies", "storage"`, `Cache-Control: no-store` |
+| 200 | No data; the cookie cleared, `Clear-Site-Data` with the directives of `authn.http.logout.clearSiteData` (default `"cache", "cookies", "storage"`, no header for `[]`), `Cache-Control: no-store` |
 | 401 | `unauthenticated`: no session |
 
 Logout revokes the session (an impersonation ends with it), audits `logout`, and for an impersonation also `impersonation.end` with reason `logout`. It is `POST`, so no cross-site link can log anyone out, and the [CSRF origin guard](04-csrf-origin-guard.md) checks it.
@@ -105,6 +105,7 @@ Works for any authenticated principal, including API tokens and keys.
 | --- | --- | --- | --- | --- |
 | `authn.strategies` | `{ name, service }[]` | `[]` | | Strategies `authenticate()` may use; see [`@spinajs/authn`](../authn/03-strategies.md). |
 | `authn.mfa.policy.service` | `string` | `'DefaultMfaPolicy'` | registered `MfaPolicy` name | Asked for the pending steps of a session that stored none (`POST /auth/mfa/verify`, `GET /auth`). |
+| `authn.http.logout.clearSiteData` | `string[]` | `['cache', 'cookies', 'storage']` | `cache`, `cookies`, `storage`, `executionContexts`, `*`, each once | The `Clear-Site-Data` directives of `POST /auth/logout`; `[]` sends no header. Another value fails the boot. |
 | `authn.session.cookie` | object | | | Name and flags of the session cookie; see [`@spinajs/authn-session`](../authn-session/README.md). |
 | `http.cookie.secret` | `string` | | | Signs the session cookie. |
 
@@ -124,6 +125,7 @@ Works for any authenticated principal, including API tokens and keys.
 - **MFA success rotates the session id.** The pending cookie stops working; the answer carries the new one.
 - **The client ip and user agent are stored** with each new session (user agent cut to 512 characters); `GET /user/sessions` shows them.
 - **The cookie is a browser-session cookie** with no max-age; the server enforces idle and total lifetime.
+- **Logout clears the browser storage of the origin by default.** `"storage"` removes localStorage, sessionStorage and IndexedDB, including preferences an app keeps across sessions (theme, saved filters). Leave it out of `authn.http.logout.clearSiteData` only when that data holds nothing about the user: on a shared machine the next person sees what stays.
 
 ## Best practices
 
