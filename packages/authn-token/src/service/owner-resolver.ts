@@ -14,6 +14,13 @@ const OWNER_ALIAS = '$token_owner$';
 /** Not a column of the model, so the hydrator leaves it as a plain property of the row. */
 const OWNER_UUID = '$OwnerUuid';
 
+/** Matches the current or the previous secret; each side has a unique index, so the database can use both. */
+const byHash = (hash: string) =>
+  function (this: { where(column: string, value: string): unknown; orWhere(column: string, value: string): unknown }) {
+    this.where('Token', hash);
+    this.orWhere('PreviousToken', hash);
+  };
+
 /** A token row and its owner; `owner` is null when the owner is gone. */
 export interface TokenWithOwner {
   readonly token: AccessToken;
@@ -27,9 +34,12 @@ export abstract class TokenOwnerResolver {
 
   abstract refOf(rowId: number): Promise<IdentityRef | null>;
 
-  /** The token stored under `hash` with its owner. Override it to read both in one statement. */
+  /**
+   * The token whose secret, or whose previous secret, has this `hash`, with its owner. The caller tells the two apart and
+   * checks PreviousValidUntil. Override it to read both in one statement.
+   */
   public async tokenByHash(hash: string): Promise<TokenWithOwner | null> {
-    const token = await AccessToken.where('Token', hash).first();
+    const token = await AccessToken.where(byHash(hash)).first();
     return token ? { token, owner: await this.refOf(token.user_id) } : null;
   }
 }
@@ -63,7 +73,7 @@ export class UsersTableTokenOwnerResolver extends TokenOwnerResolver {
     const quoter = connection.Container.resolve(IdentifierQuoter);
     // The model builder selects only its own columns; the owner's Uuid comes in as a raw, dialect-quoted column.
     const ownerUuid = new RawQuery(`${quoter.quote(OWNER_ALIAS)}.${quoter.quote(USER_UUID)} AS ${quoter.quote(OWNER_UUID)}`);
-    const token = await AccessToken.where('Token', hash)
+    const token = await AccessToken.where(byHash(hash))
       .select(ownerUuid)
       .leftJoin({ joinTable: USERS_TABLE, joinTableAlias: OWNER_ALIAS, joinTableForeignKey: USER_ID, sourceTablePrimaryKey: 'user_id', joinTableDriver: connection })
       .first();
