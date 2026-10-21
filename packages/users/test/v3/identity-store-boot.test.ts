@@ -82,9 +82,9 @@ describe('a cli command that resolves only the IdentityStore', function () {
   });
 
   it('authn:password finds the user and sets the piped password', async () => {
-    // The command resolves the IdentityStore only in execute(), so the database is migrated before it runs.
-    await DI.resolve(OrmMigrator);
+    // The command injects OrmMigrator, which boots the Orm and migrates the test database on its way in.
     const command = await DI.resolve(PipedSetUserPassword);
+    expect(DI.get(Orm), 'the command booted the Orm').to.not.be.undefined;
 
     await command.execute('test@spinajs.pl', {});
 
