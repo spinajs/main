@@ -10,7 +10,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { fsService } from '@spinajs/fs';
+import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
+import type { fs } from '@spinajs/fs';
 import { Orm, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
@@ -351,6 +352,8 @@ export async function stopUsersHttpApp(): Promise<void> {
   for (const type of DI.getRegisteredTypes(AuthzAdmin) ?? []) DI.uncache(type as Class<unknown>);
   DI.uncache(AuthzAdmin as unknown as Class<unknown>);
   await DI.get(Orm)?.dispose();
+  // fsTemp's cleanup interval would keep the mocha process alive after the last suite.
+  for (const provider of DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES)?.values() ?? []) await provider.dispose();
   DI.uncache(OrmMigrator);
   DI.uncache(Orm);
   for (const undo of rootUndo.splice(0).reverse()) undo();
