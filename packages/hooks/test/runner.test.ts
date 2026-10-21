@@ -23,6 +23,7 @@ declare module '@spinajs/hooks' {
     'run.outer': { input: { tag: string }; output: string };
     'run.inner': { input: { tag: string }; output: string };
     'run.nest': { input: { level: number }; output: number };
+    'run.optional': { input: { name: string; note?: string }; output: string };
   }
 }
 
@@ -426,6 +427,123 @@ describe('DefaultHooks.run', function () {
         expect(l.text).to.not.contain('alice.smith');
         expect(l.text).to.not.contain('alice@example.com');
       }
+    });
+  });
+
+  describe('review fixes', () => {
+    const optionalImpl = (seen: unknown[]) => async (i: { name: string; note?: string }) => {
+      seen.push(i);
+      return 'ok';
+    };
+
+    class Passing extends ActionHook {
+      readonly actions: readonly ActionPattern[] = ['run.optional'];
+      before(): void {}
+    }
+
+    class DeletingMutable extends ActionHook {
+      readonly actions: readonly ActionPattern[] = ['run.account'];
+
+      before(ctx: BeforeContext<'run.account'>): void {
+        delete (ctx.input as Partial<Account>).login;
+      }
+    }
+
+    class HandBuiltRefusal extends ActionHook {
+      readonly actions: readonly ActionPattern[] = ['run.account'];
+
+      before(): void {
+        throw new ActionRefused('run.account', 'forged');
+      }
+    }
+
+    class NonObjectInput extends ActionHook {
+      readonly actions: readonly ActionPattern[] = ['run.account'];
+
+      before(ctx: BeforeContext<'run.account'>): void {
+        ctx.input = 5 as never;
+      }
+    }
+
+    it('keeps an absent mutable key absent', async () => {
+      const { hooks } = await boot({}, (c) => addHook(c, new Passing()));
+      const seen: object[] = [];
+
+      await hooks.run('run.optional', { name: 'n' }, optionalImpl(seen), { mutable: ['note'] });
+
+      expect(seen).to.have.length(1);
+      expect(Object.hasOwn(seen[0], 'note')).to.be.false;
+    });
+
+    it('gives impl the original value of a mutable key a hook deleted', async () => {
+      const { hooks } = await boot({}, (c) => addHook(c, new DeletingMutable()));
+      const received: Account[] = [];
+
+      await hooks.run('run.account', account(), async (i) => (received.push(i), { id: 'u' }), { mutable: ['login'] });
+
+      expect(received[0].login).to.eq('alice.smith');
+    });
+
+    it('logs a before hook error on the refusable path with the error class only', async () => {
+      const { hooks } = await boot({}, (c) => addHook(c, new Exploding()));
+
+      await rejectionOf(hooks.run('run.account', account(), created, { mutable: [] }));
+
+      const logged = TestLog.of('hooks');
+      expect(logged).to.have.length(1);
+      expect(logged[0].text).to.contain('Exploding').and.contain('run.account').and.contain('TypeError');
+      expect(logged[0].text).to.not.contain('boom');
+    });
+
+    it('turns an ActionRefused a hook built by hand into a logged ActionHookFailed(error)', async () => {
+      const { hooks } = await boot({}, (c) => addHook(c, new HandBuiltRefusal()));
+
+      const e = await rejectionOf(hooks.run('run.account', account(), created, { mutable: [] }));
+
+      expect(e).to.be.instanceOf(ActionHookFailed);
+      expect((e as ActionHookFailed).reason).to.eq('error');
+      expect(TestLog.of('hooks').some((l) => l.text.includes('HandBuiltRefusal'))).to.be.true;
+    });
+
+    it('turns a refusal from a nested run of another action into ActionHookFailed(error)', async () => {
+      const holder: { hooks?: Hooks } = {};
+      class Nesting extends ActionHook {
+        readonly actions: readonly ActionPattern[] = ['run.outer'];
+
+        async before(): Promise<void> {
+          await holder.hooks!.run('run.inner', { tag: 'x' }, async () => 'in', { mutable: [] });
+        }
+      }
+      class InnerRefuser extends ActionHook<'run.inner'> {
+        readonly actions: readonly ActionPattern[] = ['run.inner'];
+
+        before(ctx: BeforeContext<'run.inner'>): void {
+          ctx.refuse('inner_code');
+        }
+      }
+      const { hooks } = await boot({}, (c) => {
+        addHook(c, new Nesting());
+        addHook(c, new InnerRefuser());
+      });
+      holder.hooks = hooks;
+
+      const e = await rejectionOf(hooks.run('run.outer', { tag: 'o' }, async () => 'out', { mutable: [] }));
+
+      expect(e).to.be.instanceOf(ActionHookFailed);
+      expect((e as ActionHookFailed).hook).to.eq('Nesting');
+    });
+
+    it('treats a non-object ctx.input as a before hook error', async () => {
+      const { hooks } = await boot({}, (c) => addHook(c, new NonObjectInput()));
+
+      const e = await rejectionOf(hooks.run('run.account', account(), created, { mutable: ['login'] }));
+      expect(e).to.be.instanceOf(ActionHookFailed);
+      expect((e as ActionHookFailed).reason).to.eq('error');
+      expect((e as ActionHookFailed).hook).to.eq('NonObjectInput');
+
+      const received: Account[] = [];
+      await hooks.run('run.account', account(), async (i) => (received.push(i), { id: 'u' }), { mutable: ['login'], refusable: false });
+      expect(received[0]).to.deep.eq(account());
     });
   });
 

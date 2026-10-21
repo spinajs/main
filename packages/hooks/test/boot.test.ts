@@ -2,9 +2,9 @@ import * as chai from 'chai';
 import 'mocha';
 import { Autoinject } from '@spinajs/di';
 
-import { ActionHook, Hooks } from '../src/index.js';
+import { ActionHook, ActionHookFailed, Hooks } from '../src/index.js';
 import type { ActionPattern } from '../src/index.js';
-import { boot, disposeChildren, useTestLog } from './support.js';
+import { TestLog, boot, disposeChildren, rejectionOf, useTestLog } from './support.js';
 
 const expect = chai.expect;
 
@@ -71,6 +71,27 @@ class LateHook extends ActionHook {
   }
 }
 
+class FlakyDependency {
+  static failing = true;
+
+  constructor() {
+    if (FlakyDependency.failing) throw new Error('dependency down');
+  }
+}
+
+class FlakyHook extends ActionHook {
+  static readonly seen: number[] = [];
+
+  @Autoinject(FlakyDependency)
+  protected Dependency: FlakyDependency;
+
+  readonly actions: readonly ActionPattern[] = ['boot.ping'];
+
+  before(): void {
+    FlakyHook.seen.push(1);
+  }
+}
+
 describe('DefaultHooks boot', function () {
   this.timeout(10000);
   useTestLog();
@@ -128,5 +149,36 @@ describe('DefaultHooks boot', function () {
     expect(hooks.has('boot.ping')).to.be.false;
     await hooks.run('boot.ping', { n: 6 }, echo, { mutable: [] });
     expect(LateHook.seen).to.deep.eq([]);
+  });
+
+  describe('a hook whose DI resolution fails', () => {
+    beforeEach(() => {
+      FlakyDependency.failing = true;
+      FlakyHook.seen.length = 0;
+    });
+
+    it('rejects a refusable run with ActionHookFailed(error), logs it, and retries resolution on the next run', async () => {
+      const { hooks } = await boot({}, (c) => c.register(FlakyHook).as(ActionHook));
+
+      const e = await rejectionOf(hooks.run('boot.ping', { n: 1 }, echo, { mutable: [] }));
+      expect(e).to.be.instanceOf(ActionHookFailed);
+      expect((e as ActionHookFailed).reason).to.eq('error');
+      expect((e as ActionHookFailed).hook).to.eq('FlakyHook');
+      expect(TestLog.of('hooks').some((l) => l.text.includes('FlakyHook'))).to.be.true;
+      expect(TestLog.of('hooks').some((l) => l.text.includes('dependency down'))).to.be.false;
+
+      FlakyDependency.failing = false;
+      expect(await hooks.run('boot.ping', { n: 2 }, echo, { mutable: [] })).to.eq(2);
+      expect(FlakyHook.seen).to.have.length(1);
+    });
+
+    it('with refusable: false, logs it, skips the hook and runs the action', async () => {
+      const { hooks } = await boot({}, (c) => c.register(FlakyHook).as(ActionHook));
+
+      expect(await hooks.run('boot.ping', { n: 3 }, echo, { mutable: [], refusable: false })).to.eq(3);
+
+      expect(FlakyHook.seen).to.have.length(0);
+      expect(TestLog.of('hooks').some((l) => l.text.includes('FlakyHook'))).to.be.true;
+    });
   });
 });

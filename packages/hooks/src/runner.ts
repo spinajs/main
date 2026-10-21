@@ -5,7 +5,7 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log-common';
 
 import { ActionHook, Hooks } from './contracts.js';
-import type { ActionName, ActionPattern, BeforeContext, InputOf, OutputOf, RunOptions } from './contracts.js';
+import type { ActionName, ActionPattern, AfterContext, BeforeContext, FailedContext, InputOf, OutputOf, RunOptions } from './contracts.js';
 import { ActionHookFailed, ActionRefused } from './errors.js';
 import { matches } from './match.js';
 
@@ -16,6 +16,9 @@ const hookDepth = new AsyncLocalStorage<number>();
 
 class InvalidRefusalCode extends Error {}
 class HookTimeout extends Error {}
+class InvalidInput extends Error {}
+
+const isObject = (value: unknown): value is object => typeof value === 'object' && value !== null;
 
 interface HookEntry {
   readonly type: Class<ActionHook> | Factory<ActionHook>;
@@ -36,6 +39,7 @@ interface RunState<A extends ActionName> {
   readonly depth: number;
   readonly bag: Map<string, unknown>;
 }
+
 
 /**
  * Collects the registered ActionHook types and their patterns in resolve(), without resolving them through DI: a
@@ -63,6 +67,7 @@ export class DefaultHooks extends Hooks {
 
   public async resolve(): Promise<void> {
     const types = (this.Container.getRegisteredTypes(Array.chainOf(ActionHook)) ?? []) as (Class<ActionHook> | Factory<ActionHook>)[];
+    this.matchCache.clear();
     this.entries = types.map((type, index) => this.describe(type, index));
     await super.resolve();
   }
@@ -78,14 +83,12 @@ export class DefaultHooks extends Hooks {
     const depth = (hookDepth.getStore() ?? 0) + 1;
     if (depth > this.MaxDepth) throw new ActionHookFailed(action, entries[0].name, 'depth');
 
-    const instances = await Promise.all(entries.map((e) => this.instanceOf(e)));
-    const ascending = entries.map((entry, i) => ({ entry, hook: instances[i] }));
-    const descending = [...ascending].sort((a, b) => b.entry.order - a.entry.order || a.entry.index - b.entry.index);
-
-    const ctx = this.createContext(action, input, depth);
+    const refusals = new WeakSet<object>();
+    const ctx = this.createContext(action, input, depth, refusals);
     const state: RunState<A> = { action, depth, bag: ctx.bag };
 
-    await this.runBefore(ascending, ctx, state, opts);
+    const resolved = await this.runBefore(entries, ctx, state, opts, refusals);
+    const descending = [...resolved].sort((a, b) => b.entry.order - a.entry.order || a.entry.index - b.entry.index);
     const merged = this.mergeInput(input, ctx.input, opts);
 
     let output: OutputOf<A>;
@@ -101,7 +104,7 @@ export class DefaultHooks extends Hooks {
   }
 
   /** Called once per run that has a matching hook, never on the path without one; the after and failed contexts share its bag. */
-  protected createContext<A extends ActionName>(action: A, input: InputOf<A>, depth: number): BeforeContext<A> {
+  protected createContext<A extends ActionName>(action: A, input: InputOf<A>, depth: number, refusals: WeakSet<object>): BeforeContext<A> {
     return {
       action,
       input: { ...(input as object) } as InputOf<A>,
@@ -109,14 +112,21 @@ export class DefaultHooks extends Hooks {
       depth,
       refuse(code: string, message?: string): never {
         if (!REFUSAL_CODE.test(code)) throw new InvalidRefusalCode();
-        throw new ActionRefused(action, code, message);
+        const refusal = new ActionRefused(action, code, message);
+        refusals.add(refusal);
+        throw refusal;
       },
     };
   }
 
   private describe(type: Class<ActionHook> | Factory<ActionHook>, index: number): HookEntry {
     if (isConstructor(type)) {
-      const probe = new (type as unknown as new () => ActionHook)();
+      let probe: ActionHook;
+      try {
+        probe = new (type as unknown as new () => ActionHook)();
+      } catch (error) {
+        throw new Error(`Hook ${type.name} could not be constructed to read its actions`, { cause: error });
+      }
       return { type, patterns: probe.actions, order: probe.order, index, name: type.name };
     }
 
@@ -134,33 +144,57 @@ export class DefaultHooks extends Hooks {
   }
 
   private instanceOf(entry: HookEntry): Promise<ActionHook> {
-    entry.instance ??= Promise.resolve(this.Container.resolve(entry.type as Class<ActionHook>) as ActionHook | Promise<ActionHook>);
+    if (!entry.instance) {
+      const pending = Promise.resolve().then(() => this.Container.resolve(entry.type as Class<ActionHook>) as ActionHook | Promise<ActionHook>);
+      entry.instance = pending;
+      // A rejected resolution is not cached: the next run tries again.
+      pending.catch(() => {
+        if (entry.instance === pending) entry.instance = undefined;
+      });
+    }
     return entry.instance;
   }
 
-  private async runBefore<A extends ActionName>(hooks: ResolvedHook[], ctx: BeforeContext<A>, state: RunState<A>, opts: RunOptions<A>): Promise<void> {
+  private async runBefore<A extends ActionName>(entries: HookEntry[], ctx: BeforeContext<A>, state: RunState<A>, opts: RunOptions<A>, refusals: WeakSet<object>): Promise<ResolvedHook[]> {
     const mutable = new Set<PropertyKey>(opts.mutable as readonly PropertyKey[]);
+    const refusable = opts.refusable ?? true;
+    const resolved: ResolvedHook[] = [];
 
-    for (const { entry, hook } of hooks) {
+    for (const entry of entries) {
+      let hook: ActionHook;
+      try {
+        hook = await this.instanceOf(entry);
+      } catch (error) {
+        this.logFailure(entry.name, state.action, error);
+        if (refusable) throw new ActionHookFailed(state.action, entry.name, 'error');
+        continue;
+      }
+      resolved.push({ entry, hook });
       if (!hook.before) continue;
 
-      const snapshot = { ...(ctx.input as object) } as Record<string, unknown>;
+      const previous = ctx.input;
+      const snapshot = { ...(previous as object) };
       try {
         await this.bounded(state.depth, () => hook.before!(ctx));
+        if (!isObject(ctx.input)) throw new InvalidInput();
       } catch (error) {
-        const failure = error instanceof ActionRefused ? error : new ActionHookFailed(state.action, entry.name, error instanceof HookTimeout ? 'timeout' : 'error');
-        if (opts.refusable ?? true) throw failure;
+        if (!isObject(ctx.input)) ctx.input = previous;
+        const refusal = error instanceof ActionRefused && refusals.has(error);
+        if (refusable && refusal) throw error;
         this.logFailure(entry.name, state.action, error);
+        if (refusable) throw new ActionHookFailed(state.action, entry.name, error instanceof HookTimeout ? 'timeout' : 'error');
       }
-      this.warnDropped(entry.name, state.action, snapshot, ctx.input as Record<string, unknown>, mutable);
+      this.warnDropped(entry.name, state.action, snapshot, ctx.input as object, mutable);
     }
+    return resolved;
   }
 
   private async runFailed<A extends ActionName>(hooks: ResolvedHook[], input: InputOf<A>, error: unknown, state: RunState<A>): Promise<void> {
     for (const { entry, hook } of hooks) {
       if (!hook.failed) continue;
+      const ctx: FailedContext<A> = { action: state.action, input, error, bag: state.bag, depth: state.depth };
       try {
-        await this.bounded(state.depth, () => hook.failed!({ action: state.action, input, error, bag: state.bag, depth: state.depth } as never));
+        await this.bounded(state.depth, () => hook.failed!(ctx));
       } catch (e) {
         this.logFailure(entry.name, state.action, e);
       }
@@ -170,8 +204,9 @@ export class DefaultHooks extends Hooks {
   private async runAfter<A extends ActionName>(hooks: ResolvedHook[], input: InputOf<A>, output: OutputOf<A>, state: RunState<A>): Promise<void> {
     for (const { entry, hook } of hooks) {
       if (!hook.after) continue;
+      const ctx: AfterContext<A> = { action: state.action, input, output, bag: state.bag, depth: state.depth };
       try {
-        await this.bounded(state.depth, () => hook.after!({ action: state.action, input, output, bag: state.bag, depth: state.depth } as never));
+        await this.bounded(state.depth, () => hook.after!(ctx));
       } catch (e) {
         this.logFailure(entry.name, state.action, e);
       }
@@ -179,9 +214,10 @@ export class DefaultHooks extends Hooks {
   }
 
   private mergeInput<A extends ActionName>(original: InputOf<A>, changed: InputOf<A>, opts: RunOptions<A>): InputOf<A> {
-    const merged = { ...(original as object) } as Record<PropertyKey, unknown>;
-    for (const key of opts.mutable as readonly PropertyKey[]) merged[key] = (changed as Record<PropertyKey, unknown>)[key];
-    return merged as InputOf<A>;
+    const picked = Object.fromEntries(
+      (opts.mutable as readonly PropertyKey[]).filter((key) => Object.hasOwn(changed as object, key)).map((key) => [key, Reflect.get(changed as object, key)]),
+    );
+    return { ...(original as object), ...picked } as InputOf<A>;
   }
 
   /** Runs one hook call at `depth` (what a nested run reads) and rejects with HookTimeout after hooks.timeoutMs. The call is abandoned, not cancelled. */
@@ -197,9 +233,9 @@ export class DefaultHooks extends Hooks {
     }
   }
 
-  private warnDropped(hook: string, action: string, before: Record<string, unknown>, after: Record<string, unknown>, mutable: Set<PropertyKey>): void {
+  private warnDropped(hook: string, action: string, before: object, after: object, mutable: Set<PropertyKey>): void {
     if (this.warnedDropped.has(hook)) return;
-    if (!Object.keys({ ...before, ...after }).some((k) => !mutable.has(k) && after[k] !== before[k])) return;
+    if (!Object.keys({ ...before, ...after }).some((k) => !mutable.has(k) && !Object.is(Reflect.get(after, k), Reflect.get(before, k)))) return;
 
     this.warnedDropped.add(hook);
     this.Log.warn({ hook, action }, 'Hook ${hook} changed keys that ${action} does not declare mutable; the changes are dropped');
