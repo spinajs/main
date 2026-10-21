@@ -1,6 +1,5 @@
 import { DI } from '@spinajs/di';
 import { GLOBAL } from '@spinajs/authz';
-import type { ResourceRef } from '@spinajs/authz';
 import { ManualClock, fakeEvaluationContext } from '@spinajs/authz-testing';
 import { Perf, PerfSink } from '@spinajs/log-common';
 import type { IPerfMetric } from '@spinajs/log-common';
@@ -19,7 +18,7 @@ const bob: AssignmentSubject = { type: 'user', id: 'bob' };
 const HIT = 'authz.rbac.assignments.hit';
 const MISS = 'authz.rbac.assignments.miss';
 
-const row = (id: string, subject: AssignmentSubject): Assignment => ({ id, subject, role: 'viewer', scope: GLOBAL as ResourceRef, source: 'test' });
+const row = (id: string, subject: AssignmentSubject): Assignment => ({ id, subject, role: 'viewer', scope: GLOBAL, source: 'test' });
 
 class CapturingSink extends PerfSink {
   static metrics: IPerfMetric[] = [];
