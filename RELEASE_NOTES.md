@@ -19,6 +19,11 @@ Fixes only: no 3.0.2 API, config key or HTTP answer changes.
   sync, the configuration panel's write) sent `Value` and `Default` raw: MySQL failed with `Truncated incorrect DOUBLE
   value` on `json` and `manyOf` options, and model reads (the watch poll) returned the stored text. The converter now
   registers itself when the package loads; the workaround `DI.register(DbConfigValueConverter).asSelf()` can go.
+- **Fix: an app with an invalid configuration exited with 0.** `LogBotstrapper`'s `uncaughtException` and
+  `unhandledRejection` handlers log and keep the process running, which also stopped Node from exiting with 1: a
+  `Configuration` refused at boot (awaited at the top level, or in a boot promise nothing catches) ended the process
+  with 0. Both handlers now set `process.exitCode = 1`; they still do not exit. In `@spinajs/di`, a dependency that
+  throws while another one's async resolve is pending no longer leaves that rejection unhandled.
 
 ## 3.0.2
 

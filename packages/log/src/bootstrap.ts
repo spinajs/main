@@ -15,6 +15,10 @@ const uncaughtExceptionHandler = (err: Error) => {
   } else {
     console.error("Unhandled exception: \n reason: " + err.message + " \n stack:" + err.stack);
   }
+
+  // The handlers keep the process running, which also stops Node from exiting with 1: a failed boot (an invalid
+  // configuration) must still not end with 0.
+  process.exitCode = 1;
 };
 
 const unhandledRejection = (reason: Error, p: Promise<unknown>) => {
@@ -27,6 +31,8 @@ const unhandledRejection = (reason: Error, p: Promise<unknown>) => {
   } else {
     console.error("Unhandled rejection: \n reason: " + reason.message + " \n stack:" + reason.stack);
   }
+
+  process.exitCode = 1;
 };
 
 // Guard so a double bootstrap ( eg. re-run in the same process ) does not

@@ -13,7 +13,7 @@
    2. once per process, adds `process.on('beforeExit', () => Log.flushAll())`;
    3. installs the ambient context provider: `setLogContextProvider(() => scalarContext(LogContext.active()))`;
    4. installs the perf scope backend with `wirePerfScope()`;
-   5. unless `process.env.TESTING` is set, replaces its own `uncaughtException` and `unhandledRejection` handlers. They log `fatal` on the `process` logger when `Configuration` is resolved, else print to `console.error`.
+   5. unless `process.env.TESTING` is set, replaces its own `uncaughtException` and `unhandledRejection` handlers. They log `fatal` on the `process` logger when `Configuration` is resolved, else print to `console.error`, and set `process.exitCode = 1`.
 
 ### Logging before configuration
 
@@ -46,7 +46,7 @@
 
 ### Replacing `LogBotstrapper`: exit after an uncaught exception
 
-The default handlers log and keep the process running. To log, drain and exit, unregister the default and install your own; keep the context and perf wiring.
+The default handlers log, set exit code 1 and keep the process running. To log, drain and exit at once, unregister the default and install your own; keep the context and perf wiring.
 
 ```ts sample
 import { Bootstrapper, DI, Injectable } from '@spinajs/di';
@@ -81,6 +81,7 @@ export class FailFastLogBootstrapper extends Bootstrapper {
 ## Important behaviour
 
 - **Uncaught exceptions do not crash the process** once `LogBotstrapper` has run outside tests: its handler logs `fatal` and returns. Decide whether that is what you want.
+- **A process that ends after one exits with 1.** Both handlers set `process.exitCode = 1`, so a boot that fails at a top-level `await` or in a boot promise nothing catches (an invalid configuration) does not end with 0. An explicit `process.exit(code)` still exits with `code`.
 - `beforeExit` runs only on a clean drain of the event loop. `process.exit()`, signals and crashes skip it: call `await Log.flushAll()` yourself in those paths.
 - File target timers (flush, rotation) are `unref()`'d, so a `FileTarget` does not keep the event loop alive and `beforeExit` still fires.
 - `flush()` does not dispose; targets stay usable after it.
