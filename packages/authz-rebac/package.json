@@ -1,0 +1,83 @@
+{
+  "name": "@spinajs/authz-rebac",
+  "version": "3.0.1",
+  "description": "ReBAC (relationship-based) model and tuple stores for SpinaJS authorization",
+  "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/mjs/index.d.ts",
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    },
+    "./http": {
+      "types": "./lib/mjs/http/index.d.ts",
+      "import": "./lib/mjs/http/index.js",
+      "require": "./lib/cjs/http/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=16.11"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.mjs.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "pretest": "npm run compile",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/authz-rebac",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "authz",
+    "rebac"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/authz": "3.0.1",
+    "@spinajs/authz-orm": "3.0.1",
+    "@spinajs/configuration": "3.0.1",
+    "@spinajs/di": "3.0.1",
+    "@spinajs/orm": "3.0.1",
+    "luxon": "^3.6.1"
+  },
+  "devDependencies": {
+    "@spinajs/authz-http-admin": "3.0.1",
+    "@spinajs/authz-testing": "3.0.1",
+    "@spinajs/log": "3.0.1",
+    "@spinajs/orm-sqlite": "3.0.1",
+    "@types/luxon": "^3.6.1"
+  },
+  "peerDependencies": {
+    "@spinajs/authz-http-admin": "3.0.1"
+  },
+  "peerDependenciesMeta": {
+    "@spinajs/authz-http-admin": {
+      "optional": true
+    }
+  }
+}

@@ -23,6 +23,7 @@ import { B43 } from './B43-authz-admin.spec.js';
 import { B44 } from './B44-rules-sql.spec.js';
 import { B45 } from './B45-instance-roles.spec.js';
 import { B46 } from './B46-external-sharing.spec.js';
+import { B49 } from './B49-rebac.spec.js';
 
 /** The model, store and admin fixtures, and their parts for B06, B27, B36 and B39. */
-export const MODEL_FIXTURES: readonly (BehaviourFixture | FixtureExtension)[] = Object.freeze([B06Rules, B11, B12, B13, B15, B16, B18, B19, B26, B27Events, B31, B32, B33, B34, B35, B36Rbac, B38, B39Store, B40, B42, B43, B44, B45, B46]);
+export const MODEL_FIXTURES: readonly (BehaviourFixture | FixtureExtension)[] = Object.freeze([B06Rules, B11, B12, B13, B15, B16, B18, B19, B26, B27Events, B31, B32, B33, B34, B35, B36Rbac, B38, B39Store, B40, B42, B43, B44, B45, B46, B49]);

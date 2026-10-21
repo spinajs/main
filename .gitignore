@@ -116,6 +116,7 @@ graphify-out/
 !/docs/authz-orm/
 !/docs/authz-queue/
 !/docs/authz-rbac/
+!/docs/authz-rebac/
 !/docs/authz-testing/
 !/docs/cli/
 !/docs/configuration/

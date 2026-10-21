@@ -5,6 +5,7 @@
     "authz": ["src/contracts/index.ts", "src/conditions/contracts.ts"],
     "authz-rbac": ["src/contracts.ts"],
     "authz-abac": ["src/contracts.ts"],
+    "authz-rebac": ["src/contracts.ts"],
     "authz-orm": ["src/api.ts"],
     "authz-http": ["src/api.ts"],
     "authz-queue": ["src/api.ts"],
@@ -18,5 +19,5 @@
     "authn-webauthn": ["src/contracts.ts"],
     "principal": ["src/index.ts"]
   },
-  "augmentationAllowlist": ["packages/authz-orm/src/lists/augment.ts", "packages/authz-rbac/src/admin/commands.ts", "packages/authz-abac/src/admin/commands.ts"]
+  "augmentationAllowlist": ["packages/authz-orm/src/lists/augment.ts", "packages/authz-rbac/src/admin/commands.ts", "packages/authz-abac/src/admin/commands.ts", "packages/authz-rebac/src/admin/commands.ts"]
 }
