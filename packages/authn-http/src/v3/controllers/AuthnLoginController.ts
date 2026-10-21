@@ -80,7 +80,7 @@ export class AuthnLoginController extends BaseController {
     // Typed plain string, not string | undefined: a union reaches the route args as Object, and Object values are parsed as JSON.
     @Header('sec-fetch-mode', FETCH_MODE_HEADER) fetchMode: string,
     @Header('accept', ACCEPT_HEADER) accept: string,
-    // AuthnLogoutExtension takes the request (authn-oidc reads the origin from it): the one handler with @Req (D12).
+    // eslint-disable-next-line @spinajs/authz/no-raw-request -- AuthnLogoutExtension takes the request (authn-oidc reads the origin from it): the one handler with @Req (D12).
     @Req() req: Request,
   ) {
     const session = client.session;

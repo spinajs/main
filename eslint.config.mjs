@@ -51,6 +51,11 @@ export default defineConfig(
     },
   },
   {
+    // Every authn/authz route input goes through route-argument validation (input-validation plan D12).
+    files: ['packages/{authn,authz}*/src/**/*.ts'],
+    rules: { '@spinajs/authz/no-raw-request': 'error' },
+  },
+  {
     files: ['packages/*/src/**/*.ts'],
     rules: {
       complexity: ['error', { max: 15 }],
