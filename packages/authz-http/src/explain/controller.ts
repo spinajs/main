@@ -7,6 +7,7 @@ import { Config } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
 import { _check_arg, _is_string, _non_empty, _one_of } from '@spinajs/util';
 
+import { resolveAuthzDomain } from '../access/domain-resolver.js';
 import { forbidden, holdsExplain, unauthenticated } from '../access/policy.js';
 import { explainTree } from './tree.js';
 import '../storage.js';
@@ -41,7 +42,7 @@ export class ExplainPolicy extends BasePolicy {
     const principal = req.storage.Principal;
     if (!principal?.authenticated) throw unauthenticated('the explain route needs an authenticated principal');
 
-    const { held, decision } = await holdsExplain(await this.Domains.service(this.AccessDomain), principal, this.ExplainPermission);
+    const { held, decision } = await holdsExplain(await this.Domains.service(await resolveAuthzDomain(req, this.AccessDomain)), principal, this.ExplainPermission);
     if (!held) throw forbidden(decision);
   }
 }
@@ -61,7 +62,7 @@ export class ExplainController extends BaseController {
 
   @Get('explain')
   @Policy(ExplainPolicy)
-  public async explain(@Req() _req: Request, @Query() principal: string, @Query() permission: string, @Query() resource?: string, @Query() format?: string) {
+  public async explain(@Req() req: Request, @Query() principal: string, @Query() permission: string, @Query() resource?: string, @Query() format?: string) {
     _check_arg(_one_of([undefined, '', 'decision', 'tree'], new InvalidArgument("format must be 'decision' or 'tree'", 'format')))(format, 'format');
     const target = splitKey(principal, 'principal');
     if (target.id === undefined) throw new InvalidArgument('principal must be <type>:<id>', 'principal');
@@ -69,7 +70,7 @@ export class ExplainController extends BaseController {
     const ref: ResourceRef = resource === undefined || resource === '' ? { type: parsePermission(permission).resource } : splitKey(resource, 'resource');
 
     const subject: Principal = Object.freeze({ type: target.type, id: target.id, authenticated: target.type !== 'anonymous' && target.type !== 'unattended', source: 'explain', attributes: Object.freeze({}) });
-    const authz = await this.Domains.service(this.AccessDomain);
+    const authz = await this.Domains.service(await resolveAuthzDomain(req, this.AccessDomain));
     const decision = await authz.explain({ principal: subject, permission, resource: ref });
     return new Ok(format === 'tree' ? explainTree(decision) : decision);
   }
