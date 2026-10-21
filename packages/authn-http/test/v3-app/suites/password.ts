@@ -183,6 +183,12 @@ export function passwordRoutesSuite(): void {
       }
       expect(fake.of('requestReset')).to.deep.eq([]);
     });
+
+    it('an unknown field answers 400 invalid_field (D5) and never reaches the service', async () => {
+      const res = await new Client().post('/auth/password/reset-request', { login: 'me@example.test', captcha: 'x' });
+      expect([res.status, (res.body as { error?: unknown }).error, res.headers['cache-control']]).to.deep.eq([400, 'invalid_field', 'no-store']);
+      expect(fake.of('requestReset')).to.deep.eq([]);
+    });
   });
 
   describe('POST /auth/password/reset', () => {
@@ -249,6 +255,14 @@ export function passwordRoutesSuite(): void {
       expect(missing.body.error).to.eq('invalid_password');
       expect(fake.of('redeemReset')).to.deep.eq([]);
     });
+
+    it('a credential route: a secret that is a number and an unknown field fail like a wrong secret (D1, D5, D6)', async () => {
+      expectFailureBody(await new Client().post('/auth/password/reset', body({ secret: 12345678 })));
+      expectFailureBody(await new Client().post('/auth/password/reset', body({ remember: true })));
+      const confirm = await new Client().post('/auth/password/reset', body({ confirmPassword: 42 }));
+      expect([confirm.status, (confirm.body as { error?: unknown }).error]).to.deep.eq([400, 'password_mismatch']);
+      expect(fake.of('redeemReset')).to.deep.eq([]);
+    });
   });
 
   describe('PATCH /user/password', () => {
@@ -309,6 +323,8 @@ export function passwordRoutesSuite(): void {
       expect(tooLong.body).to.deep.include({ error: 'password_rejected', violations: ['too_long'] });
       const missing = await c.patch('/user/password', body({ password: undefined }));
       expect([missing.status, missing.body.error]).to.deep.eq([400, 'invalid_password']);
+      const unknown = await c.patch('/user/password', body({ currentPassword: 'Old-Pass-1234' }));
+      expect([unknown.status, (unknown.body as { error?: unknown }).error]).to.deep.eq([400, 'invalid_field']);
       expect(fake.of('change')).to.deep.eq([]);
     });
 

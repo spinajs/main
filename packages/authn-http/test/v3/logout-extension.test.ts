@@ -15,7 +15,7 @@ import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../src/schema.js';
 import { clientOf } from '../../src/v3/client.js';
 
 // The handler's arguments as the route extracts them from `req`.
-const logoutOf = (c: AuthnLoginController, req: Request) => c.logout(clientOf(req), req.get('sec-fetch-mode'), req.get('accept'), req);
+const logoutOf = (c: AuthnLoginController, req: Request) => c.logout(clientOf(req), req.get('sec-fetch-mode') as string, req.get('accept') as string, req);
 
 const END_SESSION = 'https://idp.example.test/realms/corp/logout?client_id=canvas&post_logout_redirect_uri=https%3A%2F%2Fapp.example.test%2F';
 

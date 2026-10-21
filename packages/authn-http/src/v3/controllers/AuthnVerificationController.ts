@@ -1,14 +1,16 @@
 import { Autoinject } from '@spinajs/di';
-import { BaseController, BasePath, Ok, Policy, Post, Req } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
+import { BaseController, BasePath, Body, Ok, Policy, Post } from '@spinajs/http';
 import { PasswordService } from '@spinajs/authn/contracts';
 
-import { AddressVerificationRegistered, secretField, tooManyRequests } from '../../password/index.js';
+import { ClientContext } from '../../args/authn.js';
+import { AuthnVerifyBody } from '../../dto/verification.js';
+import { AddressVerificationRegistered, tooManyRequests } from '../../password/index.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
+import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
+import type { AuthnClientContext } from '../client.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { AcceptedResponse, NO_STORE, badRequest } from '../responses.js';
 import { contextOf } from '../routes.js';
-import { clientOf } from '../client.js';
 
 const ACK: Readonly<{ Ok: true }> = Object.freeze({ Ok: true });
 
@@ -35,9 +37,9 @@ export class AuthnVerificationController extends BaseController {
    */
   @Post('auth/verify/request')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async request(@Req() req: Request) {
-    const session = activeSessionOf(clientOf(req));
-    const result = await this.Passwords!.requestVerification!(session.identity, contextOf(clientOf(req), 'request', session.handle));
+  public async request(@ClientContext() client: AuthnClientContext) {
+    const session = activeSessionOf(client);
+    const result = await this.Passwords!.requestVerification!(session.identity, contextOf(client, 'request', session.handle));
     if (result.status === 'throttled') return tooManyRequests('too many verification requests, try again later', result.retryAfterSeconds);
     return new AcceptedResponse({ ...ACK }, { Headers: [NO_STORE] });
   }
@@ -49,10 +51,9 @@ export class AuthnVerificationController extends BaseController {
    * @security []
    */
   @Post('auth/verify')
-  public async verify(@Req() req: Request) {
-    const secret = secretField(req);
-    if (secret === null) return invalidSecret();
-    const result = await this.Passwords!.redeemVerification!(secret, contextOf(clientOf(req), 'request'));
+  @OnInvalidInput(byField({ secret: invalidSecret }, unknownField))
+  public async verify(@Body({ required: true }) body: AuthnVerifyBody, @ClientContext() client: AuthnClientContext) {
+    const result = await this.Passwords!.redeemVerification!(body.secret, contextOf(client, 'request'));
     return result.status === 'verified' ? new Ok({ ...ACK }, { Headers: [NO_STORE] }) : invalidSecret();
   }
 }
