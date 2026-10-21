@@ -194,7 +194,7 @@ export class PayoutsController extends BaseController {
 - Declare every permission an `@Access` names in `authz.permissions`; the boot then catches a typo before the first request.
 - Use `IsAuthenticated` or `HasPrincipal` for routes about the caller only (`/me`, the caller's teams), where no permission names the action.
 - Give `@Unscoped` a reason a reviewer understands ("nightly report export"); it lands in the audit.
-- Keep `@Access` on the controller class of a package and narrow it per route, so a new route is never left unguarded.
+- Keep `@Access` on the controller class of a package and narrow it per route, so a new route is never left unguarded. Set `authz.http.unguardedRoutes` to `'throw'` to make the server refuse to start with one ([Unguarded routes](10-access-metadata-and-openapi.md#unguarded-routes)).
 
 ## Patterns and antipatterns
 

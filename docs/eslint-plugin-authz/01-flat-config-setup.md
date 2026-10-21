@@ -1,12 +1,12 @@
 # Flat config setup
 
-The plugin ships as an ESLint flat-config plugin. Spread `configs.recommended` into `eslint.config.mjs` to turn on `require-accessible` as an error, or register the plugin yourself to set the rule's options.
+The plugin ships as an ESLint flat-config plugin. Spread `configs.recommended` into `eslint.config.mjs` to turn on `require-accessible` and `require-access` as errors, or register the plugin yourself to set the rule's options.
 
 ## How it works
 
 1. ESLint loads `eslint.config.mjs`, which imports the default export of `@spinajs/eslint-plugin-authz`.
 2. The default export is the plugin object: `meta.name` (`@spinajs/eslint-plugin-authz`), `rules` and `configs`.
-3. `configs.recommended` registers the plugin under the prefix `@spinajs/authz` and sets `@spinajs/authz/require-accessible` to `error`.
+3. `configs.recommended` registers the plugin under the prefix `@spinajs/authz` and sets `@spinajs/authz/require-accessible` and `@spinajs/authz/require-access` to `error`.
 4. For every linted file, `require-accessible` asks typescript-eslint's parser services for the type checker. On a file linted without type information, typescript-eslint throws its missing-type-information error.
 
 ## Exports
@@ -14,9 +14,9 @@ The plugin ships as an ESLint flat-config plugin. Spread `configs.recommended` i
 | Export | Type | Meaning |
 | --- | --- | --- |
 | default export | flat-config plugin | `{ meta, rules, configs }`; put it in `plugins` or spread `configs.recommended` |
-| `configs.recommended` | `FlatConfig.Config` | `name: '@spinajs/authz/recommended'`, the plugin under `@spinajs/authz`, `require-accessible` as `error` |
-| `rules` | object | `{ 'require-accessible': requireAccessible }` |
-| `requireAccessible` | rule module | The rule itself, for a custom plugin object or `RuleTester` |
+| `configs.recommended` | `FlatConfig.Config` | `name: '@spinajs/authz/recommended'`, the plugin under `@spinajs/authz`, `require-accessible` and `require-access` as `error` |
+| `rules` | object | `{ 'require-accessible': requireAccessible, 'require-access': requireAccess }` |
+| `requireAccessible`, `requireAccess` | rule modules | The rules themselves, for a custom plugin object or `RuleTester` |
 | `isAccessResourceClass`, `primaryKeyOf` | functions | The type-checker helpers the rule uses to find `@AccessResource` classes and their `@Primary()` property |
 
 ## Configuration
@@ -31,11 +31,11 @@ The plugin ships as an ESLint flat-config plugin. Spread `configs.recommended` i
 
 ## Important behaviour
 
-- The rule needs type information (`meta.docs.requiresTypeChecking` is `true`). Lint `.js` files in a separate config entry without the plugin, or the rule fails on them.
+- `require-accessible` needs type information (`meta.docs.requiresTypeChecking` is `true`); `require-access` does not. Lint `.js` files in a separate config entry without the plugin, or the rule fails on them.
 - The rule resolves each model through the type checker, so the files that declare your models must belong to the linted TypeScript project.
 - The plugin prefix is `@spinajs/authz`. Use it in rule keys and in `eslint-disable` comments: `// eslint-disable-next-line @spinajs/authz/require-accessible`.
 - Unknown options fail the config: the option schema has `additionalProperties: false` and `uniqueItems: true` on `resources`.
-- SpinaJS lints its own packages with `configs.recommended` in the root `eslint.config.mjs`. It does not lint your app: add the rule to your app's lint step and fail the build on errors.
+- SpinaJS lints its own packages with `configs.recommended` in the root `eslint.config.mjs`, with `require-access` switched off there: it would flag the open endpoints of existing controllers and many test fixtures. It does not lint your app: add the rule to your app's lint step and fail the build on errors.
 
 ## Best practices
 
