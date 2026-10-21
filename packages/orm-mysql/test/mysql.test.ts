@@ -23,6 +23,10 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 export const TEST_MIGRATION_TABLE_NAME = 'orm_migrations';
 
+// Each hook boots a fresh Orm and runs OrmMigrator's pass against the server; that takes 1-2 s, mocha's default
+// budget. A hook cut off mid-pass leaves the migration lock row behind, and every later hook then waits out its timeout.
+const BOOT_TIMEOUT_MS = 15000;
+
 // Host port of the docker-compose `mysql` fixture. Same env var the integration suites in
 // test/integration already read, so one override moves every suite and the container with it.
 const PORT = Number(process.env.ORM_TEST_MYSQL_PORT ?? 13306);
@@ -96,7 +100,8 @@ export function db() {
 }
 
 describe('Mysql connection test', () => {
-  beforeEach(async () => {
+  beforeEach(async function () {
+    this.timeout(BOOT_TIMEOUT_MS);
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
@@ -124,7 +129,8 @@ describe('Mysql connection test', () => {
 });
 
 describe('Mysql driver migration, updates, deletions & inserts', () => {
-  beforeEach(async () => {
+  beforeEach(async function () {
+    this.timeout(BOOT_TIMEOUT_MS);
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
@@ -216,7 +222,8 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
 });
 
 describe('mysql model functions', () => {
-  beforeEach(async () => {
+  beforeEach(async function () {
+    this.timeout(BOOT_TIMEOUT_MS);
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
@@ -312,7 +319,8 @@ describe('mysql model functions', () => {
 });
 
 describe('MySql queries', () => {
-  beforeEach(async () => {
+  beforeEach(async function () {
+    this.timeout(BOOT_TIMEOUT_MS);
     DI.clearCache();
 
     DI.register(ConnectionConf).as(Configuration);
@@ -402,7 +410,8 @@ describe('MySql queries', () => {
 });
 
 describe('MySql transactions', () => {
-  beforeEach(async () => {
+  beforeEach(async function () {
+    this.timeout(BOOT_TIMEOUT_MS);
     DI.clearCache();
 
     DI.register(ConnectionConf).as(Configuration);
@@ -552,7 +561,8 @@ describe('MySql transactions', () => {
 });
 
 describe('MySql cross-schema whereExists', () => {
-  beforeEach(async () => {
+  beforeEach(async function () {
+    this.timeout(BOOT_TIMEOUT_MS);
     DI.clearCache();
 
     DI.register(ConnectionConf).as(Configuration);
@@ -634,7 +644,8 @@ describe('MySql cross-schema whereExists', () => {
 });
 
 describe('MySql views and events', () => {
-  beforeEach(async () => {
+  beforeEach(async function () {
+    this.timeout(BOOT_TIMEOUT_MS);
     DI.clearCache();
 
     DI.register(ConnectionConf).as(Configuration);
