@@ -1,6 +1,8 @@
 import { MemoryNonceStore } from '@spinajs/authn';
-import { ExternalLoginHook } from '@spinajs/authn/contracts';
 import type { AuthnContext, ExternalSubject, IdentityLinkStore, IdentityRef, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
+import type { AuthnLoginIdentifiedInput } from '@spinajs/authn';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
 import { readOidcOptions } from './oidc-config.js';
@@ -8,6 +10,7 @@ import { OidcProvider } from '../../src/provider.js';
 import { OidcStrategy } from '../../src/strategy.js';
 import { OidcLogin } from '../../src/login.js';
 import { recordingLog } from './recording-log.js';
+import { hooksOf } from './hooks.js';
 import type { OidcAnswer, OidcRequest } from '../../src/login.js';
 import { flowCookieName } from '../../src/flow/cookie.js';
 import { OidcAccountLinks } from '../../src/links.js';
@@ -19,11 +22,14 @@ export const ORIGIN = 'https://app.example.test';
 export const ENV = 'production';
 export const SESSION_COOKIE = 'ssid';
 
-export class RecordingHook extends ExternalLoginHook {
+/** An app's hook on `authn.login.identified`: records the identity and the mapped subject of every external login. */
+export class RecordingHook extends ActionHook<'authn.login.identified'> {
+  public readonly actions: readonly ActionPattern[] = ['authn.login.identified'];
   public readonly calls: [IdentityRef, ExternalSubject][] = [];
   public fail = false;
-  async afterLogin(identity: IdentityRef, external: ExternalSubject): Promise<void> {
-    this.calls.push([identity, external]);
+  async before(ctx: BeforeContext<'authn.login.identified'>): Promise<void> {
+    const input: AuthnLoginIdentifiedInput = ctx.input;
+    if (input.external) this.calls.push([input.identity, input.external]);
     if (this.fail) throw new Error('hook failed');
   }
 }
@@ -74,7 +80,7 @@ export interface WorldOptions {
   readonly throttle?: Record<string, unknown>;
 }
 
-/** One provider over a fake IdP, with the kit's fake AuthnService (which runs the recording hook), stores. */
+/** One provider over a fake IdP, with the kit's fake AuthnService (which runs the recording hook through the hooks runner), stores. */
 export async function world(o: WorldOptions = {}) {
   const idp = o.idp ?? (await FakeIdp.create());
   const name = o.name ?? 'corp';
@@ -99,7 +105,7 @@ export async function world(o: WorldOptions = {}) {
     sessions,
     sinks: [events],
     principals: new RecordingPrincipalFactory(),
-    hooks: () => [hook],
+    hooks: await hooksOf(hook),
   });
   const linker = new FakeAccountLinks(sessions, links);
   const logged: string[] = [];

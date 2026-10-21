@@ -1,6 +1,7 @@
 import { AuthnService } from '@spinajs/authn/contracts';
 import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/authn/ip-key';
-import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalLoginHook, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
+import type { Hooks } from '@spinajs/hooks';
+import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 
 export interface FakeAuthnServiceDeps {
   readonly strategies: readonly AuthenticationStrategy[];
@@ -16,8 +17,8 @@ export interface FakeAuthnServiceDeps {
   readonly principals: PrincipalFactory;
   /** `authn.throttle.ipv6Prefix`; 64 when unset. */
   readonly ipv6Prefix?: number;
-  /** ExternalLoginHooks, read per login; they run for an interactive external outcome before MFA and the session (RFC N10-1). */
-  readonly hooks?: () => readonly ExternalLoginHook[];
+  /** The runner of `authn.login.identified`, which an interactive login runs after its status check, before MFA and the session. */
+  readonly hooks?: Hooks;
   /** `authn.login.requireVerifiedAddress`: an interactive login of an address the store reports unverified answers `unverified_address`. */
   readonly requireVerifiedAddress?: boolean;
 }
@@ -162,13 +163,8 @@ export class FakeAuthnService extends AuthnService {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, reason: refused });
       return failure(refused === 'unverified_address' ? 'unverified_address' : 'invalid_credentials');
     }
-    if (s.interactive && r.external && this.d.hooks) {
-      try {
-        for (const hook of this.d.hooks()) await hook.afterLogin(id, r.external);
-      } catch (err) {
-        await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, reason: 'hook_error', data: { error: err instanceof Error ? err.name : typeof err } });
-        return failure('invalid_credentials');
-      }
+    if (s.interactive && this.d.hooks) {
+      throw new Error('not implemented: FakeAuthnService authn.login.identified');
     }
     await this.d.throttle.succeed(keys, 'login');
     const external = r.external ? { external: { provider: r.external.provider, ...(typeof r.external.sid === 'string' && r.external.sid.length > 0 ? { sid: r.external.sid } : {}) } } : {};

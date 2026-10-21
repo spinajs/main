@@ -15,7 +15,7 @@ const SRC_DIR = join(PKG_ROOT, 'src', 'contracts');
 const MJS_DIR = join(PKG_ROOT, 'lib', 'mjs', 'contracts');
 const CJS_DIR = join(PKG_ROOT, 'lib', 'cjs', 'contracts');
 const ALLOWED_PACKAGES = ['@spinajs/di', '@spinajs/principal', '@spinajs/util'];
-const RUNTIME_EXPORTS = ['SYSTEM', 'UNATTENDED', 'principalKey', 'ceilingHash', 'AuthenticationStrategy', 'AuthnService', 'PrincipalFactory', 'IdentityStore', 'PasswordCredentialStore', 'IdentityLinkStore', 'SessionIssuer', 'MfaStep', 'MfaPolicy', 'SecretStore', 'AuthnThrottle', 'AuthnEventSink', 'ImpersonationGuard', 'PasswordService', 'TokenService', 'KeyRegistry', 'JwsVerifier', 'JwsSigner', 'CredentialExtractor', 'AuthnResponseExtension', 'RoleSource', 'SessionStartHook', 'ExternalLoginHook', 'CredentialAdminGuard', 'Session', 'SessionKeys', 'sessionKey', 'resolveSession', 'sameRef', 'identityThrottleKeys', 'backoffDelayMs', 'CLI_ACTOR', 'cliContext', 'AUTHN_FAILURE_BODY', 'PASSWORD_HARD_CAP', 'NonceStore', 'PasskeyService'];
+const RUNTIME_EXPORTS = ['SYSTEM', 'UNATTENDED', 'principalKey', 'ceilingHash', 'AuthenticationStrategy', 'AuthnService', 'PrincipalFactory', 'IdentityStore', 'PasswordCredentialStore', 'IdentityLinkStore', 'SessionIssuer', 'MfaStep', 'MfaPolicy', 'SecretStore', 'AuthnThrottle', 'AuthnEventSink', 'ImpersonationGuard', 'PasswordService', 'TokenService', 'KeyRegistry', 'JwsVerifier', 'JwsSigner', 'CredentialExtractor', 'AuthnResponseExtension', 'RoleSource', 'SessionStartHook', 'CredentialAdminGuard', 'Session', 'SessionKeys', 'sessionKey', 'resolveSession', 'sameRef', 'identityThrottleKeys', 'backoffDelayMs', 'CLI_ACTOR', 'cliContext', 'AUTHN_FAILURE_BODY', 'PASSWORD_HARD_CAP', 'NonceStore', 'PasskeyService'];
 
 // Plain JS so the same code runs in this process and in the child processes.
 const EXERCISE = `(c) => ({
@@ -153,6 +153,10 @@ describe('@spinajs/authn/contracts boundary', function () {
 
     it('exist in the CJS build', () => {
       expect((cjs.exercise as { keys: string[] }).keys).to.include.members(RUNTIME_EXPORTS);
+    });
+
+    it('no longer include ExternalLoginHook, which authn.login.identified hooks replace (D17)', () => {
+      for (const build of [esm, cjs]) expect((build.exercise as { keys: string[] }).keys).to.not.include('ExternalLoginHook');
     });
 
     it('behave the same in ESM, CJS and the sources', () => {

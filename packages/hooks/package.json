@@ -16,6 +16,13 @@
       "require": "./lib/cjs/testing/index.js"
     }
   },
+  "typesVersions": {
+    "*": {
+      "testing": [
+        "lib/cjs/testing/index.d.ts"
+      ]
+    }
+  },
   "type": "module",
   "private": false,
   "publishConfig": {

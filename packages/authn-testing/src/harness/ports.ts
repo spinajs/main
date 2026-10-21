@@ -1,5 +1,6 @@
 import type { KeyObject } from 'node:crypto';
 import type { AuthnContext, AuthnEvent, AuthnService, AuthnThrottle, AuthenticationStrategy, Credentials, ExternalSubject, IdentityLink, IdentityLinkStore, IdentityRef, IdentityRegistrar, IdentityStatus, JwsSigner, JwsVerifier, KeyAlgorithm, KeyChallenge, KeyOwner, KeyRegistry, MfaStep, PasswordCredentialStore, PasswordService, Principal, PublicJwk, SecretStore, SessionHandle, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import type { ActionHook } from '@spinajs/hooks';
 import type { PrincipalOfCall } from '../fakes/principals.js';
 import type { ConfigOverrides, AppEnv } from './config.js';
 import type { HttpPort, HttpRoutes } from './http.js';
@@ -51,6 +52,8 @@ export interface Harness {
   readonly webauthn?: WebAuthnPort;
   readonly registrar?: IdentityRegistrar;
   readonly http?: HttpPort;
+  /** The lane's action hooks runner (A37). */
+  readonly hooks?: HooksPort;
   dispose?(): Promise<void>;
 }
 
@@ -61,6 +64,12 @@ export type PortName = Exclude<keyof Harness, 'dispose'>;
  * regenerateRecoveryCodes as functions); or a route builder 'http.routes.<name>'.
  */
 export type Need = PortName | 'fakeDate' | 'mfa.recovery' | `http.routes.${keyof HttpRoutes}`;
+
+/** The lane registers one ActionHook (KitActionHooks) before its Hooks resolves; the hooks a case adds run through it. */
+export interface HooksPort {
+  /** From now on the lane's actions run these, matched by their own patterns, after the hooks added before, as if registered at boot in this order. */
+  add(...hooks: ActionHook[]): void;
+}
 
 export interface GuardPort {
   allowAll(): Promise<void>;

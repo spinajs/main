@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import 'mocha';
 import type { AuthnEvent, AuthnFacts, Principal } from '@spinajs/authn/contracts';
-import { FakeClock, FakeImpersonationGuard, FakeRoleSource, MemoryLinkStore, RecordingEventSink, RecordingExternalLoginHook, RecordingPrincipalFactory, RecordingThrottle } from '../../src/fakes/index.js';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionName, ActionPattern, AfterContext, BeforeContext, FailedContext } from '@spinajs/hooks';
+import { RecordingActionHook, refusingHook } from '@spinajs/hooks/testing';
+import * as fakes from '../../src/fakes/index.js';
+import { FakeClock, FakeImpersonationGuard, FakeRoleSource, MemoryLinkStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle } from '../../src/fakes/index.js';
+import { KitActionHooks } from '../../src/harness/index.js';
 
 const A = { type: 'user', id: 'a' };
 const B = { type: 'user', id: 'b' };
@@ -141,16 +146,98 @@ describe('FakeRoleSource', () => {
   });
 });
 
-describe('RecordingExternalLoginHook', () => {
-  it('records calls and fails on request', async () => {
-    const h = new RecordingExternalLoginHook();
-    const ext = { provider: 'idp', subject: 's' };
-    await h.afterLogin(A, ext);
-    h.failWith(new Error('boom'));
-    await assert.rejects(h.afterLogin(A, ext), /boom/);
-    h.failWith(null);
-    await h.afterLogin(B, ext);
-    assert.equal(h.calls.length, 3);
-    assert.deepEqual(h.calls[2], { identity: B, external: ext });
+describe('KitActionHooks (the hooks port)', () => {
+  const before = (action: string, input: object): BeforeContext<ActionName> =>
+    ({
+      action,
+      input: { ...input },
+      bag: new Map(),
+      depth: 1,
+      refuse(code: string): never {
+        throw Object.assign(new Error(code), { refused: code });
+      },
+    }) as unknown as BeforeContext<ActionName>;
+  const after = (action: string, output: unknown): AfterContext<ActionName> => ({ action, input: {}, output, bag: new Map(), depth: 1 }) as unknown as AfterContext<ActionName>;
+  const failed = (action: string, error: unknown): FailedContext<ActionName> => ({ action, input: {}, error, bag: new Map(), depth: 1 }) as unknown as FailedContext<ActionName>;
+
+  class Named extends ActionHook {
+    constructor(
+      readonly actions: readonly ActionPattern[],
+      private readonly log: string[],
+      private readonly name: string,
+      readonly order = 0,
+    ) {
+      super();
+    }
+
+    before(): void {
+      this.log.push(`before ${this.name}`);
+    }
+
+    after(): void {
+      this.log.push(`after ${this.name}`);
+    }
+
+    failed(): void {
+      this.log.push(`failed ${this.name}`);
+    }
+  }
+
+  it('matches every action and defines all three phases, so the runner calls it for each', () => {
+    const kit = new KitActionHooks();
+    assert.deepEqual(kit.actions, ['*']);
+    assert.equal(typeof kit.before, 'function');
+    assert.equal(typeof kit.after, 'function');
+    assert.equal(typeof kit.failed, 'function');
+  });
+
+  it('runs the added hooks matching the action by their own patterns: before by order, after and failed in reverse', async () => {
+    const log: string[] = [];
+    const kit = new KitActionHooks();
+    kit.add(new Named(['authn.*'], log, 'a'), new Named(['authn.login'], log, 'b', -1), new Named(['users.*'], log, 'c'));
+    await kit.before!(before('authn.login', {}));
+    await kit.after!(after('authn.login', 1));
+    await kit.failed!(failed('authn.login', new Error('x')));
+    await kit.before!(before('authn.link', {}));
+    assert.deepEqual(log, ['before b', 'before a', 'after a', 'after b', 'failed a', 'failed b', 'before a']);
+  });
+
+  it('hands the runner context through, so a refusal and a change of the input reach the runner', async () => {
+    const kit = new KitActionHooks();
+    const recorder = new RecordingActionHook(['authn.login']);
+    kit.add(recorder, refusingHook('authn.login', 'kit-no'));
+    const c = before('authn.login', { credentials: 1 });
+    await assert.rejects(Promise.resolve(kit.before!(c)), (e: { refused?: string }) => e.refused === 'kit-no');
+    assert.deepEqual(
+      recorder.calls.map((x) => x.phase),
+      ['before'],
+    );
+  });
+
+  it('runs every after hook even when one throws, then rethrows the first error', async () => {
+    const log: string[] = [];
+    class Throwing extends Named {
+      after(): void {
+        super.after();
+        throw new Error('after failed');
+      }
+    }
+    const kit = new KitActionHooks();
+    kit.add(new Named(['*'], log, 'a'), new Throwing(['*'], log, 'b'));
+    await assert.rejects(Promise.resolve(kit.after!(after('authn.login', 1))), /after failed/);
+    assert.deepEqual(log, ['after b', 'after a']);
+  });
+
+  it('clear drops every added hook', async () => {
+    const log: string[] = [];
+    const kit = new KitActionHooks();
+    kit.add(new Named(['*'], log, 'a'));
+    kit.clear();
+    await kit.before!(before('authn.login', {}));
+    assert.deepEqual(log, []);
+  });
+
+  it('the kit no longer ships RecordingExternalLoginHook', () => {
+    assert.equal((fakes as unknown as Record<string, unknown>).RecordingExternalLoginHook, undefined);
   });
 });
