@@ -172,7 +172,8 @@ describe('authn mail wiring (MAIL-1, D12)', function () {
       job.hydrate(JSON.parse(JSON.stringify(emitted[0])));
       expect(await job.execute()).to.deep.equal({ result: true });
     } finally {
-      DI.unregister(factory);
+      // By identity: unregister(factory) alone drops a factory under every other token too.
+      DI.unregister(PasswordService, factory);
       DI.uncache(PasswordService);
     }
 

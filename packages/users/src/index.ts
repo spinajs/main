@@ -1,4 +1,5 @@
 import { Injectable, Bootstrapper, DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { registerConfigurationSchema } from '@spinajs/configuration';
 import { EmailPasswordMailer } from '@spinajs/email';
 import { AuthnMailDispatcher, PasswordMailer } from '@spinajs/authn-local';
@@ -57,7 +58,8 @@ export class RbacBootstrapper extends Bootstrapper {
     }
 
     if (!DI.RootContainer.hasRegistered(AuthnMailDispatcher)) {
-      DI.register(authnMailDispatcher).as(AuthnMailDispatcher);
+      // An arrow: the container builds a function declaration with `new`, as if it were a class.
+      DI.register((container: IContainer) => authnMailDispatcher(container)).as(AuthnMailDispatcher);
     }
   }
 }

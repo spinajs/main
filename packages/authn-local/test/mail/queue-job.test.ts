@@ -51,7 +51,8 @@ describe('authn mail, queue delivery (MAIL-1, D12, D13, SR-09)', function () {
 
   afterEach(() => {
     if (registered) {
-      DI.unregister(registered);
+      // By identity: unregister(factory) alone drops a factory under every other token too.
+      DI.unregister(PasswordService, registered);
       registered = undefined;
     }
     DI.uncache(PasswordService);
