@@ -6,8 +6,10 @@ import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService, identityThrottleKeys, sameRef } from '@spinajs/authn/contracts';
+import { AuthnThrottle, IdentityAddressVerifier, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService, identityThrottleKeys, sameRef } from '@spinajs/authn/contracts';
 import type {
+  AddressVerificationRequestResult,
+  AddressVerificationResult,
   AuthnContext,
   AuthnEventSink,
   IdentityRef,
@@ -63,6 +65,12 @@ export interface LocalPasswordServiceDeps {
   readonly inviteTtlSeconds?: number;
   /** Missing: an `InlineAuthnMailDispatcher` over `deliver`. */
   readonly dispatcher?: AuthnMailDispatcher;
+  /** Required by `redeemVerification`. */
+  readonly verifier?: IdentityAddressVerifier | null;
+  /** `authn.local.verify.ttlSeconds`; default 86400. */
+  readonly verifyTtlSeconds?: number;
+  /** `authn.local.verify.url`; default ''. */
+  readonly verifyUrl?: string;
 }
 
 /** D11, D12: exists, not deleted, not banned, and active or invite-pending. */
@@ -91,6 +99,12 @@ export class LocalPasswordService extends PasswordService {
 
   @Config('authn.local.invite.ttlSeconds')
   protected InviteTtlSeconds: number;
+
+  @Config('authn.local.verify.ttlSeconds')
+  protected VerifyTtlSeconds: number;
+
+  @Config('authn.local.verify.url')
+  protected VerifyUrl: string;
 
   @Logger('authn-local')
   protected Log: Log;
@@ -124,6 +138,9 @@ export class LocalPasswordService extends PasswordService {
 
   @Autoinject(TokenService, { optional: true })
   protected Tokens: TokenService | undefined;
+
+  @Autoinject(IdentityAddressVerifier, { optional: true })
+  protected Verifier: IdentityAddressVerifier | undefined;
 
   /** `@spinajs/users` registers one per `authn.local.mail.delivery`; none: inline. */
   @Autoinject(AuthnMailDispatcher, { optional: true })
@@ -295,6 +312,14 @@ export class LocalPasswordService extends PasswordService {
       ...(sent ? {} : { reason: 'no_mailer' }),
       data: { purpose: 'invite' },
     });
+  }
+
+  public async requestVerification(_id: IdentityRef, _ctx: AuthnContext): Promise<AddressVerificationRequestResult> {
+    throw new Error('not implemented: requestVerification');
+  }
+
+  public async redeemVerification(_secret: string, _ctx: AuthnContext): Promise<AddressVerificationResult> {
+    throw new Error('not implemented: redeemVerification');
   }
 
   /** D15. `admin` revokes tokens under reset.revokeTokens and mails only with `sendReset`; `aged` keeps tokens (H32) and mails. */

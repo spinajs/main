@@ -11,7 +11,7 @@ import { AUTHN_PUBLIC_COOKIE_SECRET, checkAuthnConfig } from '../../src/service/
 import { TestLog, useTestLog } from '../audit/test-log.js';
 
 /** Config keys the harness applies; any other key makes the factory throw UnsupportedConfig. */
-export const CORE_SUPPORTED: readonly string[] = ['env', 'authn.throttle', 'authn.linking', 'authn.session', 'authn.mfa.policy.force', 'authn.freshAuth', 'authn.impersonation'];
+export const CORE_SUPPORTED: readonly string[] = ['env', 'authn.throttle', 'authn.linking', 'authn.session', 'authn.mfa.policy.force', 'authn.freshAuth', 'authn.impersonation', 'authn.login'];
 
 /** The service name of the kit MFA step, listed in authn.mfa.steps. */
 export const KIT_MFA_STEP = 'KitMfaStep';

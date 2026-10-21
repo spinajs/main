@@ -5,7 +5,7 @@ import { EmailService, IEmail, IEmailTemplate, PasswordMailConfiguration } from 
 import { redactText } from './redact.js';
 
 /** `AuthnMailPurpose` of `@spinajs/authn-local`. */
-export type PasswordMailPurpose = 'reset' | 'invite';
+export type PasswordMailPurpose = 'reset' | 'invite' | 'verify';
 
 /** The fields of `PasswordMail` from `@spinajs/authn-local`, declared here so this package never imports it. */
 export interface IPasswordMail {
@@ -29,12 +29,13 @@ export interface EmailPasswordMailerDeps {
   readonly defaultConnection?: string;
 }
 
-const DEFAULT_SUBJECTS = { reset: 'Reset your password', invite: 'Set up your account' } as const;
+const DEFAULT_SUBJECTS: Readonly<Record<PasswordMailPurpose, string>> = { reset: 'Reset your password', invite: 'Set up your account', verify: '' };
 
 /** What the package config ships as `email.password.<purpose>.template`, for the `deps` seam and a config without it. */
 const BUILTIN_TEMPLATES: Readonly<Record<PasswordMailPurpose, IEmailTemplate>> = {
   reset: { file: 'authn/reset.mjml', fs: 'email-builtin-templates' },
   invite: { file: 'authn/invite.mjml', fs: 'email-builtin-templates' },
+  verify: { file: 'authn/verify.mjml', fs: 'email-builtin-templates' },
 };
 
 /** `base` with the `token` and `email` query parameters the redemption page reads. */

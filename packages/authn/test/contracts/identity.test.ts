@@ -190,7 +190,7 @@ describe('identity store and account link contracts', () => {
     });
 
     it('IdentityStatus is exactly the design shape', () => {
-      same<IdentityStatus, { readonly exists: boolean; readonly active: boolean; readonly banned: boolean; readonly deleted: boolean; readonly invitePending?: boolean }>(true);
+      same<IdentityStatus, { readonly exists: boolean; readonly active: boolean; readonly banned: boolean; readonly deleted: boolean; readonly invitePending?: boolean; readonly addressVerified?: boolean }>(true);
       const invited: IdentityStatus = { ...ok, active: false, invitePending: true };
       expect(invited.invitePending).to.eq(true);
       // @ts-expect-error banned is required

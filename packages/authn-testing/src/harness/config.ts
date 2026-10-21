@@ -32,7 +32,9 @@ export interface ConfigOverrides {
       policy: { minLength: number; maxLength: number; rule: object | null; blocklist: readonly string[] | null };
       reset: { ttlSeconds: number; revokeTokens: boolean };
       invite: { ttlSeconds: number };
+      verify: { ttlSeconds: number };
     };
+    login: { requireVerifiedAddress: boolean };
     session: { expiration: { ttl: number; maxLifetime: number }; pendingTtlSeconds: number };
     mfa: { policy: { force: boolean }; totp: { recoveryCodes: number } };
     throttle: Partial<ThrottleParams>;

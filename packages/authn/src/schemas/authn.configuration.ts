@@ -178,6 +178,13 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         byVerifiedEmail: { type: 'boolean', default: false },
       },
     },
+    login: {
+      type: 'object',
+      default: {},
+      properties: {
+        requireVerifiedAddress: { type: 'boolean', default: false, description: 'Refuse a login whose address the IdentityStore reports unverified (addressVerified false).' },
+      },
+    },
     impersonation: {
       type: 'object',
       default: {},

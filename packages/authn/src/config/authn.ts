@@ -29,6 +29,9 @@ const authn = {
       jit: false,
       byVerifiedEmail: false,
     },
+    login: {
+      requireVerifiedAddress: false,
+    },
     impersonation: {
       requirePassword: true,
       requireMfa: true,

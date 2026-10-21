@@ -38,6 +38,11 @@ export type PasswordResetResult = { readonly status: 'reset'; readonly purpose: 
 
 export type PasswordSetResult = { readonly status: 'set' } | { readonly status: 'rejected'; readonly violations: readonly PasswordViolation[] };
 
+export type AddressVerificationRequestResult = { readonly status: 'accepted' } | { readonly status: 'throttled'; readonly retryAfterSeconds: number };
+
+/** 'invalid' is the one answer for a wrong, used, expired or other-purpose secret and for an identity that cannot verify (A02). */
+export type AddressVerificationResult = { readonly status: 'verified' } | { readonly status: 'invalid' };
+
 /** Why a password stops working. */
 export type PasswordExpiry =
   | {
@@ -95,4 +100,12 @@ export abstract class PasswordService {
   abstract set(id: IdentityRef, newPassword: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<PasswordSetResult>;
   /** Makes the current password unusable; the rest depends on the cause. */
   abstract expire(id: IdentityRef, opts: PasswordExpiry, ctx: AuthnContext): Promise<void>;
+  /**
+   * POST /auth/verify/request. Counts the attempt in the 'reset' flow (account key), then answers at once; the secret of purpose
+   * 'verify' is issued when the mail is sent (SR-09). An address already verified gets no mail and the same answer. Optional:
+   * without it the verification routes are off.
+   */
+  requestVerification?(id: IdentityRef, ctx: AuthnContext): Promise<AddressVerificationRequestResult>;
+  /** POST /auth/verify. Single use; marks the address verified through IdentityAddressVerifier. */
+  redeemVerification?(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult>;
 }

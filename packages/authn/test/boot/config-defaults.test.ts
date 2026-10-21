@@ -40,7 +40,7 @@ describe('authn shipped config', () => {
 
   it('ships only the keys whose 3.0 shape authn owns', () => {
     expect(Object.keys(shipped)).to.deep.eq(['authn']);
-    expect(Object.keys(authn).sort()).to.deep.eq(['audit', 'freshAuth', 'impersonation', 'linking', 'mfa', 'strategies', 'throttle']);
+    expect(Object.keys(authn).sort()).to.deep.eq(['audit', 'freshAuth', 'impersonation', 'linking', 'login', 'mfa', 'strategies', 'throttle']);
     expect(Object.keys(authn.mfa)).to.deep.eq(['policy']);
   });
 
@@ -66,6 +66,8 @@ describe('authn shipped config', () => {
     expect(authn.audit).to.deep.eq(check({}).config.audit);
     expect(authn.impersonation).to.deep.eq({ requirePassword: true, requireMfa: true, maxMinutes: 60, clockSkewSeconds: 30 });
     expect(authn.linking).to.deep.eq({ jit: false, byVerifiedEmail: false });
+    expect(authn.login).to.deep.eq(check({}).config.login);
+    expect(authn.login).to.deep.eq({ requireVerifiedAddress: false });
     expect(authn.mfa.policy).to.deep.eq({ service: 'DefaultMfaPolicy', force: false, forceForRoles: [] });
     expect(authn).to.not.have.property('config');
   });

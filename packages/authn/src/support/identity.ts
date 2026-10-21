@@ -16,8 +16,13 @@ function refusal(st: IdentityStatus): string | null {
   return null;
 }
 
+export interface RefusalOptions {
+  /** `authn.login.requireVerifiedAddress`: refuse an address the store reports unverified. */
+  readonly requireVerifiedAddress?: boolean;
+}
+
 /** The audit reason of a status that refuses the subject, or null. Only a vouched type skips the store, so an unknown type fails closed (D4, D4b). */
-export async function statusRefusal(identities: IdentityStore, subject: IdentityRef): Promise<string | null> {
+export async function statusRefusal(identities: IdentityStore, subject: IdentityRef, _opts: RefusalOptions = {}): Promise<string | null> {
   return VOUCHED_TYPES.has(subject.type) ? null : refusal(await identities.status(subject));
 }
 

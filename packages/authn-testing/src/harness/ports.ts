@@ -154,7 +154,7 @@ export interface HasherPort {
 
 export interface OutboxPort {
   /** The raw secret of the newest mail of that purpose to that identity, or null. */
-  secretFor(id: IdentityRef, purpose: 'reset' | 'invite'): Promise<string | null>;
+  secretFor(id: IdentityRef, purpose: 'reset' | 'invite' | 'verify'): Promise<string | null>;
 }
 
 export interface SecretStoragePort {

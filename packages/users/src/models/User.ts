@@ -286,6 +286,10 @@ export class UserBase extends ModelBase<UserBase> {
   @Hidden()
   public PasswordSetAt!: DateTime;
 
+  /** When the owner proved the address `Email` reached them (a verify link or an invite); null: not verified. */
+  @DT()
+  public EmailVerifiedAt!: DateTime | null;
+
   /**
    * User deletion date
    */
