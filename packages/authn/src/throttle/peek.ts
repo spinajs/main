@@ -1,5 +1,5 @@
 import type { AuthnContext } from '../contracts/credentials.js';
-import type { AuthnThrottle, ThrottleFlow, ThrottleKey } from '../contracts/throttle.js';
+import type { AuthnThrottle, PeekVerdict, ThrottleFlow, ThrottleKey } from '../contracts/throttle.js';
 
 /**
  * A throttle that tells whether a backoff delay holds any of the keys now, counting nothing. With one,
@@ -9,9 +9,13 @@ import type { AuthnThrottle, ThrottleFlow, ThrottleKey } from '../contracts/thro
  * The peek and the later count are not one step: a parallel burst is verified in full and adds one backoff step,
  * not one per request. That is safe only for credentials nobody can guess (tokens of 128 bits or more, asymmetric
  * signatures); a non-interactive strategy over a weak secret must not rely on this throttle.
+ *
+ * A peek that answers `clean: true` lets the service skip `succeed` after a success, so a per-request credential
+ * with no failures on record writes nothing. Answer `clean: false` when unsure: a skipped `succeed` must have had
+ * nothing to do.
  */
 export interface PeekableThrottle {
-  peek(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<{ allowed: true } | { allowed: false; retryAfterSeconds: number }>;
+  peek(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<PeekVerdict>;
 }
 
 export const canPeek = (t: AuthnThrottle): t is AuthnThrottle & PeekableThrottle => typeof (t as Partial<PeekableThrottle>).peek === 'function';

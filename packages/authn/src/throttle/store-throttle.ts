@@ -3,7 +3,7 @@ import { Throttle } from '@spinajs/util';
 import type { ThrottleFlowRules, ThrottleStore } from '@spinajs/util';
 
 import { AuthnThrottle, THROTTLE_FLOWS } from '../contracts/throttle.js';
-import type { BackoffParams, ThrottleFlow, ThrottleKey, ThrottleParams } from '../contracts/throttle.js';
+import type { BackoffParams, PeekVerdict, ThrottleFlow, ThrottleKey, ThrottleParams } from '../contracts/throttle.js';
 import type { AuthnContext } from '../contracts/credentials.js';
 import type { PeekableThrottle } from './peek.js';
 
@@ -40,10 +40,13 @@ export abstract class StoreAuthnThrottle extends AuthnThrottle implements Peekab
     return throttle.attempt(keys, flow, nowMs);
   }
 
-  /** Refuses as `attempt` would for a delay, counting nothing. */
-  public async peek(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<Verdict> {
+  /** Refuses as `attempt` would for a delay, counting nothing; clean only when the store says so. */
+  public async peek(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<PeekVerdict> {
     const nowMs = this.nowMs(ctx, 'peek');
-    return (await this.throttled(flow)).peek(keys, flow, nowMs);
+    const verdict = await (await this.throttled(flow)).peek(keys, flow, nowMs);
+    if (!verdict.allowed) return verdict;
+    // util's Throttle hands back the store's own verdict, which a store such as DbThrottleStore extends with `clean`.
+    return { allowed: true, clean: (verdict as { readonly clean?: unknown }).clean === true };
   }
 
   public async succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow): Promise<void> {
