@@ -120,6 +120,7 @@ describe('authn-local password flows over the users stores', function () {
     const { ref } = await seedUser({ login: 'flow-invite', email: 'flow-invite@spinajs.pl', active: false, invitePending: true });
 
     await x.service.invite(ref, ctx(T0));
+    await x.service.drain();
     const [mail] = x.mailer.mails;
     expect(await x.service.redeemReset('flow-invite@spinajs.pl', mail.secret, NEW, ctx(later(0.001)))).to.deep.eq({ status: 'reset', purpose: 'invite' });
 

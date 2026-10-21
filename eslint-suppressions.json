@@ -3851,7 +3851,7 @@
   },
   "packages/email/test/password-mailer.test.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 7
+      "count": 5
     }
   },
   "packages/email/test/redact.test.ts": {

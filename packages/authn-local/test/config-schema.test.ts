@@ -37,6 +37,7 @@ describe('authn.local through the schema', function () {
         reset: { ttlSeconds: 3600, url: '', revokeTokens: true },
         invite: { ttlSeconds: 900 },
         expiration: { enabled: false, maxAgeDays: 31 },
+        mail: { delivery: 'queue' },
       };
       expect((await boot(SCHEMAS, {})).configuration.get('authn.local')).to.deep.eq(expected);
       expect((await boot(SCHEMAS, LOCAL)).configuration.get('authn.local')).to.deep.eq(expected);
@@ -65,6 +66,7 @@ describe('authn.local through the schema', function () {
         reset: filled.reset,
         invite: filled.invite,
         expiration: filled.expiration,
+        mail: filled.mail,
       });
     });
 
@@ -76,6 +78,13 @@ describe('authn.local through the schema', function () {
       expect(configuration.get('authn.local.policy.minLength')).to.eq(shipped.policy.minLength);
       expect(configuration.get('authn.local.policy.maxLength')).to.eq(shipped.policy.maxLength);
       expect(configuration.get('authn.local.reset.revokeTokens')).to.eq(shipped.reset.revokeTokens);
+      expect(configuration.get('authn.local.mail.delivery')).to.eq(shipped.mail.delivery);
+    });
+
+    it('ships AuthnMailJob on its own queue connection and lists the job directory', () => {
+      expect(authnLocal.queue.routing.AuthnMailJob).to.deep.eq({ connection: 'authn-mail' });
+      expect(authnLocal.queue.connections.map((c) => c.name)).to.include('authn-mail');
+      expect(authnLocal.system.dirs.jobs.every((d) => /queue$/.test(d))).to.eq(true);
     });
 
     it('fills a partial generator and keeps a configured value', async () => {
@@ -114,6 +123,9 @@ describe('authn.local through the schema', function () {
         [{ invite: { ttlSeconds: 0 } }, 'authn.local.invite.ttlSeconds'],
         [{ expiration: { maxAgeDays: 0 } }, 'authn.local.expiration.maxAgeDays'],
         [{ expiration: { maxAgeDays: -3 } }, 'authn.local.expiration.maxAgeDays'],
+        [{ mail: { delivery: 'smtp' } }, 'authn.local.mail.delivery'],
+        [{ mail: { delivery: null } }, 'authn.local.mail.delivery'],
+        [{ mail: { transport: 'queue' } }, 'authn.local.mail.transport'],
       ];
       for (const [local, path] of cases) expect(await bad(local), JSON.stringify(local)).to.include(path);
     });

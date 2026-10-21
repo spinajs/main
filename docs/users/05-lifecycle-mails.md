@@ -34,7 +34,9 @@ Reset and invite mails are **not** sent here. They carry a secret, so authn-loca
 
 ### Password mails (reset and invite)
 
-`RbacBootstrapper` registers `EmailPasswordMailer` (`@spinajs/email`) as authn-local's `PasswordMailer`, unless something is already registered under `PasswordMailer` when the bootstrappers run. authn-local calls it for `PasswordService.invite()` (from `create()` without a password) and for password resets. See [Password mails](../email/08-password-mailer.md) for its configuration (`email.password.*`).
+`RbacBootstrapper` registers `EmailPasswordMailer` (`@spinajs/email`) as authn-local's `PasswordMailer`, unless something is already registered under `PasswordMailer` when the bootstrappers run. authn-local calls it for `PasswordService.invite()` (from `create()` without a password) and for password resets. See [Password mails](../email/08-password-mailer.md) for its configuration (`email.password.*`) and MJML templates.
+
+It also registers a factory under authn-local's `AuthnMailDispatcher`, unless one is registered. When the `PasswordService` is built, the factory reads `authn.local.mail.delivery`: `'queue'` (the default) gives `QueueAuthnMailDispatcher`, `'inline'` the in-process one. Outside development and test, `'queue'` with `queue.routing.AuthnMailJob` routed to a missing connection or a `BlackHoleQueueClient` fails with `InvalidOption`. See [Mail delivery](../authn-local/13-mail-delivery.md).
 
 ## Configuration
 
@@ -88,6 +90,7 @@ export default {
 | Lifecycle mail content | `users.email.<name>` config | the shipped entries | | Override `template`, `subject`, `attachments`, or set `enabled: false`. |
 | Lifecycle mail transport | `users.email.connection` → `@spinajs/email` connection | `rbac-email-connection` (not defined by users) | any connection | Define the connection in `email.connections`, or point the key at an existing one. |
 | Password mailer | `PasswordMailer` (`@spinajs/authn-local`), singleton; registered by `RbacBootstrapper` only when none is registered | `EmailPasswordMailer` | your `PasswordMailer` | `DI.register(MyMailer).as(PasswordMailer)` before or after the bootstrap: before, the bootstrapper keeps yours; after, the last registration wins. |
+| Authn mail dispatcher | `AuthnMailDispatcher` (`@spinajs/authn-local`), a factory registered by `RbacBootstrapper` only when none is registered | `QueueAuthnMailDispatcher` or `InlineAuthnMailDispatcher`, per `authn.local.mail.delivery` | your `AuthnMailDispatcher` | `DI.register(MyDispatcher).as(AuthnMailDispatcher)` before the bootstrap. |
 
 ### Password mailer: custom implementation
 

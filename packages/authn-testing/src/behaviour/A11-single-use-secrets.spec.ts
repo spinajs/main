@@ -186,6 +186,19 @@ export const A11: AuthnRule = defineRule('A11', 'single-use secrets are strong, 
     },
   }),
   defineCase({
+    name: 'A11 a reset answers known and unknown logins alike, and only the known one is mailed afterwards',
+    facet: 'A11/local',
+    needs: ['password', 'seed', 'outbox'],
+    async run(h, k) {
+      const a = await seedUser(h, ALICE);
+      const known = await h.password.requestReset(ALICE.login, k.ctx());
+      const unknown = await h.password.requestReset(NOBODY, k.ctx({ ip: IP_B }));
+      assert.deepStrictEqual({ ...known }, { status: 'accepted' });
+      assert.deepStrictEqual({ ...unknown }, { ...known });
+      assert.ok(await h.outbox.secretFor(a, 'reset'), 'the mail is delivered after the answer');
+    },
+  }),
+  defineCase({
     name: 'A11 SR-04 reset request answers before the work',
     facet: 'A11/local',
     needs: ['password', 'seed'],

@@ -375,7 +375,7 @@ export async function localHarness(ctx: HarnessContext): Promise<Harness> {
     service,
     seed: {
       async user(spec) {
-        const ref = p.identities.add({ login: spec.login, email: spec.email, status: spec.status });
+        const ref = p.identities.add({ login: spec.login, email: spec.email ?? spec.login, status: spec.status });
         if (spec.password !== undefined) {
           await p.passwords.set(ref, await p.hasher.hash(spec.password));
         }

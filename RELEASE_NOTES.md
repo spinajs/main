@@ -62,6 +62,31 @@
 > re-export shim and no 2.x patch. How to move an app: `docs/authz/migration-guide.md`. Overviews:
 > `docs/authz/README.md`, `docs/authn/README.md`, `docs/authn-oidc/README.md`.
 
+## Unreleased: queued authn mails and MJML templates
+
+**Breaking for deployments.** Reset and invite mails of `@spinajs/authn-local` are now delivered from a queue by
+default, and rendered from MJML templates.
+
+- **Queue delivery (`authn.local.mail.delivery`, default `'queue'`).** `requestReset()`, `invite()` and `expire()`
+  dispatch an `AuthnMailRequest`. With `@spinajs/users`, it becomes an `AuthnMailJob` (`@spinajs/authn-local/queue`)
+  that holds only the identity, the purpose, the lifetime, the request time and the language: the job issues the
+  secret and sends with `EmailService.send()` when it runs (SR-09). A retry issues a fresh secret and voids the older
+  one; a job older than its lifetime is dropped. Production needs a real queue connection for `AuthnMailJob`
+  (`queue.routing.AuthnMailJob`, shipped as the black-hole connection `authn-mail`) and a running consumer: outside
+  development and test, building the `PasswordService` fails with `InvalidOption` when the route reaches a missing
+  connection or a `BlackHoleQueueClient`. `'inline'` keeps delivering in the process, after the answer.
+- **`invite()` no longer waits for the mail**, and a mailer error no longer reaches its caller.
+- **No address, no secret.** A mail for an identity without an email address is not sent and issues nothing.
+- **MJML templates.** `EmailPasswordMailer` always sends the template of `email.password.<purpose>.template`, which
+  defaults to the built-in `authn/reset.mjml` and `authn/invite.mjml` (filesystem `email-builtin-templates`, shipped in
+  `@spinajs/email` under `lib/templates`). The plain-text body is gone. A template must be an `.mjml` file, or boot
+  fails; set the key to your own file to replace one mail. `@spinajs/email` now depends on `@spinajs/templates-mjml`
+  and registers `MjmlRenderer`.
+- **Template model.** New: `ActionUrl` (the link, `ResetUrl` stays as an alias), `AppName`
+  (`email.password.appName`, default `app.name`) and `Subject`.
+
+Docs: `docs/authn-local/13-mail-delivery.md`, `docs/email/08-password-mailer.md`.
+
 ## Upgrade now: the 2.x security findings stay open
 
 A review of the 2.x authentication code found 3 high, 9 medium and 8 low findings (SR-01 to SR-20).

@@ -127,7 +127,7 @@ Available on `User.query()`, `User.where(...)`, `User.update(...)` and `User.des
 | User model class | `RBAC_USER_MODEL` value in the root cache | `User` | your subclass | See [Custom user model](02-custom-user-model.md). |
 | Query scopes | `UserBase._queryScopes`, a `UserQueryScopes` instance | `UserQueryScopes` | your scope class on a subclass | Override in the subclass and redeclare the methods you keep; see [Custom user model](02-custom-user-model.md#add-query-scopes). |
 | Hidden metadata keys | `UserMetadataBase._hiddenKeys`, a static array | `USER_SECURITY_METADATA_KEYS` after bootstrap | your keys | Push keys into the array at startup; the bootstrapper keeps them. |
-| Bootstrap | `Bootstrapper` list, `RbacBootstrapper` | `RbacBootstrapper` | none | Runs once per bootstrap pass; registers the `authz.http.access` schema, the hidden keys, the default user model and `EmailPasswordMailer`. |
+| Bootstrap | `Bootstrapper` list, `RbacBootstrapper` | `RbacBootstrapper` | none | Runs once per bootstrap pass; registers the `authz.http.access` schema, the hidden keys, the default user model, `EmailPasswordMailer` and the `AuthnMailDispatcher` factory. |
 
 ### Hidden metadata keys: hide your own keys
 

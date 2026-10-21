@@ -1,5 +1,9 @@
 import { join, normalize, resolve } from 'path';
 
+function lib(...path: string[]) {
+  return join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'email', 'lib', ...path);
+}
+
 function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
   return [
@@ -40,13 +44,22 @@ const email = {
     },
 
     /**
-     * Reset and invite mails ( EmailPasswordMailer ). `connection` defaults to `email.defaultConnection`;
-     * without a `template` the mail is plain text.
+     * Authn mails ( EmailPasswordMailer ). `connection` defaults to `email.defaultConnection`, `appName` to `app.name`.
+     * Each `template` is an `.mjml` file: a path in `email.templateFs` or `{ file, fs }`.
      */
     password: {
-      reset: { subject: 'Reset your password' },
-      invite: { subject: 'Set up your account' },
+      reset: { subject: 'Reset your password', template: { file: 'authn/reset.mjml', fs: 'email-builtin-templates' } },
+      invite: { subject: 'Set up your account', template: { file: 'authn/invite.mjml', fs: 'email-builtin-templates' } },
     },
+  },
+  fs: {
+    providers: [
+      {
+        service: 'fsNative',
+        name: 'email-builtin-templates',
+        basePath: lib('templates'),
+      },
+    ],
   },
   queue: {
     routing: {

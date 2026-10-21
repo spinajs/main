@@ -228,7 +228,8 @@ export interface PasswordMailPurposeConfiguration {
   subject?: string;
 
   /**
-   * Without a template the mail is a short plain-text body.
+   * An `.mjml` file: a path in `email.templateFs`, or `{ file, fs }`. Defaults to the built-in `authn/<purpose>.mjml` in the
+   * `email-builtin-templates` filesystem.
    */
   template?: string | IEmailTemplate;
 }
@@ -240,6 +241,11 @@ export interface PasswordMailConfiguration {
   connection?: string;
   from?: string;
   lang?: string;
+
+  /**
+   * `AppName` of the template model. Defaults to `app.name`.
+   */
+  appName?: string;
   reset?: PasswordMailPurposeConfiguration;
   invite?: PasswordMailPurposeConfiguration;
 }

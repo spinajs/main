@@ -149,6 +149,7 @@ describe('reset and invite over the users stores', function () {
     async function invited(x: Parts, name: string) {
       const seeded = await seedUser({ login: name, email: `${name}@spinajs.pl`, active: false, invitePending: true });
       await x.service.invite(seeded.ref, ctx());
+      await x.service.drain();
       return seeded;
     }
 

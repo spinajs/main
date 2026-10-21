@@ -110,6 +110,7 @@ describe('LocalPasswordService expire (D15, A30)', function () {
     ] as PasswordExpiry[]) {
       const x = await setup();
       await x.service.expire(x.alice, opts, ctx());
+      await x.service.drain();
       expect(x.mailer.mails).to.have.length(0);
       expect(x.secrets.rows()).to.have.length(0);
     }
@@ -118,6 +119,7 @@ describe('LocalPasswordService expire (D15, A30)', function () {
   it('admin expiry with sendReset mails a reset link', async () => {
     const x = await setup();
     await x.service.expire(x.alice, { cause: 'admin', actor: ADMIN, sendReset: true }, ctx());
+    await x.service.drain();
     expect(x.mailer.mails).to.have.length(1);
     expect(x.mailer.mails[0]).to.include({ purpose: 'reset', ttlSeconds: 3600, url: 'https://app.example.com/password-reset' });
     expect(x.mailer.mails[0].identity).to.deep.equal(x.alice);
@@ -135,6 +137,7 @@ describe('LocalPasswordService expire (D15, A30)', function () {
     expect(await x.sessions.restore(own.id)).to.equal(null);
     expect(await x.sessions.restore(impersonating.id)).to.equal(null);
     expect(x.tokens.calls).to.deep.equal([]);
+    await x.service.drain();
     expect(x.mailer.mails.map((m) => m.purpose)).to.deep.equal(['reset']);
     const [e] = x.events.ofType('password.change');
     expect(e.actor).to.equal(undefined);
@@ -147,6 +150,7 @@ describe('LocalPasswordService expire (D15, A30)', function () {
     await x.service.expire(x.alice, { cause: 'aged' }, ctx());
     await x.service.expire(x.alice, { cause: 'admin', actor: ADMIN, sendReset: true }, ctx());
     expect(await x.passwords.get(x.alice)).to.equal(EXPIRED_PASSWORD_MARKER);
+    await x.service.drain();
     expect(x.mailer.mails).to.have.length(0);
   });
 
@@ -169,6 +173,7 @@ describe('LocalPasswordService expire (D15, A30)', function () {
   it('A30 a reset after expiry restores login with the new password', async () => {
     const x = await setup();
     await x.service.expire(x.alice, { cause: 'aged' }, ctx());
+    await x.service.drain();
     const secret = x.mailer.mails[0].secret;
     expect(await x.service.redeemReset(LOGIN, secret, NEW, later(1))).to.deep.equal({ status: 'reset', purpose: 'reset' });
     expect((await x.login(NEW)).ok).to.equal(true);
@@ -184,6 +189,7 @@ describe('LocalPasswordService expire (D15, A30)', function () {
     const x = await setup({ mailer: new BrokenMailer() });
     await x.service.expire(x.alice, { cause: 'aged' }, ctx());
     expect(await x.passwords.get(x.alice)).to.equal(EXPIRED_PASSWORD_MARKER);
+    await x.service.drain();
     expect(x.warnings).to.have.length(1);
     expect(x.warnings[0]).to.contain('"errorName":"Error"');
     expect(x.warnings[0]).to.not.contain('smtp refused');
@@ -192,6 +198,7 @@ describe('LocalPasswordService expire (D15, A30)', function () {
   it('events and log lines never hold the reset secret', async () => {
     const x = await setup();
     await x.service.expire(x.alice, { cause: 'admin', actor: ADMIN, sendReset: true }, ctx());
+    await x.service.drain();
     const secret = x.mailer.mails[0].secret;
     const text = JSON.stringify([x.events.all(), x.warnings]);
     expect(text).to.not.contain(secret);
@@ -341,6 +348,7 @@ describe('PasswordExpirationJob (D16)', function () {
     const job = new PasswordExpirationJob({ ages, passwords: x.passwords, service: x.service, enabled: true });
     expect(await job.run(NOW)).to.deep.equal({ expired: 1, skipped: 0, failed: 0 });
     expect((await x.login(OLD)).ok).to.equal(false);
+    await x.service.drain();
     expect(x.mailer.mails.map((m) => m.purpose)).to.deep.equal(['reset']);
     expect(await job.run(NOW)).to.deep.equal({ expired: 0, skipped: 1, failed: 0 });
   });
@@ -351,6 +359,7 @@ describe('PasswordExpirationJob (D16)', function () {
     const job = new PasswordExpirationJob({ ages, passwords: x.passwords, service: x.service, enabled: true });
     expect(await job.run(NOW)).to.deep.equal({ expired: 0, skipped: 1, failed: 0 });
     expect(await x.passwords.get(oidc)).to.equal(null);
+    await x.service.drain();
     expect(x.mailer.mails).to.have.length(0);
   });
 
@@ -375,6 +384,7 @@ describe('PasswordExpirationJob (D16)', function () {
     expect(await job.run(NOW)).to.deep.equal({ expired: 1, skipped: 0, failed: 0 });
     expect(await x.passwords.get(x.alice)).to.equal(EXPIRED_PASSWORD_MARKER);
     expect(await sessions.restore(session.id)).to.equal(null);
+    await x.service.drain();
     expect(x.mailer.mails.map((m) => m.purpose)).to.deep.equal(['reset']);
   });
 });

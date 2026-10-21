@@ -13,5 +13,5 @@
     { "path": "../exceptions/tsconfig.cjs.json" },
     { "path": "../intl/tsconfig.cjs.json" }, 
     { "path": "../log/tsconfig.cjs.json" },
-    { "path": "../queue/tsconfig.cjs.json" }, { "path": "../fs/tsconfig.cjs.json" }, { "path": "../log-common/tsconfig.cjs.json" }]
+    { "path": "../queue/tsconfig.cjs.json" }, { "path": "../template-mjml/tsconfig.cjs.json" }, { "path": "../fs/tsconfig.cjs.json" }, { "path": "../log-common/tsconfig.cjs.json" }]
 }
