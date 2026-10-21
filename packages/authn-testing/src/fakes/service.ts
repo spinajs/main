@@ -1,8 +1,8 @@
 import { AuthnService } from '@spinajs/authn/contracts';
 import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/authn/ip-key';
-import { ActionHookFailed, ActionRefused } from '@spinajs/hooks';
+import { hookCopy, hookRefusalOf, hookView } from '@spinajs/authn/hooks';
 import type { Hooks } from '@spinajs/hooks';
-import type { AuthnLoginIdentifiedInput } from '@spinajs/authn';
+import type { AuthnLoginIdentifiedInput } from '@spinajs/authn/hooks';
 import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 
 export interface FakeAuthnServiceDeps {
@@ -166,13 +166,13 @@ export class FakeAuthnService extends AuthnService {
       return failure(refused === 'unverified_address' ? 'unverified_address' : 'invalid_credentials');
     }
     if (s.interactive && this.d.hooks) {
-      const input: AuthnLoginIdentifiedInput = { identity: id, strategy: s.name, method: r.method, ...(r.external ? { external: r.external } : {}), attributes: { ...r.attributes }, ctx };
+      const input: AuthnLoginIdentifiedInput = { identity: hookView(id), strategy: s.name, method: r.method, ...(r.external ? { external: hookView(r.external) } : {}), attributes: hookCopy(r.attributes ?? {}), ctx: hookView(ctx) };
       try {
         return await this.d.hooks.run('authn.login.identified', input, (i) => this.admit(s, r, id, keys, ctx, i.attributes), { mutable: ['attributes'] });
       } catch (err) {
-        const reason = err instanceof ActionRefused ? `hook:${err.code}` : err instanceof ActionHookFailed ? 'hook_error' : null;
-        if (reason === null) throw err;
-        await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, reason });
+        const stopped = hookRefusalOf(err, 'authn.login.identified');
+        if (!stopped) throw err;
+        await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, ...stopped });
         return failure('invalid_credentials');
       }
     }
