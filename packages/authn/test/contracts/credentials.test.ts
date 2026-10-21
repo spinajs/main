@@ -121,7 +121,7 @@ describe('credential, context and result contracts', () => {
     });
 
     it('ExternalSubject has the design members', () => {
-      same<ExternalSubject, { readonly provider: string; readonly subject: string; readonly email?: string; readonly emailVerified?: boolean; readonly claims?: Readonly<Record<string, unknown>> }>(true);
+      same<ExternalSubject, { readonly provider: string; readonly subject: string; readonly email?: string; readonly emailVerified?: boolean; readonly claims?: Readonly<Record<string, unknown>>; readonly sid?: string }>(true);
       const min: ExternalSubject = { provider: 'google', subject: 's' };
       // @ts-expect-error subject is required
       const noSubject: ExternalSubject = { provider: 'google' };

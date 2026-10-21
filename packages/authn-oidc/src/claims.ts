@@ -6,6 +6,7 @@ import { isPlainObject } from './support.js';
 export const MAX_SUBJECT_LENGTH = 255;
 export const MAX_EMAIL_LENGTH = 255;
 const MAX_NAME_LENGTH = 255;
+const MAX_SID_LENGTH = 255;
 
 /** A top-level claim (dots belong to the name) or a path through nested objects; own properties only. */
 export function readClaim(claims: Readonly<Record<string, unknown>>, path: OidcClaimPath): unknown {
@@ -30,6 +31,11 @@ function subjectOf(v: unknown): string | null {
   return null;
 }
 
+/** The IdP session id, which back-channel logout names. */
+function sidOf(v: unknown): { sid?: string } {
+  return typeof v === 'string' && v.length > 0 && v.length <= MAX_SID_LENGTH ? { sid: v } : {};
+}
+
 function groupsOf(v: unknown): readonly string[] | undefined {
   if (typeof v === 'string') return Object.freeze([v]);
   if (Array.isArray(v)) return Object.freeze(v.filter((g): g is string => typeof g === 'string'));
@@ -51,6 +57,7 @@ export function mapClaims(provider: OidcStrategyName, mapping: OidcClaimsMapping
   return Object.freeze({
     provider,
     subject,
+    ...sidOf(raw.sid),
     ...(hasEmail ? { email, emailVerified: mapping.emailVerified !== null && readClaim(emailSource!, mapping.emailVerified) === true } : {}),
     claims: Object.freeze({
       ...(typeof name === 'string' && name.length <= MAX_NAME_LENGTH ? { name } : {}),

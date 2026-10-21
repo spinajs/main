@@ -30,6 +30,7 @@ It depends on `@spinajs/authn`, `@spinajs/authn-session` and `@spinajs/authn-htt
 | [External login hooks](07-external-login-hooks.md) | `ExternalLoginHook`: run code with the mapped claims on every OIDC login, or refuse it |
 | [Provider HTTP client, discovery and keys](08-http-client.md) | `OidcHttpClient` extension point; discovery and JWKS caching and validation |
 | [Security guarantees](09-security.md) | Every check of the flow, what is fixed, and the limits of 3.0 |
+| [Back-channel logout](11-backchannel-logout.md) | `POST /auth/oidc/:provider/backchannel-logout`: a logout at the IdP ends the sessions of its `sid` or `sub` |
 | [Programmatic API](10-programmatic-api.md) | `OidcLogin`, `OidcProvider`, `OidcStrategy` and the pure step functions, for custom controllers and tests |
 
 ## Quick start

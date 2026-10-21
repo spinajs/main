@@ -27,6 +27,8 @@ export class UserSession implements ISession {
 
   public Data: Map<string, unknown> = new Map();
 
+  public ExternalKey?: string;
+
   constructor(session?: Partial<ISession>) {
     if (session) {
       Object.assign(this, session);
@@ -111,6 +113,19 @@ export class MemorySessionStore extends SessionProvider<ISession> {
 
   public async listBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean }): Promise<ISession[]> {
     return [...this.Sessions.values()].filter((s) => !this.isExpired(s) && belongsTo(s, subject, opts?.includeImpersonations));
+  }
+
+  public async deleteByExternalKey(externalKey: string): Promise<number> {
+    let count = 0;
+    for (const [key, session] of [...this.Sessions.entries()]) {
+      if (session.ExternalKey === externalKey) {
+        this.Sessions.delete(key);
+        if (!this.isExpired(session)) {
+          count++;
+        }
+      }
+    }
+    return count;
   }
 
   public async truncate(): Promise<void> {

@@ -28,6 +28,9 @@ export interface ISession {
 
   /** Opaque to the store: SessionIssuer.set values plus the issuer's own entries (facts, pending steps). */
   Data: Map<string, unknown>;
+
+  /** sha256(provider + '\0' + sid) of an external login with an IdP session id; indexed for deleteByExternalKey. */
+  ExternalKey?: string;
 }
 
 /**
@@ -68,6 +71,9 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
 
   /** Live sessions only: expired rows are left out. Same matching as deleteBySubject. */
   public abstract listBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean }): Promise<T[]>;
+
+  /** `externalKey` is sha256(provider + '\0' + sid), written by save when facts.external.sid is set. Counts live rows only. */
+  public abstract deleteByExternalKey(externalKey: string): Promise<number>;
 
   public abstract truncate(): Promise<void>;
 

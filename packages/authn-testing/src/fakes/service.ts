@@ -171,7 +171,8 @@ export class FakeAuthnService extends AuthnService {
       }
     }
     await this.d.throttle.succeed(keys, 'login');
-    const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[] };
+    const external = r.external ? { external: { provider: r.external.provider, ...(typeof r.external.sid === 'string' && r.external.sid.length > 0 ? { sid: r.external.sid } : {}) } } : {};
+    const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[], ...external };
     const extra = { ...(r.ceiling ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(r.attributes ? { attributes: r.attributes } : {}) };
     if (!s.interactive) {
       await this.audit(ctx, { type: 'token.use', outcome: 'success', strategy: s.name, identity: id });

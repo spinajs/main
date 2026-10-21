@@ -28,6 +28,33 @@ The `SessionIssuer` contract changes: it no longer promises that the facts of a 
   403 `mfa_pending` for a pending session.
 - `@spinajs/authn-testing`: behaviour rule A34 (`A34/store` in `runSessionIssuerConformance`, `A34/http`) and the
   `mfaStepUp` and `mfaGated` route builders.
+# Release notes — authn, authn-session, authn-oidc, session stores: OIDC back-channel logout
+
+> Branch `feat/ory-flow-2`. Docs: `docs/authn-oidc/11-backchannel-logout.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn` — `SessionIssuer` has a new abstract method
+
+`revokeByExternal(provider, sid)` is abstract. A class that extends `SessionIssuer` outside this repository must
+implement it. `DefaultSessionIssuer` and the kit's `MemorySessionIssuer` do.
+
+### `@spinajs/authn-session` — `SessionProvider` has a new abstract method
+
+`deleteByExternalKey(externalKey)` is abstract, and a store should persist the new optional `ISession.ExternalKey`.
+`MemorySessionStore`, `DbSessionStore`, `RedisSessionStore` and `DynamoDbSessionProvider` do.
+
+## New behavior
+
+- `POST /auth/oidc/:provider/backchannel-logout` (OpenID Connect Back-Channel Logout 1.0): a valid `logout_token`
+  with `sid` ends the sessions of that IdP session; one with only `sub` ends every session of the linked identity.
+  `200` with `Cache-Control: no-store`, else `400 { "error": "invalid_request" }`. Each `jti` is claimed once in the
+  `NonceStore`.
+- An OIDC login whose ID token carries `sid` stores `AuthnFacts.external = { provider, sid }`; other external logins
+  store `{ provider }`. `ExternalSubject.sid` carries it from the strategy.
+- `session-provider-db`: migration `UserSessionExternalKey_2026_10_21_00_01_00` adds the indexed `ExternalKey`
+  column. `session-provider-redis`: sets `session:external:<ExternalKey>`. `session-provider-dynamodb`: attribute
+  `ExternalKey`, found with a consistent Scan.
 
 # Release notes — authn, authn-token, authn-http: revoke a token by its plaintext
 

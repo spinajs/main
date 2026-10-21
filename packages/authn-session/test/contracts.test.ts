@@ -77,6 +77,13 @@ class MemoryStore extends SessionProvider {
   async listBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean }): Promise<ISession[]> {
     return [...this.rows.values()].filter((s) => !this.isExpired(s) && (sameSubject(s.Subject, subject) || (!!opts?.includeImpersonations && sameSubject(s.Impersonator, subject))));
   }
+  async deleteByExternalKey(externalKey: string): Promise<number> {
+    let n = 0;
+    for (const s of [...this.rows.values()]) {
+      if (s.ExternalKey === externalKey && this.rows.delete(s.SessionId)) n++;
+    }
+    return n;
+  }
   async truncate(): Promise<void> {
     this.rows.clear();
   }
@@ -347,6 +354,7 @@ describe('@spinajs/authn-session contracts', function () {
         { name: 'delete', modifiers: ['public', 'abstract'], params: ['sessionId'], decorators: [] },
         { name: 'deleteBySubject', modifiers: ['public', 'abstract'], params: ['subject', 'opts'], decorators: [] },
         { name: 'listBySubject', modifiers: ['public', 'abstract'], params: ['subject', 'opts'], decorators: [] },
+        { name: 'deleteByExternalKey', modifiers: ['public', 'abstract'], params: ['externalKey'], decorators: [] },
         { name: 'truncate', modifiers: ['public', 'abstract'], params: [], decorators: [] },
         { name: 'applyInitialExpiration', modifiers: ['protected'], params: ['s'], decorators: [] },
         { name: 'applyRenewedExpiration', modifiers: ['protected'], params: ['s'], decorators: [] },
@@ -383,7 +391,7 @@ describe('@spinajs/authn-session contracts', function () {
   describe('types', () => {
     it('ISession is the 3.0 shape', () => {
       type State = 'pending' | 'active';
-      same<ISession, { SessionId: string; Subject: IdentityRef; Impersonator?: IdentityRef; State: State; Creation: DateTime; Expiration?: DateTime; Data: Map<string, unknown> }>(true);
+      same<ISession, { SessionId: string; Subject: IdentityRef; Impersonator?: IdentityRef; State: State; Creation: DateTime; Expiration?: DateTime; Data: Map<string, unknown>; ExternalKey?: string }>(true);
       // @ts-expect-error Subject is required
       const noSubject: ISession = { SessionId: 'h', State: 'active', Creation: DateTime.now(), Data: new Map() };
       // @ts-expect-error State is only pending or active
@@ -437,6 +445,9 @@ describe('@spinajs/authn-session contracts', function () {
         async deleteBySubject(): Promise<void> {}
         async listBySubject(): Promise<ISession[]> {
           return [];
+        }
+        async deleteByExternalKey(): Promise<number> {
+          return 0;
         }
         async truncate(): Promise<void> {}
       }

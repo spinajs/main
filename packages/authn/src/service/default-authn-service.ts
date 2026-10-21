@@ -96,6 +96,10 @@ function checkOutcome(o: unknown): StrategyOutcome | null {
   return o as StrategyOutcome;
 }
 
+/** AuthnFacts.external of an external login: the provider, and the IdP session id back-channel logout names. */
+const externalFactsOf = (e: ExternalSubject | undefined): { external?: { provider: string; sid?: string } } =>
+  e ? { external: { provider: e.provider, ...(isNonEmptyString(e.sid) ? { sid: e.sid } : {}) } } : {};
+
 const validKeys = (v: unknown): v is readonly ThrottleKey[] => Array.isArray(v) && v.every((k) => isPlainObject(k) && isNonEmptyString(k.kind) && typeof k.value === 'string');
 
 /**
@@ -469,7 +473,7 @@ export class DefaultAuthnService extends AuthnService {
 
     if (found.link && !found.provisioned) await this.link(ctx, s, id, found.link);
 
-    const facts = { method: r.method, strategy: s.name, assurance: r.assurance ?? ('aal1' as const), mfa: [] as string[] };
+    const facts = { method: r.method, strategy: s.name, assurance: r.assurance ?? ('aal1' as const), mfa: [] as string[], ...externalFactsOf(r.external) };
     const extra = { ...(r.ceiling !== undefined ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(r.attributes !== undefined ? { attributes: r.attributes } : {}) };
     // A token or key is used on every request: its success skips a succeed with nothing to do and waits for no sink.
     if (!s.interactive) {

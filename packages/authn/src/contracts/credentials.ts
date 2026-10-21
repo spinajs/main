@@ -45,6 +45,8 @@ export interface ExternalSubject {
   readonly email?: string;
   readonly emailVerified?: boolean;
   readonly claims?: Readonly<Record<string, unknown>>;
+  /** The IdP session id (OIDC `sid`); the session keeps it in AuthnFacts.external for back-channel logout. */
+  readonly sid?: string;
 }
 
 /** Bad credentials yield a failure result; they are never thrown. */
