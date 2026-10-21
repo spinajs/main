@@ -209,16 +209,52 @@ describe('hookView and hookCopy', () => {
     assert.ok(!Object.isFrozen(original) && !Object.isFrozen(nested));
   });
 
-  it('a value structuredClone refuses (a function inside) is copied at the top only, and the caller keeps its nested objects writable', () => {
-    const nested = { n: 1 };
-    const original = { fn: () => 1, nested };
+  it('a value structuredClone refuses keeps its plain data as frozen copies and passes only the uncloneable leaves through', () => {
+    /** An ORM model as users hands it: a class instance holding its DI container, which holds it back. */
+    class UserModel {
+      Login = 'alice';
+      readonly container: { model?: UserModel; resolve: () => void } = { resolve: () => undefined };
+      constructor() {
+        this.container.model = this;
+      }
+    }
+    const model = new UserModel();
+    const roles = ['user'];
+    const at = new Date(0);
+    const principal = { identity: model, ceiling: { roles, expiresAt: at }, attributes: { tags: new Set(['a']), quota: new Map([['q', { n: 1 }]]) } };
+    const original = { principal, fn: () => 1 };
     const view = hookView(original);
-    assert.ok(Object.isFrozen(view), 'the top-level copy is frozen');
-    assert.notStrictEqual(view, original);
-    assert.ok(!Object.isFrozen(original), 'the original is not');
-    assert.ok(!Object.isFrozen(nested), "the caller's nested object stays writable");
-    nested.n = 2;
-    assert.strictEqual(view.nested.n, 2, 'shared by reference below the top, as the runner shares it');
-    assert.strictEqual(hookCopy(original).nested, nested);
+
+    assert.ok(Object.isFrozen(view) && Object.isFrozen(view.principal) && Object.isFrozen(view.principal.ceiling));
+    assert.ok(Object.isFrozen(view.principal.ceiling.roles), 'ceiling.roles is a frozen copy');
+    assert.notStrictEqual(view.principal.ceiling.roles, roles);
+    assert.throws(() => view.principal.ceiling.roles.push('admin'), TypeError);
+    assert.deepStrictEqual(roles, ['user'], "a hook cannot widen the caller's ceiling");
+    assert.notStrictEqual(view.principal.ceiling.expiresAt, at, 'a Date is copied');
+    assert.strictEqual(view.principal.ceiling.expiresAt.getTime(), 0);
+    assert.notStrictEqual(view.principal.attributes.tags, principal.attributes.tags, 'a Set is copied');
+    assert.notStrictEqual(view.principal.attributes.quota.get('q'), principal.attributes.quota.get('q'), 'Map values are copied too');
+
+    assert.strictEqual(view.principal.identity, model, 'the class instance is passed through');
+    assert.ok(!Object.isFrozen(model), 'never frozen');
+    model.Login = 'bob';
+    assert.strictEqual(model.Login, 'bob', 'the caller still writes it');
+    assert.strictEqual(view.fn, original.fn);
+    assert.ok(!Object.isFrozen(original) && !Object.isFrozen(principal) && !Object.isFrozen(roles), 'the originals are untouched');
+
+    const copy = hookCopy(original);
+    assert.notStrictEqual(copy.principal.ceiling.roles, roles, 'hookCopy copies the plain data');
+    assert.ok(!Object.isFrozen(copy.principal.ceiling.roles), 'and leaves it writable');
+    copy.principal.ceiling.roles.push('x');
+    assert.deepStrictEqual(roles, ['user']);
+    assert.strictEqual(copy.principal.identity, model);
+  });
+
+  it('a cycle through plain data is copied once', () => {
+    const a: { self?: unknown; fn: () => number } = { fn: () => 1 };
+    a.self = a;
+    const view = hookView(a);
+    assert.strictEqual(view.self, view);
+    assert.ok(Object.isFrozen(view));
   });
 });

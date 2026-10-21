@@ -35,6 +35,7 @@ No `authn*` package imports `authz*` or `users*`. `@spinajs/authz` does not impo
 | `@spinajs/authn/nonces` | `MemoryNonceStore` | None |
 | `@spinajs/authn/audit` | `AuthnAudit`, `AuthnEventBody`, `AuthnAuditor` | None |
 | `@spinajs/authn/bus` | `InProcessCredentialChangeBus`, `credentialTag`, `identityTag`, `credentialChangeTags` | Registers `InProcessCredentialChangeBus` as the `CredentialChangeBus` |
+| `@spinajs/authn/hooks` | The authn action input types and their `HookActions` declaration, `hookView`, `hookCopy`, `hookRefusalOf`, `HookRefusal`; see [Action hooks](14-action-hooks.md#running-an-action-from-another-package) | Loads `@spinajs/hooks`, which registers `DefaultHooks` as `Hooks` and the `hooks.*` schema |
 
 A store package imports a subpath, not the root, when it must not register the core services.
 
