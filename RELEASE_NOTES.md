@@ -500,6 +500,9 @@ removed. An app that migrates on startup resolves `OrmMigrator` before serving.
   `authn:mfa-reset`. On a `Migration.OnStartup` connection they migrate on their way in, as they did before.
 - **authn-token's `authn:token-*` and users' `rbac:user-*` commands run the `OrmMigrator` boot pass too**, through
   their bases `TokenCliCommand` and `RbacCliCommand` (which keeps `this.Orm`).
+- **authn-local's `authn:password` and `authn:password-expire` run the `OrmMigrator` boot pass**, so they work with a
+  database-backed identity store (users) on a `Migration.OnStartup` connection. `@spinajs/authn-local` now depends on
+  `@spinajs/orm`; without a `db` configuration the ORM opens no connection.
 
 ## 3.0.3
 
