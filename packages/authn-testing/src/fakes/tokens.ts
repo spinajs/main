@@ -113,8 +113,17 @@ export class MemoryTokenService extends TokenService {
     return hit.length;
   }
 
-  async revokeByPlaintext(_raw: string, _ctx: AuthnContext): Promise<boolean> {
-    throw new Error('not implemented: MemoryTokenService.revokeByPlaintext');
+  async revokeByPlaintext(raw: string, ctx: AuthnContext): Promise<boolean> {
+    if (typeof raw !== 'string' || raw === '') {
+      return false;
+    }
+    const hash = sha256(raw);
+    const now = ctx.now.getTime();
+    const row = this.rows.find((r) => !r.revoked && (r.hash === hash || (r.previous?.hash === hash && now < r.previous.until)));
+    if (row) {
+      row.revoked = true;
+    }
+    return row !== undefined;
   }
 
   async validate(raw: string, ctx: AuthnContext): Promise<TokenValidation> {
