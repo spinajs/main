@@ -1,18 +1,14 @@
 import type { IContainer } from '@spinajs/di';
 import { Conflict, ForbiddenResponse, Unauthorized } from '@spinajs/http';
-import type { Request, Response } from '@spinajs/http';
+import type { Response } from '@spinajs/http';
 import type { Credentials, Session } from '@spinajs/authn/contracts';
 
 import { PASSWORD_HARD_CAP, reauthCredentials } from '../policies/v3/fresh-auth.js';
 import type { AuthnClientContext } from '../v3/client.js';
 import { NO_STORE, authnFailureResponse } from '../v3/responses.js';
-import { bodyField, boundedString } from '../v3/routes.js';
 
-// Body fields and answers of the 3.0 MFA enrolment routes. No answer but the one that hands it out, no error message
+// The re-authentication and the answers of the 3.0 MFA enrolment routes. No answer but the one that hands it out, no error message
 // and no event carries a provisioning URI, a recovery code or a password.
-
-/** A step code or a recovery code, capped before TotpService sees it, or null. */
-export const codeField = (req: Request): string | null => boundedString(bodyField(req, 'code'), PASSWORD_HARD_CAP);
 
 /**
  * The inline re-authentication of an MFA route (A13): no credentials without `reauthPassword` or for a pending session

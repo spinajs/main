@@ -13,6 +13,7 @@ import { AUTHN_SESSION_CONFIGURATION_SCHEMA } from '@spinajs/authn-session';
 import { AUTHN_HTTP_CONFIGURATION_SCHEMA } from '../../src/index.js';
 import { AuthnMfaController } from '../../src/v3/controllers/AuthnMfaController.js';
 import { boot, disposeBooted } from '../support/config-boot.js';
+import { callRoute } from '../support/route-call.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_HTTP_CONFIGURATION_SCHEMA, AUTHN_SESSION_CONFIGURATION_SCHEMA, HTTP_CONFIGURATION_SCHEMA];
 const ALICE = { type: 'user', id: 'alice' };
@@ -128,7 +129,7 @@ describe('POST /auth/mfa/step-up (FLOW-1)', function () {
 
   it('an aal1 session with the right code answers 200 with the new session cookie and the principal at aal2', async () => {
     const w = await world();
-    const a = answerOf(await w.controller.stepUp(w.request(AAL1, { step: 'totp', code: GOOD_CODE })));
+    const a = answerOf(await callRoute(w.controller, 'stepUp', w.request(AAL1, { step: 'totp', code: GOOD_CODE })));
 
     expect(a.status).to.eq(200);
     expect(a.noStore).to.eq(true);
@@ -141,14 +142,14 @@ describe('POST /auth/mfa/step-up (FLOW-1)', function () {
 
   it('asks no SessionStartHook: the session started at login, so an ActiveRole switched since stays', async () => {
     const w = await world();
-    const a = answerOf(await w.controller.stepUp(w.request(AAL1, { step: 'totp', code: GOOD_CODE })));
+    const a = answerOf(await callRoute(w.controller, 'stepUp', w.request(AAL1, { step: 'totp', code: GOOD_CODE })));
     expect(a.status).to.eq(200);
     expect(w.hookCalls).to.deep.eq([]);
   });
 
   it('a wrong code answers the login failure body without a cookie', async () => {
     const w = await world();
-    const a = answerOf(await w.controller.stepUp(w.request(AAL1, { step: 'totp', code: 'wrong' })));
+    const a = answerOf(await callRoute(w.controller, 'stepUp', w.request(AAL1, { step: 'totp', code: 'wrong' })));
     expect(a.status).to.eq(401);
     expect(a.cookies).to.deep.eq([]);
     expect(a.retryAfter).to.eq(undefined);
@@ -157,21 +158,21 @@ describe('POST /auth/mfa/step-up (FLOW-1)', function () {
   it('a throttled step-up answers 401 with Retry-After', async () => {
     const w = await world();
     w.authn.throttled = true;
-    const a = answerOf(await w.controller.stepUp(w.request(AAL1, { step: 'totp', code: GOOD_CODE })));
+    const a = answerOf(await callRoute(w.controller, 'stepUp', w.request(AAL1, { step: 'totp', code: GOOD_CODE })));
     expect(a.status).to.eq(401);
     expect(a.retryAfter).to.eq(String(RETRY_AFTER));
   });
 
   it('a missing code answers the login failure body and asks the service nothing', async () => {
     const w = await world();
-    const a = answerOf(await w.controller.stepUp(w.request(AAL1, { step: 'totp' })));
+    const a = answerOf(await callRoute(w.controller, 'stepUp', w.request(AAL1, { step: 'totp' })));
     expect(a.status).to.eq(401);
     expect(w.authn.calls).to.deep.eq([]);
   });
 
   it('without a session answers 401 unauthenticated', async () => {
     const w = await world();
-    const e = await thrown(w.controller.stepUp(w.request(null, { step: 'totp', code: GOOD_CODE })));
+    const e = await thrown(callRoute(w.controller, 'stepUp', w.request(null, { step: 'totp', code: GOOD_CODE })));
     expect(e).to.be.instanceOf(AuthenticationFailed);
     expect((e as { error?: unknown }).error).to.eq('unauthenticated');
     expect(w.authn.calls).to.deep.eq([]);
@@ -179,7 +180,7 @@ describe('POST /auth/mfa/step-up (FLOW-1)', function () {
 
   it('a pending session is refused by the controller, as the verify route refuses a wrong state', async () => {
     const w = await world();
-    const e = await thrown(w.controller.stepUp(w.request(PENDING, { step: 'totp', code: GOOD_CODE })));
+    const e = await thrown(callRoute(w.controller, 'stepUp', w.request(PENDING, { step: 'totp', code: GOOD_CODE })));
     expect(e).to.be.instanceOf(Forbidden);
     expect((e as { error?: unknown }).error).to.eq('mfa_pending');
     expect(w.authn.calls).to.deep.eq([]);

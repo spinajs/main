@@ -123,4 +123,50 @@ export function accountInputSuite(): void {
       expectUniformFailure(await c.post('/auth/impersonate', { target: 'someone', password: ['p'] }), 'password list');
     });
   });
+
+  describe('the MFA completion and step-up routes', () => {
+    const pendingClient = async () => {
+      const u = await seedUser();
+      step.enrol(u.ref);
+      const c = new Client();
+      await c.post('/auth/login', { login: u.login, password: u.password });
+      return c;
+    };
+
+    it('a pending session: a body the schema refuses answers the uniform failure and the session stays pending', async () => {
+      const c = await pendingClient();
+      for (const body of [{}, { code: 123456 }, { code: OVER }, { code: '1', extra: 1 }, { code: '1', step: 's'.repeat(65) }]) {
+        expectUniformFailure(await c.post('/auth/mfa/verify', body), JSON.stringify(body).slice(0, 30));
+      }
+      for (const body of [{}, { code: 123456 }, { code: OVER }, { code: '1', step: 'totp' }]) {
+        expectUniformFailure(await c.post('/auth/mfa/recovery', body), `recovery ${JSON.stringify(body).slice(0, 30)}`);
+      }
+      expect((await c.get('/auth')).body).to.have.property('MfaRequired');
+      expect(throttle.attempts.filter((a) => a.flow === 'mfa')).to.have.length(0);
+    });
+
+    it('the session checks still answer first: an active session 403 mfa_not_pending, a pending one 403 mfa_pending on step-up', async () => {
+      const active = await loggedIn(await seedUser());
+      const verify = await active.post('/auth/mfa/verify', {});
+      expect([verify.status, (verify.body as { error?: unknown }).error]).to.deep.eq([403, 'mfa_not_pending']);
+      const pending = await pendingClient();
+      const stepUp = await pending.post('/auth/mfa/step-up', {});
+      expect([stepUp.status, (stepUp.body as { error?: unknown }).error]).to.deep.eq([403, 'mfa_pending']);
+    });
+
+    it('step-up of an active session answers the uniform failure to a body the schema refuses', async () => {
+      const c = await loggedIn(await seedUser());
+      for (const body of [{}, { code: 42 }, { code: '1', step: '' }, { code: '1', extra: 1 }]) expectUniformFailure(await c.post('/auth/mfa/step-up', body), JSON.stringify(body));
+    });
+
+    it('a challenge answers its one 202 to a body the schema refuses, and sends nothing', async () => {
+      const c = await pendingClient();
+      const sent = step.challenges.length;
+      for (const body of [{ step: 42 }, { step: 'totp', extra: 1 }]) {
+        const res = await c.post('/auth/mfa/challenge', body);
+        expect([res.status, res.body], JSON.stringify(body)).to.deep.eq([202, { Ok: true }]);
+      }
+      expect(step.challenges).to.have.length(sent);
+    });
+  });
 }
