@@ -72,6 +72,9 @@ What changes for a migrated hook:
 - `@spinajs/authn-testing`: behaviour rule A37 (`A37/core`, `A37/flow`), the `hooks` port and its `KitActionHooks`
   adapter.
 - `@spinajs/hooks`: `typesVersions` for the `testing` subpath, so a CommonJS build resolves `@spinajs/hooks/testing`.
+- Hooks get deep, frozen copies of the values they may not change (`hookView`, `hookCopy` for mutable keys, exported
+  from `@spinajs/authn` and the new `@spinajs/authn/hooks` subpath with `hookRefusalOf`). An action with no matching
+  hook runs as before, without building its input.
 
 # Release notes — authn-http, authn-oidc: fresh re-authentication that refreshes the session
 

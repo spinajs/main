@@ -8,7 +8,7 @@ Use this page to find which package implements a contract and which packages an 
 
 1. A contract is an abstract class (a DI token) or an interface in `@spinajs/authn/contracts`.
 2. A package implements it and registers the class with `@Injectable(<Contract>)` when the app imports the package.
-3. The core resolves the implementation: by type, by name from config (`authn.strategies`, `authn.mfa.policy.service`, `authn.throttle.service`), or as the list of every registration (`AuthnEventSink`, `ExternalLoginHook`, `MfaEnrolments`).
+3. The core resolves the implementation: by type, by name from config (`authn.strategies`, `authn.mfa.policy.service`, `authn.throttle.service`), or as the list of every registration (`AuthnEventSink`, `MfaEnrolments`). An `ActionHook` (`@spinajs/hooks`) is a list registration too, read once by `Hooks` at boot; see [Action hooks](14-action-hooks.md).
 
 Three families keep one direction:
 

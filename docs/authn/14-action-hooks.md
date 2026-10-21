@@ -5,9 +5,10 @@
 ## How it works
 
 1. The action runs its own security checks first: the session state, the throttle, the identity status.
-2. It calls `Hooks.run(action, input, impl, { mutable, refusable })`. With no matching hook, `impl` runs at once and no context is built.
+2. It calls `Hooks.run(action, input, impl, { mutable, refusable })`. With no matching hook (`Hooks.has(action)` is false) the action runs as is: no input, no copies, no runner call.
 3. The `before` hooks run. They may change the mutable keys or refuse with `ctx.refuse(code)`.
 4. The action runs with the merged input. A change to any other key is dropped.
+   The values under the keys a hook may not change (the identity, the target, the session handles, the external subject, `ctx`) reach it as deep, frozen copies: a write in place throws in the hook, and the action only ever reads the values it held before the hooks ran. A mutable key (`credentials`, `attributes`) is a copy the hook may change.
 5. The `after` hooks see the input and the result, failure results included. The `failed` hooks see an error the action threw.
 6. A refusal, or a `before` hook that throws or times out, never reaches the caller as an error. The action answers what it answers today for a refusal, and audits the real reason: `hook:<code>` for a refusal, `hook_error` for a hook that failed (its data names the hook class and `failure`: `error`, `timeout` or `depth`).
 

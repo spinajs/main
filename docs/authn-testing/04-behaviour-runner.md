@@ -95,6 +95,8 @@ Each port is an optional member of `Harness`. The contract types come from `@spi
 
 The hooks runner of `@spinajs/hooks` reads its hooks once, when it boots, so a case cannot register one later. A lane registers one `KitActionHooks` as an `ActionHook` before its `Hooks` resolves and hands it out as the `hooks` port; `h.hooks.add(...hooks)` makes the lane's actions run those hooks for the rest of the case, matched by their own patterns and ordered by their own `order`, as if they had been registered at boot. Clear it between cases with `clear()` when the lane reuses one app.
 
+To the runner the port is one hook, and a hook cannot see `refusable`. For the actions that are not refusable (`KIT_NOT_REFUSABLE`: `authn.impersonation.stop`, `authn.logout.backchannel`; or `new KitActionHooks({ notRefusable })`) it runs every added `before` hook past a refusal or an error and then rethrows the first, which the runner logs, as it would for hooks registered one by one.
+
 ```ts
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import { KitActionHooks } from '@spinajs/authn-testing';
