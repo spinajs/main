@@ -218,6 +218,60 @@ Either way X1 states which row it used and runs 3.0 on the same shape.
 
 The `build` rows are the only ones that resolve a 10 % difference on this machine.
 
+## 3.x baseline (PERF-4.c)
+
+The reference for PERF-1, PERF-2, PERF-3 and the other 3.x performance gates. The raw data is
+`bench/baseline/3x/*.json` (same shape as `baseline/2x`: every repeat plus the environment).
+
+### Machine
+
+- CPU: 12th Gen Intel Core i7-12700KF (20 logical cores), 96 GB RAM, Windows 11 (10.0.26200),
+  Node v24.14.1, run from Git Bash on the dev workstation.
+- Date: 2026-10-21.
+- Measured: the 3.0.1 sources (base commit `fc5927bc`) with the five PERF-4 scenarios on top
+  (branch `feat/ory-perf-4`). One full run: `npm run bench -w @spinajs/authz-testing -- --repeats=5`
+  (5 repeats, scale 1, headline = median over the repeats).
+- **Not idle**: the CPU sat at 100 % with about 175 node processes alive (other agents building
+  and testing) before and after the run. The in-memory rows (`check.warm`, `session.restore.memory`)
+  repeat within about 6 %. The two sqlite rows do not: their per-repeat p50 spans 8.2 to 20.0 ms
+  (session) and 13.9 to 24.6 ms (token), because every statement waits for a CPU slice. Read them
+  as upper bounds. Before claiming a sqlite improvement against this baseline (PERF-1, token
+  validation), run the baseline tree and the candidate tree back to back in one session, or rerun
+  this baseline on an idle machine and replace the JSON.
+
+### Numbers (microseconds, median of 5 repeats)
+
+| scenario | p50 | p95 | p99 | mean | ops/s | iterations | per-repeat p50 |
+|---|---:|---:|---:|---:|---:|---:|---|
+| check.warm | 105.8 | 254.9 | 569.9 | 149.8 | 6,677 | 100,000 | 103.9 / 105.8 / 107.1 / 109.7 / 105.7 |
+| checkMany.30.warm | 2779.9 | 6569.0 | 12973.0 | 3493.9 | 286 | 10,000 | 2843.7 / 2779.9 / 2841.4 / 2750.8 / 2608.1 |
+| session.restore.memory | 17.6 | 36.9 | 117.4 | 24.4 | 40,927 | 50,000 | 17.8 / 17.3 / 17.2 / 17.7 / 17.6 |
+| session.restore.sqlite | 10810.2 | 31552.0 | 47778.0 | 14032.3 | 71 | 5,000 | 10810.2 / 8172.6 / 10139.7 / 19966.2 / 12537.7 |
+| token.validate.sqlite | 20796.4 | 55092.0 | 74606.0 | 23805.1 | 42 | 5,000 | 24174.2 / 20796.4 / 18790.9 / 13881.4 / 24621.9 |
+
+Warm-up is a tenth of the iterations (check.warm: 10,000). With 5,000 to 10,000 iterations the
+p99 of `checkMany.30.warm`, `session.restore.sqlite` and `token.validate.sqlite` rests on 50 to
+100 tail samples per repeat; trust p50 and mean over p99 for those.
+
+### Gate table
+
+Thresholds are recorded here and not enforced by PERF-4; the features named in the last column
+enforce them.
+
+| gate | scenario | threshold | recorded p50 / p99 (us) | met at baseline | enforced by |
+|---|---|---|---|---|---|
+| warm `check` p99 <= 2 x 2.x `probeGrant.depth3` p99 | `check.warm` | 5.4 us (2 x 2.7 us; the 2.x figure moves with the session, rerun it for a real comparison) | 105.8 / 569.9 | no | none yet; HOOK-5 checks for no regression |
+| `checkMany(30)` warm <= 1 ms | `checkMany.30.warm` | 1000 us | 2779.9 / 12973.0 | no | none yet; HOOK-5 checks for no regression |
+| session restore <= 1 ms warm | `session.restore.memory` | 1000 us | 17.6 / 117.4 | yes | PERF-1 (no gate extra on the memory store) |
+| session restore <= 1 ms warm | `session.restore.sqlite` | 1000 us | 10810.2 / 47778.0 | no | PERF-1 |
+| token validation <= 1 ms warm | `token.validate.sqlite` | 1000 us | 20796.4 / 74606.0 | no | PERF-3 |
+| PERF-1 gate extra: sqlite restore p50 improves >= 40 % | `session.restore.sqlite` | p50 <= 6486 us | 10810.2 / n/a | n/a | PERF-1 |
+| PERF-2 gate extra: token validate p50 improves >= 30 % | `token.validate.sqlite` | p50 <= 14557 us | 20796.4 / n/a | n/a | PERF-2 |
+| PERF-3 gate extra: cached token validate warm p50 <= 0.3 ms | `token.validate.sqlite` | p50 <= 300 us | 20796.4 / n/a | n/a | PERF-3 |
+
+The sqlite thresholds in the percentage rows move with the machine load; recompute them from a
+baseline taken in the same session as the candidate.
+
 ## Notes and caveats
 
 - **Unknown role** is expensive in 2.x (about 15 us p50): accesscontrol throws and

@@ -7,8 +7,8 @@ let host: BenchHost;
 export default {
   name: 'checkMany.30.warm',
   description: 'AuthzService.checkMany of 30 permissions (20 granted across the role chain, 10 denied), GLOBAL resource, no decision cache',
-  iterations: 20_000,
-  warmup: 2_000,
+  iterations: 10_000,
+  warmup: 1_000,
   setup: async () => {
     host = await bootRbacHost();
   },

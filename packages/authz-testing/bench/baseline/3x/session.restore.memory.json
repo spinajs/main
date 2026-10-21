@@ -1,0 +1,57 @@
+{
+  "name": "session.restore.memory",
+  "description": "DefaultSessionIssuer.restore over MemorySessionStore, sliding 60 min",
+  "unit": "ns",
+  "iterations": 50000,
+  "warmup": 5000,
+  "batch": 1,
+  "repeats": 5,
+  "p50": 17600,
+  "p95": 36900,
+  "p99": 117400,
+  "mean": 24434.006,
+  "opsPerSec": 40926.567669664975,
+  "perRepeat": [
+    {
+      "p50": 17800,
+      "p95": 37300,
+      "p99": 111000,
+      "mean": 24434.006,
+      "opsPerSec": 40926.567669664975
+    },
+    {
+      "p50": 17300,
+      "p95": 34900,
+      "p99": 117400,
+      "mean": 24153.482,
+      "opsPerSec": 41401.89807829778
+    },
+    {
+      "p50": 17200,
+      "p95": 36400,
+      "p99": 132000,
+      "mean": 24617.358,
+      "opsPerSec": 40621.74340560835
+    },
+    {
+      "p50": 17700,
+      "p95": 40200,
+      "p99": 128500,
+      "mean": 26117.372,
+      "opsPerSec": 38288.6915268504
+    },
+    {
+      "p50": 17600,
+      "p95": 36900,
+      "p99": 104300,
+      "mean": 24272.222,
+      "opsPerSec": 41199.359498277496
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

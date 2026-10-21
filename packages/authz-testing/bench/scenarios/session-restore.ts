@@ -10,7 +10,7 @@ import type { AuthnBoot } from './_authn-boot.js';
 const FACTS: AuthnFacts = { method: 'password', strategy: 'password', assurance: 'aal1', mfa: [], authenticatedAt: new Date() };
 
 // The store `service` is resolved by name from authn.session.service.
-function restoreScenario(name: string, description: string, service: string, store: unknown): Scenario {
+function restoreScenario(name: string, description: string, service: string, store: unknown, iterations: number): Scenario {
   let boot: AuthnBoot;
   let issuer: DefaultSessionIssuer;
   let handle: SessionHandle;
@@ -18,8 +18,8 @@ function restoreScenario(name: string, description: string, service: string, sto
   return {
     name,
     description,
-    iterations: 20_000,
-    warmup: 2_000,
+    iterations,
+    warmup: iterations / 10,
     setup: async () => {
       boot = await bootAuthn({ session: { service, expiration: { service: 'SlidingExpiration', ttl: 60 } } });
       boot.own(SessionProvider, store, SessionExpirationProvider, SlidingExpiration, DefaultSessionIssuer, SessionIssuer);
@@ -39,4 +39,4 @@ function restoreScenario(name: string, description: string, service: string, sto
   };
 }
 
-export default [restoreScenario('session.restore.memory', 'DefaultSessionIssuer.restore over MemorySessionStore, sliding 60 min', 'MemorySessionStore', MemorySessionStore), restoreScenario('session.restore.sqlite', 'DefaultSessionIssuer.restore over DbSessionStore on in-memory sqlite, sliding 60 min', 'DbSessionStore', DbSessionStore)] satisfies Scenario[];
+export default [restoreScenario('session.restore.memory', 'DefaultSessionIssuer.restore over MemorySessionStore, sliding 60 min', 'MemorySessionStore', MemorySessionStore, 50_000), restoreScenario('session.restore.sqlite', 'DefaultSessionIssuer.restore over DbSessionStore on in-memory sqlite, sliding 60 min', 'DbSessionStore', DbSessionStore, 5_000)] satisfies Scenario[];

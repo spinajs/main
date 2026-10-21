@@ -12,7 +12,7 @@ export default {
   name: 'check.warm',
   description: 'AuthzService.check, admin over a 4-role chain (3 $extend levels), GLOBAL resource, no decision cache',
   iterations: 100_000,
-  warmup: 20_000,
+  warmup: 10_000,
   setup: async () => {
     host = await bootRbacHost();
   },
