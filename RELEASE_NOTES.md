@@ -1,3 +1,31 @@
+# Release notes — authn, authn-session, authn-oidc, session stores: OIDC back-channel logout
+
+> Branch `feat/ory-flow-2`. Docs: `docs/authn-oidc/11-backchannel-logout.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn` — `SessionIssuer` has a new abstract method
+
+`revokeByExternal(provider, sid)` is abstract. A class that extends `SessionIssuer` outside this repository must
+implement it. `DefaultSessionIssuer` and the kit's `MemorySessionIssuer` do.
+
+### `@spinajs/authn-session` — `SessionProvider` has a new abstract method
+
+`deleteByExternalKey(externalKey)` is abstract, and a store should persist the new optional `ISession.ExternalKey`.
+`MemorySessionStore`, `DbSessionStore`, `RedisSessionStore` and `DynamoDbSessionProvider` do.
+
+## New behavior
+
+- `POST /auth/oidc/:provider/backchannel-logout` (OpenID Connect Back-Channel Logout 1.0): a valid `logout_token`
+  with `sid` ends the sessions of that IdP session; one with only `sub` ends every session of the linked identity.
+  `200` with `Cache-Control: no-store`, else `400 { "error": "invalid_request" }`. Each `jti` is claimed once in the
+  `NonceStore`.
+- An OIDC login whose ID token carries `sid` stores `AuthnFacts.external = { provider, sid }`; other external logins
+  store `{ provider }`. `ExternalSubject.sid` carries it from the strategy.
+- `session-provider-db`: migration `UserSessionExternalKey_2026_10_21_00_01_00` adds the indexed `ExternalKey`
+  column. `session-provider-redis`: sets `session:external:<ExternalKey>`. `session-provider-dynamodb`: attribute
+  `ExternalKey`, found with a consistent Scan.
+
 # Release notes — authn, authn-token, authn-http: revoke a token by its plaintext
 
 > Branch `feat/ory-flow-5`. Docs: `docs/authn-token/01-token-service.md`, `docs/authn-http/14-api-token-routes.md`.
@@ -1152,3 +1180,13 @@ Only `@spinajs/authn-orm` registers a `NonceStore` (`DbNonceStore`). Without one
 | `new HttpSignatureStrategy({ registry, nonces: new MemoryKeyNonceStore() })` | the same with `new MemoryNonceStore()` |
 
 The claim semantics are the same, so existing `authn_nonce` rows stay valid. `DbNonceStore` also rejects keys over 160 characters, which `nonceKey` never produces. A replaced `NonceStore` now serves the OIDC `state` claims too.
+# Release notes — session restore: one read, no write per request
+
+- `@spinajs/authn-http`: an authenticated cookie request now restores its session once.
+  `AuthnImpersonationService.principalOf(session, ctx)` accepts the restored `Session` and runs every
+  lifetime, status, max-minutes and guard check on it. A bare `SessionHandle` still works and is restored
+  as before.
+- `@spinajs/authn-session`: `DefaultSessionIssuer.restore` writes the row only when the last-seen time or
+  the expiry moves by `authn.session.touchThresholdSeconds` (new key, default `60`). Otherwise it does not
+  write at all. As a result, the stored idle deadline can trail the last request by up to the threshold.
+  Set the key to `0` to get the old write on every restore.

@@ -3,7 +3,7 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn-session/register-schema';
-import { AuthnService, IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthnService, IdentityLinkStore, NonceStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';
 import { proxyTrustOf } from '@spinajs/authn-http';
 import { sessionCookie } from '@spinajs/authn-session';
@@ -13,6 +13,7 @@ import type { ICookie, Request, ResponseFunction } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 
 import { OidcLogin } from '../login.js';
+import { OidcBackchannelLogout } from '../token/logout-token.js';
 import type { OidcAnswer, OidcRequest } from '../login.js';
 import { OidcAccountLinks } from '../links.js';
 import { OidcProviders } from '../providers.js';
@@ -20,6 +21,7 @@ import { requestOrigin } from '../origin.js';
 import { isRelaxedEnv } from '../support.js';
 
 const ROUTE_PREFIX = 'auth/oidc';
+const FORM = 'application/x-www-form-urlencoded';
 
 /** Maps an OidcAnswer to express; a 401 goes through Unauthorized, as the login route's, so A02's bodies match. */
 export class OidcResponse extends Response {
@@ -53,8 +55,9 @@ export class OidcResponse extends Response {
 const isNavigation = (req: Request): boolean => req.get('sec-fetch-mode') === 'navigate' || /\btext\/html\b/i.test(req.get('accept') ?? '');
 
 /**
- * `GET /auth/oidc/:provider`, `GET /auth/oidc/:provider/callback`, and the link routes `POST` / `DELETE
- * /auth/oidc/:provider/link` (design §22.15). The logic lives in OidcLogin; this maps express to it. The restored
+ * `GET /auth/oidc/:provider`, `GET /auth/oidc/:provider/callback`, the link routes `POST` / `DELETE
+ * /auth/oidc/:provider/link` (design §22.15), and `POST /auth/oidc/:provider/backchannel-logout`, which the IdP calls
+ * without a session cookie, so the CSRF guard lets it through. The logic lives in OidcLogin; this maps express to it. The restored
  * session comes from authn-http's middleware (`req.storage.AuthnSession`).
  */
 @BasePath(ROUTE_PREFIX)
@@ -63,6 +66,7 @@ export class OidcController extends BaseController {
   protected Log: Log;
 
   protected flow: Promise<OidcLogin> | undefined;
+  protected logout: OidcBackchannelLogout | undefined;
   protected peerTrusted: ((peer: string | undefined) => boolean) | undefined;
   protected warnedHttpOrigin = false;
 
@@ -90,6 +94,9 @@ export class OidcController extends BaseController {
   @Autoinject(IdentityLinkStore, { optional: true })
   protected Links: IdentityLinkStore | undefined;
 
+  @Autoinject(NonceStore)
+  protected Nonces: NonceStore;
+
   @Get(':provider')
   public async begin(@Param() provider: string, @Req() req: Request) {
     const login = await this.login();
@@ -112,6 +119,20 @@ export class OidcController extends BaseController {
   public async unlink(@Param() provider: string, @Req() req: Request) {
     const login = await this.login();
     return new OidcResponse(await login.unlink(provider, this.requestOf(req)));
+  }
+
+  @Post(':provider/backchannel-logout')
+  public async backchannelLogout(@Param() provider: string, @Req() req: Request): Promise<OidcResponse> {
+    this.logout ??= new OidcBackchannelLogout({
+      strategies: this.Providers.strategies(),
+      sessions: this.Sessions,
+      links: this.Links ?? null,
+      nonces: this.Nonces,
+      log: { warn: (...args: unknown[]) => this.Log?.warn(...(args as Parameters<Log['warn']>)) },
+    });
+    // Section 2.5: the token comes form-encoded only.
+    const form = req.is(FORM) ? req.body : undefined;
+    return new OidcResponse(await this.logout.receive(provider, form, new Date()));
   }
 
   protected requestOf(req: Request): OidcRequest {

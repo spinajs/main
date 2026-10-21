@@ -23,6 +23,7 @@ describe('authn.session through the schemas', function () {
     expect(configuration.get('authn.session')).to.deep.eq({
       expiration: { ttl: 30, maxLifetime: 480 },
       pendingTtlSeconds: 300,
+      touchThresholdSeconds: 60,
       cookie: { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' },
       hashIds: true,
     });
@@ -52,6 +53,8 @@ describe('authn.session through the schemas', function () {
       [{ hashIds: false }, 'authn.session.hashIds'],
       [{ hashIds: 'false' }, 'authn.session.hashIds'],
       [{ pendingTtlSeconds: 0 }, 'authn.session.pendingTtlSeconds'],
+      [{ touchThresholdSeconds: -1 }, 'authn.session.touchThresholdSeconds'],
+      [{ touchThresholdSeconds: 1.5 }, 'authn.session.touchThresholdSeconds'],
       [{ expiration: { ttl: 0 } }, 'authn.session.expiration.ttl'],
       [{ expiration: { maxLifetime: 0 } }, 'authn.session.expiration.maxLifetime'],
     ];

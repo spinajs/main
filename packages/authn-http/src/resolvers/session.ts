@@ -46,7 +46,7 @@ export class SessionPrincipalResolver extends AuthnPrincipalResolver {
 
     // Per call: an eager AuthnImpersonationService needs its own optional collaborators, missing in apps that don't enable it.
     const impersonation = await this.Container.resolve(AuthnImpersonationService);
-    const principal = await impersonation.principalOf(session.handle, ctx);
+    const principal = await impersonation.principalOf(session, ctx);
     if (!principal) {
       await this.endRefused(session, impersonation);
       return null;

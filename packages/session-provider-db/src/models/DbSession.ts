@@ -37,4 +37,7 @@ export class DbSession extends ModelBase {
 
   /** 'active' | 'pending'. */
   public State: string | null;
+
+  /** ISession.ExternalKey. */
+  public ExternalKey: string | null;
 }

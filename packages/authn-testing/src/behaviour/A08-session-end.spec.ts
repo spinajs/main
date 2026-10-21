@@ -7,6 +7,7 @@ import type { AuthnRule } from './types.js';
 const MIN = 60_000;
 const EXPIRATION = { authn: { session: { expiration: { ttl: 30, maxLifetime: 480 } } } };
 const ACTIONS = ['ban', 'deactivate'] as const;
+const KIT_OIDC = 'oidc:kit';
 
 export const A08: AuthnRule = defineRule('A08', 'sessions end by timeout, logout and revocation', [
   defineCase({
@@ -106,6 +107,41 @@ export const A08: AuthnRule = defineRule('A08', 'sessions end by timeout, logout
       const ha = (await h.sessions.list(a))[0].handle;
       assert.strictEqual(await h.sessions.revokeHandle(a, ha), true);
       assert.strictEqual(await h.sessions.restore(s1.id), null);
+    },
+  }),
+  defineCase({
+    name: 'A08 revokeByExternal ends the sessions of one IdP session id and leaves the others',
+    facet: 'A08/store',
+    needs: ['sessions', 'seed'],
+    async run(h, k) {
+      const a = await seedUser(h, ALICE);
+      const b = await seedUser(h, BOB);
+      const viaIdp = (sid: string) => ({ ...factsAal1(k), method: 'oidc', strategy: KIT_OIDC, external: { provider: KIT_OIDC, sid } });
+      const s1 = await h.sessions.issue(a, viaIdp('sid-1'));
+      const s2 = await h.sessions.issue(b, viaIdp('sid-1'));
+      const s3 = await h.sessions.issue(a, viaIdp('sid-2'));
+      const s4 = await h.sessions.issue(a, factsAal1(k));
+      assert.strictEqual(await h.sessions.revokeByExternal(KIT_OIDC, 'sid-1'), 2);
+      assert.strictEqual(await h.sessions.restore(s1.id), null);
+      assert.strictEqual(await h.sessions.restore(s2.id), null);
+      assert.ok(await h.sessions.restore(s3.id), 'another sid lives');
+      assert.ok(await h.sessions.restore(s4.id), 'a session without an external login lives');
+      assert.strictEqual(await h.sessions.revokeByExternal('oidc:other', 'sid-2'), 0, 'the sid is matched with its provider');
+      assert.strictEqual(await h.sessions.revokeByExternal(KIT_OIDC, 'sid-1'), 0, 'ended sessions are not counted again');
+    },
+  }),
+  defineCase({
+    name: 'A08 revokeByExternal reaches a session after its elevation and rotation, and the session keeps facts.external',
+    facet: 'A08/store',
+    needs: ['sessions', 'seed'],
+    async run(h, k) {
+      const a = await seedUser(h, ALICE);
+      const external = { provider: KIT_OIDC, sid: 'sid-3' };
+      const pending = await h.sessions.issue(a, { ...factsAal1(k), method: 'oidc', strategy: KIT_OIDC, external }, { pending: { steps: ['totp'] } });
+      const active = await h.sessions.rotate(await h.sessions.elevate(pending, { mfa: ['totp'] }));
+      assert.deepStrictEqual({ ...(await h.sessions.restore(active.id))?.facts.external }, external);
+      assert.strictEqual(await h.sessions.revokeByExternal(KIT_OIDC, 'sid-3'), 1);
+      assert.strictEqual(await h.sessions.restore(active.id), null);
     },
   }),
   defineCase({

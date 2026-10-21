@@ -14,6 +14,7 @@ import { refKey, refOf, sessionDataFromColumn } from './session-row.js';
 export * from './models/DbSession.js';
 export * from './migrations/UserSessionDBSqlMigration_2022_06_28_01_20_00.js';
 export * from './migrations/UserSessionExpirationIndex_2026_10_21_00_00_00.js';
+export * from './migrations/UserSessionExternalKey_2026_10_21_00_01_00.js';
 
 const sameRef = (a: IdentityRef | undefined, b: IdentityRef) => !!a && a.type === b.type && a.id === b.id;
 
@@ -126,6 +127,7 @@ export class DbSessionStore extends SessionProvider {
     s.ImpersonatorId = session.Impersonator ? refKey(session.Impersonator) : null;
     s.State = session.State;
     s.Data = encodeSessionData(session.Data);
+    s.ExternalKey = session.ExternalKey ?? null;
 
     await s.insert(InsertBehaviour.InsertOrUpdate);
   }
@@ -192,6 +194,15 @@ export class DbSessionStore extends SessionProvider {
     return (await this.matching(subject, opts?.includeImpersonations)).filter((s) => !this.isExpired(s));
   }
 
+  /** As deleteBySubject: live rows by key for an exact count, then a DELETE by ExternalKey for rows saved since the read. */
+  public async deleteByExternalKey(externalKey: string): Promise<number> {
+    const rows = (await DbSession.where('ExternalKey', externalKey)).map((r) => this.toSession(r, true)).filter((s): s is ISession => !!s);
+    const live = rows.filter((s) => !this.isExpired(s)).map((s) => s.SessionId);
+    const count = live.length > 0 ? rowsAffected(await DbSession.destroy(live)) : 0;
+    await DbSession.destroy().where('ExternalKey', externalKey);
+    return count;
+  }
+
   public async truncate(): Promise<void> {
     await DbSession.truncate();
   }
@@ -240,6 +251,7 @@ export class DbSessionStore extends SessionProvider {
       Creation: row.CreatedAt,
       Expiration: row.Expiration ?? undefined,
       Data: data,
+      ExternalKey: row.ExternalKey ?? undefined,
     });
   }
 

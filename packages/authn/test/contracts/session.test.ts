@@ -82,6 +82,11 @@ class MemoryIssuer extends SessionIssuer {
   async list(subject: IdentityRef, opts?: { current?: SessionHandle }): Promise<readonly Listed[]> {
     return this.rows.filter((r) => r.identity.id === subject.id).map((r) => ({ handle: `h(${r.id})`, createdAt: new Date(0), lastSeenAt: new Date(0), ...(r.id === opts?.current?.id ? { current: true } : {}) }));
   }
+  async revokeByExternal(provider: string, sid: string): Promise<number> {
+    const before = this.rows.length;
+    this.rows = this.rows.filter((r) => !(r.facts.external?.provider === provider && r.facts.external.sid === sid));
+    return before - this.rows.length;
+  }
   impersonate(h: SessionHandle, actor: IdentityRef, target: IdentityRef): void {
     const r = this.rows.find((x) => x.id === h.id)!;
     r.impersonator = actor;
@@ -179,6 +184,7 @@ describe('session issuer contract', () => {
         { name: 'revokeAll', modifiers: ['abstract'], optional: false, params: ['subject', 'opts'] },
         { name: 'revokeHandle', modifiers: ['abstract'], optional: false, params: ['subject', 'handle'] },
         { name: 'list', modifiers: ['abstract'], optional: false, params: ['subject', 'opts'] },
+        { name: 'revokeByExternal', modifiers: ['abstract'], optional: false, params: ['provider', 'sid'] },
       ]);
     });
 
