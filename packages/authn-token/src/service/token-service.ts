@@ -493,6 +493,36 @@ export class DbTokenService extends TokenService {
     return count;
   }
 
+  public async revokeByPlaintext(raw: string, ctx: AuthnContext): Promise<boolean> {
+    const now = this.nowOf(ctx);
+    const [ok] = _try_check_arg(_is_string(_non_empty()))(raw, 'raw');
+    if (!ok || raw.length > MAX_TOKEN_LENGTH) {
+      return false;
+    }
+
+    const hash = this.Generator.hash(raw);
+    const found = await this.Owners.tokenByHash(hash);
+    if (!found) {
+      return false;
+    }
+    const { token, owner } = found;
+    // The previous secret is a credential only until PreviousValidUntil, like in validate.
+    if (token.Token !== hash) {
+      const until = toDate(token.PreviousValidUntil);
+      if (token.PreviousToken !== hash || until === null || until.getTime() <= now) {
+        return false;
+      }
+    }
+
+    const revoked = await this.revokeRow(token.Uuid, now);
+    if (!revoked) {
+      return false;
+    }
+    await this.changed({ kind: 'token', id: revoked.Uuid });
+    await this.publish(ctx, now, 'token.revoke', owner, { token: revoked.Uuid, kind: revoked.Kind }, undefined, 'self');
+    return true;
+  }
+
   public async validate(raw: string, ctx: AuthnContext): Promise<TokenValidation> {
     // Without a valid now no token could ever count as expired.
     const now = instant(ctx?.now);
@@ -673,10 +703,11 @@ export class DbTokenService extends TokenService {
     }
   }
 
-  protected publish(ctx: AuthnContext, now: number, type: 'token.create' | 'token.revoke' | 'token.rotate' | 'token.update', owner: IdentityRef | null, data: Record<string, unknown>, actor?: PrincipalRef): Promise<void> {
+  protected publish(ctx: AuthnContext, now: number, type: 'token.create' | 'token.revoke' | 'token.rotate' | 'token.update', owner: IdentityRef | null, data: Record<string, unknown>, actor?: PrincipalRef, reason?: string): Promise<void> {
     return (this.Auditor ?? this.Audit).publishIn({ ...ctx, now: new Date(now) }, {
       type,
       outcome: 'success',
+      ...(reason ? { reason } : {}),
       // null: revokeById could not resolve the owner (row gone or lookup failed).
       ...(owner ? { identity: { type: owner.type, id: owner.id } } : {}),
       ...(actor ? { actor } : {}),

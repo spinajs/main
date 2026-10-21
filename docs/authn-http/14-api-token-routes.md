@@ -1,6 +1,6 @@
 # API token routes
 
-`AuthnTokensController` lets a signed-in user list, create, rotate, narrow and revoke their own API tokens, over the `TokenService` contract. The group is on while a `TokenService` is registered, which [`@spinajs/authn-token`](../authn-token/README.md) does when a token strategy is listed; otherwise every route answers 404. Tokens then authenticate requests through `Authorization: Bearer` or `x-api-key` (see [Credential extractors](02-credential-extractors.md)).
+`AuthnTokensController` lets a signed-in user list, create, rotate, narrow and revoke their own API tokens, over the `TokenService` contract. `AuthnTokenRevocationController` adds one public route, [`POST /auth/tokens/revoke`](#post-authtokensrevoke), that revokes a token from its plaintext alone. The group is on while a `TokenService` is registered, which [`@spinajs/authn-token`](../authn-token/README.md) does when a token strategy is listed; otherwise every route answers 404. Tokens then authenticate requests through `Authorization: Bearer` or `x-api-key` (see [Credential extractors](02-credential-extractors.md)).
 
 ## How it works
 
@@ -96,6 +96,22 @@ Any other key, `kind`, `profile` and `scope` included, answers 400 `invalid_fiel
 | 200 | No data; the token stops working on its next request |
 | 404 | `{ "error": "token_not_found", "message": "No such token" }` for any id that is not a live token of the caller |
 
+### `POST /auth/tokens/revoke`
+
+Self-revocation by plaintext, RFC 7009 style, from `AuthnTokenRevocationController`. It is for the holder of a leaked secret, so it needs **no session and no cookie**: none of the policies above apply, only the `TokenServiceRegistered` gate. The secret in the body is the authorisation, and the route is not in [`authn.http.csrf.unauthenticatedRoutes`](04-csrf-origin-guard.md), so a cookieless request is not origin-checked.
+
+| | |
+| --- | --- |
+| Body | `{ "token": "<plaintext>" }`, JSON or form |
+| 200 | `{}` whether or not a token was revoked: unknown, malformed, over 1024 characters, already revoked, or a previous secret whose grace has ended all answer alike |
+| 429 | `{ "error": "throttled", "message" }` with `Retry-After`; nothing is revoked |
+
+Every request counts in the `reset` throttle flow keyed on the client ip, before the body is read. That budget is the one the password reset routes use, and `authn.throttle.reset.ip` sets it (`free: 5` by default; raise it if secret scanners call this route in bursts). A previous secret inside its rotation grace revokes the token like the current one. The call audits `token.revoke` with `reason: 'self'` and evicts the validation cache.
+
+```bash
+curl -X POST https://api.example.test/auth/tokens/revoke -d token=spt_leaked...
+```
+
 ### Token entry
 
 `{ "Uuid", "Name", "Kind", "Roles", "Profile", "Scope", "CreatedAt", "ExpiresAt", "LastUsedAt", "LastUsedIp", "Expired" }`: instants as ISO 8601 to the second, absent values `null`, `Roles` always a list. Never the plaintext or its hash. Every answer carries `Cache-Control: no-store`.
@@ -107,6 +123,7 @@ Any other key, `kind`, `profile` and `scope` included, answers 400 `invalid_fiel
 | `authn.token.maxTtlDays` | `integer` | `90` | `>= 1` | Longest lifetime of a token. |
 | `authn.token.agentMaxTtlMinutes` | `integer` | `1440` | `>= 1` | Longest lifetime of an agent token. |
 | `authn.freshAuth.maxAgeSeconds` | `integer` | `300` | `>= 1` | Freshness for creating or rotating a token. |
+| `authn.throttle.reset.ip` | backoff params | `free: 5` | see [`@spinajs/authn`](../authn/README.md) | Budget of `POST /auth/tokens/revoke` per client ip, shared with the password reset routes. |
 
 ## Services and extension points
 
@@ -118,6 +135,7 @@ Any other key, `kind`, `profile` and `scope` included, answers 400 `invalid_fiel
 
 - **The plaintext is shown once**, in the create answer only.
 - **Fresh authentication runs in the handler, not as a policy**: http runs every policy of a route at once, so a `FreshAuth` policy would verify a password while the gate answers 404.
+- **One answer for every secret.** `POST /auth/tokens/revoke` answers `200 {}` for a live token and for anything else, so it cannot be used to probe which secrets exist.
 - **One 404 for every foreign id.** A token of another user answers like an unknown one.
 - **A password change keeps API tokens.** An admin revokes them through the [credential admin routes](16-credential-admin-routes.md).
 

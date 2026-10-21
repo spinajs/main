@@ -91,6 +91,18 @@ Narrows a live token. `change` has three optional fields; any other key is ignor
 
 The kind, profile, scope and secret never change here. To widen a token, create a new one.
 
+### Revoke by plaintext, `revokeByPlaintext(raw, ctx)`
+
+The holder of a leaked secret ends its token without a session. Behind `POST /auth/tokens/revoke`.
+
+1. It answers `false` for an empty, non-string or over-long (more than the token size cap) secret.
+2. It hashes the secret and reads the token and its owner through `TokenOwnerResolver.tokenByHash`. No match: `false`.
+3. A match on the **previous** secret of a rotation (`rotate`, above) counts only until `PreviousValidUntil`, the same rule as `validate`. Inside the grace the old secret still proves possession, so the call revokes the token (the new secret stops too). After it, the old secret is not a credential: `false`, nothing changes.
+4. It sets `RevokedAt` to `ctx.now` with `WHERE RevokedAt IS NULL`, so an already revoked token answers `false`. The owner's status does not matter: a banned owner's token is revoked too.
+5. It evicts the token from the [validation cache](#validation-cache), publishes `{ kind: 'token', id }` on the `CredentialChangeBus`, and publishes `token.revoke` with `reason: 'self'`, `{ token, kind }` and the owner as `identity` (none when the owner is gone), then answers `true`.
+
+It never throws for a bad secret and publishes nothing for a `false`.
+
 ### Revoke by id, `revokeById(id, ctx, { actor }?)`
 
 The operator variant behind `authn:token-delete`. It is not part of the `TokenService` contract.
@@ -112,7 +124,7 @@ Password resets call it when `authn.local.reset.revokeTokens` is on (the default
 
 1. A hit runs no query and no `IdentityStore.status` read. The token's own `expiresAt` is still checked against `ctx.now`.
 2. A miss reads the token row and its owner through `TokenOwnerResolver.tokenByHash` (one statement under the default resolver, which joins `users` and matches the current or the previous hash), then reads the status. A secret in grace is cached no longer than its grace.
-3. `revoke`, `revokeById`, `revokeAllFor`, `rotate` and `update` evict in this process at once. Every change the `CredentialChangeBus` delivers evicts too: `{ kind: 'token', id }` that token, `{ kind: 'identity', identity }` every token of that owner, agent tokens acting for it included.
+3. `revoke`, `revokeById`, `revokeByPlaintext`, `revokeAllFor`, `rotate` and `update` evict in this process at once. Every change the `CredentialChangeBus` delivers evicts too: `{ kind: 'token', id }` that token, `{ kind: 'identity', identity }` every token of that owner, agent tokens acting for it included.
 4. A validation that a revoke overtook while it was reading stores nothing.
 5. `touch` updates the cached `lastUsedAt`, so `TokenStrategy` does not stamp a cached token on every request.
 
@@ -196,7 +208,7 @@ The collaborators are `@Autoinject` properties of `DbTokenService`, so the subcl
 - **Plaintext once.** Only the SHA-256 hex digest is stored, in a column hidden from `dehydrate()`. `TokenRecord`, events and logs never carry the plaintext or the hash.
 - **Expiry is mandatory.** There is no "never expires" token; `expiresAt` is required by the type and checked at run time. A non-finite cap (a broken config that skipped the schema) refuses every expiry.
 - **Refusals vs throws.** A bad kind, scope, role, profile or expiry is a result (`invalid_scope`, `invalid_expiry`). A bad name (`InvalidArgument`), an unknown owner or an invalid `ctx.now` (`InvalidOperation`), a token format outside the limits (`InvalidOption`), a broken generator (`UnexpectedServerError`) or a database error throws.
-- **Events never undo a write.** `token.create`, `token.revoke`, `token.rotate` and `token.update` are published after the row is written. `AuthnAudit` runs the sinks concurrently, each bounded by `authn.audit.sinkTimeoutMs`; a sink that fails or times out is logged, and the caller still gets the plaintext or `true`. A refused create, a failed revoke and a refused rotate or update publish nothing.
+- **Events never undo a write.** `token.create`, `token.revoke`, `token.rotate` and `token.update` are published after the row is written. `AuthnAudit` runs the sinks concurrently, each bounded by `authn.audit.sinkTimeoutMs`; a sink that fails or times out is logged, and the caller still gets the plaintext or `true`. A refused create, a failed revoke (`revokeByPlaintext` included) and a refused rotate or update publish nothing.
 - **Status within the ttl.** A cached validation does not re-read the owner's status. A ban through `@spinajs/users` revokes the owner's tokens, which evicts them; any other status change counts once the entry is older than `authn.token.cache.ttlSeconds`, or at once when something publishes `{ kind: 'identity' }` on the bus.
 - **Revocation keeps the row.** `revoke` and `revokeAllFor` only set `RevokedAt`; `deleteExpired` removes the row later.
 - **`service` tokens.** In this package a `service` token behaves like a `pat`; the kind is stored and reported. Both belong to a user owner under the default resolver.
@@ -275,4 +287,4 @@ export async function expiringSoon(userUuid: string, now = new Date()): Promise<
 - [Token roles, scopes and agent tokens](03-token-scopes.md): what `roles`, `scope`, `profile` and `kind` do.
 - [Token storage and migrations](05-token-storage.md): the table the service writes.
 - [`@spinajs/authn` audit events](../authn/06-audit-events.md): the sinks that receive `token.create`, `token.revoke`, `token.rotate` and `token.update`.
-- [`@spinajs/authn-http`](../authn-http/README.md): `POST /user/tokens` and `POST /user/tokens/:uuid/rotate` (fresh auth required), `PATCH /user/tokens/:uuid` and `DELETE /user/tokens/:uuid` over this service.
+- [`@spinajs/authn-http`](../authn-http/README.md): `POST /user/tokens` and `POST /user/tokens/:uuid/rotate` (fresh auth required), `PATCH /user/tokens/:uuid` and `DELETE /user/tokens/:uuid` over this service, and `POST /auth/tokens/revoke`, which needs no session.

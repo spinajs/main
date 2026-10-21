@@ -56,6 +56,11 @@ class MemoryTokens extends TokenService {
     for (const r of hit) r.revoked = true;
     return hit.length;
   }
+  async revokeByPlaintext(raw: string, _ctx: AuthnContext): Promise<boolean> {
+    const row = this.rows.find((r) => !r.revoked && r.hash === createHash('sha256').update(raw).digest('hex'));
+    if (row) row.revoked = true;
+    return !!row;
+  }
   async validate(raw: string, at: AuthnContext): Promise<TokenValidation> {
     const row = this.rows.find((r) => r.hash === createHash('sha256').update(raw).digest('hex'));
     if (!row) return { ok: false, reason: 'invalid_credentials' };
@@ -156,6 +161,7 @@ describe('token service contract', () => {
             { name: 'rotate', modifiers: ['abstract'], optional: false, params: ['owner', 'id', 'ctx', 'opts'] },
             { name: 'update', modifiers: ['abstract'], optional: false, params: ['owner', 'id', 'change', 'ctx'] },
             { name: 'revokeAllFor', modifiers: ['abstract'], optional: false, params: ['owner', 'ctx', 'opts'] },
+            { name: 'revokeByPlaintext', modifiers: ['abstract'], optional: false, params: ['raw', 'ctx'] },
             { name: 'validate', modifiers: ['abstract'], optional: false, params: ['raw', 'ctx'] },
           ],
         },
@@ -175,6 +181,7 @@ describe('token service contract', () => {
       for (const s of ['POST /user/tokens/:uuid/rotate', 'fresh auth', 'graceSeconds', 'Owner-bound', 'IDOR']) expect(docOf(c.members, 'rotate')).to.contain(s);
       for (const s of ['PATCH /user/tokens/:uuid', 'narrows', 'invalid_scope', 'invalid_expiry']) expect(docOf(c.members, 'update')).to.contain(s);
       for (const s of ['reset', 'A11', 'A25']) expect(docOf(c.members, 'revokeAllFor')).to.contain(s);
+      for (const s of ['POST /auth/tokens/revoke', 'RFC 7009', 'never thrown', 'previous secret', "reason 'self'"]) expect(docOf(c.members, 'revokeByPlaintext')).to.contain(s);
       for (const s of ['revocation, expiry and the owner', 'A14', 'A15', 'never thrown']) expect(docOf(c.members, 'validate')).to.contain(s);
       const opts = memberDocs('token.ts', 'TokenCreateOptions');
       for (const s of ['Mandatory', 'authn.token.maxTtlDays', 'agentMaxTtlMinutes', 'A14', 'A15']) expect(opts.expiresAt).to.contain(s);

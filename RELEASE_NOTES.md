@@ -1,3 +1,25 @@
+# Release notes — authn, authn-token, authn-http: revoke a token by its plaintext
+
+> Branch `feat/ory-flow-5`. Docs: `docs/authn-token/01-token-service.md`, `docs/authn-http/14-api-token-routes.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn` — `TokenService` has a new abstract method
+
+`revokeByPlaintext(raw, ctx)` is abstract. A class that extends `TokenService` outside this repository must implement
+it, or the build fails. `DbTokenService` and `MemoryTokenService` of `@spinajs/authn-testing` do.
+
+## New behavior
+
+- `TokenService.revokeByPlaintext(raw, ctx)` revokes the token a secret belongs to and answers `true`; an unknown,
+  malformed, already revoked or out-of-grace secret answers `false`. The previous secret of a rotation revokes the
+  token while its grace lasts. It evicts the validation cache, publishes on the `CredentialChangeBus` and audits
+  `token.revoke` with `reason: 'self'`.
+- `POST /auth/tokens/revoke` in `@spinajs/authn-http` (RFC 7009 style): body `token`, no session, always `200 {}`.
+  Each request counts in the `reset` throttle flow keyed on the client ip, shared with the password reset routes; a
+  refusal answers 429 with `Retry-After`.
+- `runTokenServiceConformance` covers the method.
+
 # Release notes — bounded cleanup and the `Expiration` index
 
 ## New behavior

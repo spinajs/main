@@ -41,6 +41,10 @@ export class RecordingTokenService extends TokenService {
     throw new Error('not used');
   }
 
+  public revokeByPlaintext(): Promise<boolean> {
+    throw new Error('not used');
+  }
+
   public validate(): Promise<TokenValidation> {
     throw new Error('not used');
   }

@@ -410,6 +410,100 @@ export function runTokenServiceConformance(name: string, make: () => Promise<Tok
       assert.deepStrictEqual(await t.service.validate(r.plaintext, ctx), { ok: false, reason: 'revoked' });
     });
 
+    kase('revokeByPlaintext revokes the token of that plaintext only, and a second call is false', async (t, clock) => {
+      const owner = await t.owners.make();
+      const other = await t.owners.make();
+      const ctx = clock.ctx({ purpose: 'request' });
+      const mine = await mint(t, clock, owner, 'mine');
+      const sibling = await mint(t, clock, owner, 'sibling');
+      const foreign = await mint(t, clock, other, 'foreign');
+
+      assert.strictEqual(await t.service.revokeByPlaintext(mine.plaintext, ctx), true);
+      assert.deepStrictEqual(await t.service.validate(mine.plaintext, ctx), { ok: false, reason: 'revoked' });
+      assert.deepStrictEqual((await t.service.list(owner)).map((r) => r.id), [sibling.record.id], 'a revoked token is left out of the list');
+      assert.ok((await t.service.validate(sibling.plaintext, ctx)).ok, 'another token of the owner stays valid');
+      assert.ok((await t.service.validate(foreign.plaintext, ctx)).ok, 'another owner keeps its token');
+
+      assert.strictEqual(await t.service.revokeByPlaintext(mine.plaintext, ctx), false);
+      assert.deepStrictEqual(await t.service.validate(mine.plaintext, ctx), { ok: false, reason: 'revoked' });
+    });
+
+    kase('revokeByPlaintext then revoke by id: only the first one revokes', async (t, clock) => {
+      const owner = await t.owners.make();
+      const ctx = clock.ctx({ purpose: 'request' });
+      const created = await mint(t, clock, owner, 'laptop');
+      assert.strictEqual(await t.service.revokeByPlaintext(created.plaintext, ctx), true);
+      assert.strictEqual(await t.service.revoke(owner, created.record.id, ctx), false);
+
+      const again = await mint(t, clock, owner, 'again');
+      assert.strictEqual(await t.service.revoke(owner, again.record.id, ctx), true);
+      assert.strictEqual(await t.service.revokeByPlaintext(again.plaintext, ctx), false);
+    });
+
+    kase('revokeByPlaintext evicts a cached validation at once', async (t, clock) => {
+      const owner = await t.owners.make();
+      const created = await mint(t, clock, owner, 'laptop');
+      const ctx = clock.ctx({ purpose: 'request' });
+      for (let i = 0; i < 3; i++) {
+        assert.ok((await t.service.validate(created.plaintext, ctx)).ok, 'warm');
+      }
+
+      assert.strictEqual(await t.service.revokeByPlaintext(created.plaintext, ctx), true);
+      assert.deepStrictEqual(await t.service.validate(created.plaintext, ctx), { ok: false, reason: 'revoked' });
+    });
+
+    kase('revokeByPlaintext revokes an agent token and no other token of its owner', async (t, clock) => {
+      const owner = await t.owners.make();
+      const ctx = clock.ctx({ purpose: 'request' });
+      const agent = await mint(t, clock, owner, 'agent', agentOptions(clock));
+      const pat = await mint(t, clock, owner, 'pat');
+
+      assert.strictEqual(await t.service.revokeByPlaintext(agent.plaintext, ctx), true);
+      assert.deepStrictEqual(await t.service.validate(agent.plaintext, ctx), { ok: false, reason: 'revoked' });
+      assert.ok((await t.service.validate(pat.plaintext, ctx)).ok);
+    });
+
+    kase('revokeByPlaintext is false for an unknown, altered, blank or non-string plaintext and changes nothing', async (t, clock) => {
+      const owner = await t.owners.make();
+      const created = await mint(t, clock, owner, 'laptop');
+      const ctx = clock.ctx({ purpose: 'request' });
+      const bad: unknown[] = ['conf-token-never-issued', created.plaintext + 'x', created.plaintext.slice(1), created.plaintext.toUpperCase(), '', ' ', 'x'.repeat(100_000), undefined, null, 42, {}];
+      for (const raw of bad) {
+        assert.strictEqual(await t.service.revokeByPlaintext(raw as string, ctx), false, JSON.stringify(raw)?.slice(0, 40));
+      }
+      assert.ok((await t.service.validate(created.plaintext, ctx)).ok, 'the token is still live');
+      assert.strictEqual((await t.service.list(owner)).length, 1);
+    });
+
+    kase('revokeByPlaintext with the previous plaintext revokes the token while the grace lasts', async (t, clock) => {
+      const owner = await t.owners.make();
+      const created = await mint(t, clock, owner, 'laptop');
+      const next = await rotate(t, clock, owner, created.record.id, { graceSeconds: 60 });
+      clock.tick(60_000 - 1);
+      const ctx = clock.ctx({ purpose: 'request' });
+
+      assert.strictEqual(await t.service.revokeByPlaintext(created.plaintext, ctx), true, 'the old plaintext still proves possession');
+      for (const plaintext of [created.plaintext, next.plaintext]) {
+        assert.deepStrictEqual(await t.service.validate(plaintext, ctx), { ok: false, reason: 'revoked' });
+      }
+      assert.deepStrictEqual(await t.service.list(owner), []);
+    });
+
+    kase('revokeByPlaintext with a plaintext whose grace has ended is false and leaves the token live', async (t, clock) => {
+      const owner = await t.owners.make();
+      const created = await mint(t, clock, owner, 'laptop');
+      const next = await rotate(t, clock, owner, created.record.id, { graceSeconds: 60 });
+      clock.tick(60_000);
+      const ctx = clock.ctx({ purpose: 'request' });
+      assert.strictEqual(await t.service.revokeByPlaintext(created.plaintext, ctx), false, 'grace over');
+      assert.ok((await t.service.validate(next.plaintext, ctx)).ok);
+
+      const dropped = await rotate(t, clock, owner, created.record.id);
+      assert.strictEqual(await t.service.revokeByPlaintext(next.plaintext, ctx), false, 'rotated without grace');
+      assert.ok((await t.service.validate(dropped.plaintext, ctx)).ok);
+      assert.strictEqual(await t.service.revokeByPlaintext(dropped.plaintext, ctx), true);
+    });
+
     kase('a cached validation sees an update at once', async (t, clock) => {
       const owner = await t.owners.make();
       const created = await mint(t, clock, owner, 'laptop', { roles: ['editor', 'viewer'] });

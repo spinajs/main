@@ -53,6 +53,10 @@ class StubTokenService extends TokenService {
     throw new Error('not used');
   }
 
+  public async revokeByPlaintext(): Promise<never> {
+    throw new Error('not used');
+  }
+
   public async validate(): Promise<never> {
     throw new Error('not used');
   }

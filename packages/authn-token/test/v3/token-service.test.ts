@@ -1153,6 +1153,64 @@ describe('DbTokenService', function () {
     });
   });
 
+  describe('revokeByPlaintext events', () => {
+    it('publishes token.revoke with reason self for the owner, without the plaintext or its hash', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      const g = await agent(a);
+      const next = await tokens.rotate(a, t.record.id, ctx(at(MINUTE)), { graceSeconds: 300 });
+      if (!next.ok) {
+        throw new Error('not rotated');
+      }
+      sink.clear();
+
+      expect(await tokens.revokeByPlaintext(g.plaintext, ctx(at(2 * MINUTE), { ip: '192.0.2.9' }))).to.equal(true);
+      expect(await tokens.revokeByPlaintext(t.plaintext, ctx(at(3 * MINUTE)))).to.equal(true);
+
+      expect(sink.all()).to.deep.equal([
+        { type: 'token.revoke', at: at(2 * MINUTE), outcome: 'success', reason: 'self', identity: a, ip: '192.0.2.9', data: { token: g.record.id, kind: 'agent' } },
+        { type: 'token.revoke', at: at(3 * MINUTE), outcome: 'success', reason: 'self', identity: a, data: { token: t.record.id, kind: 'pat' } },
+      ]);
+
+      const json = JSON.stringify(sink.all());
+      for (const secret of [t.plaintext, sha256(t.plaintext), g.plaintext, sha256(g.plaintext), next.plaintext, sha256(next.plaintext)]) {
+        expect(json).to.not.contain(secret);
+      }
+    });
+
+    it('publishes nothing for an unknown, malformed, already revoked or out-of-grace plaintext', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      const old = await pat(a);
+      expect((await tokens.rotate(a, old.record.id, ctx(), { graceSeconds: 30 })).ok).to.equal(true);
+      const gone = await pat(a);
+      expect(await tokens.revoke(a, gone.record.id, ctx())).to.equal(true);
+      sink.clear();
+
+      for (const raw of ['spt_unknown', '', gone.plaintext, t.plaintext + 'x']) {
+        expect(await tokens.revokeByPlaintext(raw, ctx()), raw).to.equal(false);
+      }
+      expect(await tokens.revokeByPlaintext(old.plaintext, ctx(at(30 * SECOND)))).to.equal(false);
+      expect(sink.all()).to.deep.equal([]);
+    });
+
+    it('keeps a completed revocation when a sink throws', async () => {
+      tokens = await build({ auditor: AuthnAudit.over([new ThrowingTokenSink()]) });
+      const a = await owner();
+      const t = await pat(a);
+      expect(await tokens.revokeByPlaintext(t.plaintext, ctx())).to.equal(true);
+      expect(await validate(t.plaintext)).to.deep.equal({ ok: false, reason: 'revoked' });
+    });
+
+    it('revokes the token of an owner who is banned since', async () => {
+      const banned = await owner();
+      const t = await pat(banned);
+      identities.setStatus(banned, { banned: true });
+      expect(await tokens.revokeByPlaintext(t.plaintext, ctx())).to.equal(true);
+      expect((await row(t.record.id)).RevokedAt?.toMillis()).to.equal(NOW.getTime());
+    });
+  });
+
   describe('events', () => {
     it('publishes token.create and token.revoke without the plaintext or its hash', async () => {
       const a = await owner();
