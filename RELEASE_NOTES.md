@@ -1,3 +1,12 @@
+# Release notes — authn-oidc: validated route inputs
+
+> Branch `feat/hard-val3`. Docs: `docs/authn-oidc/09-security.md`.
+
+## Behavior changes
+
+- `@spinajs/authn-oidc`: the OIDC routes validate their input. `:provider` must match `^[A-Za-z0-9_-]{1,64}$`; the begin, reauth and unlink queries refuse unknown keys; the callback query caps `code`, `state`, `iss`, `error` and `bounce` at 4096 characters and still allows other keys (IdPs append their own); `returnTo` is capped at 1024, `subject` at 255 and the back-channel `logout_token` at 16384. Invalid input answers as the login failure does (303 to the failure page for a navigation, otherwise 401, flow cookie cleared); the back-channel route answers 400 `invalid_request`.
+- `OidcController` action signatures changed (decorated arguments instead of `@Req()`); subclasses that call the actions directly must pass the new arguments. `@spinajs/authn-oidc` now depends on `@spinajs/validation`.
+
 # Release notes — http, validation: route error handlers, per-path body limits, strict schema ids
 
 > Branch `feat/hard-val0`. Docs: `docs/http/11-error-handling.md`, `docs/http/04-route-arguments.md`,
