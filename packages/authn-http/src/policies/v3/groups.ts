@@ -2,7 +2,7 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
-import { ImpersonationGuard, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
+import { ImpersonationGuard, JwsSigner, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
 
 import { notFound } from './errors.js';
 
@@ -54,3 +54,6 @@ export class RoleSourceRegistered extends serviceRegistered(RoleSource, 'role sw
 
 /** 404 while no ImpersonationGuard is registered: the impersonation routes are off. */
 export class ImpersonationGuardRegistered extends serviceRegistered(ImpersonationGuard, 'impersonation is off: no ImpersonationGuard is registered') {}
+
+/** 404 while no JwsSigner is registered: the JWKS route is off. */
+export class JwsSignerRegistered extends serviceRegistered(JwsSigner, 'the JWKS route is off: no JwsSigner is registered') {}
