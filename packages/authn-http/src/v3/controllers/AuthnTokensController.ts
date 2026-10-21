@@ -6,7 +6,7 @@ import { TokenService } from '@spinajs/authn/contracts';
 
 import { freshAuthOrAnswer, takeReauthPassword } from '../../policies/v3/fresh-auth.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
-import { TOKEN_ID_CAP, invalidExpiry, tokenEntry, tokenNotFound, tokenRequestOf } from '../../token/fields.js';
+import { TOKEN_ID_CAP, invalidExpiry, rotateRequestOf, tokenEntry, tokenNotFound, tokenRequestOf, tokenUpdateOf } from '../../token/fields.js';
 import { TokenServiceRegistered } from '../../token/gate.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
 import { NO_STORE, badRequest } from '../responses.js';
@@ -18,7 +18,7 @@ import { boundedString, contextOf } from '../routes.js';
  * 403 `session_required` (no credential mints or manages credentials), an impersonation 403 `impersonating` (a token
  * minted there would outlive it), an anonymous caller or a pending session 401. Every answer carries no-store.
  *
- * One token on the wire, in the list and as `Token` of the create answer:
+ * One token on the wire, in the list and as `Token` of the create, rotate and update answers:
  * `{ Uuid, Name, Kind, Roles, Profile, Scope, CreatedAt, ExpiresAt, LastUsedAt, LastUsedIp, Expired }`. Instants are
  * ISO 8601 to the second, absent values null, `Roles` always a list. Never the plaintext or its hash.
  * @tags AccessTokens
@@ -101,9 +101,17 @@ export class AuthnTokensController extends BaseController {
   @Post('tokens/:uuid/rotate')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async rotate(@Req() req: Request, @Param() uuid: string) {
-    void req;
-    void uuid;
-    throw new Error('not implemented: AuthnTokensController.rotate');
+    const session = activeSessionOf(req);
+    const fresh = await freshAuthOrAnswer(this.Container, req, takeReauthPassword(req));
+    if ('answer' in fresh) return fresh.answer;
+    const parsed = rotateRequestOf(req);
+    if ('answer' in parsed) return parsed.answer;
+    const id = boundedString(uuid, TOKEN_ID_CAP);
+    if (id === null) return tokenNotFound();
+
+    const result = await (await this.service()).rotate(session.identity, id, contextOf(req, 'request', session.handle), parsed.opts);
+    if (!result.ok) return tokenNotFound();
+    return new Ok({ Token: tokenEntry(result.token, new Date()), Plaintext: result.plaintext }, { Headers: [NO_STORE] });
   }
 
   /**
@@ -116,9 +124,16 @@ export class AuthnTokensController extends BaseController {
   @Patch('tokens/:uuid')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async update(@Req() req: Request, @Param() uuid: string) {
-    void req;
-    void uuid;
-    throw new Error('not implemented: AuthnTokensController.update');
+    const session = activeSessionOf(req);
+    const parsed = tokenUpdateOf(req);
+    if ('answer' in parsed) return parsed.answer;
+    const id = boundedString(uuid, TOKEN_ID_CAP);
+    if (id === null) return tokenNotFound();
+
+    const result = await (await this.service()).update(session.identity, id, parsed.change, contextOf(req, 'request', session.handle));
+    if (result.ok) return new Ok({ Token: tokenEntry(result.token, new Date()) }, { Headers: [NO_STORE] });
+    if (result.reason === 'not_found') return tokenNotFound();
+    return result.reason === 'invalid_expiry' ? invalidExpiry() : badRequest('invalid_scope', 'the roles are not allowed for this token');
   }
 
   protected async service(): Promise<TokenService> {
