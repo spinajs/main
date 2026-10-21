@@ -124,7 +124,7 @@ authz: { abac: { stores: ['ConfigPolicyStore', 'DbPolicyStore'] } }
 ### Change a policy in a test
 
 ```ts sample
-import type { Policy } from '@spinajs/authz';
+import type { Policy } from '@spinajs/authz-abac';
 import { AbacModel, MemoryPolicyStore } from '@spinajs/authz-abac';
 
 export function freezeInvoices(store: MemoryPolicyStore, model: AbacModel): void {
