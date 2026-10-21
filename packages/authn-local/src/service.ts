@@ -364,14 +364,19 @@ export class LocalPasswordService extends PasswordService {
   public async redeemVerification(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult> {
     const verifier = this.verifier();
     const parsed = parseVerifySecret(secret);
-    const status = parsed ? await (await this.identities()).status(parsed.id) : null;
-    const target = parsed && status && eligible(status) ? parsed.id : null;
+    if (!parsed) {
+      await (await this.secrets()).redeem(throwaway(), 'verify', '');
+      await this.audit(ctx, { type: 'address.verify', outcome: 'failure', reason: 'malformed' });
+      return INVALID;
+    }
+    const status = await (await this.identities()).status(parsed.id);
+    const target = eligible(status) ? parsed.id : null;
     // Always one redeem, on a throwaway ref where no real one is due: otherwise the time tells a forged identity part apart.
-    const redeemed = await (await this.secrets()).redeem(target ?? throwaway(), 'verify', parsed?.raw ?? '');
+    const redeemed = await (await this.secrets()).redeem(target ?? throwaway(), 'verify', parsed.raw);
 
     if (!target || !redeemed) {
-      const reason = !parsed ? 'malformed' : !status?.exists ? 'unknown_identity' : !target ? 'status' : 'secret';
-      await this.audit(ctx, { type: 'address.verify', outcome: 'failure', ...(parsed && status?.exists ? { identity: parsed.id } : {}), reason });
+      const reason = !status.exists ? 'unknown_identity' : !target ? 'status' : 'secret';
+      await this.audit(ctx, { type: 'address.verify', outcome: 'failure', ...(status.exists ? { identity: parsed.id } : {}), reason });
       return INVALID;
     }
     await verifier.markVerified(target, ctx.now);
