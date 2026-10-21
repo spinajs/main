@@ -181,4 +181,21 @@ describe('sqlite OrmMigrator table info re-read', function () {
 
     expect(columns(schema.Post).find((c) => c.Name === 'Title')!.Unique).to.equal(true);
   });
+  it('re-reads only the models whose tables the migration touched', async () => {
+    alter = alterMigration('mti_posts', (t) => {
+      t.string('Extra');
+    });
+
+    const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    await migrator.migrate({ name: schema.create.name });
+    const tableInfo = sinon.spy(SqliteOrmDriver.prototype, 'tableInfo');
+
+    await migrator.migrate();
+
+    const reads = tableInfo.getCalls().map((c) => c.args[0] as string);
+    expect(reads).to.include('mti_posts');
+    expect(reads).to.not.include('mti_notes');
+    expect(names(schema.Post)).to.include('Extra');
+    expect(names(schema.Note)).to.have.members(['Id', 'Body']);
+  });
 });
