@@ -1,9 +1,10 @@
 import { Autoinject } from '@spinajs/di';
-import { Argument, CliCommand, Command } from '@spinajs/cli';
+import { Argument, Command } from '@spinajs/cli';
 import { Log, Logger } from '@spinajs/log';
 import { KeyRegistry } from '@spinajs/authn/contracts';
 import type { KeyRecord } from '@spinajs/authn/contracts';
 import { OWNER_TYPES, ownerArg } from './common.js';
+import { KeyCliCommand } from './KeyCliCommand.js';
 
 const iso = (d?: Date): string => (d ? d.toISOString() : '-');
 
@@ -14,7 +15,7 @@ export function keyLine(k: KeyRecord): string {
 @Command('authn:key-list', 'Lists the public keys of a user, a service or an agent, revoked and expired ones included')
 @Argument({ name: 'ownerType', required: true, description: OWNER_TYPES.join(', '), choices: OWNER_TYPES })
 @Argument('ownerId', true, 'id of the owner (users.Uuid for users)')
-export class ListKeys extends CliCommand {
+export class ListKeys extends KeyCliCommand {
   @Logger('authn-keys')
   protected Log: Log;
 

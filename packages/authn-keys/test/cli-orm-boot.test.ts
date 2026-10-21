@@ -58,7 +58,7 @@ describe('key cli commands boot the Orm', function () {
   this.timeout(120000);
 
   for (const command of ['AddKey', 'ListKeys', 'RevokeKey']) {
-    it(`resolving ${command} brings the Orm up`, () => {
+    it(`resolving ${command} brings the Orm up and runs its Migration.OnStartup pass`, () => {
       expect(cliProcess(command).orm).to.eq(true);
     });
   }
