@@ -13,7 +13,8 @@ function pageOf(q: AuthzAdminQuery): Page {
   const p = (q as { page?: unknown }).page;
   if (p === undefined) return { limit: 50, offset: 0 };
   if (!isPlainObject(p) || !Number.isInteger(p.limit) || !Number.isInteger(p.offset) || (p.limit as number) < 0 || (p.offset as number) < 0) throw new AuthzAdminFailure('invalid_query', 'page must be { limit, offset } with non-negative integers', 'page');
-  return { limit: p.limit as number, offset: p.offset as number };
+  if (p.after !== undefined && (typeof p.after !== 'string' || p.after === '')) throw new AuthzAdminFailure('invalid_query', 'page.after must be a non-empty string', 'page.after');
+  return { limit: p.limit as number, offset: p.offset as number, ...(p.after === undefined ? {} : { after: p.after }) };
 }
 
 function scopeOf(q: AuthzAdminQuery): ResourceRef | undefined {
@@ -36,7 +37,7 @@ function asQuery<T>(read: () => T): T {
 export class RbacAdminReader extends AuthzAdminReader {
   readonly kinds = ['assignments', 'links', 'rules', 'holders'] as const;
 
-  async list(q: AuthzAdminQuery, ctx: AdminContext): Promise<{ items: readonly unknown[]; total: number }> {
+  async list(q: AuthzAdminQuery, ctx: AdminContext): Promise<{ items: readonly unknown[]; total: number; next?: string }> {
     switch (q.kind) {
       case 'assignments': {
         const page = pageOf(q);
@@ -47,9 +48,9 @@ export class RbacAdminReader extends AuthzAdminReader {
         return (await assignmentStore(ctx)).find({ scope, subject, role: q.role, includeExpired: q.includeExpired === true, at: ctx.now }, page);
       }
       case 'links': {
-        const { items, total } = await (await linkStore(ctx)).find({ scope: scopeOf(q) }, pageOf(q));
+        const { items, total, next } = await (await linkStore(ctx)).find({ scope: scopeOf(q) }, pageOf(q));
         // Only LinkDef fields: a store's own row type may carry the hash.
-        return { items: items.map((l) => ({ id: l.id, scope: l.scope, expiresAt: l.expiresAt ?? null, attributes: l.attributes, ...(l.createdBy ? { createdBy: l.createdBy } : {}) })), total };
+        return { items: items.map((l) => ({ id: l.id, scope: l.scope, expiresAt: l.expiresAt ?? null, attributes: l.attributes, ...(l.createdBy ? { createdBy: l.createdBy } : {}) })), total, ...(next === undefined ? {} : { next }) };
       }
       case 'rules':
         return (await ruleStore(ctx)).find({ scope: scopeOf(q) }, pageOf(q));

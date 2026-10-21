@@ -13,12 +13,13 @@ export interface AppliedRow {
 
 /**
  * list() support for one or more query kinds; registered by the model that owns the data. AuthzAdmin
- * checks the read permission first and passes a page ({ limit, offset }) for every kind but 'attributes'.
+ * checks the read permission first and passes a page ({ limit, offset, after? }) for every kind but 'attributes'.
+ * A reader that pages by keyset returns `next`, the `after` of the following page, and omits it on the last.
  * Items never carry a link token or its hash: the core cannot tell which fields of a model's rows are secret.
  */
 export abstract class AuthzAdminReader {
   abstract readonly kinds: readonly AuthzAdminQuery['kind'][];
-  abstract list(q: AuthzAdminQuery, ctx: AdminContext): Promise<{ items: readonly unknown[]; total: number }>;
+  abstract list(q: AuthzAdminQuery, ctx: AdminContext): Promise<{ items: readonly unknown[]; total: number; next?: string }>;
 }
 
 /** scope.forget fans out to every registered forgetter, inside the batch transaction. */

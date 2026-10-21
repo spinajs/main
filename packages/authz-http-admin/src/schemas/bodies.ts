@@ -46,6 +46,6 @@ export const AuthzCommandResult: JsonSchema = { ...commandResult, description: '
 
 export const AuthzAdminResults: JsonSchema = obj(['results'], { results: { type: 'array', items: commandResult, description: 'one per command, in order; the first failure ends the list' } }, 'The answer of a write route: 200 when every command succeeded, else the status of the first failure, with the same body');
 
-export const AuthzAdminPage: JsonSchema = obj(['items', 'total'], { items: { type: 'array', items: anyObject }, total: { type: 'integer', description: 'rows matching before paging' } }, 'The answer of a list route');
+export const AuthzAdminPage: JsonSchema = obj(['items', 'total'], { items: { type: 'array', items: anyObject }, total: { type: 'integer', description: 'rows matching before paging' }, next: { type: 'string', description: 'pass it as `after` to read the following page; absent on the last page and on offset pages' } }, 'The answer of a list route');
 
 export const AuthzAdminAttributes: JsonSchema = { ...anyObject, description: 'The attributes of a scope' };

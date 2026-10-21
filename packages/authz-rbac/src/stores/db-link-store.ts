@@ -7,11 +7,12 @@ import type { DateTime } from 'luxon';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { AdminLinkStore } from '../admin/ports.js';
+import type { ListResult, Page } from '../admin/ports.js';
 import { parsePrincipalKey, scopeFromColumns, scopeToColumns } from './columns.js';
 import { requireTransaction } from './context.js';
 import { DbAssignmentStore } from './db-assignment-store.js';
 import { withDbRbacStore } from './db-store.js';
-import { pageWindow, requireScopeNode } from './queries.js';
+import { applyWindow, pageWindow, requireScopeNode, trimWindow } from './queries.js';
 import { LinkRecord, fromDateTime, recordValues, toDateTime } from './records.js';
 import type { LinkFields } from './records.js';
 import { LINK_SECRET_MIN_LENGTH } from './schema.js';
@@ -187,8 +188,11 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
    * first; `total` counts the unpaged result. Without a page, every match in one query; with one, at
    * most {@link LINK_LIST_MAX_LIMIT} rows. A negative or fractional `limit` or `offset` is
    * `invalid_page`.
+   * `page.after` (the `next` of an earlier page) continues behind that row instead of skipping `offset`
+   * rows; a cursor this list did not issue, or one with an `offset`, is `invalid_page`. `next` is set
+   * when more rows follow and the page has no `offset`.
    */
-  async find(q: LinkQuery, page?: { limit: number; offset: number }): Promise<{ items: readonly LinkDef[]; total: number }> {
+  async find(q: LinkQuery, page?: Page): Promise<ListResult<LinkDef>> {
     await this.ready();
     const window = page ? pageWindow(page, this.maxListLimit, `${this.name}.find`) : undefined;
 
@@ -206,10 +210,9 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
     const total = await filtered().selectCount();
     if (window.limit === 0) return { items: [], total };
 
-    const query = filtered().orderBy('created_at').orderBy('id').take(window.limit);
-    if (window.offset > 0) query.skip(window.offset);
+    const { rows, next } = trimWindow(await applyWindow(filtered().orderBy('created_at').orderBy('id'), window), window);
 
-    return { items: (await query).map(rowToLink), total };
+    return { items: rows.map(rowToLink), total, ...(next === undefined ? {} : { next }) };
   }
 
   protected assignments(): DbAssignmentStore {

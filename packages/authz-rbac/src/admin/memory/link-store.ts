@@ -5,9 +5,10 @@ import type { AuthzTx, MemoryTx, PrincipalRef, ResourceRef } from '@spinajs/auth
 
 import type { LinkDef } from '../../contracts.js';
 import { AdminLinkStore } from '../ports.js';
-import type { AdminAssignmentStore, Page } from '../ports.js';
-import { copyDate, copyPrincipalRef, copyRef, deepFreeze, paged, sameRef, sortedTags } from '../rows.js';
+import type { AdminAssignmentStore, ListResult, Page } from '../ports.js';
+import { copyDate, copyPrincipalRef, copyRef, deepFreeze, sameRef, sortedTags } from '../rows.js';
 import { MemoryAdminAssignmentStore } from './assignment-store.js';
+import { ListingOrder } from './listing-order.js';
 
 interface Row {
   readonly link: LinkDef;
@@ -42,6 +43,7 @@ export interface MemoryLinkStoreOptions {
 export class MemoryLinkStore extends AdminLinkStore {
   readonly name: string;
   private readonly rows = new Map<string, Row>();
+  private readonly order = new ListingOrder();
   private revision = 0;
 
   constructor(private readonly assignments: AdminAssignmentStore, opts: MemoryLinkStoreOptions = {}) {
@@ -54,6 +56,7 @@ export class MemoryLinkStore extends AdminLinkStore {
       if (typeof token !== 'string' || token === '') throw new AuthzConfigError(`MemoryLinkStore: preloaded link ${JSON.stringify(link.id)} needs a non-empty token`);
       const row = copy(link);
       this.rows.set(row.id, { link: row, hash: hashOf(token) });
+      this.order.note(row.id);
       assignments.seed({ subject: { type: 'link', id: row.id }, role, scope: row.scope, tags: sortedTags(tags), expiresAt: null }, row.createdBy ?? copyPrincipalRef(SYSTEM));
     }
   }
@@ -97,9 +100,9 @@ export class MemoryLinkStore extends AdminLinkStore {
     return copy(link);
   }
 
-  async find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<{ items: readonly LinkDef[]; total: number }> {
+  async find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<ListResult<LinkDef>> {
     const items = [...this.rows.values()].filter((r) => q.scope === undefined || sameRef(r.link.scope, q.scope)).map((r) => copy(r.link));
-    return paged(items, page);
+    return this.order.page(items, page, `${this.name}.find`);
   }
 
   async forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly LinkDef[]> {
@@ -123,12 +126,19 @@ export class MemoryLinkStore extends AdminLinkStore {
 
   private write(undo: MemoryTx, id: string, row: Row | undefined): void {
     const before = [...this.rows.entries()];
-    if (row) this.rows.set(id, row);
-    else this.rows.delete(id);
+    const restoreOrder = this.order.snapshot();
+    if (row) {
+      this.rows.set(id, row);
+      this.order.note(id);
+    } else {
+      this.rows.delete(id);
+      this.order.forget(id);
+    }
     this.revision++;
     undo.onRollback(() => {
       this.rows.clear();
       for (const [k, v] of before) this.rows.set(k, v);
+      restoreOrder();
       this.revision++;
     });
   }

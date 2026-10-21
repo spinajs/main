@@ -29,6 +29,7 @@ Migration `AuthzFsAcl_2026_10_17_00_00_00`, run on `authz.fsAcl.connection`.
 
 - Unique key `(fs, path_hash, subject_key, relation)` on every driver. The hash keeps the key under the index limits of MySQL and MSSQL for 512-character paths.
 - Index `(fs, path_hash, relation)`.
+- Index `(fs, path)`, from migration `AuthzFsAclPathIndex_2026_10_21_00_00_00` (run it on an existing database): the prefix reads of `deleteTree` and `moveTree` use it. `moveTree` still rewrites the moved rows one by one in a transaction, because `path_hash` is computed in Node.
 - `fs`, `path`, `path_hash`, `subject_key` and `relation` are `exact()` columns: the driver's binary collation compares them byte for byte, so `Report.pdf` and `report.pdf` are two paths. Lookups compare `path` itself.
 
 ## Services and extension points

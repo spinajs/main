@@ -90,10 +90,10 @@ export abstract class AuthzAdmin {
   abstract setScopeAttributes(actor: Principal, scope: ResourceRef, patch: Readonly<Record<string, unknown>>, opts?: AuthzAdminOptions): Promise<void>;
   abstract forgetScope(actor: Principal, scope: ResourceRef, opts?: AuthzAdminOptions): Promise<void>;
   // reads for admin UIs (guarded by the matching ':read' permission)
-  abstract list(actor: Principal, q: AuthzAdminQuery): Promise<{ items: readonly unknown[]; total: number }>;
+  abstract list(actor: Principal, q: AuthzAdminQuery): Promise<{ items: readonly unknown[]; total: number; next?: string }>;
 }
 
-export type AuthzAdminQuery = { readonly kind: 'assignments'; readonly scope?: ResourceRef; readonly subject?: AssignmentSubject; readonly role?: string; readonly includeExpired?: boolean; readonly page?: { limit: number; offset: number } } | { readonly kind: 'links' | 'rules' | 'policies'; readonly scope?: ResourceRef; readonly page?: { limit: number; offset: number } } | { readonly kind: 'attributes'; readonly scope: ResourceRef } | { readonly kind: 'holders'; readonly scope: ResourceRef; readonly permission: Permission; readonly expandSets?: boolean; readonly page?: { limit: number; offset: number } };
+export type AuthzAdminQuery = { readonly kind: 'assignments'; readonly scope?: ResourceRef; readonly subject?: AssignmentSubject; readonly role?: string; readonly includeExpired?: boolean; readonly page?: { limit: number; offset: number; after?: string } } | { readonly kind: 'links' | 'rules' | 'policies'; readonly scope?: ResourceRef; readonly page?: { limit: number; offset: number; after?: string } } | { readonly kind: 'attributes'; readonly scope: ResourceRef } | { readonly kind: 'holders'; readonly scope: ResourceRef; readonly permission: Permission; readonly expandSets?: boolean; readonly page?: { limit: number; offset: number; after?: string } };
 
 /** One per command kind family; registered by the model that owns the data (RBAC: assignment, set, link, rule; ABAC: policy; core: scope). */
 export abstract class AuthzWriteHandler {

@@ -237,7 +237,7 @@ describe('pinned shapes (copies of design 6.6.1 and 5.8)', () => {
 
   type DResult = { readonly ok: true; readonly kind: DCommand['kind']; readonly id?: string; readonly token?: string; readonly affected: number } | { readonly ok: false; readonly kind: DCommand['kind']; readonly error: { readonly code: string; readonly message: string; readonly field?: string } };
 
-  type DQuery = { readonly kind: 'assignments'; readonly scope?: ResourceRef; readonly subject?: AssignmentSubject; readonly role?: string; readonly includeExpired?: boolean; readonly page?: { limit: number; offset: number } } | { readonly kind: 'links' | 'rules' | 'policies'; readonly scope?: ResourceRef; readonly page?: { limit: number; offset: number } } | { readonly kind: 'attributes'; readonly scope: ResourceRef } | { readonly kind: 'holders'; readonly scope: ResourceRef; readonly permission: Permission; readonly expandSets?: boolean; readonly page?: { limit: number; offset: number } };
+  type DQuery = { readonly kind: 'assignments'; readonly scope?: ResourceRef; readonly subject?: AssignmentSubject; readonly role?: string; readonly includeExpired?: boolean; readonly page?: { limit: number; offset: number; after?: string } } | { readonly kind: 'links' | 'rules' | 'policies'; readonly scope?: ResourceRef; readonly page?: { limit: number; offset: number; after?: string } } | { readonly kind: 'attributes'; readonly scope: ResourceRef } | { readonly kind: 'holders'; readonly scope: ResourceRef; readonly permission: Permission; readonly expandSets?: boolean; readonly page?: { limit: number; offset: number; after?: string } };
 
   type DSubject = PrincipalRef | { readonly set: { readonly role: string; readonly scope: ResourceRef } };
 
@@ -343,7 +343,7 @@ describe('pinned shapes (copies of design 6.6.1 and 5.8)', () => {
     yes<Equal<AuthzAdmin['deletePolicy'], (actor: Principal, id: string, opts?: Opts) => Promise<void>>>();
     yes<Equal<AuthzAdmin['setScopeAttributes'], (actor: Principal, scope: ResourceRef, patch: Extra, opts?: Opts) => Promise<void>>>();
     yes<Equal<AuthzAdmin['forgetScope'], (actor: Principal, scope: ResourceRef, opts?: Opts) => Promise<void>>>();
-    yes<Equal<AuthzAdmin['list'], (actor: Principal, q: DQuery) => Promise<{ items: readonly unknown[]; total: number }>>>();
+    yes<Equal<AuthzAdmin['list'], (actor: Principal, q: DQuery) => Promise<{ items: readonly unknown[]; total: number; next?: string }>>>();
 
     yes<Equal<keyof AuthzWriteHandler, 'kinds' | 'validate' | 'permission' | 'apply'>>();
     yes<Equal<Pick<AuthzWriteHandler, 'kinds'>, { readonly kinds: readonly DCommand['kind'][] }>>();
