@@ -3,16 +3,19 @@ import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import '../register-schema.js';
 import { AuthnAudit } from '@spinajs/authn/audit';
+// Registers the default CredentialChangeBus.
+import '@spinajs/authn/bus';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
-import { AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
-import type { CredentialChangeBus } from '@spinajs/authn/contracts';
+import { AuthnThrottle, CredentialChangeBus, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
 import { _between, _contains, _is_string, _try_check_arg, isPlainObject } from '@spinajs/util';
 import { InvalidArgument, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
+import { Log, Logger } from '@spinajs/log';
 import { challengeId, challengeSecretPurpose, isChallengeNonce, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { checkPublicJwk, isValidKid, thumbprint } from '../jwk/keys.js';
-import { keysOptionsOf } from '../options/options.js';
+import { DEFAULT_KEY_CACHE, keysOptionsOf } from '../options/options.js';
 import type { KeysConfig, KeysOptions } from '../options/options.js';
+import { CachedKeyStore } from './cache.js';
 import { decodeCeiling, encodeCeiling, encodePrincipalRef, KeyStore } from './store.js';
 
 const OWNER_TYPES: readonly string[] = ['user', 'service', 'agent'];
@@ -79,7 +82,10 @@ export interface DefaultKeyRegistryDeps {
   readonly bus?: CredentialChangeBus;
 }
 
-/** KeyRegistry over a KeyStore, challenges in SecretStore (lane notes D7, D12). */
+/**
+ * KeyRegistry over a KeyStore, challenges in SecretStore (lane notes D7, D12). The store is wrapped in a
+ * {@link CachedKeyStore} unless `authn.keys.cache.ttlSeconds` is 0.
+ */
 @Injectable(KeyRegistry)
 export class DefaultKeyRegistry extends KeyRegistry {
   @Config('authn.keys')
@@ -97,6 +103,14 @@ export class DefaultKeyRegistry extends KeyRegistry {
   @Autoinject(AuthnThrottle)
   protected Throttle: AuthnThrottle;
 
+  @Autoinject(CredentialChangeBus, { optional: true })
+  protected Bus: CredentialChangeBus | undefined;
+
+  @Logger('authn-keys')
+  protected Log: Log;
+
+  private cached: { readonly inner: KeyStore; readonly store: KeyStore } | undefined;
+
   private readonly stamped = new Map<string, number>();
 
   /** Kids whose last stamp is remembered; past this the least recently stamped is forgotten and costs one extra write. */
@@ -107,7 +121,16 @@ export class DefaultKeyRegistry extends KeyRegistry {
   }
 
   protected get store(): KeyStore {
-    return this.Deps?.store ?? this.Store;
+    const inner = this.Deps?.store ?? this.Store;
+    if (this.cached?.inner !== inner) {
+      const cache = this.options.cache ?? DEFAULT_KEY_CACHE;
+      this.cached = { inner, store: cache.ttlSeconds > 0 ? new CachedKeyStore(inner, cache, this.bus) : inner };
+    }
+    return this.cached.store;
+  }
+
+  protected get bus(): CredentialChangeBus | undefined {
+    return this.Deps?.bus ?? this.Bus;
   }
 
   protected get secrets(): SecretStore {
@@ -200,11 +223,21 @@ export class DefaultKeyRegistry extends KeyRegistry {
     if (done === 'none') {
       return false;
     }
+    await this.changed(kid);
     if (done === 'already') {
       return true;
     }
     await this.publish(ctx, { type: 'key.revoke', outcome: 'success', identity: owner, ...(opts?.actor ? { actor: opts.actor } : {}), data: { kid } });
     return true;
+  }
+
+  /** The store already evicted its own cache; this tells the other caches of the process. */
+  protected async changed(kid: string): Promise<void> {
+    try {
+      await this.bus?.publish({ kind: 'key', id: kid });
+    } catch (err) {
+      this.Log.error({ error: err, kid }, 'Could not publish the revoke of key ${kid}');
+    }
   }
 
   async byId(kid: string): Promise<KeyRecord | null> {

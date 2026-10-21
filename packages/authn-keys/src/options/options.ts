@@ -62,6 +62,12 @@ function checkRanges(config: KeysConfig): void {
       throw new InvalidOption(`authn.keys.${block}.${key} must be an integer from ${min} to ${max}`);
     }
   }
+  if (config.cache !== undefined) {
+    const { ttlSeconds, maxEntries } = config.cache as Partial<KeyCacheOptions>;
+    if (!(Number.isInteger(ttlSeconds) && (ttlSeconds as number) >= 0 && Number.isInteger(maxEntries) && (maxEntries as number) >= 1)) {
+      throw new InvalidOption('authn.keys.cache needs an integer ttlSeconds >= 0 and an integer maxEntries >= 1');
+    }
+  }
 }
 
 /**
