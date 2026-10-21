@@ -39,8 +39,8 @@ async function withNonceStore<T>(store: Class<NonceStore> | null, registry: KeyR
   try {
     return await body();
   } finally {
-    for (const t of [KeyRegistry, NonceStore, HttpSignatureStrategy]) {
-      DI.uncache(t as Class<unknown>);
+    for (const t of [KeyRegistry, NonceStore, HttpSignatureStrategy] as unknown as Class<unknown>[]) {
+      DI.uncache(t);
     }
     DI.unregister(KeyRegistry, registryFactory);
     if (store) {
