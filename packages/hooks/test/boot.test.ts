@@ -310,6 +310,40 @@ describe('DefaultHooks boot', function () {
       expect(GatedBefore.seen).to.deep.eq([1]);
     });
 
+    it('logs the fast-path failure once per overdue period', async () => {
+      Gate.arm();
+      const { hooks } = await boot({ hooks: { timeoutMs: 100 } }, (c) => c.register(GatedBefore).as(ActionHook));
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const logged = () => TestLog.of('hooks').filter((l) => l.text.includes('GatedBefore')).length;
+      const fastRun = async (n: number) => {
+        const run = track(hooks.run('boot.ping', { n }, echo, { mutable: [] }));
+        await clock!.tickAsync(0);
+        expect((run.error as ActionHookFailed).reason).to.eq('timeout');
+      };
+
+      const first = track(hooks.run('boot.ping', { n: 1 }, echo, { mutable: [] }));
+      await clock.tickAsync(100);
+      expect(first.settled).to.be.true;
+      expect(logged()).to.eq(1);
+
+      await fastRun(2);
+      await fastRun(3);
+      await fastRun(4);
+      expect(logged()).to.eq(2);
+
+      Gate.reject(new Error('late failure'));
+      await clock.tickAsync(0);
+      Gate.arm();
+      const retry = track(hooks.run('boot.ping', { n: 5 }, echo, { mutable: [] }));
+      await clock.tickAsync(100);
+      expect(retry.settled).to.be.true;
+      expect(logged()).to.eq(3);
+
+      await fastRun(6);
+      await fastRun(7);
+      expect(logged()).to.eq(4);
+    });
+
     it('retries resolution on the next run when the overdue resolution rejects', async () => {
       Gate.arm();
       GatedBefore.seen.length = 0;

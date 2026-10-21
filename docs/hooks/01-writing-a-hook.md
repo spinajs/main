@@ -73,7 +73,7 @@ The action also checks again the invariants that guard the changed values, so a 
 - With `refusable: false`, a refusal, a throw, a timeout and a failed resolution in `before` are logged and the run goes on. A hook that failed to resolve is skipped for the rest of the run, `after` and `failed` included. The depth limit (`hooks.maxDepth`) is still enforced.
 - A hook with only `after` or `failed` that fails to resolve, or times out resolving, is logged and skipped. It never fails the action.
 - A failed resolution is not cached: the next run tries to resolve the hook again.
-- A resolution that times out is abandoned, not cancelled, and stays cached until it settles. While it is pending, later runs fail that hook at once with reason `'timeout'`, without waiting `hooks.timeoutMs`.
+- A resolution that times out is abandoned, not cancelled, and stays cached until it settles. While it is pending, later runs fail that hook at once with reason `'timeout'`, without waiting `hooks.timeoutMs`. The timeout itself is logged, and so is the first fast failure of that overdue period; later fast failures of the same period are not, until the resolution settles and a new one times out.
 - When the abandoned resolution settles, the hook recovers: a resolved instance is used by the next run, and a rejected one is resolved again. A hook that never resolves keeps failing at once.
 - An `after` hook that throws or times out is logged and swallowed; the output is returned unchanged.
 - A `failed` hook that throws is logged. It never masks the error of `impl`, which is rethrown.

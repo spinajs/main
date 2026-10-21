@@ -16,6 +16,8 @@ const hookDepth = new AsyncLocalStorage<number>();
 
 class InvalidRefusalCode extends Error {}
 class HookTimeout extends Error {}
+/** A run that failed fast on an overdue resolution whose period was already logged. */
+class RepeatedOverdue extends HookTimeout {}
 class InvalidInput extends Error {}
 
 const phasesOf = (hook: ActionHook) => ({ before: typeof hook.before === 'function', after: typeof hook.after === 'function', failed: typeof hook.failed === 'function' });
@@ -33,6 +35,8 @@ interface HookEntry {
   instance?: Promise<ActionHook>;
   /** A resolution timed out and is still pending: runs fail at once instead of waiting again. */
   overdue?: boolean;
+  /** The fast-path failure of the current overdue period was logged. */
+  overdueLogged?: boolean;
 }
 
 interface ResolvedHook {
@@ -161,7 +165,11 @@ export class DefaultHooks extends Hooks {
 
   /** Resolution is bounded by hooks.timeoutMs like a hook call; the abandoned resolution stays cached, and while it is pending later runs fail at once. */
   private async boundedInstance(entry: HookEntry, depth: number): Promise<ActionHook> {
-    if (entry.overdue) throw new HookTimeout();
+    if (entry.overdue) {
+      if (entry.overdueLogged) throw new RepeatedOverdue();
+      entry.overdueLogged = true;
+      throw new HookTimeout();
+    }
     try {
       return await this.bounded(depth, () => this.instanceOf(entry));
     } catch (error) {
@@ -169,6 +177,7 @@ export class DefaultHooks extends Hooks {
         entry.overdue = true;
         const settled = () => {
           entry.overdue = false;
+          entry.overdueLogged = false;
         };
         entry.instance.then(settled, settled).catch(() => undefined);
       }
@@ -306,6 +315,7 @@ export class DefaultHooks extends Hooks {
 
   // Class names only: an error message or stack can carry a password.
   private logFailure(hook: string, action: string, e: unknown): void {
+    if (e instanceof RepeatedOverdue) return;
     const error = e instanceof Error ? e.constructor.name : typeof e;
     this.Log.warn({ hook, action, error }, 'Hook ${hook} failed on ${action}: ${error}');
   }
