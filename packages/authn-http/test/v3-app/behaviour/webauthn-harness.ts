@@ -6,6 +6,9 @@ import type { HttpRoutes, WebAuthnPort } from '@spinajs/authn-testing';
 import { STRATEGIES } from './harness.js';
 import type { HarnessLane } from './harness.js';
 
+// DI.uncache is typed for concrete classes only, but it uncaches an abstract base as well.
+const uncacheType = DI.uncache.bind(DI) as (type: abstract new (...args: never[]) => unknown) => void;
+
 /**
  * The A33 lane over the N8a harness: authn-webauthn's PasskeyStrategy, WebAuthnPasskeyService and in-memory stores
  * behind AuthnPasskeyController. The package is imported on the first case, so the suites before this one see no
@@ -45,8 +48,8 @@ async function load(): Promise<WebAuthnModule> {
 
 /** Fresh stores and services per case: each one holds the stores, the config and the AuthnAudit it was built with. */
 function uncache(w: WebAuthnModule): void {
-  const types = [w.MemoryWebAuthnCredentialStore, w.MemoryWebAuthnChallengeStore, w.MemoryWebAuthnRecoveryCodeStore, w.WebAuthnCredentialStore, w.WebAuthnChallengeStore, w.WebAuthnRecoveryCodeStore, w.WebAuthnPasskeyService, w.PasskeyStrategy, w.WebAuthnMfaStep];
-  for (const type of [...types, PasskeyService]) DI.uncache(type);
+  const types: readonly (abstract new (...args: never[]) => unknown)[] = [w.MemoryWebAuthnCredentialStore, w.MemoryWebAuthnChallengeStore, w.MemoryWebAuthnRecoveryCodeStore, w.WebAuthnCredentialStore, w.WebAuthnChallengeStore, w.WebAuthnRecoveryCodeStore, w.WebAuthnPasskeyService, w.PasskeyStrategy, w.WebAuthnMfaStep, PasskeyService];
+  for (const type of types) uncacheType(type);
 }
 
 function restoreConfig(): void {
