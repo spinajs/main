@@ -27,6 +27,7 @@ A route whose method is not in the parsed class (inherited from a base class in 
 | `@returns` / `@return` | `returns.description`, `returns.type` |
 | method return type annotation | `returns.schema` (`Promise<T>`, `Ok<T>`, `Created<T>`, ... unwrapped to `T`) |
 | `@response 404 {string} message` | `responses['404']` |
+| `@body {LoginBody} description` | `body.type`, `body.description` |
 | `@example` with optional `<caption>` | `examples[]` |
 | `@tags`, `@tag`, `@category` | `tags` |
 | `@deprecated` | `deprecated: true` |
@@ -88,7 +89,7 @@ While developing controllers, rebuild from a watcher:
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `DefaultControllerCache` | Class `DefaultControllerCache`, `@Singleton()`, autoinjected into `Controllers`, the CLI command and `@spinajs/http-swagger` | `DefaultControllerCache` | none shipped | Subclass and `DI.register(Mine).as(DefaultControllerCache)` before `Controllers` resolves. Push into `tagExtractors` to read new JSDoc tags; override the public `getCache()`, `getDocumentation()` or `clear()` for another storage. |
-| `ITagExtractor` | entries of the public `tagExtractors` array | `param`, `returns`/`return`, `response`, `example`, `tags`/`tag`/`category`, `deprecated`, `summary`, `security` | | Add `{ tags: ['mytag'], extract(tag, ctx) {...} }`. The first extractor whose `tags` contains the tag name wins, so put an override before the built-in one with `unshift`. |
+| `ITagExtractor` | entries of the public `tagExtractors` array | `param`, `returns`/`return`, `response`, `body`, `example`, `tags`/`tag`/`category`, `deprecated`, `summary`, `security` | | Add `{ tags: ['mytag'], extract(tag, ctx) {...} }`. The first extractor whose `tags` contains the tag name wins, so put an override before the built-in one with `unshift`. |
 | `FileHasher` | `@spinajs/fs` | `DefaultFileHasher` | | See [`@spinajs/fs`](../fs/README.md). |
 
 Helpers: `parseFnParamNames(fn)` (parameter names from a function's source) and `isOnDiskSource(file)` (false for `<...>` sentinels) are exported.

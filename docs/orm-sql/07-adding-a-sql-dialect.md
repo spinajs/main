@@ -102,7 +102,7 @@ On top of `SqlDriver.resolve()`. "shared" means the `@spinajs/orm-sql` class, cl
 | `LimitQueryCompiler` | shared | shared | `MsSqlLimitCompiler` (`OFFSET ? ROWS FETCH NEXT ? ROWS ONLY`) | `PostgresLimitQueryCompiler` |
 | `InsertQueryCompiler` | `SqliteInsertQueryCompiler` | `MySqlInsertQueryCompiler` | `MsSqlInsertQueryCompiler` | `PostgresInsertQueryCompiler` |
 | `OnDuplicateQueryCompiler` | `SqliteOnDuplicateQueryCompiler` | shared | `MsSqlOnDuplicateQueryCompiler` (`MERGE`) | `PostgresOnDuplicateQueryCompiler` |
-| `ColumnQueryCompiler` | `SqliteColumnCompiler` | shared | `MsSqlColumnQueryCompiler` | `PostgresColumnQueryCompiler` |
+| `ColumnQueryCompiler` | `SqliteColumnCompiler` | `MySqlColumnQueryCompiler` (`NULL` on a nullable `TIMESTAMP`) | `MsSqlColumnQueryCompiler` | `PostgresColumnQueryCompiler` |
 | `AlterColumnQueryCompiler` | `SqliteAlterColumnQueryCompiler` | shared | `MsSqlAlterColumnQueryCompiler` | `PostgresAlterColumnQueryCompiler` |
 | `AlterTableQueryCompiler` | shared | shared | `MsSqlAlterTableQueryCompiler` (`sp_rename`) | shared |
 | `IndexQueryCompiler` | `SqliteIndexQueryCompiler` | (SqlDriver) | (SqlDriver) | `PostgresIndexQueryCompiler` |

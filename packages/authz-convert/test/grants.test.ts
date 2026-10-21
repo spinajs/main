@@ -277,10 +277,21 @@ describe('convertGrants', () => {
       refused({ grants: { user: { user: { 'read:own': ['*', '!Address.city'] } } } }, /a 2\.x package grants the same key/);
     });
 
-    it("notes that 2.x joined the $extend of the package roles 'system' and 'admin'", () => {
+    it("notes that 2.x joined the $extend of the package role 'admin', which @spinajs/users defines again", () => {
       const { r, f } = run({ grants: { admin: { $extend: ['x'] }, x: {} } });
       expect(r.roles.get('admin')!.extends).to.deep.equal(['x']);
-      expect(f.list.map((x) => x.code)).to.include('package-extends');
+      const finding = f.list.find((x) => x.code === 'package-extends')!;
+      expect(finding.severity).to.equal('info');
+      expect(finding.message).to.contain("define their own 'admin'");
+    });
+
+    it("warns that no 3.0 package defines 'system', so its 2.x package $extend is gone", () => {
+      const { r, f } = run({ grants: { system: { $extend: ['x'] }, x: {} } });
+      expect(r.roles.get('system')!.extends).to.deep.equal(['x']);
+      const finding = f.list.find((x) => x.code === 'package-extends')!;
+      expect(finding.severity).to.equal('warning');
+      expect(finding.message).to.not.contain('define their own');
+      expect(finding.message).to.contain('No 3.0 package defines').and.to.contain('["admin"]');
     });
   });
 

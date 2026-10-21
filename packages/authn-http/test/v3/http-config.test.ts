@@ -77,6 +77,17 @@ describe('authn http middlewares through @Config and the schemas', () => {
     it('accepts csrf off', async () => {
       expect(await bad({ authn: { http: { csrf: { enabled: false } } } })).to.deep.eq([]);
     });
+
+    it('takes the logout Clear-Site-Data directives, defaults them to cache, cookies and storage, and names an unknown one', async () => {
+      const { configuration } = await boot(SCHEMAS, { authn: { http: { logout: {} } } });
+      expect(configuration.get('authn.http.logout.clearSiteData')).to.deep.eq(['cache', 'cookies', 'storage']);
+      for (const list of [[], ['cache', 'cookies'], ['executionContexts'], ['*']]) {
+        expect(await bad({ authn: { http: { logout: { clearSiteData: list } } } }), JSON.stringify(list)).to.deep.eq([]);
+      }
+      expect(await bad({ authn: { http: { logout: { clearSiteData: ['cache', 'everything'] } } } })).to.include('authn.http.logout.clearSiteData.1');
+      expect(await bad({ authn: { http: { logout: { clearSiteData: ['cache', 'cache'] } } } })).to.include('authn.http.logout.clearSiteData');
+      expect(await bad({ authn: { http: { logout: { clearSiteData: 'cache' } } } })).to.include('authn.http.logout.clearSiteData');
+    });
   });
 
   describe('proxyTrustOf', () => {

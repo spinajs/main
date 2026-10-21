@@ -52,7 +52,6 @@ A refusal ends the run with exit code `1` and no file. `ConversionError.problems
 | `not-data` | A value a file cannot hold (function, class instance, `NaN`). |
 | `custom-service` | A custom auth, password, validation or 2FA provider (left out), or a custom role guard or token role policy (written as found). |
 | `privileged-permission` | `privilegedResource` and `privilegedAction` name no single 3.0 permission. |
-| `guard-privileged-permission` | An admin guard was written without `privilegedPermission`, which boot requires. |
 | `token-role-policy` | `rbac.token.rolePolicy` is not `{ service }`. |
 | `token-length` | `rbac.token.length` is below 32. |
 | `expiration-days` | `passwordExpirationTime` is not a whole number of days. |
@@ -70,6 +69,7 @@ A refusal ends the run with exit code `1` and no file. `ConversionError.problems
 | Code | Raised when |
 | --- | --- |
 | `lockout-to-backoff`, `throttle-off`, `lockout-time` | `blockAfterAttempts` or `lockoutTime` set: 3.0 backs off and never locks. |
+| `email-change-password` | `rbac.email.changePassword` is set; nothing in 3.0 reads it, so it is left out. |
 | `require-known-role`, `system-role` | `requireKnownRole: false`, or a `systemRole` other than `system`. |
 | `mfa-key` | A TOTP step was written: set `authn.mfa.encryptionKey` (a secret reference). Outside development and test, boot refuses to start without it while a listed step stores secrets. |
 | `file-skipped` | A dot file, or an env file named `production` or `development`. |
@@ -94,7 +94,8 @@ A refusal ends the run with exit code `1` and no file. `ConversionError.problems
 | --- | --- |
 | `guest-role`, `removed`, `package-array`, `mfa-off` | A key converted with a documented change. |
 | `grants-nothing`, `own-under-any`, `delete-fields` | A grant 2.x did not give, or a part with no 3.0 effect. |
-| `package-grant`, `package-extends` | An app grant or `$extend` on a key the 2.x packages also set. |
+| `package-grant`, `package-extends` | An app grant or `$extend` on a key the 2.x packages also set. `package-extends` is a warning for `system`, which no 3.0 package defines. |
+| `guard-privileged-permission` | An admin guard was written without `privilegedPermission`; it counts `@spinajs/authz-rbac`'s default `users:update`. |
 | `assignable` | Roles written `assignable: false` (with `--db`), or the candidates (without it). |
 | `extends-outside` | Roles extended but defined in no config file; a 3.0 package fragment must define them. |
 | `relation-self`, `owner-relation`, `scope-relation` | Relations the app must support; `owner-relation` is a note when the model has `@ResourceOwner()`. |

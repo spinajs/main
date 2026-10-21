@@ -4,12 +4,12 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Ok, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
-import { AuthnService } from '@spinajs/authn/contracts';
+import { AuthnService, SessionIssuer } from '@spinajs/authn/contracts';
 
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
 import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
 import { NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
-import { answerFor, bodyField, boundedString, contextOf, pendingSteps } from '../routes.js';
+import { answerFor, bodyField, boundedString, contextOf, pendingSteps, startedSession } from '../routes.js';
 
 /** completeMfa's step for recovery codes (contracts: MfaStep.name, AuthnService.completeMfa). */
 const RECOVERY_STEP = 'recovery';
@@ -25,12 +25,19 @@ export class AuthnMfaController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
 
+  @Autoinject(SessionIssuer)
+  protected Sessions!: SessionIssuer;
+
   @Config('authn.mfa.policy.service')
   protected MfaPolicyService: string;
 
   /**
    * Verify an MFA step
    * Body `{ code, step? }`: `step` when it is one of the pending steps, else the first pending step.
+   * @body {AuthnMfaVerifyBody} A code of a pending step
+   * @returns {AuthnPrincipalAnswer} The principal summary of the elevated session
+   * @response 401 {AuthnUnauthorized} No session, or a wrong, missing or throttled code
+   * @response 403 {AuthnError} mfa_not_pending: the session is active
    * @security cookieAuth
    */
   @Post('mfa/verify')
@@ -41,6 +48,10 @@ export class AuthnMfaController extends BaseController {
   /**
    * Use a recovery code
    * Body `{ code }`: a single-use recovery code instead of a step.
+   * @body {AuthnMfaCodeBody} A recovery code
+   * @returns {AuthnPrincipalAnswer} The principal summary of the elevated session
+   * @response 401 {AuthnUnauthorized} No session, or a wrong, used or throttled code
+   * @response 403 {AuthnError} mfa_not_pending: the session is active
    * @security cookieAuth
    */
   @Post('mfa/recovery')
@@ -69,7 +80,7 @@ export class AuthnMfaController extends BaseController {
     const result = await authn.completeMfa(session.handle, step, code, contextOf(req, 'login', session.handle));
     if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined);
     if (result.status !== 'success' || !result.session) return authnFailureResponse();
-    const principal = await authn.principalOf(result);
+    const principal = await startedSession(this.Container, this.Sessions, 'mfa', result.session, await authn.principalOf(result));
     return new Ok(await answerFor(this.Container, 'mfa', principal), { Coockies: [authnSessionCookie(this._cfg, result.session)], Headers: [NO_STORE] });
   }
 }

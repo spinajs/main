@@ -16,7 +16,7 @@
 
 1. `POST /auth/keys/challenge` with `{ "purpose": "login", "kid" }`, anonymous. A challenge for an unknown kid looks the same as one for a known kid. Login challenges count against the client ip; a throttled one answers 429 with `Retry-After`.
 2. The client signs the challenge and sends `POST /auth/keys/login` with `{ keyId, challengeId, signature }`.
-3. The route runs the same `completeLogin()` as [`POST /auth/login`](08-login-logout-and-mfa-routes.md#password-login): it ends a held session, answers the login failure body for missing or malformed fields, calls `AuthnService.authenticate({ kind: 'key-challenge', ... }, ctx)`, and answers with the session cookie and the principal summary (extension kind `login`). Under the default MFA policy a key login asks for no second factor; a policy that asks for one gets 200 `{ "MfaRequired": [...] }` with the pending session cookie.
+3. The route runs the same `completeLogin()` as [`POST /auth/login`](08-login-logout-and-mfa-routes.md#password-login): it ends a held session, answers the login failure body for missing or malformed fields, calls `AuthnService.authenticate({ kind: 'key-challenge', ... }, ctx)`, and answers with the session cookie and the principal summary (extension kind `login`). Under the default MFA policy a key login asks for no second factor; a policy that asks for one gets 200 `{ "MfaRequired": [...], "MfaEnrol": [...] }` with the pending session cookie.
 
 Clients sign challenges as `@spinajs/authn-keys` defines them: the UTF-8 bytes of `spinajs-key-<purpose>:<nonce>:<audience>`, the raw signature as base64url, the challenge named by its unchanged `id`.
 
@@ -45,7 +45,7 @@ sequenceDiagram
 | `POST /user/keys` | `{ "jwk", "proof": { "challengeId", "signature" }, "kid"?, "name"?, "expiresAt"?, "reauthPassword"? }` | the key entry | 400 `invalid_key`, `invalid_kid`, `invalid_name`, `invalid_expiry`, `invalid_scope`, `invalid_proof`; 409 `key_taken`; 403 `fresh_auth_required`; 401 login failure body |
 | `DELETE /user/keys/:kid` | | no data; the key fails on its next request | 404 `key_not_found` |
 | `POST /auth/keys/challenge` | `{ "purpose": "login", "kid" }` or `{ "purpose": "register" }` | `{ "id", "nonce", "expiresAt" }` | 400 `invalid_purpose`, `invalid_kid`; 429 `throttled`; 401/403 for `register` without a user session |
-| `POST /auth/keys/login` | `{ "keyId", "challengeId", "signature" }` | principal summary plus extensions and the session cookie, or `{ "MfaRequired" }` | 401 login failure body, `Retry-After` when throttled |
+| `POST /auth/keys/login` | `{ "keyId", "challengeId", "signature" }` | principal summary plus extensions and the session cookie, or `{ "MfaRequired", "MfaEnrol" }` | 401 login failure body, `Retry-After` when throttled |
 
 The `/user/keys` routes need `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` and the active session of a `user` identity. Every answer carries `Cache-Control: no-store`.
 

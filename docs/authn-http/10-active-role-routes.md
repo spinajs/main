@@ -12,6 +12,8 @@
 6. The answer is the principal built by `PrincipalFactory` with `ceiling: { roles: [role] }`, extended with kind `role-switch`, plus `ActiveRole`, and the new session cookie.
 7. On later requests `SessionPrincipalResolver` narrows the principal to `ceiling.roles = [ActiveRole]`.
 
+A session can also start narrowed: once a login or an MFA completion has issued the active session, the registered [`SessionStartHook`s](../authn/12-integration-hooks.md#sessionstarthook) are asked, and the first ceiling one answers is stored as `ActiveRole` before the login answer is built. `@spinajs/users` drives its hook with `authz.principals.roleSwitch.initial`.
+
 ```mermaid
 sequenceDiagram
   participant B as Browser
@@ -36,7 +38,7 @@ sequenceDiagram
 | | |
 | --- | --- |
 | Policies | `[Authenticated, NoTokenAuthPolicy]` |
-| 200 | `{ "ActiveRole": string \| null, "Roles": [{ "role": string, "requirePassword": boolean }] }`; `ActiveRole` is `null` before any switch (every held role applies) |
+| 200 | `{ "ActiveRole": string \| null, "Roles": [{ "role": string, "requirePassword": boolean }] }`; `ActiveRole` is `null` before any switch or initial role (every held role applies) |
 | 403 | `session_required`: not a session principal |
 
 ### `POST /auth/active-role`

@@ -81,6 +81,7 @@
     "@spinajs/http": "3.0.1",
     "@spinajs/log": "3.0.1",
     "@spinajs/util": "3.0.1",
+    "@spinajs/validation": "3.0.1",
     "cookie-signature": "^1.2.2",
     "express": "^5.1.0"
   },
@@ -101,6 +102,7 @@
     "@spinajs/authn-totp": "3.0.1",
     "@spinajs/fs": "3.0.1",
     "@spinajs/http-socket": "3.0.1",
+    "@spinajs/http-swagger": "3.0.1",
     "@spinajs/orm": "3.0.1",
     "@spinajs/orm-sqlite": "3.0.1",
     "luxon": "^3.6.1",

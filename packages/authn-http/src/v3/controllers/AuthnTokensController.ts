@@ -32,6 +32,7 @@ export class AuthnTokensController extends BaseController {
   /**
    * List own tokens
    * A bare list of the caller's live and expired tokens (`Expired` tells them apart); revoked ones are left out.
+   * @returns {AuthnTokenEntry[]} The own tokens
    * @security cookieAuth
    */
   @Get('tokens')
@@ -56,6 +57,11 @@ export class AuthnTokensController extends BaseController {
    * does not hold, a profile the profile policy does not offer, or a scope that does not fit the kind); 403
    * `fresh_auth_required` for a stale session without the password; a wrong or throttled password the login failure
    * body without Retry-After.
+   * @body {AuthnTokenCreateBody} The token to create, and the password for a stale session
+   * @returns {AuthnTokenCreated} The token and its plaintext, shown once
+   * @response 400 {AuthnError} A malformed field (invalid_name, invalid_expiry, invalid_kind, invalid_roles, invalid_profile, invalid_scope) or a refused one
+   * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
+   * @response 403 {AuthnError} fresh_auth_required, session_required or impersonating
    * @security cookieAuth
    */
   @Post('tokens')
@@ -78,6 +84,7 @@ export class AuthnTokensController extends BaseController {
    * Revoke an own token
    * The token stops working on its next request. 404 `token_not_found` for any id that is not a live token of the
    * caller, whoever owns it.
+   * @response 404 {AuthnError} token_not_found
    * @security cookieAuth
    */
   @Del('tokens/:uuid')

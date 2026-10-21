@@ -11,7 +11,7 @@ Related documents:
 - [Authorization in 3.0](./README.md)
 - [Authentication in 3.0](../authn/README.md) and [OIDC](../authn-oidc/README.md)
 
-This guide describes `3.0.0-rc.1`. What is still open is in [section 11](#11-open-items-in-300-rc1). The
+This guide describes 3.0.2. The items still open since `3.0.0-rc.1` are in [section 11](#11-open-items-in-300-rc1). The
 release notes (`RELEASE_NOTES.md` at the repository root) list every breaking change in one place.
 
 ## Contents
@@ -38,7 +38,7 @@ What bites, on one screen:
 
 | Change | What you see | What you do |
 |---|---|---|
-| **Union of roles (H1)** | A user with several roles gets the grants of all of them. 2.x mixed the active role and all roles. A role switch now only narrows. | Before you leave 2.x, list users with several roles (step 5). Decide that the union is meant. |
+| **Union of roles (H1)** | A user with several roles gets the grants of all of them. 2.x mixed the active role and all roles. A role switch now only narrows. | Before you leave 2.x, list users with several roles (step 5). Decide that the union is meant, or start every session on one role with `authz.principals.roleSwitch.initial`. |
 | **Unattended work is denied (H2)** | CLI commands, cron jobs, queue handlers, `@Task` bodies, sockets without a user and config polling have no principal. Every check denies them, and a query on a scoped ORM model throws. | Wrap the entry point in `authz().runAs(SYSTEM, 'reason', fn)`, or run the job as its initiator (step 4). |
 | **Roles live in `authz_assignment` (H13)** | 3.0 has no `users.Role` column and no `User.Role`; raw SQL on them stops working. No migration copies 2.x roles. | Export the roles from the 2.x database (section 4.2), grant them as assignments (step 7), and remove every read of the column. |
 | **Empty CORS list allows nothing (H33, A31)** | 2.x answered every origin, with credentials, when `http.cors.origins` was empty. 3.0 sends no CORS headers. | List every origin a browser client uses (step 8). |
@@ -110,7 +110,7 @@ The table shows the target and what the converter does.
 | `rbac.grants.R.X['v:own'] = ['*']` | `{ permission: 'X:v', relation: 'owner' }` | Relation `owner`, except on the resource `user`: relation `self` (`--self-resources`). `users` stays `owner`. |
 | `'v:own': ['scope:polsat']` | `{ permission: 'X:v', relation: 'polsat' }` | `scope:x` becomes relation `x`. `scope:` on an `:any` grant is refused. `scope:owner` and `scope:self` are refused. |
 | Attribute lists `['*', '!Password']` | `fields: { read: [...] }` on read grants, `fields: { write: [...] }` on create and update grants | No `fields` for a list of `['*']`. None on delete. |
-| `$extend: [...]` | `extends: [...]` | Only the app's part is written. The 3.0 packages define their own `system`, `admin` and `admin.users`. |
+| `$extend: [...]` | `extends: [...]` | Only the app's part is written. `@spinajs/users` defines its own `admin` and `admin.users`; no 3.0 package defines `system`, so a `system` role no longer extends `admin` unless you add it. |
 | Roles nobody is assigned | `assignable: false` | Only with `--db`. Without it every role stays assignable. |
 | `rbac.roles: [{ Name }]` | A key in `authz.rbac.roles` | A role without grants is written with `grants: []`, so its assignments stay valid. A name that differs from a granted role only in case is not written. |
 | `rbac.defaultRole` | `authz.rbac.defaultRoles` (new users) | Written when the app sets it. |
@@ -352,7 +352,7 @@ on that resource, such as `user:impersonate`. You may collapse by hand when you 
 | `@Policy(TokenPolicy)` above `@Permission` | delete the line; `@Access` accepts token principals |
 | `@Permission(['updateOwn'], TwoFactorAuthEnabled)` | `@Access('user:update', { also: [MfaSatisfied] })`; `TwoFactorAuthEnabled` is gone |
 | `@SkipModelPermission()` | `@Unscoped('reason')` or `authz().runAs(SYSTEM, 'reason', fn)` |
-| `user.canReadAny('X').granted`, `checkUserPermission`, `probeGrant`, `checkRbacPermission` | `await authz().can(authz().current(), 'X:read')` |
+| `user.canReadAny('X').granted`, `checkUserPermission`, `probeGrant`, `checkRbacPermission` | `definite(await authz().check({ principal: authz().current(), permission: 'X:read' }))` (`definite` from `@spinajs/authz`). Not `authz().can()`: it is also true for a conditional grant (rows in scope only), the 2.x `canReadOwn` |
 | `permission.filter(data)` | `@Access('X:read', { fields: 'filter' })` limits the response to `decision.fields.read` (`authz-http`); outside a route, `filterObject(decision.fields.read, data)` (`authz`) |
 | `PermissionService`, `ResourceRules<T>.owns()` | a `RelationResolver`, plus `authz().assert(...)` |
 | `@OrmResource`, `@ResourceOwner` | `@AccessResource`, `@Owner` (`authz-orm`); lists call `.accessible(permission)`, single objects are checked before access (section 12) |
@@ -387,8 +387,9 @@ Removed with no replacement (§11.5): `@Resource`, `@Permission`, `RbacPolicy`,
 
 - `@Access` on a class and on a route combine with AND. A `@Access` on a subclass replaces the one it
   inherits; a subclass route without its own `@Access` keeps the inherited one.
-- `@Unscoped(reason)` keeps the principal. The ORM adapter skips the residual, and the call is
-  audited once. It needs `@Access` on the same route.
+- `@Unscoped(reason)` keeps the principal and changes no query: the ORM applies no residual either way. It
+  silences authz-orm's unattended-query guard for the route's queries and audits the call once. It needs
+  `@Access` on the same route.
 - On a route with `@Access`, body fields outside `decision.fields.write` are stripped (or a 400 in
   `authz.fields.write.mode: 'reject'`), and `authz.fields.neverRead` is stripped from the input.
   **A route that must accept such a field** (an admin route that sets `Password`) needs
@@ -465,13 +466,19 @@ Roles that are only extended get `assignable: false` (with `--db`), such as `rou
 it:
 
 ```ts
-// authz.rbac.roles: { 'campaign.partner': { scopeTypes: ['ArrowCampaign'], grants: ['ArrowCampaign:read', 'ArrowCampaign:update'] } }
+// authz.rbac.roles: {
+//   'campaign.partner': { scopeTypes: ['ArrowCampaign'], grants: ['ArrowCampaign:read', 'ArrowCampaign:update'] },
+//   'pool.member': { subjectSet: true },
+// }
 // authz.permissions: { 'ArrowCampaign:read': { list: true } }
+
+// a user joins a pool (once, as SYSTEM or an admin)
+await authz().admin().execute(actor, [{ kind: 'set.addMember', set: { role: 'pool.member', scope: { type: 'pool', id: String(poolId) } }, member: { type: 'user', id: user.Uuid } }]);
 
 // when a campaign is created or its management company changes (one batch, as SYSTEM or an admin)
 await authz().admin().execute(actor, [
-  { kind: 'assignment.revokeWhere', scope: { type: 'ArrowCampaign', id: campaign.Id }, role: 'campaign.partner' },
-  { kind: 'assignment.grant', subject: { set: { role: 'pool.member', scope: { type: 'pool', id: campaign.Pool } } }, role: 'campaign.partner', scope: { type: 'ArrowCampaign', id: campaign.Id } },
+  { kind: 'assignment.revokeWhere', scope: { type: 'ArrowCampaign', id: String(campaign.Id) }, role: 'campaign.partner' },
+  { kind: 'assignment.grant', subject: { set: { role: 'pool.member', scope: { type: 'pool', id: String(campaign.Pool) } } }, role: 'campaign.partner', scope: { type: 'ArrowCampaign', id: String(campaign.Id) } },
 ]);
 
 // the list
@@ -480,6 +487,10 @@ const rows = await ArrowCampaign.where(filters).accessible('ArrowCampaign:read')
 
 The update guard is a check before the write: `await authz().assert(me, 'ArrowCampaign:update',
 campaign)` on the stored row, and a check of the new pool when the request moves the campaign.
+
+Three things the example needs: a scope id is a string (`String(campaign.Id)`, never a number); `pool.member` is a
+subject set role (`subjectSet: true`), filled with `set.addMember`; and `.accessible()` needs the model on the authz
+connection (`db.Aliases.authz`), since the list joins `authz_assignment`.
 
 ### 6.4 Example (c): a controller
 
@@ -549,6 +560,10 @@ If your policy only narrowed the roles a token may carry, port it to a `TokenRol
 asks it on every check of a token principal. If your policy allowed more than the owner holds, remove
 that part: it cannot work.
 
+Tokens pinned to a profile also need an `authn-token` `TokenProfilePolicy`: the default,
+`NoTokenProfilesPolicy`, allows no profile, so every pinned token is refused at creation and on every
+request. Register one whose `allowedProfiles(owner)` lists the profiles the owner may pin.
+
 ### 6.9 Example (h): the frontend
 
 `new AccessControl({ _user: grants })` and `HasAccess(resource, action)` become a check on the access
@@ -564,7 +579,8 @@ const can = (access, name) => access.permissions.some((p) => p.name === name);
 
 ### 6.10 Example (i): pools
 
-Keep `User.Pool` and expose it as `principal.attributes.pool` through a `PrincipalAttributeProvider`.
+yourscreen has no `User.Pool` column: derive the user's pool in a `PrincipalAttributeProvider` and expose it
+as `principal.attributes.pool`.
 Per-scope roles (a `salesman` role at `pool:primespot`) can later replace the 14 root roles, but that
 is a follow-up, not part of the port.
 
@@ -607,6 +623,26 @@ Details you may need:
 
 *Before and after.* Compare the number of users with a role in your export against the number of
 distinct `subject_id` of `$global` assignments in `authz_assignment`.
+
+### 7.1 Upgrading an existing 2.x database
+
+The supported path is the empty database above. An app that runs 3.0 on a 2.x database in place must
+know what the migrations do there:
+
+- **The ledger is keyed by class name.** The runner records each migration under its class name, and a
+  name already recorded never runs again (`packages/orm/src/migration-runner.ts`).
+- **Some 2.x creating migrations were edited in place**, under the same class name, so a 2.x database never
+  gets the change: `Mutex_2024_12_03_11_41_00` (`orm-threading`) now creates `__mutex__.LockedUntil`
+  (`BIGINT NULL`), without which every `OrmMutex` acquire, renew and release, and so every locking `@Task`,
+  fails with an unknown column; `OrmEventTransportInitial_2022_06_28_01_13_00` (`queue-orm-transport`) now
+  creates the queue join key and a nullable `job.FinishedAt`. 3.0.2 ships no repair migration for them:
+  add the columns yourself.
+- **`down()` of those edited migrations drops the tables**, where the 2.x ones did nothing: never run
+  `migrate-down --all` on an upgraded database.
+- **Stale locks.** A 2.x `@Task` never released its lock, and the 3.0 per-process tenant never matches those
+  rows. After stopping every 2.x node, run `UPDATE __mutex__ SET Locked = 0 WHERE Locked = 1`.
+- **Datetimes.** 3.0 reads and writes every datetime as a UTC instant; rows 2.x wrote in local time read
+  shifted (release notes, "Before the first 3.0 start", step 9).
 
 ## 8. Steps for an app
 
@@ -1305,8 +1341,9 @@ What an app sees:
 The decorators, the policy rules and what the middleware cannot see are in
 `packages/authz-orm/README.md`. What an app sees:
 
-- `@AccessResource`, `@Owner`, `@ScopeColumn`, `@OrmScope` with `OrmScopePolicy`, `registerAccessResource`,
-  `filterFields`, `ownsBy` and `DbDecisionAudit` (`@spinajs/authz-orm/audit`) are built.
+- `@AccessResource`, `@Owner`, `registerAccessResource`, `filterFields`, `ownsBy` and `DbDecisionAudit`
+  (`@spinajs/authz-orm/audit`) are built. `@ScopeColumn`, `@OrmScope` and `OrmScopePolicy` were built here and
+  removed later ([section 12](#12-from-query-scoping-2x-and-300-rc1)); none is exported.
 - Register `@AccessResource` models before the domain boots, also models that only migration files
   declare. A type registered after boot makes every check on it throw `AuthzConfigError` until the
   domain boots again (E2).
@@ -1319,8 +1356,8 @@ The decorators, the policy rules and what the middleware cannot see are in
 - Rules over the stored rule tables use `WITH … AS MATERIALIZED`: PostgreSQL 12 or SQLite 3.35 at the
   least. On SQLite such lists are slow (about 0.45 s per filtered row with four stored rules), so they
   suit tests and small tables only.
-- PostgreSQL must run with `jit = off` for the app's role or database (G7); authz-orm refuses a
-  connection with JIT on unless `authz.orm.allowJit: true`.
+- PostgreSQL `jit = off` for the app's role or database is advised (G7). Nothing checks it: the JIT check
+  and `authz.orm.allowJit` were removed (section 12).
 - On PostgreSQL the rule terms of a list are mostly worked out once per class of rows, not once per
   row (S1). Each such term reads the whole model table once per statement, also the rows the app's own
   WHERE drops, so its cost grows with the table. SQLite keeps the per-row form, and so does PostgreSQL
@@ -1329,19 +1366,19 @@ The decorators, the policy rules and what the middleware cannot see are in
 - Speed, release gate 7 (open while the owner reviews its limits): the canvas file list over 1,000
   files takes 90 to 182 ms (p50) on PostgreSQL with `jit = off`, a 50-row page 90 to 128 ms
   (`packages/authz-rbac/bench/RESULTS.md`).
-- An `@OrmScope` on a model without `@AccessResource` logs a warning at boot (O2): such a model is never
-  checked. Several `authorizeCreate` policies OR-ed on one insert are each tried before the insert is
-  refused.
+- Several `authorizeCreate` policies OR-ed on one insert are each tried before the insert is refused.
 
 ### L6: queue (`authz-queue`)
 
 - Importing the package stamps `Initiator` on emitted messages and runs every handler under `runAs`.
   A handler runs unattended unless its job says `@Job({ runAs: 'initiator' })` or `'system'`.
-- The import registers `QueueChangeBus` as the default `ChangeBus` (`authz.bus.service` picks another),
-  `JobModel` as the resource `job` with the relation `initiator`, and a configuration source that grants
-  the `user` role `job:read` on its own jobs. Installing the package without importing it adds nothing,
-  so boot no longer fails with `UnknownPermission 'job:read'` (F8). Import it before the
-  `Configuration` resolves.
+- The import registers `QueueChangeBus` as the default `ChangeBus` (`authz.bus.service` picks another).
+  `import '@spinajs/authz-queue/jobs'` (it needs `@spinajs/authz-orm`) registers `JobModel` as the
+  resource `job` with the relation `owner` (the initiator), and a configuration source that grants the
+  `user` role `job:read` on its own jobs; the root import grants nothing, so without the subpath
+  `GET jobs/v1/:jobId/status` answers 403 to everyone (or the boot fails on the unregistered `job:read`).
+  Installing the package without importing it adds nothing, so boot no longer fails with
+  `UnknownPermission 'job:read'` (F8). Import both before the `Configuration` resolves.
 - The default `InitiatorPrincipalFactory` rebuilds the principal from the stamp alone and warns once
   (`authz.queue.stampedInitiatorWarning: false` silences it). `import '@spinajs/users/queue'`
   registers one that reloads the user: a user deactivated, banned or deleted since the job was queued
@@ -1432,7 +1469,14 @@ field and error code a client sees. For an app:
   password as `reauthPassword` in the body (403 `fresh_auth_required` without it). An identity without
   an email cannot re-authenticate inline: the login is taken from `IdentityStore.display(id).email`.
 - **Role switch** asks the password for every role unless `authz.principals.roleSwitch.requirePassword`
-  lists the roles that need it.
+  lists the roles that need it. A session whose login is at most `authn.freshAuth.maxAgeSeconds` old
+  (default 300) switches without the password: it is fresh.
+- **Keeping v2's first-role behaviour.** 2.x activated the user's first role at login; 3.0 starts a
+  session on every held role. Set `authz.principals.roleSwitch.initial: { order: [...] }`, your roles in
+  priority order: a login or an MFA completion then starts the session switched to the first listed role
+  the user holds (`@spinajs/users`' `OrderedActiveRoleHook`, a `SessionStartHook`). The login answer's
+  `Access` and `GET /auth/active-role` show that role, and the user switches with `POST /auth/active-role`
+  as before. Other logic belongs in a `SessionStartHook` of your own.
 - **Impersonation** needs an actor session at `aal2` (`authn.impersonation.requireMfa`, default
   `true`) and fresh auth (`requirePassword`, default `true`). The actor is judged again on every
   request; impersonators lose `/user/sessions`.

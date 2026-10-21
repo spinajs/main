@@ -583,7 +583,7 @@ export function keyRoutesSuite(): void {
       const { kp, kid } = await mintKey(u.ref);
       const { c, res } = await loginWithKey(kid, kp);
       expect(res.status, JSON.stringify(res.body)).to.eq(200);
-      expect(res.body).to.deep.eq({ MfaRequired: ['totp'] });
+      expect(res.body).to.deep.eq({ MfaRequired: ['totp'], MfaEnrol: [] });
       expect(res.headers['cache-control']).to.eq('no-store');
       expect(c.cookie, 'the pending session cookie').to.be.a('string');
       expect(await probe(c), 'a pending session is no principal').to.eq(null);

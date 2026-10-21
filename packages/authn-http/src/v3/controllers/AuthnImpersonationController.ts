@@ -34,6 +34,7 @@ export class AuthnImpersonationController extends BaseController {
   /**
    * Impersonation state
    * `{ Active: false }`, or the impersonator, the target and the start time.
+   * @returns {AuthnImpersonationState} Whether the session impersonates, and whom
    * @security cookieAuth
    */
   @Get('impersonate')
@@ -57,6 +58,11 @@ export class AuthnImpersonationController extends BaseController {
   /**
    * Start impersonating
    * Body `{ target, password? }`: `target` is a user id or `{ type, id }`. 400 for a malformed target, 401 with the login failure body when the password fails, 403 when refused.
+   * @body {AuthnImpersonationBody} The target, and the password for a stale session
+   * @returns {AuthnImpersonationAnswer} The principal summary of the target
+   * @response 400 {AuthnError} A malformed target
+   * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
+   * @response 403 {AuthnError} The impersonation is refused
    * @security cookieAuth
    */
   @Post('impersonate')
@@ -88,6 +94,7 @@ export class AuthnImpersonationController extends BaseController {
    * Stop impersonating
    * A new session for the impersonator. When the impersonator may no longer log in, the impersonation ends anyway, the
    * cookie is cleared and the answer is `{ Active: false }`. 400 when no impersonation is active.
+   * @returns {AuthnImpersonationAnswer} The principal summary of the impersonator, or { Active: false }
    * @security cookieAuth
    */
   @Del('impersonate')

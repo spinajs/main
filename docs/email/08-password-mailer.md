@@ -40,6 +40,7 @@ The fields of authn-local's `PasswordMail`, declared here so this package never 
 | `email.password.connection` | `string` | `email.defaultConnection` | a connection name | Connection for both mails. |
 | `email.password.from` | `string` | connection's `defaults.mailFrom` (SMTP) | address | Sender. |
 | `email.password.lang` | `string` | not set | locale | Template language. |
+| `email.password.attachments` | `{ name, path, provider?, cid? }[]` | not set | | Sent with every reset and invite mail, as `IEmail.attachements`; the email service reads each through its filesystem (`provider`, else the default). Give an image a `cid` to show it inline (`<img src="cid:logo">`). |
 | `email.password.reset.subject` | `string` | `'Reset your password'` | | Reset mail subject. |
 | `email.password.reset.template` | `string \| { file, fs }` | not set (plain text) | | Reset mail template. |
 | `email.password.invite.subject` | `string` | `'Set up your account'` | | Invite mail subject. |

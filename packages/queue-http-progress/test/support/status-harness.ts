@@ -6,13 +6,14 @@ import { Orm } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
 import '@spinajs/authz-queue/jobs';
 import { JobModel } from '@spinajs/queue';
-import { SYSTEM } from '@spinajs/authz';
+import { AuthorizationModel, AuthzContributor, SYSTEM } from '@spinajs/authz';
 import type { AuthzService, Principal } from '@spinajs/authz';
 import { Access, PrincipalSource } from '@spinajs/authz-http';
+import { MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel } from '@spinajs/authz-rbac';
 import { BaseController, BasePath, Controllers, Get, Param, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
-import { hostHarness } from '@spinajs/authz-testing';
-import type { BehaviourHarness, HarnessSession, HttpHandle, HttpRequest, HttpResponse } from '@spinajs/authz-testing';
+import { hostHarness, testHost } from '@spinajs/authz-testing';
+import type { BehaviourHarness, HarnessSession, HostSetup, HttpHandle, HttpRequest, HttpResponse } from '@spinajs/authz-testing';
 
 import { JobsController } from '../../src/controllers/JobsControllers.js';
 import { startApp, stopApp } from './app.js';
@@ -48,8 +49,19 @@ function jobsController(prefix: string, domain: string): Class<BaseController> {
   return CaseJobs as unknown as Class<BaseController>;
 }
 
-/** hostHarness over in-memory SQLite and the real JobsController; the world's `lane.queue.records` seed the jobs table. */
-export function statusHarness(): BehaviourHarness {
+/** The real RbacModel over in-memory stores loaded from `world.rbac`, as authz-fs's harness wires it. */
+function registerRbac(host: HostSetup): void {
+  const rbac = host.world.rbac ?? {};
+  const model = new RbacModel({ roles: new MemoryRoleStore(rbac.roles ?? [], rbac.ladders ?? []), assignments: new MemoryAssignmentStore(rbac.assignments ?? []), clock: host.kit.clock });
+  host.container.register(testHost.instance(model)).as(AuthorizationModel);
+  host.container.register(testHost.instance(new RbacContributor(model))).as(AuthzContributor);
+}
+
+/**
+ * hostHarness over in-memory SQLite and the real JobsController; the world's `lane.queue.records` seed the jobs table.
+ * `rbac: true` adds the real RbacModel to the test domain.
+ */
+export function statusHarness(opts: { rbac?: boolean } = {}): BehaviourHarness {
   const domain = 'test';
   let app: TestApp | undefined;
   let registered: Class<BaseController>[] = [];
@@ -76,6 +88,8 @@ export function statusHarness(): BehaviourHarness {
         Aliases: { authz: 'queue' },
       });
       host.setConfig(['logger'], { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
+
+      if (opts.rbac) registerRbac(host);
 
       const routes = jobsController(`c${++caseNo}`, domain);
       DI.register(routes).as(BaseController);

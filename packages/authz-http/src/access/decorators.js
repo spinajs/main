@@ -79,9 +79,9 @@ export function UnfilteredInput(reason) {
     });
 }
 /**
- * Sets `req.storage.Unscoped` for the action, so the ORM applies no residual to the route's
- * queries, and audits the bypass (kind `unscoped`) in the route's domain (B09). Runs after the
- * policies: a refused request is no bypass.
+ * Sets `req.storage.Unscoped` for the action, which silences authz-orm's unattended-query guard for the
+ * route's queries (the ORM applies no residual either way), and audits the bypass (kind `unscoped`) in
+ * the route's domain (B09). Runs after the policies: a refused request is no bypass.
  */
 let UnscopedMiddleware = class UnscopedMiddleware extends RouteMiddleware {
     constructor(reason) {

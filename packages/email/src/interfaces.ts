@@ -240,6 +240,11 @@ export interface PasswordMailConfiguration {
   connection?: string;
   from?: string;
   lang?: string;
+  /**
+   * Sent with every reset and invite mail, e.g. the images a template shows as `cid:`. The email service reads each
+   * through its filesystem, as for any mail.
+   */
+  attachments?: IEmailAttachement[];
   reset?: PasswordMailPurposeConfiguration;
   invite?: PasswordMailPurposeConfiguration;
 }

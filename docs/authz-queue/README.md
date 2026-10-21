@@ -16,9 +16,11 @@ Import the package once, in the entry of every process that emits or consumes me
 
 ```ts
 import '@spinajs/authz-queue';
+// only with @spinajs/authz-orm installed: the job resource, the tracking hook and the job:read grant
+import '@spinajs/authz-queue/jobs';
 ```
 
-The import registers everything: the message hook, the tracking hook, the change bus, the `job` resource and the `job:read` grant. Installing the package without importing it adds nothing.
+The root import registers the message hook and the change bus. The `@spinajs/authz-queue/jobs` subpath registers the `job` resource, the tracking hook and the `user` role's `job:read` grant ([Job rows as a resource](03-job-resource.md)); it needs `@spinajs/authz-orm`, an optional peer dependency. Without the subpath nothing registers `job:read` and no role holds it: an app that serves `GET jobs/v1/:jobId/status` of `@spinajs/queue-http-progress` fails boot on the unregistered permission or, when it registers `job:read` itself, answers 403 to every caller. Installing the package without importing it adds nothing.
 
 ## Features
 
@@ -26,7 +28,7 @@ The import registers everything: the message hook, the tracking hook, the change
 | --- | --- |
 | [Job authorization](01-job-authorization.md) | `AuthzQueueHook`: stamps `message.Initiator` on emit, and runs each handler as the initiator, as `SYSTEM` or unattended, from `@Job({ runAs })`. |
 | [Initiator principal factory](02-initiator-principal-factory.md) | `InitiatorPrincipalFactory`: rebuilds the principal a `runAs: 'initiator'` job runs as; replace it to reload the user. |
-| [Job rows as a resource](03-job-resource.md) | `JobModel` is the `job` resource owned by its initiator, the `user` role gets `job:read` on its own jobs, and the queue's own row queries run as `SYSTEM`. |
+| [Job rows as a resource](03-job-resource.md) | `@spinajs/authz-queue/jobs`: `JobModel` is the `job` resource owned by its initiator, the `user` role gets `job:read` on its own jobs, and the queue's own row queries run as `SYSTEM`. |
 | [Queue change bus](04-queue-change-bus.md) | `QueueChangeBus`: sends `AuthzChange`s to the other nodes as `AuthzChangeEvent` messages, so their decision caches drop stale entries. |
 
 ## Quick start

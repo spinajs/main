@@ -11,7 +11,8 @@ import type { HostSetup } from '@spinajs/authz-testing';
 import { AuthorizationModel, AuthzClock, ChangeBus, DecisionAudit, RelationResolver, ResourceAdapter, ScopeResolver } from '@spinajs/authz';
 import type { AuthzService } from '@spinajs/authz';
 
-import { AuthzQueueHook, AuthzQueueTrackingHook } from '../../src/index.js';
+import { AuthzQueueHook } from '../../src/index.js';
+import { AuthzQueueTrackingHook } from '../../src/job/index.js';
 import { NodeBus, PeerQueueService } from './nodes.js';
 
 import { MemoryBroker, MemoryQueueClient } from './memory-client.js';

@@ -67,7 +67,8 @@ let PrincipalMiddleware = class PrincipalMiddleware extends ServerMiddleware {
     }
     /** The root AuthzService, booted once; `authz()` works in actions after it. */
     rootService() {
-        this.authz ??= DI.resolve(AuthzService).catch((err) => {
+        // DI.resolve answers the cached instance itself, not a promise, once the app resolved AuthzService first.
+        this.authz ??= (async () => (await DI.resolve(AuthzService)))().catch((err) => {
             this.authz = undefined;
             throw err;
         });
