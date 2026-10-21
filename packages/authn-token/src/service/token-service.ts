@@ -8,7 +8,7 @@ import type { AuthnAuditor } from '@spinajs/authn/audit';
 import { InvalidArgument, InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Orm } from '@spinajs/orm';
-import { _between, _check_arg, _contains, _custom, _finite, _gte, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, chunk, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
+import { _between, _check_arg, _contains, _custom, _finite, _gte, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
 import { CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, CredentialChange, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
@@ -350,22 +350,36 @@ export class DbTokenService extends TokenService {
     // Selected through the model, so the cutoff is written in the column's stored format; a bare DELETE on the
     // connection would convert it by value type only. A selected row cannot become live again, so deleting by id is
     // safe against concurrent writes. Only ids are read: a row that no longer hydrates must not stop the sweep.
-    const doomed = await AccessToken.where(function () {
-      this.whereNull('ExpiresAt');
-      this.orWhere(function () {
-        this.where('ExpiresAt', '<=', cutoff);
-      });
-      this.orWhere(function () {
-        this.whereNotNull('RevokedAt');
-      });
-    })
-      .select('Id')
-      .asRaw<Array<{ Id: number }>>();
+    const due = () =>
+      AccessToken.where(function () {
+        this.whereNull('ExpiresAt');
+        this.orWhere(function () {
+          this.where('ExpiresAt', '<=', cutoff);
+        });
+        this.orWhere(function () {
+          this.whereNotNull('RevokedAt');
+        });
+      })
+        .select('Id')
+        // MSSQL pages with OFFSET ... FETCH, which needs an ORDER BY.
+        .orderBy('Id')
+        .take(DELETE_BATCH)
+        .asRaw<Array<{ Id: number }>>();
 
     let count = 0;
-    for (const batch of chunk(doomed, DELETE_BATCH)) {
-      count += this.affected(await AccessToken.destroy(batch.map((t) => t.Id)));
+    for (;;) {
+      const doomed = await due();
+      if (doomed.length === 0) {
+        break;
+      }
+
+      const deleted = this.affected(await AccessToken.destroy(doomed.map((t) => t.Id)));
+      count += deleted;
+      if (doomed.length < DELETE_BATCH || deleted === 0) {
+        break;
+      }
     }
+
     return count;
   }
 
