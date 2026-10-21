@@ -1,3 +1,4 @@
+import type { JsonSchema } from './primitives.js';
 import { AUTHZ_ADMIN_SCHEMAS } from './provider.js';
 
 type Json = Record<string, any>;
@@ -60,11 +61,12 @@ export const AUTHZ_ADMIN_ROUTES: readonly RouteDoc[] = [
  * This adds what the builder cannot see to an OpenAPI document it built: the request bodies, the
  * query parameters, the path parameter text and the body schemas as components. Operations are
  * matched by method and path suffix, so a route prefix does not matter. Changes the document in place.
+ * Pass `AuthzAdminSchemaProvider.schemas()` as `schemas` to list the commands every registered model contributes.
  */
-export function describeAuthzAdminDocument<T extends object>(doc: T): T {
+export function describeAuthzAdminDocument<T extends object>(doc: T, schemas: Readonly<Record<string, JsonSchema>> = AUTHZ_ADMIN_SCHEMAS): T {
   const document = doc as Json;
   const components = ((document.components ??= {}).schemas ??= {}) as Json;
-  for (const [name, schema] of Object.entries(AUTHZ_ADMIN_SCHEMAS)) components[name] ??= schema;
+  for (const [name, schema] of Object.entries(schemas)) components[name] ??= schema;
 
   for (const route of AUTHZ_ADMIN_ROUTES) {
     const path = Object.keys(document.paths ?? {}).find((p) => p === route.path || p.endsWith(route.path));

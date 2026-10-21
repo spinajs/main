@@ -1,5 +1,6 @@
 import { AuthorizationModel, AuthzContributor, AuthzService, GLOBAL } from '@spinajs/authz';
-import type { Assignment, AuthzAdmin } from '@spinajs/authz';
+import type { AuthzAdmin } from '@spinajs/authz';
+import type { Assignment } from '@spinajs/authz-rbac';
 import { AdminAssignmentStore, AssignmentStore, ConfigRoleStore, DbAssignmentStore, RbacContributor, RbacModel, RbacService, RoleStore } from '@spinajs/authz-rbac';
 import { Container, DI, Inject, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';

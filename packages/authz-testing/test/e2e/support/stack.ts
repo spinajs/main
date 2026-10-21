@@ -1,5 +1,6 @@
 import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, SYSTEM, runWithPrincipal } from '@spinajs/authz';
-import type { Assignment, AuthzService } from '@spinajs/authz';
+import type { AuthzService } from '@spinajs/authz';
+import type { Assignment } from '@spinajs/authz-rbac';
 import { AbacContributor, AbacModel, AuthzAbac_2026_10_01_00_00_00, ConfigPolicyStore, DbPolicyStore, PolicyStore } from '@spinajs/authz-abac';
 import { AUTHZ_ASSIGNMENT_TABLE, AuthzAdminIdempotency_2026_10_02_00_01_00, AuthzRbac_2026_10_01_00_00_00, DbAuthzAdminBackend, normaliseTags, registerRbac, scopeToColumns, subjectKeyOf, subjectToColumns } from '@spinajs/authz-rbac';
 import { hostHarness, testHost } from '@spinajs/authz-testing';

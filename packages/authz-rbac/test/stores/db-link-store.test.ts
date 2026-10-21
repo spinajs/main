@@ -3,7 +3,8 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 
 import { AuthzAdminFailure, AuthzClock, AuthzConfigError, GLOBAL } from '@spinajs/authz';
-import type { AuthzTx, LinkDef, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import type { AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import type { LinkDef } from '../../src/contracts.js';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { OrmDriver, QueryContext } from '@spinajs/orm';

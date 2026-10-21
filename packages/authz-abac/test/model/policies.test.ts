@@ -1,7 +1,8 @@
 import * as chai from 'chai';
 import 'mocha';
 import { AuthzConfigError, DefaultConditionCompiler, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, UnknownPermission } from '@spinajs/authz';
-import type { Condition, Policy, Principal } from '@spinajs/authz';
+import type { Condition, Principal } from '@spinajs/authz';
+import type { Policy } from '../../src/contracts.js';
 import { agentPrincipal, servicePrincipal, userPrincipal } from '@spinajs/authz-testing';
 
 import { DEFAULT_POLICY_PRIORITY, PolicyIndex, loadPolicy, scopeFilter, targets } from '../../src/index.js';

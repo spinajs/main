@@ -14,6 +14,11 @@ export const AUTHZ_ADMIN_SCHEMAS: Readonly<Record<string, JsonSchema>> = { ...bo
  */
 @Injectable(SchemaProvider)
 export class AuthzAdminSchemaProvider extends SchemaProvider {
+  /** Every schema of the admin routes by name, with AuthzAdminBatch listing the registered command kinds. */
+  public schemas(): Readonly<Record<string, JsonSchema>> {
+    throw new Error('not implemented: AuthzAdminSchemaProvider.schemas');
+  }
+
   public getSchema(typeName: string): Record<string, unknown> | undefined {
     return Object.hasOwn(AUTHZ_ADMIN_SCHEMAS, typeName) ? AUTHZ_ADMIN_SCHEMAS[typeName] : undefined;
   }

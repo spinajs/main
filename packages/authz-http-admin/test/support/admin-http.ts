@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import type { AssignmentSubject, AuthzAdminQuery, AuthzCommandResult, Principal, ResourceRef } from '@spinajs/authz';
+import type { AuthzAdminQuery, AuthzCommandResult, Principal, ResourceRef } from '@spinajs/authz';
+import type { AssignmentSubject } from '../../../authz-rbac/src/index.js';
 import type { Request } from '@spinajs/http';
 import { PrincipalSource } from '@spinajs/authz-http';
 import { testHost } from '@spinajs/authz-testing';

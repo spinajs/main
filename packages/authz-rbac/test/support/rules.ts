@@ -1,6 +1,7 @@
 /** Rule shapes for the DbRuleStore tests: the kit's rule sets of B06.rules and design §8.5. */
 import { GLOBAL } from '@spinajs/authz';
-import type { ResourceRef, RuleDef } from '@spinajs/authz';
+import type { ResourceRef } from '@spinajs/authz';
+import type { RuleDef } from '../../src/contracts.js';
 import { BEHAVIOUR_FIXTURES, mergeFixtures } from '@spinajs/authz-testing';
 
 import type { LadderDef } from '../../src/index.js';

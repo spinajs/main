@@ -38,6 +38,34 @@ export type AuthzCommand =
   // lifecycle of a scope node (project or file deleted)
   | { readonly kind: 'scope.forget'; readonly scope: ResourceRef }; // assignments, links, rules, policies and attributes AT this scope
 
+/**
+ * Command kind -> command shape. A model declares its commands by augmenting this interface
+ * (`declare module '@spinajs/authz' { interface AuthzCommandMap { ... } }`) and registers an AuthzWriteHandler for them.
+ */
+export interface AuthzCommandMap {
+  'scope.setAttributes': { readonly kind: 'scope.setAttributes'; readonly scope: ResourceRef; readonly patch: Readonly<Record<string, unknown>> };
+  'scope.replaceAttributes': { readonly kind: 'scope.replaceAttributes'; readonly scope: ResourceRef; readonly attributes: Readonly<Record<string, unknown>> };
+  'scope.forget': { readonly kind: 'scope.forget'; readonly scope: ResourceRef };
+}
+
+/** The command of kind K; never until a model declares K. */
+export type AuthzCommandOf<K extends string> = K extends keyof AuthzCommandMap ? AuthzCommandMap[K] : never;
+
+/** The fields of the command of kind K without `kind`, as the sugar methods of AuthzAdmin take them. */
+export type AuthzCommandFields<K extends string> = Omit<AuthzCommandOf<K>, 'kind'>;
+
+/** Kind -> the row a sugar method returns for it; authz-rbac declares the rows of assignment.grant and link.create. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- filled by module augmentation
+export interface AuthzCommandRowMap {}
+
+/** The row a sugar method returns for kind K; unknown until a model declares it. */
+export type AuthzCommandRow<K extends string> = K extends keyof AuthzCommandRowMap ? AuthzCommandRowMap[K] : unknown;
+
+/** Query kind -> query shape; a model adds its queries by augmentation and registers an AuthzAdminReader for them. */
+export interface AuthzAdminQueryMap {
+  attributes: { readonly kind: 'attributes'; readonly scope: ResourceRef };
+}
+
 export type AuthzCommandResult = { readonly ok: true; readonly kind: AuthzCommand['kind']; readonly id?: string; readonly token?: string /* link.create only, shown once */; readonly affected: number } | { readonly ok: false; readonly kind: AuthzCommand['kind']; readonly error: AuthzAdminError };
 
 export interface AuthzAdminError {
