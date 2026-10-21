@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
 import '@spinajs/authz-queue/jobs';
 import { JobModel } from '@spinajs/queue';
@@ -98,6 +98,7 @@ export function statusHarness(opts: { rbac?: boolean } = {}): BehaviourHarness {
     async extend(host, session) {
       const prefix = `c${caseNo}`;
       const orm = await DI.resolve(Orm);
+      await DI.resolve(OrmMigrator);
       const authz = session.authz as unknown as AuthzService;
 
       await authz.runAs(SYSTEM, 'status-harness seed', async () => {
@@ -140,6 +141,7 @@ export function statusHarness(opts: { rbac?: boolean } = {}): BehaviourHarness {
           unregisterCase();
           await orm.dispose();
           DI.uncache(Orm);
+          DI.uncache(OrmMigrator);
         },
       } as Partial<HarnessSession>;
     },
