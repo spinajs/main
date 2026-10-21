@@ -6,8 +6,9 @@ import type { AuthzTx, MemoryTx, PrincipalRef, ResourceRef } from '@spinajs/auth
 import type { Assignment, AssignmentSubject } from '../../contracts.js';
 import { AdminAssignmentStore } from '../ports.js';
 import type { AssignmentQuery, ListResult, Page } from '../ports.js';
-import { copyDate, copyPrincipalRef, copyRef, copySubject, deepFreeze, isLiveAt, isSetSubject, paged, sameRef, sortedTags } from '../rows.js';
+import { copyDate, copyPrincipalRef, copyRef, copySubject, deepFreeze, isLiveAt, isSetSubject, sameRef, sortedTags } from '../rows.js';
 import { subjectKeyOf } from '../../stores/columns.js';
+import { ListingOrder } from './listing-order.js';
 
 export interface MemoryAdminAssignmentStoreOptions {
   readonly name?: string;
@@ -38,12 +39,16 @@ export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
   readonly name: string;
   // Insertion order is the listing order; a re-grant keeps its place.
   private readonly rows = new Map<string, Assignment>();
+  private readonly order = new ListingOrder();
   private revision = 0;
 
   constructor(opts: MemoryAdminAssignmentStoreOptions = {}) {
     super();
     this.name = opts.name ?? 'memory';
-    for (const a of opts.assignments ?? []) this.rows.set(a.id, copy(a));
+    for (const a of opts.assignments ?? []) {
+      this.rows.set(a.id, copy(a));
+      this.order.note(a.id);
+    }
   }
 
   /** Setup only (MemoryLinkStore preloads, tests, the test kit): an upsert outside any transaction, so no rollback undoes it. */
@@ -52,6 +57,7 @@ export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
     const existing = [...this.rows.values()].find((r) => identity(r) === key);
     const row = copy({ id: existing?.id ?? randomUUID(), subject: a.subject, role: a.role, scope: a.scope, tags: a.tags, expiresAt: a.expiresAt ?? null, grantedBy: existing?.grantedBy ?? actor, source: 'memory' });
     this.rows.set(row.id, row);
+    this.order.note(row.id);
     this.revision++;
     return copy(row);
   }
@@ -102,7 +108,7 @@ export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
   async find(q: AssignmentQuery, page?: Page): Promise<ListResult<Assignment>> {
     const subject = q.subject ? subjectKeyOf(q.subject) : undefined;
     const items = [...this.rows.values()].filter((a) => (q.scope === undefined || sameRef(a.scope, q.scope)) && (subject === undefined || subjectKeyOf(a.subject) === subject) && (q.role === undefined || a.role === q.role) && (q.includeExpired === true || isLiveAt(a.expiresAt, q.at)));
-    return paged(items.map(copy), page);
+    return this.order.page(items.map(copy), page, `${this.name}.find`);
   }
 
   async forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly Assignment[]> {
@@ -119,12 +125,19 @@ export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
   /** Sets or deletes one row; a rollback restores the whole map in its old order. */
   private write(undo: MemoryTx, id: string, row: Assignment | undefined): void {
     const before = [...this.rows.entries()];
-    if (row) this.rows.set(id, row);
-    else this.rows.delete(id);
+    const restoreOrder = this.order.snapshot();
+    if (row) {
+      this.rows.set(id, row);
+      this.order.note(id);
+    } else {
+      this.rows.delete(id);
+      this.order.forget(id);
+    }
     this.revision++;
     undo.onRollback(() => {
       this.rows.clear();
       for (const [k, v] of before) this.rows.set(k, v);
+      restoreOrder();
       // Never back to an old value: a reader that saw the rolled back write must see a change again.
       this.revision++;
     });

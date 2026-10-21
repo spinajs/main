@@ -8,6 +8,7 @@ import { compilePattern, patternFilter } from '../model/patterns.js';
 import { parsePrincipalSubjectKey, parseSetKey } from '../model/sets/keys.js';
 import { modelTables } from '../model/service.js';
 import { subjectKeyOf } from '../stores/columns.js';
+import { cursorWithOffset, decodeCursor, encodeCursor } from '../stores/cursor.js';
 import { assignmentStore } from './common.js';
 import { honoured, ladderAppliesAt, rankOf, roleClosure, roleIndex } from './role-index.js';
 import type { RoleIndex } from './role-index.js';
@@ -126,6 +127,8 @@ export async function listHolders(q: HoldersQuery, ctx: AdminContext): Promise<{
   if (typeof ctx.authz.ancestors !== 'function') throw new AuthzConfigError(`Authz domain ${JSON.stringify(ctx.domain)}: a holders query needs an AuthzService with ancestors()`);
   if (typeof ctx.authz.inspect !== 'function') throw new AuthzConfigError(`Authz domain ${JSON.stringify(ctx.domain)}: a holders query needs an AuthzService with inspect()`);
   if (q.page.limit > MAX_HOLDERS_PAGE) throw new AuthzAdminFailure('invalid_query', `page.limit must be at most ${MAX_HOLDERS_PAGE}`, 'page.limit');
+  if (q.page.after !== undefined && q.page.offset > 0) throw cursorWithOffset('holders');
+  const after = q.page.after === undefined ? undefined : decodeCursor(q.page.after, 1, 'holders')[0];
   const def = model.permissions().get(q.permission);
   if (def === undefined) throw new AuthzAdminFailure('invalid_query', `unknown permission ${JSON.stringify(q.permission)}`, 'permission');
   // ancestors() answers [ref, GLOBAL] for an unregistered type, so the type has to be vetted here.
@@ -167,13 +170,18 @@ export async function listHolders(q: HoldersQuery, ctx: AdminContext): Promise<{
     });
   }
 
-  const all = [...found].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, h]) => h);
-  const page = all.slice(q.page.offset, q.page.offset + q.page.limit);
+  const all = [...found].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  // Keyed by subject key, so the cursor stays right when holders come and go between page reads.
+  const from = after === undefined ? q.page.offset : all.findIndex(([key]) => key > after);
+  const start = from < 0 ? all.length : from;
+  const keyed = all.slice(start, start + q.page.limit);
+  const page = keyed.map(([, h]) => h);
   const items: Holder[] = [];
   for (let i = 0; i < page.length; i += VERIFY_CHUNK) {
     items.push(...(await Promise.all(page.slice(i, i + VERIFY_CHUNK).map(async (h) => Object.freeze({ subject: h.subject, via: Object.freeze([...h.via]), ...(await decisionOf(ctx.authz, h.subject, q)) })))));
   }
-  return { items: Object.freeze(items), total: all.length };
+  const more = start + q.page.limit < all.length && q.page.offset === 0 && keyed.length > 0;
+  return { items: Object.freeze(items), total: all.length, ...(more ? { next: encodeCursor(keyed[keyed.length - 1][0]) } : {}) };
 }
 
 async function decisionOf(authz: AuthzService, subject: AssignmentSubject, q: HoldersQuery): Promise<Pick<Holder, 'decision'>> {

@@ -12,7 +12,8 @@ import { scopeFromColumns, scopeToColumns, subjectFromColumns, subjectToColumns 
 import type { ScopeRefColumns } from './columns.js';
 import { requireTransaction } from './context.js';
 import { withDbRbacStore } from './db-store.js';
-import { pageWindow, requireScopeNode, whereLive } from './queries.js';
+import { applyWindow, pageWindow, requireScopeNode, trimWindow, whereLive } from './queries.js';
+import type { ListWindow } from './queries.js';
 import { RuleRecord, RuleSubjectRecord, fromDateTime, recordValues, toDateTime } from './records.js';
 import type { RuleFields, RuleSubjectFields } from './records.js';
 import { toRuleRows } from './rule-rows.js';
@@ -175,6 +176,9 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
    * Page for `AuthzAdmin.list` (kind `rules`), expired rules included, oldest first; `total` counts
    * the unpaged result. At most {@link RULE_LIST_MAX_LIMIT} rows; a negative or fractional `limit`
    * or `offset` is `invalid_page`.
+   * `page.after` (the `next` of an earlier page) continues behind that row instead of skipping `offset`
+   * rows; a cursor this list did not issue, or one with an `offset`, is `invalid_page`. `next` is set
+   * when more rows follow and the page has no `offset`.
    */
   async list(q: RuleListQuery = {}): Promise<ListResult<RuleDef>> {
     await this.ready();
@@ -188,7 +192,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
   }
 
   /** Rules oldest first; `window` undefined reads every match in one rule query. */
-  private async select(scope: ResourceRef | undefined, window: { limit: number; offset: number } | undefined): Promise<ListResult<RuleDef>> {
+  private async select(scope: ResourceRef | undefined, window: ListWindow | undefined): Promise<ListResult<RuleDef>> {
     const filtered = () => {
       const query = RuleRecord.query();
       if (scope) query.where(scopeToColumns(scope));
@@ -203,10 +207,9 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
     const total = await filtered().selectCount();
     if (window.limit === 0) return { items: [], total };
 
-    const query = filtered().orderBy('created_at').orderBy('id').take(window.limit);
-    if (window.offset > 0) query.skip(window.offset);
+    const { rows, next } = trimWindow(await applyWindow(filtered().orderBy('created_at').orderBy('id'), window), window);
 
-    return { items: await this.rulesOf(await query), total };
+    return { items: await this.rulesOf(rows), total, ...(next === undefined ? {} : { next }) };
   }
 
   protected existingRule(id: string): Promise<RuleRecord | undefined> {

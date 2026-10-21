@@ -4,7 +4,8 @@ import type { AuthzTx, MemoryTx, PrincipalRef, ResourceRef } from '@spinajs/auth
 import type { RuleDef } from '../../contracts.js';
 import { AdminRuleStore } from '../ports.js';
 import type { ListResult, Page } from '../ports.js';
-import { deepFreeze, isLiveAt, paged, sameRef } from '../rows.js';
+import { deepFreeze, isLiveAt, sameRef } from '../rows.js';
+import { ListingOrder } from './listing-order.js';
 
 // structuredClone keeps Dates and drops nothing a RuleDef holds (plain data).
 const copy = (r: RuleDef): RuleDef => deepFreeze(structuredClone(r));
@@ -13,12 +14,16 @@ const copy = (r: RuleDef): RuleDef => deepFreeze(structuredClone(r));
 export class MemoryRuleStore extends AdminRuleStore {
   readonly name: string;
   private readonly rows = new Map<string, RuleDef>();
+  private readonly order = new ListingOrder();
   private revision = 0;
 
   constructor(opts: { readonly name?: string; readonly rules?: readonly RuleDef[] } = {}) {
     super();
     this.name = opts.name ?? 'memory';
-    for (const r of opts.rules ?? []) this.rows.set(r.id, copy(r));
+    for (const r of opts.rules ?? []) {
+      this.rows.set(r.id, copy(r));
+      this.order.note(r.id);
+    }
   }
 
   async forPath(path: readonly ResourceRef[], at: Date): Promise<readonly RuleDef[]> {
@@ -45,7 +50,7 @@ export class MemoryRuleStore extends AdminRuleStore {
   }
 
   async find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<ListResult<RuleDef>> {
-    return paged([...this.rows.values()].filter((r) => q.scope === undefined || sameRef(r.scope, q.scope)).map(copy), page);
+    return this.order.page([...this.rows.values()].filter((r) => q.scope === undefined || sameRef(r.scope, q.scope)).map(copy), page, `${this.name}.find`);
   }
 
   async forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly RuleDef[]> {
@@ -61,12 +66,19 @@ export class MemoryRuleStore extends AdminRuleStore {
 
   private write(undo: MemoryTx, id: string, row: RuleDef | undefined): void {
     const before = [...this.rows.entries()];
-    if (row) this.rows.set(id, row);
-    else this.rows.delete(id);
+    const restoreOrder = this.order.snapshot();
+    if (row) {
+      this.rows.set(id, row);
+      this.order.note(id);
+    } else {
+      this.rows.delete(id);
+      this.order.forget(id);
+    }
     this.revision++;
     undo.onRollback(() => {
       this.rows.clear();
       for (const [k, v] of before) this.rows.set(k, v);
+      restoreOrder();
       this.revision++;
     });
   }
