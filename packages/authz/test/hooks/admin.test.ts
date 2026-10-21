@@ -5,7 +5,10 @@ import { ActionHook } from '@spinajs/hooks';
 import type { BeforeContext } from '@spinajs/hooks';
 import { RecordingActionHook } from '@spinajs/hooks/testing';
 
-import { AuthzAdminFailure } from '@spinajs/authz';
+import { ActionRefused, DefaultHooks, Hooks } from '@spinajs/hooks';
+import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
+
+import { AuthzAdminFailure, AuthzCommandValidator } from '@spinajs/authz';
 import type { AuthzCommand, AuthzCommandResult, ResourceRef } from '@spinajs/authz';
 import { adminConfig, installHost, rejection, resetHost, uninstallHost } from '../admin/support.js';
 import { PatchCommand, RefuseWhen, hookedAdminDomain } from './support.js';
@@ -13,6 +16,7 @@ import { PatchCommand, RefuseWhen, hookedAdminDomain } from './support.js';
 const expect = chai.expect;
 
 const alice = userPrincipal('alice');
+const frank = userPrincipal('frank');
 const p1: ResourceRef = { type: 'project', id: 'p1' };
 const grant = (subject: string, role = 'editor'): AuthzCommand => ({ kind: 'assignment.grant', subject: { type: 'user', id: subject }, role, scope: p1 });
 const failure = (r: AuthzCommandResult) => (r as Extract<AuthzCommandResult, { ok: false }>).error;
@@ -113,12 +117,109 @@ describe('authz admin hooks', function () {
       expect(d.model.requests.every((r) => r.principal.id === 'alice')).to.equal(true);
     });
 
-    it('after hooks see the command that was applied', async () => {
+    it('after runs once the command passed validation and the hook phase, before the guard and the commit', async () => {
       const rec = new RecordingActionHook(['authz.admin.command']);
       const d = await hookedAdminDomain([rec]);
       await d.admin.execute(alice, [grant('bob')]);
       const after = rec.calls.find((c) => c.phase === 'after');
       expect((after?.input as { command: { kind: string } }).command.kind).to.equal('assignment.grant');
+    });
+  });
+
+  describe('a hook cannot widen a command', () => {
+    it('refuses a command moved to a scope the actor cannot manage, and writes nothing', async () => {
+      const d = await hookedAdminDomain([new PatchCommand((c) => ({ ...c, scope: { type: 'project', id: 'p2' } }))]);
+      const out = await d.admin.execute(frank, [grant('bob')]);
+      expect(failure(out[0]).code).to.equal('forbidden');
+      expect(d.store.rows.size).to.equal(0);
+    });
+
+    it('refuses a command whose kind was changed to one the actor cannot run, and writes nothing', async () => {
+      const d = await hookedAdminDomain([new PatchCommand(() => ({ kind: 'link.create', scope: p1, role: 'viewer' }))]);
+      const out = await d.admin.execute(frank, [grant('bob')]);
+      expect(failure(out[0]).code).to.equal('forbidden');
+      expect(d.store.rows.size).to.equal(0);
+    });
+
+    it('lets frank through when the hook changes nothing', async () => {
+      const d = await hookedAdminDomain([new PatchCommand((c) => c)]);
+      expect((await d.admin.execute(frank, [grant('bob')]))[0].ok).to.equal(true);
+    });
+
+    for (const [name, edit] of [
+      ['pushes onto the batch', (input: any) => input.commands.push(grant('mallory'))],
+      ['replaces an element of the batch', (input: any) => (input.commands[0] = grant('mallory', 'guarded'))],
+      ['edits a command of the batch in place', (input: any) => (input.commands[0].role = 'guarded')],
+    ] as const) {
+      it(`fails the batch with hook_error when a batch hook ${name}`, async () => {
+        class Edit extends ActionHook {
+          readonly actions = ['authz.admin.batch'] as const;
+          before(ctx: BeforeContext<'authz.admin.batch'>): void {
+            edit(ctx.input);
+          }
+        }
+        const d = await hookedAdminDomain([new Edit()]);
+        const err = await rejection(d.admin.execute(alice, [grant('bob')]));
+        expect((err as AuthzAdminFailure).code).to.equal('hook_error');
+        expect(d.store.rows.size).to.equal(0);
+      });
+    }
+
+    it('fails the command with hook_error when a command hook edits it in place', async () => {
+      class Edit extends ActionHook {
+        readonly actions = ['authz.admin.command'] as const;
+        before(ctx: BeforeContext<'authz.admin.command'>): void {
+          (ctx.input.command as any).role = 'guarded';
+        }
+      }
+      const d = await hookedAdminDomain([new Edit()]);
+      const out = await d.admin.execute(alice, [grant('bob')]);
+      expect(failure(out[0]).code).to.equal('hook_error');
+      expect(d.store.rows.size).to.equal(0);
+    });
+
+    it('checks a batch the hook replaced as it checks the caller batch (size and shape)', async () => {
+      class Replace extends ActionHook {
+        readonly actions = ['authz.admin.batch'] as const;
+        before(ctx: BeforeContext<'authz.admin.batch'>): void {
+          (ctx.input as any).commands = [grant('mallory', 'unknown')];
+        }
+      }
+      const d = await hookedAdminDomain([new Replace()]);
+      const out = await d.admin.execute(alice, [grant('bob')]);
+      expect(failure(out[0]).code).to.equal('unknown_role');
+    });
+  });
+
+  describe('errors of other actions', () => {
+    it('are not relabelled as hook failures', async () => {
+      class Foreign extends AuthzCommandValidator {
+        async validate(_actor: unknown, c: AuthzCommand): Promise<void> {
+          if (c.kind === 'assignment.grant' && c.role === 'swap') throw new ActionRefused('users.create', 'other-action');
+        }
+      }
+      const d = await hookedAdminDomain([new PatchCommand((c) => ({ ...c, role: 'swap' }))], { register: (c) => c.register(Foreign).as(AuthzCommandValidator) });
+      const err = await rejection(d.admin.execute(alice, [grant('bob')]));
+      expect(err).to.be.instanceOf(ActionRefused);
+      expect((err as ActionRefused).action).to.equal('users.create');
+    });
+  });
+
+  describe('without a matching hook', () => {
+    class SpyHooks extends DefaultHooks {
+      static runs = 0;
+
+      public async run<A extends ActionName>(action: A, input: InputOf<A>, impl: (input: InputOf<A>) => Promise<OutputOf<A>>, opts: RunOptions<A>): Promise<OutputOf<A>> {
+        SpyHooks.runs++;
+        return super.run(action, input, impl, opts);
+      }
+    }
+
+    it('the admin never calls Hooks.run', async () => {
+      SpyHooks.runs = 0;
+      const d = await hookedAdminDomain([new RecordingActionHook(['authz.check'])], { register: (c) => c.register(SpyHooks).as(Hooks) });
+      expect((await d.admin.execute(alice, [grant('bob')])).every((r) => r.ok)).to.equal(true);
+      expect(SpyHooks.runs).to.equal(0);
     });
   });
 

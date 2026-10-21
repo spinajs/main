@@ -193,6 +193,8 @@ export function grantsModel(): StaticModel {
     name: 'grants',
     votes: (req) => {
       if (req.principal.id === 'alice' || req.principal.id === 'erin') return { permitWhen: TRUE };
+      // frank manages assignments at p1 only.
+      if (req.principal.id === 'frank') return req.resource.id === 'p1' && req.permission === 'authz:assignments.manage' ? { permitWhen: TRUE } : {};
       if (req.principal.id === 'carol') return { permitWhen: { op: 'cmp', field: 'owner', cmp: 'eq', value: 'carol' } };
       return {};
     },
