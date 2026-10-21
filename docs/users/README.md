@@ -38,6 +38,7 @@ Every service below registers on that import (`@Injectable`), and `RbacBootstrap
 | [Role switch and access response](14-role-switch-and-access-response.md) | `RbacRoleSource` for role switch and MFA, `AccessResponseExtension` adding `Access` to authn answers. |
 | [User profile](15-user-profile.md) | `UserProfileProvider` picked by `users.user.profile`, `BasicProfileProvider`. |
 | [Jobs run as their initiator](16-jobs-run-as-initiator.md) | `@spinajs/users/queue`: `UserInitiatorPrincipalFactory` reloads the user a job runs as. |
+| [Self-service registration](18-self-service-registration.md) | `UserIdentityRegistrar` over `create()`, behind `users.registration.enabled`: what `POST /auth/register` of authn-http calls. |
 | [CLI commands](17-cli-commands.md) | `rbac:user-create`, `rbac:user-find`, `rbac:user-activate`, `rbac:user-ban`, `rbac:user-delete`. |
 
 ## Quick start
