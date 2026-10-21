@@ -6,12 +6,14 @@ import { fsAclConfig } from '../access-config/acl-config.js';
 /** Index of fs_acl on (fs, path) for the path prefix reads of OrmFileAclStore. */
 @Migration('default')
 export class AuthzFsAclPathIndex_2026_10_21_00_00_00 extends OrmMigration {
-  public async up(_connection: OrmDriver): Promise<void> {
-    throw new Error('not implemented: AuthzFsAclPathIndex.up');
+  public async up(connection: OrmDriver): Promise<void> {
+    // The unique key leads with path_hash and cannot serve `path LIKE 'dir/%'`. Unlike that key this one stays under
+    // InnoDB's 3072-byte limit: fs (64) plus path (512) is 2304 bytes in utf8mb4.
+    await connection.index().table('fs_acl').name('fs_acl_fs_path').columns(['fs', 'path']);
   }
 
-  public async down(_connection: OrmDriver): Promise<void> {
-    throw new Error('not implemented: AuthzFsAclPathIndex.down');
+  public async down(connection: OrmDriver): Promise<void> {
+    await connection.index().table('fs_acl').name('fs_acl_fs_path').drop();
   }
 }
 
