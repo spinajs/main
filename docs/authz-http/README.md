@@ -74,6 +74,7 @@ Every `authz.http.*` key, with its page. AJV validates the section at boot.
 | `authz.http.access.domain` | `'root'` | [Client access API](07-client-access-api.md#configuration) |
 | `authz.http.events.maxStreamsPerPrincipal` | `5` | [Access events](08-access-events.md#configuration) |
 | `authz.http.explainRoute.enabled`, `.permission` | `false`, `'authz:explain'` | [Explain](09-explain.md#configuration) |
+| `authz.http.webhooks` | `[]` | [Webhooks](../authn-http/20-webhooks.md#authorization-changes) |
 | `authz.http.admin.domain` | `'root'` | The domain whose `AuthzAdmin` the `@spinajs/authz-http-admin` routes use. |
 
 The package also reads the core keys `authz.principals.anonymous.enabled`, `authz.fields.*`, `authz.engine.explain` and `authz.audit.unscoped`; each page lists the ones it uses.

@@ -67,6 +67,14 @@ what each fix changes for an app.
 - HTTP: `BufferResponse`; a policy refusal (403) wins over a missing credential (401) from another group;
   `SseStream` closes when the client left before open.
 
+## Outbound webhook sinks
+
+- `authn.webhooks`: `WebhookAuthnEventSink` of `@spinajs/authn-http` POSTs each audit event to the listed URLs, optionally
+  filtered by event type, with `Spinajs-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. Secrets are
+  configuration references. A failed delivery is logged and dropped. Off until an entry is configured.
+- `authz.http.webhooks`: `WebhookChangeSink` of `@spinajs/authz-http` POSTs `{ kind, domain, tags, at }` per `ChangeBus`
+  publish; start it with `start(bus)` once the domain has booted. See `docs/authn-http/20-webhooks.md`.
+
 ## BREAKING CHANGES
 
 ### Packages
