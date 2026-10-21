@@ -192,7 +192,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     audit: {
       type: 'object',
       default: {},
-      propertyNames: { enum: ['hashIdentifiers', 'hashKey', 'sinkTimeoutMs'] },
+      propertyNames: { enum: ['hashIdentifiers', 'hashKey', 'sinkTimeoutMs', 'retentionDays', 'purgeInterval'] },
       properties: {
         // Not `type: 'boolean'`: coerceTypes would turn a null into false and write raw identifiers.
         hashIdentifiers: { enum: [true, false], default: true },
@@ -202,6 +202,9 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
           properties: { secret: { type: ['string', 'null'], minLength: 32 } },
         },
         sinkTimeoutMs: { type: 'integer', minimum: 1, maximum: 60000, default: 2000, description: 'How long one sink may take.' },
+        // No default: the shipped config is compared whole to the schema defaults, and unset means off.
+        retentionDays: { type: ['integer', 'null'], minimum: 1, description: 'Days of audit rows to keep in authn_audit; unset or null keeps them forever.' },
+        purgeInterval: { type: ['integer', 'null'], minimum: 1, description: 'Milliseconds between purges of expired audit rows; unset or null runs none.' },
       },
     },
     // http-socket reads trustProxy without depending on authn-http, which owns the rest of authn.http.

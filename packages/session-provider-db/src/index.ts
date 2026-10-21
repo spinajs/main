@@ -34,6 +34,11 @@ export class DbSessionStore extends SessionProvider {
   })
   protected CleanupInterval: number;
 
+  @Config('authn.session.db.cleanupBatch', {
+    defaultValue: 500,
+  })
+  protected CleanupBatch: number;
+
   protected CleanupTimer: ReturnType<typeof setInterval> | undefined;
 
   public async resolve() {
