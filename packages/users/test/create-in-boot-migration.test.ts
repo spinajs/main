@@ -69,10 +69,11 @@ describe('create() from a boot migration', function () {
     DI.clearCache();
   });
 
-  it('seeds a user with a password while the Orm runs its boot migrations', async () => {
+  it('seeds a user with a password while OrmMigrator runs the boot migrations', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
 
-    await within(bootUsersDb(), BOOT_TIMEOUT_MS, 'the Orm boot');
+    // bootUsersDb resolves OrmMigrator, whose data phase runs the seed.
+    await within(bootUsersDb(), BOOT_TIMEOUT_MS, 'the boot migration pass');
 
     const u = await User.query().whereLogin('boot-seed').firstOrFail();
     expect(u.Email).to.eq('boot-seed@spinajs.pl');
