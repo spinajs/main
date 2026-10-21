@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AuthnAudit } from '@spinajs/authn/audit';
 import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { Autoinject } from '@spinajs/di';
 import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IdentityAddressVerifier, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
@@ -274,7 +275,8 @@ const REGISTRATIONS: [Function, Function][] = [
 
 /** Everything the container may cache for a case: the abstract keys, the fakes and the N3 classes. */
 const CACHED: Function[] = [
-  ...new Set([...REGISTRATIONS.flat(), PasswordHasher, Argon2PasswordHasher, LocalPasswordPolicy, PasswordService, LocalPasswordService, AuthenticationStrategy, LocalPasswordStrategy]),
+  // AuthnAudit holds the sinks it was built with: a cached one would audit to an earlier case's sinks.
+  ...new Set([...REGISTRATIONS.flat(), AuthnAudit, PasswordHasher, Argon2PasswordHasher, LocalPasswordPolicy, PasswordService, LocalPasswordService, AuthenticationStrategy, LocalPasswordStrategy]),
 ];
 
 /** Registers the per-case types; call once before the kit suites run (in a `before`). */
