@@ -17,7 +17,7 @@ Importing the package registers its server middlewares, principal sources, field
 | Feature | What it does |
 | --- | --- |
 | [Protecting routes](01-protecting-routes.md) | `@Access`, `@AllowAnonymous`, `@Unscoped`, `HasPrincipal`, `IsAuthenticated`: the request check end to end, status codes and error bodies, the boot check of permissions |
-| [Resource extractors](02-resource-extractors.md) | `fromParam`, `fromBody`, `fromQuery`, `fromModel`, `typedExtractor`: which object a route checks; `subject: 'load'` |
+| [Resource extractors](02-resource-extractors.md) | `fromParam`, `fromBody`, `fromQuery`, `fromModel`, `typedExtractor`: which object a route checks; the row load of a conditional allow |
 | [Principal resolution](03-principal-resolution.md) | `PrincipalMiddleware`, the anonymous principal, `@CurrentPrincipal()`, the `req.storage` keys, the root domain boot |
 | [Principal sources](04-principal-sources.md) | `PrincipalSource` and the shipped service and authn sources; `authz.http.services`; writing your own source |
 | [Share links](05-share-links.md) | `LinkPrincipalSource`, `LinkResolver`, `authz.http.links`: requests that act through a share link |
@@ -46,7 +46,7 @@ export class InvoicesController extends BaseController {
 
   // 401 without a signed-in caller, 403 { error: 'forbidden', ... } when the model denies invoice <id>.
   @Get(':id')
-  @Access('invoice:read', { resource: fromParam('id', 'invoice'), subject: 'load' })
+  @Access('invoice:read', { resource: fromParam('id', 'invoice') })
   public get(@Param() id: string) {
     return new Ok({ id });
   }
@@ -84,7 +84,7 @@ The package also reads the core keys `authz.principals.anonymous.enabled`, `auth
 - [`@spinajs/authz`](../authz/README.md): the engine, permissions, decisions and domains every check here runs on.
 - [`@spinajs/authn-http`](../authn-http/README.md): authenticates the request and leaves `req.storage.AuthnPrincipal` for `AuthnPrincipalSource`.
 - [`@spinajs/http`](../http/README.md): policies, route middlewares, input filters and the error handler this package plugs into.
-- [`@spinajs/authz-orm`](../authz-orm/README.md): `@AccessResource` models for `fromModel` and `subject: 'load'`, and `.accessible()` for list routes.
+- [`@spinajs/authz-orm`](../authz-orm/README.md): `@AccessResource` models for `fromModel` and the row load of a conditional allow, and `.accessible()` for list routes.
 - [`@spinajs/authz-rbac`](../authz-rbac/README.md): the RBAC model and the `LinkResolver` for share links.
 - [`@spinajs/http-swagger`](../http-swagger/README.md): reads the access metadata into the OpenAPI document.
 - [`@spinajs/http-socket`](../http-socket/README.md): `@SocketAccess`, the socket counterpart of `@Access`, and the socket push of access changes.

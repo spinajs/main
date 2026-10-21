@@ -18,6 +18,8 @@ It only reads the builder. It never adds a filter: a flagged query still runs un
 
 A select whose where statements are exactly one primary-key equality is a single-object load: `where('id', 42)`, `get(42)`, `getOrFail(42)`, `findOrFail([42])`. The route's `@Access` or your `assert()` covers it, so the guard leaves it alone.
 
+Inside a route whose `@Access` decision is conditional (its residual is not `TRUE`: a type-level rule, or `conditional: 'action'`), no check covered that row, so the guard flags a single-object load like any other select. Outside a request, where no decision is stored, single-object loads pass as before.
+
 - The `IS NULL` statements the ORM adds for `@SoftDelete` and `@Archived` columns do not count.
 - `whereIn(pk, [one value])` counts as one equality; two values do not.
 - Any other statement, a second key, or an `OR` makes it a list.

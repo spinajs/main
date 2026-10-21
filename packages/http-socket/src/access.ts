@@ -20,8 +20,10 @@ export interface ISocketAccessOptions {
   domain?: string;
   /** let an unauthenticated principal ( UNATTENDED, anonymous ) reach the engine instead of answering unauthenticated */
   allowAnonymous?: boolean;
-  /** 'load': a conditional allow is checked again against the row the domain's ResourceAdapter loads, so the answer is definite */
+  /** 'load': same as conditional: 'load' */
   subject?: 'load' | 'none';
+  /** 'load' ( default ): a conditional allow on a resource with an id is checked again against the row the domain's ResourceAdapter loads; 'action': the handler checks the residual itself */
+  conditional?: 'load' | 'action';
   /** 'filter': the result, or each chunk of a stream reply, keeps only the fields `decision.fields.read` allows, minus the domain's `fields.neverRead` */
   fields?: 'filter' | 'none';
   /** why the payload skips authz-http's input field filter, as `@UnfilteredInput(reason)` */
@@ -72,8 +74,9 @@ const isRef = (v: unknown): v is ResourceRef => typeof v === 'object' && v !== n
 
 /**
  * Decides one `@SocketAccess` group as authz-http's AccessPolicy decides `@Access` ( design §11.2 ): unauthenticated ⇒
- * Unauthenticated, an extractor that finds nothing ⇒ InvalidArgument, several permissions ⇒ any of them, `subject: 'load'` ⇒
- * a conditional allow settled against the loaded row, a denial ⇒ AccessDenied, never with a trace ( sockets offer no explain ).
+ * Unauthenticated, an extractor that finds nothing ⇒ InvalidArgument, several permissions ⇒ any of them, a conditional allow
+ * on a resource with an id ⇒ settled against the loaded row unless `conditional: 'action'`, a denial ⇒ AccessDenied, never
+ * with a trace ( sockets offer no explain ).
  * The allowing decision of the handler's own rule, else the class's, stays in the call storage.
  */
 @NewInstance()
@@ -127,11 +130,13 @@ export class SocketAccessPolicy extends BasePolicy {
   protected async decide(authz: AuthzService, domain: string, principal: Principal, resource: ResourceRef | object | undefined): Promise<Decision> {
     let denied: Decision | undefined;
     let row: Promise<unknown> | undefined;
+    const settles = (this.access.conditional ?? 'load') === 'load';
 
     for (const permission of this.access.permissions) {
       let decision = await authz.check({ principal, permission, resource: resource ?? { type: parsePermission(permission).resource } });
 
-      if (decision.allowed && decision.residual.op !== 'true' && this.access.subject === 'load') {
+      // a type-level allow keeps its residual for the handler's `.accessible()`
+      if (decision.allowed && decision.residual.op !== 'true' && settles && decision.resource.id !== undefined) {
         row ??= this.load(domain, decision.resource);
         const subject = await row;
         decision = subject === null ? Object.freeze({ ...decision, allowed: false, residual: FALSE, reason: { code: 'unknown_resource' } }) : await authz.check({ principal, permission, resource: decision.resource, subject });

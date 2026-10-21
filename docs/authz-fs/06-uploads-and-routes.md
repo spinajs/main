@@ -35,7 +35,7 @@ Add the middleware to `http.upload.middlewares` (keep the default `FileInfoMiddl
 - `AuthzFsMiddleware` checks the copy again, but the uploader turns that denial into a 500. The upload middleware exists to give the 403.
 - Keep the default upload filesystem `off`: it is a temp location, not a user's file space.
 - Uploads that call `fs.upload(..., { exclusive: true })` directly, such as `ConfigFileUploads` of `@spinajs/configuration-http`, do not pass through `AuthzUploadMiddleware`. `AuthzFsMiddleware` checks them as `fs:write` on the stored name; see [File uploads](../configuration-http/05-file-uploads.md).
-- In `@Access` use `subject: 'load'` so a relation grant answers definitely, and the filesystem's `domain` when it is not `root`.
+- In `@Access` give a resource extractor, so a relation grant is settled on the row, and the filesystem's `domain` when it is not `root`.
 
 ## Examples
 

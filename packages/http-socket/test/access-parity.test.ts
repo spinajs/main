@@ -80,7 +80,7 @@ export class AccessParitySocket extends BaseSocketController {
   }
 
   @Command('residual')
-  @SocketAccess('note:read', { resource: fromPayload('id', 'note') })
+  @SocketAccess('note:read', { resource: fromPayload('id', 'note'), conditional: 'action' })
   public async residual() {
     return 'left to the handler';
   }
@@ -260,7 +260,7 @@ describe('@SocketAccess decides as authz-http AccessPolicy (G4)', function () {
     expect(existing.details).to.deep.equal({ permission: 'note:read', resource: { type: 'note', id: 'n2' }, reason: { code: 'no_access', model: 'm1' } });
   });
 
-  it("without subject: 'load' a conditional allow passes and loads no row; the residual is the handler's to apply", async () => {
+  it("with conditional: 'action' a conditional allow passes and loads no row; the residual is the handler's to apply", async () => {
     expect(resultOf(await command(alice, 'acp.residual', { id: 'n2' }))).to.equal('left to the handler');
     expect(acpLoads).to.have.length(0);
   });
