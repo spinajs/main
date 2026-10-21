@@ -110,7 +110,7 @@ export class UnscopedMiddleware extends RouteMiddleware {
     const r = req as Request;
     r.storage.Unscoped = this.reason;
     const principal = r.storage.Principal;
-    await auditUnscoped(routeDomain(routeAccess(controller, route.Method)), {
+    await auditUnscoped(r.storage.AuthzHttpRoute?.domain ?? routeDomain(routeAccess(controller, route.Method)), {
       kind: 'unscoped',
       principal: principal ? { type: principal.type, id: principal.id } : { type: 'unattended', id: 'unattended' },
       reason: this.reason,

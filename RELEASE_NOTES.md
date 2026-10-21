@@ -17,17 +17,25 @@
   within the token cache ttl, or at once when the code that changes it publishes `{ kind: 'identity' }`.
 
 # Release notes — authn: no per-request writes on the token and key path
+# Release notes — per-request authz domain resolver
 
-## New behavior
+> Branch `feat/ory-arch-2`. Docs: `docs/authz/05-domains.md#per-request-domains`.
 
-- `DefaultAuthnService` no longer waits for the audit sinks on a successful `token.use` or `key.use`:
-  it publishes them with the new `AuthnAudit.publishDetached`. Failure events are still awaited.
-  `AuthnAudit.settled()` resolves when the detached deliveries have settled; `AuthnAudit.dispose()`
-  awaits it. A test that reads a sink right after a token or key success should `await audit.settled()`.
-- `PeekableThrottle.peek` resolves the new `PeekVerdict`: an allowed peek carries `clean`. When no live
-  throttle row holds the keys, a token or key success skips `succeed`, so a credential with no failures
-  on record writes nothing to the throttle. `DbThrottleStore.peek` stays one `SELECT`. A custom
-  `PeekableThrottle` must return `clean`; `false` keeps the old behaviour.
+## Features
+
+### `@spinajs/authz-http`, `@spinajs/authz-http-admin` — the domain of a request can be chosen per request
+
+- New `AuthzDomainResolver` (`resolve(req, fallback)`). `@Access`, the explain route, `/user/access`,
+  `/user/access/checks` and the `/authz` admin routes check in the domain it names. `fallback` is the
+  domain the route, the controller or the config names today.
+- The default `StaticDomainResolver` returns the fallback: an app that registers no resolver behaves as before.
+  Register your own with `@Injectable(AuthzDomainResolver)`; the last registered wins.
+- A name that is not the fallback and that no live domain bears answers 403 `unknown_domain` (admin routes:
+  `{ error: { code: 'unknown_domain' } }`) and the action does not run.
+- `AuthzDomainResolver`, `StaticDomainResolver`, `UnknownAuthzDomain` and `resolveAuthzDomain(req, fallback)` are exported.
+  `resolveAuthzDomain` asks the resolver once per request and fallback.
+- New behaviour rule B48. The authz-http test harness resolves the domain from the `x-authz-domain` header.
+
 # Release notes — conditional allows are settled on the row (M1)
 
 > Branch `feat/ory-sec-1`. Docs: `docs/authz-http/01-protecting-routes.md#conditional-allows`.
@@ -72,6 +80,21 @@
   `SseSessionEndSink` moved to the new subpath `@spinajs/authz-http/authn` and is no longer exported from the root
   entry. `AuthzHttpAuthnBootstrapper` loads that subpath when authn is installed.
 - How to run authz without authn: `docs/authz/14-installing-without-authn.md`.
+
+# Release notes — authn: no per-request writes on the token and key path
+
+## New behavior
+
+- `DefaultAuthnService` no longer waits for the audit sinks on a successful `token.use` or `key.use`:
+  it publishes them with the new `AuthnAudit.publishDetached`. Failure events are still awaited.
+  `AuthnAudit.settled()` resolves when the detached deliveries have settled; `AuthnAudit.dispose()`
+  awaits it. A test that reads a sink right after a token or key success should `await audit.settled()`.
+- `PeekableThrottle.peek` resolves the new `PeekVerdict`: an allowed peek carries `clean`. When no live
+  throttle row holds the keys, a token or key success skips `succeed`, so a credential with no failures
+  on record writes nothing to the throttle. `DbThrottleStore.peek` stays one `SELECT`. A custom
+  `PeekableThrottle` must return `clean`; `false` keeps the old behaviour.
+
+---
 
 # Release notes — SpinaJS 3.0.0: authentication and authorization
 

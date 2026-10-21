@@ -4,7 +4,7 @@ import { Autoinject } from '@spinajs/di';
 import type { AuthzAdmin, AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, Principal, ResourceRef } from '@spinajs/authz';
 import { BadRequestResponse, BaseController, BasePath, Conflict, Del, ForbiddenResponse, Get, NotFound, Ok, Patch, Policy, Post, Put, Req } from '@spinajs/http';
 import type { Request, Response } from '@spinajs/http';
-import { IsAuthenticated } from '@spinajs/authz-http';
+import { IsAuthenticated, UnknownAuthzDomain, resolveAuthzDomain } from '@spinajs/authz-http';
 import { isPlainObject } from '@spinajs/util';
 
 import '../schemas/provider.js';
@@ -92,9 +92,18 @@ export class AuthzAdminController extends BaseController {
   @Autoinject(AuthzDomains)
   protected Domains: AuthzDomains;
 
-  /** Runs a route on the domain's AuthzAdmin; an AuthzAdminFailure becomes its status with `{ error }`, anything else propagates. */
-  protected async guarded(fn: (admin: AuthzAdmin) => Promise<Response>): Promise<Response> {
-    const admin = (await this.Domains.service(this.AdminDomain)).admin();
+  /**
+   * Runs a route on the AuthzAdmin of the domain the AuthzDomainResolver names for `req`, `authz.http.admin.domain` being its fallback and the domain without a request.
+   * An AuthzAdminFailure becomes its status with `{ error }`, a domain no live domain bears 403 `unknown_domain`, anything else propagates.
+   */
+  protected async guarded(fn: (admin: AuthzAdmin) => Promise<Response>, req?: Request): Promise<Response> {
+    let admin: AuthzAdmin;
+    try {
+      admin = (await this.Domains.service(req ? await resolveAuthzDomain(req, this.AdminDomain) : this.AdminDomain)).admin();
+    } catch (e) {
+      if (e instanceof UnknownAuthzDomain) return respond(403, { error: { code: 'unknown_domain', message: e.message } });
+      throw e;
+    }
     try {
       return await fn(admin);
     } catch (e) {
@@ -108,11 +117,11 @@ export class AuthzAdminController extends BaseController {
     return this.guarded(async (admin) => {
       const opts = readWriteOptions(query(req));
       return results(await admin.execute(actorOf(req), build(), opts));
-    });
+    }, req);
   }
 
   protected list(req: Request, build: () => AuthzAdminQuery) {
-    return this.guarded(async (admin) => respond(200, await admin.list(actorOf(req), build())));
+    return this.guarded(async (admin) => respond(200, await admin.list(actorOf(req), build())), req);
   }
 
   /**
@@ -135,7 +144,7 @@ export class AuthzAdminController extends BaseController {
       const opts: Record<string, unknown> = {};
       for (const key of ['reason', 'idempotencyKey', 'dryRun'] as const) if (key in body) opts[key] = body[key];
       return results(await admin.execute(actorOf(req), decodeCommands(body.commands) as AuthzCommand[], opts as AuthzAdminOptions));
-    });
+    }, req);
   }
 
   /**

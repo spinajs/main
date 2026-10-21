@@ -7,7 +7,7 @@ Use it to drive an admin UI or a script over HTTP with the same answers an in-pr
 ## How it works
 
 1. `@Policy(IsAuthenticated)` on the controller runs first. A request without a principal, or with an anonymous one, answers `401` and never reaches the route.
-2. The route reads its domain from `authz.http.admin.domain` (through `@Config`, on every call) and gets that domain's `AuthzAdmin` with `domainAdmin(domain)`: `root` resolves `AuthzService.admin()`, any other name `AuthzDomains.service(domain).admin()`.
+2. The route reads its domain from `authz.http.admin.domain` (through `@Config`, on every call), lets the [`AuthzDomainResolver`](../authz/05-domains.md#per-request-domains) replace it for the request, and gets that domain's `AuthzAdmin` with `domainAdmin(domain)`: `root` resolves `AuthzService.admin()`, any other name `AuthzDomains.service(domain).admin()`.
 3. The route builds its input from the path, the body and the query string:
    - a write route builds a command list (`decodeCommand` turns ISO 8601 expiry strings into `Date`s) and its options (`readWriteOptions`);
    - a list route builds an `AuthzAdminQuery` (`readAssignmentsQuery`, `readPageQuery`).
@@ -42,7 +42,7 @@ sequenceDiagram
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `authz.http.admin.domain` | `string` | `'root'` | a non-empty domain name | The authz domain whose `AuthzAdmin` the routes use. |
+| `authz.http.admin.domain` | `string` | `'root'` | a non-empty domain name | The authz domain whose `AuthzAdmin` the routes use; the fallback of the `AuthzDomainResolver`. |
 | `authz.http.admin.basePath` | `string` | not set, the routes mount under `authz` | a non-empty path without the route prefix | Where `commands`, `assignments`, `holders`, `links`, `rules`, `policies` and `scopes/:type/:id/attributes` mount. They move together. |
 | `system.dirs.controllers` | `string[]` | the package's `lib/mjs/controllers` or `lib/cjs/controllers` | | Set by the package config; it is how http finds `AuthzAdminController`. |
 
@@ -157,6 +157,7 @@ An unknown error code maps to `400`.
 - **Authentication only at the http layer.** No http policy, validator or schema refuses a request that `AuthzAdmin` would answer. An HTTP call and an in-process call with the same principal get the same answer.
 - **The actor is the principal.** No body key or query parameter names another actor; `POST /authz/commands` reads only `commands`, `reason`, `idempotencyKey` and `dryRun` from its body.
 - **One transaction per request.** A write route runs one `execute` batch. The first failure rolls the whole batch back; the entries before it report `affected: 0`.
+- **A resolver-named domain that does not exist is a 403.** `{ error: { code: 'unknown_domain', message } }`, and no command runs. Only a domain the resolver names is refused this way; a misconfigured `authz.http.admin.domain` stays a 500.
 - **The domain is read on every call.** A domain that does not exist, or a non-string value set at runtime, fails the request with an error that is not an `AuthzAdminFailure` (`500` in the package tests). It never falls back to `root`.
 - **No write over GET.** Only the five list routes answer `GET`.
 - **`dryRun=true`** validates, checks the permission and runs the guard, then rolls back. It ignores the `idempotencyKey`.

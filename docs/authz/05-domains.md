@@ -71,6 +71,31 @@ Once a domain's service has booted, the host's `DefaultAuthzDomains` also gives 
 
 Adapters use these instead of reading config or resolving services themselves, so they act with what the domain's service uses. `pickNamed(container, token, name, key, where)` picks a registration by class name, as the host does for `authz.audit.service` and `authz.bus.service`: without a name it returns the last registration, or `undefined`; an unknown name throws `AuthzConfigError` naming `key`.
 
+## Per-request domains
+
+A route is checked in the domain its `@Access` names (`domain`, else the class's, else `root`). A multi-tenant app that keeps one domain per tenant picks the domain per request with an `AuthzDomainResolver` from `@spinajs/authz-http` (B48):
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { AuthzDomainResolver } from '@spinajs/authz-http';
+import type { Request } from '@spinajs/http';
+
+@Injectable(AuthzDomainResolver)
+export class TenantDomainResolver extends AuthzDomainResolver {
+  resolve(req: Request, fallback: string): string {
+    const tenant = req.headers['x-tenant'];
+    return typeof tenant === 'string' ? `tenant-${tenant}` : fallback;
+  }
+}
+```
+
+- `fallback` is what the route, the controller or the config names today: the `@Access` `domain`, `authz.http.access.domain` for `/user/access` and the explain route, `authz.http.admin.domain` for the admin routes.
+- The default `StaticDomainResolver` returns the fallback, so an app without a resolver behaves as before. The last registered resolver wins.
+- `@Access`, the explain route, `/user/access` and `/user/access/checks`, and the admin routes of `@spinajs/authz-http-admin` all ask the resolver. It runs once per request and fallback, so the policies and the action of a request agree.
+- A name that is not the fallback and that no live domain bears answers 403 `{ error: 'forbidden', reason: { code: 'unknown_domain' } }`; the admin routes answer `{ error: { code: 'unknown_domain', message } }`. The action does not run. A resolver that returns anything but a non-empty string fails the request with `AuthzConfigError` (500).
+- `req.storage.AuthzDecision.domain` and the field filters follow the resolved domain.
+- The resolver chooses among domains the app created. It does not authorize the choice: a request that names another tenant's domain is still checked by that domain's models, so derive the name from something the caller cannot forge, such as the principal, and not from a header alone.
+
 ## Important behaviour
 
 - **Register before the first `service(name)`.** A booted domain does not see later registrations.
@@ -126,4 +151,5 @@ The config above routes `read-only` next to `rbac` in the `archive` domain. With
 
 - [Host, boot and configuration](04-host-boot-and-configuration.md): what a domain boot does.
 - [Writing a model](08-writing-a-model.md): the model contract.
+- [Protecting routes](../authz-http/01-protecting-routes.md): `@Access` and its `domain` option.
 - [`@spinajs/authz-fs`](../authz-fs/README.md): `authz.fs.<name>.domain` names the domain whose service checks a file system.
