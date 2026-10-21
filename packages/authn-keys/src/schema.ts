@@ -25,6 +25,17 @@ export const AUTHN_KEYS_CONFIGURATION_SCHEMA = {
         skewSeconds: { type: 'integer', minimum: 0, maximum: 300, default: 30 },
       },
     },
+    signer: {
+      type: 'object',
+      nullable: true,
+      default: null,
+      description: 'Private signing keys for the JwsSigner (and its JWKS route); null registers no signer.',
+      properties: {
+        current: { type: 'string', minLength: 1, description: 'kid of the key that signs by default; one of the keys.' },
+        keys: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 }, description: 'Secret references the configuration resolves to private JWKs (JSON text), never inline keys.' },
+      },
+      required: ['current', 'keys'],
+    },
     httpSignature: {
       type: 'object',
       default: {},
