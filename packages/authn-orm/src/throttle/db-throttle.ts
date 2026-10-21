@@ -8,6 +8,7 @@ import type { AuthnContext, ThrottleFlow, ThrottleKey, ThrottleParams } from '@s
 import { Config, Configuration } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject, Container, IContainer, Injectable, PerChildInstance } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { deepFreeze, isNonEmptyString } from '@spinajs/util';
@@ -45,6 +46,10 @@ export interface DbThrottleOptions {
 @PerChildInstance()
 @Injectable(AuthnThrottle)
 export class DbAuthnThrottle extends StoreAuthnThrottle {
+  /** Never read: injecting it resolves the Orm, which binds the models, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   @Config('authn.throttle')
   protected ConfiguredParams: ThrottleParams;
 

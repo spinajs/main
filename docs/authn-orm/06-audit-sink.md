@@ -23,7 +23,7 @@ The strategy packages resolve `Array.ofType(AuthnEventSink)` themselves or go th
 3. `DbAuthnAuditSink.publish(e)` turns `e.identity` and `e.actor` into `<type>:<id>` keys with `identityKey()`. A ref that does not fit the 100-character column leaves the column `NULL` and goes whole into `data` as `identityRef` or `actorRef`.
 4. It cuts free text to its column, by code points: `type` 32, `outcome` 8, `strategy` 64, `reason` 64, `ip` 64, `user_agent` 255, `session` 64.
 5. It serialises `e.data` plus the refs of step 3 to JSON. A `bigint` is written as a string; a value that does not serialise is written as `{"unserialisable":true}`. No data and no refs leaves `data` `NULL`.
-6. It checks `e.at` (a valid `Date` between the years 1000 and 9999, else `InvalidArgument`), awaits `ormReady()` and inserts the row with a random UUID `id`.
+6. It checks `e.at` (a valid `Date` between the years 1000 and 9999, else `InvalidArgument`) and inserts the row with a random UUID `id`. The sink injects the `Orm`, so resolving it binds the models.
 
 A failing or slow sink is logged by `AuthnAudit` and never fails the login.
 
@@ -130,17 +130,24 @@ DI.unregister(DbAuthnAuditSink);
 
 ```ts sample
 import { AuthnAudit, identityKey } from '@spinajs/authn-orm';
-import { ormReady } from '@spinajs/orm';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 
-export async function recentSignIns(userUuid: string): Promise<string[]> {
-  await ormReady();
-  const rows = await AuthnAudit.query()
-    .where('identity', identityKey({ type: 'user', id: userUuid }))
-    .where('type', 'login')
-    .orderByDescending('at')
-    .take(20);
+@Injectable()
+export class SignInHistory {
+  // Resolving the service resolves the Orm, which binds AuthnAudit.
+  @Autoinject(Orm)
+  protected Orm: Orm;
 
-  return rows.map((r) => `${r.at.toISO()} ${r.outcome} from ${r.ip ?? 'an unknown address'}`);
+  public async recent(userUuid: string): Promise<string[]> {
+    const rows = await AuthnAudit.query()
+      .where('identity', identityKey({ type: 'user', id: userUuid }))
+      .where('type', 'login')
+      .orderByDescending('at')
+      .take(20);
+
+    return rows.map((r) => `${r.at.toISO()} ${r.outcome} from ${r.ip ?? 'an unknown address'}`);
+  }
 }
 ```
 

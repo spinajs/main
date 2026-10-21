@@ -1,6 +1,6 @@
 import { backoffDelayMs } from '@spinajs/authn/contracts';
 import type { BackoffParams, PeekVerdict } from '@spinajs/authn/contracts';
-import { UniqueViolation, everyNthCall, ormReady } from '@spinajs/orm';
+import { UniqueViolation, everyNthCall } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import type { KeyedBackoffVerdict, ThrottleGate, ThrottleLower, ThrottleStore } from '@spinajs/util';
 import type { DateTime } from 'luxon';
@@ -53,6 +53,8 @@ export interface DbThrottleStoreOptions {
  *
  * Every time decision compares in SQL against the `nowMs` passed in, never SQL `now()`, and never against a datetime
  * read back (lane note D10). Flows need no column: the ids already differ per flow.
+ *
+ * It queries `AuthnThrottle` directly: whoever creates one resolves the Orm first, as `DbAuthnThrottle` does by injecting it.
  */
 export class DbThrottleStore implements ThrottleStore {
   private readonly resetAfterMs: number;
@@ -63,7 +65,6 @@ export class DbThrottleStore implements ThrottleStore {
   }
 
   public async attempt(_flow: string, gates: readonly ThrottleGate[], counted: readonly string[], nowMs: number): Promise<KeyedBackoffVerdict> {
-    await ormReady();
     if (this.purgeDue()) {
       await this.purge(nowMs);
     }
@@ -100,7 +101,6 @@ export class DbThrottleStore implements ThrottleStore {
    */
   public async peek(_flow: string, gates: readonly ThrottleGate[], nowMs: number): Promise<PeekVerdict> {
     if (gates.length === 0) return { allowed: true, clean: true };
-    await ormReady();
     const t = this.times(nowMs);
     const live = await AuthnThrottle.query()
       .columns(['k', 'next_allowed_at'])
@@ -115,7 +115,6 @@ export class DbThrottleStore implements ThrottleStore {
 
   /** Lowers by the largest count it consumed: rows carry no run, so a `by` row older than its target is taken off too. */
   public async succeed(_flow: string, lower: readonly ThrottleLower[], clear: readonly string[], nowMs: number): Promise<void> {
-    await ormReady();
     const t = this.times(nowMs);
     const consumed = new Set<string>();
     for (const { targets, by } of lower) {
@@ -137,7 +136,6 @@ export class DbThrottleStore implements ThrottleStore {
 
   /** Deletes up to one batch of stale rows (idle for resetAfterMs and delaying nobody); returns how many went. */
   public async purge(nowMs: number): Promise<number> {
-    await ormReady();
     const t = this.times(nowMs);
     const stale = await AuthnThrottle.query().columns(['k']).where('last_attempt_at', '<=', t.cutoff).where('next_allowed_at', '<=', t.now).orderBy('k').take(PURGE_BATCH);
     if (stale.length === 0) return 0;
