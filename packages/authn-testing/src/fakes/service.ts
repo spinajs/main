@@ -36,7 +36,7 @@ type Peek = (keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext
  * route by credential kind, count the attempt (strategy keys + ip) before verify (a per-request strategy over a throttle
  * with `peek`: peek before verify and count failures only, K5), audit every failure with its real reason, answer
  * status refusals as invalid_credentials, link or provision external subjects, run the external login hooks before
- * any session, issue a pending session when MFA is required, elevate on completeMfa, and re-authenticate without
+ * any session, issue a pending session when MFA is required, elevate on completeMfa, reissue on stepUp, and re-authenticate without
  * touching the session. A fake, not N1's implementation: unlike the core it links before the status check.
  */
 export class FakeAuthnService extends AuthnService {
@@ -255,8 +255,44 @@ export class FakeAuthnService extends AuthnService {
     return ok;
   }
 
-  async stepUp(_session: SessionHandle, _step: string, _response: string, _ctx: AuthnContext): Promise<AuthenticationResult> {
-    throw new Error('not implemented: FakeAuthnService.stepUp');
+  async stepUp(session: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult> {
+    const restored = await this.d.sessions.restore(session.id);
+    if (!restored || restored.handle.state !== 'active' || restored.facts.impersonator) {
+      return failure('invalid_credentials');
+    }
+    const id = restored.identity;
+    if (restored.facts.assurance === 'aal2') {
+      const { authenticatedAt: _at, ...current } = restored.facts;
+      return { status: 'success', identity: id, facts: current, session: restored.handle };
+    }
+    const keys = this.keysFor(
+      [
+        { kind: 'account', value: id.id },
+        { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` },
+      ],
+      ctx,
+    );
+    const t = await this.d.throttle.attempt(keys, 'mfa', ctx);
+    if (!t.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', identity: id, reason: 'throttled' });
+      return throttled(t.retryAfterSeconds);
+    }
+    let ok = false;
+    for (const s of this.d.steps) {
+      if (!(await s.enrolled(id))) continue;
+      if (step === 'recovery' && typeof s.verifyRecovery === 'function') ok = ok || (await s.verifyRecovery(id, response));
+      else if (s.name === step) ok = await s.verify(id, response);
+    }
+    if (!ok) {
+      await this.audit(ctx, { type: 'mfa.verify', outcome: 'failure', identity: id, reason: 'invalid_code' });
+      return failure('invalid_credentials');
+    }
+    await this.d.throttle.succeed(keys, 'mfa');
+    const next = await this.d.sessions.reissue(session, { assurance: 'aal2', mfa: [step] });
+    const { authenticatedAt: _at, ...facts } = (await this.d.sessions.restore(next.id))!.facts;
+    await this.audit(ctx, { type: 'mfa.verify', outcome: 'success', identity: id, session: facts.sessionHandle });
+    await this.audit(ctx, { type: 'session.rotate', outcome: 'success', identity: id, session: facts.sessionHandle });
+    return { status: 'success', identity: id, facts, session: next };
   }
 
   async principalOf(result: Success): Promise<Principal> {
