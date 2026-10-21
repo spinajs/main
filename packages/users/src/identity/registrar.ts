@@ -12,14 +12,15 @@ import { activate, assertLoginNotReserved, create } from '../actions.js';
 import { UserAlreadyExists, UserCreatedIncomplete } from '../exceptions.js';
 import { runAsSystem } from '../system.js';
 import { UserIdentityStore } from './identity-store.js';
-import { usersMatchingLogin, usersOrmUp } from './sql.js';
+import { usersMatchingLogin } from './sql.js';
 
 type Registration = { readonly login: string; readonly email: string; readonly password: string };
 type Registered = { readonly status: 'created'; readonly id: IdentityRef } | { readonly status: 'exists'; readonly id: IdentityRef };
 
 /**
  * Self-service registration over `create()` (FEAT-4, A35). The caller has applied the password policy; `create()` applies it
- * again. A taken email or login answers `exists` with the account that holds it and writes nothing.
+ * again. A taken email or login answers `exists` with the account that holds it and writes nothing. The factory builds it with
+ * `new`, so it cannot inject the Orm; the app resolved it before serving.
  */
 export class UserIdentityRegistrar extends IdentityRegistrar {
   public async register(data: Registration, _ctx: AuthnContext): Promise<Registered> {
@@ -57,7 +58,6 @@ export class UserIdentityRegistrar extends IdentityRegistrar {
 
   /** The account that holds the email or, failing that, the login; an exact email match first. */
   protected async ownerOf(data: Registration): Promise<IdentityRef | null> {
-    await usersOrmUp();
     for (const value of [data.email, data.login]) {
       const rows = await runAsSystem('registrar', () => usersMatchingLogin(value));
       const typed = value.trim();
