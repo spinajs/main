@@ -5,19 +5,24 @@ import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Ok, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { AuthnService } from '@spinajs/authn/contracts';
+import type { AuthenticationResult, Session } from '@spinajs/authn/contracts';
 
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
 import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
+import { mfaPolicyOf } from '../../policies/v3/mfa.js';
 import { NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
 import { answerFor, bodyField, boundedString, contextOf, pendingSteps } from '../routes.js';
 
 /** completeMfa's step for recovery codes (contracts: MfaStep.name, AuthnService.completeMfa). */
 const RECOVERY_STEP = 'recovery';
 
+const STEP_NAME_CAP = 64;
+
 /**
  * Completes the login of a pending (pre-MFA) session (A09, A10). Only a pending session reaches these routes: none
  * answers 401, an active one 403. Success elevates the session to aal2 under a new id, keeping its data; a failure
- * answers the login failure body and leaves the session pending.
+ * answers the login failure body and leaves the session pending. The step-up route is the reverse: only an active
+ * session reaches it (a pending one answers 403), and success reissues it at aal2 under a new id.
  * @tags Authentication
  */
 @BasePath('auth')
@@ -54,8 +59,18 @@ export class AuthnMfaController extends BaseController {
    * @security cookieAuth
    */
   @Post('mfa/step-up')
-  public async stepUp(@Req() _req: Request): Promise<never> {
-    throw new Error('not implemented: AuthnMfaController.stepUp');
+  public async stepUp(@Req() req: Request) {
+    const session = req.storage.AuthnSession;
+    if (!session) throw unauthenticated('this route needs a session');
+    if (session.handle.state !== 'active') throw refused('mfa_pending', 'complete the pending second factor instead');
+
+    const code = boundedString(bodyField(req, 'code'), PASSWORD_HARD_CAP);
+    if (code === null) return authnFailureResponse();
+    const step = boundedString(bodyField(req, 'step'), STEP_NAME_CAP) ?? (await this.firstEnrolledStep(session));
+    if (step === null) return authnFailureResponse();
+
+    const authn = await this.Container.resolve(AuthnService);
+    return this.answer(authn, await authn.stepUp(session.handle, step, code, contextOf(req, 'login', session.handle)));
   }
 
   protected async complete(req: Request, recovery: boolean) {
@@ -76,7 +91,16 @@ export class AuthnMfaController extends BaseController {
 
     // Per call: an eager AuthnService builds its checked neighbours, missing in apps without them.
     const authn = await this.Container.resolve(AuthnService);
-    const result = await authn.completeMfa(session.handle, step, code, contextOf(req, 'login', session.handle));
+    return this.answer(authn, await authn.completeMfa(session.handle, step, code, contextOf(req, 'login', session.handle)));
+  }
+
+  protected async firstEnrolledStep(session: Session): Promise<string | null> {
+    const policy = await mfaPolicyOf(this.Container, this.MfaPolicyService);
+    for (const s of (await policy.steps()).values()) if (await s.enrolled(session.identity)) return s.name;
+    return null;
+  }
+
+  protected async answer(authn: AuthnService, result: AuthenticationResult) {
     if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined);
     if (result.status !== 'success' || !result.session) return authnFailureResponse();
     const principal = await authn.principalOf(result);
