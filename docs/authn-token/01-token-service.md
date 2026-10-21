@@ -95,7 +95,7 @@ Housekeeping behind `authn:token-delete-expired`. It is not part of the `TokenSe
 
 1. `now` must be a valid `Date`, or it throws `InvalidOperation`.
 2. It selects the ids of rows with `ExpiresAt <= now`, rows without `ExpiresAt` and revoked rows, through the model, so the cutoff is written in the column's format.
-3. It deletes them in batches of 500 ids and answers the count.
+3. It reads 500 ids at a time, oldest `Id` first, deletes them and reads the next 500 until none are due, then answers the count. It never holds more than 500 ids.
 
 ## Configuration
 

@@ -1,3 +1,15 @@
+# Release notes — bounded cleanup and the `Expiration` index
+
+## New behavior
+
+- `DbSessionStore.cleanupExpired` deletes expired sessions `authn.session.db.cleanupBatch` rows at a time (default 500)
+  instead of with one unbounded `DELETE`. A new migration, `UserSessionExpirationIndex_2026_10_21_00_00_00`, adds
+  `user_sessions_expiration_idx`; it runs with the other `session-provider-connection` migrations.
+- `DbTokenService.deleteExpired` pages through the due rows 500 ids at a time instead of reading every id first.
+- `AuthnAuditRetention` in `@spinajs/authn-orm` deletes `authn_audit` rows older than `authn.audit.retentionDays`,
+  on a timer when `authn.audit.purgeInterval` (ms) is set, and `authn:audit-purge` runs it once. Both keys are unset
+  by default, so existing deployments keep every row. `@spinajs/authn-orm` now depends on `@spinajs/cli`.
+
 # Release notes — authn-token, authn-keys: credential cache
 
 ## New behavior
