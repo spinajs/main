@@ -6,10 +6,10 @@ How to write a hook, and what `before`, `after` and `failed` mean, is in [Writin
 
 ## The actions
 
-| Action | Runs | Input | Mutable | After hooks see |
+| Action | Runs | Input | Mutable | `after` sees |
 | --- | --- | --- | --- | --- |
-| `authz.admin.batch` | In `AuthzAdmin.execute` (and every sugar method), before the first command is validated. Not for an empty batch. | `actor`, `commands`, `opts?` | `commands` | `results` of the batch |
-| `authz.admin.command` | Per command, after `validate()` and the app validators, before `AdminGuard.check()`. | `actor`, `command` | `command` | the `command` that was applied |
+| `authz.admin.batch` | In `AuthzAdmin.execute` (and every sugar method), before the first command is validated. Not for an empty batch. | `actor`, `commands`, `opts?` | `commands` | `results` of the batch, also failed ones, and the results of a dry run |
+| `authz.admin.command` | Per command, after `validate()` and the app validators, before `AdminGuard.check()`. | `actor`, `command` | `command` | the `command` that passed validation and the hook phase (not yet guarded or committed) |
 | `authz.check` | In `check`, `can` and `assert`, after the engine's decision, only when `authz.hooks.check` is `true`. | `principal`, `permission`, `resource` | none | the `Decision` |
 
 All three are refusable. Hooks are application-wide: `Hooks` is resolved from the domain container, which falls back to the root, so register hooks in the root container.
@@ -42,6 +42,12 @@ export class DefaultExpiry extends ActionHook<'authz.admin.command'> {
 }
 ```
 
+### What `after` means
+
+- **`authz.admin.command` `after`** runs in phase A, when the command has passed `validate()`, the validators, the permission check and the hook phase. It does **not** mean the command was committed: the guard and `apply()` come later, so the command can still be refused by the guard, roll back with the rest of the batch, or be a dry run.
+- **Committed-effect logic** (notify another system, invalidate a copy) belongs in `authz.admin.batch` `after`. It runs once the whole batch is done, with `results`. Look at them: it also runs when a command failed (`ok: false`) and for a dry run (`opts.dryRun`, with `opts` in the input), when nothing was written. Only a batch whose results are all `ok` and whose `opts.dryRun` is not `true` was committed.
+- A replayed batch (stored under an idempotency key) also runs this `after` hook with the stored results.
+
 ### Answers
 
 | What happened | `execute` | The sugar methods |
@@ -69,7 +75,9 @@ With the switch off, `check`, `can` and `assert` never touch `Hooks`. With it on
 - The hook runs after the decision cache lookup, on the decision the engine returns. `resource` is the normalised `ResourceRef` of that decision.
 - A refusal returns a deny `Decision` with `reason.code` `hook:<code>` (`hook_error` when the hook threw). It is built after the caches, so it is never stored in L1 or L2: the next check without the refusing hook is served from the cache as before.
 - A hook never turns a deny into an allow. A deny the engine made stays as it is, with its own reason, whatever the hooks do.
-- `after` hooks see the `Decision`. `explain`, `inspect`, `checkMany`, `checkAll`, `filter` and the admin permission check are not hooked.
+- `after` hooks see the `Decision`. `explain`, `inspect`, `checkMany`, `checkAll` and `filter` are not hooked.
+- The permission check of `AuthzAdmin` goes through `AuthzService.check`, so with the switch on a refusal also makes admin calls fail with `forbidden`: the actor's permission check is hooked like any other check. A hook that refuses broadly can therefore lock admins out; limit it to the principals or permissions it means to stop.
+- A forced deny is audited as a `deny` entry with reason `hook:<code>` when `authz.audit.denials` is on, and keeps the `trace` of an explain request.
 
 ## Related
 
