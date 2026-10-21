@@ -162,6 +162,7 @@ describe('AuthzCommandMap: a third-party model adds admin commands', function ()
   });
 
   it('answers a declared query kind through its registered AuthzAdminReader', async () => {
+    adminConfig({ permissions: { 'list.fake.values': 'app:settings.manage' } });
     const d = await domain();
     const out = await d.admin.list(alice, { kind: 'fake.values', scope: p1 });
     expect(out).to.deep.equal({ items: [{ key: 'colour', value: 3 }], total: 1 });
