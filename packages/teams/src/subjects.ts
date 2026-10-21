@@ -1,4 +1,4 @@
-import type { AssignmentSubject } from '@spinajs/authz';
+import type { AssignmentSubject } from '@spinajs/authz-rbac';
 import { InvalidArgument } from '@spinajs/exceptions';
 
 import { GROUP_MEMBER_ROLE, GROUP_TYPE, TEAM_MEMBER_ROLE, TEAM_TYPE } from './api.js';

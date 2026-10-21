@@ -1,5 +1,6 @@
 import { AuthzAdminFailure } from '@spinajs/authz';
-import type { AssignmentSubject, PrincipalRef, RuleDef } from '@spinajs/authz';
+import type { PrincipalRef } from '@spinajs/authz';
+import type { AssignmentSubject, RuleDef } from '../contracts.js';
 
 import { scopeToColumns, subjectToColumns } from './columns.js';
 import type { SubjectColumns } from './columns.js';

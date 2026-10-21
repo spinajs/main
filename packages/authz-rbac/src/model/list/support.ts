@@ -1,5 +1,6 @@
 import { compilePermissionGlob } from '@spinajs/authz';
-import type { ListSupport, ListSupportContext, Permission, ResourceType, RuleDef } from '@spinajs/authz';
+import type { ListSupport, ListSupportContext, Permission, ResourceType } from '@spinajs/authz';
+import type { RuleDef } from '../../contracts.js';
 
 import type { GrantIndex } from '../grants.js';
 import type { ImpliesIndex } from '../ladder/implies.js';

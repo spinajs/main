@@ -57,9 +57,10 @@ function readKeepHolders(v: unknown, reader: string): readonly KeepHolder[] {
   return Object.freeze(v.map((e) => Object.freeze({ role: e.role, scopeType: e.scopeType })));
 }
 
-type Kind = AuthzCommand['kind'];
+// The RBAC kinds and the core's; another model's kinds are not guarded here.
+type Kind = Extract<AuthzCommand['kind'], `${'assignment' | 'set' | 'link' | 'rule' | 'scope'}.${string}`> | 'policy.put' | 'policy.delete';
 
-// Every kind of the contract, so a misspelt or missing kind fails to compile; true marks the guarded ones.
+// Every kind it knows, so a misspelt or missing kind fails to compile; true marks the guarded ones.
 const GUARDED: Readonly<Record<Kind, boolean>> = {
   'assignment.grant': true,
   'assignment.revoke': true,

@@ -1,5 +1,6 @@
 import { AuthzAdminFailure, AuthzConfigError, principalKey } from '@spinajs/authz';
-import type { AuthzTx, LinkDef, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import type { AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import type { LinkDef } from '../contracts.js';
 import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';

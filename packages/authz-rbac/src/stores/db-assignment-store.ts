@@ -1,5 +1,6 @@
 import { AuthzAdminFailure, principalKey } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import type { AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject } from '../contracts.js';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { UniqueViolation } from '@spinajs/orm';
