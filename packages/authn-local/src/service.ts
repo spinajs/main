@@ -376,8 +376,20 @@ export class LocalPasswordService extends PasswordService {
     return { status: 'accepted' };
   }
 
-  public async requestCode(_login: string, _ctx: AuthnContext): Promise<CodeRequestResult> {
-    throw new Error('not implemented: LocalPasswordService.requestCode');
+  /**
+   * Counts first; then the lookup, issue, mail and audit run as deferred work, so the answer and its timing are the same for
+   * known and unknown logins (SR-04).
+   */
+  public async requestCode(login: string, ctx: AuthnContext): Promise<CodeRequestResult> {
+    const keys: ThrottleKey[] = [{ kind: 'account', value: `code:${normalizeLogin(login)}` }, resetIpKey(ctx)];
+    const gate = await this.throttle().attempt(keys, 'reset', ctx);
+    if (!gate.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', data: { flow: 'code' } });
+      return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
+
+    this.work().defer(() => this.sendLoginCode(login, ctx));
+    return { status: 'accepted' };
   }
 
   /** Counts first; an identity that cannot get a code gets no mail and the same answer. */
@@ -464,6 +476,15 @@ export class LocalPasswordService extends PasswordService {
     }
     const sent = await this.dispatchMail(id, 'reset', this.resetTtlSeconds());
     await this.audit(ctx, { type: 'password.reset.request', outcome: sent ? 'success' : 'failure', identity: id, ...(sent ? {} : { reason: 'no_mailer' }) });
+  }
+
+  protected async sendLoginCode(login: string, ctx: AuthnContext): Promise<void> {
+    const id = await (await this.identities()).findByLogin(login);
+    if (!id) {
+      await this.audit(ctx, { type: 'code.request', outcome: 'failure', reason: 'unknown_login', data: { via: 'login' } });
+      return;
+    }
+    await this.sendCode(id, ctx, 'login');
   }
 
   protected async sendCode(id: IdentityRef, ctx: AuthnContext, via: 'login' | 'mfa'): Promise<void> {
