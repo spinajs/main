@@ -30,18 +30,18 @@ describe('emailVerification schema', () => {
   });
 
   it('refuses an unknown onError', async () => {
-    await expect(config({ onError: 'maybe' })).to.be.rejected;
+    await expect(config({ onError: 'maybe' })).to.be.rejectedWith(/emailVerification\.onError must be equal to one of the allowed values/);
   });
 
   it('refuses a list source over http', async () => {
-    await expect(config({ lists: { sources: [{ name: 'x', url: 'http://example.com/l', kind: 'block' }] } })).to.be.rejected;
+    await expect(config({ lists: { sources: [{ name: 'x', url: 'http://example.com/l', kind: 'block' }] } })).to.be.rejectedWith(/emailVerification\.lists\.sources\.0\.url must match pattern/);
   });
 
   it('refuses a list source named admin', async () => {
-    await expect(config({ lists: { sources: [{ name: 'admin', url: 'https://example.com/l', kind: 'block' }] } })).to.be.rejected;
+    await expect(config({ lists: { sources: [{ name: 'admin', url: 'https://example.com/l', kind: 'block' }] } })).to.be.rejectedWith(/emailVerification\.lists\.sources\.0\.name must NOT be valid/);
   });
 
   it('refuses an http provider URL without {domain}', async () => {
-    await expect(config({ http: { providers: [{ name: 'p', url: 'https://api.example/check', resultPath: 'x' }] } })).to.be.rejected;
+    await expect(config({ http: { providers: [{ name: 'p', url: 'https://api.example/check', resultPath: 'x' }] } })).to.be.rejectedWith(/emailVerification\.http\.providers\.0\.url must match pattern/);
   });
 });

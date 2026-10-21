@@ -43,6 +43,7 @@ export function storeContract(title: string, makeStore: () => Promise<EmailVerif
         await store.setVerdict('dns', 'a.com', { result: 'unknown', checkedAt: 1_700_000_000_000 }, 60);
         const got = await store.getVerdict('dns', 'a.com');
         expect(got?.result).to.eq('unknown');
+        // Stores must normalise SQL NULL to an absent field.
         expect(got?.reason).to.eq(undefined);
         expect(got?.source).to.eq(undefined);
       });
@@ -60,10 +61,21 @@ export function storeContract(title: string, makeStore: () => Promise<EmailVerif
         expect((await store.getVerdict('dns', 'a.com'))?.reason).to.eq('resolves');
       });
 
-      it('stores nothing for a TTL of 0', async () => {
-        await store.setVerdict('dns', 'a.com', refused, 0);
-        expect(await store.getVerdict('dns', 'a.com')).to.eq(null);
+      it('keeps the verdicts of different domains apart', async () => {
+        await store.setVerdict('dns', 'a.com', refused, 60);
+        await store.setVerdict('dns', 'b.com', { result: 'unknown', reason: 'resolves', checkedAt: 2 }, 60);
+        expect((await store.getVerdict('dns', 'a.com'))?.result).to.eq('refuse');
+        const other = await store.getVerdict('dns', 'b.com');
+        expect(other?.result).to.eq('unknown');
+        expect(other?.reason).to.eq('resolves');
       });
+
+      for (const ttl of [0, -1]) {
+        it(`stores nothing for a TTL of ${ttl}`, async () => {
+          await store.setVerdict('dns', 'a.com', refused, ttl);
+          expect(await store.getVerdict('dns', 'a.com')).to.eq(null);
+        });
+      }
 
       it('drops a verdict once its TTL passed', async () => {
         await store.setVerdict('dns', 'a.com', refused, 1);
@@ -127,17 +139,34 @@ export function storeContract(title: string, makeStore: () => Promise<EmailVerif
         expect(domainsOf(await store.loadLists(), 'block', 'big')).to.deep.eq([...domains].sort());
       });
 
+      it('removes only the listed domains of a source', async () => {
+        await store.upsertEntries([
+          { domain: 'a.com', kind: 'block', source: 'admin' },
+          { domain: 'b.com', kind: 'block', source: 'admin' },
+        ]);
+        await store.removeEntries('block', ['a.com'], 'admin');
+        expect(keys(await store.loadLists())).to.deep.eq(['block|admin|b.com']);
+      });
+
       it('a reader during replaceSource sees the old set or the new set', async () => {
-        const before = range(1000, (i) => `o${i}.com`).sort();
-        const after = range(1000, (i) => `n${i}.com`).sort();
-        await store.replaceSource('src', 'block', before);
-        const writing = store.replaceSource('src', 'block', after);
+        const previous = range(1000, (i) => `o${i}.com`).sort();
+        const next = range(1000, (i) => `n${i}.com`).sort();
+        const same = (a: string[], b: string[]) => a.length === b.length && a.every((d, i) => d === b[i]);
+        await store.replaceSource('src', 'block', previous);
+        // A store whose replace completes synchronously passes this trivially; it has teeth for stores with real I/O.
+        let settled = false;
+        const writing = store.replaceSource('src', 'block', next).finally(() => (settled = true));
         const seen: string[][] = [];
-        for (let i = 0; i < 5; i++) seen.push(domainsOf(await store.loadLists(), 'block', 'src'));
+        do {
+          seen.push(domainsOf(await store.loadLists(), 'block', 'src'));
+        } while (!settled || seen.length < 5);
         await writing;
         seen.push(domainsOf(await store.loadLists(), 'block', 'src'));
-        for (const domains of seen) expect([before, after]).to.deep.include(domains);
-        expect(seen[seen.length - 1]).to.deep.eq(after);
+        seen.forEach((sample, i) => {
+          const ok = same(sample, previous) || same(sample, next);
+          expect(ok, `read ${i} saw ${sample.length} domains, neither the old nor the new set`).to.eq(true);
+        });
+        expect(seen[seen.length - 1]).to.deep.eq(next);
       });
 
       it('changes listVersion on every list write', async () => {
