@@ -10,6 +10,7 @@ import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
 import { AcceptedResponse, NO_STORE, badRequest, hookRefusalOf } from '../responses.js';
 import { bodyField, boundedString, completeLogin, contextOf, publishAuthnEvent } from '../routes.js';
 import '../../hooks.js';
+import { runHooked } from '../hooked.js';
 
 const ACK: Readonly<{ Ok: true }> = Object.freeze({ Ok: true });
 
@@ -47,7 +48,7 @@ export class AuthnCodeLoginController extends BaseController {
     if (login === null) return badRequest('invalid_login', `login must be a non-empty string of at most ${PASSWORD_HARD_CAP} characters`);
     const ctx = contextOf(req, 'request');
     try {
-      const result = await this.Hooks.run('authn.code.request', { login, ctx }, () => this.Passwords!.requestCode!(login, ctx), { mutable: [] });
+      const result = await runHooked(this.Hooks, 'authn.code.request', { login, ctx }, () => this.Passwords!.requestCode!(login, ctx), { mutable: [] });
       if (result.status === 'throttled') return tooManyRequests('too many code requests, try again later', result.retryAfterSeconds);
     } catch (err) {
       const refusal = hookRefusalOf(err, 'authn.code.request');

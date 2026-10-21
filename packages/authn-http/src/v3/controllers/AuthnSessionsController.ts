@@ -11,6 +11,7 @@ import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../inde
 import { NO_STORE, authnClearedSessionCookie, hookRefusalOf, hookRefusedAnswer } from '../responses.js';
 import { contextOf, publishAuthnEvent } from '../routes.js';
 import '../../hooks.js';
+import { runHooked } from '../hooked.js';
 
 /**
  * The caller's own sessions: list them, end one, end all others (A08; design §22.11). Needs a session principal; a
@@ -99,7 +100,7 @@ export class AuthnSessionsController extends BaseController {
   }
 
   protected revoking(req: Request, subject: IdentityRef, handle: string, current: SessionHandle, revoke: () => Promise<number>): Promise<number> {
-    return this.Hooks.run('authn.sessions.revoke', { subject: { type: subject.type, id: subject.id }, handle, ctx: contextOf(req, 'request', current) }, revoke, { mutable: [] });
+    return runHooked(this.Hooks, 'authn.sessions.revoke', { subject: { type: subject.type, id: subject.id }, handle, ctx: contextOf(req, 'request', current) }, revoke, { mutable: [] });
   }
 
   protected async refused(req: Request, err: unknown, subject: IdentityRef) {

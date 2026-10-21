@@ -14,6 +14,7 @@ import { ACTIVE_ROLE_KEY } from '../../resolvers/session.js';
 import { NO_STORE, authnSessionCookie, refusedByHook } from '../responses.js';
 import { answerFor, bodyField, boundedString, contextOf, onLiveSession } from '../routes.js';
 import '../../hooks.js';
+import { runHooked } from '../hooked.js';
 
 const ROLE_CAP = 256;
 
@@ -84,7 +85,8 @@ export class AuthnActiveRoleController extends BaseController {
     let rotated: SessionHandle | undefined;
     let principal: Principal;
     try {
-      principal = await this.Hooks.run(
+      principal = await runHooked(
+        this.Hooks,
         'authn.role.switch',
         { session, role, ctx: contextOf(req, 'request', session.handle) },
         async () => {

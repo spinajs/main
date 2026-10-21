@@ -17,6 +17,7 @@ import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../inde
 import { NO_STORE, hookRefusalOf, hookRefusedAnswer } from '../responses.js';
 import { contextOf, publishAuthnEvent } from '../routes.js';
 import '../../hooks.js';
+import { runHooked } from '../hooked.js';
 
 /** The event a refused admin action is audited as. */
 const REFUSED_EVENT: ReadonlyMap<CredentialAdminAction, AuthnEventType> = new Map<CredentialAdminAction, AuthnEventType>([
@@ -156,7 +157,7 @@ export class AuthnCredentialAdminController extends BaseController {
    */
   protected async effect(req: Request, admitted: Allowed, action: CredentialAdminAction, run: () => Promise<Readonly<Record<string, unknown>>>) {
     try {
-      return new Ok(await this.Hooks.run('authn.admin.credentials', { actor: admitted.actor, target: admitted.target, action }, run, { mutable: [] }), { Headers: [NO_STORE] });
+      return new Ok(await runHooked(this.Hooks, 'authn.admin.credentials', { actor: admitted.actor, target: admitted.target, action }, run, { mutable: [] }), { Headers: [NO_STORE] });
     } catch (err) {
       const refusal = hookRefusalOf(err, 'authn.admin.credentials');
       if (!refusal) throw err;

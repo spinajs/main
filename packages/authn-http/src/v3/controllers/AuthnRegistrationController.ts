@@ -14,6 +14,7 @@ import { IdentityRegistrarRegistered } from '../../policies/v3/groups.js';
 import { AcceptedResponse, NO_STORE, badRequest, hookRefusalOf, hookRefusedAnswer } from '../responses.js';
 import { bodyField, boundedString, contextOf, publishAuthnEvent } from '../routes.js';
 import type { RegistrationInput, RegistrationOutput } from '../../hooks.js';
+import { runHooked } from '../hooked.js';
 
 const IDENTIFIER_CAP = 254;
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
@@ -73,7 +74,7 @@ export class AuthnRegistrationController extends BaseController {
 
     let result: RegistrationOutput;
     try {
-      result = await this.Hooks.run('authn.registration', { login, email, ctx }, (input) => this.registered(passwords, input, { login, email }, next.password, ctx), { mutable: ['login', 'email'] });
+      result = await runHooked(this.Hooks, 'authn.registration', { login, email, ctx }, (input) => this.registered(passwords, input, { login, email }, next.password, ctx), { mutable: ['login', 'email'] });
     } catch (err) {
       if (err instanceof RejectedForHookedValues) return passwordRejected(err.violations);
       if (err instanceof InvalidArgument) return new BadRequestResponse({ error: 'invalid_registration', message: 'the registration was refused', ...(err.fieldName ? { field: err.fieldName } : {}) }, { Headers: [NO_STORE] });

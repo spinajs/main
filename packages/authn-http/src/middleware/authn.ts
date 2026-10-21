@@ -21,6 +21,7 @@ import { logHash, unsignSessionCookie, warnNoLiveSession } from '../session-cook
 import { contextOf } from '../v3/context.js';
 import { hookRefusalOf } from '../v3/responses.js';
 import '../hooks.js';
+import { runHooked } from '../v3/hooked.js';
 
 const byOrder = (a: { order: number }, b: { order: number }): number => a.order - b.order;
 
@@ -155,7 +156,7 @@ export class AuthnMiddleware extends ServerMiddleware {
     const ip = req.storage.ClientIp;
     const input = { principal, method: req.method, path: typeof target === 'string' ? target.split('?')[0] : '', ...(typeof ip === 'string' ? { ip } : {}) };
     try {
-      await this.Hooks.run('authn.request', input, async () => undefined, { mutable: [] });
+      await runHooked(this.Hooks, 'authn.request', input, async () => undefined, { mutable: [] });
     } catch (err) {
       const refusal = hookRefusalOf(err, 'authn.request');
       if (!refusal) throw err;

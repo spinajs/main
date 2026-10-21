@@ -16,6 +16,7 @@ import { NO_STORE, authnClearedSessionCookie, hookRefusalOf, hookRefusedAnswer }
 import { runLogoutExtensions } from '../logout-extension.js';
 import { answerFor, auditEnded, bodyField, boundedString, completeLogin, contextOf, isNavigation, pendingAnswer, pendingSteps, publishAuthnEvent } from '../routes.js';
 import '../../hooks.js';
+import { runHooked } from '../hooked.js';
 
 /**
  * Login, logout and whoami of the 3.0 layer (design §22.4, §22.11). Every failed login answers the same 401 body
@@ -77,7 +78,8 @@ export class AuthnLoginController extends BaseController {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('there is no session to end');
     try {
-      await this.Hooks.run(
+      await runHooked(
+        this.Hooks,
         'authn.logout',
         { session, ctx: contextOf(req, 'request', session.handle) },
         async () => {
