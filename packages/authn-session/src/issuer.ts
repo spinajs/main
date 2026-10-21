@@ -46,6 +46,7 @@ interface StoredFacts {
   assurance: 'aal1' | 'aal2';
   mfa: string[];
   authenticatedAt: number;
+  external?: { provider: string; sid?: string };
 }
 
 const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -53,9 +54,11 @@ const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex');
 export const storageKeyOf = (rawId: string): string => sha256hex(rawId);
 
 /** ISession.ExternalKey of a session issued from `provider` with IdP session id `sid`. */
-export const externalKeyOf = (_provider: string, _sid: string): string => {
-  throw new Error('not implemented: externalKeyOf');
-};
+export const externalKeyOf = (provider: string, sid: string): string => sha256hex(`${provider}\0${sid}`);
+
+const MAX_EXTERNAL_LENGTH = 255;
+
+const isExternalPart = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= MAX_EXTERNAL_LENGTH;
 
 const PEEKING = new AsyncLocalStorage<true>();
 
@@ -78,8 +81,24 @@ export const sessionHandleOf = (storageKey: string): string => sha256hex(HANDLE_
 
 const ref = (r: IdentityRef | PrincipalRef): IdentityRef => ({ type: r.type, id: r.id });
 
+/** A well-formed external block, or undefined: a stored row is read as untrusted input. */
+function externalOf(v: unknown): StoredFacts['external'] {
+  const e = v as { provider?: unknown; sid?: unknown } | null | undefined;
+  if (!e || typeof e !== 'object' || !isExternalPart(e.provider)) {
+    return undefined;
+  }
+  return isExternalPart(e.sid) ? { provider: e.provider, sid: e.sid } : { provider: e.provider };
+}
+
 function toStored(f: AuthnFacts): StoredFacts {
-  return { method: f.method, strategy: f.strategy, assurance: f.assurance, mfa: [...f.mfa], authenticatedAt: f.authenticatedAt.getTime() };
+  const external = externalOf(f.external);
+  return { method: f.method, strategy: f.strategy, assurance: f.assurance, mfa: [...f.mfa], authenticatedAt: f.authenticatedAt.getTime(), ...(external ? { external } : {}) };
+}
+
+/** ISession.ExternalKey of a row holding these facts. */
+function externalKeyOfStored(f: StoredFacts | null): string | undefined {
+  const external = externalOf(f?.external);
+  return external?.sid !== undefined ? externalKeyOf(external.provider, external.sid) : undefined;
 }
 
 function pendingStepsOf(v: unknown): readonly string[] | null {
@@ -136,6 +155,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
         Creation: now,
         Expiration: pending ? now.plus({ seconds: this.PendingTtlSeconds }) : undefined,
         Data: data,
+        ExternalKey: externalKeyOfStored(readStored(data.get(FACTS_KEY))),
       }),
     );
     return { id: rawId, state: pending ? 'pending' : 'active' };
@@ -205,6 +225,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
         assurance: 'aal2',
         mfa: facts.mfa ?? stored.mfa,
         authenticatedAt: facts.authenticatedAt ?? new Date(stored.authenticatedAt),
+        ...(stored.external ? { external: stored.external } : {}),
       }),
     );
     // No expiration: the store gives the now-active session its initial one.
@@ -272,11 +293,15 @@ export class DefaultSessionIssuer extends SessionIssuer {
     return out;
   }
 
-  public async revokeByExternal(_provider: string, _sid: string): Promise<number> {
-    throw new Error('not implemented: DefaultSessionIssuer.revokeByExternal');
+  public async revokeByExternal(provider: string, sid: string): Promise<number> {
+    if (!isExternalPart(provider) || !isExternalPart(sid)) {
+      return 0;
+    }
+    return this.Store.deleteByExternalKey(externalKeyOf(provider, sid));
   }
 
   protected factsOf(session: ISession, stored: StoredFacts): AuthnFacts {
+    const external = externalOf(stored.external);
     return {
       method: stored.method,
       strategy: stored.strategy,
@@ -284,6 +309,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
       mfa: [...stored.mfa],
       authenticatedAt: new Date(stored.authenticatedAt),
       ...(session.Impersonator ? { impersonator: ref(session.Impersonator) as PrincipalRef } : {}),
+      ...(external ? { external } : {}),
       sessionHandle: sessionHandleOf(session.SessionId),
     };
   }
@@ -366,6 +392,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
       Creation: session.Creation,
       Expiration: session.Expiration,
       Data: data,
+      ExternalKey: externalKeyOfStored(readStored(data.get(FACTS_KEY))),
       ...over,
     });
     await this.Store.save(moved);

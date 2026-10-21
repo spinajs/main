@@ -178,8 +178,18 @@ export class MemorySessionIssuer extends SessionIssuer {
     return false;
   }
 
-  async revokeByExternal(_provider: string, _sid: string): Promise<number> {
-    throw new Error('not implemented: MemorySessionIssuer.revokeByExternal');
+  async revokeByExternal(provider: string, sid: string): Promise<number> {
+    const now = Date.now();
+    let count = 0;
+    for (const [key, row] of [...this.rows]) {
+      if (row.facts.external?.provider === provider && row.facts.external.sid === sid) {
+        this.rows.delete(key);
+        if (this.alive(row, now)) {
+          count++;
+        }
+      }
+    }
+    return count;
   }
 
   async list(subject: IdentityRef, opts?: { current?: SessionHandle }): Promise<readonly { handle: string; createdAt: Date; lastSeenAt: Date; ip?: string; userAgent?: string; current?: boolean }[]> {
