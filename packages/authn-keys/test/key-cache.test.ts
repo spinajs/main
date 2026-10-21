@@ -65,6 +65,8 @@ describe('DefaultKeyRegistry key cache', () => {
   it('two byId calls within the ttl read the store once', async () => {
     const w = world();
     const key = await w.register();
+    // register reads the stored key back, which caches it; let that entry expire.
+    clock.tick(10 * SECOND);
 
     const first = await w.byId(key.kid);
     const second = await w.byId(key.kid);
