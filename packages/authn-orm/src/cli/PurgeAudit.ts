@@ -1,15 +1,30 @@
 import { Autoinject } from '@spinajs/di';
 import { CliCommand, Command } from '@spinajs/cli';
+import { Log, Logger } from '@spinajs/log';
 
 import { AuthnAuditRetention } from '../audit/retention.js';
 
 /** Housekeeping for a scheduler (cron, worker); a no-op while `authn.audit.retentionDays` is unset. */
 @Command('authn:audit-purge', 'Deletes audit rows older than authn.audit.retentionDays')
 export class PurgeAudit extends CliCommand {
+  @Logger('authn-orm')
+  protected Log: Log;
+
   @Autoinject(AuthnAuditRetention)
   protected Retention: AuthnAuditRetention;
 
   public async execute(): Promise<void> {
-    throw new Error('not implemented: PurgeAudit.execute');
+    try {
+      if (!this.Retention.Enabled) {
+        this.Log.warn('authn.audit.retentionDays is not set, no audit rows were purged');
+        return;
+      }
+
+      const count = await this.Retention.purge();
+      this.Log.success({ count }, 'Deleted ${count} audit row(s) past retention');
+    } catch (e) {
+      this.Log.error({ error: e }, 'Error while purging audit rows');
+      process.exitCode = 1;
+    }
   }
 }
