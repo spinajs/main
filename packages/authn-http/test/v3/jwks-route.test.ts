@@ -7,10 +7,8 @@ import { BaseController, Controllers, HttpServer } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { JwsSigner } from '@spinajs/authn/contracts';
-import { LocalJwsSigner } from '@spinajs/authn-keys';
-import type { PrivateJwk } from '@spinajs/authn-keys';
+import type { JwsKey, KeyAlgorithm } from '@spinajs/authn/contracts';
 import { generateKeyPair } from '@spinajs/authn-testing';
-import type { KeyAlgorithm } from '@spinajs/authn/contracts';
 
 import { TestConfiguration, req, restoreHttpErrorMap, startHttpServer } from '../token-common.js';
 
@@ -18,6 +16,7 @@ class JwksRouteConfiguration extends TestConfiguration {}
 
 const JWKS_PATH = '.well-known/jwks.json';
 const PRIVATE_MEMBERS = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'k'];
+const PRIVATE_VALUE = 'private-member-value';
 
 // Same as releaseHttpServer() of packages/http/test/common.ts, which imports http's sources and so cannot be shared.
 async function releaseHttpServer(): Promise<void> {
@@ -41,16 +40,31 @@ async function get(accept?: string): Promise<Answer> {
   return { status: res.status, text: res.text, headers: res.header as Record<string, string>, body: res.body as Answer['body'] };
 }
 
-function privateJwk(alg: KeyAlgorithm, kid: string): PrivateJwk {
+// A key whose jwk also carries private members, as a careless signer could hand over: the route must drop them.
+function leakyKey(alg: KeyAlgorithm, kid: string): JwsKey {
   const pair = generateKeyPair(alg);
-  const jwk = pair.privateKey.export({ format: 'jwk' }) as Record<string, string>;
-  return { kty: jwk.kty, crv: jwk.crv, kid, x: jwk.x, ...(jwk.y ? { y: jwk.y } : {}), d: jwk.d };
+  return { alg, kid, jwk: { ...pair.publicJwk, d: PRIVATE_VALUE, p: PRIVATE_VALUE, k: PRIVATE_VALUE } } as unknown as JwsKey;
+}
+
+// Not the authn-keys signer: importing that package registers its models, whose tables this package's tests do not create.
+class StubJwsSigner extends JwsSigner {
+  constructor(private readonly keys: readonly JwsKey[]) {
+    super();
+  }
+
+  public sign(): Promise<string> {
+    return Promise.reject(new Error('the JWKS route never signs'));
+  }
+
+  public publicKeys(): Promise<readonly JwsKey[]> {
+    return Promise.resolve(this.keys);
+  }
 }
 
 describe('GET /.well-known/jwks.json', function () {
   this.timeout(30000);
 
-  const keys = [privateJwk('EdDSA', 'k1'), privateJwk('ES256', 'k2')];
+  const keys = [leakyKey('EdDSA', 'k1'), leakyKey('ES256', 'k2')];
 
   before(async () => {
     DI.setESMModuleSupport();
@@ -87,7 +101,7 @@ describe('GET /.well-known/jwks.json', function () {
 
   describe('with a JwsSigner', () => {
     before(() => {
-      const signer = new LocalJwsSigner(keys, { current: 'k2' });
+      const signer = new StubJwsSigner(keys);
       DI.register({ JwksRouteSigner: () => signer }.JwksRouteSigner).as(JwsSigner);
     });
 
@@ -111,8 +125,8 @@ describe('GET /.well-known/jwks.json', function () {
       expect(set.keys.map((k) => k.kid)).to.have.members(['k1', 'k2']);
 
       const byKid = new Map(set.keys.map((k) => [k.kid as string, k]));
-      expect(byKid.get('k1')).to.deep.include({ kty: 'OKP', crv: 'Ed25519', alg: 'EdDSA', use: 'sig', x: keys[0].x });
-      expect(byKid.get('k2')).to.deep.include({ kty: 'EC', crv: 'P-256', alg: 'ES256', use: 'sig', x: keys[1].x, y: keys[1].y });
+      expect(byKid.get('k1')).to.deep.include({ kty: 'OKP', crv: 'Ed25519', alg: 'EdDSA', use: 'sig', x: keys[0].jwk.x });
+      expect(byKid.get('k2')).to.deep.include({ kty: 'EC', crv: 'P-256', alg: 'ES256', use: 'sig', x: keys[1].jwk.x, y: (keys[1].jwk as { y: string }).y });
     });
 
     it('never carries a private member or the private value', async () => {
@@ -120,7 +134,7 @@ describe('GET /.well-known/jwks.json', function () {
       for (const key of res.body.keys) {
         for (const member of PRIVATE_MEMBERS) expect(key, `${key.kid as string}.${member}`).to.not.have.property(member);
       }
-      for (const jwk of keys) expect(res.text).to.not.contain(jwk.d);
+      expect(res.text).to.not.contain(PRIVATE_VALUE);
     });
   });
 });
