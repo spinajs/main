@@ -10,6 +10,7 @@ import { DbConfigValueConverter } from './converter.js';
 import CONFIGURATION_SCHEMA from './schemas/configuration.db.source.schema.js';
 import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntryOptionsCommon } from '@spinajs/configuration-common';
 import { extractModelDescriptor, InsertBehaviour, Orm } from '@spinajs/orm';
+import type { OrmMigrator } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { normalizeFileEntryOptions } from './file.js';
 import { asSystem } from './system.js';
@@ -41,14 +42,18 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
   /** The authz domain whose service runs the queries as SYSTEM; the one holding the `configuration` model. */
   public authzDomain = 'root';
 
+  /** What the last `bootstrap()` registered on DI; removed on `di.dispose` and by the next `bootstrap()`. */
+  private listeners: Array<[string, (...args: unknown[]) => void]> = [];
+
   public async bootstrap(): Promise<void> {
     registerConfigurationSchema(CONFIGURATION_SCHEMA);
+    this.unbind();
     this.tableReady = false;
 
     // persist & load exposed options as they get registered (eg. lazily resolved services).
     // Until the configuration table is ready those vars are handled by the sweep in
     // syncExposedOptions(), so skip them here to avoid failing db calls.
-    DI.on('di.registered.__configuration_property__', (arg: unknown) => {
+    this.listen('di.registered.__configuration_property__', (arg: unknown) => {
       const v = arg as __dbCOnfigOptions;
       if (!v.options || !v.options.expose) {
         return;
@@ -66,7 +71,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
     // A deployment migrated by the CLI resolves no migrator, so the Orm's resolve is the signal when the table is
     // already there; otherwise the migrator creates it.
-    DI.once('di.resolved.Orm', (container: unknown, orm: unknown) => {
+    this.listen('di.resolved.Orm', (container: unknown, orm: unknown) => {
       void this.tableExists(orm as Orm)
         .then((exists) => {
           if (exists) {
@@ -78,11 +83,30 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
         });
     });
 
-    DI.once('di.resolved.OrmMigrator', (container: unknown) => {
+    this.listen('di.resolved.OrmMigrator', (container: unknown, migrator: unknown) => {
+      // a migration tool's migrator ran no pass; when the table was already there, the Orm's resolve swept
+      if ((migrator as OrmMigrator).MigrateOnStartup === false) {
+        return;
+      }
+
       this.syncExposedOptions(container as IContainer);
     });
 
-    return;
+    this.listen('di.dispose', () => this.unbind());
+  }
+
+  /** Removes the DI listeners `bootstrap()` added. */
+  public unbind(): void {
+    for (const [event, listener] of this.listeners) {
+      DI.off(event, listener);
+    }
+
+    this.listeners = [];
+  }
+
+  private listen(event: string, listener: (...args: unknown[]) => void): void {
+    DI.on(event, listener);
+    this.listeners.push([event, listener]);
   }
 
   /** False on a `Migration.OnStartup` connection until the migrator runs: its model queries throw until then. */
@@ -113,8 +137,12 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     vars.forEach((v) => normalizeFileEntryOptions(v.path, v.options.exposeOptions));
 
     // insert all exposed config options (InsertOrIgnore - safe to repeat)
-    void Promise.all(vars.map((v) => this.saveConfigOptions(v))).catch((err) => {
+    void Promise.all(vars.map((v) => this.saveConfigOptions(v))).catch(async (err) => {
       InternalLogger.error({ error: err }, 'Failed to persist exposed config options to db', LOG_CHANNEL);
+
+      // a sweep into a table that is not there must not send every late registration to it; the next signal sweeps again
+      const orm = container.get(Orm);
+      this.tableReady = orm ? await this.tableExists(orm).catch(() => false) : false;
     });
 
     vars.filter((x) => x.options.exposeOptions?.watch).forEach((x) => this.watchedSlugs.add(x.path));

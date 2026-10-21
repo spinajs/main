@@ -42,6 +42,11 @@ export class OrmMigrator extends AsyncService {
     super();
   }
 
+  /** False for a migrator resolved with `MigrateOnStartup: false`: its resolve ran no pass and created no table. */
+  public get MigrateOnStartup(): boolean {
+    return this.Options.MigrateOnStartup !== false;
+  }
+
   /**
    * The boot pass: the pending migrations of every connection whose `Migration.OnStartup` is on, their seeds, then
    * the `db.StrictTableCheck` check over every model. Model queries on those connections stay refused outside the

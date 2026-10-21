@@ -30,7 +30,10 @@ removed. An app that migrates on startup resolves `OrmMigrator` before serving; 
   the migrations it applies (`--fake` seeds nothing).
 - **`@spinajs/configuration-db-source` syncs exposed options after `OrmMigrator`.** The sweep into the
   `configuration` table runs on `di.resolved.OrmMigrator`, or on `di.resolved.Orm` when the table already exists on a
-  connection without `Migration.OnStartup` (a database migrated by `migrate-up`).
+  connection without `Migration.OnStartup` (a database migrated by `migrate-up`). A migrator resolved with
+  `MigrateOnStartup: false` ran no pass and triggers no sweep. A sweep that fails on a missing table leaves late
+  registrations unsynced until the next ready event sweeps again. The bootstrapper's DI listeners are removed on
+  `di.dispose` (and by the next `bootstrap()`); `unbind()` removes them by hand.
 - **Breaking: the ORM-backed services inject the `Orm`.** The authn-orm stores, audit sink, `AuthnAuditRetention` and
   `DbAuthnThrottle`, authn-token's `DbTokenService` and `UsersTableTokenOwnerResolver`, authn-webauthn's
   `DbWebAuthnCredentialStore` and `DbWebAuthnChallengeStore`, authz-rbac's DB stores and `DbAuthzAdminBackend`, and
