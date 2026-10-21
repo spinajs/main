@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { DateTime } from 'luxon';
 import { QueueJob, QueueEvent, Job, Event, QueueService, JobModel, JobRetentionService, QueueClient, IQueueMessage, QueueMessage } from './../src/index.js';
 import '@spinajs/orm-sqlite';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
 
 chai.use(chaiAsPromised);
 
@@ -175,7 +175,7 @@ describe('queue core - dedup & persistence', function () {
     InMemoryQueueClient.Last = undefined;
     DI.register(CoreConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
   });
 
   afterEach(async () => {
@@ -348,7 +348,7 @@ describe('queue core - routing maxRetries', function () {
     InMemoryQueueClient.Last = undefined;
     DI.register(CoreConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
   });
 
   afterEach(async () => {
@@ -441,7 +441,7 @@ describe('queue core - retention', function () {
     DI.clearCache();
     DI.register(RetentionConf).as(Configuration);
     await DI.resolve(Configuration);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
   });
 
   afterEach(async () => {
