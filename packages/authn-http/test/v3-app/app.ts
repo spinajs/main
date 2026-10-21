@@ -64,7 +64,7 @@ export class V3AppConfiguration extends FrameworkConfiguration {
       },
       authn: {
         // No authn.session.cookie: the shipped flags apply (SR-16).
-        session: { service: 'MemorySessionStore', expiration: { service: 'SlidingCappedExpiration', ttl: 120, maxLifetime: 1440 }, pendingTtlSeconds: 300 },
+        session: { service: 'MemorySessionStore', allowMemoryStore: true, expiration: { service: 'SlidingCappedExpiration', ttl: 120, maxLifetime: 1440 }, pendingTtlSeconds: 300 },
         strategies: [
           { name: 'local', service: 'V3AppPasswordStrategy' },
           { name: 'token', service: 'V3AppTokenStrategy' },

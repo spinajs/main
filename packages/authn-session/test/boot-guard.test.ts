@@ -10,7 +10,7 @@ import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AuthnThrottle, IdentityStore, PrincipalFactory } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, RecordingPrincipalFactory } from '@spinajs/authn-testing';
 
-import { AUTHN_SESSION_CONFIGURATION_SCHEMA, SessionProvider } from '../src/index.js';
+import { AUTHN_SESSION_CONFIGURATION_SCHEMA, MemorySessionStore, SessionProvider } from '../src/index.js';
 import type { ISession } from '../src/index.js';
 
 /** A store that is not process memory; its class carries no boot check, as DbSessionStore. */
@@ -40,6 +40,9 @@ class SharedTestStore extends SessionProvider {
   public async truncate(): Promise<void> {}
 }
 
+/** MemorySessionStore itself is a root singleton, which would read the root Configuration; a subclass resolves in the child. */
+class ChildMemoryStore extends MemorySessionStore {}
+
 const strong = (): string => randomBytes(32).toString('hex');
 
 function configurationOf(values: Record<string, unknown>, env: string): Class<Configuration> {
@@ -67,7 +70,7 @@ function bind(child: IContainer, base: Class<unknown>, name: string, value: unkn
 
 interface Boot {
   readonly env: string;
-  readonly store: 'MemorySessionStore' | 'SharedTestStore';
+  readonly store: 'ChildMemoryStore' | 'SharedTestStore';
   readonly allowMemoryStore?: boolean;
 }
 
@@ -75,7 +78,7 @@ const open: IContainer[] = [];
 
 /** The real DefaultAuthnService and DefaultSessionIssuer in a child container, over kit fakes for the other neighbours. */
 async function resolveAuthn(boot: Boot): Promise<void> {
-  const session: Record<string, unknown> = { service: boot.store };
+  const session: Record<string, unknown> = { service: boot.store, expiration: { service: 'SlidingCappedExpiration' } };
   if (boot.allowMemoryStore !== undefined) session.allowMemoryStore = boot.allowMemoryStore;
   const values = {
     http: { cookie: { secret: strong() } },
@@ -92,7 +95,8 @@ async function resolveAuthn(boot: Boot): Promise<void> {
   bind(child, AuthnThrottle, 'MemoryAuthnThrottle', throttle);
   bind(child, IdentityStore, 'KitIdentityStore', new FakeIdentityStore());
   bind(child, PrincipalFactory, 'KitPrincipalFactory', new RecordingPrincipalFactory());
-  child.register(SharedTestStore).as(SessionProvider);
+  // Registered in the child, so the store resolves with the child's Configuration, not the root's.
+  child.register(boot.store === 'ChildMemoryStore' ? ChildMemoryStore : SharedTestStore).as(SessionProvider);
 
   await child.resolve(AuthnService);
 }
@@ -107,7 +111,7 @@ describe('the session store boot guard', function () {
   it('refuses MemorySessionStore in production, naming the flag and the durable store', async () => {
     let error: unknown;
     try {
-      await resolveAuthn({ env: 'production', store: 'MemorySessionStore' });
+      await resolveAuthn({ env: 'production', store: 'ChildMemoryStore' });
     } catch (e) {
       error = e;
     }
@@ -119,7 +123,7 @@ describe('the session store boot guard', function () {
     for (const env of ['staging', 'prod']) {
       let error: unknown;
       try {
-        await resolveAuthn({ env, store: 'MemorySessionStore' });
+        await resolveAuthn({ env, store: 'ChildMemoryStore' });
       } catch (e) {
         error = e;
       }
@@ -130,7 +134,7 @@ describe('the session store boot guard', function () {
   it('refuses MemorySessionStore in production when the flag is explicitly false', async () => {
     let error: unknown;
     try {
-      await resolveAuthn({ env: 'production', store: 'MemorySessionStore', allowMemoryStore: false });
+      await resolveAuthn({ env: 'production', store: 'ChildMemoryStore', allowMemoryStore: false });
     } catch (e) {
       error = e;
     }
@@ -138,12 +142,12 @@ describe('the session store boot guard', function () {
   });
 
   it('boots MemorySessionStore in production with authn.session.allowMemoryStore', async () => {
-    await resolveAuthn({ env: 'production', store: 'MemorySessionStore', allowMemoryStore: true });
+    await resolveAuthn({ env: 'production', store: 'ChildMemoryStore', allowMemoryStore: true });
   });
 
   it('boots MemorySessionStore in development and test without the flag', async () => {
-    await resolveAuthn({ env: 'development', store: 'MemorySessionStore' });
-    await resolveAuthn({ env: 'test', store: 'MemorySessionStore' });
+    await resolveAuthn({ env: 'development', store: 'ChildMemoryStore' });
+    await resolveAuthn({ env: 'test', store: 'ChildMemoryStore' });
   });
 
   it('boots a store that is not process memory in production', async () => {

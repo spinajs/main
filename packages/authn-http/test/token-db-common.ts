@@ -84,6 +84,7 @@ export class DbTestConfiguration extends FrameworkConfiguration {
       authn: {
         session: {
           service: 'MemorySessionStore',
+          allowMemoryStore: true,
           expiration: { service: 'SlidingCappedExpiration', ttl: 120, maxLifetime: 1440 },
           cookie: {},
         },

@@ -348,6 +348,7 @@ describe('@spinajs/authn-session contracts', function () {
         { name: 'deleteBySubject', modifiers: ['public', 'abstract'], params: ['subject', 'opts'], decorators: [] },
         { name: 'listBySubject', modifiers: ['public', 'abstract'], params: ['subject', 'opts'], decorators: [] },
         { name: 'truncate', modifiers: ['public', 'abstract'], params: [], decorators: [] },
+        { name: 'checkConfiguration', modifiers: ['public'], params: ['booting'], decorators: [] },
         { name: 'applyInitialExpiration', modifiers: ['protected'], params: ['s'], decorators: [] },
         { name: 'applyRenewedExpiration', modifiers: ['protected'], params: ['s'], decorators: [] },
         { name: 'isExpired', modifiers: ['public'], params: ['s'], decorators: [] },
@@ -503,9 +504,9 @@ describe('@spinajs/authn-session contracts', function () {
         const before = p.before as Snapshot;
         const after = p.after as Snapshot;
         expect(delta(before.registry, after.registry)).to.deep.eq(EXPECTED_REGISTRATIONS);
-        // @Config caches one value per decorated property: ttl of the three strategies, maxLifetime of the capped one and the
-        // pending TTL; the authn schema and the authn.session fragment those properties read are registered at import.
-        expect(delta(before.cache, after.cache)).to.deep.eq({ __configuration_property__: ['Object', 'Object', 'Object', 'Object', 'Object'], __configurationSchema__: ['Object', 'Object'] });
+        // @Config caches one value per decorated property: ttl of the three strategies, maxLifetime of the capped one, the
+        // pending TTL and the touch threshold; the authn schema and the authn.session fragment those properties read are registered at import.
+        expect(delta(before.cache, after.cache)).to.deep.eq({ __configuration_property__: ['Object', 'Object', 'Object', 'Object', 'Object', 'Object'], __configurationSchema__: ['Object', 'Object'] });
         expect(after.events).to.deep.eq(before.events);
       };
 
