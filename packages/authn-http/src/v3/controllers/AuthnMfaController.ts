@@ -7,8 +7,9 @@ import type { Request } from '@spinajs/http';
 import { AuthnService } from '@spinajs/authn/contracts';
 
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
+import { mfaPolicyOf } from '../../policies/v3/mfa.js';
 import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
-import { NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
+import { AcceptedResponse, NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
 import { answerFor, bodyField, boundedString, contextOf, pendingSteps } from '../routes.js';
 
 /** completeMfa's step for recovery codes (contracts: MfaStep.name, AuthnService.completeMfa). */
@@ -50,17 +51,38 @@ export class AuthnMfaController extends BaseController {
 
   /**
    * Send the code of an MFA step
+   * Body `{ step? }`: asks the pending step (as in `mfa/verify`) that delivers its code out of band, such as the email
+   * code, to send it. 202 `{ Ok: true }` whether or not a step sends anything and whether or not the send worked, so the
+   * answer tells nothing about the account; a step with no `challenge` needs none. Repeats are throttled by the step.
    * @security cookieAuth
    */
   @Post('mfa/challenge')
-  public async challenge(@Req() _req: Request) {
-    throw new Error('not implemented: AuthnMfaController.challenge');
+  public async challenge(@Req() req: Request) {
+    const session = this.pendingSession(req);
+    const steps = await pendingSteps(this.Container, session, this.MfaPolicyService);
+    const asked = bodyField(req, 'step');
+    const name = typeof asked === 'string' && steps.includes(asked) ? asked : steps[0];
+    const step = name === undefined ? undefined : (await (await mfaPolicyOf(this.Container, this.MfaPolicyService)).steps()).get(name);
+    if (typeof step?.challenge === 'function') {
+      try {
+        await step.challenge(session.identity, contextOf(req, 'login', session.handle));
+      } catch (err) {
+        // The name only: an error can carry the address or the code.
+        this._log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'An MFA challenge failed: ${errorName}');
+      }
+    }
+    return new AcceptedResponse({ Ok: true }, { Headers: [NO_STORE] });
   }
 
-  protected async complete(req: Request, recovery: boolean) {
+  protected pendingSession(req: Request) {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('this route needs a pending session');
     if (session.handle.state !== 'pending') throw refused('mfa_not_pending', 'this session needs no second factor');
+    return session;
+  }
+
+  protected async complete(req: Request, recovery: boolean) {
+    const session = this.pendingSession(req);
 
     const code = boundedString(bodyField(req, 'code'), PASSWORD_HARD_CAP);
     if (code === null) return authnFailureResponse();
