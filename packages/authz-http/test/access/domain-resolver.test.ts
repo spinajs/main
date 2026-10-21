@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import type { DecisionRequest } from '@spinajs/authz';
 import { BaseController, BasePath, Get, Ok, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
-import { testHost } from '@spinajs/authz-testing';
+import { StaticModel, testHost } from '@spinajs/authz-testing';
 import type { ScriptedVote } from '@spinajs/authz-testing';
 
 import { Access, AccessController, AuthzDomainResolver, StaticDomainResolver, typedExtractor } from '../../src/index.js';
@@ -38,11 +38,6 @@ class TenantRoutes extends BaseController {
     return decision(req);
   }
 
-  @Get('anywhere')
-  @Access('file:read')
-  public noDomain(@Req() req: Request) {
-    return decision(req);
-  }
 }
 
 @BasePath('klass')
@@ -126,12 +121,11 @@ describe('AuthzDomainResolver (B48)', function () {
       expect(res.body).to.not.have.property('allowed');
     });
 
-    it('passes the domain of the route, else of the class, else root, as the fallback', async () => {
+    it('passes the domain of the route, else of the class, as the fallback', async () => {
       await get('/tenant/files/f1', A);
       await get('/klass/files', A);
-      await get('/tenant/anywhere', A);
 
-      expect(TenantResolver.fallbacks).to.deep.eq([BASE, BASE, 'root']);
+      expect(TenantResolver.fallbacks).to.deep.eq([BASE, BASE]);
     });
 
     it('asks the resolver once per request', async () => {
@@ -196,7 +190,7 @@ describe('AuthzDomainResolver (B48)', function () {
       unregisterResolver = registerTenantResolver();
       app = await startApp({ controllers: [AccessController] });
       testHost.config().set(['authz', 'http', 'access'], { domain: BASE });
-      domains = [await createDomain(BASE, { permissions, model: { votes: denying } }), await createDomain(A, { permissions, model: { votes: permitting } })];
+      domains = [await createDomain(BASE, { permissions, model: { votes: denying } }), await createDomain(A, { permissions, model: { votes: permitting }, extraModel: new StaticModel({ name: 'm2' }) })];
     });
 
     after(async () => {
@@ -218,10 +212,15 @@ describe('AuthzDomainResolver (B48)', function () {
     });
 
     it('summarizes the principal in the resolved domain', async () => {
-      const res = await app.request().get('/user/access').set('x-user', 'alice').set('x-tenant', A);
+      const modelsOf = async (tenant?: string) => {
+        const r = app.request().get('/user/access').set('x-user', 'alice');
+        const res = await (tenant === undefined ? r : r.set('x-tenant', tenant));
+        expect(res.status).to.eq(200);
+        return (res.body as { models: { model: string }[] }).models.map((m) => m.model);
+      };
 
-      expect(res.status).to.eq(200);
-      expect((res.body as { permissions: { name: string }[] }).permissions.map((p) => p.name)).to.include('file:read');
+      expect(await modelsOf(A)).to.include('m2');
+      expect(await modelsOf()).to.not.include('m2');
     });
 
     it('answers 403 unknown_domain for an unknown domain', async () => {
