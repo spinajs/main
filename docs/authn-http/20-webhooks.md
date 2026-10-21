@@ -86,7 +86,7 @@ The returned function unsubscribes.
 
 | Key | Default | What it does |
 | --- | --- | --- |
-| `authn.webhooks` | `[]` | The authn targets. |
+| `authn.webhooks` | none | The authn targets. |
 | `authn.webhooks[].url` | required | Endpoint that receives the POST. |
 | `authn.webhooks[].secret.secret` | required | HMAC key, a configuration reference. |
 | `authn.webhooks[].types` | all events | Event types to send. |

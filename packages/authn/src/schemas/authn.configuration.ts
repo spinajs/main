@@ -206,7 +206,6 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     },
     webhooks: {
       type: 'array',
-      default: [],
       description: 'Outbound webhook sinks of authn-http: each target receives the audit events whose type is in `types` (all when absent), signed in Spinajs-Signature.',
       items: {
         type: 'object',

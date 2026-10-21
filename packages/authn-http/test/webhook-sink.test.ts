@@ -277,8 +277,8 @@ describe('authn.webhooks configuration', function () {
 
   const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA];
 
-  it('defaults to no webhook, and a target to a 2000 ms timeout', async () => {
-    expect((await boot(SCHEMAS, {})).configuration.get('authn.webhooks')).to.deep.equal([]);
+  it('sets no webhook by default, and gives a target a 2000 ms timeout', async () => {
+    expect((await boot(SCHEMAS, {})).configuration.get('authn.webhooks')).to.equal(undefined);
 
     const { configuration } = await boot(SCHEMAS, { authn: { webhooks: [{ url: 'https://hooks.example.com/a', secret: { secret: SECRET }, types: ['login'] }] } });
     expect(configuration.get('authn.webhooks')).to.deep.equal([{ url: 'https://hooks.example.com/a', secret: { secret: SECRET }, types: ['login'], timeoutMs: 2000 }]);
