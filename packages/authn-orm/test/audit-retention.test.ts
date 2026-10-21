@@ -15,15 +15,15 @@ type Executor = { executeOnDb(sql: string, bindings: unknown[], context: QueryCo
 /** Counts the DELETE statements `driver` runs until `restore()`. */
 function countDeletes(driver: OrmDriver): { count(): number; restore(): void } {
   const target = driver as unknown as Executor;
-  const original = target.executeOnDb;
+  const original = target.executeOnDb.bind(target);
   let deletes = 0;
-  target.executeOnDb = function (this: Executor, sql, bindings, context) {
+  target.executeOnDb = (sql, bindings, context) => {
     if (context === QueryContext.Delete && /^\s*delete\b/i.test(sql)) {
       deletes++;
     }
-    return original.call(this, sql, bindings, context);
+    return original(sql, bindings, context);
   };
-  return { count: () => deletes, restore: () => void (target.executeOnDb = original) };
+  return { count: () => deletes, restore: () => void delete (target as Partial<Executor>).executeOnDb };
 }
 
 async function publishAt(db: TestDb, ms: number, type = 'login'): Promise<void> {
@@ -149,13 +149,13 @@ for (const kind of DB_KINDS) {
 
         const deadline = Date.now() + 5000;
         while ((await remaining(db)) > 0 && Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 25));
+          await new Promise((resolve) => setTimeout(resolve, 25));
         }
         expect(await remaining(db)).to.equal(0);
 
         await retention.dispose();
         await publishMany(db, 1, Date.now() - 90 * DAY);
-        await new Promise((r) => setTimeout(r, 150));
+        await new Promise((resolve) => setTimeout(resolve, 150));
         expect(await remaining(db)).to.equal(1);
       });
     });

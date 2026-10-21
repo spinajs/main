@@ -22,15 +22,15 @@ async function indexColumns(connection: OrmDriver, table: string): Promise<Map<s
 /** Counts the DELETE statements `connection` runs until `restore()`. */
 function countDeletes(connection: OrmDriver): { count(): number; restore(): void } {
   const target = connection as unknown as Executor;
-  const original = target.executeOnDb;
+  const original = target.executeOnDb.bind(target);
   let deletes = 0;
-  target.executeOnDb = function (this: Executor, sql, bindings, context) {
+  target.executeOnDb = (sql, bindings, context) => {
     if (context === QueryContext.Delete && /^\s*delete\b/i.test(sql)) {
       deletes++;
     }
-    return original.call(this, sql, bindings, context);
+    return original(sql, bindings, context);
   };
-  return { count: () => deletes, restore: () => void (target.executeOnDb = original) };
+  return { count: () => deletes, restore: () => void delete (target as Partial<Executor>).executeOnDb };
 }
 
 async function seed(store: DbSessionStore, expired: number, live: number): Promise<void> {
