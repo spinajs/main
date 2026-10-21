@@ -15,6 +15,7 @@ import { CSRF_REFUSED_EVENT } from './csrf-log.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const ALLOWED_ORIGINS_KEY = 'authn.http.csrf.allowedOrigins';
+const UNAUTHENTICATED_ROUTES_KEY = 'authn.http.csrf.unauthenticatedRoutes';
 const REFUSED = Object.freeze({ error: Object.freeze({ code: 'E_CSRF_ORIGIN', message: 'Cross-origin request refused' }) });
 
 /**
@@ -36,6 +37,24 @@ function normalisedOrigins(list: readonly string[]): ReadonlySet<string> {
   );
 }
 
+const trimSlashes = (v: string): string => v.replace(/^\/+|\/+$/g, '');
+
+/** Case-insensitive and slash-tolerant like the router, so a variant spelling of a listed path cannot slip past. */
+function routeKey(path: string): string {
+  return `/${trimSlashes(path).toLowerCase()}`;
+}
+
+/** The listed routes as they are requested: behind the global route prefix. */
+function listedPaths(routes: readonly string[], prefix: string | undefined): ReadonlySet<string> {
+  const base = trimSlashes(prefix ?? '');
+  return new Set(
+    routes.map((route) => {
+      if (!route.startsWith('/')) throw new InvalidOption(`${UNAUTHENTICATED_ROUTES_KEY} entry ${JSON.stringify(route)} is not an absolute path`);
+      return routeKey(base === '' ? route : `/${base}${route}`);
+    }),
+  );
+}
+
 const SHOWN_MAX = 120;
 
 const clip = (v: string): string => (v.length > SHOWN_MAX ? `${v.slice(0, SHOWN_MAX)}…` : v);
@@ -49,7 +68,7 @@ function warnRefused(log: Log, origin: string | undefined, fetchSite: unknown, o
   const shown = origin === undefined ? `none (Sec-Fetch-Site ${site})` : (parseOrigin(origin) ?? 'malformed');
   log.warn(
     { event: CSRF_REFUSED_EVENT, origin: clip(shown), ownOrigin: own === undefined ? 'unknown (no usable Host)' : clip(own), allowedOriginsKey: ALLOWED_ORIGINS_KEY },
-    'CsrfOriginGuard refused a cookie request: Origin ${origin}, own origin ${ownOrigin}. ' +
+    'CsrfOriginGuard refused a request: Origin ${origin}, own origin ${ownOrigin}. ' +
       'Behind a proxy set authn.http.trustProxy (or http.trustProxy) so the own origin comes from X-Forwarded-Proto/-Host, or list the origin in ${allowedOriginsKey}.',
   );
 }
@@ -62,7 +81,9 @@ function carriesCookie(header: string | undefined, names: readonly string[]): bo
  * Order 4, before AuthnMiddleware; off when authn.http.csrf.enabled is false. A request with an unsafe method (any but
  * GET, HEAD and OPTIONS) that carries the session cookie passes only when Origin (or, without it, Sec-Fetch-Site:
  * same-origin) is the app's own origin or in authn.http.csrf.allowedOrigins; else 403 before any controller (A22,
- * SR-12). Requests without the session cookie are not checked, login included.
+ * SR-12). Without the cookie only the paths in authn.http.csrf.unauthenticatedRoutes (login and the other
+ * credential-taking posts) are checked, and then a request with neither Origin nor Sec-Fetch-Site (a non-browser
+ * client) passes; this closes login CSRF.
  */
 @Injectable(ServerMiddleware)
 export class CsrfOriginGuard extends ServerMiddleware {
@@ -98,6 +119,7 @@ export class CsrfOriginGuard extends ServerMiddleware {
   public before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null {
     // Built before the enabled check, so a bad setting fails the boot even while the guard is off.
     const allowed = normalisedOrigins(this.AllowedOrigins);
+    const listed = listedPaths(this.UnauthenticatedRoutes ?? [], this.RoutePrefix);
     const trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
     if (this.Enabled === false) return null;
 
@@ -107,9 +129,14 @@ export class CsrfOriginGuard extends ServerMiddleware {
     const sessionCookies = [base, `__Host-${base}`];
 
     return (req: Request, res: express.Response, next: express.NextFunction) => {
-      if (SAFE_METHODS.has(req.method) || !carriesCookie(req.headers.cookie, sessionCookies)) return next();
+      if (SAFE_METHODS.has(req.method)) return next();
 
       const origin = req.headers.origin;
+      if (!carriesCookie(req.headers.cookie, sessionCookies)) {
+        const checked = listed.has(routeKey(req.path)) && (origin !== undefined || req.headers['sec-fetch-site'] !== undefined);
+        if (!checked) return next();
+      }
+
       const own = origin === undefined ? undefined : ownOrigin(req, trust);
       const allowedRequest = origin === undefined ? req.headers['sec-fetch-site'] === 'same-origin' : allowed.has(origin) || origin === own;
       if (allowedRequest) return next();
