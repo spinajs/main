@@ -37,7 +37,7 @@ Hooks.run(action, input, impl, { mutable, refusable })
 | `input` | The input object; hooks get a shallow copy. |
 | `impl` | `(input) => Promise<output>`. It receives the merged input. |
 | `opts.mutable` | The input keys a `before` hook may change. `[]` for none. Later `before` hooks see the other keys unchanged. |
-| `opts.refusable` | Default `true`. `false`: a refusal or an error in `before` is logged and `impl` runs anyway. The depth limit (`hooks.maxDepth`) is always enforced, even with `false`. |
+| `opts.refusable` | Default `true`. `false`: a refusal or an error in `before` is logged and `impl` runs anyway. Past `hooks.maxDepth` it is logged and runs without its hooks. |
 
 ### The zero-cost path
 

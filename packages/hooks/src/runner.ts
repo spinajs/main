@@ -96,7 +96,13 @@ export class DefaultHooks extends Hooks {
     if (entries.length === 0) return impl(input);
 
     const depth = (hookDepth.getStore() ?? 0) + 1;
-    if (depth > this.MaxDepth) throw new ActionHookFailed(action, entries[0].name, 'depth');
+    if (depth > this.MaxDepth) {
+      const failure = new ActionHookFailed(action, entries[0].name, 'depth');
+      // A non-refusable action (a revocation) must still happen; past the limit it runs without its hooks.
+      if (opts.refusable !== false) throw failure;
+      this.logFailure(entries[0].name, action, failure);
+      return impl(input);
+    }
 
     const refusals = new WeakSet<object>();
     const ctx = this.createContext(action, input, depth, refusals);

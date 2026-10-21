@@ -57,7 +57,7 @@ The action also checks again the invariants that guard the changed values, so a 
 - `code` must match `/^[a-z0-9][a-z0-9_.-]{0,58}$/`, so the audit reason `hook:<code>` fits the 64-character reason columns.
 - A code outside that format is an error in the hook: the run throws `ActionHookFailed` with reason `'error'`.
 - What the caller sees is the action's decision. Each action maps `ActionRefused` to its own answer; see the action's documentation.
-- An action that cannot be refused (`refusable: false`) logs the refusal and runs anyway. The depth limit (`hooks.maxDepth`) is always enforced, even with `refusable: false`.
+- An action that cannot be refused (`refusable: false`) logs the refusal and runs anyway. Past the depth limit (`hooks.maxDepth`) such an action is logged and runs without its hooks.
 
 ## Errors and timeouts
 
@@ -70,7 +70,7 @@ The action also checks again the invariants that guard the changed values, so a 
 | The hook fails to resolve from DI | `ActionHookFailed` with reason `'error'`; the run stops. |
 | The hook takes longer than `hooks.timeoutMs` to resolve from DI | `ActionHookFailed` with reason `'timeout'`; the run stops. |
 
-- With `refusable: false`, a refusal, a throw, a timeout and a failed resolution in `before` are logged and the run goes on. A hook that failed to resolve is skipped for the rest of the run, `after` and `failed` included. The depth limit (`hooks.maxDepth`) is still enforced.
+- With `refusable: false`, a refusal, a throw, a timeout and a failed resolution in `before` are logged and the run goes on. A hook that failed to resolve is skipped for the rest of the run, `after` and `failed` included. Past the depth limit (`hooks.maxDepth`) the action is logged and runs without its hooks.
 - A hook with only `after` or `failed` that fails to resolve, or times out resolving, is logged and skipped. It never fails the action.
 - A failed resolution is not cached: the next run tries to resolve the hook again.
 - A resolution that times out is abandoned, not cancelled, and stays cached until it settles. While it is pending, later runs fail that hook at once with reason `'timeout'`, without waiting `hooks.timeoutMs`. The timeout itself is logged, and so is the first fast failure of that overdue period; later fast failures of the same period are not, until the resolution settles and a new one times out.
@@ -96,7 +96,7 @@ The runner reads `actions`, `order` and which of `before`, `after` and `failed` 
 
 ## Depth
 
-`ctx.depth` is `1` for a top-level run. A hook that runs another action (a `before` hook calling a users action) triggers that action's hooks with `depth + 1`. Past `hooks.maxDepth`, the run throws `ActionHookFailed` with reason `'depth'`.
+`ctx.depth` is `1` for a top-level run. A hook that runs another action (a `before` hook calling a users action) triggers that action's hooks with `depth + 1`. Past `hooks.maxDepth`, the run throws `ActionHookFailed` with reason `'depth'`; an action with `refusable: false` is logged and runs without its hooks instead.
 
 ## When hooks are collected
 
@@ -118,7 +118,9 @@ The `refuse` message is not logged. It reaches the caller as `ActionRefused.mess
 | `hooks.timeoutMs` | integer | `5000` | 1 to 60000 | Time bound for one hook call, in milliseconds. |
 | `hooks.maxDepth` | integer | `8` | 1 to 32 | Maximum nesting of action runs started from hooks. |
 
-Any other key under `hooks` fails configuration validation, so a typo does not pass silently.
+`DefaultHooks` applies both defaults even when the configuration holds no `hooks` section, for example in a test container that loads no configuration files.
+
+Any other key under `hooks` fails configuration validation, so a typo does not pass silently. The one exception is `__file__`, the marker the configuration file sources add to every root object they load; you never set it yourself.
 
 ```ts
 export default {
