@@ -135,6 +135,13 @@ export class OidcController extends BaseController {
     return new OidcResponse(await this.logout.receive(provider, form, new Date()));
   }
 
+  /** Re-authenticates the current session at the provider; the callback refreshes its authenticatedAt (FreshAuth). */
+  @Get(':provider/reauth')
+  public async reauth(@Param() provider: string, @Req() req: Request) {
+    const login = await this.login();
+    return new OidcResponse(await login.beginReauth(provider, this.requestOf(req)));
+  }
+
   protected requestOf(req: Request): OidcRequest {
     const storage = (req as unknown as { storage?: { ClientIp?: string; AuthnSession?: { handle: SessionHandle } | null } }).storage;
     const userAgent = req.get('user-agent');

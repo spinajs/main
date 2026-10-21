@@ -30,8 +30,8 @@ const INDEX_VALUES = [
   'AUTHN_OIDC_CONFIGURATION_SCHEMA', 'AUTHN_OIDC_PROVIDER_SCHEMA', 'CoreOidcAccountLinks', 'DEFAULT_CLAIMS', 'DISCOVERY_MAX_AGE_MS', 'DISCOVERY_RETRY_MS',
   'FetchOidcHttpClient', 'JWKS_MAX_AGE_MS', 'JWKS_REFRESH_MS', 'MAX_EMAIL_LENGTH', 'MAX_SUBJECT_LENGTH', 'OIDC_APP_PATH_PATTERN', 'OIDC_ENTRA_TENANT_PATTERN',
   'OIDC_FLOW_COOKIE_BASE_NAME', 'OIDC_FLOW_COOKIE_MAX_LENGTH', 'OIDC_FLOW_FUTURE_SKEW_SECONDS', 'OIDC_FLOW_TTL_SECONDS', 'OIDC_HOST_PATTERN',
-  'OIDC_HTTP_MAX_BODY_BYTES', 'OIDC_HTTP_TIMEOUT_MS', 'OIDC_PRESETS', 'OIDC_PRESET_IDS', 'OIDC_PROVIDER_NAME_PATTERN', 'OIDC_RESERVED_PARAMS', 'OIDC_SEGMENT_PATTERN',
-  'OIDC_SIGNING_ALGORITHMS', 'OidcAccountLinks', 'OidcBootstrapper', 'OidcDiscovery', 'OidcHttpClient', 'OidcJwks', 'OidcLogin', 'OidcProvider', 'OidcProviders',
+  'OIDC_HTTP_MAX_BODY_BYTES', 'OIDC_HTTP_TIMEOUT_MS', 'OIDC_ID_TOKEN_KEY', 'OIDC_PRESETS', 'OIDC_PRESET_IDS', 'OIDC_PROVIDER_NAME_PATTERN', 'OIDC_RESERVED_PARAMS', 'OIDC_SEGMENT_PATTERN',
+  'OIDC_SIGNING_ALGORITHMS', 'OidcAccountLinks', 'OidcBootstrapper', 'OidcDiscovery', 'OidcHttpClient', 'OidcJwks', 'OidcLogin', 'OidcLogoutExtension', 'OidcProvider', 'OidcProviders',
   'OidcStrategy', 'appPathOrNull', 'atHashOf', 'authorizationUrl', 'clearFlowCookie', 'codeChallengeOf', 'decodeFlow', 'discoveryUrlOf', 'encodeFlow',
   'exchangeCode', 'fetchUserinfo', 'flowCookie', 'flowCookieName', 'flowIsLive', 'flowSecrets', 'hasRequiredClaims', 'mapClaims', 'newFlow', 'providerNamesOf',
   'rawClaims', 'readClaim', 'registerOidcStrategies', 'requestOrigin', 'resolveEndpoints', 'resolveIssuer', 'sessionBindingOf', 'sha256hex',
@@ -355,6 +355,7 @@ describe('authn-oidc contracts', () => {
           readonly requiredClaims?: Readonly<Record<string, string | number | boolean>>;
           readonly authorizationParams?: OidcAuthorizationParams;
           readonly linking?: { readonly jit?: boolean; readonly byVerifiedEmail?: boolean };
+          readonly logout?: { readonly storeIdToken?: boolean; readonly postLogoutRedirectUri?: string };
         }
       >(true);
     });

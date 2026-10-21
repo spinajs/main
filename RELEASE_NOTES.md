@@ -1,3 +1,26 @@
+# Release notes — authn-http, authn-oidc: fresh re-authentication that refreshes the session
+
+> Branch `feat/ory-flow-4`. Docs: `docs/authn/09-fresh-authentication.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`,
+> `docs/authn-oidc/01-login-flow.md`, `docs/authn-oidc/09-security.md`.
+
+## New behavior
+
+- `POST /auth/reauth` in `@spinajs/authn-http` (`AuthnReauthController`): body `{ password }` with the session cookie.
+  It re-authenticates through `AuthnService.reauthenticate` (the `reauth` throttle) and then moves the session to a new
+  id with `SessionIssuer.reissue(h, { authenticatedAt: now })`, so `FreshAuth` routes pass without `reauthPassword`
+  for `authn.freshAuth.maxAgeSeconds`. 200 with the new session cookie; the login failure body without `Retry-After`
+  for a wrong or throttled password; 401 without a session; 403 `mfa_pending` or `impersonating`.
+- `GET /auth/oidc/:provider/reauth` in `@spinajs/authn-oidc`: the same for a user who logs in through the provider. The
+  authorization request carries `prompt=login` and `max_age=0`; the callback refuses an ID token whose `auth_time` is
+  missing, in the future or before the flow start minus `clockSkewSeconds`, needs the session that started the flow
+  and a subject already linked to its identity, and then reissues the session with a fresh `authenticatedAt`.
+- The inline `reauthPassword` of a `FreshAuth` route is unchanged: it counts for that request only.
+- `@spinajs/authn-oidc`: the flow cookie has a third mode, `reauth` (`OidcFlowMode`), bound to a session like `link`.
+  `AuthorizationRequest.reauth` and `IdTokenRules.authenticatedSince` are new optional members.
+- `@spinajs/authn-testing`: the `reauth` route builder, the `A13/oidc` facet and three A13 cases.
+  `FakeAuthnService.reauthenticate` resolves an external subject through its link, as the core does, and
+  `MemorySessionIssuer` throws `InvalidOperation` for a session that is gone.
+
 # Release notes — authn, authn-session, authn-http: step-up of an active session
 
 > Branch `feat/ory-flow-1`. Docs: `docs/authn/01-authentication-flow.md`, `docs/authn/08-session-contract.md`,
@@ -28,6 +51,22 @@ The `SessionIssuer` contract changes: it no longer promises that the facts of a 
   403 `mfa_pending` for a pending session.
 - `@spinajs/authn-testing`: behaviour rule A34 (`A34/store` in `runSessionIssuerConformance`, `A34/http`) and the
   `mfaStepUp` and `mfaGated` route builders.
+# Release notes — authn-http, authn-oidc: OIDC RP-initiated logout
+
+> Branch `feat/ory-flow-3`. Docs: `docs/authn-oidc/12-rp-initiated-logout.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`.
+
+## New behavior
+
+- `@spinajs/authn-http`: `AuthnLogoutExtension` (`afterLogout(session, req)`, registered with `Array.ofType`). `POST /auth/logout`
+  runs the extensions after it revoked and audited the session. The first redirect wins: a navigation request gets
+  `303` to it, any other client `200 { endSession }`. Without an extension, or when none names a redirect, the answer is
+  today's `200`. A failing extension is logged and skipped.
+- `@spinajs/authn-oidc`: `OidcLogoutExtension` sends an OIDC session to the provider's `end_session_endpoint` with
+  `client_id`, `post_logout_redirect_uri` and `logout_hint` (the IdP `sid`). Discovery reads `end_session_endpoint`; a
+  provider without one, a password session and any other session are not redirected.
+- New config `authn.oidc.providers.<name>.logout.storeIdToken` (default `false`): keep the validated ID token in the
+  session and send it as `id_token_hint`. `logout.postLogoutRedirectUri` overrides the default `<origin>/`.
+
 # Release notes — authn, authn-session, authn-oidc, session stores: OIDC back-channel logout
 
 > Branch `feat/ory-flow-2`. Docs: `docs/authn-oidc/11-backchannel-logout.md`.

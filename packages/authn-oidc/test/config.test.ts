@@ -84,6 +84,7 @@ describe('authn-oidc config', () => {
         requiredClaims: {},
         authorizationParams: {},
         linking: { jit: false, byVerifiedEmail: false },
+        logout: { storeIdToken: false, postLogoutRedirectUri: null },
       });
       expect(Object.isFrozen(p)).to.eq(true);
       expect(Object.isFrozen(p.claims)).to.eq(true);

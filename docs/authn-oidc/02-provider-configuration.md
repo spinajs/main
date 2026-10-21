@@ -58,6 +58,13 @@ Each provider takes exactly one source: an `issuer`, or a `preset` with the extr
 | `…<name>.linking.jit` | boolean | `false` | | JIT provisioning for this provider. Needs `authn.linking.jit` too. See [Identity linking](05-identity-linking.md). |
 | `…<name>.linking.byVerifiedEmail` | boolean | `false` | | Link a first login by verified email. Needs `authn.linking.byVerifiedEmail` too. |
 
+### `authn.oidc.providers.<name>`: logout
+
+| Key | Type | Default | Allowed values | Meaning |
+| --- | --- | --- | --- | --- |
+| `…<name>.logout.storeIdToken` | boolean | `false` | | Keep the validated ID token in the session and send it as `id_token_hint` at logout. See [RP-initiated logout](12-rp-initiated-logout.md). |
+| `…<name>.logout.postLogoutRedirectUri` | string | `<origin>/` | absolute https URL without credentials or fragment; a query is allowed | The `post_logout_redirect_uri` sent to the provider's `end_session_endpoint`. |
+
 `OIDC_RESERVED_PARAMS` lists the keys `authorizationParams` refuses: the flow's own `response_type`, `response_mode`, `client_id`, `redirect_uri`, `scope`, `state`, `nonce`, `code_challenge`, `code_challenge_method`, and `request`, `request_uri`, `max_age`, `acr_values`. Nothing checks `auth_time` or `acr`, so `max_age` and `acr_values` would promise a check that does not happen.
 
 ```ts
@@ -96,7 +103,7 @@ export default {
 
 The schema refuses, when the configuration validates:
 
-- an unknown key under `authn.oidc`, under a provider, under `claims`, `clientSecret` or `linking`;
+- an unknown key under `authn.oidc`, under a provider, under `claims`, `clientSecret`, `linking` or `logout`;
 - a provider name outside `^[a-z0-9_-]{1,59}$`;
 - a provider with neither `issuer` nor `preset`, a missing required preset key, or a source key of another preset;
 - an `entra` `tenant` that is not a GUID, a `realm` or `authorizationServer` that is not one path segment, a `domain` or `host` that is not a host name;
@@ -106,7 +113,7 @@ The schema refuses, when the configuration validates:
 `buildOidcOptions()` refuses, when `OidcProviders` resolves:
 
 - an `issuer` or `baseUrl` that is not an https URL without credentials, query or fragment;
-- a `redirectUri` that is not an absolute https URL without credentials or fragment;
+- a `redirectUri` or `logout.postLogoutRedirectUri` that is not an absolute https URL without credentials or fragment;
 - a `claims.subject` whose last path segment is `email`, `upn`, `preferred_username`, `login` or `name` (any case);
 - a `clockSkewSeconds` that is not an integer from 0 to 300;
 - a `requiredClaims` number that is `NaN` or infinite.

@@ -252,7 +252,9 @@ export class FakeAuthnService extends AuthnService {
       return false;
     }
     const r = await s.verify(c, ctx);
-    const ok = r.ok && r.identity !== undefined && r.identity.type === id.type && r.identity.id === id.id;
+    // As the core: an external subject proves the session's identity only through its existing link.
+    const verified = r.ok ? (r.identity ?? (r.external ? (await this.d.links.find(r.external.provider, r.external.subject))?.identity : undefined)) : undefined;
+    const ok = verified !== undefined && verified.type === id.type && verified.id === id.id;
     await this.audit(ctx, { type: 'reauth', outcome: ok ? 'success' : 'failure', identity: id, strategy: s.name });
     if (ok) {
       await this.d.throttle.succeed(keys, 'reauth');

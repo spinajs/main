@@ -69,9 +69,26 @@ sequenceDiagram
 | --- | --- |
 | Request | the session cookie, active or pending |
 | 200 | No data; the cookie cleared, `Clear-Site-Data: "cache", "cookies", "storage"`, `Cache-Control: no-store` |
+| 200 (redirect) | `{ "endSession": string }` with the same cookie and headers, for a script when a logout extension named a redirect |
+| 303 | The same headers and `Location`, for a browser navigation when a logout extension named a redirect |
 | 401 | `unauthenticated`: no session |
 
 Logout revokes the session (an impersonation ends with it), audits `logout`, and for an impersonation also `impersonation.end` with reason `logout`. It is `POST`, so no cross-site link can log anyone out, and the [CSRF origin guard](04-csrf-origin-guard.md) checks it.
+
+After the revoke, every registered `AuthnLogoutExtension` runs in registration order, with the revoked `Session` and the request. The first redirect any of them answers wins; the others still run. A navigation request (`Sec-Fetch-Mode: navigate`, or `Accept` lists `text/html`) gets `303`, any other client `200 { endSession }`. An extension that throws is logged by name and skipped: the session is already revoked. `@spinajs/authn-oidc` registers one that ends the provider's session ([RP-initiated logout](../authn-oidc/12-rp-initiated-logout.md)).
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { AuthnLogoutExtension } from '@spinajs/authn-http';
+import type { Session } from '@spinajs/authn/contracts';
+
+@Injectable(AuthnLogoutExtension)
+export class SignedOutPage extends AuthnLogoutExtension {
+  public async afterLogout(session: Session) {
+    return session.facts.method === 'saml' ? { redirect: 'https://sso.example.com/saml/logout' } : undefined;
+  }
+}
+```
 
 ### `GET /auth` (whoami)
 
@@ -124,6 +141,18 @@ For a step that delivers its code out of band, such as the [email code](../authn
 | 403 | `mfa_not_pending`: the session is already active |
 
 The pending session's identity is the one asked; the body names no identity. The answer is 202 whether the step has a `challenge`, whether it sent anything (an unenrolled, banned or throttled request sends nothing) and whether the send worked. A failing step is logged by its error name only. The step does its own throttling: a repeat inside the backoff sends no second mail.
+### `POST /auth/reauth`
+
+Re-authenticates the active session with its password and refreshes its `authenticatedAt`, so routes behind `FreshAuth` pass without `reauthPassword` for `authn.freshAuth.maxAgeSeconds`. It calls `AuthnService.reauthenticate` (purpose `reauth`, counted in the `reauth` throttle), then `SessionIssuer.reissue(h, { authenticatedAt: now })`. The session keeps its identity, assurance, MFA steps and data under a new id. `AuthnReauthController` serves it.
+
+| | |
+| --- | --- |
+| Request body | `{ "password": string }` and the session cookie. The login is the email from `IdentityStore.display(identity)` |
+| 200 | Principal summary plus extensions (kind `whoami`), `Set-Cookie` with the new session id. The old id is dead |
+| 401 | `unauthenticated` without a session, or when the session ends meanwhile. Login failure body for a missing, over-long or wrong password and a throttled attempt, without `Retry-After`; the session stays as it was |
+| 403 | `mfa_pending` for a pending session; `impersonating` during an impersonation |
+
+A user who logs in through an OIDC provider re-authenticates with `GET /auth/oidc/:provider/reauth` instead ([`@spinajs/authn-oidc`](../authn-oidc/01-login-flow.md#re-authentication-get-authoidcproviderreauth)).
 
 ## Configuration
 

@@ -31,6 +31,7 @@ It depends on `@spinajs/authn`, `@spinajs/authn-session` and `@spinajs/authn-htt
 | [Provider HTTP client, discovery and keys](08-http-client.md) | `OidcHttpClient` extension point; discovery and JWKS caching and validation |
 | [Security guarantees](09-security.md) | Every check of the flow, what is fixed, and the limits of 3.0 |
 | [Back-channel logout](11-backchannel-logout.md) | `POST /auth/oidc/:provider/backchannel-logout`: a logout at the IdP ends the sessions of its `sid` or `sub` |
+| [RP-initiated logout](12-rp-initiated-logout.md) | `POST /auth/logout` ends the IdP session too: a redirect to the provider's `end_session_endpoint`, with an optional stored `id_token_hint` |
 | [Programmatic API](10-programmatic-api.md) | `OidcLogin`, `OidcProvider`, `OidcStrategy` and the pure step functions, for custom controllers and tests |
 
 ## Quick start
