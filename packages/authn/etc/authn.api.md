@@ -25,7 +25,7 @@ export interface AuthnEvent {
     /** Never passwords, tokens, secrets or raw session ids (A21). */
     readonly data?: Readonly<Record<string, unknown>>;
 }
-export type AuthnEventType = "login" | "logout" | "mfa.challenge" | "mfa.verify" | "mfa.enrol" | "mfa.disable" | "reauth" | "session.issue" | "session.rotate" | "session.revoke" | "session.expire" | "password.change" | "password.reset.request" | "password.reset" | "invite.redeem" | "token.create" | "token.use" | "token.revoke" | "key.register" | "key.use" | "key.revoke" | "identity.link" | "identity.unlink" | "impersonation.start" | "impersonation.end" | "impersonation.expire" | "throttle.block";
+export type AuthnEventType = "login" | "logout" | "mfa.challenge" | "mfa.verify" | "mfa.enrol" | "mfa.disable" | "reauth" | "session.issue" | "session.rotate" | "session.revoke" | "session.expire" | "password.change" | "password.reset.request" | "password.reset" | "invite.redeem" | "token.create" | "token.use" | "token.revoke" | "key.register" | "key.use" | "key.revoke" | "identity.link" | "identity.unlink" | "impersonation.start" | "impersonation.end" | "impersonation.expire" | "throttle.block" | "passkey.register" | "passkey.remove";
 /**
  * Registered with Array.ofType: every sink gets every event (A21).
  * Log sinks write identifiers (login strings, emails) as keyed hashes (authn.audit.hashIdentifiers, SR-19);
@@ -50,6 +50,29 @@ const CLI_ACTOR = Object.freeze({
     type: "system",
     id: "cli"
 });
+```
+
+## src/contracts/credential-bus.ts
+
+```ts
+import type { IdentityRef } from "./credentials.js";
+/** A credential that changed: a revoked token or key, or an identity whose status or credentials changed. */
+export type CredentialChange = {
+    readonly kind: "token" | "key";
+    readonly id: string;
+} | {
+    readonly kind: "identity";
+    readonly identity: IdentityRef;
+};
+/**
+ * Tells credential caches that a credential changed, so they evict it before their TTL runs out. The default bus only
+ * reaches the current process; other processes rely on the cache TTL (D9).
+ */
+export declare abstract class CredentialChangeBus {
+    abstract publish(change: CredentialChange): Promise<void>;
+    /** Returns the unsubscribe function. */
+    abstract subscribe(listener: (change: CredentialChange) => void): () => void;
+}
 ```
 
 ## src/contracts/credentials.ts
@@ -158,9 +181,13 @@ export type StrategyOutcome = {
      * credentials; sessions do not keep them.
      */
     readonly attributes?: Readonly<Record<string, unknown>>;
+    /** Default 'aal1'. 'aal2' only for a credential that is two factors on its own: a passkey with user verification (D7). */
+    readonly assurance?: "aal1" | "aal2";
 } | {
     readonly ok: false;
     readonly reason: AuthnFailure;
+    /** Only with reason 'throttled' (a strategy short of capacity, not a backoff): seconds the client should wait; the service answers 1 when absent. */
+    readonly retryAfterSeconds?: number;
 };
 ```
 
@@ -347,6 +374,8 @@ export * from "./fresh.js";
 export * from "./cli.js";
 export * from "./failure.js";
 export * from "./nonce.js";
+export * from "./passkeys.js";
+export * from "./credential-bus.js";
 ```
 
 ## src/contracts/jws.ts
@@ -692,6 +721,59 @@ export declare abstract class NonceStore {
      * `expiresAt` at or before `now` is never live, so such a claim is always true: callers refuse expired tokens first.
      */
     abstract claim(key: string, expiresAt: Date, now: Date): Promise<boolean>;
+}
+```
+
+## src/contracts/passkeys.ts
+
+```ts
+import type { AuthnContext, IdentityRef } from "./credentials.js";
+/** WebAuthn options for the browser (`PublicKeyCredential*OptionsJSON`) and the id of the challenge they carry. */
+export interface PasskeyCeremony {
+    readonly challengeId: string;
+    readonly options: Readonly<Record<string, unknown>>;
+}
+/** A registered passkey as its owner sees it; never the public key. */
+export interface PasskeyEntry {
+    /** The credential id, base64url. */
+    readonly id: string;
+    readonly name?: string;
+    readonly transports?: readonly string[];
+    readonly createdAt: Date;
+    readonly lastUsedAt?: Date;
+}
+export interface PasskeyRegistration {
+    readonly challengeId: string;
+    /** The browser's `RegistrationResponseJSON`, unparsed. */
+    readonly response: unknown;
+    readonly name?: string;
+}
+/** `invalid_response`: a wrong, used, expired or foreign challenge, or an attestation that does not verify. */
+export type PasskeyRegisterResult = {
+    readonly ok: true;
+    readonly passkey: PasskeyEntry;
+} | {
+    readonly ok: false;
+    readonly code: "invalid_response" | "duplicate";
+};
+/**
+ * The passkeys of an identity behind the passkey routes; authn-webauthn's WebAuthnPasskeyService. The caller requires
+ * fresh auth before registrationOptions and register (A13) and acts only on the identity of its own session. Login
+ * itself goes through AuthnService.authenticate with `{ kind: 'webauthn', challengeId, response }`.
+ */
+export declare abstract class PasskeyService {
+    /**
+     * Assertion options for a login. With `identity` (a pending session's), a challenge for the WebAuthn MFA step that
+     * allows only that identity's credentials.
+     */
+    abstract challenge(ctx: AuthnContext, identity?: IdentityRef): Promise<PasskeyCeremony>;
+    /** Creation options for a discoverable credential bound to `id`. */
+    abstract registrationOptions(id: IdentityRef, ctx: AuthnContext): Promise<PasskeyCeremony>;
+    abstract register(id: IdentityRef, registration: PasskeyRegistration, ctx: AuthnContext): Promise<PasskeyRegisterResult>;
+    /** Oldest first. */
+    abstract list(id: IdentityRef): Promise<readonly PasskeyEntry[]>;
+    /** False when `id` holds no passkey with that credential id. */
+    abstract remove(id: IdentityRef, credentialId: string, ctx: AuthnContext): Promise<boolean>;
 }
 ```
 
@@ -1045,6 +1127,14 @@ export interface ThrottleKey {
     readonly value: string;
 }
 export type ThrottleFlow = "login" | "mfa" | "reset" | "reauth";
+/** `clean`: no live row holds any of the keys, so a success has nothing to lower or clear and `succeed` may be skipped. */
+export type PeekVerdict = {
+    readonly allowed: true;
+    readonly clean: boolean;
+} | {
+    readonly allowed: false;
+    readonly retryAfterSeconds: number;
+};
 /** Backoff, never a lock (H31). MemoryAuthnThrottle (core), DbAuthnThrottle (authn-orm). */
 export declare abstract class AuthnThrottle {
     /**
