@@ -377,6 +377,11 @@ what each fix changes for an app.
   changes. They rest on `@BasePath({ config, default })` in `@spinajs/http`. A controller without a
   key is moved by subclassing it with its own `@BasePath` and `DI.register(Mine).as(Theirs)`; see
   `docs/http/02-controllers-and-routing.md`.
+- **Login CSRF.** `CsrfOriginGuard` also checks `POST /auth/login`, `/auth/password/reset-request`,
+  `/auth/password/reset`, `/auth/keys/login`, `/auth/mfa/verify` and `/auth/mfa/recovery` without a
+  session cookie (`authn.http.csrf.unauthenticatedRoutes`, matched after `http.controllers.route.prefix`).
+  A browser post from another origin gets 403 `E_CSRF_ORIGIN`; a client that sends neither `Origin` nor
+  `Sec-Fetch-Site` still passes. A cross-site form that logged in is the only thing that stops working.
 
 ### Databases
 

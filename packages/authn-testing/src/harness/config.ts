@@ -42,7 +42,7 @@ export interface ConfigOverrides {
     keys: { assertion: { maxLifetimeSeconds: number; skewSeconds: number } };
     linking: { jit: boolean; byVerifiedEmail: boolean };
     impersonation: { requirePassword: boolean; requireMfa: boolean; maxMinutes: number; clockSkewSeconds: number };
-    http: { trustProxy: number | readonly string[] | null; csrf: { enabled: boolean; allowedOrigins: readonly string[] } };
+    http: { trustProxy: number | readonly string[] | null; csrf: { enabled: boolean; allowedOrigins: readonly string[]; unauthenticatedRoutes: readonly string[] } };
   }>;
   readonly http?: { readonly cors?: { readonly origins?: readonly string[] | null } };
 }
