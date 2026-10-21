@@ -30,6 +30,7 @@
 | `password.reset` | `failure` | `secret` | `identity` | `redeemReset()`: no matching secret |
 | `password.reset` | `success` | | `identity` | `redeemReset()` with a reset secret |
 | `invite.redeem` | `success` | | `identity`, `data: { via: 'reset' }` when a reset secret was used | `redeemReset()` on an invite-pending identity |
+| `address.verify.request`, `address.verify` | | | | [Address verification](14-address-verification.md#audit-events) |
 
 `session` is the hashed session handle, never the raw session id. No event holds a password, a hash, a login string or a secret.
 

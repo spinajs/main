@@ -18,6 +18,28 @@
 > re-export shim and no 2.x patch. How to move an app: `docs/authz/migration-guide.md`. Overviews:
 > `docs/authz/README.md`, `docs/authn/README.md`, `docs/authn-oidc/README.md`.
 
+## Unreleased: email address verification
+
+Not breaking: the new field is optional, the login switch is off and the routes need a `PasswordService` that offers
+verification.
+
+- **`@spinajs/authn`.** `IdentityStatus.addressVerified` (undefined: the store does not track it), the
+  `IdentityAddressVerifier` contract, the `unverified_address` failure, the audit types `address.verify.request` and
+  `address.verify`, and the optional `PasswordService.requestVerification()` and `redeemVerification()`. With
+  `authn.login.requireVerifiedAddress: true`, a login method whose credentials verify answers `unverified_address`
+  while the store reports the address unverified.
+- **`@spinajs/authn-local`.** `LocalPasswordService` mails a single-use secret of purpose `verify` through the authn
+  mail pipeline (`authn.local.verify.ttlSeconds`, default one day; `authn.local.verify.url`) and redeems it once.
+- **`@spinajs/users`.** Migration `UsersAddressVerified_2026_10_21_00_00_00` adds `users.EmailVerifiedAt`.
+  `UserIdentityStore.status()` reports `addressVerified`, `UserAddressVerifier` stores it, and redeeming an invite marks
+  the address verified.
+- **`@spinajs/email`.** The built-in `authn/verify.mjml` template, subject `Confirm your email address`
+  (`email.password.verify.*`).
+- **`@spinajs/authn-http`.** `POST /auth/verify/request` (a session, 202) and `POST /auth/verify` with `{ secret }`
+  (anonymous, 200 or 400 `invalid_secret`).
+
+Docs: `docs/authn-local/14-address-verification.md`, `docs/authn-http/21-verification-routes.md`.
+
 ## Unreleased: queued authn mails and MJML templates
 
 **Breaking for deployments.** Reset and invite mails of `@spinajs/authn-local` are now delivered from a queue by
