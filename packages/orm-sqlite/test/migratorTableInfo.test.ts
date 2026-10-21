@@ -66,17 +66,22 @@ function defineSchema() {
   return { create: MigratorTableInfoCreate_2026_10_22_00_00_00, Post: MigratorTableInfoPost, Note: MigratorTableInfoNote };
 }
 
-function alterMigration(table: string, alter: (t: AlterTableQueryBuilder) => void): Class<OrmMigration> {
+/** The migration the second pass applies. */
+function laterMigration(up: (connection: OrmDriver) => Promise<unknown>): Class<OrmMigration> {
   @Migration(CONNECTION)
-  class MigratorTableInfoAlter_2026_10_22_00_01_00 extends OrmMigration {
+  class MigratorTableInfoLater_2026_10_22_00_01_00 extends OrmMigration {
     public async up(connection: OrmDriver): Promise<void> {
-      await connection.schema().alterTable(table, alter);
+      await up(connection);
     }
 
     public async down(): Promise<void> {}
   }
 
-  return MigratorTableInfoAlter_2026_10_22_00_01_00;
+  return MigratorTableInfoLater_2026_10_22_00_01_00;
+}
+
+function alterMigration(table: string, alter: (t: AlterTableQueryBuilder) => void): Class<OrmMigration> {
+  return laterMigration(async (connection) => await connection.schema().alterTable(table, alter));
 }
 
 describe('sqlite OrmMigrator table info re-read', function () {
@@ -168,5 +173,12 @@ describe('sqlite OrmMigrator table info re-read', function () {
     const flag = columns(schema.Post).find((c) => c.Name === 'Flag')!;
     expect(flag.NativeType).to.match(/^(TEXT|VARCHAR)/i);
     expect(flag.Converter ?? null).to.equal(null);
+  });
+  it('marks the column a unique-index-only migration covers Unique', async () => {
+    alter = laterMigration(async (connection) => await connection.index().unique().table('mti_posts').name('mti_posts_title').columns(['Title']));
+
+    await migrateInTwoPasses();
+
+    expect(columns(schema.Post).find((c) => c.Name === 'Title')!.Unique).to.equal(true);
   });
 });

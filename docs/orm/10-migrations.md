@@ -51,8 +51,8 @@ sequenceDiagram
 
 | Statement | Recorded |
 | --- | --- |
-| `schema().createTable()`, `alterTable()` (including `rename()`), `dropTable()`, `cloneTable()`, `createView()`, `dropView()` | the table or view names |
-| `index()`, `createEvent()`, `dropEvent()`, `createDatabase()`, `tableExists()`, any DML | nothing |
+| `schema().createTable()`, `alterTable()` (including `rename()`), `dropTable()`, `cloneTable()`, `createView()`, `dropView()`, `index()` | the table or view names |
+| `createEvent()`, `dropEvent()`, `createDatabase()`, `tableExists()`, any DML | nothing |
 | `schema().raw()`, `dropDatabase()`, another builder in schema context | every table of the connection |
 | SQL sent to the driver directly (`executeOnDb()`) inside `up()` | every table of the connection |
 | any migration applied by a custom `OrmMigrationService` | every table of the connection |

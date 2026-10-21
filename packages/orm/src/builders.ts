@@ -2351,7 +2351,7 @@ export class IndexQueryBuilder extends Builder {
   }
 
   protected schemaTouches(): SchemaTouch {
-    return [];
+    return [this.Table];
   }
 
   public toDB(): ICompilerOutput {
