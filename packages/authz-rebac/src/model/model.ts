@@ -9,6 +9,7 @@ import type { CompiledRewrite } from '../namespace/compile.js';
 import { REBAC_DEFAULT_LIMITS, REBAC_DEFAULT_STORE, REBAC_STORE_NAMES } from '../namespace/schema.js';
 import { DbTupleStore } from '../stores/db.js';
 import { MemoryTupleStore } from '../stores/memory.js';
+import { rebacListPlan, rebacListSupport } from './filter.js';
 
 export const REBAC_CHECK_OP = 'native:rebac.check' as const;
 
@@ -117,12 +118,13 @@ export class RebacModel extends AuthorizationModel {
     }
   }
 
-  listSupport(_permission: PermissionDef, _type: ResourceType): ListSupport {
-    throw new Error('not implemented: RebacModel.listSupport');
+  /** Lists can be planned for every rewrite but exclusion (design §6.2). */
+  listSupport(permission: PermissionDef, type: ResourceType): ListSupport {
+    return rebacListSupport(this.schema(), permission.name, type);
   }
 
-  async listPlan(_req: ListPlanRequest, _ctx: EvaluationContext): Promise<ModelListPlan> {
-    throw new Error('not implemented: RebacModel.listPlan');
+  async listPlan(req: ListPlanRequest, _ctx: EvaluationContext): Promise<ModelListPlan> {
+    return rebacListPlan({ schema: this.schema(), store: this.store(), principal: { type: req.principal.type, id: req.principal.id }, permission: req.permission.name, type: req.type, maxDepth: this.limits.maxDepth });
   }
 
   /** Tuple changes (`rebac`, `rebac:<namespace>`, `model:<name>`, the host's `*`) move the version. */
