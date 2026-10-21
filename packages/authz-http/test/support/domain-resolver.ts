@@ -22,7 +22,7 @@ export function registerTenantResolver(): () => void {
   DI.uncache(AuthzDomainResolver);
   return () => {
     DI.unregister(TenantResolver as Class<unknown>);
-    DI.uncache(TenantResolver as Class<unknown>);
+    DI.uncache(TenantResolver);
     DI.uncache(AuthzDomainResolver);
   };
 }

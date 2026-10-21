@@ -26,6 +26,8 @@ const byParam = (type: string) => typedExtractor(type, (req) => ({ type, id: req
 const denying = (): ScriptedVote => ({});
 const permitting = (req: DecisionRequest): ScriptedVote => (req.permission === 'file:read' || req.principal.id === 'bob' ? { permitWhen: { op: 'true' } } : {});
 
+const resultsOf = (res: { body: unknown }) => (res.body as { results: boolean[] }).results;
+
 const decision = (req: Request) => new Ok({ allowed: req.storage.AuthzDecision?.allowed ?? null, domain: req.storage.AuthzDecision?.domain ?? null });
 
 @BasePath('tenant')
@@ -58,7 +60,7 @@ describe('AuthzDomainResolver (B48)', function () {
   describe('default', () => {
     it('is the static resolver, which returns the fallback', async () => {
       DI.uncache(AuthzDomainResolver);
-      const resolver = (await DI.resolve(AuthzDomainResolver)) as AuthzDomainResolver;
+      const resolver = await DI.resolve<AuthzDomainResolver>(AuthzDomainResolver);
 
       expect(resolver).to.be.instanceOf(StaticDomainResolver);
       expect(await resolver.resolve({} as Request, 'fs')).to.eq('fs');
@@ -211,15 +213,15 @@ describe('AuthzDomainResolver (B48)', function () {
     };
 
     it('answers the checks of the resolved domain', async () => {
-      expect((await check(A)).body.results).to.deep.eq([true]);
-      expect((await check()).body.results).to.deep.eq([false]);
+      expect(resultsOf(await check(A))).to.deep.eq([true]);
+      expect(resultsOf(await check())).to.deep.eq([false]);
     });
 
     it('summarizes the principal in the resolved domain', async () => {
       const res = await app.request().get('/user/access').set('x-user', 'alice').set('x-tenant', A);
 
       expect(res.status).to.eq(200);
-      expect(res.body.permissions.map((p: { name: string }) => p.name)).to.include('file:read');
+      expect((res.body as { permissions: { name: string }[] }).permissions.map((p) => p.name)).to.include('file:read');
     });
 
     it('answers 403 unknown_domain for an unknown domain', async () => {

@@ -45,7 +45,7 @@ describe('AuthzAdminController with an AuthzDomainResolver (ARCH-2)', function (
   let disposers: (() => Promise<void>)[];
   let controller: Guarded;
 
-  const adminOf = async (name: string) => ((await DI.resolve(AuthzDomains)) as AuthzDomains).service(name).then((s) => s.admin());
+  const adminOf = async (name: string) => (await DI.resolve<AuthzDomains>(AuthzDomains)).service(name).then((s) => s.admin());
   const adminInUse = async (req?: Request) => {
     let used: unknown;
     await controller.guarded(async (admin) => (used = admin), req);
@@ -63,7 +63,7 @@ describe('AuthzAdminController with an AuthzDomainResolver (ARCH-2)', function (
 
   after(async () => {
     DI.unregister(TenantResolver as Class<unknown>);
-    DI.uncache(TenantResolver as Class<unknown>);
+    DI.uncache(TenantResolver);
     DI.uncache(AuthzDomainResolver);
     DI.uncache(AuthzAdminController);
     for (const dispose of disposers ?? []) await dispose();
@@ -87,6 +87,6 @@ describe('AuthzAdminController with an AuthzDomainResolver (ARCH-2)', function (
 
     expect(ran).to.eq(false);
     expect(res).to.be.instanceOf(ForbiddenResponse);
-    expect((res as unknown as { responseData: { error: { code: string } } }).responseData.error.code).to.eq('unknown_domain');
+    expect((res as { responseData: { error: { code: string } } }).responseData.error.code).to.eq('unknown_domain');
   });
 });

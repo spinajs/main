@@ -40,10 +40,10 @@ export function resolveAuthzDomain(req: Request, fallback: string): Promise<stri
 }
 
 async function lookup(req: Request, fallback: string): Promise<string> {
-  const resolver = (await DI.resolve(AuthzDomainResolver)) as AuthzDomainResolver;
+  const resolver = await DI.resolve<AuthzDomainResolver>(AuthzDomainResolver);
   const domain: unknown = await resolver.resolve(req, fallback);
   if (typeof domain !== 'string' || domain === '') throw new AuthzConfigError(`${resolver.constructor.name} returned ${JSON.stringify(domain)}, not a domain name`);
   // A fallback that names no domain is a configuration error, which the domain lookup reports.
-  if (domain !== fallback && !((await DI.resolve(AuthzDomains)) as AuthzDomains).names().includes(domain)) throw new UnknownAuthzDomain();
+  if (domain !== fallback && !(await DI.resolve<AuthzDomains>(AuthzDomains)).names().includes(domain)) throw new UnknownAuthzDomain();
   return domain;
 }
