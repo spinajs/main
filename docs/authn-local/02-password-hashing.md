@@ -17,6 +17,8 @@
 3. When the value cannot match (`null`, the `!expired` marker, a malformed value, an unknown pepper version), the hasher verifies the password against its dummy hash and answers `false`.
 4. Otherwise `argon2.verify()` runs through the limiter. When argon2 still refuses the stored string, a dummy verify runs and the answer is `false`.
 
+Before these steps, a value in a bcrypt or PBKDF2 format that `authn.local.legacyHashes` lists is verified by that format's check, through the same limiter. See [Migrating password hashes](15-migrating-password-hashes.md).
+
 **Needs rehash** (`needsRehash(stored)`) is `true` when the value does not parse, its pepper version differs from the current one (also unpeppered under a pepper, or peppered without one), it is not argon2id, or `argon2.needsRehash()` says its parameters are not the library defaults. The login strategy calls it after a successful verify; see [Password login](01-password-login.md).
 
 **Boot.** `resolve()` makes the dummy hash once, with the current pepper and the same parameters as a real hash, so a dummy verify costs what a real one costs.
@@ -37,6 +39,7 @@ $sp2$$argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>
 | `authn.local.pepper.secret` | `string \| null` | `null` | a non-empty secret reference, or `null` | The current pepper. `null`: no pepper. An empty string is refused. |
 | `authn.local.pepper.version` | `integer` | `1` | `1` to `999999999` | Written into every new hash as `$sp<version>$`. |
 | `authn.local.pepper.previous` | `{ secret, version }[]` | `[]` | each `version` unique and different from `pepper.version` | Older peppers. Hashes made under them still verify and are rehashed on the next login. |
+| `authn.local.legacyHashes` | `string[]` | `[]` | unique members of `bcrypt`, `pbkdf2` | Imported hash formats that still verify and are replaced by argon2 on login. See [Migrating password hashes](15-migrating-password-hashes.md). |
 
 No key sets the argon2 cost (memory, time, parallelism). Small hosts lower `maxConcurrent`, never the cost.
 
@@ -88,13 +91,13 @@ Setting `pepper.secret` to `null` stops peppering new hashes. Keep the old peppe
 
 - `hashWith(password, { argon2?, pepper? })`: a hash in the stored format under explicit argon2 cost or another pepper (`null`: none). For tests and data migrations; production code calls `hash()`.
 - `limiter`: the `ConcurrencyLimiter`, with `active`, `queued`, `peak` and `runs` counters.
-- A constructor seam: `new Argon2PasswordHasher({ maxConcurrent?, maxQueue?, pepper? })` reads no configuration. `maxConcurrent` defaults to `defaultMaxConcurrent()` there, and `maxQueue` to `AUTHN_LOCAL_DEFAULTS.hasher.maxQueue` (64).
+- A constructor seam: `new Argon2PasswordHasher({ maxConcurrent?, maxQueue?, pepper?, legacyHashes? })` reads no configuration. `maxConcurrent` defaults to `defaultMaxConcurrent()` there, and `maxQueue` to `AUTHN_LOCAL_DEFAULTS.hasher.maxQueue` (64).
 
 The stored-format helpers are exported: `pepperInput()`, `formatStored()`, `parseStored()`, and `EXPIRED_PASSWORD_MARKER` (`'!expired'`).
 
 ### Hasher: custom implementation
 
-Accept hashes imported from a legacy system until each user logs in once. Keep argon2 for everything else, and keep a failed legacy check as expensive as an argon2 verify.
+Accept hashes from a legacy system whose format `legacyHashes` does not cover (bcrypt and PBKDF2 are built in; see [Migrating password hashes](15-migrating-password-hashes.md)). Keep argon2 for everything else, and keep a failed legacy check as expensive as an argon2 verify.
 
 ```ts sample
 import { createHash, timingSafeEqual } from 'node:crypto';

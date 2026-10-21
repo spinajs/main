@@ -29,6 +29,7 @@ A working login also needs an `IdentityStore` and a `PasswordCredentialStore` (`
 | [Password service](11-password-service.md) | `LocalPasswordService`: its collaborators, the test seam, and how to replace or extend it |
 | [Audit events](12-audit-events.md) | The `AuthnEvent`s the password flows publish, with their reasons |
 | [Address verification](14-address-verification.md) | `requestVerification()` and `redeemVerification()`: a single-use link proves the address, and `authn.login.requireVerifiedAddress` can require it |
+| [Migrating password hashes](15-migrating-password-hashes.md) | `authn.local.legacyHashes`: bcrypt and PBKDF2 hashes verify through the hasher's limiter and are replaced by argon2 on the first login |
 | [Mail delivery](13-mail-delivery.md) | `AuthnMailDispatcher`, `AuthnMailJob` and `authn.local.mail.delivery`: reset and invite mails delivered from a queue or inline, with no secret waiting anywhere |
 
 ## Quick start
@@ -80,6 +81,7 @@ Every key lives under `authn.local` and is validated by the `@spinajs/authn` con
 | Keys | Page |
 | --- | --- |
 | `authn.local.hasher.*`, `authn.local.pepper.*` | [Password hashing](02-password-hashing.md#configuration) |
+| `authn.local.legacyHashes` | [Migrating password hashes](15-migrating-password-hashes.md#configuration) |
 | `authn.local.policy.*`, `authn.local.generator.*` | [Password policy](03-password-policy.md#configuration) |
 | `authn.local.hibp.*` | [Password blocklist](04-password-blocklist.md#configuration) |
 | `authn.local.reset.*`, `authn.local.invite.*` | [Reset and invite](06-reset-and-invite.md#configuration) |
