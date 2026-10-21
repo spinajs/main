@@ -7,7 +7,7 @@ An `ActionHook` runs code around a named action: before it (change inputs or ref
 1. You register a class that extends `ActionHook` and lists the actions it wants in `actions`.
 2. At boot, `DefaultHooks.resolve()` reads the registered hook types and their `actions` patterns. A hook registered as a factory (`() => instance`) is called at boot, so its instance exists from then on. A class registration gets a probe instance built with `new` and a DI instance on the first matching run.
 3. An action calls `Hooks.run(action, input, impl, opts)`. The runner looks up the hooks that match the action, cached per action name. With none, it returns `impl(input)` and builds no context.
-4. The runner copies the input into `ctx.input` and calls each `before` hook in ascending `order`, each bounded by `hooks.timeoutMs`. A hook with a `before` is resolved from DI right before its call, and that resolution is bounded by `hooks.timeoutMs` too. After each `before` hook the runner puts the keys that are not mutable back to their original values, so the next hook sees what the action will see.
+4. The runner copies the input into `ctx.input` and calls each `before` hook in ascending `order`, each bounded by `hooks.timeoutMs`. A hook with a `before` is resolved from DI right before its call, and that resolution is bounded by `hooks.timeoutMs` too. After each `before` hook the runner puts the keys that are not mutable back to their original values and removes the non-mutable keys the hook added, so the next hook sees what the action will see.
 5. The runner calls `impl` with `{ ...original, ...pick(ctx.input, opts.mutable) }`. Assignments to other keys are dropped.
 6. When `impl` returns, the `after` hooks run in descending `order`. A hook not resolved yet (no `before`) is resolved here. The output is returned unchanged.
 7. When `impl` throws, the `failed` hooks run in descending `order`, one at a time, resolved the same way, and the original error is rethrown.
@@ -72,7 +72,8 @@ The action also checks again the invariants that guard the changed values, so a 
 
 - With `refusable: false`, a refusal, a throw, a timeout and a failed resolution in `before` are logged and the run goes on. A hook that failed to resolve is skipped for the rest of the run, `after` and `failed` included. The depth limit (`hooks.maxDepth`) is still enforced.
 - A hook with only `after` or `failed` that fails to resolve, or times out resolving, is logged and skipped. It never fails the action.
-- A failed resolution is not cached: the next run tries to resolve the hook again.
+- A failed resolution is not cached: the next run tries to resolve the hook again. A resolution that times out stays pending: until it settles, later runs treat the hook as a failed resolution at once (reason `'timeout'`, no waiting), and once it resolves the hook is used.
+- A resolution that times out is abandoned but stays cached until it settles. Later runs wait on the same pending resolution, so a hook that never resolves keeps timing out.
 - An `after` hook that throws or times out is logged and swallowed; the output is returned unchanged.
 - A `failed` hook that throws is logged. It never masks the error of `impl`, which is rethrown.
 - A `failed` hook runs only when `impl` throws. A result such as `status: 'failure'` is a result, so it reaches `after`.

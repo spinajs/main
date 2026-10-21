@@ -121,6 +121,37 @@ class HangingBefore extends ActionHook {
   }
 }
 
+class Gate extends AsyncService {
+  static open: () => void;
+  static reject: (e: Error) => void;
+  static opened: Promise<void>;
+
+  static arm(): void {
+    Gate.opened = new Promise<void>((resolve, reject) => {
+      Gate.open = resolve;
+      Gate.reject = reject;
+    });
+    Gate.opened.catch(() => undefined);
+  }
+
+  async resolve(): Promise<void> {
+    await Gate.opened;
+  }
+}
+
+class GatedBefore extends ActionHook {
+  static readonly seen: number[] = [];
+
+  @Autoinject(Gate)
+  protected Gate: Gate;
+
+  readonly actions: readonly ActionPattern[] = ['boot.ping'];
+
+  before(): void {
+    GatedBefore.seen.push(1);
+  }
+}
+
 class HangingAfter extends ActionHook {
   @Autoinject(Hanging)
   protected Hanging: Hanging;
@@ -249,6 +280,54 @@ describe('DefaultHooks boot', function () {
       expect(run.value).to.eq(2);
       expect(HangingBefore.seen).to.deep.eq([]);
       expect(TestLog.of('hooks').some((l) => l.text.includes('HangingBefore'))).to.be.true;
+    });
+
+    it('fails fast while an overdue resolution is pending, then uses the hook once it resolves', async () => {
+      Gate.arm();
+      GatedBefore.seen.length = 0;
+      const { hooks } = await boot({ hooks: { timeoutMs: 100 } }, (c) => c.register(GatedBefore).as(ActionHook));
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+      const first = track(hooks.run('boot.ping', { n: 1 }, echo, { mutable: [] }));
+      await clock.tickAsync(99);
+      expect(first.settled).to.be.false;
+      await clock.tickAsync(1);
+      expect((first.error as ActionHookFailed).reason).to.eq('timeout');
+
+      const second = track(hooks.run('boot.ping', { n: 2 }, echo, { mutable: [] }));
+      await clock.tickAsync(0);
+      expect((second.error as ActionHookFailed).reason).to.eq('timeout');
+      const skipped = track(hooks.run('boot.ping', { n: 2 }, echo, { mutable: [], refusable: false }));
+      await clock.tickAsync(0);
+      expect(skipped.value).to.eq(2);
+      expect(GatedBefore.seen).to.deep.eq([]);
+
+      Gate.open();
+      await clock.tickAsync(0);
+      const third = track(hooks.run('boot.ping', { n: 3 }, echo, { mutable: [] }));
+      await clock.tickAsync(0);
+      expect(third.value).to.eq(3);
+      expect(GatedBefore.seen).to.deep.eq([1]);
+    });
+
+    it('retries resolution on the next run when the overdue resolution rejects', async () => {
+      Gate.arm();
+      GatedBefore.seen.length = 0;
+      const { hooks } = await boot({ hooks: { timeoutMs: 100 } }, (c) => c.register(GatedBefore).as(ActionHook));
+      clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+      const first = track(hooks.run('boot.ping', { n: 1 }, echo, { mutable: [] }));
+      await clock.tickAsync(100);
+      expect(first.settled).to.be.true;
+
+      Gate.reject(new Error('late failure'));
+      await clock.tickAsync(0);
+      Gate.arm();
+      const next = track(hooks.run('boot.ping', { n: 2 }, echo, { mutable: [] }));
+      await clock.tickAsync(99);
+      expect(next.settled).to.be.false;
+      await clock.tickAsync(1);
+      expect((next.error as ActionHookFailed).reason).to.eq('timeout');
     });
 
     it('logs and skips an after-only hook whose resolution hangs', async () => {

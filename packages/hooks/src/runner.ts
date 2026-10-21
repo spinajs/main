@@ -31,6 +31,8 @@ interface HookEntry {
   /** Read from the boot probe, so a hook without `before` is not resolved before the action runs. */
   readonly phases: { readonly before: boolean; readonly after: boolean; readonly failed: boolean };
   instance?: Promise<ActionHook>;
+  /** A resolution timed out and is still pending: runs fail at once instead of waiting again. */
+  overdue?: boolean;
 }
 
 interface ResolvedHook {
@@ -157,9 +159,21 @@ export class DefaultHooks extends Hooks {
     return found;
   }
 
-  /** Resolution is bounded by hooks.timeoutMs like a hook call; an abandoned resolution stays cached, so a hook that never resolves keeps timing out. */
-  private boundedInstance(entry: HookEntry, depth: number): Promise<ActionHook> {
-    return this.bounded(depth, () => this.instanceOf(entry));
+  /** Resolution is bounded by hooks.timeoutMs like a hook call; the abandoned resolution stays cached, and while it is pending later runs fail at once. */
+  private async boundedInstance(entry: HookEntry, depth: number): Promise<ActionHook> {
+    if (entry.overdue) throw new HookTimeout();
+    try {
+      return await this.bounded(depth, () => this.instanceOf(entry));
+    } catch (error) {
+      if (error instanceof HookTimeout && entry.instance) {
+        entry.overdue = true;
+        const settled = () => {
+          entry.overdue = false;
+        };
+        entry.instance.then(settled, settled).catch(() => undefined);
+      }
+      throw error;
+    }
   }
 
   private instanceOf(entry: HookEntry): Promise<ActionHook> {
