@@ -19,7 +19,8 @@ const CHALLENGE_ID_CAP = 64;
 /** WebAuthn caps credential ids at 1023 bytes, 1364 characters of base64url. */
 const CREDENTIAL_ID = /^[A-Za-z0-9_-]{1,1364}$/;
 const NAME_CAP = 64;
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/;
+/** C0 and C1 controls and DEL. */
+const hasControlCharacter = (s: string): boolean => [...s].some((ch) => ch.charCodeAt(0) < 0x20 || (ch.charCodeAt(0) >= 0x7f && ch.charCodeAt(0) <= 0x9f));
 
 /**
  * 404 `not_found` while no PasskeyService is registered or authn.strategies lists no strategy for `webauthn`
@@ -126,9 +127,10 @@ export class AuthnPasskeyController extends BaseController {
     if ('answer' in fresh) return fresh.answer;
     const body = ceremonyBody(req);
     if (!body) return badRequest('invalid_response', 'challengeId and response are required');
-    const name = bodyField(req, 'name');
-    if (name !== undefined && (boundedString(name, NAME_CAP) === null || CONTROL_CHARACTERS.test(name as string))) return badRequest('invalid_name', `name must be 1 to ${NAME_CAP} characters without control characters`);
-    const result = await (await this.passkeys()).register(session.identity, { ...body, ...(name !== undefined ? { name: name as string } : {}) }, contextOf(req, 'request', session.handle));
+    const rawName = bodyField(req, 'name');
+    const name = rawName === undefined ? undefined : boundedString(rawName, NAME_CAP);
+    if (name === null || (name !== undefined && hasControlCharacter(name))) return badRequest('invalid_name', `name must be 1 to ${NAME_CAP} characters without control characters`);
+    const result = await (await this.passkeys()).register(session.identity, { ...body, ...(name !== undefined ? { name } : {}) }, contextOf(req, 'request', session.handle));
     if (!result.ok) {
       if (result.code === 'duplicate') return new Conflict({ error: 'passkey_taken', message: 'this passkey is already registered' }, { Headers: [NO_STORE] });
       return badRequest('invalid_response', 'the registration does not verify against a registration challenge of this user');

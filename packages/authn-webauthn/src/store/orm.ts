@@ -77,7 +77,7 @@ export class DbWebAuthnCredentialStore extends WebAuthnCredentialStore {
         aaguid: row.aaguid ?? null,
         name: row.name ?? null,
         created_at: utc(row.createdAt, 'createdAt'),
-      } as Partial<AuthnWebauthnCredential>);
+      });
     } catch (err) {
       if (err instanceof UniqueViolation) throw new WebAuthnCredentialExists('the WebAuthn credential is registered already');
       throw err;
@@ -135,7 +135,7 @@ export class DbWebAuthnChallengeStore extends WebAuthnChallengeStore {
       purpose: row.purpose,
       identity: row.identity ? identityKey(row.identity) : null,
       expires_at: utc(row.expiresAt, 'expiresAt'),
-    } as Partial<AuthnWebauthnChallenge>);
+    });
   }
 
   async take(id: string, now: Date): Promise<WebAuthnChallenge | null> {

@@ -1,7 +1,7 @@
 import 'mocha';
 import assert from 'node:assert/strict';
 import { verifyAuthenticationResponse } from '@simplewebauthn/server';
-import type { AuthnContext, Credentials, StrategyOutcome } from '@spinajs/authn/contracts';
+import type { AuthnContext, Credentials } from '@spinajs/authn/contracts';
 import { FakeClock } from '@spinajs/authn-testing';
 import type { SoftAuthenticator } from '@spinajs/authn-testing';
 
@@ -11,7 +11,6 @@ import { MemoryWebAuthnCredentialStore } from '../src/store/index.js';
 import { PasskeyStrategy } from '../src/strategy/index.js';
 import { ALICE, BOB, FIXED_CHALLENGE, ORIGIN, RP_ID, START, authenticator, webauthnOptions } from './support/fixtures.js';
 
-type Success = Extract<StrategyOutcome, { ok: true }>;
 
 describe('PasskeyStrategy', function () {
   this.timeout(30000);
@@ -76,7 +75,7 @@ describe('PasskeyStrategy', function () {
     await seed(alice);
     const out = await strategy.verify(await login(alice, { uv: true }), ctx());
     assert.ok(out.ok, JSON.stringify(out));
-    const ok = out as Success;
+    const ok = out;
     assert.deepStrictEqual(ok.identity, ALICE);
     assert.strictEqual(ok.method, 'webauthn');
     assert.strictEqual(ok.assurance, 'aal2');
@@ -86,8 +85,8 @@ describe('PasskeyStrategy', function () {
     await seed(alice);
     const out = await strategy.verify(await login(alice, { uv: false }), ctx());
     assert.ok(out.ok, JSON.stringify(out));
-    assert.strictEqual((out as Success).assurance, 'aal1');
-    assert.strictEqual((out as Success).method, 'webauthn');
+    assert.strictEqual(out.assurance, 'aal1');
+    assert.strictEqual(out.method, 'webauthn');
   });
 
   it('the identity comes from the stored credential, not from the assertion', async () => {

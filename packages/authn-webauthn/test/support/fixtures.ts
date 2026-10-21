@@ -22,9 +22,17 @@ export const FIXED_CHALLENGE = Buffer.from('kit-webauthn-fixed-challenge-0001').
 /** The authenticator of `seed`: the same key and credential id on every run. */
 export const authenticator = (seed = 'alice', over: { uv?: boolean; counter?: number } = {}): SoftAuthenticator => new SoftAuthenticator({ seed, ...over });
 
+/** The members of PublicKeyCredentialCreationOptionsJSON the tests read. */
+export interface CreationOptions {
+  readonly challenge: string;
+  readonly rp: { readonly id: string; readonly name: string };
+  readonly user: { readonly id: string };
+  readonly attestation?: string;
+}
+
 /** `{ challengeId, options }` as the step and the service hand them out. */
-export function ceremonyOf(json: string): { challengeId: string; options: any } {
-  const parsed = JSON.parse(json) as { challengeId: string; options: any };
+export function ceremonyOf(json: string): { challengeId: string; options: CreationOptions } {
+  const parsed = JSON.parse(json) as { challengeId?: unknown; options?: { challenge?: unknown } };
   if (typeof parsed.challengeId !== 'string' || typeof parsed.options?.challenge !== 'string') throw new Error(`not a WebAuthn ceremony: ${json}`);
-  return parsed;
+  return parsed as { challengeId: string; options: CreationOptions };
 }

@@ -25,7 +25,7 @@ export async function bootSqlite(name: string): Promise<SqliteDb> {
   class SqliteConfiguration extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
-      const config = this.Config as Record<string, unknown>;
+      const config = this.Config;
       config.logger = { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] };
       config.db = { ...(config.db as object), DefaultConnection: connection.Name, Connections: [connection] };
     }

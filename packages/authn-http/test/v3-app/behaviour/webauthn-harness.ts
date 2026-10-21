@@ -1,6 +1,5 @@
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
 import { PasskeyService } from '@spinajs/authn/contracts';
 import type { HttpRoutes, WebAuthnPort } from '@spinajs/authn-testing';
 
@@ -47,7 +46,7 @@ async function load(): Promise<WebAuthnModule> {
 /** Fresh stores and services per case: each one holds the stores, the config and the AuthnAudit it was built with. */
 function uncache(w: WebAuthnModule): void {
   const types = [w.MemoryWebAuthnCredentialStore, w.MemoryWebAuthnChallengeStore, w.MemoryWebAuthnRecoveryCodeStore, w.WebAuthnCredentialStore, w.WebAuthnChallengeStore, w.WebAuthnRecoveryCodeStore, w.WebAuthnPasskeyService, w.PasskeyStrategy, w.WebAuthnMfaStep];
-  for (const type of [...types, PasskeyService]) DI.uncache(type as unknown as Class<unknown>);
+  for (const type of [...types, PasskeyService]) DI.uncache(type);
 }
 
 function restoreConfig(): void {

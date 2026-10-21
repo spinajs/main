@@ -99,12 +99,12 @@ export class WebAuthnMfaStep extends MfaStep {
   async confirmEnrolment(id: IdentityRef, response: string): Promise<{ recoveryCodes?: readonly string[] }> {
     const { credentials, challenges, recoveryCodes, options } = this.deps();
     const body = parsed(response);
-    const name = body?.name;
+    const name: unknown = body?.name;
     const attestation = registrationJson(body?.response);
     if (!body || !attestation || (name !== undefined && (typeof name !== 'string' || [...name].length > NAME_MAX))) throw new WebAuthnInvalidResponse('not a WebAuthn registration response');
     const now = new Date();
     const challenge = await takeChallenge(challenges, body.challengeId, 'register', now, id);
-    const credential = challenge && (await verifiedRegistration(options, challenge, attestation, id, now, name as string | undefined));
+    const credential = challenge && (await verifiedRegistration(options, challenge, attestation, id, now, typeof name === 'string' ? name : undefined));
     if (!credential) throw new WebAuthnInvalidResponse('the WebAuthn registration does not verify');
     try {
       await credentials.add(credential);

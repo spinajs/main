@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import 'mocha';
 import { FakeStrategy } from '@spinajs/authn-testing';
 
-import type { AuthenticationResult, AuthnContext, IdentityRef, StrategyOutcome } from '../../src/index.js';
+import type { AuthnContext, IdentityRef, StrategyOutcome } from '../../src/index.js';
 import { buildCore, useHarnessLog } from '../behaviour/harness.js';
 import type { CoreParts } from '../behaviour/harness.js';
 
-type Success = Extract<AuthenticationResult, { status: 'success' }>;
 
 const IP = '192.0.2.10';
 const ctx = (over: Partial<AuthnContext> = {}): AuthnContext => ({ now: new Date(), ip: IP, purpose: 'login', ...over });
@@ -42,7 +41,7 @@ describe('DefaultAuthnService: the assurance a strategy reports (D7)', function 
     const { p } = await boot(passkeyLike({ method: 'webauthn', assurance: 'aal2' }));
     const r = await p.service.authenticate({ kind: 'kit-passkey' }, ctx());
     assert.strictEqual(r.status, 'success', JSON.stringify(r));
-    const s = r as Success;
+    const s = r;
     assert.strictEqual(s.facts.assurance, 'aal2');
     assert.strictEqual(s.facts.method, 'webauthn');
     const stored = await p.sessions.restore(s.session!.id);
@@ -55,7 +54,7 @@ describe('DefaultAuthnService: the assurance a strategy reports (D7)', function 
       const { p } = await boot(passkeyLike(outcome));
       const r = await p.service.authenticate({ kind: 'kit-passkey' }, ctx());
       assert.strictEqual(r.status, 'success', JSON.stringify(r));
-      assert.strictEqual((r as Success).facts.assurance, 'aal1', JSON.stringify(outcome));
+      assert.strictEqual(r.facts.assurance, 'aal1', JSON.stringify(outcome));
       await p.dispose();
       parts = undefined;
     }
