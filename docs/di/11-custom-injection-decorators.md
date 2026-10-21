@@ -47,7 +47,7 @@
 
 ### Injecting a computed value: `resolveFunc`
 
-Use `resolveFunc` when the value does not come from a registration: an environment variable, a value derived from another service, a per-container lookup. It runs in the resolving container, so child-container overrides apply. Return a promise for async work; reject (do not throw) when a sibling dependency may still be pending.
+Use `resolveFunc` when the value does not come from a registration: an environment variable, a value derived from another service, a per-container lookup. It runs in the resolving container, so child-container overrides apply. Return a promise for async work; to fail, return a rejected promise instead of throwing, so the failure stays on the promise the resolve returns.
 
 ```ts sample
 import { AddDependencyForProperty, DI, IContainer, IInjectDescriptor } from '@spinajs/di';
@@ -170,7 +170,7 @@ console.log(DI.RootContainer.extractDescriptor(RequestContext).resolver === Reso
 - The callback edits the class's **own** descriptor. A new one starts with the lifetime of the nearest decorated base class (`Singleton` when there is none), so a subclass keeps its base's lifetime until a callback sets `descriptor.resolver`; see [Lifetimes](04-lifetimes.md#important-behaviour).
 - Property entries are unique per `autoinjectKey`: when a subclass and its base both decorate one property, the subclass's entry wins.
 - `@Inject` skips a type already in the descriptor; your own `AddDependency` callback does not, unless you check `descriptor.inject` yourself.
-- A `resolveFunc` that throws synchronously while another dependency is pending can leave that one's rejection unhandled. Return `Promise.reject(err)` instead, as `@Autoinject` with `check` does.
+- A `resolveFunc` that throws synchronously makes `resolve()` throw synchronously, even when another dependency made the resolve async; that dependency's pending rejection is handled. A caller that chains `.catch()` on the result misses the throw. Return `Promise.reject(err)` instead, as `@Autoinject` with `check` does.
 - `serviceFunc` matches the class **name** in the nearest list under `inject`. It ignores ancestors' lists once a child registers under `inject`, and it does not see factory names. For lineage-wide, factory-aware lookup use [named services](07-named-services.md).
 - A plain entry resolves with `[options]`, so the target constructor receives `options` (or `undefined`) as its first extra argument.
 
@@ -183,7 +183,7 @@ console.log(DI.RootContainer.extractDescriptor(RequestContext).resolver === Reso
 ## Patterns and antipatterns
 
 ```ts
-// Don't: a synchronous throw beside a pending async dependency
+// Don't: a synchronous throw escapes DI.resolve(...).catch(), which expects a rejected promise
 resolveFunc: (path, c) => {
   if (!c.hasRegistered(Settings)) throw new Error('no settings');
   return c.resolve(Settings).get(path);
