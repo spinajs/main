@@ -31,6 +31,7 @@ import type {
 import type { AuditLog } from './audit.js';
 import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
 import { DeferredWork } from './deferred.js';
+import { EmailCodes } from './email-code/codes.js';
 import { EXPIRED_PASSWORD_MARKER, PasswordHasher } from './hasher.js';
 import { PasswordMailer } from './mailer.js';
 import { AuthnMailDispatcher } from './mail/contracts.js';
@@ -91,6 +92,12 @@ const resetIpKey = (ctx: AuthnContext): ThrottleKey => ({ kind: 'ip', value: ctx
 
 /** Its own account key: a verify request must not use up the reset request of the same account. */
 const verifyKey = (id: IdentityRef): ThrottleKey => ({ kind: 'account', value: `verify:${id.type}:${id.id}` });
+
+/** Its own account key: a code request must not use up the reset or verify request of the same account. */
+const codeKey = (id: IdentityRef): ThrottleKey => ({ kind: 'account', value: `code:${id.type}:${id.id}` });
+
+/** A code goes to an active identity whose address the store does not report unverified: whoever owns the mailbox can use it. */
+const codeRefusal = (s: IdentityStatus): string | null => (!s.exists || s.deleted || s.banned || !s.active ? 'status' : s.addressVerified === false ? 'unverified_address' : null);
 
 /**
  * POST /auth/verify takes the secret alone, and a SecretStore redeems per identity, so the mailed secret carries its
@@ -373,8 +380,15 @@ export class LocalPasswordService extends PasswordService {
     throw new Error('not implemented: LocalPasswordService.requestCode');
   }
 
-  public async challengeCode(_id: IdentityRef, _ctx: AuthnContext): Promise<CodeRequestResult> {
-    throw new Error('not implemented: LocalPasswordService.challengeCode');
+  /** Counts first; an identity that cannot get a code gets no mail and the same answer. */
+  public async challengeCode(id: IdentityRef, ctx: AuthnContext): Promise<CodeRequestResult> {
+    const gate = await this.throttle().attempt([codeKey(id)], 'reset', ctx);
+    if (!gate.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', identity: id, reason: 'throttled', data: { flow: 'code' } });
+      return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
+    await this.sendCode(id, ctx, 'mfa');
+    return { status: 'accepted' };
   }
 
   /** Every refusal answers `invalid`; the reason goes to audit only. */
@@ -452,6 +466,16 @@ export class LocalPasswordService extends PasswordService {
     await this.audit(ctx, { type: 'password.reset.request', outcome: sent ? 'success' : 'failure', identity: id, ...(sent ? {} : { reason: 'no_mailer' }) });
   }
 
+  protected async sendCode(id: IdentityRef, ctx: AuthnContext, via: 'login' | 'mfa'): Promise<void> {
+    const refused = codeRefusal(await (await this.identities()).status(id));
+    if (refused) {
+      await this.audit(ctx, { type: 'code.request', outcome: 'failure', identity: id, reason: refused, data: { via } });
+      return;
+    }
+    const sent = await this.dispatchMail(id, 'code', this.emailCodeTtlSeconds());
+    await this.audit(ctx, { type: 'code.request', outcome: sent ? 'success' : 'failure', identity: id, ...(sent ? {} : { reason: 'no_mailer' }), data: { via } });
+  }
+
   /** Hands the request on without a secret (SR-09): `deliver` issues it. Without a mailer nothing is dispatched. */
   protected async dispatchMail(id: IdentityRef, purpose: AuthnMailPurpose, ttlSeconds: number): Promise<boolean> {
     if (!(await this.mailer())) {
@@ -490,10 +514,18 @@ export class LocalPasswordService extends PasswordService {
       this.log().warn(log, 'The ${purpose} mail for ${identityType} ${identityId} was not sent: the identity has no email address');
       return false;
     }
-    const raw = await (await this.secrets()).issue(id, purpose, ttlSeconds);
-    const secret = purpose === 'verify' ? verifySecretOf(id, raw) : raw;
-    await mailer.send({ identity: id, purpose, to, secret, url: purpose === 'verify' ? this.verifyUrl() : this.resetUrl(), ttlSeconds, ...(request.lang ? { lang: request.lang } : {}) });
+    await mailer.send({ identity: id, purpose, to, ...(await this.issueFor(id, purpose, ttlSeconds)), ttlSeconds, ...(request.lang ? { lang: request.lang } : {}) });
     return true;
+  }
+
+  /** The secret to mail for `purpose` with the page that redeems it; a code has no page. */
+  protected async issueFor(id: IdentityRef, purpose: AuthnMailPurpose, ttlSeconds: number): Promise<{ secret: string; url: string; code?: string }> {
+    if (purpose === 'code') {
+      const code = await new EmailCodes(await this.secrets()).issue(id, ttlSeconds);
+      return { secret: code, code, url: '' };
+    }
+    const raw = await (await this.secrets()).issue(id, purpose, ttlSeconds);
+    return purpose === 'verify' ? { secret: verifySecretOf(id, raw), url: this.verifyUrl() } : { secret: raw, url: this.resetUrl() };
   }
 
   /**

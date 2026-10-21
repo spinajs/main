@@ -21,7 +21,7 @@ const RAW_MAX = 1024;
 
 /**
  * `authn_secret`: single-use secrets stored as the hex SHA-256 of the raw value only (SR-09). The raw secret is
- * 32 random bytes as base64url (43 chars). Times are taken in Node at call time (F7); the claim of `redeem`
+ * 32 random bytes as base64url (43 chars), or the `value` the caller gives (a short code). Times are taken in Node at call time (F7); the claim of `redeem`
  * decides expiry and single use in SQL against that time (D10).
  *
  * Two parallel `issue` calls for one identity and purpose may both leave a live row: each deletes, then inserts.
@@ -32,17 +32,15 @@ export class DbSecretStore extends SecretStore {
   private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   public async issue(identity: IdentityRef, purpose: string, ttlSeconds: number, value?: string): Promise<string> {
-    if (value !== undefined) {
-      throw new Error('not implemented: DbSecretStore.issue with a value');
-    }
     const key = identityKey(identity);
     checkedText(purpose, PURPOSE_MAX, 'DbSecretStore: purpose');
     _check_arg(_is_number(_finite(), _gt(0)))(ttlSeconds, 'ttlSeconds');
+    if (value !== undefined) _check_arg(_is_string(_non_empty(), _max_length(RAW_MAX)))(value, 'value');
     const nowMs = checkedMs(new Date(), 'DbSecretStore.issue: the clock');
     await ormReady();
     await this.purgeNowAndThen(nowMs);
 
-    const raw = randomBytes(32).toString('base64url');
+    const raw = value ?? randomBytes(32).toString('base64url');
     await AuthnSecret.destroy().where('identity', key).where('purpose', purpose);
     await AuthnSecret.insert(columnValues<AuthnSecret>({ id: randomUUID(), identity: key, purpose, secret_hash: sha256hex(raw), expires_at: instant(nowMs + ttlSeconds * 1000), used_at: null, created_at: instant(nowMs) }));
     return raw;
