@@ -1,4 +1,4 @@
-import { BadRequestResponse, Conflict, NotFound, Ok } from '@spinajs/http';
+import { BadRequestResponse, Conflict, ForbiddenResponse, NotFound, Ok } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import type { Credentials, KeyChallenge, KeyProof, KeyRecord, KeyRegisterResult, NewKey, PublicJwk, Session } from '@spinajs/authn/contracts';
 import { isPlainObject } from '@spinajs/util';
@@ -8,7 +8,7 @@ import type { TooManyRequestsResponse } from '../password/fields.js';
 import { refused } from '../policies/v3/errors.js';
 import { activeSessionOf, authenticatedPrincipal, isSessionPrincipal } from '../policies/v3/principal.js';
 import { expiryOf } from '../token/fields.js';
-import { NO_STORE, badRequest, instant } from '../v3/responses.js';
+import { NO_STORE, badRequest, hookRefusedAnswer, instant } from '../v3/responses.js';
 import { bodyField, boundedString } from '../v3/routes.js';
 
 // Body fields and answers of the 3.0 key routes. Every field is checked and capped before KeyRegistry sees it; no answer
@@ -44,8 +44,10 @@ export function keyManager(req: Request): Session {
 /** One answer for a foreign, an unknown and a malformed kid, so the route tells nothing about other owners' keys. */
 export const keyNotFound = (): NotFound => new NotFound({ error: 'key_not_found', message: 'No such key' }, { Headers: [NO_STORE] });
 
-/** KeyRegistry's refusal of a registration. */
-export function registerRefusal(code: Extract<KeyRegisterResult, { ok: false }>['code']): BadRequestResponse {
+/** KeyRegistry's refusal of a registration; an `authn.key.register` hook's is 403 `{ code }`. */
+export function registerRefusal(result: Extract<KeyRegisterResult, { ok: false }>): BadRequestResponse | ForbiddenResponse {
+  if (result.code === 'refused') return hookRefusedAnswer(result.refusal);
+  const code = result.code;
   if (code === 'duplicate') return new Conflict({ error: 'key_taken', message: 'this key or kid is already registered' }, { Headers: [NO_STORE] });
   if (code === 'invalid_proof') return badRequest('invalid_proof', 'the proof must be a signature of the new key over a register challenge of this user');
   return badRequest('invalid_key', 'jwk must be an Ed25519 or P-256 public key');

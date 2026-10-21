@@ -12,7 +12,7 @@ import { unauthenticated } from '../../policies/v3/errors.js';
 import { mfaPolicyOf } from '../../policies/v3/mfa.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, PendingMfaEnrolment } from '../index.js';
-import { NO_STORE, authnFailureResponse } from '../responses.js';
+import { NO_STORE, authnFailureResponse, refusedByHook } from '../responses.js';
 import { contextOf } from '../routes.js';
 
 /**
@@ -28,7 +28,8 @@ import { contextOf } from '../routes.js';
  * password in `reauthPassword`, which TotpService verifies for that request only. A stale session without it gets 403
  * `fresh_auth_required`; a wrong password, a wrong code, or a missing or over-long one the login failure body (A02),
  * with Retry-After only when the mfa throttle refused the code. Enrolment state conflicts answer 409 `mfa_enrolled`,
- * `mfa_not_begun` or `mfa_not_enrolled`. No route rotates the session id (A07 lists none of them).
+ * `mfa_not_begun` or `mfa_not_enrolled`. An action hook of the MfaEnrolmentService that refuses answers 403 `action_refused`
+ * with `code`. No route rotates the session id (A07 lists none of them).
  * @tags Authentication
  */
 @BasePath('user')
@@ -79,7 +80,12 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const session = ownSession(req);
     const reauth = await reauthOf(this.Container, req, session);
     if ('answer' in reauth) return reauth.answer;
-    const result = await this.MfaEnrolment!.begin(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    let result: Awaited<ReturnType<MfaEnrolmentService['begin']>>;
+    try {
+      result = await this.MfaEnrolment!.begin(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    } catch (err) {
+      return refusedByHook(err);
+    }
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ provisioning: result.provisioning }, { Headers: [NO_STORE] });
   }
@@ -101,7 +107,12 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const session = ownSession(req);
     const code = codeField(req);
     if (code === null) return authnFailureResponse();
-    const result = await this.MfaEnrolment!.confirm(session.handle, code, contextOf(req, 'reauth', session.handle));
+    let result: Awaited<ReturnType<MfaEnrolmentService['confirm']>>;
+    try {
+      result = await this.MfaEnrolment!.confirm(session.handle, code, contextOf(req, 'reauth', session.handle));
+    } catch (err) {
+      return refusedByHook(err);
+    }
     if (!result.ok) return totpRefusal(result.code, { reauthTried: false, retryAfterSeconds: result.retryAfterSeconds });
     return new Ok({ recoveryCodes: [...result.recoveryCodes] }, { Headers: [NO_STORE] });
   }
@@ -123,7 +134,12 @@ export class AuthnMfaEnrolmentController extends BaseController {
     if ('answer' in reauth) return reauth.answer;
     const code = codeField(req);
     if (code === null) return authnFailureResponse();
-    const result = await this.MfaEnrolment!.disable(session.handle, code, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    let result: Awaited<ReturnType<MfaEnrolmentService['disable']>>;
+    try {
+      result = await this.MfaEnrolment!.disable(session.handle, code, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    } catch (err) {
+      return refusedByHook(err);
+    }
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined, retryAfterSeconds: result.retryAfterSeconds });
     return new Ok(null, { Headers: [NO_STORE] });
   }
@@ -144,7 +160,12 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const session = activeSessionOf(req);
     const reauth = await reauthOf(this.Container, req, session);
     if ('answer' in reauth) return reauth.answer;
-    const result = await this.MfaEnrolment!.regenerateRecoveryCodes(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    let result: Awaited<ReturnType<MfaEnrolmentService['regenerateRecoveryCodes']>>;
+    try {
+      result = await this.MfaEnrolment!.regenerateRecoveryCodes(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
+    } catch (err) {
+      return refusedByHook(err);
+    }
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ recoveryCodes: [...result.recoveryCodes] }, { Headers: [NO_STORE] });
   }

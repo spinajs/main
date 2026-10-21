@@ -11,11 +11,13 @@ import type { AuthnContext, Ceiling, IdentityRef, KeyChallengeRequest, KeyChalle
 import { _between, _contains, _is_string, _try_check_arg, isPlainObject } from '@spinajs/util';
 import { InvalidArgument, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import type { Hooks } from '@spinajs/hooks';
+import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
+import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
 import { challengeId, challengeSecretPurpose, isChallengeNonce, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { checkPublicJwk, isValidKid, thumbprint } from '../jwk/keys.js';
 import { DEFAULT_KEY_CACHE, keysOptionsOf } from '../options/options.js';
 import type { KeysConfig, KeysOptions } from '../options/options.js';
+import '../hooks.js';
 import { CachedKeyStore } from './cache.js';
 import { decodeCeiling, encodeCeiling, encodePrincipalRef, KeyStore } from './store.js';
 
@@ -25,6 +27,13 @@ const MAX_NAME = 128;
 const TOUCH_INTERVAL_MS = 60_000;
 const MAX_CREATED_BY = 100;
 const CEILING_KEYS = ['roles', 'permissions', 'resources', 'expiresAt', 'reason'];
+
+/** The answer code and audit reason of `action`'s hooks refusing it, or null for any other error. */
+function hookRefusal(err: unknown, action: ActionName): { code: string; reason: string } | null {
+  if (err instanceof ActionRefused && err.action === action) return { code: err.code, reason: `hook:${err.code}` };
+  if (err instanceof ActionHookFailed && err.action === action) return { code: 'hook_error', reason: 'hook_error' };
+  return null;
+}
 
 const nonEmpty = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 
@@ -112,6 +121,9 @@ export class DefaultKeyRegistry extends KeyRegistry {
   @Logger('authn-keys')
   protected Log: Log;
 
+  @Autoinject(Hooks)
+  protected Hooks: Hooks;
+
   private cached: { readonly inner: KeyStore; readonly store: KeyStore } | undefined;
 
   private readonly stamped = new Map<string, number>();
@@ -146,6 +158,12 @@ export class DefaultKeyRegistry extends KeyRegistry {
 
   protected get options(): KeysOptions {
     return keysOptionsOf(this.Deps?.options ?? this.KeysConfig);
+  }
+
+  protected runHooked<A extends ActionName>(action: A, input: InputOf<A>, impl: (input: InputOf<A>) => Promise<OutputOf<A>>, opts: RunOptions<A>): Promise<OutputOf<A>> {
+    // Built with `new` and without deps.hooks, nothing injects Hooks.
+    const hooks = this.Deps?.hooks ?? this.Hooks;
+    return hooks ? hooks.run(action, input, impl, opts) : impl(input);
   }
 
   protected publish(ctx: AuthnContext, e: AuthnEventBody): Promise<void> {
@@ -197,6 +215,19 @@ export class DefaultKeyRegistry extends KeyRegistry {
       createdBy = actor;
     }
 
+    try {
+      return await this.runHooked('authn.key.register', { reg, ctx }, () => this.insertKey(r, owner, material, kid, createdBy, ctx), { mutable: [] });
+    } catch (err) {
+      const refusal = hookRefusal(err, 'authn.key.register');
+      if (!refusal) throw err;
+      await this.publish(ctx, { type: 'key.register', outcome: 'failure', identity: owner, reason: refusal.reason });
+      return { ok: false, code: 'refused', refusal: refusal.code };
+    }
+  }
+
+  /** Stores the key the checks of register passed. */
+  protected async insertKey(r: Record<string, unknown>, owner: KeyOwner, material: KeyMaterial, kid: string, createdBy: PrincipalRef | undefined, ctx: AuthnContext): Promise<KeyRegisterResult> {
+    const expiresAt = r.expiresAt;
     const key = {
       ...material,
       kid,
@@ -210,7 +241,8 @@ export class DefaultKeyRegistry extends KeyRegistry {
       ...(expiresAt !== undefined ? { expiresAt: expiresAt as Date } : {}),
     } as KeyRecord;
     if ((await this.store.insert(key)) === 'duplicate') {
-      return fail('duplicate');
+      await this.publish(ctx, { type: 'key.register', outcome: 'failure', identity: owner, reason: 'duplicate' });
+      return { ok: false, code: 'duplicate' };
     }
     const stored = (await this.store.get(kid)) ?? key;
     await this.publish(ctx, { type: 'key.register', outcome: 'success', identity: owner, ...(createdBy ? { actor: createdBy } : {}), data: { kid, thumbprint: stored.thumbprint, alg: stored.alg } });
@@ -222,7 +254,22 @@ export class DefaultKeyRegistry extends KeyRegistry {
   }
 
   async revoke(owner: IdentityRef, kid: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<boolean> {
-    const done = isValidKid(kid) ? await this.store.revoke(owner, kid, ctx.now) : 'none';
+    if (!isValidKid(kid)) {
+      return false;
+    }
+    const actor = opts?.actor ? { actor: opts.actor } : {};
+    try {
+      return await this.runHooked('authn.key.revoke', { owner, kid, ...actor, ctx }, () => this.revokeKey(owner, kid, ctx, opts), { mutable: [] });
+    } catch (err) {
+      const refusal = hookRefusal(err, 'authn.key.revoke');
+      if (!refusal) throw err;
+      await this.publish(ctx, { type: 'key.revoke', outcome: 'failure', identity: owner, ...actor, reason: refusal.reason, data: { kid } });
+      return false;
+    }
+  }
+
+  protected async revokeKey(owner: IdentityRef, kid: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<boolean> {
+    const done = await this.store.revoke(owner, kid, ctx.now);
     if (done === 'none') {
       return false;
     }
