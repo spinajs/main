@@ -8,7 +8,7 @@ Every `OrmMutex` lock is a row of the `__mutex__` table, read and written throug
    - `@Model('__mutex__')` registers the `__mutex__` class under `__models__`; `@Connection('default')` binds it to the `default` connection.
    - `@Migration('default')` registers `Mutex_2024_12_03_11_41_00` under `__migrations__`.
 2. `Orm.resolve()` finds the migration through `DiRegistryMigrationSource`; no directory scan is needed.
-3. The boot pass runs it when the connection has `Migration.OnStartup: true`. Otherwise run it with the ORM migration commands.
+3. `OrmMigrator`'s boot pass (`DI.resolve(OrmMigrator)`) runs it when the connection has `Migration.OnStartup: true`. Otherwise run it with the ORM migration commands.
 4. `Mutex_2024_12_03_11_41_00.up()` creates the table. `down()` drops it.
 5. `Orm` binds the model to the driver stored under `default`, which is the connection named in `db.DefaultConnection`.
 
@@ -17,7 +17,7 @@ Every `OrmMutex` lock is a row of the `__mutex__` table, read and written throug
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `db.DefaultConnection` | `string` | unset | a connection `Name` | The connection stored as `default`; the table and the model live there. |
-| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Runs the pending `__mutex__` migration at boot. |
+| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Runs the pending `__mutex__` migration in `OrmMigrator`'s boot pass. See [Migrations](../orm/10-migrations.md#configuration). |
 
 See [Connections](../orm/01-connections.md#configuration) and [Migrations](../orm/10-migrations.md) for the rest of these sections.
 

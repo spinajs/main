@@ -30,7 +30,7 @@ Importing the package registers `PostgresOrmDriver` under the driver string `orm
 import '@spinajs/orm-postgres';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import _ from 'lodash';
 
 export class AppConfiguration extends FrameworkConfiguration {
@@ -60,6 +60,8 @@ export class AppConfiguration extends FrameworkConfiguration {
 }
 
 export async function countOpenOrders(): Promise<number> {
+  // OrmMigrator resolves the Orm and applies the Migration.OnStartup migrations
+  await DI.resolve(OrmMigrator);
   const orm = await DI.resolve(Orm);
   const driver = orm.Connections.get('main')!;
 
