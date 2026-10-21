@@ -161,6 +161,9 @@ export class DefaultAuthnService extends AuthnService {
   @Config('authn.linking')
   protected Linking!: Linking;
 
+  @Config('authn.login.requireVerifiedAddress', { defaultValue: false })
+  protected RequireVerifiedAddress: boolean;
+
   @Config('authn.throttle.global')
   protected ThrottleGlobal: unknown;
 
@@ -390,8 +393,9 @@ export class DefaultAuthnService extends AuthnService {
     if (found.link && found.provisioned) await this.link(ctx, s, id, found.link);
     // Service and agent identities authenticate per request only (D12).
     if (s.interactive && id.type !== 'user') return this.refuse(ctx, s, 'non_user_session', 'invalid_credentials', { identity: id });
-    const refused = await statusRefusal(this.Identities, r.delegation?.onBehalfOf ?? id);
-    if (refused) return this.refuse(ctx, s, refused, 'invalid_credentials', { identity: id });
+    // A token or key is no login: only a login method is held to authn.login.requireVerifiedAddress.
+    const refused = await statusRefusal(this.Identities, r.delegation?.onBehalfOf ?? id, { requireVerifiedAddress: s.interactive && this.RequireVerifiedAddress === true });
+    if (refused) return this.refuse(ctx, s, refused, refused === 'unverified_address' ? 'unverified_address' : 'invalid_credentials', { identity: id });
     // Before the link by verified email, so a login a hook refuses leaves neither a session nor a new email link.
     if (s.interactive && r.external) {
       const hookError = await this.runLoginHooks(id, r.external);
