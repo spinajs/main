@@ -35,6 +35,7 @@ A case that needs a route builder lists it as `http.routes.<name>`; without that
 | `login(login, password)`, `logout()`, `whoami()` | Login, logout and the current principal |
 | `mfaVerify(code)`, `mfaRecovery(code)` | Complete a pending login with a step or recovery code |
 | `mfaStepUp(step, code)`, `mfaGated()` | Step up an active session; a route behind `Authenticated` and `MfaSatisfied` that answers 200 once both pass |
+| `reauth(password)` | Re-authenticate the active session with its password (`POST /auth/reauth`); success sets a new session cookie |
 | `mfaEnrol()`, `mfaConfirm(code)`, `mfaDisable(code)` | MFA enrolment and removal |
 | `passwordResetRequest(login)`, `passwordReset(login, secret, newPassword)`, `passwordChange(oldPassword, newPassword)` | Password flows |
 | `tokenCreate({ name, expiresAt, reauthPassword? })`, `tokenList()` | API tokens |

@@ -124,6 +124,18 @@ For a step that delivers its code out of band, such as the [email code](../authn
 | 403 | `mfa_not_pending`: the session is already active |
 
 The pending session's identity is the one asked; the body names no identity. The answer is 202 whether the step has a `challenge`, whether it sent anything (an unenrolled, banned or throttled request sends nothing) and whether the send worked. A failing step is logged by its error name only. The step does its own throttling: a repeat inside the backoff sends no second mail.
+### `POST /auth/reauth`
+
+Re-authenticates the active session with its password and refreshes its `authenticatedAt`, so routes behind `FreshAuth` pass without `reauthPassword` for `authn.freshAuth.maxAgeSeconds`. It calls `AuthnService.reauthenticate` (purpose `reauth`, counted in the `reauth` throttle), then `SessionIssuer.reissue(h, { authenticatedAt: now })`. The session keeps its identity, assurance, MFA steps and data under a new id. `AuthnReauthController` serves it.
+
+| | |
+| --- | --- |
+| Request body | `{ "password": string }` and the session cookie. The login is the email from `IdentityStore.display(identity)` |
+| 200 | Principal summary plus extensions (kind `whoami`), `Set-Cookie` with the new session id. The old id is dead |
+| 401 | `unauthenticated` without a session, or when the session ends meanwhile. Login failure body for a missing, over-long or wrong password and a throttled attempt, without `Retry-After`; the session stays as it was |
+| 403 | `mfa_pending` for a pending session; `impersonating` during an impersonation |
+
+A user who logs in through an OIDC provider re-authenticates with `GET /auth/oidc/:provider/reauth` instead ([`@spinajs/authn-oidc`](../authn-oidc/01-login-flow.md#re-authentication-get-authoidcproviderreauth)).
 
 ## Configuration
 

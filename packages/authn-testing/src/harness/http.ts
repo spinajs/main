@@ -30,6 +30,8 @@ export interface HttpRoutes {
   mfaStepUp(step: string, code: string): HttpRequest;
   /** A route behind Authenticated and MfaSatisfied that answers 200 when both pass. */
   mfaGated(): HttpRequest;
+  /** Re-authentication of the active session the jar holds with its password; success sets a new session cookie. */
+  reauth(password: string): HttpRequest;
   mfaEnrol(): HttpRequest;
   mfaConfirm(code: string): HttpRequest;
   mfaDisable(code: string): HttpRequest;

@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 import type { IContainer } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, PrincipalRef, Session, SessionFactsChange, SessionHandle } from '@spinajs/authn/contracts';
 import { authnAppEnv, isLenientAuthnEnv } from '@spinajs/authn/env';
@@ -87,7 +88,8 @@ export class MemorySessionIssuer extends SessionIssuer {
   private need(h: SessionHandle): { key: string; row: Row } {
     const found = this.find(h);
     if (!found) {
-      throw new Error('unknown or expired session');
+      // The issuer contract's error: routes map it to the caller's session having ended.
+      throw new InvalidOperation('unknown or expired session');
     }
     return found;
   }
