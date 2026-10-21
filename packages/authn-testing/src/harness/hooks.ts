@@ -8,7 +8,8 @@ const matches = (pattern: ActionPattern, action: string): boolean => pattern ===
 /**
  * The `hooks` port adapter. The runner reads its hooks once, at boot, so a lane registers one instance as an
  * ActionHook before its Hooks resolves; the hooks a case adds run through it, with the runner's own context, so
- * their refusals, input changes and errors reach the runner as their own would.
+ * their refusals, input changes and errors reach the runner as their own would. To the runner they are one hook: a
+ * `before` that refuses or throws skips the added hooks after it, even for an action that is not refusable.
  */
 export class KitActionHooks extends ActionHook implements HooksPort {
   readonly actions: readonly ActionPattern[] = ['*'];

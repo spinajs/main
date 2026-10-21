@@ -256,7 +256,8 @@ export const A37: AuthnRule = defineRule('A37', 'action hooks run around authn a
     config: IMPERSONATION,
     async run(h, k) {
       const recorder = new RecordingActionHook(['authn.impersonation.stop']);
-      h.hooks.add(refusingHook('authn.impersonation.stop', CODE), recorder);
+      // The port runs a case's hooks as one runner hook: one added after the refusing hook would not be reached.
+      h.hooks.add(recorder, refusingHook('authn.impersonation.stop', CODE));
       const { a, b, session } = await adminSession(h, k);
       const started = await h.impersonation.start(session, b, k.ctx());
       assert.ok(started.ok, 'impersonation starts');
