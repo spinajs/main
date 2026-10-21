@@ -6,7 +6,7 @@ A share link grants a role at a scope to whoever holds its token. These routes c
 
 | Route | Command | Body | Query |
 | --- | --- | --- | --- |
-| `GET /authz/links` | `list({ kind: 'links' })` | none | `scope`, `limit`, `offset` |
+| `GET /authz/links` | `list({ kind: 'links' })` | none | `scope`, `limit`, `offset` or `after` |
 | `POST /authz/links` | `link.create` | `{ scope, role, tags?, expiresAt?, attributes? }` | `reason`, `idempotencyKey`, `dryRun` |
 | `PATCH /authz/links/:id` | `link.update` | `{ expiresAt?, attributes?, role?, tags? }`, at least one key; `id` optional | `reason`, `idempotencyKey`, `dryRun` |
 | `DELETE /authz/links/:id` | `link.revoke` | none | `reason`, `idempotencyKey`, `dryRun` |
@@ -31,7 +31,7 @@ Revoke:
 
 List:
 
-1. `readPageQuery('links', query)` parses `scope`, `limit` and `offset`.
+1. `readPageQuery('links', query)` parses `scope`, `limit`, and `offset` or `after`.
 2. `AuthzAdmin.list` checks `authz:links.read` at `scope`, or at `$global` without one.
 3. Each item is `{ id, scope, expiresAt, attributes, createdBy? }`.
 

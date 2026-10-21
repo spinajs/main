@@ -60,7 +60,7 @@ sequenceDiagram
 
 Sugar methods: `assign`, `revoke`, `createLink` (returns `{ link, token }`; a replayed key fails with `conflict`, because the token is shown once), `revokeLink`, `setTags`, `putRule`, `deleteRule`, `putPolicy`, `deletePolicy`, `setScopeAttributes`, `forgetScope`. Each throws `AuthzAdminFailure` instead of returning a failed result.
 
-`list(actor, query)` reads for admin screens: `{ kind: 'assignments' | 'links' | 'rules' | 'policies' | 'attributes' | 'holders', scope?, ... }`. It checks `authz:<kind>.read` at the query's scope (mapped by `authz.admin.permissions` under `list.<kind>`), pages by `{ limit, offset }` (default 50, at most 500) and asks the `AuthzAdminReader` of the kind. Items never carry a link token or its hash. A `holders` query needs a `scope` and a `permission`; the RBAC reader refuses a page limit above 100 with `invalid_query` ([Holders](13-holders.md)).
+`list(actor, query)` reads for admin screens: `{ kind: 'assignments' | 'links' | 'rules' | 'policies' | 'attributes' | 'holders', scope?, ... }`. It checks `authz:<kind>.read` at the query's scope (mapped by `authz.admin.permissions` under `list.<kind>`), pages by `{ limit, offset }` (default 50, at most 500) or, instead of `offset`, `{ limit, after }` with the `next` an earlier answer carried and asks the `AuthzAdminReader` of the kind. Items never carry a link token or its hash. A `holders` query needs a `scope` and a `permission`; the RBAC reader refuses a page limit above 100 with `invalid_query` ([Holders](13-holders.md)).
 
 ## Permissions
 

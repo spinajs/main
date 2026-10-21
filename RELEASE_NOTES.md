@@ -1,3 +1,27 @@
+# Release notes — authz: keyset pagination and the fs_acl path index
+
+## New behavior
+
+- The admin lists page by cursor as well as by offset. `AuthzAdmin.list` takes `page: { limit, after }`
+  for assignments, links, rules and holders, and answers `{ items, total, next? }`. `next` is set when
+  more rows follow a first or `after` page and is absent on the last page. A page read with `offset`
+  works as before and gets no `next`. The RBAC stores read the rows behind the cursor in
+  `(created_at, id)` order instead of skipping `offset` rows, so a deep page costs what the first one does;
+  `total` is still counted for every page. Holders page by subject key.
+- `GET /authz/assignments`, `/holders`, `/links` and `/rules` take `after`, the `next` of the previous
+  page. It replaces `offset`; both together, an empty `after` and an `after` on `/authz/policies` answer
+  `400 invalid_query`. A cursor the store did not issue answers `400 invalid_page`. See
+  `docs/authz-http-admin/01-admin-routes.md`.
+- A custom `AuthzAdminReader` that cannot page by cursor needs no change: it ignores `after` and returns
+  no `next`. A custom store behind the RBAC reader may return `next` from `find`.
+
+## Before you upgrade
+
+- Run the new `@spinajs/authz-fs` migration `AuthzFsAclPathIndex_2026_10_21_00_00_00`. It adds the index
+  `fs_acl_fs_path` on `(fs, path)`, which the prefix reads of `deleteTree` and `moveTree` use. It creates
+  an index only; the `fs_acl` table and its rows are untouched. `moveTree` still rewrites the moved rows
+  one by one in a transaction.
+
 # Release notes — authn: no per-request writes on the token and key path
 
 ## New behavior
