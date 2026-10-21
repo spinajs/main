@@ -31,17 +31,19 @@ function masked(email: string): string {
 export class EmailCodeMfaStep extends MfaStep {
   readonly name = EMAIL_CODE_STEP;
 
-  @Autoinject(SecretStore)
-  protected Secrets: SecretStore;
+  // Optional: TotpService asks every registered MfaStep whether the identity is enrolled, also in apps that load this
+  // package and do not use the step.
+  @Autoinject(SecretStore, { optional: true })
+  protected Secrets: SecretStore | undefined;
 
-  @Autoinject(IdentityStore)
-  protected Identities: IdentityStore;
+  @Autoinject(IdentityStore, { optional: true })
+  protected Identities: IdentityStore | undefined;
 
-  @Autoinject(MfaEnrolmentMarks)
-  protected Marks: MfaEnrolmentMarks;
+  @Autoinject(MfaEnrolmentMarks, { optional: true })
+  protected Marks: MfaEnrolmentMarks | undefined;
 
-  @Autoinject(PasswordService)
-  protected Passwords: PasswordService;
+  @Autoinject(PasswordService, { optional: true })
+  protected Passwords: PasswordService | undefined;
 
   private _codes?: EmailCodes;
 
@@ -49,8 +51,10 @@ export class EmailCodeMfaStep extends MfaStep {
     super();
   }
 
-  public enrolled(id: IdentityRef): Promise<boolean> {
-    return this.marks().has(id, this.name);
+  /** False, not a throw, without a `MfaEnrolmentMarks`: nothing can be enrolled then. */
+  public async enrolled(id: IdentityRef): Promise<boolean> {
+    const marks = this.Deps ? this.Deps.marks : this.Marks;
+    return marks !== undefined && (await marks.has(id, this.name));
   }
 
   /** Throws `EmailCodeAlreadyEnrolled`, `EmailCodeAddressUnverified` (the store must report the address verified) or `EmailCodeThrottled`. */
@@ -101,21 +105,28 @@ export class EmailCodeMfaStep extends MfaStep {
 
   private async request(id: IdentityRef, ctx: AuthnContext): Promise<CodeRequestResult> {
     const passwords = this.Deps ? this.Deps.passwords : this.Passwords;
-    if (typeof passwords.challengeCode !== 'function') {
+    if (typeof passwords?.challengeCode !== 'function') {
       throw new InvalidOperation('The email code step needs a PasswordService that sends codes (@spinajs/authn-local)');
     }
     return passwords.challengeCode(id, ctx);
   }
 
   private codes(): EmailCodes {
-    return (this._codes ??= new EmailCodes(this.Deps ? this.Deps.secrets : this.Secrets));
+    return (this._codes ??= new EmailCodes(this.needed(this.Deps ? this.Deps.secrets : this.Secrets, 'SecretStore')));
   }
 
   private identities(): IdentityStore {
-    return this.Deps ? this.Deps.identities : this.Identities;
+    return this.needed(this.Deps ? this.Deps.identities : this.Identities, 'IdentityStore');
   }
 
   private marks(): MfaEnrolmentMarks {
-    return this.Deps ? this.Deps.marks : this.Marks;
+    return this.needed(this.Deps ? this.Deps.marks : this.Marks, 'MfaEnrolmentMarks');
+  }
+
+  private needed<T>(dependency: T | undefined, name: string): T {
+    if (!dependency) {
+      throw new InvalidOperation(`The email code step needs a ${name}, and none is registered`);
+    }
+    return dependency;
   }
 }
