@@ -8,3 +8,4 @@ export * from './cli/Generate2FaQrCode.js';
 export * from './2fa/otpUrl.js';
 export * from './schema.js';
 export * from './bootstrap.js';
+export * from './hooks.js';

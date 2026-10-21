@@ -64,7 +64,11 @@ export interface KeyProof {
 /** A user's key always needs a proof; services and agents are registered without one by an admin route or the CLI, named as `actor`. */
 export type KeyRegistration = (NewKey & { readonly owner: KeyOwner & { readonly type: 'user' }; readonly proof: KeyProof }) | (NewKey & { readonly owner: KeyOwner & { readonly type: 'service' | 'agent' }; readonly actor: PrincipalRef });
 
-export type KeyRegisterResult = { readonly ok: true; readonly key: KeyRecord } | { readonly ok: false; readonly code: 'invalid_key' | 'invalid_proof' | 'duplicate' };
+/** `refused`: an action hook refused the registration; `refusal` is its code, or `hook_error` for a hook that failed. */
+export type KeyRegisterResult =
+  | { readonly ok: true; readonly key: KeyRecord }
+  | { readonly ok: false; readonly code: 'invalid_key' | 'invalid_proof' | 'duplicate' }
+  | { readonly ok: false; readonly code: 'refused'; readonly refusal: string };
 
 export type KeyChallengeRequest = { readonly purpose: 'register'; readonly owner: KeyOwner & { readonly type: 'user' } } | { readonly purpose: 'login'; readonly kid: string };
 

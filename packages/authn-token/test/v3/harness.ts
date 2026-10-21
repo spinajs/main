@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort, throttleParams } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, ScriptedActionHook, UnsupportedConfig, fakeSeedPort, kitHooks, throttleParams } from '@spinajs/authn-testing';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { ConfigOverrides, Harness, HarnessContext, SeedPort } from '@spinajs/authn-testing';
 
@@ -25,9 +25,9 @@ function leafValue(config: ConfigOverrides, path: string): unknown {
 
 /**
  * Tokens and seed over the sqlite database of `bootV3Db()`, which the caller boots. Each case gets
- * a fresh identity store and an empty token table.
+ * a fresh identity store and an empty token table. With `hooks`, the service runs one ScriptedActionHook on every action (A38).
  */
-export async function tokenHarness(ctx: HarnessContext): Promise<Harness> {
+export async function tokenHarness(ctx: HarnessContext, hooks = false): Promise<Harness> {
   const unsupported = leafKeys(ctx.config).filter((k) => k !== '' && !SUPPORTED.includes(k));
   if (unsupported.length > 0) {
     throw new UnsupportedConfig(unsupported);
@@ -56,9 +56,11 @@ export async function tokenHarness(ctx: HarnessContext): Promise<Harness> {
     setStatus: (id, status) => base.setStatus(id, status),
   };
 
+  const hook = hooks ? new ScriptedActionHook() : undefined;
   return {
-    tokens: await tokenServiceOver({ identities, profiles: new NoTokenProfilesPolicy(), auditor: AuthnAudit.over([]) }),
+    tokens: await tokenServiceOver({ identities, profiles: new NoTokenProfilesPolicy(), auditor: AuthnAudit.over([]), ...(hook ? { hooks: await kitHooks([hook]) } : {}) }),
     seed,
+    ...(hook ? { flowHooks: hook } : {}),
     async dispose() {
       for (const [path, value] of saved) {
         configuration.set(path, value);

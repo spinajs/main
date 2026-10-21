@@ -6,6 +6,7 @@ import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
+import type { Hooks } from '@spinajs/hooks';
 import { AuthnThrottle, IdentityAddressVerifier, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService, identityThrottleKeys, sameRef } from '@spinajs/authn/contracts';
 import type {
   AddressVerificationRequestResult,
@@ -76,6 +77,8 @@ export interface LocalPasswordServiceDeps {
   readonly verifyUrl?: string;
   /** `authn.local.emailCode.ttlSeconds`; default 600. */
   readonly emailCodeTtlSeconds?: number;
+  /** null or missing: no action hooks run. */
+  readonly hooks?: Hooks | null;
 }
 
 /** D11, D12: exists, not deleted, not banned, and active or invite-pending. */

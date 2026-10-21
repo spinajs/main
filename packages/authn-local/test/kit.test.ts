@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { runAuthnBehaviour, runStrategyConformance, timingDefaults, timingTimeoutMs } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Facet, HarnessContext } from '@spinajs/authn-testing';
 
-import { emailCodeHarness, localHarness, localStrategySubject, registerHarnessTypes, unregisterHarnessTypes } from './kit-harness.js';
+import { emailCodeHarness, hookedHarness, localHarness, localStrategySubject, registerHarnessTypes, registerHookType, unregisterHarnessTypes, unregisterHookType } from './kit-harness.js';
 
 const N3_FACETS: Facet[] = ['A02/local', 'A03/argon2', 'A04/local', 'A11/local', 'A13/local', 'A30/local', 'A32/local', 'A35/local'];
 const EMAIL_CODE_FACETS: Facet[] = ['A36/step', 'A36/local'];
@@ -28,6 +28,13 @@ describe('authn-local kit acceptance', function () {
     facets: EMAIL_CODE_FACETS,
     timeoutMs: TIMING_TIMEOUT_MS,
     title: 'authn behaviour (authn-local email code)',
+  });
+
+  describe('with an action hook on every action', () => {
+    before(registerHookType);
+    after(unregisterHookType);
+
+    runAuthnBehaviour(['A38'], hookedHarness, { claim: ['A38/local'], facets: ['A38/local'], timeoutMs: TIMING_TIMEOUT_MS, title: 'authn behaviour (authn-local action hooks)' });
   });
 
   runStrategyConformance(localStrategySubject, { title: 'LocalPasswordStrategy conformance', timeoutMs: TIMING_TIMEOUT_MS });

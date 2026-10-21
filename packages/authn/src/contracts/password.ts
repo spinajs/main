@@ -30,9 +30,14 @@ export interface PasswordPolicyContext {
 
 /**
  * 'invalid' is the one answer for an unknown or inactive account, a wrong password, and a missing, expired, used or wrong secret
- * (A02, A11, SR-17); the real reason goes to audit only.
+ * (A02, A11, SR-17); the real reason goes to audit only. 'refused': an action hook refused the change (`code`, or `hook_error`
+ * for a hook that failed).
  */
-export type PasswordRefusal = { readonly status: 'invalid' } | { readonly status: 'throttled'; readonly retryAfterSeconds: number } | { readonly status: 'rejected'; readonly violations: readonly PasswordViolation[] };
+export type PasswordRefusal =
+  | { readonly status: 'invalid' }
+  | { readonly status: 'throttled'; readonly retryAfterSeconds: number }
+  | { readonly status: 'rejected'; readonly violations: readonly PasswordViolation[] }
+  | { readonly status: 'refused'; readonly code: string };
 
 export type PasswordChangeResult =
   | {
@@ -46,7 +51,7 @@ export type PasswordResetRequestResult = { readonly status: 'accepted' } | { rea
 
 export type PasswordResetResult = { readonly status: 'reset'; readonly purpose: 'reset' | 'invite' } | PasswordRefusal;
 
-export type PasswordSetResult = { readonly status: 'set' } | { readonly status: 'rejected'; readonly violations: readonly PasswordViolation[] };
+export type PasswordSetResult = { readonly status: 'set' } | { readonly status: 'rejected'; readonly violations: readonly PasswordViolation[] } | { readonly status: 'refused'; readonly code: string };
 
 export type AddressVerificationRequestResult = { readonly status: 'accepted' } | { readonly status: 'throttled'; readonly retryAfterSeconds: number };
 

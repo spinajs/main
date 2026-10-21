@@ -11,6 +11,7 @@ import type { AuthnContext, Ceiling, IdentityRef, KeyChallengeRequest, KeyChalle
 import { _between, _contains, _is_string, _try_check_arg, isPlainObject } from '@spinajs/util';
 import { InvalidArgument, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
+import type { Hooks } from '@spinajs/hooks';
 import { challengeId, challengeSecretPurpose, isChallengeNonce, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { checkPublicJwk, isValidKid, thumbprint } from '../jwk/keys.js';
 import { DEFAULT_KEY_CACHE, keysOptionsOf } from '../options/options.js';
@@ -80,6 +81,8 @@ export interface DefaultKeyRegistryDeps {
   readonly options?: KeysOptions;
   /** Told about revoked keys, and evicts the key cache; otherwise the registered CredentialChangeBus. */
   readonly bus?: CredentialChangeBus;
+  /** Otherwise the registered Hooks; built with `new` and without it, no action hooks run. */
+  readonly hooks?: Hooks;
 }
 
 /**

@@ -2,6 +2,7 @@ import { Config } from '@spinajs/configuration';
 import '../register-schema.js';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
+import type { Hooks } from '@spinajs/hooks';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { IdentityStore, PasskeyService } from '@spinajs/authn/contracts';
@@ -23,6 +24,8 @@ export interface WebAuthnPasskeyServiceDeps {
   readonly identities?: IdentityStore | null;
   /** Published to through `AuthnAudit.over`; left out, the container's AuthnAudit. */
   readonly sinks?: readonly AuthnEventSink[];
+  /** Otherwise the registered Hooks; built with `new` and without it, no action hooks run. */
+  readonly hooks?: Hooks;
 }
 
 const entryOf = (c: WebAuthnCredential): PasskeyEntry => ({

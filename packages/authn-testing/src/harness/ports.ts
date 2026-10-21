@@ -51,6 +51,8 @@ export interface Harness {
   readonly webauthn?: WebAuthnPort;
   readonly registrar?: IdentityRegistrar;
   readonly http?: HttpPort;
+  /** One ActionHook on every action, registered before the lane's Hooks runner boots (A38). */
+  readonly flowHooks?: FlowHooksPort;
   dispose?(): Promise<void>;
 }
 
@@ -283,4 +285,28 @@ export interface ActorsPort {
 export interface WebAuthnPort {
   readonly rpId: string;
   readonly origin: string;
+}
+
+export interface FlowHookCall {
+  readonly phase: 'before' | 'after' | 'failed';
+  readonly action: string;
+  /** A shallow copy taken when the phase ran. */
+  readonly input: Readonly<Record<string, unknown>>;
+  readonly output?: unknown;
+  readonly error?: unknown;
+}
+
+/** Assigned onto the before input; a function gets a copy of it. Only the keys the action declares mutable reach it. */
+export type FlowHookPatch = Readonly<Record<string, unknown>> | ((input: Readonly<Record<string, unknown>>) => Readonly<Record<string, unknown>>);
+
+/** Patterns as ActionHook takes them: an action, a prefix glob ('authn.token.*') or '*'. Scripts apply to later before calls. */
+export interface FlowHooksPort {
+  /** Every phase seen so far, in order; only those of `action` when given. */
+  calls(action?: string): readonly FlowHookCall[];
+  refuse(pattern: string, code: string): void;
+  /** The before hook throws something other than a refusal: the action answers as for ActionHookFailed. */
+  fail(pattern: string): void;
+  mutate(pattern: string, patch: FlowHookPatch): void;
+  /** Forgets the calls and the scripts. */
+  reset(): void;
 }
