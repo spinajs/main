@@ -106,7 +106,7 @@ export abstract class SameOriginGuard extends ServerMiddleware {
     };
   }
 
-  public after(): null {
+  public after(): ((req: sRequest, res: express.Response, next: express.NextFunction) => void) | express.ErrorRequestHandler | null {
     return null;
   }
 }
