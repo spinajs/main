@@ -11,6 +11,7 @@ import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { RouteRegistrationException } from './exceptions.js';
 import { __handle_response__ } from './response.js';
 import { __handle_error__ } from './error.js';
+import { createOnErrorHandler, resolveConfigErrorHandlers } from './errors/on-error.js';
 import { buildRoutePath, resolveRouteMiddlewares, resolveRoutePolicies, createPolicyGate, createActionHandler, wrapMiddlewareAction, ControllerActionHost } from './route-builder.js';
 
 export abstract class BaseController extends AsyncService implements IController {
@@ -80,6 +81,8 @@ export abstract class BaseController extends AsyncService implements IController
 
     this._router = Express.Router();
 
+    const configErrorHandlers = await resolveConfigErrorHandlers(this._cfg, this._container);
+
     for (const [, route] of this.Descriptor.Routes) {
       // Fail fast: an unknown route type means the route decorator never set a
       // valid express method — mounting the rest of the controller while
@@ -96,11 +99,14 @@ export abstract class BaseController extends AsyncService implements IController
 
       this._log.trace({ httpMethod: route.Type.toUpperCase(), controller: this.constructor.name, method: route.Method, path }, 'Registering route ${httpMethod} ${controller}::${method} at ${path}');
 
+      const errorHandlers = [...(route.ErrorHandlers ?? []), ...(this.Descriptor.ErrorHandlers ?? []), ...configErrorHandlers];
+
       const handlers: (Express.RequestHandler | Express.ErrorRequestHandler)[] = [
         createPolicyGate(policies, route, this, this._log),
-        ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onBefore.bind(m), route, this)),
+        ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onBefore.bind(m), route, this, 'middleware')),
         createActionHandler(this as ControllerActionHost, route, enabledMiddlewares, this._actionLocalStorage),
-        ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onAfter.bind(m), route, this)),
+        ...enabledMiddlewares.map((m) => wrapMiddlewareAction(m, m.onAfter.bind(m), route, this, 'after')),
+        createOnErrorHandler(errorHandlers, route, this, this._container, this._log),
         __handle_response__(),
         __handle_error__(),
       ];

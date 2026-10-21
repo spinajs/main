@@ -91,6 +91,11 @@ const http = {
       },
     },
     port: 1337,
+
+    errors: {
+      // { service: '<ErrorHandlerService class name>' } entries, see docs/http/11-error-handling.md
+      handlers: [],
+    },
     middlewares: [
       // helmet's default no-referrer makes browsers send `Origin: null` on same-origin
       // form posts, which authn-http's CSRF guard (A22) refuses.

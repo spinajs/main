@@ -1,5 +1,5 @@
 import { Constructor, DI, getInheritedDescriptor } from '@spinajs/di';
-import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController } from './interfaces.js';
+import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IOnErrorDescriptor, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
 import { Options as CsvParseOptions } from 'csv-parse';
@@ -8,6 +8,7 @@ import { toArray } from '@spinajs/util';
 import { RequestTypeRouteArgs } from './route-args/RequestFields.js';
 import { ExpectedResponseUnacceptable } from '@spinajs/exceptions';
 import * as express from 'express';
+import type { ErrorClass, OnErrorHandler, OnErrorOptions } from './errors/on-error.js';
 
 
 export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
@@ -170,6 +171,27 @@ export function Route(callback: (controller: IControllerDescriptor, route: IRout
     if (callback) {
       callback(metadata, route!, target, propertyKey, indexOrDescriptor);
     }
+  });
+}
+
+/**
+ * Handles errors of the route chain ( policies, route middlewares, argument extraction, the action, onAfter ) by type and stage.
+ *
+ * On a class: every route of the controller. On a method: that route, ahead of the controller's handlers. Stackable;
+ * stacked handlers run in declaration order. The handler returns an Error ( replaces the error ), a Response ( answers
+ * and swallows the error ) or nothing ( the error continues unchanged ).
+ */
+export function OnError<E extends Error>(on: (abstract new (...args: any[]) => E) | readonly ErrorClass[], handler: OnErrorHandler<E>, options: OnErrorOptions = {}) {
+  const descriptor: IOnErrorDescriptor = {
+    On: Array.isArray(on) ? (on as readonly ErrorClass[]) : [on as ErrorClass],
+    Handler: handler as OnErrorHandler,
+    Stages: options.stages,
+  };
+
+  return Route((controller: IControllerDescriptor, route: IRoute | null) => {
+    const target = route ?? controller;
+    // Decorators run bottom-up; prepending keeps the declaration order of stacked @OnError.
+    target.ErrorHandlers = [descriptor, ...(target.ErrorHandlers ?? [])];
   });
 }
 

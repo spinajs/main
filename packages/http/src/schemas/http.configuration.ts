@@ -50,6 +50,18 @@ export const HTTP_CONFIGURATION_SCHEMA = {
       ],
       description: 'Absent or falsy: no CORS middleware. Origins are listed as scheme://host[:port] or the one entry *.',
     },
+    errors: {
+      type: 'object',
+      default: {},
+      properties: {
+        handlers: {
+          type: 'array',
+          default: [],
+          description: 'App-wide route error handlers ( ErrorHandlerService names ), run after the route and controller @OnError handlers, in this order.',
+          items: { type: 'object', required: ['service'], properties: { service: nonEmpty } },
+        },
+      },
+    },
     throttle: {
       type: 'object',
       default: {},
