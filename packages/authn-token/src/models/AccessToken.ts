@@ -49,6 +49,17 @@ export class AccessToken extends ModelBase<AccessToken> {
   public Token!: string;
 
   /**
+   * SHA-256 hex digest of the secret a rotation replaced, kept until `PreviousValidUntil` so a deployment can swap it
+   * without downtime. Hidden for the reason given on `Token`.
+   */
+  @Hidden()
+  public PreviousToken?: string;
+
+  /** The instant the previous secret stops working; see `PreviousToken`. */
+  @DT()
+  public PreviousValidUntil?: DateTime<true>;
+
+  /**
    * Roles allowed on this token. Effective roles at request time are the
    * intersection of this list with the owner's current roles.
    */

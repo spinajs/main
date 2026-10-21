@@ -10,7 +10,7 @@ import { Log, Logger } from '@spinajs/log';
 import { Orm } from '@spinajs/orm';
 import { _between, _check_arg, _contains, _custom, _finite, _gte, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, chunk, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
 import { CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
-import type { AuthnContext, CredentialChange, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '@spinajs/authn/contracts';
+import type { AuthnContext, CredentialChange, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenRotateResult, TokenScope, TokenUpdate, TokenUpdateResult, TokenValidation } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
 
 import { AccessTokenGenerationProvider } from '../generation.js';
@@ -305,6 +305,14 @@ export class DbTokenService extends TokenService {
     await this.changed({ kind: 'token', id: token.Uuid });
     await this.publish(ctx, now, 'token.revoke', owner, { token: token.Uuid, kind: token.Kind }, opts?.actor);
     return true;
+  }
+
+  public async rotate(_owner: IdentityRef, _id: string, _ctx: AuthnContext, _opts?: { readonly graceSeconds?: number }): Promise<TokenRotateResult> {
+    throw new Error('not implemented: DbTokenService.rotate');
+  }
+
+  public async update(_owner: IdentityRef, _id: string, _change: TokenUpdate, _ctx: AuthnContext): Promise<TokenUpdateResult> {
+    throw new Error('not implemented: DbTokenService.update');
   }
 
   /**

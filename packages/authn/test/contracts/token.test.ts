@@ -3,7 +3,7 @@ import 'mocha';
 import { createHash, randomBytes } from 'node:crypto';
 
 import { TokenService } from '../../src/contracts/token.js';
-import type { TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '../../src/contracts/token.js';
+import type { TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenRotateResult, TokenScope, TokenUpdate, TokenUpdateResult, TokenValidation } from '../../src/contracts/token.js';
 import type { AuthnContext, AuthnFailure, IdentityRef, StrategyOutcome } from '../../src/contracts/credentials.js';
 import type { Ceiling, PrincipalRef, ResourceRef } from '../../src/contracts/principal.js';
 import * as index from '../../src/contracts/index.js';
@@ -44,6 +44,12 @@ class MemoryTokens extends TokenService {
     const row = this.rows.find((r) => !r.revoked && r.record.id === id && sameOwner(r.record.owner, owner));
     if (row) row.revoked = true;
     return !!row;
+  }
+  async rotate(_owner: IdentityRef, _id: string, _ctx: AuthnContext, _opts?: { readonly graceSeconds?: number }): Promise<TokenRotateResult> {
+    throw new Error('not implemented: MemoryTokens.rotate');
+  }
+  async update(_owner: IdentityRef, _id: string, _change: TokenUpdate, _ctx: AuthnContext): Promise<TokenUpdateResult> {
+    throw new Error('not implemented: MemoryTokens.update');
   }
   async revokeAllFor(owner: IdentityRef, _ctx: AuthnContext, _opts?: { readonly actor?: PrincipalRef }): Promise<number> {
     const hit = this.rows.filter((r) => !r.revoked && sameOwner(r.record.owner, owner));
@@ -147,6 +153,8 @@ describe('token service contract', () => {
             { name: 'create', modifiers: ['abstract'], optional: false, params: ['owner', 'opts', 'ctx'] },
             { name: 'list', modifiers: ['abstract'], optional: false, params: ['owner'] },
             { name: 'revoke', modifiers: ['abstract'], optional: false, params: ['owner', 'id', 'ctx', 'opts'] },
+            { name: 'rotate', modifiers: ['abstract'], optional: false, params: ['owner', 'id', 'ctx', 'opts'] },
+            { name: 'update', modifiers: ['abstract'], optional: false, params: ['owner', 'id', 'change', 'ctx'] },
             { name: 'revokeAllFor', modifiers: ['abstract'], optional: false, params: ['owner', 'ctx', 'opts'] },
             { name: 'validate', modifiers: ['abstract'], optional: false, params: ['raw', 'ctx'] },
           ],
@@ -164,6 +172,8 @@ describe('token service contract', () => {
       for (const s of ['POST /user/tokens', 'fresh auth', 'A13', "'invalid_scope'", 'agent token with roles or a profile', 'invalid_expiry', 'ctx.now']) expect(docOf(c.members, 'create')).to.contain(s);
       expect(docOf(c.members, 'list')).to.contain('GET /user/tokens');
       for (const s of ['DELETE /user/tokens/:uuid', 'Owner-bound', 'same type and id', 'IDOR', 'admin']) expect(docOf(c.members, 'revoke')).to.contain(s);
+      for (const s of ['POST /user/tokens/:uuid/rotate', 'fresh auth', 'graceSeconds', 'Owner-bound', 'IDOR']) expect(docOf(c.members, 'rotate')).to.contain(s);
+      for (const s of ['PATCH /user/tokens/:uuid', 'narrows', 'invalid_scope', 'invalid_expiry']) expect(docOf(c.members, 'update')).to.contain(s);
       for (const s of ['reset', 'A11', 'A25']) expect(docOf(c.members, 'revokeAllFor')).to.contain(s);
       for (const s of ['revocation, expiry and the owner', 'A14', 'A15', 'never thrown']) expect(docOf(c.members, 'validate')).to.contain(s);
       const opts = memberDocs('token.ts', 'TokenCreateOptions');
@@ -194,6 +204,15 @@ describe('token service contract', () => {
       same<index.TokenRecord, TokenRecord>(true);
       same<index.TokenCreateResult, TokenCreateResult>(true);
       same<index.TokenValidation, TokenValidation>(true);
+      same<index.TokenRotateResult, TokenRotateResult>(true);
+      same<index.TokenUpdate, TokenUpdate>(true);
+      same<index.TokenUpdateResult, TokenUpdateResult>(true);
+    });
+
+    it('the rotate and update answers have the planned shapes', () => {
+      same<TokenRotateResult, { readonly ok: true; readonly plaintext: string; readonly token: TokenRecord } | { readonly ok: false; readonly reason: 'not_found' }>(true);
+      same<TokenUpdate, { readonly name?: string; readonly roles?: readonly string[]; readonly expiresAt?: Date }>(true);
+      same<TokenUpdateResult, { readonly ok: true; readonly token: TokenRecord } | { readonly ok: false; readonly reason: 'not_found' | 'invalid_scope' | 'invalid_expiry' }>(true);
     });
 
     it('the token types have the planned shapes', () => {

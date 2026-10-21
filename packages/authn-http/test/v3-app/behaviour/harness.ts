@@ -61,7 +61,7 @@ export const SUPPORTED_CONFIG: readonly string[] = [
 
 // Only the modules the harness needs, loaded from the authn-token build rather than through its root.
 const TOKEN_LIB = new URL('../../../../authn-token/lib/mjs/', import.meta.url);
-const TOKEN_MODULES = ['generator.js', 'models/AccessToken.js', 'service/index.js', 'strategy/TokenStrategy.js', 'migrations/RbacHttpTokenInitial_2026_08_11_01_00_00.js'];
+const TOKEN_MODULES = ['generator.js', 'models/AccessToken.js', 'service/index.js', 'strategy/TokenStrategy.js', 'migrations/RbacHttpTokenInitial_2026_08_11_01_00_00.js', 'migrations/AuthnTokenRotation_2026_10_21_00_00_00.js'];
 const DB_CONNECTION = 'sqlite';
 
 export const ROUTES: Partial<HttpRoutes> = {

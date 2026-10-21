@@ -817,6 +817,342 @@ describe('DbTokenService', function () {
     });
   });
 
+  describe('rotate', () => {
+    const ok = async (o: IdentityRef, id: string, c: AuthnContext = ctx(), opts?: { graceSeconds?: number }) => {
+      const r = await tokens.rotate(o, id, c, opts);
+      if (!r.ok) {
+        throw new Error(`not rotated: ${JSON.stringify(r)}`);
+      }
+      return r;
+    };
+
+    it('stores the hash of the new secret, and with a grace the hash of the old one until the grace ends', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      const r = await ok(a, t.record.id, ctx(at(MINUTE)), { graceSeconds: 60 });
+
+      const stored = await row(t.record.id);
+      expect(stored.Token).to.equal(sha256(r.plaintext));
+      expect(stored.PreviousToken).to.equal(sha256(t.plaintext));
+      expect(stored.PreviousValidUntil?.toMillis()).to.equal(at(2 * MINUTE).getTime());
+
+      const json = JSON.stringify(await v3Connection().select().from(TABLE));
+      expect(json).to.not.contain(t.plaintext);
+      expect(json).to.not.contain(r.plaintext);
+    });
+
+    it('without a grace it keeps no previous hash, and drops one a former rotation kept', async () => {
+      const a = await owner();
+      const t = await pat(a);
+
+      await ok(a, t.record.id, ctx(), { graceSeconds: 60 });
+      expect((await row(t.record.id)).PreviousToken).to.be.a('string');
+
+      const last = await ok(a, t.record.id);
+      const stored = await row(t.record.id);
+      expect(stored.Token).to.equal(sha256(last.plaintext));
+      expect(stored.PreviousToken ?? null).to.equal(null);
+      expect(stored.PreviousValidUntil ?? null).to.equal(null);
+    });
+
+    it('keeps the id, owner, name, kind, roles, profile, scope, expiry and creation time of the row', async () => {
+      const a = await owner();
+      profiles.allowed = ['viewer'];
+      const t = await pat(a, { name: 'ci', roles: ['viewer'], profile: 'viewer', scope: { permissions: ['conf:read'], resources: [{ type: 'project', id: 'p1' }] } });
+      const before = await row(t.record.id);
+
+      const r = await ok(a, t.record.id, ctx(at(HOUR)));
+      const after = await row(t.record.id);
+      for (const column of ['Id', 'Uuid', 'Name', 'Kind', 'Profile', 'user_id'] as const) {
+        expect(after[column], column).to.deep.equal(before[column]);
+      }
+      expect(after.Roles).to.deep.equal(before.Roles);
+      expect(after.Scope).to.deep.equal(before.Scope);
+      expect(after.ExpiresAt?.toMillis()).to.equal(before.ExpiresAt?.toMillis());
+      expect(after.CreatedAt.toMillis()).to.equal(before.CreatedAt.toMillis());
+      expect(r.token).to.deep.equal((await tokens.list(a))[0]);
+    });
+
+    it('throws InvalidArgument for a grace that is not a whole number of seconds from 0 to 604800, and rotates nothing', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      for (const graceSeconds of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 604_801, '60', null, {}]) {
+        const err = await tokens.rotate(a, t.record.id, ctx(), { graceSeconds: graceSeconds as number }).catch((e: unknown) => e);
+        expect(err, `graceSeconds ${JSON.stringify(graceSeconds)}`).to.be.instanceOf(InvalidArgument);
+      }
+      expect((await row(t.record.id)).Token).to.equal(sha256(t.plaintext));
+      expect((await tokens.rotate(a, t.record.id, ctx(), { graceSeconds: 604_800 })).ok).to.equal(true);
+    });
+
+    it('answers not_found for another owner, an unknown or non-string id, an owner without a row, a revoked and an expired token', async () => {
+      const a = await owner();
+      const b = await owner();
+      const t = await pat(a);
+      const gone = await pat(a);
+      const short = await pat(a, { expiresAt: at(MINUTE) });
+      expect(await tokens.revoke(a, gone.record.id, ctx())).to.equal(true);
+
+      const notFound = { ok: false, reason: 'not_found' };
+      expect({ ...(await tokens.rotate(b, t.record.id, ctx())) }, 'another owner').to.deep.equal(notFound);
+      expect({ ...(await tokens.rotate(a, randomUUID(), ctx())) }, 'unknown id').to.deep.equal(notFound);
+      expect({ ...(await tokens.rotate(a, 7 as unknown as string, ctx())) }, 'non-string id').to.deep.equal(notFound);
+      expect({ ...(await tokens.rotate({ type: 'user', id: randomUUID() }, t.record.id, ctx())) }, 'unknown owner').to.deep.equal(notFound);
+      expect({ ...(await tokens.rotate(a, gone.record.id, ctx())) }, 'revoked').to.deep.equal(notFound);
+      expect({ ...(await tokens.rotate(a, short.record.id, ctx(at(MINUTE)))) }, 'expired at once').to.deep.equal(notFound);
+      expect((await row(t.record.id)).Token).to.equal(sha256(t.plaintext));
+    });
+
+    it('throws InvalidOperation for an invalid ctx.now and leaves the token as it was', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      const err = await tokens.rotate(a, t.record.id, { now: new Date(Number.NaN), purpose: 'request' }).catch((e: unknown) => e);
+      expect(err).to.be.instanceOf(InvalidOperation);
+      expect((await row(t.record.id)).Token).to.equal(sha256(t.plaintext));
+    });
+
+    it('of two rotations racing for one token only one wins, and its plaintext is the token', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      const answers = await Promise.all([tokens.rotate(a, t.record.id, ctx()), tokens.rotate(a, t.record.id, ctx())]);
+
+      const won = answers.filter((r) => r.ok);
+      expect(won).to.have.length(1);
+      expect(answers.filter((r) => !r.ok).map((r) => ({ ...r }))).to.deep.equal([{ ok: false, reason: 'not_found' }]);
+      const [winner] = won as Array<{ plaintext: string }>;
+      expect((await validate(winner.plaintext)).ok).to.equal(true);
+      expect(await validate(t.plaintext)).to.deep.equal({ ok: false, reason: 'invalid_credentials' });
+    });
+
+    it('a secret in grace stops at PreviousValidUntil, and the token expiry still ends it', async () => {
+      const a = await owner();
+      const t = await pat(a, { expiresAt: at(2 * MINUTE) });
+      await ok(a, t.record.id, ctx(), { graceSeconds: 3600 });
+
+      expect((await validate(t.plaintext, ctx(at(MINUTE)))).ok).to.equal(true);
+      expect(await validate(t.plaintext, ctx(at(2 * MINUTE)))).to.deep.equal({ ok: false, reason: 'expired' });
+    });
+
+    it('does not let a stored previous hash outlive its PreviousValidUntil, whatever the clock of the row', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      await ok(a, t.record.id, ctx(), { graceSeconds: 60 });
+
+      expect(await validate(t.plaintext, ctx(at(60 * SECOND)))).to.deep.equal({ ok: false, reason: 'invalid_credentials' });
+      await AccessToken.update({ PreviousValidUntil: null } as never).where('Uuid', t.record.id);
+      expect(await validate(t.plaintext, ctx(at(SECOND)))).to.deep.equal({ ok: false, reason: 'invalid_credentials' });
+    });
+  });
+
+  describe('update', () => {
+    const ok = async (o: IdentityRef, id: string, change: Parameters<DbTokenService['update']>[2], c: AuthnContext = ctx()) => {
+      const r = await tokens.update(o, id, change, c);
+      if (!r.ok) {
+        throw new Error(`not updated: ${JSON.stringify(r)}`);
+      }
+      return r;
+    };
+    const refusedWith = async (o: IdentityRef, id: string, change: Record<string, unknown>, reason: string, label: string) => {
+      expect({ ...(await tokens.update(o, id, change, ctx())) }, label).to.deep.equal({ ok: false, reason });
+    };
+
+    it('writes the name, the narrowed roles and the earlier expiry, and nothing else', async () => {
+      const a = await owner();
+      const t = await pat(a, { roles: ['editor', 'viewer'], scope: { permissions: ['conf:read'] } });
+      const before = await row(t.record.id);
+
+      const r = await ok(a, t.record.id, { name: '  renamed  ', roles: ['viewer', 'viewer'], expiresAt: at(HOUR) });
+      expect(r.token).to.deep.equal({ ...t.record, name: 'renamed', roles: ['viewer'], expiresAt: at(HOUR) });
+
+      const after = await row(t.record.id);
+      expect(after.Name).to.equal('renamed');
+      expect(after.Roles).to.deep.equal(['viewer']);
+      expect(after.ExpiresAt?.toMillis()).to.equal(at(HOUR).getTime());
+      for (const column of ['Id', 'Uuid', 'Token', 'Kind', 'user_id', 'PreviousToken'] as const) {
+        expect(after[column] ?? null, column).to.deep.equal(before[column] ?? null);
+      }
+      expect(after.Scope).to.deep.equal(before.Scope);
+      expect((await validate(t.plaintext)).ok).to.equal(true);
+    });
+
+    it('updates an agent token name and expiry, and refuses roles on it', async () => {
+      const a = await owner();
+      const g = await agent(a);
+      expect((await ok(a, g.record.id, { name: 'renamed', expiresAt: at(30 * MINUTE) })).token.expiresAt).to.deep.equal(at(30 * MINUTE));
+      await refusedWith(a, g.record.id, { roles: ['viewer'] }, 'invalid_scope', 'agent roles');
+    });
+
+    it('refuses a role the token lacks, an empty or malformed list and a comma, and stores nothing', async () => {
+      const a = await owner();
+      const t = await pat(a, { roles: ['editor', 'viewer'] });
+      for (const [label, roles] of [
+        ['an added role', ['viewer', 'admin']],
+        ['another role', ['admin']],
+        ['empty', []],
+        ['not a list', 'viewer'],
+        ['a number', [7]],
+        ['a comma', ['viewer,editor']],
+        ['blank', ['']],
+      ] as const) {
+        await refusedWith(a, t.record.id, { name: 'renamed', roles }, 'invalid_scope', label);
+      }
+      const stored = await row(t.record.id);
+      expect(stored.Roles).to.deep.equal(['editor', 'viewer']);
+      expect(stored.Name).to.equal('pat');
+    });
+
+    it('refuses an expiry that is later than the stored one, not after ctx.now or not a date, and stores nothing', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      for (const [label, expiresAt] of [
+        ['one millisecond later', new Date(t.record.expiresAt.getTime() + 1)],
+        ['now', NOW],
+        ['the past', at(-MINUTE)],
+        ['invalid date', new Date(Number.NaN)],
+        ['a string', at(HOUR).toISOString()],
+        ['null', null],
+      ] as const) {
+        await refusedWith(a, t.record.id, { name: 'renamed', expiresAt }, 'invalid_expiry', label);
+      }
+      const stored = await row(t.record.id);
+      expect(stored.ExpiresAt?.toMillis()).to.equal(t.record.expiresAt.getTime());
+      expect(stored.Name).to.equal('pat');
+
+      await ok(a, t.record.id, { expiresAt: t.record.expiresAt });
+    });
+
+    it('throws InvalidArgument for a blank, over-long or non-string name, and stores nothing', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      for (const name of ['', '   ', 'n'.repeat(129), 7, null]) {
+        const err = await tokens.update(a, t.record.id, { name } as never, ctx()).catch((e: unknown) => e);
+        expect(err, `name ${JSON.stringify(name)}`).to.be.instanceOf(InvalidArgument);
+      }
+      expect((await row(t.record.id)).Name).to.equal('pat');
+      expect((await ok(a, t.record.id, { name: 'n'.repeat(128) })).token.name).to.have.length(128);
+    });
+
+    it('is owner-bound: another owner, an unknown id, an owner without a row and a revoked token are not_found', async () => {
+      const a = await owner();
+      const b = await owner();
+      const t = await pat(a);
+      const gone = await pat(a);
+      expect(await tokens.revoke(a, gone.record.id, ctx())).to.equal(true);
+
+      await refusedWith(b, t.record.id, { name: 'taken' }, 'not_found', 'another owner');
+      await refusedWith(a, randomUUID(), { name: 'x' }, 'not_found', 'unknown id');
+      await refusedWith({ type: 'user', id: randomUUID() }, t.record.id, { name: 'x' }, 'not_found', 'unknown owner');
+      await refusedWith(a, gone.record.id, { name: 'x' }, 'not_found', 'revoked');
+      expect((await row(t.record.id)).Name).to.equal('pat');
+    });
+
+    it('with nothing to change answers the token and writes nothing', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      sink.clear();
+      const r = await ok(a, t.record.id, {});
+      expect(r.token).to.deep.equal(t.record);
+      expect(sink.all()).to.deep.equal([]);
+    });
+
+    it('ignores keys it does not know, so a body cannot reach the kind, the profile or the scope', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      await ok(a, t.record.id, { kind: 'agent', profile: 'admin', scope: { agent: true }, Token: 'x', user_id: 99 } as never);
+      const stored = await row(t.record.id);
+      expect(stored.Kind).to.equal('pat');
+      expect(stored.Profile ?? null).to.equal(null);
+      expect(stored.Token).to.equal(sha256(t.plaintext));
+    });
+
+    describe('roles of a token without roles', () => {
+      let scope: IContainer | undefined;
+
+      beforeEach(async () => {
+        DI.register(ViewerRoleSource).as(RoleSource);
+        scope = DI.child();
+        scope.register(() => profiles).as(TokenProfilePolicy);
+        scope.register(() => identities).as(IdentityStore);
+        scope.register(DbTokenService).asSelf();
+        tokens = await scope.resolve(DbTokenService);
+      });
+
+      afterEach(async () => {
+        await scope?.dispose();
+        scope = undefined;
+        DI.unregister(ViewerRoleSource);
+        DI.uncache(ViewerRoleSource);
+        DI.uncache(RoleSource);
+        ViewerRoleSource.asked.length = 0;
+      });
+
+      it('may be pinned to roles the owner holds, never to others', async () => {
+        const a = await owner();
+        const t = await pat(a);
+        await refusedWith(a, t.record.id, { roles: ['admin'] }, 'invalid_scope', 'a role the owner lacks');
+        await refusedWith(a, t.record.id, { roles: ['viewer', 'admin'] }, 'invalid_scope', 'one the owner lacks among others');
+        expect((await ok(a, t.record.id, { roles: ['viewer'] })).token.roles).to.deep.equal(['viewer']);
+        expect((await row(t.record.id)).Roles).to.deep.equal(['viewer']);
+      });
+
+      it('asks the RoleSource nothing for a token that already has roles', async () => {
+        const a = await owner();
+        const t = await pat(a, { roles: ['viewer'] });
+        ViewerRoleSource.asked.length = 0;
+        await refusedWith(a, t.record.id, { roles: ['admin'] }, 'invalid_scope', 'not a subset');
+        await ok(a, t.record.id, { roles: ['viewer'] });
+        expect(ViewerRoleSource.asked).to.deep.equal([]);
+      });
+    });
+  });
+
+  describe('rotate and update events', () => {
+    it('publishes token.rotate and token.update without the plaintext or a hash', async () => {
+      const a = await owner();
+      const t = await pat(a, { roles: ['editor', 'viewer'] });
+      sink.clear();
+
+      const r = await tokens.rotate(a, t.record.id, ctx(at(MINUTE), { ip: '192.0.2.9' }), { graceSeconds: 30 });
+      expect(r.ok).to.equal(true);
+      expect((await tokens.update(a, t.record.id, { name: 'renamed', roles: ['viewer'], expiresAt: at(HOUR) }, ctx(at(2 * MINUTE)))).ok).to.equal(true);
+      expect((await tokens.rotate(a, t.record.id, ctx(at(3 * MINUTE)))).ok).to.equal(true);
+
+      expect(sink.all()).to.deep.equal([
+        { type: 'token.rotate', at: at(MINUTE), outcome: 'success', identity: a, ip: '192.0.2.9', data: { token: t.record.id, kind: 'pat', graceSeconds: 30 } },
+        { type: 'token.update', at: at(2 * MINUTE), outcome: 'success', identity: a, data: { token: t.record.id, kind: 'pat', fields: ['name', 'roles', 'expiresAt'] } },
+        { type: 'token.rotate', at: at(3 * MINUTE), outcome: 'success', identity: a, data: { token: t.record.id, kind: 'pat', graceSeconds: 0 } },
+      ]);
+
+      const json = JSON.stringify(sink.all());
+      for (const secret of [t.plaintext, sha256(t.plaintext), (r as { plaintext: string }).plaintext, sha256((r as { plaintext: string }).plaintext)]) {
+        expect(json).to.not.contain(secret);
+      }
+    });
+
+    it('publishes nothing for a refused rotation or update', async () => {
+      const a = await owner();
+      const b = await owner();
+      const t = await pat(a, { roles: ['viewer'] });
+      sink.clear();
+
+      await tokens.rotate(b, t.record.id, ctx());
+      await tokens.rotate(a, randomUUID(), ctx());
+      await tokens.rotate(a, t.record.id, ctx(), { graceSeconds: -1 }).catch(() => undefined);
+      await tokens.update(b, t.record.id, { name: 'x' }, ctx());
+      await tokens.update(a, t.record.id, { roles: ['admin'] }, ctx());
+      await tokens.update(a, t.record.id, { expiresAt: at(2 * DAY) }, ctx());
+      expect(sink.all()).to.deep.equal([]);
+    });
+
+    it('keeps a completed rotation when a sink throws', async () => {
+      tokens = await build({ auditor: AuthnAudit.over([new ThrowingTokenSink()]) });
+      const a = await owner();
+      const t = await pat(a);
+      const r = await tokens.rotate(a, t.record.id, ctx());
+      expect(r.ok).to.equal(true);
+      expect((await validate((r as { plaintext: string }).plaintext)).ok).to.equal(true);
+    });
+  });
+
   describe('events', () => {
     it('publishes token.create and token.revoke without the plaintext or its hash', async () => {
       const a = await owner();

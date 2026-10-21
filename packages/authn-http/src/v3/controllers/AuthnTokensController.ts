@@ -1,6 +1,6 @@
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BaseController, BasePath, Del, Get, Ok, Param, Policy, Post, Req } from '@spinajs/http';
+import { BaseController, BasePath, Del, Get, Ok, Param, Patch, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { TokenService } from '@spinajs/authn/contracts';
 
@@ -88,6 +88,37 @@ export class AuthnTokensController extends BaseController {
     const revoked = id !== null && (await (await this.service()).revoke(session.identity, id, contextOf(req, 'request', session.handle)));
     if (!revoked) return tokenNotFound();
     return new Ok(null, { Headers: [NO_STORE] });
+  }
+
+  /**
+   * Rotate an own token
+   * Replaces the secret of a live token; the id, name, roles and expiry stay. Needs fresh auth like the create route.
+   * Body `{ graceSeconds?, reauthPassword? }`: the old secret works for `graceSeconds` more (0 to 604800, default 0).
+   * Answers `{ Token, Plaintext }`; the new plaintext is shown here once. 400 `invalid_grace`; 404 `token_not_found` for any id
+   * that is not a live token of the caller.
+   * @security cookieAuth
+   */
+  @Post('tokens/:uuid/rotate')
+  @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
+  public async rotate(@Req() req: Request, @Param() uuid: string) {
+    void req;
+    void uuid;
+    throw new Error('not implemented: AuthnTokensController.rotate');
+  }
+
+  /**
+   * Narrow an own token
+   * Body `{ name?, roles?, expiresAt? }`. Only narrows: roles must be a subset of the token's (or of the owner's, for a token
+   * without roles) and expiresAt not later than the current one. No fresh auth. 400 `invalid_name`, `invalid_roles`,
+   * `invalid_expiry`, `invalid_scope` or `invalid_field` (any other key); 404 `token_not_found`.
+   * @security cookieAuth
+   */
+  @Patch('tokens/:uuid')
+  @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
+  public async update(@Req() req: Request, @Param() uuid: string) {
+    void req;
+    void uuid;
+    throw new Error('not implemented: AuthnTokensController.update');
   }
 
   protected async service(): Promise<TokenService> {

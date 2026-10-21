@@ -8,7 +8,7 @@ import { DefaultQueueService } from '@spinajs/queue';
 import { GLOBAL, SYSTEM } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { RoleSource, TokenService } from '@spinajs/authn/contracts';
-import type { AuthnContext, IdentityRef, TokenCreateResult, TokenRecord, TokenValidation } from '@spinajs/authn/contracts';
+import type { AuthnContext, IdentityRef, TokenCreateResult, TokenRecord, TokenRotateResult, TokenUpdateResult, TokenValidation } from '@spinajs/authn/contracts';
 import { RbacService, TokenRolePolicy } from '@spinajs/authz-rbac';
 import type { User } from '@spinajs/users';
 
@@ -54,6 +54,14 @@ class UsersHttpOfferTokenService extends TokenService {
   }
 
   public revoke(): Promise<boolean> {
+    throw new Error('not used');
+  }
+
+  public rotate(): Promise<TokenRotateResult> {
+    throw new Error('not used');
+  }
+
+  public update(): Promise<TokenUpdateResult> {
     throw new Error('not used');
   }
 

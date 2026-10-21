@@ -65,6 +65,8 @@ const OPEN: Record<string, Omit<Answer, 'group'>> = {
   'GET /user/tokens': { status: 401, error: 'unauthenticated' },
   'POST /user/tokens': { status: 401, error: 'unauthenticated' },
   'DELETE /user/tokens/00000000-0000-4000-8000-000000000000': { status: 401, error: 'unauthenticated' },
+  'POST /user/tokens/00000000-0000-4000-8000-000000000000/rotate': { status: 401, error: 'unauthenticated' },
+  'PATCH /user/tokens/00000000-0000-4000-8000-000000000000': { status: 401, error: 'unauthenticated' },
   'GET /user/keys': { status: 401, error: 'unauthenticated' },
   'POST /user/keys': { status: 401, error: 'unauthenticated' },
   'DELETE /user/keys/some-kid': { status: 401, error: 'unauthenticated' },
@@ -73,11 +75,11 @@ const OPEN: Record<string, Omit<Answer, 'group'>> = {
   ...Object.fromEntries(Object.keys(ADMIN_ROUTE_PACKAGE).map((route) => [route, { status: 401, error: 'unauthenticated' }])),
 };
 
-/** The routes N8b mounts (password 4, MFA 5, tokens 3, keys 5), as express lists them. */
+/** The routes N8b mounts (password 4, MFA 5, tokens 5, keys 5), as express lists them. */
 const N8B_ROUTES: Record<Group, string[]> = {
   password: ['GET /auth/password/policy', 'POST /auth/password/reset-request', 'POST /auth/password/reset', 'PATCH /user/password'],
   mfa: ['GET /user/mfa', 'POST /user/mfa', 'POST /user/mfa/confirm', 'POST /user/mfa/disable', 'POST /user/mfa/recovery-codes'],
-  tokens: ['GET /user/tokens', 'POST /user/tokens', 'DELETE /user/tokens/:uuid'],
+  tokens: ['GET /user/tokens', 'POST /user/tokens', 'DELETE /user/tokens/:uuid', 'POST /user/tokens/:uuid/rotate', 'PATCH /user/tokens/:uuid'],
   keys: ['GET /user/keys', 'POST /user/keys', 'DELETE /user/keys/:kid', 'POST /auth/keys/challenge', 'POST /auth/keys/login'],
   admin: ['POST /authn/admin/users/:uuid/password-reset', 'POST /authn/admin/users/:uuid/mfa-reset', 'DELETE /authn/admin/users/:uuid/sessions', 'DELETE /authn/admin/users/:uuid/tokens'],
 };
