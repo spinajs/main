@@ -190,7 +190,7 @@ export class LocalPasswordService extends PasswordService {
 
   /** D9. Keeps every API and agent token (H32). */
   public async change(id: IdentityRef, oldPassword: string, newPassword: string, session: SessionHandle, ctx: AuthnContext): Promise<PasswordChangeResult> {
-    const violations = await this.policyComponent().check(newPassword);
+    const violations = await this.policyComponent().check(newPassword, await this.policyContext(id));
     if (violations.length > 0) {
       await this.audit(ctx, { type: 'password.change', outcome: 'failure', identity: id, reason: 'policy' });
       return { status: 'rejected', violations };
@@ -242,7 +242,7 @@ export class LocalPasswordService extends PasswordService {
 
   /** D14. Not a voluntary change: every session and, with reset.revokeTokens, every token goes. */
   public async set(id: IdentityRef, newPassword: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<PasswordSetResult> {
-    const violations = await this.policyComponent().check(newPassword);
+    const violations = await this.policyComponent().check(newPassword, await this.policyContext(id));
     if (violations.length > 0) {
       return { status: 'rejected', violations };
     }
@@ -255,8 +255,8 @@ export class LocalPasswordService extends PasswordService {
     return { status: 'set' };
   }
 
-  public check(password: string, _ctx?: PasswordPolicyContext): Promise<readonly PasswordViolation[]> {
-    return this.policyComponent().check(password);
+  public check(password: string, ctx?: PasswordPolicyContext): Promise<readonly PasswordViolation[]> {
+    return this.policyComponent().check(password, ctx);
   }
 
   public policy(): PasswordPolicy {
@@ -287,17 +287,19 @@ export class LocalPasswordService extends PasswordService {
       return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
 
-    const violations = await this.policyComponent().check(newPassword);
-    if (violations.length > 0) {
-      return { status: 'rejected', violations };
-    }
-
     const identities = await this.identities();
     const secrets = await this.secrets();
     const id = await identities.findByLogin(login);
     const status = await identities.status(id ?? throwaway());
     const target = id && eligible(status) ? id : null;
     const pending = target !== null && status.invitePending === true;
+
+    // After the lookup, so the similarity rule sees the account's identifiers; before the redeems, so a violation does not
+    // use up the secret. A refused account shows the rule a throwaway ref, as an unknown login does.
+    const violations = await this.policyComponent().check(newPassword, await this.policyContext(target ?? throwaway(), login));
+    if (violations.length > 0) {
+      return { status: 'rejected', violations };
+    }
 
     // Always two redeems, on throwaway refs where no real one is due: otherwise the time tells a pending invite from a missing
     // login (A02).
@@ -492,6 +494,12 @@ export class LocalPasswordService extends PasswordService {
     }
     const stored = await (await this.passwords()).get(id);
     return (await hasher.verify(stored, password)) ? stored : null;
+  }
+
+  /** What the similarity rule compares a new password with: `login` as typed, and what the store shows for `id`. */
+  protected async policyContext(id: IdentityRef, login?: string): Promise<PasswordPolicyContext> {
+    const shown = await (await this.identities()).display(id);
+    return { ...(login !== undefined ? { login } : {}), ...(shown.email ? { email: shown.email } : {}), ...(shown.name ? { name: shown.name } : {}) };
   }
 
   /** With `expected`, writes only over that stored hash and answers whether it wrote; without it, writes unconditionally. */

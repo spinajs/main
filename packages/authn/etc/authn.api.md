@@ -893,8 +893,9 @@ export declare abstract class PasswordService {
     abstract requestReset(login: string, ctx: AuthnContext): Promise<PasswordResetRequestResult>;
     /**
      * POST /auth/password/reset. Counts the attempt against the 'reset' flow's IP key only (the account key would refuse a link redeemed
-     * soon after its request), then checks the policy, then the secret, so a violation tells nothing about the account and does not use
-     * up the secret. Single use; takes the same time for an unknown login (A02). Accepts purpose 'reset', or 'invite' while the identity
+     * soon after its request), resolves the login, then checks the policy, then the secret, so a violation does not use up the secret.
+     * Only `similar_to_identifier` depends on the account: the policy compares the password with the identifiers of an eligible one.
+     * Single use; takes the same time for an unknown login (A02). Accepts purpose 'reset', or 'invite' while the identity
      * has a pending invite (A32). Revokes every session of the identity, incl. those where it is the impersonator, and with
      * authn.local.reset.revokeTokens every token (A11, A30).
      */

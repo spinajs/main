@@ -116,14 +116,14 @@ export class LocalPasswordPolicy extends SyncService {
     super.resolve();
   }
 
-  public async check(password: string, _ctx?: PasswordPolicyContext): Promise<PasswordViolation[]> {
+  public async check(password: string, ctx?: PasswordPolicyContext): Promise<PasswordViolation[]> {
     if (codePointLength(password) > PASSWORD_HARD_CAP) {
       return ['too_long'];
     }
 
     const violations = this.checkSync(password);
     const blocklist = await this.blocklist();
-    if (blocklist && (await blocklist.isBlocked(password))) {
+    if (blocklist && (await blocklist.isBlocked(password, ctx))) {
       violations.push('blocklisted');
     }
     return violations;
