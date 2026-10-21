@@ -78,6 +78,20 @@ Migrate with one of:
 - `SessionIssuer.checkConfiguration?(booting)` and `SessionProvider.checkConfiguration?(booting)` are optional boot
   hooks, called like the throttle hook. A custom issuer or store may refuse a configuration it cannot run on.
 - `@spinajs/authn-testing`: `BootSpec.sessionStore` (`'memory'` or `'durable'`) and the A24 cases for it.
+# Release notes — authn-local: legacy password hashes with rehash on login
+
+> Branch `feat/ory-feat-7`. Docs: `docs/authn-local/15-migrating-password-hashes.md`.
+
+## New behavior
+
+- `authn.local.legacyHashes` (default `[]`) lists the imported hash formats that verify: `'bcrypt'` (`$2a$`, `$2b$`,
+  `$2y$`, via the new dependency `bcryptjs`) and `'pbkdf2'` (`$pbkdf2-sha256$<iterations>$<salt>$<hash>`, via
+  `node:crypto`). Both are off unless listed, so nothing changes for an existing deployment.
+- A legacy verify runs through the same `ConcurrencyLimiter` as argon2, so `hasher.maxConcurrent` and
+  `hasher.maxQueue` bound it and a full queue still answers `throttled`.
+- A successful login replaces the legacy hash with argon2id through the existing compare-and-set rehash. The argon2 cost
+  stays pinned.
+- `Argon2PasswordHasherOptions.legacyHashes` and the exported `LegacyHashKind` type.
 
 # Release notes — authn, authn-token, authn-http: revoke a token by its plaintext
 

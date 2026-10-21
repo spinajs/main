@@ -6,6 +6,8 @@ import './register-schema.js';
 
 import { AUTHN_LOCAL_DEFAULTS, defaultMaxConcurrent } from './defaults.js';
 import { ConcurrencyLimiter } from './limiter.js';
+import { legacyKind, verifyLegacy } from './legacy/index.js';
+import type { LegacyHashKind } from './legacy/index.js';
 import { formatStored, parseStored, pepperInput, PepperEntry } from './pepper.js';
 
 /** Stored instead of a hash to make the current password unusable; never verifies. */
@@ -30,6 +32,7 @@ export interface Argon2PasswordHasherOptions {
   readonly maxConcurrent?: number;
   readonly maxQueue?: number;
   readonly pepper?: PepperConfig;
+  readonly legacyHashes?: readonly LegacyHashKind[];
 }
 
 export abstract class PasswordHasher extends AsyncService {
@@ -50,11 +53,14 @@ interface HasherSettings {
   readonly maxQueue: number;
   readonly current: PepperEntry | null;
   readonly peppers: ReadonlyMap<number, PepperEntry>;
+  readonly legacy: ReadonlySet<LegacyHashKind>;
 }
 
 /**
  * argon2id at the argon2 library defaults (H30, SR-13): no option and no config key sets a cost, so the stored hash starts with
  * `$argon2id$v=19$m=65536,t=3,p=4$` (argon2 0.44). Peak memory is `maxConcurrent` × 64 MiB; small hosts lower `maxConcurrent`. When the queue is full a hash or verify fails with HasherBusy.
+ *
+ * `legacyHashes` also lets bcrypt and PBKDF2 hashes verify, through the same limiter; `needsRehash` is true for them.
  */
 @Injectable(PasswordHasher)
 export class Argon2PasswordHasher extends PasswordHasher {
@@ -66,6 +72,9 @@ export class Argon2PasswordHasher extends PasswordHasher {
 
   @Config('authn.local.pepper')
   protected Pepper: PepperConfig;
+
+  @Config('authn.local.legacyHashes')
+  protected LegacyHashes?: readonly LegacyHashKind[];
 
   private _settings?: HasherSettings;
   private _limiter?: ConcurrencyLimiter;
@@ -102,6 +111,13 @@ export class Argon2PasswordHasher extends PasswordHasher {
   }
 
   public async verify(stored: string | null | undefined, password: string): Promise<boolean> {
+    if (typeof stored === 'string') {
+      const legacy = this.legacyOf(stored);
+      if (legacy) {
+        return this.limiter.run(() => verifyLegacy(legacy, stored, password));
+      }
+    }
+
     const parsed = typeof stored === 'string' ? parseStored(stored) : null;
     const pepper = parsed ? this.pepperFor(parsed.version) : undefined;
 
@@ -140,8 +156,15 @@ export class Argon2PasswordHasher extends PasswordHasher {
     return (this._settings ??= this.buildSettings(
       this.Options
         ? { ...this.Options, maxConcurrent: this.Options.maxConcurrent ?? defaultMaxConcurrent(), maxQueue: this.Options.maxQueue ?? AUTHN_LOCAL_DEFAULTS.hasher.maxQueue }
-        : { maxConcurrent: this.MaxConcurrent ?? defaultMaxConcurrent(), maxQueue: this.MaxQueue ?? AUTHN_LOCAL_DEFAULTS.hasher.maxQueue, pepper: this.Pepper },
+        : { maxConcurrent: this.MaxConcurrent ?? defaultMaxConcurrent(), maxQueue: this.MaxQueue ?? AUTHN_LOCAL_DEFAULTS.hasher.maxQueue, pepper: this.Pepper, legacyHashes: this.LegacyHashes },
     ));
+  }
+
+  /** The enabled legacy format `stored` is in, or null. */
+  protected legacyOf(stored: string): LegacyHashKind | null {
+    if (this.settings.legacy.size === 0) return null;
+    const kind = legacyKind(stored);
+    return kind && this.settings.legacy.has(kind) ? kind : null;
   }
 
   /** undefined: no pepper of that version is known; null: the hash has no pepper. */
@@ -176,6 +199,6 @@ export class Argon2PasswordHasher extends PasswordHasher {
       peppers.set(entry.version, { secret: entry.secret, version: entry.version });
     }
 
-    return { maxConcurrent: options.maxConcurrent, maxQueue: options.maxQueue, current, peppers };
+    return { maxConcurrent: options.maxConcurrent, maxQueue: options.maxQueue, current, peppers, legacy: new Set(options.legacyHashes ?? []) };
   }
 }

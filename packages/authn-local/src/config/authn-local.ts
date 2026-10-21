@@ -51,6 +51,13 @@ const authnLocal = {
         previous: [] as { secret: string; version: number }[],
       },
 
+      /**
+       * Foreign password hash formats that still verify: 'bcrypt' and/or 'pbkdf2'
+       * (`$pbkdf2-sha256$<iterations>$<salt>$<hash>`). A successful login rewrites
+       * the stored hash as argon2. Empty: only argon2 verifies.
+       */
+      legacyHashes: [] as ('bcrypt' | 'pbkdf2')[],
+
       // `rule`, `description` and `generator` ship no value here: the schema
       // fills the defaults, and a shipped `generator.characters` array would
       // be concatenated with the schema's by the config merge.

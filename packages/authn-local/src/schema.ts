@@ -42,6 +42,13 @@ export const AUTHN_LOCAL_CONFIGURATION_SCHEMA = {
       }),
       default: { secret: null, version: 1 },
     },
+    legacyHashes: {
+      type: 'array',
+      default: [],
+      uniqueItems: true,
+      items: { enum: ['bcrypt', 'pbkdf2'] },
+      description: 'Foreign hash formats that still verify; a successful login replaces them with argon2. Empty: only argon2 verifies.',
+    },
     policy: {
       type: 'object',
       default: {},
