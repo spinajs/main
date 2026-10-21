@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { PasskeyChallengesFull } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
 import { CHALLENGE_ID_MAX, checkedChallenge } from './store/checks.js';
@@ -19,7 +20,8 @@ export interface WebAuthnChallenge {
 
 /** Issued challenges until they are taken or expire. `DbWebAuthnChallengeStore` (`@spinajs/authn-webauthn/db`) shares them between processes. */
 export abstract class WebAuthnChallengeStore {
-  abstract put(c: WebAuthnChallenge): Promise<void>;
+  /** With `maxRows`, throws PasskeyChallengesFull instead of storing past that many rows. */
+  abstract put(c: WebAuthnChallenge, maxRows?: number): Promise<void>;
   /** Single use: the challenge once, then null; null as well when it is expired at `now`. */
   abstract take(id: string, now: Date): Promise<WebAuthnChallenge | null>;
 }
@@ -30,9 +32,10 @@ const validDate = (d: unknown): d is Date => d instanceof Date && Number.isFinit
 export class MemoryWebAuthnChallengeStore extends WebAuthnChallengeStore {
   private readonly rows = new Map<string, WebAuthnChallenge>();
 
-  async put(c: WebAuthnChallenge): Promise<void> {
+  async put(c: WebAuthnChallenge, maxRows?: number): Promise<void> {
     const row = checkedChallenge(c);
     this.sweep(new Date());
+    if (maxRows !== undefined && this.rows.size >= maxRows) throw new PasskeyChallengesFull();
     this.rows.set(row.id, Object.freeze({ ...row, ...(row.identity ? { identity: Object.freeze({ type: row.identity.type, id: row.identity.id }) } : {}), expiresAt: new Date(row.expiresAt.getTime()) }));
   }
 

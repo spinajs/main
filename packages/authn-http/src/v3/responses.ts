@@ -18,6 +18,11 @@ export class AcceptedResponse<T = unknown> extends Ok<T> {
   protected _errorCode = HTTP_STATUS_CODE.ACCEPTED;
 }
 
+/** @spinajs/http has no 503 response. */
+export class ServiceUnavailableResponse<T = unknown> extends Ok<T> {
+  protected _errorCode = HTTP_STATUS_CODE.SERVICE_UNAVAILABLE;
+}
+
 export const badRequest = (error: string, message: string): BadRequestResponse => new BadRequestResponse({ error, message }, { Headers: [NO_STORE] });
 
 /** An instant to the second, as the credential tables keep it; null for none. */

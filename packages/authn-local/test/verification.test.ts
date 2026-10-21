@@ -86,6 +86,18 @@ describe('LocalPasswordService address verification (FEAT-2)', function () {
     expect(JSON.stringify(audited)).to.not.contain(mail.secret);
   });
 
+  it('throttles redeems on the client ip before parsing the secret, and shares an IPv6 /64', async () => {
+    const x = await verifying();
+    const secrets = x.secrets.rows().length;
+    for (let i = 0; i < 5; i++) {
+      expect(await x.service.redeemVerification('not-a-secret', ctx({ ip: `2001:db8::${i + 1}` })), `redeem ${i + 1}`).to.deep.equal({ status: 'invalid' });
+    }
+    expect(await x.service.redeemVerification('not-a-secret', ctx({ ip: '2001:db8::ffff' }))).to.deep.equal({ status: 'throttled', retryAfterSeconds: 10 });
+    expect(await x.service.redeemVerification('not-a-secret', ctx({ ip: '2001:db8:0:1::1' }))).to.deep.equal({ status: 'invalid' });
+    expect(x.events.all().some((e) => e.type === 'throttle.block' && e.outcome === 'failure')).to.equal(true);
+    expect(x.secrets.rows()).to.have.length(secrets);
+  });
+
   it('a second redeem of the same secret answers invalid and marks nothing', async () => {
     const x = await verifying();
     const mail = await requested(x);

@@ -789,6 +789,10 @@ export interface PasskeyCeremony {
     readonly challengeId: string;
     readonly options: Readonly<Record<string, unknown>>;
 }
+/** Thrown by `PasskeyService.challenge` while the stored challenges are at their cap; the login route answers 503. */
+export declare class PasskeyChallengesFull extends Error {
+    constructor();
+}
 /** A registered passkey as its owner sees it; never the public key. */
 export interface PasskeyEntry {
     /** The credential id, base64url. */
@@ -901,11 +905,17 @@ export type AddressVerificationRequestResult = {
     readonly status: "throttled";
     readonly retryAfterSeconds: number;
 };
-/** 'invalid' is the one answer for a wrong, used, expired or other-purpose secret and for an identity that cannot verify (A02). */
+/**
+ * 'invalid' is the one answer for a wrong, used, expired or other-purpose secret and for an identity that cannot verify (A02).
+ * 'throttled': the client ip is in backoff in the 'reset' flow; the secret was not looked at.
+ */
 export type AddressVerificationResult = {
     readonly status: "verified";
 } | {
     readonly status: "invalid";
+} | {
+    readonly status: "throttled";
+    readonly retryAfterSeconds: number;
 };
 export type CodeRequestResult = {
     readonly status: "accepted";

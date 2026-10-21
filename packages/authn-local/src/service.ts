@@ -405,6 +405,11 @@ export class LocalPasswordService extends PasswordService {
   /** Every refusal answers `invalid`; the reason goes to audit only. */
   public async redeemVerification(secret: string, ctx: AuthnContext): Promise<AddressVerificationResult> {
     const verifier = this.verifier();
+    const gate = await this.throttle().attempt([this.resetIpKey(ctx)], 'reset', ctx);
+    if (!gate.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', data: { flow: 'verify' } });
+      return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
     const parsed = parseVerifySecret(secret);
     if (!parsed) {
       await (await this.secrets()).redeem(throwaway(), 'verify', '');
