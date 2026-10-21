@@ -20,6 +20,9 @@ const frank = userPrincipal('frank');
 const p1: ResourceRef = { type: 'project', id: 'p1' };
 const grant = (subject: string, role = 'editor'): AuthzCommand => ({ kind: 'assignment.grant', subject: { type: 'user', id: subject }, role, scope: p1 });
 const failure = (r: AuthzCommandResult) => (r as Extract<AuthzCommandResult, { ok: false }>).error;
+interface Loose {
+  commands: AuthzCommand[];
+}
 const roleIs = (role: string) => (input: { command: { role?: string } }) => input.command.role === role;
 
 describe('authz admin hooks', function () {
@@ -147,15 +150,15 @@ describe('authz admin hooks', function () {
     });
 
     for (const [name, edit] of [
-      ['pushes onto the batch', (input: any) => input.commands.push(grant('mallory'))],
-      ['replaces an element of the batch', (input: any) => (input.commands[0] = grant('mallory', 'guarded'))],
-      ['edits a command of the batch in place', (input: any) => (input.commands[0].role = 'guarded')],
+      ['pushes onto the batch', (input: Loose) => input.commands.push(grant('mallory'))],
+      ['replaces an element of the batch', (input: Loose) => (input.commands[0] = grant('mallory', 'guarded'))],
+      ['edits a command of the batch in place', (input: Loose) => ((input.commands[0] as unknown as { role: string }).role = 'guarded')],
     ] as const) {
       it(`fails the batch with hook_error when a batch hook ${name}`, async () => {
         class Edit extends ActionHook {
           readonly actions = ['authz.admin.batch'] as const;
           before(ctx: BeforeContext<'authz.admin.batch'>): void {
-            edit(ctx.input);
+            edit(ctx.input as unknown as Loose);
           }
         }
         const d = await hookedAdminDomain([new Edit()]);
@@ -169,7 +172,7 @@ describe('authz admin hooks', function () {
       class Edit extends ActionHook {
         readonly actions = ['authz.admin.command'] as const;
         before(ctx: BeforeContext<'authz.admin.command'>): void {
-          (ctx.input.command as any).role = 'guarded';
+          (ctx.input.command as unknown as { role: string }).role = 'guarded';
         }
       }
       const d = await hookedAdminDomain([new Edit()]);
@@ -182,7 +185,7 @@ describe('authz admin hooks', function () {
       class Replace extends ActionHook {
         readonly actions = ['authz.admin.batch'] as const;
         before(ctx: BeforeContext<'authz.admin.batch'>): void {
-          (ctx.input as any).commands = [grant('mallory', 'unknown')];
+          (ctx.input as unknown as Loose).commands = [grant('mallory', 'unknown')];
         }
       }
       const d = await hookedAdminDomain([new Replace()]);
