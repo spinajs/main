@@ -8,7 +8,7 @@ import type { ActionHook } from '@spinajs/hooks';
 import { RecordingActionHook, mutatingHook, refusingHook } from '@spinajs/hooks/testing';
 
 import { AccountLinkService, AuthnImpersonationService, MemoryAuthnThrottle } from '../../src/index.js';
-import type { AuthenticationResult, AuthnContext, AuthnEvent, AuthnFacts, Credentials, ExternalSubject, IdentityRef, SessionHandle, ThrottleFlow, ThrottleKey } from '../../src/index.js';
+import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, ExternalSubject, IdentityRef, SessionHandle, ThrottleFlow, ThrottleKey } from '../../src/index.js';
 import { buildCore, pinConfiguration, useHarnessLog } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts } from '../behaviour/harness.js';
 import { TestLog } from '../audit/test-log.js';
@@ -73,7 +73,7 @@ describe('action hooks: authn flows', function () {
     const a = await seed(p);
     const r = await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx());
     assert.strictEqual(r.status, 'success', JSON.stringify(r));
-    return { a, session: (r as Extract<AuthenticationResult, { status: 'success' }>).session! };
+    return { a, session: r.session! };
   }
 
   describe('authn.mfa.verify', () => {
@@ -82,7 +82,7 @@ describe('action hooks: authn flows', function () {
       p.step.enrol(a);
       const r = await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx());
       assert.strictEqual(r.status, 'mfa_required', JSON.stringify(r));
-      return { a, pending: (r as Extract<AuthenticationResult, { status: 'mfa_required' }>).pending };
+      return { a, pending: r.pending };
     }
 
     it('a refusal gives the same result as a wrong code: counted, still pending, audited hook:<code>', async () => {

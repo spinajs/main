@@ -45,8 +45,10 @@ function configurationOf(values: Record<string, unknown>): Class<Configuration> 
   };
 }
 
+/** Registries find services by registration name, so each value goes in as a factory named `name`. */
 function bind(child: IContainer, base: Class<unknown>, name: string, value: unknown): void {
-  const factory = { [name]: () => value }[name];
+  const factory = () => value;
+  Object.defineProperty(factory, 'name', { value: name });
   child.register(factory).as(base);
 }
 

@@ -65,7 +65,7 @@ const pw = (login: string, password: string): Credentials => ({ kind: 'password'
 
 function success(r: AuthenticationResult): Success {
   assert.strictEqual(r.status, 'success', JSON.stringify(r));
-  return r as Success;
+  return r;
 }
 
 describe('action hooks: authn.login and authn.login.identified', function () {
@@ -127,7 +127,7 @@ describe('action hooks: authn.login and authn.login.identified', function () {
     it('a hook that lower-cases credentials.login makes the strategy see the new value', async () => {
       const lower = new ChangingHook(['authn.login'], (c) => {
         const input = c.input as { credentials: Credentials };
-        input.credentials = { ...input.credentials, login: String((input.credentials as { login: string }).login).toLowerCase() } as Credentials;
+        input.credentials = { ...input.credentials, login: String((input.credentials as { login: string }).login).toLowerCase() };
       });
       const p = await boot([lower]);
       const a = await seed(p);
@@ -216,7 +216,7 @@ describe('action hooks: authn.login and authn.login.identified', function () {
       p.identities.add({ id: OWNER.id, login: 'owner@example.test' });
       for (const purpose of ['request', 'login'] as const) {
         success(await p.service.authenticate({ kind: 'bearer', token: 't' }, ctx({ purpose })));
-        success(await p.service.authenticate({ kind: 'jws-assertion', jws: 'x' } as Credentials, ctx({ purpose })));
+        success(await p.service.authenticate({ kind: 'jws-assertion', jws: 'x' }, ctx({ purpose })));
       }
       assert.deepStrictEqual(recorder.calls, []);
     });
@@ -276,7 +276,7 @@ describe('action hooks: authn.login and authn.login.identified', function () {
       });
       const p = await boot([enrich], { omit: ['PrincipalFactory'], register: (c) => bind(c, PrincipalFactory, 'KitDerivingPrincipals', principals) });
       const a = await seed(p);
-      const r = success(await p.service.authenticate({ kind: 'kit-attributed-login', id: a } as unknown as Credentials, ctx()));
+      const r = success(await p.service.authenticate({ kind: 'kit-attributed-login', id: a }, ctx()));
       assert.deepStrictEqual(r.attributes, { ...KIT_ATTRIBUTES, team: 'hook', tier: 'hook' });
       const principal = await p.service.principalOf(r);
       assert.deepStrictEqual(principals.calls[principals.calls.length - 1].extra.attributes, { ...KIT_ATTRIBUTES, team: 'hook', tier: 'hook' });
