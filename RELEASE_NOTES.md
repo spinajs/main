@@ -1152,3 +1152,13 @@ Only `@spinajs/authn-orm` registers a `NonceStore` (`DbNonceStore`). Without one
 | `new HttpSignatureStrategy({ registry, nonces: new MemoryKeyNonceStore() })` | the same with `new MemoryNonceStore()` |
 
 The claim semantics are the same, so existing `authn_nonce` rows stay valid. `DbNonceStore` also rejects keys over 160 characters, which `nonceKey` never produces. A replaced `NonceStore` now serves the OIDC `state` claims too.
+# Release notes — session restore: one read, no write per request
+
+- `@spinajs/authn-http`: an authenticated cookie request now restores its session once.
+  `AuthnImpersonationService.principalOf(session, ctx)` accepts the restored `Session` and runs every
+  lifetime, status, max-minutes and guard check on it. A bare `SessionHandle` still works and is restored
+  as before.
+- `@spinajs/authn-session`: `DefaultSessionIssuer.restore` writes the row only when the last-seen time or
+  the expiry moves by `authn.session.touchThresholdSeconds` (new key, default `60`). Otherwise it does not
+  write at all. As a result, the stored idle deadline can trail the last request by up to the threshold.
+  Set the key to `0` to get the old write on every restore.

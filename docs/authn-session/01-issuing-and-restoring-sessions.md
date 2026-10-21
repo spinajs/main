@@ -21,7 +21,7 @@
 1. `restore()` answers `null` for an id that is not a string, is empty, or is longer than 128 characters.
 2. It reads the row with `SessionProvider.restore(storageKeyOf(rawId))`. The store answers `null` for a missing or expired row.
 3. A row without readable authentication facts answers `null`.
-4. An active session is refreshed, unless the call runs inside `peekingSessions()`: the last-seen time is updated (at most once a minute) and `SessionProvider.touch()` renews the expiration through the strategy. A pending session is never refreshed.
+4. An active session is refreshed, unless the call runs inside `peekingSessions()`. The refresh is one `SessionProvider.touch()`, which renews the expiration through the strategy and writes the last-seen time. It runs only when the last-seen time is `authn.session.touchThresholdSeconds` (default 60) old, or when the strategy would move the expiry by at least that much or move it back. Otherwise the restore writes nothing. A pending session is never refreshed.
 5. A session that `SessionProvider.isExpired()` finds expired after the renewal (a renewal capped at `Creation + maxLifetime` lands in the past once `maxLifetime` was lowered) is deleted and the answer is `null`.
 6. `resolveSession()` builds the class registered as `Session` (see [Custom session class](08-custom-session-class.md)) from the handle, the identity, the facts and the public data. The facts carry `sessionHandle`, a one-way value from the storage key (see [Revocation and the session list](02-revocation-and-session-list.md#handles)).
 
@@ -109,7 +109,7 @@ Exports used with the issuer:
 - **Errors.** `rotate`, `elevate` and `set` throw `InvalidArgument('Malformed session handle')` for a handle whose id is not a string of 1 to 128 characters, and `InvalidOperation('Unknown or expired session')` for a missing or expired row. `elevate` throws `InvalidOperation('Only a pending session can be elevated')` for an active session. `restore` and `peek` never throw for a bad id; they answer `null`.
 - **Revocation wins.** `restore`, `set`, `rotate` and `elevate` write through update-only `touch` or check the old row before keeping a copy. A logout or ban that lands in parallel is never undone. Of parallel rotations or elevations of one session exactly one succeeds.
 - **Lifetime is kept.** `rotate` keeps `Creation` and `Expiration`, so rotating never resets the lifetime. A pending session's TTL counts from `issue`; `set` and `rotate` never extend it.
-- **One write per request.** Each `restore` of an active session calls `touch` on the store, even when the expiration strategy does not change the deadline. The last-seen entry changes at most once a minute.
+- **At most one write per threshold window.** A `restore` of an active session calls `touch` only when the last-seen time or the expiry moves by `authn.session.touchThresholdSeconds` (default 60). Most requests read the row and write nothing. As a result, the stored idle deadline can trail the last request by up to the threshold, so a sliding session can expire up to that much earlier than it would with a write on every request. Set `touchThresholdSeconds: 0` to write on every restore.
 - **Pending sessions** yield no principal in `@spinajs/authn-http` and are not shown by `list`.
 - **No request context.** The issuer takes no request. The client IP and user agent reach the session only through `set`.
 
