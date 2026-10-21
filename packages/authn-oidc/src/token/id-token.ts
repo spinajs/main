@@ -46,7 +46,7 @@ const sameText = (a: string, b: string): boolean => {
 
 /**
  * OIDC Core §3.1.3.7 (D10): signature with an allowed algorithm and a provider key, then iss, aud, azp, exp, iat, nbf,
- * nonce, sub and at_hash. Throws on any failure; the message names the check, never a token.
+ * nonce, sub, at_hash and, for a re-authentication, auth_time. Throws on any failure; the message names the check, never a token.
  */
 export async function validateIdToken(token: string, jwks: OidcJwks, r: IdTokenRules): Promise<IdTokenClaims> {
   const refuse = (what: string): never => {
@@ -89,6 +89,7 @@ export async function validateIdToken(token: string, jwks: OidcJwks, r: IdTokenR
   if (typeof c.nonce !== 'string' || !sameText(c.nonce, r.nonce)) refuse('nonce');
   if (typeof c.sub !== 'string' || c.sub.length === 0 || c.sub.length > MAX_SUBJECT) refuse('sub');
   if (c.at_hash !== undefined && (typeof c.at_hash !== 'string' || !sameText(c.at_hash, atHashOf(r.accessToken, alg as OidcSigningAlgorithm)))) refuse('at_hash');
+  if (r.authenticatedSince !== undefined && (!isFiniteNumber(c.auth_time) || c.auth_time + skew < r.authenticatedSince || c.auth_time > now + skew)) refuse('auth_time');
 
   return Object.freeze({ ...c });
 }

@@ -17,7 +17,7 @@ export interface OidcFlow {
   readonly s: string;
   /** Issued at, unix seconds. */
   readonly t: number;
-  /** App-relative path to return to after a login, or null. */
+  /** App-relative path to return to after a login or a re-authentication, or null. */
   readonly r: string | null;
   /** The redirect_uri sent to the provider, sent again to the token endpoint. */
   readonly u: string;
@@ -77,7 +77,7 @@ export function newFlow(input: { provider: string; redirectUri: string; returnTo
     p: input.provider,
     s: randomBytes(SEED_BYTES).toString('base64url'),
     t: Math.floor(input.now.getTime() / 1000),
-    r: input.mode === 'login' ? appPathOrNull(input.returnTo) : null,
+    r: input.mode === 'link' ? null : appPathOrNull(input.returnTo),
     u: input.redirectUri,
     m: input.mode,
     ...(input.sessionHash !== undefined ? { h: input.sessionHash } : {}),
@@ -118,9 +118,9 @@ export function decodeFlow(value: unknown): OidcFlow | null {
     Number.isSafeInteger(f.t) &&
     (f.r === null || appPathOrNull(f.r) !== null) &&
     checkedUrl(f.u, { relaxed: true, query: true }) !== null &&
-    (f.m === 'login' || f.m === 'link') &&
+    (f.m === 'login' || f.m === 'link' || f.m === 'reauth') &&
     (f.h === undefined || (typeof f.h === 'string' && SHA256_HEX.test(f.h))) &&
-    (f.m === 'link') === (f.h !== undefined);
+    (f.m === 'login') === (f.h === undefined);
   return ok ? Object.freeze(f as unknown as OidcFlow) : null;
 }
 

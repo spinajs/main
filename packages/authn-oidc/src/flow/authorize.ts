@@ -37,5 +37,10 @@ export function authorizationUrl(r: AuthorizationRequest): string {
   for (const k of ['response_mode', 'request', 'request_uri', 'max_age', 'acr_values', ...(r.nonce ? [] : ['nonce'])]) {
     url.searchParams.delete(k);
   }
+  if (r.reauth === true) {
+    // OIDC Core §3.1.2.1: max_age=0 obliges the provider to authenticate again and to answer auth_time.
+    url.searchParams.set('prompt', 'login');
+    url.searchParams.set('max_age', '0');
+  }
   return url.toString();
 }
