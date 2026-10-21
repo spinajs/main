@@ -19,7 +19,8 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
-import { fsService } from '@spinajs/fs';
+import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
+import type { fs } from '@spinajs/fs';
 import { Orm, OrmDriver, QueryContext, modelDriver, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
@@ -218,6 +219,8 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       for (const type of [OidcHttpClient, NonceStore, IdentityLinkStore, SessionIssuer, AuthnService, ExternalLoginHook] as Class<unknown>[]) DI.uncache(type);
       HookLog.calls = [];
       await orm?.dispose();
+      // fsTemp's cleanup interval would keep the mocha process alive after the last suite.
+      for (const provider of DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES)?.values() ?? []) await provider.dispose();
       // The app resolved an Orm in the root too; the models write on the latest one, so the next suite needs its own.
       DI.uncache(Orm);
       DI.uncache(OrmMigrator);
