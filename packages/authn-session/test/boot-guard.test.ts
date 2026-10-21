@@ -60,7 +60,7 @@ function configurationOf(values: Record<string, unknown>, env: string): Class<Co
     protected onLoad(): unknown {
       return JSON.parse(json) as unknown;
     }
-  } as unknown as Class<Configuration>;
+  };
 }
 
 function bind(child: IContainer, base: Class<unknown>, name: string, value: unknown): void {
