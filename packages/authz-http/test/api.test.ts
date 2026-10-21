@@ -55,10 +55,12 @@ describe('authz-http api', () => {
     const extractor: ResourceExtractor = () => ({ type: 'file', id: '1' });
     const asyncExtractor: ResourceExtractor = async () => ({ any: 'model' });
     const none: AccessOptions = {};
-    const full: AccessOptions = { resource: extractor, also: [], domain: 'fs', subject: 'none', fields: 'none' };
+    const full: AccessOptions = { resource: extractor, also: [], domain: 'fs', subject: 'none', conditional: 'action', fields: 'none' };
     // @ts-expect-error subject is 'load' or 'none'
     const bad: AccessOptions = { subject: 'eager' };
-    expect([asyncExtractor, none, full, bad]).to.have.length(4);
+    // @ts-expect-error conditional is 'load' or 'action'
+    const badConditional: AccessOptions = { conditional: 'none' };
+    expect([asyncExtractor, none, full, bad, badConditional]).to.have.length(5);
   });
 });
 
@@ -71,7 +73,7 @@ describe('authz-http pinned shapes', () => {
     yes<Equal<Shape<PrincipalSource>, { readonly name: string; readonly order: number; authenticate(req: Request): Promise<Principal | null> }>>();
     yes<Equal<LinkPrincipalSource['name'], 'link'>>();
     yes<Equal<LinkPrincipalSource['order'], 110>>();
-    yes<Equal<AccessOptions, { resource?: ResourceExtractor; also?: readonly Class<BasePolicy>[]; domain?: string; subject?: 'load' | 'none'; fields?: 'filter' | 'none' }>>();
+    yes<Equal<AccessOptions, { resource?: ResourceExtractor; also?: readonly Class<BasePolicy>[]; domain?: string; subject?: 'load' | 'none'; conditional?: 'load' | 'action'; fields?: 'filter' | 'none' }>>();
     yes<Equal<ResourceExtractor, (req: Request) => ResourceRef | object | Promise<ResourceRef | object>>>();
     yes<Equal<typeof Access, (permission: Permission | readonly Permission[], opts?: AccessOptions) => ClassDecorator & MethodDecorator>>();
     yes<Equal<typeof AllowAnonymous, () => ClassDecorator & MethodDecorator>>();

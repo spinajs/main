@@ -43,6 +43,7 @@ export interface AccessSpec {
   readonly also?: readonly TestPolicy[];
   readonly domain?: string;
   readonly subject?: 'load' | 'none';
+  readonly conditional?: 'load' | 'action';
   readonly fields?: 'filter' | 'none';
 }
 
@@ -51,9 +52,10 @@ export interface AccessSpec {
  * - 'principal': `{ principal: { type, id } }` of `@CurrentPrincipal()`;
  * - 'echo': the request body as the action received it (after the input field filter);
  * - `returns`: the subject of that world row (`session.load(ref)`, else the world row), so the output field filter applies;
- * - `orm`: `{ ids }` of an ORM query run inside the request.
+ * - `orm`: `{ ids }` of an ORM query run inside the request;
+ * - 'decision': `{ allowed, residual }` of the route's `req.storage.AuthzDecision`, `residual` being its op.
  */
-export type RouteHandler = 'principal' | 'echo' | { readonly returns: ResourceRef } | { readonly orm: OrmQuery };
+export type RouteHandler = 'principal' | 'echo' | 'decision' | { readonly returns: ResourceRef } | { readonly orm: OrmQuery };
 
 export interface RouteSpec {
   readonly method: HttpMethod;

@@ -20,8 +20,10 @@ export interface ISocketAccessOptions {
   domain?: string;
   /** let an unauthenticated principal ( UNATTENDED, anonymous ) reach the engine instead of answering unauthenticated */
   allowAnonymous?: boolean;
-  /** 'load': a conditional allow is checked again against the row the domain's ResourceAdapter loads, so the answer is definite */
+  /** 'load': same as conditional: 'load' */
   subject?: 'load' | 'none';
+  /** 'load' ( default ): a conditional allow on a resource with an id is checked again against the row the domain's ResourceAdapter loads; 'action': the handler checks the residual itself */
+  conditional?: 'load' | 'action';
   /** 'filter': the result, or each chunk of a stream reply, keeps only the fields `decision.fields.read` allows, minus the domain's `fields.neverRead` */
   fields?: 'filter' | 'none';
   /** why the payload skips authz-http's input field filter, as `@UnfilteredInput(reason)` */

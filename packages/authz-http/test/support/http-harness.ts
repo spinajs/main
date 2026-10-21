@@ -114,6 +114,7 @@ function caseController(prefix: string, world: World, domain: string): Class<Bas
     proto[key] = async function (req: Request, body: unknown) {
       if (handler === 'principal') return new Ok({ principal: req.storage.Principal ?? null });
       if (handler === 'echo') return new Ok(body ?? null);
+      if (handler === 'decision') return new Ok({ allowed: req.storage.AuthzDecision?.allowed ?? null, residual: req.storage.AuthzDecision?.residual.op ?? null });
       if ('returns' in handler) return new Ok(rowOf(world, handler.returns));
       throw new Error('the http harness has no ORM: route handler { orm } needs the orm facet (L4)');
     };
@@ -130,6 +131,7 @@ function caseController(prefix: string, world: World, domain: string): Class<Bas
           ...(resource ? { resource } : {}),
           ...(access.also ? { also: access.also.map(testPolicy) } : {}),
           ...(access.subject ? { subject: access.subject } : {}),
+          ...(access.conditional ? { conditional: access.conditional } : {}),
           ...(access.fields ? { fields: access.fields } : {}),
         }) as never,
       );
