@@ -361,7 +361,7 @@ await deleteFrom(Session).where('ExpiresAt', '<', now);
 // After
 await Session.destroy().where('ExpiresAt', '<', now);
 
-// After, hard delete of a @SoftDelete model, or inside a migration's up() where the statics do not exist yet
+// After, hard delete of a @SoftDelete model
 await modelDriver(Session).del().from(extractModelDescriptor(Session).TableName).where('ExpiresAt', '<', now);
 ```
 
@@ -375,6 +375,31 @@ const unpaid = parseInt((await Invoice.count((q) => q.where('Status', 'unpaid'))
 
 // After
 const unpaid = await Invoice.count((q) => q.where('Status', 'unpaid'));
+```
+
+### `ormReady()` is removed
+
+A service that queries models injects the `Orm`, so resolving the service resolves the `Orm` first. Before that, `ormConnection()`, `modelDriver()` and the statics throw `OrmNotResolved` (`the Orm has not created its connections yet; inject or resolve the Orm first`). A class built with `new` cannot inject: the app resolves the `Orm`, or `OrmMigrator` on a `Migration.OnStartup` connection, before its first query.
+
+```ts
+// Before
+export class InvoiceStore {
+  public async unpaid(): Promise<Invoice[]> {
+    await ormReady();
+    return await Invoice.where('Status', 'unpaid');
+  }
+}
+
+// After
+export class InvoiceStore {
+  // never read: injecting it resolves the Orm before the first query
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
+  public async unpaid(): Promise<Invoice[]> {
+    return await Invoice.where('Status', 'unpaid');
+  }
+}
 ```
 
 ## Related

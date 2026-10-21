@@ -24,7 +24,7 @@ Migrations change the database schema in ordered, tracked steps. Each migration 
 3. Otherwise it calls `migrate({ force: false })`. `force: false` runs only connections whose `Migration.OnStartup` is `true`. Model queries of the pass (the migrations' `up()` and `data()` and what they call) pass the `Migration.OnStartup` gate; any other code is refused until step 7.
 4. `migrate()` calls `Runner.up()`, then `orm.reloadTableInfo({ models: touched.models })` for the models whose tables the applied migrations changed, then `runDataPhase(executed)`.
 5. `runDataPhase()` calls `data()` on every migration the pass applied. Every hook runs even when an earlier one throws; the failures are reported together in one `OrmException` whose `inner` is the first one.
-6. With `db.StrictTableCheck` on (the default), it calls `orm.reloadTableInfo({ models: [], strict: true })`: no table is read again, and one `OrmException` names every registered model whose table is still missing, for example `Missing tables (db.StrictTableCheck): model PolicyRecord: table authz_policy on connection authz (main). Create them (run their migrations) or set db.StrictTableCheck to false`.
+6. With `db.StrictTableCheck` on (the default), it calls `orm.reloadTableInfo({ models: [], strict: true })`: only the models an earlier read recorded missing are read again, so a table created since counts as present, and one `OrmException` names every registered model whose table is still missing, for example `Missing tables (db.StrictTableCheck): model PolicyRecord: table authz_policy on connection authz (main). Create them (run their migrations) or set db.StrictTableCheck to false`.
 7. It clears `AwaitsStartupMigration` on every connection: model queries on `Migration.OnStartup` connections work from here on.
 8. A migration that throws in step 4 rejects `DI.resolve(OrmMigrator)` with that error. The `data()` phase does not run. A failed pass leaves the gate closed and the `Orm` cached with its connections open; the process calls `await DI.dispose()` before it exits or retries (see [Connections](01-connections.md#important-behaviour)).
 
@@ -177,11 +177,12 @@ In each directory it matches `**/!(*.*).{ts,js,cjs,mjs}` (no environment tag) an
 | Member | Meaning |
 | --- | --- |
 | `constructor(options?: IOrmMigratorOptions)` | `MigrateOnStartup?: boolean`, default `true`. `false` resolves the migrator without the boot pass: `Runner` and `migrate()` work, nothing is applied on the way in. |
+| `MigrateOnStartup` | Read-only `boolean`. `false` when resolved with `MigrateOnStartup: false`: its resolve ran no boot pass and created no table. A `di.resolved.OrmMigrator` listener reads it to tell a migration tool from a migrated boot. |
 | `Runner` | The `MigrationRunner` over the `Orm`'s migrations and connections. Assigned in `resolve()`. |
 | `migrate(options?: IOrmMigrateOptions)` | `IMigrationUpOptions` plus `name`. Applies (`force` defaults to `true`), re-reads the touched models, runs `data()` (not with `fake`). Resolves with the applied migrations. |
 | `resolve()` | The boot pass, see [above](#the-boot-pass-diresolveormmigrator). |
 
-`OrmMigrator` is a DI singleton: the options apply only to the resolve that constructs it.
+`OrmMigrator` is a DI singleton: the options apply only to the resolve that constructs it. It leaves the cache once another `Orm` resolves in its container (after `DI.uncache(Orm)`), so the next `DI.resolve(OrmMigrator)` runs against the new `Orm`.
 
 ### `MigrationRunner`
 
@@ -261,8 +262,8 @@ Staleness is judged by the client clock, so hosts whose clocks disagree steal ea
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | `true`, `false` | Apply this connection's migrations during `OrmMigrator`'s boot pass. Model queries on the connection throw until `OrmMigrator` resolved. |
-| `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fail the boot pass when a registered model has no table. See [Connections](01-connections.md#configuration). |
+| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | `true`, `false` | Apply this connection's migrations during `OrmMigrator`'s boot pass. Model queries on the connection throw outside the pass until it succeeded. |
+| `db.StrictTableCheck` | `boolean` | `true` | `true`, `false` | Fail the boot when a registered model has no table: `Orm.resolve()` for the connections without `Migration.OnStartup`, the boot pass for every connection. See [Connections](01-connections.md#configuration). |
 | `db.Connections[].Migration.Table` | `string` | `spinajs_migration` | table name | Tracking table. The lock table is `<Table>_lock`. |
 | `db.Connections[].Migration.Service` | `string` | unset (`DefaultMigrationService`) | DI token | `OrmMigrationService` implementation for this connection. |
 | `db.Connections[].Migration.Transaction.Mode` | `MigrationTransactionMode` | `None` | `None`, `PerMigration`, `PerRun` | See [Transaction modes](#transaction-modes). |
@@ -367,8 +368,9 @@ DI.register(MaintenanceWindowMigrationService).as('maintenance-window-migrations
 
 - `Migration.OnStartup` is off unless set, so the boot pass applies nothing for a connection without it. `migrate()`, `Runner.up()` and the CLI ignore the flag.
 - The table check of the boot pass does not depend on `Migration.OnStartup`: a connection that migrates through the CLI must be migrated before the app starts.
-- An app that resolves only `Orm` gets no table check and, on a `Migration.OnStartup` connection, a model query that throws `connection <Name> migrates on startup; resolve OrmMigrator before using it`.
+- An app that resolves only `Orm` gets the table check of the connections without `Migration.OnStartup` only and, on a `Migration.OnStartup` connection, a model query that throws `connection <Name> migrates on startup; resolve OrmMigrator before using it`.
 - `migrate()` re-reads only the touched models. `Runner.up()` reads no table info: models of the tables it created have no reflected columns until you call `orm.reloadTableInfo()`.
+- A re-read model holds what its table holds after the run: a column a migration dropped or renamed leaves the model. See [Models](02-models.md#how-it-works).
 - A migration on a `db.Aliases` name whose target connection does not exist is skipped with a warning, like one on an unknown connection.
 - `data()` runs in `OrmMigrator.migrate()` (the boot pass and `migrate-up`), only for the migrations that call applied, and never with `fake`. `Runner.up()` never calls it.
 - When a run applies M1 and then fails on M2, M1 is recorded as applied but its `data()` never runs, on that run or any later one. Nothing reports it.
@@ -621,6 +623,26 @@ export async function rollbackLastDeploy(connection: string): Promise<string[]> 
 
   return rolledBack.map((m) => m.constructor.name);
 }
+```
+
+## Migration
+
+### Migrations run on `OrmMigrator`, and `up()` returns `IMigrationUpResult`
+
+`Orm.Migration` is removed; the runner is `OrmMigrator.Runner`. `MigrationRunner.up()` resolves with `{ executed, touched }` instead of the applied migrations, and runs no `data()`. Call `OrmMigrator.migrate()` to apply, re-read the touched models and seed in one step.
+
+```ts
+// Before
+const orm = await DI.resolve(Orm);
+const applied = await orm.Migration.up();
+
+// After: apply, re-read the touched models, run data()
+const migrator = await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+const applied = await migrator.migrate();
+
+// After, runner only: no data(), no table info read
+const { executed, touched } = await migrator.Runner.up();
+await orm.reloadTableInfo({ models: touched.models });
 ```
 
 ## Related
