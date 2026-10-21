@@ -6,7 +6,7 @@ import { isPlainObject } from './support.js';
 export const MAX_SUBJECT_LENGTH = 255;
 export const MAX_EMAIL_LENGTH = 255;
 const MAX_NAME_LENGTH = 255;
-export const MAX_SID_LENGTH = 255;
+const MAX_SID_LENGTH = 255;
 
 /** A top-level claim (dots belong to the name) or a path through nested objects; own properties only. */
 export function readClaim(claims: Readonly<Record<string, unknown>>, path: OidcClaimPath): unknown {

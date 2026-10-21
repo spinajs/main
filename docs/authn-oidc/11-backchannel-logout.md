@@ -56,8 +56,8 @@ Keycloak calls it "Backchannel logout URL" (keep "Backchannel logout session req
 
 | Class or function | Role |
 | --- | --- |
-| `OidcBackchannelLogout` | Validates, claims the `jti` and revokes. Build it with `{ strategies, sessions, links, nonces, log? }` for a custom controller |
-| `validateLogoutToken(token, jwks, rules)` | The checks above; throws `AuthenticationFailed` naming the check |
+| `OidcBackchannelLogout` (internal, `src/token/logout-token.ts`) | Validates, claims the `jti` and revokes; `OidcController` builds it with the providers, the `SessionIssuer`, the `IdentityLinkStore` and the `NonceStore` |
+| `validateLogoutToken(token, jwks, rules)` (internal) | The checks above; throws `AuthenticationFailed` naming the check |
 | `SessionIssuer.revokeByExternal(provider, sid)` | Ends the sessions of one IdP session; answers the count |
 | `SessionProvider.deleteByExternalKey(externalKey)` | The store side. A custom store must implement it (breaking change for third-party stores) |
 

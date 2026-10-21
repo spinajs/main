@@ -54,7 +54,7 @@ const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex');
 export const storageKeyOf = (rawId: string): string => sha256hex(rawId);
 
 /** ISession.ExternalKey of a session issued from `provider` with IdP session id `sid`. */
-export const externalKeyOf = (provider: string, sid: string): string => sha256hex(`${provider}\0${sid}`);
+const externalKeyOf = (provider: string, sid: string): string => sha256hex(`${provider}\0${sid}`);
 
 const MAX_EXTERNAL_LENGTH = 255;
 

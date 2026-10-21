@@ -9,7 +9,7 @@ import type { OidcJwks } from '../jwks.js';
 import type { OidcAnswer } from '../login.js';
 import type { OidcStateStore } from '../provider.js';
 import type { OidcStrategy } from '../strategy.js';
-import { MAX_SID_LENGTH, MAX_SUBJECT_LENGTH } from '../claims.js';
+import { MAX_SUBJECT_LENGTH } from '../claims.js';
 import { isPlainObject } from '../support.js';
 
 /** The `events` member that makes a JWT a logout token (OpenID Back-Channel Logout 1.0, section 2.4). */
@@ -39,6 +39,7 @@ export interface LogoutTokenClaims {
 const COMPACT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 const MAX_TOKEN_LENGTH = 16_384;
 const MAX_JTI_LENGTH = 255;
+const MAX_SID_LENGTH = 255;
 /** Explicit typing (section 2.4); an ID token or an access token must not pass as a logout token. */
 const LOGOUT_TYPES = new Set(['jwt', 'logout+jwt', 'application/jwt', 'application/logout+jwt']);
 
