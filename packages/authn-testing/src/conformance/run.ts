@@ -71,19 +71,14 @@ export function conformanceSuite<T extends object>(
   define: (kase: (title: string, body: (subject: T, clock: FakeClock) => Promise<void>) => void) => void,
 ): void {
   const bdd = bddOf(opts.bdd);
-  bdd.describe(name, () => {
-    define((title, body) =>
-      bdd.it(title, async function (this: TestThis) {
-        await withSubject(
-          async (k) => {
-            const subject = await make(k);
-            return { subject, dispose: async () => (subject as { dispose?(): Promise<void> }).dispose?.() };
-          },
-          fakeDate,
-          ({ subject }, clock) => body(subject, clock),
-          { timeoutMs: caseTimeout(this, opts.timeoutMs), name: `${name}: ${title}` },
-        );
-      }),
-    );
-  });
+  const subjectOf = async (k: { clock: FakeClock }) => {
+    const subject = await make(k);
+    return { subject, dispose: async () => (subject as { dispose?(): Promise<void> }).dispose?.() };
+  };
+  const register = (title: string, body: (subject: T, clock: FakeClock) => Promise<void>): void =>
+    bdd.it(title, async function (this: TestThis) {
+      const timeoutMs = caseTimeout(this, opts.timeoutMs);
+      await withSubject(subjectOf, fakeDate, ({ subject }, clock) => body(subject, clock), { timeoutMs, name: `${name}: ${title}` });
+    });
+  bdd.describe(name, () => define(register));
 }
