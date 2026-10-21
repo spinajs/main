@@ -65,6 +65,13 @@ const authnLocal = {
         revokeTokens: true,
       },
 
+      verify: {
+        /** Lifetime of a verify link: a day, as a mailbox is not always read at once. */
+        ttlSeconds: 86400,
+        /** The page that redeems the secret; it posts `{ secret }` to POST /auth/verify. */
+        url: '',
+      },
+
       mail: {
         /**
          * 'queue': each mail is an AuthnMailJob that a queue consumer delivers; it needs a real connection for

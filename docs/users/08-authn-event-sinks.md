@@ -7,7 +7,8 @@ Two `AuthnEventSink`s that users registers so the `users` row and the user event
 1. authn's audit (`AuthnAudit`) resolves every `AuthnEventSink` with `Array.chainOf(AuthnEventSink)` and hands each one every `AuthnEvent`, concurrently. A sink error is logged by the publisher and never fails the login.
 2. `UserAccountSink.publish(e)` ignores failures and non-user identities. For a successful event it:
    - writes `users.PasswordSetAt = e.at` for `password.change` (unless `data.expired`), `password.reset` and `invite.redeem`, only forward in time (`PasswordSetAt IS NULL OR PasswordSetAt < at`);
-   - on `invite.redeem`, sets `IsActive = true` in one conditional statement that matches only while `user:invite:pending` is stored as `true`, then deletes the marker and emits `UserChanged` and `UserActivated` (no mail).
+   - on `invite.redeem`, sets `IsActive = true` in one conditional statement that matches only while `user:invite:pending` is stored as `true`, then deletes the marker and emits `UserChanged` and `UserActivated` (no mail);
+   - on `invite.redeem`, also sets `users.EmailVerifiedAt = e.at` unless it is set: the invite secret was mailed to that address.
    Each step runs as `SYSTEM`; a failure is logged as a warning naming the event, user and error class, never thrown.
 3. `QueueAuthnEventSink.publish(e)` loads the `User` row (as `SYSTEM`, deleted rows included) and emits:
 

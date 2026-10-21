@@ -248,6 +248,7 @@ export interface PasswordMailConfiguration {
   appName?: string;
   reset?: PasswordMailPurposeConfiguration;
   invite?: PasswordMailPurposeConfiguration;
+  verify?: PasswordMailPurposeConfiguration;
 }
 
 export interface EmailConnectionOptions {

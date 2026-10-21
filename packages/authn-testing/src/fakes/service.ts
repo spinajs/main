@@ -18,6 +18,8 @@ export interface FakeAuthnServiceDeps {
   readonly ipv6Prefix?: number;
   /** ExternalLoginHooks, read per login; they run for an interactive external outcome before MFA and the session (RFC N10-1). */
   readonly hooks?: () => readonly ExternalLoginHook[];
+  /** `authn.login.requireVerifiedAddress`: an interactive login of an address the store reports unverified answers `unverified_address`. */
+  readonly requireVerifiedAddress?: boolean;
 }
 
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
@@ -153,10 +155,12 @@ export class FakeAuthnService extends AuthnService {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, reason: 'not_linked' });
       return failure('not_linked');
     }
-    const refused = this.statusReason(await this.d.identities.status(id));
+    const status = await this.d.identities.status(id);
+    const unverified = s.interactive && this.d.requireVerifiedAddress === true && status.addressVerified === false;
+    const refused = this.statusReason(status) ?? (unverified ? 'unverified_address' : null);
     if (refused) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, reason: refused });
-      return failure('invalid_credentials');
+      return failure(refused === 'unverified_address' ? 'unverified_address' : 'invalid_credentials');
     }
     if (s.interactive && r.external && this.d.hooks) {
       try {

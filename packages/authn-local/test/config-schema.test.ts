@@ -36,6 +36,7 @@ describe('authn.local through the schema', function () {
         generator: { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] },
         reset: { ttlSeconds: 3600, url: '', revokeTokens: true },
         invite: { ttlSeconds: 900 },
+        verify: { ttlSeconds: 86400, url: '' },
         expiration: { enabled: false, maxAgeDays: 31 },
         mail: { delivery: 'queue' },
       };
@@ -65,6 +66,7 @@ describe('authn.local through the schema', function () {
         generator: filled.generator,
         reset: filled.reset,
         invite: filled.invite,
+        verify: filled.verify,
         expiration: filled.expiration,
         mail: filled.mail,
       });
@@ -79,6 +81,7 @@ describe('authn.local through the schema', function () {
       expect(configuration.get('authn.local.policy.maxLength')).to.eq(shipped.policy.maxLength);
       expect(configuration.get('authn.local.reset.revokeTokens')).to.eq(shipped.reset.revokeTokens);
       expect(configuration.get('authn.local.mail.delivery')).to.eq(shipped.mail.delivery);
+      expect(configuration.get('authn.local.verify')).to.deep.eq(shipped.verify);
     });
 
     it('ships AuthnMailJob on its own queue connection and lists the job directory', () => {

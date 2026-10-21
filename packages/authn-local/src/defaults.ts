@@ -16,6 +16,7 @@ export const AUTHN_LOCAL_DEFAULTS = frozenCopy({
   generator: { length: local.generator.properties.length.default, characters: local.generator.properties.characters.default },
   reset: { ttlSeconds: local.reset.properties.ttlSeconds.default, url: local.reset.properties.url.default, revokeTokens: local.reset.properties.revokeTokens.default },
   invite: { ttlSeconds: local.invite.properties.ttlSeconds.default },
+  verify: { ttlSeconds: local.verify.properties.ttlSeconds.default, url: local.verify.properties.url.default },
   expiration: { enabled: local.expiration.properties.enabled.default, maxAgeDays: local.expiration.properties.maxAgeDays.default },
   mail: { delivery: local.mail.properties.delivery.default },
 });

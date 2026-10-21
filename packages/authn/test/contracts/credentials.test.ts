@@ -133,7 +133,7 @@ describe('credential, context and result contracts', () => {
 
   describe('AuthnFailure', () => {
     it('is exactly the design union', () => {
-      same<AuthnFailure, 'invalid_credentials' | 'throttled' | 'unsupported_credentials' | 'expired' | 'revoked' | 'not_linked'>(true);
+      same<AuthnFailure, 'invalid_credentials' | 'throttled' | 'unsupported_credentials' | 'expired' | 'revoked' | 'not_linked' | 'unverified_address'>(true);
       // @ts-expect-error not a failure reason
       const locked: AuthnFailure = 'locked';
       expect(locked).to.eq('locked');

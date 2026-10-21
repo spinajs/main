@@ -69,7 +69,7 @@ class LaneMailer {
     this.mails.push(mail);
   }
 
-  public secretFor(id: IdentityRef, purpose: 'reset' | 'invite'): string | null {
+  public secretFor(id: IdentityRef, purpose: 'reset' | 'invite' | 'verify'): string | null {
     const mail = [...this.mails].reverse().find((m) => m.identity.type === id.type && m.identity.id === id.id && m.purpose === purpose);
     return mail?.secret ?? null;
   }

@@ -51,6 +51,7 @@ const CONFIGURATION_SCHEMA = {
         appName: { type: 'string' },
         reset: PASSWORD_MAIL_PURPOSE,
         invite: PASSWORD_MAIL_PURPOSE,
+        verify: PASSWORD_MAIL_PURPOSE,
       },
     },
     connections: {
