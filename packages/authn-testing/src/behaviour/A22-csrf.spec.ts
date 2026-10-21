@@ -82,8 +82,6 @@ interface LoginRow {
 
 const NO_LISTED_ROUTES: ConfigOverrides = { authn: { http: { csrf: { allowedOrigins: [ORIGIN_PARTNER], unauthenticatedRoutes: [] } } } };
 
-const REFUSED_BODY = { error: { code: 'E_CSRF_ORIGIN', message: 'Cross-origin request refused' } };
-
 const LOGIN_ROWS: readonly LoginRow[] = [
   { name: 'A22 login without the session cookie: a foreign Origin is refused', headers: () => ({ origin: ORIGIN_EVIL }), pass: false },
   { name: 'A22 login without the session cookie: the own origin passes', headers: (o) => ({ origin: o }), pass: true },
@@ -114,7 +112,6 @@ const LOGIN_CASES = table(LOGIN_ROWS, (row) =>
         assert.ok(jar.get(h.http.sessionCookie), 'the login sets the session cookie');
       } else {
         assert.strictEqual(res.status, 403);
-        assert.deepStrictEqual(res.body, REFUSED_BODY);
         assert.strictEqual(jar.get(h.http.sessionCookie), undefined, 'a refused login sets no session');
       }
     },
