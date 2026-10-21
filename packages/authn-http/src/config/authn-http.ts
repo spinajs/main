@@ -8,6 +8,14 @@ function singleDir(path: string) {
 }
 
 const authnHttp = {
+  authn: {
+    http: {
+      csrf: {
+        // Matched against the request path after http.controllers.route.prefix.
+        unauthenticatedRoutes: ['/auth/login', '/auth/password/reset-request', '/auth/password/reset', '/auth/keys/login', '/auth/mfa/verify', '/auth/mfa/recovery'],
+      },
+    },
+  },
   system: {
     dirs: {
       // Controllers are found by a filesystem scan, not by import.

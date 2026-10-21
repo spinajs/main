@@ -73,10 +73,81 @@ const ROWS: readonly Row[] = [
   { name: 'A22 the guard is off when disabled', method: 'POST', headers: () => ({ origin: ORIGIN_EVIL }), pass: true, config: CSRF_OFF },
 ];
 
-export const A22: AuthnRule = defineRule(
-  'A22',
-  "cookie-authenticated unsafe requests need the app's own origin",
-  table(ROWS, (row) =>
+interface LoginRow {
+  readonly name: string;
+  readonly headers: (origin: string) => Record<string, string>;
+  readonly pass: boolean;
+  readonly config?: ConfigOverrides;
+}
+
+const NO_LISTED_ROUTES: ConfigOverrides = { authn: { http: { csrf: { allowedOrigins: [ORIGIN_PARTNER], unauthenticatedRoutes: [] } } } };
+
+const REFUSED_BODY = { error: { code: 'E_CSRF_ORIGIN', message: 'Cross-origin request refused' } };
+
+const LOGIN_ROWS: readonly LoginRow[] = [
+  { name: 'A22 login without the session cookie: a foreign Origin is refused', headers: () => ({ origin: ORIGIN_EVIL }), pass: false },
+  { name: 'A22 login without the session cookie: the own origin passes', headers: (o) => ({ origin: o }), pass: true },
+  { name: 'A22 login without the session cookie: a listed origin passes', headers: () => ({ origin: ORIGIN_PARTNER }), pass: true },
+  { name: 'A22 login without the session cookie: Origin null is refused', headers: () => ({ origin: 'null' }), pass: false },
+  { name: 'A22 login without the session cookie: cross-site fetch metadata without Origin is refused', headers: () => ({ 'sec-fetch-site': 'cross-site' }), pass: false },
+  { name: 'A22 login without the session cookie: same-site fetch metadata without Origin is refused', headers: () => ({ 'sec-fetch-site': 'same-site' }), pass: false },
+  { name: 'A22 login without the session cookie: same-origin fetch metadata without Origin passes', headers: () => ({ 'sec-fetch-site': 'same-origin' }), pass: true },
+  { name: 'A22 login without the session cookie: Origin wins over fetch metadata', headers: () => ({ origin: ORIGIN_EVIL, 'sec-fetch-site': 'same-origin' }), pass: false },
+  { name: 'A22 login without the session cookie: a non-browser client sending neither header passes', headers: () => ({}), pass: true },
+  { name: 'A22 login without the session cookie: an empty unauthenticatedRoutes list leaves it unchecked', headers: () => ({ origin: ORIGIN_EVIL }), pass: true, config: NO_LISTED_ROUTES },
+  { name: 'A22 login without the session cookie: the guard off leaves it unchecked', headers: () => ({ origin: ORIGIN_EVIL }), pass: true, config: CSRF_OFF },
+];
+
+const LOGIN_CASES = table(LOGIN_ROWS, (row) =>
+  defineCase({
+    name: row.name,
+    facet: 'A22/http',
+    needs: ['http', 'http.routes.login', 'seed'],
+    config: row.config ?? CSRF,
+    async run(h, k) {
+      await seedUser(h, ALICE);
+      const login = routes(h).login(ALICE.login, ALICE.password);
+      const jar = k.jar();
+      const res = await sendRaw(h, { ...login, headers: { ...login.headers, ...row.headers(h.http.origin) } }, jar);
+      if (row.pass) {
+        assert.strictEqual(res.status, 200, 'the login reached the controller');
+        assert.ok(jar.get(h.http.sessionCookie), 'the login sets the session cookie');
+      } else {
+        assert.strictEqual(res.status, 403);
+        assert.deepStrictEqual(res.body, REFUSED_BODY);
+        assert.strictEqual(jar.get(h.http.sessionCookie), undefined, 'a refused login sets no session');
+      }
+    },
+  }),
+);
+
+const RESET_REQUEST_CASES = table(
+  [
+    { name: 'A22 password reset request without the session cookie: a foreign Origin is refused', foreign: true },
+    { name: 'A22 password reset request without the session cookie: the own origin passes', foreign: false },
+  ],
+  (row) =>
+    defineCase({
+      name: row.name,
+      facet: 'A22/http',
+      needs: ['http', 'http.routes.passwordResetRequest', 'seed'],
+      config: CSRF,
+      async run(h) {
+        await seedUser(h, ALICE);
+        const request = routes(h).passwordResetRequest(ALICE.login);
+        const res = await sendRaw(h, { ...request, headers: { ...request.headers, origin: row.foreign ? ORIGIN_EVIL : h.http.origin } });
+        if (row.foreign) {
+          assert.strictEqual(res.status, 403);
+          assert.deepStrictEqual(res.body, REFUSED_BODY);
+        } else {
+          assert.notStrictEqual(res.status, 403, 'the request reached the controller');
+        }
+      },
+    }),
+);
+
+export const A22: AuthnRule = defineRule('A22', "cookie-authenticated unsafe requests need the app's own origin", [
+  ...table(ROWS, (row) =>
     defineCase({
       name: row.name,
       facet: 'A22/http',
@@ -96,4 +167,6 @@ export const A22: AuthnRule = defineRule(
       },
     }),
   ),
-);
+  ...LOGIN_CASES,
+  ...RESET_REQUEST_CASES,
+]);

@@ -72,6 +72,12 @@ export class CsrfOriginGuard extends ServerMiddleware {
   @Config('authn.http.csrf.allowedOrigins')
   protected AllowedOrigins: string[];
 
+  @Config('authn.http.csrf.unauthenticatedRoutes')
+  protected UnauthenticatedRoutes: string[];
+
+  @Config('http.controllers.route.prefix')
+  protected RoutePrefix: string;
+
   @Config('authn.http.trustProxy')
   protected OwnTrust: unknown;
 
