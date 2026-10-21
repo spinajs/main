@@ -8,15 +8,15 @@ import type { Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 
 import { unauthenticated } from '../../policies/v3/errors.js';
 import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
 import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../schema.js';
-import { NO_STORE, authnClearedSessionCookie, hookRefusalOf, hookRefusedAnswer } from '../responses.js';
+import { NO_STORE, authnClearedSessionCookie, hookRefusedAnswer } from '../responses.js';
 import { runLogoutExtensions } from '../logout-extension.js';
 import { answerFor, auditEnded, bodyField, boundedString, completeLogin, contextOf, isNavigation, pendingAnswer, pendingSteps, publishAuthnEvent } from '../routes.js';
 import '../../hooks.js';
-import { runHooked } from '../hooked.js';
 
 /**
  * Login, logout and whoami of the 3.0 layer (design §22.4, §22.11). Every failed login answers the same 401 body
@@ -78,7 +78,7 @@ export class AuthnLoginController extends BaseController {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('there is no session to end');
     try {
-      await runHooked(
+      await runHookedAction(
         this.Hooks,
         'authn.logout',
         { session, ctx: contextOf(req, 'request', session.handle) },

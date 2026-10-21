@@ -5,6 +5,7 @@ import type { Request } from '@spinajs/http';
 import { PrincipalFactory, RoleSource, SessionIssuer } from '@spinajs/authn/contracts';
 import type { Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
 import { Hooks } from '@spinajs/hooks';
+import { runHookedAction } from '@spinajs/authn/hooks';
 
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, RoleSourceRegistered } from '../index.js';
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
@@ -14,7 +15,6 @@ import { ACTIVE_ROLE_KEY } from '../../resolvers/session.js';
 import { NO_STORE, authnSessionCookie, refusedByHook } from '../responses.js';
 import { answerFor, bodyField, boundedString, contextOf, onLiveSession } from '../routes.js';
 import '../../hooks.js';
-import { runHooked } from '../hooked.js';
 
 const ROLE_CAP = 256;
 
@@ -85,7 +85,7 @@ export class AuthnActiveRoleController extends BaseController {
     let rotated: SessionHandle | undefined;
     let principal: Principal;
     try {
-      principal = await runHooked(
+      principal = await runHookedAction(
         this.Hooks,
         'authn.role.switch',
         { session, role, ctx: contextOf(req, 'request', session.handle) },
@@ -100,7 +100,7 @@ export class AuthnActiveRoleController extends BaseController {
         { mutable: [] },
       );
     } catch (err) {
-      return refusedByHook(err);
+      return refusedByHook(err, 'authn.role.switch');
     }
     return new Ok(await answerFor(this.Container, 'role-switch', principal, { ActiveRole: role }), { Coockies: [authnSessionCookie(this._cfg, rotated!)], Headers: [NO_STORE] });
   }

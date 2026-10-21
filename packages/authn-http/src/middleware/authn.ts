@@ -7,6 +7,7 @@ import '@spinajs/authn-session/register-schema';
 import { Log, Logger } from '@spinajs/log';
 import { Forbidden } from '@spinajs/exceptions';
 import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 import { ServerMiddleware } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { CredentialExtractor, SessionIssuer, resolveSession } from '@spinajs/authn/contracts';
@@ -19,9 +20,7 @@ import { AuthnPrincipalResolver } from '../api.js';
 import { publicOriginOf } from '../extractors/signature.js';
 import { logHash, unsignSessionCookie, warnNoLiveSession } from '../session-cookie.js';
 import { contextOf } from '../v3/context.js';
-import { hookRefusalOf } from '../v3/responses.js';
 import '../hooks.js';
-import { runHooked } from '../v3/hooked.js';
 
 const byOrder = (a: { order: number }, b: { order: number }): number => a.order - b.order;
 
@@ -156,7 +155,7 @@ export class AuthnMiddleware extends ServerMiddleware {
     const ip = req.storage.ClientIp;
     const input = { principal, method: req.method, path: typeof target === 'string' ? target.split('?')[0] : '', ...(typeof ip === 'string' ? { ip } : {}) };
     try {
-      await runHooked(this.Hooks, 'authn.request', input, async () => undefined, { mutable: [] });
+      await runHookedAction(this.Hooks, 'authn.request', input, async () => undefined, { mutable: [] });
     } catch (err) {
       const refusal = hookRefusalOf(err, 'authn.request');
       if (!refusal) throw err;

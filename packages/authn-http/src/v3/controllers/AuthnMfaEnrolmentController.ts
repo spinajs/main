@@ -84,7 +84,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     try {
       result = await this.MfaEnrolment!.begin(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
     } catch (err) {
-      return refusedByHook(err);
+      return refusedByHook(err, 'authn.mfa.enrol.begin');
     }
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ provisioning: result.provisioning }, { Headers: [NO_STORE] });
@@ -111,7 +111,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     try {
       result = await this.MfaEnrolment!.confirm(session.handle, code, contextOf(req, 'reauth', session.handle));
     } catch (err) {
-      return refusedByHook(err);
+      return refusedByHook(err, 'authn.mfa.enrol.confirm');
     }
     if (!result.ok) return totpRefusal(result.code, { reauthTried: false, retryAfterSeconds: result.retryAfterSeconds });
     return new Ok({ recoveryCodes: [...result.recoveryCodes] }, { Headers: [NO_STORE] });
@@ -138,7 +138,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     try {
       result = await this.MfaEnrolment!.disable(session.handle, code, contextOf(req, 'reauth', session.handle), reauth.credentials);
     } catch (err) {
-      return refusedByHook(err);
+      return refusedByHook(err, 'authn.mfa.disable');
     }
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined, retryAfterSeconds: result.retryAfterSeconds });
     return new Ok(null, { Headers: [NO_STORE] });
@@ -164,7 +164,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     try {
       result = await this.MfaEnrolment!.regenerateRecoveryCodes(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
     } catch (err) {
-      return refusedByHook(err);
+      return refusedByHook(err, 'authn.mfa.recovery.regenerate');
     }
     if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ recoveryCodes: [...result.recoveryCodes] }, { Headers: [NO_STORE] });

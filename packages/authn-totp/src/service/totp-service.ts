@@ -2,7 +2,8 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
+import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
 import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 import { AuthnAudit } from '@spinajs/authn/audit';
@@ -34,12 +35,6 @@ export interface TotpServiceDeps {
   readonly hooks?: Hooks;
 }
 
-/** The answer code and audit reason of `action`'s hooks refusing it, or null for any other error. */
-function hookRefusal(err: unknown, action: ActionName): { code: string; reason: string } | null {
-  if (err instanceof ActionRefused && err.action === action) return { code: err.code, reason: `hook:${err.code}` };
-  if (err instanceof ActionHookFailed && err.action === action) return { code: 'hook_error', reason: 'hook_error' };
-  return null;
-}
 
 interface Current {
   readonly handle: SessionHandle;
@@ -285,7 +280,7 @@ export class TotpService extends MfaEnrolmentService {
     try {
       return await this.runHooked('authn.mfa.adminReset', { actor, target, ctx }, () => this.adminResetNow(actor, target, ctx), { mutable: [] });
     } catch (err) {
-      const refusal = hookRefusal(err, 'authn.mfa.adminReset');
+      const refusal = hookRefusalOf(err, 'authn.mfa.adminReset');
       if (!refusal) throw err;
       await this.publish(ctx, { type: 'mfa.disable', outcome: 'failure', identity: target, actor, reason: refusal.reason, data: { reset: true } });
       return { reset: false };
@@ -303,7 +298,7 @@ export class TotpService extends MfaEnrolmentService {
   protected runHooked<A extends ActionName>(action: A, input: InputOf<A>, impl: (input: InputOf<A>) => Promise<OutputOf<A>>, opts: RunOptions<A>): Promise<OutputOf<A>> {
     // Built with `new` and without deps.hooks, nothing injects Hooks.
     const hooks = this.deps.hooks ?? this.Hooks;
-    return hooks ? hooks.run(action, input, impl, opts) : impl(input);
+    return hooks ? runHookedAction(hooks, action, input, impl, opts) : impl(input);
   }
 
   /**
@@ -314,7 +309,7 @@ export class TotpService extends MfaEnrolmentService {
     try {
       return await this.runHooked(action, input, impl, { mutable: [] });
     } catch (err) {
-      const refusal = hookRefusal(err, action);
+      const refusal = hookRefusalOf(err, action);
       if (refusal) await this.audit(ctx, c, { type, outcome: 'failure', reason: refusal.reason, ...(data ? { data } : {}) });
       throw err;
     }

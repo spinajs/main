@@ -7,7 +7,8 @@ import '@spinajs/authn/bus';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
 import { InvalidArgument, InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
+import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
 import { ormReady } from '@spinajs/orm';
 import { _between, _check_arg, _contains, _custom, _finite, _gte, _integer, _is_array, _is_array_of, _is_number, _is_string, _max_length, _non_empty, _try_check_arg, isNonEmptyString, isPlainObject, toEpochMs } from '@spinajs/util';
@@ -47,13 +48,6 @@ const NOT_FOUND: Extract<TokenRotateResult, { ok: false }> = Object.freeze({ ok:
 const UPDATE_INVALID_SCOPE: Extract<TokenUpdateResult, { ok: false }> = Object.freeze({ ok: false, reason: 'invalid_scope' });
 const UPDATE_INVALID_EXPIRY: Extract<TokenUpdateResult, { ok: false }> = Object.freeze({ ok: false, reason: 'invalid_expiry' });
 const fail = (reason: AuthnFailure): Failure => ({ ok: false, reason });
-
-/** The audit reason of `action`'s hooks refusing it, or null for any other error. */
-function hookReason(err: unknown, action: ActionName): string | null {
-  if (err instanceof ActionRefused && err.action === action) return `hook:${err.code}`;
-  if (err instanceof ActionHookFailed && err.action === action) return 'hook_error';
-  return null;
-}
 
 /** What a create asked for, parsed before the hooks run: a hook may only narrow it. */
 interface AskedToken {
@@ -260,27 +254,20 @@ export class DbTokenService extends TokenService {
     const agent = raw.kind === 'agent';
     // Parsed before the hooks run, so a hook that changes opts in place cannot move the limits it is held to.
     const asked: AskedToken = { kind: raw.kind, roles: parseRoles(raw.roles), scope: parseScope(raw.scope, agent), profile: raw.profile };
-    let result: TokenCreateResult | undefined;
+    const now = this.nowOf(ctx);
     try {
-      await this.runHooked(
-        'authn.token.create',
-        { owner, opts, ctx },
-        async (input) => {
-          result = await this.createChecked(owner, input.opts, ctx, asked);
-          return result.ok ? { ok: true as const, record: result.record } : result;
-        },
-        { mutable: ['opts'] },
-      );
+      return await this.runHooked('authn.token.create', { owner, opts, ctx }, (input) => this.createChecked(owner, input.opts, ctx, now, asked), {
+        mutable: ['opts'],
+        output: (r) => (r.ok ? { ok: true as const, record: r.record } : r),
+      });
     } catch (err) {
       await this.publishRefusal(err, 'authn.token.create', ctx, 'token.create', owner);
       throw err;
     }
-    return result!;
   }
 
   /** Every check of create on `opts`, which hooks may have changed, then the insert. */
-  protected async createChecked(owner: IdentityRef, opts: TokenCreateOptions, ctx: AuthnContext, asked: AskedToken): Promise<TokenCreateResult> {
-    const now = this.nowOf(ctx);
+  protected async createChecked(owner: IdentityRef, opts: TokenCreateOptions, ctx: AuthnContext, now: number, asked: AskedToken): Promise<TokenCreateResult> {
 
     // Callers can bypass the types, so every field is checked as unknown.
     const raw: Record<string, unknown> = isPlainObject(opts) ? opts : {};
@@ -413,22 +400,15 @@ export class DbTokenService extends TokenService {
     _check_arg(_is_number(_integer(), _between(0, MAX_GRACE_SECONDS, new InvalidArgument(`graceSeconds must be a whole number of seconds from 0 to ${MAX_GRACE_SECONDS}`))))(graceSeconds, 'graceSeconds');
     this.checkFormat();
 
-    let result: TokenRotateResult | undefined;
     try {
-      await this.runHooked(
-        'authn.token.rotate',
-        { owner, id, ...(opts ? { opts } : {}), ctx },
-        async () => {
-          result = await this.rotateNow(owner, id, ctx, now, graceSeconds);
-          return result.ok ? { ok: true as const, token: result.token } : result;
-        },
-        { mutable: [] },
-      );
+      return await this.runHooked('authn.token.rotate', { owner, id, ...(opts ? { opts } : {}), ctx }, () => this.rotateNow(owner, id, ctx, now, graceSeconds), {
+        mutable: [],
+        output: (r) => (r.ok ? { ok: true as const, token: r.token } : r),
+      });
     } catch (err) {
       await this.publishRefusal(err, 'authn.token.rotate', ctx, 'token.rotate', owner, undefined, { token: id });
       throw err;
     }
-    return result!;
   }
 
   protected async rotateNow(owner: IdentityRef, id: string, ctx: AuthnContext, now: number, graceSeconds: number): Promise<TokenRotateResult> {
@@ -820,14 +800,15 @@ export class DbTokenService extends TokenService {
     }
   }
 
-  protected runHooked<A extends ActionName>(action: A, input: InputOf<A>, impl: (input: InputOf<A>) => Promise<OutputOf<A>>, opts: RunOptions<A>): Promise<OutputOf<A>> {
+  /** Hooks get copies of `input` and of the result. */
+  protected runHooked<A extends ActionName, R = OutputOf<A>>(action: A, input: InputOf<A>, impl: (input: InputOf<A>) => Promise<R>, opts: RunOptions<A> & { readonly output?: (result: R) => OutputOf<A> }): Promise<R> {
     // Built with `new` (a test seam), nothing injects Hooks.
-    return this.Hooks ? this.Hooks.run(action, input, impl, opts) : impl(input);
+    return this.Hooks ? runHookedAction(this.Hooks, action, input, impl, opts) : impl(input);
   }
 
   /** Audits a refusal by `action`'s hooks; any other error is left to the caller. */
   protected async publishRefusal(err: unknown, action: ActionName, ctx: AuthnContext, type: 'token.create' | 'token.revoke' | 'token.rotate' | 'token.update', owner: IdentityRef, actor?: PrincipalRef, data: Record<string, unknown> = {}): Promise<void> {
-    const reason = hookReason(err, action);
+    const reason = hookRefusalOf(err, action)?.reason;
     if (reason) {
       await (this.Auditor ?? this.Audit).publishIn(ctx, { type, outcome: 'failure', reason, identity: { type: owner.type, id: owner.id }, ...(actor ? { actor } : {}), data });
     }

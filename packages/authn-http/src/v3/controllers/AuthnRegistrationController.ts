@@ -8,13 +8,13 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { AuthnThrottle, IdentityRegistrar, PasswordService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, PasswordViolation } from '@spinajs/authn/contracts';
 import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 
 import { newPasswordField, passwordRejected, tooManyRequests } from '../../password/fields.js';
 import { IdentityRegistrarRegistered } from '../../policies/v3/groups.js';
-import { AcceptedResponse, NO_STORE, badRequest, hookRefusalOf, hookRefusedAnswer } from '../responses.js';
+import { AcceptedResponse, NO_STORE, badRequest, hookRefusedAnswer } from '../responses.js';
 import { bodyField, boundedString, contextOf, publishAuthnEvent } from '../routes.js';
 import type { RegistrationInput, RegistrationOutput } from '../../hooks.js';
-import { runHooked } from '../hooked.js';
 
 const IDENTIFIER_CAP = 254;
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
@@ -74,20 +74,27 @@ export class AuthnRegistrationController extends BaseController {
 
     let result: RegistrationOutput;
     try {
-      result = await runHooked(this.Hooks, 'authn.registration', { login, email, ctx }, (input) => this.registered(passwords, input, { login, email }, next.password, ctx), { mutable: ['login', 'email'] });
+      result = await runHookedAction(this.Hooks, 'authn.registration', { login, email, ctx }, (input) => this.registered(passwords, input, { login, email }, next.password, ctx), { mutable: ['login', 'email'] });
     } catch (err) {
-      if (err instanceof RejectedForHookedValues) return passwordRejected(err.violations);
-      if (err instanceof InvalidArgument) return new BadRequestResponse({ error: 'invalid_registration', message: 'the registration was refused', ...(err.fieldName ? { field: err.fieldName } : {}) }, { Headers: [NO_STORE] });
-      const refusal = hookRefusalOf(err, 'authn.registration');
-      if (!refusal) throw err;
-      await publishAuthnEvent(this.Container, req, { type: 'identity.register', outcome: 'failure', reason: refusal.reason });
-      return hookRefusedAnswer(refusal.code, 400);
+      return this.refused(req, err);
     }
 
     const created = result.status === 'created';
     await publishAuthnEvent(this.Container, req, { type: 'identity.register', outcome: created ? 'success' : 'failure', identity: result.id, ...(created ? {} : { reason: 'exists' }) });
     await this.mail(passwords, result.id, created, ctx);
     return new AcceptedResponse({ status: 'accepted' }, { Headers: [NO_STORE] });
+  }
+
+  /** The answer to a registration that threw; an error that is no refusal is rethrown. */
+  private async refused(req: Request, err: unknown) {
+    if (err instanceof RejectedForHookedValues) return passwordRejected(err.violations);
+    const refusal = hookRefusalOf(err, 'authn.registration');
+    if (refusal) {
+      await publishAuthnEvent(this.Container, req, { type: 'identity.register', outcome: 'failure', reason: refusal.reason });
+      return hookRefusedAnswer(refusal.code, 400);
+    }
+    if (err instanceof InvalidArgument) return new BadRequestResponse({ error: 'invalid_registration', message: 'the registration was refused', ...(err.fieldName ? { field: err.fieldName } : {}) }, { Headers: [NO_STORE] });
+    throw err;
   }
 
   /** The registration with the login and email the hooks left; values a hook changed meet the password policy again. */

@@ -4,13 +4,13 @@ import { BaseController, BasePath, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { PasswordService, SessionIssuer } from '@spinajs/authn/contracts';
 import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 
 import { CodeLoginRegistered, loginField, tooManyRequests } from '../../password/index.js';
 import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
-import { AcceptedResponse, NO_STORE, badRequest, hookRefusalOf } from '../responses.js';
+import { AcceptedResponse, NO_STORE, badRequest } from '../responses.js';
 import { bodyField, boundedString, completeLogin, contextOf, publishAuthnEvent } from '../routes.js';
 import '../../hooks.js';
-import { runHooked } from '../hooked.js';
 
 const ACK: Readonly<{ Ok: true }> = Object.freeze({ Ok: true });
 
@@ -48,12 +48,12 @@ export class AuthnCodeLoginController extends BaseController {
     if (login === null) return badRequest('invalid_login', `login must be a non-empty string of at most ${PASSWORD_HARD_CAP} characters`);
     const ctx = contextOf(req, 'request');
     try {
-      const result = await runHooked(this.Hooks, 'authn.code.request', { login, ctx }, () => this.Passwords!.requestCode!(login, ctx), { mutable: [] });
+      const result = await runHookedAction(this.Hooks, 'authn.code.request', { login, ctx }, () => this.Passwords!.requestCode!(login, ctx), { mutable: [] });
       if (result.status === 'throttled') return tooManyRequests('too many code requests, try again later', result.retryAfterSeconds);
     } catch (err) {
       const refusal = hookRefusalOf(err, 'authn.code.request');
       // The answer of any other login: only the audit tells.
-      if (refusal?.own) return this.refused(req, refusal.reason);
+      if (refusal) return this.refused(req, refusal.reason);
       // The answer must not tell a failed lookup or mail from a sent one; the name only, as an error can carry the login.
       this._log.warn({ errorName: (err as Error)?.name ?? typeof err }, 'A login code request failed: ${errorName}');
     }

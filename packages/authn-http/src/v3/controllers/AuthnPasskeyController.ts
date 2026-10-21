@@ -135,7 +135,7 @@ export class AuthnPasskeyController extends BaseController {
     try {
       result = await (await this.passkeys()).register(session.identity, { ...body, ...(name !== undefined ? { name } : {}) }, contextOf(req, 'request', session.handle));
     } catch (err) {
-      return refusedByHook(err);
+      return refusedByHook(err, 'authn.passkey.register');
     }
     if (!result.ok) {
       if (result.code === 'duplicate') return new Conflict({ error: 'passkey_taken', message: 'this passkey is already registered' }, { Headers: [NO_STORE] });
@@ -169,7 +169,7 @@ export class AuthnPasskeyController extends BaseController {
     try {
       removed = typeof id === 'string' && CREDENTIAL_ID.test(id) && (await (await this.passkeys()).remove(session.identity, id, contextOf(req, 'request', session.handle)));
     } catch (err) {
-      return refusedByHook(err);
+      return refusedByHook(err, 'authn.passkey.revoke');
     }
     if (!removed) return passkeyNotFound();
     return new Ok(null, { Headers: [NO_STORE] });

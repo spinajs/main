@@ -3,6 +3,8 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Del, Ok, Param, Policy, Post, Req } from '@spinajs/http';
 import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
+import type { ActionName } from '@spinajs/hooks';
 import type { Request } from '@spinajs/http';
 import { CredentialAdminGuard, MfaEnrolmentService, PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEventType, CredentialAdminAction, IdentityRef, PrincipalRef } from '@spinajs/authn/contracts';
@@ -14,10 +16,12 @@ import { freshAuthOrAnswer, takeReauthPassword } from '../../policies/v3/fresh-a
 import { activeSessionOf, authenticatedPrincipal } from '../../policies/v3/principal.js';
 import { TokenServiceRegistered } from '../../token/gate.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
-import { NO_STORE, hookRefusalOf, hookRefusedAnswer } from '../responses.js';
+import { NO_STORE, hookRefusedAnswer } from '../responses.js';
 import { contextOf, publishAuthnEvent } from '../routes.js';
 import '../../hooks.js';
-import { runHooked } from '../hooked.js';
+
+/** authn-local declares it, and is no dependency of this package. */
+const PASSWORD_EXPIRE: string = 'authn.password.expire';
 
 /** The event a refused admin action is audited as. */
 const REFUSED_EVENT: ReadonlyMap<CredentialAdminAction, AuthnEventType> = new Map<CredentialAdminAction, AuthnEventType>([
@@ -157,11 +161,13 @@ export class AuthnCredentialAdminController extends BaseController {
    */
   protected async effect(req: Request, admitted: Allowed, action: CredentialAdminAction, run: () => Promise<Readonly<Record<string, unknown>>>) {
     try {
-      return new Ok(await runHooked(this.Hooks, 'authn.admin.credentials', { actor: admitted.actor, target: admitted.target, action }, run, { mutable: [] }), { Headers: [NO_STORE] });
+      return new Ok(await runHookedAction(this.Hooks, 'authn.admin.credentials', { actor: admitted.actor, target: admitted.target, action }, run, { mutable: [] }), { Headers: [NO_STORE] });
     } catch (err) {
-      const refusal = hookRefusalOf(err, 'authn.admin.credentials');
+      const own = hookRefusalOf(err, 'authn.admin.credentials');
+      // The expiry audits its own refusal.
+      const refusal = own ?? hookRefusalOf(err, PASSWORD_EXPIRE as ActionName);
       if (!refusal) throw err;
-      if (refusal.own) await publishAuthnEvent(this.Container, req, { type: REFUSED_EVENT.get(action) ?? 'session.revoke', outcome: 'failure', reason: refusal.reason, identity: admitted.target, actor: admitted.actor, data: { action } });
+      if (own) await publishAuthnEvent(this.Container, req, { type: REFUSED_EVENT.get(action) ?? 'session.revoke', outcome: 'failure', reason: refusal.reason, identity: admitted.target, actor: admitted.actor, data: { action } });
       return hookRefusedAnswer(refusal.code);
     }
   }

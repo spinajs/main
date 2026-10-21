@@ -77,7 +77,7 @@ export class AuthnTokensController extends BaseController {
     try {
       result = await (await this.service()).create(session.identity, parsed.opts, contextOf(req, 'request', session.handle));
     } catch (err) {
-      return refusedByHook(err);
+      return refusedByHook(err, 'authn.token.create');
     }
     if (!result.ok) {
       return result.code === 'invalid_expiry' ? invalidExpiry() : badRequest('invalid_scope', 'the roles, profile or scope are not allowed for this token');
@@ -101,7 +101,7 @@ export class AuthnTokensController extends BaseController {
     try {
       revoked = id !== null && (await (await this.service()).revoke(session.identity, id, contextOf(req, 'request', session.handle)));
     } catch (err) {
-      return refusedByHook(err);
+      return refusedByHook(err, 'authn.token.revoke');
     }
     if (!revoked) return tokenNotFound();
     return new Ok(null, { Headers: [NO_STORE] });
@@ -130,7 +130,7 @@ export class AuthnTokensController extends BaseController {
     try {
       result = await (await this.service()).rotate(session.identity, id, contextOf(req, 'request', session.handle), parsed.opts);
     } catch (err) {
-      return refusedByHook(err);
+      return refusedByHook(err, 'authn.token.rotate');
     }
     if (!result.ok) return tokenNotFound();
     return new Ok({ Token: tokenEntry(result.token, new Date()), Plaintext: result.plaintext }, { Headers: [NO_STORE] });
@@ -157,7 +157,7 @@ export class AuthnTokensController extends BaseController {
     try {
       result = await (await this.service()).update(session.identity, id, parsed.change, contextOf(req, 'request', session.handle));
     } catch (err) {
-      return refusedByHook(err);
+      return refusedByHook(err, 'authn.token.update');
     }
     if (result.ok) return new Ok({ Token: tokenEntry(result.token, new Date()) }, { Headers: [NO_STORE] });
     if (result.reason === 'not_found') return tokenNotFound();

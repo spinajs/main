@@ -2,7 +2,8 @@ import { Config } from '@spinajs/configuration';
 import '../register-schema.js';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
+import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
@@ -28,13 +29,6 @@ export interface WebAuthnPasskeyServiceDeps {
   readonly sinks?: readonly AuthnEventSink[];
   /** Otherwise the registered Hooks; built with `new` and without it, no action hooks run. */
   readonly hooks?: Hooks;
-}
-
-/** The audit reason of `action`'s hooks refusing it, or null for any other error. */
-function hookReason(err: unknown, action: ActionName): string | null {
-  if (err instanceof ActionRefused && err.action === action) return `hook:${err.code}`;
-  if (err instanceof ActionHookFailed && err.action === action) return 'hook_error';
-  return null;
 }
 
 const entryOf = (c: WebAuthnCredential): PasskeyEntry => ({
@@ -109,7 +103,7 @@ export class WebAuthnPasskeyService extends PasskeyService {
     try {
       return await this.runHooked('authn.passkey.register', { identity: id, credentialId: credential.credentialId, ctx }, () => this.addCredential(credentials, credential, id, ctx), { mutable: [] });
     } catch (err) {
-      const reason = hookReason(err, 'authn.passkey.register');
+      const reason = hookRefusalOf(err, 'authn.passkey.register')?.reason;
       if (reason) await this.audit(ctx, { type: 'passkey.register', outcome: 'failure', reason, identity: id });
       throw err;
     }
@@ -147,7 +141,7 @@ export class WebAuthnPasskeyService extends PasskeyService {
         { mutable: [] },
       );
     } catch (err) {
-      const reason = hookReason(err, 'authn.passkey.revoke');
+      const reason = hookRefusalOf(err, 'authn.passkey.revoke')?.reason;
       if (reason) await this.audit(ctx, { type: 'passkey.remove', outcome: 'failure', reason, identity: id });
       throw err;
     }
@@ -156,7 +150,7 @@ export class WebAuthnPasskeyService extends PasskeyService {
   private runHooked<A extends ActionName>(action: A, input: InputOf<A>, impl: (input: InputOf<A>) => Promise<OutputOf<A>>, opts: RunOptions<A>): Promise<OutputOf<A>> {
     // Built with `new` and without given.hooks, nothing injects Hooks.
     const hooks = this.given.hooks ?? this.Hooks;
-    return hooks ? hooks.run(action, input, impl, opts) : impl(input);
+    return hooks ? runHookedAction(hooks, action, input, impl, opts) : impl(input);
   }
 
   private async audit(ctx: AuthnContext, e: AuthnEventBody): Promise<void> {
