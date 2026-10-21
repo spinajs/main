@@ -37,6 +37,10 @@ describe('hooks configuration schema', function () {
     await boot({ hooks: { timeoutMs: 1, maxDepth: 1 } });
   });
 
+  it('accepts the __file__ tag a config file source adds to the hooks section', async () => {
+    await boot({ hooks: { maxDepth: 4, __file__: ['node_modules/@spinajs/hooks/lib/mjs/config/hooks.js'] } });
+  });
+
   it('rejects an unknown key under hooks', async () => {
     const e = await rejectionOf(boot({ hooks: { maxDepth: 4, timeout: 5 } }));
 
