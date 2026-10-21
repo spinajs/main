@@ -29,7 +29,9 @@ import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
 import { DeferredWork } from './deferred.js';
 import { EXPIRED_PASSWORD_MARKER, PasswordHasher } from './hasher.js';
 import { PasswordMailer } from './mailer.js';
-import type { AuthnMailDispatcher, AuthnMailRequest } from './mail/contracts.js';
+import { AuthnMailDispatcher } from './mail/contracts.js';
+import type { AuthnMailPurpose, AuthnMailRequest } from './mail/contracts.js';
+import { InlineAuthnMailDispatcher } from './mail/inline.js';
 import { isLoginLength, LocalPasswordPolicy } from './policy.js';
 import { normalizeLogin } from './strategy.js';
 
@@ -123,16 +125,22 @@ export class LocalPasswordService extends PasswordService {
   @Autoinject(TokenService, { optional: true })
   protected Tokens: TokenService | undefined;
 
+  /** `@spinajs/users` registers one per `authn.local.mail.delivery`; none: inline. */
+  @Autoinject(AuthnMailDispatcher, { optional: true })
+  protected Dispatcher: AuthnMailDispatcher | undefined;
+
   private _work?: DeferredWork;
+  private _dispatcher?: AuthnMailDispatcher;
   private _auditor?: AuthnAuditor;
 
   constructor(protected readonly Deps?: LocalPasswordServiceDeps) {
     super();
   }
 
-  /** Resolves once every deferred reset job scheduled so far has finished (tests, shutdown). */
-  public drain(): Promise<void> {
-    return this.work().drain();
+  /** Resolves once the deferred reset lookups and every mail dispatched so far are done (tests, shutdown). */
+  public async drain(): Promise<void> {
+    await this.work().drain();
+    await this.dispatcher().drain();
   }
 
   /** D9. Keeps every API and agent token (H32). */
@@ -277,7 +285,7 @@ export class LocalPasswordService extends PasswordService {
 
   /** D13: an admin action, in the call and not throttled. */
   public async invite(id: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<void> {
-    const sent = await this.mail(id, 'invite', this.inviteTtlSeconds());
+    const sent = await this.dispatchMail(id, 'invite', this.inviteTtlSeconds());
     // No event type exists for issuing an invite; it is recorded as a request of purpose invite.
     await this.audit(ctx, {
       type: 'password.reset.request',
@@ -318,7 +326,7 @@ export class LocalPasswordService extends PasswordService {
   protected async mailResetAfterExpiry(id: IdentityRef): Promise<void> {
     try {
       if (eligible(await (await this.identities()).status(id))) {
-        await this.mail(id, 'reset', this.resetTtlSeconds());
+        await this.dispatchMail(id, 'reset', this.resetTtlSeconds());
       }
     } catch (err) {
       this.log().warn({ identityType: id.type, identityId: id.id, errorName: (err as Error)?.name ?? typeof err }, 'The reset mail after the password expiry of ${identityType} ${identityId} failed: ${errorName}');
@@ -336,29 +344,51 @@ export class LocalPasswordService extends PasswordService {
       await this.audit(ctx, { type: 'password.reset.request', outcome: 'failure', identity: id, reason: 'status' });
       return;
     }
-    const sent = await this.mail(id, 'reset', this.resetTtlSeconds());
+    const sent = await this.dispatchMail(id, 'reset', this.resetTtlSeconds());
     await this.audit(ctx, { type: 'password.reset.request', outcome: sent ? 'success' : 'failure', identity: id, ...(sent ? {} : { reason: 'no_mailer' }) });
   }
 
-  /** Issues the secret right before sending it (D10, SR-09); without a mailer nothing is issued. */
-  protected async mail(id: IdentityRef, purpose: 'reset' | 'invite', ttlSeconds: number): Promise<boolean> {
-    const mailer = await this.mailer();
-    if (!mailer) {
-      this.log().warn({ purpose, identityType: id.type, identityId: id.id }, 'No PasswordMailer is registered: the ${purpose} mail for ${identityType} ${identityId} was not sent');
+  /** Hands the request on without a secret (SR-09): `deliver` issues it. Without a mailer nothing is dispatched. */
+  protected async dispatchMail(id: IdentityRef, purpose: AuthnMailPurpose, ttlSeconds: number): Promise<boolean> {
+    if (!(await this.mailer())) {
+      this.warnNoMailer(id, purpose);
       return false;
     }
-    const to = await (await this.identities()).display(id);
-    const secret = await (await this.secrets()).issue(id, purpose, ttlSeconds);
-    await mailer.send({ identity: id, purpose, to, secret, url: this.resetUrl(), ttlSeconds });
+    // The real clock, not ctx.now: deliver() measures the age of the request against it.
+    await this.dispatcher().dispatch({ identity: id, purpose, ttlSeconds, requestedAt: new Date() });
     return true;
+  }
+
+  protected warnNoMailer(id: IdentityRef, purpose: AuthnMailPurpose): void {
+    this.log().warn({ purpose, identityType: id.type, identityId: id.id }, 'No PasswordMailer is registered: the ${purpose} mail for ${identityType} ${identityId} was not sent');
   }
 
   /**
    * Issues the secret, resolves the address and sends through the PasswordMailer at once. False when there is no mailer, no
    * address, or the request is older than its ttl.
    */
-  public deliver(_request: AuthnMailRequest): Promise<boolean> {
-    throw new Error('not implemented: LocalPasswordService.deliver');
+  public async deliver(request: AuthnMailRequest): Promise<boolean> {
+    const { identity: id, purpose, ttlSeconds } = request;
+    const log = { purpose, identityType: id.type, identityId: id.id };
+    const requestedAt = request.requestedAt.getTime();
+    // A link issued now would already be past the lifetime the request asked for.
+    if (!Number.isFinite(requestedAt) || Date.now() > requestedAt + ttlSeconds * 1000) {
+      this.log().warn(log, 'The ${purpose} mail for ${identityType} ${identityId} was requested longer ago than its lifetime and is dropped');
+      return false;
+    }
+    const mailer = await this.mailer();
+    if (!mailer) {
+      this.warnNoMailer(id, purpose);
+      return false;
+    }
+    const to = await (await this.identities()).display(id);
+    if (!to.email) {
+      this.log().warn(log, 'The ${purpose} mail for ${identityType} ${identityId} was not sent: the identity has no email address');
+      return false;
+    }
+    const secret = await (await this.secrets()).issue(id, purpose, ttlSeconds);
+    await mailer.send({ identity: id, purpose, to, secret, url: this.resetUrl(), ttlSeconds, ...(request.lang ? { lang: request.lang } : {}) });
+    return true;
   }
 
   /**
@@ -397,6 +427,10 @@ export class LocalPasswordService extends PasswordService {
 
   protected work(): DeferredWork {
     return (this._work ??= new DeferredWork(this.log()));
+  }
+
+  protected dispatcher(): AuthnMailDispatcher {
+    return (this._dispatcher ??= (this.Deps ? this.Deps.dispatcher : this.Dispatcher) ?? new InlineAuthnMailDispatcher((r) => this.deliver(r), this.log()));
   }
 
   protected resetTtlSeconds(): number {

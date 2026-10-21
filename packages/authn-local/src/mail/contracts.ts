@@ -1,4 +1,5 @@
 import type { IdentityRef } from '@spinajs/authn/contracts';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 /** Each later feature appends its purpose: FEAT-2 'verify', FEAT-3 'code', FEAT-4 'account-exists'. */
 export type AuthnMailPurpose = 'reset' | 'invite';
@@ -24,4 +25,13 @@ export abstract class AuthnMailDispatcher {
 
   /** Resolves when everything dispatched so far has been delivered (inline) or handed to the queue (queue). Tests and shutdown. */
   public abstract drain(): Promise<void>;
+}
+
+/** The `deliver` of a PasswordService that has one, as `LocalPasswordService` does. */
+export function authnMailDeliveryOf(service: unknown): AuthnMailDelivery {
+  const deliver = (service as { deliver?: unknown } | null | undefined)?.deliver;
+  if (typeof deliver !== 'function') {
+    throw new InvalidOperation('Authn mails are delivered by the PasswordService of @spinajs/authn-local, and the registered PasswordService has no deliver()');
+  }
+  return (request) => (deliver as AuthnMailDelivery).call(service, request);
 }
