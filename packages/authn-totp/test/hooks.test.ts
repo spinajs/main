@@ -14,6 +14,16 @@ const KEY = '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f';
 const ADMIN: PrincipalRef = { type: 'user', id: 'admin-1' };
 const CODE = 'not-today';
 
+/** Counts the recovery code sets written. */
+class CountingStore extends MemoryMfaSecretStore {
+  replaced = 0;
+
+  async replaceRecoveryCodes(id: IdentityRef, rawCodes: readonly string[]): Promise<void> {
+    this.replaced++;
+    return super.replaceRecoveryCodes(id, rawCodes);
+  }
+}
+
 async function rejection(p: Promise<unknown>): Promise<unknown> {
   return p.then(
     () => null,
@@ -23,7 +33,7 @@ async function rejection(p: Promise<unknown>): Promise<unknown> {
 
 describe('TotpService action hooks', () => {
   let clock: FakeClock;
-  let store: MemoryMfaSecretStore;
+  let store: CountingStore;
   let events: RecordingEventSink;
   let hook: ScriptedActionHook;
   let service: TotpService;
@@ -59,7 +69,7 @@ describe('TotpService action hooks', () => {
     sessions = new MemorySessionIssuer();
     const throttle = new FakeBackoffThrottle(throttleParams());
     events = new RecordingEventSink();
-    store = new MemoryMfaSecretStore();
+    store = new CountingStore();
     const step = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(), identities: null });
     const authn = new FakeAuthnService({
       strategies: [FakeStrategy.password({ identities, passwords })],
@@ -112,10 +122,11 @@ describe('TotpService action hooks', () => {
 
   it('regenerateRecoveryCodes refused throws ActionRefused and keeps the codes', async () => {
     const s = await session();
-    const { recoveryCodes } = await enrolled(s);
+    await enrolled(s);
+    const replaced = store.replaced;
     hook.refuse('authn.mfa.recovery.regenerate', CODE);
     assert.ok((await rejection(service.regenerateRecoveryCodes(s, ctx()))) instanceof ActionRefused);
-    assert.strictEqual(await store.redeemRecoveryCode(alice, recoveryCodes[0]), true, 'the old codes still work');
+    assert.strictEqual(store.replaced, replaced, 'no new codes are written');
   });
 
   it('adminReset refused answers { reset: false } and keeps the enrolment', async () => {

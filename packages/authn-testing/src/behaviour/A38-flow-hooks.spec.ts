@@ -186,11 +186,13 @@ export const A38: AuthnRule = defineRule('A38', 'action hooks run around the pas
     needs: [...LOCAL_NEEDS, 'outbox'],
     async run(h, k) {
       const a = await seedUser(h, ALICE, { addressVerified: false });
+      // Another identity: the refused request already counted in the throttle, which runs before the hooks.
+      const b = await seedUser(h, BOB, { addressVerified: false });
       const p = h.password as Required<typeof h.password>;
       assert.strictEqual(typeof p.requestVerification, 'function', 'the PasswordService offers requestVerification');
       h.flowHooks.refuse('authn.address.verify.request', CODE);
-      assert.deepStrictEqual({ ...(await p.requestVerification(a, k.ctx({ purpose: 'request' }))) }, { status: 'accepted' });
-      assert.strictEqual(await h.outbox.sent(a, 'verify'), 0, 'no mail');
+      assert.deepStrictEqual({ ...(await p.requestVerification(b, k.ctx({ purpose: 'request' }))) }, { status: 'accepted' });
+      assert.strictEqual(await h.outbox.sent(b, 'verify'), 0, 'no mail');
       h.flowHooks.reset();
       assert.deepStrictEqual({ ...(await p.requestVerification(a, k.ctx({ purpose: 'request' }))) }, { status: 'accepted' });
       const secret = await h.outbox.secretFor(a, 'verify');

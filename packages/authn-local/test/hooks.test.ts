@@ -183,8 +183,10 @@ describe('LocalPasswordService action hooks', function () {
     it('requestVerification answers { status: accepted } with no mail; redeemVerification answers invalid', async () => {
       const x = await setup();
       x.identities.setStatus(x.alice, { addressVerified: false });
+      // Another identity: the refused request already counted in the throttle, which runs before the hooks.
+      const bob = x.identities.add({ login: 'bob@example.com', email: 'bob@example.com', status: { addressVerified: false } });
       x.hook.refuse('authn.address.verify.request', CODE);
-      expect(await x.service.requestVerification(x.alice, ctx())).to.deep.equal({ status: 'accepted' });
+      expect(await x.service.requestVerification(bob, ctx())).to.deep.equal({ status: 'accepted' });
       expect(await x.mailsOf('verify')).to.have.length(0);
 
       x.hook.reset();

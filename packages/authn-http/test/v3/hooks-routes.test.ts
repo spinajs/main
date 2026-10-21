@@ -125,7 +125,7 @@ describe('action hooks on the 3.0 routes', function () {
       expect(a.headers).to.not.have.property('Clear-Site-Data');
       expect(a.cookies).to.deep.equal([]);
       expect(await w.sessions.restore(w.session.handle.id)).to.not.equal(null);
-      expect(w.events.map((e) => e.type)).to.not.include('logout');
+      expect(w.events.map((e) => [e.type, e.outcome, e.reason])).to.deep.equal([['logout', 'failure', `hook:${CODE}`]]);
     });
 
     it('without a refusal the session ends and the hook sees it once before and once after', async () => {
@@ -248,10 +248,11 @@ describe('action hooks on the 3.0 routes', function () {
       expect(verifications).to.deep.equal([]);
     });
 
-    it('a hook that trims the email makes the registrar see the trimmed value', async () => {
+    // The route refuses an address with spaces before any hook runs, so the hook normalises the case instead.
+    it('a hook that normalises the email makes the registrar see the normalised value', async () => {
       const { w, registrar, register } = await registration();
-      w.hook.mutate('authn.registration', (input) => ({ email: String(input.email).trim() }));
-      expect(answerOf(await register({ email: '  newcomer@example.test  ' })).status).to.equal(202);
+      w.hook.mutate('authn.registration', (input) => ({ email: String(input.email).trim().toLowerCase() }));
+      expect(answerOf(await register({ email: 'Newcomer@Example.TEST' })).status).to.equal(202);
       expect(registrar.calls).to.deep.equal([{ login: 'newcomer', email: 'newcomer@example.test' }]);
     });
 
