@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/session-provider-db",
-  "version": "3.0.3",
+  "version": "3.0.4",
   "description": "Simple session provider based on relational db. Usefull for testing or small projects",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -51,20 +51,20 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.3",
-    "@spinajs/authn-session": "3.0.3",
-    "@spinajs/configuration": "3.0.3",
-    "@spinajs/di": "3.0.3",
-    "@spinajs/exceptions": "3.0.3",
-    "@spinajs/log": "3.0.3",
-    "@spinajs/orm": "3.0.3",
-    "@spinajs/reflection": "3.0.3",
-    "@spinajs/util": "3.0.3",
+    "@spinajs/authn": "3.0.4",
+    "@spinajs/authn-session": "3.0.4",
+    "@spinajs/configuration": "3.0.4",
+    "@spinajs/di": "3.0.4",
+    "@spinajs/exceptions": "3.0.4",
+    "@spinajs/log": "3.0.4",
+    "@spinajs/orm": "3.0.4",
+    "@spinajs/reflection": "3.0.4",
+    "@spinajs/util": "3.0.4",
     "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "@spinajs/authn-testing": "3.0.3",
-    "@spinajs/orm-sqlite": "3.0.3"
+    "@spinajs/authn-testing": "3.0.4",
+    "@spinajs/orm-sqlite": "3.0.4"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

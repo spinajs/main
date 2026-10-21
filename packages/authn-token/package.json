@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn-token",
-  "version": "3.0.3",
+  "version": "3.0.4",
   "description": "API token and JWT bearer authentication for SpinaJS",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -64,20 +64,20 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.3",
-    "@spinajs/cli": "3.0.3",
-    "@spinajs/configuration": "3.0.3",
-    "@spinajs/di": "3.0.3",
-    "@spinajs/exceptions": "3.0.3",
-    "@spinajs/log": "3.0.3",
-    "@spinajs/orm": "3.0.3",
-    "@spinajs/util": "3.0.3",
+    "@spinajs/authn": "3.0.4",
+    "@spinajs/cli": "3.0.4",
+    "@spinajs/configuration": "3.0.4",
+    "@spinajs/di": "3.0.4",
+    "@spinajs/exceptions": "3.0.4",
+    "@spinajs/log": "3.0.4",
+    "@spinajs/orm": "3.0.4",
+    "@spinajs/util": "3.0.4",
     "jose": "^6.2.12",
     "luxon": "^3.6.1",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@spinajs/authn-testing": "3.0.3",
-    "@spinajs/orm-sqlite": "3.0.3"
+    "@spinajs/authn-testing": "3.0.4",
+    "@spinajs/orm-sqlite": "3.0.4"
   }
 }

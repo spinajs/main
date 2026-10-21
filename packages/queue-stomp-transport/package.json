@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/queue-stomp-transport",
-  "version": "3.0.3",
+  "version": "3.0.4",
   "description": "STOMP-over-WebSocket queue transport for SpinaJS. Publishes & consumes jobs/events on a STOMP broker (e.g. ActiveMQ) with reconnect, durable subscriptions and dead-letter routing.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -54,21 +54,21 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@spinajs/orm": "3.0.3",
-    "@spinajs/orm-sqlite": "3.0.3",
+    "@spinajs/orm": "3.0.4",
+    "@spinajs/orm-sqlite": "3.0.4",
     "@types/luxon": "^3.6.1",
     "@types/node": "^18.11.18",
     "@types/ws": "^8.18.1"
   },
   "dependencies": {
-    "@spinajs/configuration": "3.0.3",
-    "@spinajs/di": "3.0.3",
-    "@spinajs/exceptions": "3.0.3",
-    "@spinajs/log": "3.0.3",
-    "@spinajs/queue": "3.0.3",
+    "@spinajs/configuration": "3.0.4",
+    "@spinajs/di": "3.0.4",
+    "@spinajs/exceptions": "3.0.4",
+    "@spinajs/log": "3.0.4",
+    "@spinajs/queue": "3.0.4",
     "@stomp/stompjs": "^6.1.2",
     "ws": "^8.18.0",
-    "@spinajs/util": "3.0.3"
+    "@spinajs/util": "3.0.4"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
