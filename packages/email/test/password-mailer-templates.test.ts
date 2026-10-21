@@ -71,7 +71,7 @@ function configurationOf(values: Record<string, unknown>): Class<Configuration> 
     protected onLoad(): unknown {
       return JSON.parse(json) as unknown;
     }
-  } as unknown as Class<Configuration>;
+  };
 }
 
 async function violationsOf(template: unknown): Promise<string[]> {

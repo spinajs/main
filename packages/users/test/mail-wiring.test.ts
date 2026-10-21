@@ -29,7 +29,7 @@ function configurationOf(values: Record<string, unknown>, env: string): Class<Co
     protected onLoad(): unknown {
       return JSON.parse(json) as unknown;
     }
-  } as unknown as Class<Configuration>;
+  };
 }
 
 const children: IContainer[] = [];
@@ -182,7 +182,7 @@ describe('authn mail wiring (MAIL-1, D12)', function () {
     expect(mail.to).to.deep.equal(['queued@spinajs.pl']);
     expect(mail.text).to.equal(undefined);
     expect(String((mail.template as { file: string }).file)).to.match(/\.mjml$/);
-    const token = String(mail.model.Token);
+    const token = String((mail.model as { Token: unknown }).Token);
     expect(mail.redact).to.include(token);
     expect(JSON.stringify(emitted)).to.not.contain(token);
   });

@@ -45,9 +45,9 @@ export async function setup<D extends AuthnMailDispatcher = AuthnMailDispatcher>
   const hasher = new Argon2PasswordHasher({});
   await hasher.resolve();
   const warnings: string[] = [];
-  let service: LocalPasswordService | undefined;
-  const built = dispatcher?.((r) => service!.deliver(r));
-  service = new LocalPasswordService({
+  const late: { service?: LocalPasswordService } = {};
+  const built = dispatcher?.((r) => late.service!.deliver(r));
+  const service = (late.service = new LocalPasswordService({
     identities,
     passwords,
     sessions: new MemorySessionIssuer(),
@@ -62,7 +62,7 @@ export async function setup<D extends AuthnMailDispatcher = AuthnMailDispatcher>
     resetUrl: RESET_URL,
     ...(built ? { dispatcher: built } : {}),
     ...over,
-  });
+  }));
   const alice: IdentityRef = identities.add({ login: LOGIN, email: LOGIN, name: 'Alice' });
   return { identities, passwords, events, secrets, mailer, hasher, service, alice, warnings, dispatcher: built };
 }

@@ -115,12 +115,16 @@ export class EmailPasswordMailer {
         ResetUrl: link,
         Token: mail.secret,
         ExpiresInMinutes: Math.round(mail.ttlSeconds / 60),
-        AppName: options.appName || (this.Deps ? '' : this.AppName) || '',
+        AppName: this.appName(options),
         IsInvite: mail.purpose === 'invite',
       },
       redact: [...secrets],
       ...(options.from ? { from: options.from } : {}),
       ...(lang ? { lang } : {}),
     };
+  }
+
+  private appName(options: PasswordMailConfiguration): string {
+    return options.appName || (this.Deps ? '' : this.AppName) || '';
   }
 }

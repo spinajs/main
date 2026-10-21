@@ -21,7 +21,7 @@ export function authnMailDispatcher(container: IContainer): AuthnMailDispatcher 
   }
   if (config.get<string>('authn.local.mail.delivery') === 'inline') {
     // Resolved only for a failure, so a container without a logger configuration still builds the dispatcher.
-    const log = { warn: (...args: unknown[]) => (DI.resolve(Log, ['authn-local']) as Log).warn(...(args as Parameters<Log['warn']>)) };
+    const log = { warn: (...args: unknown[]) => DI.resolve<Log>(Log, ['authn-local']).warn(...(args as Parameters<Log['warn']>)) };
     return new InlineAuthnMailDispatcher(async (request) => authnMailDeliveryOf(await container.resolve(PasswordService))(request), log);
   }
   checkAuthnMailRouting(config);

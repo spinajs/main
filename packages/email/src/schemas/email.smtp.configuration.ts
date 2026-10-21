@@ -1,6 +1,6 @@
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 
-const MJML_FILE = { type: 'string', minLength: 1, pattern: '\.mjml$' };
+const MJML_FILE = { type: 'string', minLength: 1, pattern: '\\.mjml$' };
 
 const PASSWORD_MAIL_PURPOSE = {
   type: 'object',
