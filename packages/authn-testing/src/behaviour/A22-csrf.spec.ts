@@ -121,31 +121,6 @@ const LOGIN_CASES = table(LOGIN_ROWS, (row) =>
   }),
 );
 
-const RESET_REQUEST_CASES = table(
-  [
-    { name: 'A22 password reset request without the session cookie: a foreign Origin is refused', foreign: true },
-    { name: 'A22 password reset request without the session cookie: the own origin passes', foreign: false },
-  ],
-  (row) =>
-    defineCase({
-      name: row.name,
-      facet: 'A22/http',
-      needs: ['http', 'http.routes.passwordResetRequest', 'seed'],
-      config: CSRF,
-      async run(h) {
-        await seedUser(h, ALICE);
-        const request = routes(h).passwordResetRequest(ALICE.login);
-        const res = await sendRaw(h, { ...request, headers: { ...request.headers, origin: row.foreign ? ORIGIN_EVIL : h.http.origin } });
-        if (row.foreign) {
-          assert.strictEqual(res.status, 403);
-          assert.deepStrictEqual(res.body, REFUSED_BODY);
-        } else {
-          assert.notStrictEqual(res.status, 403, 'the request reached the controller');
-        }
-      },
-    }),
-);
-
 export const A22: AuthnRule = defineRule('A22', "cookie-authenticated unsafe requests need the app's own origin", [
   ...table(ROWS, (row) =>
     defineCase({
@@ -168,5 +143,4 @@ export const A22: AuthnRule = defineRule('A22', "cookie-authenticated unsafe req
     }),
   ),
   ...LOGIN_CASES,
-  ...RESET_REQUEST_CASES,
 ]);

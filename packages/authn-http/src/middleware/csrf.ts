@@ -133,7 +133,7 @@ export class CsrfOriginGuard extends ServerMiddleware {
 
       const origin = req.headers.origin;
       if (!carriesCookie(req.headers.cookie, sessionCookies)) {
-        const checked = listed.has(routeKey(req.path)) && (origin !== undefined || req.headers['sec-fetch-site'] !== undefined);
+        const checked = listed.has(routeKey(req.path ?? '')) && (origin !== undefined || req.headers['sec-fetch-site'] !== undefined);
         if (!checked) return next();
       }
 
