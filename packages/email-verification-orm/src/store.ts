@@ -209,7 +209,14 @@ export class OrmEmailVerificationStore extends EmailVerificationStore {
   /** Points `key` at a new generation holding `domains`; false when another writer moved it first. */
   protected async swap(d: OrmDriver, key: string, oldGen: string | undefined, domains: string[]): Promise<boolean> {
     if (domains.length === 0) {
-      return oldGen === undefined || rowsAffected(await d.del().from(SOURCES_TABLE).where({ key, gen: oldGen })) === 1;
+      if (oldGen === undefined) return true;
+      try {
+        return rowsAffected(await d.del().from(SOURCES_TABLE).where({ key, gen: oldGen })) === 1;
+      } catch (err) {
+        // The delete may have landed before the client saw the error.
+        if ((await this.sourceRow(d, key)) === undefined) return true;
+        throw err;
+      }
     }
     const gen = randomUUID();
     const createdAt = Date.now();

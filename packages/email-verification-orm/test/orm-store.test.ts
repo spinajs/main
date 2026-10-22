@@ -59,6 +59,22 @@ const isSourceUpdate = (b: unknown) => b instanceof UpdateQueryBuilder && b.Tabl
 const isSourceInsert = (b: unknown) => b instanceof InsertQueryBuilder && b.Table === SOURCES_TABLE;
 const isEntryInsert = (b: unknown) => b instanceof InsertQueryBuilder && b.Table === ENTRIES_TABLE;
 const isEntryDelete = (b: unknown) => b instanceof DeleteQueryBuilder && b.Table === ENTRIES_TABLE;
+const isSourceDelete = (b: unknown) => b instanceof DeleteQueryBuilder && b.Table === SOURCES_TABLE;
+
+let warned: OrmEmailVerificationStore | undefined;
+
+/** Replaces the store logger's warn with a recorder; returns the recorded messages. */
+function recordWarns(store: OrmEmailVerificationStore): string[] {
+  warned = store;
+  const messages: string[] = [];
+  (store['Log'] as unknown as { warn: (err: Error, message: string) => void }).warn = (_err, message) => void messages.push(message);
+  return messages;
+}
+
+function restoreWarns(): void {
+  if (warned) delete (warned['Log'] as unknown as { warn?: unknown }).warn;
+  warned = undefined;
+}
 
 /** The `nth` statement matching `match` throws; with `runFirst` it reaches the database before the client sees the error. */
 function failStatement(d: OrmDriver, match: (builder: unknown) => boolean, { runFirst, nth = 1 }: { runFirst: boolean; nth?: number }): void {
@@ -69,7 +85,8 @@ function failStatement(d: OrmDriver, match: (builder: unknown) => boolean, { run
       if (runFirst) await execute(builder);
       throw new Error(SIMULATED);
     }
-    return execute(builder);
+    const result: unknown = await execute(builder);
+    return result;
   };
 }
 
@@ -99,7 +116,7 @@ describe('OrmEmailVerificationStore extras', () => {
     const expired = Array.from({ length: 1201 }, (_, i) => expiredVerdict(`d${i}.com`));
     for (let i = 0; i < expired.length; i += 100) await d.insert().into(VERDICTS_TABLE).values(expired.slice(i, i + 100));
     expect(await store.cleanupExpired()).to.eq(1201);
-    expect((await d.select().from(VERDICTS_TABLE)) as unknown[]).to.have.length(0);
+    expect(await d.select().from(VERDICTS_TABLE)).to.have.length(0);
   });
 
   it('cleanupExpired keeps live generations older than the grace period and reclaims dead ones', async () => {
@@ -170,7 +187,10 @@ describe('OrmEmailVerificationStore extras', () => {
 
 describe('OrmEmailVerificationStore write failures', () => {
   after(disposeStore);
-  afterEach(async () => restoreExecute(await driver()));
+  afterEach(async () => {
+    restoreExecute(await driver());
+    restoreWarns();
+  });
 
   async function storeWith(domains: string[]): Promise<{ store: OrmEmailVerificationStore; oldGen: string }> {
     const store = await bootStore();
@@ -225,13 +245,72 @@ describe('OrmEmailVerificationStore write failures', () => {
     expect(await loadedDomains(store)).to.deep.eq(['old.com']);
   });
 
-  it('a failed delete of the old generation does not fail the write', async () => {
+  it('a failed delete of the old generation does not fail the write, and is logged once', async () => {
     const { store, oldGen } = await storeWith(['old.com']);
     const version = await store.listVersion();
+    const warns = recordWarns(store);
     failStatement(await driver(), isEntryDelete, { runFirst: false });
     await store.replaceSource('feed', 'block', ['new.com']);
     expect(await store.listVersion()).to.not.eq(version);
     expect(await loadedDomains(store)).to.deep.eq(['new.com']);
     expect(await entryCount(oldGen)).to.eq(1);
+    expect(warns).to.have.length(1);
+    expect(warns[0]).to.contain('old email domain list generation');
+  });
+
+  it('logs once and rethrows when the unfinished generation of a failed chunk insert cannot be dropped', async () => {
+    const { store, oldGen } = await storeWith(['old.com']);
+    const warns = recordWarns(store);
+    const d = await driver();
+    failStatement(d, isEntryDelete, { runFirst: false });
+    failStatement(d, isEntryInsert, { runFirst: true, nth: 2 });
+    const err = await rejection(store.replaceSource('feed', 'block', Array.from({ length: 450 }, (_, i) => `d${i}.com`)));
+    expect(err).to.have.property('message', SIMULATED);
+    expect(warns).to.have.length(1);
+    expect(warns[0]).to.contain('unfinished email domain list generation');
+    expect(await loadedDomains(store)).to.deep.eq(['old.com']);
+    expect(await generations()).to.have.length(2);
+    expect(await generations()).to.include(oldGen);
+  });
+
+  it('logs once when the generation of a lost race cannot be dropped, and the retry succeeds', async () => {
+    const { store } = await storeWith(['old.com']);
+    const warns = recordWarns(store);
+    const d = await driver();
+    const execute = d.execute.bind(d);
+    let raced = false;
+    d.execute = async (builder) => {
+      if (!raced && isSourceUpdate(builder)) {
+        raced = true;
+        await d.update().in(SOURCES_TABLE).update({ gen: randomUUID() }).where({ key: 'block|feed' });
+      }
+      const result: unknown = await execute(builder);
+      return result;
+    };
+    failStatement(d, isEntryDelete, { runFirst: false });
+    await store.replaceSource('feed', 'block', ['new.com']);
+    expect(raced).to.eq(true);
+    expect(await loadedDomains(store)).to.deep.eq(['new.com']);
+    expect(warns).to.have.length(1);
+    expect(warns[0]).to.contain('unused email domain list generation');
+  });
+
+  it('reports an emptied source whose pointer delete landed before the error as successful', async () => {
+    const { store, oldGen } = await storeWith(['old.com']);
+    const version = await store.listVersion();
+    failStatement(await driver(), isSourceDelete, { runFirst: true });
+    await store.replaceSource('feed', 'block', []);
+    expect(await store.listVersion()).to.not.eq(version);
+    expect(await loadedDomains(store)).to.deep.eq([]);
+    expect(await entryCount(oldGen)).to.eq(0);
+  });
+
+  it('rethrows a pointer delete error that did not land, and keeps the old set', async () => {
+    const { store } = await storeWith(['old.com']);
+    const version = await store.listVersion();
+    failStatement(await driver(), isSourceDelete, { runFirst: false });
+    expect(await rejection(store.replaceSource('feed', 'block', []))).to.have.property('message', SIMULATED);
+    expect(await store.listVersion()).to.eq(version);
+    expect(await loadedDomains(store)).to.deep.eq(['old.com']);
   });
 });
