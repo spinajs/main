@@ -279,7 +279,7 @@ const metadata = { $metadata: {} };
 
 /**
  * Stateful in-memory stand-in for the AWS SDK v3 `DynamoDBClient`, for one
- * table keyed by the string hash key `SessionId`. It honours what the store's
+ * table keyed by one string hash key (`SessionId` unless given). It honours what the store's
  * correctness rests on: ConditionExpression on every write (failing with
  * ConditionalCheckFailedException), UpdateItem creating a missing item when
  * no condition stops it, FilterExpression applied after the page is read,
@@ -287,6 +287,8 @@ const metadata = { $metadata: {} };
  * for unknown or unused placeholders. Unsupported commands and grammar throw.
  */
 export class FakeDynamo {
+  constructor(public readonly keyAttribute = 'SessionId') {}
+
   public readonly items = new Map<string, Item>();
 
   public tableExists = false;
@@ -322,8 +324,8 @@ export class FakeDynamo {
         throw new ResourceInUseException({ message: `Table already exists: ${String(input.TableName)}`, ...metadata });
       }
       const keys = input.KeySchema as { AttributeName: string; KeyType: string }[];
-      if (keys.length !== 1 || keys[0].AttributeName !== 'SessionId' || keys[0].KeyType !== 'HASH') {
-        throw new ValidationException('The fake models a table keyed by the hash key SessionId only');
+      if (keys.length !== 1 || keys[0].AttributeName !== this.keyAttribute || keys[0].KeyType !== 'HASH') {
+        throw new ValidationException(`The fake models a table keyed by the hash key ${this.keyAttribute} only`);
       }
       this.tableExists = true;
       return {};
@@ -390,12 +392,12 @@ export class FakeDynamo {
     if (condition && !evaluate(condition, old ?? {})) {
       throw new ConditionalCheckFailedException({ message: 'The conditional request failed', ...metadata });
     }
-    if ([...update.set.map(([n]) => n), ...update.remove].includes('SessionId')) {
-      throw new ValidationException('Cannot update attribute SessionId. This attribute is part of the key');
+    if ([...update.set.map(([n]) => n), ...update.remove].includes(this.keyAttribute)) {
+      throw new ValidationException(`Cannot update attribute ${this.keyAttribute}. This attribute is part of the key`);
     }
 
     // Like DynamoDB, an update that no condition stops creates the item.
-    const next: Item = { ...(copy(old) ?? { SessionId: { S: key } }) };
+    const next: Item = { ...(copy(old) ?? { [this.keyAttribute]: { S: key } }) };
     for (const [name, value] of update.set) {
       next[name] = copy(value);
     }
@@ -419,7 +421,7 @@ export class FakeDynamo {
     });
     assertAllUsed(p);
 
-    const start = (input.ExclusiveStartKey as Item | undefined)?.SessionId?.S;
+    const start = (input.ExclusiveStartKey as Item | undefined)?.[this.keyAttribute]?.S;
     const ordered = [...this.items.keys()].sort().filter((k) => start === undefined || k > start);
     const limit = typeof input.Limit === 'number' ? Math.min(input.Limit, this.pageSize) : this.pageSize;
     const page = ordered.slice(0, limit);
@@ -430,7 +432,7 @@ export class FakeDynamo {
       Items: copy(items),
       Count: items.length,
       ScannedCount: page.length,
-      ...(ordered.length > page.length ? { LastEvaluatedKey: { SessionId: { S: page[page.length - 1] } } } : {}),
+      ...(ordered.length > page.length ? { LastEvaluatedKey: { [this.keyAttribute]: { S: page[page.length - 1] } } } : {}),
     };
   }
 
@@ -452,7 +454,7 @@ export class FakeDynamo {
   /** `key` is a Key (exactly the hash key) or, for PutItem, a whole item. */
   private keyOf(key: unknown, wholeItem = false): string {
     const attributes = (key ?? {}) as Item;
-    const id = attributes.SessionId?.S;
+    const id = attributes[this.keyAttribute]?.S;
     if (typeof id !== 'string' || id.length === 0 || (!wholeItem && Object.keys(attributes).length !== 1)) {
       throw new ValidationException('The provided key element does not match the schema');
     }
