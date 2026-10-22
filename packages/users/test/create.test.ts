@@ -21,6 +21,7 @@ import { globalRolesOf, registerAuthzHost, rootAuthz } from './support/authz-hos
 import { TestPasswordService, passwordCalls, resetPasswordCalls } from './support/password-service.js';
 import { testHasher } from './support/hasher.js';
 import { ThrowingAfterHook, withHook } from './hooks/support.js';
+import { setPastSchema } from './support/set-past-schema.js';
 
 chai.use(chaiAsPromised);
 
@@ -93,7 +94,7 @@ describe('create(user, roles?)', function () {
     });
 
     it('grants no roles for a defaultRoles string set at runtime past the schema, never one-letter roles', async () => {
-      DI.get(Configuration)!.set('authz.rbac.defaultRoles', 'user');
+      setPastSchema(DI.get(Configuration)!, 'authz.rbac.defaultRoles', 'user');
 
       const { User: u } = await create({ Email: 'string@spinajs.pl', Login: 'string', Password: 'passw0rd123' });
 

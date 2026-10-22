@@ -7,6 +7,7 @@ import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA, LogAuthnAuditSink } from '../../src/index.js';
 import { configurationOf } from '../behaviour/harness.js';
 import { TestLog, useTestLog } from './test-log.js';
+import { setPastSchema } from '../support/set-past-schema.js';
 
 const expect = chai.expect;
 
@@ -30,7 +31,7 @@ describe('LogAuthnAuditSink hashIdentifiers set past the schema', function () {
       const configuration = await child.resolve(Configuration);
       const sink = await child.resolve(LogAuthnAuditSink);
 
-      configuration.set('authn.audit.hashIdentifiers', value);
+      setPastSchema(configuration, 'authn.audit.hashIdentifiers', value);
       await sink.publish({ type: 'login', outcome: 'success', at: new Date(), identity: { type: 'user', id: 'u-42' }, ip: '198.51.100.23' });
       const [line] = TestLog.of('authn-audit').map((e) => e.message);
       expect(line, String(value)).to.match(/^authn audit login success /);

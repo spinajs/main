@@ -7,6 +7,7 @@ import type { Principal } from '@spinajs/authz';
 import { AccessPolicy, ServicePrincipalSource } from '../src/index.js';
 import { ExplainControllerSource } from '../src/explain/source.js';
 import { servicePrincipals } from '../src/http-config.js';
+import { setPastSchema } from './support/set-past-schema.js';
 
 describe('authz-http floors for values the schema never saw', () => {
   let child: IContainer | undefined;
@@ -20,7 +21,7 @@ describe('authz-http floors for values the schema never saw', () => {
     for (const enabled of ['false', '0', 1]) {
       const booted = await bootConfiguration({ configuration: { isProduction: false } });
       child = booted.child;
-      booted.configuration.set(['authz', 'http', 'explainRoute', 'enabled'], enabled);
+      setPastSchema(booted.configuration, 'authz.http.explainRoute.enabled', enabled);
       const source = bindConfiguration(new ExplainControllerSource(), child);
 
       expect(await source.getControllers(), String(enabled)).to.deep.eq([]);

@@ -8,7 +8,7 @@ import type { Credentials, SignedRequest } from '@spinajs/authn/contracts';
 
 import { ApiKeyHeaderExtractor, AuthorizationBearerExtractor } from '../../src/extractors/bearer.js';
 import { HttpSignatureExtractor, publicOriginOf } from '../../src/extractors/signature.js';
-import { boot, disposeBooted, readingFrom, violationsOf } from '../support/config-boot.js';
+import { boot, disposeBooted, readingFrom, setPastSchema, violationsOf } from '../support/config-boot.js';
 
 const SCHEMAS = [AUTHN_CONFIGURATION_SCHEMA, AUTHN_HTTP_CONFIGURATION_SCHEMA];
 const sreq = (headers: Record<string, string>, over: Partial<SignedRequest> = {}): SignedRequest => ({ method: 'GET', targetUri: '/x', headers, ...over });
@@ -65,7 +65,7 @@ describe('credential extractors through @Config', () => {
 
     it('an empty prefix set at runtime reaches the strategy as a value it does not accept: no principal, nothing thrown', async () => {
       const { child, configuration } = await boot(SCHEMAS, {});
-      configuration.set('authn.token.prefix', '');
+      setPastSchema(configuration, 'authn.token.prefix', '');
       const credentials = readingFrom(new AuthorizationBearerExtractor(), child).extract(sreq({ authorization: 'Bearer opaque' }));
       expect(credentials).to.deep.eq({ kind: 'bearer', token: 'opaque' });
       expect(readingFrom(new TokenStrategy(), child).accepts(credentials!)).to.eq(false);

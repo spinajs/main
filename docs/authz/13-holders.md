@@ -122,6 +122,7 @@ const allowed = await authz().can(me, 'doc:read', resource);
 ```ts sample
 import { authz } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
+import '@spinajs/authz-rbac';
 
 export async function whoCanRead(actor: Principal, docId: string) {
   const { items, total } = await authz().admin().list(actor, {

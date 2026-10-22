@@ -11,6 +11,7 @@ import type { AuthenticationResult, AuthnContext, AuthnEvent, AuthnFacts, Creden
 import { KIT_MFA_STEP, bind, buildCore, pinConfiguration, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import { TestLog } from '../audit/test-log.js';
 import type { CoreOptions, CoreParts, StrategySpec } from '../behaviour/harness.js';
+import { setPastSchema } from '../support/set-past-schema.js';
 
 const IP = '192.0.2.10';
 const ALICE = { login: 'alice@example.test', password: 'Alice-Pass-1234' };
@@ -784,7 +785,7 @@ describe('DefaultAuthnService', function () {
         p = await bootLinking({}, subject({ email: 'new@example.test' }));
         await seedAlice(p);
         p.externalSubjects.set('sub-2', subject({ subject: 'sub-2' }));
-        p.configuration.set('authn.linking', { jit: on, byVerifiedEmail: on });
+        setPastSchema(p.configuration, 'authn.linking', { jit: on, byVerifiedEmail: on });
         failure(await p.service.authenticate(external, ctx()), 'not_linked');
         failure(await p.service.authenticate({ ...external, payload: { subject: 'sub-2' } } as Credentials, ctx()), 'not_linked');
         assert.strictEqual(p.identities.calls.provision.length, 0, String(on));

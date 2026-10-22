@@ -21,6 +21,7 @@ import { publicOriginOf } from '../extractors/signature.js';
 import { logHash, unsignSessionCookie, warnNoLiveSession } from '../session-cookie.js';
 import { clientOf } from '../v3/client.js';
 import { contextOf } from '../v3/context.js';
+import { publishAuthnEvent } from '../policies/v3/audit.js';
 import '../hooks.js';
 
 const byOrder = (a: { order: number }, b: { order: number }): number => a.order - b.order;
@@ -160,6 +161,7 @@ export class AuthnMiddleware extends ServerMiddleware {
     } catch (err) {
       const refusal = hookRefusalOf(err, 'authn.request');
       if (!refusal) throw err;
+      await publishAuthnEvent(this.Container, req, { type: 'request.refuse', outcome: 'failure', reason: refusal.reason, ...(principal ? { identity: { type: principal.type, id: principal.id } } : {}) });
       // @spinajs/http spreads the error's own props into the 403 body.
       throw Object.assign(new Forbidden('the request was refused'), { error: 'action_refused', code: refusal.code });
     }

@@ -20,6 +20,7 @@ import { CreateToken } from '../../src/cli/CreateToken.js';
 import { DeleteToken } from '../../src/cli/DeleteToken.js';
 import { DeleteExpiredTokens } from '../../src/cli/DeleteExpiredTokens.js';
 import { bootV3Db, insertUserRow, shutdownV3Db, v3Connection } from './db.js';
+import { setPastSchema } from '../support/config-boot.js';
 
 const TABLE = 'rbac_access_tokens';
 const SECOND = 1000;
@@ -300,7 +301,7 @@ describe('token cli commands', function () {
 
     it('prints why an invalid authn.token.defaultTtlDays is refused', async () => {
       const a = await owner();
-      config().set('authn.token.defaultTtlDays', -1);
+      setPastSchema(config(), 'authn.token.defaultTtlDays', -1);
 
       const { all } = await create(a.ref.id, { name: 'bad default' });
 

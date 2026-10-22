@@ -24,7 +24,7 @@ import { FakeIdentityStore, FakeImpersonationGuard, FakeStrategy, RecordingPrinc
 
 import * as barrel from '../../src/index.js';
 import { AuthnPrincipalResolver } from '../../src/api.js';
-import { fakeContainer } from '../support/config-boot.js';
+import { fakeContainer, setPastSchema } from '../support/config-boot.js';
 import { AuthnMiddleware } from '../../src/middleware/authn.js';
 import { KeyPrincipalResolver, TokenPrincipalResolver } from '../../src/resolvers/credential.js';
 import { SessionPrincipalResolver } from '../../src/resolvers/session.js';
@@ -684,7 +684,7 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
 
     it('a malformed publicOrigin set at runtime fails only signed requests, not anonymous ones', async () => {
       const config = DI.get(Configuration)!;
-      config.set('authn.http.publicOrigin', 'not an origin');
+      setPastSchema(config, 'authn.http.publicOrigin', 'not an origin');
       try {
         expect((await probe()).status).to.eq(200);
         const sig = `sig=:${randomBytes(8).toString('base64')}:`;

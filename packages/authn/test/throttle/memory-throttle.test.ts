@@ -14,6 +14,7 @@ import type { AuthnContext, ThrottleFlow, ThrottleKey, ThrottleParams } from '..
 import { configuredChild, configurationOf, pinConfiguration, violationPaths } from '../behaviour/harness.js';
 import { Lockout } from '../mutation/throttle-mutants.js';
 import { TestLog, useTestLog } from '../audit/test-log.js';
+import { setPastSchema } from '../support/set-past-schema.js';
 
 type Make = (p: ThrottleParams) => AuthnThrottle;
 
@@ -753,7 +754,7 @@ describe('MemoryAuthnThrottle', function () {
       for (const [path, bad] of [['authn.throttle.mfa.account.maxDelayMs', 0], ['authn.throttle.maxRows', Infinity]] as const) {
         const child = await configuredChild({ authn: { throttle: {} } });
         kids.push(child);
-        child.get(Configuration)!.set(path, bad);
+        setPastSchema(child.get(Configuration)!, path, bad);
         const t = pinConfiguration(new MemoryAuthnThrottle(), child);
         await assert.rejects(t.attempt(pwKeys(ALICE.login, IP_A), 'mfa', ctx()), (e: Error) => e instanceof InvalidOption && e.message.includes(path.slice('authn.throttle.'.length)), path);
       }

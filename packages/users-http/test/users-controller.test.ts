@@ -544,6 +544,42 @@ describe('Admin user controllers', function () {
       const adminUser = await byUuid(ADMIN_UUID);
       expect(adminUser.Login).to.eq('admin');
     });
+
+    describe('users.update hooks', () => {
+      const patchLogin = (login: string) => {
+        const hook = new ScriptedActionHook();
+        hook.tamper('users.update', (input) => {
+          (input.data as { Login?: string }).Login = login;
+        });
+        return hook;
+      };
+
+      it('runs the hooks: a hook can change data', async () => {
+        const hook = patchLogin('hooked');
+        await withHook(hook, async () => usersController.updateUser(await admin(), USER_UUID, { Login: 'renamed' } as any, undefined as any));
+
+        expect((await byUuid(USER_UUID)).Login).to.eq('hooked');
+        expect(hook.calls('users.update').map((c) => c.phase)).to.deep.eq(['before', 'after']);
+      });
+
+      it('checks the login a hook set against the other accounts', async () => {
+        const hook = patchLogin('admin');
+        const err = await withHook(hook, async () => usersController.updateUser(await admin(), USER_UUID, { Login: 'renamed' } as any, undefined as any).catch((e: unknown) => e));
+
+        expect(err).to.be.instanceOf(Error).and.have.property('message').that.matches(/already in use/);
+        expect((await byUuid(USER_UUID)).Login).to.eq('user');
+      });
+
+      it('answers a refusal with 403 action_refused and its code, and changes nothing', async () => {
+        const hook = new ScriptedActionHook();
+        hook.refuse('users.update', REFUSED);
+        const err = await withHook(hook, async () => usersController.updateUser(await admin(), USER_UUID, { Login: 'renamed' } as any, undefined as any).catch((e: unknown) => e));
+
+        expect(err).to.be.instanceOf(Forbidden);
+        expect(err).to.include({ error: 'action_refused', code: REFUSED });
+        expect((await byUuid(USER_UUID)).Login).to.eq('user');
+      });
+    });
   });
 
   describe('Users.removeUser / restoreUser', () => {

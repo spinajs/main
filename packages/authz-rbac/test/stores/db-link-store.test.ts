@@ -12,6 +12,7 @@ import { createHash, createHmac, randomBytes } from 'node:crypto';
 
 import { AdminLinkStore, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, DbLinkStore, LINK_LIST_MAX_LIMIT, LINK_SECRET_KEY, LINK_TOKEN_MAX_LENGTH, LinkStore, linkTokenHash, readVersion, AssignmentRecord, fromDateTime, LinkRecord } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
+import { setPastSchema } from '../support/set-past-schema.js';
 import { statementsOf } from '../support/statements.js';
 
 chai.use(chaiAsPromised);
@@ -671,7 +672,7 @@ for (const kind of DB_KINDS) {
         const { token } = await create();
 
         for (const secret of [undefined, '', 'x'.repeat(31), 12345678901234567890123456789012345]) {
-          config.set(LINK_SECRET_KEY, secret);
+          setPastSchema(config, LINK_SECRET_KEY, secret);
           const fresh = new DbLinkStore(db.container);
 
           const err = await fresh.byToken(token).catch((e: unknown) => e);

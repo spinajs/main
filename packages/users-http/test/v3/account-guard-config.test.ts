@@ -8,6 +8,7 @@ import type { IContainer } from '@spinajs/di';
 import type { User } from '@spinajs/users';
 
 import { AccountStanding } from '../../src/index.js';
+import { setPastSchema } from '../support/set-past-schema.js';
 
 /** `authz.admin.guard` as the Configuration of a fresh child, checked by the authz schema; no file source. */
 async function boot(guard: unknown): Promise<IContainer> {
@@ -54,7 +55,7 @@ describe('users-http v3: AccountStanding reads authz.admin.guard through @Config
   it('names itself when a check is on without privilegedPermission, set past the schema', async () => {
     const child = await boot({ service: 'DefaultAdminGuard', privilegedPermission: 'users:update' });
     children.push(child);
-    ((await child.resolve(Configuration)) as Configuration).set(['authz', 'admin', 'guard'], { preventSelfLockout: true });
+    setPastSchema((await child.resolve(Configuration)) as Configuration, 'authz.admin.guard', { preventSelfLockout: true });
     const guard = new AccountStanding();
     (guard as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = child;
     const actor = { type: 'user', id: 'actor' } as unknown as Principal;

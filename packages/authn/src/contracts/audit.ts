@@ -18,7 +18,7 @@ export interface AuthnEvent {
   readonly data?: Readonly<Record<string, unknown>>;
 }
 
-export type AuthnEventType = 'login' | 'logout' | 'mfa.challenge' | 'mfa.verify' | 'mfa.enrol' | 'mfa.disable' | 'reauth' | 'session.issue' | 'session.rotate' | 'session.revoke' | 'session.expire' | 'password.change' | 'password.reset.request' | 'password.reset' | 'invite.redeem' | 'token.create' | 'token.use' | 'token.revoke' | 'token.rotate' | 'token.update' | 'key.register' | 'key.use' | 'key.revoke' | 'identity.link' | 'identity.unlink' | 'impersonation.start' | 'impersonation.end' | 'impersonation.expire' | 'throttle.block' | 'passkey.register' | 'passkey.remove' | 'address.verify.request' | 'address.verify' | 'code.request' | 'identity.register';
+export type AuthnEventType = 'login' | 'logout' | 'mfa.challenge' | 'mfa.verify' | 'mfa.enrol' | 'mfa.disable' | 'reauth' | 'session.issue' | 'session.rotate' | 'session.revoke' | 'session.expire' | 'password.change' | 'password.reset.request' | 'password.reset' | 'invite.redeem' | 'token.create' | 'token.use' | 'token.revoke' | 'token.rotate' | 'token.update' | 'key.register' | 'key.use' | 'key.revoke' | 'identity.link' | 'identity.unlink' | 'impersonation.start' | 'impersonation.end' | 'impersonation.expire' | 'throttle.block' | 'passkey.register' | 'passkey.remove' | 'address.verify.request' | 'address.verify' | 'code.request' | 'identity.register' | 'role.switch' | 'request.refuse';
 
 /**
  * Registered with Array.ofType: every sink gets every event (A21).

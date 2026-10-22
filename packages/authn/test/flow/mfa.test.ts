@@ -7,6 +7,7 @@ import { ConfiguredMfaPolicy, DefaultMfaPolicy, MfaEnrolmentMismatch, MfaEnrolme
 import type { IdentityRef, Principal } from '../../src/index.js';
 import { KIT_MFA_STEP, bind, buildCore, invalidOf, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts } from '../behaviour/harness.js';
+import { setPastSchema } from '../support/set-past-schema.js';
 
 const ALICE: IdentityRef = { type: 'user', id: 'alice' };
 const PASSWORD = { method: 'password', strategy: 'local' };
@@ -145,7 +146,7 @@ describe('MFA steps and DefaultMfaPolicy', function () {
 
     it('refuses an identical entry listed twice that comes past the schema (Configuration.set)', async () => {
       const p = await boot();
-      p.configuration.set('authn.mfa.steps', [
+      setPastSchema(p.configuration, 'authn.mfa.steps', [
         { name: 'fake', service: KIT_MFA_STEP },
         { name: 'fake', service: KIT_MFA_STEP },
       ]);
@@ -161,7 +162,7 @@ describe('MFA steps and DefaultMfaPolicy', function () {
       const p = await boot({ mfa: { policy: { force: true } } });
       const policy = await policyOf(p);
       const listed = await policy.steps();
-      p.configuration.set('authn.mfa.steps', []);
+      setPastSchema(p.configuration, 'authn.mfa.steps', []);
       assert.strictEqual(await policy.steps(), listed);
       assert.deepStrictEqual(await policy.required(ALICE, PASSWORD), ['fake']);
     });
