@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return -- the assertions read untyped JSON answers */
 import 'mocha';
 import { expect } from 'chai';
 import { spawnSync } from 'node:child_process';

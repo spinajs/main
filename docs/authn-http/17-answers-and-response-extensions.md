@@ -91,14 +91,32 @@ DI.register(TermsResponseExtension).as(AuthnResponseExtension);
 
 ```ts sample
 import '@spinajs/authn-http';
-import { authnFailureResponse, authnSessionCookie } from '@spinajs/authn-http';
+import { ClientContext, authnFailureResponse, authnSessionCookie } from '@spinajs/authn-http';
+import type { AuthnClientContext } from '@spinajs/authn-http';
 import { AuthnService } from '@spinajs/authn/contracts';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BaseController, BasePath, Ok, Post, Req } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { BaseController, BasePath, Body, OnError, Ok, Post } from '@spinajs/http';
+import { Schema, ValidationFailed } from '@spinajs/validation';
 
 const NO_STORE = { Name: 'Cache-Control', Value: 'no-store' };
+
+// An `authn.` id is validated without type coercion.
+@Schema({
+  $id: 'authn.magicLink.RedeemBody',
+  type: 'object',
+  required: ['token'],
+  additionalProperties: false,
+  properties: { token: { type: 'string', minLength: 1, maxLength: 1024 } },
+})
+export class MagicLinkRedeemBody {
+  public token!: string;
+
+  constructor(data: object) {
+    Object.assign(this, data);
+  }
+}
 
 @BasePath('auth/magic-link')
 export class MagicLinkController extends BaseController {
@@ -106,12 +124,12 @@ export class MagicLinkController extends BaseController {
   protected Container!: IContainer;
 
   @Post('redeem')
-  public async redeem(@Req() req: Request) {
-    const token = (req.body as { token?: unknown } | undefined)?.token;
-    if (typeof token !== 'string' || token === '' || token.length > 1024) return authnFailureResponse();
-
+  // A refused body answers like a wrong token.
+  @OnError([ValidationFailed, InvalidArgument], () => authnFailureResponse(), { stages: ['arguments'] })
+  public async redeem(@Body({ required: true }) body: MagicLinkRedeemBody, @ClientContext() client: AuthnClientContext) {
+    const token = body.token;
     const authn = await this.Container.resolve(AuthnService);
-    const ip = req.storage.ClientIp;
+    const ip = client.ip;
     const result = await authn.authenticate({ kind: 'external', provider: 'magic-link', payload: { token } }, { ...(ip ? { ip } : {}), now: new Date(), purpose: 'login' });
     if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined);
     if (result.status === 'mfa_required') {

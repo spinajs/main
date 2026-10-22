@@ -75,15 +75,15 @@ The controller reads its input through decorated arguments (no `@Req()`), each c
 | Input | Rule |
 | --- | --- |
 | `:provider` | `^[A-Za-z0-9_-]{1,64}$` |
-| `GET /:provider`, `GET /:provider/reauth` query | `returnTo` up to 1024 characters; **any other key is refused** |
+| `GET /:provider`, `GET /:provider/reauth` query | `returnTo` up to 1024 characters (a longer one is refused; a shorter one that is no app-relative path falls back to `redirects.success`); **any other key is refused** |
 | `GET /:provider/callback` query | `code`, `state`, `iss`, `error`, `bounce`: strings of up to 4096 characters. **Other keys are allowed**: an IdP appends parameters of its own (`session_state`, `scope`, `authuser`), and refusing them would break the login. A repeated key is refused. |
-| `DELETE /:provider/link` query | `subject` up to 255 characters; any other key is refused |
-| `POST /:provider/backchannel-logout` | form only; `logout_token` up to 16384 characters; other form fields are ignored, because the sender is the IdP |
-| Headers | `user-agent`, `accept`, `sec-fetch-*`, `cookie`: at most 16384 characters; `host`, `x-forwarded-proto`, `x-forwarded-host`: at most 2048 |
+| `DELETE /:provider/link` query | `subject` of 1 to 255 characters (an empty `?subject=` is refused); any other key is refused |
+| `POST /:provider/backchannel-logout` | form only; `logout_token` required, 1 to 16384 characters; other form fields are ignored, because the sender is the IdP |
+| Headers | `user-agent`, `accept`, `sec-fetch-*`, `cookie`: at most 16384 characters; `host`, `x-forwarded-proto`, `x-forwarded-host`: at most 2048; `content-type` of the back-channel route: at most 256 |
 
 Input that fails these rules answers exactly as the login failure does (see [Login flow](01-login-flow.md)): `303` to the failure page for a browser navigation, otherwise `401` with the uniform failure body, and the flow cookie is cleared. The back-channel route answers `400 {"error":"invalid_request"}`. A `:provider` outside the pattern is an unknown provider, so the link routes answer the login failure for it where an unknown but well-formed name still answers `404`.
 
-The flow cookie is read from the `Cookie` header inside the controller: `@Cookie()` names the parameter, and the flow cookie's name depends on the environment (`__Host-` outside development and test). `OidcLogin` still decodes and checks its value.
+The flow cookie is read from the raw `Cookie` header (`@Header('cookie')`, capped like the other headers) and parsed inside the controller, not through `@Cookie()`: the flow cookie's name depends on the environment (`__Host-` outside development and test). `OidcLogin` still decodes and checks its value.
 
 ## Important behaviour
 

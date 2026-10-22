@@ -41,7 +41,7 @@ sequenceDiagram
 | --- | --- |
 | Request body | `{ "name", "expiresAt", "roles"?, "profile"?, "kind"?, "scope"?, "reauthPassword"? }` |
 | 200 | `{ "Token": <token entry>, "Plaintext": string }` |
-| 400 | `invalid_name`, `invalid_expiry`, `invalid_kind`, `invalid_roles`, `invalid_profile`, `invalid_scope` |
+| 400 | `invalid_name`, `invalid_expiry`, `invalid_kind`, `invalid_roles`, `invalid_profile`, `invalid_scope`, `invalid_field` (any other key) |
 | 401 | login failure body (wrong or throttled `reauthPassword`) |
 | 403 | `fresh_auth_required`, `session_required`, `impersonating` |
 
@@ -62,7 +62,7 @@ Replaces the secret of a live token of the caller and keeps its id, name, roles 
 | --- | --- |
 | Request body | `{ "graceSeconds"?, "reauthPassword"? }` |
 | 200 | `{ "Token": <token entry>, "Plaintext": string }`; the new plaintext is shown here once |
-| 400 | `invalid_grace` |
+| 400 | `invalid_grace`, `invalid_field` (any other key) |
 | 401 | login failure body (wrong or throttled `reauthPassword`) |
 | 403 | `fresh_auth_required`, `session_required`, `impersonating` |
 | 404 | `token_not_found` for any id that is not a live token of the caller |
@@ -102,8 +102,8 @@ Self-revocation by plaintext, RFC 7009 style, from `AuthnTokenRevocationControll
 
 | | |
 | --- | --- |
-| Body | `{ "token": "<plaintext>" }`, JSON or form |
-| 200 | `{}` whether or not a token was revoked: unknown, malformed, over 1024 characters, already revoked, or a previous secret whose grace has ended all answer alike |
+| Body | `{ "token": "<plaintext>", "token_type_hint"?: string }`, JSON or form. `token_type_hint` (at most 64 characters) is taken and ignored: the route revokes access tokens only |
+| 200 | `{}` whether or not a token was revoked: unknown, malformed, over 1024 characters, a body with any other key, already revoked, or a previous secret whose grace has ended all answer alike |
 | 429 | `{ "error": "throttled", "message" }` with `Retry-After`; nothing is revoked |
 
 Every request counts in the `reset` throttle flow keyed on the client ip, before the body is read. That budget is the one the password reset routes use, and `authn.throttle.reset.ip` sets it (`free: 5` by default; raise it if secret scanners call this route in bursts). A previous secret inside its rotation grace revokes the token like the current one. The call audits `token.revoke` with `reason: 'self'` and evicts the validation cache.

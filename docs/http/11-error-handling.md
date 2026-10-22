@@ -61,6 +61,16 @@ sequenceDiagram
 | `ErrorHandlerMiddleware` | `ServerMiddleware` list, `Order` `Number.MIN_SAFE_INTEGER - 1` | `ErrorHandlerMiddleware` | | `DI.register(Mine).as(ErrorHandlerMiddleware)`; `after()` must return a 4-argument Express error handler. |
 | `ErrorHandlerService` | Abstract class, resolved by class name from `http.errors.handlers` when each controller builds its router | none | | Extend it, register it as `ErrorHandlerService`, list it in `http.errors.handlers`; see [App-wide handlers](#app-wide-handlers). |
 
+The building blocks of the route error handlers are exported for code that builds its own route chain (a custom controller base, a test):
+
+| Export | What it does |
+| --- | --- |
+| `markStage(res, stage)` | Records the `ErrorStage` the chain is in on `res.locals`; the policy gate, middleware wrappers and action handler call it. A `res` without `locals` is ignored. |
+| `stageOf(res)` | The stage last recorded on `res`; `'action'` when none was. |
+| `createOnErrorHandler(descriptors, route, controller, container, log)` | The Express error handler that runs the descriptors in order, as described in [Order](#order). With no descriptors, or once headers are sent, it passes the error on. |
+| `resolveConfigErrorHandlers(cfg, container)` | Resolves the `http.errors.handlers` entries into descriptors, in config order; `[]` when the list is empty. Throws `InvalidOption` for a name no registered `ErrorHandlerService` has. |
+| `toErrorDescriptor(service)` | Turns an `ErrorHandlerService` into an `IOnErrorDescriptor` (`On`, `Handler`, `Stages`). |
+
 ### Error map: custom implementation
 
 Two ways to give an exception a status:

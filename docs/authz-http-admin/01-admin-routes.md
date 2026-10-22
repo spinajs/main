@@ -1,6 +1,6 @@
 # Admin routes
 
-`AuthzAdminController` serves 18 routes under `/authz` over the `AuthzAdmin` of one authz domain. Each route turns the request into an `AuthzCommand` list or an `AuthzAdminQuery`, runs it as the caller and maps the result to an HTTP status.
+`AuthzAdminController` serves 19 routes under `/authz` over the `AuthzAdmin` of one authz domain. Each route turns the request into an `AuthzCommand` list or an `AuthzAdminQuery`, runs it as the caller and maps the result to an HTTP status.
 
 Use it to drive an admin UI or a script over HTTP with the same answers an in-process `AuthzAdmin` call gives.
 
@@ -13,8 +13,8 @@ Use it to drive an admin UI or a script over HTTP with the same answers an in-pr
    - `@Param()` checks `:id` (1 to 160 characters) and `:type` (1 to 64);
    - `@Body()` builds the body DTO (`AuthzAssignmentGrant`, `AuthzLinkPatch`, ...) and validates it against its `@Schema`; `@AdminBody()` does the same for the open attribute bodies, and `@AdminBatch()` for `POST /authz/commands` (see [Command batches](02-command-batches.md));
    - `@AdminQuery()` builds the query DTO (`AuthzAssignmentsQuery`, `AuthzWriteOptionsQuery`, ...) from the whole query string and validates it.
-   Every DTO schema is closed (an unknown key is refused) and has an `authz.` id, so it is validated without type coercion. See [Input validation](#input-validation).
-3. The route builds a command list (`decodeCommand` turns ISO 8601 expiry strings into `Date`s) or an `AuthzAdminQuery` (`readAssignmentsQuery`, `readPageQuery`) from the validated input, and gets the domain's `AuthzAdmin`: `AuthzDomains.service(domain).admin()`.
+   Every DTO schema except the two scope attribute bodies is closed (an unknown key is refused), and each has an `authz.` id, so it is validated without type coercion. See [Input validation](#input-validation).
+3. The route builds a command list (`decodeCommand` turns ISO 8601 expiry strings into `Date`s) or an `AuthzAdminQuery` (`readAssignmentsQuery`, `readHoldersQuery`, `readPageQuery`) from the validated input, and gets the domain's `AuthzAdmin`: `AuthzDomains.service(domain).admin()`.
 4. The route calls `admin.execute(principal, commands, options)` or `admin.list(principal, query)`. The actor is always the request principal; the body cannot name another one.
 5. `AuthzAdmin` validates, checks the actor's permission, runs the guard and applies the batch in one transaction. See [AuthzAdmin](../authz/10-authz-admin.md).
 6. The route answers:
@@ -33,7 +33,7 @@ sequenceDiagram
   C->>P: POST /authz/assignments
   P-->>C: 401 (no principal or anonymous)
   P->>R: route
-  R->>R: domainAdmin(authz.http.admin.domain)
+  R->>R: AuthzDomains.service(domain).admin()
   R->>A: execute(principal, [assignment.grant], options)
   A->>H: validate, permission, guard, apply (one transaction)
   H-->>A: results
@@ -74,6 +74,7 @@ The permission is the default one; `AuthzAdmin` checks it at the resource in the
 | --- | --- | --- | --- |
 | `POST /authz/commands` | `execute(commands)` | per command | per command |
 | `GET /authz/assignments` | `list({ kind: 'assignments' })` | `authz:assignments.read` | `scope` query, else `$global` |
+| `GET /authz/holders` | `list({ kind: 'holders' })` | `authz:holders.read` | the `scope` query (required) |
 | `POST /authz/assignments` | `execute([assignment.grant])` | `authz:assignments.manage` | the body `scope` |
 | `PATCH /authz/assignments/:id` | `execute([assignment.setTags, addTags, removeTags, setExpiry])`, one per key given | `authz:assignments.manage` | the assignment's scope |
 | `DELETE /authz/assignments/:id` | `execute([assignment.revoke])` | `authz:assignments.manage` | the assignment's scope |
@@ -117,13 +118,14 @@ authz: {
 
 | Where | Encoding |
 | --- | --- |
-| `scope` query | `<type>` or `<type>:<id>`, split at the first `:` (`file:uploads:a/b.pdf` is type `file`, id `uploads:a/b.pdf`); `$global` is the global scope. |
-| `subject` query | `<type>:<id>` (a principal) or `set:<role>@<type>:<id>` (the holders of a role at a scope). |
-| `includeExpired`, `dryRun` query | `true` or `false`. |
+| `scope` query | 1 to 225 characters (the longest type, `:`, the longest id): `<type>` or `<type>:<id>`, split at the first `:` (`file:uploads:a/b.pdf` is type `file`, id `uploads:a/b.pdf`); `$global` is the global scope. |
+| `subject` query | 1 to 358 characters: `<type>:<id>` (a principal) or `set:<role>@<type>:<id>` (the holders of a role at a scope). |
+| `permission`, `expandSets` query | `/authz/holders` only: `permission` is required, a permission name of up to 256 characters matching the name pattern; `expandSets` is `true` or `false`. `scope` is required there too. |
+| `includeExpired`, `expandSets`, `dryRun` query | `true` or `false`. |
 | `limit`, `offset` query | non-negative integers, `limit` at most `500`; `AuthzAdmin` defaults the one you leave out and may refuse a value, such as `limit=0`. |
-| `after` query | the `next` of the previous page, taken as is. It replaces `offset`: both together, or an empty `after`, answer `400 invalid_query` on `after`. `/authz/policies` takes no `after`. |
+| `after` query | the `next` of the previous page, taken as is, 1 to 512 characters. It replaces `offset`: both together, or an empty `after`, answer `400 invalid_query` on `after`. `/authz/policies` takes no `after`. |
 | `reason`, `idempotencyKey` query | text, on the single-command write routes: `reason` up to 512 characters, `idempotencyKey` 1 to 128. `POST /authz/commands` takes them in the body. |
-| expiry dates in a body | ISO 8601 date-time with `Z` or an offset, such as `2027-01-01T00:00:00Z`. Seconds and fraction are optional. `null` clears the expiry. |
+| expiry dates in a body | ISO 8601 date-time with `Z` or an offset, such as `2027-01-01T00:00:00Z`. Seconds are required (JSON schema `date-time`), the fraction is optional. `null` clears the expiry. |
 
 A query key given twice (`role=a&role=b`) or a key the route does not take answers `400 invalid_query`.
 
@@ -138,7 +140,7 @@ Each input is checked against its schema before the route runs. A refusal answer
 | Path parameter | `invalid_request` | `id` or `type` |
 | Body of `POST /authz/commands` | `invalid_request` when the body is not an object, else `invalid_batch` | `commands.<n>.<path>` for a command, or the option name |
 
-- **Caps.** Ids (rows, scope and principal ids) 1 to 160 characters, types 1 to 64, roles 1 to 128, `reason` 512, `idempotencyKey` 1 to 128, `limit` 500.
+- **Caps.** Ids (rows, scope and principal ids) 1 to 160 characters, types 1 to 64, roles 1 to 128, `reason` 512, `idempotencyKey` 1 to 128, `limit` 500, `after` 1 to 512, the `scope` query 1 to 225, the `subject` query 1 to 358, the holders `permission` 256, a batch command's `kind` 1 to 128. `tags` and `commands` have no length cap here; `authz.admin.maxBatch` limits the batch.
 - **No coercion.** `replaceLadder: "true"` or `dryRun: 1` in a body is refused; a query string value is read as the type its schema names (`true`/`false`, digits).
 - **Unknown keys are refused**, also `kind` in the body of a single-command route.
 - **Expiry dates** must be `date-time` strings (seconds included) or `null`; another string is refused here instead of reaching `AuthzAdmin`.
@@ -184,7 +186,7 @@ GET /authz/assignments?scope=project:p1&limit=100&after=MjAyNi0xMC0wMVQxMjowMDow
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `AuthzAdminController` | `BaseController`, loaded by http from the controllers dir in `system.dirs.controllers` | `AuthzAdminController` | none | Build your own routes with the exported helpers: [Custom admin routes](07-custom-admin-routes.md). |
-| `AuthzAdmin` | resolved per call through `domainAdmin(domain)` | `DefaultAuthzAdmin` (`@spinajs/authz`) | none | See [AuthzAdmin](../authz/10-authz-admin.md). |
+| `AuthzAdmin` | resolved per call: `AuthzDomains.service(domain).admin()` for the domain `@AdminDomain()` names | `DefaultAuthzAdmin` (`@spinajs/authz`) | none | See [AuthzAdmin](../authz/10-authz-admin.md). |
 | `AdminGuard` | named by `authz.admin.guard.service` | none in this package | `DefaultAdminGuard` (`@spinajs/authz-rbac`) | Register your guard and name it in `authz.admin.guard.service`. |
 
 <!-- TODO(docs-hook): verify how an app that installs the package turns the /authz routes off (removing the controllers dir from system.dirs.controllers) -->
@@ -196,7 +198,7 @@ GET /authz/assignments?scope=project:p1&limit=100&after=MjAyNi0xMC0wMVQxMjowMDow
 - **One transaction per request.** A write route runs one `execute` batch. The first failure rolls the whole batch back; the entries before it report `affected: 0`.
 - **A resolver-named domain that does not exist is a 403.** `{ error: { code: 'unknown_domain', message } }`, and no command runs. Only a domain the resolver names is refused this way; a misconfigured `authz.http.admin.domain` stays a 500.
 - **The domain is read on every call.** A domain that does not exist, or a non-string value set at runtime, fails the request with an error that is not an `AuthzAdminFailure` (`500` in the package tests). It never falls back to `root`.
-- **No write over GET.** Only the five list routes answer `GET`.
+- **No write over GET.** Only the six read routes (assignments, holders, links, rules, policies, scope attributes) answer `GET`.
 - **`dryRun=true`** validates, checks the permission and runs the guard, then rolls back. It ignores the `idempotencyKey`.
 - **Idempotency.** A request with an `idempotencyKey` that `AuthzAdmin` already holds for the same domain and actor (24 hours) answers the stored results and runs nothing, whatever the new body says.
 - **Missing model.** Without `@spinajs/authz-abac` the policy routes answer `404 not_found`: no handler or reader serves the kind.

@@ -336,6 +336,21 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(res.headers['cache-control']).to.not.eq('no-store');
     });
 
+    it('V6 a signed session id over 128 characters never reaches the session store; one of 128 does', async () => {
+      const restore = sinon.spy(s.store, 'restore');
+      try {
+        const over = await probe({ Cookie: cookieOf('x'.repeat(129)) });
+        expect(over.body).to.deep.include({ session: null, principal: null });
+        expect(restore.callCount).to.eq(0);
+
+        const at = await probe({ Cookie: cookieOf('x'.repeat(128)) });
+        expect(at.body).to.deep.include({ session: null, principal: null });
+        expect(restore.callCount).to.eq(1);
+      } finally {
+        restore.restore();
+      }
+    });
+
     it('A09 SR-07 a pending session sets AuthnSession and yields no principal', async () => {
       const h = await s.issuer.issue(alice, FACTS({ assurance: 'aal1', mfa: [] }), { pending: { steps: ['totp'] } });
       const res = await probe({ Cookie: cookieOf(h.id) });

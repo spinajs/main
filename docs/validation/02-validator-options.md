@@ -51,6 +51,8 @@ export default {
 | --- | --- | --- | --- | --- |
 | Validation configuration schema | Value `'__configurationSchema__'` in the root container, registered at import | The schema exported as `default` from `schemas/validation.js` | none | Not replaceable from outside; options outside it pass unchecked |
 | Ajv instance | `DataValidator.Validator` (protected), built in `resolve()` | Ajv 8 with the three plugins above | none | Subclass `DataValidator` to add formats, keywords or vocabularies; see [Customizing the validator](08-customizing-the-validator.md) |
+| Strict Ajv instance | `DataValidator.StrictValidator` (protected), built in `resolve()` with `coerceTypes: false` | Ajv 8 with the three plugins above | none | Used for [strict schema ids](#strict-schema-ids); override `createAjv()` so your formats and keywords reach both instances |
+| Default strict prefixes | `DEFAULT_STRICT_ID_PREFIXES`, exported constant | `['authn.', 'authz.']` | | Used when `validation.strict` is not an object with `idPrefixes` |
 
 The package entry also exports the default config object as its `default` export, so bundlers that inline modules still see the defaults.
 
@@ -82,6 +84,7 @@ export default {
 
 - The id decides, not the caller: `tryValidate('authn.LoginBody', data)`, `tryValidate({ $id: 'authn.LoginBody', ... }, data)` and an instance of a `@Schema({ $id: 'authn.LoginBody', ... })` class are all strict. A schema without `$id` is never strict.
 - A `$ref` from a strict schema resolves on the strict instance, so the referenced schema is checked without coercion too.
+- Only the `$id` of the schema you validate against counts. A strict-prefixed schema reached by `$ref` from a schema without a strict prefix is validated on the coercing instance, with coercion.
 - `DataValidator.isStrict(schemaOrId)` tells which instance a schema uses.
 - `removeAdditional` and `useDefaults` still apply on the strict instance.
 

@@ -20,8 +20,47 @@ anonymous client cannot avoid the ip throttle by sending bad bodies.
 ## The DTOs and their answers
 
 The DTO classes live in `src/dto/` and are not exported; the OpenAPI document shows their schemas as the request bodies.
-Caps are those of `@spinajs/authn/schemas` (`loginField`, `passwordField`, `secretField`, `codeField`: 1024 characters;
-`kidField`; `isoInstantField`; `identityRefField`; `tokenIdField`: 64; `sessionHandleField`: 128; `mfaStepField`: 64).
+Shared caps come from `@spinajs/authn/schemas`. A capped string is also non-empty, except `token_type_hint` and the
+members inside a passkey `response`:
+
+- `loginField`, `passwordField`, `secretField`, `codeField`, `tokenSecretField`: at most 1024 characters.
+- `kidField`: `^[A-Za-z0-9._-]{1,64}$`.
+- `isoInstantField`: `format: date-time`, at most 40 characters.
+- `identityRefField`: a string of at most 256 characters, or a closed `{ type, id }` (at most 64 and 256 characters).
+- `tokenIdField`: 64. `sessionHandleField`: 128. `mfaStepField`: 64.
+
+Route-specific caps:
+
+| Input | Cap |
+| --- | --- |
+| `role` (active role) | at most 256 characters |
+| `login`, `email` (registration) | at most 254 characters; `email` has `format: email` |
+| `jwk` (key register) | an object of 1 to 8 members, each a string of at most 128 characters, a boolean, or a list of at most 8 strings of at most 32 characters; the handler also caps it at 512 characters as JSON, after fresh authentication |
+| `proof` (key register) | closed `{ challengeId, signature }`: at most 600 and 128 characters |
+| `name` (key register) | at most 128 characters, no control characters |
+| `challengeId`, `signature` (key login) | at most 600 and 128 characters; `keyId` is a `kidField` |
+| `purpose` (key challenge) | `login` or `register`; `login` needs `kid` |
+| `name` (token) | at most 128 characters, at least one non-space character |
+| `roles` (token) | at most 64 names of at most 128 characters; on `PATCH` at least one |
+| `profile`, `kind` (token) | at most 128 characters; `pat`, `service` or `agent` |
+| `scope` (token) | closed `{ permissions?, resources?, agent? }`: at most 1000 permissions and 1000 closed `{ type, id? }` resources, strings of at most 256 characters |
+| `graceSeconds` (token rotate) | an integer from 0 to 604800 |
+| `token_type_hint` (token revoke) | a string of at most 64 characters, ignored |
+| `challengeId` (passkeys) | at most 64 characters |
+| `name` (passkey register) | at most 64 characters, no control characters |
+| `response` (passkeys) | an object of at most 16 members with `id`, `type` and `response`; `id` and `rawId` match `^[A-Za-z0-9_-]{1,1364}$`; `type` and `authenticatorAttachment` at most 32 characters; `clientExtensionResults` at most 32 members; `response` at most 16 members, each of `clientDataJSON`, `authenticatorData`, `signature`, `userHandle`, `attestationObject` at most 65536 characters. Open below the top level: browsers add members |
+| `:id` (passkey delete) | `^[A-Za-z0-9_-]{1,1364}$` |
+| `sendReset` (admin) | a boolean |
+| `:uuid` (admin) | a lower-case uuid |
+
+The body schemas are `authn.LoginBody`, `authn.CodeRequestBody`, `authn.CodeLoginBody`, `authn.KeyLoginBody`,
+`authn.KeyChallengeBody`, `authn.KeyRegisterBody`, `authn.PasskeyLoginBody`, `authn.PasskeyRegisterBody`,
+`authn.PasswordResetRequestBody`, `authn.PasswordResetBody`, `authn.PasswordChangeBody`, `authn.RegistrationBody`,
+`authn.VerifyBody`, `authn.ReauthBody`, `authn.ReauthPasswordBody`, `authn.MfaVerifyBody`, `authn.MfaCodeBody`,
+`authn.MfaStepUpBody`, `authn.MfaChallengeBody`, `authn.MfaDisableBody`, `authn.ActiveRoleBody`,
+`authn.ImpersonationBody`, `authn.TokenCreateBody`, `authn.TokenRotateBody`, `authn.TokenUpdateBody`,
+`authn.TokenRevokeBody` and `authn.AdminPasswordResetBody`. The path parameters use `authn.param.sessionHandle`,
+`authn.param.kid`, `authn.param.tokenId`, `authn.param.passkeyId` and `authn.param.userId`.
 
 | Route | Input | A refused input answers |
 | --- | --- | --- |
@@ -34,7 +73,7 @@ Caps are those of `@spinajs/authn/schemas` (`loginField`, `passwordField`, `secr
 | `POST /auth/reauth` | `{ password }` | 401 login failure body |
 | `POST /auth/mfa/verify`, `/recovery`, `/step-up` | `{ code, step? }`, `{ code }`, `{ code, step? }` | 401 login failure body |
 | `POST /auth/mfa/challenge` | `{ step? }` | 202 `{ Ok: true }`, as always |
-| `/user/mfa`, `/confirm`, `/disable`, `/recovery-codes` | `{ reauthPassword? }`, `{ code }`, `{ code, reauthPassword? }` | 401 login failure body for a code or password; 400 `invalid_field` |
+| `/user/mfa`, `/confirm`, `/disable`, `/recovery-codes` | `{ reauthPassword? }`, `{ code }`, `{ code, reauthPassword? }`, `{ reauthPassword? }` | 401 login failure body for a code or password; 400 `invalid_field` |
 | `POST /auth/active-role` | `{ role, password? }` | 400 `invalid_role`; 401 for a password that is no string; 400 `invalid_field` |
 | `POST /auth/impersonate` | `{ target, password? }` | 400 `invalid_target`; 401; 400 `invalid_field` |
 | `DELETE /user/sessions/:handle` | `:handle` at most 128 | 404 `session_not_found` |
@@ -68,14 +107,17 @@ removes `reauthPassword` itself for routes that use it.
 ## The IP throttle gate
 
 `AuthnIpThrottleMiddleware`, put on a route with `@IpThrottle(flow, answer, mode)`, keys the client ip with
-`ipKey` (`authn.throttle.ipv6Prefix`) in a throttle flow.
+`ipKey` (`authn.throttle.ipv6Prefix`) in a throttle flow. Both are internal to the package's own routes and not
+exported; cap your own routes with `http.throttle` ([Throttling](../http/18-throttling.md)).
 
 - `gate` (default): it peeks the ip key of the flow and refuses while it is held, before the bot check and before the
   body is read. It counts nothing for a request it lets through, because the service behind counts the requests it
   takes. A body the route's DTO refuses is counted against the ip key, so invalid bodies from one client reach the
   throttled answer after the flow's `free` attempts, and a refused request is never validated. A throttle without
   `peek()` is not gated before validation, but invalid bodies are still counted and refused once over the limit.
-- `count`: every request counts (the token revocation route, whose service counts nothing).
+- `count`: every request counts (the token revocation route, whose service counts nothing). A request without a
+  client ip counts under the one ip key `unknown`. In `gate` mode such a request is not gated; the service counts what
+  it can.
 
 | Route | Flow | Throttled answer |
 | --- | --- | --- |

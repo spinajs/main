@@ -15,7 +15,7 @@
 
 1. The body is `{ secret }`, at most 1024 characters. The caller may be anonymous.
 2. `PasswordService.redeemVerification(secret, ctx)` redeems it. `LocalPasswordService` first counts the client ip in the `reset` throttle flow (an IPv6 client on its prefix), before it parses the secret. A refusal answers `429 throttled` with `Retry-After`.
-3. A verified address answers `200 { "Ok": true }`. Every refusal, a missing secret included, answers `400 { "error": "invalid_secret", "message": "the verification link is invalid or has expired" }`. The body is the same for every refusal.
+3. A verified address answers `200 { "Ok": true }`. Every refusal, a missing secret included, answers `400 { "error": "invalid_secret", "message": "the verification link is invalid or has expired" }`. The body is the same for every refusal. A body with any other key answers 400 `invalid_field`.
 
 ## Example
 

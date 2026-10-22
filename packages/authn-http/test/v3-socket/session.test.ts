@@ -240,6 +240,16 @@ describe('@spinajs/authn-http/socket: session cookie source (G6)', function () {
       expect((await who({ cookie: signed(randomUUID()) })).who).to.deep.equal(UNATTENDED_WHO);
     });
 
+    it('V6 never asks the session store for a signed id over 128 characters; one of 128 is looked up', async () => {
+      const restore = sinon.spy(await sessionStore(), 'restore');
+      const source = await sessionSource();
+
+      expect(await source.authenticate(handshakeOf(signed('x'.repeat(129))))).to.eq(null);
+      expect(restore.callCount).to.eq(0);
+      expect(await source.authenticate(handshakeOf(signed('x'.repeat(128))))).to.eq(null);
+      expect(restore.calledOnceWith(storageKeyOf('x'.repeat(128)))).to.eq(true);
+    });
+
     it('connects nobody once the session passed its idle timeout', async () => {
       const c = await loggedIn(await seedUser());
       sessionClockAt(Date.now() + IDLE_MS + 60_000);

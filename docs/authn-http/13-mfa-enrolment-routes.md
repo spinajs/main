@@ -47,6 +47,7 @@ Every answer carries `Cache-Control: no-store`.
 | Status | Body | When |
 | --- | --- | --- |
 | 401 | `unauthenticated` | No session, the session ended (`no_session`), or a pending session on a route it may not use. A pending session that `PendingMfaEnrolment` refuses (already enrolled, no step configured, refused by the policy) also hears this: the full-login group is declared first, and its refusal is the one reported. |
+| 400 | `invalid_field` | The body has a key the route does not take. |
 | 401 | login failure body | A wrong password, a wrong code, a missing or over-long code. `Retry-After` only when the `mfa` throttle refused the code. |
 | 403 | `fresh_auth_required` | A stale session without `reauthPassword`. |
 | 403 | `session_required`, `impersonating` | A token or key caller; an impersonation (a factor enrolled there would lock the owner out). |

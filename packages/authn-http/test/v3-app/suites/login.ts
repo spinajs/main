@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call -- the assertions read untyped JSON answers */
 import { expect } from 'chai';
 import { randomUUID } from 'node:crypto';
 
@@ -172,7 +173,7 @@ export function loginSuite(): void {
       return u;
     };
     const first = (role: string) => () => ({ roles: [role] });
-    const sessionsOf = async (u: { ref: { type: string; id: string } }) => ((await DI.resolve(SessionIssuer)) as SessionIssuer).list(u.ref);
+    const sessionsOf = async (u: { ref: { type: string; id: string } }) => (await DI.resolve<SessionIssuer>(SessionIssuer)).list(u.ref);
 
     it('no hook answers a ceiling: the login answer and the session keep every held role, as in 3.0.1', async () => {
       const u = await holdingBAndA();

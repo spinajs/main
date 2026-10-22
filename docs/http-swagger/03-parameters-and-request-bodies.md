@@ -87,7 +87,7 @@ A placeholder without an argument is still documented, so a handler that never r
 - `@File({ required: true })` puts the argument name into the body's `required` list.
 - `@CsvFile()` and `@JsonFile()` are one binary file, whatever the argument type says about the parsed rows.
 - The `requestBody` itself is always `required: true`.
-- A body argument wins over `@body`: the tag is ignored on a route that has one. Use `@body` for a handler that reads its JSON body from `@Req()`, as the `@spinajs/authn-http` routes do with the named schemas of `AUTHN_HTTP_SCHEMAS` ([Route groups](../authn-http/07-route-groups.md)).
+- A body argument wins over `@body`: the tag is ignored on a route that has one. Use `@body` only for a handler that reads its JSON body from `@Req()`. The `@spinajs/authn-http` routes take `@Body()` DTOs, so their request bodies come from the DTO schemas ([Input validation](../authn-http/24-input-validation.md)).
 
 ## `@spinajs/orm-http` arguments
 

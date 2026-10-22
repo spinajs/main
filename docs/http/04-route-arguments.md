@@ -42,7 +42,7 @@ A schema whose `$id` starts with a `validation.strict.idPrefixes` entry (by defa
 
 ### Body size limits
 
-The body parsers of `http.middlewares` accept JSON bodies up to 5mb. `http.bodyLimits` sets a smaller limit under a path prefix:
+The default body parsers of `http.middlewares` accept JSON and XML bodies up to 5mb and urlencoded bodies up to 100kb (the Express default; that parser sets no limit). `http.bodyLimits` sets a smaller limit under a path prefix:
 
 ```ts
 // config/http.ts in your app
@@ -61,6 +61,9 @@ export default {
 - The limit gate runs before `http.middlewares`. On a matching path it parses JSON, urlencoded and XML text bodies itself with the rule's limit, sets `req.rawBody` for JSON like the default parser, and the `http.middlewares` parsers then skip the body. A `verify` hook of your own JSON parser does not run on these paths.
 - A declared `Content-Length` over the limit answers 413 for any content type, before the body is read. A body that turns out larger while it is read answers 413 too (`EntityTooLargeException`).
 - The gate runs before routing, so a 413 never reaches `@OnError`.
+- A `limit` that is not a size throws `InvalidOption` when `HttpServer` resolves.
+
+`HttpServer` builds the gate with the exported `createBodyLimitMiddleware(rules)`, which returns an Express handler, or `null` for an empty list. `IBodyLimitRule` is the rule type (`{ path: string; limit: string }`). `parseBodyLimit(limit)` turns `512b`, `16kb`, `1.5mb` or `1gb` (any case, `b` when there is no unit, 1kb = 1024 bytes) into bytes and throws `InvalidOption` for anything else.
 
 ## Decorators
 

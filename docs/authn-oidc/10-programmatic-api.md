@@ -66,6 +66,8 @@ const answer = await login.callback('corp', {
 
 Register the callback path you pass in `callbackPath` at the IdP, since it builds the default redirect URI.
 
+The route schemas of `OidcController` (the `:provider` pattern, the closed begin and unlink queries, the header caps; see [Route inputs](09-security.md#route-inputs)) are not exported and do not apply to a direct `OidcLogin` call. `OidcLogin` still checks what it reads: the callback's `code`, `state`, `iss` and `error` must each be one string of at most 4096 characters, and `returnTo` is kept only as an app-relative path of at most 1024 characters. Validate the provider name, the other query keys and the headers in your own route.
+
 ## Important behaviour
 
 - **The core flow still runs.** `OidcLogin.callback()` calls `AuthnService.authenticate()`, so the strategy must be listed in `authn.strategies`, and throttling, audit, linking and hooks apply.
