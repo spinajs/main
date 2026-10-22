@@ -1,5 +1,6 @@
 import type { AuthzTx } from '@spinajs/authz';
-import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Autoinject, Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 import type { IContainer } from '@spinajs/di';
 import { sortedUnique } from '@spinajs/util';
 
@@ -23,6 +24,10 @@ const toRow = (r: MembershipFields): MembershipRow => ({ memberKey: r.member_key
 @Injectable()
 @Inject(Container)
 export class DbMembershipStore extends withDbRbacStore(AdminMembershipStore) {
+  /** Never read: injecting it resolves the Orm, which binds the models, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   readonly name: string = 'DbMembershipStore';
 
   constructor(protected readonly container: IContainer) {
@@ -30,32 +35,26 @@ export class DbMembershipStore extends withDbRbacStore(AdminMembershipStore) {
   }
 
   async setsOf(memberKeys: readonly string[], at: Date): Promise<readonly { setKey: string; expiresAt?: Date }[]> {
-    await this.ready();
     return latestPerSet((await this.select('member_key', memberKeys, at)).map(toRow));
   }
 
   async membersOf(setKey: string, at: Date): Promise<readonly string[]> {
-    await this.ready();
     return sortedUnique((await this.select('set_key', [setKey], at)).map((r) => r.member_key));
   }
 
   async rowsOf(memberKeys: readonly string[]): Promise<readonly MembershipRow[]> {
-    await this.ready();
     return (await this.select('member_key', memberKeys)).map(toRow);
   }
 
   async allMembersOf(setKeys: readonly string[]): Promise<readonly string[]> {
-    await this.ready();
     return sortedUnique((await this.select('set_key', setKeys)).map((r) => r.member_key));
   }
 
   async memberKeys(): Promise<readonly string[]> {
-    await this.ready();
     return sortedUnique((await MembershipRecord.query().columns(['member_key'])).map((r) => r.member_key));
   }
 
   async replace(memberKey: string, rows: readonly MembershipRow[], tx: AuthzTx): Promise<void> {
-    await this.ready();
     requireTransaction(MembershipRecord, tx, `${this.name}.replace`);
     await MembershipRecord.destroy().where('member_key', memberKey);
     await MembershipRecord.insert(rows.map((r) => recordValues<MembershipRecord>({ member_key: memberKey, set_key: r.setKey, depth: r.depth, expires_at: toDateTime(r.expiresAt) })));

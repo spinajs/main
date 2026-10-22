@@ -1,6 +1,6 @@
 # Applying migrations
 
-`migrate-up` applies pending migrations through `orm.Migration.up()`. Use it in a deploy step, or to apply a migration on a connection whose `Migration.OnStartup` is off.
+`migrate-up` applies pending migrations and their `data()` seeds through `OrmMigrator.migrate()`, the same pass an application's boot runs. Use it in a deploy step, or to apply a migration on a connection whose `Migration.OnStartup` is off.
 
 ```sh
 spinajs migrate-up                                              # everything pending, every connection
@@ -11,21 +11,22 @@ spinajs migrate-up --fake                                       # record as appl
 
 ## How it works
 
-1. `MigrateUpCommand.execute(options)` calls [`resolveCliOrm()`](06-cli-orm.md). The `Orm` boots without its own migration pass.
-2. It calls `orm.Migration.up(options.name, { fake, connection })`. `force` is left at its default `true`, so connections with `Migration.OnStartup: false` run too.
-3. The runner plans, orders and applies the migrations. Ordering, batches, locking and transactions are described in [Migrations: a run](../orm/10-migrations.md#a-run-migrationrunnerup). It throws, and the command fails, when:
+1. `MigrateUpCommand.execute(options)` calls [`resolveCliMigrator()`](06-cli-orm.md). The migrator and its `Orm` resolve without a migration pass.
+2. It calls `migrator.migrate({ name, fake, connection })`. `force` is left at its default `true`, so connections with `Migration.OnStartup: false` run too.
+3. `OrmMigrator.Runner` plans, orders and applies the migrations; the migrator then re-reads the table info of the models they touched and runs their `data()` hooks (none with `--fake`). See [Migrations: the boot pass](../orm/10-migrations.md#the-boot-pass-diresolveormmigrator). Ordering, batches, locking and transactions are described in [Migrations: a run](../orm/10-migrations.md#a-run-migrationrunnerup). It throws, and the command fails, when:
    - `--name` matches no registered migration (`OrmException`, message contains `not registered`);
    - `--connection` matches no configured connection or alias (`OrmException` naming it);
    - the connection holds a [failed](../orm/10-migrations.md#migration-states) migration;
-   - a migration's `up()` throws.
-4. `MigrateUpCommand.reportRun(orm, executed, options)` reports the result. With a non-empty result, it logs `Applied <n> migration(s): <names>` at `success` level, or `Recorded as applied ( --fake, nothing was executed ) ...` with `--fake`.
+   - a migration's `up()` throws;
+   - a `data()` hook throws (`OrmException` `Migration data() phase failed for: ...`, after every hook ran).
+4. `MigrateUpCommand.reportRun(migrator, executed, options)` reports the result. With a non-empty result, it logs `Applied <n> migration(s): <names>` at `success` level, or `Recorded as applied ( --fake, nothing was executed ) ...` with `--fake`.
 5. With an empty result and no `--name`, it logs that nothing is pending (naming the connection when `--connection` was given). Exit code `0`.
-6. With an empty result and a `--name`, `MigrateUpCommand.explainEmptyNamedRun()` calls `orm.Migration.status()`, unfiltered, and finds the entry:
+6. With an empty result and a `--name`, `MigrateUpCommand.explainEmptyNamedRun()` calls `migrator.Runner.status()`, unfiltered, and finds the entry:
    - no entry: the migration is registered, but its connection is not configured here or it has no `@Migration()`. Logs an error, sets `process.exitCode = 1`;
    - applied: logs `already applied ... nothing to do`. Exit code `0`;
    - otherwise: logs a connection mismatch when `--connection` was given, then that the migration is failed or still pending. Sets `process.exitCode = 1`.
 7. Without `--name` and `--connection`, `MigrateUpCommand.checkModelTables(orm, fake)` checks the model tables:
-   - with [`db.StrictTableCheck`](../orm/01-connections.md#configuration) `false`, it returns at once: the CLI `Orm` boot already logged each missing table as a warning;
+   - with [`db.StrictTableCheck`](../orm/01-connections.md#configuration) `false`, it returns at once: the `Orm` resolve already logged each missing table as a warning;
    - otherwise it calls `orm.reloadTableInfo({ strict: true })`. A registered model whose table is still missing makes it log `Migrations are applied, but the application will not boot: Missing tables (db.StrictTableCheck): ...` at error level (`Migrations are recorded as applied ( --fake ), but ...` with `--fake`) and set `process.exitCode = 1`. The migrations stay applied;
    - any other error from `reloadTableInfo()` is rethrown, and the command fails.
 
@@ -34,12 +35,15 @@ sequenceDiagram
   participant Op as spinajs migrate-up
   participant Cmd as MigrateUpCommand
   participant DI
-  participant R as orm.Migration (MigrationRunner)
+  participant Mg as OrmMigrator
+  participant R as OrmMigrator.Runner
   Op->>Cmd: execute({ name, connection, fake })
-  Cmd->>DI: resolveCliOrm()  (MigrateOnStartup: false)
-  DI-->>Cmd: Orm
-  Cmd->>R: up(name, { fake, connection })
-  R-->>Cmd: OrmMigration[]
+  Cmd->>DI: resolveCliMigrator()  (MigrateOnStartup: false)
+  DI-->>Cmd: OrmMigrator (its Orm resolved)
+  Cmd->>Mg: migrate({ name, fake, connection })
+  Mg->>R: up(name, options)
+  Mg->>Mg: reloadTableInfo(touched), data() unless --fake
+  Mg-->>Cmd: OrmMigration[]
   alt empty result and --name
     Cmd->>R: status()
     Cmd->>Cmd: explainEmptyNamedRun() -> exitCode 1 unless applied
@@ -55,7 +59,7 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `-n, --name [name]` | `string` | none | Apply only this migration, by class name (`<Prefix>_yyyy_MM_dd_HH_mm_ss`) |
 | `-c, --connection [connection]` | `string` | none | Apply only on this connection, by name or alias. Other connections are not touched; their tracking tables are not even created |
-| `-f, --fake` | `boolean` | `false` | Write the tracking rows as applied without calling `up()` |
+| `-f, --fake` | `boolean` | `false` | Write the tracking rows as applied without calling `up()` or `data()` |
 
 `execute()` takes `IMigrateUpCommandOptions`: `{ name?: string; connection?: string; fake?: boolean }`.
 
@@ -67,7 +71,7 @@ sequenceDiagram
 | `--name` given and the migration is already applied | `0` |
 | `--name` given and the migration did not run (connection not configured, excluded by `--connection`, failed or still pending) | `1` |
 | A full run (no `--name`, no `--connection`) leaves a registered model without its table, with `db.StrictTableCheck` on | `1` |
-| Unknown `--name`, unknown `--connection`, a failed row on the connection, a migration that throws, a table check that fails for another reason than a missing table | `-1` (255 on POSIX), the error through the `CLI` logger |
+| Unknown `--name`, unknown `--connection`, a failed row on the connection, a migration or a `data()` hook that throws, a table check that fails for another reason than a missing table | `-1` (255 on POSIX), the error through the `CLI` logger |
 
 ## Services and extension points
 
@@ -78,7 +82,7 @@ sequenceDiagram
 
 ### `MigrateUpCommand`: refuse to migrate production without a confirmation
 
-`execute()` runs the migrations and calls the hooks: `reportRun(orm, executed, options)` logs the result, `explainEmptyNamedRun(orm, name, connection?)` decides how an empty named run is reported, and `checkModelTables(orm, fake?)` checks the tables after a full run. This subclass adds a guard before the shipped behaviour.
+`execute()` runs the migrations and calls the hooks: `reportRun(migrator, executed, options)` logs the result, `explainEmptyNamedRun(migrator, name, connection?)` decides how an empty named run is reported, and `checkModelTables(orm, fake?)` checks the tables after a full run. This subclass adds a guard before the shipped behaviour.
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -106,8 +110,8 @@ Keep the subclass out of every `system.dirs.cli` directory: it inherits the `mig
 
 ## Important behaviour
 
-- **The `Orm` applies nothing on its way in.** Without `resolveCliOrm()`, a boot pass would run every pending migration on `OnStartup` connections before `--fake` could take effect. See [The CLI `Orm`](06-cli-orm.md).
-- **A migration applied by `migrate-up` never gets its `data()` hook.** The ORM seeds only what its boot pass applied, and a later boot finds the migration already applied. Apply migrations that seed data through an application boot.
+- **The migrator applies nothing on its way in.** Without `resolveCliMigrator()`, a boot pass would run every pending migration on `OnStartup` connections before `--fake` could take effect. See [The CLI migrator](06-cli-orm.md).
+- **`migrate-up` seeds what it applied.** `data()` runs once every migration of the run is applied; it may resolve services that inject the `Orm`. A run that fails on a migration seeds none of the ones it applied before it, and a later run finds them applied.
 - **An unknown `--name` or `--connection` throws.** An empty, successful-looking run from a typo would read as "already current".
 - **A named migration on an unconfigured connection exits `1`.** The runner only warns and returns `[]` there; the command checks `status()` to tell that apart from "already applied".
 - **`status()` in step 6 is not narrowed by `--connection`.** A migration on a connection the filter excluded still has an entry, so the command can say which connection it belongs to.
@@ -122,20 +126,21 @@ Keep the subclass out of every `system.dirs.cli` directory: it inherits the `mig
 
 - Run `migrate-status` before `migrate-up` in a deploy, and stop on a `FAILED` or `INTERRUPTED` line.
 - Use `--fake` only to bring the tracking table in line with a database changed by hand; it calls neither `up()` nor `data()`.
+- Write `data()` hooks so a rerun is harmless: a deploy that retries `migrate-up` after a seed failure does not run them again, and an operator runs them by hand.
 - Pass `--name` together with `--connection` only when you know the migration's connection; otherwise leave `--connection` out.
 - Run the deploy step's `migrate-up` without `--name` and `--connection`, so a model left without its table fails the deploy instead of the first start.
 
 ## Patterns and antipatterns
 
 ```ts
-// Don't: DI.resolve(Orm) runs the boot pass, so pending migrations on OnStartup connections are
+// Don't: DI.resolve(OrmMigrator) runs the boot pass, so pending migrations on OnStartup connections are
 // applied (and data() seeded) before this line, and the explicit run below applies nothing
-const orm = await DI.resolve(Orm);
-await orm.Migration.up();
+const migrator = await DI.resolve(OrmMigrator);
+await migrator.migrate();
 
-// Do: resolve the CLI Orm, then run exactly the migrations you asked for
-const orm = await resolveCliOrm();
-await orm.Migration.up(undefined, { connection: 'reporting' });
+// Do: resolve the CLI migrator, then run exactly the migrations you asked for
+const migrator = await resolveCliMigrator();
+await migrator.migrate({ connection: 'reporting' });
 ```
 
 ## Examples
@@ -164,7 +169,7 @@ void migrateReporting();
 
 ## Related
 
-- [Migrations](../orm/10-migrations.md): what `orm.Migration.up()` does, the tracking table and the lock.
+- [Migrations](../orm/10-migrations.md): what `OrmMigrator.migrate()` and `MigrationRunner.up()` do, the tracking table and the lock.
 - [Rolling back migrations](02-rolling-back-migrations.md): the reverse operation.
 - [Migration status](03-migration-status.md): check the result.
-- [The CLI `Orm`](06-cli-orm.md): why the command does not use `DI.resolve(Orm)`.
+- [The CLI migrator](06-cli-orm.md): why the command resolves the migrator without its boot pass.

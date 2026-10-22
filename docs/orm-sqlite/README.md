@@ -27,7 +27,7 @@ npm install @spinajs/orm @spinajs/orm-sqlite
 ```ts sample
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, Model, ModelBase, Orm, Primary } from '@spinajs/orm';
+import { Connection, Model, ModelBase, OrmMigrator, Primary } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
 import _ from 'lodash';
 
@@ -62,7 +62,8 @@ export class Customer extends ModelBase<Customer> {
 }
 
 export async function listCustomers() {
-  await DI.resolve(Orm);
+  // main migrates on startup: model queries on it throw until OrmMigrator resolved
+  await DI.resolve(OrmMigrator);
   return await Customer.where('Email', 'like', '%@example.com');
 }
 ```

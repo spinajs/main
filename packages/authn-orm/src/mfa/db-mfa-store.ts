@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { Injectable, PerChildInstance } from '@spinajs/di';
+import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { UniqueViolation, ormReady } from '@spinajs/orm';
+import { Orm, UniqueViolation } from '@spinajs/orm';
 import { _between, _check_arg, _integer, _is_array, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import type { IWhereBuilder } from '@spinajs/orm';
 import type { DateTime } from 'luxon';
@@ -57,10 +57,13 @@ function pending(secretEnc: string, keyId: string, createdAt: DateTime): Partial
 @PerChildInstance()
 @Injectable()
 export class DbMfaStore {
+  /** Never read: injecting it resolves the Orm, which binds the models, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   public async get(id: IdentityRef, step: string): Promise<MfaRecord | null> {
     const identity = identityKey(id);
     const name = stepName(step);
-    await ormReady();
     const rows = await AuthnMfa.query().columns(['identity', 'step', 'secret_enc', 'key_id', 'last_step', 'confirmed_at', 'created_at']).where('identity', identity).where('step', name);
     const r = rows.find((x) => x.identity === identity && x.step === name);
     if (!r) return null;
@@ -84,7 +87,6 @@ export class DbMfaStore {
     checkedText(secretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: secretEnc');
     checkedText(keyId, 32, 'DbMfaStore: keyId');
     const ms = checkedMs(new Date(), 'DbMfaStore.putPending: the clock');
-    await ormReady();
 
     const fields = pending(secretEnc, keyId, instant(ms));
     for (let i = 0; i < MAX_TRIES; i++) {
@@ -110,7 +112,6 @@ export class DbMfaStore {
     const name = stepName(step);
     const ms = checkedMs(at, 'DbMfaStore.confirm: at');
     if (expectedSecretEnc !== undefined) checkedText(expectedSecretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: expectedSecretEnc');
-    await ormReady();
     const q = AuthnMfa.update({ confirmed_at: instant(ms) })
       .where('identity', identity)
       .where('step', name);
@@ -125,7 +126,6 @@ export class DbMfaStore {
     const identity = identityKey(id);
     const name = stepName(step);
     _check_arg(_is_number(_integer(), _between(0, Number.MAX_SAFE_INTEGER)))(timeStep, 'timeStep');
-    await ormReady();
     const older = function (this: IWhereBuilder<unknown>) {
       this.whereNull('last_step');
       this.orWhere('last_step', '<', timeStep);
@@ -136,14 +136,12 @@ export class DbMfaStore {
   public async remove(id: IdentityRef, step: string): Promise<void> {
     const identity = identityKey(id);
     const name = stepName(step);
-    await ormReady();
     await AuthnMfa.destroy().where('identity', identity).where('step', name);
   }
 
   /** The names of the identity's confirmed steps. */
   public async confirmedSteps(id: IdentityRef): Promise<string[]> {
     const identity = identityKey(id);
-    await ormReady();
     const rows = await AuthnMfa.query().columns(['identity', 'step', 'confirmed_at']).where('identity', identity).whereNotNull('confirmed_at');
     return rows.filter((r) => r.identity === identity && confirmed(r)).map((r) => r.step);
   }
@@ -153,7 +151,6 @@ export class DbMfaStore {
    * `totp` and `TOTP` into one under a case-blind collation (MySQL's default); one row per confirmed enrolment.
    */
   public async confirmedStepNames(): Promise<string[]> {
-    await ormReady();
     const rows = await AuthnMfa.query().columns(['step', 'confirmed_at']).whereNotNull('confirmed_at');
     return [...new Set(rows.filter(confirmed).map((r) => r.step))];
   }
@@ -164,7 +161,6 @@ export class DbMfaStore {
     _check_arg(_is_array())(rawCodes, 'rawCodes');
     const hashes = rawCodes.map((code) => sha256hex(checkedText(code, Number.MAX_SAFE_INTEGER, 'DbMfaStore: a recovery code')));
     if (new Set(hashes).size !== hashes.length) throw new InvalidArgument('DbMfaStore.replaceRecoveryCodes: the codes repeat');
-    await ormReady();
 
     await AuthnRecoveryCode.destroy().where('identity', identity);
     if (hashes.length === 0) return;
@@ -176,7 +172,6 @@ export class DbMfaStore {
     const identity = identityKey(id);
     if (!_try_check_arg(_is_string(_non_empty(), _max_length(RAW_MAX)))(raw, 'raw')[0]) return false;
     const ms = checkedMs(new Date(), 'DbMfaStore.redeemRecoveryCode: the clock');
-    await ormReady();
     const r = await AuthnRecoveryCode.update({ used_at: instant(ms) })
       .where('identity', identity)
       .where('code_hash', sha256hex(raw))
@@ -187,14 +182,12 @@ export class DbMfaStore {
   /** Unused codes. */
   public async countRecoveryCodes(id: IdentityRef): Promise<number> {
     const identity = identityKey(id);
-    await ormReady();
     const rows = await AuthnRecoveryCode.query().columns(['identity']).where('identity', identity).whereNull('used_at');
     return rows.filter((r) => r.identity === identity).length;
   }
 
   public async removeRecoveryCodes(id: IdentityRef): Promise<void> {
     const identity = identityKey(id);
-    await ormReady();
     await AuthnRecoveryCode.destroy().where('identity', identity);
   }
 }

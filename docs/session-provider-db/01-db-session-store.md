@@ -170,11 +170,12 @@ public async resolve() {
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { OrmMigrator } from '@spinajs/orm';
 import { DbSessionStore } from '@spinajs/session-provider-db';
 
 export async function purgeExpiredSessions(): Promise<string> {
-  await DI.resolve(Orm);
+  // resolves the Orm and migrates the Migration.OnStartup connections before the store queries them
+  await DI.resolve(OrmMigrator);
   const store = await DI.resolve(DbSessionStore);
   const removed = await store.cleanupExpired();
   return `Removed ${removed} expired sessions`;
@@ -185,11 +186,11 @@ export async function purgeExpiredSessions(): Promise<string> {
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { OrmMigrator } from '@spinajs/orm';
 import { DbSessionStore } from '@spinajs/session-provider-db';
 
 export async function impersonatedBy(operatorUuid: string): Promise<string[]> {
-  await DI.resolve(Orm);
+  await DI.resolve(OrmMigrator);
   const store = await DI.resolve(DbSessionStore);
   const operator = { type: 'user', id: operatorUuid };
 

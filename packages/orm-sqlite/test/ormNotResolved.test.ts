@@ -14,7 +14,7 @@ async function freshProcess(body: string): Promise<Record<string, string>> {
     "import { DI } from '@spinajs/di';",
     "import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';",
     "import '@spinajs/log';",
-    "import { Connection, Model, ModelBase, Orm, OrmNotResolved, SelectQueryBuilder, createQuery, modelDriver, ormConnection, ormReady } from '@spinajs/orm';",
+    "import { Connection, Model, ModelBase, Orm, OrmNotResolved, SelectQueryBuilder, createQuery, modelDriver, ormConnection } from '@spinajs/orm';",
     "import { SqliteOrmDriver } from '@spinajs/orm-sqlite';",
     'class Doc extends ModelBase {}',
     "Connection('sqlite')(Doc);",
@@ -50,21 +50,21 @@ describe('sqlite model driver helpers in a process that has not resolved the Orm
     const result = await freshProcess(['attempt("model", () => modelDriver(Doc));', 'attempt("connection", () => ormConnection("sqlite"));', 'attempt("query", () => createQuery(Doc, SelectQueryBuilder));'].join('\n'));
 
     expect(result).to.deep.eq({
-      model: 'OrmNotResolved: Doc: the Orm has not created its connections yet; await ormReady() first',
-      connection: 'OrmNotResolved: the Orm has not created its connections yet; await ormReady() first',
-      query: 'OrmNotResolved: Doc: the Orm has not created its connections yet; await ormReady() first',
+      model: 'OrmNotResolved: Doc: the Orm has not created its connections yet; inject or resolve the Orm first',
+      connection: 'OrmNotResolved: the Orm has not created its connections yet; inject or resolve the Orm first',
+      query: 'OrmNotResolved: Doc: the Orm has not created its connections yet; inject or resolve the Orm first',
     });
   });
 
-  it('ormReady resolves the Orm once for concurrent callers, after which the model has its driver', async () => {
+  it('concurrent resolves share one Orm, after which the model has its driver', async () => {
     const result = await freshProcess(
       [
-        'await Promise.all([ormReady(), ormReady()]);',
-        'const orm = await DI.resolve(Orm);',
+        'const [orm, again] = await Promise.all([DI.resolve(Orm), DI.resolve(Orm)]);',
+        'attempt("same", () => { if (again !== orm) throw new Error("another Orm"); });',
         'attempt("model", () => { if (modelDriver(Doc) !== orm.Connections.get("sqlite")) throw new Error("another driver"); });',
       ].join('\n'),
     );
 
-    expect(result).to.deep.eq({ model: 'returned' });
+    expect(result).to.deep.eq({ same: 'returned', model: 'returned' });
   });
 });

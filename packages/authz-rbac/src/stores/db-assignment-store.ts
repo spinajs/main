@@ -1,9 +1,9 @@
 import { AuthzAdminFailure, principalKey } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject } from '../contracts.js';
-import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Autoinject, Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { UniqueViolation } from '@spinajs/orm';
+import { Orm, UniqueViolation } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import type { DateTime } from 'luxon';
 import { randomUUID } from 'node:crypto';
@@ -54,6 +54,10 @@ const TAG_RETRIES = 5;
 @Injectable()
 @Inject(Container)
 export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
+  /** Never read: injecting it resolves the Orm, which binds the models, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   readonly name: string = 'DbAssignmentStore';
 
   protected readonly maxListLimit: number = ASSIGNMENT_LIST_MAX_LIMIT;
@@ -63,17 +67,14 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
   }
 
   async forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]> {
-    await this.ready();
     return (await this.rowsForKeys(subjects.map(subjectKeyOf), at)).map(rowToAssignment);
   }
 
   async forSubjectKeys(keys: readonly string[], at: Date): Promise<readonly Assignment[]> {
-    await this.ready();
     return (await this.rowsForKeys(keys, at)).map(rowToAssignment);
   }
 
   async holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]> {
-    await this.ready();
     const query = AssignmentRecord.query().where('role', role).where(scopeToColumns(scope));
     whereLive(query, at);
 
@@ -81,14 +82,12 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
   }
 
   async byId(id: string): Promise<Assignment | null> {
-    await this.ready();
     const row = await rowById(id);
     return row ? rowToAssignment(row) : null;
   }
 
   /** Grants, or updates tags, expiry and grantor of the existing (subject, role, scope) row, keeping its id. */
   async assign(a: Omit<Assignment, 'id' | 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment> {
-    await this.ready();
     const where = `${this.name}.assign`;
     requireTransaction(AssignmentRecord, tx, where);
     const key: AssignmentKey = { ...subjectToColumns(a.subject), role: a.role, ...scopeToColumns(a.scope) };
@@ -120,7 +119,6 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
   /** Unknown id ⇒ `AuthzAdminFailure('not_found')`. */
   async revoke(id: string, _actor: PrincipalRef, tx: AuthzTx): Promise<void> {
-    await this.ready();
     const where = `${this.name}.revoke`;
     requireTransaction(AssignmentRecord, tx, where);
     await requireRow(id);
@@ -130,7 +128,6 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
   /** Replaces the tags (`assignment.setTags`); returns the updated assignment. */
   async setTags(id: string, tags: readonly string[], tx: AuthzTx): Promise<Assignment> {
-    await this.ready();
     const where = `${this.name}.setTags`;
     requireTransaction(AssignmentRecord, tx, where);
     const text = normaliseTags(tags);
@@ -142,14 +139,12 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
   /** Adds tags (`assignment.addTags`); returns the updated assignment. */
   async addTags(id: string, tags: readonly string[], tx: AuthzTx): Promise<Assignment> {
-    await this.ready();
     normaliseTags(tags);
     return this.changeTags(id, tx, `${this.name}.addTags`, (current) => [...current, ...tags]);
   }
 
   /** Removes tags (`assignment.removeTags`); returns the updated assignment. */
   async removeTags(id: string, tags: readonly string[], tx: AuthzTx): Promise<Assignment> {
-    await this.ready();
     normaliseTags(tags);
     const gone = new Set(tags);
     return this.changeTags(id, tx, `${this.name}.removeTags`, (current) => current.filter((t) => !gone.has(t)));
@@ -157,7 +152,6 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
   /** `AdminAssignmentStore.update`: the tags and/or expiry given, in one write and one bump. */
   async update(id: string, patch: { readonly tags?: readonly string[]; readonly expiresAt?: Date | null }, _actor: PrincipalRef, tx: AuthzTx): Promise<Assignment> {
-    await this.ready();
     const where = `${this.name}.update`;
     requireTransaction(AssignmentRecord, tx, where);
     const change: { tags?: string; expires_at?: DateTime | null } = {};
@@ -172,7 +166,6 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
   /** Sets or clears (`null`) the expiry (`assignment.setExpiry`); returns the updated assignment. */
   async setExpiry(id: string, expiresAt: Date | null, tx: AuthzTx): Promise<Assignment> {
-    await this.ready();
     const where = `${this.name}.setExpiry`;
     requireTransaction(AssignmentRecord, tx, where);
     const row = await requireRow(id);
@@ -184,7 +177,6 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
   /** Deletes the rows at `scope` matching `subject` and `role`, expired ones too (`assignment.revokeWhere`); returns them. */
   async revokeWhere(filter: AssignmentFilter, tx: AuthzTx): Promise<readonly Assignment[]> {
-    await this.ready();
     const where = `${this.name}.revokeWhere`;
     requireTransaction(AssignmentRecord, tx, where);
     return this.deleteWhere(tx, where, (query) => whereFilter(query, filter));
@@ -192,7 +184,6 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
   /** Deletes every row of `subjects` at any scope, expired ones too (a revoked share link); returns them. */
   async revokeSubjects(subjects: readonly AssignmentSubject[], tx: AuthzTx): Promise<readonly Assignment[]> {
-    await this.ready();
     const where = `${this.name}.revokeSubjects`;
     requireTransaction(AssignmentRecord, tx, where);
     return this.deleteRows(tx, where, await this.rowsForKeys(subjects.map(subjectKeyOf), undefined));
@@ -204,7 +195,6 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
    * Returns them. GLOBAL and type-level refs are refused (`wrong_scope_type`).
    */
   async forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly Assignment[]> {
-    await this.ready();
     const where = `${this.name}.forgetScope`;
     requireScopeNode(scope, where, 'only a scope node can be forgotten');
     requireTransaction(AssignmentRecord, tx, where);
@@ -229,7 +219,6 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
    * when more rows follow and the page has no `offset`.
    */
   async list(q: AssignmentListQuery, at: Date): Promise<ListResult<Assignment>> {
-    await this.ready();
     return this.select(q, at, pageWindow(q.page, this.maxListLimit, `${this.name}.list`));
   }
 
@@ -238,7 +227,6 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
    * match in one query: AuthzAdmin's guard reads that as the full set (escalation, self-lockout).
    */
   async find(q: AssignmentQuery, page?: Page): Promise<ListResult<Assignment>> {
-    await this.ready();
     const { at, ...filter } = q;
     return this.select(filter, at, page ? pageWindow(page, this.maxListLimit, `${this.name}.find`) : undefined);
   }

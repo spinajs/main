@@ -1,3 +1,84 @@
+## 3.0.5
+
+Breaking changes in the ORM boot: `Orm.resolve()` no longer migrates, the new `OrmMigrator` does, and `ormReady()` is
+removed. An app that migrates on startup resolves `OrmMigrator` before serving; services that query models inject the
+`Orm`.
+
+- **Breaking (`@spinajs/orm`): `Orm.resolve()` no longer migrates; resolve `OrmMigrator`.** The Orm's resolve
+  connects, registers models and migrations, reads table info and wires relations; it writes nothing. The new
+  `OrmMigrator` (an `AsyncService` that resolves the Orm) runs the boot pass: the pending migrations of every
+  `Migration.OnStartup` connection, a re-read of the table info of the models their statements touched, their `data()`
+  seeds, then the `db.StrictTableCheck` check. A seed can therefore resolve any service that injects the Orm (users'
+  `create()`, `TokenService.create`): the per-call `ormReady()` wait 3.0.3 added for the seed deadlock is gone. An app
+  that migrates on startup calls `await DI.resolve(OrmMigrator)` before serving; until its pass succeeded a model
+  query on a `Migration.OnStartup` connection throws `connection <name> migrates on startup; resolve OrmMigrator
+  before using it`. Only the pass itself (the migrations' `up()` and `data()`) queries through: a service resolved
+  alongside the migrator that queries while it runs is refused, and a failed pass leaves the gate closed. A cached
+  `OrmMigrator` leaves the cache once another `Orm` resolves (`DI.uncache(Orm)` alone), so the next
+  `DI.resolve(OrmMigrator)` migrates and opens that `Orm`. `Orm.Migration` moved to `OrmMigrator.Runner`, `MigrateOnStartup` (and `IOrmOptions`) to the migrator's
+  options (`DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])`), and `MigrationRunner.up()` returns
+  `{ executed, touched }`. `ormReady()` is removed: inject the Orm.
+- **Breaking for `Orm` subclasses.** The `Orm` constructor takes no options (`IOrmOptions` is gone), and
+  `Migration` and `runDataPhase()` are no longer on the `Orm`. A subclass that passed options to `super()`,
+  overrode `runDataPhase()` or used `this.Migration` moves that to an `OrmMigrator` subclass registered with
+  `DI.register(MyMigrator).as(OrmMigrator)`: `runDataPhase()` is protected there, `Runner` replaces `Migration`, and
+  `this.Orm` is assigned in `resolve()` (no longer `@Autoinject`ed).
+- **`reloadTableInfo(options?)` rebuilds the columns it reads.** Each read sets a model's columns to its decorator
+  columns merged with what the table holds now, instead of merging into the previous read: a column a migration
+  dropped or renamed leaves the model, and a converter mapped to a column's old type goes with it. `models` reads
+  only those models (the others keep their last read). `strict: true` throws one `OrmException` naming every
+  registered model whose table is missing; a model this call did not read but an earlier read found missing is
+  read again first, so a table created since counts. Without `strict` it warns per model read.
+- **Electron renderer (`@spinajs/electron`).** `ElectronRendererOrm` resolves like any `Orm`: on a
+  `Migration.OnStartup` connection the renderer's model queries throw the gate error until a migrator resolved in
+  the renderer. The main process migrates; the renderer resolves `DI.resolve(OrmMigrator, [{ MigrateOnStartup:
+  false }])`, which runs nothing over IPC, skips the table check and opens the gate, instead of resolving only the
+  `Orm`. A plain `DI.resolve(Orm)` in the renderer runs the table check of the connections without
+  `Migration.OnStartup` over IPC and fails on a table main has not created.
+- **`Orm.resolve()` still checks the tables of the connections without `Migration.OnStartup`.** Those are migrated
+  before the app starts (`migrate-up`), so with `db.StrictTableCheck` on a missing table there fails
+  `Orm.resolve()`, as before 3.0.5, and the Orm closes its connections first. The tables of `Migration.OnStartup`
+  connections are checked by `OrmMigrator` after its pass. The `Orm` an `OrmMigrator` resolved with
+  `MigrateOnStartup: false` resolves skips the check, so a migration tool boots before the tables exist.
+- **A failed boot pass must be followed by `DI.dispose()`.** When `DI.resolve(OrmMigrator)` rejects (a migration,
+  a seed or the table check), the `Orm` it resolved stays cached with its pools and health probes open; nothing
+  disposes it automatically. Before 3.0.5 the failing `Orm.resolve()` closed its own connections. Catch the boot
+  failure and `await DI.dispose()` before exiting or retrying.
+- **Breaking (`@spinajs/orm-cli`): the commands run on `OrmMigrator`.** `resolveCliOrm()` and `CLI_ORM_OPTIONS` are
+  replaced by `resolveCliMigrator()`. `migrate-up` runs `OrmMigrator.migrate()`, so it now runs the `data()` seeds of
+  the migrations it applies (`--fake` seeds nothing).
+- **`@spinajs/configuration-db-source` syncs exposed options after `OrmMigrator`.** The sweep into the
+  `configuration` table runs on `di.resolved.OrmMigrator`, or on `di.resolved.Orm` when the table already exists on a
+  connection without `Migration.OnStartup` (a database migrated by `migrate-up`). A migrator resolved with
+  `MigrateOnStartup: false` ran no pass and triggers no sweep. A sweep that fails on a missing table leaves late
+  registrations unsynced until the next ready event sweeps again. The bootstrapper's DI listeners are removed on
+  `di.dispose` (and by the next `bootstrap()`); `unbind()` removes them by hand.
+- **Breaking: the ORM-backed services inject the `Orm`.** The authn-orm stores, audit sink, `AuthnAuditRetention` and
+  `DbAuthnThrottle`, authn-token's `DbTokenService` and `UsersTableTokenOwnerResolver`, authn-webauthn's
+  `DbWebAuthnCredentialStore` and `DbWebAuthnChallengeStore`, authz-rbac's DB stores and `DbAuthzAdminBackend`, and
+  users' identity, password and password-age stores and `UserAddressVerifier` `@Autoinject(Orm)` instead of awaiting
+  `ormReady()` before each query: resolving one resolves the `Orm`. The `Orm` is an async dependency, so
+  `DI.resolve()` of such a service returns a Promise until the `Orm` resolved; await it. authz-abac's
+  `DbPolicyStore`, authz-orm's `DbScopeAttributeStore`, authz-rebac's `DbTupleStore`, a hand-built `DbThrottleStore`,
+  authz-rbac's `readVersion()` and users' `UserIdentityRegistrar` are not built by DI: resolve the `Orm` (or
+  `OrmMigrator`) before they query.
+- **Breaking (`@spinajs/users`): `usersOrmUp()` is removed.** Its callers inject the `Orm`, as above.
+- **The ORM-backed cli commands run the `OrmMigrator` boot pass.** The cli resolves only the command it runs, so a
+  command that queries models now resolves `OrmMigrator`, as an app process does, instead of only the `Orm`. On a
+  `Migration.OnStartup` connection they migrate on their way in, as they did before 3.0.5:
+  - authn-keys' `authn:key-*` (new base `KeyCliCommand`);
+  - authn-totp's `authn:mfa-reset`;
+  - the scheduler's `scheduler:*`;
+  - authn-token's `authn:token-*` (base `TokenCliCommand`);
+  - users' `rbac:user-*` (base `RbacCliCommand`, which keeps `this.Orm`);
+  - authn-local's `authn:password` and `authn:password-expire` (new base `LocalCliCommand`), so they work with a
+    database-backed identity store (users). `@spinajs/authn-local` now depends on `@spinajs/orm`; without a `db`
+    configuration the ORM opens no connection;
+  - authn-orm's `authn:audit-purge`, authz-orm's `authz:ancestors-verify`, `authz:ancestors-rebuild` and
+    `authz:audit-unattended` (base `AuthzOrmCliCommand`), and authz-rbac's `authz:*` commands that touch the DB
+    stores (base `AuthzCliCommand`, before it resolves `AuthzService`). `authz:check-config` resolves the migrator
+    only for DB-backed role or rule stores, so it validates a config-only setup without a database.
+
 # Release notes — authn-http, authn-oidc: fresh re-authentication that refreshes the session
 
 > Branch `feat/ory-flow-4`. Docs: `docs/authn/09-fresh-authentication.md`, `docs/authn-http/08-login-logout-and-mfa-routes.md`,

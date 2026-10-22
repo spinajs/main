@@ -1,6 +1,6 @@
 # Customizing commands
 
-Each command is a `CliCommand` subclass that `Cli` resolves from DI by its own class. You can swap a shipped command for a subclass, override the protected hooks it exposes, or write a new command on `resolveCliOrm()` and the exported helpers.
+Each command is a `CliCommand` subclass that `Cli` resolves from DI by its own class. You can swap a shipped command for a subclass, override the protected hooks it exposes, or write a new command on `resolveCliMigrator()` and the exported helpers.
 
 ## How it works
 
@@ -20,7 +20,7 @@ The replacement must be registered before `Cli` dispatches, in your own CLI entr
 | `MigrateStatusCommand` | Class token, singleton; also `'__cli_command__'` | `MigrateStatusCommand` | none shipped | `DI.register(Sub).as(MigrateStatusCommand)`. Hooks: `execute()`, `state(entry)`, `explainFailed(failed)`, `explainInterrupted(interrupted)` |
 | `MigrateResolveCommand` | Class token, singleton; also `'__cli_command__'` | `MigrateResolveCommand` | none shipped | `DI.register(Sub).as(MigrateResolveCommand)`. Hooks: `execute(options)`, `action(options)` (runs before the `Orm` is resolved), `Log` |
 | `MigrateCreateCommand` | Class token, singleton; also `'__cli_command__'` | `MigrateCreateCommand` | none shipped | `DI.register(Sub).as(MigrateCreateCommand)`. Hooks: `execute(options)`, `Log`. The template is not overridable on the class |
-| Your own command | Your class token; discovered from your `system.dirs.cli` | none | none | Extend `CliCommand`, call `resolveCliOrm()`, reuse the exported constants and functions |
+| Your own command | Your class token; discovered from your `system.dirs.cli` | none | none | Extend `CliCommand`, call `resolveCliMigrator()`, reuse the exported constants and functions |
 
 `Log` is a `@Logger('ORM-CLI')` property on every command except `MigrateStatusCommand`. Configure the `ORM-CLI` logger name in your log rules to route or silence command messages; `migrate-status` output and the `migrate-create` path go to stdout regardless.
 
@@ -28,14 +28,14 @@ The replacement must be registered before `Cli` dispatches, in your own CLI entr
 
 | Command | Protected member | Called | Default behaviour |
 | --- | --- | --- | --- |
-| `MigrateUpCommand` | `reportRun(orm: Orm, executed: OrmMigration[], options: IMigrateUpCommandOptions): Promise<void>` | after every `orm.Migration.up()` | Logs what was applied or recorded, or that nothing is pending; calls `explainEmptyNamedRun()` for an empty named run |
-| `MigrateUpCommand` | `explainEmptyNamedRun(orm: Orm, name: string, connection?: string): Promise<void>` | `--name` given and nothing applied | Looks the migration up in `orm.Migration.status()`, logs why it did not run, sets `process.exitCode = 1` unless applied |
+| `MigrateUpCommand` | `reportRun(migrator: OrmMigrator, executed: OrmMigration[], options: IMigrateUpCommandOptions): Promise<void>` | after every `migrator.migrate()` | Logs what was applied or recorded, or that nothing is pending; calls `explainEmptyNamedRun()` for an empty named run |
+| `MigrateUpCommand` | `explainEmptyNamedRun(migrator: OrmMigrator, name: string, connection?: string): Promise<void>` | `--name` given and nothing applied | Looks the migration up in `migrator.Runner.status()`, logs why it did not run, sets `process.exitCode = 1` unless applied |
 | `MigrateUpCommand` | `checkModelTables(orm: Orm, fake?: boolean): Promise<void>` | after `reportRun()`, only without `--name` and `--connection` | Returns when `orm.StrictTableCheck` is `false`; otherwise calls `orm.reloadTableInfo({ strict: true })`, logs a missing table at error level and sets `process.exitCode = 1` |
-| `MigrateDownCommand` | `announce(options: IMigrateDownCommandOptions): void` | after `resolveCliOrm()`, before `orm.Migration.down()` | Logs the scope about to be reversed |
+| `MigrateDownCommand` | `announce(options: IMigrateDownCommandOptions): void` | after `resolveCliMigrator()`, before `migrator.Runner.down()` | Logs the scope about to be reversed |
 | `MigrateStatusCommand` | `state(e: IMigrationStatusEntry): string` | once per table line | `FAILED`, `applied`, `INTERRUPTED`, `rolled-back` or `pending` |
 | `MigrateStatusCommand` | `explainFailed(failed: IMigrationStatusEntry[]): void` | at least one failed entry | Prints the blocking warning and two `migrate-resolve` invocations per entry |
 | `MigrateStatusCommand` | `explainInterrupted(interrupted: IMigrationStatusEntry[]): void` | at least one interrupted entry | Prints the re-run warning, the start time and two `migrate-resolve` invocations per entry |
-| `MigrateResolveCommand` | `action(options: IMigrateResolveCommandOptions): MigrationResolveAction` | first, before `resolveCliOrm()` | Maps the flags to `'applied'` or `'rolled-back'`; throws `InvalidArgument` on both or neither |
+| `MigrateResolveCommand` | `action(options: IMigrateResolveCommandOptions): MigrationResolveAction` | first, before `resolveCliMigrator()` | Maps the flags to `'applied'` or `'rolled-back'`; throws `InvalidArgument` on both or neither |
 
 Complete samples for each hook are on the command's page: [`migrate-up`](01-applying-migrations.md#migrateupcommand-refuse-to-migrate-production-without-a-confirmation), [`migrate-down`](02-rolling-back-migrations.md#migratedowncommand-veto-a-full-rollback-in-production), [`migrate-status`](03-migration-status.md#migratestatuscommand-point-operators-at-your-runbook), [`migrate-resolve`](04-resolving-failed-migrations.md#migrateresolvecommand-keep-an-audit-trail-of-manual-resolutions), [`migrate-create`](05-scaffolding-migrations.md#migratecreatecommand-open-the-new-file-in-the-editor).
 
@@ -84,21 +84,21 @@ void acme();
 
 This entry point skips the `spinajs` bin's argv provider. Register one as in [`@spinajs/cli`: argv provider](../cli/06-argv-provider.md) when you pass `--env` or `--app`.
 
-### Write a new command on the CLI `Orm`
+### Write a new command on the CLI migrator
 
-A command of your own gets the same safe `Orm` through `resolveCliOrm()`. This one prints the status as JSON for a dashboard and keeps the deploy-gate exit code.
+A command of your own gets the same safe migrator through `resolveCliMigrator()`. This one prints the status as JSON for a dashboard and keeps the deploy-gate exit code.
 
 ```ts sample
 import { CliCommand, Command, Option } from '@spinajs/cli';
-import { resolveCliOrm } from '@spinajs/orm-cli';
+import { resolveCliMigrator } from '@spinajs/orm-cli';
 
 // spinajs migrate-status:json --connection reporting
 @Command('migrate-status:json', 'Prints migration status as JSON, one object per migration')
 @Option('-c, --connection [connection]', false, 'only this connection')
 export class MigrateStatusJsonCommand extends CliCommand {
   public async execute(options: { connection?: string }): Promise<void> {
-    const orm = await resolveCliOrm();
-    const entries = (await orm.Migration.status()).filter((e) => !options.connection || e.connection === options.connection);
+    const migrator = await resolveCliMigrator();
+    const entries = (await migrator.Runner.status()).filter((e) => !options.connection || e.connection === options.connection);
 
     console.log(JSON.stringify(entries.map((e) => ({ name: e.name, connection: e.connection, applied: e.applied, failed: e.failed, interrupted: e.interrupted, pending: e.pending, batch: e.batch, checksumMismatch: e.checksumMismatch })), null, 2));
 
@@ -116,8 +116,8 @@ Put it in its own file in a directory your application lists in `system.dirs.cli
 - **Keep a replacement subclass out of `system.dirs.cli`.** It inherits the shipped `@Command` metadata, so discovery would add a second command with the same name, and commander runs the first one registered.
 - **Do not add `@Option` to a subclass of a shipped command.** `@Option` appends to the inherited metadata array, so the new option leaks into the shipped command too. Declare a new command on `CliCommand` instead.
 - **Register before `Cli` dispatches.** Commands resolve lazily; a registration made after the command was resolved is ignored for that run.
-- **`migrationTemplate()` and `resolveCliOrm()` are imported directly by the commands.** Replacing them on a subclass or in DI changes nothing; override `execute()` or write a new command.
-- **A command of your own gets no table check.** The CLI `Orm` only warns about a missing table; call `orm.reloadTableInfo({ strict: true })` after `orm.Migration.up()` when the command must fail like `migrate-up` does.
+- **`migrationTemplate()` and `resolveCliMigrator()` are imported directly by the commands.** Replacing them on a subclass or in DI changes nothing; override `execute()` or write a new command.
+- **A command of your own gets no table check.** The CLI migrator runs no boot pass and the `Orm` only warns about a missing table; call `orm.reloadTableInfo({ strict: true })` after `migrator.migrate()` when the command must fail like `migrate-up` does.
 - **Commands are singletons.** State kept on a command instance survives between calls in the same process, which matters when a script calls `execute()` twice.
 
 ## Best practices
@@ -134,13 +134,13 @@ Put it in its own file in a directory your application lists in `system.dirs.cli
 @Option('--ticket <id>', true)
 export class TicketMigrateUpCommand extends MigrateUpCommand {}
 
-// Do: a new command, with its own name and options, that reuses the CLI Orm
+// Do: a new command, with its own name and options, that reuses the CLI migrator
 @Command('migrate-up:ticket', 'Applies pending migrations for a change ticket')
 @Option('--ticket <id>', true)
 export class TicketMigrateUpCommand extends CliCommand {
   public async execute(options: { ticket: string }): Promise<void> {
-    const orm = await resolveCliOrm();
-    await orm.Migration.up();
+    const migrator = await resolveCliMigrator();
+    await migrator.migrate();
   }
 }
 ```
@@ -148,5 +148,5 @@ export class TicketMigrateUpCommand extends CliCommand {
 ## Related
 
 - [`@spinajs/cli`: commands](../cli/02-commands.md#services-and-extension-points): `CliCommand`, its lifecycle hooks, and the general replacement rules.
-- [The CLI `Orm`](06-cli-orm.md): what `resolveCliOrm()` returns and how to replace the `Orm`.
+- [The CLI migrator](06-cli-orm.md): what `resolveCliMigrator()` returns and how to replace the `Orm`.
 - [Command discovery](07-command-discovery.md): where command files must live.

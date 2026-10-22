@@ -6,7 +6,7 @@ import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { UserAlreadyExists, UserCreatedIncomplete } from '../src/exceptions.js';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm } from '@spinajs/orm';
+import { OrmMigrator } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
 import * as sinon from 'sinon';
@@ -46,7 +46,7 @@ describe('User model tests', function () {
     }
 
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
   });
 
   afterEach(async () => {

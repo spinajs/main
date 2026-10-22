@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 import '@spinajs/log';
-import { Connection, extractModelDescriptor, IColumnDescriptor, IOrmOptions, Model, ModelBase, Orm, ORM_CONFIGURATION_SCHEMA, OrmConfigurationBootstrapper, OrmException, Primary } from '../src/index.js';
+import { Connection, extractModelDescriptor, IColumnDescriptor, Model, ModelBase, Orm, ORM_CONFIGURATION_SCHEMA, OrmConfigurationBootstrapper, OrmException, OrmMigrator, Primary } from '../src/index.js';
 import { FakeSqliteDriver } from './misc.js';
 
 const expect = chai.expect;
@@ -109,10 +109,10 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
     DI.clearCache();
   });
 
-  it('fails the boot naming every model whose table is missing, its table and its connection', async () => {
+  it('fails the Orm resolve naming every model whose table is missing, its table and its connection', async () => {
     TABLES.add('strict_present');
 
-    const err = await rejection(DI.resolve(Orm));
+    const err = await rejection(Promise.resolve(DI.resolve(Orm)));
 
     expect(err).to.be.instanceOf(OrmException);
     expect((err as Error).message).to.equal(
@@ -124,6 +124,7 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
     ALL_TABLES.forEach((t) => TABLES.add(t));
 
     const orm = await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
 
     expect(orm.StrictTableCheck).to.equal(true);
     expect(extractModelDescriptor(models.StrictPresent)!.Driver).to.equal(orm.Connections.get(CONNECTION));
@@ -139,8 +140,9 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
     expect(extractModelDescriptor(models.StrictMissing)!.Driver).to.equal(orm.Connections.get(CONNECTION));
   });
 
-  it('an Orm resolved with MigrateOnStartup: false boots before the tables exist', async () => {
-    const orm = await DI.resolve(Orm, [{ MigrateOnStartup: false } as IOrmOptions]);
+  it('the Orm of a migrator resolved with MigrateOnStartup: false boots before the tables exist', async () => {
+    await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }]);
+    const orm = await DI.resolve(Orm);
 
     expect(await rejection(orm.reloadTableInfo({ strict: orm.StrictTableCheck }))).to.be.instanceOf(OrmException);
 

@@ -4,27 +4,13 @@ import { extractModelDescriptor } from './descriptor.js';
 import { OrmDriver } from './driver.js';
 import { ConnectionMismatch, NotAnOrmDriver, OrmConnectionMissing, OrmException, OrmNotResolved, TransactionRequired } from './exceptions.js';
 import { ModelBase } from './model.js';
-import { Orm } from './orm.js';
 
 /** What `Orm.createConnections()` registers in the root container once the connections and aliases exist. */
 const ORM_CONNECTION = 'OrmConnection';
 
-let resolving: Promise<unknown> | undefined;
-
-/**
- * Resolves the Orm unless one already created its connections; concurrent callers share one resolve. Model statics
- * and {@link modelDriver} work only after that, and a process that boots part of an app (a cli command) may not have
- * resolved it.
- */
-export async function ormReady(): Promise<void> {
-  if (resolving === undefined && DI.check(ORM_CONNECTION)) return;
-  resolving ??= Promise.resolve(DI.resolve(Orm)).finally(() => (resolving = undefined));
-  await resolving;
-}
-
 function connectionDriver(name: string, owner?: string): OrmDriver {
   const prefix = owner ? `${owner}: ` : '';
-  if (!DI.check(ORM_CONNECTION)) throw new OrmNotResolved(`${prefix}the Orm has not created its connections yet; await ormReady() first`);
+  if (!DI.check(ORM_CONNECTION)) throw new OrmNotResolved(`${prefix}the Orm has not created its connections yet; inject or resolve the Orm first`);
 
   const driver = DI.resolve<OrmDriver | null>(ORM_CONNECTION, [name]);
   if (!driver) throw new OrmConnectionMissing(`${prefix}no ORM connection answers to "${name}"; add it to db.Connections or map it in db.Aliases`, name);

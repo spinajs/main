@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import { DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
 import { DefaultQueueService, Job, QueueClient, QueueJob, QueueMessageHook, QueueService, QueueTrackingHook } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
@@ -146,6 +146,7 @@ export function queueHarness(): BehaviourHarness {
       }
 
       const orm = await DI.resolve(Orm);
+      await DI.resolve(OrmMigrator);
       const queue = await DI.resolve(QueueService);
       for (const cls of jobs.values()) await queue.consume(cls as never);
       const client = queue.get(connection) as unknown as MemoryQueueClient;
@@ -191,6 +192,7 @@ export function queueHarness(): BehaviourHarness {
           DI.uncache(QueueClient);
           DI.uncache(MemoryQueueClient);
           DI.uncache(Orm);
+          DI.uncache(OrmMigrator);
           forgetHooks();
         },
       };

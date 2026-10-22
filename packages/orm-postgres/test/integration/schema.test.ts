@@ -2,7 +2,8 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { RawQuery } from '@spinajs/orm';
+import { DI } from '@spinajs/di';
+import { RawQuery, OrmMigrator } from '@spinajs/orm';
 
 import './migrations/PgDownProbeMigration_2026_10_15_00_03_00.js';
 import { IPgSuite, openSuite, sqlState } from './harness.js';
@@ -188,10 +189,10 @@ describe('postgres integration - schema builder and migrations', function () {
   it('rolls a migration down and up again', async () => {
     expect(await suite.driver.schema().tableExists('pg_down_probe')).to.equal(true);
 
-    await suite.orm.Migration.down('PgDownProbeMigration_2026_10_15_00_03_00');
+    await (await DI.resolve(OrmMigrator)).Runner.down('PgDownProbeMigration_2026_10_15_00_03_00');
     expect(await suite.driver.schema().tableExists('pg_down_probe')).to.equal(false);
 
-    await suite.orm.Migration.up();
+    await (await DI.resolve(OrmMigrator)).Runner.up();
     expect(await suite.driver.schema().tableExists('pg_down_probe')).to.equal(true);
   });
 });

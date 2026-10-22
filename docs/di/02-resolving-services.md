@@ -78,12 +78,13 @@ They are used only when an instance is created. A cached singleton is returned a
 | `Error('Circular dependency detected for <Name>')` | A singleton is requested again, synchronously, while it is being created |
 | `ServiceNotFound` | A `serviceFunc` names a service that is not registered; `resolveNamed` finds no such name |
 | `ResolveException` | A `@PerInstanceCheck()` class has no `__checkInstance__` |
-| Anything a constructor or `resolve()` throws | Passed through; an async failure rejects the returned promise |
+| Anything a constructor or `resolve()` throws | Passed through; an async failure rejects the returned promise, and the resolve of every service that injects it, with the original error |
 
 ## Important behaviour
 
 - Resolving an abstract base class with no registration creates an instance of the abstract class itself; JavaScript allows it. Use the strict check, `@Autoinject(Base, { check: true })` or `resolveOptional()` where that would be a mistake. Such a resolve registers nothing: `DI.check(Base)` stays `false`, and the bare instance is cached under `Base` but left out of `Array.ofType(Base)` and `Array.chainOf(Base)`.
 - Concurrent async resolves of one singleton share one creation: the second caller gets the same promise, and `AsyncService.resolve()` runs once.
+- A dependency that throws synchronously (its constructor, a strict check) fails the whole `resolve()` synchronously, even when an earlier dependency of the same class is still resolving async. That pending dependency's rejection is handled, so it never surfaces as an unhandled rejection.
 - `get()` returns the **last** cached instance under a key; `get(Array.ofType(key))` returns all of them.
 - `DI.get()` and `DI.has()` look in ancestors by default (`parent = true`).
 

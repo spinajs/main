@@ -19,7 +19,7 @@ A nonce store answers "is this the first use of this value?" for single-use valu
 ### Claim, `DbNonceStore.claim(key, expiresAt, now)`
 
 1. The store checks `key` (a non-empty string of at most 160 characters) and that `expiresAt` and `now` are valid `Date`s between the years 1000 and 9999. A bad value throws `InvalidArgument`.
-2. It awaits `ormReady()`. On every 64th claim of the instance it runs `purge(now)` first.
+2. On every 64th claim of the instance it runs `purge(now)` first. The store injects the `Orm`, so resolving it binds the models.
 3. `AuthnNonce.insert({ k: key, expires_at: expiresAt })`. Success resolves `true`: the primary key makes this the first claim.
 4. On a duplicate key, `AuthnNonce.update({ expires_at: expiresAt })` runs where `k` matches and `expires_at <= now`. One changed row resolves `true`: the earlier claim had expired and this call took it over.
 5. Otherwise the store reads whether a row with that key is still live (`expires_at > now`). A live row resolves `false`.

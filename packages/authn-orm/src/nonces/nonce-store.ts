@@ -1,6 +1,6 @@
 import { NonceStore } from '@spinajs/authn/contracts';
-import { Injectable, PerChildInstance } from '@spinajs/di';
-import { UniqueViolation, everyNthCall, ormReady } from '@spinajs/orm';
+import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Orm, UniqueViolation, everyNthCall } from '@spinajs/orm';
 
 import { AuthnNonce } from '../models/AuthnNonce.js';
 import { checkedMs, checkedText, instant } from '../support/sql.js';
@@ -23,11 +23,14 @@ function checkClaim(key: string, expiresAt: Date, now: Date, owner: string): { e
 @PerChildInstance()
 @Injectable(NonceStore)
 export class DbNonceStore extends NonceStore {
+  /** Never read: injecting it resolves the Orm, which binds the models, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   public async claim(key: string, expiresAt: Date, now: Date): Promise<boolean> {
     const { expiresMs, nowMs } = checkClaim(key, expiresAt, now, 'DbNonceStore');
-    await ormReady();
     if (this.purgeDue()) {
       await this.purge(now);
     }
@@ -53,7 +56,6 @@ export class DbNonceStore extends NonceStore {
   /** Deletes up to one batch of expired keys; returns how many went. */
   public async purge(now: Date = new Date()): Promise<number> {
     const ms = checkedMs(now, 'DbNonceStore.purge: now');
-    await ormReady();
     const t = instant(ms);
     // MSSQL pages with OFFSET … FETCH, which needs an ORDER BY.
     const keys = (await AuthnNonce.query().columns(['k']).where('expires_at', '<=', t).orderBy('k').take(PURGE_BATCH)).map((r) => r.k);

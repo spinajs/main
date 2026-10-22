@@ -3,7 +3,7 @@ import { AUTHZ_CONFIGURATION_SCHEMA } from '@spinajs/authz';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI, IContainer } from '@spinajs/di';
 import '@spinajs/log';
-import { Orm, OrmDriver, QueryContext } from '@spinajs/orm';
+import { Orm, OrmDriver, OrmMigrator, QueryContext } from '@spinajs/orm';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { randomBytes } from 'node:crypto';
@@ -20,6 +20,8 @@ export const PG_ACQUIRE_TIMEOUT = 15000;
 export interface TestDb {
   kind: DbKind;
   orm: Orm;
+  /** Resolved in the same container; it ran the boot pass. */
+  migrator: OrmMigrator;
   /** The child container the Orm was resolved in; resolve stores from it. */
   container: IContainer;
   /** The default connection; db.Aliases.authz names it unless `authzOnSecond`. */
@@ -135,9 +137,11 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
   container.register(PostgresOrmDriver).as('orm-driver-postgres');
 
   let orm: Orm;
+  let migrator: OrmMigrator;
 
   try {
     await container.resolve(Configuration);
+    migrator = await container.resolve(OrmMigrator);
     orm = await container.resolve(Orm);
   } catch (err) {
     if (database) {
@@ -149,6 +153,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
   return {
     kind,
     orm,
+    migrator,
     container,
     driver: orm.Connections.get('default')!,
     second: second.length > 0 ? orm.Connections.get(secondName) : undefined,

@@ -20,8 +20,8 @@ After the summary, the command prints an explanation and two `migrate-resolve` i
 
 ## How it works
 
-1. `MigrateStatusCommand.execute()` calls [`resolveCliOrm()`](06-cli-orm.md). Without it, the boot pass would apply pending migrations and the report would always read "all applied".
-2. It calls `orm.Migration.status()`, which returns one `IMigrationStatusEntry` per registered migration whose connection is configured, `Migration.OnStartup` or not. It takes no migration lock.
+1. `MigrateStatusCommand.execute()` calls [`resolveCliMigrator()`](06-cli-orm.md). Without it, the boot pass would apply pending migrations and the report would always read "all applied".
+2. It calls `migrator.Runner.status()`, which returns one `IMigrationStatusEntry` per registered migration whose connection is configured, `Migration.OnStartup` or not. It takes no migration lock.
 3. With no entries, it prints `No migrations are registered for any configured connection.` and returns. Exit code `0`.
 4. It prints the header and one line per entry with `console.log`. The line is `<marker> <state> <batch> <connection> <name>[ drift]`:
    - marker `!!` for a failed entry, `??` for an interrupted one, blank otherwise;
@@ -85,7 +85,7 @@ export class RunbookMigrateStatusCommand extends MigrateStatusCommand {
 DI.register(RunbookMigrateStatusCommand).as(MigrateStatusCommand);
 ```
 
-The table itself is printed inside `execute()`. For another output format, write a separate command on `resolveCliOrm()`; see [Customizing commands](08-customizing-commands.md#write-a-new-command-on-the-cli-orm).
+The table itself is printed inside `execute()`. For another output format, write a separate command on `resolveCliMigrator()`; see [Customizing commands](08-customizing-commands.md#write-a-new-command-on-the-cli-migrator).
 
 ## Important behaviour
 

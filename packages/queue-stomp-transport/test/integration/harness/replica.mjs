@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm, OrmMigrator } from '@spinajs/orm';
 import { Job, QueueJob, QueueService } from '@spinajs/queue';
 import '@spinajs/orm-sqlite';
 import '@spinajs/queue-stomp-transport';
@@ -66,7 +66,7 @@ async function boot() {
       DI.clearCache();
       DI.register(ReplicaConf).as(Configuration);
       await DI.resolve(Configuration);
-      await DI.resolve(Orm);
+      await DI.resolve(OrmMigrator);
       return await DI.resolve(QueueService);
     } catch (err) {
       if (attempt >= 3 || !isWebSocketFailure(err)) {

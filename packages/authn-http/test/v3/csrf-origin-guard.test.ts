@@ -10,7 +10,7 @@ import type { Class } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
 import { fakeContainer } from '../support/config-boot.js';
 import { InvalidOption } from '@spinajs/exceptions';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import { BaseController, Controllers, HttpServer, ServerMiddleware, parseTrustProxy } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -132,7 +132,7 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
 
     const config = await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
     for (const [path, value] of Object.entries(DEFAULTS)) config.set(path, value);
     await startServer();
 
@@ -145,6 +145,7 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
     DI.uncache(CsrfConfiguration);
     DI.uncache(Configuration);
     DI.uncache(Orm);
+    DI.uncache(OrmMigrator);
     uncacheGuard();
   });
 

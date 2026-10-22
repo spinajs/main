@@ -7,7 +7,7 @@ import { MetadataNotFound, UserAlreadyExists } from '../src/exceptions.js';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm } from '@spinajs/orm';
+import { OrmMigrator } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
 import * as sinon from 'sinon';
@@ -43,7 +43,7 @@ describe('actions fundamentals ( imperative helpers )', function () {
     }
 
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
   });
 
   afterEach(async () => {

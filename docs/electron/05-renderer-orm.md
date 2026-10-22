@@ -82,20 +82,27 @@ Register before the first `DI.resolve(Orm)` in the renderer; connections are cre
 
 ### Renderer ORM: custom implementation
 
-`ElectronRendererOrm` runs the same `resolve()` as the main `Orm`. Subclass it to change what the renderer `Orm` does on boot, eg. pass `IOrmOptions` so the renderer never runs the boot migration pass:
+`ElectronRendererOrm` runs the same `resolve()` as the main `Orm`, which applies no migrations. Subclass it to add to what the renderer `Orm` does on boot. This one fails the renderer boot when a configured connection has no counterpart in main:
 
 ```ts
 import { DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
-import { ElectronRendererOrm } from '@spinajs/electron';
+import { Orm, QueryContext } from '@spinajs/orm';
+import { ElectronRendererOrm, RendererOrmDriverBridge } from '@spinajs/electron';
 
-export class ReadOnlyRendererOrm extends ElectronRendererOrm {
-  constructor() {
-    super({ MigrateOnStartup: false });
+export class CheckedRendererOrm extends ElectronRendererOrm {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+
+    for (const [name, connection] of this.Connections) {
+      // rejects with `connection: <name>` when main has no such connection
+      await (connection as RendererOrmDriverBridge).executeOnDb('SELECT 1', [], QueryContext.Select).catch((err: Error) => {
+        throw new Error(`renderer connection ${name} has no main counterpart: ${err.message}`);
+      });
+    }
   }
 }
 
-DI.register(ReadOnlyRendererOrm).as(Orm);
+DI.register(CheckedRendererOrm).as(Orm);
 const orm = await DI.resolve(Orm);
 ```
 
@@ -106,13 +113,13 @@ const orm = await DI.resolve(Orm);
 - **No transactions.** Each statement is a separate IPC call with no connection held open. Do transactional work in a main-process service.
 - **Same connection names.** The renderer must use the main connection names; an unknown name rejects with `connection: <name>`.
 - **Driver errors reject.** A rejected main `executeOnDb()` rejects in the renderer with `callOnOrmConnection() failed, method: executeOnDb, connection: <name>`.
-- **Full `Orm` boot in the renderer.** Model registration, migration discovery and the boot migration pass run in the renderer too. <!-- TODO(docs-hook): verify whether the renderer boot migration pass reaches the main database through executeOnDb/tableInfo -->
+- **Full `Orm` boot in the renderer.** Model registration and migration discovery run in the renderer too. Migrations run only in a process that resolves [`OrmMigrator`](../orm/10-migrations.md). On a `Migration.OnStartup` connection, model queries in the renderer throw `connection <name> migrates on startup; resolve OrmMigrator before using it` until the renderer resolves `OrmMigrator`; `DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])` opens the gate without migrating. Raw `executeOnDb()` calls are not gated. With `db.StrictTableCheck` on, a plain `DI.resolve(Orm)` in the renderer also fails when a connection without `Migration.OnStartup` has a missing table, read through `tableInfo()` over IPC; the `Orm` that `OrmMigrator` with `MigrateOnStartup: false` resolves skips that check.
 
 ## Best practices
 
 - Keep data access in main-process services and call them with `call`; use the renderer bridge for read-only, ad hoc statements.
 - Pass bindings as `params`, never build SQL from renderer input.
-- Resolve the main `Orm` before opening any window; `callOnOrmConnection` rejects until it is resolved.
+- Resolve the main `Orm` before opening any window; `callOnOrmConnection` rejects until it is resolved. When main migrates on startup, resolve `OrmMigrator` there instead, so the tables exist before the renderer reads them.
 
 ## Patterns and antipatterns
 

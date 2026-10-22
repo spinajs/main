@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Migration, Orm, OrmMigration } from '@spinajs/orm';
+import { Migration, Orm, OrmMigration, OrmMigrator } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { IdentityStore, TokenService } from '@spinajs/authn/contracts';
@@ -27,7 +27,7 @@ function within<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
-// What a users seed does through PasswordService: the TokenService is resolved and used while the Orm runs the migrations.
+// What a users seed does through PasswordService: the TokenService is resolved and used while OrmMigrator runs the migrations.
 describe('the TokenService in a boot migration', function () {
   this.timeout(30000);
 
@@ -37,6 +37,7 @@ describe('the TokenService in a boot migration', function () {
 
   before(async () => {
     DI.setESMModuleSupport();
+    DI.uncache(OrmMigrator);
     DI.uncache(Orm);
     DI.uncache(Configuration);
     DI.uncache(V3DbConfiguration);
@@ -73,13 +74,14 @@ describe('the TokenService in a boot migration', function () {
     DI.uncache(TokenService);
     DI.uncache(UsersTableTokenOwnerResolver);
     DI.uncache(TokenOwnerResolver);
+    DI.uncache(OrmMigrator);
     await shutdownV3Db();
     // Drops a resolve left pending by a deadlocked boot too, which uncaching would keep.
     DI.clearCache();
   });
 
-  it('creates a token for a user row while the Orm runs its boot migrations', async () => {
-    await within(Promise.resolve(DI.resolve(Orm)), BOOT_TIMEOUT_MS, 'the Orm boot');
+  it('creates a token for a user row while OrmMigrator runs the boot migrations', async () => {
+    await within(Promise.resolve(DI.resolve(OrmMigrator)), BOOT_TIMEOUT_MS, 'the boot migration pass');
 
     expect(created?.ok, 'the seed created its token').to.equal(true);
     (DI.resolve(IdentityStore) as BootSeedIdentityStore).add({ id: OWNER.id, login: 'boot-seed' });

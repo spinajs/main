@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { AUTHZ_CONNECTION, AuthzConfigError, principalKey } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
-import { Connection, ConnectionMismatch, DateTime as DateTimeColumn, Model, ModelBase, NotAnOrmDriver, OrmConnectionMissing, OrmNotResolved, Primary, TransactionRequired, UniqueViolation, modelDriver, ormReady, requireModelTransaction } from '@spinajs/orm';
+import { Connection, ConnectionMismatch, DateTime as DateTimeColumn, Model, ModelBase, NotAnOrmDriver, OrmConnectionMissing, OrmNotResolved, Primary, TransactionRequired, UniqueViolation, modelDriver, requireModelTransaction } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 // A value import: @DateTime() reads the property's design type.
 import { DateTime } from 'luxon';
@@ -105,14 +105,14 @@ function chunks<T>(list: readonly T[]): T[][] {
 
 /**
  * `TupleStore` over `authz_rebac_tuple` on the ORM connection alias `authz`. `write` runs in its own
- * transaction; `writeIn` joins the transaction of an `AuthzAdmin` command.
+ * transaction; `writeIn` joins the transaction of an `AuthzAdmin` command. Built with `new`, not by DI, so it cannot inject
+ * the Orm: the app resolves the Orm (or `OrmMigrator`) before the first read.
  */
 export class DbTupleStore extends TupleStore {
   readonly name: string = 'db';
 
   async read(object: ResourceRef, relation: string): Promise<readonly Tuple[]> {
     if (object.id == null) return [];
-    await ormReady();
     const rows = await TupleRecord.query().where({ namespace: object.type, object_id: object.id, relation });
     return rows.map(tupleOf);
   }
@@ -124,7 +124,6 @@ export class DbTupleStore extends TupleStore {
   async reverseMany(subjects: readonly TupleSubject[], relation: string, objectType: ResourceType): Promise<readonly ResourceRef[]> {
     const keys = [...new Set(subjects.map(subjectKey))];
     if (keys.length === 0) return [];
-    await ormReady();
     const out = new Map<string, ResourceRef>();
     for (const part of chunks(keys)) {
       const rows = await TupleRecord.query().where({ namespace: objectType, relation }).whereIn('subject_key', part);
@@ -136,7 +135,6 @@ export class DbTupleStore extends TupleStore {
   async write(add: readonly Tuple[], remove: readonly Tuple[], actor: PrincipalRef): Promise<string> {
     const adds = add.map((t, i) => checked(t, `add[${i}]`, actor));
     const removes = remove.map((t, i) => checked(t, `remove[${i}]`, actor));
-    await ormReady();
     await modelDriver(TupleRecord).transaction((tx) => this.writeIn({ driver: tx }, adds, removes, actor));
     return randomUUID();
   }
@@ -171,7 +169,6 @@ export class DbTupleStore extends TupleStore {
   }
 
   async find(query: TupleQuery, page?: TuplePage): Promise<{ readonly items: readonly Tuple[]; readonly total: number }> {
-    await ormReady();
     const filtered = () => {
       const q = TupleRecord.query();
       if (query.object) {

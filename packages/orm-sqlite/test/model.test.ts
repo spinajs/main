@@ -12,7 +12,7 @@ import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import '@spinajs/log';
-import { ConnectionConf, db } from './common.js';
+import { ConnectionConf, db, migrations } from './common.js';
 import { Location as LocationModel } from './models/Location.js';
 import '@spinajs/orm-http';
 
@@ -34,7 +34,7 @@ describe('Sqlite - relations test', function () {
 
     await DI.resolve(Orm);
 
-    await db().Migration.up();
+    await (await migrations()).up();
     await db().reloadTableInfo();
   });
 

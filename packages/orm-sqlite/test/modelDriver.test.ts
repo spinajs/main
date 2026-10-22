@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, ConnectionMismatch, Model, ModelBase, NotAnOrmDriver, Orm, OrmConnectionMissing, OrmDriver, OrmException, Primary, TransactionRequired, modelDriver, ormConnection, ormReady, requireModelConnection, requireModelTransaction } from '@spinajs/orm';
+import { Connection, ConnectionMismatch, Model, ModelBase, NotAnOrmDriver, Orm, OrmConnectionMissing, OrmDriver, OrmException, Primary, TransactionRequired, modelDriver, ormConnection, requireModelConnection, requireModelTransaction } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
@@ -105,8 +105,10 @@ describe('sqlite model driver helpers', function () {
     expect(() => MdLost.destroy()).to.throw(OrmConnectionMissing);
   });
 
-  it('ormReady returns at once when an Orm created its connections', async () => {
-    await Promise.all([ormReady(), ormReady()]);
+  it('resolving the Orm again answers with the one that created its connections', async () => {
+    const [a, b] = await Promise.all([DI.resolve(Orm), DI.resolve(Orm)]);
+    expect(a).to.equal(DI.get(Orm));
+    expect(b).to.equal(a);
     expect(modelDriver(MdDoc)).to.equal(driver('sqlite'));
   });
 

@@ -5,7 +5,7 @@
 /* eslint-disable prettier/prettier */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { MIGRATION_TABLE_NAME, Migration, Orm, OrmDriver, OrmMigration, QueryContext } from '@spinajs/orm';
+import { MIGRATION_TABLE_NAME, Migration, Orm, OrmDriver, OrmMigration, OrmMigrator, QueryContext } from '@spinajs/orm';
 import * as chai from 'chai';
 import { existsSync, unlinkSync } from 'fs';
 import _ from 'lodash';
@@ -83,7 +83,7 @@ class UpgradeConnectionConf extends FrameworkConfiguration {
               Pool: { Max: 1 },
 
               Migration: {
-                // the upgrade has to happen on BOOT, with nobody calling Migration.up() by
+                // the upgrade has to happen on BOOT, with nobody calling migrate() by
                 // hand - so the connection has to be one the boot run does not skip
                 OnStartup: true,
 
@@ -127,6 +127,7 @@ describe('Sqlite migration tracking table upgrade', function () {
   this.timeout(20000);
 
   let orm: Orm;
+  let migrator: OrmMigrator;
 
   /** PRAGMA-read column names of the tracking table as it was BEFORE the Orm booted. */
   let preBootColumns: string[] = [];
@@ -222,6 +223,7 @@ describe('Sqlite migration tracking table upgrade', function () {
 
     // the whole subject of this suite: booting, and nothing else
     orm = (await DI.resolve(Orm))!;
+    migrator = await DI.resolve(OrmMigrator);
   });
 
   after(async () => {
@@ -338,7 +340,7 @@ describe('Sqlite migration tracking table upgrade', function () {
   });
 
   it('reports the legacy migration as applied through status()', async () => {
-    const status = await orm.Migration.status();
+    const status = await migrator.Runner.status();
 
     const legacy = status.find((s) => s.name === LEGACY_MIGRATION);
     const fresh = status.find((s) => s.name === FRESH_MIGRATION);
@@ -364,12 +366,13 @@ describe('Sqlite migration tracking table upgrade', function () {
     // ALREADY EXISTING tracking table takes that path, and only a second boot can reach it.
     //
     // This is the boot that used to crash: `DI.clearCache()` empties the value-converter map, and
-    // `SqliteOrmDriver.tableInfo` reads it from `ensureStorage()`. `Orm.resolve()` now registers
-    // the converters BEFORE the migration pass, so the map is there by the time this runs.
+    // `SqliteOrmDriver.tableInfo` reads it from `ensureStorage()`. `Orm.resolve()` registers
+    // the converters before the migrator's pass, so the map is there by the time this runs.
     await orm.dispose();
     DI.clearCache();
 
     orm = (await DI.resolve(Orm))!;
+    migrator = await DI.resolve(OrmMigrator);
 
     const rows = await trackingRows();
     const legacy = rows.find((r) => r.Migration === LEGACY_MIGRATION);

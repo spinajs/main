@@ -23,7 +23,8 @@ function dir(path: string) {
 /**
  * The cli resolves only the command it runs, and nothing resolves the Orm for it - unlike every
  * other test here, these deliberately never call `DI.resolve(Orm)` themselves. A command that
- * does not bring the Orm up runs against bare models, whose statics throw "Not implemented".
+ * does not bring the Orm up runs against bare models, whose statics throw "Not implemented". The test connection
+ * migrates on startup, so a command must also run the OrmMigrator boot pass, or its first query throws.
  */
 describe('rbac cli commands', function () {
   this.timeout(15000);

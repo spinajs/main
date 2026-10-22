@@ -39,8 +39,8 @@ The cipher and `identityKey` are also exported from the side-effect-free subpath
 
 Every store reads and writes through the package's models (`AuthnIdentity`, `AuthnSecret`,
 `AuthnNonce`, `AuthnMfa`, `AuthnRecoveryCode`, `AuthnThrottle`, `AuthnAudit`), which name the
-table and the `default` connection. The stores take no driver: a store awaits `ormReady()` before
-its first statement, and a test boots an Orm whose `default` connection is the database under test.
+table and the `default` connection. The stores take no driver: each injects the Orm, so resolving a store
+resolves the Orm and binds the models, and a test boots an Orm whose `default` connection is the database under test.
 The stores, `DbAuthnThrottle` and `DbMfaEnrolments` are `@PerChildInstance`: each container that
 resolves one gets its own instance, and the throttle reads that container's configuration.
 

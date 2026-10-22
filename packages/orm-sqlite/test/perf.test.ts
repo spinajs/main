@@ -8,7 +8,7 @@ import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { Perf, PerfSink, IPerfMetric } from '@spinajs/log-common';
 import { SqliteOrmDriver } from './../src/index.js';
-import { ConnectionConf } from './common.js';
+import { ConnectionConf, migrations } from './common.js';
 import { TestMigration_2022_02_08_01_13_00 } from './migrations/TestMigration_2022_02_08_01_13_00.js';
 import '@spinajs/log';
 
@@ -43,7 +43,7 @@ describe('orm-sqlite emits exactly one orm.query span per query', () => {
     sink = (DI.resolve(Array.ofType(PerfSink)) as PerfSink[]).find((s) => s instanceof RecordingSink) as RecordingSink;
     Perf.refreshSinks();
 
-    await db().Migration.up();
+    await (await migrations()).up();
     await db().reloadTableInfo();
   });
 

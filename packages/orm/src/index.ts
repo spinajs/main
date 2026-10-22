@@ -25,6 +25,7 @@ export * from './migration-service.js';
 export * from './migration-runner.js';
 export * from './discrimination-middleware.js';
 export * from './orm.js';
+export * from './migrator.js';
 export * from './types.js';
 export * from './hydrators.js';
 export * from './dehydrators.js';

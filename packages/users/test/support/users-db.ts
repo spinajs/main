@@ -1,6 +1,6 @@
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
+import { OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { join, normalize, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -55,6 +55,7 @@ const USERS_HOST_KEYS = [
   'OneToOneRelationHydrator',
   'JunctionModelPropertyHydrator',
   'Orm',
+  'OrmMigrator',
   'DefaultAuthzDomains',
   'LogDecisionAudit',
   'InProcessChangeBus',
@@ -100,7 +101,8 @@ export function releaseUsersHost(): void {
 }
 
 /**
- * Bootstraps and boots the Orm (migrations and seeds of the test database); the suites call `releaseUsersHost()` after.
+ * Bootstraps and resolves OrmMigrator, which boots the Orm and runs the migrations and seeds of the test database; the
+ * suites call `releaseUsersHost()` after.
  * `configure` edits the resolved configuration before the Orm reads it.
  */
 export async function bootUsersDb(configure?: (config: Configuration) => void): Promise<void> {
@@ -111,7 +113,7 @@ export async function bootUsersDb(configure?: (config: Configuration) => void): 
 
   const config = await DI.resolve(Configuration, [null, null, [resolve(normalize(join(process.cwd(), 'test', './config')))]]);
   configure?.(config);
-  await DI.resolve(Orm);
+  await DI.resolve(OrmMigrator);
 }
 
 export interface SeedSpec {

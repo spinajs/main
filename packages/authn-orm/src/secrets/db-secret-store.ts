@@ -2,8 +2,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 
 import { SecretStore } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { Injectable, PerChildInstance } from '@spinajs/di';
-import { everyNthCall, ormReady } from '@spinajs/orm';
+import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Orm, everyNthCall } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import { _check_arg, _finite, _gt, _is_number, _is_string, _max_length, _non_empty, _try_check_arg } from '@spinajs/util';
 import type { DateTime } from 'luxon';
@@ -29,6 +29,10 @@ const RAW_MAX = 1024;
 @PerChildInstance()
 @Injectable(SecretStore)
 export class DbSecretStore extends SecretStore {
+  /** Never read: injecting it resolves the Orm, which binds the models, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
   public async issue(identity: IdentityRef, purpose: string, ttlSeconds: number, value?: string): Promise<string> {
@@ -37,7 +41,6 @@ export class DbSecretStore extends SecretStore {
     _check_arg(_is_number(_finite(), _gt(0)))(ttlSeconds, 'ttlSeconds');
     if (value !== undefined) _check_arg(_is_string(_non_empty(), _max_length(RAW_MAX)))(value, 'value');
     const nowMs = checkedMs(new Date(), 'DbSecretStore.issue: the clock');
-    await ormReady();
     await this.purgeNowAndThen(nowMs);
 
     const raw = value ?? randomBytes(32).toString('base64url');
@@ -55,7 +58,6 @@ export class DbSecretStore extends SecretStore {
     checkedText(purpose, PURPOSE_MAX, 'DbSecretStore: purpose');
     if (!_try_check_arg(_is_string(_non_empty(), _max_length(RAW_MAX)))(raw, 'raw')[0]) return false;
     const nowMs = checkedMs(new Date(), 'DbSecretStore.redeem: the clock');
-    await ormReady();
     await this.purgeNowAndThen(nowMs);
 
     const rows = await AuthnSecret.query().columns(['id', 'identity', 'purpose', 'expires_at']).where('secret_hash', sha256hex(raw)).where('identity', key).where('purpose', purpose).whereNull('used_at');
@@ -71,7 +73,6 @@ export class DbSecretStore extends SecretStore {
   /** Deletes up to one batch of spent and expired rows; returns how many went. */
   public async purge(now: Date = new Date()): Promise<number> {
     const ms = checkedMs(now, 'DbSecretStore.purge: now');
-    await ormReady();
     const t = instant(ms);
     const done = function (this: IWhereBuilder<unknown>) {
       this.whereNotNull('used_at');

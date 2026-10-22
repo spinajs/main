@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { CliCommand } from '@spinajs/cli';
 import { IdentityStore, TokenService } from '@spinajs/authn/contracts';
@@ -14,11 +14,13 @@ import { CreateToken } from '../src/cli/CreateToken.js';
 import { DeleteToken } from '../src/cli/DeleteToken.js';
 import { DeleteExpiredTokens } from '../src/cli/DeleteExpiredTokens.js';
 import { DbTokenService, TokenOwnerResolver, UsersTableTokenOwnerResolver } from '../src/service/index.js';
+import { AccessToken } from '../src/models/AccessToken.js';
 
 /** The commands inject the TokenService, and DbTokenService refuses to build without an IdentityStore. */
 class OrmBootIdentityStore extends FakeIdentityStore {}
 
-// v3/cli.test.ts resolves the Orm itself; the cli does not, so this one must not.
+// v3/cli.test.ts resolves the Orm itself; the cli does not, so this one must not. The connection has
+// Migration.OnStartup on, so a model query throws until the command's OrmMigrator ran the boot pass.
 describe('token cli commands boot the Orm', function () {
   this.timeout(15000);
 
@@ -32,6 +34,7 @@ describe('token cli commands boot the Orm', function () {
     describe(name, () => {
       before(async () => {
         DI.setESMModuleSupport();
+        DI.uncache(OrmMigrator);
         DI.uncache(Orm);
         DI.uncache(Configuration);
         DI.uncache(V3DbConfiguration);
@@ -57,12 +60,13 @@ describe('token cli commands boot the Orm', function () {
         await shutdownV3Db();
       });
 
-      it(`resolving ${name} brings the Orm up`, async () => {
+      it(`resolving ${name} brings the Orm up and runs the boot migrations`, async () => {
         expect(DI.get(Orm), 'nothing resolved the Orm yet').to.be.undefined;
 
         await DI.resolve(command);
 
         expect(DI.get(Orm)).to.not.be.undefined;
+        expect(await AccessToken.query()).to.deep.eq([]);
       });
     });
   }

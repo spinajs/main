@@ -5,7 +5,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
 import { QueueJob, Job, jobOptions, QueueService, JobModel, QueueClient, QueueMessageHook, QueueTrackingHook, IQueueMessage, QueueMessage } from './../src/index.js';
 import '@spinajs/orm-sqlite';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm, OrmMigrator } from '@spinajs/orm';
 
 chai.use(chaiAsPromised);
 
@@ -127,6 +127,7 @@ async function client() {
 function uncacheOwn() {
   DI.uncache(Configuration);
   DI.uncache(Orm);
+  DI.uncache(OrmMigrator);
   DI.uncache(QueueService);
   DI.uncache(QueueClient);
   DI.uncache(HookTestQueueClient);
@@ -149,7 +150,7 @@ describe('queue message hooks', function () {
     DI.register(OuterHook).as(QueueMessageHook);
     DI.register(InnerHook).as(QueueMessageHook);
     await DI.resolve(Configuration);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
     // the transport instance outlives a test; start each one with an empty wire
     (await client()).Emitted.length = 0;
   });
@@ -285,7 +286,7 @@ describe('queue without message hooks', function () {
     trace.length = 0;
     DI.register(HookConf).as(Configuration);
     await DI.resolve(Configuration);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
     // the transport instance outlives a test; start each one with an empty wire
     (await client()).Emitted.length = 0;
   });
@@ -343,7 +344,7 @@ describe('queue tracking hook', () => {
     DI.register(HookConf).as(Configuration);
     DI.register(TrackingHook).as(QueueTrackingHook);
     await DI.resolve(Configuration);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
   });
 
   afterEach(() => {
@@ -382,7 +383,7 @@ describe('queue job owned by another initiator', () => {
     trace.length = 0;
     DI.register(HookConf).as(Configuration);
     await DI.resolve(Configuration);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
   });
 
   const firstAttempt = async () => {

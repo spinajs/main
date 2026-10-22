@@ -38,20 +38,20 @@ describe('registerRbacStores', () => {
     await container.dispose();
   });
 
-  it('registers the stores authz.rbac.stores names under the model tokens and the AuthzAdmin ports', () => {
+  it('registers the stores authz.rbac.stores names under the model tokens and the AuthzAdmin ports', async () => {
     const cfg = config(DB_STORES);
     container.register(testHost.instance(cfg)).as(Configuration);
 
     registerRbacStores(container, cfg);
 
     expect(container.resolve(RoleStore)).to.be.instanceOf(ConfigRoleStore);
-    const assignments = container.resolve(AdminAssignmentStore);
+    const assignments = await container.resolve(AdminAssignmentStore);
     expect(assignments).to.be.instanceOf(DbAssignmentStore);
-    expect(container.resolve(AssignmentStore)).to.eq(assignments);
-    expect(container.resolve(AdminRuleStore)).to.be.instanceOf(DbRuleStore);
-    expect(container.resolve(RuleStore)).to.eq(container.resolve(AdminRuleStore));
-    expect(container.resolve(AdminLinkStore)).to.be.instanceOf(DbLinkStore);
-    expect(container.resolve(LinkStore)).to.eq(container.resolve(AdminLinkStore));
+    expect(await container.resolve(AssignmentStore)).to.eq(assignments);
+    expect(await container.resolve(AdminRuleStore)).to.be.instanceOf(DbRuleStore);
+    expect(await container.resolve(RuleStore)).to.eq(await container.resolve(AdminRuleStore));
+    expect(await container.resolve(AdminLinkStore)).to.be.instanceOf(DbLinkStore);
+    expect(await container.resolve(LinkStore)).to.eq(await container.resolve(AdminLinkStore));
     expect(DI.RootContainer.hasRegistered(RoleStore)).to.eq(false);
   });
 
