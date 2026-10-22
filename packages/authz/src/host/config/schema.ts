@@ -213,6 +213,15 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
     audit: audit(true),
     bus: { type: 'object', properties: { service: { type: 'string', minLength: 1 } } },
     admin,
+    hooks: {
+      type: 'object',
+      default: {},
+      propertyNames: { enum: ['check'] },
+      properties: {
+        // Off by default: with it on, every check pays one Hooks lookup.
+        check: { type: 'boolean', default: AUTHZ_DEFAULTS.hooks.check },
+      },
+    },
   },
 };
 

@@ -2,7 +2,7 @@ import { AuthzAdminFailure, AuthzDomains } from '@spinajs/authz';
 import { Config } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
 import type { AuthzAdmin, AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, Principal, ResourceRef } from '@spinajs/authz';
-import { BadRequestResponse, BaseController, BasePath, Conflict, Del, ForbiddenResponse, Get, NotFound, Ok, Patch, Policy, Post, Put, Req } from '@spinajs/http';
+import { BadRequestResponse, BaseController, BasePath, Conflict, Del, ForbiddenResponse, Get, NotFound, Ok, Patch, Policy, Post, Put, Req, ServerError } from '@spinajs/http';
 import type { Request, Response } from '@spinajs/http';
 import { IsAuthenticated, UnknownAuthzDomain, resolveAuthzDomain } from '@spinajs/authz-http';
 import { isPlainObject } from '@spinajs/util';
@@ -26,6 +26,8 @@ function respond(status: number, body: unknown): Response {
       return new NotFound(body);
     case 409:
       return new Conflict(body);
+    case 500:
+      return new ServerError(body);
     default:
       return new BadRequestResponse(body);
   }
@@ -135,9 +137,10 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout, protected_role or hook:<code> (an action hook refused)
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Post('commands')
   public async commands(@Req() req: Request) {
@@ -186,9 +189,10 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout, protected_role or hook:<code> (an action hook refused)
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Post('assignments')
   public async grant(@Req() req: Request) {
@@ -203,9 +207,10 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout, protected_role or hook:<code> (an action hook refused)
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Patch('assignments/:id')
   public async patchAssignment(@Req() req: Request) {
@@ -229,9 +234,10 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout, protected_role or hook:<code> (an action hook refused)
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Del('assignments/:id')
   public async revoke(@Req() req: Request) {
@@ -260,9 +266,10 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminResults} The link was created; results[0] holds its id and token
    * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout, protected_role or hook:<code> (an action hook refused)
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Post('links')
   public async createLink(@Req() req: Request) {
@@ -278,9 +285,10 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout, protected_role or hook:<code> (an action hook refused)
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Patch('links/:id')
   public async patchLink(@Req() req: Request) {
@@ -294,9 +302,10 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout, protected_role or hook:<code> (an action hook refused)
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Del('links/:id')
   public async revokeLink(@Req() req: Request) {
@@ -325,9 +334,10 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout, protected_role or hook:<code> (an action hook refused)
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Put('rules/:id')
   public async putRule(@Req() req: Request) {
@@ -341,9 +351,10 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout, protected_role or hook:<code> (an action hook refused)
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Del('rules/:id')
   public async deleteRule(@Req() req: Request) {
@@ -372,9 +383,10 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout, protected_role or hook:<code> (an action hook refused)
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Put('policies/:id')
   public async putPolicy(@Req() req: Request) {
@@ -388,9 +400,10 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout, protected_role or hook:<code> (an action hook refused)
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Del('policies/:id')
   public async deletePolicy(@Req() req: Request) {
@@ -418,9 +431,10 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout, protected_role or hook:<code> (an action hook refused)
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Patch('scopes/:type/:id/attributes')
   public async patchAttributes(@Req() req: Request) {
@@ -435,9 +449,10 @@ export class AuthzAdminController extends BaseController {
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout, protected_role or hook:<code> (an action hook refused)
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   * @response 500 {AuthzAdminError} hook_error: an action hook threw or timed out
    */
   @Put('scopes/:type/:id/attributes')
   public async replaceAttributes(@Req() req: Request) {

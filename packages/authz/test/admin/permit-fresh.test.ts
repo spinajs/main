@@ -2,8 +2,10 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { requirePermitted } from '../../src/admin/permit.js';
-import { TRUE } from '../../src/index.js';
-import type { AuthzService, CheckInput, Principal } from '../../src/index.js';
+// Not src/index.js: it would bring src/hooks.ts into a program that also holds the built package's declaration of the same actions.
+import { TRUE } from '../../src/contracts/filter.js';
+import type { AuthzService, CheckInput } from '../../src/contracts/service.js';
+import type { Principal } from '../../src/contracts/principal.js';
 
 const expect = chai.expect;
 

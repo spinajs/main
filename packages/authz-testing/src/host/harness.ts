@@ -38,6 +38,7 @@ import type { BehaviourAuthz, BehaviourDomains, BehaviourHarness, HarnessSession
 import type { Facet, World } from '../behaviour/types.js';
 import { instantiateWorld } from '../behaviour/world.js';
 import type { KitWorld } from '../behaviour/world.js';
+import { registerWorldHooks } from './hooks.js';
 import { config, domains, installHost, instance, uninstallHost } from './support.js';
 
 export interface HostSetup {
@@ -61,7 +62,7 @@ export interface HostHarnessOptions {
   extend?(host: HostSetup, session: HarnessSession): Partial<HarnessSession> | Promise<Partial<HarnessSession>>;
 }
 
-const HOST_FACETS: readonly Facet[] = ['engine', 'boot', 'audit', 'clock', 'cache', 'host', 'bus'];
+const HOST_FACETS: readonly Facet[] = ['engine', 'boot', 'audit', 'clock', 'cache', 'host', 'bus', 'hooks'];
 const DOMAIN_KEYS = new Set(['engine', 'fields', 'cache', 'audit']);
 
 class WorldAttributeStore extends ScopeAttributeStore {
@@ -220,6 +221,8 @@ export function hostHarness(opts: HostHarnessOptions = {}): BehaviourHarness {
           for (const m of kit.domainModels.get(name) ?? []) child.register(instance(m)).as(AuthorizationModel);
         }
         for (const [name, value] of Object.entries(configured)) scope.set(['authz', 'domains', name], value);
+
+        if (world.hooks?.length) registerWorldHooks(c, world.hooks, (path, value) => scope.set(path, value));
 
         const host: HostSetup = { container: c, containers, world, kit, ctx, domain, setConfig: (path, value) => scope.set(path, value) };
         await opts.register?.(host);
