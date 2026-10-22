@@ -6,7 +6,7 @@ import _ from 'lodash';
 import '@spinajs/log';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, Model, ModelBase, Orm, OrmDriver, OrmException, Primary } from '@spinajs/orm';
+import { Connection, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigrator, Primary } from '@spinajs/orm';
 
 import { MsSqlOrmDriver } from '../src/index.js';
 import { mergeArrays } from './util.js';
@@ -112,10 +112,11 @@ describe('mssql strict table check (fake driver)', function () {
     DI.clearCache();
   });
 
-  it('fails the boot naming the model, its table and its connection', async () => {
+  it('fails the migrator boot naming the model, its table and its connection', async () => {
     TABLES.add('strict_mssql_present');
 
-    const err = await rejection(DI.resolve(Orm));
+    await DI.resolve(Orm);
+    const err = await rejection(Promise.resolve(DI.resolve(OrmMigrator)));
 
     expect(err).to.be.instanceOf(OrmException);
     expect((err as Error).message).to.equal('Missing tables (db.StrictTableCheck): model StrictMsSqlMissing: table strict_mssql_missing on connection mssql-strict. Create them (run their migrations) or set db.StrictTableCheck to false');
@@ -126,6 +127,7 @@ describe('mssql strict table check (fake driver)', function () {
     TABLES.add('strict_mssql_missing');
 
     const orm = await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
 
     expect(orm.Connections.get(CONNECTION)).to.be.instanceOf(StrictMsSqlDriver);
   });

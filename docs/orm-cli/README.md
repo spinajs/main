@@ -1,6 +1,6 @@
 # `@spinajs/orm-cli`
 
-Migration commands for the `spinajs` bin: apply, roll back, report, record the outcome of a failed run, and scaffold a new migration. Each command is a thin wrapper over `orm.Migration` (the `MigrationRunner` of [`@spinajs/orm`](../orm/10-migrations.md)); this package adds argument checks, operator-facing wording and exit codes.
+Migration commands for the `spinajs` bin: apply, roll back, report, record the outcome of a failed run, and scaffold a new migration. Each command is a thin wrapper over `OrmMigrator` and its `Runner` ([`@spinajs/orm`](../orm/10-migrations.md#ormmigrator)); this package adds argument checks, operator-facing wording and exit codes.
 
 It does **not** decide what a migration run does: ordering, batching, locking, transactions and the tracking table all live in `@spinajs/orm`. The dependency runs one way, `orm-cli` to `orm`, so the ORM has no CLI in its dependency tree.
 
@@ -21,7 +21,7 @@ The package ships a config file that appends its command directory to `system.di
 | [Migration status](03-migration-status.md) | `migrate-status`: one line per migration per connection on stdout; exits `1` while anything is pending or failed, so it works as a deploy gate |
 | [Resolving failed migrations](04-resolving-failed-migrations.md) | `migrate-resolve`: records whether a failed or interrupted migration reached the database, which unblocks the connection |
 | [Scaffolding migrations](05-scaffolding-migrations.md) | `migrate-create`: writes a timestamped migration class file, optionally tagged for one environment |
-| [The CLI `Orm`](06-cli-orm.md) | `resolveCliOrm()` and `CLI_ORM_OPTIONS`: the `Orm` every command runs against, with the boot migration pass switched off |
+| [The CLI migrator](06-cli-orm.md) | `resolveCliMigrator()`: the `OrmMigrator` every command runs against, with its boot pass switched off |
 | [Command discovery](07-command-discovery.md) | The `system.dirs.cli` config fragment, how `Cli` finds the commands, and running them without the bin |
 | [Customizing commands](08-customizing-commands.md) | Replace or extend a shipped command through DI, override its protected hooks, or build your own command on the exported pieces |
 

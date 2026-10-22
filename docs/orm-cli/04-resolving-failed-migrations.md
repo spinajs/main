@@ -10,8 +10,8 @@ spinajs migrate-resolve --name AddInvoiceIndex_2026_10_02_09_00_00 --rolled-back
 ## How it works
 
 1. `MigrateResolveCommand.execute(options)` calls `MigrateResolveCommand.action(options)` first. It throws `InvalidArgument` when both `--applied` and `--rolled-back` are given, or neither. No `Orm` is resolved and no connection is opened for a malformed command line.
-2. It calls [`resolveCliOrm()`](06-cli-orm.md). An ordinary `DI.resolve(Orm)` would run the boot pass, which refuses to run on a connection holding a failed row, so it would fail on the very row this command clears.
-3. It calls `orm.Migration.resolve(name, action)` with `'applied'` or `'rolled-back'`. The runner finds the connection that owns the migration and forwards to its migration service. It takes no migration lock, because the run that died may still hold it.
+2. It calls [`resolveCliMigrator()`](06-cli-orm.md). An ordinary `DI.resolve(OrmMigrator)` would run the boot pass, which refuses to run on a connection holding a failed row, so it would fail on the very row this command clears.
+3. It calls `migrator.Runner.resolve(name, action)` with `'applied'` or `'rolled-back'`. The runner finds the connection that owns the migration and forwards to its migration service. It takes no migration lock, because the run that died may still hold it.
 4. The service refuses, with `OrmException`, a row that is neither failed nor interrupted: healthy, already resolved, or absent (message contains `not in failed state`). The error passes through unchanged.
 5. The runner throws `OrmException` when the migration is registered but its connection is not configured.
 6. On success the command logs, at `success` level:
@@ -138,4 +138,4 @@ void retryIndexMigration();
 
 - [Migration status](03-migration-status.md): finds failed and interrupted rows and prints these invocations.
 - [Migrations: migration states](../orm/10-migrations.md#migration-states): the row shapes.
-- [The CLI `Orm`](06-cli-orm.md): why this command can run on a blocked connection.
+- [The CLI migrator](06-cli-orm.md): why this command can run on a blocked connection.

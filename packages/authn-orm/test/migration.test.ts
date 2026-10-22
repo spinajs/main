@@ -168,7 +168,7 @@ for (const kind of DB_KINDS) {
     it('is registered from the package root and applied on startup', async () => {
       expect(db.orm.Migrations.map((m) => m.type)).to.include(AuthnInitial_2026_10_02_00_00_00);
 
-      const status = (await db.orm.Migration.status()).find((s) => s.name === MIGRATION);
+      const status = (await db.migrator.Runner.status()).find((s) => s.name === MIGRATION);
       expect(status, 'status entry').to.not.be.undefined;
       expect(status!.pending).to.eq(false);
       expect(status!.failed).to.eq(false);
@@ -287,14 +287,14 @@ for (const kind of DB_KINDS) {
     });
 
     it('down() drops all seven tables, and up() restores them', async () => {
-      const undone = await db.orm.Migration.down(MIGRATION);
+      const undone = await db.migrator.Runner.down(MIGRATION);
       expect(undone.map((m) => m.constructor)).to.deep.eq([AuthnInitial_2026_10_02_00_00_00]);
 
       for (const table of TABLES) {
         expect(await db.driver.schema().tableExists(table), table).to.eq(false);
       }
 
-      await db.orm.Migration.up(MIGRATION);
+      await db.migrator.Runner.up(MIGRATION);
       for (const table of TABLES) {
         expect(await db.driver.schema().tableExists(table), table).to.eq(true);
       }

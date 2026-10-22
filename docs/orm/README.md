@@ -16,7 +16,7 @@ Pick the driver package for your database.
 
 | Feature | What it does |
 | --- | --- |
-| [Connections](01-connections.md) | Boots `Orm`, opens the configured connections, binds models to them and checks that their tables exist |
+| [Connections](01-connections.md) | Boots `Orm`, opens the configured connections, binds models to them and reads their table info; gates model queries on `Migration.OnStartup` connections until `OrmMigrator` ran |
 | [Models](02-models.md) | Declares a model class over a table: primary keys, timestamps, soft delete, archiving, hidden and historical columns |
 | [Model API](03-model-api.md) | Static and instance methods on `ModelBase`: get, find, where, insert, update, destroy, scopes |
 | [Converters and hydration](04-converters-and-hydration.md) | Converts column values between the database and JS, and maps rows to models and back |
@@ -27,7 +27,7 @@ Pick the driver package for your database.
 | [Unit of work](07-unit-of-work.md) | Saves a model graph in dependency order with dirty tracking, an identity map and orphan policies |
 | [Transactions](08-transactions.md) | Runs queries and saves atomically, with isolation levels and shared table locks |
 | [Schema builder](09-schema-builder.md) | Creates and alters tables, columns, indexes, foreign keys, views, events and databases |
-| [Migrations](10-migrations.md) | Discovers, orders, locks and runs migrations, per environment |
+| [Migrations](10-migrations.md) | `OrmMigrator`: discovers, orders, locks and runs migrations and their seeds, re-reads the touched models, checks the tables |
 | [JSON schema](11-json-schema.md) | Builds a JSON schema from a model for validation |
 | [Architecture](12-architecture.md) | How a query becomes SQL, and the extension points a dialect driver implements |
 | [Observability and resilience](13-observability-and-resilience.md) | Pool metrics, connection state and retry with backoff |

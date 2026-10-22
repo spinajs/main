@@ -4,7 +4,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
-import { Orm, TableQueryCompiler, InsertQueryCompiler, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, DropTableCompiler, MigrationRunner } from '../src/index.js';
+import { Orm, TableQueryCompiler, InsertQueryCompiler, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, DropTableCompiler, MigrationRunner, OrmMigrator } from '../src/index.js';
 import { ConnectionConf, FakeSqliteDriver, FakeMysqlDriver, FakeTableQueryCompiler, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, FakeDropTableCompiler } from './misc.js';
 import "./../src/bootstrap.js";
 import * as sinon from 'sinon';
@@ -78,8 +78,8 @@ describe('Orm general', () => {
     expect(orm.Connections.has('broken')).to.be.false;
   });
 
-  it('ORM should register value converters before the boot migration pass', async () => {
-    // `Migration.up()` reaches `OrmMigrationService.ensureStorage()`, which probes the tracking
+  it('ORM should register value converters before the migrator boot pass', async () => {
+    // `Runner.up()` reaches `OrmMigrationService.ensureStorage()`, which probes the tracking
     // table with `driver.tableInfo()` - and a driver's `tableInfo()` may read the value-converter
     // map out of the container. While `registerDefaultConverters()` ran AFTER this call the map
     // was absent for the whole boot pass, so booting against an ALREADY migrated sqlite database
@@ -91,10 +91,10 @@ describe('Orm general', () => {
       // read off the same container the drivers resolve the map from, at the exact moment the
       // migration pass starts
       convertersAtUp = (this.orm as Orm).Container.get('__orm_db_value_converters__');
-      return [];
+      return { executed: [], touched: { models: [] } };
     });
 
-    await db();
+    await DI.resolve(OrmMigrator);
 
     expect(up.calledOnce, 'boot did not run the migration pass at all').to.be.true;
     expect(convertersAtUp, 'converter map was absent when the boot migration pass started').to.be.instanceOf(Map);

@@ -1,9 +1,9 @@
-/** Boots an Orm on sqlite `:memory:` in a child DI container and runs the authn-orm and authn-webauthn migrations on it. */
+/** Boots an Orm on sqlite `:memory:` in a child DI container; its OrmMigrator runs the authn-orm and authn-webauthn migrations. */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import '@spinajs/log';
-import { Orm, QueryContext } from '@spinajs/orm';
+import { Orm, OrmMigrator, QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import '../../src/db.js';
@@ -36,7 +36,9 @@ export async function bootSqlite(name: string): Promise<SqliteDb> {
   container.register(SqliteOrmDriver).as('orm-driver-sqlite');
   // Without a registration here, an Orm another test registered in the root container makes the root cache this one.
   container.register(Orm).asSelf();
+  container.register(OrmMigrator).asSelf();
   await container.resolve(Configuration);
+  await container.resolve(OrmMigrator);
   const orm = await container.resolve(Orm);
   return { container, driver: orm.Connections.get('default')!, dispose: () => orm.dispose() };
 }

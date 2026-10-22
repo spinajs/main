@@ -7,7 +7,7 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import '@spinajs/log';
 import { SqliteOrmDriver } from './../src/index.js';
-import { ConnectionConf, db } from './common.js';
+import { ConnectionConf, db, migrations } from './common.js';
 import { CompositeKeyModel } from './models/CompositeKeyModel.js';
 import { CompositeChild } from './models/CompositeChild.js';
 
@@ -33,7 +33,7 @@ describe('Sqlite - composite primary keys', function () {
     }
 
     await DI.resolve(Orm);
-    await db().Migration.up();
+    await (await migrations()).up();
     await db().reloadTableInfo();
   });
 

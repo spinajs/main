@@ -183,12 +183,13 @@ function storedScope(stored: unknown, agent: boolean): TokenScope | undefined | 
  * `TokenService` over `rbac_access_tokens`. Owners map to `user_id` through {@link TokenOwnerResolver};
  * owner status comes from {@link IdentityStore}. A successful validate is served from memory for
  * `authn.token.cache.ttlSeconds`; revocations, rotations and updates evict it and go out on the {@link CredentialChangeBus}.
- *
- * Each call that queries waits for the Orm (`ormReady`) instead of the service injecting it: a boot migration that seeds
- * users or tokens resolves this service inside the Orm's resolve, and an injected Orm would wait for that resolve.
  */
 @Injectable(TokenService)
 export class DbTokenService extends TokenService {
+  /** Never read: injecting it resolves the Orm, which binds `AccessToken`, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   @Config('authn.token.maxTtlDays')
   protected MaxTtlDays: number;
 
@@ -319,7 +320,6 @@ export class DbTokenService extends TokenService {
     const name = typeof raw.name === 'string' ? raw.name.trim() : '';
     _check_arg(_between(1, MAX_NAME_LENGTH, new InvalidArgument(`token name must be 1 to ${MAX_NAME_LENGTH} characters`)))(name, 'name');
 
-    await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
       throw new InvalidOperation(`Token owner ${String(owner?.type)}:${String(owner?.id)} is unknown to ${this.Owners.constructor.name}`);
@@ -352,7 +352,6 @@ export class DbTokenService extends TokenService {
   }
 
   public async list(owner: IdentityRef): Promise<readonly TokenRecord[]> {
-    await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
       return [];
@@ -494,7 +493,6 @@ export class DbTokenService extends TokenService {
       return false;
     }
 
-    await ormReady();
     const token = await this.revokeRow(id, now);
     if (!token) {
       return false;
@@ -523,7 +521,6 @@ export class DbTokenService extends TokenService {
       throw new InvalidOperation('now must be a valid Date');
     }
     const cutoff = DateTime.fromMillis(at);
-    await ormReady();
 
     // Selected through the model, so the cutoff is written in the column's stored format; a bare DELETE on the
     // connection would convert it by value type only. A selected row cannot become live again, so deleting by id is
@@ -563,7 +560,6 @@ export class DbTokenService extends TokenService {
 
   public async revokeAllFor(owner: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<number> {
     const now = this.nowOf(ctx);
-    await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
       return 0;
@@ -595,7 +591,6 @@ export class DbTokenService extends TokenService {
     }
 
     const hash = this.Generator.hash(raw);
-    await ormReady();
     const found = await this.Owners.tokenByHash(hash);
     if (!found) {
       return false;
@@ -633,7 +628,6 @@ export class DbTokenService extends TokenService {
     }
     const since = this.cache.mark();
 
-    await ormReady();
     const found = await this.Owners.tokenByHash(hash);
     if (!found) {
       return fail('invalid_credentials');
@@ -732,7 +726,6 @@ export class DbTokenService extends TokenService {
     // The model types LastUsedIp as optional, but a use without an ip must clear the previous one, so null is written.
     const values = { LastUsedAt: DateTime.fromMillis(now) as DateTime<true>, LastUsedIp: ip } as unknown as Partial<AccessToken>;
     const staleBefore = DateTime.fromMillis(now - intervalSeconds * 1000);
-    await ormReady();
     // The interval sits in the WHERE clause, so of several requests racing past the same stale read only one writes.
     const result = await AccessToken.update(values)
       .where('Uuid', id)
@@ -851,7 +844,6 @@ export class DbTokenService extends TokenService {
     if (!ok) {
       return null;
     }
-    await ormReady();
     const rowId = await this.Owners.rowIdOf(owner);
     if (rowId === null) {
       return null;

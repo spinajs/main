@@ -31,7 +31,7 @@ The throttle is resolved as `AuthnThrottle`, so every caller below gets `DbAuthn
 
 1. `StoreAuthnThrottle.attempt()` (from `@spinajs/authn`) checks the flow and `ctx.now`. `DbAuthnThrottle.nowMs()` accepts only a valid `Date` between the years 1000 and 9999; anything else throws `InvalidArgument`. `DbAuthnThrottle.checkKeys()` throws `InvalidArgument` for any key whose `value` is not a string, whether the flow uses that kind or not.
 2. The util `Throttle` turns the keys into gate ids and counted ids with `DbAuthnThrottle.rowKey(flow, key)`: base64url of HMAC-SHA256(hash key, `flow|kind|value`).
-3. `DbThrottleStore.attempt()` awaits `ormReady()`. Every 64th attempt of the store instance first runs `purge()`.
+3. Every 64th `DbThrottleStore.attempt()` of the store instance first runs `purge()`.
 4. It reads the gate rows that delay now. If any does, it refuses with the longest wait and counts nothing.
 5. It claims each gate in id order with a compare-and-set: an `UPDATE` that matches the attempt count it read, or an `INSERT` for a new key. A stale row (idle for `resetAfterMs` and delaying nobody) counts as zero and is taken over.
 6. A lost claim re-reads the delay of this gate and the gates still to claim. A delay refuses; otherwise the claim re-reads the row and tries again, up to 64 times. After 64 lost claims the attempt is refused with a 1-second wait.
@@ -200,7 +200,7 @@ export class ReportingDbThrottle extends DbAuthnThrottle {
 - Writes are compare-and-set statements without a transaction, because the SQLite driver shares one handle. A lost race only throttles more: a missed undo keeps the count, and a lost success subtracts less.
 - Of N parallel attempts on a fresh key, exactly `free` pass; each later delay slot lets one through.
 - A delaying row whose datetime does not read back still delays, for 1 second (fail closed).
-- The store awaits `ormReady()` before its first statement, which resolves the `Orm` from the root container when no one has. The rows live on the `default` connection of the `AuthnThrottle` model; there is no per-throttle connection.
+- `DbAuthnThrottle` injects the `Orm` (`@Autoinject(Orm)`), so resolving the throttle resolves the `Orm` and binds the models. A `DbThrottleStore` you build yourself needs a resolved `Orm` before its first statement. The rows live on the `default` connection of the `AuthnThrottle` model; there is no per-throttle connection.
 - The purge runs on every 64th `attempt` of a store instance and deletes at most 500 rows. `peek` and `succeed` never purge. Call `purge()` from a job when attempts are rare and the table must stay small.
 - `rowKey` hashes with the key of this process when `authn.audit.hashKey.secret` is unset. Such rows are not shared with other instances and are orphaned by a restart. The random key is shared by every `DbAuthnThrottle` in the process.
 - A row's `last_attempt_at` takes the caller's "now", not the later of the stored and the new value.

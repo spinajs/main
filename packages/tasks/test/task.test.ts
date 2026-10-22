@@ -9,7 +9,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
 
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode, OrmMigrator } from '@spinajs/orm';
 import { Mutex, mutex_acquire, mutex_get } from '@spinajs/threading';
 import { OrmMutex } from '@spinajs/orm-threading';
 import { QueueService } from '@spinajs/queue';
@@ -113,7 +113,7 @@ describe('Commands', function () {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(OrmMutex).as(Mutex);
     await DI.resolve(Configuration);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
     await DI.resolve(QueueService);
   });
 

@@ -6,7 +6,7 @@ import { Orm, QueryContext } from '@spinajs/orm';
 import sinon from 'sinon';
 import '@spinajs/log';
 import { SqliteOrmDriver } from '../src/index.js';
-import { ConnectionConf, db } from './common.js';
+import { ConnectionConf, db, migrations } from './common.js';
 
 import './migrations/UowMigration_2026_07_26_00_00_00.js';
 import './models/uow/UowClient.js';
@@ -43,7 +43,7 @@ export async function bootUow(): Promise<Orm> {
   }
 
   const orm = await DI.resolve(Orm);
-  await db().Migration.up();
+  await (await migrations()).up();
   await db().reloadTableInfo();
 
   return orm!;

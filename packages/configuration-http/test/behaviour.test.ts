@@ -3,7 +3,7 @@ import { SYSTEM, authz } from '@spinajs/authz';
 import { hostHarness, runBehaviour } from '@spinajs/authz-testing';
 import { DbConfig, resetSystemPrincipal } from '@spinajs/configuration-db-source';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import '@spinajs/log';
 
 import { ConfigurationHttpBootstrapper } from '../src/bootstrap.js';
@@ -35,6 +35,7 @@ runBehaviour(
         });
         DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
         const orm = await DI.resolve(Orm);
+        await DI.resolve(OrmMigrator);
 
         await authz(host.domain).runAs(SYSTEM, 'test', async () => {
           for (const r of host.world.lane?.configuration?.rows ?? [])
@@ -63,6 +64,7 @@ runBehaviour(
           async dispose() {
             orm.dispose();
             DI.uncache(Orm);
+            DI.uncache(OrmMigrator);
             DI.uncache('orm-driver-sqlite');
             DI.unregister(SqliteOrmDriver);
             resetSystemPrincipal();

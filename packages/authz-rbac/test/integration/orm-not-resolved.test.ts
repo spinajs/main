@@ -7,13 +7,14 @@ const run = promisify(execFile);
 
 /**
  * A process that never resolved an Orm, as the cli is: imports the built package (`npm run compile` first), registers a
- * Configuration on SQLite `:memory:` with the authz tables there, and runs `body` against it.
+ * Configuration on SQLite `:memory:` whose authz tables OrmMigrator creates, and runs `body` against it.
  */
 async function freshProcess(body: string): Promise<unknown> {
   const script = [
     "import { DI } from '@spinajs/di';",
     "import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';",
     "import '@spinajs/log';",
+    "import { Orm, OrmMigrator } from '@spinajs/orm';",
     "import { SqliteOrmDriver } from '@spinajs/orm-sqlite';",
     "import { AUTHZ_CONFIGURATION_SCHEMA, GLOBAL, SYSTEM } from '@spinajs/authz';",
     "import { DbAssignmentStore, DbAuthzAdminBackend, VersionRecord, recordDriver } from '@spinajs/authz-rbac';",
@@ -51,24 +52,41 @@ describe('authz-rbac DB stores and DbAuthzAdminBackend in a process that has not
     expect(result).to.deep.eq({ message: 'AuthzConfigError: VersionRecord: the Orm is not resolved yet; resolve it (await DI.resolve(Orm)) before the authz tables are used' });
   });
 
-  it('a store read resolves the Orm first', async () => {
-    const result = await freshProcess(["const store = DI.resolve(DbAssignmentStore);", "result.found = (await store.find({ at: new Date(), includeExpired: true })).total;"].join('\n'));
-    expect(result).to.deep.eq({ found: 0 });
-  });
-
-  it('a DbAuthzAdminBackend batch resolves the Orm first, and the store reads what it wrote', async () => {
+  it('resolving a store resolves the Orm', async () => {
     const result = await freshProcess(
       [
-        'const store = DI.resolve(DbAssignmentStore);',
-        "const a = await new DbAuthzAdminBackend().transaction('root', (tx) => store.assign({ subject: { type: 'user', id: 'alice' }, role: 'editor', scope: GLOBAL }, SYSTEM, tx));",
+        'const store = await DI.resolve(DbAssignmentStore);',
+        'result.orm = DI.get(Orm) !== undefined;',
+        'await DI.resolve(OrmMigrator);',
+        'result.found = (await store.find({ at: new Date(), includeExpired: true })).total;',
+      ].join('\n'),
+    );
+    expect(result).to.deep.eq({ orm: true, found: 0 });
+  });
+
+  it('a DbAuthzAdminBackend batch runs on the Orm the backend resolved, and the store reads what it wrote', async () => {
+    const result = await freshProcess(
+      [
+        'const backend = await DI.resolve(DbAuthzAdminBackend);',
+        'result.orm = DI.get(Orm) !== undefined;',
+        'await DI.resolve(OrmMigrator);',
+        'const store = await DI.resolve(DbAssignmentStore);',
+        "const a = await backend.transaction('root', (tx) => store.assign({ subject: { type: 'user', id: 'alice' }, role: 'editor', scope: GLOBAL }, SYSTEM, tx));",
         'result.role = (await store.byId(a.id))?.role;',
       ].join('\n'),
     );
-    expect(result).to.deep.eq({ role: 'editor' });
+    expect(result).to.deep.eq({ orm: true, role: 'editor' });
   });
 
-  it('DbAuthzAdminBackend.recall resolves the Orm first', async () => {
-    const result = await freshProcess(["result.recalled = (await new DbAuthzAdminBackend().recall('root', 'system:system', 'k1', new Date())) ?? null;"].join('\n'));
-    expect(result).to.deep.eq({ recalled: null });
+  it('resolving DbAuthzAdminBackend resolves the Orm', async () => {
+    const result = await freshProcess(
+      [
+        'const backend = await DI.resolve(DbAuthzAdminBackend);',
+        'result.orm = DI.get(Orm) !== undefined;',
+        'await DI.resolve(OrmMigrator);',
+        "result.recalled = (await backend.recall('root', 'system:system', 'k1', new Date())) ?? null;",
+      ].join('\n'),
+    );
+    expect(result).to.deep.eq({ orm: true, recalled: null });
   });
 });

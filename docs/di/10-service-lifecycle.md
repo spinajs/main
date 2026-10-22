@@ -97,7 +97,7 @@ void start();
 
 - An override of `resolve()` that does not call `super.resolve()` leaves `Resolved` at `false`.
 - `@Autoinject` properties are available in `resolve()` but not in the constructor.
-- A `SyncService.resolve()` that throws fails the `resolve()` call synchronously; an `AsyncService.resolve()` that rejects rejects the returned promise and nothing is cached.
+- A `SyncService.resolve()` that throws fails the `resolve()` call synchronously; an `AsyncService.resolve()` that rejects rejects the returned promise and nothing is cached. The resolve of a service that injects it rejects with the same error.
 - Dispose order is cache insertion order, not reverse dependency order. A service can be disposed before another service that still uses it; make `dispose()` safe to run in any order.
 - A singleton reached through `Array.ofType(T)` is cached under `T` and under its own name; `dispose()` still calls its `dispose()` once.
 - `@NewInstance()` services and factory results are never cached, so `dispose()` never reaches them.

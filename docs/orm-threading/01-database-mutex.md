@@ -10,7 +10,7 @@ A lock is a row: its `Name`, the `Tenant` that owns it, a `Locked` flag and an o
 
 1. Your startup code calls `DI.register(OrmMutex).as(Mutex)`. The package registers nothing in DI by itself.
 2. Importing `@spinajs/orm-threading` registers the `__mutex__` model under `__models__` (`@Model`) and the `Mutex_2024_12_03_11_41_00` migration under `__migrations__` (`@Migration`).
-3. `Orm.resolve()` runs the migration on the `default` connection when that connection has `Migration.OnStartup: true`, which creates the `__mutex__` table.
+3. `OrmMigrator`'s boot pass (`DI.resolve(OrmMigrator)`) runs the migration on the `default` connection when that connection has `Migration.OnStartup: true`, which creates the `__mutex__` table. `Orm.resolve()` alone applies nothing. See [Migrations](../orm/10-migrations.md).
 4. The first `mutex_*` helper call, or `DI.resolve(Mutex)`, builds one `OrmMutex` (singleton, the DI default).
 
 Every method trims `Name` and throws `InvalidArgument` for an empty name. An empty or missing `Tenant` becomes `threading.mutex.tenant`, or, when that is empty, `processIdentity()` from `@spinajs/threading`: `<host>:<pid>:<random>`, at most 32 characters, generated once per process. A missing `ttl` becomes `threading.mutex.ttl`; a negative or non-finite `ttl` throws `InvalidArgument`.

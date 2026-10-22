@@ -1,6 +1,6 @@
 # Rolling back migrations
 
-`migrate-down` reverses applied migrations through `orm.Migration.down()`. By default it reverses **the last applied batch only**, which is one `migrate-up` run, not the whole history.
+`migrate-down` reverses applied migrations through `OrmMigrator.Runner.down()`. By default it reverses **the last applied batch only**, which is one `migrate-up` run, not the whole history.
 
 ```sh
 spinajs migrate-down                                            # the last applied batch
@@ -12,13 +12,13 @@ spinajs migrate-down --fake                                     # drop the track
 
 ## How it works
 
-1. `MigrateDownCommand.execute(options)` calls [`resolveCliOrm()`](06-cli-orm.md). Without it, a boot pass would apply pending migrations and this command would then roll back the batch it had just created.
+1. `MigrateDownCommand.execute(options)` calls [`resolveCliMigrator()`](06-cli-orm.md). Without it, a boot pass would apply pending migrations and this command would then roll back the batch it had just created.
 2. `MigrateDownCommand.announce(options)` logs the scope before anything changes:
    - `--connection`: `Limited to connection <name> - no other configured connection is touched`, always first;
    - `--name`: a `warn` that the migration service may report other rows as having no registered class, and that those rows are fine (see [Important behaviour](#important-behaviour));
    - `--all`: a `warn`, `Rolling back EVERY applied migration on every configured connection ( --all )`, or `... on connection <name> ( --all )` when `--connection` is given;
    - otherwise: `Rolling back the LAST APPLIED BATCH only - pass --all to reverse every applied migration`.
-3. It calls `orm.Migration.down(options.name, { all, fake, connection })`. The runner rolls back each connection in turn, newest first; see [Migrations: rollback](../orm/10-migrations.md#rollback-migrationrunnerdown).
+3. It calls `migrator.Runner.down(options.name, { all, fake, connection })`. The runner rolls back each connection in turn, newest first; see [Migrations: rollback](../orm/10-migrations.md#rollback-migrationrunnerdown).
 4. On success it logs `Rolled back <n> migration(s): <names>`, or `Recorded as rolled back ( --fake, nothing was executed ) ...`.
 5. With nothing rolled back, it logs which migration or connection had nothing applied. Exit code `0`.
 

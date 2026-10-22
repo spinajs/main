@@ -22,5 +22,6 @@ A concurrent registration of the same address makes one account: the loser gets 
 
 ## Important behaviour
 
+- The factory builds the registrar with `new`, so it does not inject the `Orm`: its lookup needs an `Orm` the app resolved before serving (`OrmMigrator` at boot does).
 - Combine it with `authn.login.requireVerifiedAddress: true` to keep an account from signing in before its address is verified.
 - `create()` and `activate()` still send the `users.email.created` and `users.email.activated` lifecycle mails. Set their `enabled` to `false` if the verification mail is the only one you want.

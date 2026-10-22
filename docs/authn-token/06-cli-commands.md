@@ -5,7 +5,7 @@ Three `spinajs` commands manage API tokens from a terminal or a scheduler: creat
 ## How it works
 
 1. The package config adds its `lib/<mjs|cjs>/cli` directory to `system.dirs.cli`, under `node_modules/@spinajs/authn-token` of `WORKSPACE_ROOT_PATH` (or the working directory) and one directory up. The `spinajs` bin finds the commands there; see [Command discovery](../cli/05-command-discovery.md).
-2. Every command extends `CliCommand` and injects `TokenService` with `@Autoinject`. The CLI resolves only the command it runs; the commands inject `Orm`, so resolving the command is what boots the ORM and connects the `AccessToken` model to the database. `DbTokenService` and `UsersTableTokenOwnerResolver` do not inject it: a boot migration that seeds users or tokens resolves them while the ORM resolves.
+2. Every command extends `CliCommand`, through the internal base `TokenCliCommand`, and injects `TokenService` with `@Autoinject`. The CLI resolves only the command it runs; `TokenCliCommand` injects `OrmMigrator`, so resolving the command boots the ORM and runs the `Migration.OnStartup` pass, as an app process does before serving, whichever `TokenService` is registered. Without that pass a model query on a `Migration.OnStartup` connection throws. `DbTokenService` and `UsersTableTokenOwnerResolver` inject only the `Orm`.
 3. `authn:token-create` calls the service with `ctx = { now: new Date(), purpose: 'request' }`; `authn:token-delete` with `cliContext()` from `@spinajs/authn/contracts`, which adds `userAgent: 'spinajs-cli'`.
 4. A failure sets `process.exitCode = 1` and logs an error on the `authn-token` logger; the commands never throw out of `execute`.
 
@@ -59,7 +59,7 @@ npx spinajs authn:token-delete-expired
 
 ### Token service: custom command
 
-Write your own token command when operators need a task the shipped ones lack, such as revoking every token of a user during an incident. Extend `CliCommand`, inject `TokenService`, and put the file in a directory listed in `system.dirs.cli`. Resolving `DbTokenService` boots the ORM, so the command needs no `Orm` of its own.
+Write your own token command when operators need a task the shipped ones lack, such as revoking every token of a user during an incident. Extend `CliCommand`, inject `TokenService`, and put the file in a directory listed in `system.dirs.cli`. `DbTokenService` injects the `Orm`, so resolving the command boots the ORM. When the app migrates on startup (`Migration.OnStartup`), also add `@Autoinject(OrmMigrator)` (`@spinajs/orm`), as the shipped commands do: model queries on such a connection throw until the boot pass ran.
 
 ```ts sample
 import { CLI_ACTOR, TokenService, cliContext } from '@spinajs/authn/contracts';

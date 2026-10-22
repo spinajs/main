@@ -10,7 +10,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import { BaseController, BasePolicy, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import type { IController, IRoute, IRouteParameter, Request } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
@@ -207,7 +207,7 @@ describe('3.0 authn policies and route args', function () {
 
     const config = await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
 
     s = await buildSuite();
     authnInChild = buildAuthnMiddlewareIn(s.child);
@@ -239,6 +239,7 @@ describe('3.0 authn policies and route args', function () {
     DI.uncache(PolicySuiteConfiguration);
     DI.uncache(Configuration);
     DI.uncache(Orm);
+    DI.uncache(OrmMigrator);
   });
 
   describe('exports', () => {

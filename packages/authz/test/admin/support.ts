@@ -49,6 +49,8 @@ export class FakeStore {
   /** What the guard saw: rows in the store when it ran. */
   readonly guardSaw: number[] = [];
   readonly contexts: AdminContext[] = [];
+  /** The commands that reached apply. */
+  readonly applied: AuthzCommand[] = [];
   /** Awaited by every apply when set. */
   gate: Promise<void> | undefined;
   private seq = 0;
@@ -99,6 +101,7 @@ export class FakeAssignmentHandler extends AuthzWriteHandler {
   async apply(c: AuthzCommand, ctx: AdminContext, tx: AuthzTx): Promise<{ id?: string; token?: string; affected: number; tags: readonly string[]; events: readonly AuthzEvent[] }> {
     const s = await storeOf(ctx);
     s.trace.push(`apply:${c.kind}`);
+    s.applied.push(c);
     await s.gate;
     const undo = memoryTx(tx);
     if (c.kind === 'assignment.revoke') {
@@ -190,6 +193,8 @@ export function grantsModel(): StaticModel {
     name: 'grants',
     votes: (req) => {
       if (req.principal.id === 'alice' || req.principal.id === 'erin') return { permitWhen: TRUE };
+      // frank manages assignments at p1 only.
+      if (req.principal.id === 'frank') return req.resource.id === 'p1' && req.permission === 'authz:assignments.manage' ? { permitWhen: TRUE } : {};
       if (req.principal.id === 'carol') return { permitWhen: { op: 'cmp', field: 'owner', cmp: 'eq', value: 'carol' } };
       return {};
     },

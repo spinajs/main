@@ -3,7 +3,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Class, DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { Connection, MIGRATION_FILE_REGEXP, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, Primary } from '@spinajs/orm';
+import { Connection, MIGRATION_FILE_REGEXP, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, OrmMigrator, Primary } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 import * as fs from 'node:fs';
@@ -11,7 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
-import { MigrateCreateCommand, MigrateDownCommand, MigrateResolveCommand, MigrateStatusCommand, MigrateUpCommand, resolveCliOrm } from '../src/index.js';
+import { MigrateCreateCommand, MigrateDownCommand, MigrateResolveCommand, MigrateStatusCommand, MigrateUpCommand, resolveCliMigrator } from '../src/index.js';
 
 const expect = chai.expect;
 
@@ -40,10 +40,10 @@ function applyConnectionConf(config: any, connection: Record<string, unknown>) {
 /**
  * One in-memory sqlite connection, named and with its own tracking table.
  *
- * `OnStartup: false` is the load-bearing part for the suites that take the default: the Orm's
- * boot pass runs with `force: false` and honours that gate, so the migrations are still PENDING
- * when the first command runs. With it on, every assertion would be made against a database the
- * Orm had already migrated by itself, and the commands would be tested against nothing.
+ * `OnStartup: false` is the load-bearing part for the suites that take the default: the
+ * migrator's boot pass runs with `force: false` and honours that gate, so the migrations are
+ * still PENDING when the first command runs. With it on, a test that resolved the migrator would
+ * assert against a database it had already migrated, and the commands would be tested against nothing.
  *
  * `onStartup: true` is the opposite fixture - the configuration this branch's docs ship as the
  * example - and the suites that pass it are testing exactly what a command does on its way in.
@@ -122,6 +122,9 @@ describe('orm-cli migration commands against sqlite', function () {
   /** Created by the test migration's `up()`. Its existence is the proof that `up()` really ran. */
   const MARKER_TABLE = 'orm_cli_marker';
 
+  /** The row the test migration's `data()` inserts into the marker table. */
+  const SEED_ID = 42;
+
   const TEST_MIGRATION = 'OrmCliTest_2021_01_01_00_00_00';
 
   /**
@@ -154,6 +157,11 @@ describe('orm-cli migration commands against sqlite', function () {
 
       public async down(connection: OrmDriver): Promise<void> {
         await connection.schema().dropTable(MARKER_TABLE);
+      }
+
+      public async data(): Promise<void> {
+        const orm = await DI.resolve(Orm);
+        await orm.Connections.get(CONNECTION_NAME)!.insert().into(MARKER_TABLE).values({ Id: SEED_ID });
       }
     }
 
@@ -254,6 +262,12 @@ describe('orm-cli migration commands against sqlite', function () {
 
     // a successful run must not leave a non-zero exit code behind
     expect(process.exitCode).to.equal(0);
+  });
+
+  it("migrate-up runs the applied migration's data() seed, as the migrator's boot pass does", async () => {
+    const rows = (await connection().select().from(MARKER_TABLE).asRaw<any[]>()) as any[];
+
+    expect(rows.map((r) => r.Id)).to.eql([SEED_ID]);
   });
 
   it('migrate-status is clean once everything is applied and leaves the exit code at 0', async () => {
@@ -614,9 +628,9 @@ describe('orm-cli against an INTERRUPTED migration', function () {
     DI.register(Conf).as(Configuration);
     orm = await DI.resolve(Orm);
 
-    // `OnStartup: false` means the boot pass skipped this connection entirely, so its tracking
-    // tables do not exist yet. `status()` calls `ensureStorage()` and changes nothing else.
-    await orm.Migration.status();
+    // nothing has migrated this connection, so its tracking tables do not exist yet. `status()`
+    // calls `ensureStorage()` and changes nothing else.
+    await (await resolveCliMigrator()).Runner.status();
 
     await orm.Connections.get(CONNECTION_NAME)!
       .insert()
@@ -695,11 +709,10 @@ describe('orm-cli against an INTERRUPTED migration', function () {
  * The trap: a connection with `Migration.OnStartup: true` - the configuration the ORM docs ship
  * as their example - holding a migration in the FAILED state.
  *
- * Every command starts by resolving an Orm, and an ordinary resolve ends with the boot migration
- * pass, which refuses to run at all while such a row is there. So every invocation died on the
- * row it was called about - including `migrate-resolve`, the one command that can clear it, and
- * the one the error message names as the remedy. The only ways out were editing the tracking
- * table or the configuration by hand.
+ * The migrator's boot pass refuses to run at all while such a row is there. A command that
+ * resolved it with that pass would die on the row it was called about - including
+ * `migrate-resolve`, the one command that can clear it, and the one the error message names as
+ * the remedy.
  *
  * `:memory:` cannot express this. The failed row has to already be in the database when the Orm
  * the command resolves opens the connection, and every sqlite handle gets its own private
@@ -780,7 +793,7 @@ describe('orm-cli against a FAILED row on a Migration.OnStartup connection', fun
     // throws, through the real service. The gate is off only so this Orm can be resolved, held
     // and disposed; what the tests need is the row it leaves behind.
     const seed = await DI.resolve(Orm);
-    const err = await thrownBy(() => seed.Migration.up());
+    const err = await thrownBy(async () => (await DI.resolve(OrmMigrator, [{ MigrateOnStartup: false }])).Runner.up());
 
     expect(err, 'the fixture needs a migration that really failed').to.be.instanceOf(OrmException);
 
@@ -834,21 +847,23 @@ describe('orm-cli against a FAILED row on a Migration.OnStartup connection', fun
 
   // MUST RUN FIRST, with the one below it: it asserts on the failed row, which the
   // `migrate-resolve` test clears. Add new cases after those two, never between them.
-  it('an ordinary DI.resolve(Orm) is still blocked by the failed row', async () => {
-    // The opt-out is opt-in: nothing about this branch weakens what a failed migration does to an
-    // application that boots normally. It is also what makes the next test non-vacuous - the
-    // fixture really does refuse a boot migration pass.
-    const err = await thrownBy(() => DI.resolve(Orm));
+  it("an application's migrator boot pass is still blocked by the failed row", async () => {
+    // Nothing weakens what a failed migration does to an application that boots its migrator. It
+    // is also what makes the next test non-vacuous - the fixture really does refuse a boot pass.
+    const err = await thrownBy(() => DI.resolve(OrmMigrator));
 
-    expect(err, 'a failed migration no longer blocks an ordinary Orm boot').to.be.instanceOf(OrmException);
+    expect(err, 'a failed migration no longer blocks the boot pass').to.be.instanceOf(OrmException);
     expect((err as Error).message).to.contain('blocks migration runs');
     expect((err as Error).message).to.contain(FAILING_MIGRATION);
+
+    // the commands below must start as a fresh cli process would
+    await (await DI.resolve(Orm)).dispose();
+    DI.clearCache();
   });
 
   it('migrate-resolve clears the failed row instead of dying on it', async () => {
-    // The command resolves its own Orm - and with the boot migration pass suppressed, that
-    // resolve gets as far as the command body. Without the suppression this line threw
-    // `Migration ... failed previously and blocks migration runs` before `resolve()` was reached.
+    // The command resolves its migrator without the boot pass, so it gets as far as the command
+    // body instead of dying on `Migration ... failed previously and blocks migration runs`.
     await (await DI.resolve(MigrateResolveCommand)).execute({ name: FAILING_MIGRATION, rolledBack: true });
 
     // the Orm the command resolved, from the cache - not a second one
@@ -880,11 +895,11 @@ describe('orm-cli against a FAILED row on a Migration.OnStartup connection', fun
 });
 
 /**
- * Consequence B of the same root cause, and the one that fails silently: `migrate-status` is
- * sold as a deploy gate - "is this database current?" - but an ordinary `DI.resolve(Orm)` applies
- * every pending migration on every `Migration.OnStartup` connection BEFORE `status()` is called.
- * The report then truthfully says "all applied" and exits 0, having itself run the DDL the gate
- * existed to hold back.
+ * Consequence B, the one that fails silently: `migrate-status` is sold as a deploy gate - "is
+ * this database current?" - and a migrator resolved with its boot pass would apply every pending
+ * migration on every `Migration.OnStartup` connection BEFORE `status()` is called. The report
+ * would then truthfully say "all applied" and exit 0, having itself run the DDL the gate existed
+ * to hold back.
  *
  * `:memory:` is enough here, unlike the suite above: nothing has to survive between two Orms -
  * the command's own resolve is the only one, which is the point.
@@ -973,8 +988,8 @@ describe('migrate-status against a Migration.OnStartup connection with pending w
     expect(line, `no status line for ${PENDING_MIGRATION} in:\n${out.join('\n')}`).to.be.a('string');
     expect(stateOf(line!), 'the report describes a database it had just migrated itself').to.equal('pending');
 
-    // the deploy gate: an un-run migration means "this database is not current". Resolving the
-    // Orm the ordinary way would have made it current first, and this would be 0.
+    // the deploy gate: an un-run migration means "this database is not current". A migrator boot
+    // pass would have made it current first, and this would be 0.
     expect(process.exitCode).to.equal(1);
 
     expect(upRuns, 'migrate-status ran the migration it was asked to report on').to.equal(0);
@@ -1305,7 +1320,8 @@ describe('orm-cli migrate-up and db.StrictTableCheck', function () {
     DI.clearCache();
     defineSchema();
     DI.register(Conf).as(Configuration);
-    orm = await resolveCliOrm();
+    await resolveCliMigrator();
+    orm = await DI.resolve(Orm);
   });
 
   after(async () => {

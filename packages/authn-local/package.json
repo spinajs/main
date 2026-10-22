@@ -87,6 +87,7 @@
     "@spinajs/exceptions": "3.0.4",
     "@spinajs/hooks": "3.0.4",
     "@spinajs/log": "3.0.4",
+    "@spinajs/orm": "3.0.4",
     "@spinajs/util": "3.0.4",
     "ajv": "^8.12.0",
     "argon2": "^0.44.0",
@@ -102,6 +103,7 @@
   },
   "devDependencies": {
     "@spinajs/authn-testing": "3.0.4",
+    "@spinajs/orm-sqlite": "3.0.4",
     "@spinajs/queue": "3.0.4"
   }
 }

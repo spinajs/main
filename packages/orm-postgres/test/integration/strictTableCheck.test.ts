@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, extractModelDescriptor, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, Primary } from '@spinajs/orm';
+import { Connection, extractModelDescriptor, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, Primary, OrmMigrator } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
@@ -132,17 +132,18 @@ describe('postgres strict table check (integration)', function () {
     await adminQuery(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
   });
 
-  it('fails the boot after the migration pass, naming the model, its table and its connection', async () => {
+  it('fails the migrator boot after the migration pass, naming the model, its table and its connection', async () => {
     Missing = defineMissing();
 
-    const err = await rejection(DI.resolve(Orm));
+    await DI.resolve(Orm);
+    const err = await rejection(Promise.resolve(DI.resolve(OrmMigrator)));
 
     expect(err).to.be.instanceOf(OrmException);
     expect((err as Error).message).to.equal('Missing tables (db.StrictTableCheck): model StrictPgMissing: table strict_pg_missing on connection pg-strict. Create them (run their migrations) or set db.StrictTableCheck to false');
   });
 
   it('boots when the migration pass created every table', async () => {
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
 
     expect(extractModelDescriptor(schema!.Present)!.Columns.map((c) => c.Name)).to.include('Name');
   });
@@ -152,6 +153,7 @@ describe('postgres strict table check (integration)', function () {
     strictSetting = false;
 
     const orm = await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
 
     expect(extractModelDescriptor(Missing)!.Driver).to.equal(orm.Connections.get(CONNECTION));
   });

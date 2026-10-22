@@ -5,7 +5,7 @@
 ## How it works
 
 1. Importing the package registers `DbConfigSourceBotstrapper` with `@Injectable(Bootstrapper)`: under `Bootstrapper` and under itself, as a singleton.
-2. The app resolves `Array.ofType(Bootstrapper)` and calls `bootstrap()` on each. `DbConfigSourceBotstrapper.bootstrap()` registers the config schema and subscribes to `di.registered.__configuration_property__` and `di.resolved.Orm`. See [Exposing options](02-exposing-options.md).
+2. The app resolves `Array.ofType(Bootstrapper)` and calls `bootstrap()` on each. `DbConfigSourceBotstrapper.bootstrap()` registers the config schema and subscribes to `di.registered.__configuration_property__`, `di.resolved.Orm` and `di.resolved.OrmMigrator`, until `di.dispose` or `unbind()`. See [Exposing options](02-exposing-options.md).
 3. `DI.resolve(DbConfigSourceBotstrapper)` returns that same instance, so you can call its public members later.
 4. A subclass registered with `@Injectable(Bootstrapper)` joins the list. `DI.unregister(DbConfigSourceBotstrapper)` removes the base class, so only the subclass subscribes.
 
@@ -21,6 +21,7 @@ Members meant for subclasses and callers:
 | --- | --- | --- | --- |
 | `authzDomain` | public property | `'root'` | Domain whose `AuthzService` runs the queries when [authz guarding](06-running-under-authz.md) is on. |
 | `bootstrap()` | public method | subscribes to DI events | Override and call `super.bootstrap()` to add your own setup. |
+| `unbind()` | public method | removes the DI subscriptions of `bootstrap()`; `di.dispose` calls it | Call it to stop syncing without disposing the container. |
 | `refreshWatched()` | public method | one poll of the watched slugs | Call it to apply database changes now; override and call `super` to act after each poll. |
 | `Converter` | protected `DbConfigValueConverter`, `@Autoinject` | the DI singleton | Read in a subclass; replace it through DI, see [Custom value converter](08-custom-value-converter.md). |
 

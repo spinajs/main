@@ -4,9 +4,11 @@ import { DateTime } from 'luxon';
 import { OrmDriver } from './driver.js';
 import { OrmMigration } from './interfaces.js';
 import { MIGRATION_FILE_REGEXP } from './symbols.js';
-import { extractMigrationDescriptor } from './descriptor.js';
+import { extractMigrationDescriptor, extractModelDescriptor } from './descriptor.js';
 import { OrmException } from './exceptions.js';
 import { DefaultMigrationService, IMigrationStatusEntry, IMigrationUnit, MigrationResolveAction, OrmMigrationService } from './migration-service.js';
+import type { ModelBase } from './model.js';
+import { recordSchemaTouches, SchemaTouches, touchAllTables } from './schema-touches.js';
 
 /**
  * Re-exported from `./symbols.js` ( a leaf module ) rather than defined here, so this module can
@@ -36,12 +38,29 @@ function compareUnits(a: IMigrationUnit, b: IMigrationUnit): number {
 export interface IMigrationRunnerHost {
   Migrations: Array<ClassInfo<OrmMigration>>;
   Connections: Map<string, OrmDriver>;
+  /** The models `up()` can report as touched; without it the report names none. */
+  Models?: Array<ClassInfo<ModelBase>>;
+}
+
+/** What a run changed, so that only those models get their table info read again. */
+export interface IMigrationTouched {
+  /**
+   * Registered models whose table an applied migration created, altered, renamed or dropped. Every model of the
+   * connection when one of its migrations ran raw SQL ( `schema().raw()`, `executeOnDb()` ) or a custom
+   * `OrmMigrationService` applied it: neither names the tables it changes.
+   */
+  models: Array<Class<ModelBase>>;
+}
+
+export interface IMigrationUpResult {
+  executed: OrmMigration[];
+  touched: IMigrationTouched;
 }
 
 export interface IMigrationUpOptions {
   /**
    * Run even for connections whose `Migration.OnStartup` is off. Public callers ( CLI, an
-   * explicit `orm.Migration.up()` ) default to true; only the boot path passes false.
+   * explicit `OrmMigrator.migrate()` ) default to true; only the migrator's boot pass passes false.
    */
   force?: boolean;
 
@@ -94,17 +113,42 @@ export class MigrationRunner {
    * result from a typo is indistinguishable from "already up to date", so the CLI would exit 0
    * reporting "0 migrations applied" and the operator would believe the schema is current.
    */
-  public async up(name?: string, options?: IMigrationUpOptions): Promise<OrmMigration[]> {
+  public async up(name?: string, options?: IMigrationUpOptions): Promise<IMigrationUpResult> {
     const executed: OrmMigration[] = [];
     const opened = new Set<OrmDriver>();
+    const touches: SchemaTouches = new Map();
+    const drivers = new Set(this.orm.Connections.values());
 
     for (const [driver, units] of await this.stretches(this.plan(name, options?.force ?? true, options?.connection))) {
       const service = await this.service(driver);
-      executed.push(...(await service.up(units, { fake: options?.fake, continueBatch: opened.has(driver) })));
+      const ran = await recordSchemaTouches(touches, () => service.up(units, { fake: options?.fake, continueBatch: opened.has(driver) }), drivers);
+
+      // only the built-in service runs up() where SQL sent straight to the driver is noticed
+      if (ran.length > 0 && !options?.fake && !(service instanceof DefaultMigrationService)) {
+        touchAllTables(touches, driver);
+      }
+
+      executed.push(...ran);
       opened.add(driver);
     }
 
-    return executed;
+    return { executed, touched: { models: this.touchedModels(touches) } };
+  }
+
+  protected touchedModels(touches: SchemaTouches): Array<Class<ModelBase>> {
+    if (touches.size === 0) {
+      return [];
+    }
+
+    return (this.orm.Models ?? [])
+      .filter((m) => {
+        const descriptor = extractModelDescriptor(m.type);
+        const connection = descriptor?.Connection ? this.orm.Connections.get(descriptor.Connection)?.Options.Name : undefined;
+        const touched = connection ? touches.get(connection) : undefined;
+
+        return touched === 'all' || (touched !== undefined && !!descriptor?.TableName && touched.has(descriptor.TableName.toLowerCase()));
+      })
+      .map((m) => m.type);
   }
 
   /**

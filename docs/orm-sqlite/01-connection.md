@@ -188,14 +188,14 @@ export class PatientConfiguration extends FrameworkConfiguration {
 - One writer handle per connection. All writes, schema changes and transactions of the connection share it, in the order they reach `sqlite3`.
 - A failed open rejects promptly with the `sqlite3` error. `Orm` then wraps it in `OrmException('Failed to connect to database for connection <Name> ...')` with the original as `inner`.
 - SQLite creates the file, not its directory. A missing directory fails with `SQLITE_CANTOPEN`.
-- `:memory:` and `''` give a database that exists only while the connection is open. Every `Orm` boot starts empty, so migrations run every time.
+- `:memory:` and `''` give a database that exists only while the connection is open. Every `Orm` boot starts empty, so `OrmMigrator`'s boot pass applies every migration each time.
 - `ping()` reads `PRAGMA schema_version` on the writer, so the health probe fails on a closed handle and on a file that is not a database. A failed probe makes the core call `connect()` again, which closes the old writer first.
 - `SQLITE_BUSY` outside a transaction is retried with `Resilience.MaxRetries` / `RetryDelay` / `MaxRetryDelay`, on the same handle. Each attempt already waits `sqlite3`'s busy timeout (1000 ms), so raise the timeout (see the sample above) to wait longer per attempt.
 - `Schema` statements without bindings run with `sqlite3`'s `exec()`, so `schema().raw('A; B')` runs both. With bindings, and for `Transaction` statements, `run()` executes only the first statement of the string.
 - Only unique and primary-key violations become `UniqueViolation` (a `ResourceDuplicated`), on inserts, upserts and updates alike. A `NOT NULL`, `CHECK` or foreign-key failure shares the `SQLITE_CONSTRAINT` code and becomes `ConstraintViolation`.
 - A `Date` binding is written as the connection's `DatetimeValueConverter` writes it, in raw SQL too. `sqlite3` alone would bind it as epoch milliseconds, which never equals a stored datetime.
 - `tableInfo()` marks a column `Unique` when a unique index covers that column alone, because `onDuplicate()` without columns uses the `Unique` columns as its conflict target. Name a composite target explicitly: `onDuplicate(['A', 'B'])`. Table and index names are quoted in the `PRAGMA` calls.
-- `tableInfo()` tolerates a missing `__orm_db_value_converters__` map: during the boot migration pass, before `Orm` registers converters, `DefaultValue` keeps the raw value.
+- `tableInfo()` tolerates a missing `__orm_db_value_converters__` map: on a driver no `Orm` registered converters for, `DefaultValue` keeps the raw value.
 - `OrmException` messages read `at undefined@undefined`, because SQLite has no `User` or `Host`.
 
 ## Best practices

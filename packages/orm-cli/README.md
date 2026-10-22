@@ -1,7 +1,7 @@
 # @spinajs/orm-cli
 
 Command line front end for spinajs ORM migrations. Five commands — apply, roll back, report,
-force a state, scaffold — over the `orm.Migration` facade in `@spinajs/orm`.
+force a state, scaffold — over `OrmMigrator` and its `Runner` in `@spinajs/orm`.
 
 The package is a thin wrapper on purpose. Everything that decides what a migration run means
 lives in `@spinajs/orm`; what lives here is the argument handling, the operator-facing wording
@@ -19,7 +19,7 @@ Full documentation lives in **[docs/](../../docs/orm-cli/README.md)**.
 | 03 | [Migration status](../../docs/orm-cli/03-migration-status.md) |
 | 04 | [Resolving failed migrations](../../docs/orm-cli/04-resolving-failed-migrations.md) |
 | 05 | [Scaffolding migrations](../../docs/orm-cli/05-scaffolding-migrations.md) |
-| 06 | [The CLI `Orm`](../../docs/orm-cli/06-cli-orm.md) |
+| 06 | [The CLI migrator](../../docs/orm-cli/06-cli-orm.md) |
 | 07 | [Command discovery](../../docs/orm-cli/07-command-discovery.md) |
 | 08 | [Customizing commands](../../docs/orm-cli/08-customizing-commands.md) |
 
@@ -46,7 +46,7 @@ await (await DI.resolve(MigrateStatusCommand)).execute();
 
 ## Running a command never migrates anything
 
-Every command starts by resolving an `Orm`, and an ordinary `DI.resolve(Orm)` ends with the boot
+`Orm.resolve()` never migrates; an application's `DI.resolve(OrmMigrator)` runs the boot
 migration pass — every pending migration on every connection whose `Migration.OnStartup` is on.
 For an application that is the point. For a migration tool it is a trap, twice over:
 
@@ -58,13 +58,13 @@ For an application that is the point. For a migration tool it is a trap, twice o
   "is this database current?" made it current, answered "yes" and exited `0`, with the DDL it was
   meant to hold back already run.
 
-So the commands resolve their Orm through `resolveCliOrm()`, which passes `MigrateOnStartup:
-false` (an `IOrmOptions` field of `@spinajs/orm`). Everything else about resolving happens —
-connections, models, value converters, `orm.Migration` — only the boot pass is skipped. It is
-opt-**in**: nothing changes for an application that resolves an Orm the ordinary way, and this
-package ships no configuration that would switch startup migrations off for anybody.
+So the commands resolve the migrator through `resolveCliMigrator()`, which passes
+`MigrateOnStartup: false` (an `IOrmMigratorOptions` field of `@spinajs/orm`). Everything else
+about resolving happens — connections, models, value converters, `OrmMigrator.Runner` — only the
+boot pass is skipped. Nothing changes for an application that resolves its migrator the ordinary
+way.
 
-The same Orm reads the models' tables without the `db.StrictTableCheck` error, so the commands work on a
+The Orm reads the models' tables without the `db.StrictTableCheck` error, so the commands work on a
 fresh database. A full `migrate-up` (no `--name`, no `--connection`) applies the check after its run and
 exits `1` when a registered model still has no table.
 
@@ -72,11 +72,9 @@ Two consequences worth knowing:
 
 - `migrate-up --fake` means what it says on a `Migration.OnStartup` connection. A boot pass would
   have really applied the migrations the flag promises only to record.
-- **A migration applied by the CLI never gets its `data()` hook.** Seeding belongs to the boot
-  pass: `Orm.resolve()` seeds what its own startup run applied, and a later boot finds the
-  migration already applied and seeds nothing. That was already true of every connection with
-  `Migration.OnStartup` off; it is now true of all of them. Migrations that must be seeded have to
-  be applied by an application boot, not by `migrate-up`.
+- **`migrate-up` seeds what it applies.** It runs `OrmMigrator.migrate()`, the same pass an
+  application boot runs: the migrations, a re-read of the table info they touched, then their
+  `data()` hooks. `--fake` seeds nothing.
 
 ## Commands
 
@@ -254,8 +252,8 @@ by itself proof that the failure was resolved. Check `migrate-status`.
 
 ## Notes
 
-- Migrations run against a schema no model is wired to yet. Use the `OrmDriver` passed to `up()`,
-  never a model class. The `data()` hook runs later, once models are available.
+- Migrations run on a resolved Orm, but a model of a table the run creates has no columns until
+  the run ends. Use the `OrmDriver` passed to `up()`; seed through models in `data()`.
 - `--fake` records the outcome without executing anything, on both `migrate-up` and
   `migrate-down`. It is for a database that was changed out of band and needs the tracking table
   brought in line.

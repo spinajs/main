@@ -12,9 +12,9 @@ import {
   Migration,
   Model,
   ModelBase,
-  Orm,
   OrmDriver,
   OrmMigration,
+  OrmMigrator,
   Primary,
   Relation,
   SingleRelation,
@@ -147,7 +147,7 @@ describe('@Filterable on a property with no column (virtual filter column)', fun
     for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
       await b.bootstrap();
     }
-    await DI.resolve(Orm);
+    await DI.resolve(OrmMigrator);
 
     // orm-http's bootstrapper installs these on every loaded model in a full app boot.
     for (const model of [VItem, VTag, VOwner]) {

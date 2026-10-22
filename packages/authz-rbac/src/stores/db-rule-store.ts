@@ -1,9 +1,9 @@
 import { AuthzAdminFailure, GLOBAL, principalKey } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import type { AssignmentSubject, RuleDef } from '../contracts.js';
-import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Autoinject, Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { UniqueViolation } from '@spinajs/orm';
+import { Orm, UniqueViolation } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import { compareStrings, uniqueBy } from '@spinajs/util';
 
@@ -53,6 +53,10 @@ export const RULE_LIST_MAX_LIMIT = 1000;
 @Injectable()
 @Inject(Container)
 export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
+  /** Never read: injecting it resolves the Orm, which binds the models, before the first query. */
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
   readonly name: string = 'DbRuleStore';
 
   protected readonly maxListLimit: number = RULE_LIST_MAX_LIMIT;
@@ -66,7 +70,6 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
    * path ends in; so an empty path gives the GLOBAL rules.
    */
   async forPath(path: readonly ResourceRef[], at: Date): Promise<readonly RuleDef[]> {
-    await this.ready();
     const query = RuleRecord.query();
     whereScopes(query, uniqueScopes([...path, GLOBAL]));
     whereLive(query, at);
@@ -81,14 +84,12 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
 
   /** Expired rules too; null for an unknown id. */
   async byId(id: string): Promise<RuleDef | null> {
-    await this.ready();
     const row = await ruleById(id);
     return row ? (await this.rulesOf([row]))[0] : null;
   }
 
   /** Inserts the rule, or replaces the one with its id (row and subject rows; the first `created_at` and `created_by` stay). */
   async put(rule: Omit<RuleDef, 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<void> {
-    await this.ready();
     const where = `${this.name}.put`;
     requireTransaction(RuleRecord, tx, where);
     const rows = toRuleRows(rule);
@@ -123,7 +124,6 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
 
   /** Deletes the rule and its subject rows and returns it; unknown id ⇒ `not_found`. */
   async remove(id: string, tx: AuthzTx): Promise<RuleDef> {
-    await this.ready();
     const where = `${this.name}.delete`;
     requireTransaction(RuleRecord, tx, where);
     const row = await ruleById(id);
@@ -148,7 +148,6 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
    * (`wrong_scope_type`).
    */
   async forgetScopeEntries(scope: ResourceRef, tx: AuthzTx): Promise<RuleForgetResult> {
-    await this.ready();
     const where = `${this.name}.forgetScope`;
     requireScopeNode(scope, where, 'only a scope node can be forgotten');
     requireTransaction(RuleRecord, tx, where);
@@ -182,13 +181,11 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
    * when more rows follow and the page has no `offset`.
    */
   async list(q: RuleListQuery = {}): Promise<ListResult<RuleDef>> {
-    await this.ready();
     return this.select(q.scope, pageWindow(q.page, this.maxListLimit, `${this.name}.list`));
   }
 
   /** `AdminRuleStore.find`: with a page, as {@link list}; without one, every rule of the scope (one rule query). */
   async find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<ListResult<RuleDef>> {
-    await this.ready();
     return this.select(q.scope, page ? pageWindow(page, this.maxListLimit, `${this.name}.find`) : undefined);
   }
 
