@@ -46,7 +46,7 @@ Uses its own `dns.promises.Resolver` with `dns.timeoutMs` and `dns.tries`.
 
 Refuses domains registered less than `rdap.minAgeDays` ago.
 
-1. Loads the IANA bootstrap file (`rdap.bootstrapUrl`) on first use and refreshes it every 24 h. After a failed load it waits 5 minutes before the next try and keeps the last good map. With no map yet, `verify()` throws, which `EmailVerification` treats as an error.
+1. Loads the IANA bootstrap file (`rdap.bootstrapUrl`) on first use and refreshes it every 24 h. After a failed load it waits 5 minutes before the next try and keeps the last good map. A non-`200` status, a body that is not JSON (error `invalid RDAP bootstrap`, without the body) or a map with no https server counts as a failed load. With no map yet, `verify()` throws, which `EmailVerification` treats as an error.
 2. Finds the RDAP server of the TLD. No server: `unknown`.
 3. Queries the full domain, then each parent down to two labels, at most `rdap.maxLookups` requests.
 4. On `404` it tries the next parent; `429` answers `unknown` with reason `rate_limited`; any other non-`200` answers `unknown`.

@@ -1,6 +1,6 @@
 # Configuration
 
-All settings live under `emailVerification`. The JSON schema in `schema.ts` holds every default, so a key you leave out takes its default, and a wrong value (a bad enum, a non-https URL) fails the boot. Importing `@spinajs/email-verification` registers the schema; `@spinajs/email-verification/register-schema` registers it alone.
+All settings live under `emailVerification`. The JSON schema in `schema.ts` holds every default, so a key you leave out takes its default, and a wrong value (a bad enum, a non-https URL) fails the boot. Importing `@spinajs/email-verification` or `@spinajs/email-verification/scheduler` registers the schema; `@spinajs/email-verification/register-schema` registers it alone.
 
 Two rules of `@spinajs/configuration` apply here:
 

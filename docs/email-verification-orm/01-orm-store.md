@@ -86,7 +86,7 @@ A tick that finds the previous sweep still running is skipped. A failure is logg
 
 - **Clocks must agree.** Expiry and the one-hour grace of the sweep compare `Date.now()` values written by different nodes. Keep all nodes' clocks within the 1 h grace (use NTP). A writer that stalls for longer than the grace can lose its unfinished generation to the sweep.
 - Verdict rows are only removed by the sweep; a read treats an expired row as missing at once.
-- A write that errors after the pointer moved is detected by re-reading the pointer, so a retry does not duplicate work.
+- A write that errors after the pointer moved is detected by re-reading the pointer, so a retry does not duplicate work. If that re-read fails too, the original write error is thrown.
 
 ## Services and extension points
 

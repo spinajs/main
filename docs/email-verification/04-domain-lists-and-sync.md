@@ -36,7 +36,7 @@ The scheduler task lives in a subpath because `@spinajs/scheduler` is an optiona
 import '@spinajs/email-verification/scheduler';
 ```
 
-This registers `EmailDomainListSyncTask` under the schedule `email-verification.list-sync`: every 24 hours, `runOn: 'leader'` (one node in a cluster), `overlap: 'skip'`, `misfire: 'run-once'`. The scheduler is cluster-safe, so the stores need no lock.
+This registers the `emailVerification` configuration schema, so the `lists.*` defaults apply even when nothing else imports the package, and `EmailDomainListSyncTask` under the schedule `email-verification.list-sync`: every 24 hours, `runOn: 'leader'` (one node in a cluster), `overlap: 'skip'`, `misfire: 'run-once'`. The scheduler is cluster-safe, so the stores need no lock.
 
 The task calls `DomainListSync.run()`. If any source `failed`, it throws an error that names each failed source with its error (cut to 200 characters), so the scheduler records and retries the failure: `list sync failed: spam-list: answered 503`. `refused` and `unchanged` do not fail the run. A successful run stores the outcomes as the task result.
 

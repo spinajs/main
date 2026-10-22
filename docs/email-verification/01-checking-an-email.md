@@ -32,7 +32,7 @@ type EmailCheckResult =
 | `source` | What decided: `list:<source>`, `http:<provider>`, the verifier name (`dns`, `rdap`) or `address` |
 | `domain` | The normalised domain, `null` for an unusable address |
 
-`source` and `reason` are for logs and audit. Returning them to the client would reveal which checks are configured. Every refusal is logged at info with the domain, never the full address.
+`source` and `reason` are for logs and audit. Returning them to the client would reveal which checks are configured. Every refusal is logged at info with the domain, never the full address. An address with no usable domain is logged as `(invalid)`.
 
 ## `explain(email)`
 
