@@ -9,19 +9,21 @@ The owner turns TOTP off with `TotpService.disable`, which needs fresh auth and 
 1. `TotpService` restores the session. It must be active and not impersonated; a pending session answers `no_session`.
 2. It checks fresh auth: a login within `authn.freshAuth.maxAgeSeconds`, or a `reauth` credential that `AuthnService.reauthenticate` accepts. Otherwise it audits `mfa.disable` with reason `not_fresh` and answers `not_fresh`, without counting into the `mfa` throttle.
 3. `TotpMfaStep.enrolled(identity)` must be true; otherwise `not_enrolled`.
-4. It counts the attempt into the `mfa` throttle under the same keys as login. A refusal answers `throttled` with `retryAfterSeconds`.
-5. It tries the code as a TOTP code (`TotpMfaStep.verify`), then as a recovery code (`TotpMfaStep.verifyRecovery`). Neither passing answers `invalid_code`.
-6. On success it resets the `mfa` throttle keys and calls `TotpMfaStep.disable(identity)`: `MfaSecretStore.remove` and `MfaSecretStore.removeRecoveryCodes`.
-7. It audits `mfa.disable` with outcome `success` and returns `{ ok: true }`.
+4. The `authn.mfa.disable` [action hooks](10-action-hooks.md) run. A refusal throws, counts nothing and is audited as `mfa.disable` with the reason `hook:<code>` or `hook_error`.
+5. It counts the attempt into the `mfa` throttle under the same keys as login. A refusal answers `throttled` with `retryAfterSeconds`.
+6. It tries the code as a TOTP code (`TotpMfaStep.verify`), then as a recovery code (`TotpMfaStep.verifyRecovery`). Neither passing answers `invalid_code`.
+7. On success it resets the `mfa` throttle keys and calls `TotpMfaStep.disable(identity)`: `MfaSecretStore.remove` and `MfaSecretStore.removeRecoveryCodes`.
+8. It audits `mfa.disable` with outcome `success` and returns `{ ok: true }`.
 
 Over HTTP, `POST user/mfa/disable` with `{ code, reauthPassword? }` calls it.
 
 ### Admin reset, `TotpService.adminReset(actor, target, ctx)`
 
-1. `TotpMfaStep.enrolment(target)` reads the state before the reset: `'none'`, `'pending'` or `'confirmed'`.
-2. `TotpMfaStep.disable(target)` removes the enrolment and the recovery codes.
-3. It publishes through `AuthnAudit` `mfa.disable` with outcome `success`, `identity: target`, `actor` and `data: { reset: true, existed }`.
-4. It returns `{ reset: true }` when a confirmed or pending enrolment existed, else `{ reset: false }`.
+1. The `authn.mfa.adminReset` [action hooks](10-action-hooks.md) run. A refusal removes nothing, publishes `mfa.disable` with outcome `failure`, the reason `hook:<code>` or `hook_error`, `identity: target`, `actor` and `data: { reset: true }`, and returns `{ reset: false }`.
+2. `TotpMfaStep.enrolment(target)` reads the state before the reset: `'none'`, `'pending'` or `'confirmed'`.
+3. `TotpMfaStep.disable(target)` removes the enrolment and the recovery codes.
+4. It publishes through `AuthnAudit` `mfa.disable` with outcome `success`, `identity: target`, `actor` and `data: { reset: true, existed }`.
+5. It returns `{ reset: true }` when a confirmed or pending enrolment existed, else `{ reset: false }`.
 
 `adminReset` does **not** check who may reset whom. The caller applies the target guard first: `@spinajs/authn-http` mounts it, through the registered `MfaEnrolmentService`, as `POST authn/admin/users/:uuid/mfa-reset` behind the registered `CredentialAdminGuard` (`AuthzCredentialAdminGuard` of `@spinajs/users` checks `users:credentials`), and the `authn:mfa-reset` command runs it as the actor `{ type: 'system', id: 'cli' }`. See [CLI and QR codes](08-cli-and-qr.md).
 

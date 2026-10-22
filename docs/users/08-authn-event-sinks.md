@@ -2,7 +2,7 @@
 
 `QueueAuthnEventSink` is the `AuthnEventSink` users registers so the user events follow what `@spinajs/authn` decides: it re-emits logins, password changes and impersonations as [user events](06-user-events.md). Add your own sink next to it to react to the same authn events.
 
-`PasswordSetAt` and the activation of invited accounts no longer come from an event sink: 3.0's `UserAccountSink` is gone, and [`UserPasswordStateHook`](07-identity-and-password-stores.md#the-password-state), an action hook on authn-local's password flows, does that work.
+`PasswordSetAt` and the activation of invited accounts do not come from an event sink: [`UserPasswordStateHook`](07-identity-and-password-stores.md#the-password-state), an action hook on authn-local's password flows, writes them.
 
 ## How it works
 
@@ -103,7 +103,7 @@ Unregister before the first authn event resolves the sink list.
 ## Important behaviour
 
 - `QueueAuthnEventSink` maps `invite.redeem` to no event; `UserActivated` comes from [`UserPasswordStateHook`](07-identity-and-password-stores.md#the-password-state).
-- A sink that subclassed 3.0's `UserAccountSink` must become an `ActionHook` on `authn.password.change`, `.set` and `.reset.redeem`: see [Action hooks](04-action-hooks.md).
+- A subclass of 3.0's `UserAccountSink` becomes a subclass of `UserPasswordStateHook`: see [Migrating from `UserAccountSink`](07-identity-and-password-stores.md#migrating-from-useraccountsink).
 - MFA changes have no user event; they reach sinks as `mfa.enrol` and `mfa.disable`.
 
 ## Best practices

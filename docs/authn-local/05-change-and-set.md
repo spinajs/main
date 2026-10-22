@@ -11,6 +11,8 @@
 1. `LocalPasswordPolicy.check(newPassword)`. A violation answers `{ status: 'rejected', violations }` and counts no attempt.
 2. `SessionIssuer.restore(session.id)`. The session must exist, be `active` and belong to `id`. Otherwise: `invalid`.
 3. A session someone is impersonating answers `invalid`, before the throttle, so an impersonator cannot back off the owner's key.
+
+   The `authn.password.change` [action hooks](16-action-hooks.md) run around steps 4 to 10. A refusal answers `{ status: 'refused', code }` and counts nothing in the throttle.
 4. `AuthnThrottle.attempt(keys, 'reauth')` with the keys `account` (`id.id`), `account-ip` (`<id>|<ip>`) and, with `ctx.ip`, `ip`. Refused: `{ status: 'throttled', retryAfterSeconds }`.
 5. The old password is verified against the stored hash: one argon2 verify, with the fixed login bound of 8 to 128 code points. Wrong: `invalid`, and the attempt stays counted.
 6. `AuthnThrottle.succeed(keys, 'reauth')`.
@@ -45,6 +47,8 @@ sequenceDiagram
 ### `set(id, newPassword, ctx, { actor? })`
 
 1. `LocalPasswordPolicy.check(newPassword)`. A violation answers `{ status: 'rejected', violations }` and stores nothing.
+
+   The `authn.password.set` [action hooks](16-action-hooks.md) run around steps 2 to 5. A refusal hashes the password once, as a set does, stores nothing and answers `{ status: 'refused', code }`.
 2. The hash is written unconditionally.
 3. `SessionIssuer.revokeAll(id, { includeImpersonations: true })` ends every session.
 4. Unless `authn.local.reset.revokeTokens` is `false`, `TokenService.revokeAllFor(id, ctx, { actor })` revokes every API and agent token. With no `TokenService` registered there is nothing to revoke.
@@ -109,6 +113,9 @@ export async function setTemporaryPassword(user: IdentityRef, admin: PrincipalRe
   const result = await passwords.set(user, password, { now: new Date(), purpose: 'request' }, { actor: admin });
   if (result.status === 'rejected') {
     throw new Error(`The generated password broke the policy: ${result.violations.join(', ')}`);
+  }
+  if (result.status === 'refused') {
+    throw new Error(`An authn.password.set hook refused the password: ${result.code}`);
   }
   return password;
 }

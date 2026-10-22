@@ -9,6 +9,8 @@ A user who forgot their password asks for a reset link, then redeems the secret 
 `POST /auth/password/reset-request` in [`@spinajs/authn-http`](../authn-http/12-password-routes.md) calls it.
 
 1. `AuthnThrottle.attempt(keys, 'reset')` with an `account` key (`normalizeLogin(login)`) and an `ip` key (`ctx.ip`, or `'unknown'`). Refused: `{ status: 'throttled', retryAfterSeconds }` and a `throttle.block` event.
+
+   The `authn.password.reset.request` [action hooks](16-action-hooks.md) run around step 2. A refusal answers the same `{ status: 'accepted' }` and schedules nothing.
 2. The rest is scheduled as deferred work (`DeferredWork`), after `setImmediate`.
 3. It answers `{ status: 'accepted' }` at once, for a known and an unknown login alike.
 4. Deferred: `IdentityStore.findByLogin(login)`. Unknown: audit `unknown_login`, stop.
@@ -24,13 +26,15 @@ An error in the deferred work or in an inline delivery is logged by error name a
 `POST /auth/password/reset` calls it.
 
 1. `AuthnThrottle.attempt([ip key], 'reset')`: the IP key only, so a link redeemed right after its request is not refused by the account key.
+
+   The `authn.password.reset.redeem` [action hooks](16-action-hooks.md) run around steps 2 to 9. A refusal answers `{ status: 'refused', code }` before the lookup, and the secret stays usable.
 2. `LocalPasswordPolicy.check(newPassword)`. A violation answers `{ status: 'rejected', violations }`, and the secret stays usable.
 3. `IdentityStore.findByLogin(login)` and `IdentityStore.status()`. An unknown login is checked as a fresh random ref.
 4. Two `SecretStore.redeem()` calls run on every path: purpose `reset`, then purpose `invite` while the identity is invite-pending. Where no real redeem is due, they run on random refs.
 5. An unknown or ineligible identity, or no matching secret: `{ status: 'invalid' }`.
 6. The new hash is written unconditionally.
 7. `SessionIssuer.revokeAll(id, { includeImpersonations: true })` and, unless `authn.local.reset.revokeTokens` is `false`, `TokenService.revokeAllFor()`.
-8. A `password.reset` event for purpose `reset`, and `invite.redeem` when the identity was invite-pending. `@spinajs/users` activates the account on `invite.redeem`.
+8. A `password.reset` event for purpose `reset`, and `invite.redeem` when the identity was invite-pending. `@spinajs/users` activates the account from the redeem's `after` hook ([`UserPasswordStateHook`](../users/07-identity-and-password-stores.md#the-password-state)), which reads the `id` of the `PasswordResetOutput`.
 9. It answers `{ status: 'reset', purpose }`, where `purpose` is `'reset'` or `'invite'`.
 
 ```mermaid
@@ -64,7 +68,7 @@ sequenceDiagram
 
 ### `invite(id, ctx, { actor? })`
 
-An admin action: it is not throttled and does not check the identity's status.
+An admin action: it is not throttled and does not check the identity's status. The `authn.password.invite` [action hooks](16-action-hooks.md) run around the steps below; a refusal dispatches no mail and is rethrown as the `ActionRefused` or `ActionHookFailed`.
 
 1. With a `PasswordMailer`: an `AuthnMailRequest` of purpose `invite` goes to the `AuthnMailDispatcher`. `invite()` returns without waiting for the mail; the secret is issued (`SecretStore.issue(id, 'invite', authn.local.invite.ttlSeconds)`) and sent when the request is delivered.
 2. A `password.reset.request` event with `data: { purpose: 'invite' }`: success, or failure `no_mailer`.

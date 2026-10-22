@@ -19,7 +19,7 @@ npm install @spinajs/authn-webauthn @spinajs/authn @spinajs/authn-orm @spinajs/o
 | [Passkey management](03-passkey-management.md) | `WebAuthnPasskeyService`: registration options, registration, list and removal; the routes and their answers |
 | [Second factor](04-second-factor.md) | `WebAuthnMfaStep` (`webauthn`): enrolment, verification, recovery codes |
 | [Stores](05-stores.md) | `WebAuthnCredentialStore`, `WebAuthnChallengeStore`, `WebAuthnRecoveryCodeStore`; the memory and ORM implementations and the migration |
-| [Action hooks](06-action-hooks.md) | The `authn.passkey.register` and `authn.passkey.revoke` actions: refuse a passkey registration or removal with an `ActionHook` |
+| [Action hooks](06-action-hooks.md) | The `authn.passkey.register` and `authn.passkey.revoke` actions: refuse or observe a passkey registration or removal with an `ActionHook` |
 
 ## Quick start
 

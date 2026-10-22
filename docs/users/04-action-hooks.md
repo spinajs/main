@@ -1,6 +1,6 @@
 # Action hooks
 
-The [user actions](03-user-actions.md) run through the [`@spinajs/hooks`](../hooks/README.md) runner. A hook can refuse an action, change the inputs the action declares mutable, or observe it after it ran, without wrapping or replacing the action. This replaces the 2.x `users.actions.create.beforeCreate` / `afterCreate` config middleware.
+The [user actions](03-user-actions.md) run through the [`@spinajs/hooks`](../hooks/README.md) runner. A hook can refuse an action, change the inputs the action declares mutable, or observe it after it ran, without wrapping or replacing the action. Coming from the `users.actions.create.*` config middleware: see [Migrating from the create middleware](#migrating-from-the-create-middleware).
 
 ## How it works
 
@@ -17,28 +17,28 @@ Hooks never get an ORM model. `user` is a `UserView`: the user's columns as plai
 
 | Action | Function | Input | Mutable | Checked again when changed | Output |
 | --- | --- | --- | --- | --- | --- |
-| `users.create` | `create()`, after its checks, before the insert | `data` (`Email`, `Login`, `Id?`, `Metadata?`; no password), `roles`, `user` (the unsaved `UserDraft`), `actor` | `user`, `data`, `roles` | email and login checks, reserved login, password policy and uniqueness for a changed email or login, `assertNoProtectedMetadata`, the role dry run | `{ User, Invited }` |
-| `users.update` | `updateUser()` | `user`, `data` | `data` | uniqueness of a changed `Email` or `Login` | `UserView` |
+| `users.create` | `create()`, after its checks, before the insert | `data` (`Email`, `Login`, `Id?`, `Metadata?`; no password), `roles`, `user` (the unsaved `UserDraft`), `actor` | `user`, `data`, `roles` | email and login checks, reserved login, `Id` a positive integer, password policy and uniqueness for a changed email or login, `assertNoProtectedMetadata`, the default roles and the role dry run | `{ User, Invited }` |
+| `users.update` | `updateUser()` | `user`, `data` | `data` | `data` an object, a changed `Email` or `Login` a string and free; `Id`, `Uuid` and `Password` stay the caller's | `UserView` |
 | `users.activate` | `activate()` of an inactive account | `user` | none | | `UserView` |
 | `users.deactivate` | `deactivate()` | `user` | none | | `UserView` |
 | `users.ban` | `ban()`, after "already banned" | `user`, `reason`, `duration` | `reason`, `duration` | the reason (string, at most 255) and the duration (seconds, above 0) | `UserView` |
 | `users.unban` | `unban()`, after "not banned" | `user` | none | | `UserView` |
 | `users.delete` | `deleteUser()` | `user` | none | | none |
-| `users.metadata.set` | `setUserMeta()` | `user`, `meta` (`{ key, value }[]`) | `meta` | `assertNoProtectedMetadata` | `UserView` |
+| `users.metadata.set` | `setUserMeta()` | `user`, `meta` (`{ key, value }[]`) | `meta` | a list of `{ key, value }` objects with string keys, `assertNoProtectedMetadata` | `UserView` |
 | `users.password.expire` | `expirePassword()` | `user`, `actor` | none | | none |
 
-Every action is refusable and throws `ActionRefused` (`action`, `code`) when refused, or `ActionHookFailed` when a `before` hook threw or timed out. [users-http](../users-http/README.md) answers a refusal of the route's own action with 403 `{ error: 'action_refused', code }` (`hook_error` for a failed hook).
+Every action is refusable and throws `ActionRefused` (`action`, `code`) when refused, or `ActionHookFailed` (`action`, `hook`, `reason`: `'error'`, `'timeout'` or `'depth'`) when a `before` hook threw, timed out or could not be resolved, or the run passed `hooks.maxDepth`. A value a hook changed that fails its check throws what the action's own check throws, for example `InvalidArgument` or `UserAlreadyExists`. [users-http](../users-http/README.md) answers a refusal of the route's own action with 403 `{ error: 'action_refused', code }` (`hook_error` for a failed hook).
 
 The input and output types are exported from `@spinajs/users`: `UserView`, `UserDraft`, `ActorView`, `UsersCreateData`, `UsersCreateInput`, `UsersCreateOutput`, `UsersUpdateInput`, `UsersUserInput`, `UsersBanInput`, `UsersMetadataSetInput`, `UsersPasswordExpireInput`. `userView(user)` builds a `UserView` from a model, `actorView(principal)` an `ActorView`.
 
 ### `users.create` in detail
 
-- A column a hook sets on `user` is on the inserted row (`IsActive`, `EmailVerifiedAt`, a column of your own). `Uuid`, the password marker, `PasswordSetAt` and `DeletedAt` stay `create()`'s. A column set on `user` wins over the same field in `data`.
+- A column a hook sets on `user` is on the inserted row (`IsActive`, `EmailVerifiedAt`, a column of your own). Only columns of the `User` model's descriptor count; any other key is dropped without an error. `Uuid`, `Password` (the password marker), `PasswordSetAt` and `DeletedAt` stay `create()`'s. `Email`, `Login` and `Id` set on `user` go through the same checks as in `data`, and win over the same field in `data`.
 - `roles` are the roles asked for, or `authz.rbac.defaultRoles` when none were. A hook that empties the list gets `authz.rbac.defaultRoles` again: a hook cannot create an account with no role while default roles are configured. Narrow the list instead, or refuse.
 - `create()` writes `data.Metadata` itself, without the `users.metadata.set` hooks: the keys were checked with the create input, and a hook must not refuse an account that is already inserted.
 - `Invited` is `true` when no password was given: the account got authn-local's invite instead of the `created` mail.
 - Nothing is written before the `before` hooks ran, so a refused create leaves no row. A duplicate, a protected key or a refused role is refused before any hook runs.
-- A failing `after` hook no longer makes `UserCreatedIncomplete`. That error stays for `create()`'s own later steps (the metadata, the event, the invite).
+- A failing `after` hook does not make `UserCreatedIncomplete`. That error is for `create()`'s own later steps (the metadata, the event, the invite).
 
 ### `users.activate` on an active account
 
@@ -51,7 +51,7 @@ The input and output types are exported from `@spinajs/users`: `UserView`, `User
 | `UserLifecycleMailHook` | `users.create`, `.activate`, `.deactivate`, `.ban`, `.unban`, `.delete`, `.password.expire` (after) | Sends the [lifecycle mail](05-lifecycle-mails.md) of the action. On by default. |
 | `UserPasswordStateHook` | `authn.password.change`, `.set`, `.reset.redeem` (after) | Writes `PasswordSetAt` and activates an invited account. See [Identity and password stores](07-identity-and-password-stores.md#the-password-state). |
 
-Both are registered by users with `@Injectable(ActionHook)` on import.
+Both are registered by users with `@Injectable(ActionHook)` on import of `@spinajs/users`. `Hooks` collects the `ActionHook` types when it resolves and resolves each hook once, on the first run of an action it matches; that instance serves every later run. Both log on the `users` log by error class and never throw.
 
 ## Services and extension points
 
@@ -59,7 +59,8 @@ Both are registered by users with `@Injectable(ActionHook)` on import.
 | --- | --- | --- | --- | --- |
 | Hook runner | `Hooks`, singleton | `DefaultHooks` (`@spinajs/hooks`) | | See [Declaring actions](../hooks/02-declaring-actions.md). |
 | Your hooks | `ActionHook` list, read when `Hooks` resolves | `UserLifecycleMailHook`, `UserPasswordStateHook` | any number | `@Injectable(ActionHook)` or `DI.register(MyHook).as(ActionHook)` before the app boots. |
-| Lifecycle mails | `UserLifecycleMailHook` | itself | your subclass | Override `send(user, mail)`; or `DI.unregister(UserLifecycleMailHook)` before boot for no lifecycle mail at all. |
+| Lifecycle mails | `ActionHook` list, `@Injectable(ActionHook)` on import; one instance, resolved on the first matching run | `UserLifecycleMailHook` | your subclass | Override the protected `send(user, mail)` to replace one mail, or `recipient(uuid)` to load the user another way; then `DI.unregister(UserLifecycleMailHook)` before boot. `DI.unregister(UserLifecycleMailHook)` alone sends no lifecycle mail at all. |
+| Password state | `ActionHook` list, `@Injectable(ActionHook)` on import; one instance, resolved on the first matching run | `UserPasswordStateHook` | your subclass | See [Identity and password stores](07-identity-and-password-stores.md#password-state-custom-implementation). |
 
 ### Activate accounts from a trusted domain
 
@@ -163,11 +164,12 @@ To send no lifecycle mail at all, call only `DI.unregister(UserLifecycleMailHook
 ## Important behaviour
 
 - **Checks first.** A request that is refused by `create()`'s own checks (a taken email, a protected key, a refused role) never reaches a hook, so a hook that writes to another system does not fire for it.
-- **Narrow, never widen.** What a hook changes is checked again. `Uuid`, `Id` and `Password` of an update, and `Uuid` and the password marker of a new user, stay the action's.
+- **Narrow, never widen.** What a hook changes is checked again. `Uuid`, `Id` and `Password` of an update, and `Uuid`, the password marker, `PasswordSetAt` and `DeletedAt` of a new user, stay the action's.
+- **Undeclared keys are dropped.** A change to a key the action does not declare mutable never reaches it; `@spinajs/hooks` logs a warning once per hook on the `hooks` log.
 - **Security steps are not hookable.** Once a ban, a deactivation or a delete proceeds, its session and token revocation, its user events and its state writes run inline. A refusal can only come before them.
 - **A refused registration** (`POST /auth/register`) through a `users.create` hook reaches the route as the nested `ActionRefused`; the registrar spends the hash a taken address costs, and the route answers 202 as for any taken address.
 - **A refused activation during a registration** (`users.registration.activate: true`, a `users.activate` hook that refuses) leaves the created account inactive: the account exists, the registrar passes the refusal on, and the route answers it as a nested refusal, 202 with `identity.register` audited as failed. An administrator activates the account later.
-- **Where `users.update` runs.** Only `updateUser()` runs it; among the admin routes that is `PATCH /users/:uuid/restore`. `PATCH /users/:user` of [users-http](../users-http/06-user-administration.md) writes the row itself (`target.update()`), so `users.update` hooks do not run there.
+- **Where `users.update` runs.** Only `updateUser()` runs it; among the admin routes that is `PATCH /users/:uuid/restore`. `PATCH /users/:uuid` of [users-http](../users-http/06-user-administration.md) writes the row itself (`target.update()`), so `users.update` hooks do not run there. The lifecycle actions write their own state without it, so `activate()` or `deactivate()` runs no `users.update` hook either.
 - **After hooks cannot fail an action.** Their errors are logged on the `hooks` log by class.
 - **Copies.** A `users.create` hook that changes nothing leaves `create()` with its own values, Luxon dates and metadata objects included.
 
@@ -198,6 +200,11 @@ export default {
 After:
 
 ```ts
+import { Injectable } from '@spinajs/di';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
+import '@spinajs/users';
+
 @Injectable(ActionHook)
 export class ActivateOnCreate extends ActionHook<'users.create'> {
   readonly actions: readonly ActionPattern[] = ['users.create'];
@@ -208,7 +215,7 @@ export class ActivateOnCreate extends ActionHook<'users.create'> {
 }
 ```
 
-A config that still declares `users.actions` changes nothing. [authz-convert](../authz-convert/05-findings-and-refusals.md) reports such lists as `create-middleware` findings.
+A config that still declares `users.actions.create.*` changes nothing: no code reads it. [authz-convert](../authz-convert/05-findings-and-refusals.md) reports such lists as `create-middleware` findings. For 3.0's `UserAccountSink`, see [Migrating from `UserAccountSink`](07-identity-and-password-stores.md#migrating-from-useraccountsink).
 
 ## Related
 

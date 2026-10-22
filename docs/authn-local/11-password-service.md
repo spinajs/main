@@ -20,6 +20,7 @@
 | `PasswordMailer` | `Mailer`, optional | reset, invite, expiry mail | No mail, no secret, a warning |
 | `TokenService` | `Tokens`, optional | set, reset, admin expiry | No tokens to revoke |
 | `AuthnAudit` | `Audit` | every audited step | Never missing: a concrete class of `@spinajs/authn`, one per container; with no `AuthnEventSink` it logs a warning and publishes to nobody |
+| `Hooks` (`@spinajs/hooks`) | `Hooks` | every [action hook](16-action-hooks.md) of change, set, reset, invite, expiry and address verification | Never missing: `@spinajs/hooks` registers `DefaultHooks`; with no matching `ActionHook` a flow runs alone |
 
 | Method | Page |
 | --- | --- |
@@ -52,7 +53,7 @@ Protected methods meant for a subclass:
 | `mailResetAfterExpiry(id)` | Mails a reset to an eligible identity after an expiry; logs failures. |
 | `sendReset(login, ctx)` | The deferred part of `requestReset()`. |
 | `verifyAndChange`, `setNow`, `redeemNow`, `inviteNow`, `expireNow`, `requestVerificationNow`, `redeemVerificationNow` | The part of each flow that runs inside its [action hooks](16-action-hooks.md), after the flow's own checks. |
-| `runHooked(action, input, impl, opts)` | `Hooks.run`, or `impl` alone for a service built with `deps` and no `hooks`. |
+| `runHooked(action, input, impl, opts)` | [`runHookedAction`](../authn/14-action-hooks.md#runhookedaction) on the injected `Hooks` (`deps.hooks` for a service built with `deps`): hooks get copies, `impl` the merged input. With no runner (`deps` without `hooks`) it calls `impl` alone. |
 | `verifiedHash(id, password)` | The stored hash the password matches, or `null`; one argon2 verify. |
 | `storePassword(id, password, expected?)` | Hashes and writes, as a compare-and-set when `expected` is given. |
 | `revokeTokensOf(id, ctx, actor?)` | Revokes tokens unless `revokeTokens` is `false`. |

@@ -21,7 +21,7 @@
 
 ### `TotpService(deps?: TotpServiceDeps)`
 
-1. DI builds the service with no arguments (`@Injectable(MfaEnrolmentService)`). The container that builds it injects `AuthnAudit`, every registered `MfaStep`, and, as optional injections, `SessionIssuer`, `AuthnService` and `AuthnThrottle`.
+1. DI builds the service with no arguments (`@Injectable(MfaEnrolmentService)`). The container that builds it injects `AuthnAudit`, every registered `MfaStep`, `Hooks`, and, as optional injections, `SessionIssuer`, `AuthnService` and `AuthnThrottle`.
 2. A dependency given in `deps` wins over the injected one. Each method uses only what it needs, so `adminReset` runs with the step and `AuthnAudit` alone; a call that needs a missing dependency throws.
 
 | Dependency | From `deps` | Injected when left out | When missing |
@@ -33,6 +33,7 @@
 | `throttle` | `AuthnThrottle` | the registered `AuthnThrottle` (optional) | `InvalidOperation` |
 | `sinks` | `AuthnEventSink[]`, published through `AuthnAudit.over(sinks)` | `AuthnAudit`, over every registered `AuthnEventSink` | |
 | `maxAgeSeconds` | `number` | `authn.freshAuth.maxAgeSeconds` | |
+| `hooks` | `Hooks` | the registered `Hooks` | no [action hook](10-action-hooks.md) runs |
 
 3. `steps` is what "the identity is enrolled in no MFA step" checks against; see [Enrolment](02-enrolment.md).
 4. `enabled(steps)`, the `MfaEnrolmentService` check, is true when `authn.mfa.encryptionKey.secret` is set and `steps` holds a step whose class is `TotpMfaStep` itself, not a subclass. `deps` does not change it.

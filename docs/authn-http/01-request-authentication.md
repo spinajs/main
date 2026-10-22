@@ -17,6 +17,7 @@ Three server middlewares find the caller of every request: `ClientIp` (order 1),
 5. **`AuthnMiddleware.extract()`** runs only without an active session: an active session ignores bearer and signature headers. It builds a `SignedRequest` (method, origin-form target, headers from `req.rawHeaders`, body on demand) and asks the [credential extractors](02-credential-extractors.md) in ascending `order`. The first non-null answer is the credentials.
 6. **`AuthnMiddleware.principalOf()`** asks the [principal resolvers](03-principal-resolvers.md) in ascending `order`: `KeyPrincipalResolver` (45), `TokenPrincipalResolver` (50), `SessionPrincipalResolver` (100). The first answer that is not `undefined` wins, `null` included; all `undefined` gives `null`.
 7. The answer goes to `req.storage.AuthnPrincipal`. A principal sets `Cache-Control: no-store`. An active session that gave no principal (revoked, expired, refused account) is dropped from `req.storage.AuthnSession`, so no route acts on it.
+   With `authn.http.hooks.request` set to `true`, **`AuthnMiddleware.hookRequest()`** then runs the `authn.request` [action hooks](23-action-hooks.md) with a frozen copy of the principal (or `null`), the method, the path without its query string and the client ip. A refusal, or a hook that failed, answers 403 `{ error: 'action_refused', code }`.
 8. Any store or resolver error goes to `next(err)` and fails the request (500). The request never continues as anonymous after an error.
 9. `PrincipalMiddleware` of `@spinajs/authz-http` (order 10) runs next and copies `req.storage.AuthnPrincipal` into the authorization principal through its `AuthnPrincipalSource`; see [Principal resolution](../authz-http/03-principal-resolution.md).
 
@@ -47,6 +48,10 @@ sequenceDiagram
   M->>R: resolve(req, credentials, ctx), ascending order
   R-->>M: first answer that is not undefined
   M->>M: req.storage.AuthnPrincipal = principal or null
+  opt authn.http.hooks.request is true
+    M->>M: authn.request action hooks
+    M-->>C: 403 action_refused (refused)
+  end
   M->>Z: next()
   Z->>Z: req.storage.Principal from AuthnPrincipal
   Z->>A: policies (Authenticated, ...), then the action
@@ -104,7 +109,7 @@ A `trustProxy` entry that is no address or CIDR, and a malformed `publicOrigin`,
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `ClientIp` | `ServerMiddleware` list, `@Injectable(ServerMiddleware)`, `Order` 1 | `ClientIp` | | Subclass and `DI.register(MyClientIp).as(ClientIp)` before `HttpServer` resolves. |
-| `AuthnMiddleware` | `ServerMiddleware` list, registered by `registerAuthnHttpV3()` at package load, `Order` 5 | `AuthnMiddleware` | | Prefer adding an [extractor](02-credential-extractors.md) or a [resolver](03-principal-resolvers.md). Protected `authenticate()`, `restoreSession()`, `extract()` and `principalOf()` can be overridden in a subclass registered `.as(AuthnMiddleware)` before `HttpServer` resolves. |
+| `AuthnMiddleware` | `ServerMiddleware` list, registered by `registerAuthnHttpV3()` at package load, `Order` 5 | `AuthnMiddleware` | | Prefer adding an [extractor](02-credential-extractors.md) or a [resolver](03-principal-resolvers.md). Protected `authenticate()`, `restoreSession()`, `extract()`, `principalOf()` and `hookRequest()` can be overridden in a subclass registered `.as(AuthnMiddleware)` before `HttpServer` resolves. |
 | `SessionIssuer` | autoinjected by `AuthnMiddleware` | `DefaultSessionIssuer` from `@spinajs/authn-session` | | See [`@spinajs/authn-session`](../authn-session/README.md). |
 | `CredentialExtractor` | `Array.ofType`, sorted by `order` once in `AuthnMiddleware.resolve()` | three shipped extractors | your own | See [Credential extractors](02-credential-extractors.md). |
 | `AuthnPrincipalResolver` | `Array.ofType`, sorted by `order` once in `AuthnMiddleware.resolve()` | three shipped resolvers | your own | See [Principal resolvers](03-principal-resolvers.md). |
