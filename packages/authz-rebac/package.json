@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authz-rebac",
-  "version": "3.0.12",
+  "version": "3.0.13",
   "description": "ReBAC (relationship-based) model and tuple stores for SpinaJS authorization",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -58,22 +58,22 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.12",
-    "@spinajs/authz-orm": "3.0.12",
-    "@spinajs/configuration": "3.0.12",
-    "@spinajs/di": "3.0.12",
-    "@spinajs/orm": "3.0.12",
+    "@spinajs/authz": "3.0.13",
+    "@spinajs/authz-orm": "3.0.13",
+    "@spinajs/configuration": "3.0.13",
+    "@spinajs/di": "3.0.13",
+    "@spinajs/orm": "3.0.13",
     "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "@spinajs/authz-http-admin": "3.0.12",
-    "@spinajs/authz-testing": "3.0.12",
-    "@spinajs/log": "3.0.12",
-    "@spinajs/orm-sqlite": "3.0.12",
+    "@spinajs/authz-http-admin": "3.0.13",
+    "@spinajs/authz-testing": "3.0.13",
+    "@spinajs/log": "3.0.13",
+    "@spinajs/orm-sqlite": "3.0.13",
     "@types/luxon": "^3.6.1"
   },
   "peerDependencies": {
-    "@spinajs/authz-http-admin": "3.0.12"
+    "@spinajs/authz-http-admin": "3.0.13"
   },
   "peerDependenciesMeta": {
     "@spinajs/authz-http-admin": {
