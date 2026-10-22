@@ -32,11 +32,6 @@
       "count": 2
     }
   },
-  "packages/authn-http/src/v3/routes.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "packages/authn-http/test/authn-api-contract.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
@@ -103,10 +98,7 @@
   },
   "packages/authn-http/test/v3-app/suites/login.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 12
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
+      "count": 10
     }
   },
   "packages/authn-http/test/v3-app/suites/mfa.ts": {
@@ -1088,7 +1080,7 @@
       "count": 2
     },
     "max-depth": {
-      "count": 6
+      "count": 5
     }
   },
   "packages/authz-convert/src/keys.ts": {
@@ -1392,9 +1384,6 @@
   "packages/authz-http/test/boot.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 4
-    },
-    "promise/param-names": {
-      "count": 1
     }
   },
   "packages/authz-http/test/explain.test.ts": {
@@ -1558,11 +1547,6 @@
       "count": 2
     }
   },
-  "packages/authz-orm/test/adapter.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 3
-    }
-  },
   "packages/authz-orm/test/ancestors/middleware.test.ts": {
     "promise/param-names": {
       "count": 1
@@ -1634,11 +1618,6 @@
   "packages/authz-orm/test/relations.test.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
-    }
-  },
-  "packages/authz-orm/test/scope-attributes/db-store.test.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 7
     }
   },
   "packages/authz-orm/test/support/db.ts": {
@@ -3221,7 +3200,7 @@
       "count": 1
     },
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
@@ -3231,11 +3210,6 @@
     },
     "no-useless-escape": {
       "count": 20
-    }
-  },
-  "packages/configuration-common/test/format.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 12
     }
   },
   "packages/configuration-db-source/src/bootstrap.ts": {
@@ -4740,7 +4714,7 @@
   },
   "packages/http/test/controllers.test.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 19
+      "count": 18
     },
     "prefer-const": {
       "count": 4
@@ -5489,11 +5463,6 @@
       "count": 1
     }
   },
-  "packages/orm-cli/test/cli.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 8
-    }
-  },
   "packages/orm-http/src/builders.ts": {
     "@typescript-eslint/no-misused-promises": {
       "count": 40
@@ -5707,7 +5676,7 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 15
+      "count": 12
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
@@ -5850,13 +5819,13 @@
       "count": 12
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 10
+      "count": 7
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 22
+      "count": 16
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 5
+      "count": 3
     }
   },
   "packages/orm-mysql/test/transaction-unit.test.ts": {
@@ -5905,9 +5874,6 @@
     }
   },
   "packages/orm-postgres/test/compile.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 4
-    },
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
     },
@@ -6090,9 +6056,6 @@
   "packages/orm-sql/test/queryBuilder.test.ts": {
     "@typescript-eslint/ban-ts-comment": {
       "count": 3
-    },
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 26
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 7
@@ -6414,17 +6377,6 @@
       "count": 1
     }
   },
-  "packages/orm-sqlite/test/readPool.test.ts": {
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 15
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    }
-  },
   "packages/orm-sqlite/test/rebaseline.test.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 2
@@ -6559,7 +6511,7 @@
   },
   "packages/orm-sqlite/test/uowFixture.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 3
@@ -6617,13 +6569,13 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 11
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 13
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/prefer-promise-reject-errors": {
       "count": 1
@@ -6677,9 +6629,6 @@
     },
     "no-constant-binary-expression": {
       "count": 1
-    },
-    "prefer-const": {
-      "count": 2
     },
     "prefer-rest-params": {
       "count": 2
@@ -6897,14 +6846,11 @@
     "@typescript-eslint/no-redundant-type-constituents": {
       "count": 5
     },
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 11
-    },
     "@typescript-eslint/no-unsafe-call": {
       "count": 6
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 43
+      "count": 42
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 14
@@ -7007,7 +6953,7 @@
   },
   "packages/orm/src/schema.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 10
+      "count": 1
     },
     "complexity": {
       "count": 1
@@ -7052,9 +6998,6 @@
     }
   },
   "packages/orm/src/subject-executor.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 4
-    },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 6
     },
@@ -7095,12 +7038,6 @@
     }
   },
   "packages/orm/test/batchInsertKeys.test.ts": {
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 4
-    },
     "prettier/prettier": {
       "count": 1
     }
@@ -7728,10 +7665,7 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
+      "count": 2
     },
     "@typescript-eslint/prefer-promise-reject-errors": {
       "count": 2
@@ -7748,10 +7682,10 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 39
+      "count": 37
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 4
+      "count": 3
     },
     "promise/param-names": {
       "count": 2
@@ -7801,9 +7735,6 @@
     }
   },
   "packages/queue/src/interfaces.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
-    },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 3
     }
@@ -7819,9 +7750,6 @@
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 5
     },
     "promise/param-names": {
       "count": 1
@@ -7854,9 +7782,6 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 3
-    },
-    "promise/param-names": {
-      "count": 1
     }
   },
   "packages/queue/test/tracking.test.ts": {
@@ -8890,7 +8815,7 @@
   },
   "packages/users/test/support/http-app.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 17
+      "count": 10
     },
     "promise/param-names": {
       "count": 2
