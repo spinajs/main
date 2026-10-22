@@ -1,4 +1,4 @@
-import { Autoinject, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { ResourceNotFound } from '@spinajs/exceptions';
@@ -10,7 +10,6 @@ import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Schema } from '@spinajs/validation';
 
-import { AccountGuard } from '../../../services/AccountGuard.js';
 import { asActionRefusal } from '../../../services/action-refusal.js';
 import { userActor } from '../../../services/actor.js';
 import { withCredentialAdmin } from '../../../services/credential-admin.js';
@@ -85,23 +84,20 @@ function lifecycleTarget(caller: Principal, permission: 'users:update' | 'users:
  * `DELETE /authn/admin/users/:uuid/sessions` does, so they also ask what it asks: fresh
  * authentication, then authn's `authn.admin.credentials` action with its action `sessions` (users'
  * AuthzCredentialAdminRule: `users:credentials`, the target covered, no protected role, never the caller's own
- * account), before the AccountGuard and any write. Activating and unbanning give access back and ask neither.
+ * account), before the account guard (AccountDisableHook, a `users.*` before hook) and any write. Activating and unbanning give access back and ask neither.
  * Listing a user's sessions and ending one of them also need what authn-http's credential admin
  * routes need: a session caller that is not impersonating and the `authn.admin.credentials` action.
  * authn-http serves `POST /authn/admin/users/:uuid/password-reset`, `POST .../mfa-reset`,
  * `DELETE .../sessions` (the forced logout of every session) and `DELETE .../tokens`; 3.0 has no
  * admin route to set a password, expire one or enable two-factor.
  *
- * Every route that takes an account out of service goes through the
- * {@link AccountGuard} first — an administrator must not be able to lock themselves,
- * or the installation, out through this API.
+ * Every route that takes an account out of service runs its `users.*` action as the caller, so
+ * users-http's AccountDisableHook judges it first — an administrator must not be able to lock
+ * themselves, or the installation, out through this API.
  * @tags Admin Users
  */
 @BasePath('users/security')
 export class Security extends BaseController {
-  @Autoinject(AccountGuard)
-  protected AccountGuard: AccountGuard;
-
   /**
    * Deactivate user account (admin)
    * Marks the user account as inactive and destroys its sessions, preventing login without
@@ -124,10 +120,7 @@ export class Security extends BaseController {
     }
     const target = await lifecycleTarget(by, 'users:delete', user);
 
-    await withCredentialAdmin(by, target.Uuid, 'sessions', async () => {
-      await this.AccountGuard.assertCanDisable(by, target, 'deactivate');
-      await asActionRefusal(['users.deactivate'], () => deactivate(target));
-    });
+    await withCredentialAdmin(by, target.Uuid, 'sessions', () => asActionRefusal(['users.deactivate'], () => deactivate(target, by)));
 
     return new Ok();
   }
@@ -172,10 +165,7 @@ export class Security extends BaseController {
     }
     const target = await lifecycleTarget(by, 'users:delete', user);
 
-    await withCredentialAdmin(by, target.Uuid, 'sessions', async () => {
-      await this.AccountGuard.assertCanDisable(by, target, 'ban');
-      await asActionRefusal(['users.ban'], () => ban(target, dto?.reason, dto?.duration));
-    });
+    await withCredentialAdmin(by, target.Uuid, 'sessions', () => asActionRefusal(['users.ban'], () => ban(target, dto?.reason, dto?.duration, by)));
 
     return new Ok();
   }

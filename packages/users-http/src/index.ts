@@ -4,6 +4,7 @@ export * from './controllers/UserMetadataController.js';
 export * from './services/UserMetadataService.js';
 export * from './services/metadata-scope.js';
 export * from './services/AccountGuard.js';
+export * from './services/account-disable-hook.js';
 export * from './dto/metadata-dto.js';
 import './dto/metadata-entry-schema.js';
 

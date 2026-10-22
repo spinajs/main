@@ -8,10 +8,10 @@ import { AuthzCredentialAdminRule } from '@spinajs/users';
 export const NO_REQUEST = undefined as unknown as Request;
 
 /**
- * Lets the handler suites reach the AccountGuard: deactivate, ban and delete ask fresh auth and the credential admin
+ * Lets the handler suites reach the account guard (AccountDisableHook): deactivate, ban and delete ask fresh auth and the credential admin
  * rule first, which need a request and a signed-in session these suites do not have. Both gates are pinned over
  * http in `v3/lifecycle-guard.test.ts`; users' guard refuses the caller's own account there, so the self-lockout cases
- * of these suites describe the AccountGuard behind an application guard that admits it. Undone by `sinon.restore()`.
+ * of these suites describe the account guard behind an application rule that admits it. Undone by `sinon.restore()`.
  */
 export function passLifecycleGates(): void {
   sinon.stub(FreshAuth.prototype, 'execute').resolves();

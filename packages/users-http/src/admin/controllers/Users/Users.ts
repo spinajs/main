@@ -605,10 +605,7 @@ export class Users extends BaseController {
     }
     const target = await userRowFor(by, 'users:delete', () => userModel().query().where('Uuid', user).populate('Metadata').first());
 
-    await withCredentialAdmin(by, target.Uuid, 'sessions', async () => {
-      await this.AccountGuard.assertCanDisable(by, target, 'delete');
-      await asActionRefusal(['users.delete'], () => deleteUser(target));
-    });
+    await withCredentialAdmin(by, target.Uuid, 'sessions', () => asActionRefusal(['users.delete'], () => deleteUser(target, by)));
 
     return new Ok();
   }
