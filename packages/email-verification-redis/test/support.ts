@@ -17,7 +17,7 @@ export class RedisStoreTestConfiguration extends FrameworkConfiguration {
 
 // ioredis-mock instances share one keyspace per host:port, so rawClient() sees the store's keys.
 (RedisEmailVerificationStore.prototype as unknown as { createClient: (this: RedisEmailVerificationStore) => Redis }).createClient = function () {
-  return new RedisMock((this as unknown as { clientOptions(): object }).clientOptions()) as unknown as Redis;
+  return new RedisMock((this as unknown as { clientOptions(): object }).clientOptions());
 };
 
 const OWNED: unknown[] = [Configuration, RedisStoreTestConfiguration, EmailVerificationStore, RedisEmailVerificationStore];
@@ -43,4 +43,4 @@ export async function bootStore(): Promise<RedisEmailVerificationStore> {
 }
 
 let raw: Redis | undefined;
-export const rawClient = (): Redis => (raw ??= new RedisMock() as unknown as Redis);
+export const rawClient = (): Redis => (raw ??= new RedisMock());

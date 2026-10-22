@@ -66,7 +66,7 @@ describe('RedisEmailVerificationStore keys', () => {
     await rawClient().flushall();
     await rawClient().set('ev:list:block:src', 'not-a-set');
     let err: unknown;
-    await store.upsertEntries([{ domain: 'a.com', kind: 'block', source: 'src' }]).catch((e) => (err = e));
+    await store.upsertEntries([{ domain: 'a.com', kind: 'block', source: 'src' }]).catch((e: unknown) => void (err = e));
     expect(err).to.be.instanceOf(Error);
   });
 
