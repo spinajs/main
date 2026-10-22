@@ -311,15 +311,17 @@ describe('http & controller tests', function () {
     const response = await req().get('files/buffer').send();
 
     expect(response).to.have.status(200);
-    expect(response.header['content-type']).to.eq('image/png');
-    expect(response.header['content-length']).to.eq('256');
+    const headers: Record<string, string> = response.header;
+    expect(headers['content-type']).to.eq('image/png');
+    expect(headers['content-length']).to.eq('256');
     expect(Buffer.compare(response.body, Buffer.from(Array.from({ length: 256 }, (_, i) => i)))).to.eq(0);
   });
 
   it('@Ip returns the socket address, not a client-set X-Forwarded-For', async () => {
     const response = await req().get('extra/ip').set('Accept', 'application/json').set('X-Forwarded-For', '203.0.113.7, 10.0.0.1').send();
     expect(response).to.have.status(200);
-    expect(response.body.ip).to.be.oneOf(['127.0.0.1', '::1']);
+    const body: { ip: string } = response.body;
+    expect(body.ip).to.be.oneOf(['127.0.0.1', '::1']);
   });
 
   it('@RequestId returns the per-request id matching the response header', async () => {
@@ -376,7 +378,8 @@ describe('http & controller tests', function () {
   it('required body passes when present', async () => {
     const response = await req().post('extra/requiredbody').set('Accept', 'application/json').send({ a: 1 });
     expect(response).to.have.status(200);
-    expect(response.body.a).to.eq(1);
+    const body: { a: number } = response.body;
+    expect(body.a).to.eq(1);
   });
 
   it('required query param passes when present', async () => {
