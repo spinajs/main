@@ -12,6 +12,7 @@ import type { Principal } from '@spinajs/authz';
 
 import { NO_PASSWORD, USER_COMMON_METADATA, User, UserAlreadyExists, UserBanned, UserIdentityRegistrar } from '../../src/index.js';
 import type { UserDraft, UsersCreateInput, UsersCreateOutput } from '../../src/index.js';
+import { actorView } from '../../src/hooks.js';
 import { activate, ban, create, deactivate, deleteUser, expirePassword, setUserMeta, unban, updateUser } from '../../src/actions.js';
 import { globalRolesOf } from '../support/authz-host.js';
 import { passwordCalls, resetPasswordCalls } from '../support/password-service.js';
@@ -261,6 +262,23 @@ describe('users actions on action hooks (HOOK-4)', function () {
       expect(await globalRolesOf(u.Uuid)).to.deep.eq(['normal']);
     });
 
+    it('a caller who gave no roles gets authz.rbac.defaultRoles', async () => {
+      const hook = new ScriptedActionHook();
+
+      const { User: u } = await withHook(hook, () => create({ Email: 'defaults@spinajs.pl', Login: 'defaults-kept', Password: PASSWORD }));
+
+      expect(await globalRolesOf(u.Uuid)).to.deep.eq(['user']);
+    });
+
+    it('a hook that empties roles creates the user with none, not with the defaults', async () => {
+      const hook = new ScriptedActionHook();
+      hook.mutate('users.create', { roles: [] });
+
+      const { User: u } = await withHook(hook, () => create({ Email: 'bare@spinajs.pl', Login: 'bare-by-hook', Password: PASSWORD }));
+
+      expect(await globalRolesOf(u.Uuid)).to.deep.eq([]);
+    });
+
     it('a write into the frozen actor does not land', async () => {
       const hook = new ScriptedActionHook();
       hook.tamper('users.create', (input) => {
@@ -331,6 +349,19 @@ describe('users actions on action hooks (HOOK-4)', function () {
         expect((await storedUser(admin.Uuid)).Password).to.eq(stored);
       });
     }
+
+    it('a nested attribute is frozen in the view and is a copy of the actor s own', () => {
+      const team = { lead: { name: 'ann' }, tags: ['a'] };
+      const view = actorView({ type: 'user', id: 'u1', authenticated: true, source: 'session', attributes: { team } });
+
+      const seen = view.attributes.team as typeof team;
+      expect(seen).to.deep.eq(team);
+      expect(seen).to.not.eq(team);
+      expect(Object.isFrozen(seen)).to.eq(true);
+      expect(Object.isFrozen(seen.lead)).to.eq(true);
+      expect(Object.isFrozen(seen.tags)).to.eq(true);
+      expect(Object.isFrozen(team.lead), 'the actor keeps its own, unfrozen').to.eq(false);
+    });
 
     it('users.deactivate, users.ban and users.delete see SYSTEM when no actor is given, as the CLI runs them', async () => {
       const hook = new ScriptedActionHook();

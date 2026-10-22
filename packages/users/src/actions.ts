@@ -726,7 +726,8 @@ async function hookedCreate(changed: Partial<{ data: UsersCreateData; roles: str
 
   if (changed.roles !== undefined) {
     if (!Array.isArray(changed.roles)) throw new InvalidArgument('Roles must be a list', 'roles');
-    roleNames = rolesToGrant(roleList(changed.roles));
+    // The hooks saw the defaults already, so an empty list is theirs to leave.
+    roleNames = roleList(changed.roles);
     await assignGlobalRoles(uuid, roleNames, { reason: 'users:create', field: 'roles', actor, dryRun: true });
   }
 

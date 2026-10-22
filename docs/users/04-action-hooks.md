@@ -13,7 +13,7 @@ The [user actions](03-user-actions.md) run through the [`@spinajs/hooks`](../hoo
 
 `actor` is the principal the caller handed the function (`create`, `deactivate`, `ban`, `deleteUser`, `expirePassword` take one, SYSTEM by default). users-http's admin routes pass the caller; its `AccountDisableHook` is a before hook on `users.deactivate`, `users.ban` and `users.delete` that applies the account guard to every actor but SYSTEM ([Account guard](../users-http/08-account-guard.md)).
 
-Hooks never get an ORM model. `user` is a `UserView`: the user's columns as plain data, the password hash left out, dates as `Date`s. `actor` is an `ActorView`: `type`, `id`, `authenticated`, `source` and `attributes` of the principal, without its `identity` (the acting user's model); the action itself still acts as the principal it was given. Every input key is a frozen copy, a mutable key a plain copy, and the `after` hooks get a frozen copy of the output. The action acts on its own values, so a write in place in a hook reaches nothing but the keys it may change. No input carries a password.
+Hooks never get an ORM model. `user` is a `UserView`: the user's columns as plain data, the password hash left out, dates as `Date`s. `actor` is an `ActorView`: `type`, `id`, `authenticated`, `source` of the principal and a frozen deep copy of its `attributes`, without its `identity` (the acting user's model); the action itself still acts as the principal it was given. Every input key is a frozen copy, a mutable key a plain copy, and the `after` hooks get a frozen copy of the output. The action acts on its own values, so a write in place in a hook reaches nothing but the keys it may change. No input carries a password.
 
 ## Actions
 
@@ -36,7 +36,7 @@ The input and output types are exported from `@spinajs/users`: `UserView`, `User
 ### `users.create` in detail
 
 - A column a hook sets on `user` is on the inserted row (`IsActive`, `EmailVerifiedAt`, a column of your own). Only columns of the `User` model's descriptor count; any other key is dropped without an error. `Uuid`, `Password` (the password marker), `PasswordSetAt` and `DeletedAt` stay `create()`'s. `Email`, `Login` and `Id` set on `user` go through the same checks as in `data`, and win over the same field in `data`.
-- `roles` are the roles asked for, or `authz.rbac.defaultRoles` when none were. A hook that empties the list gets `authz.rbac.defaultRoles` again: a hook cannot create an account with no role while default roles are configured. Narrow the list instead, or refuse.
+- `roles` are the roles asked for, or `authz.rbac.defaultRoles` when none were. A hook sees the defaults already applied, and the list it leaves is the list granted: a hook that empties it creates the account with no role. The role dry run still applies to what is left.
 - `create()` writes `data.Metadata` itself, without the `users.metadata.set` hooks: the keys were checked with the create input, and a hook must not refuse an account that is already inserted.
 - `Invited` is `true` when no password was given: the account got authn-local's invite instead of the `created` mail.
 - Nothing is written before the `before` hooks ran, so a refused create leaves no row. A duplicate, a protected key or a refused role is refused before any hook runs.
@@ -171,7 +171,7 @@ To send no lifecycle mail at all, call only `DI.unregister(UserLifecycleMailHook
 - **Security steps are not hookable.** Once a ban, a deactivation or a delete proceeds, its session and token revocation, its user events and its state writes run inline. A refusal can only come before them.
 - **A refused registration** (`POST /auth/register`) through a `users.create` hook reaches the route as the nested `ActionRefused`; the registrar spends the hash a taken address costs, and the route answers 202 as for any taken address.
 - **A refused activation during a registration** (`users.registration.activate: true`, a `users.activate` hook that refuses) leaves the created account inactive: the account exists, the registrar passes the refusal on, and the route answers it as a nested refusal, 202 with `identity.register` audited as failed. An administrator activates the account later.
-- **Where `users.update` runs.** Only `updateUser()` runs it; among the admin routes that is `PATCH /users/:uuid/restore`. `PATCH /users/:uuid` of [users-http](../users-http/06-user-administration.md) writes the row itself (`target.update()`), so `users.update` hooks do not run there. The lifecycle actions write their own state without it, so `activate()` or `deactivate()` runs no `users.update` hook either.
+- **Where `users.update` runs.** Only `updateUser()` runs it; among the admin routes that is `PATCH /users/:uuid` of [users-http](../users-http/06-user-administration.md) (its `Login` and `Email`) and `PATCH /users/:uuid/restore`. The lifecycle actions write their own state without it, so `activate()` or `deactivate()` runs no `users.update` hook either.
 - **After hooks cannot fail an action.** Their errors are logged on the `hooks` log by class.
 - **Copies.** A `users.create` hook that changes nothing leaves `create()` with its own values, Luxon dates and metadata objects included.
 

@@ -20,7 +20,7 @@ The order inside `AuthzAdmin.execute` is:
 
 1. The `authz.admin.batch` hook.
 2. For each command, in phase A (outside the transaction): the handler's `validate()`, the actor's permission check, then the `authz.admin.command` hooks, `ListSupportHook` last.
-3. A `command` a hook changed is copied, frozen and put through the same `validate()` and permission check again. A `Date` edited in place counts as a change. A command no hook changed is not checked twice.
+3. A `command` a hook changed is copied, frozen and put through the same `validate()` and permission check again. A `Date` edited in place counts as a change. A command no hook changed is not checked twice. The `after` hooks get a copy of the command, so editing it changes nothing that is applied.
 4. In phase B (the transaction), `AdminGuard.check()` and `apply()` for the command the hook left.
 
 Product rules on commands (refuse external invites, require an expiry) are before hooks here. They run after the permission check, and a refusal answers `hook:<code>`. Moving off `AuthzCommandValidator`: see [Migration](#migration).
