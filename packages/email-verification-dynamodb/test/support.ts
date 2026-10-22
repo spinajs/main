@@ -31,10 +31,11 @@ export async function disposeStore(): Promise<void> {
   for (const t of OWNED) DI.uncache(t as never);
 }
 
-/** A store over a fresh fake table; `options` is merged over `emailVerification.dynamodb`. */
-export async function bootStore(options: Record<string, unknown> = {}): Promise<DynamoDbEmailVerificationStore> {
+/** A store over a fresh fake table; `options` is merged over `emailVerification.dynamodb`, `prepare` sets the fake up before boot. */
+export async function bootStore(options: Record<string, unknown> = {}, prepare?: (fake: FakeDynamo) => void): Promise<DynamoDbEmailVerificationStore> {
   await disposeStore();
   fake = new FakeDynamo('pk');
+  prepare?.(fake);
   if (!registered) {
     DI.setESMModuleSupport();
     DI.register(DynamoStoreTestConfiguration).as(Configuration);
@@ -44,4 +45,15 @@ export async function bootStore(options: Record<string, unknown> = {}): Promise<
   await DI.resolve(Configuration);
   current = await DI.resolve(DynamoDbEmailVerificationStore);
   return current;
+}
+
+/** Records the store logger's warnings; the `@Logger` getter caches one logger for every store instance. */
+export function captureWarnings(store: DynamoDbEmailVerificationStore): { messages: string[]; restore: () => void } {
+  const log = (store as unknown as { Log: { warn: (...args: unknown[]) => void } }).Log;
+  const original = log.warn;
+  const messages: string[] = [];
+  log.warn = (...args: unknown[]) => {
+    messages.push(args.map(String).join(' '));
+  };
+  return { messages, restore: () => (log.warn = original) };
 }
