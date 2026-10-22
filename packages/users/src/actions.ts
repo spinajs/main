@@ -659,8 +659,8 @@ interface CreatePlan {
   readonly columns: Record<string, unknown>;
 }
 
-/** Columns of the unsaved user that only `create()` sets, or that come through `data`. */
-const DRAFT_OWN_COLUMNS = new Set(['Uuid', 'Password', 'Email', 'Login', 'Id']);
+/** Columns of the unsaved user that only `create()` sets, that come through `data`, or that are credential state. */
+const DRAFT_OWN_COLUMNS = new Set(['Uuid', 'Password', 'Email', 'Login', 'Id', 'PasswordSetAt', 'DeletedAt']);
 
 /** The unsaved user `create()` inserts; a hook's columns go first, so the account's Uuid and password marker stay `create()`'s. */
 function draftOf(uuid: string, plan: CreatePlan, now: DateTime<true>): User {
