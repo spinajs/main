@@ -281,7 +281,7 @@ describe('SchedulerService: cancel and retry', () => {
       ).to.deep.eq([]);
       const bad = (await service
         .retryFailed('import', 'yesterday', { triggeredBy: by })
-        .catch((e) => e)) as InvalidRunParams;
+        .catch((e: unknown) => e)) as InvalidRunParams;
       expect(bad).to.be.instanceOf(InvalidRunParams);
       expect(bad.errors).to.deep.eq([{ path: '/since', message: 'expected an ISO-8601 date' }]);
     });
@@ -295,7 +295,7 @@ describe('SchedulerService: cancel and retry', () => {
       });
       const err = (await service
         .retryFailed('flaky', new Date(clock.now() - 60_000), { triggeredBy: by })
-        .catch((e) => e)) as InvalidRunParams;
+        .catch((e: unknown) => e)) as InvalidRunParams;
       expect(err).to.be.instanceOf(InvalidRunParams);
       expect(err.message).to.contain(broken.Id);
       expect(err.errors).to.deep.eq([{ path: '/n', message: 'must be integer' }]);

@@ -131,7 +131,7 @@ class TestableAmqpClient extends AmqpQueueClient {
     return this.fake.plainCh;
   }
   public get subsMap() {
-    return (this as any).Subscriptions as Map<string, any>;
+    return this.Subscriptions;
   }
 }
 

@@ -2,7 +2,6 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { ICompilerOutput } from '@spinajs/orm';
 import { MsSqlOrmDriver } from '../src/index.js';
 
 describe('mssql whereNot(group)', function () {
@@ -20,7 +19,7 @@ describe('mssql whereNot(group)', function () {
       .whereNot(function () {
         this.where('Flag', 'a');
       })
-      .toDB() as ICompilerOutput;
+      .toDB();
     expect(out.expression).to.contain('NOT ( [Flag] = ? )');
   });
 });

@@ -461,7 +461,7 @@ describe('exposed options on a database migrated before the boot', function () {
     const orm = await DI.resolve(Orm);
     await wait(500);
 
-    const rows = (await orm.Connections.get('sqlite')!.select().from('configuration').where('Slug', 'pre-migrated')) as any[];
+    const rows = (await orm.Connections.get('sqlite')!.select().from('configuration').where('Slug', 'pre-migrated')) as Array<{ Value: string }>;
     expect(rows.map((r) => r.Value)).to.eql(['7']);
   });
 });

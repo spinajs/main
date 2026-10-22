@@ -112,6 +112,15 @@ interface IPendingEmit {
   reject: (err: unknown) => void;
 }
 
+/** The transport keys of the untyped `IQueueConnectionOptions.options` bag. */
+interface IStompTransportOptions {
+  clientIdSuffix?: string;
+  receiptTimeout?: number;
+  emitReconnectTimeout?: number;
+  emitRetries?: number;
+  prefetch?: unknown;
+}
+
 interface IReadyWaiter {
   resolve: () => void;
   reject: (err: unknown) => void;
@@ -138,10 +147,14 @@ export class StompQueueClient extends QueueClient {
    * broker hiccup / receipt timeout doesn't fail the emit. Duplicates are handled by consumer dedup. */
   protected EmitPipeline: ResiliencePipeline<void> = this.buildEmitPipeline();
 
+  protected get TransportOptions(): IStompTransportOptions | undefined {
+    return this.Options.options as IStompTransportOptions | undefined;
+  }
+
   public get ClientId() {
     const base = this.Options.clientId ?? this.Options.name;
     // ActiveMQ refuses a second connection with the same client-id, so replicas need a stable per-instance suffix
-    const suffix = this.Options.options?.clientIdSuffix || process.env.QUEUE_INSTANCE_ID;
+    const suffix = this.TransportOptions?.clientIdSuffix || process.env.QUEUE_INSTANCE_ID;
     return suffix ? `${base}-${suffix}` : base;
   }
 
@@ -153,11 +166,11 @@ export class StompQueueClient extends QueueClient {
   }
 
   protected get ReceiptTimeout(): number {
-    return this.Options.receiptTimeout ?? this.Options.options?.receiptTimeout ?? DEFAULT_RECEIPT_TIMEOUT_MS;
+    return this.Options.receiptTimeout ?? this.TransportOptions?.receiptTimeout ?? DEFAULT_RECEIPT_TIMEOUT_MS;
   }
 
   protected get EmitReconnectTimeout(): number {
-    return this.Options.options?.emitReconnectTimeout ?? DEFAULT_EMIT_RECONNECT_TIMEOUT_MS;
+    return this.TransportOptions?.emitReconnectTimeout ?? DEFAULT_EMIT_RECONNECT_TIMEOUT_MS;
   }
 
   /**
@@ -228,7 +241,7 @@ export class StompQueueClient extends QueueClient {
 
   /** Reads `options.prefetch`; same key as queue-amqp-transport. */
   protected readPrefetch(): number {
-    const raw = this.Options.options?.prefetch;
+    const raw = this.TransportOptions?.prefetch;
     if (raw === undefined) {
       return DEFAULT_PREFETCH;
     }
@@ -548,6 +561,7 @@ export class StompQueueClient extends QueueClient {
         }
 
         // two-argument then: a failed settle must not be treated as a failed handler
+        // eslint-disable-next-line promise/catch-or-return -- both handlers settle the message and log their own errors, there is nothing left to catch
         desc.callback(qMessage).then(
           () => this.settle(message, 'ack'),
           (err) => this.handleFailedMessage(message, qMessage, desc, err),
@@ -701,7 +715,7 @@ export class StompQueueClient extends QueueClient {
    * publish with exponential backoff ( the per-attempt timeout lives in publishWithReceipt ).
    */
   protected buildEmitPipeline(): ResiliencePipeline<void> {
-    const attempts = (this.Options.options?.emitRetries as number) ?? 3;
+    const attempts = this.TransportOptions?.emitRetries ?? 3;
     const base = this.Options.retryDelay && this.Options.retryDelay > 0 ? this.Options.retryDelay : 200;
 
     return new ResiliencePipelineBuilder<void>().addRetry({ MaxRetryAttempts: attempts, Delay: base, MaxDelay: 30000, BackoffType: BackoffType.Exponential, UseJitter: true }).build();

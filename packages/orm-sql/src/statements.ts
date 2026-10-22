@@ -265,7 +265,7 @@ export class SqlWhereStatement extends WhereStatement {
     }
 
     if (this._value instanceof RawQuery) {
-      const target = column instanceof Wrap ? this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._builder.TableAlias]).wrap() : _columnWrap(this.Quoter, column as string, this._builder.TableAlias, this.IsAggregate);
+      const target = column instanceof Wrap ? this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._builder.TableAlias]).wrap() : _columnWrap(this.Quoter, column, this._builder.TableAlias, this.IsAggregate);
       return {
         Bindings: [...this._value.Bindings],
         Statements: [`${target} ${this._operator.toUpperCase()} ${this._value.Query}`],
@@ -568,7 +568,7 @@ export class SqlInStatement extends InStatement {
     if (declared) {
       const columnDescriptor = descriptor!.Columns.find((c) => c.Name === this._column);
       const converter = container.resolve<ValueConverter>(declared.Class);
-      return (value) => converter.toDB(value, null as any, columnDescriptor as any, null);
+      return (value): unknown => converter.toDB(value, null as any, columnDescriptor as any, null);
     }
 
     const converters = container.get<Map<string, any>>('__orm_db_value_converters__');
@@ -577,8 +577,8 @@ export class SqlInStatement extends InStatement {
     }
 
     const byClass = new Map<string, ValueConverter>();
-    return (value) => {
-      const type = value !== null && value !== undefined ? (value as object).constructor.name : undefined;
+    return (value): unknown => {
+      const type = value !== null && value !== undefined ? value.constructor.name : undefined;
       if (!type || !converters.has(type)) {
         return value;
       }

@@ -278,7 +278,7 @@ describe('ProgressSeen', () => {
 
   it('reports nothing for a run whose final status was delivered', () => {
     const seen = new ProgressSeen();
-    seen.note({ ...progress({}), type: 'status', status: 'succeeded', reason: null } as RunEvent);
+    seen.note({ ...progress({}), type: 'status', status: 'succeeded', reason: null });
     expect(seen.differs(progress({ stepProgress: 50 }))).to.eq(false);
     expect(seen.runProgressDiffers(progress({ progress: 50 }))).to.eq(false);
   });
@@ -331,7 +331,7 @@ describe('latest progress ordering and final status', () => {
 
     await RunStepModel.update({ Progress: 60 }).where('RunId', run.Id);
     const latest = DI.resolve(LatestProgress);
-    const synthesize = latest.synthesize.bind(latest) as LatestProgress['synthesize'];
+    const synthesize: LatestProgress['synthesize'] = latest.synthesize.bind(latest);
     // the final status is written and delivered directly while a poll round reads the rows
     latest.synthesize = async (target, seen, cursor) => {
       const events = await synthesize(target, seen, cursor);

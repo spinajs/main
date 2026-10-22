@@ -48,7 +48,7 @@ describe('mssql dialect', function () {
     const sent: string[] = [];
     driver.executeOnDb = (stmt: string) => (sent.push(stmt), Promise.resolve([]));
     // a transaction context in scope is all assertInTransaction() checks
-    await (driver as any).TransactionStorage.run({ depth: 0 }, () => driver.lockTableShared('users'));
+    await driver['TransactionStorage'].run({ depth: 0 }, () => driver.lockTableShared('users'));
 
     expect(sent).to.deep.eq(['SELECT COUNT(*) FROM [users] WITH (TABLOCK, HOLDLOCK)']);
   });
@@ -144,7 +144,7 @@ describe('mssql statements', function () {
   let driver: MsSqlOrmDriver;
   const sql = (q: { toDB(): unknown }) => {
     const out = q.toDB() as ICompilerOutput | ICompilerOutput[];
-    return (Array.isArray(out) ? out[0] : out) as ICompilerOutput;
+    return (Array.isArray(out) ? out[0] : out);
   };
   const schema = () => driver.Container.resolve(SchemaQueryBuilder, [driver]);
 

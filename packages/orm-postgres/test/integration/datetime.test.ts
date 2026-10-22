@@ -72,7 +72,7 @@ describe('postgres datetimes (integration)', function () {
     await inZone('Asia/Kolkata', () => PgDtDoc.insert({ id: 1, at: DateTime.fromMillis(AT) }));
 
     await inZone('America/New_York', async () => {
-      const doc = (await PgDtDoc.where('id', 1).first()) as PgDtDoc;
+      const doc = await PgDtDoc.where('id', 1).first();
       expect(doc.at.toMillis()).to.eq(AT);
       expect(doc.at.zoneName).to.eq('UTC');
       expect(await PgDtDoc.where('at', '>', new Date(AT - 1))).to.have.length(1);
@@ -88,7 +88,7 @@ describe('postgres datetimes (integration)', function () {
       await PgDtDoc.insert({ id: 2, at: DateTime.fromMillis(second) });
     });
 
-    const docs = (await PgDtDoc.all().orderBy('at')) as PgDtDoc[];
+    const docs = await PgDtDoc.all().orderBy('at');
     expect(docs.map((d) => d.at.toMillis())).to.deep.eq([first, second]);
   });
 
@@ -126,12 +126,12 @@ describe('postgres datetimes (integration)', function () {
     await PgDtDoc.insert({ id: 2, at: DateTime.fromMillis(Date.now() + 3_600_000) });
 
     await inZone('Asia/Kolkata', async () => {
-      const past = (await PgDtDoc.where('at', '<=', pgdb!.driver.now())) as PgDtDoc[];
+      const past = await PgDtDoc.where('at', '<=', pgdb!.driver.now());
       expect(past.map((d) => d.id)).to.deep.eq([1]);
 
       const before = Date.now();
       await pgdb!.driver.executeOnDb(`INSERT INTO pg_dt_doc (id, at) VALUES (3, ${pgdb!.driver.now().Query})`, [], QueryContext.Insert);
-      const stamped = (await PgDtDoc.where('id', 3).first()) as PgDtDoc;
+      const stamped = await PgDtDoc.where('id', 3).first();
       // the server's clock, not this process's: allow for drift of a container clock
       expect(stamped.at.toMillis()).to.be.within(before - 60_000, Date.now() + 60_000);
     });

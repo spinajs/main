@@ -40,7 +40,7 @@ async function freshProcess(body: string): Promise<Record<string, string>> {
   const { stdout } = await run(process.execPath, ['--input-type=module', '-e', script], { cwd: process.cwd(), encoding: 'utf8', timeout: 60_000 });
   const line = stdout.split(/\r?\n/).find((l) => l.startsWith('RESULT '));
   expect(line, stdout).to.be.a('string');
-  return JSON.parse(line!.slice('RESULT '.length));
+  return JSON.parse(line!.slice('RESULT '.length)) as Record<string, string>;
 }
 
 describe('sqlite model driver helpers in a process that has not resolved the Orm', function () {

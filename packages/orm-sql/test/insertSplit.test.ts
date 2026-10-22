@@ -21,7 +21,7 @@ function limitTo(limits: { MaxBindings?: number; MaxInsertRows?: number }) {
   Object.defineProperty(driver, 'MaxInsertRows', { value: limits.MaxInsertRows ?? Infinity });
 
   const executed: { stmt: string; params: unknown[] }[] = [];
-  sinon.stub(driver, 'executeOnDb').callsFake(async (stmt: any, params: any) => {
+  sinon.stub(driver, 'executeOnDb').callsFake(async (stmt: any, params: unknown[] = []) => {
     executed.push({ stmt, params });
     return { RowsAffected: params.length / 3, LastInsertId: executed.length, Returning: [] };
   });

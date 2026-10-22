@@ -135,7 +135,7 @@ class StoresRawId extends MemorySessionIssuer {
   constructor(o: MemorySessionOptions) {
     super(o);
     const keys = this.storage.storedKeys.bind(this.storage);
-    (this.storage as { storedKeys: () => Promise<readonly string[]> }).storedKeys = async () => [...(await keys()), ...this.raw];
+    this.storage.storedKeys = async () => [...(await keys()), ...this.raw];
   }
   async issue(...a: Parameters<MemorySessionIssuer['issue']>): Promise<SessionHandle> {
     const h = await super.issue(...a);

@@ -21,7 +21,7 @@ class BootSeedIdentityStore extends FakeIdentityStore {}
 
 function within<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
+  const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms} ms`)), ms);
   });
   return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
@@ -57,12 +57,12 @@ describe('the TokenService in a boot migration', function () {
       }
       public async down(): Promise<void> {}
       public async data(): Promise<void> {
-        const tokens = (await DI.resolve(TokenService)) as TokenService;
+        const tokens = await DI.resolve(TokenService);
         created = await tokens.create(OWNER, { name: 'boot-seed', kind: 'pat', expiresAt: new Date(Date.now() + DAY_MS) }, ctx());
       }
     }
     Migration('default')(SeedTokenAtBoot_2099_01_01_00_00_00);
-    seed = SeedTokenAtBoot_2099_01_01_00_00_00 as unknown as typeof OrmMigration;
+    seed = SeedTokenAtBoot_2099_01_01_00_00_00;
   });
 
   after(async () => {
@@ -85,7 +85,7 @@ describe('the TokenService in a boot migration', function () {
 
     expect(created?.ok, 'the seed created its token').to.equal(true);
     (DI.resolve(IdentityStore) as BootSeedIdentityStore).add({ id: OWNER.id, login: 'boot-seed' });
-    const tokens = (await DI.resolve(TokenService)) as TokenService;
+    const tokens = await DI.resolve(TokenService);
     const validation = await tokens.validate((created as Extract<TokenCreateResult, { ok: true }>).plaintext, ctx());
     expect(validation.ok).to.equal(true);
   });

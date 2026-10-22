@@ -162,13 +162,13 @@ class UsersHttpMfaStep extends MfaStep {
  */
 export function resetAuthnCaseServices(): void {
   for (const base of [AuthnService, AuthnThrottle] as unknown as Class<unknown>[]) {
-    for (const type of DI.getRegisteredTypes(base) ?? []) DI.uncache(type as Class<unknown>);
+    for (const type of DI.getRegisteredTypes(base) ?? []) DI.uncache(type);
     DI.uncache(base);
   }
   DI.uncache(FreshAuthCheck);
   DI.uncache(AuthnImpersonationService);
-  for (const type of DI.getRegisteredTypes(ImpersonationGuard) ?? []) DI.uncache(type as Class<unknown>);
-  DI.uncache(ImpersonationGuard as unknown as Class<unknown>);
+  for (const type of DI.getRegisteredTypes(ImpersonationGuard) ?? []) DI.uncache(type);
+  DI.uncache(ImpersonationGuard);
 }
 
 export const ROUTES: Partial<HttpRoutes> = {
@@ -192,7 +192,7 @@ async function authnHttpControllers(): Promise<Class<BaseController>[]> {
     if (!existsSync(path)) throw new Error(`the users http tests load @spinajs/authn-http from its build, and ${path} is missing: build it first (npm run build at the repo root)`);
   }
   const v3 = await import('./authn-http-v3.js');
-  return [v3.AuthnLoginController, v3.AuthnMfaController, v3.AuthnSessionsController, v3.AuthnActiveRoleController, v3.AuthnImpersonationController, v3.AuthnRegistrationController] as unknown as Class<BaseController>[];
+  return [v3.AuthnLoginController, v3.AuthnMfaController, v3.AuthnSessionsController, v3.AuthnActiveRoleController, v3.AuthnImpersonationController, v3.AuthnRegistrationController];
 }
 
 export interface UsersHttpApp {
@@ -296,7 +296,7 @@ export async function startUsersHttpApp(opts: StartOptions = {}): Promise<UsersH
       DI.uncache('orm-driver-sqlite');
     });
   }
-  rootUndo.push(testHost.registerInRoot(MfaStep as unknown as Class<MfaStep>, UsersHttpMfaStep), testHost.registerInRoot(RoleStore, ConfigRoleStore), () => DI.uncache(ConfigRoleStore));
+  rootUndo.push(testHost.registerInRoot(MfaStep, UsersHttpMfaStep), testHost.registerInRoot(RoleStore, ConfigRoleStore), () => DI.uncache(ConfigRoleStore));
 
   for (const b of (await DI.resolve(Array.ofType(Bootstrapper))) as Bootstrapper[]) await b.bootstrap();
   const seeded = await seededValues();
@@ -341,16 +341,16 @@ export async function stopUsersHttpApp(): Promise<void> {
   await server.stop();
   DI.uncache(HttpServer);
   DI.uncache(Controllers);
-  for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type as Class<BaseController>);
+  for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type);
   for (const c of controllers) DI.unregister(c);
   DI.uncache(BaseController);
   await DI.get(PrincipalMiddleware)?.dispose();
-  for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type as Class<ServerMiddleware>);
+  for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type);
   DI.uncache(ServerMiddleware);
   resetAuthnCaseServices();
   // DefaultAuthzAdmin keeps the AuthzService of its first call, which uninstallHost disposes below.
-  for (const type of DI.getRegisteredTypes(AuthzAdmin) ?? []) DI.uncache(type as Class<unknown>);
-  DI.uncache(AuthzAdmin as unknown as Class<unknown>);
+  for (const type of DI.getRegisteredTypes(AuthzAdmin) ?? []) DI.uncache(type);
+  DI.uncache(AuthzAdmin);
   await DI.get(Orm)?.dispose();
   // fsTemp's cleanup interval would keep the mocha process alive after the last suite.
   for (const provider of DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES)?.values() ?? []) await provider.dispose();

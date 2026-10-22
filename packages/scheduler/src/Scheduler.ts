@@ -100,7 +100,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
   protected active = new Map<string, ExecutionHandle>();
   /** Active runs that hold no schedule lease (`Forced`). */
   protected forced = new Set<string>();
-  protected timer: TimerHandle | undefined;
+  protected timer?: TimerHandle;
   protected running = false;
   protected stopping = false;
   protected ticking: Promise<void> | undefined;

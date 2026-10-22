@@ -70,6 +70,23 @@ const BODIES: Record<string, string> = {
 
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 
+interface Operation {
+  operationId?: string;
+  requestBody?: { content?: Record<string, { schema?: unknown } | undefined> };
+  responses: Record<string, { content: Record<string, { schema: unknown }> }>;
+}
+
+interface Schema {
+  required: unknown;
+  oneOf: unknown;
+  properties: Record<string, unknown>;
+}
+
+interface OpenApiDocument {
+  paths: Record<string, Record<string, Operation>>;
+  components: { schemas: Record<string, Schema> };
+}
+
 /**
  * The OpenAPI document @spinajs/http-swagger builds for the 3.0 controllers, from test/openapi-probe.ts in a
  * process of its own. Rewrite the snapshot with `UPDATE_SNAPSHOTS=1`.
@@ -77,7 +94,7 @@ const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 describe('OpenAPI document of the 3.0 authn routes', function () {
   this.timeout(180000);
 
-  let spec: any;
+  let spec: OpenApiDocument;
   const op = (key: string) => {
     const [method, path] = key.split(' ');
     return spec.paths[path]?.[method];
@@ -132,12 +149,12 @@ describe('OpenAPI document of the 3.0 authn routes', function () {
   it('matches the committed snapshot', () => {
     const ids = new Set(Object.values(OPERATIONS));
     const paths: Record<string, Record<string, unknown>> = {};
-    for (const [path, item] of Object.entries(spec.paths as Record<string, Record<string, { operationId?: string }>>)) {
+    for (const [path, item] of Object.entries(spec.paths)) {
       for (const [method, operation] of Object.entries(item)) {
         if (ids.has(operation.operationId ?? '')) (paths[path] ??= {})[method] = operation;
       }
     }
-    const schemas = Object.fromEntries(Object.entries(spec.components.schemas as Record<string, unknown>).filter(([name]) => name.startsWith('Authn')));
+    const schemas = Object.fromEntries(Object.entries(spec.components.schemas).filter(([name]) => name.startsWith('Authn')));
     const actual = { paths, schemas };
     if (process.env.UPDATE_SNAPSHOTS) {
       mkdirSync(dirname(SNAPSHOT), { recursive: true });

@@ -7,10 +7,12 @@ import { FsBootsrapper, fsService } from '@spinajs/fs';
 import { TestConfiguration, req } from './common.js';
 import '../src/index.js';
 
+type SpecNode = { [key: string]: SpecNode };
+
 describe('Swagger Server-Sent Events responses', function () {
   this.timeout(30000);
 
-  let spec: any;
+  let spec: SpecNode;
 
   before(async () => {
     DI.clearCache();
@@ -24,7 +26,7 @@ describe('Swagger Server-Sent Events responses', function () {
     await DI.resolve(Controllers);
 
     const server = await DI.resolve<HttpServer>(HttpServer);
-    server.start();
+    await server.start();
 
     const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
     spec = JSON.parse(result.text);

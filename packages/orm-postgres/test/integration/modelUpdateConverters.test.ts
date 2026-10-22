@@ -53,7 +53,7 @@ describe('postgres Model.update with column converters (integration)', function 
     const result = await PgGapDoc.update({ Data: { b: [1, 2] }, At: later }).where('Id', 1);
 
     expect(result.RowsAffected).to.eq(1);
-    const doc = (await PgGapDoc.where('Id', 1).first()) as PgGapDoc;
+    const doc = await PgGapDoc.where('Id', 1).first();
     expect(doc.Data).to.deep.eq({ b: [1, 2] });
     expect(doc.At.toMillis()).to.eq(later.toMillis());
   });

@@ -1014,7 +1014,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
      * it produces WHERE foo = 1
      */
     function _handleForTwo(c: any, v: any) {
-      let sVal = v;
+      const sVal = v;
 
       if (sVal === undefined) {
         throw new InvalidArgument(`value cannot be undefined`);
@@ -1042,7 +1042,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
      * it produces WHERE foo != 1
      */
     function _handleForThree(c: any, o: any, v: any) {
-      let sVal = v;
+      const sVal = v;
 
       if (!isWhereOperator(o)) {
         throw new InvalidArgument(`operator ${o} is invalid`);
@@ -1315,9 +1315,10 @@ class BooleanColumnMiddleware implements IBuilderMiddleware<any> {
 
   public afterQuery(data: any): any {
     if (Array.isArray(data)) {
-      for (const row of data) {
+      for (const row of data as unknown[]) {
         if (row !== null && typeof row === 'object' && this.alias in row) {
-          row[this.alias] = this.converter.fromDB(row[this.alias], row, null);
+          const record = row as Record<string, unknown>;
+          record[this.alias] = this.converter.fromDB(record[this.alias], row, null);
         }
       }
     }
@@ -2050,7 +2051,7 @@ export function mergeInsertResults(results: unknown[]): unknown {
   return {
     RowsAffected: packets.reduce((sum, r) => sum + (r?.RowsAffected ?? 0), 0),
     LastInsertId: packets[packets.length - 1]?.LastInsertId ?? 0,
-    Returning: packets.flatMap((r) => (Array.isArray(r?.Returning) ? r!.Returning : [])),
+    Returning: packets.flatMap((r) => (Array.isArray(r?.Returning) ? r.Returning : [])),
   };
 }
 
@@ -2252,7 +2253,7 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     const maxBindings = this._driver.MaxBindings;
     const perRow = Math.max(this._columns.length, 1);
     // raw ON CONFLICT / ON DUPLICATE KEY columns bind once per statement, not once per row
-    const reserved = _.flatMap(this.DuplicateQueryBuilder?.getColumnsToUpdate() ?? [], (c: string | RawQuery) => (c instanceof RawQuery ? c.Bindings ?? [] : [])).length;
+    const reserved = _.flatMap(this.DuplicateQueryBuilder?.getColumnsToUpdate() ?? [], (c: string | RawQuery): unknown[] => (c instanceof RawQuery ? c.Bindings ?? [] : [])).length;
     const rowsPerStatement = Math.min(this._driver.MaxInsertRows,Math.floor((maxBindings - reserved) / perRow));
 
     if (this._values.length <= rowsPerStatement) {

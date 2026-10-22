@@ -3,7 +3,6 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import { AuthzService, DefaultAuthzService } from '@spinajs/authz';
-import type { AuthzContribution } from '@spinajs/authz';
 import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
 import { testHost } from '@spinajs/authz-testing';
 
@@ -55,7 +54,7 @@ describe('root domain boot', function () {
 
       const root = contribute.getCalls().filter((c) => c.args[0] === 'root');
       expect(root).to.have.length(1);
-      expect((root[0].returnValue as AuthzContribution).permissionRefs).to.deep.include({ permission: 'file:read', type: 'file', source: '@Access on RootRoutes.read' });
+      expect(root[0].returnValue.permissionRefs).to.deep.include({ permission: 'file:read', type: 'file', source: '@Access on RootRoutes.read' });
     } finally {
       contribute.restore();
       testHost.config().unset(['authz', 'permissions']);
@@ -73,7 +72,7 @@ describe('root domain boot', function () {
       DI.RootContainer.emit('http.server.listening', server);
 
       const err = await (middleware as unknown as { rootService(): Promise<unknown> }).rootService().then(() => null, (e: unknown) => e);
-      await new Promise((r) => setImmediate(r));
+      await new Promise((resolve) => setImmediate(resolve));
 
       expect(err).to.be.instanceOf(Error);
       expect(server.stop.calledOnce).to.eq(true);
@@ -93,8 +92,8 @@ describe('root domain boot', function () {
       const server = { stop: sinon.stub().resolves() };
       DI.RootContainer.emit('http.server.listening', server);
 
-      const outcome = await new Promise<unknown>((done) => middleware.before()({ storage: {}, headers: {}, query: {} } as never, {} as never, (err?: unknown) => done(err ?? 'next')));
-      await new Promise((r) => setImmediate(r));
+      const outcome = await new Promise<unknown>((resolve) => middleware.before()({ storage: {}, headers: {}, query: {} } as never, {} as never, (err?: unknown) => resolve(err ?? 'next')));
+      await new Promise((resolve) => setImmediate(resolve));
 
       expect(outcome).to.eq('next');
       expect(server.stop.called).to.eq(false);

@@ -2,7 +2,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { ICompilerOutput, Wrapper, outer } from '@spinajs/orm';
+import { Wrapper, outer } from '@spinajs/orm';
 import { MsSqlOrmDriver } from '../src/index.js';
 
 describe('mssql whereColumn', function () {
@@ -15,6 +15,6 @@ describe('mssql whereColumn', function () {
   it('compares a sub-query column with the outer query through its alias', async () => {
     const driver = await DI.resolve(MsSqlOrmDriver, [{ Name: 'mssql-cc-test', Driver: 'orm-driver-mssql' } as any]);
     const sub = driver.select().from('c', 'c').whereColumn('ParentRef', '=', outer(Wrapper.Text('Id')));
-    expect((driver.select().from('p', 'p').whereExist(sub).toDB() as ICompilerOutput).expression).to.contain('[c].[ParentRef] = CAST([p].[Id] AS NVARCHAR(4000))');
+    expect((driver.select().from('p', 'p').whereExist(sub).toDB()).expression).to.contain('[c].[ParentRef] = CAST([p].[Id] AS NVARCHAR(4000))');
   });
 });

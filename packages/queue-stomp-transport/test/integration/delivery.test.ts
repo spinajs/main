@@ -91,7 +91,7 @@ describe('ActiveMQ integration - job delivery', function () {
     const jobId = (await ItEchoJob.emit({ Value: 'once' }))!;
     await waitFor(() => ItEchoJob.Executions.length === 1, 10000, 'first run');
 
-    await ItEchoJob.emit({ Value: 'again', JobId: jobId } as any);
+    await ItEchoJob.emit({ Value: 'again', JobId: jobId });
     const fresh = (await ItEchoJob.emit({ Value: 'fresh' }))!;
     await waitFor(() => ItEchoJob.Executions.includes(fresh), 10000, 'fresh run');
     await sleep(500);

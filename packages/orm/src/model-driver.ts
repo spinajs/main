@@ -51,8 +51,9 @@ export function requireModelConnection(model: typeof ModelBase, driver: OrmDrive
  * `driver` when it has a transaction open in this async context and is the driver `model` runs on: a write through
  * another connection's transaction would commit apart from it.
  */
-export function requireModelTransaction(model: typeof ModelBase, driver: unknown): OrmDriver {
-  if (!(driver instanceof OrmDriver)) throw new NotAnOrmDriver(`${model.name}: expected the OrmDriver of an open transaction, got ${describe(driver)}`);
+export function requireModelTransaction(model: typeof ModelBase, value: unknown): OrmDriver {
+  if (!(value instanceof OrmDriver)) throw new NotAnOrmDriver(`${model.name}: expected the OrmDriver of an open transaction, got ${describe(value)}`);
+  const driver: OrmDriver = value;
   if (driver.CurrentTransaction === undefined) throw new TransactionRequired(`${model.name}: needs a transaction open on connection "${driver.Options.Name}", and none is in scope`);
   return sameConnection(model, driver, 'the transaction');
 }

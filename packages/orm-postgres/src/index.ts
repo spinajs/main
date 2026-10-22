@@ -57,6 +57,8 @@ export function toDriverStatement(stmt: string, params?: unknown[]): string {
 const defaultParser = pg.types.getTypeParser as unknown as (oid: number, format?: string) => (value: string) => unknown;
 const parseTimestamptz = defaultParser(pg.types.builtins.TIMESTAMPTZ, 'text');
 const parseDate = defaultParser(pg.types.builtins.DATE, 'text');
+const TIMESTAMP_OID: number = pg.types.builtins.TIMESTAMP;
+const DATE_OID: number = pg.types.builtins.DATE;
 
 /**
  * Parses `timestamp` (without time zone) as UTC: the datetime converter writes UTC into such a
@@ -81,11 +83,11 @@ export function parseUtcDate(value: string): unknown {
 
 /** The pool's type parsers: `timestamp` and `date` as UTC, the rest as pg reads them ( `timestamptz` text carries its offset ). */
 export function utcTypeParser(oid: number, format?: string): (value: string) => unknown {
-  if (format !== 'binary' && oid === pg.types.builtins.TIMESTAMP) {
+  if (format !== 'binary' && oid === TIMESTAMP_OID) {
     return parseUtcTimestamp;
   }
 
-  if (format !== 'binary' && oid === pg.types.builtins.DATE) {
+  if (format !== 'binary' && oid === DATE_OID) {
     return parseUtcDate;
   }
 
@@ -112,25 +114,27 @@ export function parseColumnDefault(raw: string | null | undefined, udtName: stri
   const quoted = QUOTED_LITERAL_DEFAULT.exec(raw);
   const text = quoted ? quoted[1].replace(/''/g, "'") : NUMERIC_LITERAL_DEFAULT.test(raw) ? raw.replace(/[()]/g, '') : /^(true|false)$/i.test(raw) ? raw.toLowerCase() : undefined;
 
-  if (text !== undefined) {
-    switch (udtName) {
-      case 'varchar':
-      case 'bpchar':
-      case 'text':
-      case 'int8':
-      case 'numeric':
-        return text;
-      case 'int2':
-      case 'int4':
-      case 'float4':
-      case 'float8':
-        return Number(text);
-      case 'bool':
-        return text === 'true' || text === 't';
-    }
-  }
+  return text === undefined ? RawQuery.create(raw) : typedLiteralDefault(text, udtName, raw);
+}
 
-  return RawQuery.create(raw);
+function typedLiteralDefault(text: string, udtName: string, raw: string): unknown {
+  switch (udtName) {
+    case 'varchar':
+    case 'bpchar':
+    case 'text':
+    case 'int8':
+    case 'numeric':
+      return text;
+    case 'int2':
+    case 'int4':
+    case 'float4':
+    case 'float8':
+      return Number(text);
+    case 'bool':
+      return text === 'true' || text === 't';
+    default:
+      return RawQuery.create(raw);
+  }
 }
 
 export class PostgresServerResponseMapper extends ServerResponseMapper {

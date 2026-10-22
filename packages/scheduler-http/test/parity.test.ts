@@ -140,7 +140,8 @@ describe('scheduler-http: parity with the service and the CLI', function () {
     const accepted = await req().post(`scheduler/schedules/${schedule}/runs`).set(asRole('scheduler-admin')).send({});
     expect(accepted).to.have.status(202);
 
-    const path = `/scheduler/runs/${accepted.body.runId}/events`;
+    const { runId }: { runId: string } = accepted.body;
+    const path = `/scheduler/runs/${runId}/events`;
     const live = await openSse(path, { 'x-test-role': 'scheduler-reader' });
     // still queued: the replayed `queued` status must not end the stream
     await live.waitFor((f) => events(f).length === 1);
@@ -222,7 +223,7 @@ describe('scheduler-http: parity with the service and the CLI', function () {
 
     await tick();
     await live.waitFor(() => statusesOf(live).some((s) => s.status === 'retrying'));
-    const endedEarly = await Promise.race([live.ended.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 300))]);
+    const endedEarly = await Promise.race([live.ended.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 300))]);
     expect(endedEarly).to.eq(false);
 
     clock.set(clock.now() + 1000);
@@ -256,7 +257,7 @@ describe('scheduler-http: parity with the service and the CLI', function () {
     // nothing local follows remote(2): the poll timer of the subscription has to pick it up
     await clock.advance(1000);
 
-    await first.waitFor((f) => events(f).some((e) => JSON.parse(e.data!).message === 'b2'));
+    await first.waitFor((f) => events(f).some((e) => (JSON.parse(e.data!) as { message?: string }).message === 'b2'));
     const firstIds = events(first.frames).map((f) => Number(f.id));
     first.close();
     expect(firstIds).to.deep.equal(await journalIds(firstIds[0]));

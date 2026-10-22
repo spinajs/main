@@ -219,11 +219,11 @@ describe('orm-cli migration commands against sqlite', function () {
   }
 
   async function trackingRows(): Promise<any[]> {
-    return (await connection().select().from(TRACKING_TABLE).asRaw<any[]>()) as any[];
+    return await connection().select().from(TRACKING_TABLE).asRaw<any[]>();
   }
 
   async function markerTableExists(): Promise<boolean> {
-    const rows = (await connection().select().from('sqlite_master').where('name', MARKER_TABLE).asRaw<any[]>()) as any[];
+    const rows = await connection().select().from('sqlite_master').where('name', MARKER_TABLE).asRaw<any[]>();
     return rows.length > 0;
   }
 
@@ -265,7 +265,7 @@ describe('orm-cli migration commands against sqlite', function () {
   });
 
   it("migrate-up runs the applied migration's data() seed, as the migrator's boot pass does", async () => {
-    const rows = (await connection().select().from(MARKER_TABLE).asRaw<any[]>()) as any[];
+    const rows = await connection().select().from(MARKER_TABLE).asRaw<{ Id: number }[]>();
 
     expect(rows.map((r) => r.Id)).to.eql([SEED_ID]);
   });
@@ -540,7 +540,7 @@ describe('orm-cli --connection', function () {
     // The decisive one, and stronger than "no tracking row": the excluded connection's tracking
     // table does not exist at all. `ensureStorage()` is the first thing a per-connection run does,
     // so a filter that merely trimmed the reported list would have created it here.
-    const tables = (await orm.Connections.get(SECOND_CONNECTION)!.select().from('sqlite_master').where('name', SECOND_TABLE).asRaw<any[]>()) as any[];
+    const tables = await orm.Connections.get(SECOND_CONNECTION)!.select().from('sqlite_master').where('name', SECOND_TABLE).asRaw<any[]>();
     expect(tables, `the excluded connection was reached: ${SECOND_TABLE} exists`).to.have.length(0);
 
     expect(process.exitCode).to.equal(0);
@@ -689,7 +689,7 @@ describe('orm-cli against an INTERRUPTED migration', function () {
     // editing the tracking table by hand
     await (await DI.resolve(MigrateResolveCommand)).execute({ name: KILLED_MIGRATION, applied: true });
 
-    const rows = (await orm.Connections.get(CONNECTION_NAME)!.select().from(TRACKING_TABLE).asRaw<any[]>()) as any[];
+    const rows = await orm.Connections.get(CONNECTION_NAME)!.select().from(TRACKING_TABLE).asRaw<any[]>();
     const row = rows.find((r) => r.Migration === KILLED_MIGRATION);
 
     expect(row.FinishedAt, 'the row was not recorded as applied').to.not.equal(null);
@@ -800,7 +800,7 @@ describe('orm-cli against a FAILED row on a Migration.OnStartup connection', fun
     // Guard for every assertion below: FAILED is `FinishedAt` NULL *and* `Logs` set, and that
     // pair is exactly what blocks a migration run. A fixture that recorded anything else would
     // make the tests pass against a database that was never blocking anything.
-    const rows = (await seed.Connections.get(CONNECTION_NAME)!.select().from(TRACKING_TABLE).asRaw<any[]>()) as any[];
+    const rows = await seed.Connections.get(CONNECTION_NAME)!.select().from(TRACKING_TABLE).asRaw<any[]>();
     const row = rows.find((r) => r.Migration === FAILING_MIGRATION);
 
     expect(row, `no tracking row for ${FAILING_MIGRATION}, got: ${JSON.stringify(rows)}`).to.not.equal(undefined);
@@ -869,7 +869,7 @@ describe('orm-cli against a FAILED row on a Migration.OnStartup connection', fun
     // the Orm the command resolved, from the cache - not a second one
     orm = await DI.resolve(Orm);
 
-    const rows = (await orm.Connections.get(CONNECTION_NAME)!.select().from(TRACKING_TABLE).asRaw<any[]>()) as any[];
+    const rows = await orm.Connections.get(CONNECTION_NAME)!.select().from(TRACKING_TABLE).asRaw<any[]>();
     const row = rows.find((r) => r.Migration === FAILING_MIGRATION);
 
     expect(row, 'the tracking row disappeared').to.not.equal(undefined);
@@ -973,7 +973,7 @@ describe('migrate-status against a Migration.OnStartup connection with pending w
   });
 
   async function markerTableExists(connection: OrmDriver): Promise<boolean> {
-    const rows = (await connection.select().from('sqlite_master').where('name', MARKER_TABLE).asRaw<any[]>()) as any[];
+    const rows = await connection.select().from('sqlite_master').where('name', MARKER_TABLE).asRaw<any[]>();
     return rows.length > 0;
   }
 
@@ -1001,7 +1001,7 @@ describe('migrate-status against a Migration.OnStartup connection with pending w
 
     expect(await markerTableExists(connection), `${MARKER_TABLE} exists, so up() executed`).to.equal(false);
 
-    const rows = (await connection.select().from(TRACKING_TABLE).asRaw<any[]>()) as any[];
+    const rows = await connection.select().from(TRACKING_TABLE).asRaw<any[]>();
     expect(
       rows.find((r) => r.Migration === PENDING_MIGRATION),
       'a tracking row exists, so the report recorded a migration as applied',
@@ -1255,11 +1255,11 @@ describe('migrate-create', () => {
  * registered model still has none, and a narrowed run does not check.
  */
 function countReloads(orm: Orm) {
-  const original = orm.reloadTableInfo;
+  const original = orm.reloadTableInfo.bind(orm);
   let calls = 0;
-  orm.reloadTableInfo = function (this: Orm, ...args: Parameters<Orm['reloadTableInfo']>) {
+  orm.reloadTableInfo = function (...args: Parameters<Orm['reloadTableInfo']>) {
     calls++;
-    return original.apply(this, args);
+    return original(...args);
   };
 
   return {
@@ -1346,7 +1346,7 @@ describe('orm-cli migrate-up and db.StrictTableCheck', function () {
     const cmd = await DI.resolve(MigrateUpCommand);
     await cmd.execute({});
 
-    const created = (await orm.Connections.get(CONNECTION_NAME)!.select().from('sqlite_master').where('name', 'orm_cli_strict_present').asRaw<any[]>()) as any[];
+    const created = await orm.Connections.get(CONNECTION_NAME)!.select().from('sqlite_master').where('name', 'orm_cli_strict_present').asRaw<any[]>();
     expect(created.length, 'the migration did not run').to.equal(1);
     expect(process.exitCode).to.equal(1);
   });

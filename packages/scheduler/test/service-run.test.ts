@@ -100,13 +100,13 @@ describe('SchedulerService.runNow', () => {
   it('rejects invalid params without creating a run', async () => {
     const err = (await service
       .runNow('with-params', { params: { x: 1 }, triggeredBy: by })
-      .catch((e) => e)) as InvalidRunParams;
+      .catch((e: unknown) => e)) as InvalidRunParams;
     expect(err).to.be.instanceOf(InvalidRunParams);
     expect(err.errors).to.deep.include({ path: '/n', message: 'is required' });
     expect(err.errors).to.deep.include({ path: '/x', message: 'is not allowed' });
     const typed = (await service
       .runNow('with-params', { params: { n: 'abc' }, triggeredBy: by })
-      .catch((e) => e)) as InvalidRunParams;
+      .catch((e: unknown) => e)) as InvalidRunParams;
     expect(typed.errors).to.deep.eq([{ path: '/n', message: 'must be integer' }]);
     await expect(service.runNow('no-params', { params: { a: 1 }, triggeredBy: by })).to.be.rejectedWith(
       InvalidRunParams,
@@ -117,7 +117,7 @@ describe('SchedulerService.runNow', () => {
   it('returns 409-style conflicts unless forced', async () => {
     gate = deferred();
     const first = await service.runNow('no-params', { triggeredBy: by });
-    const conflict = await service.runNow('no-params', { triggeredBy: by }).catch((e) => e);
+    const conflict = await service.runNow('no-params', { triggeredBy: by }).catch((e: unknown) => e);
     expect(conflict).to.be.instanceOf(RunConflict);
     expect((conflict as RunConflict).runId).to.eq(first.runId);
     const forced = await service.runNow('no-params', { force: true, triggeredBy: by });
@@ -126,7 +126,7 @@ describe('SchedulerService.runNow', () => {
     await s.tickOnce();
     const running = await RunModel.where('Schedule', 'queueing').first();
     expect(running.Status).to.eq('running');
-    const busy = await service.runNow('queueing', { triggeredBy: by }).catch((e) => e);
+    const busy = await service.runNow('queueing', { triggeredBy: by }).catch((e: unknown) => e);
     expect((busy as RunConflict).runId).to.eq(running.Id);
     const queued = await service.runNow('queueing', { force: true, triggeredBy: by });
     expect(await getRun(queued.runId)).to.include({ Status: 'queued', Forced: false });
@@ -195,7 +195,7 @@ describe('SchedulerService.runNow', () => {
 
     it('conflicts only with a queued manual run, not with local runs of other replicas', async () => {
       const first = await service.runNow('everywhere', { triggeredBy: by });
-      const conflict = await service.runNow('everywhere', { triggeredBy: by }).catch((e) => e);
+      const conflict = await service.runNow('everywhere', { triggeredBy: by }).catch((e: unknown) => e);
       expect((conflict as RunConflict).runId).to.eq(first.runId);
       expect((await service.runNow('everywhere', { force: true, triggeredBy: by })).runId).to.be.a('string');
     });
@@ -268,7 +268,7 @@ describe('SchedulerService.runNow', () => {
         MaxAttempts: 3,
         NextAttemptAt: clock.now() + 60_000,
       });
-      const conflict = (await service.runNow('retried', { triggeredBy: by }).catch((e) => e)) as RunConflict;
+      const conflict = (await service.runNow('retried', { triggeredBy: by }).catch((e: unknown) => e)) as RunConflict;
       expect(conflict).to.be.instanceOf(RunConflict);
       expect(conflict.runId).to.eq(waiting.Id);
       const forced = await service.runNow('retried', { force: true, triggeredBy: by });
@@ -282,7 +282,7 @@ describe('SchedulerService.runNow', () => {
 
   it('names the field of a bad date filter', async () => {
     for (const field of ['from', 'to'] as const) {
-      const err = (await service.listRuns({ [field]: 'soon' }).catch((e) => e)) as InvalidRunParams;
+      const err = (await service.listRuns({ [field]: 'soon' }).catch((e: unknown) => e)) as InvalidRunParams;
       expect(err).to.be.instanceOf(InvalidRunParams);
       expect(err.errors).to.deep.eq([{ path: `/${field}`, message: 'expected an ISO-8601 date' }]);
     }

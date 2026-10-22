@@ -129,6 +129,20 @@ function isConverterNamed(ctor: unknown, name: string): boolean {
   return false;
 }
 
+interface IColumnJsonSchema {
+  type?: string;
+  format?: string;
+  maxLength?: number;
+  description?: string;
+  nullable?: boolean;
+  [keyword: string]: unknown;
+}
+
+function baseColumnSchema(col: IColumnDescriptor, overrides: Record<string, any>): IColumnJsonSchema {
+  const schema: IColumnJsonSchema = { ...(overrides[col.Type] ?? SQL_TYPE_TO_SCHEMA[col.Type] ?? { type: 'string' }) };
+  return schema;
+}
+
 /**
  * Maps a column descriptor to a JSON-schema property based on its SQL type.
  * Adds `maxLength`, `description` and `nullable` when the column has them.
@@ -145,7 +159,7 @@ function columnToSchema(col: IColumnDescriptor, overrides: Record<string, any> =
   // registered on that connection.
   const converter = declaredConverter ?? (col.Converter as { constructor?: unknown } | null | undefined)?.constructor;
 
-  const schema: any = { ...(overrides[col.Type] ?? SQL_TYPE_TO_SCHEMA[col.Type] ?? { type: 'string' }) };
+  const schema = baseColumnSchema(col, overrides);
 
   if (isConverterNamed(converter, 'BooleanValueConverter')) {
     schema.type = 'boolean';

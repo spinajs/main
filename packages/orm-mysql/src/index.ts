@@ -382,7 +382,8 @@ export class MySqlOrmDriver extends SqlDriver {
       }
 
       const pinned = this.sessionZones.get(connection) ?? Promise.resolve(null);
-      void pinned.then((zoneErr) => {
+      void (async () => {
+        const zoneErr = await pinned;
         if (!zoneErr) {
           done(null, connection);
           return;
@@ -391,7 +392,7 @@ export class MySqlOrmDriver extends SqlDriver {
         this.sessionZones.delete(connection);
         connection.destroy();
         done(new Error(`could not set the session time zone of connection ${this.Options.Name} to UTC: ${zoneErr.message}`, { cause: zoneErr }));
-      });
+      })();
     });
   }
 

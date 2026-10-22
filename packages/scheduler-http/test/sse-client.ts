@@ -60,9 +60,9 @@ export function openSse(path: string, headers: Record<string, string> = {}): Pro
         waiters.forEach((check) => check());
       });
 
-      const ended = new Promise<void>((done) => {
-        res.on('end', done);
-        res.on('close', done);
+      const ended = new Promise<void>((resolve) => {
+        res.on('end', resolve);
+        res.on('close', resolve);
       });
 
       resolve({
@@ -71,16 +71,16 @@ export function openSse(path: string, headers: Record<string, string> = {}): Pro
         frames,
         ended,
         waitFor(predicate, timeoutMs = 3000) {
-          return new Promise((ok, fail) => {
+          return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
               waiters.delete(check);
-              fail(new Error(`SSE wait timed out, received ${JSON.stringify(frames)}`));
+              reject(new Error(`SSE wait timed out, received ${JSON.stringify(frames)}`));
             }, timeoutMs);
             const check = () => {
               if (predicate(frames)) {
                 clearTimeout(timer);
                 waiters.delete(check);
-                ok(frames);
+                resolve(frames);
               }
             };
             waiters.add(check);
@@ -103,7 +103,7 @@ export async function eventually(check: () => boolean, timeoutMs = 3000): Promis
     if (Date.now() > deadline) {
       throw new Error('condition not met in time');
     }
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
 

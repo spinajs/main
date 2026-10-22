@@ -44,6 +44,7 @@ describe('OrmKeyStore', () => {
     const kp = generateKeyPair('ES256');
     const owner = { type: 'service', id: 's' } as const;
     await store.insert({ alg: 'ES256', jwk: kp.publicJwk, kid: 'k-4', owner, thumbprint: thumbprint(kp.publicJwk), createdAt: new Date() } as KeyRecord);
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- detached only to be restored; the patch calls it with its receiver
     const update = AuthnKey.update;
     const original = update as unknown as (this: unknown, ...args: unknown[]) => { execute(): Promise<unknown> };
     // A driver that reports no RowsAffected.

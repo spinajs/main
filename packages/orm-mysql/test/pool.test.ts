@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { writeFileSync, unlinkSync } from 'fs';
-import { AddressInfo, connect as connectTcp } from 'net';
+import { AddressInfo, Server, connect as connectTcp } from 'net';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import * as mysql from 'mysql2';
@@ -16,7 +16,7 @@ chai.use(chaiAsPromised);
 
 class ProbeDriver extends MySqlOrmDriver {
   public probe() {
-    return (this as any).resolvedPoolOptions();
+    return this.resolvedPoolOptions();
   }
 }
 
@@ -82,7 +82,8 @@ describe('pool options', () => {
  */
 async function fakeMySqlServer() {
   const clients: any[] = [];
-  const server = (mysql as any).createServer();
+  // createServer and its wrapped net server are not in mysql2's public typings
+  const server: { on(event: 'connection', listener: (conn: any) => void): void; listen(port: number, host: string, cb: () => void): void; _server: Server } = (mysql as any).createServer();
 
   server.on('connection', (conn: any) => {
     conn.serverHandshake({ protocolVersion: 10, serverVersion: '8.0.0', connectionId: clients.length + 1, statusFlags: 2, characterSet: 8, capabilityFlags: 0xffffff });
@@ -97,7 +98,7 @@ async function fakeMySqlServer() {
 
   return {
     clients,
-    port: server._server.address().port as number,
+    port: (server._server.address() as AddressInfo).port,
     close: () => new Promise<void>((resolve) => server._server.close(() => resolve())),
   };
 }

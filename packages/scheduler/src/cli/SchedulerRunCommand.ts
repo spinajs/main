@@ -124,6 +124,7 @@ export class SchedulerRunCommand extends SchedulerCommand {
       stop.abort();
       await retries;
     }
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- rethrows what the local retry driver rejected with, unchanged
     if (failure !== undefined) throw failure;
   }
 

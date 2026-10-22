@@ -163,6 +163,7 @@ const MANUAL_SPEC: ScheduleSpec = { kind: 'manual', expression: 'manual', timezo
  * `def` is absent for an orphaned schedule (no definition in this process); its stored definition
  * (`serializeDefinition`) still describes it.
  */
+// eslint-disable-next-line complexity -- field-by-field mapping; the per-field fallbacks are what counts
 export function toScheduleInfo(
   row: ScheduleModel,
   def: ScheduleDefinition | undefined,
