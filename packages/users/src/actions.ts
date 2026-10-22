@@ -820,8 +820,9 @@ async function insertCreated(uuid: string, plan: CreatePlan, now: DateTime<true>
   // learns which account it is and whether to send the invite again.
   let invited = false;
   try {
+    // Unhooked: the metadata is create()'s input, checked with it; a users.metadata.set hook must not refuse an account already inserted.
     if (plan.metadata !== undefined) {
-      await setUserMeta(
+      await writeUserMeta(
         u,
         Object.entries(plan.metadata).map(([key, value]) => ({ key, value })),
       );
