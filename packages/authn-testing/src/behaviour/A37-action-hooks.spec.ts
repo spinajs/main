@@ -166,6 +166,45 @@ export const A37: AuthnRule = defineRule('A37', 'action hooks run around authn a
     },
   }),
   defineCase({
+    name: 'A37 authn.session.start: once per active session a login or an MFA completion issues, none for a pending login',
+    facet: 'A37/core',
+    needs: ['service', 'seed', 'hooks', 'mfa'],
+    async run(h, k) {
+      const recorder = new RecordingActionHook(['authn.session.start']);
+      h.hooks.add(recorder);
+      const { a, pending } = await alicePending(h, k);
+      assert.deepStrictEqual(phases(recorder), [], 'a pending session starts nothing');
+      expectSuccess(await h.service.completeMfa(pending, h.mfa.step.name, await h.mfa.code(a), k.ctx()));
+      assert.deepStrictEqual(
+        recorder.calls.map((c) => `${c.phase} ${(c.input as { kind: string }).kind}`),
+        ['before mfa', 'after mfa'],
+      );
+      assert.deepStrictEqual(Object.keys(recorder.calls[0].input as object).sort(), ['ctx', 'kind', 'principal', 'session']);
+    },
+  }),
+  defineCase({
+    name: 'A37 authn.session.start: the ceiling a hook sets is the session ActiveRole',
+    facet: 'A37/core',
+    needs: ['service', 'seed', 'hooks', 'sessions'],
+    async run(h, k) {
+      h.hooks.add(mutatingHook('authn.session.start', { ceiling: { roles: ['kit-role'] } }));
+      const { session } = await aliceSession(h, k);
+      assert.strictEqual((await h.sessions.restore(session.id))?.activeRole, 'kit-role');
+    },
+  }),
+  defineCase({
+    name: 'A37 authn.session.start refused: invalid_credentials, the session ended, audited hook:<code>',
+    facet: 'A37/core',
+    needs: ['service', 'seed', 'hooks', 'events', 'sessions'],
+    async run(h, k) {
+      h.hooks.add(refusingHook('authn.session.start', CODE));
+      const a = await seedUser(h, ALICE);
+      expectFailure(await auth(h, k, pw(ALICE.login, ALICE.password)), 'invalid_credentials');
+      assert.deepStrictEqual(failureReasons(h, 'login'), [REASON]);
+      assert.deepStrictEqual(await h.sessions.list(a), [], 'no session lives on');
+    },
+  }),
+  defineCase({
     name: 'A37 authn.mfa.verify: before and after run once, in order, around completeMfa',
     facet: 'A37/core',
     needs: ['service', 'seed', 'hooks', 'mfa'],

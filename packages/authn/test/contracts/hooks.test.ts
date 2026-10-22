@@ -4,13 +4,13 @@ import 'mocha';
 import { ActionHook } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 
-import { AuthnResponseExtension, CredentialAdminGuard, RoleSource, SessionStartHook } from '../../src/contracts/hooks.js';
+import { AuthnResponseExtension, CredentialAdminGuard, RoleSource } from '../../src/contracts/hooks.js';
 import * as hooksModule from '../../src/contracts/hooks.js';
-import type { AuthnLoginIdentifiedInput } from '../../src/hooks.js';
+import type { AuthnLoginIdentifiedInput, AuthnSessionStartInput } from '../../src/hooks.js';
 import type { CredentialAdminAction, IAuthnPrincipalStorage } from '../../src/contracts/hooks.js';
 import type { ExternalSubject, IdentityRef } from '../../src/contracts/credentials.js';
 import type { Ceiling, Principal } from '../../src/contracts/principal.js';
-import type { SessionHandle, SessionIssuer } from '../../src/contracts/session.js';
+import type { SessionHandle } from '../../src/contracts/session.js';
 import * as index from '../../src/contracts/index.js';
 import { classMembers, declarationDocs, docOf, same, shapeOf } from './source-shape.js';
 
@@ -51,13 +51,25 @@ class AdminsOnly extends CredentialAdminGuard {
   }
 }
 
-class FirstRole extends SessionStartHook {
+/** Starts alice's sessions narrowed to admin. */
+class FirstRole extends ActionHook<'authn.session.start'> {
+  readonly actions: readonly ActionPattern[] = ['authn.session.start'];
   readonly calls: ['login' | 'mfa', SessionHandle][] = [];
-  async onStart(kind: 'login' | 'mfa', session: SessionHandle, p: Principal, _sessions: SessionIssuer): Promise<Ceiling | undefined> {
-    this.calls.push([kind, session]);
-    return p.id === 'alice' ? { roles: ['admin'] } : undefined;
+  before(ctx: BeforeContext<'authn.session.start'>): void {
+    this.calls.push([ctx.input.kind, ctx.input.session]);
+    if (ctx.input.principal.id === 'alice') ctx.input.ceiling = { roles: ['admin'] };
   }
 }
+
+const startCtx = (input: AuthnSessionStartInput): BeforeContext<'authn.session.start'> => ({
+  action: 'authn.session.start',
+  input: { ...input },
+  bag: new Map(),
+  depth: 1,
+  refuse: () => {
+    throw new Error('refused');
+  },
+});
 
 /** An app's group sync on authn.login.identified: reads the mapped claims of input.external. */
 class GroupSync extends ActionHook<'authn.login.identified'> {
@@ -81,12 +93,11 @@ const identifiedCtx = (input: AuthnLoginIdentifiedInput): BeforeContext<'authn.l
 
 describe('hand-off and hook contracts', () => {
   describe('runtime', () => {
-    it('exports the four hooks from the contracts index as plain abstract classes', () => {
+    it('exports the three hooks from the contracts index as plain abstract classes', () => {
       expect(index.AuthnResponseExtension).to.eq(AuthnResponseExtension);
       expect(index.RoleSource).to.eq(RoleSource);
-      expect(index.SessionStartHook).to.eq(SessionStartHook);
       expect(index.CredentialAdminGuard).to.eq(CredentialAdminGuard);
-      for (const c of [AuthnResponseExtension, RoleSource, SessionStartHook, CredentialAdminGuard]) {
+      for (const c of [AuthnResponseExtension, RoleSource, CredentialAdminGuard]) {
         expect(c).to.be.a('function');
         expect(Object.getPrototypeOf(c)).to.eq(Function.prototype);
       }
@@ -110,12 +121,18 @@ describe('hand-off and hook contracts', () => {
       ]);
     });
 
-    it('a session start hook answers a ceiling for a new active session, or undefined', async () => {
+    it('SessionStartHook is gone (D17): an authn.session.start before hook sets the ceiling of a new active session', async () => {
+      expect((index as unknown as Record<string, unknown>).SessionStartHook).to.eq(undefined);
+      expect((hooksModule as unknown as Record<string, unknown>).SessionStartHook).to.eq(undefined);
       const hook = new FirstRole();
       const handle: SessionHandle = { id: 'raw', state: 'active' };
-      const sessions = {} as SessionIssuer;
-      expect(await hook.onStart('login', handle, principal, sessions)).to.deep.eq({ roles: ['admin'] });
-      expect(await hook.onStart('mfa', handle, { ...principal, id: 'bob' }, sessions)).to.eq(undefined);
+      const ctx = { now: new Date(), purpose: 'login' as const };
+      const login = startCtx({ kind: 'login', session: handle, principal, ctx });
+      hook.before(login);
+      expect(login.input.ceiling).to.deep.eq({ roles: ['admin'] });
+      const mfa = startCtx({ kind: 'mfa', session: handle, principal: { ...principal, id: 'bob' }, ctx });
+      hook.before(mfa);
+      expect(mfa.input.ceiling).to.eq(undefined);
       expect(hook.calls).to.deep.eq([
         ['login', handle],
         ['mfa', handle],
@@ -141,11 +158,10 @@ describe('hand-off and hook contracts', () => {
   });
 
   describe('source shape (member names, modifiers, parameter names)', () => {
-    it('hooks.ts holds exactly the four hook classes', () => {
+    it('hooks.ts holds exactly the three hook classes', () => {
       expect(shapeOf(classMembers('hooks.ts'))).to.deep.eq({
         AuthnResponseExtension: { base: null, members: [{ name: 'extend', modifiers: ['abstract'], optional: false, params: ['kind', 'principal', 'body'] }] },
         RoleSource: { base: null, members: [{ name: 'rolesOf', modifiers: ['abstract'], optional: false, params: ['principal'] }] },
-        SessionStartHook: { base: null, members: [{ name: 'onStart', modifiers: ['abstract'], optional: false, params: ['kind', 'session', 'principal', 'sessions'] }] },
         CredentialAdminGuard: { base: null, members: [{ name: 'allowed', modifiers: ['abstract'], optional: false, params: ['actor', 'target', 'action'] }] },
       });
     });
@@ -156,11 +172,6 @@ describe('hand-off and hook contracts', () => {
       expect(c.AuthnResponseExtension.doc).to.contain('Access');
       expect(docOf(c.AuthnResponseExtension.members, 'extend')).to.contain('body');
       expect(c.RoleSource.doc).to.contain('none registered ⇒ role switch off');
-      expect(c.SessionStartHook.doc).to.contain('Array.ofType');
-      expect(c.SessionStartHook.doc).to.contain('registration order');
-      expect(c.SessionStartHook.doc).to.contain('ActiveRole');
-      expect(c.SessionStartHook.doc).to.contain('at most one role');
-      expect(c.SessionStartHook.doc).to.contain('ends the session');
       expect(declarationDocs('hooks.ts').CredentialAdminAction).to.contain('A25');
       expect(c.CredentialAdminGuard.doc).to.contain('None registered ⇒ the credential admin routes are off (404)');
       expect(c.CredentialAdminGuard.doc).to.contain('users:credentials at GLOBAL');
@@ -176,7 +187,6 @@ describe('hand-off and hook contracts', () => {
       same<index.IAuthnPrincipalStorage, IAuthnPrincipalStorage>(true);
       same<index.AuthnResponseExtension, AuthnResponseExtension>(true);
       same<index.RoleSource, RoleSource>(true);
-      same<index.SessionStartHook, SessionStartHook>(true);
     });
 
     it('IAuthnPrincipalStorage is exactly the design shape', () => {
@@ -196,8 +206,8 @@ describe('hand-off and hook contracts', () => {
       same<ReturnType<AuthnResponseExtension['extend']>, Promise<void>>(true);
       same<Parameters<RoleSource['rolesOf']>, [Principal]>(true);
       same<ReturnType<RoleSource['rolesOf']>, Promise<readonly RoleOption[]>>(true);
-      same<Parameters<SessionStartHook['onStart']>, ['login' | 'mfa', SessionHandle, Principal, SessionIssuer]>(true);
-      same<ReturnType<SessionStartHook['onStart']>, Promise<Ceiling | undefined>>(true);
+      same<AuthnSessionStartInput['kind'], 'login' | 'mfa'>(true);
+      same<AuthnSessionStartInput['ceiling'], Ceiling | undefined>(true);
       same<AuthnLoginIdentifiedInput['identity'], IdentityRef>(true);
       same<AuthnLoginIdentifiedInput['external'], ExternalSubject | undefined>(true);
       same<CredentialAdminAction, 'password-reset' | 'mfa-reset' | 'sessions' | 'tokens'>(true);
@@ -220,8 +230,8 @@ describe('hand-off and hook contracts', () => {
       const a = () => new AuthnResponseExtension();
       // @ts-expect-error abstract
       const b = () => new RoleSource();
-      // @ts-expect-error abstract
-      const c = () => new SessionStartHook();
+      // @ts-expect-error a session starts at a login or an MFA completion only
+      const c = () => startCtx({ kind: 'stepUp', session: { id: 'raw', state: 'active' }, principal, ctx: { now: new Date(), purpose: 'login' } });
       const hook = new GroupSync();
       // @ts-expect-error the identity is an IdentityRef, not an external subject
       const d = () => hook.before(identifiedCtx({ identity: external, strategy: 'oidc:corp', method: 'oidc', attributes: {}, ctx: { now: new Date(), purpose: 'login' } }));
