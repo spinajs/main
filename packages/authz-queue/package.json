@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authz-queue",
-  "version": "3.0.9",
+  "version": "3.0.10",
   "description": "Queue integration for SpinaJS authorization",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -64,16 +64,16 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.9",
-    "@spinajs/configuration": "3.0.9",
-    "@spinajs/di": "3.0.9",
-    "@spinajs/exceptions": "3.0.9",
-    "@spinajs/orm": "3.0.9",
-    "@spinajs/queue": "3.0.9",
-    "@spinajs/util": "3.0.9"
+    "@spinajs/authz": "3.0.10",
+    "@spinajs/configuration": "3.0.10",
+    "@spinajs/di": "3.0.10",
+    "@spinajs/exceptions": "3.0.10",
+    "@spinajs/orm": "3.0.10",
+    "@spinajs/queue": "3.0.10",
+    "@spinajs/util": "3.0.10"
   },
   "peerDependencies": {
-    "@spinajs/authz-orm": "3.0.9"
+    "@spinajs/authz-orm": "3.0.10"
   },
   "peerDependenciesMeta": {
     "@spinajs/authz-orm": {
@@ -81,9 +81,9 @@
     }
   },
   "devDependencies": {
-    "@spinajs/authz-orm": "3.0.9",
-    "@spinajs/authz-rbac": "3.0.9",
-    "@spinajs/authz-testing": "3.0.9",
-    "@spinajs/orm-sqlite": "3.0.9"
+    "@spinajs/authz-orm": "3.0.10",
+    "@spinajs/authz-rbac": "3.0.10",
+    "@spinajs/authz-testing": "3.0.10",
+    "@spinajs/orm-sqlite": "3.0.10"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authz-convert",
-  "version": "3.0.9",
+  "version": "3.0.10",
   "description": "Converter from 2.x rbac configuration to authz, users and authn configuration",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -55,14 +55,14 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.9",
-    "@spinajs/configuration": "3.0.9",
-    "@spinajs/di": "3.0.9",
-    "@spinajs/util": "3.0.9",
+    "@spinajs/authz": "3.0.10",
+    "@spinajs/configuration": "3.0.10",
+    "@spinajs/di": "3.0.10",
+    "@spinajs/util": "3.0.10",
     "lodash": "^4.17.21"
   },
   "devDependencies": {
-    "@spinajs/authz-rbac": "3.0.9",
+    "@spinajs/authz-rbac": "3.0.10",
     "ajv": "^8.12.0"
   }
 }
