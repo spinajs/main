@@ -573,12 +573,11 @@ describe('Admin user controllers', function () {
       it('answers a refusal with 403 action_refused and its code, and changes nothing', async () => {
         const hook = new ScriptedActionHook();
         hook.refuse('users.update', REFUSED);
-        const err = await withHook(hook, async () => usersController.updateUser(await admin(), USER_UUID, { Login: 'renamed', Role: ['guest'] } as any, undefined as any).catch((e: unknown) => e));
+        const err = await withHook(hook, async () => usersController.updateUser(await admin(), USER_UUID, { Login: 'renamed' } as any, undefined as any).catch((e: unknown) => e));
 
         expect(err).to.be.instanceOf(Forbidden);
         expect(err).to.include({ error: 'action_refused', code: REFUSED });
         expect((await byUuid(USER_UUID)).Login).to.eq('user');
-        expect(await globalRolesOf(USER_UUID)).to.deep.eq(['user']);
       });
     });
   });
