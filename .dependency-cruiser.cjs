@@ -28,9 +28,9 @@ module.exports = {
     {
       name: 'src-not-to-dev-dep',
       severity: 'error',
-      comment: 'Published code imports a devDependency: it is missing for consumers at runtime.',
+      comment: 'Published code imports a devDependency: it is missing for consumers at runtime. A dependency also declared as a peer comes from the consumer.',
       from: { path: '^packages/[^/]+/src/' },
-      to: { dependencyTypes: ['npm-dev'], dependencyTypesNot: ['type-only'], pathNot: ['node_modules/@types/'] },
+      to: { dependencyTypes: ['npm-dev'], dependencyTypesNot: ['type-only', 'npm-peer'], pathNot: ['node_modules/@types/'] },
     },
     {
       name: 'authz-not-to-authn',
