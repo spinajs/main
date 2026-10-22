@@ -3,7 +3,7 @@ import { DateTime } from 'luxon';
 import { DI } from '@spinajs/di';
 import { Hooks } from '@spinajs/hooks';
 import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
-import { hookCopy, runHookedAction } from '@spinajs/authn/hooks';
+import { hookCopy, hookView, runHookedAction } from '@spinajs/authn/hooks';
 import type { Principal } from '@spinajs/authz';
 
 import type { UserBase } from './models/User.js';
@@ -116,7 +116,7 @@ export function userView(u: UserBase): UserView {
 
 /** A plain view of `p` for hooks; the action keeps acting as `p` itself. */
 export function actorView(p: Principal): ActorView {
-  return { type: p.type, id: p.id, authenticated: p.authenticated, source: p.source, attributes: { ...p.attributes } };
+  return { type: p.type, id: p.id, authenticated: p.authenticated, source: p.source, attributes: hookView(p.attributes) };
 }
 
 /**
