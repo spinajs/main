@@ -1474,9 +1474,9 @@ field and error code a client sees. For an app:
 - **Keeping v2's first-role behaviour.** 2.x activated the user's first role at login; 3.0 starts a
   session on every held role. Set `authz.principals.roleSwitch.initial: { order: [...] }`, your roles in
   priority order: a login or an MFA completion then starts the session switched to the first listed role
-  the user holds (`@spinajs/users`' `OrderedActiveRoleHook`, a `SessionStartHook`). The login answer's
-  `Access` and `GET /auth/active-role` show that role, and the user switches with `POST /auth/active-role`
-  as before. Other logic belongs in a `SessionStartHook` of your own.
+  the user holds (`@spinajs/users`' `OrderedActiveRoleHook`, a before hook on `authn.session.start`). The
+  login answer's `Access` and `GET /auth/active-role` show that role, and the user switches with
+  `POST /auth/active-role` as before. Other logic belongs in an `authn.session.start` hook of your own.
 - **Impersonation** needs an actor session at `aal2` (`authn.impersonation.requireMfa`, default
   `true`) and fresh auth (`requirePassword`, default `true`). The actor is judged again on every
   request; impersonators lose `/user/sessions`.

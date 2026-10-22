@@ -22,8 +22,8 @@ Every command and query works on the domain's one writable store: the `MemoryPol
    2. Every `AbacModel` of the domain runs `validate(policy, store.name)`: the checks of a load with the model's functions, registered permissions, and an id no other store's policy uses. A domain without an `AbacModel` fails with `AuthzConfigError`.
    3. For a `DbPolicyStore`: `reason`, scope type and scope id fit 64 characters, the actor key 100.
    4. A policy with this id at another scope: the actor must also hold the permission at the old scope.
-   5. Then the command validators run, among them the core's `ListSupportValidator`, whose `AbacListSupportGuard` refuses a policy that would make a `list: true` permission need the row ([Lists](04-lists.md#at-write-time)).
 2. **Permission**: `AbacPolicyHandler.permission` asks for `authz:policies.manage` at the policy's scope, `$global` when it has none. `AuthzAdmin` checks it.
+   Then the `authz.admin.command` hooks run, the core's `ListSupportHook` last: its `AbacListSupportGuard` refuses a policy that would make a `list: true` permission need the row ([Lists](04-lists.md#at-write-time)).
 3. **Apply** (in the transaction), `AbacPolicyHandler.apply`: it reads the current row inside the transaction and checks the old scope again, since another batch may have moved it. Then it writes: `DbPolicyStore.put`, or `MemoryPolicyStore.put` of a frozen copy with an undo on rollback. A `$global` scope is stored as no scope.
 4. **Result**: `{ id, affected: 1, tags: ['policy', 'policy:<id>'], events: [PolicyChanged] }`. After the commit `AuthzAdmin` publishes the tags, and every `AbacModel` that reads the store reloads.
 
@@ -93,31 +93,33 @@ All four register in root DI when the package is imported.
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Write handler of `policy.put`, `policy.delete` | `AuthzWriteHandler`; `@Singleton` | `AbacPolicyHandler` | none | Not meant to be replaced; add rules with an `AuthzCommandValidator` (below). |
+| Write handler of `policy.put`, `policy.delete` | `AuthzWriteHandler`; `@Singleton` | `AbacPolicyHandler` | none | Not meant to be replaced; add rules with a before hook on `authz.admin.command` (below). |
 | Reader of `policies` | `AuthzAdminReader`; `@Singleton` | `AbacPolicyReader` | none | Not replaceable: a second reader that claims `policies` makes `list` fail with `AuthzConfigError`. |
 | Scope forgetter | `ScopeForgetter`; `@Singleton`, read with `Array.chainOf` | `AbacScopeForgetter` | none | Add your own `ScopeForgetter` for other data; this one stays. |
 | List-support guard | `ListSupportGuard`; `@Singleton` | `AbacListSupportGuard` | none | See [Lists](04-lists.md). |
 | Writable store | `PolicyStore`; an instance the app registers | none | `MemoryPolicyStore`, `DbPolicyStore` | Register exactly one per domain lineage. |
 
-### Command validator: custom rule
+### Product rule on policies: a before hook
 
-Add product rules on policies with a core `AuthzCommandValidator`, not by replacing the handler. `AuthzAdmin` runs every validator after the handler's `validate`, for each command of the batch, before the permission check.
+Add product rules on policies with an `ActionHook` on `authz.admin.command`, not by replacing the handler. `AuthzAdmin` runs the hooks after the handler's `validate` and the permission check, for each command of the batch. A refusal fails the batch with `hook:<code>`. (`AuthzCommandValidator`, which did this before 3.x, is removed.)
 
 ```ts sample
 import { DI } from '@spinajs/di';
-import { AuthzAdminFailure, AuthzCommandValidator } from '@spinajs/authz';
-import type { AdminContext, AuthzCommand, Principal } from '@spinajs/authz';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
+import '@spinajs/authz';
 
 // Run-time policies may only deny; permits stay in reviewed config.
-export class DenyOnlyPolicies extends AuthzCommandValidator {
-  async validate(_actor: Principal, c: AuthzCommand, _ctx: AdminContext): Promise<void> {
-    if (c.kind === 'policy.put' && c.policy.effect !== 'deny') {
-      throw new AuthzAdminFailure('invalid_command', 'only deny policies may be written at run time', 'policy.effect');
-    }
+export class DenyOnlyPolicies extends ActionHook<'authz.admin.command'> {
+  readonly actions: readonly ActionPattern[] = ['authz.admin.command'];
+
+  before(ctx: BeforeContext<'authz.admin.command'>): void {
+    const c = ctx.input.command;
+    if (c.kind === 'policy.put' && c.policy.effect !== 'deny') ctx.refuse('deny_only');
   }
 }
 
-DI.register(DenyOnlyPolicies).as(AuthzCommandValidator);
+DI.register(DenyOnlyPolicies).as(ActionHook);
 ```
 
 ## Important behaviour

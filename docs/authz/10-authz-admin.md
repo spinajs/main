@@ -11,7 +11,7 @@ The core owns the bus, scope attributes and `scope.forget`. The models own their
 1. **Setup.** On its first call it resolves the domain's `AuthzService`, the `AdminGuard` named by `authz.admin.guard.service`, the `AuthzAdminBackend` named by `authz.admin.backend` and the `authz.admin` keys, and keeps them; a setup that fails is retried on the next call. It publishes to, audits with and dates by the bus, audit and clock the domain's service booted with ([Domains](05-domains.md#services-and-extension-points)), so a later registration or config change does not reach it. With no guard configured every call throws `AuthzConfigError`: it fails closed.
 2. **Batch.** A batch longer than `authz.admin.maxBatch` fails with `invalid_batch`. Each command is deep-copied and frozen, so the command checked is the command applied, audited and evented. The [`authz.admin.batch` hook](15-action-hooks.md#admin-commands) runs next, before any command is validated; a refusal fails the batch with `hook:<code>`.
 3. **Idempotency.** With `idempotencyKey`, a batch the backend already committed under `(domain, actor, key)` within 24 hours returns its stored results, unchanged.
-4. **Phase A, outside the transaction.** For each command: the `AuthzWriteHandler` of its kind runs `validate()`, every `AuthzCommandValidator` runs, then the handler's `permission()` names the permission and resource. `authz.admin.permissions` may map it to another permission. The actor must be allowed **unconditionally** and **fresh** (no cache), else `forbidden`. Then the [`authz.admin.command` hook](15-action-hooks.md#admin-commands) runs; a command it changed goes through `validate()`, the validators and the permission check again.
+4. **Phase A, outside the transaction.** For each command: the `AuthzWriteHandler` of its kind runs `validate()`, then the handler's `permission()` names the permission and resource. `authz.admin.permissions` may map it to another permission. The actor must be allowed **unconditionally** and **fresh** (no cache), else `forbidden`. Then the [`authz.admin.command` hooks](15-action-hooks.md#admin-commands) run: your product rules, then the built-in `ListSupportHook`, which runs the `ListSupportGuard`s on a `policy.put` or `rule.put`. A command a hook changed goes through `validate()` and the permission check again.
 5. **Phase B, one transaction.** For each command (the one the hook left) the guard runs (`SYSTEM` skips it), then the handler's `apply()`. The guard sees the batch's own earlier writes. Then the backend bumps the domain's version and, with a key, stores the results.
 6. **Failure.** The first `AuthzAdminFailure` rolls the batch back. The results list `ok: true, affected: 0` for the commands before it and the failure with its `code`, `message` and `field` at its index. Nothing is published. Any other error propagates.
 7. **Dry run.** `dryRun: true` validates, guards and applies, then rolls back.
@@ -30,9 +30,10 @@ sequenceDiagram
   Caller->>Admin: execute(actor, commands, { reason, idempotencyKey, dryRun })
   Admin->>Backend: recall(domain, actor, key)
   loop each command
-    Admin->>Handler: validate(), then AuthzCommandValidator(s)
+    Admin->>Handler: validate()
     Admin->>Handler: permission()
     Admin->>Service: check({ actor, permission, resource, fresh: true })
+    Admin->>Admin: authz.admin.command hooks (ListSupportHook last)
   end
   Admin->>Backend: transaction(domain, fn)
   loop each command
@@ -118,11 +119,11 @@ The guard's rules (escalation, self-lockout, last holder, system roles) and `kee
 | `AuthzAdminBackend` | `AuthzAdminBackend`, chosen by name | `MemoryAuthzAdminBackend` (in memory, one transaction at a time) | `DbAuthzAdminBackend` in authz-rbac | Register a class and name it in `authz.admin.backend`. |
 | `AdminGuard` | `AdminGuard`, chosen by name | none in the core | `DefaultAdminGuard` in authz-rbac | Register a class and name it in `authz.admin.guard.service`. |
 | `AuthzWriteHandler` | `AuthzWriteHandler`, every registration; one per kind | `ScopeAttributeHandler`, `ScopeForgetHandler` | RBAC and ABAC handlers | A model that owns new data registers a handler for new kinds. Two handlers for one kind fail. |
-| `AuthzCommandValidator` | `AuthzCommandValidator`, every registration | `ListSupportValidator` | your own | Product rules on commands; throw `AuthzAdminFailure`. |
+| `ActionHook` on `authz.admin.command` | `ActionHook`, every registration | `ListSupportHook` (runs last) | your own | Product rules on commands: refuse with `ctx.refuse(code)`. Replaces `AuthzCommandValidator`, removed in 3.x. |
 | `AuthzEventSink` | `AuthzEventSink`, every registration | `LogAuthzEventSink` | your own | Forward events (`RoleAssigned`, `RoleRevoked`, `ScopeAttributesChanged`, `ScopeForgotten`, ...). Every registered sink runs. |
 | `AuthzAdminReader` | `AuthzAdminReader`, every registration; one per query kind | `ScopeAttributeReader` (`attributes`) | RBAC and ABAC readers | Answers `list()` for its kinds. |
 | `ScopeForgetter` | `ScopeForgetter`, every registration | none in the core | RBAC and ABAC forgetters | Deletes a model's data at a node inside the `scope.forget` transaction. |
-| `ListSupportGuard` | `ListSupportGuard`, every registration | none in the core | RBAC (rules), ABAC (policies) | Refuses a `rule.put` or `policy.put` that would make a `list: true` permission depend on the row (`not_list_filterable`). |
+| `ListSupportGuard` | `ListSupportGuard`, every registration | none in the core | RBAC (rules), ABAC (policies) | Refuses a `rule.put` or `policy.put` that would make a `list: true` permission depend on the row (`not_list_filterable`). `ListSupportHook` runs them. |
 | `WritableScopeAttributeStore` | `WritableScopeAttributeStore`, the domain's registration | none | `DbScopeAttributeStore` (authz-orm), `MemoryScopeAttributeStore` | Register one instance under this token and `ScopeAttributeStore`. |
 
 `forgetScopesInTx(container, scopes, tx, { actor, reason })` runs the `scope.forget` writes inside a transaction the caller owns, with no permission check, guard, version bump, publish or audit; authz-orm calls it when a resource row is deleted.
@@ -183,29 +184,30 @@ export class QuotaHandler extends AuthzWriteHandler {
 - The augmentation lives in a module that the package's public types import, as `authz-rbac/src/admin/commands.ts` is re-exported by `authz-rbac/src/contracts.ts`. Any file that imports the package then sees the new kinds.
 - `AuthzCommandOf<'quota.set'>` is the shape, and `never` until a model declares the kind. The sugar methods of `AuthzAdmin` take `AuthzCommandFields<K>` and return `AuthzCommandRow<K>`, so `assign` and `createLink` are typed only where authz-rbac is imported. `putPolicy` and `deletePolicy` need authz-abac in the same way.
 - A query works the same way: augment `AuthzAdminQueryMap` and register an `AuthzAdminReader` whose `kinds` lists it. `list()` accepts any kind a registered reader claims. The first-party kinds stay known without their reader and answer `not_found` instead of `invalid_query`.
-- The guard, validators, permission mapping (`authz.admin.permissions`), audit, events and idempotency treat the new kind like a built-in one. `DefaultAdminGuard` checks only the RBAC kinds, so it lets another model's commands through.
+- The guard, the `authz.admin.command` hooks, permission mapping (`authz.admin.permissions`), audit, events and idempotency treat the new kind like a built-in one. `DefaultAdminGuard` checks only the RBAC kinds, so it lets another model's commands through.
 - For the HTTP admin routes, register an `AuthzCommandSchemaSource` that describes the kind; see [OpenAPI documentation](../authz-http-admin/06-openapi-documentation.md).
 
-### `AuthzCommandValidator`: custom implementation
+### Product rules on commands: a before hook on `authz.admin.command`
 
 ```ts sample
-import { Injectable, Singleton } from '@spinajs/di';
-import { AuthzAdminFailure, AuthzCommandValidator } from '@spinajs/authz';
-import type { AdminContext, AuthzCommand, Principal } from '@spinajs/authz';
+import { Injectable } from '@spinajs/di';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
+import '@spinajs/authz';
 
 /** Contractors get access for a limited time only. */
-@Singleton()
-@Injectable(AuthzCommandValidator)
-export class ContractorExpiryValidator extends AuthzCommandValidator {
-  async validate(_actor: Principal, c: AuthzCommand, _ctx: AdminContext): Promise<void> {
-    if (c.kind === 'assignment.grant' && c.role === 'contractor' && !c.expiresAt) {
-      throw new AuthzAdminFailure('expiry_required', 'a contractor grant needs an expiry date', 'expiresAt');
-    }
+@Injectable(ActionHook)
+export class ContractorExpiryRule extends ActionHook<'authz.admin.command'> {
+  readonly actions: readonly ActionPattern[] = ['authz.admin.command'];
+
+  before(ctx: BeforeContext<'authz.admin.command'>): void {
+    const c = ctx.input.command;
+    if (c.kind === 'assignment.grant' && c.role === 'contractor' && !c.expiresAt) ctx.refuse('expiry_required');
   }
 }
 ```
 
-The batch then answers `{ ok: false, kind: 'assignment.grant', error: { code: 'expiry_required', ... } }` and writes nothing.
+The hook runs after the handler's `validate()` and the permission check. The batch then answers `{ ok: false, kind: 'assignment.grant', error: { code: 'hook:expiry_required', ... } }` and writes nothing. `AuthzCommandValidator`, which ran between `validate()` and the permission check and answered its own `AuthzAdminFailure` code, is removed in 3.x.
 
 ### `AuthzEventSink`: custom implementation
 

@@ -32,6 +32,7 @@ Time comes from two places. `ctx.now` (from `FakeClock.ctx()`) drives the thrott
 | `RecordingEventSink` | `AuthnEventSink` | Keeps every published event, frozen | `all()`, `ofType()`, `clear()` |
 | `RecordingPrincipalFactory` | `PrincipalFactory` | Builds a `Principal` from the identity, facts and extras | `calls` |
 | `FakeImpersonationGuard` | `ImpersonationGuard` | Allows every impersonation until you deny one target or all | `calls` |
+| `FakeImpersonationStartHook(() => guard)` | `ActionHook` on `authn.impersonation.start` | The start check as users registers it: asks the guard about `input.actor` and `input.target` and refuses with its code. Register it beside the guard, or every start is refused (`no_guard`) | none |
 | `FakeRoleSource` | `RoleSource` | Roles you grant per identity | none |
 | `fakeSeedPort(identities, passwords)` | `SeedPort` | Seeds users into the two fakes; passwords stored with `fakeHash` | none |
 

@@ -31,7 +31,7 @@ An impersonation session gets the target's roles, which are the session's.
 
 ### Initial active role
 
-`OrderedActiveRoleHook` is the `SessionStartHook` users registers ([Integration hooks](../authn/12-integration-hooks.md#sessionstarthook)). With `authz.principals.roleSwitch.initial` set, a login or an MFA completion asks `RbacRoleSource` for the user's roles and starts the session as if it had switched to the first role of `order` the user holds: `ActiveRole` is that role, and the login answer's `Access` shows only its grants. 2.x activated the user's first role at login; set `order` to your roles in that priority to keep it. The user can still switch to any held role with `POST /auth/active-role`.
+`OrderedActiveRoleHook` is the before hook on [`authn.session.start`](../authn/14-action-hooks.md#authnsessionstart) users registers. With `authz.principals.roleSwitch.initial` set, a login (the OIDC callback included) or an MFA completion asks `RbacRoleSource` for the user's roles and starts the session as if it had switched to the first role of `order` the user holds: `ActiveRole` is that role, and the login answer's `Access` shows only its grants. 2.x activated the user's first role at login; set `order` to your roles in that priority to keep it. The user can still switch to any held role with `POST /auth/active-role`.
 
 ```ts
 // config/authz.ts in your app

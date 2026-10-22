@@ -19,9 +19,9 @@ The service refuses at the first failed check, in this order. The reason goes to
 | The actor may still log in | `unknown_identity`, `deleted`, `banned`, `inactive` |
 | The session is fresh or `reauth` re-authenticates it, when `authn.impersonation.requirePassword` | `not_fresh` |
 | The target may log in | `target_<status>` |
-| `ImpersonationGuard.allowed(actor, target)` consents | the guard's code (`forbidden`, `protected_role`, `escalation`), or `guard_error` |
+| A before hook watches `authn.impersonation.start` | `no_guard` |
 
-Then the `authn.impersonation.start` [action hooks](14-action-hooks.md) run around the steps below. A refusal, or a hook that fails, answers `{ ok: false }` with reason `hook:<code>` or `hook_error`, and the actor keeps its session.
+Then the `authn.impersonation.start` [action hooks](14-action-hooks.md#authnimpersonationstart-the-start-check) run around the steps below: they are the start check. Their input carries `actor`, the actor's principal with its own facts through this session and its role switch. `@spinajs/users` registers `ImpersonationGuardStartHook`, which asks the registered `ImpersonationGuard` and refuses with its code. A refusal, or a hook that fails, answers `{ ok: false }` with reason `hook:<code>` (`hook:forbidden`, `hook:protected_role`, `hook:escalation` from the guard) or `hook_error`, and the actor keeps its session. The service itself asks the guard only on the requests of a running impersonation.
 
 1. `SessionIssuer.issue(target, facts)` creates a session for the target. It keeps the actor's method, strategy, assurance, MFA steps and login time, and sets `facts.impersonator` to the actor.
 2. `SessionIssuer.set(new, 'Impersonation', { startedAt, actorRoles? })` writes the impersonation block. `actorRoles` holds the actor's active role at the start.
@@ -70,12 +70,14 @@ sequenceDiagram
   participant H as AuthnImpersonationController (authn-http)
   participant S as AuthnImpersonationService
   participant F as FreshAuthCheck
+  participant K as ImpersonationGuardStartHook (users)
   participant G as ImpersonationGuard (users)
   participant SI as SessionIssuer
   A->>H: POST /auth/impersonate {target, password?}
   H->>S: start(session, target, ctx, reauth)
   S->>F: check(session, ctx, reauth)
-  S->>G: allowed(actor principal, target)
+  S->>K: before(authn.impersonation.start: actor principal, target)
+  K->>G: allowed(actor principal, target)
   S->>SI: issue(target, facts + impersonator)
   S->>SI: set(new, 'Impersonation', block)
   S->>SI: revoke(old)
@@ -108,7 +110,8 @@ authn: { impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 3
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `AuthnImpersonationService` | Class token, per child container | `AuthnImpersonationService` | None | Not meant to be replaced. Needs `SessionIssuer`, `IdentityStore` and `PrincipalFactory` |
-| `ImpersonationGuard` | `ImpersonationGuard`, optional | None: every start is refused | `AuthzImpersonationGuard` ([`@spinajs/users`](../users/README.md)) | `@Injectable(ImpersonationGuard)`; answer `{ ok: true }` or `{ ok: false, code }` |
+| `ImpersonationGuard` | `ImpersonationGuard`, optional; asked on every request of an impersonation session | None: every start is refused | `AuthzImpersonationGuard` ([`@spinajs/users`](../users/README.md)) | `@Injectable(ImpersonationGuard)`; answer `{ ok: true }` or `{ ok: false, code }` |
+| Start check | `ActionHook` on `authn.impersonation.start`, every registration | None: every start is refused (`no_guard`) | `ImpersonationGuardStartHook` ([`@spinajs/users`](../users/README.md)), which asks the registered guard | An app without `@spinajs/users` registers a before hook that refuses what its guard refuses |
 | `RoleSource` | `RoleSource`, optional | None: the role switch is off | `RbacRoleSource` ([`@spinajs/users`](../users/README.md)) | `@Injectable(RoleSource)`; see [Integration hooks](12-integration-hooks.md#rolesource) |
 
 `AuthzImpersonationGuard` needs `user:impersonate` and refuses a target whose rights the actor does not strictly cover, or who holds a protected role. See [`@spinajs/users`](../users/README.md).

@@ -12,7 +12,7 @@
 6. The answer is the principal built by `PrincipalFactory` with `ceiling: { roles: [role] }`, extended with kind `role-switch`, plus `ActiveRole`, and the new session cookie.
 7. On later requests `SessionPrincipalResolver` narrows the principal to `ceiling.roles = [ActiveRole]`.
 
-A session can also start narrowed: once a login or an MFA completion has issued the active session, the registered [`SessionStartHook`s](../authn/12-integration-hooks.md#sessionstarthook) are asked, and the first ceiling one answers is stored as `ActiveRole` before the login answer is built. `@spinajs/users` drives its hook with `authz.principals.roleSwitch.initial`.
+A session can also start narrowed: once a login (the OIDC callback included) or an MFA completion has issued the active session, the before hooks on [`authn.session.start`](../authn/14-action-hooks.md#authnsessionstart) may set its ceiling, which is stored as `ActiveRole` before the login answer is built. `@spinajs/users` drives its `OrderedActiveRoleHook` with `authz.principals.roleSwitch.initial`.
 
 ```mermaid
 sequenceDiagram

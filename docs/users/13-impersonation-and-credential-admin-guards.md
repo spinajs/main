@@ -4,6 +4,11 @@ Who may act **as** another user (impersonation) or **on** another user's credent
 
 ## How it works
 
+### When the impersonation guard is asked
+
+- **At the start.** authn no longer asks the guard itself: the start check is a before hook on `authn.impersonation.start`. users registers `ImpersonationGuardStartHook`, which asks the registered `ImpersonationGuard` (this one, or your subclass) with the actor principal from the hook input and refuses with its code. authn answers `{ ok: false }` and audits `impersonation.start` with `hook:forbidden`, `hook:protected_role` or `hook:escalation`; a guard that throws is audited as `hook_error`.
+- **On every request** of the impersonation session, authn asks the guard again and ends the impersonation when it refuses.
+
 ### `AuthzImpersonationGuard.allowed(actor, target)`
 
 1. `forbidden` unless all hold: the actor is an authenticated `user`; it signed in interactively (`authn.method` is `password`, `oidc`, `ldap` or `saml`); it is not already impersonating; the target is a `user` other than the actor.
@@ -72,6 +77,7 @@ export default {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Impersonation guard | `ImpersonationGuard` (`@spinajs/authn/contracts`), singleton, `@Injectable` on import; optional in authn | `AuthzImpersonationGuard` | your guard; none: impersonation off | Subclass and override `allowed()` or the protected `sessionPrincipal()`; pass `{ principals, targets }` to `super()`; `DI.register(Sub).as(ImpersonationGuard)`. |
+| Impersonation start check | `ActionHook` on `authn.impersonation.start`, registered on import | `ImpersonationGuardStartHook`: asks the registered `ImpersonationGuard` | your own before hook on the action | Replace the guard rather than the hook: the hook asks whichever guard is registered, and the guard also decides every later request. |
 | Credential admin guard | `CredentialAdminGuard`, singleton; optional in authn-http | `AuthzCredentialAdminGuard` | your guard; none: credential admin routes answer 404 | Subclass and narrow per `action`; pass `{ targets }` to `super()`; `DI.register(Sub).as(CredentialAdminGuard)`. `DI.unregister(AuthzCredentialAdminGuard)` turns the routes off. |
 | Target rule | not in DI; each guard does `new AuthzTargetGuard()` unless given `opts.targets` | `AuthzTargetGuard` | your subclass | Subclass and override `check()`; hand it to the guards through their constructor options. Its own option `users` picks the `UserPrincipalFactory` for `checkIdentity()`. |
 | Config schemas | `Bootstrapper` list: `RbacBootstrapper` (`authz.http.access`), `CredentialAdminConfigBootstrapper` (`authz.credentials`) | | | Both also register at import; nothing to replace. |

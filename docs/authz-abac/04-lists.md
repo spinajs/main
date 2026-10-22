@@ -28,12 +28,12 @@ The message reads: `abac policy "<id>" (source: <store>) <why>, so <permission> 
 
 ### At write time
 
-1. While `AuthzAdmin` validates a batch, the core's `ListSupportValidator` runs every `ListSupportGuard` along the domain's container lineage on each `policy.put` and `rule.put`. `AbacListSupportGuard` checks `policy.put` only.
+1. While `AuthzAdmin` checks a batch, the core's `ListSupportHook`, a before hook on `authz.admin.command`, runs every `ListSupportGuard` along the domain's container lineage on each `policy.put` and `rule.put`. `AbacListSupportGuard` checks `policy.put` only.
 2. It calls `AbacModel.listProblem(policy)` on every `AbacModel` of the domain. When the policy needs the row and matches a `list: true` permission, the command fails with `AuthzAdminFailure('not_list_filterable')` on the field `policy`.
 
 ```mermaid
 sequenceDiagram
-  participant A as AuthzAdmin (ListSupportValidator)
+  participant A as AuthzAdmin (ListSupportHook)
   participant G as AbacListSupportGuard
   participant M as AbacModel
   A->>G: checkCommand(policy.put, ctx)

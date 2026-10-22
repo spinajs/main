@@ -84,7 +84,7 @@ await authz().admin().putRule(actor, {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Rule store | `RuleStore` (and `AdminRuleStore` for a writable one), per child container, by `registerRbacStores` | `ConfigRuleStore` | `DbRuleStore`, `MemoryRuleStore` | Name classes in `authz.rbac.stores.rules`: one in memory (`all()` and `rulesOn()`), one other. See [Custom stores](11-custom-stores.md). |
-| `RbacRuleHandler` | `AuthzWriteHandler`, singleton, at import | `RbacRuleHandler` | none | Add an `AuthzCommandValidator` to refuse rules your product forbids. |
+| `RbacRuleHandler` | `AuthzWriteHandler`, singleton, at import | `RbacRuleHandler` | none | Add a before hook on `authz.admin.command` to refuse rules your product forbids. |
 | `RbacRuleListGuard` | `ListSupportGuard`, singleton, at import | `RbacRuleListGuard` | none | none |
 
 `readRuleDefs(rules, source?)` turns config rules into frozen `RuleDef`s (default scope `$global`, `expiresAt` as a `Date`).

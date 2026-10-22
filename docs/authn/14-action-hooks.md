@@ -24,8 +24,9 @@ See [Writing a hook](../hooks/01-writing-a-hook.md) for the hook contract, order
 | `authn.login.identified` | `authenticate`, after the identity and its status are known, before the MFA policy; interactive strategies only | `identity`, `strategy`, `method`, `external?`, `attributes`, `ctx` | `attributes` | yes | `failure` `invalid_credentials`; the throttle already counted; no session |
 | `authn.mfa.verify` | `DefaultAuthnService.completeMfa`, after the throttle | `pending`, `step`, `response`, `ctx` | none | yes | The answer of a wrong code: `invalid_credentials`, the session stays pending; `mfa.verify` audited |
 | `authn.reauth` | `DefaultAuthnService.reauthenticate`, after the throttle | `session`, `credentials`, `ctx` | none | yes | `false`; `reauth` audited |
+| `authn.session.start` | `DefaultAuthnService.authenticate` (an interactive login) and `completeMfa`, once the active session is issued, before the success is audited; a pending login, a step-up and a re-authentication run none | `kind` (`login` or `mfa`), `session`, `principal`, `ctx`, `ceiling?` | `ceiling` | yes | `failure` `invalid_credentials`; the session is ended; `login` audited |
 | `authn.session.stepUp` | `DefaultAuthnService.stepUp`, after the throttle | `session`, `step`, `response`, `ctx` | none | yes | The answer of a wrong code; no reissue; `mfa.verify` audited |
-| `authn.impersonation.start` | `AuthnImpersonationService.start`, after the guard and every other check | `session`, `target`, `ctx` | none | yes | `{ ok: false }`; `impersonation.start` audited |
+| `authn.impersonation.start` | `AuthnImpersonationService.start`, after every other check; it is the start check (no hook: every start is refused, `no_guard`) | `session`, `target`, `actor`, `ctx` | none | yes | `{ ok: false }`; `impersonation.start` audited |
 | `authn.impersonation.stop` | `AuthnImpersonationService.stop` | `session`, `ctx` | none | no | none: a refusal is logged and the impersonation ends |
 | `authn.link` | `AccountLinkService.link`, after the session and freshness checks | `session`, `external`, `ctx` | none | yes | `{ ok: false }`; `identity.link` audited; the link store is not touched |
 | `authn.unlink` | `AccountLinkService.unlink`, after the session and freshness checks | `session`, `linkId`, `ctx` | none | yes | `{ ok: false }`; `identity.unlink` audited; the link store is not touched |
@@ -81,6 +82,37 @@ export class IdentityProviderGroups extends ActionHook<'authn.login.identified'>
 }
 ```
 
+## `authn.session.start`
+
+A login route (password, key, email code, passkey), the OIDC callback and an MFA completion all issue the active session through `DefaultAuthnService`, which runs `authn.session.start` on it before the login counts as a success. It replaces the `SessionStartHook` of 3.0.2, which authn-http asked only on its own routes, so the OIDC callback now starts narrowed too.
+
+- `kind` is `login` or `mfa`; `session` is the new active session; `principal` is the principal the login answers with.
+- A hook may set `ceiling` to `{ roles: [role] }`, or `{ roles: [] }` for no role. The session stores it as its `ActiveRole`, the key a role switch writes, so `GET /auth/active-role` shows it and every later request is narrowed by it. A later hook may overwrite what an earlier one set; check `ctx.input.ceiling` to keep the first choice, as `OrderedActiveRoleHook` of `@spinajs/users` does.
+- A refusal, a hook that throws or times out, or a ceiling an `ActiveRole` cannot hold (two roles, an empty name, any field but `roles`) ends the session, and the login fails as a wrong password does: `invalid_credentials` over HTTP, the one failure answer in the OIDC callback. The `login` event carries `hook:<code>`, or `hook_error` (with `failure: 'ceiling'` for a ceiling it cannot hold).
+- The output, which `after` hooks see, is the ceiling the session started with.
+
+```ts sample
+import { Injectable } from '@spinajs/di';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
+import '@spinajs/authn';
+
+/** Support staff start every session as `support`, whatever else they hold. */
+@Injectable(ActionHook)
+export class SupportFirst extends ActionHook<'authn.session.start'> {
+  readonly actions: readonly ActionPattern[] = ['authn.session.start'];
+  readonly order = -10;
+
+  before(ctx: BeforeContext<'authn.session.start'>): void {
+    if (ctx.input.ceiling === undefined && ctx.input.principal.attributes.team === 'support') ctx.input.ceiling = { roles: ['support'] };
+  }
+}
+```
+
+## `authn.impersonation.start`: the start check
+
+`AuthnImpersonationService.start` no longer asks the `ImpersonationGuard`: the before hooks on `authn.impersonation.start` decide, after every other check (no nesting, fresh authentication, MFA, the status of both identities). Their input carries `actor`, the principal the guard used to judge: the actor's own facts through this session, narrowed by its role switch. With no hook on the action, every start is refused with `no_guard`. `@spinajs/users` registers `ImpersonationGuardStartHook`, which asks the registered `ImpersonationGuard` and refuses with its code (`hook:forbidden`, `hook:protected_role`, `hook:escalation`). The guard is still asked on every request of the impersonation session and ends it when it refuses.
+
 ## Non-refusable actions
 
 `authn.impersonation.stop` and `authn.logout.backchannel` end sessions: an impersonator going back to their own session, an IdP that ended a session. A hook may observe them, but a refusal, a throw or a timeout in `before` is only logged on the `hooks` log, and the action completes.
@@ -95,7 +127,7 @@ The helpers the core uses to run its actions are exported from `@spinajs/authn` 
 | `hookCopy(value)` | A deep copy for a mutable key; for a value `structuredClone` refuses, its plain data is copied and the uncloneable leaves are shared. A hook's in-place change to the plain data never reaches the caller's object. |
 | `hookRefusalOf(err, action)` | Maps an error `Hooks.run(action, ...)` threw to an audit reason: `{ reason: 'hook:<code>' }` for an `ActionRefused`, `{ reason: 'hook_error', data: { hook, failure } }` for an `ActionHookFailed`. Returns `null` for any other error, and for a refusal or failure of another action (a nested run). |
 | `HookRefusal` | The `{ reason, data? }` type `hookRefusalOf` returns. |
-| `AuthnLoginInput`, `AuthnLoginIdentifiedInput`, `AuthnMfaVerifyInput`, `AuthnReauthInput`, `AuthnStepUpInput`, `AuthnImpersonationStartInput`, `AuthnImpersonationStopInput`, `AuthnLinkInput`, `AuthnUnlinkInput` | The input types of the authn actions. Importing the module also brings their `HookActions` declaration. |
+| `AuthnLoginInput`, `AuthnLoginIdentifiedInput`, `AuthnMfaVerifyInput`, `AuthnReauthInput`, `AuthnStepUpInput`, `AuthnSessionStartInput`, `AuthnImpersonationStartInput`, `AuthnImpersonationStopInput`, `AuthnLinkInput`, `AuthnUnlinkInput` | The input types of the authn actions. Importing the module also brings their `HookActions` declaration. |
 
 The core follows the same steps for every action:
 
@@ -158,5 +190,5 @@ export class DeviceTrust {
 
 - [`@spinajs/hooks`](../hooks/README.md): the runner, the hook contract and its configuration.
 - [How a login runs](01-authentication-flow.md): where each action sits in the flow.
-- [Integration hooks](12-integration-hooks.md): the provider contracts authn asks, such as `SessionStartHook`.
+- [Integration hooks](12-integration-hooks.md): the provider contracts authn asks, such as `RoleSource`.
 - [Audit events](06-audit-events.md): the events a refusal writes.
