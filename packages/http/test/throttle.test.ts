@@ -6,7 +6,7 @@ import { InvalidOption } from '@spinajs/exceptions';
 
 import { MemoryThrottleStore, ThrottleMiddleware, IThrottleRule, ThrottleStore } from '../src/middlewares/Throttle.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
-import { boot, disposeBooted, readingFrom } from './support/config-boot.js';
+import { boot, disposeBooted, readingFrom, setPastSchema } from './support/config-boot.js';
 
 interface IFakeResult {
   nextCalled: boolean;
@@ -111,7 +111,7 @@ describe('ThrottleMiddleware', () => {
       ];
       for (const [rule, key] of cases) {
         const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], { http: { throttle: { enabled: true } } });
-        ((await child.resolve(Configuration)) as Configuration).set(['http', 'throttle', 'rules'], [rule]);
+        setPastSchema((await child.resolve(Configuration)) as Configuration, 'http.throttle.rules', [rule]);
         const mw = readingFrom(new ThrottleMiddleware(), child);
         expect(() => mw.before(), JSON.stringify(rule)).to.throw(InvalidOption, key);
       }
@@ -119,7 +119,7 @@ describe('ThrottleMiddleware', () => {
 
     it('keeps a limit of 0 set past the schema: every matching request is refused', async () => {
       const { child } = await boot([HTTP_CONFIGURATION_SCHEMA], { http: { throttle: { enabled: true } } });
-      ((await child.resolve(Configuration)) as Configuration).set(['http', 'throttle', 'rules'], [{ path: '/auth', limit: 0, windowSeconds: 60 }]);
+      setPastSchema((await child.resolve(Configuration)) as Configuration, 'http.throttle.rules', [{ path: '/auth', limit: 0, windowSeconds: 60 }]);
       const mw = readingFrom(new ThrottleMiddleware(), child);
       Object.defineProperty(mw, 'Store', { value: new MemoryThrottleStore() });
       Object.defineProperty(mw, 'Log', { value: { warn: sinon.stub() } });
