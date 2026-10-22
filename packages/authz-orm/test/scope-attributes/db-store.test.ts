@@ -35,7 +35,7 @@ const num = (v: unknown): number | null => (v === null || v === undefined ? null
 /** The kind of every statement `driver` executes while `fn` runs. */
 async function statements(driver: OrmDriver, fn: () => Promise<unknown>): Promise<string[]> {
   const seen: string[] = [];
-  const spied = driver as unknown as { execute(builder: unknown): Promise<unknown> };
+  const spied = driver as unknown as { execute: (this: unknown, builder: unknown) => Promise<unknown> };
   const original = spied.execute;
   spied.execute = function (this: unknown, builder: unknown) {
     seen.push(builder instanceof UpdateQueryBuilder ? 'update' : builder instanceof DeleteQueryBuilder ? 'delete' : builder instanceof InsertQueryBuilder ? 'insert' : builder instanceof SelectQueryBuilder ? 'select' : 'other');
@@ -125,7 +125,7 @@ describe('DbScopeAttributeStore', function () {
         expect(await store.rows(o1)).to.deep.equal({ 'policies.level': 'gold', 'policies.limit': 3.5, 'policies.on': false });
         expect(await store.get(o1)).to.deep.equal({ policies: { level: 'gold', limit: 3.5, on: false } });
         expect(await store.get(o2)).to.deep.equal({});
-        const rows = Object.fromEntries((await raw(o1)).map((r) => [r.path, r]));
+        const rows = Object.fromEntries((await raw(o1)).map((r) => [r.path as string, r] as const));
         expect(rows['policies.level']).to.deep.include({ value_json: '"gold"', value_text: 'gold', updated_by: 'user:alice' });
         expect(num(rows['policies.level'].value_num)).to.equal(null);
         expect(rows['policies.limit']).to.deep.include({ value_json: '3.5', value_text: '3.5' });
@@ -137,7 +137,7 @@ describe('DbScopeAttributeStore', function () {
 
       it('numbers keep value_num only while decimal(20,6) holds them', async () => {
         await inTx((tx) => store.write(o1, { set: { neg: -2.25, big: 1e15, edge: 99999999999999 }, remove: [] }, ALICE, tx));
-        const rows = Object.fromEntries((await raw(o1)).map((r) => [r.path, r]));
+        const rows = Object.fromEntries((await raw(o1)).map((r) => [r.path as string, r] as const));
         expect(rows.neg.value_text).to.equal('-2.25');
         expect(num(rows.neg.value_num)).to.equal(-2.25);
         expect(rows.big.value_text).to.equal('1000000000000000');

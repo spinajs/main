@@ -72,7 +72,7 @@ describe('root domain boot', function () {
       DI.RootContainer.emit('http.server.listening', server);
 
       const err = await (middleware as unknown as { rootService(): Promise<unknown> }).rootService().then(() => null, (e: unknown) => e);
-      await new Promise((r) => setImmediate(r));
+      await new Promise((resolve) => setImmediate(resolve));
 
       expect(err).to.be.instanceOf(Error);
       expect(server.stop.calledOnce).to.eq(true);
@@ -92,8 +92,8 @@ describe('root domain boot', function () {
       const server = { stop: sinon.stub().resolves() };
       DI.RootContainer.emit('http.server.listening', server);
 
-      const outcome = await new Promise<unknown>((done) => middleware.before()({ storage: {}, headers: {}, query: {} } as never, {} as never, (err?: unknown) => done(err ?? 'next')));
-      await new Promise((r) => setImmediate(r));
+      const outcome = await new Promise<unknown>((resolve) => middleware.before()({ storage: {}, headers: {}, query: {} } as never, {} as never, (err?: unknown) => resolve(err ?? 'next')));
+      await new Promise((resolve) => setImmediate(resolve));
 
       expect(outcome).to.eq('next');
       expect(server.stop.called).to.eq(false);

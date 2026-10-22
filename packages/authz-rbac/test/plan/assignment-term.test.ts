@@ -51,7 +51,7 @@ for (const kind of DB_KINDS) {
         });
 
     async function ids(apply: (where: IWhereBuilder<unknown>) => void): Promise<number[]> {
-      const rows = (await filtered(apply).asRaw()) as { id: unknown }[];
+      const rows = await filtered(apply).asRaw<{ id: unknown }[]>();
       return rows.map((r) => Number(r.id)).sort((a, b) => a - b);
     }
 

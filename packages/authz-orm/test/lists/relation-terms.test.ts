@@ -42,14 +42,14 @@ describe('relation.owner / relation.self / relation.column terms', function () {
 
       async function ids(model: Resource, compiler: PlanTermCompiler, args: unknown): Promise<string[]> {
         const row = planRow(model.query(), entryOf(model)!);
-        const rows = (await db
+        const rows = await db
           .driver(dialect)
           .select()
           .from(db.table(model))
           .where(function () {
             compiler.apply(args, this, row);
           })
-          .asRaw()) as { id: unknown }[];
+          .asRaw<{ id: unknown }[]>();
         return rows.map((r) => String(r.id)).sort();
       }
 

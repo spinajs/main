@@ -84,11 +84,11 @@ describe('planFilter', function () {
       async function ids(plan: AccessPlan): Promise<number[] | 'all' | 'none'> {
         const f = planFilter(plan, planRow(Task.query(), entryOf(Task)!));
         if (f.kind !== 'where') return f.kind;
-        const rows = (await select()
+        const rows = await select()
           .where(function () {
             f.apply(this);
           })
-          .asRaw()) as { id: number }[];
+          .asRaw<{ id: number }[]>();
         return rows.map((x) => Number(x.id)).sort();
       }
 

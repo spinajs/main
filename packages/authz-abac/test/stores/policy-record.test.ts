@@ -49,7 +49,7 @@ for (const kind of DB_KINDS) {
       await db.driver.del().from(AUTHZ_POLICY_TABLE);
     });
 
-    const inTx = <T>(fn: (tx: AuthzTx) => Promise<T>): Promise<T> => db.driver.transaction(() => fn({ driver: db.driver })) as Promise<T>;
+    const inTx = <T>(fn: (tx: AuthzTx) => Promise<T>): Promise<T> => db.driver.transaction<T>(() => fn({ driver: db.driver }));
 
     it('hydrates JSON columns as values, datetimes as DateTime and priority as a number', async () => {
       await PolicyRecord.insert(FULL);
