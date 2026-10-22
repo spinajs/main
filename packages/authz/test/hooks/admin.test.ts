@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import { userPrincipal } from '@spinajs/authz-testing';
 import { ActionHook } from '@spinajs/hooks';
-import type { BeforeContext } from '@spinajs/hooks';
+import type { AfterContext, BeforeContext } from '@spinajs/hooks';
 import { RecordingActionHook } from '@spinajs/hooks/testing';
 
 import { ActionRefused, DefaultHooks, Hooks } from '@spinajs/hooks';
@@ -247,6 +247,25 @@ describe('authz admin hooks', function () {
       const out = await d.admin.execute(alice, [{ ...grant('bob'), expiresAt: new Date('2027-01-01T00:00:00.000Z') } as AuthzCommand]);
       expect(failure(out[0]).code).to.equal('too_long');
       expect(d.store.rows.size).to.equal(0);
+    });
+
+    it('is out of reach of an after hook: stretching expiresAt past a validator cap has no effect', async () => {
+      class Cap extends AuthzCommandValidator {
+        async validate(_actor: unknown, c: AuthzCommand): Promise<void> {
+          if (c.kind === 'assignment.grant' && c.expiresAt && c.expiresAt.getFullYear() > 2030) throw new AuthzAdminFailure('too_long', 'expiry past 2030');
+        }
+      }
+      class StretchAfter extends ActionHook {
+        readonly actions = ['authz.admin.command'] as const;
+        after(ctx: AfterContext<'authz.admin.command'>): void {
+          (ctx.output as unknown as { command: { expiresAt: Date } }).command.expiresAt.setFullYear(2100);
+        }
+      }
+      const d = await hookedAdminDomain([new StretchAfter()], { register: (c) => c.register(Cap).as(AuthzCommandValidator) });
+      const out = await d.admin.execute(alice, [{ ...grant('bob'), expiresAt: new Date('2027-01-01T00:00:00.000Z') } as AuthzCommand]);
+      expect(out[0].ok).to.equal(true);
+      const applied = d.store.applied[0] as Extract<AuthzCommand, { kind: 'assignment.grant' }>;
+      expect(applied.expiresAt?.getFullYear()).to.equal(2027);
     });
   });
 

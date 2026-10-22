@@ -270,7 +270,8 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
                 // Always: deepFreeze does not stop a hook from changing a Date in place, so identity proves nothing.
                 command = frozenCommand(merged.command, i);
                 verdict = await this.check(env, handlers, validators, actor, command, ctx);
-                return { command };
+                // A copy: an after hook gets the output, and deepFreeze does not stop it from changing a Date; phase B applies only `command`.
+                return { command: frozenCommand(command, i) };
               },
               { mutable: ['command'] },
             ),
