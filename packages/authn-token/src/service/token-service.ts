@@ -775,7 +775,8 @@ export class DbTokenService extends TokenService {
    */
   protected async ownerHolds(owner: IdentityRef, roles: readonly string[]): Promise<boolean> {
     const source = this.Roles;
-    if (source === undefined) {
+    // An optional @Autoinject of the abstract class yields a bare RoleSource instance when nothing implements it.
+    if (source === undefined || source.constructor === RoleSource) {
       return true;
     }
     if (typeof source.rolesOf !== 'function') {
