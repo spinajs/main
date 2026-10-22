@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn-local",
-  "version": "3.0.4",
+  "version": "3.0.5",
   "description": "Local password authentication for SpinaJS",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -80,20 +80,20 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.4",
-    "@spinajs/cli": "3.0.4",
-    "@spinajs/configuration": "3.0.4",
-    "@spinajs/di": "3.0.4",
-    "@spinajs/exceptions": "3.0.4",
-    "@spinajs/log": "3.0.4",
-    "@spinajs/orm": "3.0.4",
-    "@spinajs/util": "3.0.4",
+    "@spinajs/authn": "3.0.5",
+    "@spinajs/cli": "3.0.5",
+    "@spinajs/configuration": "3.0.5",
+    "@spinajs/di": "3.0.5",
+    "@spinajs/exceptions": "3.0.5",
+    "@spinajs/log": "3.0.5",
+    "@spinajs/orm": "3.0.5",
+    "@spinajs/util": "3.0.5",
     "ajv": "^8.12.0",
     "argon2": "^0.44.0",
     "bcryptjs": "^3.0.3"
   },
   "peerDependencies": {
-    "@spinajs/queue": "3.0.4"
+    "@spinajs/queue": "3.0.5"
   },
   "peerDependenciesMeta": {
     "@spinajs/queue": {
@@ -101,8 +101,8 @@
     }
   },
   "devDependencies": {
-    "@spinajs/authn-testing": "3.0.4",
-    "@spinajs/orm-sqlite": "3.0.4",
-    "@spinajs/queue": "3.0.4"
+    "@spinajs/authn-testing": "3.0.5",
+    "@spinajs/orm-sqlite": "3.0.5",
+    "@spinajs/queue": "3.0.5"
   }
 }
