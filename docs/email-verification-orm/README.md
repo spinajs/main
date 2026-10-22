@@ -20,26 +20,24 @@ Install the ORM driver you use, for example `@spinajs/orm-sqlite`.
 
 ## Quick start
 
-```ts sample
-import { FrameworkConfiguration } from '@spinajs/configuration';
+Point `emailVerification.orm.connection` at a connection your app already defines in `db.Connections`:
+
+```js
+// config/email-verification.js of your app
 import '@spinajs/email-verification-orm';
-import _ from 'lodash';
 
-export class AppConfiguration extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    this.Config = _.merge(this.Config, {
-      emailVerification: { enabled: true, store: 'OrmEmailVerificationStore' },
-      db: {
-        Connections: [{ Driver: 'orm-driver-sqlite', Filename: 'email-verification.sqlite', Name: 'email-verification-connection', Migration: { OnStartup: true } }],
-      },
-    });
-  }
-}
+export default {
+  emailVerification: {
+    enabled: true,
+    store: 'OrmEmailVerificationStore',
+    orm: { connection: 'main' },
+  },
+};
 ```
 
-Importing the package registers the store and its migration. With `Migration.OnStartup` the tables are created at boot.
+Importing the package registers the store and its migration; a config module is loaded by the app and by the `spinajs` CLI alike ([why that matters](../email-verification/05-cli.md#the-store-package-in-the-cli-process)). The migration runs on that connection, so with its `Migration.OnStartup: true` the tables are created at boot.
+
+Do not add a connection for the store by merging a `db.Connections` array into the app's config: arrays from config files are concatenated, and `_.merge` in a `FrameworkConfiguration` subclass merges them index by index, which overwrites the app's first connection. If the store needs its own database, define that connection next to the others, in the same config file.
 
 ## Related packages
 
