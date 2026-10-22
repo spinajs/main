@@ -5,15 +5,15 @@ import type { Request } from '@spinajs/http';
 import { PrincipalFactory, RoleSource, SessionIssuer } from '@spinajs/authn/contracts';
 import type { Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
 import { Hooks } from '@spinajs/hooks';
-import { runHookedAction } from '@spinajs/authn/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, RoleSourceRegistered } from '../index.js';
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
 import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
 import { ACTIVE_ROLE_KEY } from '../../resolvers/session.js';
-import { NO_STORE, authnSessionCookie, refusedByHook } from '../responses.js';
-import { answerFor, bodyField, boundedString, contextOf, onLiveSession } from '../routes.js';
+import { NO_STORE, authnSessionCookie, hookRefusedAnswer } from '../responses.js';
+import { answerFor, bodyField, boundedString, contextOf, onLiveSession, publishAuthnEvent } from '../routes.js';
 import '../../hooks.js';
 
 const ROLE_CAP = 256;
@@ -100,7 +100,11 @@ export class AuthnActiveRoleController extends BaseController {
         { mutable: [] },
       );
     } catch (err) {
-      return refusedByHook(err, 'authn.role.switch');
+      const refusal = hookRefusalOf(err, 'authn.role.switch');
+      if (!refusal) throw err;
+      const { sessionHandle } = session.facts;
+      await publishAuthnEvent(this.Container, req, { type: 'role.switch', outcome: 'failure', reason: refusal.reason, identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) });
+      return hookRefusedAnswer(refusal.code);
     }
     return new Ok(await answerFor(this.Container, 'role-switch', principal, { ActiveRole: role }), { Coockies: [authnSessionCookie(this._cfg, rotated!)], Headers: [NO_STORE] });
   }

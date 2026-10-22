@@ -221,6 +221,19 @@ describe('action hooks on the 3.0 routes', function () {
       expect(now!.activeRole).to.equal(undefined);
     });
 
+    it('audits a refused switch as role.switch with hook:<code>', async () => {
+      const w = await world();
+      const controller = w.wire(new AuthnActiveRoleController());
+      Object.assign(controller, {
+        Principals: { principalOf: async (id: IdentityRef) => ({ authenticated: true, type: id.type, id: id.id }) },
+        Roles: { rolesOf: async () => [{ role: 'viewer', requirePassword: false }] },
+      });
+      w.hook.refuse('authn.role.switch', CODE);
+      expectRefused(await controller.switch(w.request({ role: 'viewer' })), 403);
+      expect(w.events.map((e) => [e.type, e.outcome, e.reason])).to.deep.equal([['role.switch', 'failure', `hook:${CODE}`]]);
+      expect(w.events[0].identity).to.deep.equal({ type: w.alice.type, id: w.alice.id });
+    });
+
     it('a hook writing the session handle in place, or the principal it is shown after, moves neither the rotation nor the answer', async () => {
       const w = await world();
       const controller = w.wire(new AuthnActiveRoleController());
@@ -518,6 +531,14 @@ describe('action hooks on the 3.0 routes', function () {
       expect(err).to.be.instanceOf(Forbidden);
       expect((err as { code?: unknown }).code).to.equal(CODE);
       expect(w.hook.calls('authn.request')[0].input).to.deep.include({ method: 'GET', path: '/api/things', ip: '192.0.2.7' });
+    });
+
+    it('on, a refusal is audited as request.refuse with hook:<code>', async () => {
+      const w = await world();
+      w.hook.refuse('authn.request', CODE);
+      await authenticate(w, { 'authn.http.hooks.request': true });
+      expect(w.events.map((e) => [e.type, e.outcome, e.reason])).to.deep.equal([['request.refuse', 'failure', `hook:${CODE}`]]);
+      expect(w.events[0].identity).to.deep.equal({ type: 'user', id: 'alice-1' });
     });
 
     it('on, with an identity that cannot be cloned, a hook still changes nothing of the principal the request gets', async () => {
