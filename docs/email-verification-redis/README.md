@@ -38,6 +38,8 @@ export class AppConfiguration extends FrameworkConfiguration {
 }
 ```
 
+The `spinajs` CLI does not load your app's entry module, so it never uses this class, and the `email-verification:*` commands would not see the store. To use them, import the package and set these keys in a config module instead: see [The store package in the CLI process](../email-verification/05-cli.md#the-store-package-in-the-cli-process).
+
 ## Related packages
 
 - [`@spinajs/email-verification`](../email-verification/README.md): the service, verifiers and the store contract.
