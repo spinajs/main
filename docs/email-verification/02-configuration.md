@@ -2,14 +2,19 @@
 
 All settings live under `emailVerification`. The JSON schema in `schema.ts` holds every default, so a key you leave out takes its default, and a wrong value (a bad enum, a non-https URL) fails the boot. Importing `@spinajs/email-verification` registers the schema; `@spinajs/email-verification/register-schema` registers it alone.
 
+Two rules of `@spinajs/configuration` apply here:
+
+- **Arrays are concatenated across config sources.** When two config files both set `lists.sources`, `http.providers` or `verifiers`, the result holds the items of both. Set each of these arrays in one config file only.
+- **Unknown keys are dropped without an error.** A misspelled key, such as `lists.refreshSecond`, is removed and its setting takes the default. Only a wrong value fails the boot.
+
 ## Core
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `emailVerification.enabled` | `boolean` | `false` | | `false` makes `check()` allow everything |
+| `emailVerification.enabled` | `boolean` | `false` | | `false` makes `check()` allow everything; `ListVerifier` then loads no lists and does not poll the store |
 | `emailVerification.store` | `string` | `'MemoryEmailVerificationStore'` | Class name of a registered `EmailVerificationStore` | [The store](06-choosing-a-store.md) |
 | `emailVerification.verifiers` | `{ service: string }[]` | `[{ service: 'ListVerifier' }, { service: 'DnsVerifier' }]` | At least one item; each `service` is the class name of a registered `DomainVerifier` | Verifiers, in the order they run |
-| `emailVerification.timeoutMs` | `integer` | `3000` | `>= 1` | Time limit of one verifier call, one store read and one store write |
+| `emailVerification.timeoutMs` | `integer` | `3000` | `>= 1` | Time limit of one verifier call, one store read, one store write, and one list load or refresh of `ListVerifier` |
 | `emailVerification.onError` | `string` | `'allow'` | `'allow'`, `'refuse'` | Result when a verifier throws or times out |
 | `emailVerification.refuseCode` | `string` | `'email_domain_refused'` | `^[a-z0-9][a-z0-9_.-]{0,58}$` | `code` of every refusal |
 | `emailVerification.lru.maxEntries` | `integer` | `10000` | `>= 0`; `0` turns the LRU off | In-process verdict cache size |
@@ -59,7 +64,7 @@ The default source is the `disposable_email_blocklist.conf` file of the `disposa
 | --- | --- | --- | --- | --- |
 | `...providers[].name` | `string` | required | `^[a-z0-9][a-z0-9_.-]{0,62}$` | Provider name; the result source is `http:<name>` |
 | `...providers[].url` | `string` | required | `https://` and contains `{domain}` | URL template; `{domain}` becomes the percent-encoded domain |
-| `...providers[].headers` | `Record<string,string>` | `{}` | | Request headers, for example an API key. Never logged |
+| `...providers[].headers` | `Record<string,string>` | `{}` | Names are HTTP field-name tokens (RFC 9110); values hold no control character (CR, LF, NUL, tab, DEL) | Request headers, for example an API key. Never logged |
 | `...providers[].resultPath` | `string` | required | Dot path into the JSON answer | Where the value to test sits |
 | `...providers[].refuseWhen` | `(boolean \| string \| number)[]` | `[true]` | At least one scalar | Values at `resultPath` that mean refuse |
 | `...providers[].reason` | `string` | `'refused_by_provider'` | `^[a-z0-9_]{1,64}$` | `reason` of the refusal |

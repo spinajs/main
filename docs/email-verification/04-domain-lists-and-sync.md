@@ -47,7 +47,9 @@ The first sync is not automatic. Until it runs, the store holds no synced entrie
 ## Important behaviour
 
 - `replaceSource` is atomic for readers: they see the old set or the new set, never a mix.
-- Every list write changes `listVersion`; other processes reload within `lists.refreshSeconds`.
+- Every list write changes `listVersion`; other processes reload within `lists.refreshSeconds`. `block` and `allow` changes apply from then on.
+- `block-mx` changes act through the cached `dns` verdict. A domain checked before the entry was added (or before the first sync) keeps its `resolves` verdict until `dns.ttl.positive` (24 h by default) runs out. A domain refused with `disposable_mx` stays refused for up to `dns.ttl.negative` (1 h by default) after its entry is removed.
+- `email-verification:sync` runs in the `spinajs` CLI process, which must import the store package. See [The store package in the CLI process](05-cli.md#the-store-package-in-the-cli-process).
 - Changing a source's `kind` or `url` resets its sync state, so the next run re-downloads in full and removes the entries it wrote under the previous kind.
 - Renaming a source does not remove the entries of the old name. Remove them with `email-verification:unlist --kind <kind> --source <old> <domains>`.
 

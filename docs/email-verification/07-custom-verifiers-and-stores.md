@@ -80,7 +80,7 @@ Implement these methods. Domains reach the store already normalised.
 
 ### Run the contract tests
 
-`storeContract` from `@spinajs/email-verification/testing` is the shared mocha suite every shipped store passes. It covers verdict round trips and TTL expiry, upsert and remove, `replaceSource` (including a reader racing a replace), `listVersion` changes and meta values. It needs `mocha` and `chai`, which are optional peer dependencies.
+`storeContract` from `@spinajs/email-verification/testing` is the shared mocha suite every shipped store passes. It covers verdict round trips and TTL expiry, upsert and remove, `replaceSource` (including a reader racing a replace), `listVersion` changes and meta values. It runs on mocha globals and asserts with chai: both are optional peer dependencies of `@spinajs/email-verification`, so install `mocha` and `chai` as dev dependencies of the package that runs it.
 
 ```ts
 import { MemoryEmailVerificationStore } from '@spinajs/email-verification';

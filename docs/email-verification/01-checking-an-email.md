@@ -4,7 +4,7 @@
 
 ## How it works
 
-1. `check(email)` returns `{ allowed: true, domain }` at once when `emailVerification.enabled` is `false`.
+1. `check(email)` returns `{ allowed: true, domain }` at once when `emailVerification.enabled` is `false`. `ListVerifier` then loads no lists and does not poll the store.
 2. `emailDomain(email)` takes the part after the last `@`, trims it, strips one trailing dot and converts it to lower-case ASCII (punycode). It gives `null` for an empty part, an IP literal (`[...]`), fewer than two labels, an invalid label or a numeric TLD. `null` is refused with reason `invalid_domain` and source `address`.
 3. Concurrent checks of the same domain share one run (single flight per domain).
 4. For each verifier in `emailVerification.verifiers` order, `verdictOf()`:
@@ -52,7 +52,8 @@ At boot `resolve()` throws `InvalidOperation` when `emailVerification.verifiers`
 
 - A cache or store failure never blocks a check. Only a verifier failure is affected by `onError`.
 - `onError: 'refuse'` turns every verifier error and timeout into a refusal. Use it only when a missed check costs more than a refused signup.
-- Verdicts are cached per verifier and domain. The `list` verifier is never cached, so list edits apply within `lists.refreshSeconds`.
+- Verdicts are cached per verifier and domain. The `list` verifier is never cached, so `block` and `allow` edits apply within `lists.refreshSeconds`.
+- `block-mx` entries act through the cached `dns` verdict. A new entry reaches a domain that was already checked only when its `resolves` verdict expires (`dns.ttl.positive`, 24 h by default). A removed entry stops refusing when the `disposable_mx` verdict expires (`dns.ttl.negative`, 1 h by default). The same applies to domains checked before the first sync.
 - The LRU is per process. With `lru.maxEntries: 0` it is off.
 - Logs hold the domain only. Provider headers and API keys are never logged.
 

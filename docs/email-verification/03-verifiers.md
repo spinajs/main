@@ -21,8 +21,9 @@ Keeps the `allow`, `block` and `block-mx` lists in memory, loaded from `store.lo
 
 - Matching is by label suffix: `x.mailinator.com` matches `mailinator.com`, `notmailinator.com` does not. There is no Public Suffix List.
 - An allow entry beats every block entry. The `admin` entry wins over a synced entry of the same domain and kind.
-- It calls `store.listVersion()` every `lists.refreshSeconds` and reloads when the token changed.
-- When the first load fails, it logs an error and answers `unknown` until a refresh succeeds, so the other verifiers decide.
+- It calls `store.listVersion()` every `lists.refreshSeconds` and reloads when the token changed. A tick that finds the previous refresh still running waits for it instead of starting another.
+- The first load and each refresh are bounded by `timeoutMs`. When the first load fails or times out, it logs an error and answers `unknown` until a refresh succeeds, so the other verifiers decide.
+- With `emailVerification.enabled: false` it loads no lists and starts no timer, so `email-verification:check` shows `list unknown`.
 - `block-mx` entries are read by `DnsVerifier`, not here.
 
 ## `DnsVerifier`
@@ -77,7 +78,7 @@ Provider names must be unique; the verifier throws at boot on a duplicate. A ref
 
 - Add `RdapVerifier` after `DnsVerifier`: DNS rejects dead domains cheaply, so RDAP only sees domains that resolve.
 - Keep `timeoutMs` above the slowest verifier you enable. A verifier that exceeds it counts as an error and is not cached.
-- Send API keys through `headers` from secret config. They are not logged.
+- Send API keys through `headers` from secret config. They are not logged. The schema refuses a header name that is not an HTTP token and a value with a control character (a CR or LF from a badly pasted secret, for example), so the boot fails before any request. A header that `fetch` still rejects fails the request with `invalid request header`, without the value.
 
 ## Related
 
