@@ -2,11 +2,12 @@
 import { expect } from 'chai';
 import 'mocha';
 import { DateTime } from 'luxon';
+import { IColumnDescriptor } from '@spinajs/orm';
 
 import { PostgresDatetimeValueConverter, PostgresJsonValueConverter } from '../src/converters.js';
 import { utcTypeParser } from '../src/index.js';
 
-const col = (Type: string) => ({ Type }) as any;
+const col = (Type: string) => ({ Type }) as IColumnDescriptor;
 
 describe('PostgresJsonValueConverter', () => {
   const c = new PostgresJsonValueConverter();

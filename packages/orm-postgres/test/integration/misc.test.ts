@@ -2,7 +2,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { QueryContext } from '@spinajs/orm';
+import { IUpdateResult, QueryContext } from '@spinajs/orm';
 
 import './migrations/PgTypesMigration_2026_10_15_00_02_00.js';
 import { IPgSuite, openSuite } from './harness.js';
@@ -60,7 +60,7 @@ describe('postgres integration - soft delete and raw SQL', function () {
 
   it('reports affected rows of a raw UPDATE', async () => {
     await PgSoft.insert([{ Val: 'a' }, { Val: 'a' }]);
-    const result = await suite.driver.executeOnDb('UPDATE "pg_soft" SET "Val" = ? WHERE "Val" = ?', ['b', 'a'], QueryContext.Update);
+    const result: IUpdateResult = await suite.driver.executeOnDb('UPDATE "pg_soft" SET "Val" = ? WHERE "Val" = ?', ['b', 'a'], QueryContext.Update);
     expect(result.RowsAffected).to.equal(2);
   });
 });

@@ -14,7 +14,7 @@ import { PgAutoKey } from './models/core.js';
 const expect = chai.expect;
 chai.use(chaiAsPromised);
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('postgres integration - infrastructure', function () {
   this.timeout(180000);

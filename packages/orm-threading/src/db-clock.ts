@@ -17,7 +17,7 @@ const NOW_MS_SQL: Record<string, string> = {
  */
 export async function dbNowMs(driver: OrmDriver): Promise<number> {
   const sql = NOW_MS_SQL[driver?.Options?.Driver];
-  const raw = driver as unknown as { executeOnDb?: (stmt: string, params: unknown[], context: QueryContext) => Promise<any> };
+  const raw = driver as unknown as { executeOnDb?: (stmt: string, params: unknown[], context: QueryContext) => Promise<Array<{ now_ms: string | number }>> };
 
   if (!sql || typeof raw.executeOnDb !== 'function') {
     return Date.now();

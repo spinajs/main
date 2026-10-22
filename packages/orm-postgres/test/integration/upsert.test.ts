@@ -2,7 +2,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { InsertBehaviour } from '@spinajs/orm';
+import { IInsertResult, InsertBehaviour } from '@spinajs/orm';
 
 import './migrations/PgTypesMigration_2026_10_15_00_02_00.js';
 import { IPgSuite, openSuite } from './harness.js';
@@ -30,7 +30,7 @@ describe('postgres integration - upserts', function () {
 
   it('upserts on an explicit conflict column and returns the row', async () => {
     await suite.driver.insert().into('pg_account').values({ Email: 'a@x.io', Name: 'A' }).onDuplicate('Email').update(['Name']);
-    const second = await suite.driver.insert().into('pg_account').values({ Email: 'a@x.io', Name: 'A2' }).onDuplicate('Email').update(['Name']);
+    const second: IInsertResult = await suite.driver.insert().into('pg_account').values({ Email: 'a@x.io', Name: 'A2' }).onDuplicate('Email').update(['Name']);
 
     expect(second.Returning.map((r: { Name: string }) => r.Name)).to.deep.equal(['A2']);
     expect(await accounts()).to.deep.equal([{ Email: 'a@x.io', Name: 'A2' }]);
@@ -54,7 +54,7 @@ describe('postgres integration - upserts', function () {
 
   it('skips a conflicting row with insert-or-ignore', async () => {
     await suite.driver.insert().into('pg_account').values({ Email: 'a@x.io', Name: 'A' });
-    const result = (await suite.driver.insert().into('pg_account').values({ Email: 'a@x.io', Name: 'B' }).orIgnore()) as any;
+    const result = (await suite.driver.insert().into('pg_account').values({ Email: 'a@x.io', Name: 'B' }).orIgnore()) as IInsertResult;
 
     expect(result.RowsAffected).to.equal(0);
     expect(await accounts()).to.deep.equal([{ Email: 'a@x.io', Name: 'A' }]);

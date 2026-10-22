@@ -12,7 +12,7 @@ import { PgEvent } from './models/types.js';
 const expect = chai.expect;
 chai.use(chaiAsPromised);
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('postgres integration - time (process zone Europe/Warsaw)', function () {
   let suite: IPgSuite;

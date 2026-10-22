@@ -10,7 +10,7 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 
 type Affected = { RowsAffected: number };
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('postgres integration - concurrency', function () {
   let suite: IPgSuite;

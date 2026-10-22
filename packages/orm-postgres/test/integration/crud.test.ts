@@ -2,6 +2,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
+import { IInsertResult } from '@spinajs/orm';
 
 import './migrations/PgCoreMigration_2026_10_15_00_00_00.js';
 import { IPgSuite, openSuite } from './harness.js';
@@ -44,7 +45,7 @@ describe('postgres integration - crud and keys', function () {
   });
 
   it('supports RETURNING on a plain insert builder', async () => {
-    const result = (await suite.driver.insert().into('pg_auto_key').values({ Name: 'r' }).returning(['Id', 'Name'])) as any;
+    const result = (await suite.driver.insert().into('pg_auto_key').values({ Name: 'r' }).returning(['Id', 'Name'])) as IInsertResult;
     expect(result.Returning).to.deep.equal([{ Id: 1, Name: 'r' }]);
   });
 

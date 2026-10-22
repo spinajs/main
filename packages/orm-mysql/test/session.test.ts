@@ -6,6 +6,8 @@ import { QueryContext } from '@spinajs/orm';
 
 import { MySqlOrmDriver } from '../src/index.js';
 
+type ErrorChain = { inner?: unknown; cause?: unknown; message?: unknown } | null | undefined;
+
 class ProbeDriver extends MySqlOrmDriver {
   public probeOptions() {
     return this.poolConfig();
@@ -68,8 +70,7 @@ describe('mysql session time zone', () => {
         },
       };
       d.pin(pool);
-      (d as any).Pool = pool;
-      (d as any).Log = { trace() {}, debug() {}, info() {}, warn() {}, error() {} };
+      Object.assign(d, { Pool: pool, Log: { trace() {}, debug() {}, info() {}, warn() {}, error() {} } });
       return { d, connection };
     }
 
@@ -83,7 +84,7 @@ describe('mysql session time zone', () => {
 
       expect(err, 'executeOnDb should reject').to.be.instanceOf(Error);
       const messages: string[] = [];
-      for (let e: any = err; e; e = e.inner ?? e.cause) messages.push(String(e.message));
+      for (let e: ErrorChain = err; e; e = (e.inner ?? e.cause) as ErrorChain) messages.push(String(e.message));
       expect(messages.join(' | ')).to.contain('could not set the session time zone of connection x to UTC');
       expect(connection.sent).to.deep.eq(["SET time_zone = '+00:00'"]);
       expect(connection.destroyed).to.eq(true);
@@ -93,7 +94,7 @@ describe('mysql session time zone', () => {
     it('fails a transaction begin the same way', async () => {
       const { d, connection } = pooled(new Error("Unknown or incorrect time zone: '+00:00'"));
 
-      const err = await (d as any)._begin().then(
+      const err = await d['_begin']().then(
         () => null,
         (e: Error) => e,
       );

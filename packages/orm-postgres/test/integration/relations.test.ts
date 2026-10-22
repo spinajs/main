@@ -51,7 +51,7 @@ describe('postgres integration - relations', function () {
   it('saves a whole graph parent-first under real foreign keys', async () => {
     const order = new PgOrder({ Total: 120 });
     order.Client.attach(new PgClient({ Name: 'acme' }));
-    (order.Items as any).Populated = true;
+    order.Items.Populated = true;
     order.Items.push(new PgOrderItem({ Sku: 'A' }), new PgOrderItem({ Sku: 'B' }));
 
     const result = await order.save();

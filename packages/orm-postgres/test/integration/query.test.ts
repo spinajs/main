@@ -113,7 +113,7 @@ describe('postgres integration - querying', function () {
       .whereNotNull('City')
       .groupBy('City')
       .orderBy('City')
-      .asRaw()) as { City: string; n: string | number }[];
+      .asRaw<{ City: string; n: string | number }[]>());
 
     expect(rows.map((r) => [r.City, Number(r.n)])).to.deep.equal([
       ['Gdansk', 1],

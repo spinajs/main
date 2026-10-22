@@ -126,7 +126,7 @@ describe('postgres datetimes (integration)', function () {
     await PgDtDoc.insert({ id: 2, at: DateTime.fromMillis(Date.now() + 3_600_000) });
 
     await inZone('Asia/Kolkata', async () => {
-      const past = (await PgDtDoc.where('at', '<=', pgdb!.driver.now())) as PgDtDoc[];
+      const past = await PgDtDoc.where('at', '<=', pgdb!.driver.now());
       expect(past.map((d) => d.id)).to.deep.eq([1]);
 
       const before = Date.now();

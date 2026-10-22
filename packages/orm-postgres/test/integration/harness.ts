@@ -163,10 +163,11 @@ export async function openSuite(ctx: Mocha.Context, options: IPgSuiteOptions): P
     orm,
     driver,
     raw: (sql: string, params: unknown[] = []) => driver.executeOnDb(sql, params as any[], QueryContext.Select),
-    external: (sql: string, params: unknown[] = []) =>
+    external: <T>(sql: string, params: unknown[] = []) =>
       withClient(PG.Database, async (c) => {
         await c.query(`SET search_path TO ${pgEscapeIdentifier(schema)}`);
-        return (await c.query(toPositionalParameters(sql), params as any[])).rows as any;
+        const { rows }: { rows: unknown } = await c.query(toPositionalParameters(sql), params as any[]);
+        return rows as T;
       }),
     reset: async (...tables: string[]) => {
       await driver.executeOnDb(`TRUNCATE TABLE ${tables.map((t) => pgEscapeIdentifier(t)).join(', ')} RESTART IDENTITY CASCADE`, [], QueryContext.Schema);
@@ -185,12 +186,13 @@ export async function openSuite(ctx: Mocha.Context, options: IPgSuiteOptions): P
 
 /** The SQLSTATE of a driver error, looked up through OrmException's `inner` / `cause` chain. */
 export function sqlState(err: unknown): string | undefined {
-  let current: any = err;
+  type ErrorChain = { code?: unknown; inner?: unknown; cause?: unknown } | null | undefined;
+  let current = err as ErrorChain;
   for (let depth = 0; current && depth < 6; depth++) {
     if (typeof current.code === 'string' && /^[0-9A-Z]{5}$/.test(current.code)) {
       return current.code;
     }
-    current = current.inner ?? current.cause;
+    current = (current.inner ?? current.cause) as ErrorChain;
   }
   return undefined;
 }
