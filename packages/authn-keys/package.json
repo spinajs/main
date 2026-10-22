@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn-keys",
-  "version": "3.0.11",
+  "version": "3.0.12",
   "description": "Key registry, JWS and HTTP signature authentication for SpinaJS",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -64,19 +64,19 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.11",
-    "@spinajs/cli": "3.0.11",
-    "@spinajs/configuration": "3.0.11",
-    "@spinajs/di": "3.0.11",
-    "@spinajs/exceptions": "3.0.11",
-    "@spinajs/hooks": "3.0.11",
-    "@spinajs/log": "3.0.11",
-    "@spinajs/orm": "3.0.11",
-    "@spinajs/util": "3.0.11",
+    "@spinajs/authn": "3.0.12",
+    "@spinajs/cli": "3.0.12",
+    "@spinajs/configuration": "3.0.12",
+    "@spinajs/di": "3.0.12",
+    "@spinajs/exceptions": "3.0.12",
+    "@spinajs/hooks": "3.0.12",
+    "@spinajs/log": "3.0.12",
+    "@spinajs/orm": "3.0.12",
+    "@spinajs/util": "3.0.12",
     "luxon": "^3.6.1"
   },
   "peerDependencies": {
-    "@spinajs/authn-orm": "3.0.11"
+    "@spinajs/authn-orm": "3.0.12"
   },
   "peerDependenciesMeta": {
     "@spinajs/authn-orm": {
@@ -84,8 +84,8 @@
     }
   },
   "devDependencies": {
-    "@spinajs/authn-orm": "3.0.11",
-    "@spinajs/authn-testing": "3.0.11",
-    "@spinajs/orm-sqlite": "3.0.11"
+    "@spinajs/authn-orm": "3.0.12",
+    "@spinajs/authn-testing": "3.0.12",
+    "@spinajs/orm-sqlite": "3.0.12"
   }
 }
