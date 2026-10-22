@@ -10,7 +10,7 @@ const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CHILD = join(PKG_ROOT, 'test', 'v3', 'route-groups-app.cjs');
 
 type Group = 'password' | 'mfa' | 'tokens' | 'keys' | 'admin';
-/** `admin`: a CredentialAdminGuard, as users registers one. */
+/** `admin`: a CredentialAdminRule, as users registers one. */
 type Package = 'local' | 'totp' | 'token' | 'keys' | 'admin';
 
 /** Design §22.11: each N8b route group and the strategy package (or hook) whose service switches it on. */
@@ -40,7 +40,7 @@ interface Boot {
   usersModules: string[];
   bootstrappers: string[];
   sessionProviders: string[];
-  registered: Record<'PasswordService' | 'TotpService' | 'TokenService' | 'KeyRegistry' | 'CredentialAdminGuard', boolean>;
+  registered: Record<'PasswordService' | 'TotpService' | 'TokenService' | 'KeyRegistry' | 'CredentialAdminRule', boolean>;
   routes: string[];
   controllers: string[];
   anonymous: Record<string, Answer>;
@@ -169,7 +169,7 @@ describe('each 3.0 route group only with its service (N8b task 6, design §22.11
         expect(b.sessionProviders).to.deep.eq(['MemorySessionStore']);
         expect([...b.controllers].sort()).to.deep.eq([...V3_CONTROLLERS].sort());
         expect(readdirSync(cacheDirs.get(c)!), 'the controller cache of this child alone').to.not.be.empty;
-        expect(b.registered).to.deep.eq({ PasswordService: isOn(c, 'password'), TotpService: isOn(c, 'mfa'), TokenService: isOn(c, 'tokens'), KeyRegistry: isOn(c, 'keys'), CredentialAdminGuard: isOn(c, 'admin') });
+        expect(b.registered).to.deep.eq({ PasswordService: isOn(c, 'password'), TotpService: isOn(c, 'mfa'), TokenService: isOn(c, 'tokens'), KeyRegistry: isOn(c, 'keys'), CredentialAdminRule: isOn(c, 'admin') });
       });
 
       it('an anonymous call gets 404 not_found from every route of a group that is off, before any authentication policy, and the route answer of every group that is on', () => {

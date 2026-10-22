@@ -2,8 +2,11 @@ import { randomBytes } from 'node:crypto';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AuthnEventSink, AuthnService, CredentialAdminGuard, KeyRegistry, MfaPolicy, MfaStep, NonceStore, PasswordService, SecretStore } from '@spinajs/authn/contracts';
+import { AuthnEventSink, AuthnService, KeyRegistry, MfaPolicy, MfaStep, NonceStore, PasswordService, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnEvent, AuthnFacts, CredentialAdminAction, IdentityRef, Principal } from '@spinajs/authn/contracts';
+import { CredentialAdminRule } from '@spinajs/authn/hooks';
+import type { CredentialAdminVerdict } from '@spinajs/authn/hooks';
+import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import { FakeImpersonationGuard, totpFromProvisioning } from '@spinajs/authn-testing';
 import type { FakeIdentityStore, Harness, HarnessContext, HarnessFactory, HttpRoutes, PortName } from '@spinajs/authn-testing';
 import type { LocalPasswordService, PasswordMail } from '@spinajs/authn-local';
@@ -529,15 +532,15 @@ let admins = 0;
 
 const adminNow = (): AdminState => loaded(adminState, 'the admin part');
 
-/** The calls the lane's CredentialAdminGuard got in this case. */
+/** The calls the lane's CredentialAdminRule got in this case. */
 export const laneAdminGuardCalls = (): AdminState['calls'] => adminNow().calls;
 
 /**
- * Stands in for users' AuthzCredentialAdminGuard: an impersonating actor or one without users:credentials is
+ * Stands in for users' AuthzCredentialAdminRule: an impersonating actor or one without users:credentials is
  * `forbidden`, then the targetGuard port decides.
  */
-class N8bCredentialAdminGuard extends CredentialAdminGuard {
-  public async allowed(actor: Principal, target: IdentityRef, action: CredentialAdminAction): Promise<{ ok: true } | { ok: false; code: 'forbidden' | 'protected_role' | 'escalation' | 'not_found' }> {
+class N8bCredentialAdminRule extends CredentialAdminRule {
+  public async allowed(actor: Principal, target: IdentityRef, action: CredentialAdminAction): Promise<CredentialAdminVerdict> {
     const state = adminNow();
     state.calls.push({ actor, target, action });
     if (actor.authn?.impersonator !== undefined || !state.rights.has(actor.id)) return { ok: false, code: 'forbidden' };
@@ -546,7 +549,7 @@ class N8bCredentialAdminGuard extends CredentialAdminGuard {
 }
 
 /**
- * The credential admin routes behind the lane's CredentialAdminGuard. Registered on the first boot of the lane and never
+ * The credential admin routes behind the lane's CredentialAdminRule. Registered on the first boot of the lane and never
  * removed, so test/v3-app/auth-admin.test.ts, which needs the group off, sorts before behaviour/.
  */
 export const adminPart: LanePart = {
@@ -554,8 +557,10 @@ export const adminPart: LanePart = {
   async beforeDb() {
     if (!adminBound) {
       adminBound = true;
-      const guard = new N8bCredentialAdminGuard();
-      bind(CredentialAdminGuard, 'N8bCredentialAdminGuard', () => guard);
+      // As a class: the route gate finds a rule by its type. The runner reads its hooks once, when it resolves.
+      DI.register(N8bCredentialAdminRule).as(ActionHook);
+      DI.uncache(DefaultHooks);
+      DI.uncache(Hooks);
     }
   },
   routes: ADMIN_ROUTES,
