@@ -57,12 +57,13 @@ Each of `pagination`, `order` and `filter` is one JSON-encoded query argument: `
 2. A new `Login` must not be reserved (`assertLoginNotReserved`, `400`). A `Role` that normalises to `[]` answers `400`.
 3. When `Email` or `Login` actually changes:
    1. fresh authentication (`freshAuthRefusal()`): a login within `authn.freshAuth.maxAgeSeconds`, or `reauthPassword` in the body; `403 fresh_auth_required`, `session_required`, `impersonating`, or the login failure `401`;
-   2. on another account, steps 5 to 8 run inside `withCredentialAdmin(caller, uuid, 'password-reset', ...)`, as authn's `authn.admin.credentials` action. Its `CredentialAdminRule` refuses with `403 forbidden`, `protected_role` or `escalation`, or `404 not_found`; another hook of the action answers `403 { error: 'action_refused', code }`.
+   2. on another account, steps 5 to 9 run inside `withCredentialAdmin(caller, uuid, 'password-reset', ...)`, as authn's `authn.admin.credentials` action. Its `CredentialAdminRule` refuses with `403 forbidden`, `protected_role` or `escalation`, or `404 not_found`; another hook of the action answers `403 { error: 'action_refused', code }`.
 4. `reauthPassword` is dropped from the DTO.
 5. With `Role`: `globalRolesOf()` reads the current GLOBAL roles, `replacementCommands()` builds a grant per added role and a `revokeWhere` per removed one. A removal first asks `AccountGuard.assertCanDemote(caller, target, kept)`.
 6. The `AuthzAdmin` batch runs as a **dry run**: a refusal answers `403` (`escalation`, `protected_role`, `forbidden`, `self_lockout`, `last_holder`) or `400` (`unknown_role`, `not_assignable`, `wrong_scope_type`) before anything is written.
 7. `assertUserUnique()` checks a changed login or email (`409`).
-8. The row is updated, then the batch runs for real.
+8. `updateUser()` of `@spinajs/users` writes `Login` and `Email`, so the `users.update` [action hooks](../users/04-action-hooks.md) run. A refusal answers `403` `{ error: 'action_refused', code }` and nothing is written, roles included; a login or email a hook changed is checked again (`409` when taken).
+9. The batch runs for real. When it fails, the row gets its previous `Login` and `Email` back.
 
 ```mermaid
 sequenceDiagram
@@ -78,7 +79,7 @@ sequenceDiagram
   U->>G: withCredentialAdmin(caller, target, password-reset): rule and hooks, then the rest
   U->>A: assertCanDemote(caller, target, kept)
   U->>Z: execute(batch, dryRun)
-  U->>U: assertUserUnique, update row
+  U->>U: assertUserUnique, updateUser (users.update hooks)
   U->>Z: execute(batch)
   U-->>C: 200
 ```

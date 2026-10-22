@@ -13,7 +13,7 @@ The [user actions](03-user-actions.md) run through the [`@spinajs/hooks`](../hoo
 
 `actor` is the principal the caller handed the function (`create`, `deactivate`, `ban`, `deleteUser`, `expirePassword` take one, SYSTEM by default). users-http's admin routes pass the caller; its `AccountDisableHook` is a before hook on `users.deactivate`, `users.ban` and `users.delete` that applies the account guard to every actor but SYSTEM ([Account guard](../users-http/08-account-guard.md)).
 
-Hooks never get an ORM model. `user` is a `UserView`: the user's columns as plain data, the password hash left out, dates as `Date`s. `actor` is an `ActorView`: `type`, `id`, `authenticated`, `source` and `attributes` of the principal, without its `identity` (the acting user's model); the action itself still acts as the principal it was given. Every input key is a frozen copy, a mutable key a plain copy, and the `after` hooks get a frozen copy of the output. The action acts on its own values, so a write in place in a hook reaches nothing but the keys it may change. No input carries a password.
+Hooks never get an ORM model. `user` is a `UserView`: the user's columns as plain data, the password hash left out, dates as `Date`s. `actor` is an `ActorView`: `type`, `id`, `authenticated`, `source` of the principal and a frozen deep copy of its `attributes`, without its `identity` (the acting user's model); the action itself still acts as the principal it was given. Every input key is a frozen copy, a mutable key a plain copy, and the `after` hooks get a frozen copy of the output. The action acts on its own values, so a write in place in a hook reaches nothing but the keys it may change. No input carries a password.
 
 ## Actions
 
