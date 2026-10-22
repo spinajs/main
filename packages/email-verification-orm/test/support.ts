@@ -8,16 +8,18 @@ import '@spinajs/email-verification/register-schema';
 import { OrmEmailVerificationStore } from '../src/index.js';
 import { ENTRIES_TABLE, META_TABLE, SOURCES_TABLE, VERDICTS_TABLE } from '../src/tables.js';
 
-let connectionName = 'email-verification-connection';
+const DEFAULT_CONNECTION = 'email-verification-connection';
+let connectionName = DEFAULT_CONNECTION;
 
 export class OrmStoreTestConfiguration extends FrameworkConfiguration {
   protected onLoad(): unknown {
     return {
-      emailVerification: { enabled: true, store: 'OrmEmailVerificationStore', orm: { connection: connectionName } },
+      emailVerification: { enabled: true, store: 'OrmEmailVerificationStore', orm: { connection: DEFAULT_CONNECTION } },
       db: {
         DefaultConnection: 'sqlite',
         Connections: [
-          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: connectionName, Migration: { OnStartup: true } },
+          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: DEFAULT_CONNECTION, Migration: { OnStartup: true } },
+          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'other-connection', Migration: { OnStartup: true } },
           { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { OnStartup: true } },
         ],
       },
@@ -26,7 +28,9 @@ export class OrmStoreTestConfiguration extends FrameworkConfiguration {
   }
 }
 
-const OWNED: unknown[] = [Configuration, OrmStoreTestConfiguration, Orm, EmailVerificationStore, OrmEmailVerificationStore];
+// Configuration stays cached: InternalLogger flushes its buffer only on the first resolve, so a re-resolved
+// Configuration would leave its boot log in the buffer to be dumped on exit.
+const OWNED: unknown[] = [Orm, EmailVerificationStore, OrmEmailVerificationStore];
 let registered = false;
 let current: { orm: Orm; store: OrmEmailVerificationStore } | undefined;
 
@@ -40,7 +44,7 @@ export async function disposeStore(): Promise<void> {
 }
 
 /** A fresh in-memory database with the migration applied on `connection`, and the store over it. */
-export async function bootStore(connection = 'email-verification-connection'): Promise<OrmEmailVerificationStore> {
+export async function bootStore(connection = DEFAULT_CONNECTION): Promise<OrmEmailVerificationStore> {
   await disposeStore();
   if (!registered) {
     DI.setESMModuleSupport();
@@ -49,8 +53,8 @@ export async function bootStore(connection = 'email-verification-connection'): P
     for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
     registered = true;
   }
+  (await DI.resolve(Configuration)).set('emailVerification.orm.connection', connection);
   connectionName = connection;
-  await DI.resolve(Configuration);
   const orm = await DI.resolve(Orm);
   const store = await DI.resolve(OrmEmailVerificationStore);
   current = { orm, store };

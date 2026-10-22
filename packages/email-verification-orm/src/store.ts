@@ -6,7 +6,7 @@ import type { CachedVerdict, ListEntry, ListKind, OrmStoreOptions, VerdictResult
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Orm } from '@spinajs/orm';
-import type { IUpdateResult, OrmDriver } from '@spinajs/orm';
+import type { IUpdateResult, IWhereBuilder, OrmDriver } from '@spinajs/orm';
 import { chunk } from '@spinajs/util';
 
 import { ENTRIES_TABLE, META_TABLE, SOURCES_TABLE, VERDICTS_TABLE } from './tables.js';
@@ -26,8 +26,11 @@ interface SourceRow {
 }
 
 const MAX_ATTEMPTS = 5;
-// 200 rows x 3 columns stays under the bound-parameter limits of sqlite (999) and MSSQL (2100).
+// 200 rows x 4 columns stays under the bound-parameter limits of sqlite (999) and MSSQL (2100).
 const INSERT_CHUNK = 200;
+const CLEANUP_BATCH = 500;
+// A writer fills its generation before it points a source at it; younger unreferenced rows may be in flight.
+const DEAD_GENERATION_GRACE_MS = 60 * 60 * 1000;
 const LIST_VERSION = 'listVersion';
 
 const rowsAffected = (result: unknown) => (result as IUpdateResult | undefined)?.RowsAffected ?? 0;
@@ -65,8 +68,31 @@ export class OrmEmailVerificationStore extends EmailVerificationStore {
     this.CleanupTimer = undefined;
   }
 
+  /** Deletes expired verdicts and the entries of generations no source points at (left by failed writes). */
   public async cleanupExpired(): Promise<number> {
-    return rowsAffected(await (await this.driver()).del().from(VERDICTS_TABLE).where('expires_at', '<=', Date.now()));
+    const d = await this.driver();
+    const now = Date.now();
+    const verdicts = await this.deleteInBatches(d, VERDICTS_TABLE, (q) => q.where('expires_at', '<=', now));
+    const liveGens = (await this.sourceRows(d)).map((r) => r.gen);
+    const entries = await this.deleteInBatches(d, ENTRIES_TABLE, (q) => q.where('created_at', '<', now - DEAD_GENERATION_GRACE_MS).whereNotIn('gen', liveGens));
+    return verdicts + entries;
+  }
+
+  protected async deleteInBatches(d: OrmDriver, table: string, filter: (q: IWhereBuilder<unknown>) => unknown): Promise<number> {
+    let removed = 0;
+    for (;;) {
+      const select = d.select().from(table).columns(['key']).orderBy('key').take(CLEANUP_BATCH);
+      filter(select);
+      const keys = ((await select) as { key: string }[]).map((r) => r.key);
+      if (keys.length === 0) break;
+      // The filter is applied again so a row refreshed since the select survives.
+      const del = d.del().from(table).whereIn('key', keys);
+      filter(del);
+      const deleted = rowsAffected(await del);
+      removed += deleted;
+      if (keys.length < CLEANUP_BATCH || deleted === 0) break;
+    }
+    return removed;
   }
 
   public async getVerdict(verifier: string, domain: string): Promise<CachedVerdict | null> {
@@ -146,8 +172,11 @@ export class OrmEmailVerificationStore extends EmailVerificationStore {
       const old = await this.sourceRow(d, key);
       const current = new Set(old && readCurrent ? await this.domainsOf(d, old.gen) : []);
       if (await this.swap(d, key, old?.gen, [...change(current)])) {
-        await this.setMeta(LIST_VERSION, randomUUID());
-        if (old) await d.del().from(ENTRIES_TABLE).where({ gen: old.gen });
+        try {
+          await this.setMeta(LIST_VERSION, randomUUID());
+        } finally {
+          if (old) await d.del().from(ENTRIES_TABLE).where({ gen: old.gen });
+        }
         return;
       }
     }
@@ -160,12 +189,24 @@ export class OrmEmailVerificationStore extends EmailVerificationStore {
       return oldGen === undefined || rowsAffected(await d.del().from(SOURCES_TABLE).where({ key, gen: oldGen })) === 1;
     }
     const gen = randomUUID();
-    for (const part of chunk(domains, INSERT_CHUNK)) {
-      await d.insert().into(ENTRIES_TABLE).values(part.map((domain) => ({ key: `${gen}|${domain}`, gen, domain })));
+    const createdAt = Date.now();
+    let moved: boolean;
+    try {
+      for (const part of chunk(domains, INSERT_CHUNK)) {
+        await d.insert().into(ENTRIES_TABLE).values(part.map((domain) => ({ key: `${gen}|${domain}`, gen, domain, created_at: createdAt })));
+      }
+      moved = oldGen === undefined ? await this.insertSource(d, key, gen) : rowsAffected(await d.update().in(SOURCES_TABLE).update({ gen }).where({ key, gen: oldGen })) === 1;
+    } catch (err) {
+      await this.dropUnreferencedGeneration(d, key, gen).catch(() => undefined);
+      throw err;
     }
-    const moved = oldGen === undefined ? await this.insertSource(d, key, gen) : rowsAffected(await d.update().in(SOURCES_TABLE).update({ gen }).where({ key, gen: oldGen })) === 1;
     if (!moved) await d.del().from(ENTRIES_TABLE).where({ gen });
     return moved;
+  }
+
+  /** The compare-and-set may have committed even though the client saw an error, so the pointer is checked first. */
+  protected async dropUnreferencedGeneration(d: OrmDriver, key: string, gen: string): Promise<void> {
+    if ((await this.sourceRow(d, key))?.gen !== gen) await d.del().from(ENTRIES_TABLE).where({ gen });
   }
 
   protected async insertSource(d: OrmDriver, key: string, gen: string): Promise<boolean> {
@@ -173,16 +214,15 @@ export class OrmEmailVerificationStore extends EmailVerificationStore {
       await d.insert().into(SOURCES_TABLE).values({ key, gen });
       return true;
     } catch (err) {
-      if ((await this.sourceRow(d, key)) === undefined) throw err;
-      return false;
+      const row = await this.sourceRow(d, key);
+      if (row === undefined) throw err;
+      // Our insert may have committed even though the client saw an error.
+      return row.gen === gen;
     }
   }
 
   protected async upsert(table: string, key: string, values: Record<string, unknown>): Promise<void> {
-    const d = await this.driver();
-    if (rowsAffected(await d.update().in(table).update(values).where({ key })) === 0) {
-      await d.insert().into(table).values({ key, ...values });
-    }
+    await (await this.driver()).insert().into(table).values({ key, ...values }).onDuplicate('key').update(Object.keys(values));
   }
 
   protected async sourceRow(d: OrmDriver, key: string): Promise<SourceRow | undefined> {

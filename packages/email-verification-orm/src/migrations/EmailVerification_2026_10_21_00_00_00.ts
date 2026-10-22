@@ -30,6 +30,7 @@ export class EmailVerification_2026_10_21_00_00_00 extends OrmMigration {
       t.string('key', 300).notNull().primaryKey().exact();
       t.string('gen', 36).notNull().exact();
       t.string('domain', 253).notNull().exact();
+      t.bigint('created_at').notNull();
     });
     await connection.index().table(ENTRIES_TABLE).name('ev_entries_gen').columns(['gen']);
 
