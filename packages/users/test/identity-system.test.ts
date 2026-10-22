@@ -12,7 +12,8 @@ import { QueryMiddleware } from '@spinajs/orm';
 import type { AuthnEvent, AuthnEventType, IdentityRef } from '@spinajs/authn/contracts';
 
 import type { ActionName, AfterContext } from '@spinajs/hooks';
-import { QueueAuthnEventSink, USER_COMMON_METADATA, User, UserActivated, UserPasswordStateHook, UserIdentityStore, UserLogged, UserPasswordAgeSource, UserPasswordStore } from '../src/index.js';
+import { EmailSend } from '@spinajs/email';
+import { QueueAuthnEventSink, USER_COMMON_METADATA, User, UserActivated, UserLifecycleMailHook, UserPasswordStateHook, userView, UserIdentityStore, UserLogged, UserPasswordAgeSource, UserPasswordStore } from '../src/index.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
 import { rootAuthz } from './support/authz-host.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
@@ -206,6 +207,21 @@ describe('the identity stores over a user model that is an @AccessResource', fun
     // UserChanged and UserActivated go to queue subscribers as the anonymous redeemer, never as SYSTEM.
     expect(emittedAs).to.have.lengthOf(2);
     expect(emittedAs.every((p) => p === ANONYMOUS)).to.eq(true);
+  });
+
+  it('UserLifecycleMailHook reads its recipient as SYSTEM: the mail of a caller who cannot read the row still goes out', async () => {
+    const { user } = await seedUser({ login: 'scoped-mail', email: 'scoped-mail@spinajs.pl' });
+    const view = userView(user);
+    scopeUsers();
+    const hook = await DI.resolve(UserLifecycleMailHook);
+    const after = () => hook.after({ action: 'users.ban', input: { user: view, reason: 'spam', duration: 60 }, output: view, bag: new Map(), depth: 1 } as unknown as AfterContext<ActionName>);
+
+    for (const [name, caller] of CALLERS) {
+      emit.resetHistory();
+      expect(await principalAfter(caller, after), name).to.eq(caller ?? UNATTENDED);
+      const mails = emit.args.map((a) => a[0] as unknown).filter((e) => e instanceof EmailSend) as unknown as { to: string[]; tag: string }[];
+      expect(mails.map((m) => [m.tag, m.to]), name).to.deep.eq([['rbac-user-banned', ['scoped-mail@spinajs.pl']]]);
+    }
   });
 
   it('QueueAuthnEventSink reads the user of the event', async () => {

@@ -8,9 +8,10 @@ import { ActionRefused } from '@spinajs/hooks';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { ScriptedActionHook } from '@spinajs/authn-testing';
+import type { Principal } from '@spinajs/authz';
 
 import { NO_PASSWORD, USER_COMMON_METADATA, User, UserAlreadyExists, UserBanned, UserIdentityRegistrar } from '../../src/index.js';
-import type { UsersCreateInput, UsersCreateOutput } from '../../src/index.js';
+import type { UserDraft, UsersCreateInput, UsersCreateOutput } from '../../src/index.js';
 import { activate, ban, create, deactivate, deleteUser, expirePassword, setUserMeta, unban, updateUser } from '../../src/actions.js';
 import { globalRolesOf } from '../support/authz-host.js';
 import { passwordCalls, resetPasswordCalls } from '../support/password-service.js';
@@ -285,6 +286,85 @@ describe('users actions on action hooks (HOOK-4)', function () {
       expect(err).to.include({ action: 'users.create', code: CODE });
       expect(hash.args, 'as many hashes as a taken address costs').to.deep.eq([[PASSWORD]]);
       await nothingWritten('registrant');
+    });
+  });
+
+  describe('the actor hooks see', () => {
+    /** A signed-in administrator whose principal carries its User model, as authn's PrincipalFactory makes it. */
+    async function signedInAdmin(): Promise<{ admin: User; actor: Principal }> {
+      const { User: created } = await create({ Email: 'acting-admin@spinajs.pl', Login: 'acting-admin', Password: PASSWORD }, ['admin']);
+      const admin = await storedUser(created.Uuid);
+      return { admin, actor: { type: 'user', id: admin.Uuid, authenticated: true, source: 'session', attributes: { team: 'ops' }, identity: admin } };
+    }
+
+    const tamperActor = (input: Record<string, any>) => {
+      const identity = (input.actor as { identity?: { Password?: string; Email?: string } }).identity;
+      if (identity) {
+        identity.Password = '$argon2id$planted';
+        identity.Email = 'planted@spinajs.pl';
+      }
+    };
+
+    for (const [action, act] of [
+      ['users.create', (actor: Principal) => create({ Email: 'by-actor@spinajs.pl', Login: 'by-actor' }, ['editor'], actor)],
+      ['users.password.expire', async (actor: Principal) => expirePassword(await storedUser((await seedUser({ login: 'expired-by-actor' })).user.Uuid), actor)],
+    ] as const) {
+      it(`${action}: a frozen plain view without the identity, so the model of the acting admin is out of reach`, async () => {
+        const { admin, actor } = await signedInAdmin();
+        const stored = (await storedUser(admin.Uuid)).Password;
+        const hook = new ScriptedActionHook();
+        hook.tamper(action, tamperActor);
+
+        await withHook(hook, async () => {
+          await act(actor);
+        });
+
+        const seen = (hook.calls(action)[0].input as { actor: Record<string, unknown> }).actor;
+        expect(seen).to.deep.eq({ type: 'user', id: admin.Uuid, authenticated: true, source: 'session', attributes: { team: 'ops' } });
+        expect(seen).to.not.have.property('identity');
+        expect(Object.isFrozen(seen)).to.eq(true);
+        expect(admin.Password).to.eq(stored);
+        expect(admin.Email).to.eq('acting-admin@spinajs.pl');
+        expect((await storedUser(admin.Uuid)).Password).to.eq(stored);
+      });
+    }
+
+    it('the action still acts as the actor it was given', async () => {
+      const { actor } = await signedInAdmin();
+      resetPasswordCalls();
+
+      await withHook(new ScriptedActionHook(), () => create({ Email: 'still-actor@spinajs.pl', Login: 'still-actor' }, ['editor'], actor));
+
+      expect(passwordCalls.find((c) => c.method === 'invite')?.actor).to.deep.eq({ type: 'user', id: actor.id });
+    });
+  });
+
+  describe('users.create writes its own state', () => {
+    it('a users.metadata.set hook does not run for the metadata create() writes, so it cannot refuse an account already inserted', async () => {
+      const hook = new ScriptedActionHook();
+      hook.refuse('users.metadata.set', CODE);
+
+      const { User: u } = await withHook(hook, () => create({ Email: 'meta-own@spinajs.pl', Login: 'meta-own', Metadata: { 'user:locale': 'pl' } }));
+
+      expect((await storedUser(u.Uuid)).Metadata['user:locale']).to.eq('pl');
+      expect(hook.calls('users.metadata.set')).to.deep.eq([]);
+      expect(passwordCalls.map((c) => c.method)).to.deep.eq(['invite']);
+    });
+
+    it('a hook cannot set the credential state of the new user: PasswordSetAt and DeletedAt stay unset', async () => {
+      const hook = new ScriptedActionHook();
+      hook.tamper('users.create', (input) => {
+        (input.user as UserDraft).PasswordSetAt = new Date('2020-01-01T00:00:00.000Z');
+        (input.user as UserDraft).DeletedAt = new Date('2020-01-01T00:00:00.000Z');
+        (input.user as UserDraft).IsActive = true;
+      });
+
+      const { User: u } = await withHook(hook, () => create({ Email: 'credential-state@spinajs.pl', Login: 'credential-state' }));
+
+      const row = await storedUser(u.Uuid);
+      expect(row.PasswordSetAt ?? null).to.eq(null);
+      expect(row.DeletedAt ?? null).to.eq(null);
+      expect(Boolean(row.IsActive), 'an ordinary column still takes the hook value').to.eq(true);
     });
   });
 

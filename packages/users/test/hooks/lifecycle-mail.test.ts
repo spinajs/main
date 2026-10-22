@@ -6,6 +6,7 @@ import { DefaultQueueService } from '@spinajs/queue';
 import { EmailSend } from '@spinajs/email';
 import { renderTemplate } from '@spinajs/log';
 import { ActionHook } from '@spinajs/hooks';
+import type { ActionName, AfterContext } from '@spinajs/hooks';
 
 import { User, UserLifecycleMailHook } from '../../src/index.js';
 import { activate, ban, create, deactivate, deleteUser, expirePassword, notifyPasswordWillExpire, unban } from '../../src/actions.js';
@@ -151,6 +152,22 @@ describe('UserLifecycleMailHook (HOOK-4, R1)', function () {
     await deactivate(u);
 
     expect(Boolean((await storedUser(u.Uuid)).IsActive)).to.eq(false);
+  });
+
+  it('a recipient that no longer exists is logged by its ids, and nothing is sent', async () => {
+    const hook = (await DI.resolve(UserLifecycleMailHook)) as unknown as { Log: { warn: (fields: Record<string, unknown>, template: string) => void } } & UserLifecycleMailHook;
+    const warn = sinon.stub(hook.Log, 'warn');
+    const user = { Uuid: '00000000-0000-4000-8000-000000000000', Email: 'gone@spinajs.pl', Login: 'gone', IsActive: true };
+
+    await hook.after({ action: 'users.ban', input: { user, reason: 'x', duration: 1 }, output: user, bag: new Map(), depth: 1 } as unknown as AfterContext<ActionName>);
+
+    expect(mails()).to.deep.eq([]);
+    expect(warn.callCount).to.eq(1);
+    const [fields, template] = warn.args[0] as unknown as [Record<string, unknown>, string];
+    const logged = renderTemplate(template, fields);
+    expect(logged).to.contain('users.ban');
+    expect(logged).to.contain(user.Uuid);
+    expect(logged).to.not.contain(user.Email);
   });
 
   it('DI.unregister(UserLifecycleMailHook) before Hooks resolves sends nothing', async () => {
