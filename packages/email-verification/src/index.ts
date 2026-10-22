@@ -11,3 +11,4 @@ export * from './verifiers/list.js';
 export * from './verifiers/dns.js';
 export * from './verifiers/rdap.js';
 export * from './verifiers/http.js';
+export * from './sync.js';
