@@ -82,9 +82,9 @@ describe('authn boot: app env', () => {
   });
 
   it('mirrors the public cookie secret of @spinajs/http', () => {
-    const http = readFileSync(join(PACKAGES, 'http', 'src', 'config', 'http.ts'), 'utf8');
-    expect(http).to.match(/cookie: \{\s*secret: '([^']+)'/);
-    expect(http.match(/cookie: \{\s*secret: '([^']+)'/)![1]).to.eq(AUTHN_PUBLIC_COOKIE_SECRET);
+    const cookie = readFileSync(join(PACKAGES, 'http', 'src', 'cookie.ts'), 'utf8');
+    expect(cookie).to.match(/HTTP_PUBLIC_COOKIE_SECRET = '([^']+)'/);
+    expect(cookie.match(/HTTP_PUBLIC_COOKIE_SECRET = '([^']+)'/)![1]).to.eq(AUTHN_PUBLIC_COOKIE_SECRET);
   });
 
   describe('with no env set (SR-16)', () => {
