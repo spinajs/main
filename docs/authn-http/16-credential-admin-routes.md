@@ -17,9 +17,9 @@
 3. **Route arguments**, before the handler: `:uuid` must be a lower-case uuid, else 404 `not_found` (`No such user`); then the body DTO: `sendReset` not a boolean is 400 `invalid_send_reset`, a `reauthPassword` that is no string the 401 login failure body, any other key 400 `invalid_field`.
 4. **`admit()`**, in this order, so a refused call changes nothing:
    1. an active session of the admin, else 403 `session_required`;
-   2. [fresh authentication](05-policies.md#fresh-authentication) through `freshAuthOrAnswer()` with the admin's password in `reauthPassword`: 403 `fresh_auth_required`, or 401 login failure body without `Retry-After`;
+   2. [fresh authentication](05-policies.md#fresh-authentication) through `freshAuthOrAnswer()` with the admin's password in `reauthPassword`: 403 `fresh_auth_required`, or 401 login failure body without `Retry-After`.
 5. **`authn.admin.credentials`**, through `runCredentialAdmin()` of `@spinajs/authn/hooks`. Its input is `{ actor, target, action }`, where `actor` is the admin's whole principal:
-   1. the `CredentialAdminRule` runs first (order `-1000`): `allowed(admin, target, action)` must answer `{ ok: true }`. Refusals: 403 `forbidden`, `protected_role` or `escalation`, or 404 `not_found`, the bodies the guard gave before 3.x. They are not audited. An unknown code is 403 `forbidden`;
+   1. the `CredentialAdminRule` runs first (order `-1000`): `allowed(admin, target, action)` must answer `{ ok: true }`. Refusals: 403 `forbidden`, `protected_role` or `escalation`, or 404 `not_found`. They are not audited. An unknown code is 403 `forbidden`;
    2. the other before hooks: a refusal answers 403 `{ error: 'action_refused', code }` and is audited;
    3. a rule that throws or times out answers 403 `{ error: 'action_refused', code: 'hook_error' }`;
    4. an effect no rule admitted is refused 403 `forbidden`. This covers a rule registered after the hooks runner resolved.

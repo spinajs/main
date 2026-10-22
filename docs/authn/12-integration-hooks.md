@@ -38,7 +38,7 @@ A before hook on [`authn.session.start`](14-action-hooks.md#authnsessionstart) c
 
 ## Who may administer credentials
 
-`CredentialAdminGuard` is gone (D17). The rule is now a `CredentialAdminRule`, an `ActionHook` on `authn.admin.credentials`: see [Action hooks](14-action-hooks.md#authnadmincredentials-and-credentialadminrule).
+A `CredentialAdminRule`, the first before hook on `authn.admin.credentials`, decides who may administer whose credentials. `@spinajs/users` registers `AuthzCredentialAdminRule`. See [Action hooks](14-action-hooks.md#authnadmincredentials-and-credentialadminrule).
 
 ## `CredentialExtractor`
 
