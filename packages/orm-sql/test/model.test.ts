@@ -194,6 +194,8 @@ describe('model generated queries', () => {
 
     await DI.resolve(Orm);
 
+    await DI.resolve(Orm);
+
     const result = User.select().leftJoin(UserMetadata, function () {
       this.where('Key', 'user:niceName');
     }, function () {
@@ -206,8 +208,6 @@ describe('model generated queries', () => {
   });
 
   it('model join with exists', async () => {
-    await DI.resolve(Orm);
-
     const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
     tableInfoStub.withArgs('users_metadata', undefined).returns(
       new Promise((res) => {

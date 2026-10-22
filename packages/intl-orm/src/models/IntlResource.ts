@@ -1,4 +1,4 @@
-import { ModelBase, Connection, Model } from '@spinajs/orm';
+import { ModelBase, Connection, Model, Primary } from '@spinajs/orm';
 
 /**
  * Base modele for users used by ACL
@@ -8,12 +8,17 @@ import { ModelBase, Connection, Model } from '@spinajs/orm';
 @Connection('default')
 @Model('intl_resources')
 export class IntlResource extends ModelBase {
+  // Composite key mirrors the unique index intl_resources_idx; it gives InsertOrUpdate its conflict target
+  @Primary({ generated: 'assigned' })
   public ResourceId: number;
 
+  @Primary({ generated: 'assigned' })
   public Resource: string;
 
+  @Primary({ generated: 'assigned' })
   public Column: string;
 
+  @Primary({ generated: 'assigned' })
   public Lang: string;
 
   public Value: string;

@@ -7,6 +7,7 @@ import { IFileResponseOptions, IResponseOptions, Response } from './../interface
 import { getFs } from '@spinajs/fs';
 // import from the defining module, not the package barrel - '../index.js' pulls
 // the whole export graph back through interfaces.js and re-forms an import cycle
+import { sendFileAt } from './send-file.js';
 import { _setCoockies, _setHeaders } from '../responses.js';
 
 export class ZipResponse extends Response {
@@ -44,7 +45,7 @@ export class ZipResponse extends Response {
       res.setHeader('Content-Type', this.Options.mimeType || 'application/zip');
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
 
-      res.sendFile(zippedFile.fs.resolvePath(fPath), (err: Error) => {
+      sendFileAt(res, zippedFile.fs.resolvePath(fPath), (err) => {
         zippedFile.fs.rm(fPath).finally(() => {
           if (!_.isNil(err)) {
             reject(err);
@@ -108,7 +109,7 @@ export class FileResponse extends Response {
       }
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
 
-      res.sendFile(file, (err: Error) => {
+      sendFileAt(res, file, (err) => {
         const cleanups: Promise<unknown>[] = [];
 
         // Remove the source file on the provider when requested.
@@ -155,7 +156,7 @@ export class JsonFileResponse extends Response {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
 
-      res.sendFile(tmpPath, (err: Error) => {
+      sendFileAt(res, tmpPath, (err) => {
         provider.rm(tmpPath).finally(() => {
           if (err) {
             reject(err);
