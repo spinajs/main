@@ -1,6 +1,12 @@
-// The augmentation below resolves '@spinajs/hooks' only when this file imports it.
-import '@spinajs/hooks';
+import _ from 'lodash';
+import { DateTime } from 'luxon';
+import { DI } from '@spinajs/di';
+import { Hooks } from '@spinajs/hooks';
+import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
+import { hookCopy, runHookedAction } from '@spinajs/authn/hooks';
 import type { Principal } from '@spinajs/authz';
+
+import type { UserBase } from './models/User.js';
 
 /**
  * A user's columns as plain data, the password hash left out: what hooks get instead of the ORM model. Date columns
@@ -85,4 +91,48 @@ declare module '@spinajs/hooks' {
     'users.metadata.set': { input: UsersMetadataSetInput; output: UserView };
     'users.password.expire': { input: UsersPasswordExpireInput; output: void };
   }
+}
+
+/** The user's columns but the password hash, Luxon dates as `Date`s, so a frozen copy of it still works. */
+export function userView(u: UserBase): UserView {
+  const columns = u.ModelDescriptor?.Columns?.map((c) => c.Name) ?? ['Id', 'Uuid', 'Email', 'Login', 'IsActive'];
+  const entries = columns
+    .filter((name) => name !== 'Password')
+    .map((name) => {
+      const value: unknown = Reflect.get(u, name);
+      return [name, DateTime.isDateTime(value) ? value.toJSDate() : value];
+    });
+  return Object.fromEntries(entries) as UserView;
+}
+
+/**
+ * Runs `action` through the DI `Hooks` on copies of `input()`, which is built only when a hook matches. `impl` gets
+ * the mutable keys a hook changed (copies, to check again) and nothing for the keys it left alone, so the action keeps
+ * using its own values for those; it never reads what the hooks were handed.
+ */
+export async function runUserAction<A extends ActionName, R>(action: A, input: () => InputOf<A>, impl: (changed: Partial<InputOf<A>>) => Promise<R>, opts: RunOptions<A> & { readonly output: (result: R) => OutputOf<A> }): Promise<R> {
+  const hooks = await DI.resolve<Hooks>(Hooks);
+  if (!hooks.has(action)) return impl({});
+
+  const given = input();
+  const mutable = opts.mutable as readonly (keyof InputOf<A> & string)[];
+  // Copied the way the hooks' copies are, so a key no hook touched compares equal.
+  const pristine = new Map(mutable.map((k) => [k, hookCopy(Reflect.get(given as object, k))]));
+  const changedIn = (merged: InputOf<A>) => Object.fromEntries(mutable.filter((k) => !_.isEqual(Reflect.get(merged as object, k), pristine.get(k))).map((k) => [k, Reflect.get(merged as object, k)])) as Partial<InputOf<A>>;
+
+  return runHookedAction(hooks, action, given, (merged) => impl(changedIn(merged)), opts);
+}
+
+/**
+ * `changed` with each value that equals the copy of `own`'s value under the same key replaced by `own`'s: a copy
+ * loses the prototype of a Luxon date or a model, so values a hook did not change must come from the caller.
+ */
+export function ownValues(changed: Record<string, unknown>, own: Readonly<Record<string, unknown>> | undefined): Record<string, unknown> {
+  if (!own) return changed;
+  return Object.fromEntries(
+    Object.entries(changed).map(([k, v]) => {
+      const mine: unknown = Reflect.get(own, k);
+      return [k, Object.hasOwn(own, k) && _.isEqual(v, hookCopy(mine)) ? mine : v];
+    }),
+  );
 }

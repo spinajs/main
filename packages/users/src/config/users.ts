@@ -118,19 +118,6 @@ const usersConfig = {
       enabled: false,
       activate: true,
     },
-
-    /**
-     * Middleware functions for user actions.
-     * Each action can have before and after middleware arrays.
-     * Middleware functions receive the User and should return the User.
-     * eg. beforeCreate: [(u: User) => { u.Metadata['custom:key'] = 'value'; return u; }]
-     */
-    actions: {
-      create: {
-        beforeCreate: [] as Array<Function>,
-        afterCreate: [] as Array<Function>,
-      },
-    },
   },
   authz: {
     rbac: {
