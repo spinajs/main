@@ -80,6 +80,7 @@
     "@spinajs/configuration": "3.0.6",
     "@spinajs/di": "3.0.6",
     "@spinajs/exceptions": "3.0.6",
+    "@spinajs/hooks": "3.0.6",
     "@spinajs/orm": "3.0.6",
     "@spinajs/util": "3.0.6",
     "luxon": "^3.6.1"

@@ -42,7 +42,7 @@ A session list entry (`IAdminSessionEntry`):
 3. `everyUserRow(users:delete)`: an unconditional grant, then the row with its metadata as `SYSTEM`; `404` when absent.
 4. `assertCredentialAdmin(caller, uuid, 'sessions')`: authn's `CredentialAdminGuard` must answer `{ ok: true }`. Otherwise `403` with `error` `forbidden`, `protected_role` or `escalation`, or `404 not_found`. No guard registered: `403 forbidden`.
 5. `AccountGuard.assertCanDisable(caller, target, action)`: self lockout and last privileged account.
-6. `deactivate(target)` or `ban(target, reason, duration)` of `@spinajs/users`.
+6. `deactivate(target)` or `ban(target, reason, duration)` of `@spinajs/users`. A refusal by a `users.deactivate` or `users.ban` [action hook](../users/04-action-hooks.md) answers `403 action_refused` with the hook's `code` (`hook_error` for a hook that failed), and nothing changes.
 
 Fresh authentication runs inside the handler, not as a route policy: `@spinajs/http` runs a route's policies together, so as a policy it would verify and count a password even when `@Access` refuses.
 
@@ -90,7 +90,8 @@ sequenceDiagram
 
 - The order is fixed: fresh authentication, then the row and permission, then the credential admin guard, then the account guard, then the write. A stale session gets `403 fresh_auth_required` even where a later check would refuse.
 - users' `AuthzCredentialAdminGuard` refuses the caller's own account (`403 forbidden`), so nobody deactivates, bans, deletes or manages the sessions of their own account through these routes, whatever `preventSelfLockout` says. The owner manages its own sessions through `GET /user/sessions` and `DELETE /user/sessions/:handle` of `@spinajs/authn-http`.
-- Activate, unban and restore give access back and ask neither fresh authentication nor the guard.
+- Activate, unban and restore give access back and ask neither fresh authentication nor the guard. Their `users.activate`, `users.unban` and `users.update` hooks can still refuse them: `403 action_refused`.
+- Only the route's own action maps to `403 action_refused`; a refusal of an action that one runs inside it is answered as that error is.
 - Ban of an already banned account answers `400`; unban of an account that is not banned answers `400`.
 - The forced logout of **every** session is `DELETE /authn/admin/users/:uuid/sessions` of `@spinajs/authn-http`; this controller ends one session by handle.
 - The list includes impersonation sessions of the user.

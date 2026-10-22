@@ -190,8 +190,11 @@ export function convertKeys(layer: Plain, merged: Plain, f: Findings, common?: P
         break;
 
       case 'user':
-      case 'actions':
         w.data(at, value, `users.${key}`);
+        break;
+
+      case 'actions':
+        convertActions(value, at, w, f);
         break;
 
       case 'email': {
@@ -245,6 +248,30 @@ export function convertKeys(layer: Plain, merged: Plain, f: Findings, common?: P
     }
   }
   return w.out;
+}
+
+/** D17: 3.0 has no create middleware, so its lists become findings; the other keys of rbac.actions are carried as found. */
+function convertActions(value: unknown, at: string, w: Writer, f: Findings): void {
+  if (!isPlain(value) || !isPlain(value.create)) {
+    w.data(at, value, 'users.actions');
+    return;
+  }
+  const { create: legacy, ...rest } = value;
+  const { beforeCreate, afterCreate, ...create } = legacy as Plain;
+  for (const [key, list] of [
+    ['beforeCreate', beforeCreate],
+    ['afterCreate', afterCreate],
+  ] as const) {
+    if (list === undefined) continue;
+    const path = keyPath(keyPath(at, 'create'), key);
+    if (Array.isArray(list) && list.length === 0) {
+      f.info('create-middleware', 'Left out: an empty list. 3.0 has no create middleware; rewrite as an ActionHook on users.create if you need one.', path);
+    } else {
+      f.manual('create-middleware', `3.0 has no create middleware: rewrite as an ActionHook on users.create (${key === 'beforeCreate' ? 'a before' : 'an after'} hook). See the users docs, Action hooks.`, path);
+    }
+  }
+  const kept: Plain = Object.keys(create).length > 0 ? { ...rest, create } : rest;
+  if (Object.keys(kept).length > 0) w.data(at, kept, 'users.actions');
 }
 
 function convertAdmin(value: unknown, at: string, m: (path: string) => unknown, w: Writer, f: Findings): void {

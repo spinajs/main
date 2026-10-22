@@ -20,7 +20,7 @@ It is a **class** token, not an instance factory: authz query enforcement keys o
 | `UserPrincipalFactory`, `UserInitiatorPrincipalFactory`, `UserResourceAdapter`, `UserMetadataOwnerRelation` | `userModel()`, run as `SYSTEM` | The principal's `identity` is your subclass; a scoped model cannot hide the row from the lookup. |
 | `getUserUnsafe()` | `UserBase` | Reads any row. |
 | `assertUserUnique()`, `create()` | base `User` | Uniqueness is global; `create()` inserts a `new User(...)`. |
-| `UserIdentityStore`, `UserPasswordStore`, `UserPasswordAgeSource`, `UserAccountSink`, `QueueAuthnEventSink`, `UserAccountStatusSource` | base `User` or its driver, run as `SYSTEM` where it matters | Login, reset and admin checks see every row, soft-deleted ones included. |
+| `UserIdentityStore`, `UserPasswordStore`, `UserPasswordAgeSource`, `UserPasswordStateHook`, `QueueAuthnEventSink`, `UserAccountStatusSource` | base `User` or its driver, run as `SYSTEM` where it matters | Login, reset and admin checks see every row, soft-deleted ones included. |
 
 ## Services and extension points
 
@@ -118,7 +118,7 @@ export async function salesTeam(): Promise<AppUser[]> {
 
 ## Important behaviour
 
-- `create()` inserts a base `User`, not your subclass. `beforeCreate` middleware receives that `User` instance (see [Create middleware](04-create-middleware.md)); `getUser()` reads it back as your subclass.
+- `create()` inserts a base `User`, not your subclass. A `users.create` hook gets its columns as plain data, your own columns included (see [Action hooks](04-action-hooks.md)); `getUser()` reads it back as your subclass.
 - `userModel()` falls back to `User` when the cache is empty, for example in a CLI process before the bootstrappers ran.
 - An `@AccessResource` model is safe here: every users lookup that must not be scoped runs inside `AuthzService.runAs(SYSTEM, ...)`.
 - `DI.register(AppUser).asValue(RBAC_USER_MODEL)` without `true` adds a value instead of replacing it. Always pass `true`.

@@ -7,6 +7,7 @@ import { SYSTEM } from '@spinajs/authz';
 import { IdentityRegistrar } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef } from '@spinajs/authn/contracts';
 import { PasswordHasher } from '@spinajs/authn-local';
+import { ActionHookFailed, ActionRefused } from '@spinajs/hooks';
 
 import { activate, assertLoginNotReserved, create } from '../actions.js';
 import { UserAlreadyExists, UserCreatedIncomplete } from '../exceptions.js';
@@ -39,6 +40,10 @@ export class UserIdentityRegistrar extends IdentityRegistrar {
     } catch (err) {
       if (err instanceof UserCreatedIncomplete) {
         uuid = err.data.user;
+      } else if ((err instanceof ActionRefused || err instanceof ActionHookFailed) && err.action === 'users.create') {
+        // Refused before the insert and its hash: the route answers it as a taken address, which costs one.
+        await this.spendHash(data.password);
+        throw err;
       } else if (err instanceof UserAlreadyExists || err instanceof UniqueViolation) {
         // Lost a race to a concurrent registration of the same address: the unique index answers for the check.
         const winner = await this.ownerOf(data);

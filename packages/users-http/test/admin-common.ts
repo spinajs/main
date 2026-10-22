@@ -39,9 +39,9 @@ export const TEST_ROLES = {
 /**
  * Configuration for the admin controller suites.
  *
- * NOTE: `users.actions` is deliberately absent. Applications usually do not
- * declare it, and user creation must work without it — see the
- * `beforeCreate` regression test in `users-controller.test.ts`.
+ * NOTE: `users.actions` is deliberately absent: 3.x reads no such key (create
+ * middleware became `users.create` action hooks), and a config that still
+ * declares it changes nothing — see `users-controller.test.ts`.
  */
 export class TestConfiguration extends FrameworkConfiguration {
   public async load() {

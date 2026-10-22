@@ -2,6 +2,9 @@ import { Config } from '@spinajs/configuration';
 import '../register-schema.js';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
+import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
+import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { IdentityStore, PasskeyService } from '@spinajs/authn/contracts';
@@ -14,6 +17,7 @@ import { assertionOptions, registrationJson, registrationOptions, verifiedRegist
 import { assertWebAuthnOptions } from '../options.js';
 import type { WebAuthnOptions } from '../options.js';
 import { NAME_MAX } from '../store/checks.js';
+import '../hooks.js';
 
 /** Left out, a dependency comes from DI; `identities: null` means none. */
 export interface WebAuthnPasskeyServiceDeps {
@@ -23,6 +27,8 @@ export interface WebAuthnPasskeyServiceDeps {
   readonly identities?: IdentityStore | null;
   /** Published to through `AuthnAudit.over`; left out, the container's AuthnAudit. */
   readonly sinks?: readonly AuthnEventSink[];
+  /** Otherwise the registered Hooks; built with `new` and without it, no action hooks run. */
+  readonly hooks?: Hooks;
 }
 
 const entryOf = (c: WebAuthnCredential): PasskeyEntry => ({
@@ -53,6 +59,9 @@ export class WebAuthnPasskeyService extends PasskeyService {
 
   @Autoinject(AuthnAudit)
   protected Audit: AuthnAudit;
+
+  @Autoinject(Hooks)
+  protected Hooks: Hooks;
 
   private readonly sinkAudit: AuthnAuditor | undefined;
 
@@ -90,6 +99,17 @@ export class WebAuthnPasskeyService extends PasskeyService {
       await this.audit(ctx, { type: 'passkey.register', outcome: 'failure', reason: 'invalid_response', identity: id });
       return { ok: false, code: 'invalid_response' };
     }
+    // The contract's result has no member for a refusal: ActionRefused and ActionHookFailed reach the caller.
+    try {
+      return await this.runHooked('authn.passkey.register', { identity: id, credentialId: credential.credentialId, ctx }, () => this.addCredential(credentials, credential, id, ctx), { mutable: [] });
+    } catch (err) {
+      const reason = hookRefusalOf(err, 'authn.passkey.register')?.reason;
+      if (reason) await this.audit(ctx, { type: 'passkey.register', outcome: 'failure', reason, identity: id });
+      throw err;
+    }
+  }
+
+  private async addCredential(credentials: WebAuthnCredentialStore, credential: WebAuthnCredential, id: IdentityRef, ctx: AuthnContext): Promise<PasskeyRegisterResult> {
     try {
       await credentials.add(credential);
     } catch (err) {
@@ -108,9 +128,29 @@ export class WebAuthnPasskeyService extends PasskeyService {
 
   async remove(id: IdentityRef, credentialId: string, ctx: AuthnContext): Promise<boolean> {
     const { credentials } = this.deps();
-    const removed = typeof credentialId === 'string' && credentialId !== '' && (await credentials.remove(id, credentialId));
-    if (removed) await this.audit(ctx, { type: 'passkey.remove', outcome: 'success', identity: id });
-    return removed;
+    if (typeof credentialId !== 'string' || credentialId === '') return false;
+    try {
+      return await this.runHooked(
+        'authn.passkey.revoke',
+        { identity: id, credentialId, ctx },
+        async () => {
+          const removed = await credentials.remove(id, credentialId);
+          if (removed) await this.audit(ctx, { type: 'passkey.remove', outcome: 'success', identity: id });
+          return removed;
+        },
+        { mutable: [] },
+      );
+    } catch (err) {
+      const reason = hookRefusalOf(err, 'authn.passkey.revoke')?.reason;
+      if (reason) await this.audit(ctx, { type: 'passkey.remove', outcome: 'failure', reason, identity: id });
+      throw err;
+    }
+  }
+
+  private runHooked<A extends ActionName>(action: A, input: InputOf<A>, impl: (input: InputOf<A>) => Promise<OutputOf<A>>, opts: RunOptions<A>): Promise<OutputOf<A>> {
+    // Built with `new` and without given.hooks, nothing injects Hooks.
+    const hooks = this.given.hooks ?? this.Hooks;
+    return hooks ? runHookedAction(hooks, action, input, impl, opts) : impl(input);
   }
 
   private async audit(ctx: AuthnContext, e: AuthnEventBody): Promise<void> {

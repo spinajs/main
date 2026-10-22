@@ -233,3 +233,15 @@ Unit test of `UserController.refresh` with a fake session provider; adapt except
 | 1 | 57 | UserController.refresh > stores the user UUID (not a dehydrated object) back into the session | rewrite | C2 → C2 | users-http/test/v3/ (A07, A23: the session holds identity through authn-session; no `Data.User` uuid write); repeats user-controller-db 125, one replacement covers both | replaced (C2b task 1): test/v3/user-profile.test.ts `keeps resolving the same user on the next request with the same session` |
 | 2 | 72 | UserController.refresh > does not touch the session when no valid ssid reaches the handler | drop | C2 | guards the session write of row 57; 3.0 makes no such write (A07, A23: identity lives in authn-session), so there is nothing to guard and the replacement of row 57 covers it | deleted with the file (C2b task 1; GET /user writes nothing to the session) |
 | 3 | 85 | UserController.refresh > returns the user with relations and ISO dates, matching every other user response | adapt | C2 | users-http/test/ | replaced (C2b task 1): test/v3/user-profile.test.ts `answers the record with its metadata and ISO dates, reserved metadata left out` |
+
+## HOOK-4 status
+
+D17 removed the create middleware config. Rows 26 to 28 of `users-controller.test.ts` now read:
+
+| Row | Now |
+|---|---|
+| 26 | `creates a user even though no users.actions config is declared` |
+| 27 | `ignores a legacy create middleware config` (the config is no longer read) |
+| 28 | `runs a users.create before hook` |
+
+New: `answers a refused users.create with 403 action_refused and its code, and creates nothing`, `refused users actions` (deactivate, activate, ban, unban, delete, restore), and `action-refusal.test.ts` (own refusals only, `authn.password.expire` included).

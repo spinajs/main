@@ -254,7 +254,7 @@ describe('key registry contract', () => {
       same<Extract<KeyRecord, { alg: 'ES256' }>['jwk'], P256PublicJwk>(true);
       same<NewKey, { readonly kid?: string; readonly jwk: PublicJwk; readonly name?: string; readonly scope?: Ceiling; readonly expiresAt?: Date }>(true);
       same<KeyProof, { readonly challengeId: string; readonly signature: string }>(true);
-      same<KeyRegisterResult, { readonly ok: true; readonly key: KeyRecord } | { readonly ok: false; readonly code: 'invalid_key' | 'invalid_proof' | 'duplicate' }>(true);
+      same<KeyRegisterResult, { readonly ok: true; readonly key: KeyRecord } | { readonly ok: false; readonly code: 'invalid_key' | 'invalid_proof' | 'duplicate' } | { readonly ok: false; readonly code: 'refused'; readonly refusal: string }>(true);
       same<KeyChallengeRequest, { readonly purpose: 'register'; readonly owner: KeyOwner & { readonly type: 'user' } } | { readonly purpose: 'login'; readonly kid: string }>(true);
       same<KeyChallenge, { readonly id: string; readonly nonce: string; readonly expiresAt: Date }>(true);
       same<KeyChallengeResult, { readonly ok: true; readonly challenge: KeyChallenge } | { readonly ok: false; readonly retryAfterSeconds: number }>(true);
