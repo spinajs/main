@@ -31,6 +31,15 @@ export interface UserDraft {
   [column: string]: unknown;
 }
 
+/** Who runs an action, as hooks see it: the principal without its `identity` (the User model) and its delegation chain. */
+export interface ActorView {
+  readonly type: string;
+  readonly id: string;
+  readonly authenticated: boolean;
+  readonly source: string;
+  readonly attributes: Readonly<Record<string, unknown>>;
+}
+
 /** What `create()` was given, without the password: no hook sees one. */
 export interface UsersCreateData {
   Email: string;
@@ -44,7 +53,7 @@ export interface UsersCreateInput {
   /** The roles asked for, or `authz.rbac.defaultRoles` when none were. */
   roles: string[];
   user: UserDraft;
-  readonly actor: Principal;
+  readonly actor: ActorView;
 }
 
 export interface UsersCreateOutput {
@@ -76,7 +85,7 @@ export interface UsersMetadataSetInput {
 
 export interface UsersPasswordExpireInput {
   readonly user: UserView;
-  readonly actor: Principal;
+  readonly actor: ActorView;
 }
 
 declare module '@spinajs/hooks' {
@@ -103,6 +112,11 @@ export function userView(u: UserBase): UserView {
       return [name, DateTime.isDateTime(value) ? value.toJSDate() : value];
     });
   return Object.fromEntries(entries) as UserView;
+}
+
+/** A plain view of `p` for hooks; the action keeps acting as `p` itself. */
+export function actorView(p: Principal): ActorView {
+  return { type: p.type, id: p.id, authenticated: p.authenticated, source: p.source, attributes: { ...p.attributes } };
 }
 
 /**

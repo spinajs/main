@@ -23,7 +23,7 @@ import type { Principal } from '@spinajs/authz';
 import { SYSTEM, currentPrincipal } from '@spinajs/authz';
 import { USERS_TABLE, usersDriver, usersMatchingLogin } from './identity/sql.js';
 import { hookCopy } from '@spinajs/authn/hooks';
-import { ownValues, runUserAction, userView } from './hooks.js';
+import { actorView, ownValues, runUserAction, userView } from './hooks.js';
 import type { UserDraft, UsersCreateData } from './hooks.js';
 
 /**
@@ -783,7 +783,7 @@ export async function create(data: ICreateUserData, roles?: string[], actor: Pri
 
   return runUserAction(
     'users.create',
-    () => ({ data: hookData(), roles: [...roleNames], user: view(), actor }),
+    () => ({ data: hookData(), roles: [...roleNames], user: view(), actor: actorView(actor) }),
     async (changed) => insertCreated(uuid, Object.keys(changed).length > 0 ? await hookedCreate(changed, plan, view(), uuid, actor, password, passwords) : plan, now, password, passwords, actor),
     { mutable: ['user', 'data', 'roles'], output: (r) => ({ User: userView(r.User), Invited: password === undefined }) },
   );
@@ -966,7 +966,7 @@ export async function expirePassword(identifier: number | string | User, actor: 
 
   await runUserAction(
     'users.password.expire',
-    () => ({ user: userView(u), actor }),
+    () => ({ user: userView(u), actor: actorView(actor) }),
     async () => {
       await (await passwordService()).expire(userRef(u.Uuid), { cause: 'admin', actor: { type: actor.type, id: actor.id } }, actionContext());
     },

@@ -33,8 +33,8 @@ export * from './identity/index.js';
 export * from './authn/index.js';
 export * from './mail/check.js';
 export * from './mail/dispatcher.js';
-export { userView } from './hooks.js';
-export type { UserDraft, UserView, UsersBanInput, UsersCreateData, UsersCreateInput, UsersCreateOutput, UsersMetadataSetInput, UsersPasswordExpireInput, UsersUpdateInput, UsersUserInput } from './hooks.js';
+export { actorView, userView } from './hooks.js';
+export type { ActorView, UserDraft, UserView, UsersBanInput, UsersCreateData, UsersCreateInput, UsersCreateOutput, UsersMetadataSetInput, UsersPasswordExpireInput, UsersUpdateInput, UsersUserInput } from './hooks.js';
 export * from './hooks/lifecycle-mail.js';
 export * from './hooks/password-state.js';
 
