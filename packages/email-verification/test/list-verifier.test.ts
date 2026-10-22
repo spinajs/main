@@ -103,13 +103,50 @@ describe('ListVerifier', () => {
       }
       return entries;
     };
-    const slow = v.reload();
-    await slowStarted;
-    await s.upsertEntries([{ domain: 'late.com', kind: 'block', source: 'admin' }]);
-    await v.reload();
-    release();
-    await slow;
-    expect((await v.verify('late.com')).result).to.eq('refuse');
+    try {
+      const slow = v.reload();
+      await slowStarted;
+      await s.upsertEntries([{ domain: 'late.com', kind: 'block', source: 'admin' }]);
+      await v.reload();
+      release();
+      await slow;
+      expect((await v.verify('late.com')).result).to.eq('refuse');
+    } finally {
+      release();
+      s.loadLists = load;
+    }
+  });
+
+  it('installs an older good reload when a newer one fails', async () => {
+    const v = await verifier();
+    const s = await store();
+    await s.upsertEntries([{ domain: 'old.com', kind: 'block', source: 'admin' }]);
+    const load = s.loadLists.bind(s);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let calls = 0;
+    let started!: () => void;
+    const slowStarted = new Promise<void>((r) => (started = r));
+    s.loadLists = async () => {
+      if (++calls === 1) {
+        const entries = await load();
+        started();
+        await gate;
+        return entries;
+      }
+      throw new Error('down');
+    };
+    try {
+      const slow = v.reload();
+      await slowStarted;
+      await v.reload().catch(() => undefined);
+      release();
+      await slow;
+      expect((await v.verify('old.com')).result).to.eq('refuse');
+    } finally {
+      release();
+      s.loadLists = load;
+    }
   });
 
   it('prefers the admin source when two sources list one domain', async () => {

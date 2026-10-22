@@ -1,6 +1,7 @@
 import { Resolver } from 'node:dns/promises';
 import { Config } from '@spinajs/configuration';
 import { Autoinject, Injectable } from '@spinajs/di';
+import { Log, Logger } from '@spinajs/log';
 
 import { DomainVerifier, UNKNOWN } from '../contracts.js';
 import type { DomainVerdict } from '../contracts.js';
@@ -17,12 +18,15 @@ export interface MxResolver {
 const codeOf = (err: unknown) => (err as { code?: string } | null)?.code;
 const refuse = (reason: string): DomainVerdict => ({ result: 'refuse', reason });
 const RESOLVES: DomainVerdict = { result: 'unknown', reason: 'resolves' };
-const NEGATIVE = new Set(['domain_not_found', 'no_mail_host']);
+const NEGATIVE = new Set(['domain_not_found', 'no_mail_host', 'disposable_mx']);
 
 @Injectable(DomainVerifier)
 export class DnsVerifier extends DomainVerifier {
   public readonly name = 'dns';
   public readonly cacheable = true;
+
+  @Logger('email-verification')
+  protected Log: Log;
 
   @Config('emailVerification.dns')
   protected Options: DnsOptions;
@@ -44,7 +48,10 @@ export class DnsVerifier extends DomainVerifier {
     } catch (err) {
       const code = codeOf(err);
       if (code === 'ENOTFOUND') return refuse('domain_not_found');
-      if (code !== 'ENODATA') return UNKNOWN;
+      if (code !== 'ENODATA') {
+        this.logUnexpected(domain, err);
+        return UNKNOWN;
+      }
       mx = [];
     }
 
@@ -68,14 +75,23 @@ export class DnsVerifier extends DomainVerifier {
     return resolver;
   }
 
+  protected logUnexpected(domain: string, err: unknown): void {
+    const code = codeOf(err);
+    if (typeof code === 'string' && code.startsWith('E')) return;
+    this.Log.warn({ domain, error: (err as Error).message }, 'DNS lookup for ${domain} failed unexpectedly: ${error}');
+  }
+
   /** RFC 5321 §5.1: with no MX, the domain's A or AAAA host receives its mail. */
   protected async implicitMx(domain: string): Promise<DomainVerdict> {
     for (const lookup of [() => this.Resolver.resolve4(domain), () => this.Resolver.resolve6(domain)]) {
       try {
         if ((await lookup()).length > 0) return RESOLVES;
       } catch (err) {
-        const code = codeOf(err);
-        if (code !== 'ENODATA' && code !== 'ENOTFOUND') return UNKNOWN;
+        // The MX lookup said the name exists, so ENOTFOUND here is a flaky resolver, not "no address".
+        if (codeOf(err) !== 'ENODATA') {
+          this.logUnexpected(domain, err);
+          return UNKNOWN;
+        }
       }
     }
     return refuse('no_mail_host');

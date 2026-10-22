@@ -67,7 +67,47 @@ describe('DnsVerifier', () => {
     const v = await verifier();
     await (await DI.resolve(MemoryEmailVerificationStore)).upsertEntries([{ domain: 'mx.trash.io', kind: 'block-mx', source: 'admin' }]);
     await (await DI.resolve(ListVerifier)).reload();
-    expect(await v.verify('fresh-trash.com')).to.deep.eq({ result: 'refuse', reason: 'disposable_mx' });
+    const got = await v.verify('fresh-trash.com');
+    expect(got).to.deep.eq({ result: 'refuse', reason: 'disposable_mx' });
+    expect(v.ttlFor(got)).to.eq(3600);
+  });
+
+  it('refuses a null MX written as a dot', async () => {
+    zone['dot.com'] = { mx: [{ exchange: '.', priority: 0 }] };
+    await expectVerdict('dot.com', { result: 'refuse', reason: 'null_mx' }, 86400);
+  });
+
+  it('does not treat a null MX in a mixed list as null_mx', async () => {
+    zone['mixed.com'] = {
+      mx: [
+        { exchange: '', priority: 0 },
+        { exchange: 'mx.ok.com', priority: 10 },
+      ],
+    };
+    await expectVerdict('mixed.com', { result: 'unknown', reason: 'resolves' }, 86400);
+  });
+
+  it('refuses a block-mx host that is not the first record', async () => {
+    zone['multi.com'] = {
+      mx: [
+        { exchange: 'mx.ok.com', priority: 5 },
+        { exchange: 'mx.trash.io', priority: 10 },
+      ],
+    };
+    const v = await verifier();
+    await (await DI.resolve(MemoryEmailVerificationStore)).upsertEntries([{ domain: 'trash.io', kind: 'block-mx', source: 'admin' }]);
+    await (await DI.resolve(ListVerifier)).reload();
+    expect(await v.verify('multi.com')).to.deep.eq({ result: 'refuse', reason: 'disposable_mx' });
+  });
+
+  it('answers an uncached unknown when AAAA fails after A has no data', async () => {
+    zone['half.com'] = { mx: 'ENODATA', aaaa: 'ESERVFAIL' };
+    await expectVerdict('half.com', { result: 'unknown' }, 0);
+  });
+
+  it('answers an uncached unknown when A contradicts an existing name', async () => {
+    zone['flaky.com'] = { mx: 'ENODATA', a: 'ENOTFOUND' };
+    await expectVerdict('flaky.com', { result: 'unknown' }, 0);
   });
 
   it('answers a cacheable unknown for a domain with MX records', async () => {

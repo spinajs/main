@@ -31,6 +31,8 @@ export class ListVerifier extends DomainVerifier {
 
   protected Generation = 0;
 
+  protected Applied = 0;
+
   public async resolve(): Promise<void> {
     try {
       await this.reload();
@@ -63,7 +65,10 @@ export class ListVerifier extends DomainVerifier {
       if (!byDomain) lists.set(e.kind, (byDomain = new Map()));
       if (!byDomain.has(e.domain) || e.source === ADMIN_SOURCE) byDomain.set(e.domain, e.source);
     }
-    if (generation === this.Generation) this.Snapshot = { version, lists };
+    if (generation > this.Applied) {
+      this.Snapshot = { version, lists };
+      this.Applied = generation;
+    }
   }
 
   /** Source of the entry that lists `domain` or one of its parents. */
