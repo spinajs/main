@@ -3,6 +3,7 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AuthnAudit } from '@spinajs/authn/audit';
+import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { Autoinject } from '@spinajs/di';
 import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IdentityAddressVerifier, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
@@ -20,6 +21,7 @@ import {
   MemorySessionIssuer,
   RecordingEventSink,
   RecordingPrincipalFactory,
+  ScriptedActionHook,
   UnsupportedConfig,
   throttleParams,
 } from '@spinajs/authn-testing';
@@ -141,6 +143,8 @@ class HarnessConfiguration extends Configuration {
 }
 
 class HarnessIdentityStore extends FakeIdentityStore {}
+/** The A38 hook: registered on every action while the A38 suite runs, so the service's DefaultHooks finds it at boot. */
+class HarnessHook extends ScriptedActionHook {}
 class HarnessPasswordStore extends MemoryPasswordCredentialStore {}
 class HarnessSessionIssuer extends MemorySessionIssuer {}
 class HarnessSecretStore extends MemorySecretStore {}
@@ -297,7 +301,7 @@ const REGISTRATIONS: [Function, Function][] = [
 /** Everything the container may cache for a case: the abstract keys, the fakes and the N3 classes. */
 const CACHED: Function[] = [
   // AuthnAudit holds the sinks it was built with: a cached one would audit to an earlier case's sinks.
-  ...new Set([...REGISTRATIONS.flat(), AuthnAudit, PasswordHasher, Argon2PasswordHasher, LocalPasswordPolicy, PasswordService, LocalPasswordService, AuthenticationStrategy, LocalPasswordStrategy]),
+  ...new Set([...REGISTRATIONS.flat(), AuthnAudit, Hooks, DefaultHooks, HarnessHook, PasswordHasher, Argon2PasswordHasher, LocalPasswordPolicy, PasswordService, LocalPasswordService, AuthenticationStrategy, LocalPasswordStrategy]),
 ];
 
 /** Registers the per-case types; call once before the kit suites run (in a `before`). */
@@ -344,7 +348,7 @@ function applyConfig(config: ConfigOverrides): void {
   const blocklist = local.policy?.blocklist ?? null;
   const policy = { ...local.policy, blocklist: blocklist && blocklist.length > 0 ? HarnessBlocklist.name : null };
   current = {
-    values: { logger: BLACK_HOLE_LOGGER, authn: mergeOver(packageConfig.authn, { local: { ...local, policy } }) },
+    values: { logger: BLACK_HOLE_LOGGER, hooks: { timeoutMs: 5000, maxDepth: 8 }, authn: mergeOver(packageConfig.authn, { local: { ...local, policy } }) },
     params: throttleParams(config),
     blocklist: blocklist ?? [],
     requireVerifiedAddress: config.authn?.login?.requireVerifiedAddress === true,
@@ -485,6 +489,22 @@ export async function localHarness(ctx: HarnessContext, emailCode = false): Prom
       freshContainer();
     },
   };
+}
+
+/** Registers the A38 hook type; call in a `before`, after `registerHarnessTypes`. */
+export function registerHookType(): void {
+  DI.register(HarnessHook).as(ActionHook);
+}
+
+export function unregisterHookType(): void {
+  freshContainer();
+  DI.unregister(HarnessHook);
+}
+
+/** The harness of A38: `localHarness` whose service runs the registered HarnessHook, exposed as `flowHooks`. */
+export async function hookedHarness(ctx: HarnessContext): Promise<Harness> {
+  const h = await localHarness(ctx);
+  return { ...h, flowHooks: DI.resolve(HarnessHook) };
 }
 
 /** The harness of A36: `localHarness` with the email code strategy and step. */

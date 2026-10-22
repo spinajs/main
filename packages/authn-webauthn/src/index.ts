@@ -7,3 +7,4 @@ export * from './strategy/index.js';
 export * from './service/index.js';
 export * from './schema.js';
 export * from './bootstrap.js';
+export * from './hooks.js';

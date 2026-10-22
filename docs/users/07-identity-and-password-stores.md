@@ -19,7 +19,18 @@ The services through which `@spinajs/authn` and its packages see the `users` tab
 
 ### Password age (`UserPasswordAgeSource`)
 
-authn-local's expiration job (`authn.local.expiration.*`) calls `passwordsSetBefore(cutoff)`. It answers the users that are not deleted, hold a password (not `NULL`, not `''`, not starting with `!`) and have `PasswordSetAt` before `cutoff` or `NULL`. [`UserAccountSink`](08-authn-event-sinks.md) keeps `PasswordSetAt` current.
+authn-local's expiration job (`authn.local.expiration.*`) calls `passwordsSetBefore(cutoff)`. It answers the users that are not deleted, hold a password (not `NULL`, not `''`, not starting with `!`) and have `PasswordSetAt` before `cutoff` or `NULL`. [`UserPasswordStateHook`](#the-password-state) keeps `PasswordSetAt` current.
+
+### The password state
+
+`UserPasswordStateHook` is an after [action hook](04-action-hooks.md) on authn-local's password flows ([its actions](../authn-local/16-action-hooks.md)), registered by users. It acts only when the action's output `status` says a password was really set.
+
+1. On `authn.password.change` answered `changed`, `authn.password.set` answered `set` and `authn.password.reset.redeem` answered `reset`, it writes `users.PasswordSetAt = ctx.now` of the action, only forward in time (`PasswordSetAt IS NULL OR PasswordSetAt < at`). An expiry is the `authn.password.expire` action, so its `'!expired'` marker never counts; neither does a login rehash.
+   The identity comes from `input.id` of a change or set and from `output.id` of a redeem; one that is not `type: 'user'` is skipped.
+2. On a redeem, it sets `IsActive = true` in one conditional statement that matches only while `user:invite:pending` is stored as `true`, deletes the marker and emits `UserChanged` and `UserActivated` (no mail: the owner is on the page that did it). This also completes an invite redeemed with a reset link.
+3. On an invite redeem (`purpose: 'invite'`), or a redeem that activated the account, it sets `users.EmailVerifiedAt = ctx.now` unless it is set: the secret was mailed to that address.
+
+Each statement runs as `SYSTEM`, the events go out as the caller. A failing step is logged on the `users` log with the action, the user and the error class, and never thrown: the password is stored already. A deactivation drops the marker before it writes `IsActive`, so a redeem that read the account a moment earlier cannot reactivate it.
 
 ### In service (`UserAccountStatusSource`)
 
@@ -49,8 +60,39 @@ sequenceDiagram
 | Password hashes | `PasswordCredentialStore`, singleton, by type | `UserPasswordStore` | your store; `new UserPasswordStore({ driver })` on another connection | `DI.register(...).as(PasswordCredentialStore)`. Subclass and override the protected `driver()`, `update()` or `write()`. |
 | Password age | `PasswordAgeSource` (`@spinajs/authn-local`), singleton, optional | `UserPasswordAgeSource` | your source; none: the expiration job answers `idle: 'no_source'` | `DI.register(MySource).as(PasswordAgeSource)`, or subclass and filter `passwordsSetBefore()`. |
 | In-service check | `AccountStatusSource` (`@spinajs/authz-rbac`), singleton, resolved in the root container when registered | `UserAccountStatusSource` | your source | `DI.register(MySource).as(AccountStatusSource)`, or subclass and narrow `inService()`. |
+| Password state | `ActionHook` list, `@Injectable(ActionHook)` on import; `Hooks` resolves one instance on the first matching run | `UserPasswordStateHook` | your subclass | Keep it: `UserPasswordAgeSource` and invite activation depend on it. Subclass and override the protected `recordPasswordSet(id, at)` or `activateInvited(id)` (answers `true` when it activated), then `DI.unregister(UserPasswordStateHook)` before boot and register yours. |
 
-Register replacements **after** `@spinajs/users` is imported: its `@Injectable` registrations run at import, and the last registration wins.
+Register replacements **after** `@spinajs/users` is imported: its `@Injectable` registrations run at import, and the last registration wins. Replace a hook before the app boots: `Hooks` reads the `ActionHook` types once, when it resolves.
+
+### Password state: custom implementation
+
+Mirror every password change into a security log, and keep the shipped writes. The subclass replaces the shipped hook, so only one of them runs.
+
+```ts sample
+import { DI, Injectable } from '@spinajs/di';
+import { ActionHook } from '@spinajs/hooks';
+import type { IdentityRef } from '@spinajs/authn/contracts';
+import { UserPasswordStateHook } from '@spinajs/users';
+
+interface SecurityLog {
+  passwordSet(userUuid: string, at: Date): Promise<void>;
+}
+
+@Injectable(ActionHook)
+export class AuditedPasswordStateHook extends UserPasswordStateHook {
+  public static securityLog: SecurityLog = { passwordSet: async () => undefined };
+
+  protected async recordPasswordSet(id: IdentityRef, at: Date): Promise<void> {
+    await super.recordPasswordSet(id, at);
+    await AuditedPasswordStateHook.securityLog.passwordSet(id.id, at);
+  }
+}
+
+// Before the app boots: only the subclass keeps the users row in step.
+DI.unregister(UserPasswordStateHook);
+```
+
+An error thrown from `recordPasswordSet()` or `activateInvited()` is logged by class and swallowed, like the shipped one's.
 
 ### Identity store: sign in with the login name only
 
@@ -179,8 +221,41 @@ if (current === oldHash) await store.set(ref, newHash);
 const changed = await store.set(ref, newHash, oldHash);
 ```
 
+## Migrating from `UserAccountSink`
+
+3.0's `UserAccountSink` (an `AuthnEventSink` on `password.change`, `password.reset` and `invite.redeem`) is removed. `UserPasswordStateHook` does its work on the action hooks of authn-local, with the same protected `recordPasswordSet()` and `activateInvited()`.
+
+| 3.0 | 3.x |
+| --- | --- |
+| `UserAccountSink`, `@Injectable(AuthnEventSink)` | `UserPasswordStateHook`, `@Injectable(ActionHook)` |
+| `publish(e: AuthnEvent)`, `e.at` | `after(ctx: AfterContext)`, `ctx.input.ctx.now` |
+| `activateInvited(id): Promise<void>` | `activateInvited(id): Promise<boolean>`, `true` when it activated |
+| logs on the `rbac` log | logs on the `users` log |
+| `DI.unregister(UserAccountSink)` | `DI.unregister(UserPasswordStateHook)` |
+
+Before:
+
+```ts
+import { DI } from '@spinajs/di';
+import { AuthnEventSink } from '@spinajs/authn/contracts';
+import type { IdentityRef } from '@spinajs/authn/contracts';
+import { UserAccountSink } from '@spinajs/users';
+
+export class AuditedAccountSink extends UserAccountSink {
+  protected async recordPasswordSet(id: IdentityRef, at: Date): Promise<void> {
+    await super.recordPasswordSet(id, at);
+    await securityLog.passwordSet(id.id, at);
+  }
+}
+
+DI.unregister(UserAccountSink);
+DI.register(AuditedAccountSink).as(AuthnEventSink);
+```
+
+After: the subclass of `UserPasswordStateHook` in [Password state: custom implementation](#password-state-custom-implementation). A sink of your own that listened for these authn events keeps working: authn still publishes them.
+
 ## Related
 
 - [`@spinajs/authn`](../authn/README.md): the `IdentityStore` and `PasswordCredentialStore` contracts and the login flow.
-- [Authn event sinks](08-authn-event-sinks.md): writes `PasswordSetAt` and activates invited accounts.
+- [Action hooks](04-action-hooks.md): how `UserPasswordStateHook` runs.
 - [User model and metadata](01-user-model.md): the columns these stores read.

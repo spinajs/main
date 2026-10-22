@@ -1,6 +1,6 @@
 # User actions
 
-Functions that change account state: create, activate, deactivate, ban, unban, delete, expire a password. Each one writes the row, ends sessions and tokens where the account may no longer act, emits its [event](06-user-events.md) and sends its [mail](05-lifecycle-mails.md). Call these instead of writing `User` fields yourself.
+Functions that change account state: create, activate, deactivate, ban, unban, delete, expire a password. Each one runs its [action hooks](04-action-hooks.md), writes the row, ends sessions and tokens where the account may no longer act and emits its [event](06-user-events.md); `UserLifecycleMailHook` then sends its [mail](05-lifecycle-mails.md). Call these instead of writing `User` fields yourself.
 
 Every action that takes `identifier` accepts a numeric id, a UUID, an email, a login, or a `User` instance.
 
@@ -14,28 +14,31 @@ Every action that takes `identifier` accepts a numeric id, a UUID, an email, a l
 4. With `data.Password`, runs `PasswordService.check()`. A failed policy throws `InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS')`.
 5. `assertNoProtectedMetadata(data.Metadata)` and `assertUserUnique(login, email)`.
 6. Generates the UUID and dry-runs the role grants through `AuthzAdmin` (validated and guarded, then rolled back). A role `AuthzAdmin` refuses (`unknown_role`, `not_assignable`, `wrong_scope_type`) throws `InvalidArgument` on field `roles`; any other refusal throws the `AuthzAdminFailure`.
-7. Builds `new User({ ..., Password: NO_PASSWORD, IsActive: false, RegisteredAt: now })` and runs the `beforeCreate` [middleware](04-create-middleware.md).
-8. Inserts the row.
+7. Runs the `users.create` [action hooks](04-action-hooks.md) on the unsaved `new User({ ..., Password: NO_PASSWORD, IsActive: false, RegisteredAt: now })`. A refusal throws `ActionRefused` and nothing is written. Values a hook changed are checked again: for `data` and `user`, step 1 and `assertNoProtectedMetadata`, plus step 4 and `assertUserUnique` when the email or login changed; for `roles`, steps 2 and 6.
+8. Inserts the row (with the columns a hook set; `Uuid`, the password marker, `PasswordSetAt` and `DeletedAt` stay `create()`'s).
 9. With a password: `PasswordService.set(user:<Uuid>, password, ctx, { actor })`. Without one: stores `user:invite:pending = true`.
 10. Grants the roles at GLOBAL through `AuthzAdmin`, as `actor`.
 11. If step 9 or 10 fails, the row and its metadata are hard-deleted and the error is rethrown.
-12. Writes `data.Metadata` (`setUserMeta`), runs the `afterCreate` middleware, emits `UserCreated` (with the granted roles).
-13. Without a password: `PasswordService.invite()` sends the invite through authn-local's `PasswordMailer`. With one: sends the `created` mail.
+12. Writes `data.Metadata` (as a hook left it) without the `users.metadata.set` hooks: the keys were checked with the create input. Emits `UserCreated` (with the granted roles).
+13. Without a password: `PasswordService.invite()` sends the invite through authn-local's `PasswordMailer`.
 14. If step 12 or 13 fails, the account stays. It throws `UserCreatedIncomplete` with `data: { user: <Uuid>, resendInvite, error: <error class> }`.
-15. Resolves `{ User }`. It never returns a password.
+15. The `after` hooks run: with a password, `UserLifecycleMailHook` sends the `created` mail. A failing `after` hook is logged.
+16. Resolves `{ User }`. It never returns a password.
 
 ### The other actions
 
+Each of these runs its own checks, then its [action hook](04-action-hooks.md) (`users.activate`, `users.deactivate`, `users.ban`, `users.unban`, `users.delete`, `users.password.expire`, `users.update`), then the steps below. A refusal throws `ActionRefused` before any step.
+
 | Action | Steps | Event, mail |
 | --- | --- | --- |
-| `activate(identifier)` | Drop `user:invite:pending`; on an inactive account `IsActive = true` (`updateUser`) | `UserChanged`, `UserActivated`; mail `activated`. None on an already active account |
+| `activate(identifier)` | Drop `user:invite:pending`; on an inactive account `IsActive = true` | `UserChanged`, `UserActivated`; mail `activated`. On an already active account only the marker goes: no hook, no event, no mail |
 | `deactivate(identifier)` | Drop `user:invite:pending`, write `IsActive = false` unconditionally, `revokeUserSessions`, `revokeUserTokens` | `UserChanged`, `UserDeactivated`; mail `deactivated` |
-| `ban(identifier, reason = 'NO_REASON', duration = 86400)` | Refuse with `UserIsBanned` when `IsBanned`; write the four `user:ban:*` keys (duration in seconds); revoke sessions and tokens | `UserMetadataChange`, `UserBanned`; mail `banned` |
+| `ban(identifier, reason = 'NO_REASON', duration = 86400)` | Refuse with `UserIsBanned` when `IsBanned`; write the four `user:ban:*` keys (duration in seconds, both values as a hook left them); revoke sessions and tokens | `UserMetadataChange`, `UserBanned`; mail `banned` |
 | `unban(identifier)` | Refuse with `UserIsBanned` when `user:ban:is_banned` is not set; delete the four `user:ban:*` keys | `UserUnbanned`; mail `unbanned` |
 | `deleteUser(identifier)` | Soft delete (`destroy()`), revoke sessions and tokens | `UserDeleted`; mail `deleted` |
 | `expirePassword(identifier, actor = SYSTEM)` | `PasswordService.expire(user:<Uuid>, { cause: 'admin', actor })`: stores `'!expired'`, ends authn sessions and, under `authn.local.reset.revokeTokens`, API tokens. The account stays active. | `UserPasswordExpired` (through [`QueueAuthnEventSink`](08-authn-event-sinks.md)); mail `passwordExpired` |
 | `notifyPasswordWillExpire(identifier, expiresAt?)` | Nothing changes | mail `passwordWillExpire` with `ExpiresAt` in the model |
-| `updateUser(user, data?)` | `updateModel(user, data)` | `UserChanged` |
+| `updateUser(user, data?)` | `updateModel(user, data)`; a `Login` or `Email` a hook changed must be free | `UserChanged` |
 
 `revokeUserSessions(user)` calls `SessionIssuer.revokeAll(user:<Uuid>, { includeImpersonations: true })` and `revokeUserTokens(user)` calls `TokenService.revokeAllFor(user:<Uuid>, ...)`, each only when the service is registered. Both accept a `User` or a numeric id (soft-deleted rows included) and let errors propagate.
 
@@ -46,9 +49,11 @@ Every action that takes `identifier` accepts a numeric id, a UUID, an email, a l
 | `getUser(identifier)` | The user through `userModel()`, `Metadata` populated; a `User` instance is returned as is. Rejects when not found. |
 | `getUserUnsafe(identifier)` | Same through `UserBase`: reads any row, no authz scoping. |
 | `getUsersByRole(roles)` | Users holding any of the roles as a live GLOBAL assignment (`AssignmentStore.holders`); subject sets not expanded, soft-deleted users excluded. Throws `AuthzConfigError` when no `AssignmentStore` is registered. |
-| `setUserMeta(user, key, value)` / `setUserMeta(user, [{ key, value }])` | Writes metadata, refuses reserved keys and globs, emits `UserMetadataChange`. `Metadata` must be populated. |
+| `setUserMeta(user, key, value)` / `setUserMeta(user, [{ key, value }])` | Runs `users.metadata.set`, writes metadata, refuses reserved keys and globs (also those a hook adds), emits `UserMetadataChange`. `Metadata` must be populated. |
 | `getUserMeta(user, key)` | The value; throws `MetadataNotPopulated` or `MetadataNotFound`. |
 | `sendUserEmail(user, template, model?)` | Queues a lifecycle mail; see [Lifecycle mails](05-lifecycle-mails.md). |
+| `userView(user)` | The user's columns as plain data, the password hash left out, Luxon dates as `Date`s: what hooks get. |
+| `actorView(principal)` | The principal's `type`, `id`, `authenticated`, `source` and `attributes`, without its `identity`: the `actor` hooks get. |
 | `roleList(role?)` | One name or a list, trimmed, blanks dropped, de-duplicated, order kept. |
 | `rootAuthzAdmin()` | The `AuthzAdmin` of the root container's `AuthzService`, the one `create()` grants roles through. |
 | `assertNoProtectedMetadata(metadata?)` | Throws `InvalidArgument` for a reserved key or a key containing `*` or `?`. |
@@ -63,7 +68,6 @@ Function-pipeline forms return a thunk or a chain step: `_user`, `_user_unsafe`,
 | --- | --- |
 | `ICreateUserData` | `Email`, `Login`, `Password?` (plain text; omit to invite), `Id?` (explicit id, for migrations), `Metadata?` |
 | `ICreateUserResult` | `{ User: User }` |
-| `CreateMiddleware` | `(u: User) => Promise<User> \| User` |
 
 ## Exceptions
 
@@ -76,18 +80,18 @@ All extend `RbacException` (`data` carries a transport-agnostic payload).
 | `UserIsBanned` | Banning a banned user, unbanning one that is not banned, building a principal of a banned user. |
 | `UserNotActive` | Building a principal of an inactive user. |
 | `UserAlreadyExists` | `assertUserUnique()`; `data.fields` names the clashing fields. |
-| `UserCreatedIncomplete` | `create()` failed after the grants; `data: { user, resendInvite, error }`. |
+| `UserCreatedIncomplete` | `create()` failed after the grants, in its own steps; `data: { user, resendInvite, error }`. A failing `after` hook is not one. |
+| `ActionRefused` (`@spinajs/hooks`) | A `before` hook refused the action; `action`, `code`. |
+| `ActionHookFailed` (`@spinajs/hooks`) | A `before` hook threw, timed out or could not be resolved, or the run passed `hooks.maxDepth`; `action`, `hook`, `reason` (`'error'`, `'timeout'`, `'depth'`). |
 | `MetadataNotPopulated` | Metadata read or written before `populate('Metadata')`. |
 | `MetadataNotFound` | `getUserMeta()` for a missing key. |
-| `EmailTemplateNotConfigured` | `users.email.<template>` is missing. |
+| `EmailTemplateNotConfigured` | `sendUserEmail()` of a missing `users.email.<template>`. `UserLifecycleMailHook` logs it; the action succeeds. |
 
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `authz.rbac.defaultRoles` | `string[]` | unset (no roles) | assignable role names | Roles `create()` grants when it is given none. |
-| `users.actions.create.beforeCreate` | `CreateMiddleware[]` | `[]` | functions | See [Create middleware](04-create-middleware.md). |
-| `users.actions.create.afterCreate` | `CreateMiddleware[]` | `[]` | functions | See [Create middleware](04-create-middleware.md). |
 | `users.email.*` | object | see [Lifecycle mails](05-lifecycle-mails.md) | | The mail each action sends. |
 
 ## Services and extension points
@@ -101,7 +105,7 @@ The actions are plain functions; they extend through the services they resolve.
 | Session revocation | `SessionIssuer`, resolved when registered | authn-session's issuer | none: no sessions to end | Register a `SessionIssuer`. |
 | Token revocation | `TokenService`, resolved when registered | authn-token's service | none: no tokens to end | Register a `TokenService`. |
 | Model class | `RBAC_USER_MODEL` | `User` | your subclass | See [Custom user model](02-custom-user-model.md). |
-| Create hooks | `users.actions.create.*` | none | | See [Create middleware](04-create-middleware.md). |
+| Action hooks | `ActionHook` list, read when `Hooks` resolves | `UserLifecycleMailHook`, `UserPasswordStateHook` | your hooks | See [Action hooks](04-action-hooks.md). |
 
 ### Compose your own action
 
@@ -128,7 +132,7 @@ export async function suspendForFraudReview(identifier: string, caseId: string):
 
 ## Important behaviour
 
-- `create()` makes the account **inactive** (`IsActive = false`), with or without a password. Activate it with `activate()`, a `beforeCreate` middleware, or the invite redeem (which activates invite-pending accounts, see [Authn event sinks](08-authn-event-sinks.md)).
+- `create()` makes the account **inactive** (`IsActive = false`), with or without a password. Activate it with `activate()`, a `users.create` [hook](04-action-hooks.md#activate-accounts-from-a-trusted-domain), or the invite redeem (which activates invite-pending accounts, see [the password state](07-identity-and-password-stores.md#the-password-state)).
 - `create()` sends no users mail for an invited account; authn-local's `PasswordMailer` sends the invite at once, never through the queue.
 - `create()` as `SYSTEM` skips `AuthzAdmin`'s guard. A caller acting for a user must pass that user's principal as `actor`, or it can grant roles above its own.
 - A revocation failure in `ban`, `deactivate` or `deleteUser` throws **after** the state change is stored. Call `revokeUserSessions` and `revokeUserTokens` again to finish.
@@ -201,7 +205,7 @@ export async function renameUser(uuid: string, login: string): Promise<void> {
 
 ## Related
 
-- [Create middleware](04-create-middleware.md): change the user while `create()` runs.
+- [Action hooks](04-action-hooks.md): refuse an action, change its mutable inputs, observe it.
 - [Lifecycle mails](05-lifecycle-mails.md): what each action sends.
 - [User events](06-user-events.md): what each action emits.
 - [Default roles](12-default-roles.md): the roles `create()` grants by default.

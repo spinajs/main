@@ -1,7 +1,7 @@
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, _user_update, USER_COMMON_METADATA, UserBanned, UserUnbanned, CreateMiddleware } from '../src/index.js';
+import { User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, _user_update, USER_COMMON_METADATA, UserBanned, UserUnbanned } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { UserAlreadyExists, UserCreatedIncomplete } from '../src/exceptions.js';
@@ -23,6 +23,9 @@ import { expirePassword } from '../src/actions.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
 import { globalRolesOf, registerAuthzHost } from './support/authz-host.js';
 import { TestPasswordService } from './support/password-service.js';
+import { ScriptedActionHook } from '@spinajs/authn-testing';
+import type { UserDraft, UsersCreateOutput } from '../src/index.js';
+import { withHook } from './hooks/support.js';
 
 chai.use(chaiAsPromised);
 
@@ -192,66 +195,48 @@ describe('User model tests', function () {
     expect(U).to.be.instanceOf(User);
   });
 
-  it('Should create user with beforeCreate and afterCreate middleware', async () => {
+  it('Should create user with users.create before and after hooks', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    const beforeSpy = sinon.spy((u: User) => {
-      u.IsActive = true;
-      return u;
+    const hook = new ScriptedActionHook();
+    hook.tamper('users.create', (input) => {
+      (input.user as UserDraft).IsActive = true;
     });
 
-    const afterSpy = sinon.spy(async (u: User) => {
-      return u;
-    });
-
-    const config = DI.get(Configuration)!;
-    config.set('users.actions.create.beforeCreate', [beforeSpy as CreateMiddleware]);
-    config.set('users.actions.create.afterCreate', [afterSpy as CreateMiddleware]);
-
-    const { User: U } = await create({ Email: 'middleware@wp.pl', Login: 'middlewareuser', Password: 'bbbb1234' }, ['admin']);
+    const { User: U } = await withHook(hook, () => create({ Email: 'middleware@wp.pl', Login: 'middlewareuser', Password: 'bbbb1234' }, ['admin']));
 
     const user = await User.query().whereAnything('middleware@wp.pl').firstOrFail();
     expect(user).to.be.not.null;
 
-    // beforeCreate middleware set IsActive to true
+    // the before hook set IsActive to true
     expect(user.IsActive).to.eq(true);
     expect(user.Login).to.eq('middlewareuser');
 
-    expect(beforeSpy.calledOnce).to.be.true;
-    expect(afterSpy.calledOnce).to.be.true;
-
-    // beforeCreate is called before insert, afterCreate is called after insert
-    expect(beforeSpy.calledBefore(afterSpy)).to.be.true;
+    // before runs ahead of the insert, after once the account exists
+    expect(hook.calls('users.create').map((c) => c.phase)).to.deep.eq(['before', 'after']);
+    expect((hook.calls('users.create')[1].output as UsersCreateOutput).User.Uuid).to.eq(U.Uuid);
 
     expect(U).to.be.instanceOf(User);
-
-    // reset config
-    config!.set('users.actions.create.beforeCreate', []);
-    config!.set('users.actions.create.afterCreate', []);
   });
 
-  // Regression: reading the create-middleware lists through `_cfg(path, [])`
-  // ran them through `_non_nil()`, which rejects empty arrays. Since the
-  // shipped config defaults both hooks to `[]`, EVERY user creation failed with
-  // "users.actions.create.beforeCreate should not be null, undefined or empty".
-  it('Should create user when create middleware lists are empty', async () => {
+  // D17: the 2.x create middleware is gone; a config that still names it changes nothing.
+  it('Should ignore a legacy users.actions.create middleware config', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
+    const legacy = sinon.spy((u: User) => u);
     const config = DI.get(Configuration)!;
-    config.set('users.actions.create.beforeCreate', []);
-    config.set('users.actions.create.afterCreate', []);
+    config.set('users.actions.create.beforeCreate', [legacy]);
+    config.set('users.actions.create.afterCreate', [legacy]);
 
     const { User: U } = await create({ Email: 'empty-mw@wp.pl', Login: 'emptymw', Password: 'bbbb1234' }, ['admin']);
 
     expect(U).to.be.instanceOf(User);
+    expect(legacy.callCount).to.eq(0);
     const user = await User.query().whereAnything('empty-mw@wp.pl').firstOrFail();
     expect(user.Login).to.eq('emptymw');
   });
 
-  // Regression: same root cause, but for apps that never declare `users.actions`
-  // at all — the config lookup returns undefined and must be treated as
-  // "no middleware", not as an error.
-  it('Should create user when create middleware config is not declared at all', async () => {
+  it('Should create user when users.actions is not declared at all', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     const config = DI.get(Configuration)!;
@@ -262,21 +247,6 @@ describe('User model tests', function () {
     expect(U).to.be.instanceOf(User);
     const user = await User.query().whereAnything('no-mw@wp.pl').firstOrFail();
     expect(user.Login).to.eq('nomw');
-  });
-
-  // Guards against a "fix" that ignores the config shape entirely: a non-array
-  // value must not blow up the create chain either.
-  it('Should ignore malformed (non array) create middleware config', async () => {
-    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-    const config = DI.get(Configuration)!;
-    config.set('users.actions.create.beforeCreate', 'not-a-list' as any);
-
-    const { User: U } = await create({ Email: 'bad-mw@wp.pl', Login: 'badmw', Password: 'bbbb1234' }, ['admin']);
-
-    expect(U).to.be.instanceOf(User);
-
-    config.set('users.actions.create.beforeCreate', []);
   });
 
   it('Shouldn create user with already existing email', async () => {
@@ -320,21 +290,17 @@ describe('User model tests', function () {
   });
 
   /**
-   * The uniqueness check must run before `beforeCreate`: a middleware that writes
+   * The uniqueness check runs before the users.create hooks: a hook that writes
    * to another system ( e.g. a user mirror ) must not fire for a
    * request that is about to be refused.
    */
-  it('Should refuse a duplicate before running create middleware', async () => {
+  it('Should refuse a duplicate before running users.create hooks', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    const config = DI.get(Configuration)!;
-    const before = sinon.stub().callsFake((u: User) => u);
-    config.set('users.actions.create.beforeCreate', [before as unknown as CreateMiddleware]);
+    const hook = new ScriptedActionHook();
 
-    await expect(create({ Email: 'test@spinajs.pl', Login: 'whoever', Password: 'bbbb1234' }, ['admin'])).to.be.rejected;
-    expect(before.callCount, 'middleware must not run for a refused creation').to.eq(0);
-
-    config.set('users.actions.create.beforeCreate', []);
+    await expect(withHook(hook, () => create({ Email: 'test@spinajs.pl', Login: 'whoever', Password: 'bbbb1234' }, ['admin']))).to.be.rejected;
+    expect(hook.calls('users.create'), 'no hook runs for a refused creation').to.deep.eq([]);
   });
 
   /**

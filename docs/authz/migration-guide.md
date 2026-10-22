@@ -143,7 +143,7 @@ grant carries a field list. A permission you do not register is an error at boot
 | `rbac.twoFactorAuth`, `rbac.otpauth.*` | `authn.mfa.steps`, `authn.mfa.policy.force`, `authn.mfa.totp.*` | `forceUser` becomes `policy.force`. The step it writes is `TotpMfaStep`, which `authn-totp` ships. Boot finds it when the app loads `@spinajs/authn-totp`. The step also needs `authn.mfa.encryptionKey.secret` and `import '@spinajs/authn-totp/db'` (a `MfaSecretStore`); see the [N5 section](#n5-authn-totp). Without the import it fails on first use, not at boot. |
 | `rbac.token.{prefix,length,headerName,lastUsedUpdateInterval,generation}` | `authn.token.*` | A length below 32 is a manual item (boot fails). |
 | `rbac.impersonation.requirePassword` | `authn.impersonation.requirePassword` | |
-| `rbac.user`, `rbac.email`, `rbac.actions` | `users.user`, `users.email`, `users.actions` | Copied. Functions in `actions` cannot be written to a file: they are manual items. |
+| `rbac.user`, `rbac.email`, `rbac.actions` | `users.user`, `users.email`, `users.actions` | Copied, except the create middleware: `actions.create.beforeCreate` / `afterCreate` with entries are manual `create-middleware` items. 3.x has no create middleware; rewrite each function as an `ActionHook` on `users.create` ([Action hooks](../users/04-action-hooks.md#migrating-from-the-create-middleware)). |
 
 ### 3.3 Where the 2.x package defaults went
 
@@ -250,7 +250,7 @@ npx spinajs-authz-convert lib/mjs/config --out src/config --db rbac-facts.json -
 | File | Holds |
 |---|---|
 | `authz-generated.ts`, `authz-generated.<env>.ts` | `authz.rbac.roles`, `authz.permissions`, principals, admin guard, impersonation, token role policy |
-| `users-generated.ts`, `users-generated.<env>.ts` | `users.user`, `users.email`, `users.actions` |
+| `users-generated.ts`, `users-generated.<env>.ts` | `users.user`, `users.email`, `users.actions` (without its create middleware) |
 | `authn-generated.ts`, `authn-generated.<env>.ts` | strategies, local password, session, MFA, token, throttle |
 | `authz-warnings.md` | what to convert by hand, behaviour changes, notes |
 

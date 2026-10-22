@@ -52,7 +52,7 @@ describe('the configuration users ships', function () {
   });
 
   it('keeps identity keys under users.* and ships no defaultRoles or anonymousRoles array', () => {
-    expect(usersConfig.users).to.have.keys(['email', 'user', 'registration', 'actions']);
+    expect(usersConfig.users).to.have.keys(['email', 'user', 'registration']);
     expect(usersConfig.authz.rbac).to.have.keys(['roles']);
   });
 

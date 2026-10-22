@@ -15,7 +15,11 @@ const alice: IdentityRef = { type: 'user', id: 'alice' };
 const ctx: AuthnContext = { now: new Date(0), ip: '10.0.0.1', purpose: 'reauth' };
 const admin: PrincipalRef = { type: 'user', id: 'root' };
 
-type Refusal = { readonly status: 'invalid' } | { readonly status: 'throttled'; readonly retryAfterSeconds: number } | { readonly status: 'rejected'; readonly violations: readonly PasswordViolation[] };
+type Refusal =
+  | { readonly status: 'invalid' }
+  | { readonly status: 'throttled'; readonly retryAfterSeconds: number }
+  | { readonly status: 'rejected'; readonly violations: readonly PasswordViolation[] }
+  | { readonly status: 'refused'; readonly code: string };
 
 // Enough of a service to show the contract can be implemented as §22.7 describes it.
 class MemoryPasswords extends PasswordService {
@@ -225,7 +229,7 @@ describe('password service contract', () => {
       same<PasswordChangeResult, { readonly status: 'changed'; readonly session: SessionHandle } | Refusal>(true);
       same<PasswordResetRequestResult, { readonly status: 'accepted' } | { readonly status: 'throttled'; readonly retryAfterSeconds: number }>(true);
       same<PasswordResetResult, { readonly status: 'reset'; readonly purpose: 'reset' | 'invite' } | Refusal>(true);
-      same<PasswordSetResult, { readonly status: 'set' } | { readonly status: 'rejected'; readonly violations: readonly PasswordViolation[] }>(true);
+      same<PasswordSetResult, { readonly status: 'set' } | { readonly status: 'rejected'; readonly violations: readonly PasswordViolation[] } | { readonly status: 'refused'; readonly code: string }>(true);
       same<PasswordExpiry, { readonly cause: 'admin'; readonly actor: PrincipalRef; readonly sendReset?: boolean } | { readonly cause: 'aged' }>(true);
     });
 

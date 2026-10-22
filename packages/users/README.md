@@ -7,7 +7,7 @@
 Full documentation is in [docs/users](../../docs/users/README.md):
 
 - [User model and metadata](../../docs/users/01-user-model.md) and a [custom user model](../../docs/users/02-custom-user-model.md)
-- [User actions](../../docs/users/03-user-actions.md), [create middleware](../../docs/users/04-create-middleware.md), [lifecycle mails](../../docs/users/05-lifecycle-mails.md), [user events](../../docs/users/06-user-events.md)
+- [User actions](../../docs/users/03-user-actions.md), [action hooks](../../docs/users/04-action-hooks.md), [lifecycle mails](../../docs/users/05-lifecycle-mails.md), [user events](../../docs/users/06-user-events.md)
 - authn integration: [identity and password stores](../../docs/users/07-identity-and-password-stores.md), [authn event sinks](../../docs/users/08-authn-event-sinks.md), [principal factory](../../docs/users/09-principal-factory.md), [principal attribute providers](../../docs/users/10-principal-attribute-providers.md)
 - authz integration: [resources and relations](../../docs/users/11-authz-resources-and-relations.md), [default roles](../../docs/users/12-default-roles.md), [impersonation and credential admin guards](../../docs/users/13-impersonation-and-credential-admin-guards.md), [role switch and access response](../../docs/users/14-role-switch-and-access-response.md)
 - [User profile](../../docs/users/15-user-profile.md), [jobs run as their initiator](../../docs/users/16-jobs-run-as-initiator.md), [CLI commands](../../docs/users/17-cli-commands.md)

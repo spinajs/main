@@ -20,6 +20,7 @@
 | `PasswordMailer` | `Mailer`, optional | reset, invite, expiry mail | No mail, no secret, a warning |
 | `TokenService` | `Tokens`, optional | set, reset, admin expiry | No tokens to revoke |
 | `AuthnAudit` | `Audit` | every audited step | Never missing: a concrete class of `@spinajs/authn`, one per container; with no `AuthnEventSink` it logs a warning and publishes to nobody |
+| `Hooks` (`@spinajs/hooks`) | `Hooks` | every [action hook](16-action-hooks.md) of change, set, reset, invite, expiry and address verification | Never missing: `@spinajs/hooks` registers `DefaultHooks`; with no matching `ActionHook` a flow runs alone |
 
 | Method | Page |
 | --- | --- |
@@ -51,15 +52,49 @@ Protected methods meant for a subclass:
 | `mail(id, purpose, ttlSeconds)` | Issues the secret and calls the `PasswordMailer`; answers whether it sent. |
 | `mailResetAfterExpiry(id)` | Mails a reset to an eligible identity after an expiry; logs failures. |
 | `sendReset(login, ctx)` | The deferred part of `requestReset()`. |
+| `verifyAndChange`, `setNow`, `redeemNow`, `inviteNow`, `expireNow`, `requestVerificationNow`, `redeemVerificationNow` | The part of each flow that runs inside its [action hooks](16-action-hooks.md), after the flow's own checks. |
+| `runHooked(action, input, impl, opts)` | [`runHookedAction`](../authn/14-action-hooks.md#runhookedaction) on the injected `Hooks` (`deps.hooks` for a service built with `deps`): hooks get copies, `impl` the merged input. With no runner (`deps` without `hooks`) it calls `impl` alone. |
 | `verifiedHash(id, password)` | The stored hash the password matches, or `null`; one argon2 verify. |
 | `storePassword(id, password, expected?)` | Hashes and writes, as a compare-and-set when `expected` is given. |
 | `revokeTokensOf(id, ctx, actor?)` | Revokes tokens unless `revokeTokens` is `false`. |
 | `audit(ctx, body)` | Publishes through `auditor().publishIn(ctx, body)`, which stamps `at`, `ip` and `userAgent`. |
 | `identities()`, `passwords()`, `hasher()`, `secrets()`, `mailer()`, `tokens()`, `auditor()`, `sessions()`, `throttle()`, `policyComponent()` | Collaborator lookups: the `deps` field, else the injected property. |
 
+### Password service: reacting to a flow
+
+Tell the user by a separate channel whenever their password changes. An `after` hook on `authn.password.change` sees every change and its result, and needs no subclass:
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { ActionHook } from '@spinajs/hooks';
+import type { ActionPattern, AfterContext } from '@spinajs/hooks';
+import type { IdentityRef } from '@spinajs/authn';
+import '@spinajs/authn-local';
+
+interface SecurityNotices {
+  passwordChanged(identity: IdentityRef, ip?: string): Promise<void>;
+}
+
+export class PasswordChangedNotice extends ActionHook<'authn.password.change'> {
+  public static notices: SecurityNotices = { passwordChanged: async () => undefined };
+
+  readonly actions: readonly ActionPattern[] = ['authn.password.change'];
+
+  public async after(ctx: AfterContext<'authn.password.change'>): Promise<void> {
+    if (ctx.output.status === 'changed') {
+      await PasswordChangedNotice.notices.passwordChanged(ctx.input.id, ctx.input.ctx.ip);
+    }
+  }
+}
+
+DI.register(PasswordChangedNotice).as(ActionHook);
+```
+
+A `before` hook can refuse the change instead. [Action hooks](16-action-hooks.md) lists every action of this service, its input and its refused answer.
+
 ### Password service: custom implementation
 
-Tell the user by a separate channel whenever their password changes.
+Subclass `LocalPasswordService` only to replace a flow itself, for example a change that also writes to a legacy store. Call `super` for the parts you keep, so the checks, the hooks and the audit still run:
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -67,26 +102,26 @@ import { PasswordService } from '@spinajs/authn';
 import type { AuthnContext, IdentityRef, PasswordChangeResult, SessionHandle } from '@spinajs/authn';
 import { LocalPasswordService } from '@spinajs/authn-local';
 
-interface SecurityNotices {
-  passwordChanged(identity: IdentityRef, ip?: string): Promise<void>;
+interface LegacyPasswords {
+  changed(identity: IdentityRef): Promise<void>;
 }
 
-export class NotifyingPasswordService extends LocalPasswordService {
-  public static notices: SecurityNotices = { passwordChanged: async () => undefined };
+export class LegacySyncPasswordService extends LocalPasswordService {
+  public static legacy: LegacyPasswords = { changed: async () => undefined };
 
   public async change(id: IdentityRef, oldPassword: string, newPassword: string, session: SessionHandle, ctx: AuthnContext): Promise<PasswordChangeResult> {
     const result = await super.change(id, oldPassword, newPassword, session, ctx);
     if (result.status === 'changed') {
-      await NotifyingPasswordService.notices.passwordChanged(id, ctx.ip);
+      await LegacySyncPasswordService.legacy.changed(id);
     }
     return result;
   }
 }
 
-DI.register(NotifyingPasswordService).as(PasswordService);
+DI.register(LegacySyncPasswordService).as(PasswordService);
 ```
 
-For a reaction to every password event, including reset and expiry, an [`AuthnEventSink`](12-audit-events.md) is simpler than a subclass.
+For a reaction to every password event, including reset and expiry, an [`AuthnEventSink`](12-audit-events.md) or a hook on `authn.password.*` is simpler than a subclass.
 
 ### Test seam
 
@@ -101,6 +136,7 @@ For a reaction to every password event, including reset and expiry, an [`AuthnEv
 | `mailer` | no | none: no mail, no secret |
 | `log` | no | silent |
 | `revokeTokens`, `resetTtlSeconds`, `resetUrl`, `inviteTtlSeconds` | no | `true`, `3600`, `''`, `900` |
+| `hooks` | no | none: no [action hook](16-action-hooks.md) runs |
 
 `@spinajs/authn-testing` ships fakes for these contracts.
 

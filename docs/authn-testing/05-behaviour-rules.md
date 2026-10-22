@@ -1,6 +1,6 @@
 # Behaviour rules
 
-The kit ships 29 behaviour rules, A01 to A31 (there is no A28 or A29). Each rule is a security or correctness promise of SpinaJS authentication, written as test cases you run with [`runAuthnBehaviour`](04-behaviour-runner.md). Each case belongs to one facet, `<rule>/<kind>`, and lists the ports it needs.
+The kit ships 36 behaviour rules, A01 to A38 (there is no A28 or A29). Each rule is a security or correctness promise of SpinaJS authentication, written as test cases you run with [`runAuthnBehaviour`](04-behaviour-runner.md). Each case belongs to one facet, `<rule>/<kind>`, and lists the ports it needs.
 
 The registry is `AUTHN_RULES` (`ReadonlyMap<RuleId, AuthnRule>`); `RULE_IDS` lists the ids, `FACET_KINDS` the kinds. Case titles start with the rule id. Cases that pin a numbered security requirement carry it in the title, for example `A05 SR-05 parallel burst verifies only free attempts`.
 
@@ -24,6 +24,7 @@ The registry is `AUTHN_RULES` (`ReadonlyMap<RuleId, AuthnRule>`); `RULE_IDS` lis
 | An `MfaStep` | `A10/step`; a TOTP step also `A10/totp` |
 | The email code step and strategy | `A36/step`, `A36/local` |
 | The authn action hooks (`@spinajs/hooks`) | `A37/core`; with `AccountLinkService` also `A37/flow` |
+| Action hooks in a `PasswordService`, a `TokenService` or a `KeyRegistry` | `A38/local`, `A38/token`, `A38/keys` |
 | A `TokenService` and token strategies | `A14/token`, `A15/token`, `A16/jwt` |
 | Key registration, JWS and HTTP signatures | `A17/keys`, `A17/jws`, `A17/core`, `A18/core` |
 | The HTTP layer | the `*/http` facets, `A31/config` |
@@ -67,15 +68,45 @@ The repository's `packages/authn-testing/README.md` lists which SpinaJS package 
 | A36 an email code is a second factor and a way to log in | A code is accepted once; five wrong codes void it; it expires after `authn.local.emailCode.ttlSeconds`; enrolment needs a verified address; a password login, challenge and code reach `aal2`; a code login (request, mail, login) is `aal1` with method `email-code` and fails alike for a wrong code, another login and an unknown login; an unknown or unverified login is mailed nothing | `step`, `local` | `mfa`, `seed`, `service`, `password`, `outbox`, `fakeDate` |
 | A31 CORS allows only listed origins | An empty list sends no CORS headers; a listed origin is echoed with `Vary: Origin`; origins match exactly; the config check warns on an empty list | `http`, `config` | `http`, `boot` |
 | A37 action hooks run around authn actions, narrow them and never widen them | `before` and `after` (or `failed`) run once each, in order, around `authn.login`, `authn.login.identified`, `authn.mfa.verify`, `authn.reauth`, `authn.session.stepUp`, `authn.impersonation.start`, `authn.impersonation.stop`, `authn.link` and `authn.unlink`; a refusal gives the documented answer and audit reason `hook:<code>`; a change to a key that is not mutable does not reach the action; `authn.login` input has no identity; `authn.impersonation.stop` completes when refused | `core`, `flow` | `service`, `seed`, `hooks`, `events`, `spy`, `sessions`, `mfa`, `impersonation`, `guard`, `accountLinks`, `links` |
+| A38 action hooks run around the password, token and key flows, and a refusal gives the answer the flow documents | `before` and `after` (or `failed`) run once each, in order, around the password, address verification, token and key actions; a refusal or a failing hook gives the answer listed [below](#a38-answers-per-action) and changes nothing; no password, secret or token plaintext reaches a hook; a change to a key that is not mutable does not reach the action; a hook that raises a token's expiry past `authn.token.maxTtlDays` or widens its scope is refused by the token service; `revokeAllFor` runs no hook | `local`, `token`, `keys` | `password`, `seed`, `flowHooks`, `sessions`, `passwordStore`, `events`, `service`, `outbox`, `tokens`, `keys` |
 | A34 step-up raises an active session to aal2 under a new id | `reissue` raises an active session and keeps its data under a new id, and refuses a pending one; a route behind `MfaSatisfied` refuses `aal1` and passes the same cookie jar after `POST /auth/mfa/step-up` | `store`, `http` | `sessions`, `seed`, `mfa`, `http`, routes `login`, `mfaStepUp`, `mfaGated` |
 
 The `needs` of every case are in `src/behaviour/A*.spec.ts` of the package; a harness that lacks one sees the exact list in the pending reason.
+
+### A38 answers per action
+
+A38 drives the actions through the [`flowHooks` port](04-behaviour-runner.md#the-flowhooks-port). Every case needs `flowHooks`; `A38/local` cases also need `password` and `seed`, `A38/token` cases `tokens` (and `seed`), `A38/keys` cases `keys`.
+
+| Action | Facet | A refused action answers |
+| --- | --- | --- |
+| `authn.password.change` | `A38/local` | `{ status: 'refused', code }`; no hash stored; audit `password.change` with reason `hook:<code>`. A failing hook answers `code: 'hook_error'`, audited `hook_error` |
+| `authn.password.set` | `A38/local` | `{ status: 'refused', code }`; no hash stored |
+| `authn.password.reset.request` | `A38/local` | `{ status: 'accepted' }`, as for any login; no mail; audit `password.reset.request` with reason `hook:<code>` |
+| `authn.password.reset.redeem` | `A38/local` | `{ status: 'refused', code }`; the secret is not spent |
+| `authn.password.invite` | `A38/local` | Throws `ActionRefused`; no mail |
+| `authn.password.expire` | `A38/local` | With an admin cause: throws `ActionRefused`, expires nothing, audit `password.change` with reason `hook:<code>`. With cause `aged`: not refusable, the password expires |
+| `authn.address.verify.request` | `A38/local` | `{ status: 'accepted' }`; no mail |
+| `authn.address.verify` | `A38/local` | `{ status: 'invalid' }`; the secret is not spent |
+| `authn.token.create` | `A38/token` | Throws `ActionRefused`; no token stored |
+| `authn.token.revoke` | `A38/token` | Throws `ActionRefused`; the token stays valid |
+| `authn.token.selfRevoke` | `A38/token` | Not refusable: the token is revoked |
+| `authn.key.register` | `A38/keys` | `{ ok: false, code: 'refused', refusal: code }`; no key stored |
+| `authn.key.revoke` | `A38/keys` | `false`; the key is not revoked |
+
+The cases also pin down what hooks see:
+
+- `authn.password.change` input has the keys `ctx`, `id` and `session`; its `after` output is `{ status: 'changed' }`, without the rotated session.
+- `authn.password.reset.request` input has only `ctx` and `login`, and `authn.address.verify` input only `ctx`: neither names an identity.
+- The `after` output of `authn.password.reset.redeem` is `{ status: 'reset', purpose: 'reset', id }`, the identity it reset.
+- A `mutate` of `login` on `authn.password.reset.request` is dropped: the mail goes to the login the caller asked for.
+- On `authn.token.create`, a hook-raised expiry past the cap answers `{ ok: false, code: 'invalid_expiry' }`; an added permission or a dropped scope answers `{ ok: false, code: 'invalid_scope' }`. The token case sets `authn.token.maxTtlDays` to `90`.
+- A token create that throws runs `before` and `failed`, once each, and rethrows.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Rule definitions | `defineRule`, `defineCase`, `table` | the A01 to A31 rules | none | Build `AuthnRule` and `AuthnCase` values; run them with `executeCase` or `settleCase`, since `runAuthnBehaviour` runs only `AUTHN_RULES` |
+| Rule definitions | `defineRule`, `defineCase`, `table` | the A01 to A38 rules | none | Build `AuthnRule` and `AuthnCase` values; run them with `executeCase` or `settleCase`, since `runAuthnBehaviour` runs only `AUTHN_RULES` |
 | Case helpers | exported from `steps` | `ALICE`, `pw`, `expectFailure`, `send`, … | none | Reuse them in your own tests; see [Test helpers](07-test-helpers.md) |
 
 ## Important behaviour

@@ -38,6 +38,12 @@ export const AUTHN_HTTP_CONFIGURATION_SCHEMA = {
         notifyExisting: { enum: [true, false], default: true, description: 'POST /auth/register mails the owner of a taken address that someone tried to register with it (purpose account-exists).' },
       },
     },
+    hooks: {
+      type: 'object',
+      properties: {
+        request: { enum: [true, false], default: false, description: 'Runs the authn.request action hook on every request once its principal is resolved; a refusal answers 403.' },
+      },
+    },
     admin: {
       type: 'object',
       properties: {

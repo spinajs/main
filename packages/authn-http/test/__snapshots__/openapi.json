@@ -80,7 +80,7 @@
             }
           },
           "403": {
-            "description": "role_not_held, fresh_auth_required, session_required or impersonating",
+            "description": "role_not_held, fresh_auth_required, session_required, impersonating, or action_refused when an `authn.role.switch` hook refuses",
             "content": {
               "application/json": {
                 "schema": {
@@ -789,7 +789,7 @@
           "Authentication"
         ],
         "summary": "Logout",
-        "description": "Ends the session of the cookie, pending ones included (an impersonation ends with it), and clears the cookie and\r\nthe site data of `authn.http.logout.clearSiteData` (default cache, cookies and storage). Audited as `logout`, and as\r\n`impersonation.end` (reason `logout`) for an impersonation (A20, A21).\r\nPOST, so no cross-site link can log anyone out. After the revoke every AuthnLogoutExtension may name a redirect (an OIDC\r\nprovider's end_session_endpoint): a navigation request gets 303 to it, any other client 200 `{ endSession }`.",
+        "description": "Ends the session of the cookie, pending ones included (an impersonation ends with it), and clears the cookie and\r\nthe site data of `authn.http.logout.clearSiteData` (default cache, cookies and storage). Audited as `logout`, and as\r\n`impersonation.end` (reason `logout`) for an impersonation (A20, A21).\r\nPOST, so no cross-site link can log anyone out. After the revoke every AuthnLogoutExtension may name a redirect (an OIDC\r\nprovider's end_session_endpoint): a navigation request gets 303 to it, any other client 200 `{ endSession }`. An\r\n`authn.logout` hook that refuses answers 403 `action_refused` with its code and keeps the session and the cookie.",
         "responses": {
           "200": {
             "description": "Successful response"
@@ -1370,7 +1370,7 @@
           "Authentication"
         ],
         "summary": "Reset the password",
-        "description": "Body `{ login, secret, password, confirmPassword? }`. Redeems a reset secret, or an invite secret while the\r\naccount is invite-pending (A32), once, and sets the password; ends every session of the account. `{ Ok: true }`\r\non success; 400 `password_rejected` with `violations` before the secret is spent; 400 `password_mismatch` or\r\n`invalid_password`; any other failure the login failure body (A02, A11).\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)",
+        "description": "Body `{ login, secret, password, confirmPassword? }`. Redeems a reset secret, or an invite secret while the\r\naccount is invite-pending (A32), once, and sets the password; ends every session of the account. `{ Ok: true }`\r\non success; 400 `password_rejected` with `violations` before the secret is spent; 400 `password_mismatch` or\r\n`invalid_password`; 400 `action_refused` with `code` when an `authn.password.reset.redeem` hook refuses (the secret is\r\nnot spent); any other failure the login failure body (A02, A11).\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)",
         "responses": {
           "200": {
             "description": "The password is set",
@@ -1383,7 +1383,7 @@
             }
           },
           "400": {
-            "description": "password_rejected (with violations), password_mismatch or invalid_password",
+            "description": "password_rejected (with violations), password_mismatch, invalid_password or action_refused",
             "content": {
               "application/json": {
                 "schema": {
@@ -1427,13 +1427,13 @@
           "Authentication"
         ],
         "summary": "Change the own password",
-        "description": "Body `{ oldPassword, password, confirmPassword? }`. The old password is the fresh authentication, verified inline\r\nand counted in the reauth throttle. Success: 200 with the rotated session cookie; every other session of the\r\naccount ends, API tokens stay (A30). 400 `password_rejected` with `violations`, `password_mismatch` or\r\n`invalid_password`; a wrong old password or a throttled change: the login failure body without Retry-After. A\r\nsession only: 403 `session_required` for a token or key, 403 `impersonating` while impersonating.\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "Body `{ oldPassword, password, confirmPassword? }`. The old password is the fresh authentication, verified inline\r\nand counted in the reauth throttle. Success: 200 with the rotated session cookie; every other session of the\r\naccount ends, API tokens stay (A30). 400 `password_rejected` with `violations`, `password_mismatch` or\r\n`invalid_password`; 400 `action_refused` with `code` when an `authn.password.change` hook refuses; a wrong old password\r\nor a throttled change: the login failure body without Retry-After. A session only: 403 `session_required` for a token\r\nor key, 403 `impersonating` while impersonating.\n\n**Policies applied:**\n- [`PasswordServiceRegistered`](#policy-passwordserviceregistered) (controller)\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "responses": {
           "200": {
             "description": "Successful response"
           },
           "400": {
-            "description": "password_rejected (with violations), password_mismatch or invalid_password",
+            "description": "password_rejected (with violations), password_mismatch, invalid_password or action_refused",
             "content": {
               "application/json": {
                 "schema": {
@@ -1527,7 +1527,7 @@
           "Sessions"
         ],
         "summary": "Revoke every other session",
-        "description": "Ends all own sessions but the current one.\n\n**Policies applied:**\n- [`Authenticated`](#policy-authenticated) (controller)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy) (controller)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy) (controller)",
+        "description": "Ends all own sessions but the current one. 403 `action_refused` with the hook's code when an `authn.sessions.revoke`\r\nhook refuses.\n\n**Policies applied:**\n- [`Authenticated`](#policy-authenticated) (controller)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy) (controller)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy) (controller)",
         "responses": {
           "200": {
             "description": "The count of ended sessions",
@@ -1559,7 +1559,7 @@
           "Sessions"
         ],
         "summary": "Revoke one session",
-        "description": "Ends the own session with that handle; ending the current one logs the caller out. 404 for any other handle.\n\n**Policies applied:**\n- [`Authenticated`](#policy-authenticated) (controller)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy) (controller)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy) (controller)",
+        "description": "Ends the own session with that handle; ending the current one logs the caller out. 404 for any other handle; 403\r\n`action_refused` with the hook's code when an `authn.sessions.revoke` hook refuses.\n\n**Policies applied:**\n- [`Authenticated`](#policy-authenticated) (controller)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy) (controller)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy) (controller)",
         "parameters": [
           {
             "name": "handle",
@@ -1672,7 +1672,7 @@
             }
           },
           "403": {
-            "description": "fresh_auth_required, session_required or impersonating",
+            "description": "fresh_auth_required, session_required, impersonating, or action_refused (with `code`) when an `authn.token.create` hook refuses",
             "content": {
               "application/json": {
                 "schema": {
@@ -1713,7 +1713,7 @@
           "AccessTokens"
         ],
         "summary": "Revoke an own token",
-        "description": "The token stops working on its next request. 404 `token_not_found` for any id that is not a live token of the\r\ncaller, whoever owns it.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
+        "description": "The token stops working on its next request. 404 `token_not_found` for any id that is not a live token of the\r\ncaller, whoever owns it; 403 `action_refused` with the hook's code when an `authn.token.revoke` hook refuses.\n\n**Policies applied:**\n- [`TokenServiceRegistered`](#policy-tokenserviceregistered) (controller) — 404 while no TokenService is registered: the 3.\n- [`Authenticated`](#policy-authenticated)\n- [`NoTokenAuthPolicy`](#policy-notokenauthpolicy)\n- [`NoImpersonationPolicy`](#policy-noimpersonationpolicy)",
         "parameters": [
           {
             "name": "uuid",

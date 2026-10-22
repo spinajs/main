@@ -146,6 +146,7 @@ curl -X POST https://api.example.test/auth/tokens/revoke -d token=spt_leaked...
 
 ## Related
 
+- [Action hooks](23-action-hooks.md#refusals-of-the-services): a refusal of `authn.token.create`, `.revoke`, `.rotate` or `.update` answers 403 `{ error: 'action_refused', code }`.
 - [`@spinajs/authn-token`](../authn-token/README.md): token format, strategies, profiles and the token CLI.
 - [Credential extractors](02-credential-extractors.md) and [Principal resolvers](03-principal-resolvers.md): how a token authenticates a request.
 - [`@spinajs/authz`](../authz/README.md): how `ceiling.roles` and the scope limit what a token may do.

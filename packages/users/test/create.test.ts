@@ -20,6 +20,7 @@ import { TestConfiguration } from './common.test.js';
 import { globalRolesOf, registerAuthzHost, rootAuthz } from './support/authz-host.js';
 import { TestPasswordService, passwordCalls, resetPasswordCalls } from './support/password-service.js';
 import { testHasher } from './support/hasher.js';
+import { ThrowingAfterHook, withHook } from './hooks/support.js';
 
 chai.use(chaiAsPromised);
 
@@ -221,19 +222,16 @@ describe('create(user, roles?)', function () {
       expect(await globalRolesOf(user.Uuid)).to.deep.eq(['editor']);
     });
 
-    it('whose afterCreate fails says the account exists and was not invited', async () => {
-      DI.get(Configuration)!.set('users.actions.create.afterCreate', [
-        () => {
-          throw new Error('mirror down');
-        },
-      ]);
+    // D17: an after hook of users.create runs once the invite is out; its failure is logged, never UserCreatedIncomplete.
+    it('whose users.create after hook fails still answers the account, invited', async () => {
+      const hook = new ThrowingAfterHook(['users.create']);
 
-      const err = await rejection(create({ Email: 'aftercreate@spinajs.pl', Login: 'aftercreate' }));
+      const { User: created } = await withHook(hook, () => create({ Email: 'aftercreate@spinajs.pl', Login: 'aftercreate' }));
 
       const user = await User.query().whereLogin('aftercreate').firstOrFail();
-      expect(err).to.be.instanceOf(UserCreatedIncomplete);
-      expect((err as UserCreatedIncomplete).data).to.deep.include({ user: user.Uuid, resendInvite: true });
-      expect(passwordCalls.map((c) => c.method)).to.deep.eq([]);
+      expect(created.Uuid).to.eq(user.Uuid);
+      expect(hook.seen).to.have.lengthOf(1);
+      expect(passwordCalls.map((c) => c.method)).to.deep.eq(['invite']);
     });
 
     it('sends no users mail and writes no reset token', async () => {

@@ -2,7 +2,7 @@ import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthenticationStrategy, AuthnEventSink, NonceStore } from '@spinajs/authn/contracts';
 import { MemoryNonceStore } from '@spinajs/authn/nonces';
 import { DbNonceStore } from '@spinajs/authn-orm';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort, generateKeyPair, throttleParams } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, ScriptedActionHook, UnsupportedConfig, fakeSeedPort, generateKeyPair, kitHooks, throttleParams } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HarnessContext, KitKeyPair } from '@spinajs/authn-testing';
 import { signChallenge } from '../src/challenge/index.js';
 import { LocalJwsSigner, StrictJwsVerifier } from '../src/jws/index.js';
@@ -53,10 +53,13 @@ export interface KeysParts {
   readonly verifier: StrictJwsVerifier;
   readonly strategies: readonly AuthenticationStrategy[];
   readonly service: FakeAuthnService;
+  /** Present when the parts were built with hooks. */
+  readonly hook?: ScriptedActionHook;
 }
 
 /** Everything one case needs, sharing one identity store, throttle and sink list (lane notes D13). */
-export async function keysParts(config: ConfigOverrides, kind: StoreKind): Promise<KeysParts> {
+/** With `hooks`, the registry runs one ScriptedActionHook on every action (A38). */
+export async function keysParts(config: ConfigOverrides, kind: StoreKind, hooks = false): Promise<KeysParts> {
   checkConfig(config);
   const options = keysOptionsFor({ assertion: { audience: KIT_AUDIENCE, ...config.authn?.keys?.assertion } });
   let store: KeyStore;
@@ -77,7 +80,8 @@ export async function keysParts(config: ConfigOverrides, kind: StoreKind): Promi
   const sinks: AuthnEventSink[] = [events];
   const identities = new FakeIdentityStore();
   const sessions = new MemorySessionIssuer();
-  const registry = new DefaultKeyRegistry({ store, secrets, throttle, audit: AuthnAudit.over(sinks), options });
+  const hook = hooks ? new ScriptedActionHook() : undefined;
+  const registry = new DefaultKeyRegistry({ store, secrets, throttle, audit: AuthnAudit.over(sinks), options, ...(hook ? { hooks: await kitHooks([hook]) } : {}) });
   const verifier = new StrictJwsVerifier();
   const strategies = [new JwsAssertionStrategy({ registry, verifier, nonces, options }), new HttpSignatureStrategy({ registry, nonces, options }), new KeyChallengeStrategy({ registry, secrets, options })];
   const service = new FakeAuthnService({
@@ -92,11 +96,11 @@ export async function keysParts(config: ConfigOverrides, kind: StoreKind): Promi
     sinks,
     principals: new RecordingPrincipalFactory(),
   });
-  return { options, store, nonces, secrets, throttle, events, sinks, identities, sessions, registry, verifier, strategies, service };
+  return { options, store, nonces, secrets, throttle, events, sinks, identities, sessions, registry, verifier, strategies, service, ...(hook ? { hook } : {}) };
 }
 
-export async function keysHarness(ctx: HarnessContext, kind: StoreKind = 'memory'): Promise<Harness> {
-  const p = await keysParts(ctx.config, kind);
+export async function keysHarness(ctx: HarnessContext, kind: StoreKind = 'memory', hooks = false): Promise<Harness> {
+  const p = await keysParts(ctx.config, kind, hooks);
   return {
     service: p.service,
     seed: fakeSeedPort(p.identities, new MemoryPasswordCredentialStore()),
@@ -108,5 +112,6 @@ export async function keysHarness(ctx: HarnessContext, kind: StoreKind = 'memory
     keyProofs: { sign: async (challenge, purpose, key) => signChallenge(challenge, purpose, KIT_AUDIENCE, key.privateKey, key.alg) },
     assertion: { audience: KIT_AUDIENCE, issuerOf: assertionIssuer },
     jws: { verifier: p.verifier, signer: new LocalJwsSigner([privateJwkOf(generateKeyPair('EdDSA'))]) },
+    ...(p.hook ? { flowHooks: p.hook } : {}),
   };
 }

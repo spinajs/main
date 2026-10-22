@@ -6,7 +6,7 @@ import { PasswordService } from '@spinajs/authn/contracts';
 import { PasswordServiceRegistered, loginField, newPasswordField, oldPasswordField, passwordRejected, resetAck, resetRequestThrottled, secretField } from '../../password/index.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, PASSWORD_HARD_CAP } from '../index.js';
-import { NO_STORE, authnFailureResponse, authnSessionCookie, badRequest } from '../responses.js';
+import { NO_STORE, authnFailureResponse, authnSessionCookie, badRequest, hookRefusedAnswer } from '../responses.js';
 import { contextOf } from '../routes.js';
 
 /**
@@ -70,10 +70,11 @@ export class AuthnPasswordController extends BaseController {
    * Body `{ login, secret, password, confirmPassword? }`. Redeems a reset secret, or an invite secret while the
    * account is invite-pending (A32), once, and sets the password; ends every session of the account. `{ Ok: true }`
    * on success; 400 `password_rejected` with `violations` before the secret is spent; 400 `password_mismatch` or
-   * `invalid_password`; any other failure the login failure body (A02, A11).
+   * `invalid_password`; 400 `action_refused` with `code` when an `authn.password.reset.redeem` hook refuses (the secret is
+   * not spent); any other failure the login failure body (A02, A11).
    * @body {AuthnPasswordResetBody} The secret and the new password
    * @returns {AuthnOk} The password is set
-   * @response 400 {AuthnError} password_rejected (with violations), password_mismatch or invalid_password
+   * @response 400 {AuthnError} password_rejected (with violations), password_mismatch, invalid_password or action_refused
    * @response 401 {AuthnFailure} Any other failure
    * @security []
    */
@@ -91,6 +92,8 @@ export class AuthnPasswordController extends BaseController {
         return resetAck();
       case 'rejected':
         return passwordRejected(result.violations);
+      case 'refused':
+        return hookRefusedAnswer(result.code, 400);
       case 'throttled':
         return authnFailureResponse(result.retryAfterSeconds);
       default:
@@ -103,10 +106,11 @@ export class AuthnPasswordController extends BaseController {
    * Body `{ oldPassword, password, confirmPassword? }`. The old password is the fresh authentication, verified inline
    * and counted in the reauth throttle. Success: 200 with the rotated session cookie; every other session of the
    * account ends, API tokens stay (A30). 400 `password_rejected` with `violations`, `password_mismatch` or
-   * `invalid_password`; a wrong old password or a throttled change: the login failure body without Retry-After. A
-   * session only: 403 `session_required` for a token or key, 403 `impersonating` while impersonating.
+   * `invalid_password`; 400 `action_refused` with `code` when an `authn.password.change` hook refuses; a wrong old password
+   * or a throttled change: the login failure body without Retry-After. A session only: 403 `session_required` for a token
+   * or key, 403 `impersonating` while impersonating.
    * @body {AuthnPasswordChangeBody} The old and the new password
-   * @response 400 {AuthnError} password_rejected (with violations), password_mismatch or invalid_password
+   * @response 400 {AuthnError} password_rejected (with violations), password_mismatch, invalid_password or action_refused
    * @response 401 {AuthnUnauthorized} No session, a wrong old password or a throttled change
    * @response 403 {AuthnError} session_required or impersonating
    * @security cookieAuth
@@ -126,6 +130,8 @@ export class AuthnPasswordController extends BaseController {
         return new Ok(null, { Coockies: [authnSessionCookie(this._cfg, result.session)], Headers: [NO_STORE] });
       case 'rejected':
         return passwordRejected(result.violations);
+      case 'refused':
+        return hookRefusedAnswer(result.code, 400);
       default:
         return authnFailureResponse();
     }

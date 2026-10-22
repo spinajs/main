@@ -18,3 +18,4 @@ export * from './cli/DeleteToken.js';
 export * from './cli/DeleteExpiredTokens.js';
 export * from './schema.js';
 export * from './bootstrap.js';
+export * from './hooks.js';

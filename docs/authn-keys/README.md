@@ -26,6 +26,7 @@ Add one ORM driver, for example `@spinajs/orm-sqlite` or `@spinajs/orm-postgres`
 | [JWS and key material](08-jws-and-key-material.md) | `StrictJwsVerifier`, `LocalJwsSigner`, JWK checks, thumbprints, strict base64url and JSON, structured-field parsers |
 | [Signing keys and rotation](10-signing-keys.md) | `authn.keys.signer` registers a `JwsSigner` from private JWKs; the key rotation runbook |
 | [Custom key strategies](09-custom-key-strategies.md) | `KeyStrategy`, the helpers and the protected hooks for writing or extending a strategy that verifies registered keys |
+| [Action hooks](11-action-hooks.md) | The `authn.key.register` and `authn.key.revoke` actions: refuse or observe a key registration or a revoke with an `ActionHook` |
 
 ## Quick start
 

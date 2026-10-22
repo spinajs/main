@@ -3,14 +3,11 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { DefaultQueueService } from '@spinajs/queue';
 import { IdentityAddressVerifier } from '@spinajs/authn/contracts';
-import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
 
-import { UserAccountSink, UserAddressVerifier, UserIdentityStore } from '../../src/index.js';
+import { UserAddressVerifier, UserIdentityStore } from '../../src/index.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from '../support/users-db.js';
 
 const AT = new Date('2026-10-21T09:15:00.000Z');
-
-const redeemed = (identity: IdentityRef): AuthnEvent => ({ type: 'invite.redeem', at: AT, outcome: 'success', identity });
 
 describe('users: the verified address (FEAT-2)', function () {
   this.timeout(30000);
@@ -68,19 +65,5 @@ describe('users: the verified address (FEAT-2)', function () {
     await verifier.markVerified({ type: 'service', id: 's1' }, AT);
   });
 
-  it('redeeming an invite marks the address verified: the invite mail reached it', async () => {
-    const { ref } = await seedUser({ login: 'invited-address', active: false, invitePending: true });
-    expect((await store.status(ref)).addressVerified).to.eq(false);
-
-    await (await DI.resolve(UserAccountSink)).publish(redeemed(ref));
-
-    expect(await store.status(ref)).to.deep.include({ active: true, addressVerified: true });
-    expect((await storedUser(ref.id)).EmailVerifiedAt?.toMillis()).to.eq(AT.getTime());
-  });
-
-  it('a failed invite redemption marks nothing', async () => {
-    const { ref } = await seedUser({ login: 'invite-failed', active: false, invitePending: true });
-    await (await DI.resolve(UserAccountSink)).publish({ ...redeemed(ref), outcome: 'failure' });
-    expect((await store.status(ref)).addressVerified).to.eq(false);
-  });
+  // The invite redeem's mark: test/hooks/password-state.test.ts (UserPasswordStateHook).
 });

@@ -9,22 +9,24 @@ The owner of an account adds TOTP in two calls: `TotpService.begin` creates a se
 1. `TotpService` restores the session through `SessionIssuer.restore(session.id)`. A missing, ended or impersonated session gives `{ ok: false, code: 'no_session' }`. The identity always comes from the session, never from the caller.
 2. A pending session passes only while the identity is enrolled in no MFA step: neither TOTP nor any other `MfaStep` of the app. Otherwise `no_session`.
 3. It checks fresh auth with `isFresh(facts, ctx.now, authn.freshAuth.maxAgeSeconds)`. A stale active session passes when `reauth` is given and `AuthnService.reauthenticate` accepts it. A stale pending session is never re-authenticated. Failure: `not_fresh`.
-4. `TotpMfaStep.beginEnrolment(identity)` checks the identity with `identityKey` of `@spinajs/authn-orm/identity` (throws `InvalidArgument` for a bad one) and draws a 20-byte random secret.
-5. `MfaKeyRing.encrypt` encrypts the secret under the current key; see [Encryption keys](07-encryption-keys.md).
-6. It builds the `otpauth://` URI with `issuer`, `algorithm`, `digits` and `period` of `authn.mfa.totp`. The label is the identity's email from `IdentityStore.display`, else its name, else `id.id`.
-7. `MfaSecretStore.put` writes a pending row, or replaces an earlier pending one. It never overwrites a confirmed row: then the step throws `TotpAlreadyEnrolled` and the service answers `enrolled`.
-8. Result: `{ ok: true, provisioning }`. The secret appears only inside `provisioning`, returned once.
+4. The `authn.mfa.enrol.begin` [action hooks](10-action-hooks.md) run; a refusal throws.
+5. `TotpMfaStep.beginEnrolment(identity)` checks the identity with `identityKey` of `@spinajs/authn-orm/identity` (throws `InvalidArgument` for a bad one) and draws a 20-byte random secret.
+6. `MfaKeyRing.encrypt` encrypts the secret under the current key; see [Encryption keys](07-encryption-keys.md).
+7. It builds the `otpauth://` URI with `issuer`, `algorithm`, `digits` and `period` of `authn.mfa.totp`. The label is the identity's email from `IdentityStore.display`, else its name, else `id.id`.
+8. `MfaSecretStore.put` writes a pending row, or replaces an earlier pending one. It never overwrites a confirmed row: then the step throws `TotpAlreadyEnrolled` and the service answers `enrolled`.
+9. Result: `{ ok: true, provisioning }`. The secret appears only inside `provisioning`, returned once.
 
 ### Confirm, `TotpService.confirm(session, code, ctx)`
 
 1. `TotpService` restores the session: any active or pending session that is not impersonated. Confirm needs no fresh auth.
 2. It reads the enrolment state with `TotpMfaStep.enrolment(identity)`. A pending session whose identity is enrolled in another MFA step answers `no_session`. `'confirmed'` answers `enrolled` and `'none'` answers `not_begun`; neither counts into the throttle.
-3. It counts the attempt into the `mfa` throttle under `identityThrottleKeys(identity, ctx)` of `@spinajs/authn/contracts`: `account` (`id`), `account-ip` (`id|ip`) and, with `ctx.ip`, `ip`, the keys `AuthnService.completeMfa` uses. A refusal answers `{ ok: false, code: 'throttled', retryAfterSeconds }`.
-4. `TotpMfaStep.confirmEnrolment(identity, code)` decrypts the pending secret and checks the code inside `window`. A wrong code throws `TotpInvalidCode`.
-5. `MfaSecretStore.acceptStep` spends the code's time step, so the same code cannot log in afterwards.
-6. `MfaSecretStore.confirm(id, 'totp', undefined, secretEnc)` confirms only the cipher text the code was checked against. A `begin` that replaced it in between throws `TotpEnrolmentChanged`; another confirmation that won throws `TotpAlreadyEnrolled`.
-7. The step issues `authn.mfa.totp.recoveryCodes` recovery codes; see [Recovery codes](04-recovery-codes.md).
-8. The service resets the `mfa` throttle keys, publishes `mfa.enrol` with outcome `success` and returns `{ ok: true, recoveryCodes }`.
+3. The `authn.mfa.enrol.confirm` [action hooks](10-action-hooks.md) run; a refusal throws and counts nothing.
+4. It counts the attempt into the `mfa` throttle under `identityThrottleKeys(identity, ctx)` of `@spinajs/authn/contracts`: `account` (`id`), `account-ip` (`id|ip`) and, with `ctx.ip`, `ip`, the keys `AuthnService.completeMfa` uses. A refusal answers `{ ok: false, code: 'throttled', retryAfterSeconds }`.
+5. `TotpMfaStep.confirmEnrolment(identity, code)` decrypts the pending secret and checks the code inside `window`. A wrong code throws `TotpInvalidCode`.
+6. `MfaSecretStore.acceptStep` spends the code's time step, so the same code cannot log in afterwards.
+7. `MfaSecretStore.confirm(id, 'totp', undefined, secretEnc)` confirms only the cipher text the code was checked against. A `begin` that replaced it in between throws `TotpEnrolmentChanged`; another confirmation that won throws `TotpAlreadyEnrolled`.
+8. The step issues `authn.mfa.totp.recoveryCodes` recovery codes; see [Recovery codes](04-recovery-codes.md).
+9. The service resets the `mfa` throttle keys, publishes `mfa.enrol` with outcome `success` and returns `{ ok: true, recoveryCodes }`.
 
 ```mermaid
 sequenceDiagram
@@ -69,7 +71,7 @@ sequenceDiagram
 | | `enrolled` | Already confirmed, another confirmation won, or the recovery codes could not be stored (regenerate them). |
 | | `throttled` | The `mfa` throttle refused the attempt; `retryAfterSeconds` says when to retry. |
 
-The results are values, not exceptions. `TotpService` throws only for a fault, such as a missing `SessionIssuer` or a secret that does not decrypt.
+The results are values, not exceptions. `TotpService` throws for a fault, such as a missing `SessionIssuer` or a secret that does not decrypt, and for a refusal by an action hook (`ActionRefused`, or `ActionHookFailed` for a failed hook), which no result code covers; see [Action hooks](10-action-hooks.md).
 
 ### Forced enrolment at first login
 
@@ -113,12 +115,13 @@ All keys: [Turning TOTP on](01-setup.md#configuration).
 | Re-authentication | `AuthnService` of `@spinajs/authn` | `DefaultAuthnService` | | Optional `@Autoinject`, used only for a stale active session with `reauth`; `deps.authn` overrides it. |
 | Throttle | `AuthnThrottle` of `@spinajs/authn` | the registered throttle | `DbAuthnThrottle` | Optional `@Autoinject`; `deps.throttle` overrides it. |
 | Audit | `AuthnAudit` of `@spinajs/authn/audit`, over every registered `AuthnEventSink` | `AuthnAudit` | | `deps.sinks` replaces it with `AuthnAudit.over(sinks)`. |
+| Action hooks | `Hooks` of `@spinajs/hooks` | `DefaultHooks` | | `@Autoinject`; `deps.hooks` overrides it. Register an `ActionHook`; see [Action hooks](10-action-hooks.md). |
 
 ## Important behaviour
 
 - `begin` replaces a pending enrolment with a new secret. The URI of the earlier `begin` stops working.
 - `begin` and `confirm` are race-safe. `put` never overwrites a confirmed row, and `confirm` confirms only the cipher text the code was checked against. Of two parallel confirmations, one returns the recovery codes and the other answers `enrolled`.
-- `begin` publishes no audit event. `confirm` publishes `mfa.enrol` with outcome `success` or `failure` and a `reason` (`enrolled`, `not_begun`, `invalid_code`, `throttled`), plus `throttle.block` when throttled.
+- `begin` publishes no audit event, except `mfa.enrol` with outcome `failure` and the reason `hook:<code>` or `hook_error` when an action hook refuses it; a hook refusal of `confirm` is audited the same way. `confirm` publishes `mfa.enrol` with outcome `success` or `failure` and a `reason` (`enrolled`, `not_begun`, `invalid_code`, `throttled`), plus `throttle.block` when throttled.
 - When the step confirms the enrolment but cannot store the recovery codes, `confirm` answers `enrolled` and audits `mfa.enrol` as a success with reason `recovery_codes_not_issued`. The owner then calls `regenerateRecoveryCodes`.
 - No result and no event carries the secret, a code or a recovery code, except the one `provisioning` and the one `recoveryCodes` that hand them out.
 - An impersonated session can neither begin nor confirm: a factor enrolled there would lock the owner out.

@@ -548,12 +548,17 @@ export type KeyRegistration = (NewKey & {
     };
     readonly actor: PrincipalRef;
 });
+/** `refused`: an action hook refused the registration; `refusal` is its code, or `hook_error` for a hook that failed. */
 export type KeyRegisterResult = {
     readonly ok: true;
     readonly key: KeyRecord;
 } | {
     readonly ok: false;
     readonly code: "invalid_key" | "invalid_proof" | "duplicate";
+} | {
+    readonly ok: false;
+    readonly code: "refused";
+    readonly refusal: string;
 };
 export type KeyChallengeRequest = {
     readonly purpose: "register";
@@ -843,7 +848,8 @@ export interface PasswordPolicyContext {
 }
 /**
  * 'invalid' is the one answer for an unknown or inactive account, a wrong password, and a missing, expired, used or wrong secret
- * (A02, A11, SR-17); the real reason goes to audit only.
+ * (A02, A11, SR-17); the real reason goes to audit only. 'refused': an action hook refused the change (`code`, or `hook_error`
+ * for a hook that failed).
  */
 export type PasswordRefusal = {
     readonly status: "invalid";
@@ -853,6 +859,9 @@ export type PasswordRefusal = {
 } | {
     readonly status: "rejected";
     readonly violations: readonly PasswordViolation[];
+} | {
+    readonly status: "refused";
+    readonly code: string;
 };
 export type PasswordChangeResult = {
     readonly status: "changed";
@@ -874,6 +883,9 @@ export type PasswordSetResult = {
 } | {
     readonly status: "rejected";
     readonly violations: readonly PasswordViolation[];
+} | {
+    readonly status: "refused";
+    readonly code: string;
 };
 export type AddressVerificationRequestResult = {
     readonly status: "accepted";

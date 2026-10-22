@@ -8,10 +8,15 @@ import type { Request } from '@spinajs/http';
 import { AuthnAudit } from '@spinajs/authn';
 import { Session } from '@spinajs/authn/contracts';
 import type { AuthnEvent, SessionHandle } from '@spinajs/authn/contracts';
+import type { Hooks } from '@spinajs/hooks';
+import { kitHooks } from '@spinajs/authn-testing';
 
 import { AuthnLogoutExtension } from '../../src/v3/logout-extension.js';
 import { AuthnLoginController } from '../../src/v3/controllers/AuthnLoginController.js';
 import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../src/schema.js';
+
+/** The Hooks DI injects into the controller, with no hook registered. */
+let hooks: Hooks;
 
 const END_SESSION = 'https://idp.example.test/realms/corp/logout?client_id=canvas&post_logout_redirect_uri=https%3A%2F%2Fapp.example.test%2F';
 
@@ -67,7 +72,7 @@ function world(): World {
     },
   };
   const controller = new AuthnLoginController();
-  Object.assign(controller, { Container: container, Sessions: sessions, _cfg: { Env: 'test', get: (path: string, fallback?: unknown) => (path === 'process.env.APP_ENV' ? 'test' : fallback) } });
+  Object.assign(controller, { Container: container, Sessions: sessions, Hooks: hooks, _cfg: { Env: 'test', get: (path: string, fallback?: unknown) => (path === 'process.env.APP_ENV' ? 'test' : fallback) } });
   Object.defineProperty(controller, 'Log', { value: { warn: (...args: unknown[]) => void warned.push(args) } });
   Object.defineProperty(controller, 'ClearSiteData', { value: DEFAULT_LOGOUT_CLEAR_SITE_DATA });
 
@@ -106,6 +111,10 @@ function answerOf(res: unknown): Answer {
 const NAVIGATE = { 'Sec-Fetch-Mode': 'navigate' };
 
 describe('POST /auth/logout with logout extensions', () => {
+  before(async () => {
+    hooks = await kitHooks([]);
+  });
+
   it('without an extension answers today\'s 200 with the cleared cookie, the site data header and no-store', async () => {
     const w = world();
     for (const headers of [{}, NAVIGATE]) {

@@ -77,7 +77,7 @@ User lifecycle actions (create, activate, ban, delete), the login, reset and inv
 | 8 | 126 | User model tests > Should create user | adapt | C1 | users/test/ `user.Role` assertion becomes an assignment read (H13, B12 default roles). Count only user events, or stub `AuthzAdmin`: `create` now publishes `RoleAssigned` (B27), so `eStub.callCount` can change. C1 task 6: reads the GLOBAL assignments. C1 task 3: the result has no `Password`. |
 | 9 | 153 | User model tests > Should persist the registration date of a created user | adapt | C1 | users/test/ |
 | 10 | 165 | User model tests > Should create user with metadata | adapt | C1 | users/test/ `user.Role` assertion becomes an assignment read (H13). Same event-count note as row 8. C1 task 6: reads the GLOBAL assignments. C1 task 3: the result has no `Password`. |
-| 11 | 196 | User model tests > Should create user with beforeCreate and afterCreate middleware | adapt | C1 | users/test/ `users.actions.create.*` middleware config unchanged. |
+| 11 | 196 | User model tests > Should create user with beforeCreate and afterCreate middleware | adapt | C1 | users/test/ `users.actions.create.*` middleware config unchanged. HOOK-4 (D17): rewritten as `Should create user with users.create before and after hooks`. |
 | 12 | 238 | User model tests > Should create user when create middleware lists are empty | adapt | C1 | users/test/ |
 | 13 | 255 | User model tests > Should create user when create middleware config is not declared at all | adapt | C1 | users/test/ |
 | 14 | 270 | User model tests > Should ignore malformed (non array) create middleware config | adapt | C1 | users/test/ |
@@ -698,3 +698,21 @@ test (see "N2 status" and `test/password.test.ts`).
 ## T1 status (task 7)
 
 `test/legacy-v2/` was removed by T1 task 7: every row of its five files (actions-fundamentals, actions, auth, cli, session-cookie) is mapped to an existing 3.0 test, written in `test/v3/role-grants.test.ts` or `test/v3/reset-flows.test.ts`, handed off, or dropped; the rows name the test. The `ignore` of `.mocharc.json` is gone.
+
+## HOOK-4 status
+
+D17 removed the create middleware (`users.actions.create.beforeCreate` / `afterCreate`, `CreateMiddleware`) and
+`UserAccountSink`; R1 moved the lifecycle mails into `UserLifecycleMailHook`, R2 the password state into
+`UserPasswordStateHook`.
+
+| Was | Now |
+|---|---|
+| `actions.test.ts` rows 11 (middleware), 12 (empty lists), 13 (config not declared); `Should ignore malformed (non array) create middleware config`; `Should refuse a duplicate before running create middleware` | `actions.test.ts`: `Should create user with users.create before and after hooks`, `Should ignore a legacy users.actions.create middleware config` (12 and the malformed case: the config is no longer read), `Should create user when users.actions is not declared at all` (13), `Should refuse a duplicate before running users.create hooks` |
+| `create.test.ts` › `whose afterCreate fails says the account exists and was not invited` | `create.test.ts` › `whose users.create after hook fails still answers the account, invited` (a failing after hook is logged, never `UserCreatedIncomplete`) |
+| `authn-sinks.test.ts` › `UserAccountSink: PasswordSetAt`, `UserAccountSink: invite activation`; `both are registered AuthnEventSinks` | `hooks/password-state.test.ts` (same cases on the after hook, plus the real `LocalPasswordService` flows); `authn-sinks.test.ts` › `QueueAuthnEventSink is a registered AuthnEventSink, and no users sink writes the password state` |
+| `identity/address-verified.test.ts` › `redeeming an invite marks the address verified`, `a failed invite redemption marks nothing` | `hooks/password-state.test.ts` › `an invite redeem activates the pending account, marks the address verified …`, `writes nothing for an invalid redeem` |
+| `identity-system.test.ts` › `UserAccountSink records PasswordSetAt and activates an invited account` | same file › `UserPasswordStateHook records PasswordSetAt and activates an invited account` |
+| `acceptance`, `authn-local-flows`, `password-mailer`, `v3/reset-flows`: `UserAccountSink` in the sinks of a `LocalPasswordService` | the same services get `hooks` (the DI `Hooks`) instead |
+| `shipped-config.test.ts`: `users.actions` among the shipped keys | no `users.actions` key |
+
+New: `hooks/actions.test.ts` (refusals and invariants of every users action), `hooks/lifecycle-mail.test.ts` (R1).

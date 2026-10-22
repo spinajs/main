@@ -90,6 +90,7 @@ Each port is an optional member of `Harness`. The contract types come from `@spi
 | `actors` | `ActorsPort` | Create an admin with or without the `users:credentials` right |
 | `http` | `HttpPort` | Send HTTP requests to the app; see [HTTP port](06-http-port.md) |
 | `hooks` | `HooksPort` | Add action hooks for the rest of the case (A37); see below |
+| `flowHooks` | `FlowHooksPort` | Script one hook on every action to refuse, fail or change the input; read the phases it ran (A38); see below |
 
 ### The `hooks` port
 
@@ -105,6 +106,59 @@ const hooks = new KitActionHooks();
 child.register(DefaultHooks).as(Hooks);
 child.register(() => hooks).as(ActionHook);
 // ...resolve AuthnService, then return { ...ports, hooks } from the harness factory
+```
+
+### The `flowHooks` port
+
+`flowHooks` is one `ActionHook` on every action, registered before the lane's `Hooks` runner boots. A case adds no hooks through it: it scripts what this one hook does on later `before` calls and reads every phase the hook ran. The kit's implementation is [`ScriptedActionHook`](01-fakes.md#scriptedactionhook-and-kithooks).
+
+| Member | Effect |
+| --- | --- |
+| `calls(action?)` | Every phase seen so far, in order; only those of `action` when given |
+| `refuse(pattern, code)` | Matching actions are refused with `code` |
+| `fail(pattern)` | The `before` hook throws something other than a refusal; the action answers as for `ActionHookFailed` |
+| `mutate(pattern, patch)` | Assigns `patch` onto the `before` input; a function gets a copy of the input and returns the keys to assign |
+| `reset()` | Forgets the calls and the scripts |
+
+- A pattern is what `ActionHook.actions` takes: an action, a prefix glob (`'authn.token.*'`) or `'*'`.
+- Only the keys an action declares mutable reach it; a `mutate` of any other key does not reach the action.
+- A `FlowHookCall` holds `phase` (`'before'`, `'after'` or `'failed'`), `action`, `input` (a shallow copy taken when the phase ran), `output` on `after` and `error` on `failed`.
+
+A lane wires the port in one of two ways:
+
+- Hand the service a runner over the hook alone: `await kitHooks([hook])`, passed as the `hooks` option of a service built with `new` (`DefaultKeyRegistry` in `@spinajs/authn-keys`), or registered as `Hooks` in the child container that builds the service (`DbTokenService` in `@spinajs/authn-token`). Return the same `hook` as `flowHooks`.
+- A service that resolves `Hooks` from DI (`LocalPasswordService` in `@spinajs/authn-local`): register a subclass of `ScriptedActionHook` as an `ActionHook` before the suite, and return `DI.resolve(<subclass>)` as `flowHooks`. Uncache it with the other per-case types, so each case starts with a fresh hook and a fresh runner.
+
+```ts
+import { DefaultKeyRegistry, MemoryKeyStore } from '@spinajs/authn-keys';
+import { ScriptedActionHook, kitHooks, runAuthnBehaviour } from '@spinajs/authn-testing';
+
+runAuthnBehaviour(
+  ['A38'],
+  async (ctx) => {
+    const hook = new ScriptedActionHook();
+    const keys = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets, throttle, audit, options, hooks: await kitHooks([hook]) });
+    return { keys, flowHooks: hook };
+  },
+  { title: 'key hooks', facets: ['A38/keys'], claim: ['A38/keys'] },
+);
+```
+
+```ts
+import { DI } from '@spinajs/di';
+import { ActionHook } from '@spinajs/hooks';
+import { ScriptedActionHook } from '@spinajs/authn-testing';
+
+class LaneHook extends ScriptedActionHook {}
+
+before(() => DI.register(LaneHook).as(ActionHook));
+after(() => {
+  DI.uncache(LaneHook);
+  DI.unregister(LaneHook);
+});
+
+// In the harness factory, once the services that run hooks have resolved:
+return { ...ports, flowHooks: DI.resolve(LaneHook) };
 ```
 
 ### Facets, claims and pending cases
@@ -199,7 +253,7 @@ Pool idle timers that read `Date.now()` stop aging while the clock is frozen. `S
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Harness | none; your `HarnessFactory` | none | the fakes, your real services | Return the ports you implement |
-| Rule registry | `AUTHN_RULES` (`ReadonlyMap<RuleId, AuthnRule>`) | the rules A01 to A31 | none | Read-only; `runAuthnBehaviour` and `planCases` run only these rules |
+| Rule registry | `AUTHN_RULES` (`ReadonlyMap<RuleId, AuthnRule>`) | the rules A01 to A38 | none | Read-only; `runAuthnBehaviour` and `planCases` run only these rules |
 | Single case run | `executeCase`, `settleCase` | none | none | Run one `PlannedCase` inside your own `it` or outside mocha |
 
 ### Build the service port from the fakes
@@ -287,7 +341,7 @@ assert.equal((await settleCase(planned, brokenHarness)).status, 'failed');
 
 - Validation errors throw while mocha loads the spec file, not inside a test.
 - A pending case is never a pass: its title carries the reason and the summary repeats it. Claim the facets you own so a missing port fails instead.
-- `PENDING_TRANSCRIPTION` lists rules registered without cases; it is empty, so every rule A01 to A31 (no A28 or A29) has its cases. A requested rule in that set shows one pending case, or one failing case when claimed.
+- `PENDING_TRANSCRIPTION` lists rules registered without cases; it is empty, so every rule A01 to A38 (no A28 or A29) has its cases. A requested rule in that set shows one pending case, or one failing case when claimed.
 - `runAuthnBehaviour` uses the mocha globals `describe`, `it` and `after`. Call it at the top level of a spec file, or inside a `describe`, never inside an `it`.
 - The case clock fakes `Date` for the whole process while the case runs, not only for the code behind the harness.
 

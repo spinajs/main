@@ -4,7 +4,7 @@ import type { SessionHandle } from './contracts/session.js';
 import type { ImpersonationStart } from './impersonation/impersonation-service.js';
 import type { LinkResult } from './link/account-link-service.js';
 import { ActionHookFailed, ActionRefused } from '@spinajs/hooks';
-import type { ActionName } from '@spinajs/hooks';
+import type { ActionName, Hooks, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
 
 /**
  * `authn.login`: `AuthnService.authenticate` of a login (not of a per-request credential), before the throttle
@@ -111,6 +111,8 @@ declare module '@spinajs/hooks' {
 
 /** What a refused or failed action hook audits: `hook:<code>` for a refusal, `hook_error` (with the hook class and why) for a hook that failed. */
 export interface HookRefusal {
+  /** The code a refused action answers with: the hook's, or `hook_error` for a hook that failed. */
+  readonly code: string;
   readonly reason: string;
   readonly data?: Readonly<Record<string, unknown>>;
 }
@@ -118,8 +120,8 @@ export interface HookRefusal {
 /** The audit reason of an error `Hooks.run(action, ...)` threw for its own hooks, or null for any other error, which the caller handles as before. */
 export function hookRefusalOf(err: unknown, action: ActionName): HookRefusal | null {
   // A nested action's refusal is that action's to answer; one escaping it is not this action's refusal.
-  if (err instanceof ActionRefused && err.action === action) return { reason: `hook:${err.code}` };
-  if (err instanceof ActionHookFailed && err.action === action) return { reason: 'hook_error', data: { hook: err.hook, failure: err.reason } };
+  if (err instanceof ActionRefused && err.action === action) return { code: err.code, reason: `hook:${err.code}` };
+  if (err instanceof ActionHookFailed && err.action === action) return { code: 'hook_error', reason: 'hook_error', data: { hook: err.hook, failure: err.reason } };
   return null;
 }
 
@@ -203,4 +205,28 @@ export function hookView<T>(value: T): T {
   if (value === null || typeof value !== 'object') return value;
   const deep = deepCopy(value);
   return deep !== null ? deepFreeze(deep) : (partialCopy(value, true, new Map()) as T);
+}
+
+/**
+ * Runs `action` through `hooks` on copies: each input key is a hookView for the hooks, a hookCopy when the action
+ * declares it mutable, and the after hooks get a hookView of `output(result)`. `impl` gets the merged input and the
+ * caller its own result. Without a matching hook, `impl` runs on `input` and nothing is copied. `impl` reads the keys
+ * it does not declare mutable from its own captured values, never from the merged input.
+ */
+export async function runHookedAction<A extends ActionName, R>(hooks: Hooks, action: A, input: InputOf<A>, impl: (input: InputOf<A>) => Promise<R>, opts: RunOptions<A> & { readonly output?: (result: R) => OutputOf<A> }): Promise<R> {
+  if (!hooks.has(action)) return impl(input);
+  const mutable = new Set<PropertyKey>(opts.mutable as readonly PropertyKey[]);
+  const copies = Object.fromEntries(Object.entries(input as object).map(([k, v]) => [k, mutable.has(k) ? hookCopy(v) : hookView(v)])) as InputOf<A>;
+  let result: R | undefined;
+  await hooks.run(
+    action,
+    copies,
+    async (merged) => {
+      const r = await impl(merged);
+      result = r;
+      return hookView(opts.output ? opts.output(r) : (r as unknown as OutputOf<A>));
+    },
+    opts,
+  );
+  return result as R;
 }

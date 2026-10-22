@@ -16,6 +16,8 @@ The mailed secret is `base64url(JSON [type, id]).<raw secret>`. `POST /auth/veri
 
 An identity whose store does not track verification (`IdentityStatus.addressVerified` undefined) is never refused at login.
 
+The `authn.address.verify.request` [action hooks](16-action-hooks.md) run after the throttle of step 1, around steps 2 and 3; a refusal answers `{ status: 'accepted' }` and mails nothing. The `authn.address.verify` hooks run around step 5, before the secret is read; a refusal answers `{ status: 'invalid' }` and leaves the secret usable.
+
 ## Example
 
 ```ts
@@ -48,6 +50,8 @@ The page at `authn.local.verify.url` reads the `token` query parameter and posts
 | `address.verify.request` | `success` or `failure` | `no_mailer` on failure | `identity` | `requestVerification()` |
 | `address.verify` | `failure` | `malformed`, `unknown_identity`, `status` or `secret` | `identity` when it exists | `redeemVerification()` |
 | `address.verify` | `success` | | `identity` | `redeemVerification()` |
+| `address.verify.request` | `failure` | `hook:<code>` or `hook_error` | `identity` | `requestVerification()`: an action hook refused or failed |
+| `address.verify` | `failure` | `hook:<code>` or `hook_error` | | `redeemVerification()`: an action hook refused or failed |
 
 ## Configuration
 

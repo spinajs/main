@@ -7,13 +7,16 @@ import { BaseController, BasePath, Get, HTTP_STATUS_CODE, Ok, Post, Redirect, Re
 import type { Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 import { SessionIssuer } from '@spinajs/authn/contracts';
+import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
 
 import { unauthenticated } from '../../policies/v3/errors.js';
 import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
 import { DEFAULT_LOGOUT_CLEAR_SITE_DATA } from '../../schema.js';
-import { NO_STORE, authnClearedSessionCookie } from '../responses.js';
+import { NO_STORE, authnClearedSessionCookie, hookRefusedAnswer } from '../responses.js';
 import { runLogoutExtensions } from '../logout-extension.js';
-import { answerFor, auditEnded, bodyField, boundedString, completeLogin, isNavigation, pendingAnswer, pendingSteps } from '../routes.js';
+import { answerFor, auditEnded, bodyField, boundedString, completeLogin, contextOf, isNavigation, pendingAnswer, pendingSteps, publishAuthnEvent } from '../routes.js';
+import '../../hooks.js';
 
 /**
  * Login, logout and whoami of the 3.0 layer (design §22.4, §22.11). Every failed login answers the same 401 body
@@ -30,6 +33,9 @@ export class AuthnLoginController extends BaseController {
 
   @Logger('authn-http')
   protected Log!: Log;
+
+  @Autoinject(Hooks)
+  protected Hooks!: Hooks;
 
   @Config('authn.mfa.policy.service')
   protected MfaPolicyService: string;
@@ -61,7 +67,8 @@ export class AuthnLoginController extends BaseController {
    * the site data of `authn.http.logout.clearSiteData` (default cache, cookies and storage). Audited as `logout`, and as
    * `impersonation.end` (reason `logout`) for an impersonation (A20, A21).
    * POST, so no cross-site link can log anyone out. After the revoke every AuthnLogoutExtension may name a redirect (an OIDC
-   * provider's end_session_endpoint): a navigation request gets 303 to it, any other client 200 `{ endSession }`.
+   * provider's end_session_endpoint): a navigation request gets 303 to it, any other client 200 `{ endSession }`. An
+   * `authn.logout` hook that refuses answers 403 `action_refused` with its code and keeps the session and the cookie.
    * @security cookieAuth
    * @response 303 The session ended; continue at the extension's redirect
    * @response 401 {AuthnError} No session
@@ -70,8 +77,24 @@ export class AuthnLoginController extends BaseController {
   public async logout(@Req() req: Request) {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('there is no session to end');
-    await this.Sessions.revoke(session.handle);
-    await auditEnded(this.Container, req, session, 'logout', 'logout');
+    try {
+      await runHookedAction(
+        this.Hooks,
+        'authn.logout',
+        { session, ctx: contextOf(req, 'request', session.handle) },
+        async () => {
+          await this.Sessions.revoke(session.handle);
+          await auditEnded(this.Container, req, session, 'logout', 'logout');
+        },
+        { mutable: [] },
+      );
+    } catch (err) {
+      const refusal = hookRefusalOf(err, 'authn.logout');
+      if (!refusal) throw err;
+      const { sessionHandle } = session.facts;
+      await publishAuthnEvent(this.Container, req, { type: 'logout', outcome: 'failure', reason: refusal.reason, identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) });
+      return hookRefusedAnswer(refusal.code);
+    }
     const redirect = await runLogoutExtensions(this.Container, session, req, this.Log);
     const directives = this.ClearSiteData;
     const options = {

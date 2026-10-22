@@ -1,6 +1,6 @@
 # `@spinajs/authn-testing`
 
-The test kit for `@spinajs/authn`. It ships in-memory fakes for the authn contracts, conformance suites for your own strategies and stores, and the behaviour rules A01 to A31 that every SpinaJS authn package runs against itself.
+The test kit for `@spinajs/authn`. It ships in-memory fakes for the authn contracts, conformance suites for your own strategies and stores, and the behaviour rules A01 to A38 that every SpinaJS authn package runs against itself.
 
 It does **not** boot an app, start an HTTP server or open a database: your test builds those and hands them to the kit through a harness. The fakes are test doubles, not production implementations: `FakeAuthnService` is not the `AuthnService` of `@spinajs/authn`. The suites register mocha tests, so they run under mocha only (peer dependency `mocha >= 10`).
 
@@ -16,11 +16,11 @@ The package depends on `@spinajs/authn` and imports its contracts from `@spinajs
 
 | Feature | What it does |
 | --- | --- |
-| [Fakes](01-fakes.md) | In-memory implementations of the authn contracts: clock, identities, passwords, secrets, sessions, MFA, links, throttles, events, hooks |
+| [Fakes](01-fakes.md) | In-memory implementations of the authn contracts: clock, identities, passwords, secrets, sessions, MFA, links, throttles, events, action hooks |
 | [Fake authentication service](02-fake-authn-service.md) | `FakeAuthnService`: the login, MFA and re-authentication flow over the fakes, to log a test user in |
 | [Conformance suites](03-conformance-suites.md) | `runStrategyConformance`, `runIdentityStoreConformance`, the store wrappers and the nonce, key, MFA and token runners: check your own strategy, store or service against the contract |
 | [Behaviour runner](04-behaviour-runner.md) | `runAuthnBehaviour`: runs the behaviour rules against a harness you build, with facets, claims, pending cases and a fake `Date` |
-| [Behaviour rules](05-behaviour-rules.md) | The catalogue of rules A01 to A31: what each one checks, its facets and the ports it needs |
+| [Behaviour rules](05-behaviour-rules.md) | The catalogue of rules A01 to A38: what each one checks, its facets and the ports it needs |
 | [HTTP port](06-http-port.md) | `HttpPort`, the route builders, the probe route, the cookie jar and the request helpers for the HTTP facets |
 | [Test helpers](07-test-helpers.md) | Kit users and assertions, timing comparison, parallel bursts, backoff walks, keys, JWS, HTTP signatures, TOTP, a JWKS server |
 | [C8 golden tickets](08-c8-fixtures.md) | `loadC8Fixtures`: vendored Ed25519 test keys and JWS tickets with their expected error codes |

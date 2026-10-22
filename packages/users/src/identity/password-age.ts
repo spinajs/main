@@ -7,7 +7,7 @@ import { runAsSystem } from '../system.js';
 import { USERS_TABLE, holdsPassword, quoted, raw, usersDriver } from './sql.js';
 
 /**
- * Ages from `users.PasswordSetAt`, which `UserAccountSink` writes on the authn events of a real password set.
+ * Ages from `users.PasswordSetAt`, which `UserPasswordStateHook` writes after a real password set.
  * A NULL beside a password is a lost write, and its unknown age counts as old.
  */
 @Injectable(PasswordAgeSource)

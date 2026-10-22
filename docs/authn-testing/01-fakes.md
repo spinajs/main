@@ -2,7 +2,7 @@
 
 In-memory implementations of the `@spinajs/authn` contracts. Use them to test code that needs identities, passwords, sessions, MFA or a throttle without a database, and as the ports you do not own when you run the [behaviour rules](04-behaviour-runner.md).
 
-Every fake extends the contract class from `@spinajs/authn/contracts`, so it fits wherever that contract is expected. The kit registers nothing in DI: you construct the fakes and wire them yourself.
+Every fake extends the contract class from `@spinajs/authn/contracts` (`ScriptedActionHook`: `ActionHook` from `@spinajs/hooks`), so it fits wherever that contract is expected. The kit registers nothing in DI: you construct the fakes and wire them yourself.
 
 ## How it works
 
@@ -35,6 +35,8 @@ Time comes from two places. `ctx.now` (from `FakeClock.ctx()`) drives the thrott
 | `FakeImpersonationStartHook(() => guard)` | `ActionHook` on `authn.impersonation.start` | The start check as users registers it: asks the guard about `input.actor` and `input.target` and refuses with its code. Register it beside the guard, or every start is refused (`no_guard`) | none |
 | `FakeRoleSource` | `RoleSource` | Roles you grant per identity | none |
 | `fakeSeedPort(identities, passwords)` | `SeedPort` | Seeds users into the two fakes; passwords stored with `fakeHash` | none |
+| `ScriptedActionHook` | `ActionHook` (`@spinajs/hooks`), `FlowHooksPort` | One hook on every action; refuses, fails or changes the input as a case scripts it | `calls()`, `landed()` |
+| `kitHooks(hooks, opts?)` | `Hooks` (`@spinajs/hooks`) | A `DefaultHooks` runner over the given hooks, built without a container | none |
 
 ### `FakeClock`
 
@@ -112,6 +114,32 @@ An unexpected kind answers `unsupported_credentials`; a wrong secret answers `in
 - `RecordingThrottle.refuse(retryAfterSeconds, times = 1)` refuses the next `times` attempts with that delay. Every other attempt is allowed.
 - `new FakeBackoffThrottle(params)` takes `ThrottleParams` (use `DEFAULT_THROTTLE` or `throttleParams(config)`). After `free` counted attempts a key waits `min(baseDelayMs × 2^(n − free), maxDelayMs)`. A refused attempt counts nothing; `account-ip` only keeps bookkeeping. A success resets the account key and takes that account's attempts off the IP key, except in the `reset` flow. A key idle for `resetAfterSeconds` starts over.
 - `FakeBackoffThrottle.peek()` answers like `attempt()` without counting.
+
+### `ScriptedActionHook` and `kitHooks`
+
+`ScriptedActionHook` is the kit's [`flowHooks` port](04-behaviour-runner.md#the-flowhooks-port): one `ActionHook` with `actions: ['*']` that records every phase it runs and refuses, fails or changes the input as a case scripts it. `kitHooks` builds the `Hooks` runner a service built with `new` takes, so the hook runs without a booted container.
+
+| Member | Effect |
+| --- | --- |
+| `calls(action?)` | Every phase seen so far, in order, as `FlowHookCall`; only those of `action` when given |
+| `refuse(pattern, code)` | Later `before` calls of matching actions call `ctx.refuse(code)` |
+| `fail(pattern)` | Later `before` calls throw a `ScriptedHookFailure`, which the runner turns into `ActionHookFailed` |
+| `mutate(pattern, patch)` | Later `before` calls assign `patch` onto the input; a function patch gets a shallow copy of the input and returns the keys to assign |
+| `tamper(pattern, write, phase?)` | Later `before` calls (`phase` `'before'`, the default) run `write` on `ctx.input` in place; `'after'` runs it on `ctx.output`. A `TypeError` from a frozen copy is swallowed |
+| `landed()` | `<action>:<phase>` for every `tamper` write that did not throw |
+| `reset()` | Forgets the calls, the landed writes and the scripts |
+
+- A pattern is an action name, a prefix glob (`'authn.token.*'`) or `'*'`.
+- A `before` call records a shallow copy of the input first, then runs the matching `tamper` scripts, then the other scripts in the order the case added them.
+- `tamper` and `landed` are not part of `FlowHooksPort`. Use them in a package's own tests to prove a hook writing into what it is handed changes nothing the action acts on.
+
+| `kitHooks` option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `timeoutMs` | `number` | `5000` | The runner's `hooks.timeoutMs` |
+| `maxDepth` | `number` | `8` | The runner's `hooks.maxDepth` |
+| `log` | `{ warn(...args) }` | none; warnings are dropped | Receives the runner's warnings |
+
+`kitHooks(hooks, opts)` is async: it resolves the runner before returning it. The runner uses the given instances as they are; it resolves no hook types from DI.
 
 ## Services and extension points
 
