@@ -190,7 +190,7 @@ describe('the identity stores over a user model that is an @AccessResource', fun
     const { ref: reset } = await seedUser({ login: 'scoped-reset', password: HASH });
     const { ref: invited } = await seedUser({ login: 'scoped-invite', active: false, invitePending: true });
     scopeUsers();
-    const hook = (await DI.resolve(UserPasswordStateHook)) as UserPasswordStateHook;
+    const hook = await DI.resolve(UserPasswordStateHook);
     const after = (input: Record<string, unknown>, output: unknown) => hook.after({ action: 'authn.password.reset.redeem', input, output, bag: new Map(), depth: 1 } as unknown as AfterContext<ActionName>);
     const ctx = { now: AT, purpose: 'request' };
 

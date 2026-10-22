@@ -217,7 +217,7 @@ describe('plan C1 acceptance', function () {
       const sinks = [await DI.resolve(QueueAuthnEventSink), events];
       const strategy = new LocalPasswordStrategy({ identities, passwords, hasher });
       await strategy.resolve();
-      const password = new LocalPasswordService({ identities, passwords, sessions: issuer, throttle, tokens: null, secrets: new MemorySecretStore(), mailer: new RecordingMailer(), sinks, hasher, policy: new LocalPasswordPolicy({}), hooks: (await DI.resolve(Hooks)) as Hooks });
+      const password = new LocalPasswordService({ identities, passwords, sessions: issuer, throttle, tokens: null, secrets: new MemorySecretStore(), mailer: new RecordingMailer(), sinks, hasher, policy: new LocalPasswordPolicy({}), hooks: await DI.resolve<Hooks>(Hooks) });
       const service = new FakeAuthnService({
         strategies: [strategy],
         throttle,

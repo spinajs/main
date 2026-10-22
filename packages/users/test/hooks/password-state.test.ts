@@ -35,7 +35,7 @@ async function markerRows(userId: number): Promise<number> {
 
 /** Calls the hook's after phase the way the runner does after `action` returned `output`. */
 async function after(action: ActionName, input: Record<string, unknown>, output: unknown): Promise<void> {
-  const hook = (await DI.resolve(UserPasswordStateHook)) as UserPasswordStateHook;
+  const hook = await DI.resolve(UserPasswordStateHook);
   await hook.after({ action, input, output, bag: new Map(), depth: 1 } as unknown as AfterContext<ActionName>);
 }
 
@@ -80,7 +80,7 @@ describe('UserPasswordStateHook (HOOK-4, R2)', function () {
       sinks: [await DI.resolve(QueueAuthnEventSink)],
       hasher,
       policy: new LocalPasswordPolicy({}),
-      hooks: (await DI.resolve(Hooks)) as Hooks,
+      hooks: await DI.resolve<Hooks>(Hooks),
     });
     const secretOf = (ref: IdentityRef, purpose: 'reset' | 'invite') => [...mailer.mails].reverse().find((m) => m.identity.id === ref.id && m.purpose === purpose)!.secret;
     return { service, passwords, hasher, sessions, secretOf };
@@ -172,7 +172,7 @@ describe('UserPasswordStateHook (HOOK-4, R2)', function () {
       expect(await markerRows(u.Id)).to.eq(0);
       expect(u.EmailVerifiedAt?.toMillis()).to.eq(now.getTime());
       expect(u.PasswordSetAt?.toMillis()).to.eq(now.getTime());
-      expect(emitted().filter((e) => e instanceof UserActivated).map((e) => (e as UserActivated).UserUUID)).to.deep.eq([ref.id]);
+      expect(emitted().filter((e) => e instanceof UserActivated).map((e) => e.UserUUID)).to.deep.eq([ref.id]);
     });
 
     it('an invite completed with a reset link activates the account too', async () => {
@@ -242,20 +242,21 @@ describe('UserPasswordStateHook (HOOK-4, R2)', function () {
       expect(Boolean(u.IsActive)).to.eq(true);
       expect(await markerRows(u.Id)).to.eq(0);
       expect(u.EmailVerifiedAt?.toMillis()).to.eq(AT.getTime());
-      expect(emitted().filter((e) => e instanceof UserActivated).map((e) => (e as UserActivated).UserUUID)).to.deep.eq([ref.id]);
+      expect(emitted().filter((e) => e instanceof UserActivated).map((e) => e.UserUUID)).to.deep.eq([ref.id]);
       expect(emitted().filter((e) => e instanceof UserChanged)).to.have.lengthOf(1);
     });
 
     it('loses to a deactivation racing the redeem: deactivate drops the marker before it writes IsActive', async () => {
       const { ref } = await seedUser({ login: 'invite-race', active: false, invitePending: true });
-      const drop = MetadataRelation.prototype.delete;
+      const invitePending: string = USER_COMMON_METADATA.USER_INVITE_PENDING;
       let raced = false;
-      sinon.stub(MetadataRelation.prototype, 'delete').callsFake(async function (this: MetadataRelation<any, any>, key: string) {
-        if (key === USER_COMMON_METADATA.USER_INVITE_PENDING && !raced) {
+      const drop = sinon.stub(MetadataRelation.prototype, 'delete');
+      drop.callsFake(async function (this: MetadataRelation<any, any>, key: string) {
+        if (key === invitePending && !raced) {
           raced = true;
           await redeemed(ref, 'invite');
         }
-        return drop.call(this, key);
+        return drop.wrappedMethod.call(this, key);
       });
 
       await deactivate(await storedUser(ref.id));

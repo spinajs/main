@@ -98,7 +98,7 @@ describe('reset and invite mails (SR-09, C9 EmailPasswordMailer)', function () {
       sinks: [await DI.resolve(QueueAuthnEventSink)],
       hasher,
       policy: new LocalPasswordPolicy({}),
-      hooks: (await DI.resolve(Hooks)) as Hooks,
+      hooks: await DI.resolve<Hooks>(Hooks),
       resetUrl: RESET_URL,
     });
     // create() and expirePassword() resolve the PasswordService the suites register.

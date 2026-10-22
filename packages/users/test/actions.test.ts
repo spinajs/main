@@ -24,7 +24,7 @@ import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
 import { globalRolesOf, registerAuthzHost } from './support/authz-host.js';
 import { TestPasswordService } from './support/password-service.js';
 import { ScriptedActionHook } from '@spinajs/authn-testing';
-import type { UsersCreateOutput } from '../src/index.js';
+import type { UserDraft, UsersCreateOutput } from '../src/index.js';
 import { withHook } from './hooks/support.js';
 
 chai.use(chaiAsPromised);
@@ -200,7 +200,7 @@ describe('User model tests', function () {
 
     const hook = new ScriptedActionHook();
     hook.tamper('users.create', (input) => {
-      input.user.IsActive = true;
+      (input.user as UserDraft).IsActive = true;
     });
 
     const { User: U } = await withHook(hook, () => create({ Email: 'middleware@wp.pl', Login: 'middlewareuser', Password: 'bbbb1234' }, ['admin']));

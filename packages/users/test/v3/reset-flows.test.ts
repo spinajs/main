@@ -68,7 +68,7 @@ describe('reset and invite over the users stores', function () {
       sinks: [await DI.resolve(QueueAuthnEventSink)],
       hasher,
       policy: new LocalPasswordPolicy({}),
-      hooks: (await DI.resolve(Hooks)) as Hooks,
+      hooks: await DI.resolve<Hooks>(Hooks),
     });
     const strategy = new LocalPasswordStrategy({ identities: new UserIdentityStore(), passwords, hasher });
     await strategy.resolve();

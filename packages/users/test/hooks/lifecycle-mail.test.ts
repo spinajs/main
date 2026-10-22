@@ -135,7 +135,10 @@ describe('UserLifecycleMailHook (HOOK-4, R1)', function () {
     expect(mails()).to.deep.eq([]);
     expect(warn.callCount).to.eq(1);
     const [fields, template] = warn.args[0];
-    expect(renderTemplate(template, fields)).to.contain('banned').and.to.contain('users.ban').and.to.contain('EmailTemplateNotConfigured');
+    const logged = renderTemplate(template, fields);
+    expect(logged).to.contain('banned');
+    expect(logged).to.contain('users.ban');
+    expect(logged).to.contain('EmailTemplateNotConfigured');
   });
 
   it('a mail that cannot be queued does not fail the action', async () => {

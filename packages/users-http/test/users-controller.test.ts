@@ -14,6 +14,7 @@ import { Forbidden } from '@spinajs/exceptions';
 import { PaginationDTO, OrderDTO, IFilterRequest, FilterableLogicalOperators } from '@spinajs/orm-http';
 
 import { NO_PASSWORD, User, UserCreated, USER_COMMON_METADATA } from '@spinajs/users';
+import type { UserDraft } from '@spinajs/users';
 
 import { Users } from '../src/admin/controllers/Users/Users.js';
 import { Security } from '../src/admin/controllers/Users/Security.js';
@@ -349,7 +350,7 @@ describe('Admin user controllers', function () {
     it('runs a users.create before hook', async () => {
       const hook = new ScriptedActionHook();
       hook.tamper('users.create', (input) => {
-        input.user.IsActive = true;
+        (input.user as UserDraft).IsActive = true;
       });
 
       await withHook(hook, async () => usersController.addUser(await admin(), { Login: 'premade', Email: 'premade@spinajs.pl', Role: 'user' } as any));
@@ -610,10 +611,10 @@ describe('Admin user controllers', function () {
       await refused('users.activate', async () => securityController.activateUser(await admin(), INACTIVE_UUID));
       expect((await byUuid(INACTIVE_UUID)).IsActive).to.eq(false);
 
-      await refused('users.ban', async () => securityController.banUser(await admin(), USER_UUID, { reason: 'spam', duration: 3600 } as any, NO_REQUEST));
+      await refused('users.ban', async () => securityController.banUser(await admin(), USER_UUID, { reason: 'spam', duration: 3600 }, NO_REQUEST));
       expect((await byUuid(USER_UUID)).IsBanned).to.eq(false);
 
-      await securityController.banUser(await admin(), USER_UUID, { reason: 'spam', duration: 3600 } as any, NO_REQUEST);
+      await securityController.banUser(await admin(), USER_UUID, { reason: 'spam', duration: 3600 }, NO_REQUEST);
       await refused('users.unban', async () => securityController.unbanUser(await admin(), USER_UUID));
       expect((await byUuid(USER_UUID)).IsBanned).to.eq(true);
 

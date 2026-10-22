@@ -242,7 +242,7 @@ describe('users actions on action hooks (HOOK-4)', function () {
     it('an unknown role a hook adds is refused by the role dry run', async () => {
       const hook = new ScriptedActionHook();
       hook.tamper('users.create', (input) => {
-        input.roles.push('no-such-role');
+        (input.roles as string[]).push('no-such-role');
       });
 
       const err = await withHook(hook, () => rejection(create({ Email: 'roles@spinajs.pl', Login: 'role-added', Password: PASSWORD }, ['editor'])));
@@ -394,7 +394,7 @@ describe('users actions on action hooks (HOOK-4)', function () {
       const { user } = await seedUser({ login: 'meta-protected' });
       const hook = new ScriptedActionHook();
       hook.tamper('users.metadata.set', (input) => {
-        input.meta.push({ key: USER_COMMON_METADATA.USER_BAN_IS_BANNED, value: true });
+        (input.meta as { key: string; value: unknown }[]).push({ key: USER_COMMON_METADATA.USER_BAN_IS_BANNED, value: true });
       });
 
       const err = await withHook(hook, async () => rejection(setUserMeta(await storedUser(user.Uuid), 'user:locale', 'pl')));
