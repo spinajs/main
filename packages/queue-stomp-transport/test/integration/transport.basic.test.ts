@@ -27,13 +27,13 @@ export function dir(path: string) {
 }
 
 function delivered(...stubs: sinon.SinonStub[]): Set<number> {
-  return new Set(stubs.flatMap((s) => s.getCalls().map((c) => c.args[0].Seq)));
+  return new Set(stubs.flatMap((s) => s.getCalls().map((c) => (c.args[0] as { Seq: number }).Seq)));
 }
 
 async function wait(amount: number) {
-  return new Promise<void>((res) => {
+  return new Promise<void>((resolve) => {
     setTimeout(() => {
-      res();
+      resolve();
     }, amount);
   });
 }
@@ -389,7 +389,7 @@ describe('stomp queue transport test', function () {
 
     // force a socket drop - stompjs will auto-reconnect ( reconnectDelay 5s )
     // and our onConnect handler must replay the tracked subscription
-    (c as any).Client.forceDisconnect();
+    c['Client'].forceDisconnect();
 
     // wait for reconnect ( 5s delay ) + resubscribe
     await wait(QUEUE_WAIT_TIME_MS * 8);

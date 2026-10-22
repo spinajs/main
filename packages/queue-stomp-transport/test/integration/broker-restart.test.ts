@@ -89,6 +89,7 @@ describe('ActiveMQ integration - broker restart', function () {
     let settled = false;
     const emitted = c.emit(jobMessage()).then(() => {
       settled = true;
+      return;
     });
     await sleep(2000);
     expect(settled, 'emit must wait for the broker').to.be.false;
@@ -115,7 +116,7 @@ describe('ActiveMQ integration - broker restart', function () {
       outcomes.push(
         c.emit(jobMessage({ JobId: id })).then(
           () => 'sent',
-          (err) => err,
+          (err: unknown) => err,
         ),
       );
       await sleep(100);

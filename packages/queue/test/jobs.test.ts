@@ -25,11 +25,11 @@ const STOMP_URL = process.env.QUEUE_IT_STOMP_URL ?? 'ws://127.0.0.1:61614/ws';
 
 function brokerReachable(): Promise<boolean> {
   const url = new URL(STOMP_URL);
-  return new Promise((res) => {
+  return new Promise((resolve) => {
     const socket = new Socket();
     const done = (ok: boolean) => {
       socket.destroy();
-      res(ok);
+      resolve(ok);
     };
     socket.setTimeout(2000, () => done(false));
     socket.once('error', () => done(false));
@@ -42,9 +42,9 @@ export function dir(path: string) {
 }
 
 async function wait(amount?: number) {
-  return new Promise<void>((res) => {
+  return new Promise<void>((resolve) => {
     setTimeout(() => {
-      res();
+      resolve();
     }, amount ?? QUEUE_WAIT_TIME_MS);
   });
 }
