@@ -173,6 +173,7 @@ export class RunContext {
     this.touch();
   }
 
+  // eslint-disable-next-line complexity -- the step lifecycle (guards, resume skip, journal row, run, close) reads in order here
   public async step<T>(name: string, fn: (s: StepHandle) => Promise<T> | T, opts: StepOptions = {}): Promise<T> {
     const outer = this.open?.name ?? this.starting;
     if (outer !== null) {

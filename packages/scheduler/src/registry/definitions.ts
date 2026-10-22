@@ -59,6 +59,7 @@ function normalizeRetry(o: ScheduleOptions['retry'], name: string): NormalizedRe
   return { attempts: o.attempts, backoff, delayMs, maxDelayMs, retryOn: o.retryOn };
 }
 
+// eslint-disable-next-line complexity -- a flat run of option checks and defaults; every ?? and ternary counts
 function normalize(name: string, c: Candidate, input: BuildDefinitionsInput): ScheduleDefinition {
   if (name.length > MAX_NAME_LENGTH) {
     throw new Error(`schedule '${name.slice(0, 40)}...': name is longer than ${MAX_NAME_LENGTH} characters`);
@@ -101,6 +102,7 @@ function normalize(name: string, c: Candidate, input: BuildDefinitionsInput): Sc
   };
 }
 
+// eslint-disable-next-line complexity -- one pass collects every declaration and config problem so they are reported together
 export function buildDefinitions(input: BuildDefinitionsInput): ScheduleDefinition[] {
   const problems: string[] = [];
   const candidates = new Map<string, Candidate>();

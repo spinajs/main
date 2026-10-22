@@ -251,16 +251,16 @@ describe('CLI action commands', () => {
   describe('--local when the first claim is refused', () => {
     it('follows a run another replica claimed first and exits with its result', async () => {
       const r2 = await DI.resolve(Scheduler, [{ replicaId: 'r2', autoStart: false }]);
-      const original = Scheduler.prototype.runLocally;
       let first = true;
-      sinon.stub(Scheduler.prototype, 'runLocally').callsFake(async function (this: Scheduler, id: string) {
+      const runLocally = sinon.stub(Scheduler.prototype, 'runLocally');
+      runLocally.callsFake(async function (this: Scheduler, id: string) {
         if (first && this !== r2) {
           first = false;
           await r2.tickOnce();
           await r2.idle();
           return false;
         }
-        return original.call(this, id);
+        return runLocally.wrappedMethod.call(this, id);
       });
       await (await cmd(SchedulerRunCommand)).execute('sum', { param: ['a=1', 'b=6'], local: true, json: true });
       expect(out.json<{ run: RunInfo }>().run).to.include({ status: 'succeeded', result: 7 });

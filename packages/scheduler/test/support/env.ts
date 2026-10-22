@@ -69,6 +69,6 @@ export async function waitFor(condition: () => boolean | Promise<boolean>, timeo
   const deadline = Date.now() + timeoutMs;
   while (!(await condition())) {
     if (Date.now() > deadline) throw new Error(`waitFor: condition not met within ${timeoutMs} ms`);
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }

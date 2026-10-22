@@ -331,7 +331,7 @@ describe('latest progress ordering and final status', () => {
 
     await RunStepModel.update({ Progress: 60 }).where('RunId', run.Id);
     const latest = DI.resolve(LatestProgress);
-    const synthesize = latest.synthesize.bind(latest) as LatestProgress['synthesize'];
+    const synthesize: LatestProgress['synthesize'] = latest.synthesize.bind(latest);
     // the final status is written and delivered directly while a poll round reads the rows
     latest.synthesize = async (target, seen, cursor) => {
       const events = await synthesize(target, seen, cursor);

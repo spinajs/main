@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { ErrorGroupNotFound, httpStatusForError, InvalidRunParams, InvalidRunState, RunConflict, RunNotFound, ScheduleNotFound, SchedulePaused } from '@spinajs/scheduler';
+import { ActionContext, ErrorGroupInfo, ErrorGroupNotFound, httpStatusForError, InvalidRunParams, InvalidRunState, RunConflict, RunNotFound, ScheduleNotFound, SchedulePaused } from '@spinajs/scheduler';
 
 import { asRole, bootHttp, req, stopHttp, TEST_USER_UUID } from './common.js';
 import { FakeSchedulerService, makeErrorGroup, makeSchedule, RUN_ID, SCHEDULE_NAME } from './fakes/fake-scheduler.js';
@@ -50,9 +50,10 @@ describe('scheduler-http: errors and maintenance', function () {
       const res = await req().patch('scheduler/errors/f00dfeed').set(asRole('scheduler-admin')).send({ status: 'resolved' });
 
       expect(res).to.have.status(200);
-      expect(res.body.status).to.eq('resolved');
+      const body: ErrorGroupInfo = res.body;
+      expect(body.status).to.eq('resolved');
 
-      const [fingerprint, status, ctx] = fake.callsTo('setErrorStatus')[0] as [string, string, any];
+      const [fingerprint, status, ctx] = fake.callsTo('setErrorStatus')[0] as [string, string, ActionContext];
       expect([fingerprint, status]).to.deep.equal(['f00dfeed', 'resolved']);
       expect(ctx.triggeredBy.id).to.eq(TEST_USER_UUID);
     });
@@ -82,7 +83,7 @@ describe('scheduler-http: errors and maintenance', function () {
 
       expect(res).to.have.status(200);
       expect(res.body).to.deep.equal({ orphanedSchedules: 0, runs: 3, logs: 10, errors: 1 });
-      expect((fake.callsTo('prune')[0][0] as any).triggeredBy.kind).to.eq('user');
+      expect((fake.callsTo('prune')[0][0] as ActionContext).triggeredBy.kind).to.eq('user');
     });
 
     it('requires the manage tier', async () => {

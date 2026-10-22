@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { InvalidRunState, RunNotFound } from '@spinajs/scheduler';
+import { ActionContext, InvalidRunState, RetryOptions, RunNotFound } from '@spinajs/scheduler';
 
 import { asRole, bootHttp, req, stopHttp, TEST_USER_UUID } from './common.js';
 import { FakeSchedulerService, makeRun, OTHER_RUN_ID, RUN_ID, SCHEDULE_NAME } from './fakes/fake-scheduler.js';
@@ -31,7 +31,8 @@ describe('scheduler-http: runs', function () {
 
       expect(res).to.have.status(200);
       expect(res.body).to.containSubset({ total: 2, limit: 50, offset: 0 });
-      expect(res.body.items).to.have.lengthOf(2);
+      const page: { items: unknown[] } = res.body;
+      expect(page.items).to.have.lengthOf(2);
       expect(fake.callsTo('listRuns')[0][0]).to.deep.equal({ limit: 50, offset: 0 });
     });
 
@@ -51,7 +52,8 @@ describe('scheduler-http: runs', function () {
         limit: 1,
         offset: 1,
       });
-      expect(res.body.items.map((r: any) => r.id)).to.deep.equal([OTHER_RUN_ID]);
+      const page: { items: { id: string }[] } = res.body;
+      expect(page.items.map((r) => r.id)).to.deep.equal([OTHER_RUN_ID]);
     });
 
     it('answers 400 to an unknown status', async () => {
@@ -106,7 +108,7 @@ describe('scheduler-http: runs', function () {
       expect(res).to.have.status(202);
       expect(res.body).to.containSubset({ id: RUN_ID, cancelRequested: true });
 
-      const [id, ctx] = fake.callsTo('cancel')[0] as [string, any];
+      const [id, ctx] = fake.callsTo('cancel')[0] as [string, ActionContext];
       expect(id).to.eq(RUN_ID);
       expect(ctx.triggeredBy.id).to.eq(TEST_USER_UUID);
     });
@@ -152,7 +154,7 @@ describe('scheduler-http: runs', function () {
       expect(res).to.have.status(202);
       expect(res.body).to.deep.equal({ runId: OTHER_RUN_ID });
 
-      const [id, options] = fake.callsTo('retry')[0] as [string, any];
+      const [id, options] = fake.callsTo('retry')[0] as [string, RetryOptions];
       expect(id).to.eq(OTHER_RUN_ID);
       expect(options).to.deep.include({ fromStep: 'poll forges', resume: true, params: { file: 'b.csv' } });
       expect(options.triggeredBy.kind).to.eq('user');

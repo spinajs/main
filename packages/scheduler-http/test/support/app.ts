@@ -49,11 +49,11 @@ export function appPort(): number {
 export async function startApp(opts: { controllers: Class<BaseController>[]; config: Readonly<Record<string, unknown>> }): Promise<HttpServer> {
   if (app) throw new Error('startApp: an app is already running; call stopApp() first');
 
-  for (const b of (await DI.resolve(Array.ofType(Bootstrapper))) as Bootstrapper[]) {
+  for (const b of await DI.resolve<Bootstrapper>(Array.ofType(Bootstrapper))) {
     await b.bootstrap();
   }
 
-  const defaults = (await DI.resolve(DefaultsConfiguration)) as DefaultsConfiguration;
+  const defaults = await DI.resolve<DefaultsConfiguration>(DefaultsConfiguration);
   const seeded = plain(defaults.RootConfig) as Record<string, unknown>;
   DI.uncache(DefaultsConfiguration);
 
@@ -76,12 +76,12 @@ export async function startApp(opts: { controllers: Class<BaseController>[]; con
   await DI.resolve(fsService);
   await DI.resolve(OrmMigrator);
   await DI.resolve(Controllers);
-  const server = (await DI.resolve(HttpServer)) as HttpServer;
+  const server = await DI.resolve<HttpServer>(HttpServer);
   await server.start();
 
   const port = (server.Server.address() as AddressInfo).port;
   // Also what http registered itself (the sources), so no controller outlives this app.
-  app = { server, controllers: [...new Set(DI.getRegisteredTypes(BaseController) ?? [])].filter((t) => !before.has(t)) as Class<BaseController>[], port };
+  app = { server, controllers: [...new Set<Class<BaseController>>(DI.getRegisteredTypes(BaseController) ?? [])].filter((t) => !before.has(t)), port };
   return server;
 }
 

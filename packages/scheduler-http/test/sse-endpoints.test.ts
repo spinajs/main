@@ -83,7 +83,7 @@ describe('scheduler-http: SSE endpoints', function () {
       fake.emit({ ...statusEvent(5, 'failed'), attempt: 2 });
       await conn.ended;
 
-      expect(events(conn.frames).map((f) => JSON.parse(f.data!).status ?? f.event)).to.deep.equal(['running', 'step-start', 'retrying', 'running', 'failed']);
+      expect(events(conn.frames).map((f) => (JSON.parse(f.data!) as { status?: string }).status ?? f.event)).to.deep.equal(['running', 'step-start', 'retrying', 'running', 'failed']);
       expect(fake.activeSubscriptions).to.eq(0);
     });
 
