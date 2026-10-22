@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrator } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { EmailVerificationStore } from '@spinajs/email-verification';
@@ -30,7 +30,7 @@ export class OrmStoreTestConfiguration extends FrameworkConfiguration {
 
 // Configuration stays cached: InternalLogger flushes its buffer only on the first resolve, so a re-resolved
 // Configuration would leave its boot log in the buffer to be dumped on exit.
-const OWNED: unknown[] = [Orm, EmailVerificationStore, OrmEmailVerificationStore];
+const OWNED: unknown[] = [Orm, OrmMigrator, EmailVerificationStore, OrmEmailVerificationStore];
 let registered = false;
 let current: { orm: Orm; store: OrmEmailVerificationStore } | undefined;
 
@@ -56,6 +56,7 @@ export async function bootStore(connection = DEFAULT_CONNECTION): Promise<OrmEma
   (await DI.resolve(Configuration)).set('emailVerification.orm.connection', connection);
   connectionName = connection;
   const orm = await DI.resolve(Orm);
+  await DI.resolve(OrmMigrator);
   const store = await DI.resolve(OrmEmailVerificationStore);
   current = { orm, store };
   return store;
