@@ -58,7 +58,7 @@ export async function bootPostgres(suite: string): Promise<PgTestDb> {
   const name = `orm_${suite}_${randomBytes(4).toString('hex')}`;
   await adminQuery(`CREATE DATABASE "${name}"`);
 
-  class PgIntegrationConf extends FrameworkConfiguration {
+  class PgSupportConf extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
 
@@ -82,7 +82,7 @@ export async function bootPostgres(suite: string): Promise<PgTestDb> {
   }
 
   DI.clearCache();
-  DI.register(PgIntegrationConf).as(Configuration);
+  DI.register(PgSupportConf).as(Configuration);
   DI.register(PostgresOrmDriver).as('orm-driver-postgres');
 
   const orm = await DI.resolve(Orm);
@@ -97,7 +97,7 @@ export async function bootPostgres(suite: string): Promise<PgTestDb> {
       DI.clearCache();
       // DI resolves the last registration of a token; left registered, this configuration
       // would point the next suite at a dropped database.
-      DI.unregister(PgIntegrationConf);
+      DI.unregister(PgSupportConf);
       await adminQuery(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
     },
   };
