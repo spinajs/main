@@ -4,7 +4,7 @@
 
 ## How it works
 
-1. `DbTokenService.create` with `profile` calls `allowedProfiles(owner)`. A profile not in the answer refuses the token with `invalid_scope`. Agent tokens never take a profile.
+1. `TokenProfileHook`, a before hook on `authn.token.create`, calls `allowedProfiles(owner)` for a create with `profile`. A profile that is not a non-empty string in the answer is refused with the code `profile_refused` (`PROFILE_REFUSED`). `DbTokenService.create` answers that refusal `{ ok: false, code: 'invalid_scope' }` and audits nothing, as it did when it asked the policy itself. Agent tokens never take a profile.
 2. The profile is stored in `Profile`.
 3. `DbTokenService.validate` calls `allowedProfiles(owner)` again for a pinned token on **every** use. A profile no longer in the answer fails the token with `invalid_credentials`.
 4. On success the profile reaches the principal as `attributes.profile` (through `StrategyOutcome.attributes` and the `PrincipalFactory`).
@@ -15,7 +15,8 @@
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Profile policy | `TokenProfilePolicy`; singleton; `@Injectable(TokenProfilePolicy)` when the package loads; injected into `DbTokenService`'s `Profiles` property | `NoTokenProfilesPolicy` (answers `[]`) | none | Subclass `TokenProfilePolicy`, implement `allowedProfiles(owner)`, and register it with `@Injectable(TokenProfilePolicy)` before `TokenService` is first resolved. |
+| Profile policy | `TokenProfilePolicy`; singleton; `@Injectable(TokenProfilePolicy)` when the package loads; injected into `DbTokenService`'s `Profiles` property (validate), resolved by `TokenProfileHook` from its container (create) | `NoTokenProfilesPolicy` (answers `[]`) | none | Subclass `TokenProfilePolicy`, implement `allowedProfiles(owner)`, and register it with `@Injectable(TokenProfilePolicy)` before `TokenService` is first resolved. |
+| Create-time check | `TokenProfileHook`, an `ActionHook` (`@Injectable(ActionHook)`) on `authn.token.create`, order `TOKEN_PROFILE_HOOK_ORDER` (`-1000`), so it runs before the hooks of the default order | `TokenProfileHook` | | Extend it and override the protected `policy()`, or add a before hook of your own: every hook must allow. Register before anything resolves `Hooks`. |
 
 ### Profile policy: custom implementation
 
@@ -43,6 +44,8 @@ export class ReportingTokenProfilePolicy extends TokenProfilePolicy {
 ## Important behaviour
 
 - **Asked at create and on every use.** Removing a profile from the answer ends every token pinned to it on its next request.
+- **The create-time check is a hook.** A `DbTokenService` built with `new` and no `Hooks` (a test seam), or a runner that resolved before `TokenProfileHook` was registered, pins any non-empty profile at create. `validate` still asks the policy, so such a token does not authenticate.
+- **A policy that throws fails the create closed.** The runner turns it into `ActionHookFailed`; `create` audits `token.create` with `hook_error` and rethrows.
 - **A profile never widens.** It names a role the token is pinned to; authz-rbac still keeps only roles the owner holds.
 - **Must be registered.** `DbTokenService` injects the policy with the strict check (`{ check: true }`); so resolving it fails when no `TokenProfilePolicy` is registered. Importing the package registers `NoTokenProfilesPolicy`.
 - **Not authz-rbac's `TokenRolePolicy.allowedProfiles`.** That method is a separate hook of authz-rbac; the create and validate paths here read only this policy.
@@ -51,4 +54,5 @@ export class ReportingTokenProfilePolicy extends TokenProfilePolicy {
 
 - [Token roles, scopes and agent tokens](03-token-scopes.md): how the profile sits next to roles and scope.
 - [API token authentication](02-token-authentication.md): where the profile is re-checked.
+- [Action hooks](10-action-hooks.md): `authn.token.create` and `TokenProfileHook`.
 - [`@spinajs/users-http` own account routes](../users-http/03-own-account.md): the route that offers profiles to a client.

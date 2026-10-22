@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
 import { Forbidden, ResourceNotFound } from '@spinajs/exceptions';
-import { CredentialAdminGuard } from '@spinajs/authn/contracts';
+import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runCredentialAdmin } from '@spinajs/authn/hooks';
 import type { CredentialAdminAction, Principal } from '@spinajs/authn/contracts';
 
 type Refusal = 'forbidden' | 'protected_role' | 'escalation';
@@ -16,28 +16,28 @@ const REFUSALS: Record<Refusal, string> = {
 const coded = <E extends Error>(err: E, code: string): E => Object.assign(err, { error: code });
 
 /**
- * Refuses unless authn's CredentialAdminGuard answers `ok: true` for `actor` acting on user `uuid` (A25, SR-10), the
- * guard authn-http's credential admin routes ask. 403 with the guard's code (`forbidden`, `protected_role`,
- * `escalation`; any other answer is `forbidden`), 404 `not_found`. With no guard registered nobody can tell who may
- * administer whom, so every call is refused.
+ * Runs `effect` as authn's `authn.admin.credentials` action for `actor` acting on user `uuid` (A25, SR-10), the action
+ * authn-http's credential admin routes run: a CredentialAdminRule must admit it (users registers
+ * AuthzCredentialAdminRule), and every other before hook of the action must let it through. A rule's refusal answers
+ * 403 with its code (`forbidden`, `protected_role`, `escalation`), or 404 `not_found`; another hook's 403
+ * `{ error: 'action_refused', code }`, `hook_error` for a hook that failed. With no rule registered nobody can tell who
+ * may administer whom, so every call is refused `forbidden`. A refusal of an action `effect` runs is rethrown.
  */
-export async function assertCredentialAdmin(actor: Principal, uuid: string, action: CredentialAdminAction, container: IContainer = DI.RootContainer): Promise<void> {
-  if (!container.hasImplementation(CredentialAdminGuard)) {
-    throw coded(new Forbidden('no credential admin guard is registered'), 'forbidden');
+export async function withCredentialAdmin<T>(actor: Principal, uuid: string, action: CredentialAdminAction, effect: () => Promise<T>, hooks?: Hooks): Promise<T> {
+  const runner = hooks ?? ((await DI.resolve(Hooks)) as Hooks);
+  try {
+    return await runCredentialAdmin(runner, { actor, target: { type: 'user', id: uuid }, action }, effect, () => ({}));
+  } catch (err) {
+    const refusal = hookRefusalOf(err, 'authn.admin.credentials');
+    if (!refusal) {
+      throw err;
+    }
+    if (refusal.code === 'not_found') {
+      throw coded(new ResourceNotFound('No such user'), 'not_found');
+    }
+    if (Object.hasOwn(REFUSALS, refusal.code)) {
+      throw coded(new Forbidden(REFUSALS[refusal.code as Refusal]), refusal.code);
+    }
+    throw Object.assign(new Forbidden('the action was refused'), { error: 'action_refused', code: refusal.code });
   }
-
-  const guard = (await container.resolve(CredentialAdminGuard)) as CredentialAdminGuard;
-  const verdict: unknown = await guard.allowed(actor, { type: 'user', id: uuid }, action);
-  // A guard written past the types may answer anything; only `ok: true` opens the effect.
-  if ((verdict as { ok?: unknown } | null)?.ok === true) {
-    return;
-  }
-
-  const code = (verdict as { code?: unknown } | null)?.code;
-  if (code === 'not_found') {
-    throw coded(new ResourceNotFound('No such user'), 'not_found');
-  }
-
-  const known: Refusal = typeof code === 'string' && Object.hasOwn(REFUSALS, code) ? (code as Refusal) : 'forbidden';
-  throw coded(new Forbidden(REFUSALS[known]), known);
 }

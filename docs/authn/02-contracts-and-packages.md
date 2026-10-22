@@ -18,7 +18,7 @@ Three families keep one direction:
 | Authentication (`@spinajs/authn*`) | `authn.*` | Who is calling and how sure we are |
 | Authorization (`@spinajs/authz*`) | `authz.*` | What that caller may do |
 
-No `authn*` package imports `authz*` or `users*`. `@spinajs/authz` does not import authn at all: the principal contracts live in `@spinajs/principal`, which `@spinajs/authn/contracts` re-exports with the same runtime identity. Anything authn needs from authorization is a hook contract that `@spinajs/users` implements: `ImpersonationGuard`, `CredentialAdminGuard`, `RoleSource` and `AuthnResponseExtension`.
+No `authn*` package imports `authz*` or `users*`. `@spinajs/authz` does not import authn at all: the principal contracts live in `@spinajs/principal`, which `@spinajs/authn/contracts` re-exports with the same runtime identity. Anything authn needs from authorization is a hook contract that `@spinajs/users` implements: `ImpersonationGuard`, `RoleSource` and `AuthnResponseExtension`, and the `CredentialAdminRule` action hook of `authn.admin.credentials`.
 
 ## Entry points
 
@@ -72,7 +72,8 @@ The satellite packages take these from `@spinajs/authn/contracts` instead of kee
 | `TokenService` | API and agent tokens | `DbTokenService` (authn-token) | [`@spinajs/authn-token`](../authn-token/README.md) |
 | `CredentialChangeBus` | Tells credential caches that a token, a key or an identity changed: `publish({ kind: 'token' \| 'key', id })` or `publish({ kind: 'identity', identity })`, and `subscribe(listener)` | `InProcessCredentialChangeBus` (core, this process only; a failing listener is logged and skipped) | [Validation cache](../authn-token/01-token-service.md#validation-cache), [Key cache](../authn-keys/02-key-registry.md#key-cache) |
 | `KeyRegistry`, `JwsVerifier`, `JwsSigner` | Public keys, strict JWS | `DefaultKeyRegistry` and the verifier (authn-keys) | [`@spinajs/authn-keys`](../authn-keys/README.md) |
-| `ImpersonationGuard`, `RoleSource`, `CredentialAdminGuard`, `AuthnResponseExtension` | Authorization questions authn asks | `AuthzImpersonationGuard`, `RbacRoleSource`, `AuthzCredentialAdminGuard`, `AccessResponseExtension` (users) | [Integration hooks](12-integration-hooks.md) |
+| `ImpersonationGuard`, `RoleSource`, `AuthnResponseExtension` | Authorization questions authn asks | `AuthzImpersonationGuard`, `RbacRoleSource`, `AccessResponseExtension` (users) | [Integration hooks](12-integration-hooks.md) |
+| `CredentialAdminRule` (`@spinajs/authn/hooks`) | Who may administer whose credentials: the first before hook of `authn.admin.credentials` | `AuthzCredentialAdminRule` (users) | [Action hooks](14-action-hooks.md#authnadmincredentials-and-credentialadminrule) |
 | `ActionHook` (`@spinajs/hooks`) | Runs around `authn.login`, `authn.login.identified` and the other authn actions | Your app | [Action hooks](14-action-hooks.md) |
 
 The contract files describe the obligations of each method. Read them before you implement one: for example `SessionIssuer.revoke` resolves `true` only for the call that ended the session.

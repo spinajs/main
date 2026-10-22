@@ -7,10 +7,11 @@ import * as sinon from 'sinon';
 import { DefaultQueueService } from '@spinajs/queue';
 import { AUTHZ_CONFIGURATION_SCHEMA, AuthzConfigError, GLOBAL, SYSTEM } from '@spinajs/authz';
 import type { AuthzCommand, Principal, ResourceRef } from '@spinajs/authz';
-import { CredentialAdminGuard } from '@spinajs/authn/contracts';
+import { CredentialAdminRule, credentialAdminRuleRegistered, runCredentialAdmin } from '@spinajs/authn/hooks';
+import { ActionRefused, Hooks } from '@spinajs/hooks';
 import type { AuthnFacts, CredentialAdminAction, IdentityRef } from '@spinajs/authn/contracts';
 
-import { AuthzCredentialAdminGuard, AuthzTargetGuard, CREDENTIAL_ADMIN_PERMISSION_KEY, CredentialAdminConfigBootstrapper, USERS_ACCESS_CONFIGURATION_SCHEMA, USERS_CREDENTIAL_ADMIN_CONFIGURATION_SCHEMA, UserPrincipalFactory } from '../src/index.js';
+import { AuthzCredentialAdminRule, AuthzTargetGuard, CREDENTIAL_ADMIN_PERMISSION_KEY, CredentialAdminConfigBootstrapper, USERS_ACCESS_CONFIGURATION_SCHEMA, USERS_CREDENTIAL_ADMIN_CONFIGURATION_SCHEMA, UserPrincipalFactory } from '../src/index.js';
 import { rootAdmin } from './support/authz-host.js';
 import { bootChild, disposeChildren, violationPaths } from './support/child-config.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, setIdentityFlags } from './support/users-db.js';
@@ -68,10 +69,10 @@ async function signedIn(ref: IdentityRef, facts: AuthnFacts = FACTS): Promise<Pr
 const FORBIDDEN = { ok: false, code: 'forbidden' };
 const UNKNOWN_USER: IdentityRef = { type: 'user', id: '00000000-0000-4000-8000-000000000000' };
 
-describe('AuthzCredentialAdminGuard (users DB, root authz host)', function () {
+describe('AuthzCredentialAdminRule (users DB, root authz host)', function () {
   this.timeout(30000);
 
-  let guard: AuthzCredentialAdminGuard;
+  let guard: AuthzCredentialAdminRule;
 
   before(() => {
     registerUsersTestHost();
@@ -80,7 +81,7 @@ describe('AuthzCredentialAdminGuard (users DB, root authz host)', function () {
   beforeEach(async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
     await bootUsersDb(configure);
-    guard = new AuthzCredentialAdminGuard();
+    guard = new AuthzCredentialAdminRule();
   });
 
   afterEach(() => {
@@ -88,8 +89,31 @@ describe('AuthzCredentialAdminGuard (users DB, root authz host)', function () {
     DI.clearCache();
   });
 
-  it('is the CredentialAdminGuard DI resolves', async () => {
-    expect(await DI.resolve(CredentialAdminGuard)).to.be.instanceOf(AuthzCredentialAdminGuard);
+  it('is a CredentialAdminRule class registered as an ActionHook, so the credential admin routes are on', () => {
+    expect(new AuthzCredentialAdminRule()).to.be.instanceOf(CredentialAdminRule);
+    expect(credentialAdminRuleRegistered(DI.RootContainer)).to.eq(true);
+  });
+
+  it("decides authn.admin.credentials through DI's hooks runner, on a copy of the actor's principal", async () => {
+    const actor = await signedIn(await user('useradmin'));
+    const hooks = await DI.resolve<Hooks>(Hooks);
+    let ran = 0;
+
+    await runCredentialAdmin(hooks, { actor, target: await user('member'), action: 'sessions' }, async () => {
+      ran++;
+    });
+    expect(ran).to.eq(1);
+
+    const peer = await user('useradmin.peer');
+    const refused = await runCredentialAdmin(hooks, { actor, target: peer, action: 'sessions' }, async () => {
+      ran++;
+    }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(refused).to.be.instanceOf(ActionRefused);
+    expect(refused).to.include({ action: 'authn.admin.credentials', code: 'escalation' });
+    expect(ran).to.eq(1);
   });
 
   it('allows a holder of users:credentials whose rights strictly contain the target’s, for every action', async () => {
@@ -231,7 +255,7 @@ describe('AuthzCredentialAdminGuard (users DB, root authz host)', function () {
       sinon.stub(targets, 'checkIdentity').rejects(new Error('identity store down'));
       const actor = await signedIn(await user('useradmin'));
 
-      await expect(new AuthzCredentialAdminGuard({ targets }).allowed(actor, await user('member'), 'password-reset')).to.be.rejectedWith('identity store down');
+      await expect(new AuthzCredentialAdminRule({ targets }).allowed(actor, await user('member'), 'password-reset')).to.be.rejectedWith('identity store down');
     });
 
     it('rejects an authz.credentials.permission that is not a permission name, set past the schema', async () => {
@@ -240,7 +264,7 @@ describe('AuthzCredentialAdminGuard (users DB, root authz host)', function () {
 
       for (const bad of ['', 5, ['users:credentials'], null]) {
         (await DI.resolve(Configuration)).set(['authz', 'credentials', 'permission'], bad);
-        await expect(new AuthzCredentialAdminGuard().allowed(actor, target, 'password-reset'), JSON.stringify(bad)).to.be.rejectedWith(AuthzConfigError, /authz\.credentials\.permission/);
+        await expect(new AuthzCredentialAdminRule().allowed(actor, target, 'password-reset'), JSON.stringify(bad)).to.be.rejectedWith(AuthzConfigError, /authz\.credentials\.permission/);
       }
     });
   });
@@ -303,7 +327,7 @@ describe('authz.credentials configuration (users)', () => {
 
   it('@Config reads the permission from the configuration of the container the guard is handed', async () => {
     const { child } = await bootChild({ authz: { http: { access: { domain: 'tenant' } }, credentials: { permission: 'users:take-over' } } }, ...SCHEMAS);
-    const guard = new AuthzCredentialAdminGuard();
+    const guard = new AuthzCredentialAdminRule();
     (guard as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = child;
 
     expect((guard as unknown as Record<string, unknown>).Permission).to.eq('users:take-over');
