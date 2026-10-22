@@ -74,6 +74,7 @@
     "@spinajs/di": "3.0.5",
     "@spinajs/email": "3.0.5",
     "@spinajs/exceptions": "3.0.5",
+    "@spinajs/hooks": "3.0.5",
     "@spinajs/log": "3.0.5",
     "@spinajs/orm": "3.0.5",
     "@spinajs/queue": "3.0.5",

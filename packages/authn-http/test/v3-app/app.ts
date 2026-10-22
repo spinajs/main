@@ -16,8 +16,9 @@ import { MemoryTarget } from '@spinajs/log';
 import { AuthenticationStrategy, AuthnEventSink, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource, SessionStartHook } from '@spinajs/authn/contracts';
 import type { Ceiling, IdentityRef, Principal, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
+import { ActionHook } from '@spinajs/hooks';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
+import { FakeIdentityStore, FakeImpersonationGuard, FakeImpersonationStartHook, FakeMfaStep, FakeRoleSource, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
 
 import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { dropOwnCompiledDirs } from '../token-db-common.js';
@@ -178,6 +179,9 @@ async function wire(): Promise<void> {
   bind(MfaStep, 'V3AppMfaStep', () => current.step);
   DI.register(V3AppResponseExtension).as(AuthnResponseExtension);
   DI.register(V3AppSessionStartHook).as(SessionStartHook);
+  // The impersonation start check, as users registers it; the routes stay off until switchHooksOn registers the guard.
+  const startHook = new FakeImpersonationStartHook(() => current.guard);
+  bind(ActionHook, 'V3AppImpersonationStartHook', () => startHook);
   await registerAuthnHttpV3();
 }
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import 'mocha';
 import { fakeHash } from '@spinajs/authn-testing';
+import { RecordingActionHook } from '@spinajs/hooks/testing';
 
 import { ACTIVE_ROLE_KEY, FreshAuthCheck, AuthnImpersonationService, activeRoleCeiling, isFresh } from '../../src/index.js';
 import type { AuthnContext, AuthnEvent, AuthnEventType, AuthnFacts, Credentials, IdentityRef, SessionHandle } from '../../src/index.js';
@@ -99,7 +100,7 @@ describe('AuthnImpersonationService', function () {
       assert.deepStrictEqual(facts, { ...ADMIN, authenticatedAt: at(-200 * SECOND), impersonator: { type: 'user', id: a.id } });
     });
 
-    it('asks the guard with the actor principal built through PrincipalFactory', async () => {
+    it('asks the start hook, which asks the guard, with the actor principal built through PrincipalFactory', async () => {
       const { p, svc, a, b } = await boot();
       const admin = await issue(p, a);
       const handle = (await p.sessions.restore(admin.id))?.facts.sessionHandle;
@@ -123,11 +124,11 @@ describe('AuthnImpersonationService', function () {
         assert.deepStrictEqual(await svc.start(admin, b, ctx()), { ok: false });
       }
       assert.ok(await p.sessions.restore(admin.id));
-      assert.deepStrictEqual(reasons(p, 'impersonation.start'), ['forbidden', 'protected_role', 'escalation']);
+      assert.deepStrictEqual(reasons(p, 'impersonation.start'), ['hook:forbidden', 'hook:protected_role', 'hook:escalation']);
       assert.strictEqual((await p.sessions.storage.storedKeys()).length, 1);
     });
 
-    it('refuses when the guard throws', async () => {
+    it('refuses when the start hook throws', async () => {
       const { p, svc, a, b } = await boot();
       p.guard.allowed = async () => {
         throw new RangeError('authz down');
@@ -136,8 +137,31 @@ describe('AuthnImpersonationService', function () {
       assert.deepStrictEqual(await svc.start(admin, b, ctx()), { ok: false });
       assert.ok(await p.sessions.restore(admin.id));
       const [e] = events(p, 'impersonation.start');
-      assert.strictEqual(e.reason, 'guard_error');
-      assert.deepStrictEqual(e.data, { error: 'RangeError' });
+      assert.strictEqual(e.reason, 'hook_error');
+      assert.deepStrictEqual(e.data, { hook: 'FakeImpersonationStartHook', failure: 'error' });
+    });
+
+    it('asks no ImpersonationGuard itself: the before hooks on authn.impersonation.start decide', async () => {
+      const allowing = new RecordingActionHook(['authn.impersonation.start']);
+      const { p, svc, a, b } = await boot(undefined, { startHook: false, hooks: [allowing] });
+      await p.guard.deny('forbidden');
+      const admin = await issue(p, a);
+      const r = await svc.start(admin, b, ctx());
+      assert.ok(r.ok, 'the hook let it start');
+      assert.strictEqual(p.guard.calls.length, 0);
+      const [before] = allowing.calls.filter((c) => c.phase === 'before');
+      const input = before.input as { actor: { id: string; authn?: { sessionHandle?: string } }; target: IdentityRef };
+      assert.strictEqual(input.actor.id, a.id);
+      assert.deepStrictEqual(input.target, b);
+    });
+
+    it('refuses every start with no_guard while no hook watches authn.impersonation.start', async () => {
+      const { p, svc, a, b } = await boot(undefined, { startHook: false });
+      const admin = await issue(p, a);
+      assert.deepStrictEqual(await svc.start(admin, b, ctx()), { ok: false });
+      assert.ok(await p.sessions.restore(admin.id));
+      assert.deepStrictEqual(reasons(p, 'impersonation.start'), ['no_guard']);
+      assert.strictEqual(p.guard.calls.length, 0);
     });
 
     it('fails boot when a required neighbour is not registered', async () => {
@@ -693,7 +717,7 @@ describe('AuthnImpersonationService', function () {
       const { admin } = await switched(booted);
       assert.deepStrictEqual(await svc.start(admin, b, ctx()), { ok: false });
       assert.ok(await p.sessions.restore(admin.id), 'the actor session stays');
-      assert.deepStrictEqual(reasons(p, 'impersonation.start'), ['escalation']);
+      assert.deepStrictEqual(reasons(p, 'impersonation.start'), ['hook:escalation']);
       assert.ok((await svc.start(await issue(p, booted.a), b, ctx())).ok);
     });
 

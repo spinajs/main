@@ -1,4 +1,5 @@
 import type { AuthenticationResult, AuthnContext, Credentials, ExternalSubject, IdentityRef } from './contracts/credentials.js';
+import type { Principal } from './contracts/principal.js';
 import type { SessionHandle } from './contracts/session.js';
 import type { ImpersonationStart } from './impersonation/impersonation-service.js';
 import type { LinkResult } from './link/account-link-service.js';
@@ -48,9 +49,15 @@ export interface AuthnStepUpInput {
   readonly ctx: AuthnContext;
 }
 
+/**
+ * `authn.impersonation.start`: the start check (users registers ImpersonationGuardStartHook). Without a hook on it every
+ * start is refused (`no_guard`); the registered ImpersonationGuard is asked only per request.
+ */
 export interface AuthnImpersonationStartInput {
   readonly session: SessionHandle;
   readonly target: IdentityRef;
+  /** The actor as an ImpersonationGuard judges it: its own facts through this session, narrowed by its role switch. */
+  readonly actor: Principal;
   readonly ctx: AuthnContext;
 }
 

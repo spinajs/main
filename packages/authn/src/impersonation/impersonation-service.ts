@@ -151,7 +151,7 @@ export class AuthnImpersonationService extends AsyncService {
       const actor = refOf(stored.identity);
       about = { actor, ...(isRef(target) ? { identity: refOf(target) } : {}), ...this.handleOf(stored) };
       const actorCeiling = activeRoleCeiling(stored);
-      const refused = await this.startRefusal(stored, target, ctx, actorCeiling, reauth);
+      const refused = await this.startRefusal(stored, target, ctx, reauth);
       if (refused) return await this.refuseStart(ctx, refused.reason, about, refused.data);
 
       const targetRef = refOf(target);
@@ -167,8 +167,10 @@ export class AuthnImpersonationService extends AsyncService {
         await this.Auditor.publishIn(ctx, { type: 'impersonation.start', outcome: 'success', identity: targetRef, actor, ...(now ? this.handleOf(now) : {}) });
         return { ok: true, session: issued };
       };
-      if (!this.Hooks.has('authn.impersonation.start')) return await swap();
-      return await this.Hooks.run('authn.impersonation.start', { session: hookView(session), target: hookView(targetRef), ctx: hookView(ctx) }, swap, { mutable: [] });
+      // The start check is a before hook; with none, nothing decided who may impersonate whom.
+      if (!this.Hooks.has('authn.impersonation.start')) return await this.refuseStart(ctx, 'no_guard', about);
+      const actorPrincipal = await this.Principals.principalOf(stored.identity, actingFacts(stored.facts), actorCeiling ? { ceiling: actorCeiling } : {});
+      return await this.Hooks.run('authn.impersonation.start', { session: hookView(session), target: hookView(targetRef), actor: hookView(actorPrincipal), ctx: hookView(ctx) }, swap, { mutable: [] });
     } catch (err) {
       const stopped = hookRefusalOf(err, 'authn.impersonation.start');
       if (stopped) return this.refuseStart(ctx, stopped.reason, about, stopped.data);
@@ -214,7 +216,7 @@ export class AuthnImpersonationService extends AsyncService {
     }
   }
 
-  private async startRefusal(stored: Session, target: IdentityRef, ctx: AuthnContext, actorCeiling: Ceiling | undefined, reauth?: Credentials): Promise<Denial | null> {
+  private async startRefusal(stored: Session, target: IdentityRef, ctx: AuthnContext, reauth?: Credentials): Promise<Denial | null> {
     if (!this.Guard) return { reason: 'no_guard' };
     if (stored.facts.impersonator !== undefined) return { reason: 'nested' };
     if (this.beyondLifetime(stored.facts, ctx)) return { reason: 'session_lifetime' };
@@ -230,7 +232,7 @@ export class AuthnImpersonationService extends AsyncService {
     }
     const targetRefused = await statusRefusal(this.Identities, target);
     if (targetRefused) return { reason: `target_${targetRefused}` };
-    return this.denial(stored.identity, actingFacts(stored.facts), target, actorCeiling);
+    return null;
   }
 
   private async restore(s: Session | SessionHandle): Promise<Session | null> {
