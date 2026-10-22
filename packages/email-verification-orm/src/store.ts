@@ -30,6 +30,7 @@ const MAX_ATTEMPTS = 5;
 const INSERT_CHUNK = 200;
 const CLEANUP_BATCH = 500;
 // A writer fills its generation before it points a source at it; younger unreferenced rows may be in flight.
+// A writer that stalls longer than this can lose its generation to the sweep; all nodes' clocks must agree within it.
 const DEAD_GENERATION_GRACE_MS = 60 * 60 * 1000;
 const LIST_VERSION = 'listVersion';
 
@@ -55,10 +56,10 @@ export class OrmEmailVerificationStore extends EmailVerificationStore {
 
   protected CleanupTimer: ReturnType<typeof setInterval> | undefined;
 
+  protected CleanupRunning = false;
+
   public async resolve(): Promise<void> {
-    this.CleanupTimer = setInterval(() => {
-      this.cleanupExpired().catch((err: Error) => this.Log.error(err, 'Expired email verdict cleanup failed'));
-    }, this.Options.cleanupIntervalMs);
+    this.CleanupTimer = setInterval(() => void this.runCleanup(), this.Options.cleanupIntervalMs);
     this.CleanupTimer.unref?.();
     await super.resolve();
   }
@@ -68,14 +69,36 @@ export class OrmEmailVerificationStore extends EmailVerificationStore {
     this.CleanupTimer = undefined;
   }
 
+  /** A tick that finds the previous cleanup still running is skipped. */
+  protected async runCleanup(): Promise<void> {
+    if (this.CleanupRunning) return;
+    this.CleanupRunning = true;
+    try {
+      await this.cleanupExpired();
+    } catch (err) {
+      this.Log.error(err as Error, 'Email verification cleanup failed');
+    } finally {
+      this.CleanupRunning = false;
+    }
+  }
+
   /** Deletes expired verdicts and the entries of generations no source points at (left by failed writes). */
   public async cleanupExpired(): Promise<number> {
     const d = await this.driver();
     const now = Date.now();
     const verdicts = await this.deleteInBatches(d, VERDICTS_TABLE, (q) => q.where('expires_at', '<=', now));
-    const liveGens = (await this.sourceRows(d)).map((r) => r.gen);
-    const entries = await this.deleteInBatches(d, ENTRIES_TABLE, (q) => q.where('created_at', '<', now - DEAD_GENERATION_GRACE_MS).whereNotIn('gen', liveGens));
-    return verdicts + entries;
+    return verdicts + (await this.deleteDeadGenerations(d, now - DEAD_GENERATION_GRACE_MS));
+  }
+
+  protected async deleteDeadGenerations(d: OrmDriver, createdBefore: number): Promise<number> {
+    const gens = (await d.select().from(ENTRIES_TABLE).columns(['gen']).max('created_at', 'newest').groupBy('gen')) as { gen: string; newest: number | string }[];
+    // Read after the generations, so a pointer moved in between still protects its generation.
+    const live = new Set((await this.sourceRows(d)).map((r) => r.gen));
+    let removed = 0;
+    for (const { gen, newest } of gens) {
+      if (!live.has(gen) && Number(newest) < createdBefore) removed += await this.deleteInBatches(d, ENTRIES_TABLE, (q) => q.where({ gen }));
+    }
+    return removed;
   }
 
   protected async deleteInBatches(d: OrmDriver, table: string, filter: (q: IWhereBuilder<unknown>) => unknown): Promise<number> {
@@ -175,7 +198,7 @@ export class OrmEmailVerificationStore extends EmailVerificationStore {
         try {
           await this.setMeta(LIST_VERSION, randomUUID());
         } finally {
-          if (old) await d.del().from(ENTRIES_TABLE).where({ gen: old.gen });
+          if (old) await this.dropGeneration(d, old.gen, 'Cannot drop an old email domain list generation; the cleanup will reclaim it');
         }
         return;
       }
@@ -190,23 +213,33 @@ export class OrmEmailVerificationStore extends EmailVerificationStore {
     }
     const gen = randomUUID();
     const createdAt = Date.now();
-    let moved: boolean;
     try {
       for (const part of chunk(domains, INSERT_CHUNK)) {
         await d.insert().into(ENTRIES_TABLE).values(part.map((domain) => ({ key: `${gen}|${domain}`, gen, domain, created_at: createdAt })));
       }
-      moved = oldGen === undefined ? await this.insertSource(d, key, gen) : rowsAffected(await d.update().in(SOURCES_TABLE).update({ gen }).where({ key, gen: oldGen })) === 1;
     } catch (err) {
-      await this.dropUnreferencedGeneration(d, key, gen).catch(() => undefined);
+      await this.dropGeneration(d, gen, 'Cannot drop an unfinished email domain list generation; the cleanup will reclaim it');
       throw err;
     }
-    if (!moved) await d.del().from(ENTRIES_TABLE).where({ gen });
+    let moved: boolean;
+    try {
+      moved = oldGen === undefined ? await this.insertSource(d, key, gen) : rowsAffected(await d.update().in(SOURCES_TABLE).update({ gen }).where({ key, gen: oldGen })) === 1;
+    } catch (err) {
+      // The pointer may still move to `gen` after the error, so its rows are left to the sweep, which waits out the grace period.
+      if ((await this.sourceRow(d, key).catch(() => undefined))?.gen === gen) return true;
+      throw err;
+    }
+    if (!moved) await this.dropGeneration(d, gen, 'Cannot drop an unused email domain list generation; the cleanup will reclaim it');
     return moved;
   }
 
-  /** The compare-and-set may have committed even though the client saw an error, so the pointer is checked first. */
-  protected async dropUnreferencedGeneration(d: OrmDriver, key: string, gen: string): Promise<void> {
-    if ((await this.sourceRow(d, key))?.gen !== gen) await d.del().from(ENTRIES_TABLE).where({ gen });
+  /** Best effort: a generation no source points at is reclaimed by the cleanup anyway. */
+  protected async dropGeneration(d: OrmDriver, gen: string, failure: string): Promise<void> {
+    try {
+      await d.del().from(ENTRIES_TABLE).where({ gen });
+    } catch (err) {
+      this.Log.warn(err as Error, failure);
+    }
   }
 
   protected async insertSource(d: OrmDriver, key: string, gen: string): Promise<boolean> {

@@ -32,7 +32,8 @@ export class EmailVerification_2026_10_21_00_00_00 extends OrmMigration {
       t.string('domain', 253).notNull().exact();
       t.bigint('created_at').notNull();
     });
-    await connection.index().table(ENTRIES_TABLE).name('ev_entries_gen').columns(['gen']);
+    // Serves the per-generation reads and deletes, and the cleanup's MAX(created_at) ... GROUP BY gen.
+    await connection.index().table(ENTRIES_TABLE).name('ev_entries_gen_created').columns(['gen', 'created_at']);
 
     await connection.schema().createTable(META_TABLE, (t) => {
       t.string('key', 128).notNull().primaryKey().exact();
