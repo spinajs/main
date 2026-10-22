@@ -3,13 +3,14 @@ import { Autoinject, Injectable } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 
-import { EmailVerificationStore } from './contracts.js';
+import { EmailVerificationStore, type ListKind } from './contracts.js';
 import { normalizeDomain } from './domain.js';
 import type { ListSourceOptions, ListsOptions } from './options.js';
 import { SafeFetch } from './safe-fetch.js';
 
 const SYNC_TIMEOUT_MS = 30_000;
 const SYNC_MAX_BYTES = 16 * 1024 * 1024;
+const MAX_DOMAIN_LENGTH = 253;
 
 export interface SyncOutcome {
   readonly source: string;
@@ -34,7 +35,7 @@ export function parseList(body: string, format: 'lines' | 'json'): { domains: st
   const domains = new Set<string>();
   let invalid = 0;
   for (const r of raw) {
-    const domain = typeof r === 'string' ? normalizeDomain(r) : null;
+    const domain = typeof r === 'string' && r.length <= MAX_DOMAIN_LENGTH ? normalizeDomain(r) : null;
     if (domain === null) invalid++;
     else domains.add(domain);
   }
@@ -56,6 +57,9 @@ export class DomainListSync {
   protected Log: Log;
 
   public async run(only?: string): Promise<SyncOutcome[]> {
+    const names = this.Options.sources.map((s) => s.name);
+    const duplicates = [...new Set(names.filter((n, i) => names.indexOf(n) !== i))];
+    if (duplicates.length > 0) throw new InvalidArgument(`duplicate list source name: ${duplicates.join(', ')}`);
     const sources = this.Options.sources.filter((s) => only === undefined || s.name === only);
     if (only !== undefined && sources.length === 0) throw new InvalidArgument(`no list source named ${only}`);
     const outcomes: SyncOutcome[] = [];
@@ -66,23 +70,30 @@ export class DomainListSync {
   protected async syncOne(source: ListSourceOptions): Promise<SyncOutcome> {
     const etagKey = `sync:${source.name}:etag`;
     const countKey = `sync:${source.name}:count`;
+    const originKey = `sync:${source.name}:origin`;
     try {
-      const etag = await this.Store.getMeta(etagKey);
+      const origin = `${source.kind}|${source.url}`;
+      const storedOrigin = await this.Store.getMeta(originKey);
+      const sameOrigin = storedOrigin === origin;
+      const etag = sameOrigin ? await this.Store.getMeta(etagKey) : null;
       const res = await this.Fetch.get(source.url, { timeoutMs: SYNC_TIMEOUT_MS, maxBytes: SYNC_MAX_BYTES, headers: etag ? { 'if-none-match': etag } : {} });
       if (res.status === 304) return { source: source.name, status: 'unchanged' };
       if (res.status !== 200) throw new Error(`answered ${res.status}`);
 
       const { domains, invalid } = parseList(res.body, source.format);
-      const previous = Number((await this.Store.getMeta(countKey)) ?? 0);
-      if (domains.length < previous * this.Options.minKeepRatio) {
-        this.Log.warn({ source: source.name, count: domains.length, previous }, 'List ${source} shrank from ${previous} to ${count} domains; the old list stays');
+      const stored = sameOrigin ? Number((await this.Store.getMeta(countKey)) ?? 0) : 0;
+      const previous = Number.isFinite(stored) ? stored : 0;
+      if (domains.length === 0 || domains.length < previous * this.Options.minKeepRatio) {
+        this.Log.warn({ source: source.name, count: domains.length, previous }, 'List ${source} gave ${count} domains (previously ${previous}); the old list stays');
         return { source: source.name, status: 'refused', count: domains.length, invalid };
       }
 
       await this.Store.replaceSource(source.name, source.kind, domains);
+      const oldKind = storedOrigin?.split('|', 1)[0];
+      if (oldKind && oldKind !== source.kind) await this.Store.replaceSource(source.name, oldKind as ListKind, []);
       await this.Store.setMeta(countKey, String(domains.length));
-      const next = res.headers.get('etag');
-      if (next) await this.Store.setMeta(etagKey, next);
+      await this.Store.setMeta(etagKey, res.headers.get('etag') ?? '');
+      await this.Store.setMeta(originKey, origin);
       this.Log.info({ source: source.name, count: domains.length, invalid }, 'List ${source} updated: ${count} domains, ${invalid} invalid lines');
       return { source: source.name, status: 'updated', count: domains.length, invalid };
     } catch (err) {
