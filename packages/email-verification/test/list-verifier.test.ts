@@ -206,7 +206,9 @@ describe('ListVerifier', () => {
     s.listVersion = () => (++versions === 1 ? new Promise<string>(() => undefined) : version());
     try {
       let failure: unknown;
-      await v.refresh().catch((e) => (failure = e));
+      await v.refresh().catch((e: unknown) => {
+        failure = e;
+      });
       expect(failure).to.be.instanceOf(Error);
       await s.upsertEntries([{ domain: 'after-hang.com', kind: 'block', source: 'admin' }]);
       await v.refresh();
