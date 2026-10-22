@@ -1,10 +1,10 @@
 # Credential admin routes
 
-`AuthnCredentialAdminController` lets an administrator act on another user's credentials: expire the password and send a reset mail, reset TOTP, end every session, revoke every API token. A `CredentialAdminGuard` decides who may administer whom; without one the group answers 404. [`@spinajs/users`](../users/13-impersonation-and-credential-admin-guards.md) registers `AuthzCredentialAdminGuard`. No route ever returns a secret.
+`AuthnCredentialAdminController` lets an administrator act on another user's credentials: expire the password and send a reset mail, reset TOTP, end every session, revoke every API token. A `CredentialAdminRule` decides who may administer whom: the first before hook of the `authn.admin.credentials` [action](23-action-hooks.md). Without one the group answers 404. [`@spinajs/users`](../users/13-impersonation-and-credential-admin-guards.md) registers `AuthzCredentialAdminRule`. No route ever returns a secret.
 
 ## How it works
 
-1. **Controller gate.** `CredentialAdminGuardRegistered`: 404 `not_found` without a `CredentialAdminGuard`.
+1. **Controller gate.** `CredentialAdminRuleRegistered`: 404 `not_found` unless a `CredentialAdminRule` class is registered as an `ActionHook` (`credentialAdminRuleRegistered()` of `@spinajs/authn/hooks`). A rule registered by a factory does not count: the gate finds it by its class.
 2. **Route group.** Each route's group starts with its own gate, then `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]`:
 
    | Route | Gate | Needs |
@@ -18,22 +18,29 @@
    1. an active session of the admin, else 403 `session_required`;
    2. [fresh authentication](05-policies.md#fresh-authentication) through `freshAuthOrAnswer()` with the admin's password in `reauthPassword`: 403 `fresh_auth_required`, or 401 login failure body without `Retry-After`;
    3. `:uuid` must be a lower-case uuid, else 404 `not_found` (`No such user`);
-   4. the route's own body fields (`sendReset` for password reset);
-   5. `CredentialAdminGuard.allowed(admin, target, action)`: only `{ ok: true }` passes. Refusals: 403 `forbidden`, `protected_role` or `escalation`, or 404 `not_found`; an unknown code is 403 `forbidden`.
-4. **Effect**, with the admin as the audit actor.
+   4. the route's own body fields (`sendReset` for password reset).
+4. **`authn.admin.credentials`**, through `runCredentialAdmin()` of `@spinajs/authn/hooks`. Its input is `{ actor, target, action }`, where `actor` is the admin's whole principal:
+   1. the `CredentialAdminRule` runs first (order `-1000`): `allowed(admin, target, action)` must answer `{ ok: true }`. Refusals: 403 `forbidden`, `protected_role` or `escalation`, or 404 `not_found`, the bodies the guard gave before 3.x. They are not audited. An unknown code is 403 `forbidden`;
+   2. the other before hooks: a refusal answers 403 `{ error: 'action_refused', code }` and is audited;
+   3. a rule that throws or times out answers 403 `{ error: 'action_refused', code: 'hook_error' }`;
+   4. an effect no rule admitted is refused 403 `forbidden`. This covers a rule registered after the hooks runner resolved.
+5. **Effect**, with the admin as the audit actor.
 
 ```mermaid
 sequenceDiagram
   participant A as Admin browser
   participant C as AuthnCredentialAdminController
-  participant G as CredentialAdminGuard
+  participant H as Hooks (authn.admin.credentials)
+  participant G as CredentialAdminRule
   participant P as PasswordService
   A->>C: POST /authn/admin/users/:uuid/password-reset { sendReset, reauthPassword? }
   C->>C: gates, Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy
   C->>C: assertFreshAuth, :uuid check, sendReset check
-  C->>G: allowed(admin, target, "password-reset")
-  G-->>C: { ok: true }
-  C->>P: expire(target, { cause: admin, actor, sendReset }, ctx)
+  C->>H: runCredentialAdmin({ actor, target, action: "password-reset" })
+  H->>G: before: allowed(admin, target, "password-reset")
+  G-->>H: { ok: true }
+  H->>H: other before hooks
+  H->>P: effect: expire(target, { cause: admin, actor, sendReset }, ctx)
   C-->>A: 200 { expired: true, resetMailRequested: true }
 ```
 
@@ -63,19 +70,20 @@ Errors common to all four: 400 `invalid_send_reset` (password reset, `sendReset`
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `CredentialAdminGuard` | optional autoinject; its registration switches the group on | `AuthzCredentialAdminGuard` (`@spinajs/users`) | your own | Extend `CredentialAdminGuard` from `@spinajs/authn/contracts`, implement `allowed(actor, target, action)` returning `{ ok: true }` or `{ ok: false, code }`, register `.as(CredentialAdminGuard)`. See [`@spinajs/users`](../users/13-impersonation-and-credential-admin-guards.md). |
+| `CredentialAdminRule` | an `ActionHook` class (`@Injectable(ActionHook)`); its registration switches the group on | `AuthzCredentialAdminRule` (`@spinajs/users`) | your own | Extend `CredentialAdminRule` from `@spinajs/authn/hooks`, implement `allowed(actor, target, action)` returning `{ ok: true }` or `{ ok: false, code }`, register the class as an `ActionHook`. See [`@spinajs/users`](../users/13-impersonation-and-credential-admin-guards.md). |
 | `PasswordService`, `SessionIssuer`, `TokenService`, `MfaEnrolmentService` | optional autoinject or resolved per call | from `@spinajs/authn-local`, `@spinajs/authn-session`, `@spinajs/authn-token`, `@spinajs/authn-totp` (`TotpService`) | | Each switches its route on. |
 
 ## Important behaviour
 
-- **A refused call changes nothing**: fresh authentication, the target check and the guard all run before any effect.
+- **A refused call changes nothing**: fresh authentication, the target check, the rule and the other before hooks all run before any effect.
+- **Fails closed.** No rule registered: 404. A rule the runner does not hold, or one that throws: 403.
 - **`:uuid` is case-sensitive.** An upper-case uuid answers 404, so a case-insensitive user lookup cannot expire a user while the session store revokes nothing.
 - **Not while impersonating**, and never from an API token or key.
 - **No secret in any answer.** A reset secret travels in the owner's mail only.
 
 ## Related
 
-- [Action hooks](23-action-hooks.md): after the guard every route runs `authn.admin.credentials`; its refusal, or an `authn.password.expire` refusal of the password reset, answers 403 `{ error: 'action_refused', code }` and changes nothing. A refused `authn.mfa.adminReset` answers 200 `{ reset: false }`.
-- [`@spinajs/users`: impersonation and credential admin guards](../users/13-impersonation-and-credential-admin-guards.md): the shipped guard and its rules.
+- [Action hooks](23-action-hooks.md): every route runs its effect as `authn.admin.credentials`; a refusal of a hook after the rule, or an `authn.password.expire` refusal of the password reset, answers 403 `{ error: 'action_refused', code }` and changes nothing. A refused `authn.mfa.adminReset` answers 200 `{ reset: false }`.
+- [`@spinajs/users`: impersonation and credential admin rules](../users/13-impersonation-and-credential-admin-guards.md): the shipped rule.
 - [Password routes](12-password-routes.md), [MFA enrolment routes](13-mfa-enrolment-routes.md), [Session management routes](09-session-management-routes.md), [API token routes](14-api-token-routes.md): the owner's side of each credential.
 - [`@spinajs/users-http`: user administration](../users-http/06-user-administration.md): the user admin routes beside these.

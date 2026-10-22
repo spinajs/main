@@ -1,26 +1,52 @@
 {
   "name": "@spinajs/email-verification",
-  "version": "3.0.7",
+  "version": "3.0.10",
   "description": "Email domain verification: domain lists, DNS/MX, RDAP domain age and HTTP domain-check APIs, with pluggable verdict stores",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-    ".": { "types": "./lib/mjs/index.d.ts", "import": "./lib/mjs/index.js", "require": "./lib/cjs/index.js" },
-    "./register-schema": { "types": "./lib/mjs/register-schema.d.ts", "import": "./lib/mjs/register-schema.js", "require": "./lib/cjs/register-schema.js" },
-    "./scheduler": { "types": "./lib/mjs/scheduler.d.ts", "import": "./lib/mjs/scheduler.js", "require": "./lib/cjs/scheduler.js" },
-    "./testing": { "types": "./lib/mjs/testing/index.d.ts", "import": "./lib/mjs/testing/index.js", "require": "./lib/cjs/testing/index.js" }
+    ".": {
+      "types": "./lib/mjs/index.d.ts",
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    },
+    "./register-schema": {
+      "types": "./lib/mjs/register-schema.d.ts",
+      "import": "./lib/mjs/register-schema.js",
+      "require": "./lib/cjs/register-schema.js"
+    },
+    "./scheduler": {
+      "types": "./lib/mjs/scheduler.d.ts",
+      "import": "./lib/mjs/scheduler.js",
+      "require": "./lib/cjs/scheduler.js"
+    },
+    "./testing": {
+      "types": "./lib/mjs/testing/index.d.ts",
+      "import": "./lib/mjs/testing/index.js",
+      "require": "./lib/cjs/testing/index.js"
+    }
   },
   "typesVersions": {
     "*": {
-      "register-schema": ["lib/cjs/register-schema.d.ts"],
-      "scheduler": ["lib/cjs/scheduler.d.ts"],
-      "testing": ["lib/cjs/testing/index.d.ts"]
+      "register-schema": [
+        "lib/cjs/register-schema.d.ts"
+      ],
+      "scheduler": [
+        "lib/cjs/scheduler.d.ts"
+      ],
+      "testing": [
+        "lib/cjs/testing/index.d.ts"
+      ]
     }
   },
   "type": "module",
   "private": false,
-  "publishConfig": { "access": "public" },
-  "engines": { "node": ">=18" },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.mjs.json",
@@ -35,32 +61,50 @@
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
   },
-  "files": ["lib/**/*"],
-  "repository": { "type": "git", "url": "git+https://github.com/spinajs/main.git" },
-  "keywords": ["spinajs", "email", "verification", "disposable"],
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "email",
+    "verification",
+    "disposable"
+  ],
   "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
   "license": "MIT",
-  "bugs": { "url": "https://github.com/spinajs/main/issues" },
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/cli": "3.0.7",
-    "@spinajs/configuration": "3.0.7",
-    "@spinajs/di": "3.0.7",
-    "@spinajs/exceptions": "3.0.7",
-    "@spinajs/log": "3.0.7"
+    "@spinajs/cli": "3.0.10",
+    "@spinajs/configuration": "3.0.10",
+    "@spinajs/di": "3.0.10",
+    "@spinajs/exceptions": "3.0.10",
+    "@spinajs/log": "3.0.10"
   },
   "peerDependencies": {
-    "@spinajs/scheduler": "3.0.7",
+    "@spinajs/scheduler": "3.0.10",
     "chai": "^4.3.7",
     "mocha": "^10.2.0"
   },
   "peerDependenciesMeta": {
-    "@spinajs/scheduler": { "optional": true },
-    "chai": { "optional": true },
-    "mocha": { "optional": true }
+    "@spinajs/scheduler": {
+      "optional": true
+    },
+    "chai": {
+      "optional": true
+    },
+    "mocha": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@spinajs/scheduler": "3.0.7",
+    "@spinajs/scheduler": "3.0.10",
     "@types/node": "^22.14.1",
     "chai": "^4.3.7",
     "mocha": "^10.2.0"

@@ -308,6 +308,9 @@ describe('users actions on action hooks (HOOK-4)', function () {
     for (const [action, act] of [
       ['users.create', (actor: Principal) => create({ Email: 'by-actor@spinajs.pl', Login: 'by-actor' }, ['editor'], actor)],
       ['users.password.expire', async (actor: Principal) => expirePassword(await storedUser((await seedUser({ login: 'expired-by-actor' })).user.Uuid), actor)],
+      ['users.deactivate', async (actor: Principal) => deactivate(await storedUser((await seedUser({ login: 'deactivated-by-actor' })).user.Uuid), actor)],
+      ['users.ban', async (actor: Principal) => ban(await storedUser((await seedUser({ login: 'banned-by-actor' })).user.Uuid), 'spam', 3600, actor)],
+      ['users.delete', async (actor: Principal) => deleteUser(await storedUser((await seedUser({ login: 'deleted-by-actor' })).user.Uuid), actor)],
     ] as const) {
       it(`${action}: a frozen plain view without the identity, so the model of the acting admin is out of reach`, async () => {
         const { admin, actor } = await signedInAdmin();
@@ -328,6 +331,19 @@ describe('users actions on action hooks (HOOK-4)', function () {
         expect((await storedUser(admin.Uuid)).Password).to.eq(stored);
       });
     }
+
+    it('users.deactivate, users.ban and users.delete see SYSTEM when no actor is given, as the CLI runs them', async () => {
+      const hook = new ScriptedActionHook();
+      await withHook(hook, async () => {
+        await deactivate(await storedUser((await seedUser({ login: 'deactivated-by-system' })).user.Uuid));
+        await ban(await storedUser((await seedUser({ login: 'banned-by-system' })).user.Uuid), 'spam', 3600);
+        await deleteUser(await storedUser((await seedUser({ login: 'deleted-by-system' })).user.Uuid));
+      });
+
+      for (const action of ['users.deactivate', 'users.ban', 'users.delete']) {
+        expect((hook.calls(action)[0].input as { actor: unknown }).actor, action).to.deep.eq({ type: 'system', id: 'system', authenticated: true, source: 'runAs', attributes: {} });
+      }
+    });
 
     it('the action still acts as the actor it was given', async () => {
       const { actor } = await signedInAdmin();

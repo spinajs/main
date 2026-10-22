@@ -6,12 +6,12 @@ import { randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { AUTHN_CONFIGURATION_SCHEMA, AuthnEventSink, AuthnService, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MemoryNonceStore, MfaStep, NonceStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
+import { ACTIVE_ROLE_KEY, AUTHN_CONFIGURATION_SCHEMA, AuthnEventSink, AuthnService, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MemoryNonceStore, MfaStep, NonceStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { AuthnLoginIdentifiedInput, IdentityRef, SessionHandle } from '@spinajs/authn';
 import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory } from '@spinajs/authn-testing';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { ActionName, ActionPattern, BeforeContext } from '@spinajs/hooks';
-import { RecordingActionHook, refusingHook } from '@spinajs/hooks/testing';
+import { RecordingActionHook, mutatingHook, refusingHook } from '@spinajs/hooks/testing';
 import type { Request } from '@spinajs/http';
 
 import { encodeFlow } from '../src/flow/cookie.js';
@@ -185,6 +185,50 @@ describe('authn-oidc action hooks', function () {
     const done = await login.callback('corp', { origin: ORIGIN, cookies: { 'spinajs-oidc': begun.cookies[0].Value }, query, navigation: false, ctx: ctx() });
     expect(done.status).to.eq(303);
     expect(sync.seen).to.deep.eq([{ identity: alice, provider: STRATEGY, groups: ['eng', 'ops'], sessions: 0 }]);
+  });
+
+  /** An OIDC login of `sub` through OidcLogin.callback, as the callback route runs it. */
+  async function callback(w: World, sub: string): Promise<OidcAnswer> {
+    const providers = await w.child.resolve(OidcProviders);
+    const login = new OidcLogin({
+      strategies: providers.strategies(),
+      service: w.service,
+      sessions: w.sessions,
+      redirects: { success: '/ok', failure: '/failed' },
+      env: 'test',
+      sessionCookie: (h) => ({ Name: 'ssid', Value: h.id, Options: {} }),
+      callbackPath: (p) => `/auth/oidc/${p}/callback`,
+    });
+    const ctx = () => ({ now: new Date(), purpose: 'login' as const, ip: '192.0.2.10' });
+    const begun = await login.begin('corp', { origin: ORIGIN, cookies: {}, query: {}, navigation: false, ctx: ctx() });
+    const query = w.idp.authorize(begun.location!, { claims: { sub } });
+    return login.callback('corp', { origin: ORIGIN, cookies: { 'spinajs-oidc': begun.cookies[0].Value }, query, navigation: false, ctx: ctx() });
+  }
+
+  it('the OIDC callback runs authn.session.start: the ceiling a hook sets is the session ActiveRole', async () => {
+    const recorder = new RecordingActionHook(['authn.session.start']);
+    const w = await open(() => [recorder, mutatingHook('authn.session.start', { ceiling: { roles: ['viewer'] } })]);
+    const alice = w.identities.add({ login: 'alice' });
+    await w.links.link(alice, { provider: STRATEGY, subject: 'kc-1' });
+    const done = await callback(w, 'kc-1');
+    expect(done.status).to.eq(303);
+    const cookie = done.cookies.find((c) => c.Name === 'ssid');
+    expect(cookie, 'the session cookie').to.not.eq(undefined);
+    expect((await w.sessions.restore(cookie!.Value))?.data.get(ACTIVE_ROLE_KEY)).to.eq('viewer');
+    expect(recorder.calls.map((c) => [c.phase, (c.input as { kind: string }).kind])).to.deep.eq([
+      ['before', 'login'],
+      ['after', 'login'],
+    ]);
+  });
+
+  it('a refusal on authn.session.start fails the OIDC callback with its one failure answer, and no session lives on', async () => {
+    const w = await open(() => [refusingHook('authn.session.start', 'kit-no-session')]);
+    const alice = w.identities.add({ login: 'alice' });
+    await w.links.link(alice, { provider: STRATEGY, subject: 'kc-1' });
+    const done = await callback(w, 'kc-1');
+    expect(done.status).to.eq(401);
+    expect(done.cookies.some((c) => c.Name === 'ssid')).to.eq(false);
+    expect(await w.sessions.list(alice)).to.deep.eq([]);
   });
 
   it('a refusal on authn.login.identified fails the OIDC login with no session', async () => {

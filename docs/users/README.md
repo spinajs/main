@@ -2,7 +2,7 @@
 
 User identity for SpinaJS: the `users` and `users_metadata` tables, lifecycle actions (create, activate, ban, delete), lifecycle mails and queue events, and the services that plug these users into `@spinajs/authn` and `@spinajs/authz`.
 
-It does **not** serve HTTP routes (that is `@spinajs/users-http`), authenticate anybody (`@spinajs/authn`, `@spinajs/authn-local`), hash passwords (authn-local's `PasswordService`) or store role assignments (`@spinajs/authz-rbac`). It implements the hooks those packages leave open: identity store, password store, principal factory, impersonation and credential admin guards, role source.
+It does **not** serve HTTP routes (that is `@spinajs/users-http`), authenticate anybody (`@spinajs/authn`, `@spinajs/authn-local`), hash passwords (authn-local's `PasswordService`) or store role assignments (`@spinajs/authz-rbac`). It implements the hooks those packages leave open: identity store, password store, principal factory, the impersonation guard and the credential admin rule, role source.
 
 ## Install
 
@@ -34,7 +34,7 @@ Every service below registers on that import (`@Injectable`), and `RbacBootstrap
 | [Principal attribute providers](10-principal-attribute-providers.md) | `PrincipalAttributeProvider`: derive ABAC attributes from the user record. |
 | [Authz resources and relations](11-authz-resources-and-relations.md) | The `user` resource, the `self` and `owner` relations, the permissions and roles users ships. |
 | [Default roles](12-default-roles.md) | `authz.rbac.defaultRoles` for new users and the boot check that validates it. |
-| [Impersonation and credential admin guards](13-impersonation-and-credential-admin-guards.md) | `AuthzImpersonationGuard`, `AuthzCredentialAdminGuard`, `AuthzTargetGuard`: who may act as or on another user. |
+| [Impersonation guard and credential admin rule](13-impersonation-and-credential-admin-guards.md) | `AuthzImpersonationGuard`, `ImpersonationGuardStartHook`, `AuthzCredentialAdminRule` (the first before hook of `authn.admin.credentials`), `AuthzTargetGuard`: who may act as or on another user. |
 | [Role switch and access response](14-role-switch-and-access-response.md) | `RbacRoleSource` for role switch and MFA, `OrderedActiveRoleHook` for the role a new session starts on, `AccessResponseExtension` adding `Access` to authn answers. |
 | [User profile](15-user-profile.md) | `UserProfileProvider` picked by `users.user.profile`, `BasicProfileProvider`. |
 | [Jobs run as their initiator](16-jobs-run-as-initiator.md) | `@spinajs/users/queue`: `UserInitiatorPrincipalFactory` reloads the user a job runs as. |

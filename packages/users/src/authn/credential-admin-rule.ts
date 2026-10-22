@@ -1,39 +1,43 @@
 import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
-import { CredentialAdminGuard } from '@spinajs/authn/contracts';
 import type { CredentialAdminAction, IdentityRef, Principal } from '@spinajs/authn/contracts';
+import { CredentialAdminRule } from '@spinajs/authn/hooks';
+import type { CredentialAdminVerdict } from '@spinajs/authn/hooks';
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
+import { ActionHook } from '@spinajs/hooks';
 
 import { CREDENTIAL_ADMIN_PERMISSION_KEY } from './credential-admin-schema.js';
 import { ACCESS_DOMAIN_KEY, AuthzTargetGuard, accessDomain, signedInInteractively } from './target-guard.js';
 
-type Answer = Awaited<ReturnType<CredentialAdminGuard['allowed']>>;
+type Answer = CredentialAdminVerdict;
 
 const FORBIDDEN: Answer = Object.freeze({ ok: false, code: 'forbidden' });
 const NOT_FOUND: Answer = Object.freeze({ ok: false, code: 'not_found' });
 
-export interface AuthzCredentialAdminGuardOptions {
+export interface AuthzCredentialAdminRuleOptions {
   readonly targets?: AuthzTargetGuard;
 }
 
 /**
- * authn's CredentialAdminGuard over authz (A25, SR-10, B26). `forbidden` when the actor is not a user signed in
+ * authn's CredentialAdminRule over authz (A25, SR-10, B26): the first before hook of `authn.admin.credentials`, the
+ * action of authn-http's credential admin routes and of users-http's admin routes that end a user's sessions or change
+ * its login. `forbidden` when the actor is not a user signed in
  * interactively through authn, is impersonating, names itself (the owner routes change one's own credentials), or lacks
  * `authz.credentials.permission` at GLOBAL in the access domain, or when the target is not a user; then
  * {@link AuthzTargetGuard.checkIdentity}: `protected_role`, `escalation`, and `not_found` for an unknown or deleted
- * target. Any other error rejects. Every action gets the same answer; an app that narrows per action registers its own
- * guard.
+ * target. Any other error fails the action closed (`hook_error`). Every action gets the same answer; an app that narrows
+ * per action registers its own rule class, or a before hook of its own that refuses what this one allows.
  */
-@Injectable(CredentialAdminGuard)
-export class AuthzCredentialAdminGuard extends CredentialAdminGuard {
+@Injectable(ActionHook)
+export class AuthzCredentialAdminRule extends CredentialAdminRule {
   @Config(ACCESS_DOMAIN_KEY)
   protected AccessDomain: string;
 
   @Config(CREDENTIAL_ADMIN_PERMISSION_KEY)
   protected Permission: string;
 
-  constructor(private readonly opts: AuthzCredentialAdminGuardOptions = {}) {
+  constructor(private readonly opts: AuthzCredentialAdminRuleOptions = {}) {
     super();
   }
 

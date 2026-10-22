@@ -64,7 +64,7 @@ A refused confirm or disable counts no attempt in the `mfa` throttle. A `reauth`
 - **Hooks get copies.** Each input key is a frozen copy (`hookView`), and the after hooks get a frozen copy of the output. A write in place in a hook reaches nothing the action acts on.
 - **The `session` input is a copy of the `SessionHandle`** (`{ id, state }`), plain data like every other input. A pending session that enrols at first login reaches the begin and confirm hooks with `state: 'pending'`.
 - **A refused admin reset looks like a reset of nobody.** `{ reset: false }` is also the answer for an identity without an enrolment, so the admin route answers 200 `{ reset: false }` and `authn:mfa-reset` logs `No MFA enrolment for <login>`. Only the audit event tells them apart.
-- **Hooks do not replace the guard.** `adminReset` does not check who may reset whom. The admin route applies `CredentialAdminGuard` before it calls, and both the guard and the hooks must allow; `authn:mfa-reset` runs the hooks with the actor `{ type: 'system', id: 'cli' }`.
+- **`adminReset` does not decide who may reset whom.** The admin route runs it as the effect of `authn.admin.credentials`, whose `CredentialAdminRule` must allow first. The rule, the `authn.admin.credentials` hooks and the `authn.mfa.adminReset` hooks must all allow; `authn:mfa-reset` runs the hooks with the actor `{ type: 'system', id: 'cli' }`.
 - **Without hooks.** A service built with `new TotpService(deps)` runs `deps.hooks` when given and no hook otherwise.
 
 ## Example: tell the user an admin removed their second factor

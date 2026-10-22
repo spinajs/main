@@ -16,7 +16,7 @@ Validation of a presented token (`validate`) is described in [API token authenti
    - `kind` must be `pat`, `service` or `agent`.
    - `kind: 'agent'` needs `scope.agent === true` and no `roles` or `profile`; any other kind must not set `scope.agent: true`.
    - `roles` and `scope` are parsed; see [Token roles, scopes and agent tokens](03-token-scopes.md).
-   - `profile` must be one of `TokenProfilePolicy.allowedProfiles(owner)`.
+   - `profile` must be a non-empty string. Whether `TokenProfilePolicy.allowedProfiles(owner)` lists it is checked before, by `TokenProfileHook`, a before hook on `authn.token.create`; its refusal answers `invalid_scope` too, and nothing is audited.
    
    Any failure returns `{ ok: false, code: 'invalid_scope' }`.
 4. `expiresAt` must be a real `Date` strictly after `ctx.now` and at most `authn.token.maxTtlDays` ahead; for an agent token also at most `authn.token.agentMaxTtlMinutes` ahead. Otherwise the result is `{ ok: false, code: 'invalid_expiry' }`. Both caps are read at call time.
@@ -41,8 +41,8 @@ sequenceDiagram
   participant DB as rbac_access_tokens
   participant E as AuthnAudit
   C->>S: create(owner, opts, ctx)
+  S->>P: TokenProfileHook: allowedProfiles(owner) (only with a profile)
   S->>S: check kind, scope, roles, expiry, name
-  S->>P: allowedProfiles(owner) (only with a profile)
   S->>O: rowIdOf(owner)
   S->>R: rolesOf(owner) (only with roles and a RoleSource)
   S->>G: generate()
@@ -168,7 +168,7 @@ authn: {
 | --- | --- | --- | --- | --- |
 | Token service | `TokenService` (`@spinajs/authn/contracts`); singleton; `@Injectable(TokenService)` when the package loads | `DbTokenService` | none shipped | Subclass `DbTokenService` and register it with `@Injectable(TokenService)` after the import; a single resolve takes the last registration. |
 | Owner mapping | `TokenOwnerResolver`; `@Autoinject` property `Owners`, checked | `UsersTableTokenOwnerResolver` | none | See [Token owner resolver](08-token-owner-resolver.md). |
-| Profile policy | `TokenProfilePolicy`; `@Autoinject` property `Profiles`, checked | `NoTokenProfilesPolicy` | none | See [Token profile policy](09-token-profile-policy.md). |
+| Profile policy | `TokenProfilePolicy`; `@Autoinject` property `Profiles`, checked; asked by `validate`, and by `TokenProfileHook` at create | `NoTokenProfilesPolicy` | none | See [Token profile policy](09-token-profile-policy.md). |
 | Owner status | `IdentityStore` (`@spinajs/authn/contracts`); `@Autoinject` property `Identities`, checked | none in this package | `@spinajs/users`' `UserIdentityStore` | Register one before `TokenService` is resolved; without it resolving `DbTokenService` fails. |
 | Role check at create | `RoleSource` (`@spinajs/authn/contracts`); optional `@Autoinject` property `Roles`, set only when one is registered when `DbTokenService` is resolved | none in this package | `@spinajs/users`' `RbacRoleSource` | `DI.register(Mine).as(RoleSource)` before `TokenService` is first resolved. |
 | Token algorithm | `AccessTokenGenerationProvider`, by the class name in `authn.token.generation.service`; `@AutoinjectService` property `Generator` | `SecureRandomTokenProvider` | none | See [Token generation](07-token-generation.md). |

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/configuration-db-source",
-  "version": "3.0.7",
+  "version": "3.0.10",
   "description": "> TODO: description",
   "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
   "homepage": "https://github.com/spinajs/main#readme",
@@ -47,17 +47,17 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "devDependencies": {
-    "@spinajs/authz-testing": "3.0.7",
+    "@spinajs/authz-testing": "3.0.10",
     "@types/lodash": "^4.14.191",
     "@types/luxon": "^3.2.0"
   },
   "dependencies": {
-    "@spinajs/authz": "3.0.7",
-    "@spinajs/configuration": "3.0.7",
-    "@spinajs/configuration-common": "3.0.7",
-    "@spinajs/di": "3.0.7",
-    "@spinajs/internal-logger": "3.0.7",
-    "@spinajs/orm": "3.0.7",
+    "@spinajs/authz": "3.0.10",
+    "@spinajs/configuration": "3.0.10",
+    "@spinajs/configuration-common": "3.0.10",
+    "@spinajs/di": "3.0.10",
+    "@spinajs/internal-logger": "3.0.10",
+    "@spinajs/orm": "3.0.10",
     "lodash": "^4.17.21",
     "luxon": "^3.6.1"
   },
