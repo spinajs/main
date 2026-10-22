@@ -32,13 +32,15 @@ Each of these runs its own checks, then its [action hook](04-action-hooks.md) (`
 | Action | Steps | Event, mail |
 | --- | --- | --- |
 | `activate(identifier)` | Drop `user:invite:pending`; on an inactive account `IsActive = true` | `UserChanged`, `UserActivated`; mail `activated`. On an already active account only the marker goes: no hook, no event, no mail |
-| `deactivate(identifier)` | Drop `user:invite:pending`, write `IsActive = false` unconditionally, `revokeUserSessions`, `revokeUserTokens` | `UserChanged`, `UserDeactivated`; mail `deactivated` |
-| `ban(identifier, reason = 'NO_REASON', duration = 86400)` | Refuse with `UserIsBanned` when `IsBanned`; write the four `user:ban:*` keys (duration in seconds, both values as a hook left them); revoke sessions and tokens | `UserMetadataChange`, `UserBanned`; mail `banned` |
+| `deactivate(identifier, actor = SYSTEM)` | Drop `user:invite:pending`, write `IsActive = false` unconditionally, `revokeUserSessions`, `revokeUserTokens` | `UserChanged`, `UserDeactivated`; mail `deactivated` |
+| `ban(identifier, reason = 'NO_REASON', duration = 86400, actor = SYSTEM)` | Refuse with `UserIsBanned` when `IsBanned`; write the four `user:ban:*` keys (duration in seconds, both values as a hook left them); revoke sessions and tokens | `UserMetadataChange`, `UserBanned`; mail `banned` |
 | `unban(identifier)` | Refuse with `UserIsBanned` when `user:ban:is_banned` is not set; delete the four `user:ban:*` keys | `UserUnbanned`; mail `unbanned` |
-| `deleteUser(identifier)` | Soft delete (`destroy()`), revoke sessions and tokens | `UserDeleted`; mail `deleted` |
+| `deleteUser(identifier, actor = SYSTEM)` | Soft delete (`destroy()`), revoke sessions and tokens | `UserDeleted`; mail `deleted` |
 | `expirePassword(identifier, actor = SYSTEM)` | `PasswordService.expire(user:<Uuid>, { cause: 'admin', actor })`: stores `'!expired'`, ends authn sessions and, under `authn.local.reset.revokeTokens`, API tokens. The account stays active. | `UserPasswordExpired` (through [`QueueAuthnEventSink`](08-authn-event-sinks.md)); mail `passwordExpired` |
 | `notifyPasswordWillExpire(identifier, expiresAt?)` | Nothing changes | mail `passwordWillExpire` with `ExpiresAt` in the model |
 | `updateUser(user, data?)` | `updateModel(user, data)`; a `Login` or `Email` a hook changed must be free | `UserChanged` |
+
+`actor` of `deactivate`, `ban` and `deleteUser` is who runs the action, and its hooks see it as an `ActorView`. users-http's admin routes pass the caller, so its `AccountDisableHook` applies the account guard. The CLI, and any caller that names no actor, runs as SYSTEM, which that hook does not judge.
 
 `revokeUserSessions(user)` calls `SessionIssuer.revokeAll(user:<Uuid>, { includeImpersonations: true })` and `revokeUserTokens(user)` calls `TokenService.revokeAllFor(user:<Uuid>, ...)`, each only when the service is registered. Both accept a `User` or a numeric id (soft-deleted rows included) and let errors propagate.
 

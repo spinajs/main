@@ -49,7 +49,7 @@ export interface AuthzAdminError {
 //        invalid_attributes, not_found, forbidden, escalation, last_holder, self_lockout, protected_role, conflict,
 //        not_list_filterable, set_cycle, set_too_deep
 
-/** Thrown by write handlers, AdminGuard and AuthzCommandValidator; AuthzAdmin reports it as an AuthzAdminError. */
+/** Thrown by write handlers, AdminGuard and ListSupportGuard; AuthzAdmin reports it as an AuthzAdminError. */
 export class AuthzAdminFailure extends Exception {
   readonly code: string;
   readonly field?: string;
@@ -108,11 +108,6 @@ export abstract class AuthzWriteHandler {
 /** DefaultAdminGuard in @spinajs/authz-rbac implements it; was RoleGuard. AuthzAdmin runs the one named in authz.admin.guard.service. */
 export abstract class AdminGuard {
   abstract check(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void>; // escalation, last holder, self-lockout, protected roles
-}
-
-/** App hook, Array.ofType; e.g. refuse external invites when the product rule says so. */
-export abstract class AuthzCommandValidator {
-  abstract validate(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void>;
 }
 
 export interface AuthzEvent {

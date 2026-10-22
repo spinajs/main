@@ -2,10 +2,12 @@ import * as chai from 'chai';
 import 'mocha';
 import { userPrincipal } from '@spinajs/authz-testing';
 
-import { AuthzAdminFailure, AuthzCommandValidator, AuthzConfigError, AuthzWriteHandler, GLOBAL, ListSupportGuard, ListSupportValidator } from '@spinajs/authz';
+import { ActionHook } from '@spinajs/hooks';
+import { AuthzAdminFailure, AuthzConfigError, AuthzWriteHandler, GLOBAL, ListSupportGuard, ListSupportHook } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, AuthzEvent, Permission, ResourceRef } from '@spinajs/authz';
 import { adminConfig, adminDomain, installHost, instance, rejection, resetHost, uninstallHost } from './support.js';
 import type { AdminDomain } from './support.js';
+import { PatchCommand, hookedAdminDomain } from '../hooks/support.js';
 
 const expect = chai.expect;
 
@@ -51,7 +53,22 @@ async function domain(guard?: RecordingGuard): Promise<AdminDomain> {
   });
 }
 
-describe('ListSupportValidator', function () {
+/** `domain`, with `hooks` on authz.admin.command run by a Hooks runner of the domain's own. */
+async function hookedDomain(guard: RecordingGuard, hooks: readonly ActionHook[]): Promise<AdminDomain> {
+  return hookedAdminDomain(hooks, {
+    register(c) {
+      c.register(PolicyRuleHandler).as(AuthzWriteHandler);
+      c.register(instance(guard)).as(ListSupportGuard);
+    },
+  });
+}
+
+/** Replaces the command with `next` after every other hook, ListSupportHook included (same order, registered later). */
+class LastWord extends PatchCommand {
+  readonly order: number = Number.MAX_SAFE_INTEGER;
+}
+
+describe('ListSupportHook', function () {
   this.timeout(10000);
 
   before(async () => {
@@ -67,8 +84,34 @@ describe('ListSupportValidator', function () {
     adminConfig();
   });
 
-  it('is a built-in AuthzCommandValidator', () => {
-    expect(new ListSupportValidator()).to.be.instanceOf(AuthzCommandValidator);
+  it('is a built-in before hook on authz.admin.command that runs last', () => {
+    const hook = new ListSupportHook();
+    expect(hook).to.be.instanceOf(ActionHook);
+    expect(hook.actions).to.deep.equal(['authz.admin.command']);
+    expect(hook.order).to.equal(Number.MAX_SAFE_INTEGER);
+  });
+
+  it('judges the command the other hooks leave: a good policy a hook makes bad is refused not_list_filterable', async () => {
+    const guard = new RecordingGuard();
+    const d = await hookedDomain(guard, [new PatchCommand((c: { policy: object }) => ({ ...c, policy: { ...c.policy, id: 'bad-late' } }))]);
+    const out = await d.admin.execute(alice, [putPolicy('good')]);
+    expect(errorOf(out[0])).to.deep.include({ code: 'not_list_filterable', field: 'policy' });
+    expect(guard.seen).to.deep.equal(['policy.put']);
+  });
+
+  it('checks again a command a hook replaced after it judged one', async () => {
+    const guard = new RecordingGuard();
+    const d = await hookedDomain(guard, [new LastWord((c: { policy: object }) => ({ ...c, policy: { ...c.policy, id: 'bad-last' } }))]);
+    const out = await d.admin.execute(alice, [putPolicy('good')]);
+    expect(errorOf(out[0])).to.deep.include({ code: 'not_list_filterable', field: 'policy' });
+    expect(guard.seen).to.deep.equal(['policy.put', 'policy.put']);
+  });
+
+  it('asks the guards once when no hook changes the command', async () => {
+    const guard = new RecordingGuard();
+    const d = await hookedDomain(guard, []);
+    expect(await d.admin.execute(alice, [putPolicy('good')])).to.deep.equal([{ ok: true, kind: 'policy.put', affected: 1 }]);
+    expect(guard.seen).to.deep.equal(['policy.put']);
   });
 
   it('refuses a policy.put a guard refuses with not_list_filterable', async () => {

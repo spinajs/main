@@ -8,3 +8,4 @@ export { AuthnImpersonationController } from '../../../authn-http/lib/mjs/v3/con
 export { AuthnLoginController } from '../../../authn-http/lib/mjs/v3/controllers/AuthnLoginController.js';
 export { AuthnMfaController } from '../../../authn-http/lib/mjs/v3/controllers/AuthnMfaController.js';
 export { AuthnSessionsController } from '../../../authn-http/lib/mjs/v3/controllers/AuthnSessionsController.js';
+export { AuthnRegistrationController } from '../../../authn-http/lib/mjs/v3/controllers/AuthnRegistrationController.js';

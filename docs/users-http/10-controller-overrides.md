@@ -15,8 +15,8 @@ Every controller of this package is an ordinary DI class. Subclass it, register 
 | --- | --- | --- | --- | --- |
 | `UserController` | Class key; singleton; mounted by the scan | `UserController` | yours | `DI.register(Mine).as(UserController)`. Fields: `AccessDomain` (`@Config('authz.http.access.domain')`). |
 | `UserMetadataController` | Class key; singleton | `UserMetadataController` | yours | `DI.register(Mine).as(UserMetadataController)`. Field: `Metadata` (`UserMetadataService`). |
-| `Users` | Class key; singleton | `Users` | yours | `DI.register(Mine).as(Users)`. Hooks: `sortColumn(order)`, `asDuplicateResponse(work)`. Field: `AccountGuard`. |
-| `Security` | Class key; singleton | `Security` | yours | `DI.register(Mine).as(Security)`. Field: `AccountGuard`. |
+| `Users` | Class key; singleton | `Users` | yours | `DI.register(Mine).as(Users)`. Hooks: `sortColumn(order)`, `asDuplicateResponse(work)`. Field: `AccountGuard` (the role replacement). |
+| `Security` | Class key; singleton | `Security` | yours | `DI.register(Mine).as(Security)`. The account guard of its routes is `AccountDisableHook`, a `users.*` before hook, not a field. |
 | `Profile` | Class key; singleton | `Profile` | yours | `DI.register(Mine).as(Profile)`. Field: `ProfileService` (`UserProfileProvider`). |
 
 Register the subclass before the HTTP server resolves its controllers, in a module your application imports at startup. Importing the base class from `@spinajs/users-http` guarantees the package's registrations run first.

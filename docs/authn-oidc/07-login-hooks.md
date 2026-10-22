@@ -9,6 +9,7 @@ An `ActionHook` on `authn.login.identified` runs your code on every successful O
 3. It runs `authn.login.identified` through the `Hooks` runner. The input carries `identity`, `strategy` (`oidc:<name>`), `method`, `external` (the `OidcExternalSubject`), `attributes` and `ctx`.
 4. The `before` hooks run in ascending `order`. A refusal (`ctx.refuse(code)`), a throw or a timeout stops the run: the login fails with the opaque answer, no session is issued, and the core audits one `login` failure with reason `hook:<code>` or `hook_error`.
 5. When every hook passes, the core writes a pending email link, asks the `MfaPolicy` and issues the session. The `after` hooks then see the result.
+6. An active session (no MFA step due) then runs [`authn.session.start`](../authn/14-action-hooks.md#authnsessionstart), as a password login does: a hook may set the role the session starts on (`OrderedActiveRoleHook` of `@spinajs/users` does with `authz.principals.roleSwitch.initial`). A refusal ends the session, and the callback gives its one failure answer.
 
 The same action runs for every interactive login, a password login included; `input.external` is set only for an external one. Check `external?.provider` before you read OIDC claims.
 

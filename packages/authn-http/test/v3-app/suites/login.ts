@@ -188,7 +188,7 @@ export function loginSuite(): void {
     });
   });
 
-  describe('SessionStartHook: the initial active role', () => {
+  describe('authn.session.start: the initial active role', () => {
     const holdingBAndA = async () => {
       const u = await seedUser();
       await roles.grant(u.ref, [
@@ -262,11 +262,12 @@ export function loginSuite(): void {
       ['answers a permission ceiling', () => ({ roles: ['a'], permissions: ['doc:read'] })],
     ];
     for (const [label, answer] of BAD) {
-      it(`a hook that ${label} fails the login and ends the session it was asked about`, async () => {
+      it(`a hook that ${label} fails the login as a wrong password does and ends the session it was asked about`, async () => {
         V3AppSessionStartHook.answer = answer;
         const u = await holdingBAndA();
         const res = await new Client().post('/auth/login', { login: u.login, password: u.password });
-        expect(res.status, JSON.stringify(res.body)).to.eq(500);
+        expect(res.status, JSON.stringify(res.body)).to.eq(401);
+        expect(res.body).to.deep.eq(AUTHN_FAILURE_BODY);
         expect(sessionSetCookie(res), 'no session cookie').to.eq(undefined);
         expect(await sessionsOf(u), 'the session is gone').to.deep.eq([]);
       });

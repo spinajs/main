@@ -127,7 +127,7 @@ export async function exportAsUser<T>(uuid: string, exportFn: () => Promise<T>):
 ## Related
 
 - [Principal attribute providers](10-principal-attribute-providers.md): add attributes to every principal.
-- [Impersonation and credential admin guards](13-impersonation-and-credential-admin-guards.md): use `rightsPrincipalOf()`.
+- [Impersonation guard and credential admin rule](13-impersonation-and-credential-admin-guards.md): use `rightsPrincipalOf()`.
 - [Jobs run as their initiator](16-jobs-run-as-initiator.md): rebuild the principal when a job runs.
 - [`@spinajs/authn`](../authn/README.md): where `PrincipalFactory` is called.
 - [`@spinajs/authz`](../authz/README.md): what the principal is checked against.

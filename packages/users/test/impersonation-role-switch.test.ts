@@ -48,8 +48,9 @@ const facts = (): AuthnFacts => ({ method: 'password', strategy: 'local', assura
 
 const ctx = (): AuthnContext => ({ now: new Date(), ip: '192.0.2.10', purpose: 'login' });
 
-// The real AuthnImpersonationService over the real AuthzImpersonationGuard and UserPrincipalFactory; the session store,
-// fresh auth and the audit sink are the kit's (fresh auth is AuthnService's, which this host does not boot).
+// The real AuthnImpersonationService over users' ImpersonationGuardStartHook, the real AuthzImpersonationGuard and
+// UserPrincipalFactory; the session store, fresh auth and the audit sink are the kit's (fresh auth is AuthnService's,
+// which this host does not boot).
 describe('impersonation by an actor narrowed by a role switch (users guard, authn service, D14)', function () {
   this.timeout(30000);
 
@@ -96,7 +97,7 @@ describe('impersonation by an actor narrowed by a role switch (users guard, auth
     expect(started.ok).to.eq(true);
 
     expect(events.ofType('impersonation.start').map((e) => [e.outcome, e.reason])).to.deep.eq([
-      ['failure', 'escalation'],
+      ['failure', 'hook:escalation'],
       ['success', undefined],
     ]);
   });

@@ -9,16 +9,18 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AuthnEventSink, CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
 import type { AuthnContext, AuthnEvent, IdentityRef, IdentityStatus, Principal, TokenCreateOptions, TokenCreateResult } from '@spinajs/authn/contracts';
-import { FakeIdentityStore, RecordingEventSink } from '@spinajs/authn-testing';
+import { FakeIdentityStore, RecordingEventSink, kitHooks } from '@spinajs/authn-testing';
+import { ActionHook, ActionHookFailed } from '@spinajs/hooks';
+import type { ActionName, ActionPattern, BeforeContext } from '@spinajs/hooks';
 import { DateTime } from 'luxon';
 
 import { AccessTokenGenerationProvider } from '../../src/generation.js';
 import type { IGeneratedToken } from '../../src/generation.js';
 import '../../src/generator.js';
 import { AccessToken } from '../../src/models/AccessToken.js';
-import { DbTokenService, NoTokenProfilesPolicy, TokenOwnerResolver, TokenProfilePolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
+import { DbTokenService, NoTokenProfilesPolicy, TOKEN_PROFILE_HOOK_ORDER, TokenOwnerResolver, TokenProfileHook, TokenProfilePolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
 import { bootV3Db, insertUserRow, shutdownV3Db, v3Connection } from './db.js';
-import { tokenServiceOver } from './services.js';
+import { profileHookIn, tokenServiceOver } from './services.js';
 
 const TABLE = 'rbac_access_tokens';
 const NOW = new Date('2026-10-03T10:00:00.000Z');
@@ -362,6 +364,74 @@ describe('DbTokenService', function () {
       const a = await owner();
       tokens = await build({ profiles: new NoTokenProfilesPolicy() });
       await refused(a, { name: 'x', kind: 'pat', profile: 'user', expiresAt: at(DAY) }, 'invalid_scope');
+    });
+
+    describe('the profile check: TokenProfileHook, a before hook on authn.token.create', () => {
+      /** An application hook of the default order: records the profiles it is asked about. */
+      class SeenProfiles extends ActionHook {
+        readonly actions: readonly ActionPattern[] = ['authn.token.create'];
+        readonly seen: unknown[] = [];
+        before(c: BeforeContext<ActionName>): void {
+          this.seen.push((c.input as unknown as { opts: { profile?: unknown } }).opts.profile);
+        }
+      }
+
+      const withHooks = async (...hooks: ActionHook[]) => tokenServiceOver({ identities, profiles, auditor: AuthnAudit.over([sink]), hooks: await kitHooks(hooks) });
+
+      it('is registered as an ActionHook, before the hooks of the default order', () => {
+        expect(DI.RootContainer.getRegisteredTypes(ActionHook) ?? []).to.include(TokenProfileHook);
+        const hook = new TokenProfileHook();
+        expect([...hook.actions]).to.deep.equal(['authn.token.create']);
+        expect(hook.order).to.equal(TOKEN_PROFILE_HOOK_ORDER);
+        expect(hook.order).to.be.below(0);
+      });
+
+      it('answers a refused profile invalid_scope, audits nothing, and no later hook sees it', async () => {
+        const a = await owner();
+        profiles.allowed = ['editor'];
+        const seen = new SeenProfiles();
+        const child = DI.child();
+        child.register(() => profiles).as(TokenProfilePolicy);
+        tokens = await withHooks(profileHookIn(child), seen);
+        sink.clear();
+
+        await refused(a, { name: 'x', kind: 'pat', profile: 'admin', expiresAt: at(DAY) }, 'invalid_scope');
+        expect(sink.all()).to.deep.equal([]);
+        expect(seen.seen).to.deep.equal([]);
+
+        await pat(a, { profile: 'editor' });
+        expect(seen.seen).to.deep.equal(['editor']);
+      });
+
+      it('is the only create-time check: without it any profile is pinned, and validate still refuses the token', async () => {
+        const a = await owner();
+        profiles.allowed = [];
+        tokens = await withHooks();
+
+        const t = await pat(a, { profile: 'admin' });
+        expect(t.record.profile).to.equal('admin');
+        expect(await validate(t.plaintext)).to.deep.equal({ ok: false, reason: 'invalid_credentials' });
+        await refused(a, { name: 'x', kind: 'pat', profile: 7, expiresAt: at(DAY) }, 'invalid_scope');
+      });
+
+      it('a policy that throws fails the create closed', async () => {
+        const a = await owner();
+        const child = DI.child();
+        child.register(() => ({ allowedProfiles: async () => Promise.reject(new Error('policy down')) })).as(TokenProfilePolicy);
+        tokens = await withHooks(profileHookIn(child));
+        const before = await count();
+
+        let error: unknown;
+        try {
+          await create(a, { name: 'x', kind: 'pat', profile: 'editor', expiresAt: at(DAY) });
+        } catch (e) {
+          error = e;
+        }
+        expect(error).to.be.instanceOf(ActionHookFailed);
+        expect(await count()).to.equal(before);
+        // A token without a profile does not ask the policy.
+        await pat(a);
+      });
     });
 
     it('throws InvalidArgument for a bad name and stores nothing', async () => {

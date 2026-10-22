@@ -71,11 +71,19 @@ export interface UsersUserInput {
   readonly user: UserView;
 }
 
+/** `users.deactivate`, `users.delete`: `actor` is SYSTEM unless the caller names one. */
+export interface UsersDisableInput {
+  readonly user: UserView;
+  readonly actor: ActorView;
+}
+
 export interface UsersBanInput {
   readonly user: UserView;
   reason: string;
   /** Seconds. */
   duration: number;
+  /** SYSTEM unless the caller names one. */
+  readonly actor: ActorView;
 }
 
 export interface UsersMetadataSetInput {
@@ -93,10 +101,10 @@ declare module '@spinajs/hooks' {
     'users.create': { input: UsersCreateInput; output: UsersCreateOutput };
     'users.update': { input: UsersUpdateInput; output: UserView };
     'users.activate': { input: UsersUserInput; output: UserView };
-    'users.deactivate': { input: UsersUserInput; output: UserView };
+    'users.deactivate': { input: UsersDisableInput; output: UserView };
     'users.ban': { input: UsersBanInput; output: UserView };
     'users.unban': { input: UsersUserInput; output: UserView };
-    'users.delete': { input: UsersUserInput; output: void };
+    'users.delete': { input: UsersDisableInput; output: void };
     'users.metadata.set': { input: UsersMetadataSetInput; output: UserView };
     'users.password.expire': { input: UsersPasswordExpireInput; output: void };
   }

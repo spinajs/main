@@ -866,7 +866,7 @@
   },
   "packages/authn/test/contracts/hooks.test.ts": {
     "@typescript-eslint/no-unsafe-return": {
-      "count": 4
+      "count": 3
     }
   },
   "packages/authn/test/contracts/identity.test.ts": {
@@ -8346,7 +8346,7 @@
       "count": 2
     },
     "complexity": {
-      "count": 2
+      "count": 1
     }
   },
   "packages/users-http/src/args/current-user.ts": {

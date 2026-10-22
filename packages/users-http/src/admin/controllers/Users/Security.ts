@@ -1,4 +1,4 @@
-import { Autoinject, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { ResourceNotFound } from '@spinajs/exceptions';
@@ -10,10 +10,9 @@ import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Schema } from '@spinajs/validation';
 
-import { AccountGuard } from '../../../services/AccountGuard.js';
 import { asActionRefusal } from '../../../services/action-refusal.js';
 import { userActor } from '../../../services/actor.js';
-import { assertCredentialAdmin } from '../../../services/credential-admin.js';
+import { withCredentialAdmin } from '../../../services/credential-admin.js';
 import { freshAuthRefusal } from '../../../services/fresh-auth.js';
 import { NO_STORE, SESSION_CALLER } from '../../../services/session-callers.js';
 import { everyUserRow, userRowFor } from '../../../services/users-access.js';
@@ -62,14 +61,14 @@ async function sessionIssuer(): Promise<SessionIssuer> {
 }
 
 /**
- * The user `uuid` whose sessions the caller manages: `permission` decided on that row, then authn's
- * CredentialAdminGuard (action `sessions`), as on authn-http's `DELETE /authn/admin/users/:uuid/sessions`. The
- * subject is the stored Uuid, so it names exactly the identity the session store keys by.
+ * Runs `work` on the user `uuid` whose sessions the caller manages: `permission` decided on that row, then `work` as
+ * authn's `authn.admin.credentials` action (action `sessions`), as on authn-http's
+ * `DELETE /authn/admin/users/:uuid/sessions`. The subject is the stored Uuid, so it names exactly the identity the
+ * session store keys by.
  */
-async function sessionsTarget(by: Principal, permission: 'users:read' | 'users:update', uuid: string): Promise<IdentityRef> {
+async function onSessionsOf<T>(by: Principal, permission: 'users:read' | 'users:update', uuid: string, work: (subject: IdentityRef) => Promise<T>): Promise<T> {
   const row = await userRowFor(by, permission, () => userModel().query().where('Uuid', uuid).first());
-  await assertCredentialAdmin(by, row.Uuid, 'sessions');
-  return { type: 'user', id: row.Uuid };
+  return withCredentialAdmin(by, row.Uuid, 'sessions', () => work({ type: 'user', id: row.Uuid }));
 }
 
 /** The user `uuid` with its metadata (the ban lives there), for a caller holding `permission` on every user. */
@@ -83,25 +82,22 @@ function lifecycleTarget(caller: Principal, permission: 'users:update' | 'users:
  * grant on every user: a conditional grant (e.g. `self`) changes no account's standing.
  * Deactivating and banning end every session of the target, as authn-http's
  * `DELETE /authn/admin/users/:uuid/sessions` does, so they also ask what it asks: fresh
- * authentication, then authn's CredentialAdminGuard with its action `sessions` (users':
- * `users:credentials`, the target covered, no protected role, never the caller's own account),
- * before the AccountGuard and any write. Activating and unbanning give access back and ask neither.
+ * authentication, then authn's `authn.admin.credentials` action with its action `sessions` (users'
+ * AuthzCredentialAdminRule: `users:credentials`, the target covered, no protected role, never the caller's own
+ * account), before the account guard (AccountDisableHook, a `users.*` before hook) and any write. Activating and unbanning give access back and ask neither.
  * Listing a user's sessions and ending one of them also need what authn-http's credential admin
- * routes need: a session caller that is not impersonating and authn's CredentialAdminGuard.
+ * routes need: a session caller that is not impersonating and the `authn.admin.credentials` action.
  * authn-http serves `POST /authn/admin/users/:uuid/password-reset`, `POST .../mfa-reset`,
  * `DELETE .../sessions` (the forced logout of every session) and `DELETE .../tokens`; 3.0 has no
  * admin route to set a password, expire one or enable two-factor.
  *
- * Every route that takes an account out of service goes through the
- * {@link AccountGuard} first — an administrator must not be able to lock themselves,
- * or the installation, out through this API.
+ * Every route that takes an account out of service runs its `users.*` action as the caller, so
+ * users-http's AccountDisableHook judges it first — an administrator must not be able to lock
+ * themselves, or the installation, out through this API.
  * @tags Admin Users
  */
 @BasePath('users/security')
 export class Security extends BaseController {
-  @Autoinject(AccountGuard)
-  protected AccountGuard: AccountGuard;
-
   /**
    * Deactivate user account (admin)
    * Marks the user account as inactive and destroys its sessions, preventing login without
@@ -124,9 +120,7 @@ export class Security extends BaseController {
     }
     const target = await lifecycleTarget(by, 'users:delete', user);
 
-    await assertCredentialAdmin(by, target.Uuid, 'sessions');
-    await this.AccountGuard.assertCanDisable(by, target, 'deactivate');
-    await asActionRefusal(['users.deactivate'], () => deactivate(target));
+    await withCredentialAdmin(by, target.Uuid, 'sessions', () => asActionRefusal(['users.deactivate'], () => deactivate(target, by)));
 
     return new Ok();
   }
@@ -171,9 +165,7 @@ export class Security extends BaseController {
     }
     const target = await lifecycleTarget(by, 'users:delete', user);
 
-    await assertCredentialAdmin(by, target.Uuid, 'sessions');
-    await this.AccountGuard.assertCanDisable(by, target, 'ban');
-    await asActionRefusal(['users.ban'], () => ban(target, dto?.reason, dto?.duration));
+    await withCredentialAdmin(by, target.Uuid, 'sessions', () => asActionRefusal(['users.ban'], () => ban(target, dto?.reason, dto?.duration, by)));
 
     return new Ok();
   }
@@ -212,9 +204,7 @@ export class Security extends BaseController {
   @Access('users:read', { also: SESSION_CALLER })
   public async listSessions(@CurrentPrincipal() caller: Principal, @Param() user: string): Promise<Ok<IAdminSessionEntry[]>> {
     const issuer = await sessionIssuer();
-    const subject = await sessionsTarget(userActor(caller), 'users:read', user);
-
-    const rows = await issuer.list(subject);
+    const rows = await onSessionsOf(userActor(caller), 'users:read', user, (subject) => issuer.list(subject));
     const entries: IAdminSessionEntry[] = [...rows]
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .map((r) => ({
@@ -251,10 +241,8 @@ export class Security extends BaseController {
       return stale;
     }
 
-    const subject = await sessionsTarget(by, 'users:update', user);
-
     // revokeHandle is owner-bound: a handle of another user's session through this uuid ends nothing.
-    const ended = typeof handle === 'string' && handle !== '' && (await issuer.revokeHandle(subject, handle));
+    const { subject, ended } = await onSessionsOf(by, 'users:update', user, async (subject) => ({ subject, ended: typeof handle === 'string' && handle !== '' && (await issuer.revokeHandle(subject, handle)) }));
     if (!ended) {
       return new NotFound({ error: 'session_not_found', message: 'No such session' }, { Headers: [NO_STORE] });
     }
