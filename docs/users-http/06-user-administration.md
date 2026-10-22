@@ -11,8 +11,8 @@ The `Users` controller is the administrative API for accounts at `/users`: list 
 | `GET` | `/users/:uuid` | `users:read` on that row | | `User` |
 | `GET` | `/users/byLogin/:login` | `users:read` on that row | | `User` |
 | `POST` | `/users` | `users:create` on every user | a signed-in user caller; `AuthzAdmin` per role | `User` (inactive, invite sent), maybe `Incomplete` |
-| `PATCH` | `/users/:uuid` | `users:update` on that row | a signed-in user caller; fresh auth and credential admin guard when `Email` or `Login` changes; `AccountGuard.assertCanDemote` when a role is removed; `AuthzAdmin` | `200` |
-| `DELETE` | `/users/:uuid` | `users:delete` on that row | fresh auth; credential admin guard (`sessions`); `AccountGuard.assertCanDisable` | `200` |
+| `PATCH` | `/users/:uuid` | `users:update` on that row | a signed-in user caller; fresh auth and the `authn.admin.credentials` action when `Email` or `Login` changes; `AccountGuard.assertCanDemote` when a role is removed; `AuthzAdmin` | `200` |
+| `DELETE` | `/users/:uuid` | `users:delete` on that row | fresh auth; the `authn.admin.credentials` action (`sessions`); `AccountDisableHook` on `users.delete` | `200` |
 | `PATCH` | `/users/:uuid/restore` | `users:delete` on every user | | `200` |
 
 `GET /users`, `GET /users/:uuid` and `GET /users/byLogin/:login` take the `include` query argument (an array; only `Metadata`) to populate the metadata relation, and answer only the fields the `users:read` grant reads.
@@ -57,7 +57,7 @@ Each of `pagination`, `order` and `filter` is one JSON-encoded query argument: `
 2. A new `Login` must not be reserved (`assertLoginNotReserved`, `400`). A `Role` that normalises to `[]` answers `400`.
 3. When `Email` or `Login` actually changes:
    1. fresh authentication (`freshAuthRefusal()`): a login within `authn.freshAuth.maxAgeSeconds`, or `reauthPassword` in the body; `403 fresh_auth_required`, `session_required`, `impersonating`, or the login failure `401`;
-   2. on another account, `assertCredentialAdmin(caller, uuid, 'password-reset')`: `403 forbidden`, `protected_role`, `escalation`.
+   2. on another account, steps 5 to 8 run inside `withCredentialAdmin(caller, uuid, 'password-reset', ...)`, as authn's `authn.admin.credentials` action. Its `CredentialAdminRule` refuses with `403 forbidden`, `protected_role` or `escalation`, or `404 not_found`; another hook of the action answers `403 { error: 'action_refused', code }`.
 4. `reauthPassword` is dropped from the DTO.
 5. With `Role`: `globalRolesOf()` reads the current GLOBAL roles, `replacementCommands()` builds a grant per added role and a `revokeWhere` per removed one. A removal first asks `AccountGuard.assertCanDemote(caller, target, kept)`.
 6. The `AuthzAdmin` batch runs as a **dry run**: a refusal answers `403` (`escalation`, `protected_role`, `forbidden`, `self_lockout`, `last_holder`) or `400` (`unknown_role`, `not_assignable`, `wrong_scope_type`) before anything is written.
@@ -69,13 +69,13 @@ sequenceDiagram
   participant C as Client
   participant U as Users
   participant F as FreshAuth
-  participant G as CredentialAdminGuard
+  participant G as authn.admin.credentials
   participant A as AccountGuard
   participant Z as AuthzAdmin
   C->>U: PATCH /users/:uuid { Email, Role, reauthPassword }
   U->>U: userRowFor(users:update)
   U->>F: fresh authentication (Email changes)
-  U->>G: allowed(caller, target, password-reset)
+  U->>G: withCredentialAdmin(caller, target, password-reset): rule and hooks, then the rest
   U->>A: assertCanDemote(caller, target, kept)
   U->>Z: execute(batch, dryRun)
   U->>U: assertUserUnique, update row
@@ -85,7 +85,7 @@ sequenceDiagram
 
 ### Delete and restore
 
-1. `DELETE /users/:uuid`: `userActor()`, fresh authentication, `userRowFor(users:delete)`, `assertCredentialAdmin(..., 'sessions')`, `AccountGuard.assertCanDisable(..., 'delete')`, then `deleteUser()` of `@spinajs/users`: `DeletedAt` is stamped and every session of the account ends.
+1. `DELETE /users/:uuid`: `userActor()`, fresh authentication, `userRowFor(users:delete)`, then `withCredentialAdmin(..., 'sessions')` runs `deleteUser(target, caller)` of `@spinajs/users` as its effect. The `users.delete` action asks `AccountDisableHook` first ([Account guard](08-account-guard.md)); then `DeletedAt` is stamped and every session of the account ends.
 2. `PATCH /users/:uuid/restore`: `everyUserRow(users:delete)` reads the row including deleted ones; not deleted answers `400`; else `updateUser()` clears `DeletedAt`, so the `users.update` hooks run. `IsActive` is not changed: restoring is not activating.
 
 ### Assignable roles: `GET /users/roles`
@@ -119,8 +119,9 @@ For every role of authz-rbac's `RoleStore` whose `assignable` is not `false`, it
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | `Users` controller | Class key `Users`; singleton; mounted by the controller scan | `Users` | none | Subclass and `DI.register(Mine).as(Users)`. Protected hooks: `sortColumn(order)` and `asDuplicateResponse(work)`. See [Controller overrides](10-controller-overrides.md). |
-| `AccountGuard` | Abstract class key `AccountGuard`; `@Autoinject` into `Users` | `DefaultAccountGuard` | yours | See [Account guard](08-account-guard.md). |
-| `CredentialAdminGuard` | authn contract, resolved per call from the root container | users' `AuthzCredentialAdminGuard` | yours | See [Host services](11-host-services.md#credentialadminguard-protect-a-break-glass-account). Without one, identity changes of another account and deletes answer `403 forbidden`. |
+| `AccountGuard` | Abstract class key `AccountGuard`; `@Autoinject` into `Users`; the role replacement only | `DefaultAccountGuard` | yours | See [Account guard](08-account-guard.md). |
+| `AccountDisableHook` | `ActionHook` on `users.deactivate`, `users.ban`, `users.delete` | `AccountDisableHook` | a hook of yours beside it | See [Account guard](08-account-guard.md). |
+| `CredentialAdminRule` | an `ActionHook` class on `authn.admin.credentials`, run through the DI `Hooks` | users' `AuthzCredentialAdminRule` | yours | See [Host services](11-host-services.md#credentialadminrule-protect-a-break-glass-account). Without one, identity changes of another account and deletes answer `403 forbidden`. |
 | `FreshAuth` | authn-http policy, resolved per call | `FreshAuth` | | Configure `authn.freshAuth.maxAgeSeconds`. |
 | `AuthzAdmin` | `AuthzService.admin()` of the root container | authz-rbac's | | Configure `authz.admin.guard`; see `@spinajs/authz-rbac`. |
 | `RoleStore`, `AssignmentStore` | authz-rbac stores, resolved per call | authz-rbac's | | Without a `RoleStore`, `GET /users/roles` answers `500` (`AuthzConfigError`). |
@@ -132,7 +133,7 @@ For every role of authz-rbac's `RoleStore` whose `assignable` is not `false`, it
 - `Role` **replaces** the GLOBAL roles. Roles at other scopes are not touched. A list with the current roles plus one adds that one.
 - The update is not one transaction: the row is written first, then the role batch. The dry run before them catches every refusal `AuthzAdmin` can give in advance; if the batch still fails, the login and email are written back to their previous values and the error is returned.
 - A role-only change, and an `Email` or `Login` sent unchanged, need only `users:update`.
-- An `Email` or `Login` change of the caller's own account needs fresh authentication but not the credential admin guard (users' guard refuses one's own account).
+- An `Email` or `Login` change of the caller's own account needs fresh authentication but not the credential admin rule (users' rule refuses one's own account).
 - `Metadata` is not accepted on `PATCH`; use the [metadata routes](04-user-metadata-routes.md).
 - `PATCH /users/:uuid` writes the row itself, not through `updateUser()`: no `users.update` [action hook](../users/04-action-hooks.md) runs on it. Only `POST /users`, `DELETE /users/:uuid` and `PATCH /users/:uuid/restore` run a users action here.
 - Only the route's own action maps to `403 action_refused`. A refusal of an action it runs inside it is answered as that error is.

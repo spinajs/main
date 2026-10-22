@@ -1,9 +1,13 @@
 import type { AuthenticationResult, AuthnContext, Credentials, ExternalSubject, IdentityRef } from './contracts/credentials.js';
+import type { CredentialAdminAction } from './contracts/hooks.js';
+import type { Ceiling, Principal } from './contracts/principal.js';
 import type { SessionHandle } from './contracts/session.js';
 import type { ImpersonationStart } from './impersonation/impersonation-service.js';
 import type { LinkResult } from './link/account-link-service.js';
-import { ActionHookFailed, ActionRefused } from '@spinajs/hooks';
-import type { ActionName, Hooks, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
+import { isConstructor } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { ActionHook, ActionHookFailed, ActionRefused } from '@spinajs/hooks';
+import type { ActionName, ActionPattern, BeforeContext, Hooks, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
 
 /**
  * `authn.login`: `AuthnService.authenticate` of a login (not of a per-request credential), before the throttle
@@ -48,9 +52,30 @@ export interface AuthnStepUpInput {
   readonly ctx: AuthnContext;
 }
 
+/**
+ * `authn.impersonation.start`: the start check (users registers ImpersonationGuardStartHook). Without a hook on it every
+ * start is refused (`no_guard`); the registered ImpersonationGuard is asked only per request.
+ */
 export interface AuthnImpersonationStartInput {
   readonly session: SessionHandle;
   readonly target: IdentityRef;
+  /** The actor as an ImpersonationGuard judges it: its own facts through this session, narrowed by its role switch. */
+  readonly actor: Principal;
+  readonly ctx: AuthnContext;
+}
+
+/**
+ * `authn.session.start`: the active session a login (`kind: 'login'`) or an MFA completion (`'mfa'`) has just issued,
+ * before the login is audited as a success; a pending login, a step-up and a re-authentication start none. A hook may
+ * set `ceiling`, which the session stores as its ActiveRole, the key a role switch writes: `{ roles: [role] }`, or
+ * `{ roles: [] }` for none; undefined keeps every held role. A refusal, a failed hook or any other ceiling ends the
+ * session and fails the login as a wrong password does.
+ */
+export interface AuthnSessionStartInput {
+  readonly kind: 'login' | 'mfa';
+  readonly session: SessionHandle;
+  readonly principal: Principal;
+  ceiling?: Ceiling;
   readonly ctx: AuthnContext;
 }
 
@@ -78,6 +103,8 @@ declare module '@spinajs/hooks' {
     'authn.mfa.verify': { input: AuthnMfaVerifyInput; output: AuthenticationResult };
     'authn.reauth': { input: AuthnReauthInput; output: boolean };
     'authn.session.stepUp': { input: AuthnStepUpInput; output: AuthenticationResult };
+    /** The output is the ceiling the session started with. */
+    'authn.session.start': { input: AuthnSessionStartInput; output: Ceiling | undefined };
     'authn.impersonation.start': { input: AuthnImpersonationStartInput; output: ImpersonationStart };
     'authn.impersonation.stop': { input: AuthnImpersonationStopInput; output: SessionHandle | null };
     'authn.link': { input: AuthnLinkInput; output: LinkResult };
@@ -205,4 +232,89 @@ export async function runHookedAction<A extends ActionName, R>(hooks: Hooks, act
     opts,
   );
   return result as R;
+}
+
+/**
+ * `authn.admin.credentials`: an administrator acts on another user's credentials, through authn-http's credential admin
+ * routes or users-http's admin routes that end a user's sessions or change its login. `actor` is the caller's
+ * principal, its authn facts included, so a CredentialAdminRule can judge it.
+ */
+export interface CredentialAdminInput {
+  readonly actor: Principal;
+  readonly target: IdentityRef;
+  readonly action: CredentialAdminAction;
+}
+
+declare module '@spinajs/hooks' {
+  interface HookActions {
+    /** The output is the route's answer body; `{}` for a route that answers none. */
+    'authn.admin.credentials': { input: CredentialAdminInput; output: Readonly<Record<string, unknown>> };
+  }
+}
+
+/** The codes a CredentialAdminRule refuses with; `not_found` answers 404, the others 403. */
+export type CredentialAdminRefusal = 'forbidden' | 'protected_role' | 'escalation' | 'not_found';
+export type CredentialAdminVerdict = { readonly ok: true } | { readonly ok: false; readonly code: CredentialAdminRefusal };
+
+export const CREDENTIAL_ADMIN_REFUSALS: ReadonlySet<string> = new Set<CredentialAdminRefusal>(['forbidden', 'protected_role', 'escalation', 'not_found']);
+
+/** A CredentialAdminRule's `order`: before the hooks of the default order, so they only see actions a rule admitted. */
+export const CREDENTIAL_ADMIN_RULE_ORDER = -1000;
+
+/** The `target` copies of the runs a rule admitted; the action reads the same copy, so no other run can pass for one. */
+const admitted = new WeakSet<object>();
+
+/**
+ * Who may administer whose credentials: a before hook on `authn.admin.credentials` that refuses with the code of its
+ * verdict; any answer but `ok: true` refuses `forbidden`. users registers AuthzCredentialAdminRule.
+ *
+ * Fails closed: while no rule is registered the credential admin routes of authn-http are off (404), and an action no
+ * rule admitted (none registered, or one registered after the hooks runner was resolved) is refused `forbidden`. The
+ * routes find a rule by its class, so register it as a class: `@Injectable(ActionHook)`, not a factory.
+ */
+export abstract class CredentialAdminRule extends ActionHook<'authn.admin.credentials'> {
+  readonly actions: readonly ActionPattern[] = ['authn.admin.credentials'];
+  readonly order: number = CREDENTIAL_ADMIN_RULE_ORDER;
+
+  /** `not_found` for a target the rule does not know; it answers 404, as an id that names no user does. */
+  abstract allowed(actor: Principal, target: IdentityRef, action: CredentialAdminAction): Promise<CredentialAdminVerdict>;
+
+  public async before(ctx: BeforeContext<'authn.admin.credentials'>): Promise<void> {
+    const { actor, target, action } = ctx.input;
+    const verdict: unknown = await this.allowed(actor, target, action);
+    // A rule written past the types may answer anything; only `ok: true` admits.
+    if ((verdict as { ok?: unknown } | null)?.ok !== true) ctx.refuse(credentialAdminRefusalOf(verdict));
+    admitted.add(target);
+  }
+}
+
+function credentialAdminRefusalOf(verdict: unknown): CredentialAdminRefusal {
+  const code = (verdict as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && CREDENTIAL_ADMIN_REFUSALS.has(code) ? (code as CredentialAdminRefusal) : 'forbidden';
+}
+
+/** True while `container` (or an ancestor) registers a CredentialAdminRule class as an ActionHook. */
+export function credentialAdminRuleRegistered(container: IContainer): boolean {
+  const types = (container.getRegisteredTypes(Array.chainOf(ActionHook)) ?? []) as unknown[];
+  return types.some((t) => isConstructor(t) && t.prototype instanceof CredentialAdminRule);
+}
+
+const answerOf = (result: unknown): Readonly<Record<string, unknown>> => (result !== null && typeof result === 'object' && isPlainObject(result) ? (result as Readonly<Record<string, unknown>>) : {});
+
+/**
+ * Runs `effect` as `authn.admin.credentials` on copies of `input`, once a CredentialAdminRule admitted it. Without
+ * one, the run throws `ActionRefused('authn.admin.credentials', 'forbidden')` and `effect` never runs. The after
+ * hooks get `output(result)`, by default the result when it is a plain object and `{}` otherwise.
+ */
+export async function runCredentialAdmin<R>(hooks: Hooks, input: CredentialAdminInput, effect: () => Promise<R>, output: (result: R) => Readonly<Record<string, unknown>> = answerOf): Promise<R> {
+  return runHookedAction(
+    hooks,
+    'authn.admin.credentials',
+    input,
+    async (merged) => {
+      if (!admitted.has(merged.target)) throw new ActionRefused('authn.admin.credentials', 'forbidden', 'no credential admin rule admitted the action');
+      return effect();
+    },
+    { mutable: [], output },
+  );
 }

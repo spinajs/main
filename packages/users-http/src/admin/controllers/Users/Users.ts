@@ -15,7 +15,7 @@ import { Schema } from '@spinajs/validation';
 import { AccountGuard } from '../../../services/AccountGuard.js';
 import { asActionRefusal } from '../../../services/action-refusal.js';
 import { asHttpRefusal, userActor } from '../../../services/actor.js';
-import { assertCredentialAdmin } from '../../../services/credential-admin.js';
+import { withCredentialAdmin } from '../../../services/credential-admin.js';
 import { freshAuthRefusal } from '../../../services/fresh-auth.js';
 import { assignableRoles, executeAsActor, globalRolesOf, replacementCommands } from '../../../services/user-roles.js';
 import { everyUserRow, requireEveryUser, userRowFor } from '../../../services/users-access.js';
@@ -493,9 +493,9 @@ export class Users extends BaseController {
    * role leaves the login and email untouched too. An empty list is refused rather than applied.
    * Changing an `Email` or `Login` also needs fresh authentication, the caller's own account
    * included (a login within authn.freshAuth.maxAgeSeconds, or the caller's password in the body
-   * field `reauthPassword`): the password reset goes to that address. On another account it also
-   * needs authn's CredentialAdminGuard (action `password-reset`; users': `users:credentials`, the
-   * target covered, no protected role).
+   * field `reauthPassword`): the password reset goes to that address. On another account the update
+   * runs as authn's `authn.admin.credentials` action (action `password-reset`; users'
+   * AuthzCredentialAdminRule: `users:credentials`, the target covered, no protected role).
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 User updated successfully
@@ -525,7 +525,7 @@ export class Users extends BaseController {
 
     // The public password reset mails the address, and the login names the account at sign-in: changing either can hand
     // the account over, the caller's own to whoever holds a stale session of it. So it takes fresh auth, on another
-    // account also authn-http's admin password reset guard, before the account guard, the role dry run, the uniqueness
+    // account also authn-http's admin password reset action, before the account guard, the role dry run, the uniqueness
     // check and any write.
     const changesIdentity = (data.Email ?? target.Email) !== target.Email || (data.Login ?? target.Login) !== target.Login;
     if (changesIdentity) {
@@ -533,14 +533,19 @@ export class Users extends BaseController {
       if (stale) {
         return stale;
       }
-      // users' guard refuses the caller's own account.
-      if (target.Uuid !== by.id) {
-        await assertCredentialAdmin(by, target.Uuid, 'password-reset');
-      }
     }
     // FreshAuth took it out of req.body only; the DTO keeps its own copy.
     delete (data as { reauthPassword?: unknown }).reauthPassword;
 
+    const update = () => this.applyUpdate(by, target, data, next, renamed);
+    // users' rule refuses the caller's own account.
+    await (changesIdentity && target.Uuid !== by.id ? withCredentialAdmin(by, target.Uuid, 'password-reset', update) : update());
+
+    return new Ok();
+  }
+
+  /** The role check, the uniqueness check and the writes of {@link updateUser}, once its gates passed. */
+  private async applyUpdate(by: Principal, target: User, data: UpdateUserDto, next: string[] | null, renamed: boolean): Promise<void> {
     let commands: AuthzCommand[] = [];
     if (next) {
       const current = await globalRolesOf(target.Uuid);
@@ -569,8 +574,6 @@ export class Users extends BaseController {
       await target.update();
       throw err;
     }
-
-    return new Ok();
   }
 
   /**
@@ -580,9 +583,9 @@ export class Users extends BaseController {
    * cookie happens to expire. Ending every session of the target is what authn-http's
    * `DELETE /authn/admin/users/:uuid/sessions` does, so this asks what it asks: fresh authentication
    * (a login within authn.freshAuth.maxAgeSeconds, or the caller's password in the body field
-   * `reauthPassword`), then authn's CredentialAdminGuard with its action `sessions` (users':
-   * `users:credentials`, the target covered, no protected role, never the caller's own account),
-   * before the account guard and any write. A restore gives access back and asks neither.
+   * `reauthPassword`), then authn's `authn.admin.credentials` action with its action `sessions` (users'
+   * AuthzCredentialAdminRule: `users:credentials`, the target covered, no protected role, never the caller's own
+   * account), before the account guard and any write. A restore gives access back and asks neither.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 User deleted
@@ -600,9 +603,7 @@ export class Users extends BaseController {
     }
     const target = await userRowFor(by, 'users:delete', () => userModel().query().where('Uuid', user).populate('Metadata').first());
 
-    await assertCredentialAdmin(by, target.Uuid, 'sessions');
-    await this.AccountGuard.assertCanDisable(by, target, 'delete');
-    await asActionRefusal(['users.delete'], () => deleteUser(target));
+    await withCredentialAdmin(by, target.Uuid, 'sessions', () => asActionRefusal(['users.delete'], () => deleteUser(target, by)));
 
     return new Ok();
   }

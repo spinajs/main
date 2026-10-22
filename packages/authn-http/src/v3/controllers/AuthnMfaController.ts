@@ -11,7 +11,7 @@ import { refused, unauthenticated } from '../../policies/v3/errors.js';
 import { mfaPolicyOf } from '../../policies/v3/mfa.js';
 import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
 import { AcceptedResponse, NO_STORE, authnFailureResponse, authnSessionCookie } from '../responses.js';
-import { answerFor, bodyField, boundedString, contextOf, pendingSteps, startedSession } from '../routes.js';
+import { answerFor, bodyField, boundedString, contextOf, pendingSteps, startedPrincipal } from '../routes.js';
 
 /** completeMfa's step for recovery codes (contracts: MfaStep.name, AuthnService.completeMfa). */
 const RECOVERY_STEP = 'recovery';
@@ -145,7 +145,7 @@ export class AuthnMfaController extends BaseController {
   protected async answer(authn: AuthnService, result: AuthenticationResult, started: boolean) {
     if (result.status === 'failure') return authnFailureResponse(result.reason === 'throttled' ? result.retryAfterSeconds : undefined);
     if (result.status !== 'success' || !result.session) return authnFailureResponse();
-    const principal = started ? await startedSession(this.Container, this.Sessions, 'mfa', result.session, await authn.principalOf(result)) : await authn.principalOf(result);
+    const principal = started ? await startedPrincipal(this.Container, this.Sessions, result.session, await authn.principalOf(result)) : await authn.principalOf(result);
     return new Ok(await answerFor(this.Container, 'mfa', principal), { Coockies: [authnSessionCookie(this._cfg, result.session)], Headers: [NO_STORE] });
   }
 }

@@ -442,11 +442,12 @@ export async function activate(identifier: number | string | User): Promise<User
  * {@link revokeUserSessions} and {@link revokeUserTokens}.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ * @param actor - who runs it, as the action's hooks see it; SYSTEM by default
  */
-export async function deactivate(identifier: number | string | User): Promise<User> {
+export async function deactivate(identifier: number | string | User, actor: Principal = SYSTEM): Promise<User> {
   const u = await getUser(identifier);
 
-  return runUserAction('users.deactivate', () => ({ user: userView(u) }), () => deactivateNow(u), { mutable: [], output: userView });
+  return runUserAction('users.deactivate', () => ({ user: userView(u), actor: actorView(actor) }), () => deactivateNow(u), { mutable: [], output: userView });
 }
 
 async function deactivateNow(u: User): Promise<User> {
@@ -851,13 +852,14 @@ async function insertCreated(uuid: string, plan: CreatePlan, now: DateTime<true>
  * deleted: the caller finishes with {@link revokeUserSessions} and {@link revokeUserTokens}, by numeric id.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ * @param actor - who runs it, as the action's hooks see it; SYSTEM by default
  */
-export async function deleteUser(identifier: number | string | User): Promise<void> {
+export async function deleteUser(identifier: number | string | User, actor: Principal = SYSTEM): Promise<void> {
   const u = await getUser(identifier);
 
   await runUserAction(
     'users.delete',
-    () => ({ user: userView(u) }),
+    () => ({ user: userView(u), actor: actorView(actor) }),
     async () => {
       await u.destroy();
 
@@ -883,8 +885,9 @@ const checkBanReason = (value: unknown): string => _check_arg(_default('NO_REASO
  * @param identifier user identifier one of : id, uuid, email, login
  * @param reason reason for ban
  * @param duration duration in seconds
+ * @param actor - who runs it, as the action's hooks see it; SYSTEM by default
  */
-export async function ban(identifier: number | string | User, reason?: string, duration?: number): Promise<User> {
+export async function ban(identifier: number | string | User, reason?: string, duration?: number, actor: Principal = SYSTEM): Promise<User> {
   const seconds = checkBanDuration(duration);
   const why = checkBanReason(reason);
 
@@ -898,7 +901,7 @@ export async function ban(identifier: number | string | User, reason?: string, d
 
   return runUserAction(
     'users.ban',
-    () => ({ user: userView(u), reason: why, duration: seconds }),
+    () => ({ user: userView(u), reason: why, duration: seconds, actor: actorView(actor) }),
     async (changed) => {
       await writeUserMeta(u, [
         { key: USER_COMMON_METADATA.USER_BAN_DURATION, value: 'duration' in changed ? checkBanDuration(changed.duration) : seconds },

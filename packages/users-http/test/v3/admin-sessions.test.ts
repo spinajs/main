@@ -21,8 +21,8 @@ const HOUR_MS = 60 * 60 * 1000;
 
 /**
  * The admin session routes on the 3.0 SessionIssuer, with real sessions issued by it. Both routes need `@Access`
- * (decided on the addressed row), a session caller that is not impersonating, and authn's CredentialAdminGuard
- * (users' AuthzCredentialAdminGuard: `users:credentials`, the target covered, no protected role); the revoke also needs
+ * (decided on the addressed row), a session caller that is not impersonating, and authn's CredentialAdminRule
+ * (users' AuthzCredentialAdminRule: `users:credentials`, the target covered, no protected role); the revoke also needs
  * fresh auth. The forced logout of all sessions is authn-http's `DELETE /authn/admin/users/:uuid/sessions`.
  */
 describe('users-http v3: admin session routes on the SessionIssuer', function () {

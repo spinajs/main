@@ -1,6 +1,9 @@
 // The augmentation below resolves '@spinajs/hooks' only when this file imports it.
 import '@spinajs/hooks';
-import type { AuthnContext, CodeRequestResult, CredentialAdminAction, IdentityRef, Principal, PrincipalRef, Session } from '@spinajs/authn/contracts';
+import type { AuthnContext, CodeRequestResult, IdentityRef, Principal, Session } from '@spinajs/authn/contracts';
+
+// `authn.admin.credentials` is authn's (`@spinajs/authn/hooks`): users-http's admin routes run it too.
+export type { CredentialAdminInput } from '@spinajs/authn/hooks';
 
 /** Runs before the account is looked up, so a hook cannot tell a known login from an unknown one. */
 export interface CodeRequestInput {
@@ -38,13 +41,6 @@ export interface RoleSwitchInput {
   readonly ctx: AuthnContext;
 }
 
-/** Runs once the CredentialAdminGuard allowed the action. */
-export interface CredentialAdminInput {
-  readonly actor: PrincipalRef;
-  readonly target: IdentityRef;
-  readonly action: CredentialAdminAction;
-}
-
 /** Opt-in (`authn.http.hooks.request`): runs on every request once the principal is resolved. */
 export interface RequestInput {
   readonly principal: Principal | null;
@@ -61,8 +57,6 @@ declare module '@spinajs/hooks' {
     /** The number of sessions ended. */
     'authn.sessions.revoke': { input: SessionsRevokeInput; output: number };
     'authn.role.switch': { input: RoleSwitchInput; output: Principal };
-    /** The output is the route's answer body. */
-    'authn.admin.credentials': { input: CredentialAdminInput; output: Readonly<Record<string, unknown>> };
     'authn.request': { input: RequestInput; output: void };
   }
 }

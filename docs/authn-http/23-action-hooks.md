@@ -4,7 +4,7 @@ The routes run their own actions through the [`@spinajs/hooks`](../hooks/README.
 
 ## How it works
 
-1. The route runs its own checks first: the session, fresh authentication, the field checks, the throttle, the `CredentialAdminGuard`.
+1. The route runs its own checks first: the session, fresh authentication, the field checks, the throttle. Who may administer whose credentials is a hook too: the `CredentialAdminRule`, the first before hook of `authn.admin.credentials`.
 2. It runs the action with [`runHookedAction`](../authn/14-action-hooks.md#runhookedaction): with no matching hook the action runs alone; otherwise a `before` hook may refuse.
 3. A refusal answers `{ error: 'action_refused', code, message }` with 403, or 400 for a registration. A hook that threw or timed out answers the code `hook_error`. Most refusals are audited (see the table) with the reason `hook:<code>` or `hook_error`.
 4. A route whose service refused through its own hooks (passwords, tokens, keys, passkeys, TOTP) answers the same way.
@@ -18,12 +18,20 @@ In the tables below, 403 `{ code }` stands for that `action_refused` body.
 | `authn.logout` | `POST /auth/logout` | `session`, `ctx` | none | `void` | 403 `{ code }`; the session, the cookie and the site data are kept | `logout` failure |
 | `authn.sessions.revoke` | `DELETE /user/sessions/:handle`, `DELETE /user/sessions` | `subject`, `handle` (`'others'` for every session but the current one), `ctx` | none | the number of sessions ended (`1` or `0` for one handle) | 403 `{ code }`; every session is kept | `session.revoke` failure |
 | `authn.role.switch` | `POST /auth/active-role` | `session`, `role`, `ctx` | none | the narrowed `Principal` | 403 `{ code }`; the role and the session id are unchanged | `role.switch` failure |
-| `authn.admin.credentials` | every `/authn/admin/users/:uuid/...` route, after `CredentialAdminGuard.allowed` | `actor`, `target`, `action` | none | the route's answer body | 403 `{ code }`; nothing changes | `password.change` (`password-reset`), `mfa.disable` (`mfa-reset`), `session.revoke` (`sessions`), `token.revoke` (`tokens`) failure, `data: { action }` |
-| `authn.registration` | `POST /auth/register`, before `IdentityRegistrar.register` | `login`, `email`, `ctx` | `login`, `email` | `RegistrationOutput`: `{ status: 'created' \| 'exists', id }` | 400 `{ code }` | `identity.register` failure |
+| `authn.admin.credentials` | every `/authn/admin/users/:uuid/...` route, through `runCredentialAdmin()`; users-http's admin routes run it too | `actor` (the admin's whole `Principal`), `target`, `action` | none | the route's answer body | the rule's own codes: 403 `forbidden`, `protected_role`, `escalation` or 404 `not_found`, not audited; any other hook: 403 `{ code }`; nothing changes | `password.change` (`password-reset`), `mfa.disable` (`mfa-reset`), `session.revoke` (`sessions`), `token.revoke` (`tokens`) failure, `data: { action }` |
+| `authn.registration` | `POST /auth/register`, before `IdentityRegistrar.register` | `login`, `email`, `ctx` | `login`, `email` | `RegistrationOutput`: `{ status: 'created' \| 'exists', id }`; the shipped `RegistrationMailHook` sends the mails from it | 400 `{ code }` | `identity.register` failure |
 | `authn.code.request` | `POST /auth/code/request` | `login`, `ctx` | none | `CodeRequestResult` | the same 202 `{ Ok: true }`; no mail | `code.request` failure, `data: { via: 'login' }` |
 | `authn.request` | every request, in `AuthnMiddleware`, when `authn.http.hooks.request` is `true` | `principal` (`null` for anonymous), `method`, `path` (without the query string), `ip?` | none | `void` | 403 `{ code }` | `request.refuse` failure |
 
-The input types are exported from `@spinajs/authn-http`: `LogoutInput`, `SessionsRevokeInput`, `RoleSwitchInput`, `CredentialAdminInput`, `RegistrationInput`, `CodeRequestInput`, `RequestInput`, and the output type `RegistrationOutput`.
+The input types are exported from `@spinajs/authn-http`: `LogoutInput`, `SessionsRevokeInput`, `RoleSwitchInput`, `CredentialAdminInput`, `RegistrationInput`, `CodeRequestInput`, `RequestInput`, and the output type `RegistrationOutput`. `authn.admin.credentials` and `CredentialAdminInput` are declared by `@spinajs/authn/hooks`; authn-http re-exports the type.
+
+## Hooks authn-http ships
+
+| Hook | Action | Phase | What it does | To change it |
+| --- | --- | --- | --- | --- |
+| `RegistrationMailHook` | `authn.registration` | `after` | Requests the verification mail of a created account and the account-exists mail of a taken address (`authn.http.registration.notifyExisting`). See [Registration route](22-registration-route.md). | Extend it and override `send(outcome, ctx)`, or `DI.unregister(RegistrationMailHook)` before the application boots. |
+
+The `CredentialAdminRule` of `authn.admin.credentials` comes from `@spinajs/users` (`AuthzCredentialAdminRule`); see [Credential admin routes](16-credential-admin-routes.md).
 
 ## Refusals of the services
 
@@ -84,7 +92,7 @@ export class CompanyAddressesOnly extends ActionHook<'authn.registration'> {
 - **A registration hook must not branch on whether the account exists.** It runs before the registrar looks the account up, so the answer stays the same for a new and a taken address. A changed `login` or `email` meets the password policy again (400 `password_rejected` with `violations`), then the registrar's own validation (400 `invalid_registration`).
 - **A code request answers the same when refused.** Only the `code.request` audit event, with `hook:<code>`, tells.
 - **A refused logout keeps everything:** no revoke, no cleared cookie, no `Clear-Site-Data`, no logout extension.
-- **The guard runs first.** With `CredentialAdminGuard` denying, no `authn.admin.credentials` hook runs; guard and hooks must both allow.
+- **The rule runs first.** The `CredentialAdminRule` has order `-1000`, so it runs before hooks of the default order. When it refuses, no other `authn.admin.credentials` hook runs. The rule and every other hook must all allow. An effect that no rule admitted is refused 403 `forbidden`, for example when the rule was registered after the hooks runner resolved.
 
 ## Related
 

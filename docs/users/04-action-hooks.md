@@ -11,6 +11,8 @@ The [user actions](03-user-actions.md) run through the [`@spinajs/hooks`](../hoo
 5. The action runs. Its revocations, queue events and state writes run inline, as without hooks; no hook can stop them once the action proceeds.
 6. The `after` hooks see the input and the output. A failing `after` hook is logged and never fails the action.
 
+`actor` is the principal the caller handed the function (`create`, `deactivate`, `ban`, `deleteUser`, `expirePassword` take one, SYSTEM by default). users-http's admin routes pass the caller; its `AccountDisableHook` is a before hook on `users.deactivate`, `users.ban` and `users.delete` that applies the account guard to every actor but SYSTEM ([Account guard](../users-http/08-account-guard.md)).
+
 Hooks never get an ORM model. `user` is a `UserView`: the user's columns as plain data, the password hash left out, dates as `Date`s. `actor` is an `ActorView`: `type`, `id`, `authenticated`, `source` and `attributes` of the principal, without its `identity` (the acting user's model); the action itself still acts as the principal it was given. Every input key is a frozen copy, a mutable key a plain copy, and the `after` hooks get a frozen copy of the output. The action acts on its own values, so a write in place in a hook reaches nothing but the keys it may change. No input carries a password.
 
 ## Actions
@@ -20,16 +22,16 @@ Hooks never get an ORM model. `user` is a `UserView`: the user's columns as plai
 | `users.create` | `create()`, after its checks, before the insert | `data` (`Email`, `Login`, `Id?`, `Metadata?`; no password), `roles`, `user` (the unsaved `UserDraft`), `actor` | `user`, `data`, `roles` | email and login checks, reserved login, `Id` a positive integer, password policy and uniqueness for a changed email or login, `assertNoProtectedMetadata`, the default roles and the role dry run | `{ User, Invited }` |
 | `users.update` | `updateUser()` | `user`, `data` | `data` | `data` an object, a changed `Email` or `Login` a string and free; `Id`, `Uuid` and `Password` stay the caller's | `UserView` |
 | `users.activate` | `activate()` of an inactive account | `user` | none | | `UserView` |
-| `users.deactivate` | `deactivate()` | `user` | none | | `UserView` |
-| `users.ban` | `ban()`, after "already banned" | `user`, `reason`, `duration` | `reason`, `duration` | the reason (string, at most 255) and the duration (seconds, above 0) | `UserView` |
+| `users.deactivate` | `deactivate()` | `user`, `actor` | none | | `UserView` |
+| `users.ban` | `ban()`, after "already banned" | `user`, `reason`, `duration`, `actor` | `reason`, `duration` | the reason (string, at most 255) and the duration (seconds, above 0) | `UserView` |
 | `users.unban` | `unban()`, after "not banned" | `user` | none | | `UserView` |
-| `users.delete` | `deleteUser()` | `user` | none | | none |
+| `users.delete` | `deleteUser()` | `user`, `actor` | none | | none |
 | `users.metadata.set` | `setUserMeta()` | `user`, `meta` (`{ key, value }[]`) | `meta` | a list of `{ key, value }` objects with string keys, `assertNoProtectedMetadata` | `UserView` |
 | `users.password.expire` | `expirePassword()` | `user`, `actor` | none | | none |
 
 Every action is refusable and throws `ActionRefused` (`action`, `code`) when refused, or `ActionHookFailed` (`action`, `hook`, `reason`: `'error'`, `'timeout'` or `'depth'`) when a `before` hook threw, timed out or could not be resolved, or the run passed `hooks.maxDepth`. A value a hook changed that fails its check throws what the action's own check throws, for example `InvalidArgument` or `UserAlreadyExists`. [users-http](../users-http/README.md) answers a refusal of the route's own action with 403 `{ error: 'action_refused', code }` (`hook_error` for a failed hook).
 
-The input and output types are exported from `@spinajs/users`: `UserView`, `UserDraft`, `ActorView`, `UsersCreateData`, `UsersCreateInput`, `UsersCreateOutput`, `UsersUpdateInput`, `UsersUserInput`, `UsersBanInput`, `UsersMetadataSetInput`, `UsersPasswordExpireInput`. `userView(user)` builds a `UserView` from a model, `actorView(principal)` an `ActorView`.
+The input and output types are exported from `@spinajs/users`: `UserView`, `UserDraft`, `ActorView`, `UsersCreateData`, `UsersCreateInput`, `UsersCreateOutput`, `UsersUpdateInput`, `UsersUserInput`, `UsersDisableInput` (`users.deactivate`, `users.delete`), `UsersBanInput`, `UsersMetadataSetInput`, `UsersPasswordExpireInput`. `userView(user)` builds a `UserView` from a model, `actorView(principal)` an `ActorView`.
 
 ### `users.create` in detail
 
