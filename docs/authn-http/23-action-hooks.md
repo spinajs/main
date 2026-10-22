@@ -5,23 +5,25 @@ The routes run their own actions through the [`@spinajs/hooks`](../hooks/README.
 ## How it works
 
 1. The route runs its own checks first: the session, fresh authentication, the field checks, the throttle, the `CredentialAdminGuard`.
-2. It calls `Hooks.run`; a `before` hook may refuse.
-3. A refusal answers 403 `{ error: 'action_refused', code, message }`, or 400 for a registration, and is audited with the reason `hook:<code>`. A hook that threw or timed out answers the code `hook_error` and is audited as `hook_error`.
+2. It runs the action with [`runHookedAction`](../authn/14-action-hooks.md#runhookedaction): with no matching hook the action runs alone; otherwise a `before` hook may refuse.
+3. A refusal answers `{ error: 'action_refused', code, message }` with 403, or 400 for a registration. A hook that threw or timed out answers the code `hook_error`. Most refusals are audited (see the table) with the reason `hook:<code>` or `hook_error`.
 4. A route whose service refused through its own hooks (passwords, tokens, keys, passkeys, TOTP) answers the same way.
+
+In the tables below, 403 `{ code }` stands for that `action_refused` body.
 
 ## Actions of the routes
 
-| Action | Route | Input | Mutable | Refused answer |
-| --- | --- | --- | --- | --- |
-| `authn.logout` | `POST /auth/logout` | `session`, `ctx` | none | 403 `{ code }`; the session, the cookie and the site data are kept |
-| `authn.sessions.revoke` | `DELETE /user/sessions/:handle`, `DELETE /user/sessions` | `subject`, `handle` (`'others'` for every session but the current one), `ctx` | none | 403 `{ code }`; every session is kept |
-| `authn.role.switch` | `POST /auth/active-role` | `session`, `role`, `ctx` | none | 403 `{ code }`; the role and the session id are unchanged |
-| `authn.admin.credentials` | every `/authn/admin/users/:uuid/...` route, after `CredentialAdminGuard.allowed` | `actor`, `target`, `action` | none | 403 `{ code }`; nothing changes |
-| `authn.registration` | `POST /auth/register`, before `IdentityRegistrar.register` | `login`, `email`, `ctx` | `login`, `email` | 400 `{ code }` |
-| `authn.code.request` | `POST /auth/code/request` | `login`, `ctx` | none | the same 202 `{ Ok: true }`; no mail |
-| `authn.request` | every request, in `AuthnMiddleware`, when `authn.http.hooks.request` is `true` | `principal`, `method`, `path`, `ip?` | none | 403 `{ code }` |
+| Action | Route | Input | Mutable | Output (`after` hooks) | Refused answer | Audited as |
+| --- | --- | --- | --- | --- | --- | --- |
+| `authn.logout` | `POST /auth/logout` | `session`, `ctx` | none | `void` | 403 `{ code }`; the session, the cookie and the site data are kept | `logout` failure |
+| `authn.sessions.revoke` | `DELETE /user/sessions/:handle`, `DELETE /user/sessions` | `subject`, `handle` (`'others'` for every session but the current one), `ctx` | none | the number of sessions ended (`1` or `0` for one handle) | 403 `{ code }`; every session is kept | `session.revoke` failure |
+| `authn.role.switch` | `POST /auth/active-role` | `session`, `role`, `ctx` | none | the narrowed `Principal` | 403 `{ code }`; the role and the session id are unchanged | not audited |
+| `authn.admin.credentials` | every `/authn/admin/users/:uuid/...` route, after `CredentialAdminGuard.allowed` | `actor`, `target`, `action` | none | the route's answer body | 403 `{ code }`; nothing changes | `password.change` (`password-reset`), `mfa.disable` (`mfa-reset`), `session.revoke` (`sessions`), `token.revoke` (`tokens`) failure, `data: { action }` |
+| `authn.registration` | `POST /auth/register`, before `IdentityRegistrar.register` | `login`, `email`, `ctx` | `login`, `email` | `RegistrationOutput`: `{ status: 'created' \| 'exists', id }` | 400 `{ code }` | `identity.register` failure |
+| `authn.code.request` | `POST /auth/code/request` | `login`, `ctx` | none | `CodeRequestResult` | the same 202 `{ Ok: true }`; no mail | `code.request` failure, `data: { via: 'login' }` |
+| `authn.request` | every request, in `AuthnMiddleware`, when `authn.http.hooks.request` is `true` | `principal` (`null` for anonymous), `method`, `path` (without the query string), `ip?` | none | `void` | 403 `{ code }` | not audited |
 
-The input types are exported from `@spinajs/authn-http`: `LogoutInput`, `SessionsRevokeInput`, `RoleSwitchInput`, `CredentialAdminInput`, `RegistrationInput`, `CodeRequestInput`, `RequestInput`.
+The input types are exported from `@spinajs/authn-http`: `LogoutInput`, `SessionsRevokeInput`, `RoleSwitchInput`, `CredentialAdminInput`, `RegistrationInput`, `CodeRequestInput`, `RequestInput`, and the output type `RegistrationOutput`.
 
 ## Refusals of the services
 
@@ -39,9 +41,9 @@ The input types are exported from `@spinajs/authn-http`: `LogoutInput`, `Session
 
 ## Configuration
 
-| Key | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `authn.http.hooks.request` | `boolean` | `false` | Runs `authn.request` on every request once its principal is resolved. Any value but `true` is off. |
+| Key | Type | Default | Allowed values | Meaning |
+| --- | --- | --- | --- | --- |
+| `authn.http.hooks.request` | `boolean` | `false` | `true`, `false` | Runs `authn.request` on every request once its principal is resolved. Any value but `true` is off. |
 
 ```js
 export default {
@@ -75,10 +77,11 @@ export class CompanyAddressesOnly extends ActionHook<'authn.registration'> {
 - **Hooks get copies.** Each input key is a frozen copy (`hookView`), a mutable key a plain copy (`hookCopy`), and the after hooks get a frozen copy of the output. The action reads what it acts on from its own values, so a write in place in a hook reaches nothing. `authn.request` hooks see a frozen copy of the principal: they cannot drop its ceiling or change its id. Without a matching hook nothing is copied.
 - **A `Session` handed to a hook is a plain copy:** it has the data (`handle`, `identity`, `facts`) but none of the class getters (`state`, `impersonator`, `activeRole`); see [authn action hooks](../authn/14-action-hooks.md).
 - **A route answers only its own action's refusal.** A refusal of another action that escapes the service is rethrown, not answered as this route's.
-- **A refusal inside the registrar answers 202.** Only a new address reaches what the IdentityRegistrar runs (`users.create`, `authn.password.set`), so its refusal, or the `password` InvalidArgument users makes of a refused set, answers the accepted 202 of a taken address and is audited as `identity.register` with its reason. Only an `authn.registration` refusal answers 400.
+- **A refusal inside the registrar answers 202.** Only a new address reaches what the IdentityRegistrar runs (`users.create`, `authn.password.set`), so its refusal, or the `password` InvalidArgument users makes of a refused set, answers the accepted 202 of a taken address and is audited as an `identity.register` failure with its reason (`hook:<code>`, `hook_error` or `password_refused`) and `data.action`, the nested action, when known. Only an `authn.registration` refusal answers 400.
 - **No audit event for a refused role switch or `authn.request`:** no event type fits either, so only the 403 answer tells.
-- **`authn.request` costs a hook run per request.** Leave it off unless a rule needs every request. The hooks then see anonymous requests too (`principal: null`).
-- **A registration hook must not branch on whether the account exists.** It runs before the registrar looks the account up, so the answer stays the same for a new and a taken address. A changed `login` or `email` meets the password policy again, then the registrar's own validation.
+- **`authn.request` costs a hook run per request.** Leave it off unless a rule needs every request. The hooks then see anonymous requests too (`principal: null`). A refusal reaches `next(err)` as a `Forbidden` carrying `error: 'action_refused'` and `code`, so the 403 comes from the `@spinajs/http` error handler; any other error fails the request as a store error does.
+- **A refused admin password reset audits once.** An `authn.password.expire` refusal inside the `password-reset` route answers the same 403 `{ code }`; `LocalPasswordService.expire()` writes its audit event, the route writes none.
+- **A registration hook must not branch on whether the account exists.** It runs before the registrar looks the account up, so the answer stays the same for a new and a taken address. A changed `login` or `email` meets the password policy again (400 `password_rejected` with `violations`), then the registrar's own validation (400 `invalid_registration`).
 - **A code request answers the same when refused.** Only the `code.request` audit event, with `hook:<code>`, tells.
 - **A refused logout keeps everything:** no revoke, no cleared cookie, no `Clear-Site-Data`, no logout extension.
 - **The guard runs first.** With `CredentialAdminGuard` denying, no `authn.admin.credentials` hook runs; guard and hooks must both allow.

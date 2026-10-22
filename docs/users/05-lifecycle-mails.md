@@ -17,7 +17,7 @@ Reset and invite mails are **not** sent here. They carry a secret, so authn-loca
    - `attachements`: the entry's `attachments`, only when the list is non-empty.
 5. `emailDeferred()` queues an `EmailSend` job; a worker sends it through the connection's transport, which renders the template from its `email.templateFs` filesystem.
 6. `sendUserEmail()` resolves with the user, not the job.
-7. A failure in steps 1 to 5 is logged on the `users` log by its error class (`The <name> mail of <action> was not sent: <class>`). The action has succeeded and resolves as usual.
+7. A failure up to the queued job is logged on the `users` log by its error class (`The <name> mail of <action> was not sent: <class>`), a missing recipient by action, mail and user uuid. The action has succeeded and resolves as usual. A job that fails later in the worker is the queue's to report.
 
 ### Which action sends which mail
 
@@ -89,7 +89,7 @@ export default {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Lifecycle mail content | `users.email.<name>` config | the shipped entries | | Override `template`, `subject`, `attachments`, or set `enabled: false`. |
-| Lifecycle mail sender | `UserLifecycleMailHook`, an `ActionHook` registered on import | itself | your subclass | Override `send(user, mail)` to replace one mail; `DI.unregister(UserLifecycleMailHook)` before boot to send none. See [Action hooks](04-action-hooks.md#replace-one-mail-or-turn-them-off). |
+| Lifecycle mail sender | `ActionHook` list, `@Injectable(ActionHook)` on import; `Hooks` resolves one instance on the first matching run | `UserLifecycleMailHook` | your subclass | Override the protected `send(user, mail)` to replace one mail, then `DI.unregister(UserLifecycleMailHook)` before boot; `DI.unregister(UserLifecycleMailHook)` before boot to send none. See [Action hooks](04-action-hooks.md#replace-one-mail-or-turn-them-off). |
 | Lifecycle mail transport | `users.email.connection` → `@spinajs/email` connection | `rbac-email-connection` (not defined by users) | any connection | Define the connection in `email.connections`, or point the key at an existing one. |
 | Password mailer | `PasswordMailer` (`@spinajs/authn-local`), singleton; registered by `RbacBootstrapper` only when none is registered | `EmailPasswordMailer` | your `PasswordMailer` | `DI.register(MyMailer).as(PasswordMailer)` before or after the bootstrap: before, the bootstrapper keeps yours; after, the last registration wins. |
 | Authn mail dispatcher | `AuthnMailDispatcher` (`@spinajs/authn-local`), a factory registered by `RbacBootstrapper` only when none is registered | `QueueAuthnMailDispatcher` or `InlineAuthnMailDispatcher`, per `authn.local.mail.delivery` | your `AuthnMailDispatcher` | `DI.register(MyDispatcher).as(AuthnMailDispatcher)` before the bootstrap. |
@@ -158,7 +158,7 @@ export async function askToConfirmEmailAgain(uuid: string, confirmUrl: string): 
 - The shipped `connection` is `rbac-email-connection`, which no package defines. Without a connection of that name, or an override, the actions still succeed, but every queued `EmailSend` job fails in the worker and no lifecycle mail is delivered.
 - The default `.pug` templates are published in `lib/templates/` (`node_modules/@spinajs/users/lib/templates`). Nothing points a filesystem at them: copy them, or your own templates with these names, into your `email.templateFs` filesystem, or point that filesystem at the folder.
 - `template` and `subject` are validated even when `enabled` is `false`. A disabled entry still needs both strings.
-- A mail failure never fails an action (D18): a missing `users.email.<name>` entry or a queue that refuses the job is logged, and the action resolves. Watch the `users` log for `was not sent`.
+- A mail failure never fails an action: a missing `users.email.<name>` entry or a queue that refuses the job is logged, and the action resolves. Watch the `users` log for `was not sent`.
 - No hook, no mail: an action refused by a hook sends none, and `activate()` of an already active account sends none.
 - The template model is `user.toJSON()`; metadata keys that `dehydrateWithRelations()` hides are not in it.
 

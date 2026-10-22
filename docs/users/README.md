@@ -28,7 +28,7 @@ Every service below registers on that import (`@Injectable`), and `RbacBootstrap
 | [Action hooks](04-action-hooks.md) | `users.*` actions on `@spinajs/hooks`: refuse an action, change its mutable inputs, observe it; `UserLifecycleMailHook`. |
 | [Lifecycle mails](05-lifecycle-mails.md) | `users.email.*` templates, `sendUserEmail()`, and the `PasswordMailer` users registers for authn-local. |
 | [User events](06-user-events.md) | `UserCreated`, `UserBanned`, `UserLogged` and the other queue events, who emits them, and where they are routed. |
-| [Identity and password stores](07-identity-and-password-stores.md) | `UserIdentityStore`, `UserPasswordStore`, `UserPasswordAgeSource`, `UserAccountStatusSource`: users as authn identities. |
+| [Identity and password stores](07-identity-and-password-stores.md) | `UserIdentityStore`, `UserPasswordStore`, `UserPasswordAgeSource`, `UserAccountStatusSource`: users as authn identities; `UserPasswordStateHook` keeps `PasswordSetAt` and invite activation in step. |
 | [Authn event sinks](08-authn-event-sinks.md) | `QueueAuthnEventSink`: keeps the user events in step with authn. |
 | [Principal factory](09-principal-factory.md) | `UserPrincipalFactory` builds `user:<Uuid>` and `agent:<id>` principals for authn, jobs and CLI code. |
 | [Principal attribute providers](10-principal-attribute-providers.md) | `PrincipalAttributeProvider`: derive ABAC attributes from the user record. |

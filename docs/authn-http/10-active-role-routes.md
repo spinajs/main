@@ -75,6 +75,7 @@ sequenceDiagram
 
 ## Related
 
+- [Action hooks](23-action-hooks.md): `POST /auth/active-role` runs `authn.role.switch`; a refusal answers 403 `{ error: 'action_refused', code }` and keeps the role and the session id.
 - [Principal resolvers](03-principal-resolvers.md): how the stored role narrows later principals.
 - [`@spinajs/users`: role switch and access response](../users/14-role-switch-and-access-response.md): the shipped `RoleSource`.
 - [`@spinajs/authz`](../authz/README.md): how `ceiling.roles` limits permissions.

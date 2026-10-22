@@ -50,7 +50,7 @@ A refusal ends the run with exit code `1` and no file. `ConversionError.problems
 | --- | --- |
 | `unknown-key` | An `rbac.*` key, or a sub-key of a known block, that is not a 2.x key. |
 | `not-data` | A value a file cannot hold (function, class instance, `NaN`). |
-| `create-middleware` | `rbac.actions.create.beforeCreate` or `afterCreate` lists a function: 3.x has no create middleware. Rewrite it as an `ActionHook` on `users.create` ([Action hooks](../users/04-action-hooks.md)). |
+| `create-middleware` | `rbac.actions.create.beforeCreate` or `afterCreate` is set to anything but an empty list: 3.x has no create middleware, so it is left out. Rewrite it as an `ActionHook` on `users.create` ([Action hooks](../users/04-action-hooks.md#migrating-from-the-create-middleware)): a `before` hook for `beforeCreate`, an `after` hook for `afterCreate`. |
 | `custom-service` | A custom auth, password, validation or 2FA provider (left out), or a custom role guard or token role policy (written as found). |
 | `privileged-permission` | `privilegedResource` and `privilegedAction` name no single 3.0 permission. |
 | `token-role-policy` | `rbac.token.rolePolicy` is not `{ service }`. |

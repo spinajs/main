@@ -20,6 +20,8 @@ The reset mail goes only to an identity that could redeem it: existing, not dele
 
 `@spinajs/users`' `expirePassword()` calls `expire()` with `cause: 'admin'`.
 
+The `authn.password.expire` [action hooks](16-action-hooks.md) run around every step. For `cause: 'admin'` a refusal changes nothing, audits a `password.change` failure with `data: { cause: 'admin', expired: false }` and rethrows the `ActionRefused` or `ActionHookFailed`. For `cause: 'aged'` the action is not refusable: a refusal is logged and the password expires.
+
 ### `PasswordExpirationJob.run(now?)`
 
 1. With `authn.local.expiration.enabled` off: answers `{ idle: 'disabled' }` and does nothing.

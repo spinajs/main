@@ -85,6 +85,7 @@ Field rules for `POST /user/keys`:
 
 ## Related
 
+- [Action hooks](23-action-hooks.md#refusals-of-the-services): a `KeyRegisterResult` with `code: 'refused'` answers 403 `{ error: 'action_refused', code }`; a refused revoke answers the 404 `key_not_found` of an unknown key.
 - [`@spinajs/authn-keys`](../authn-keys/README.md): key formats, assertions, HTTP signatures and challenges.
 - [Login, logout and MFA routes](08-login-logout-and-mfa-routes.md): the answers key login shares.
 - [Credential extractors](02-credential-extractors.md): `jws-assertion` and `http-signature` credentials from registered keys.

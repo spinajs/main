@@ -7,9 +7,9 @@
 | `POST /auth/passkeys/challenge` | nothing; a pending session gets an MFA challenge for its identity | `{ challengeId, options }` |
 | `POST /auth/passkeys/login` | `{ challengeId, response }` | the login answer |
 | `POST /user/passkeys/options` | a full session, fresh auth (`reauthPassword` when stale) | `{ challengeId, options }` for `navigator.credentials.create()` |
-| `POST /user/passkeys` | a full session, fresh auth; `{ challengeId, response, name? }` | `{ id, name, transports, createdAt, lastUsedAt }` |
+| `POST /user/passkeys` | a full session, fresh auth; `{ challengeId, response, name? }` | `{ id, name, transports, createdAt, lastUsedAt }`; 403 `action_refused` when a hook refuses |
 | `GET /user/passkeys` | a full session | the caller's passkeys, oldest first |
-| `DELETE /user/passkeys/:id` | a full session | `null`; 404 `passkey_not_found` for any id that is not the caller's |
+| `DELETE /user/passkeys/:id` | a full session | `null`; 404 `passkey_not_found` for any id that is not the caller's; 403 `action_refused` when a hook refuses |
 
 The routes are off (404 `not_found`) while no `PasskeyService` is registered or `authn.strategies` lists no strategy for `webauthn` credentials. A token or key caller gets 403 `session_required`, an impersonation 403 `impersonating`, a stale session without the password 403 `fresh_auth_required`.
 
@@ -22,6 +22,8 @@ The routes are off (404 `not_found`) while no `PasskeyService` is registered or 
 
 A refused attempt uses its challenge up.
 
+Once the attestation verifies, the `authn.passkey.register` [action hooks](06-action-hooks.md) run before the credential is stored. `remove(id, credentialId, ctx)` runs the `authn.passkey.revoke` hooks before it removes the credential. A hook refusal throws `ActionRefused` (`ActionHookFailed` for a failed hook) and changes nothing.
+
 ## Audit
 
-`passkey.register` (success and failure) and `passkey.remove` events, with the identity. No event carries a challenge, a public key or an attestation.
+`passkey.register` (success and failure) and `passkey.remove` events, with the identity. A hook refusal is a failure with the reason `hook:<code>` or `hook_error`. No event carries a challenge, a public key or an attestation.

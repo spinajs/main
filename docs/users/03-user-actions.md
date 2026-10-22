@@ -14,12 +14,12 @@ Every action that takes `identifier` accepts a numeric id, a UUID, an email, a l
 4. With `data.Password`, runs `PasswordService.check()`. A failed policy throws `InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS')`.
 5. `assertNoProtectedMetadata(data.Metadata)` and `assertUserUnique(login, email)`.
 6. Generates the UUID and dry-runs the role grants through `AuthzAdmin` (validated and guarded, then rolled back). A role `AuthzAdmin` refuses (`unknown_role`, `not_assignable`, `wrong_scope_type`) throws `InvalidArgument` on field `roles`; any other refusal throws the `AuthzAdminFailure`.
-7. Runs the `users.create` [action hooks](04-action-hooks.md) on the unsaved `new User({ ..., Password: NO_PASSWORD, IsActive: false, RegisteredAt: now })`. A refusal throws `ActionRefused` and nothing is written. Values a hook changed are checked again: steps 1, 4 and 5 for `data` and `user`, step 6 for `roles`.
-8. Inserts the row (with the columns a hook set; `Uuid` and the password marker stay `create()`'s).
+7. Runs the `users.create` [action hooks](04-action-hooks.md) on the unsaved `new User({ ..., Password: NO_PASSWORD, IsActive: false, RegisteredAt: now })`. A refusal throws `ActionRefused` and nothing is written. Values a hook changed are checked again: for `data` and `user`, step 1 and `assertNoProtectedMetadata`, plus step 4 and `assertUserUnique` when the email or login changed; for `roles`, steps 2 and 6.
+8. Inserts the row (with the columns a hook set; `Uuid`, the password marker, `PasswordSetAt` and `DeletedAt` stay `create()`'s).
 9. With a password: `PasswordService.set(user:<Uuid>, password, ctx, { actor })`. Without one: stores `user:invite:pending = true`.
 10. Grants the roles at GLOBAL through `AuthzAdmin`, as `actor`.
 11. If step 9 or 10 fails, the row and its metadata are hard-deleted and the error is rethrown.
-12. Writes `data.Metadata` (`setUserMeta`), emits `UserCreated` (with the granted roles).
+12. Writes `data.Metadata` (as a hook left it) without the `users.metadata.set` hooks: the keys were checked with the create input. Emits `UserCreated` (with the granted roles).
 13. Without a password: `PasswordService.invite()` sends the invite through authn-local's `PasswordMailer`.
 14. If step 12 or 13 fails, the account stays. It throws `UserCreatedIncomplete` with `data: { user: <Uuid>, resendInvite, error: <error class> }`.
 15. The `after` hooks run: with a password, `UserLifecycleMailHook` sends the `created` mail. A failing `after` hook is logged.
@@ -52,7 +52,8 @@ Each of these runs its own checks, then its [action hook](04-action-hooks.md) (`
 | `setUserMeta(user, key, value)` / `setUserMeta(user, [{ key, value }])` | Runs `users.metadata.set`, writes metadata, refuses reserved keys and globs (also those a hook adds), emits `UserMetadataChange`. `Metadata` must be populated. |
 | `getUserMeta(user, key)` | The value; throws `MetadataNotPopulated` or `MetadataNotFound`. |
 | `sendUserEmail(user, template, model?)` | Queues a lifecycle mail; see [Lifecycle mails](05-lifecycle-mails.md). |
-| `userView(user)` | The user's columns as plain data, the password hash left out: what hooks get. |
+| `userView(user)` | The user's columns as plain data, the password hash left out, Luxon dates as `Date`s: what hooks get. |
+| `actorView(principal)` | The principal's `type`, `id`, `authenticated`, `source` and `attributes`, without its `identity`: the `actor` hooks get. |
 | `roleList(role?)` | One name or a list, trimmed, blanks dropped, de-duplicated, order kept. |
 | `rootAuthzAdmin()` | The `AuthzAdmin` of the root container's `AuthzService`, the one `create()` grants roles through. |
 | `assertNoProtectedMetadata(metadata?)` | Throws `InvalidArgument` for a reserved key or a key containing `*` or `?`. |
@@ -81,7 +82,7 @@ All extend `RbacException` (`data` carries a transport-agnostic payload).
 | `UserAlreadyExists` | `assertUserUnique()`; `data.fields` names the clashing fields. |
 | `UserCreatedIncomplete` | `create()` failed after the grants, in its own steps; `data: { user, resendInvite, error }`. A failing `after` hook is not one. |
 | `ActionRefused` (`@spinajs/hooks`) | A `before` hook refused the action; `action`, `code`. |
-| `ActionHookFailed` (`@spinajs/hooks`) | A `before` hook threw or timed out; `action`, `hook`, `reason`. |
+| `ActionHookFailed` (`@spinajs/hooks`) | A `before` hook threw, timed out or could not be resolved, or the run passed `hooks.maxDepth`; `action`, `hook`, `reason` (`'error'`, `'timeout'`, `'depth'`). |
 | `MetadataNotPopulated` | Metadata read or written before `populate('Metadata')`. |
 | `MetadataNotFound` | `getUserMeta()` for a missing key. |
 | `EmailTemplateNotConfigured` | `sendUserEmail()` of a missing `users.email.<template>`. `UserLifecycleMailHook` logs it; the action succeeds. |

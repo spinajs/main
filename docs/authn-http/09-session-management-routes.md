@@ -51,6 +51,7 @@
 
 ## Related
 
+- [Action hooks](23-action-hooks.md): both `DELETE` routes run `authn.sessions.revoke`; a refusal answers 403 `{ error: 'action_refused', code }` and ends no session.
 - [Login, logout and MFA routes](08-login-logout-and-mfa-routes.md): where sessions start and the client is stored.
 - [Credential admin routes](16-credential-admin-routes.md): an admin ends another user's sessions.
 - [`@spinajs/authn-session`](../authn-session/README.md): handles, expiry and session storage.
