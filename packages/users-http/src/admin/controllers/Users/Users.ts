@@ -563,10 +563,8 @@ export class Users extends BaseController {
     }
 
     const previous = { Login: target.Login, Email: target.Email };
-    target.Login = data.Login ?? target.Login;
-    target.Email = data.Email ?? target.Email;
+    await this.asDuplicateResponse(() => asActionRefusal(['users.update'], () => updateUser(target, { Login: data.Login ?? target.Login, Email: data.Email ?? target.Email })));
 
-    await target.update();
     try {
       await executeAsActor(by, commands, { reason: 'users-http:update' });
     } catch (err) {

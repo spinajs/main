@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import { userPrincipal } from '@spinajs/authz-testing';
 import { ActionHook } from '@spinajs/hooks';
-import type { BeforeContext } from '@spinajs/hooks';
+import type { AfterContext, BeforeContext } from '@spinajs/hooks';
 import { RecordingActionHook } from '@spinajs/hooks/testing';
 
 import { ActionRefused, DefaultHooks, Hooks } from '@spinajs/hooks';
@@ -252,6 +252,20 @@ describe('authz admin hooks', function () {
       expect((await d.admin.execute(alice, [grant('bob')]))[0].ok).to.equal(true);
       expect(d.store.trace.filter((t) => t === 'validate:assignment.grant')).to.have.length(1);
       expect(d.model.requests.filter((r) => r.permission === 'authz:assignments.manage')).to.have.length(1);
+    });
+
+    it('is out of reach of an after hook: stretching expiresAt there does not change what is applied', async () => {
+      class StretchAfter extends ActionHook {
+        readonly actions = ['authz.admin.command'] as const;
+        after(ctx: AfterContext<'authz.admin.command'>): void {
+          (ctx.output as unknown as { command: { expiresAt: Date } }).command.expiresAt.setFullYear(2100);
+        }
+      }
+      const d = await hookedAdminDomain([new StretchAfter()]);
+      const out = await d.admin.execute(alice, [{ ...grant('bob'), expiresAt: new Date('2027-01-01T00:00:00.000Z') } as AuthzCommand]);
+      expect(out[0].ok).to.equal(true);
+      const applied = d.store.applied[0] as Extract<AuthzCommand, { kind: 'assignment.grant' }>;
+      expect(applied.expiresAt?.getFullYear()).to.equal(2027);
     });
   });
 

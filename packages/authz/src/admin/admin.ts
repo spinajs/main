@@ -270,14 +270,15 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
               'authz.admin.command',
               { actor, command },
               async (merged) => {
+                // The output is a copy: an after hook can change a Date in place, and phase B applies only `command`.
                 // ListSupportHook always runs, so a command no hook changed is not checked twice. deepFreeze does not stop
                 // a hook from changing a Date in place, so identity alone proves nothing; the fingerprint shows that change.
-                if (merged.command === command && seen !== undefined && fingerprint(merged.command) === seen) return { command };
+                if (merged.command === command && seen !== undefined && fingerprint(merged.command) === seen) return { command: frozenCommand(command, i) };
                 command = frozenCommand(merged.command, i);
                 verdict = await this.check(env, handlers, actor, command, ctx);
                 // A hook that ran after ListSupportHook replaced the command it judged.
                 if (!wasListChecked(merged.command)) await checkListSupport(command, ctx);
-                return { command };
+                return { command: frozenCommand(command, i) };
               },
               { mutable: ['command'] },
             ),

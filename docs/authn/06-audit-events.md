@@ -54,6 +54,7 @@ Event types (`AuthnEventType`):
 | Identity links | `identity.link`, `identity.unlink` |
 | Impersonation | `impersonation.start`, `impersonation.end`, `impersonation.expire` |
 | Email codes | `code.request` |
+| Refused by an action hook | `role.switch`, `request.refuse` |
 
 The reasons the core writes are listed in [Authentication flow](01-authentication-flow.md#results-and-failure-reasons).
 
