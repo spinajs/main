@@ -12,7 +12,7 @@ import _ from 'lodash';
 import 'mocha';
 import { Orm } from '../src/index.js';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeConverter, FakeTableQueryCompiler, FakeServerResponseMapper } from './misc.js';
-import { IModelDescriptor, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, InsertBehaviour, DatetimeValueConverter, TableQueryCompiler, ServerResponseMapper } from '../src/interfaces.js';
+import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, InsertBehaviour, DatetimeValueConverter, TableQueryCompiler, ServerResponseMapper } from '../src/interfaces.js';
 import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import chaiSubset from 'chai-subset';
@@ -1267,7 +1267,7 @@ describe('General model tests', () => {
     const models = await orm.Models;
 
     let toCheck = models.find((x) => x.name === 'Model1');
-    let descriptor = toCheck!.type.getModelDescriptor() as IModelDescriptor;
+    let descriptor = (toCheck!.type as typeof ModelBase).getModelDescriptor();
 
     expect(descriptor).to.include({
       Connection: 'sqlite',
@@ -1298,7 +1298,7 @@ describe('General model tests', () => {
     expect(descriptor.Columns.find((c) => c.Name === 'Id')).to.exist;
 
     toCheck = models.find((x) => x.name === 'Model2');
-    descriptor = toCheck!.type.getModelDescriptor() as IModelDescriptor;
+    descriptor = (toCheck!.type as typeof ModelBase).getModelDescriptor();
 
     expect(descriptor).to.include({
       Connection: 'SampleConnection1',
@@ -1394,7 +1394,6 @@ describe('General model tests', () => {
   });
 
   it('static count() should return the numeric count ( B3 )', async () => {
-    // @ts-ignore
     await db();
 
     sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({ expression: '', bindings: [] });

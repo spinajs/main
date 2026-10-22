@@ -60,7 +60,7 @@ describe('sqlite @Int64 columns', function () {
     const model = new GapInt64({ Counter: '42', Big: 42n, Small: 42 });
     await GapInt64.insert(model);
 
-    const read = (await GapInt64.where('Id', model.Id).first()) as GapInt64;
+    const read = await GapInt64.where('Id', model.Id).first();
 
     expect(read.Counter).to.eq('42');
     expect(read.Big).to.eq(42n);
@@ -73,7 +73,7 @@ describe('sqlite @Int64 columns', function () {
 
     await GapInt64.update({ Counter: '44', Big: 43n }).where('Id', model.Id);
 
-    const read = (await GapInt64.where('Id', model.Id).first()) as GapInt64;
+    const read = await GapInt64.where('Id', model.Id).first();
     expect(read.Counter).to.eq('44');
     expect(read.Big).to.eq(43n);
   });
@@ -84,11 +84,11 @@ describe('sqlite @Int64 columns', function () {
     await GapInt64.insert(one);
     await GapInt64.insert(two);
 
-    expect(((await GapInt64.where('Big', 43n).first()) as GapInt64).Id).to.eq(two.Id);
-    expect(((await GapInt64.where('Counter', '44').first()) as GapInt64).Id).to.eq(two.Id);
-    expect(((await GapInt64.where('Counter', ' 44 ').first()) as GapInt64).Id).to.eq(two.Id);
+    expect(((await GapInt64.where('Big', 43n).first())).Id).to.eq(two.Id);
+    expect(((await GapInt64.where('Counter', '44').first())).Id).to.eq(two.Id);
+    expect(((await GapInt64.where('Counter', ' 44 ').first())).Id).to.eq(two.Id);
 
-    const found = (await GapInt64.query().whereIn('Counter', ['1', '44'])) as GapInt64[];
+    const found = await GapInt64.query().whereIn('Counter', ['1', '44']);
     expect(found.map((m) => m.Id).sort((a, b) => a - b)).to.deep.eq([one.Id, two.Id].sort((a, b) => a - b));
   });
 

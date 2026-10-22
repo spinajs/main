@@ -165,6 +165,19 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
   return this;
 };
 
+function noTranslateInAsyncStore(): boolean {
+  // if async storage is avaible ( node env)
+  // on browser and electron skip this, as we dont have async storage
+  if (typeof AsyncLocalStorage !== 'function') {
+    return false;
+  }
+
+  // if something has set to no translate
+  // eg route decorator
+  const store = DI.get<AsyncLocalStorage<IIntlAsyncStorage>>(AsyncLocalStorage)?.getStore();
+  return store?.noTranslate === true;
+}
+
 /**
  * Middleware for automatic query translations
  * for modes. If query is standalone ( not created by model related function )
@@ -184,15 +197,8 @@ export class IntlQueryMiddleware extends QueryMiddleware {
       return;
     }
 
-    // if async storage is avaible ( node env)
-    // on browser and electron skip this, as we dont have async storage
-    if (typeof AsyncLocalStorage === 'function') {
-      // if something has set to no translate
-      // eg route decorator
-      const store = DI.get<AsyncLocalStorage<IIntlAsyncStorage>>(AsyncLocalStorage)?.getStore();
-      if (store?.noTranslate === true) {
-        return;
-      }
+    if (noTranslateInAsyncStore()) {
+      return;
     }
 
     // something has set to not translate manually for query

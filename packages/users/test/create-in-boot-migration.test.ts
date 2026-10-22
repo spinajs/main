@@ -33,7 +33,7 @@ async function localPasswords(): Promise<LocalPasswordService> {
 
 function within<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
+  const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms} ms`)), ms);
   });
   return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
@@ -58,7 +58,7 @@ describe('create() from a boot migration', function () {
       }
     }
     Migration('default')(SeedUserAtBoot_2099_01_01_00_00_00);
-    seed = SeedUserAtBoot_2099_01_01_00_00_00 as unknown as typeof OrmMigration;
+    seed = SeedUserAtBoot_2099_01_01_00_00_00;
   });
 
   after(() => {

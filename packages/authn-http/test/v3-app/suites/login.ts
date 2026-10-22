@@ -10,7 +10,32 @@ import { SessionIssuer } from '@spinajs/authn/contracts';
 import { Client, V3AppResponseExtension, V3AppSessionStartHook, clearLog, config, cookieName, events, logLines, loggedIn, passwordStrategy, resetRecorders, roles, seedUser, sessionSetCookie, step, throttle, tokens } from '../app.js';
 import type { Res } from '../app.js';
 
-const probe = async (c: Client) => (await c.get(`/${AUTHN_PROBE_PATH}`)).body;
+interface ProbeAnswer {
+  principal: { id: string } | null;
+  clientIp: string | null;
+}
+
+/** The body of a login, MFA or whoami answer. */
+interface AuthnAnswer {
+  Identity: unknown;
+  Authn: unknown;
+  Access: { roles: string[] | null };
+}
+
+interface ActiveRoleAnswer {
+  ActiveRole: string | null;
+  Roles: { role: string }[];
+}
+
+const probe = async (c: Client): Promise<ProbeAnswer> => {
+  const body: ProbeAnswer = (await c.get(`/${AUTHN_PROBE_PATH}`)).body;
+  return body;
+};
+
+const activeRole = async (c: Client): Promise<ActiveRoleAnswer> => {
+  const body: ActiveRoleAnswer = (await c.get('/auth/active-role')).body;
+  return body;
+};
 
 function expectA02(res: Res, label: string): void {
   expect(res.status, label).to.eq(401);
@@ -27,16 +52,17 @@ export function loginSuite(): void {
       const c = new Client();
       const res = await c.post('/auth/login', { login: u.login, password: u.password }, { 'User-Agent': 'v3-app-browser' });
       expect(res.status, JSON.stringify(res.body)).to.eq(200);
-      expect(res.body.Identity).to.deep.eq({ type: 'user', id: u.ref.id });
-      expect(res.body.Authn).to.include({ method: 'password', strategy: 'local', assurance: 'aal1' });
-      expect(res.body.Access).to.deep.eq({ kind: 'login', id: u.ref.id, roles: null });
+      const body: AuthnAnswer = res.body;
+      expect(body.Identity).to.deep.eq({ type: 'user', id: u.ref.id });
+      expect(body.Authn).to.include({ method: 'password', strategy: 'local', assurance: 'aal1' });
+      expect(body.Access).to.deep.eq({ kind: 'login', id: u.ref.id, roles: null });
       expect(V3AppResponseExtension.calls.map((x) => x.kind)).to.deep.eq(['login']);
       expect(res.headers['cache-control']).to.eq('no-store');
       expect(JSON.stringify(res.body)).to.not.include(c.sessionId!);
 
       const p = await probe(c);
-      expect(p.principal.id).to.eq(u.ref.id);
-      const sessions = (await c.get('/user/sessions')).body;
+      expect(p.principal?.id).to.eq(u.ref.id);
+      const sessions: Record<string, unknown>[] = (await c.get('/user/sessions')).body;
       expect(sessions).to.have.length(1);
       expect(sessions[0]).to.include({ Ip: p.clientIp, UserAgent: 'v3-app-browser', Current: true });
     });
@@ -173,17 +199,18 @@ export function loginSuite(): void {
       return u;
     };
     const first = (role: string) => () => ({ roles: [role] });
-    const sessionsOf = async (u: { ref: { type: string; id: string } }) => (await DI.resolve<SessionIssuer>(SessionIssuer)).list(u.ref);
+    const sessionsOf = async (u: { ref: { type: string; id: string } }) => (await DI.resolve(SessionIssuer)).list(u.ref);
 
     it('no hook answers a ceiling: the login answer and the session keep every held role, as in 3.0.1', async () => {
       const u = await holdingBAndA();
       const c = new Client();
       const res = await c.post('/auth/login', { login: u.login, password: u.password });
       expect(res.status, JSON.stringify(res.body)).to.eq(200);
-      expect(res.body.Access).to.deep.eq({ kind: 'login', id: u.ref.id, roles: null });
+      const body: AuthnAnswer = res.body;
+      expect(body.Access).to.deep.eq({ kind: 'login', id: u.ref.id, roles: null });
       expect(V3AppSessionStartHook.calls.map((x) => [x.kind, x.principal.id])).to.deep.eq([['login', u.ref.id]]);
       expect(V3AppSessionStartHook.calls[0].session.state).to.eq('active');
-      expect((await c.get('/auth/active-role')).body.ActiveRole).to.eq(null);
+      expect((await activeRole(c)).ActiveRole).to.eq(null);
     });
 
     it('the ceiling a hook answers at login becomes the ActiveRole: the answer, GET /auth/active-role and later requests are narrowed', async () => {
@@ -192,11 +219,13 @@ export function loginSuite(): void {
       const c = new Client();
       const res = await c.post('/auth/login', { login: u.login, password: u.password });
       expect(res.status, JSON.stringify(res.body)).to.eq(200);
-      expect(res.body.Access).to.deep.eq({ kind: 'login', id: u.ref.id, roles: ['a'] });
-      const state = await c.get('/auth/active-role');
-      expect(state.body.ActiveRole).to.eq('a');
-      expect(state.body.Roles.map((r: { role: string }) => r.role)).to.deep.eq(['b', 'a']);
-      expect((await c.get('/auth')).body.Access.roles).to.deep.eq(['a']);
+      const body: AuthnAnswer = res.body;
+      expect(body.Access).to.deep.eq({ kind: 'login', id: u.ref.id, roles: ['a'] });
+      const state = await activeRole(c);
+      expect(state.ActiveRole).to.eq('a');
+      expect(state.Roles.map((r) => r.role)).to.deep.eq(['b', 'a']);
+      const whoami: AuthnAnswer = (await c.get('/auth')).body;
+      expect(whoami.Access.roles).to.deep.eq(['a']);
     });
 
     it('a pending login asks no hook; the MFA completion does, with the same effect', async () => {

@@ -57,15 +57,15 @@ describe('postgres column kinds and lookup values (integration)', function () {
 
   it('lookup values keep only what each column can hold, and find the rows', async () => {
     const ids = ['1', 'abc', '2'].map((t) => lookupValue(column('Id'), t)).filter((v) => v !== undefined);
-    expect(((await PgGapLookup.query().whereIn('Id', ids)) as PgGapLookup[]).map((m) => m.Id).sort()).to.deep.eq([1, 2]);
+    expect(((await PgGapLookup.query().whereIn('Id', ids))).map((m) => m.Id).sort()).to.deep.eq([1, 2]);
 
     const refs = ['nope', REF].map((t) => lookupValue(column('Ref'), t)).filter((v) => v !== undefined);
-    expect(((await PgGapLookup.query().whereIn('Ref', refs)) as PgGapLookup[]).map((m) => m.Id)).to.deep.eq([1]);
+    expect(((await PgGapLookup.query().whereIn('Ref', refs))).map((m) => m.Id)).to.deep.eq([1]);
 
     expect(lookupValue(column('Big'), '9007199254740993')).to.eq('9007199254740993');
-    expect(((await PgGapLookup.query().where('Big', lookupValue(column('Big'), '9007199254740993'))) as PgGapLookup[]).map((m) => m.Id)).to.deep.eq([1]);
+    expect(((await PgGapLookup.query().where('Big', lookupValue(column('Big'), '9007199254740993')))).map((m) => m.Id)).to.deep.eq([1]);
 
     const amounts = ['1.5', 'x'].map((t) => lookupValue(column('Amount'), t)).filter((v) => v !== undefined);
-    expect(((await PgGapLookup.query().whereIn('Amount', amounts)) as PgGapLookup[]).map((m) => m.Id)).to.deep.eq([1]);
+    expect(((await PgGapLookup.query().whereIn('Amount', amounts))).map((m) => m.Id)).to.deep.eq([1]);
   });
 });

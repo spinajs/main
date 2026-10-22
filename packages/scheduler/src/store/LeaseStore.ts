@@ -183,7 +183,7 @@ export class LeaseStore {
   }
 
   public async finishRun(runId: string, attempt: number, patch: Record<string, unknown>): Promise<boolean> {
-    const r = await RunModel.update(patch as never)
+    const r = await RunModel.update(patch)
       .where('Id', runId)
       .where('LeaseOwner', this.ReplicaId)
       .where('Attempt', attempt);

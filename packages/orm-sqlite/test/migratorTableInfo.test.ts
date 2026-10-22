@@ -81,7 +81,9 @@ function laterMigration(up: (connection: OrmDriver) => Promise<unknown>): Class<
 }
 
 function alterMigration(table: string, alter: (t: AlterTableQueryBuilder) => void): Class<OrmMigration> {
-  return laterMigration(async (connection) => await connection.schema().alterTable(table, alter));
+  return laterMigration(async (connection) => {
+    await connection.schema().alterTable(table, alter);
+  });
 }
 
 describe('sqlite OrmMigrator table info re-read', function () {
@@ -175,7 +177,9 @@ describe('sqlite OrmMigrator table info re-read', function () {
     expect(flag.Converter ?? null).to.equal(null);
   });
   it('marks the column a unique-index-only migration covers Unique', async () => {
-    alter = laterMigration(async (connection) => await connection.index().unique().table('mti_posts').name('mti_posts_title').columns(['Title']));
+    alter = laterMigration(async (connection) => {
+      await connection.index().unique().table('mti_posts').name('mti_posts_title').columns(['Title']);
+    });
 
     await migrateInTwoPasses();
 
@@ -192,7 +196,7 @@ describe('sqlite OrmMigrator table info re-read', function () {
 
     await migrator.migrate();
 
-    const reads = tableInfo.getCalls().map((c) => c.args[0] as string);
+    const reads = tableInfo.getCalls().map((c) => c.args[0]);
     expect(reads).to.include('mti_posts');
     expect(reads).to.not.include('mti_notes');
     expect(names(schema.Post)).to.include('Extra');

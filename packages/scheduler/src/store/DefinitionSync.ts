@@ -39,23 +39,7 @@ export class DefinitionSync {
       const existing = byName.get(def.name);
 
       if (!existing) {
-        try {
-          await ScheduleModel.create({
-            Name: def.name,
-            Definition: serialized,
-            DefinitionHash: hash,
-            NextRunAt: initialNextRun(def, now),
-            Paused: false,
-            HardPaused: false,
-            PausedReason: null,
-            ConsecutiveFailures: 0,
-            Orphaned: false,
-            UpdatedAt: now,
-          });
-        } catch (err) {
-          if (!(await ScheduleModel.where('Name', def.name).first())) throw err;
-          this.Log.trace(`schedule ${def.name} already inserted by another replica: ${(err as Error).message}`);
-        }
+        await this.insert(def, serialized, hash, now);
         continue;
       }
 
@@ -87,6 +71,26 @@ export class DefinitionSync {
         await ScheduleModel.update({ Orphaned: true, UpdatedAt: now }).where('Name', r.Name).where('Orphaned', false);
         this.Log.warn(`schedule ${r.Name} has no definition any more; marked orphaned (scheduler:prune removes it)`);
       }
+    }
+  }
+
+  protected async insert(def: ScheduleDefinition, serialized: Record<string, unknown>, hash: string, now: number): Promise<void> {
+    try {
+      await ScheduleModel.create({
+        Name: def.name,
+        Definition: serialized,
+        DefinitionHash: hash,
+        NextRunAt: initialNextRun(def, now),
+        Paused: false,
+        HardPaused: false,
+        PausedReason: null,
+        ConsecutiveFailures: 0,
+        Orphaned: false,
+        UpdatedAt: now,
+      });
+    } catch (err) {
+      if (!(await ScheduleModel.where('Name', def.name).first())) throw err;
+      this.Log.trace(`schedule ${def.name} already inserted by another replica: ${(err as Error).message}`);
     }
   }
 }

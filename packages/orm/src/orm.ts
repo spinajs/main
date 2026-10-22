@@ -98,7 +98,7 @@ export class Orm extends AsyncService {
     if (options.strict) {
       // what an earlier read found missing may exist by now ( created through a path no touch recorded, or by
       // another process ), so the driver is asked again rather than the record trusted
-      const unread = options.models ? this.Models.filter((m) => this.MissingTables.has(m.type) && !options.models!.includes(m.type)).map((m) => m.type) : [];
+      const unread = options.models ? this.Models.filter((m) => this.MissingTables.has(m.type) && !options.models!.includes(m.type)).map((m) => m.type as Class<ModelBase>) : [];
       if (unread.length > 0) {
         await this.readTableInfo(unread);
       }

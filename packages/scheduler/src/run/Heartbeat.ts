@@ -23,7 +23,7 @@ export interface HeartbeatOptions {
 
 /** One timer for both progress writes and lease renewal: every progress write renews the lease. */
 export class Heartbeat {
-  protected handle: TimerHandle | undefined;
+  protected handle?: TimerHandle;
   protected lastRenew: number;
   protected lastOk: number;
   protected inflight: Promise<void> = Promise.resolve();

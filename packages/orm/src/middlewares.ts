@@ -261,7 +261,7 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
    */
   private junctionOf(target: ModelBase): ModelBase | undefined {
     const JunctionModel = this._relationDescriptor?.JunctionModel;
-    const row = (target as any).JunctionModel;
+    const row = (target as ModelBase & { JunctionModel?: Partial<ModelBase> }).JunctionModel;
     if (!JunctionModel || !row) {
       return undefined;
     }

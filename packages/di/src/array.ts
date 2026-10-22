@@ -2,8 +2,8 @@ import { Class } from './types.js';
 
 declare global {
   interface ArrayConstructor {
-    ofType<T>(type: Class<T> | string): TypedArray<T>;
-    chainOf<T>(type: Class<T> | string): ChainArray<T>;
+    ofType<T>(this: void, type: Class<T> | string): TypedArray<T>;
+    chainOf<T>(this: void, type: Class<T> | string): ChainArray<T>;
   }
 }
 export class TypedArray<R> extends Array<R> {

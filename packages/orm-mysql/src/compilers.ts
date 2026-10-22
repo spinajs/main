@@ -1,5 +1,5 @@
 import { Container, IContainer, Inject, NewInstance } from '@spinajs/di';
-import { CreateViewQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, InsertQueryBuilder, TableAliasCompiler } from '@spinajs/orm';
+import { ColumnType, CreateViewQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, InsertQueryBuilder, TableAliasCompiler } from '@spinajs/orm';
 import { SqlColumnQueryCompiler, SqlCreateViewQueryCompiler, SqlInsertQueryCompiler } from '@spinajs/orm-sql';
 
 @NewInstance()
@@ -90,6 +90,6 @@ export class MySqlInsertQueryCompiler extends SqlInsertQueryCompiler {
 @NewInstance()
 export class MySqlColumnQueryCompiler extends SqlColumnQueryCompiler {
   protected explicitNull(): string {
-    return this.builder.Type === 'timestamp' ? 'NULL' : '';
+    return this.builder.Type === ColumnType.TIMESTAMP ? 'NULL' : '';
   }
 }

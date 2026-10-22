@@ -232,6 +232,7 @@ describe('Commands', function () {
         propertyKey: 'execute',
       });
       expect(decl.options).to.deep.equal(DEFAULT_TASK_OPTIONS);
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- compared by reference, never called
       expect(decl.method).to.not.equal(TestTaskNoOptions.prototype.execute);
       expect(getTaskDeclarations('NoSuchTask')).to.deep.equal([]);
     });

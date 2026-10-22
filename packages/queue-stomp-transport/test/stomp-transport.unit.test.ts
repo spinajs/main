@@ -116,11 +116,11 @@ class TestableStompClient extends StompQueueClient {
   }
 
   public get subs() {
-    return (this as any).Subscriptions as Map<string, any>;
+    return this.Subscriptions;
   }
 
   public get pending() {
-    return (this as any).PendingEmits as any[];
+    return this.PendingEmits;
   }
 }
 
@@ -504,7 +504,7 @@ describe('stomp queue transport - unit', function () {
         }),
       );
 
-      const h = c.fake.published[0].headers;
+      const h: Record<string, string> = c.fake.published[0].headers;
       expect(h.persistent).to.eq('true');
       expect(h.priority).to.eq('5');
       expect(h.AMQ_SCHEDULED_DELAY).to.eq('1000');
@@ -543,7 +543,7 @@ describe('stomp queue transport - unit', function () {
 
       const outcome = c.emit(qMessage()).then(
         () => 'sent',
-        (err) => err,
+        (err: unknown) => err,
       );
       await tick();
       c.fake.simulateDrop();
@@ -560,7 +560,7 @@ describe('stomp queue transport - unit', function () {
 
       const outcome = c.emit(qMessage()).then(
         () => 'sent',
-        (err) => err,
+        (err: unknown) => err,
       );
       await tick();
       c.fake.simulateDrop();
@@ -932,7 +932,7 @@ describe('stomp queue transport - unit', function () {
       const c = new TestableStompClient(options());
       const outcome = c.whenReady().then(
         () => 'ready',
-        (err) => err,
+        (err: unknown) => err,
       );
 
       await c.dispose();

@@ -22,6 +22,10 @@ class Int64Holder extends ModelBase {
 
 const BEYOND_SAFE = '9007199254740993';
 
+interface IObjectSchema {
+  properties: Record<string, { type?: string }>;
+}
+
 describe('@Int64 and Int64ValueConverter', () => {
   it('attaches the converter with its mode, string by default', () => {
     const converters = extractModelDescriptor(Int64Holder)!.Converters;
@@ -102,8 +106,8 @@ describe('@Int64 and Int64ValueConverter', () => {
       Hidden: [],
     };
 
-    const response = buildModelJsonSchema(descriptor, 'response');
-    const request = buildModelJsonSchema(descriptor, 'request');
+    const response: IObjectSchema = buildModelJsonSchema(descriptor, 'response');
+    const request: IObjectSchema = buildModelJsonSchema(descriptor, 'request');
 
     expect(response.properties.Small.type).to.eq('integer');
     expect(response.properties.Counter.type).to.eq('string');

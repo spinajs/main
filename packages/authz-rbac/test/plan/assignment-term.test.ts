@@ -51,7 +51,7 @@ for (const kind of DB_KINDS) {
         });
 
     async function ids(apply: (where: IWhereBuilder<unknown>) => void): Promise<number[]> {
-      const rows = (await filtered(apply).asRaw()) as { id: unknown }[];
+      const rows = await filtered(apply).asRaw<{ id: unknown }[]>();
       return rows.map((r) => Number(r.id)).sort((a, b) => a - b);
     }
 
@@ -177,7 +177,7 @@ for (const kind of DB_KINDS) {
 
     it('more than 1000 subjects bind as one list parameter and still match', async () => {
       const subjects = [...Array.from({ length: 1500 }, (_, i) => `user:filler${i}`), 'team:t1#member', 'user:alice'];
-      const out = filtered((where) => term.apply(args({ subjects }), where, row())).toDB() as ICompilerOutput;
+      const out = filtered((where) => term.apply(args({ subjects }), where, row())).toDB();
       expect(out.bindings ?? []).to.have.length.below(100);
       expect(await permit({ subjects })).to.deep.equal([1, 3, 5]);
       expect(await permit({ subjects, roles: [{ role: 'blocked' }], global: true })).to.deep.equal([1, 2, 5]);

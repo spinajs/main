@@ -69,7 +69,7 @@ export abstract class QueueService extends AsyncService {
   public abstract get(connection?: string): QueueClient;
 
   protected getConnectionsForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
-    const eventName = ((event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name) as string;
+    const eventName = ((event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name);
     const option: string | IMessageRoutingOption | string[] | IMessageRoutingOption[] = ((this.Configuration.routing ?? {}) as any)[eventName] ?? this.Configuration.default;
 
     if (_.isString(option)) {
@@ -341,7 +341,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
 
     // multiple routes - use the first one of this connection that declares a dead-letter channel
     if (_.isArray(rOption)) {
-      const withDlq = this.ownRouteItems(rOption).find((x) => !_.isString(x) && (x as IMessageRoutingOption).deadLetterChannel) as IMessageRoutingOption | undefined;
+      const withDlq = this.ownRouteItems(rOption).find((x) => !_.isString(x) && x.deadLetterChannel) as IMessageRoutingOption | undefined;
       if (withDlq) {
         return withDlq.deadLetterChannel;
       }
@@ -360,7 +360,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
     const rOption = this.Routing?.[eName];
     const entries: (string | IMessageRoutingOption | undefined)[] = _.isArray(rOption) ? this.ownRouteItems(rOption) : [rOption];
 
-    const declared = entries.find((x) => x && !_.isString(x) && (x as IMessageRoutingOption).maxRetries !== undefined) as IMessageRoutingOption | undefined;
+    const declared = entries.find((x) => x && !_.isString(x) && x.maxRetries !== undefined) as IMessageRoutingOption | undefined;
     if (!declared) {
       return undefined;
     }

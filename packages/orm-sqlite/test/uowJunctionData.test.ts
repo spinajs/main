@@ -1,5 +1,3 @@
-/* eslint-disable prettier/prettier */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -10,8 +8,19 @@ import { bootUow, captureStatements, registerUowConnection, rows, UowOrder, UowO
 const expect = chai.expect;
 chai.use(chaiAsPromised);
 
+interface OrderTagRow {
+  order_id: number;
+  tag_id: number;
+  Note: string | null;
+}
+
+interface OrderItemRow {
+  Sku: string;
+  order_id: number;
+}
+
 /** Runs `fn` with `model` declared on another connection, as a model of a second database would be. */
-async function onOtherConnection<T>(model: { getModelDescriptor(): any }, fn: () => Promise<T>): Promise<T> {
+async function onOtherConnection<T>(model: { getModelDescriptor(): { Connection: string | null } }, fn: () => Promise<T>): Promise<T> {
   const descriptor = model.getModelDescriptor();
   const previous = descriptor.Connection;
   descriptor.Connection = 'other';
@@ -27,9 +36,9 @@ async function seed() {
   await UowOrder.insert({ Total: 20 });
   await UowTag.insert({ Name: 'red' });
   await UowTag.insert({ Name: 'blue' });
-  await UowOrderTag.insert({ order_id: 1, tag_id: 1, Note: 'first red' } as any);
-  await UowOrderTag.insert({ order_id: 1, tag_id: 2, Note: 'first blue' } as any);
-  await UowOrderTag.insert({ order_id: 2, tag_id: 1, Note: 'second red' } as any);
+  await UowOrderTag.insert({ order_id: 1, tag_id: 1, Note: 'first red' });
+  await UowOrderTag.insert({ order_id: 1, tag_id: 2, Note: 'first blue' });
+  await UowOrderTag.insert({ order_id: 2, tag_id: 1, Note: 'second red' });
 }
 
 const loadOrder = (id: number) => UowOrder.where({ Id: id }).populate('Tags').first();
@@ -81,7 +90,7 @@ describe('ModelBase.save - many-to-many junction data', function () {
       const result = await order.save();
 
       expect(result.JunctionInserted).to.equal(1);
-      expect(await rows('uow_order_tag')).to.deep.equal([{ Id: 1, order_id: order.Id, tag_id: 1, Note: 'linked' }]);
+      expect(await rows<OrderTagRow>('uow_order_tag')).to.deep.equal([{ Id: 1, order_id: order.Id, tag_id: 1, Note: 'linked' }]);
     });
 
     it('writes links with and without junction data in one save', async () => {
@@ -94,7 +103,7 @@ describe('ModelBase.save - many-to-many junction data', function () {
       order.Tags.push(green);
       await order.save();
 
-      const links = (await rows('uow_order_tag')).filter((r) => r.order_id === 2);
+      const links = (await rows<OrderTagRow>('uow_order_tag')).filter((r) => r.order_id === 2);
       expect(links.map((r) => [r.tag_id, r.Note])).to.have.deep.members([
         [1, 'second red'],
         [2, 'second blue'],
@@ -114,8 +123,8 @@ describe('ModelBase.save - many-to-many junction data', function () {
       expect(result.JunctionUpdated).to.equal(1);
       expect(result.JunctionInserted + result.JunctionDeleted + result.Inserted + result.Updated).to.equal(0);
       expect(capture.statements.filter((s) => s.context === QueryContext.Update)).to.have.length(1);
-      expect((await rows('uow_order_tag')).find((r) => r.order_id === 1 && r.tag_id === 2).Note).to.equal('changed');
-      expect((await rows('uow_order_tag')).find((r) => r.order_id === 1 && r.tag_id === 1).Note).to.equal('first red');
+      expect((await rows<OrderTagRow>('uow_order_tag')).find((r) => r.order_id === 1 && r.tag_id === 2)!.Note).to.equal('changed');
+      expect((await rows<OrderTagRow>('uow_order_tag')).find((r) => r.order_id === 1 && r.tag_id === 1)!.Note).to.equal('first red');
     });
 
     it('writes nothing on a second save of the same links', async () => {
@@ -145,7 +154,7 @@ describe('ModelBase.save - many-to-many junction data', function () {
 
       await onOtherConnection(UowTag, () => order.save());
 
-      expect((await rows('uow_order_tag')).map((r) => [r.tag_id, r.Note])).to.deep.equal([[1, 'remote']]);
+      expect((await rows<OrderTagRow>('uow_order_tag')).map((r) => [r.tag_id, r.Note])).to.deep.equal([[1, 'remote']]);
     });
 
     it('refuses a new target on another connection', async () => {
@@ -177,7 +186,7 @@ describe('ModelBase.save - many-to-many junction data', function () {
       const result = await order.save();
 
       expect(result.Inserted).to.equal(3);
-      expect((await rows('uow_order_item')).map((r) => [r.Sku, r.order_id])).to.deep.equal([
+      expect((await rows<OrderItemRow>('uow_order_item')).map((r) => [r.Sku, r.order_id])).to.deep.equal([
         ['A', order.Id],
         ['B', order.Id],
       ]);
@@ -190,14 +199,14 @@ describe('ModelBase.save - many-to-many junction data', function () {
 
       await order.save();
 
-      expect((await rows('uow_strict_item')).map((r) => [r.Sku, r.order_id])).to.deep.equal([['S', order.Id]]);
+      expect((await rows<OrderItemRow>('uow_strict_item')).map((r) => [r.Sku, r.order_id])).to.deep.equal([['S', order.Id]]);
     });
   });
 
   describe('clone', () => {
     it('copies a loaded graph: hasMany cloned, many-to-many targets linked with copies of their junction rows', async () => {
       await seed();
-      await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 } as any);
+      await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
       const order = await UowOrder.where({ Id: 1 }).populate('Tags').populate('Items').first();
 
       const copy = order.clone({ relations: ['Items', 'Tags'] });
@@ -214,15 +223,15 @@ describe('ModelBase.save - many-to-many junction data', function () {
 
       expect(result.Inserted).to.equal(2);
       expect(result.JunctionInserted).to.equal(2);
-      expect((await rows('uow_order_item')).map((r) => [r.Sku, r.order_id])).to.deep.equal([
+      expect((await rows<OrderItemRow>('uow_order_item')).map((r) => [r.Sku, r.order_id])).to.deep.equal([
         ['A', 1],
         ['A', copy.Id],
       ]);
-      expect((await rows('uow_order_tag')).filter((r) => r.order_id === copy.Id).map((r) => [r.tag_id, r.Note])).to.have.deep.members([
+      expect((await rows<OrderTagRow>('uow_order_tag')).filter((r) => r.order_id === copy.Id).map((r) => [r.tag_id, r.Note])).to.have.deep.members([
         [1, 'first red'],
         [2, 'first blue'],
       ]);
-      expect((await rows('uow_order_tag')).filter((r) => r.order_id === 1)).to.have.length(2);
+      expect((await rows<OrderTagRow>('uow_order_tag')).filter((r) => r.order_id === 1)).to.have.length(2);
     });
 
     it('leaves out the given columns', async () => {

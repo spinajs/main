@@ -23,7 +23,7 @@ const CONNECTION: IDriverOptions = {
   Password: process.env.SPINAJS_TEST_MYSQL_PASSWORD ?? '',
   Database: process.env.SPINAJS_TEST_MYSQL_DB ?? 'test',
   Migration: { OnStartup: true, Table: 'configuration_db_source_migrations' },
-} as IDriverOptions;
+};
 
 class MysqlConfiguration extends FrameworkConfiguration {
   protected loadSources(): void {
@@ -40,7 +40,7 @@ class MysqlConfiguration extends FrameworkConfiguration {
 
 /** A clean schema for each boot: the migrations recreate the table and the test rows. */
 async function dropTables(): Promise<void> {
-  const driver = (await DI.resolve<OrmDriver>('orm-driver-mysql', [CONNECTION])) as OrmDriver;
+  const driver = await DI.resolve<OrmDriver>('orm-driver-mysql', [CONNECTION]);
   await driver.connect();
   try {
     await driver.schema().dropTable('configuration').ifExists();

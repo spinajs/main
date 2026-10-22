@@ -48,7 +48,7 @@ describe('postgres @Int64 columns (integration)', function () {
     const model = new PgGapInt64({ Counter: '42', Big: 42n, Small: 42 });
     await PgGapInt64.insert(model);
 
-    const read = (await PgGapInt64.where('Id', model.Id).first()) as PgGapInt64;
+    const read = await PgGapInt64.where('Id', model.Id).first();
 
     expect(read.Counter).to.eq('42');
     expect(read.Big).to.eq(42n);
@@ -61,7 +61,7 @@ describe('postgres @Int64 columns (integration)', function () {
 
     await PgGapInt64.update({ Counter: '44', Big: 43n }).where('Id', model.Id);
 
-    const read = (await PgGapInt64.where('Id', model.Id).first()) as PgGapInt64;
+    const read = await PgGapInt64.where('Id', model.Id).first();
     expect(read.Counter).to.eq('44');
     expect(read.Big).to.eq(43n);
   });
@@ -72,22 +72,22 @@ describe('postgres @Int64 columns (integration)', function () {
     await PgGapInt64.insert(one);
     await PgGapInt64.insert(two);
 
-    expect(((await PgGapInt64.where('Big', 7043n).first()) as PgGapInt64).Id).to.eq(two.Id);
-    expect(((await PgGapInt64.where('Counter', '7044').first()) as PgGapInt64).Id).to.eq(two.Id);
-    expect(((await PgGapInt64.where('Counter', ' 7044 ').first()) as PgGapInt64).Id).to.eq(two.Id);
+    expect(((await PgGapInt64.where('Big', 7043n).first())).Id).to.eq(two.Id);
+    expect(((await PgGapInt64.where('Counter', '7044').first())).Id).to.eq(two.Id);
+    expect(((await PgGapInt64.where('Counter', ' 7044 ').first())).Id).to.eq(two.Id);
 
-    const found = (await PgGapInt64.query().whereIn('Counter', ['7001', '7044'])) as PgGapInt64[];
+    const found = await PgGapInt64.query().whereIn('Counter', ['7001', '7044']);
     expect(found.map((m) => m.Id).sort((a, b) => a - b)).to.deep.eq([one.Id, two.Id].sort((a, b) => a - b));
 
     const long = [...Array.from({ length: 1500 }, (_, i) => String(1000000 + i)), '7044'];
-    const foundLong = (await PgGapInt64.query().whereIn('Counter', long)) as PgGapInt64[];
+    const foundLong = await PgGapInt64.query().whereIn('Counter', long);
     expect(foundLong.map((m) => m.Id)).to.deep.eq([two.Id]);
   });
 
   it('keeps a value beyond 2^53 exact as string and bigint', async () => {
     await pgdb!.driver.insert().into('pg_gap_int64').values({ Id: 99, Counter: '9007199254740993', Big: '9007199254740993' });
 
-    const read = (await PgGapInt64.where('Id', 99).first()) as PgGapInt64;
+    const read = await PgGapInt64.where('Id', 99).first();
     expect(read.Counter).to.eq('9007199254740993');
     expect(read.Big).to.eq(9007199254740993n);
   });

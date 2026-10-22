@@ -38,8 +38,9 @@ export class FromBody extends RouteArgs {
 
   public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
     if (!req.body) {
+      const options: { required?: boolean } | undefined = param.Options;
       // `tryHydrateParam` is what refuses an absent `{ required: true }` parameter
-      return { CallData: callData, Args: (param.Options as { required?: unknown } | undefined)?.required === true ? await this.tryHydrateParam(undefined, param, route) : null };
+      return { CallData: callData, Args: options?.required === true ? await this.tryHydrateParam(undefined, param, route) : null };
     }
 
     // Use presence, not truthiness — a body field legitimately holding 0,

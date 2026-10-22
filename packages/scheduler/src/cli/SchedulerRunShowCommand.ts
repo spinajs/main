@@ -1,5 +1,5 @@
 import { Argument, Command, Option } from '@spinajs/cli';
-import { isTerminalEvent } from '../contract.js';
+import { isTerminalEvent, RunDetail } from '../contract.js';
 import { follow } from '../cli-support/follow.js';
 import { duration, formatEvent, table, when } from '../cli-support/format.js';
 import { SchedulerCommand } from '../cli-support/SchedulerCommand.js';
@@ -15,46 +15,48 @@ export class SchedulerRunShowCommand extends SchedulerCommand {
       const service = await this.service();
       const r = await service.getRun(id);
       if (options.json && !options.follow) return this.json(r);
-      if (!options.json) {
-        const by = r.triggeredBy ? ` by ${r.triggeredBy.kind}:${r.triggeredBy.id}` : '';
-        const next = r.nextAttemptAt ? `, next ${when(r.nextAttemptAt)}` : '';
-        this.print(`run:      ${r.id} (${r.schedule})`);
-        this.print(`status:   ${r.status}${r.reason ? ` (${r.reason})` : ''}${r.stale ? ' [stale]' : ''}`);
-        this.print(`trigger:  ${r.trigger}${by}${r.parentRunId ? `, retry of ${r.parentRunId}` : ''}`);
-        this.print(`attempt:  ${r.attempt}/${r.maxAttempts}${next}`);
-        this.print(
-          `progress: ${r.progress}%${r.currentStep ? ` in ${r.currentStep}` : ''}${r.message ? ` - ${r.message}` : ''}`,
-        );
-        this.print(
-          `timing:   created ${when(r.createdAt)}, started ${when(r.startedAt)}, finished ${when(
-            r.finishedAt,
-          )}, took ${duration(r.durationMs)}`,
-        );
-        if (r.error) {
-          this.print(`error:    ${r.error.name}: ${r.error.message}${r.error.step ? ` (step ${r.error.step})` : ''}`);
-        }
-        if (r.result !== null && r.result !== undefined) this.print(`result:   ${JSON.stringify(r.result)}`);
-        if (r.steps.length) {
-          this.print();
-          table(
-            ['ATTEMPT', 'STEP', 'STATUS', 'DURATION', 'PROGRESS', 'MESSAGE'],
-            r.steps.map((s) => [
-              String(s.attempt),
-              s.name,
-              s.status,
-              duration(s.durationMs),
-              `${s.progress}%`,
-              s.message ?? '',
-            ]),
-          ).forEach((l) => this.print(l));
-        }
-        if (r.logs.length) {
-          this.print();
-          r.logs.forEach((e) => this.print(formatEvent(e)));
-        }
-      }
+      if (!options.json) this.printRun(r);
       if (options.follow) await this.followRun(id, !!options.json);
     });
+  }
+
+  protected printRun(r: RunDetail): void {
+    const by = r.triggeredBy ? ` by ${r.triggeredBy.kind}:${r.triggeredBy.id}` : '';
+    const next = r.nextAttemptAt ? `, next ${when(r.nextAttemptAt)}` : '';
+    this.print(`run:      ${r.id} (${r.schedule})`);
+    this.print(`status:   ${r.status}${r.reason ? ` (${r.reason})` : ''}${r.stale ? ' [stale]' : ''}`);
+    this.print(`trigger:  ${r.trigger}${by}${r.parentRunId ? `, retry of ${r.parentRunId}` : ''}`);
+    this.print(`attempt:  ${r.attempt}/${r.maxAttempts}${next}`);
+    this.print(
+      `progress: ${r.progress}%${r.currentStep ? ` in ${r.currentStep}` : ''}${r.message ? ` - ${r.message}` : ''}`,
+    );
+    this.print(
+      `timing:   created ${when(r.createdAt)}, started ${when(r.startedAt)}, finished ${when(
+        r.finishedAt,
+      )}, took ${duration(r.durationMs)}`,
+    );
+    if (r.error) {
+      this.print(`error:    ${r.error.name}: ${r.error.message}${r.error.step ? ` (step ${r.error.step})` : ''}`);
+    }
+    if (r.result !== null && r.result !== undefined) this.print(`result:   ${JSON.stringify(r.result)}`);
+    if (r.steps.length) {
+      this.print();
+      table(
+        ['ATTEMPT', 'STEP', 'STATUS', 'DURATION', 'PROGRESS', 'MESSAGE'],
+        r.steps.map((s) => [
+          String(s.attempt),
+          s.name,
+          s.status,
+          duration(s.durationMs),
+          `${s.progress}%`,
+          s.message ?? '',
+        ]),
+      ).forEach((l) => this.print(l));
+    }
+    if (r.logs.length) {
+      this.print();
+      r.logs.forEach((e) => this.print(formatEvent(e)));
+    }
   }
 
   protected async followRun(id: string, asJson: boolean): Promise<void> {

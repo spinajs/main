@@ -54,11 +54,11 @@ function driver(name: string): OrmDriver {
   return DI.get(Orm)!.Connections.get(name)!;
 }
 
-function thrown(fn: () => unknown): any {
+function thrown(fn: () => unknown): { message: string; connection?: string } {
   try {
     fn();
   } catch (e) {
-    return e;
+    return e as { message: string; connection?: string };
   }
   throw new Error('did not throw');
 }

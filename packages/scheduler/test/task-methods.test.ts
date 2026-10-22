@@ -121,7 +121,7 @@ describe('scheduling @Task methods', () => {
 
   it('still writes the legacy __task_history row', async () => {
     await runDigest();
-    const task = (await __task.where('Name', 'send-digest').first())!;
+    const task = await __task.where('Name', 'send-digest').first();
     expect(task.State).to.eq('stopped');
     const history = await __task_history.where('TaskId', task.Id);
     expect(history).to.have.length(1);
@@ -155,7 +155,7 @@ describe('scheduling @Task methods', () => {
     await scheduler.idle();
 
     expect(await getRun(run.Id)).to.include({ Status: 'succeeded', Attempt: 2 });
-    const results = (await __task_history.all()).map((h) => h.Result);
+    const results = (await __task_history.all()).map((h): unknown => h.Result);
     expect(results[0]).to.include({ error: true });
     expect(results[1]).to.deep.eq({ sent: 3 });
   });

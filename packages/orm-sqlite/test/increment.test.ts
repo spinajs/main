@@ -64,7 +64,7 @@ describe('sqlite update increment', function () {
     expect(hit.RowsAffected).to.eq(1);
     expect(miss.RowsAffected).to.eq(0);
 
-    const row = (await GapCounter.where('Id', 1).first()) as GapCounter;
+    const row = await GapCounter.where('Id', 1).first();
     expect(row.Hits).to.eq(7);
     expect(row.Name).to.eq('b');
   });

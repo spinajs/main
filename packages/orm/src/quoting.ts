@@ -40,7 +40,7 @@ export abstract class IdentifierQuoter {
   }
 }
 
-const LEGACY_BACKTICK_QUOTER = { quote: (name: string) => `\`${name}\``, quoteQualified: (name: string) => `\`${name}\`` } as IdentifierQuoter;
+const LEGACY_BACKTICK_QUOTER = { quote: (name: string) => `\`${name}\``, quoteQualified: (name: string) => `\`${name}\`` };
 
 /**
  * The quoter of a builder's driver, for SQL the orm core writes as RawQuery text. A driver
