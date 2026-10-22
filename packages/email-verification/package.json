@@ -47,16 +47,17 @@
     "@spinajs/configuration": "3.0.2",
     "@spinajs/di": "3.0.2",
     "@spinajs/exceptions": "3.0.2",
-    "@spinajs/log": "3.0.2",
-    "@spinajs/util": "3.0.2"
+    "@spinajs/log": "3.0.2"
   },
   "peerDependencies": {
     "@spinajs/scheduler": "3.0.2",
-    "chai": "^4.3.7"
+    "chai": "^4.3.7",
+    "mocha": "^10.2.0"
   },
   "peerDependenciesMeta": {
     "@spinajs/scheduler": { "optional": true },
-    "chai": { "optional": true }
+    "chai": { "optional": true },
+    "mocha": { "optional": true }
   },
   "devDependencies": {
     "@spinajs/scheduler": "3.0.2",
