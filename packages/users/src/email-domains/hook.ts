@@ -1,4 +1,4 @@
-import { Autoinject, Injectable } from '@spinajs/di';
+import { DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { ActionHook } from '@spinajs/hooks';
 import type { ActionName, ActionPattern, BeforeContext } from '@spinajs/hooks';
@@ -27,12 +27,17 @@ export class EmailDomainHook extends ActionHook {
   @Config('users.emailDomains.apply', { defaultValue: DEFAULT_APPLY })
   protected Apply: EmailDomainApply;
 
-  @Autoinject(EmailVerification)
-  protected Verification: EmailVerification;
+  // Read here so that a disabled check never resolves EmailVerification, which needs the emailVerification config.
+  @Config('emailVerification.enabled', { defaultValue: false })
+  protected Enabled: boolean;
+
+  protected Verification?: EmailVerification;
 
   public async before(ctx: BeforeContext<ActionName>): Promise<void> {
+    if (this.Enabled !== true) return;
     const email = this.emailOf(ctx);
     if (email === null) return;
+    this.Verification ??= await DI.resolve(EmailVerification);
     const result = await this.Verification.check(email);
     if (!result.allowed) ctx.refuse(result.code);
   }

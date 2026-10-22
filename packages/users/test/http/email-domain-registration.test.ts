@@ -55,6 +55,7 @@ describe('users.emailDomains over POST /auth/register', function () {
     DI.register(CollectingSink).as(AuthnEventSink);
     await startUsersHttpApp({ register: registerRootRbac });
     scope.set(['users', 'registration'], { enabled: true, activate: true });
+    scope.set(['emailVerification', 'enabled'], true);
   });
 
   after(async () => {
@@ -110,6 +111,7 @@ describe('users.emailDomains over POST /auth/register', function () {
     } finally {
       scope.restore();
       scope.set(['users', 'registration'], { enabled: true, activate: true });
+      scope.set(['emailVerification', 'enabled'], true);
     }
   });
 });

@@ -43,7 +43,7 @@ describe('EmailDomainHook', () => {
     stub = new StubVerification();
     hook = new EmailDomainHook();
     // Property injection is bypassed here; the http test covers DI and config.
-    inject(hook, { Verification: stub, Apply: apply });
+    inject(hook, { Verification: stub, Apply: apply, Enabled: true });
   });
 
   it('refuses a registration with a refused domain', async () => {
@@ -90,6 +90,12 @@ describe('EmailDomainHook', () => {
   it('skips a path switched off in apply', async () => {
     inject(hook, { Apply: { ...apply, usersCreate: false } });
     await hook.before(beforeCtx('users.create', { data: { Email: 'b@mailinator.com' } }).ctx);
+    expect(stub.calls).to.deep.eq([]);
+  });
+
+  it('does nothing while emailVerification is disabled', async () => {
+    inject(hook, { Enabled: false });
+    await hook.before(beforeCtx('authn.registration', { login: 'a', email: 'a@mailinator.com' }).ctx);
     expect(stub.calls).to.deep.eq([]);
   });
 
