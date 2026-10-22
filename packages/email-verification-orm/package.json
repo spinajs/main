@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/email-verification-orm",
-  "version": "3.0.7",
+  "version": "3.0.8",
   "description": "ORM store for @spinajs/email-verification",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -56,16 +56,16 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "3.0.7",
-    "@spinajs/di": "3.0.7",
-    "@spinajs/exceptions": "3.0.7",
-    "@spinajs/log": "3.0.7",
-    "@spinajs/orm": "3.0.7",
-    "@spinajs/util": "3.0.7",
-    "@spinajs/email-verification": "3.0.7"
+    "@spinajs/configuration": "3.0.8",
+    "@spinajs/di": "3.0.8",
+    "@spinajs/exceptions": "3.0.8",
+    "@spinajs/log": "3.0.8",
+    "@spinajs/orm": "3.0.8",
+    "@spinajs/util": "3.0.8",
+    "@spinajs/email-verification": "3.0.8"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "3.0.7",
+    "@spinajs/orm-sqlite": "3.0.8",
     "@types/node": "^22.14.1"
   }
 }

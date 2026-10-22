@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/eslint-plugin-authz",
-  "version": "3.0.7",
+  "version": "3.0.8",
   "description": "ESLint rules for SpinaJS authorization: require .accessible() on @AccessResource queries",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
