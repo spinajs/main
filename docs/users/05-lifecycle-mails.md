@@ -6,7 +6,7 @@ Reset and invite mails are **not** sent here. They carry a secret, so authn-loca
 
 ## How it works
 
-1. After an action succeeded, `UserLifecycleMailHook` reloads the user as the action left it (`userModel()`, metadata populated, a deleted row included) and calls `sendUserEmail(user, '<name>')`. `notifyPasswordWillExpire()` calls `sendUserEmail()` itself.
+1. After an action succeeded, `UserLifecycleMailHook` reloads the user as the action left it (`userModel()`, as `SYSTEM`, metadata populated, a deleted row included; a row that is gone is logged and gets no mail) and calls `sendUserEmail(user, '<name>')`. `notifyPasswordWillExpire()` calls `sendUserEmail()` itself.
 2. `sendUserEmail()` reads `users.email.connection` (`'default'` when unset) and `users.email.<name>`. A missing entry throws `EmailTemplateNotConfigured`.
 3. It checks the entry's `template` and `subject`: non-empty strings of at most 128 characters, or `InvalidArgument`.
 4. With `enabled: true`, it calls `emailDeferred()` (`@spinajs/email`) with:

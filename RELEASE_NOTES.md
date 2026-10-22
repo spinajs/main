@@ -56,8 +56,8 @@ export class AcmeAccounts extends ActionHook<'users.create'> {
 
 What changes for a migrated middleware:
 
-- A hook gets the user's columns as plain data (`UserDraft` before, `UserView` after), never the `User` model, and
-  no password. `before` may also change `data` (`Email`, `Login`, `Id`, `Metadata`) and `roles`, or refuse with
+- A hook gets the user's columns as plain data (`UserDraft` before, `UserView` after) and the actor as an
+  `ActorView` (no `identity`), never a `User` model, and no password. `before` may also change `data` (`Email`, `Login`, `Id`, `Metadata`) and `roles`, or refuse with
   `ctx.refuse(code)`: `create()` then throws `ActionRefused` and writes nothing.
 - What a hook changes is checked again: email and login, uniqueness, the password policy, protected metadata, the
   role dry run. A middleware that set a taken `Login` used to fail on the unique index; the hook gets
