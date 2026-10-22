@@ -23,6 +23,9 @@ export interface PasswordLoginInput {
   readonly ctx: AuthnContext;
 }
 
+/** A redeemed reset or invite names the identity it set the password of; a refused or failed redeem names none. */
+export type PasswordResetOutput = Exclude<PasswordResetResult, { status: 'reset' }> | { readonly status: 'reset'; readonly purpose: 'reset' | 'invite'; readonly id: IdentityRef };
+
 export interface PasswordInviteInput {
   readonly id: IdentityRef;
   readonly actor?: PrincipalRef;
@@ -50,7 +53,7 @@ declare module '@spinajs/hooks' {
     'authn.password.change': { input: PasswordChangeInput; output: PasswordChangeOutput };
     'authn.password.set': { input: PasswordSetInput; output: PasswordSetResult };
     'authn.password.reset.request': { input: PasswordLoginInput; output: PasswordResetRequestResult };
-    'authn.password.reset.redeem': { input: PasswordLoginInput; output: PasswordResetResult };
+    'authn.password.reset.redeem': { input: PasswordLoginInput; output: PasswordResetOutput };
     'authn.password.invite': { input: PasswordInviteInput; output: void };
     /** Not refusable for `cause: 'aged'`. */
     'authn.password.expire': { input: PasswordExpireInput; output: void };

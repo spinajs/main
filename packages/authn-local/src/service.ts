@@ -32,7 +32,7 @@ import type {
 } from '@spinajs/authn/contracts';
 
 import type { AuditLog } from './audit.js';
-import type { PasswordChangeOutput } from './hooks.js';
+import type { PasswordChangeOutput, PasswordResetOutput } from './hooks.js';
 import { AUTHN_LOCAL_DEFAULTS } from './defaults.js';
 import { DeferredWork } from './deferred.js';
 import { EmailCodes } from './email-code/codes.js';
@@ -356,8 +356,12 @@ export class LocalPasswordService extends PasswordService {
     }
 
     // Before the lookup and the redeems: a refusal tells nothing about the login and spends no secret.
+    const redeemed: { id?: IdentityRef } = {};
     try {
-      return await this.runHooked('authn.password.reset.redeem', { login, ctx }, () => this.redeemNow(login, secret, newPassword, ctx), { mutable: [] });
+      return await this.runHooked('authn.password.reset.redeem', { login, ctx }, () => this.redeemNow(login, secret, newPassword, ctx, redeemed), {
+        mutable: [],
+        output: (r): PasswordResetOutput => (r.status === 'reset' ? { ...r, id: redeemed.id as IdentityRef } : r),
+      });
     } catch (err) {
       const refusal = hookRefusalOf(err, 'authn.password.reset.redeem');
       if (!refusal) throw err;
@@ -366,7 +370,8 @@ export class LocalPasswordService extends PasswordService {
     }
   }
 
-  protected async redeemNow(login: string, secret: string, newPassword: string, ctx: AuthnContext): Promise<PasswordResetResult> {
+  /** `redeemed.id` is set to the identity whose password the redeem set, for the after hooks. */
+  protected async redeemNow(login: string, secret: string, newPassword: string, ctx: AuthnContext, redeemed?: { id?: IdentityRef }): Promise<PasswordResetResult> {
     const identities = await this.identities();
     const secrets = await this.secrets();
     const id = await identities.findByLogin(login);
@@ -397,6 +402,7 @@ export class LocalPasswordService extends PasswordService {
     const purpose = asReset ? 'reset' : 'invite';
 
     await this.storePassword(target, newPassword);
+    if (redeemed) redeemed.id = target;
     await this.sessions().revokeAll(target, { includeImpersonations: true });
     await this.revokeTokensOf(target, ctx);
 
