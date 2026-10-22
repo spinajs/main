@@ -11,7 +11,7 @@ import { notFound } from '../../policies/v3/errors.js';
 import { serviceRegistered } from '../../policies/v3/groups.js';
 import { freshAuthOrAnswer, takeReauthPassword } from '../../policies/v3/fresh-auth.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy } from '../index.js';
-import { NO_STORE, badRequest, instant } from '../responses.js';
+import { NO_STORE, badRequest, instant, refusedByHook } from '../responses.js';
 import { bodyField, boundedString, completeLogin, contextOf } from '../routes.js';
 
 /** Above the challenge ids authn-webauthn draws (22 characters). */
@@ -116,7 +116,8 @@ export class AuthnPasskeyController extends BaseController {
    * Register a passkey
    * Body `{ challengeId, response, name?, reauthPassword? }`: a challenge from POST /user/passkeys/options and the
    * browser's RegistrationResponseJSON. Answers the passkey `{ id, name, transports, createdAt, lastUsedAt }`. 400
-   * `invalid_response` (also a used, expired or foreign challenge) or `invalid_name`; 409 `passkey_taken`.
+   * `invalid_response` (also a used, expired or foreign challenge) or `invalid_name`; 409 `passkey_taken`; 403
+   * `action_refused` with `code` when an `authn.passkey.register` hook refuses.
    * @security cookieAuth
    */
   @Post('user/passkeys')
@@ -130,7 +131,12 @@ export class AuthnPasskeyController extends BaseController {
     const rawName = bodyField(req, 'name');
     const name = rawName === undefined ? undefined : boundedString(rawName, NAME_CAP);
     if (name === null || (name !== undefined && hasControlCharacter(name))) return badRequest('invalid_name', `name must be 1 to ${NAME_CAP} characters without control characters`);
-    const result = await (await this.passkeys()).register(session.identity, { ...body, ...(name !== undefined ? { name } : {}) }, contextOf(req, 'request', session.handle));
+    let result: Awaited<ReturnType<PasskeyService['register']>>;
+    try {
+      result = await (await this.passkeys()).register(session.identity, { ...body, ...(name !== undefined ? { name } : {}) }, contextOf(req, 'request', session.handle));
+    } catch (err) {
+      return refusedByHook(err, 'authn.passkey.register');
+    }
     if (!result.ok) {
       if (result.code === 'duplicate') return new Conflict({ error: 'passkey_taken', message: 'this passkey is already registered' }, { Headers: [NO_STORE] });
       return badRequest('invalid_response', 'the registration does not verify against a registration challenge of this user');
@@ -151,14 +157,20 @@ export class AuthnPasskeyController extends BaseController {
 
   /**
    * Delete an own passkey
-   * 404 `passkey_not_found` for any id that is not a passkey of the caller, whoever holds it.
+   * 404 `passkey_not_found` for any id that is not a passkey of the caller, whoever holds it; 403 `action_refused` with
+   * `code` when an `authn.passkey.revoke` hook refuses.
    * @security cookieAuth
    */
   @Del('user/passkeys/:id')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
   public async remove(@Req() req: Request, @Param() id: string) {
     const session = keyManager(req);
-    const removed = typeof id === 'string' && CREDENTIAL_ID.test(id) && (await (await this.passkeys()).remove(session.identity, id, contextOf(req, 'request', session.handle)));
+    let removed: boolean;
+    try {
+      removed = typeof id === 'string' && CREDENTIAL_ID.test(id) && (await (await this.passkeys()).remove(session.identity, id, contextOf(req, 'request', session.handle)));
+    } catch (err) {
+      return refusedByHook(err, 'authn.passkey.revoke');
+    }
     if (!removed) return passkeyNotFound();
     return new Ok(null, { Headers: [NO_STORE] });
   }

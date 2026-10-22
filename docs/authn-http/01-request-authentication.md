@@ -75,6 +75,7 @@ sequenceDiagram
 | `authn.http.trustProxy` | `string[]` or `integer` or `null` | unset | CIDR or address list, hop count `>= 0`, `null` | Proxies `ClientIp` trusts for `X-Forwarded-For`. `null` or unset falls back to `http.trustProxy`; `0` trusts no proxy. `true` coerces to 1 hop, `false` to 0. |
 | `http.trustProxy` | see [Client IP](../http/17-client-ip-and-trust-proxy.md#configuration) | | | Used when `authn.http.trustProxy` is `null` or unset. |
 | `authn.http.publicOrigin` | `string` or `null` | unset | `scheme://host[:port]` | The origin clients put in an HTTP signature's `@target-uri`. Unset: signed requests get no principal, and `AuthnMiddleware` warns at boot. |
+| `authn.http.hooks.request` | `boolean` | `false` | `true`, `false` | Runs the `authn.request` [action hooks](23-action-hooks.md) on every request once its principal is resolved; a refusal answers 403 `{ code }`. Any value but `true` is off. |
 | `http.cookie.secret` | `string` | `@spinajs/http` default | your own secret | Verifies the session cookie signature. Missing: boot fails. The public default: boot fails outside development and test, warns inside them. |
 | `authn.session.cookie` | object | see [Session cookie](../authn-session/07-session-cookie.md) | | Cookie name and flags; `AuthnMiddleware` reads the name through `sessionCookieName()`. |
 

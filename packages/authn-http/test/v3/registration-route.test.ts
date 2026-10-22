@@ -7,10 +7,15 @@ import { AuthnAudit } from '@spinajs/authn';
 import { AuthnThrottle, IdentityRegistrar, PasswordService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, IdentityRef, PasswordPolicy, PasswordPolicyContext, PasswordViolation, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 import { InvalidArgument } from '@spinajs/exceptions';
+import type { Hooks } from '@spinajs/hooks';
+import { kitHooks } from '@spinajs/authn-testing';
 
 import { IdentityRegistrarRegistered } from '../../src/policies/v3/groups.js';
 import { AuthnRegistrationController } from '../../src/v3/controllers/AuthnRegistrationController.js';
 import { fakeContainer, readingFrom } from '../support/config-boot.js';
+
+/** The Hooks DI injects into the controller, with no hook registered. */
+let hooks: Hooks;
 
 const ROUTE = 'auth/register';
 const IP = '192.0.2.7';
@@ -122,7 +127,7 @@ function world(config: Record<string, unknown> = { 'authn.http.registration.noti
   ]);
   const container = { resolve: async (type: unknown) => services.get(type) } as unknown as IContainer;
   const controller = readingFrom(new AuthnRegistrationController(), fakeContainer(config));
-  Object.assign(controller, { Container: container });
+  Object.assign(controller, { Container: container, Hooks: hooks });
   Object.defineProperty(controller, '_log', { value: { warn: () => undefined } });
 
   const request = (body: unknown, ip: string = IP): Request => ({ body, headers: { 'user-agent': 'mocha' }, storage: { ClientIp: ip } }) as unknown as Request;
@@ -150,6 +155,10 @@ function answerOf(res: unknown): Answer {
 const ACCEPTED = { status: 202, body: { status: 'accepted' }, noStore: true };
 
 describe('POST /auth/register (FEAT-4)', () => {
+  before(async () => {
+    hooks = await kitHooks([]);
+  });
+
   describe('route table', () => {
     const descriptor = (): IControllerDescriptor => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, AuthnRegistrationController.prototype) as IControllerDescriptor;
 

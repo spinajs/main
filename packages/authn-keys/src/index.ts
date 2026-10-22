@@ -9,3 +9,4 @@ export * from './strategies/index.js';
 export * from './httpsig/index.js';
 export * from './schema.js';
 export * from './bootstrap.js';
+export * from './hooks.js';

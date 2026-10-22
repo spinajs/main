@@ -2,6 +2,9 @@ import { Config } from '@spinajs/configuration';
 import '@spinajs/authn/register-schema';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
+import { Hooks } from '@spinajs/hooks';
+import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
+import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
 import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
@@ -9,6 +12,7 @@ import { AuthnService, AuthnThrottle, MfaEnrolmentService, MfaStep, SessionIssue
 import type { AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, Credentials, IdentityRef, MfaBeginResult, MfaConfirmResult, MfaDisableResult, MfaRegenerateResult, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from '../step/errors.js';
 import { TotpMfaStep } from '../step/totp-step.js';
+import '../hooks.js';
 
 export type TotpBeginResult = MfaBeginResult;
 export type TotpConfirmResult = MfaConfirmResult;
@@ -27,7 +31,10 @@ export interface TotpServiceDeps {
   readonly sinks?: readonly AuthnEventSink[];
   /** `authn.freshAuth.maxAgeSeconds`. */
   readonly maxAgeSeconds?: number;
+  /** Otherwise the registered Hooks; built with `new` and without it, no action hooks run. */
+  readonly hooks?: Hooks;
 }
+
 
 interface Current {
   readonly handle: SessionHandle;
@@ -69,6 +76,9 @@ export class TotpService extends MfaEnrolmentService {
   @Autoinject(AuthnThrottle, { optional: true })
   protected Throttle: AuthnThrottle | undefined;
 
+  @Autoinject(Hooks)
+  protected Hooks: Hooks;
+
   private readonly sinkAudit: AuthnAuditor | undefined;
 
   constructor(private readonly deps: TotpServiceDeps = {}) {
@@ -90,6 +100,23 @@ export class TotpService extends MfaEnrolmentService {
     if (!(await this.fresh(c, ctx, reauth))) {
       return { ok: false, code: 'not_fresh' };
     }
+    let result: TotpBeginResult | undefined;
+    await this.refusable(
+      'authn.mfa.enrol.begin',
+      { session, ctx },
+      async () => {
+        result = await this.beginNow(step, c);
+        // The provisioning URI holds the secret: hooks see the outcome only.
+        return result.ok ? { ok: true as const } : result;
+      },
+      ctx,
+      c,
+      'mfa.enrol',
+    );
+    return result!;
+  }
+
+  protected async beginNow(step: TotpMfaStep, c: Current): Promise<TotpBeginResult> {
     try {
       const { provisioning } = await step.beginEnrolment(c.identity);
       return { ok: true, provisioning };
@@ -119,6 +146,22 @@ export class TotpService extends MfaEnrolmentService {
       await this.audit(ctx, c, { type: 'mfa.enrol', outcome: 'failure', reason: failure });
       return { ok: false, code: failure };
     }
+    let result: TotpConfirmResult | undefined;
+    await this.refusable(
+      'authn.mfa.enrol.confirm',
+      { session, ctx },
+      async () => {
+        result = await this.confirmNow(step, throttle, c, code, ctx);
+        return result.ok ? { ok: true as const } : result;
+      },
+      ctx,
+      c,
+      'mfa.enrol',
+    );
+    return result!;
+  }
+
+  protected async confirmNow(step: TotpMfaStep, throttle: AuthnThrottle, c: Current, code: string, ctx: AuthnContext): Promise<TotpConfirmResult> {
     const keys = identityThrottleKeys(c.identity, ctx);
     const gate = await throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
@@ -167,6 +210,10 @@ export class TotpService extends MfaEnrolmentService {
     if (!(await step.enrolled(c.identity))) {
       return { ok: false, code: 'not_enrolled' };
     }
+    return this.refusable('authn.mfa.disable', { session, ctx }, () => this.disableNow(step, throttle, c, code, ctx), ctx, c, 'mfa.disable');
+  }
+
+  protected async disableNow(step: TotpMfaStep, throttle: AuthnThrottle, c: Current, code: string, ctx: AuthnContext): Promise<TotpDisableResult> {
     const keys = identityThrottleKeys(c.identity, ctx);
     const gate = await throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
@@ -196,6 +243,24 @@ export class TotpService extends MfaEnrolmentService {
       await this.audit(ctx, c, { type: 'mfa.enrol', outcome: 'failure', reason: 'not_fresh', data });
       return { ok: false, code: 'not_fresh' };
     }
+    let result: TotpRegenerateResult | undefined;
+    await this.refusable(
+      'authn.mfa.recovery.regenerate',
+      { session, ctx },
+      async () => {
+        result = await this.regenerateNow(step, c, ctx);
+        return result.ok ? { ok: true as const } : result;
+      },
+      ctx,
+      c,
+      'mfa.enrol',
+      data,
+    );
+    return result!;
+  }
+
+  protected async regenerateNow(step: TotpMfaStep, c: Current, ctx: AuthnContext): Promise<TotpRegenerateResult> {
+    const data = { recoveryCodes: 'regenerated' };
     let recoveryCodes: readonly string[];
     try {
       recoveryCodes = await step.regenerateRecoveryCodes(c.identity);
@@ -212,11 +277,42 @@ export class TotpService extends MfaEnrolmentService {
 
   /** True when an enrolment or a pending row existed. */
   async adminReset(actor: PrincipalRef, target: IdentityRef, ctx: AuthnContext): Promise<{ reset: boolean }> {
+    try {
+      return await this.runHooked('authn.mfa.adminReset', { actor, target, ctx }, () => this.adminResetNow(actor, target, ctx), { mutable: [] });
+    } catch (err) {
+      const refusal = hookRefusalOf(err, 'authn.mfa.adminReset');
+      if (!refusal) throw err;
+      await this.publish(ctx, { type: 'mfa.disable', outcome: 'failure', identity: target, actor, reason: refusal.reason, data: { reset: true } });
+      return { reset: false };
+    }
+  }
+
+  protected async adminResetNow(actor: PrincipalRef, target: IdentityRef, ctx: AuthnContext): Promise<{ reset: boolean }> {
     const step = this.step();
     const before = await step.enrolment(target);
     await step.disable(target);
     await this.publish(ctx, { type: 'mfa.disable', outcome: 'success', identity: target, actor, data: { reset: true, existed: before } });
     return { reset: before !== 'none' };
+  }
+
+  protected runHooked<A extends ActionName>(action: A, input: InputOf<A>, impl: (input: InputOf<A>) => Promise<OutputOf<A>>, opts: RunOptions<A>): Promise<OutputOf<A>> {
+    // Built with `new` and without deps.hooks, nothing injects Hooks.
+    const hooks = this.deps.hooks ?? this.Hooks;
+    return hooks ? runHookedAction(hooks, action, input, impl, opts) : impl(input);
+  }
+
+  /**
+   * Runs an owner action through its hooks. A refusal is audited as `type` and thrown: the contract's results have no member
+   * for it, so the caller maps ActionRefused and ActionHookFailed.
+   */
+  private async refusable<A extends ActionName>(action: A, input: InputOf<A>, impl: (input: InputOf<A>) => Promise<OutputOf<A>>, ctx: AuthnContext, c: Current, type: 'mfa.enrol' | 'mfa.disable', data?: Record<string, unknown>): Promise<OutputOf<A>> {
+    try {
+      return await this.runHooked(action, input, impl, { mutable: [] });
+    } catch (err) {
+      const refusal = hookRefusalOf(err, action);
+      if (refusal) await this.audit(ctx, c, { type, outcome: 'failure', reason: refusal.reason, ...(data ? { data } : {}) });
+      throw err;
+    }
   }
 
   /** The restored session, active or pending, unless it is gone or impersonated. */
