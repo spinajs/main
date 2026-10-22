@@ -18,7 +18,7 @@ const HOUR_MS = 60 * 60 * 1000;
 /**
  * `PATCH /users/:uuid` changing an Email or Login (review 3, H2; review 5, I1; review 5b, N1). The public password reset
  * goes to the e-mail address, so such a change hands the account over: it needs fresh authentication, the caller's own
- * account included, and for another account also authn's CredentialAdminGuard (users': `users:credentials`, the target
+ * account included, and for another account also authn's CredentialAdminRule (users': `users:credentials`, the target
  * covered, no protected role), as authn-http's admin password reset; both are asked before anything is written.
  * Role-only changes are not affected.
  */
