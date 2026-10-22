@@ -5,6 +5,7 @@ import type { ActionName, ActionPattern, AfterContext } from '@spinajs/hooks';
 
 import { sendUserEmail } from '../actions.js';
 import { userModel } from '../model-token.js';
+import { runAsSystem } from '../system.js';
 import type { User } from '../models/User.js';
 import type { UserView, UsersCreateOutput } from '../hooks.js';
 
@@ -51,16 +52,23 @@ export class UserLifecycleMailHook extends ActionHook {
 
     try {
       const u = await this.recipient(uuid);
-      if (u) await this.send(u, mail);
+      if (!u) {
+        this.Log.warn({ action: ctx.action, mail, userUuid: uuid }, 'The ${mail} mail of ${action} was not sent: user ${userUuid} not found');
+        return;
+      }
+      await this.send(u, mail);
     } catch (err) {
       // The class only: a driver or transport error can carry the address and the model.
       this.Log.warn({ action: ctx.action, mail, errorClass: err instanceof Error ? err.constructor.name : typeof err }, 'The ${mail} mail of ${action} was not sent: ${errorClass}');
     }
   }
 
-  /** The user as the action left it, the model the mail template gets; a deleted one included. */
+  /**
+   * The user as the action left it, the model the mail template gets; a deleted one included. As SYSTEM: the caller
+   * may not read the row through an `@AccessResource` user model, and the mail must not depend on that.
+   */
   protected async recipient(uuid: string): Promise<User | undefined> {
-    return (await userModel().query().withDeleted().where('Uuid', uuid).populate('Metadata').first()) ?? undefined;
+    return runAsSystem('lifecycle-mail', async () => (await userModel().query().withDeleted().where('Uuid', uuid).populate('Metadata').first()) ?? undefined);
   }
 
   protected async send(u: User, mail: LifecycleMail): Promise<void> {
