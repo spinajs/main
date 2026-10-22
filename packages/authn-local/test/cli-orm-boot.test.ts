@@ -125,7 +125,7 @@ describe('authn-local cli commands on a Migration.OnStartup connection', functio
     await DI.get(Orm)?.dispose();
     DI.uncache(OrmMigrator);
     DI.uncache(Orm);
-    for (const t of [DbBackedIdentityStore, IdentityStore, DbBackedAgeSource, PasswordAgeSource, PasswordService, LocalPasswordService, PasswordExpirationJob, QuietSetUserPassword, ExpirePasswords]) DI.uncache(t as never);
+    for (const t of [DbBackedIdentityStore, IdentityStore, DbBackedAgeSource, PasswordAgeSource, PasswordService, LocalPasswordService, PasswordExpirationJob, QuietSetUserPassword, ExpirePasswords]) DI.uncache<unknown>(t);
   });
 
   after(() => {
@@ -134,11 +134,11 @@ describe('authn-local cli commands on a Migration.OnStartup connection', functio
     DI.uncache('orm-driver-sqlite');
     for (const [type, as] of registered) {
       DI.unregister(type);
-      DI.uncache(type as never);
-      DI.uncache(as as never);
+      DI.uncache<unknown>(type);
+      DI.uncache<unknown>(as);
     }
     // AuthnAudit keeps the sinks of its first resolve; a later suite registers its own RecordingEventSink.
-    for (const t of [PasswordHasher, Argon2PasswordHasher, LocalPasswordPolicy, AuthnAudit]) DI.uncache(t as never);
+    for (const t of [PasswordHasher, Argon2PasswordHasher, LocalPasswordPolicy, AuthnAudit]) DI.uncache<unknown>(t);
   });
 
   it('authn:password finds the login through a DB-backed store and sets the password', async () => {

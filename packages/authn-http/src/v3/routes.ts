@@ -86,7 +86,7 @@ export async function completeLogin(container: IContainer, sessions: SessionIssu
  * ActiveRole cannot hold ends the session, which must never live on with every held role, and fails the request.
  */
 export async function startedSession(container: IContainer, sessions: SessionIssuer, kind: 'login' | 'mfa', handle: SessionHandle, principal: Principal): Promise<Principal> {
-  const hooks = (await container.resolve(Array.ofType(SessionStartHook))) as SessionStartHook[];
+  const hooks = await container.resolve(Array.ofType(SessionStartHook));
   try {
     // A resolve of the abstract base itself would leave an instance of it in the list; it answers nothing.
     for (const hook of hooks.filter((h) => h?.constructor !== SessionStartHook && typeof h?.onStart === 'function')) {
@@ -160,7 +160,7 @@ export function summaryOf(p: Principal): Record<string, unknown> {
 /** The principal summary, then each registered AuthnResponseExtension in turn (D26: users adds `Access`). */
 export async function answerFor(container: IContainer, kind: AnswerKind, principal: Principal, extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
   const body: Record<string, unknown> = { ...summaryOf(principal), ...extra };
-  const extensions = (await container.resolve(Array.ofType(AuthnResponseExtension))) as AuthnResponseExtension[];
+  const extensions = await container.resolve(Array.ofType(AuthnResponseExtension));
   // A resolve of the abstract base itself would leave an instance of it in the list; it extends nothing.
   for (const ext of extensions.filter((e) => e?.constructor !== AuthnResponseExtension && typeof e?.extend === 'function')) await ext.extend(kind, principal, body);
   return body;
