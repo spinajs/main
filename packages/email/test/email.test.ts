@@ -164,11 +164,11 @@ async function wait(amount?: number) {
 }
 
 const reachable = (host: string, port: number) =>
-  new Promise<boolean>((done) => {
+  new Promise<boolean>((resolve) => {
     const socket = connect({ host, port, timeout: 3000 });
-    socket.once('connect', () => (socket.destroy(), done(true)));
-    socket.once('error', () => done(false));
-    socket.once('timeout', () => (socket.destroy(), done(false)));
+    socket.once('connect', () => (socket.destroy(), resolve(true)));
+    socket.once('error', () => resolve(false));
+    socket.once('timeout', () => (socket.destroy(), resolve(false)));
   });
 
 describe('smtp email transport', function () {

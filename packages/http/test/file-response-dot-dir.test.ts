@@ -20,9 +20,9 @@ describe('sendFileAt', () => {
     writeFileSync(join(dir, '.hidden', '.secret'), 'nope');
 
     const app = express();
-    app.get('/file', (req, res) => sendFileAt(res, String(req.query.path), (err) => err && res.status(404).end()));
-    server = await new Promise<Server>((ok) => {
-      const s = app.listen(0, () => ok(s));
+    app.get('/file', (req, res) => sendFileAt(res, req.query.path as string, (err) => err && res.status(404).end()));
+    server = await new Promise<Server>((resolve) => {
+      const s = app.listen(0, () => resolve(s));
     });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/file?path=`;
   });
