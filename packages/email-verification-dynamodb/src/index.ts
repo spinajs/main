@@ -8,6 +8,8 @@ import type { CachedVerdict, DynamoDbStoreOptions, ListEntry, ListKind } from '@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 
+class DamagedListError extends InvalidOperation {}
+
 type Item = Record<string, AttributeValue>;
 
 interface Condition {
@@ -82,7 +84,7 @@ export class DynamoDbEmailVerificationStore extends EmailVerificationStore {
   protected Client: DynamoDBClient;
 
   public async resolve(): Promise<void> {
-    this.Client = this.createClient(this.Options.config as DynamoDBClientConfig);
+    this.Client = this.createClient(this.Options.config);
     if (this.Options.createTable) await this.ensureTable();
     await super.resolve();
   }
@@ -120,7 +122,14 @@ export class DynamoDbEmailVerificationStore extends EmailVerificationStore {
       const at = m.indexOf('#');
       const kind = m.slice(0, at) as ListKind;
       const source = m.slice(at + 1);
-      const domains = await this.readSource(kind, source);
+      let domains: string[] | null;
+      try {
+        domains = await this.readSource(kind, source);
+      } catch (err) {
+        if (!(err instanceof DamagedListError)) throw err;
+        this.Log.warn(`${err.message}; skipped`);
+        continue;
+      }
       if (domains === null) {
         this.Log.warn(`Email domain list ${kind}#${source} stayed unreadable through ${MAX_ATTEMPTS} reads; skipped`);
         continue;
@@ -203,8 +212,14 @@ export class DynamoDbEmailVerificationStore extends EmailVerificationStore {
       return true;
     } catch (err) {
       // The put can commit while the client sees an error, e.g. a retry failing on the put's own effect.
-      const now = await this.get(sourcePk(kind, source));
+      let now: Item | undefined;
+      try {
+        now = await this.get(sourcePk(kind, source));
+      } catch {
+        throw err;
+      }
       if (now?.Gen.S === gen || now?.PrevGen?.S === gen) return true;
+      // Two or more writers can swap between our committed put and this read: our change is then replayed on top of theirs.
       if (isConditionFailure(err)) return false;
       throw err;
     }
@@ -232,12 +247,16 @@ export class DynamoDbEmailVerificationStore extends EmailVerificationStore {
     return null;
   }
 
-  /** null when a chunk is gone: a writer replaced this generation during the read. */
+  /** null when a chunk is gone because a writer replaced this generation during the read; throws when the manifest is unchanged, i.e. the data is damaged. */
   protected async readChunks(kind: ListKind, source: string, manifest: Item): Promise<string[] | null> {
     const domains: string[] = [];
     for (let i = 0; i < Number(manifest.Chunks.N); i++) {
       const chunk = await this.get(chunkPk(kind, source, manifest.Gen.S!, i));
-      if (!chunk) return null;
+      if (!chunk) {
+        const now = await this.get(sourcePk(kind, source));
+        if (now?.Gen.S !== manifest.Gen.S) return null;
+        throw new DamagedListError(`email domain list ${sourcePk(kind, source)} is damaged (chunk ${i} of generation ${manifest.Gen.S} is missing); delete that item to reset the source`);
+      }
       domains.push(...chunk.Domains.S!.split('\n'));
     }
     return domains;

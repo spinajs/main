@@ -148,6 +148,57 @@ describe('DynamoDbEmailVerificationStore writes', () => {
     expect(keys(await store.loadLists())).to.deep.eq(['block|admin|a.com', 'block|admin|b.com']);
   });
 
+  it('accepts a swap a later writer replaced before the re-read, without replaying', async () => {
+    const store = await bootStore();
+    await store.upsertEntries([block('a.com')]);
+    let armed = true;
+    fake.around = async (command, input, run) => {
+      if (armed && command === 'PutItemCommand' && pkOf(input) === 'S#block#admin') {
+        armed = false;
+        await run();
+        await store.upsertEntries([block('c.com')]);
+        throw failure('InternalServerError');
+      }
+      return run();
+    };
+    await store.upsertEntries([block('b.com')]);
+    fake.around = undefined;
+    expect(keys(await store.loadLists())).to.deep.eq(['block|admin|a.com', 'block|admin|b.com', 'block|admin|c.com']);
+    expect(chunkKeys()).to.have.length(1);
+    expect(fake.sent.filter((s) => s.command === 'PutItemCommand' && pkOf(s.input) === 'S#block#admin')).to.have.length(3);
+  });
+
+  it('rejects on an unknown outcome that is not ours and keeps the new chunks', async () => {
+    const store = await bootStore();
+    await store.upsertEntries([block('a.com')]);
+    const before = chunkKeys();
+    fake.around = async (command, input, run) => {
+      if (command === 'PutItemCommand' && pkOf(input) === 'S#block#admin') throw failure('InternalServerError');
+      return run();
+    };
+    const err = await rejection(store.upsertEntries([block('b.com')]));
+    fake.around = undefined;
+    expect((err as Error).name).to.eq('InternalServerError');
+    expect(chunkKeys().filter((k) => !before.includes(k))).to.have.length(1);
+  });
+
+  it('rethrows the original error when the re-read fails too', async () => {
+    const store = await bootStore();
+    await store.upsertEntries([block('a.com')]);
+    let armed = false;
+    fake.around = async (command, input, run) => {
+      if (command === 'PutItemCommand' && pkOf(input) === 'S#block#admin') {
+        armed = true;
+        throw failure('InternalServerError');
+      }
+      if (armed && command === 'GetItemCommand' && pkOf(input) === 'S#block#admin') throw failure('ThrottlingException');
+      return run();
+    };
+    const err = await rejection(store.upsertEntries([block('b.com')]));
+    fake.around = undefined;
+    expect((err as Error).name).to.eq('InternalServerError');
+  });
+
   it('keeps the union of two concurrent upserts to one source', async () => {
     const store = await bootStore();
     await store.upsertEntries([block('a.com')]);
@@ -191,8 +242,14 @@ describe('DynamoDbEmailVerificationStore writes', () => {
       if (command === 'DeleteItemCommand' && first.includes(pkOf(input)!)) throw failure('crashed');
       return run();
     };
-    await store.replaceSource('src', 'block', ['b.com']).catch(() => undefined);
-    fake.around = undefined;
+    const warnings = captureWarnings(store);
+    try {
+      await store.replaceSource('src', 'block', ['b.com']);
+      expect(warnings.messages.join('\n')).to.include('Could not drop generation');
+    } finally {
+      warnings.restore();
+      fake.around = undefined;
+    }
     expect(chunkKeys()).to.have.length(2);
     await store.replaceSource('src', 'block', ['c.com']);
     expect(chunkKeys()).to.have.length(1);
@@ -231,6 +288,14 @@ describe('DynamoDbEmailVerificationStore writes', () => {
     } finally {
       warnings.restore();
     }
+  });
+
+  it('reports a damaged admin source instead of a write race', async () => {
+    const store = await bootStore();
+    await store.upsertEntries([block('a.com')]);
+    fake.items.delete(chunkKeys()[0]);
+    const err = await rejection(store.upsertEntries([block('b.com')]));
+    expect((err as Error).message).to.include('email domain list S#block#admin is damaged').and.include('chunk 0');
   });
 
   it('stores ExpiresAt as whole epoch seconds', async () => {
