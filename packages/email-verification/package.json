@@ -62,6 +62,7 @@
   "devDependencies": {
     "@spinajs/scheduler": "3.0.2",
     "@types/node": "^22.14.1",
-    "chai": "^4.3.7"
+    "chai": "^4.3.7",
+    "mocha": "^10.2.0"
   }
 }
