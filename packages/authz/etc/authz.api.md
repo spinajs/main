@@ -142,7 +142,7 @@ export interface AuthzAdminError {
     readonly message: string;
     readonly field?: string;
 }
-/** Thrown by write handlers, AdminGuard and AuthzCommandValidator; AuthzAdmin reports it as an AuthzAdminError. */
+/** Thrown by write handlers, AdminGuard and ListSupportGuard; AuthzAdmin reports it as an AuthzAdminError. */
 export declare class AuthzAdminFailure extends Exception {
     readonly code: string;
     readonly field?: string;
@@ -205,10 +205,6 @@ export declare abstract class AuthzWriteHandler {
 /** DefaultAdminGuard in @spinajs/authz-rbac implements it; was RoleGuard. AuthzAdmin runs the one named in authz.admin.guard.service. */
 export declare abstract class AdminGuard {
     abstract check(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void>;
-}
-/** App hook, Array.ofType; e.g. refuse external invites when the product rule says so. */
-export declare abstract class AuthzCommandValidator {
-    abstract validate(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void>;
 }
 export interface AuthzEvent {
     readonly type: string;

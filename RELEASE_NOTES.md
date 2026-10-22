@@ -1,3 +1,27 @@
+# Release notes — authn, authn-http, authn-oidc, users, authz: three extension points move onto action hooks
+
+> Branch `feat/hard-hooks-a`. Docs: `docs/authn/14-action-hooks.md`, `docs/authn/12-integration-hooks.md`,
+> `docs/authn/11-impersonation-and-active-role.md`, `docs/authz/10-authz-admin.md`, `docs/authz/15-action-hooks.md`,
+> `docs/users/13-impersonation-and-credential-admin-guards.md`, `docs/users/14-role-switch-and-access-response.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/authn` — `SessionStartHook` is removed; the new action `authn.session.start` replaces it
+
+`SessionStartHook` and its `onStart(kind, session, principal, sessions)` are gone, with no adapter (D17). Register a
+before hook on `authn.session.start` instead. `DefaultAuthnService` runs it on the active session a login or an MFA
+completion has just issued, before the login is audited as a success, so every session-issuing route is covered:
+the password, key, email-code and passkey logins, the MFA completion, and now the OIDC callback, which asked no hook
+before. A pending login, a step-up and a re-authentication run none.
+
+- Input: `kind` (`login` or `mfa`), `session`, `principal`, `ctx`; mutable `ceiling`. A ceiling a hook sets is stored
+  as the session's `ActiveRole`, as `onStart`'s answer was. The output is the ceiling the session started with.
+- Several hooks: a later hook may overwrite an earlier one's ceiling. Check `ctx.input.ceiling === undefined` to keep
+  the first choice, as "the first ceiling answered wins" did.
+- A refusal, a hook that throws or times out, or a ceiling an `ActiveRole` cannot hold still ends the session, but the
+  login now fails as a wrong password does (401 with the login failure body, the one failure answer in the OIDC
+  callback) instead of a 500. The `login` event carries `hook:<code>`, or `hook_error` (`failure: 'ceiling'` for an
+  unusable ceiling).
 # Release notes — authn, authn-http, authn-token, users, users-http: guards and mails move onto action hooks (HARD-HOOKS-B)
 
 > Branch `feat/hard-hooks-b`. Docs: `docs/authn/14-action-hooks.md`, `docs/authn-http/16-credential-admin-routes.md`,
@@ -19,6 +43,10 @@ find a rule by its class (`credentialAdminRuleRegistered()`), so a factory regis
 Before:
 
 ```ts
+@Injectable(SessionStartHook)
+export class SupportFirst extends SessionStartHook {
+  async onStart(_kind: 'login' | 'mfa', _session: SessionHandle, principal: Principal): Promise<Ceiling | undefined> {
+    return principal.attributes.team === 'support' ? { roles: ['support'] } : undefined;
 import { Injectable } from '@spinajs/di';
 import { CredentialAdminGuard } from '@spinajs/authn/contracts';
 import type { CredentialAdminAction, IdentityRef, Principal } from '@spinajs/authn/contracts';
@@ -34,6 +62,12 @@ export class HelpdeskGuard extends CredentialAdminGuard {
 After:
 
 ```ts
+@Injectable(ActionHook)
+export class SupportFirst extends ActionHook<'authn.session.start'> {
+  readonly actions: readonly ActionPattern[] = ['authn.session.start'];
+
+  before(ctx: BeforeContext<'authn.session.start'>): void {
+    if (ctx.input.ceiling === undefined && ctx.input.principal.attributes.team === 'support') ctx.input.ceiling = { roles: ['support'] };
 import { Injectable } from '@spinajs/di';
 import { ActionHook } from '@spinajs/hooks';
 import { CredentialAdminRule } from '@spinajs/authn/hooks';
@@ -48,6 +82,69 @@ export class HelpdeskRule extends CredentialAdminRule {
 }
 ```
 
+`@spinajs/users`' `OrderedActiveRoleHook` (`authz.principals.roleSwitch.initial`) is now such a before hook. It keeps a
+ceiling an earlier hook set. `@spinajs/authn-http` asks no hook any more; it answers the principal narrowed by the
+`ActiveRole` the core stored (`startedSession` became `startedPrincipal`, an internal helper).
+
+### `@spinajs/authn` — the impersonation start check is a before hook on `authn.impersonation.start`
+
+`AuthnImpersonationService.start` no longer asks the `ImpersonationGuard`. After its own checks it runs the before
+hooks on `authn.impersonation.start`, and they decide. Their input gains `actor`, the principal the guard used to judge
+(the actor's facts through this session, narrowed by its role switch). The guard is still asked on every request of
+an impersonation session, which it ends when it refuses.
+
+- `@spinajs/users` registers `ImpersonationGuardStartHook`, which asks the registered `ImpersonationGuard`
+  (`AuthzImpersonationGuard` or your subclass) and refuses with its code. Apps on `@spinajs/users` need no change.
+- **An app with its own `ImpersonationGuard` and without `@spinajs/users` must register a before hook on
+  `authn.impersonation.start`**: with no hook on the action every start is refused with `no_guard`, so a guard alone
+  never lets an impersonation start unchecked. `FakeImpersonationStartHook` of `@spinajs/authn-testing` shows the shape.
+- The answer stays `{ ok: false }` and the `impersonation.start` failure event stays, but a guard refusal is audited as
+  `hook:forbidden`, `hook:protected_role` or `hook:escalation` (was the bare code), and a guard that throws as
+  `hook_error` (was `guard_error`).
+
+### `@spinajs/authz` — `AuthzCommandValidator` and `ListSupportValidator` are removed
+
+Product rules on admin commands are before hooks on `authz.admin.command`, with no adapter (D17). They run after the
+handler's `validate()` and the permission check (the validators ran between the two), and a refusal fails the batch
+with `hook:<code>` (a validator answered its own `AuthzAdminFailure` code).
+
+Before:
+
+```ts
+@Injectable(AuthzCommandValidator)
+export class ContractorExpiryValidator extends AuthzCommandValidator {
+  async validate(_actor: Principal, c: AuthzCommand): Promise<void> {
+    if (c.kind === 'assignment.grant' && c.role === 'contractor' && !c.expiresAt) throw new AuthzAdminFailure('expiry_required', 'needs an expiry', 'expiresAt');
+  }
+}
+```
+
+After:
+
+```ts
+@Injectable(ActionHook)
+export class ContractorExpiryRule extends ActionHook<'authz.admin.command'> {
+  readonly actions: readonly ActionPattern[] = ['authz.admin.command'];
+
+  before(ctx: BeforeContext<'authz.admin.command'>): void {
+    const c = ctx.input.command;
+    if (c.kind === 'assignment.grant' && c.role === 'contractor' && !c.expiresAt) ctx.refuse('expiry_required');
+  }
+}
+```
+
+The `ListSupportGuard` chain (`RbacRuleListGuard`, `AbacListSupportGuard`) now runs in `ListSupportHook`, a built-in
+before hook on `authz.admin.command` registered at import, with order `Number.MAX_SAFE_INTEGER`. Its answers are
+unchanged: `not_list_filterable` with the field `policy` or `rule`, a guard's own `AuthzAdminFailure`, or an
+`AuthzConfigError` that rejects the batch. `ListSupportGuard` itself is unchanged.
+
+## Other changes
+
+- `@spinajs/users` depends on `@spinajs/hooks`.
+- `authz.admin.command` always has a matching hook now, so every admin command runs through the hooks runner. A
+  command no hook changed (by identity and by its JSON, so a `Date` edited in place still counts) is no longer
+  validated and permission-checked a second time.
+- `@spinajs/authn-testing`: `FakeImpersonationStartHook`; A37 covers `authn.session.start`.
 - Every registered rule must allow, and so must every other before hook of the action. A rule that only narrows can sit
   beside the shipped one; to replace the shipped one, `DI.unregister(AuthzCredentialAdminRule)` first.
 - `runCredentialAdmin(hooks, input, effect)` runs an effect as the action and fails closed. An effect that no rule

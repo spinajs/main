@@ -38,6 +38,7 @@ import { AUTHN_THROTTLE_SERVICE } from '../throttle/select.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
 import { checkAuthnSecrets } from './boot/secrets.js';
 import { hookCopy, hookRefusalOf, hookView } from '../hooks.js';
+import { ACTIVE_ROLE_KEY } from '../impersonation/active-role.js';
 
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
 type MfaAbout = { readonly identity: IdentityRef; readonly strategy: string; readonly session?: string };
@@ -77,6 +78,18 @@ const KEY_KINDS: ReadonlySet<string> = new Set(['jws-assertion', 'http-signature
 const sameEmail = (stored: unknown, verified: string): boolean => isNonEmptyString(stored) && asciiLower(stored) === asciiLower(verified);
 
 const fail = (reason: AuthnFailure): Failure => ({ status: 'failure', reason });
+
+/** A ceiling an authn.session.start hook set that a session's ActiveRole cannot hold. */
+class UnheldCeiling extends Error {}
+
+/** The ActiveRole that holds `ceiling`: one role, or '' for none. */
+function activeRoleOf(ceiling: unknown): string {
+  if (isPlainObject(ceiling)) {
+    const { roles, ...narrowing } = ceiling;
+    if (Array.isArray(roles) && roles.length <= 1 && roles.every(isNonEmptyString) && Object.values(narrowing).every((v) => v === undefined)) return roles[0] ?? '';
+  }
+  throw new UnheldCeiling();
+}
 
 /** A strategy short of capacity names no usable wait: ask for one second. */
 const retryAfterOf = (o: { readonly retryAfterSeconds?: number }): number => (Number.isInteger(o.retryAfterSeconds) && o.retryAfterSeconds! > 0 ? o.retryAfterSeconds! : 1);
@@ -342,9 +355,12 @@ export class DefaultAuthnService extends AuthnService {
       return fail('invalid_credentials');
     }
     const done = { identity: id, strategy: facts.strategy, ...(isNonEmptyString(facts.sessionHandle) ? { session: facts.sessionHandle } : {}) };
+    const success: Success = { status: 'success', identity: id, facts, session };
+    const ended = await this.startSession('mfa', success, ctx, done);
+    if (ended) return ended;
     await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'success', ...done });
     await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'success', ...done });
-    return { status: 'success', identity: id, facts, session };
+    return success;
   }
 
   public async reauthenticate(session: SessionHandle, c: Credentials, ctx: AuthnContext): Promise<boolean> {
@@ -577,9 +593,40 @@ export class DefaultAuthnService extends AuthnService {
     }
     const session = await sessions.issue(id, issued);
     const handle = await this.handleOf(session);
+    const success: Success = { status: 'success', identity: id, facts: { ...facts, ...(handle !== undefined ? { sessionHandle: handle } : {}) }, session, ...extra };
+    const ended = await this.startSession('login', success, ctx, { identity: id, strategy: s.name, ...(handle !== undefined ? { session: handle } : {}) });
+    if (ended) return ended;
     await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'success', strategy: s.name, identity: id, session: handle });
     await this.Auditor.publishIn(ctx, { type: 'session.issue', outcome: 'success', strategy: s.name, identity: id, session: handle });
-    return { status: 'success', identity: id, facts: { ...facts, ...(handle !== undefined ? { sessionHandle: handle } : {}) }, session, ...extra };
+    return success;
+  }
+
+  /**
+   * `authn.session.start` on the active session `result` has just issued; null when it may live on. A ceiling the hooks
+   * set is stored as its ActiveRole. A refusal, a failed hook or a ceiling an ActiveRole cannot hold ends the session and
+   * answers the failure of a wrong password, audited as `login`; any other error ends it and is rethrown.
+   */
+  private async startSession(kind: 'login' | 'mfa', result: Success, ctx: AuthnContext, about: MfaAbout): Promise<Failure | null> {
+    if (!this.Hooks.has('authn.session.start')) return null;
+    const session = result.session!;
+    try {
+      const principal = await this.principalOf(result);
+      await this.Hooks.run('authn.session.start', { kind, session: hookView(session), principal: hookView(principal), ctx: hookView(ctx) }, (i) => this.storeStartCeiling(session, i.ceiling), { mutable: ['ceiling'] });
+      return null;
+    } catch (err) {
+      await this.Sessions.revoke(session);
+      const stopped = err instanceof UnheldCeiling ? { reason: 'hook_error', data: { failure: 'ceiling' } } : hookRefusalOf(err, 'authn.session.start');
+      if (!stopped) throw err;
+      await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'failure', ...stopped, ...about });
+      return fail('invalid_credentials');
+    }
+  }
+
+  private async storeStartCeiling(session: SessionHandle, ceiling: unknown): Promise<Ceiling | undefined> {
+    if (ceiling === undefined) return undefined;
+    const role = activeRoleOf(ceiling);
+    await this.Sessions.set(session, ACTIVE_ROLE_KEY, role);
+    return { roles: role === '' ? [] : [role] };
   }
 
   /** A refused or failed MFA hook answers as a wrong code does; any other error is the caller's. */

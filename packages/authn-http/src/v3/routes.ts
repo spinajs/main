@@ -1,13 +1,13 @@
 import type { Configuration } from '@spinajs/configuration';
 import type { IContainer } from '@spinajs/di';
-import { InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Ok } from '@spinajs/http';
 import type { ICookie, Request, Unauthorized } from '@spinajs/http';
-import { ACTIVE_ROLE_KEY, mfaEnrolmentRefusal } from '@spinajs/authn';
-import { AuthnResponseExtension, AuthnService, SessionIssuer, SessionStartHook } from '@spinajs/authn/contracts';
-import type { Ceiling, Credentials, IdentityRef, MfaStep, Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
+import { mfaEnrolmentRefusal } from '@spinajs/authn';
+import { AuthnResponseExtension, AuthnService, SessionIssuer } from '@spinajs/authn/contracts';
+import type { Credentials, IdentityRef, MfaStep, Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
 import { SESSION_IP_KEY, SESSION_USER_AGENT_KEY } from '@spinajs/authn-session';
-import { isNonEmptyString, isPlainObject } from '@spinajs/util';
+import { isPlainObject } from '@spinajs/util';
 
 import { publishAuthnEvent } from '../policies/v3/audit.js';
 import { unauthenticated } from '../policies/v3/errors.js';
@@ -75,43 +75,18 @@ export async function completeLogin(container: IContainer, sessions: SessionIssu
   // A strategy that takes these credentials but issues no session cannot log anyone in here.
   if (!result.session) return authnFailureResponse(undefined, cleared);
   await stampClient(sessions, result.session, req);
-  const principal = await startedSession(container, sessions, 'login', result.session, await authn.principalOf(result));
+  const principal = await startedPrincipal(container, sessions, result.session, await authn.principalOf(result));
   return new Ok(await answerFor(container, 'login', principal), { Coockies: [authnSessionCookie(config, result.session)], Headers: [NO_STORE] });
 }
 
 /**
- * Asks the SessionStartHooks, in registration order, about `handle`, the active session a login or an MFA completion has
- * just issued for `principal`. The first ceiling answered is stored as the session's ActiveRole, as a role switch stores
- * it, and the principal is narrowed by it; with none, `principal` as it is. A hook that throws or answers a ceiling
- * ActiveRole cannot hold ends the session, which must never live on with every held role, and fails the request.
+ * The principal a login or an MFA completion answers with: narrowed, as every later request on the session is, by the
+ * ActiveRole an `authn.session.start` hook gave `handle`, the active session it has just issued.
  */
-export async function startedSession(container: IContainer, sessions: SessionIssuer, kind: 'login' | 'mfa', handle: SessionHandle, principal: Principal): Promise<Principal> {
-  const hooks = (await container.resolve(Array.ofType(SessionStartHook))) as SessionStartHook[];
-  try {
-    // A resolve of the abstract base itself would leave an instance of it in the list; it answers nothing.
-    for (const hook of hooks.filter((h) => h?.constructor !== SessionStartHook && typeof h?.onStart === 'function')) {
-      const ceiling = await hook.onStart(kind, handle, principal, sessions);
-      if (ceiling === undefined) continue;
-      await sessions.set(handle, ACTIVE_ROLE_KEY, activeRoleOf(hook, ceiling));
-      const session = await sessions.restore(handle.id);
-      if (!session) throw unauthenticated('the session has ended');
-      return await narrowedBySwitch(container, session, principal);
-    }
-    return principal;
-  } catch (err) {
-    await sessions.revoke(handle);
-    throw err;
-  }
-}
-
-/** The ActiveRole that holds `ceiling`: one role, or '' for none. */
-function activeRoleOf(hook: SessionStartHook, ceiling: Ceiling): string {
-  const { roles, ...narrowing } = ceiling;
-  const one = Array.isArray(roles) && roles.length <= 1 && roles.every(isNonEmptyString);
-  if (!one || Object.values(narrowing).some((v) => v !== undefined)) {
-    throw new UnexpectedServerError(`${hook.constructor.name} answered a ceiling a session's ActiveRole cannot hold: ${JSON.stringify(ceiling)}. A SessionStartHook answers { roles: [role] } or { roles: [] }`);
-  }
-  return roles[0] ?? '';
+export async function startedPrincipal(container: IContainer, sessions: SessionIssuer, handle: SessionHandle, principal: Principal): Promise<Principal> {
+  const session = await sessions.restore(handle.id);
+  if (!session) throw unauthenticated('the session has ended');
+  return narrowedBySwitch(container, session, principal);
 }
 
 /**

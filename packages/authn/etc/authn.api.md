@@ -251,8 +251,7 @@ export declare function isFresh(facts: Pick<AuthnFacts, "authenticatedAt" | "imp
 
 ```ts
 import type { IdentityRef } from "./credentials.js";
-import type { Ceiling, Principal } from "./principal.js";
-import type { SessionHandle, SessionIssuer } from "./session.js";
+import type { Principal } from "./principal.js";
 export type { IAuthnPrincipalStorage } from "@spinajs/principal";
 /** Registered with Array.ofType; users' AccessResponseExtension adds `Access` (D26). */
 export declare abstract class AuthnResponseExtension {
@@ -265,18 +264,6 @@ export declare abstract class RoleSource {
         role: string;
         requirePassword: boolean;
     }[]>;
-}
-/**
- * Registered with Array.ofType; users: OrderedActiveRoleHook (`authz.principals.roleSwitch.initial`). authn-http asks the hooks
- * in registration order once its login routes (password, key challenge, email code, passkey) or MFA completion have
- * issued the active session, before the answer is built; a step-up or re-authentication asks none. The first ceiling
- * answered is stored as the session's ActiveRole, the key a role switch writes, and narrows the principal of the answer
- * and of every later request on the session; undefined passes to the next hook. The ceiling must name at most one role
- * and nothing else (`{ roles: [role] }`, or `{ roles: [] }` for none).
- * A throw, or any other ceiling, ends the session and fails the request: it never lives on with every held role.
- */
-export declare abstract class SessionStartHook {
-    abstract onStart(kind: "login" | "mfa", session: SessionHandle, principal: Principal, sessions: SessionIssuer): Promise<Ceiling | undefined>;
 }
 /** The credential admin routes of authn-http (A25). */
 export type CredentialAdminAction = "password-reset" | "mfa-reset" | "sessions" | "tokens";
@@ -368,6 +355,8 @@ import type { Principal } from "./principal.js";
 /**
  * Implemented in users by AuthzImpersonationGuard with authz (D26): forbidden without user:impersonate (B26),
  * protected_role when the target holds a protected role, escalation when the actor does not cover the target's rights.
+ * AuthnImpersonationService asks it on every request of an impersonation session; the start is checked by the before
+ * hooks on `authn.impersonation.start` (users' ImpersonationGuardStartHook asks this guard there).
  */
 export declare abstract class ImpersonationGuard {
     abstract allowed(actor: Principal, target: IdentityRef): Promise<{

@@ -78,7 +78,7 @@ Each port is an optional member of `Harness`. The contract types come from `@spi
 | `external` | `ExternalPort` | Credentials for an external subject |
 | `oidc` | `OidcPort` | Play the fake identity provider, with ID token tampering |
 | `impersonation` | `ImpersonationPort` | Start and stop impersonation; the principal of a session |
-| `guard` | `GuardPort` | Allow or deny impersonation |
+| `guard` | `GuardPort` | Allow or deny impersonation. The start asks it only through a before hook on `authn.impersonation.start`: register one beside it (`FakeImpersonationStartHook`), or every start is refused (`no_guard`) |
 | `targetGuard` | `GuardPort` | Allow or deny credential admin actions on a target (A25) |
 | `roles` | `RolesPort` | Grant roles the role source gives a principal |
 | `attributed` | `AttributedPort` | Credentials of strategies that return `KIT_ATTRIBUTES` |

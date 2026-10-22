@@ -5,7 +5,8 @@ import { Configuration } from '@spinajs/configuration';
 
 import { AuthzAdminFailure, DefaultAuthzAdmin, SYSTEM, UnknownPermission, adminActor, adminContainer } from '@spinajs/authz';
 import type { AdminCallContext, AuthzCommand, AuthzCommandResult, ResourceRef } from '@spinajs/authz';
-import { FailingBus, HOUR, PERMISSIONS, START, ThrowingAudit, ThrowingSink, adminConfig, adminDomain, installHost, rejection, resetHost, uninstallHost } from './support.js';
+import { FailingBus, FakeValidator, HOUR, PERMISSIONS, START, ThrowingAudit, ThrowingSink, adminConfig, adminDomain, installHost, rejection, resetHost, uninstallHost } from './support.js';
+import { hookedAdminDomain } from '../hooks/support.js';
 import type { AdminDomain } from './support.js';
 import { registerConfiguration, violationPaths } from '../host/support.js';
 
@@ -82,10 +83,10 @@ describe('DefaultAuthzAdmin.execute', function () {
       expect(adminContainer(ctx)).to.equal(d.container);
     });
 
-    it('runs validate, validators and the permission check per command, then guard and apply per command', async () => {
+    it('runs validate and the permission check per command, then guard and apply per command', async () => {
       const d = await adminDomain();
       await d.admin.execute(alice, [grant('bob'), grant('dan')]);
-      const phaseA = [`validate:${GRANT}`, `validator:${GRANT}`, `permission:${GRANT}`];
+      const phaseA = [`validate:${GRANT}`, `permission:${GRANT}`];
       const phaseB = [`guard:${GRANT}`, `apply:${GRANT}`];
       expect(d.store.trace).to.deep.equal([...phaseA, ...phaseA, ...phaseB, ...phaseB]);
       expect(checked(d)).to.deep.equal(['authz:assignments.manage@project', 'authz:assignments.manage@project']);
@@ -159,19 +160,21 @@ describe('DefaultAuthzAdmin.execute', function () {
       expectNothingAfterCommit(d);
     });
 
-    it('stops at a validate failure before the validators', async () => {
+    it('stops at a validate failure before the permission check', async () => {
       const d = await adminDomain();
       const out = await d.admin.execute(alice, [grant('bob', 'unknown')]);
       expect(out).to.deep.equal([{ ok: false, kind: GRANT, error: { code: 'unknown_role', message: 'role "unknown" does not exist', field: 'role' } }]);
       expect(d.store.trace).to.deep.equal([`validate:${GRANT}`]);
     });
 
-    it('stops at a validator failure before the permission', async () => {
-      const d = await adminDomain();
+    it('runs an app rule as a before hook on authz.admin.command, after the permission check: its refusal is hook:<code>', async () => {
+      const validator = new FakeValidator();
+      const d = await hookedAdminDomain([validator]);
+      validator.store = d.store;
       const out = await d.admin.execute(alice, [grant('external')]);
-      expect(out).to.deep.equal([{ ok: false, kind: GRANT, error: { code: 'conflict', message: 'no external invites', field: 'subject' } }]);
-      expect(d.store.trace).to.deep.equal([`validate:${GRANT}`, `validator:${GRANT}`]);
-      expect(d.model.requests).to.deep.equal([]);
+      expect(out).to.deep.equal([{ ok: false, kind: GRANT, error: { code: 'hook:no-external-invites', message: 'authz.admin.command refused: no-external-invites' } }]);
+      expect(d.store.trace).to.deep.equal([`validate:${GRANT}`, `permission:${GRANT}`, `validator:${GRANT}`]);
+      expect(applies(d)).to.equal(0);
     });
 
     it('reports a failure of the handler’s permission()', async () => {

@@ -32,7 +32,8 @@ A login (any `ctx.purpose` but `request`) first runs the `authn.login` [action h
 8. **Per-request strategy: finish.** `AuthnThrottle.succeed(keys, 'login')` resets the answering strategy's keys, a `token.use` or `key.use` success is audited, and the result is a `success` with no session.
 9. **Interactive strategy: ask the MFA policy.** `MfaPolicy.required(identity, { method, strategy })` returns the steps still to pass. A policy that throws fails the login, and the throttle keeps the count.
 10. **Reset the throttle.** Only now `AuthnThrottle.succeed(keys, 'login')` runs, so a login the policy refuses cannot be told apart from a wrong password by its backoff.
-11. **Issue the session.** With steps: `SessionIssuer.issue(identity, facts, { pending: { steps } })`, an `mfa.challenge` event, and `{ status: 'mfa_required', pending, steps }`. Without: an active `aal1` session, `login` and `session.issue` events, and a `success` that carries the session and `facts.sessionHandle`.
+11. **Issue the session.** With steps: `SessionIssuer.issue(identity, facts, { pending: { steps } })`, an `mfa.challenge` event, and `{ status: 'mfa_required', pending, steps }`. Without: an active `aal1` session, then step 12.
+12. **Start the session.** The `authn.session.start` [action hooks](14-action-hooks.md#authnsessionstart) run on the active session (`kind: 'login'`); a ceiling a hook sets is stored as its `ActiveRole`. A refusal, a hook that fails or a ceiling an `ActiveRole` cannot hold revokes the session, audits a `login` failure (`hook:<code>` or `hook_error`) and answers `invalid_credentials`. Otherwise: `login` and `session.issue` events, and a `success` that carries the session and `facts.sessionHandle`.
 
 A per-request attempt that fails at step 4 to 6 is counted now, with `attempt(keys, 'login', ctx)`. When that count refuses, the answer becomes `throttled`.
 
@@ -70,6 +71,7 @@ sequenceDiagram
       S-->>H: mfa_required {pending, steps}
     else no steps
       S->>SI: issue(identity, facts)
+      S->>S: authn.session.start hooks
       S->>A: login, session.issue
       S-->>H: success {session, facts}
       H->>S: principalOf(result)
@@ -86,7 +88,8 @@ sequenceDiagram
 4. The step must be one of the required steps and the identity must be enrolled in it. Then `MfaStep.verify(identity, response)`. With step `recovery` (`RECOVERY_STEP`), the first enrolled step that has `verifyRecovery` checks the code.
 5. The identity status is read again. An identity banned, deactivated or deleted between the two steps gets no session, and the pending session is revoked.
 6. `SessionIssuer.elevate(pending, { assurance: 'aal2', mfa: [step] })` turns the session active and rotates its id. `AuthnThrottle.succeed(keys, 'mfa')` resets the keys.
-7. `mfa.verify` and `login` successes are audited. The result is a `success` with the new session.
+7. The `authn.session.start` [action hooks](14-action-hooks.md#authnsessionstart) run on the elevated session (`kind: 'mfa'`), as in step 12 of a login. A refusal revokes it and answers `invalid_credentials`, audited as a `login` failure.
+8. `mfa.verify` and `login` successes are audited. The result is a `success` with the new session.
 
 ```mermaid
 sequenceDiagram

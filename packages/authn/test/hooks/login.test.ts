@@ -313,7 +313,7 @@ describe('action hooks: authn.login and authn.login.identified', function () {
       success(await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx()));
       assert.deepStrictEqual(
         has.getCalls().map((c) => c.args[0]),
-        ['authn.login', 'authn.login.identified'],
+        ['authn.login', 'authn.login.identified', 'authn.session.start'],
       );
       assert.strictEqual(run.callCount, 0);
       assert.strictEqual(createContext.callCount, 0);

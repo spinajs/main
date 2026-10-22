@@ -31,7 +31,9 @@ An impersonation session gets the target's roles, which are the session's.
 
 ### Initial active role
 
-`OrderedActiveRoleHook` is the `SessionStartHook` users registers ([Integration hooks](../authn/12-integration-hooks.md#sessionstarthook)). With `authz.principals.roleSwitch.initial` set, a login or an MFA completion asks `RbacRoleSource` for the user's roles and starts the session as if it had switched to the first role of `order` the user holds: `ActiveRole` is that role, and the login answer's `Access` shows only its grants. 2.x activated the user's first role at login; set `order` to your roles in that priority to keep it. The user can still switch to any held role with `POST /auth/active-role`.
+`OrderedActiveRoleHook` is the before hook on [`authn.session.start`](../authn/14-action-hooks.md#authnsessionstart) users registers. With `authz.principals.roleSwitch.initial` set, a login (the OIDC callback included) or an MFA completion asks `RbacRoleSource` for the user's roles and starts the session as if it had switched to the first role of `order` the user holds: `ActiveRole` is that role, and the login answer's `Access` shows only its grants. 2.x activated the user's first role at login; set `order` to your roles in that priority to keep it. The user can still switch to any held role with `POST /auth/active-role`.
+
+The hook leaves the session start as it is when the key is unset or `null`, the user holds no listed role, no `RoleSource` is registered, or an earlier hook on the action already set a ceiling. To pick the start role in your own hook and keep this one as the fallback, give yours a lower `order`.
 
 ```ts
 // config/authz.ts in your app
@@ -53,6 +55,7 @@ export default {
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Role source | `RoleSource` (`@spinajs/authn/contracts`), singleton, by type; optional | `RbacRoleSource` | your source; none: role switch answers 404, MFA `forceForRoles` sees no roles | Subclass and filter `rolesOf()`; `DI.register(Sub).as(RoleSource)` after importing users. |
+| Initial active role | `ActionHook` on `authn.session.start`, registered on import | `OrderedActiveRoleHook` | your own before hook | Set `ctx.input.ceiling` in a hook with a lower `order`; `OrderedActiveRoleHook` then keeps it. |
 | Response fields | `AuthnResponseExtension` list (`Array.ofType`) | `AccessResponseExtension` | more extensions | `@Injectable(AuthnResponseExtension)` on your class adds fields; `DI.unregister(AccessResponseExtension)` removes `Access`. |
 
 ### Custom role source: keep technical roles out of the switcher

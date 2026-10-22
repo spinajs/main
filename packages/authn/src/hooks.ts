@@ -1,6 +1,6 @@
 import type { AuthenticationResult, AuthnContext, Credentials, ExternalSubject, IdentityRef } from './contracts/credentials.js';
 import type { CredentialAdminAction } from './contracts/hooks.js';
-import type { Principal } from './contracts/principal.js';
+import type { Ceiling, Principal } from './contracts/principal.js';
 import type { SessionHandle } from './contracts/session.js';
 import type { ImpersonationStart } from './impersonation/impersonation-service.js';
 import type { LinkResult } from './link/account-link-service.js';
@@ -52,9 +52,30 @@ export interface AuthnStepUpInput {
   readonly ctx: AuthnContext;
 }
 
+/**
+ * `authn.impersonation.start`: the start check (users registers ImpersonationGuardStartHook). Without a hook on it every
+ * start is refused (`no_guard`); the registered ImpersonationGuard is asked only per request.
+ */
 export interface AuthnImpersonationStartInput {
   readonly session: SessionHandle;
   readonly target: IdentityRef;
+  /** The actor as an ImpersonationGuard judges it: its own facts through this session, narrowed by its role switch. */
+  readonly actor: Principal;
+  readonly ctx: AuthnContext;
+}
+
+/**
+ * `authn.session.start`: the active session a login (`kind: 'login'`) or an MFA completion (`'mfa'`) has just issued,
+ * before the login is audited as a success; a pending login, a step-up and a re-authentication start none. A hook may
+ * set `ceiling`, which the session stores as its ActiveRole, the key a role switch writes: `{ roles: [role] }`, or
+ * `{ roles: [] }` for none; undefined keeps every held role. A refusal, a failed hook or any other ceiling ends the
+ * session and fails the login as a wrong password does.
+ */
+export interface AuthnSessionStartInput {
+  readonly kind: 'login' | 'mfa';
+  readonly session: SessionHandle;
+  readonly principal: Principal;
+  ceiling?: Ceiling;
   readonly ctx: AuthnContext;
 }
 
@@ -82,6 +103,8 @@ declare module '@spinajs/hooks' {
     'authn.mfa.verify': { input: AuthnMfaVerifyInput; output: AuthenticationResult };
     'authn.reauth': { input: AuthnReauthInput; output: boolean };
     'authn.session.stepUp': { input: AuthnStepUpInput; output: AuthenticationResult };
+    /** The output is the ceiling the session started with. */
+    'authn.session.start': { input: AuthnSessionStartInput; output: Ceiling | undefined };
     'authn.impersonation.start': { input: AuthnImpersonationStartInput; output: ImpersonationStart };
     'authn.impersonation.stop': { input: AuthnImpersonationStopInput; output: SessionHandle | null };
     'authn.link': { input: AuthnLinkInput; output: LinkResult };

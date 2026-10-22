@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
-import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, KitActionHooks, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
+import { FakeIdentityStore, FakeImpersonationGuard, FakeImpersonationStartHook, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, KitActionHooks, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, MemorySessionOptions } from '@spinajs/authn-testing';
 
@@ -48,6 +48,8 @@ export interface CoreOptions {
   readonly memorySessionStore?: boolean;
   /** ActionHooks of the child's own Hooks runner, in registration order; it reads them once, when the service resolves. */
   readonly hooks?: readonly ActionHook[];
+  /** false: no FakeImpersonationStartHook asks the kit guard at impersonation start (registered unless the guard is omitted). */
+  readonly startHook?: boolean;
 }
 
 export interface CoreParts {
@@ -252,6 +254,7 @@ async function prepareCore(config: ConfigOverrides, opts: CoreOptions): Promise<
     bind(child, AuthnEventSink, 'KitEvents2', second);
     // A runner per case: the root's would read the hooks of the root only.
     child.register(DefaultHooks).as(Hooks);
+    if (opts.startHook !== false && !omit.has('ImpersonationGuard')) bind(child, ActionHook, 'KitImpersonationStartHook', new FakeImpersonationStartHook(() => guard));
     (opts.hooks ?? []).forEach((h, i) => bind(child, ActionHook, `KitActionHook${i}`, h));
     opts.register?.(child);
     return { child, configuration, identities, passwords, sessions, throttle, events, second, principals, links, step, guard, tokens, externalSubjects, strategies, dispose: () => child.dispose() };

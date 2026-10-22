@@ -27,9 +27,9 @@ npm install @spinajs/authn
 | [Fresh authentication](09-fresh-authentication.md) | `FreshAuthCheck`, `isFresh` and `authn.freshAuth.maxAgeSeconds` |
 | [Account linking](10-account-linking.md) | Linking at login, `AccountLinkService`, `IdentityLinkStore` and `authn.linking.*` |
 | [Impersonation and the active role](11-impersonation-and-active-role.md) | `AuthnImpersonationService`, `ImpersonationGuard`, the role switch and `authn.impersonation.*` |
-| [Integration hooks](12-integration-hooks.md) | `AuthnResponseExtension`, `RoleSource`, `SessionStartHook`, `CredentialExtractor` |
+| [Integration hooks](12-integration-hooks.md) | `AuthnResponseExtension`, `RoleSource`, `CredentialExtractor` |
 | [Configuration and boot checks](13-configuration-and-boot-checks.md) | `AUTHN_CONFIGURATION_SCHEMA`, every `authn.*` key, the secret and env checks, `checkAuthnConfig` |
-| [Action hooks](14-action-hooks.md) | The authn actions of `@spinajs/hooks` (`authn.login`, `authn.login.identified`, MFA, step-up, impersonation, linking, `authn.admin.credentials` with `CredentialAdminRule`): inputs, mutable keys, refused answers, the `authn.login` timing rule, the refused members of the password and key results, and `runHookedAction`, `hookView`, `hookCopy`, `hookRefusalOf` for packages that run their own actions |
+| [Action hooks](14-action-hooks.md) | The authn actions of `@spinajs/hooks` (`authn.login`, `authn.login.identified`, MFA, session start, step-up, impersonation, linking, `authn.admin.credentials` with `CredentialAdminRule`): inputs, mutable keys, refused answers, the `authn.login` timing rule, the refused members of the password and key results, and `runHookedAction`, `hookView`, `hookCopy`, `hookRefusalOf` for packages that run their own actions, and the migration off `SessionStartHook` |
 
 ## Quick start
 

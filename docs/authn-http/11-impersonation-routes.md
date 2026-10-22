@@ -11,7 +11,7 @@
 3. The principal must come from an active session: otherwise 403 `session_required`.
 4. `target`: a user id string or `{ type, id }`, each part at most 256 characters. Otherwise 400 `invalid_target`.
 5. [Fresh authentication](05-policies.md#fresh-authentication) through `freshAuthOrAnswer()` (over `assertFreshAuth()`), with `password` from the body. A wrong or throttled password: 401 login failure body.
-6. `AuthnImpersonationService.start(handle, target, ctx, reauthCredentials)` asks the guard and its own rules (`authn.impersonation.*`). Any refusal: 403 `impersonation_refused`; the service tells no reason.
+6. `AuthnImpersonationService.start(handle, target, ctx, reauthCredentials)` checks its own rules (`authn.impersonation.*`), then runs the before hooks on `authn.impersonation.start`, which decide who may impersonate whom (`ImpersonationGuardStartHook` of `@spinajs/users` asks the guard there). Any refusal: 403 `impersonation_refused`; the service tells no reason.
 7. Success issues a **new session** for the impersonation. The answer is the target's principal (with `authn.impersonator`), extended with kind `impersonation`, and the new session cookie.
 
 ### Stop
@@ -26,7 +26,7 @@ sequenceDiagram
   participant B as Admin browser
   participant C as AuthnImpersonationController
   participant I as AuthnImpersonationService
-  participant G as ImpersonationGuard
+  participant G as ImpersonationGuard (through a hook on authn.impersonation.start)
   B->>C: POST /auth/impersonate { target, password? }
   C->>C: Authenticated, MfaSatisfied, assertFreshAuth
   C->>I: start(handle, target, ctx, reauth)
