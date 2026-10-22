@@ -27,7 +27,7 @@ describe('postgres integration - soft delete and raw SQL', function () {
   });
 
   it('hides soft-deleted rows by default and shows them with withDeleted()', async () => {
-    await PgSoft.insert([{ Val: 'a' }, { Val: 'b' }, { Val: 'c' }] as any);
+    await PgSoft.insert([{ Val: 'a' }, { Val: 'b' }, { Val: 'c' }]);
     await PgSoft.destroy(2);
 
     expect((await PgSoft.all()).map((r) => r.Id)).to.deep.equal([1, 3]);
@@ -59,7 +59,7 @@ describe('postgres integration - soft delete and raw SQL', function () {
   });
 
   it('reports affected rows of a raw UPDATE', async () => {
-    await PgSoft.insert([{ Val: 'a' }, { Val: 'a' }] as any);
+    await PgSoft.insert([{ Val: 'a' }, { Val: 'a' }]);
     const result = await suite.driver.executeOnDb('UPDATE "pg_soft" SET "Val" = ? WHERE "Val" = ?', ['b', 'a'], QueryContext.Update);
     expect(result.RowsAffected).to.equal(2);
   });

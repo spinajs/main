@@ -78,7 +78,7 @@ describe('sqlite datetimes', function () {
   it('reads in one zone the instant another zone wrote', async () => {
     await inZone('Asia/Kolkata', () => DtDoc.insert({ id: 1, at: DateTime.fromMillis(AT) }));
 
-    const doc = await inZone('America/New_York', async () => (await DtDoc.where('id', 1).first()) as DtDoc);
+    const doc = await inZone('America/New_York', async () => (await DtDoc.where('id', 1).first()));
     expect(doc.at.toMillis()).to.eq(AT);
     expect(doc.at.zoneName).to.eq('UTC');
   });
@@ -108,7 +108,7 @@ describe('sqlite datetimes', function () {
       await DtDoc.insert({ id: 1, at: DateTime.fromMillis(first) });
     });
 
-    const docs = (await DtDoc.all().orderBy('at')) as DtDoc[];
+    const docs = await DtDoc.all().orderBy('at');
     expect(docs.map((d) => [d.id, d.at.toMillis()])).to.deep.eq([
       [1, first],
       [2, second],
@@ -134,7 +134,7 @@ describe('sqlite datetimes', function () {
 
       const before = Date.now();
       await driver().executeOnDb(`INSERT INTO dt_doc (id, at) VALUES (3, ${driver().now().Query})`, [], QueryContext.Insert);
-      const stamped = (await DtDoc.where('id', 3).first()) as DtDoc;
+      const stamped = await DtDoc.where('id', 3).first();
       expect(stamped.at.toMillis()).to.be.within(before - 1000, Date.now() + 1000);
     });
   });

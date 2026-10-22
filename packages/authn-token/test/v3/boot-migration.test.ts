@@ -62,7 +62,7 @@ describe('the TokenService in a boot migration', function () {
       }
     }
     Migration('default')(SeedTokenAtBoot_2099_01_01_00_00_00);
-    seed = SeedTokenAtBoot_2099_01_01_00_00_00 as unknown as typeof OrmMigration;
+    seed = SeedTokenAtBoot_2099_01_01_00_00_00;
   });
 
   after(async () => {

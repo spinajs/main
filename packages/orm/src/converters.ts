@@ -30,7 +30,7 @@ export function toInstant(value: unknown, column?: string): DateTime | null {
       throw new InvalidArgument(`column ${column}: "${value}" is not an ISO 8601 or SQL datetime`);
     }
   } else {
-    throw new InvalidArgument(`column ${column}: a ${(value as object).constructor?.name ?? typeof value} is not a datetime`);
+    throw new InvalidArgument(`column ${column}: a ${value.constructor?.name ?? typeof value} is not a datetime`);
   }
 
   return dt.isValid ? dt.toUTC() : null;

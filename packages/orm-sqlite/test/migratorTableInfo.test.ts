@@ -192,7 +192,7 @@ describe('sqlite OrmMigrator table info re-read', function () {
 
     await migrator.migrate();
 
-    const reads = tableInfo.getCalls().map((c) => c.args[0] as string);
+    const reads = tableInfo.getCalls().map((c) => c.args[0]);
     expect(reads).to.include('mti_posts');
     expect(reads).to.not.include('mti_notes');
     expect(names(schema.Post)).to.include('Extra');

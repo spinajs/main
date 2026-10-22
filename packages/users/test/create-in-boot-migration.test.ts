@@ -58,7 +58,7 @@ describe('create() from a boot migration', function () {
       }
     }
     Migration('default')(SeedUserAtBoot_2099_01_01_00_00_00);
-    seed = SeedUserAtBoot_2099_01_01_00_00_00 as unknown as typeof OrmMigration;
+    seed = SeedUserAtBoot_2099_01_01_00_00_00;
   });
 
   after(() => {

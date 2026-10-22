@@ -121,7 +121,7 @@ describe('scheduling @Task methods', () => {
 
   it('still writes the legacy __task_history row', async () => {
     await runDigest();
-    const task = (await __task.where('Name', 'send-digest').first())!;
+    const task = await __task.where('Name', 'send-digest').first();
     expect(task.State).to.eq('stopped');
     const history = await __task_history.where('TaskId', task.Id);
     expect(history).to.have.length(1);

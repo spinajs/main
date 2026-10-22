@@ -3,7 +3,6 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import { AuthzService, DefaultAuthzService } from '@spinajs/authz';
-import type { AuthzContribution } from '@spinajs/authz';
 import { BaseController, BasePath, Get, Ok } from '@spinajs/http';
 import { testHost } from '@spinajs/authz-testing';
 
@@ -55,7 +54,7 @@ describe('root domain boot', function () {
 
       const root = contribute.getCalls().filter((c) => c.args[0] === 'root');
       expect(root).to.have.length(1);
-      expect((root[0].returnValue as AuthzContribution).permissionRefs).to.deep.include({ permission: 'file:read', type: 'file', source: '@Access on RootRoutes.read' });
+      expect(root[0].returnValue.permissionRefs).to.deep.include({ permission: 'file:read', type: 'file', source: '@Access on RootRoutes.read' });
     } finally {
       contribute.restore();
       testHost.config().unset(['authz', 'permissions']);

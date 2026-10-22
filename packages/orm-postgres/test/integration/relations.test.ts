@@ -21,17 +21,17 @@ describe('postgres integration - relations', function () {
     await PgOrder.insert([
       { Total: 10, client_id: acme.Id },
       { Total: 20, client_id: acme.Id },
-    ] as any);
+    ]);
     await PgOrderItem.insert([
       { Sku: 'A', order_id: 1 },
       { Sku: 'B', order_id: 1 },
-    ] as any);
-    await PgTag.insert([{ Name: 'red' }, { Name: 'blue' }] as any);
+    ]);
+    await PgTag.insert([{ Name: 'red' }, { Name: 'blue' }]);
     await PgOrderTag.insert([
       { order_id: 1, tag_id: 1, Note: 'first red' },
       { order_id: 1, tag_id: 2, Note: 'first blue' },
       { order_id: 2, tag_id: 1, Note: 'second red' },
-    ] as any);
+    ]);
   }
 
   const junctionRows = () => suite.raw<{ order_id: number; tag_id: number; Note: string | null }[]>('SELECT "order_id", "tag_id", "Note" FROM "pg_order_tag" ORDER BY "Id"');
@@ -91,7 +91,7 @@ describe('postgres integration - relations', function () {
   });
 
   it('writes the junction data of a member added to a new owner', async () => {
-    await PgTag.insert({ Name: 'red' } as any);
+    await PgTag.insert({ Name: 'red' });
     const red = await PgTag.where({ Id: 1 }).first();
 
     const order = new PgOrder({ Total: 1 });

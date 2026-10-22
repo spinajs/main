@@ -1,6 +1,6 @@
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { ICompilerOutput, IdentifierQuoter, Orm } from '@spinajs/orm';
+import { IdentifierQuoter, Orm } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
 import '@spinajs/log';
@@ -54,7 +54,7 @@ describe('sqlite whereStartsWith', function () {
   });
 
   it('compiles to GLOB with the GLOB wildcards of the prefix bracketed', () => {
-    const result = driver().select().from('starts').whereStartsWith('Path', 'docs[1]*?/').toDB() as ICompilerOutput;
+    const result = driver().select().from('starts').whereStartsWith('Path', 'docs[1]*?/').toDB();
 
     expect(result.expression).to.contain('`Path` GLOB ?');
     expect(result.bindings).to.deep.eq(['docs[[]1][*][?]/*']);

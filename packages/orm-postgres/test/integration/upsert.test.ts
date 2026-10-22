@@ -30,7 +30,7 @@ describe('postgres integration - upserts', function () {
 
   it('upserts on an explicit conflict column and returns the row', async () => {
     await suite.driver.insert().into('pg_account').values({ Email: 'a@x.io', Name: 'A' }).onDuplicate('Email').update(['Name']);
-    const second = (await suite.driver.insert().into('pg_account').values({ Email: 'a@x.io', Name: 'A2' }).onDuplicate('Email').update(['Name'])) as any;
+    const second = await suite.driver.insert().into('pg_account').values({ Email: 'a@x.io', Name: 'A2' }).onDuplicate('Email').update(['Name']);
 
     expect(second.Returning.map((r: { Name: string }) => r.Name)).to.deep.equal(['A2']);
     expect(await accounts()).to.deep.equal([{ Email: 'a@x.io', Name: 'A2' }]);

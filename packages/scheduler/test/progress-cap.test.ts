@@ -278,7 +278,7 @@ describe('ProgressSeen', () => {
 
   it('reports nothing for a run whose final status was delivered', () => {
     const seen = new ProgressSeen();
-    seen.note({ ...progress({}), type: 'status', status: 'succeeded', reason: null } as RunEvent);
+    seen.note({ ...progress({}), type: 'status', status: 'succeeded', reason: null });
     expect(seen.differs(progress({ stepProgress: 50 }))).to.eq(false);
     expect(seen.runProgressDiffers(progress({ progress: 50 }))).to.eq(false);
   });

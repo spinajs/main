@@ -234,7 +234,7 @@ export class RunContext {
       const error = aborted
         ? null
         : toStructuredError(err, { attempt: this.attempt, occurredAt: this.init.clock.now(), step: name });
-      if (err !== null && typeof err === 'object') this.stepErrors.set(err as object, name);
+      if (err !== null && typeof err === 'object') this.stepErrors.set(err, name);
       await this.closeStep(s, aborted ? 'aborted' : 'failed', error);
       throw err;
     }

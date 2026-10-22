@@ -130,7 +130,7 @@ describe('postgres OrmMigrator table info re-read (integration)', function () {
     const tableInfo = sinon.spy(PostgresOrmDriver.prototype, 'tableInfo');
     await migrator.migrate();
 
-    const reads = tableInfo.getCalls().map((c) => c.args[0] as string);
+    const reads = tableInfo.getCalls().map((c) => c.args[0]);
     expect(reads).to.include('mti_pg_posts');
     expect(reads).to.not.include('mti_pg_notes');
     expect(names(schema!.Post)).to.have.members(['Id', 'Extra']);

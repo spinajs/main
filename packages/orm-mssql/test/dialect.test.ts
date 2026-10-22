@@ -144,7 +144,7 @@ describe('mssql statements', function () {
   let driver: MsSqlOrmDriver;
   const sql = (q: { toDB(): unknown }) => {
     const out = q.toDB() as ICompilerOutput | ICompilerOutput[];
-    return (Array.isArray(out) ? out[0] : out) as ICompilerOutput;
+    return (Array.isArray(out) ? out[0] : out);
   };
   const schema = () => driver.Container.resolve(SchemaQueryBuilder, [driver]);
 

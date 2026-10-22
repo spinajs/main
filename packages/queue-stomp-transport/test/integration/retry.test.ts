@@ -86,7 +86,7 @@ describe('ActiveMQ integration - retries and dead letters', function () {
     await queue.consume(ItFailingJob);
     await queue.get('jobs').subscribe(dlq, dead);
 
-    const jobId = (await ItFailingJob.emit({ RetryCount: 2 } as any))!;
+    const jobId = (await ItFailingJob.emit({ RetryCount: 2 }))!;
 
     await waitFor(() => dead.calledOnce, 20000, 'dead-letter delivery');
     const row = await JobModel.where({ JobId: jobId }).first();

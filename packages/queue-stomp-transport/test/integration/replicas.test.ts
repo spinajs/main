@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { randomUUID } from 'crypto';
 import { DateTime } from 'luxon';
-import { IQueueMessage, JobModel, QueueMessageType, QueueService } from '@spinajs/queue';
+import { JobModel, QueueMessageType, QueueService } from '@spinajs/queue';
 import { removeTempDir, requireBroker, sleep, uniqueQueue, waitFor } from './support/env.js';
 import { startApp, stopApp, tempDbFile } from './support/app.js';
 import { Replica, replicaEnv } from './support/replica.js';
@@ -46,7 +46,7 @@ describe('ActiveMQ integration - replicas', function () {
   async function emitReplicaJob(extra: Record<string, unknown> = {}): Promise<string> {
     const jobId = randomUUID();
     const message = { Name: 'ReplicaJob', Type: QueueMessageType.Job, JobId: jobId, Persistent: true, Priority: 0, CreatedAt: DateTime.now(), ...extra };
-    await producer.get('jobs').emit(message as unknown as IQueueMessage);
+    await producer.get('jobs').emit(message);
     return jobId;
   }
 

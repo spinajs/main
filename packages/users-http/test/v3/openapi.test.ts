@@ -28,7 +28,7 @@ describe('OpenAPI request bodies of the users-http DTO routes', () => {
   const operations = new Map<string, { path: string; method: string; op: any }>();
 
   before(() => {
-    const builder = new OpenApiBuilder({ enabled: true, title: 'users-http', version: '1.0.0' } as never);
+    const builder = new OpenApiBuilder({ enabled: true, title: 'users-http', version: '1.0.0' });
     (builder as unknown as { SchemaProviders: unknown[] }).SchemaProviders = [new DtoSchemaProvider()];
     for (const c of [Users, Security, UserMetadataController]) {
       const instance = new c() as BaseController;
@@ -37,7 +37,7 @@ describe('OpenAPI request bodies of the users-http DTO routes', () => {
         const names = parseFnParamNames((instance as unknown as Record<string, (...args: unknown[]) => unknown>)[name as string]);
         for (const [index, param] of route.Parameters) if (names[index]) param.Name = names[index];
       }
-      builder.addController({ name: c.name, instance } as never, { className: c.name, methods: {} } as never);
+      builder.addController({ name: c.name, instance } as never, { className: c.name, methods: {} });
     }
     const doc = builder.build() as { paths: Record<string, Record<string, any>> };
     for (const [path, item] of Object.entries(doc.paths)) for (const [method, op] of Object.entries(item)) operations.set(op.operationId, { path, method, op });

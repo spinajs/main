@@ -115,8 +115,8 @@ describe('postgres integration - time (process zone Europe/Warsaw)', function ()
       await new PgEvent({ Name: 'ny', At: at }).insert();
       const row = await PgEvent.where('Name', 'ny').first();
 
-      expect(row!.At.toMillis()).to.equal(at.toMillis());
-      expect(row!.At.zoneName).to.equal('UTC');
+      expect(row.At.toMillis()).to.equal(at.toMillis());
+      expect(row.At.zoneName).to.equal('UTC');
     });
   });
 
@@ -124,7 +124,7 @@ describe('postgres integration - time (process zone Europe/Warsaw)', function ()
     // 06:00:00.123456 in New York (EDT) is 10:00:00.123456Z; the column keeps .123
     await suite.external(`INSERT INTO "pg_event" ("Name", "At") VALUES (?, (?::timestamp AT TIME ZONE 'America/New_York'))`, ['ext', '2026-07-01 06:00:00.123456']);
 
-    expect((await PgEvent.where('Name', 'ext').first())!.At.toISO()).to.equal('2026-07-01T10:00:00.123Z');
+    expect((await PgEvent.where('Name', 'ext').first()).At.toISO()).to.equal('2026-07-01T10:00:00.123Z');
   });
 
   it('truncates microseconds of a raw instant to milliseconds', async () => {
@@ -167,7 +167,7 @@ describe('postgres integration - time (database default zone America/New_York)',
     await new PgEvent({ Name: 'fixed', At: at }).insert();
     await new PgEvent({ Name: 'future', At: DateTime.now().plus({ minutes: 30 }) }).insert();
 
-    expect((await PgEvent.where('Name', 'fixed').first())!.At.toMillis()).to.equal(at.toMillis());
+    expect((await PgEvent.where('Name', 'fixed').first()).At.toMillis()).to.equal(at.toMillis());
     expect((await PgEvent.where(RawQuery.create('"At" < now()'))).map((e) => e.Name)).to.deep.equal(['fixed']);
   });
 });

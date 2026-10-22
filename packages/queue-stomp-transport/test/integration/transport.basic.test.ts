@@ -431,7 +431,7 @@ describe('stomp queue transport test', function () {
       Priority: 0,
     };
 
-    await c.emit(message as any);
+    await c.emit(message);
 
     await wait(QUEUE_WAIT_TIME_MS * 3);
 
@@ -462,7 +462,7 @@ describe('stomp queue transport test', function () {
       Priority: 0,
     };
 
-    await c.emit(message as any);
+    await c.emit(message);
 
     await wait(QUEUE_WAIT_TIME_MS * 4);
 

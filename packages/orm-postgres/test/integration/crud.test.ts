@@ -49,20 +49,20 @@ describe('postgres integration - crud and keys', function () {
   });
 
   it('counts rows as a number', async () => {
-    await PgAutoKey.insert([{ Name: 'a' }, { Name: 'b' }] as any);
+    await PgAutoKey.insert([{ Name: 'a' }, { Name: 'b' }]);
     expect(await PgAutoKey.count()).to.equal(2);
   });
 
   it('needs setval after explicit identity keys (documented limitation)', async () => {
-    await PgAutoKey.insert([{ Id: 2, Name: 'explicit' }, { Name: 'auto' }] as any);
+    await PgAutoKey.insert([{ Id: 2, Name: 'explicit' }, { Name: 'auto' }]);
     await suite.raw(`SELECT setval(pg_get_serial_sequence('"pg_auto_key"', 'Id'), (SELECT max("Id") FROM "pg_auto_key"))`);
-    await PgAutoKey.insert([{ Name: 'auto2' }, { Name: 'auto3' }] as any);
+    await PgAutoKey.insert([{ Name: 'auto2' }, { Name: 'auto3' }]);
 
     expect((await PgAutoKey.all()).map((r) => r.Name).sort()).to.deep.equal(['auto', 'auto2', 'auto3', 'explicit']);
   });
 
   it('reports affected rows for update and delete', async () => {
-    await PgAutoKey.insert([{ Name: 'a' }, { Name: 'a' }, { Name: 'b' }] as any);
+    await PgAutoKey.insert([{ Name: 'a' }, { Name: 'a' }, { Name: 'b' }]);
 
     const updated = (await suite.driver.update().in('pg_auto_key').update({ Name: 'z' }).where('Name', 'a')) as unknown as Affected;
     const none = (await suite.driver.update().in('pg_auto_key').update({ Name: 'q' }).where('Name', 'missing')) as unknown as Affected;
@@ -121,7 +121,7 @@ describe('postgres integration - crud and keys', function () {
       { TenantId: 1, Code: 'a', Name: 'A' },
       { TenantId: 2, Code: 'a', Name: 'C' },
       { TenantId: 1, Code: 'b', Name: 'B' },
-    ] as any);
+    ]);
 
     const rows = await PgCompositeKey.find([
       [1, 'a'],

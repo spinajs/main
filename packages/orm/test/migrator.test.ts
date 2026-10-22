@@ -73,7 +73,7 @@ function column(name: string, type = 'INT', over: Partial<IColumnDescriptor> = {
     Aggregate: false,
     Virtual: false,
     ...over,
-  } as unknown as IColumnDescriptor;
+  };
 }
 
 function columnOf(c: any): IColumnDescriptor {
@@ -271,7 +271,7 @@ describe('OrmMigrator', function () {
   afterEach(async () => {
     for (const t of [...(DI.getRegisteredTypes('__migrations__') ?? [])]) {
       if (!preRegistered.includes(t)) {
-        DI.unregister(t as Class<unknown>);
+        DI.unregister(t);
       }
     }
 
@@ -361,7 +361,7 @@ describe('OrmMigrator', function () {
     expect(up.called, 'a migration ran inside the Orm resolve').to.be.false;
     expect(TABLES.has('mig_users')).to.be.false;
     expect(
-      EXECUTED.some((b) => b instanceof SelectQueryBuilder && (b as SelectQueryBuilder).Table === MIGRATION_TABLE_NAME),
+      EXECUTED.some((b) => b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME),
       'the Orm resolve read the tracking table',
     ).to.be.false;
     expect(EXECUTED.some((b) => b instanceof TableQueryBuilder)).to.be.false;

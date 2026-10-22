@@ -94,12 +94,12 @@ export async function stopApp(): Promise<void> {
   await server.stop();
   DI.uncache(HttpServer);
   DI.uncache(Controllers);
-  for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type as Class<BaseController>);
+  for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type);
   for (const c of controllers) DI.unregister(c);
   DI.uncache(BaseController);
   await DI.get(PrincipalMiddleware)?.dispose();
   // Middlewares keep what they resolved at boot (PrincipalMiddleware: the root AuthzService uninstallHost disposes).
-  for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type as Class<ServerMiddleware>);
+  for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type);
   DI.uncache(ServerMiddleware);
   DI.uncache(TestRoleSource);
   DI.uncache(PrincipalSource);

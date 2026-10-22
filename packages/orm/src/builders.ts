@@ -1014,7 +1014,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
      * it produces WHERE foo = 1
      */
     function _handleForTwo(c: any, v: any) {
-      let sVal = v;
+      const sVal = v;
 
       if (sVal === undefined) {
         throw new InvalidArgument(`value cannot be undefined`);
@@ -1042,7 +1042,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
      * it produces WHERE foo != 1
      */
     function _handleForThree(c: any, o: any, v: any) {
-      let sVal = v;
+      const sVal = v;
 
       if (!isWhereOperator(o)) {
         throw new InvalidArgument(`operator ${o} is invalid`);
@@ -2050,7 +2050,7 @@ export function mergeInsertResults(results: unknown[]): unknown {
   return {
     RowsAffected: packets.reduce((sum, r) => sum + (r?.RowsAffected ?? 0), 0),
     LastInsertId: packets[packets.length - 1]?.LastInsertId ?? 0,
-    Returning: packets.flatMap((r) => (Array.isArray(r?.Returning) ? r!.Returning : [])),
+    Returning: packets.flatMap((r) => (Array.isArray(r?.Returning) ? r.Returning : [])),
   };
 }
 

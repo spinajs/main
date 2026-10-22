@@ -102,15 +102,15 @@ describe('OrmResourceAdapter', function () {
       it('an id beyond the key column range is a missing row, not a failed query', async () => {
         // INTEGER is 32-bit on Postgres, which fails the whole query on an out-of-range bind.
         const far = '99999999999';
-        const out = await adapter.ancestorsMany!([{ type: 'task', id: '7' }, { type: 'task', id: far }]);
+        const out = await adapter.ancestorsMany([{ type: 'task', id: '7' }, { type: 'task', id: far }]);
         expect(out.get(`task:${far}`)).to.equal(null);
         expect(out.get('task:7')).to.deep.equal([{ type: 'task', id: '7' }, { type: 'project', id: 'p1' }, { type: 'org', id: 'o1' }, GLOBAL]);
         expect(await adapter.ancestors({ type: 'task', id: '-99999999999' })).to.equal(null);
-        expect([...(await adapter.loadMany!([{ type: 'task', id: '8' }, { type: 'task', id: far }])).keys()]).to.deep.equal(['task:8']);
+        expect([...(await adapter.loadMany([{ type: 'task', id: '8' }, { type: 'task', id: far }])).keys()]).to.deep.equal(['task:8']);
       });
 
       it('ancestorsMany answers a batch by resourceKey', async () => {
-        const out = await adapter.ancestorsMany!([{ type: 'task', id: '7' }, { type: 'task', id: '8' }, { type: 'task', id: '9' }, { type: 'user', id: 'u1' }]);
+        const out = await adapter.ancestorsMany([{ type: 'task', id: '7' }, { type: 'task', id: '8' }, { type: 'task', id: '9' }, { type: 'user', id: 'u1' }]);
         expect([...out.keys()].sort()).to.deep.equal(['task:7', 'task:8', 'task:9', 'user:u1']);
         expect(out.get('task:8')).to.deep.equal([{ type: 'task', id: '8' }, { type: 'project', id: 'p2' }, GLOBAL]);
         expect(out.get('task:9')).to.equal(null);
@@ -120,7 +120,7 @@ describe('OrmResourceAdapter', function () {
         const row = (await adapter.load({ type: 'task', id: '7' })) as ModelBase & { title: string };
         expect(row.title).to.equal('a');
         expect(currentPrincipal()).to.not.equal(SYSTEM);
-        const many = await adapter.loadMany!([{ type: 'task', id: '7' }, { type: 'task', id: '8' }, { type: 'task', id: '42' }]);
+        const many = await adapter.loadMany([{ type: 'task', id: '7' }, { type: 'task', id: '8' }, { type: 'task', id: '42' }]);
         expect([...many.keys()].sort()).to.deep.equal(['task:7', 'task:8']);
         expect(await adapter.load({ type: 'task', id: '42' })).to.equal(null);
       });
@@ -140,7 +140,7 @@ describe('OrmResourceAdapter', function () {
 
       it('relations: an owner with a type column holds for that principal type only', async () => {
         const Job = await db.define({ name: 'Job', columns: { InitiatorId: 'TEXT', InitiatorType: 'TEXT' }, rows: [{ id: 'j1', InitiatorId: 'alice', InitiatorType: 'agent' }] }, dialect);
-        registerAccessResource(Job as never, 'job', { owner: { column: 'InitiatorId', typeColumn: 'InitiatorType' } });
+        registerAccessResource(Job, 'job', { owner: { column: 'InitiatorId', typeColumn: 'InitiatorType' } });
         const owner = adapter.relations().find((r) => r.type === 'job' && r.relation === 'owner')!;
         expect(await owner.holds(agent, { type: 'job', id: 'j1' })).to.equal(true);
         expect(await owner.holds(user('alice'), { type: 'job', id: 'j1' })).to.equal(false);

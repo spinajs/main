@@ -27,9 +27,9 @@ async function seed() {
   await UowOrder.insert({ Total: 20 });
   await UowTag.insert({ Name: 'red' });
   await UowTag.insert({ Name: 'blue' });
-  await UowOrderTag.insert({ order_id: 1, tag_id: 1, Note: 'first red' } as any);
-  await UowOrderTag.insert({ order_id: 1, tag_id: 2, Note: 'first blue' } as any);
-  await UowOrderTag.insert({ order_id: 2, tag_id: 1, Note: 'second red' } as any);
+  await UowOrderTag.insert({ order_id: 1, tag_id: 1, Note: 'first red' });
+  await UowOrderTag.insert({ order_id: 1, tag_id: 2, Note: 'first blue' });
+  await UowOrderTag.insert({ order_id: 2, tag_id: 1, Note: 'second red' });
 }
 
 const loadOrder = (id: number) => UowOrder.where({ Id: id }).populate('Tags').first();
@@ -197,7 +197,7 @@ describe('ModelBase.save - many-to-many junction data', function () {
   describe('clone', () => {
     it('copies a loaded graph: hasMany cloned, many-to-many targets linked with copies of their junction rows', async () => {
       await seed();
-      await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 } as any);
+      await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
       const order = await UowOrder.where({ Id: 1 }).populate('Tags').populate('Items').first();
 
       const copy = order.clone({ relations: ['Items', 'Tags'] });

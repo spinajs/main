@@ -7,7 +7,7 @@ import { IsoDatetimeValueConverter, SqlDatetimeValueConverter } from '../src/con
 
 const AT = Date.UTC(2026, 9, 19, 12, 0, 0, 123);
 // A fifth argument means dehydrating, so a statement value is written with four.
-const write = (c: SqlDatetimeValueConverter, value: unknown, column?: object, dehydrate?: object) => (dehydrate ? c.toDB(value, null as any, column as any, undefined, dehydrate as any) : c.toDB(value, null as any, column as any));
+const write = (c: SqlDatetimeValueConverter, value: unknown, column?: object, dehydrate?: object) => (dehydrate ? c.toDB(value, null as any, column as any, undefined, dehydrate) : c.toDB(value, null as any, column as any));
 
 describe('SqlDatetimeValueConverter (MySQL)', () => {
   const c = new SqlDatetimeValueConverter();

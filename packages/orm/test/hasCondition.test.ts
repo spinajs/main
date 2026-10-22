@@ -47,7 +47,7 @@ describe('WhereBuilder.hasCondition()', () => {
   it('is false for an empty builder and true for one with a statement', () => {
     expect(builder().hasCondition()).to.be.false;
     const b = builder();
-    b.Statements.push(new Condition() as any);
+    b.Statements.push(new Condition());
     expect(b.hasCondition()).to.be.true;
   });
 
@@ -58,7 +58,7 @@ describe('WhereBuilder.hasCondition()', () => {
     expect(outer.hasCondition()).to.be.false;
 
     const inner = builder();
-    inner.Statements.push(new Condition() as any);
+    inner.Statements.push(new Condition());
     outer.Statements.push(new Group(inner));
     expect(outer.hasCondition()).to.be.true;
   });
@@ -70,7 +70,7 @@ describe('WhereBuilder.hasCondition()', () => {
     expect(outer.hasCondition(), 'an empty foreign group').to.be.false;
 
     const inner = builder();
-    inner.Statements.push(new Condition() as any);
+    inner.Statements.push(new Condition());
     outer.Statements.push(new Group(inner));
     expect(outer.hasCondition()).to.be.true;
   });

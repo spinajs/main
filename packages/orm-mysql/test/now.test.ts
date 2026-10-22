@@ -2,7 +2,6 @@ import 'mocha';
 import { expect } from 'chai';
 import '@spinajs/log';
 import { DI } from '@spinajs/di';
-import { ICompilerOutput } from '@spinajs/orm';
 
 import { MySqlOrmDriver } from '../src/index.js';
 
@@ -20,7 +19,7 @@ describe('mysql database now', function () {
   });
 
   it('is UTC_TIMESTAMP(3), usable as a where value', () => {
-    const out = driver.select().from('t').where('At', '<=', driver.now()).toDB() as ICompilerOutput;
+    const out = driver.select().from('t').where('At', '<=', driver.now()).toDB();
 
     expect(driver.now().Query).to.eq('UTC_TIMESTAMP(3)');
     expect(out.expression).to.contain('`At` <= UTC_TIMESTAMP(3)');

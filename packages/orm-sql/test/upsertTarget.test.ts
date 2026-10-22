@@ -38,17 +38,17 @@ function col(Name: string, over: Partial<IColumnDescriptor> = {}): IColumnDescri
     PrimaryKey: false,
     AutoIncrement: false,
     Name,
-    Converter: null as any,
+    Converter: null,
     Schema: 'sqlite',
     Unique: false,
     Uuid: false,
     Ignore: false,
     IsForeignKey: false,
-    ForeignKeyDescription: null as any,
+    ForeignKeyDescription: null,
     Aggregate: false,
     Virtual: false,
     ...over,
-  } as IColumnDescriptor;
+  };
 }
 
 /** The conflict target insert(InsertOrUpdate) hands to onDuplicate(). */

@@ -18,13 +18,13 @@ class ProbeDriver extends MySqlOrmDriver {
 
 describe('mysql session time zone', () => {
   it('has mysql2 write and read datetimes as UTC', () => {
-    const d = new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x' } as any);
+    const d = new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x' });
 
     expect(d.probeOptions().timezone).to.eq('Z');
   });
 
   it("sets each new pooled connection's session zone to UTC", () => {
-    const d = new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x' } as any);
+    const d = new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x' });
     const pool = new EventEmitter();
     const sent: string[] = [];
 
@@ -41,7 +41,7 @@ describe('mysql session time zone', () => {
 
   describe('when the session zone cannot be set', () => {
     function pooled(zoneError: Error | null) {
-      const d = new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x' } as any);
+      const d = new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x' });
       const pool = Object.assign(new EventEmitter(), {
         getConnection(done: (err: Error | null, connection?: unknown) => void) {
           pool.emit('connection', connection);

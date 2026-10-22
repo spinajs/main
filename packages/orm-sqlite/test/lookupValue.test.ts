@@ -53,7 +53,7 @@ describe('sqlite column kinds and lookup values', function () {
     const ids = ['1', 'abc', '2', '1.5'].map((t) => lookupValue(column('Id'), t)).filter((v) => v !== undefined);
     expect(ids).to.deep.eq([1, 2]);
 
-    const found = (await GapLookup.query().whereIn('Id', ids)) as GapLookup[];
+    const found = await GapLookup.query().whereIn('Id', ids);
     expect(found.map((m) => m.Id).sort()).to.deep.eq([1, 2]);
   });
 });

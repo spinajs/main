@@ -127,7 +127,7 @@ export class ModelBase<M = unknown> implements IModelBase {
 
       switch (r.Type) {
         case RelationType.One:
-          (rel as any)[r.ForeignKey] = scalar;
+          rel[r.ForeignKey] = scalar;
           break;
         case RelationType.Many:
           (rel as any[]).forEach((rVal) => (rVal[r.ForeignKey] = scalar));
@@ -991,7 +991,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     _prepareOrderBy(description, query);
 
     // TODO: rethink all cast of this type?
-    return (await query.firstOrFail()) as unknown as Promise<this>;
+    return (await query.firstOrFail()) as this;
   }
 
   /**
@@ -1379,7 +1379,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     }
 
     const { query, description } = createQuery(this, UpdateQueryBuilder);
-    return query.update(_toColumnValues(data as Record<string, unknown>, description));
+    return query.update(_toColumnValues(data, description));
   },
 
   all(page?: number, perPage?: number) {
@@ -1546,7 +1546,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
 
     _prepareOrderBy(description, query);
 
-    return (await query.first()) as unknown as Promise<InstanceType<T>>;
+    return (await query.first()) as InstanceType<T>;
   },
 
   async getOrFail<T extends typeof ModelBase>(this: T, pk: any): Promise<InstanceType<T>> {
@@ -1557,7 +1557,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
 
     _prepareOrderBy(description, query);
 
-    return (await query.firstOrFail()) as unknown as Promise<InstanceType<T>>;
+    return (await query.firstOrFail()) as InstanceType<T>;
   },
 
   destroy<T extends typeof ModelBase>(pks?: any | any[]): DeleteQueryBuilder<InstanceType<T>> | UpdateQueryBuilder<InstanceType<T>> {
@@ -1582,7 +1582,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
     }
 
     if (data) {
-      whereAnyPk(query as unknown as IWhereBuilder<any>, description, data);
+      whereAnyPk(query, description, data);
     } else {
       query.requireWhere();
     }
@@ -1611,7 +1611,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
 
     _prepareOrderBy(description, query);
 
-    let entity = (await query.first()) as any;
+    let entity = await query.first();
 
     if (!entity) {
       entity = new this(data);
@@ -1636,7 +1636,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
 
     _prepareOrderBy(description, query);
 
-    let entity = (await query.first()) as any;
+    let entity = await query.first();
 
     if (!entity) {
 
@@ -1700,7 +1700,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
       callback(query);
     }
 
-    return (await query.first()) as unknown as Promise<InstanceType<T>>;
+    return (await query.first()) as InstanceType<T>;
   },
 
   async last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
@@ -1711,7 +1711,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
       callback(query);
     }
 
-    return (await query.first()) as unknown as Promise<InstanceType<T>>;
+    return (await query.first()) as InstanceType<T>;
   },
 
   async newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
@@ -1727,7 +1727,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
       callback(query);
     }
 
-    return (await query.first()) as unknown as Promise<InstanceType<T>>;
+    return (await query.first()) as InstanceType<T>;
   },
 
   async oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
@@ -1743,7 +1743,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
       callback(query);
     }
 
-    return (await query.first()) as unknown as Promise<InstanceType<T>>;
+    return (await query.first()) as InstanceType<T>;
   },
 
   async count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<number> {
