@@ -21,6 +21,7 @@ import { AccessToken } from '../../src/models/AccessToken.js';
 import { DbTokenService, NoTokenProfilesPolicy, TOKEN_PROFILE_HOOK_ORDER, TokenOwnerResolver, TokenProfileHook, TokenProfilePolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
 import { bootV3Db, insertUserRow, shutdownV3Db, v3Connection } from './db.js';
 import { profileHookIn, tokenServiceOver } from './services.js';
+import { setPastSchema } from '../support/config-boot.js';
 
 const TABLE = 'rbac_access_tokens';
 const NOW = new Date('2026-10-03T10:00:00.000Z');
@@ -92,6 +93,7 @@ describe('DbTokenService', function () {
 
   const config = () => DI.get(Configuration)!;
   const setToken = (key: string, value: unknown) => config().set(['authn', 'token', key], value);
+  const setTokenPastSchema = (key: string, value: unknown) => setPastSchema(config(), `authn.token.${key}`, value);
 
   before(async () => {
     await bootV3Db();
@@ -589,11 +591,13 @@ describe('DbTokenService', function () {
   describe('a TTL cap the schema never saw', () => {
     it('refuses every expiry when the cap is not finite', async () => {
       const a = await owner();
-      setToken('maxTtlDays', Infinity);
+      setTokenPastSchema('maxTtlDays', Infinity);
       await refused(a, { name: 'x', kind: 'pat', expiresAt: at(DAY) }, 'invalid_expiry');
       setToken('maxTtlDays', 90);
-      setToken('agentMaxTtlMinutes', Infinity);
+      setTokenPastSchema('agentMaxTtlMinutes', Infinity);
       await refused(a, { name: 'x', kind: 'agent', scope: { agent: true }, expiresAt: at(60 * MINUTE) }, 'invalid_expiry');
+      // The restore in afterEach goes through set(), which refuses to start from a value past the schema.
+      setToken('agentMaxTtlMinutes', savedConfig.get('agentMaxTtlMinutes'));
     });
   });
 
@@ -1415,7 +1419,7 @@ describe('DbTokenService', function () {
         ['agentMaxTtlMinutes', -1],
         ['agentMaxTtlMinutes', 'sixty'],
       ] as const) {
-        setToken(key, value);
+        setTokenPastSchema(key, value);
         const agentKind = key === 'agentMaxTtlMinutes';
         await refused(a, { name: 'x', kind: agentKind ? 'agent' : 'pat', ...(agentKind ? { scope: { agent: true } } : {}), expiresAt: at(MINUTE) }, 'invalid_expiry', `${key} = ${value}`);
         setToken(key, savedConfig.get(key));
