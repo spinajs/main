@@ -1,5 +1,5 @@
 {
-  "version": "3.0.5",
+  "version": "3.0.6",
   "description": "Log lib for all spinejs related libs",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -52,10 +52,10 @@
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
   "dependencies": {
-    "@spinajs/configuration-common": "3.0.5",
-    "@spinajs/di": "3.0.5",
-    "@spinajs/log": "3.0.5",
-    "@spinajs/util": "3.0.5",
+    "@spinajs/configuration-common": "3.0.6",
+    "@spinajs/di": "3.0.6",
+    "@spinajs/log": "3.0.6",
+    "@spinajs/util": "3.0.6",
     "axios": "^1.2.3",
     "lodash": "^4.17.21"
   }
