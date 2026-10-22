@@ -183,7 +183,7 @@ describe('DI Container Memory Management Tests', () => {
         expect(true).to.be.true; // Test passes if no error
       } catch (err) {
         // If disposal throws, that's the current expected behavior
-        expect(err.message).to.include('Test disposal error');
+        expect((err as Error).message).to.include('Test disposal error');
       }
     });
   });
