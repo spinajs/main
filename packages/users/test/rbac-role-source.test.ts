@@ -16,6 +16,7 @@ import type { AuthnFacts, Ceiling, IdentityRef } from '@spinajs/authn/contracts'
 import { RbacRoleSource, UserPrincipalFactory } from '../src/index.js';
 import { rootAdmin } from './support/authz-host.js';
 import { bootUsersDb, registerUsersTestHost, seedUser } from './support/users-db.js';
+import { setPastSchema } from './support/set-past-schema.js';
 
 chai.use(chaiAsPromised);
 
@@ -152,7 +153,7 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
     it('rejects a malformed key set at runtime, instead of reading it as no role needing the password', async () => {
       const ref = await user('member');
       for (const bad of ['support', { support: true }, 5, [1]]) {
-        await setConfig(PASSWORD_KEY, bad);
+        setPastSchema(await DI.resolve(Configuration), PASSWORD_KEY.join('.'), bad);
         await expect(source.rolesOf(await signedIn(ref)), JSON.stringify(bad)).to.be.rejectedWith(AuthzConfigError, /authz\.principals\.roleSwitch\.requirePassword/);
       }
     });

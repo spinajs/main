@@ -16,6 +16,7 @@ import { AuthzImpersonationGuard, AuthzTargetGuard, PrincipalAttributeProvider, 
 import type { User } from '../src/index.js';
 import { rootAdmin } from './support/authz-host.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, setIdentityFlags } from './support/users-db.js';
+import { setPastSchema } from './support/set-past-schema.js';
 
 chai.use(chaiAsPromised);
 
@@ -379,7 +380,7 @@ describe('AuthzImpersonationGuard (users DB, root authz host)', function () {
       const actor = await signedIn(await user('support', 'useradmin'));
       const target = await signedIn(await user('admin'));
       for (const bad of [5, { admin: true }, true]) {
-        (await DI.resolve(Configuration)).set(['authz', 'impersonation', 'protectedRoles'], bad);
+        setPastSchema(await DI.resolve(Configuration), 'authz.impersonation.protectedRoles', bad);
         await expect(new AuthzTargetGuard().check(actor, target), JSON.stringify(bad)).to.be.rejectedWith(AuthzConfigError, /authz\.impersonation\.protectedRoles/);
       }
     });
