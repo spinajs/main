@@ -129,6 +129,10 @@ graphify-out/
 !/docs/electron/
 !/docs/email/
 !/docs/email-smtp-transport/
+!/docs/email-verification/
+!/docs/email-verification-dynamodb/
+!/docs/email-verification-orm/
+!/docs/email-verification-redis/
 !/docs/eslint-plugin-authz/
 !/docs/exceptions/
 !/docs/fs/
@@ -160,6 +164,7 @@ graphify-out/
 !/docs/orm-sql/
 !/docs/orm-sqlite/
 !/docs/orm-threading/
+!/docs/principal/
 !/docs/queue/
 !/docs/queue-amqp-transport/
 !/docs/queue-http-progress/
