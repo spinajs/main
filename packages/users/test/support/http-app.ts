@@ -192,7 +192,7 @@ async function authnHttpControllers(): Promise<Class<BaseController>[]> {
     if (!existsSync(path)) throw new Error(`the users http tests load @spinajs/authn-http from its build, and ${path} is missing: build it first (npm run build at the repo root)`);
   }
   const v3 = await import('./authn-http-v3.js');
-  return [v3.AuthnLoginController, v3.AuthnMfaController, v3.AuthnSessionsController, v3.AuthnActiveRoleController, v3.AuthnImpersonationController] as unknown as Class<BaseController>[];
+  return [v3.AuthnLoginController, v3.AuthnMfaController, v3.AuthnSessionsController, v3.AuthnActiveRoleController, v3.AuthnImpersonationController, v3.AuthnRegistrationController] as unknown as Class<BaseController>[];
 }
 
 export interface UsersHttpApp {

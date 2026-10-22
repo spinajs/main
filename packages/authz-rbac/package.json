@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authz-rbac",
-  "version": "3.0.10",
+  "version": "3.0.11",
   "description": "RBAC model, stores and write handlers for SpinaJS authorization",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -52,23 +52,23 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.10",
-    "@spinajs/authz-orm": "3.0.10",
-    "@spinajs/cli": "3.0.10",
-    "@spinajs/configuration": "3.0.10",
-    "@spinajs/di": "3.0.10",
-    "@spinajs/exceptions": "3.0.10",
-    "@spinajs/log-common": "3.0.10",
-    "@spinajs/orm": "3.0.10",
-    "@spinajs/util": "3.0.10",
+    "@spinajs/authz": "3.0.11",
+    "@spinajs/authz-orm": "3.0.11",
+    "@spinajs/cli": "3.0.11",
+    "@spinajs/configuration": "3.0.11",
+    "@spinajs/di": "3.0.11",
+    "@spinajs/exceptions": "3.0.11",
+    "@spinajs/log-common": "3.0.11",
+    "@spinajs/orm": "3.0.11",
+    "@spinajs/util": "3.0.11",
     "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "@spinajs/authz-abac": "3.0.10",
-    "@spinajs/authz-testing": "3.0.10",
-    "@spinajs/log": "3.0.10",
-    "@spinajs/orm-postgres": "3.0.10",
-    "@spinajs/orm-sqlite": "3.0.10",
+    "@spinajs/authz-abac": "3.0.11",
+    "@spinajs/authz-testing": "3.0.11",
+    "@spinajs/log": "3.0.11",
+    "@spinajs/orm-postgres": "3.0.11",
+    "@spinajs/orm-sqlite": "3.0.11",
     "@types/luxon": "^3.6.1"
   }
 }
