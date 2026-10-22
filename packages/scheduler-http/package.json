@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/scheduler-http",
-  "version": "3.0.14",
+  "version": "3.0.15",
   "description": "HTTP API and Server-Sent Events live stream for @spinajs/scheduler",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -53,20 +53,20 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.14",
-    "@spinajs/authz-http": "3.0.14",
-    "@spinajs/configuration": "3.0.14",
-    "@spinajs/di": "3.0.14",
-    "@spinajs/exceptions": "3.0.14",
-    "@spinajs/http": "3.0.14",
-    "@spinajs/scheduler": "3.0.14",
-    "@spinajs/validation": "3.0.14"
+    "@spinajs/authz": "3.0.15",
+    "@spinajs/authz-http": "3.0.15",
+    "@spinajs/configuration": "3.0.15",
+    "@spinajs/di": "3.0.15",
+    "@spinajs/exceptions": "3.0.15",
+    "@spinajs/http": "3.0.15",
+    "@spinajs/scheduler": "3.0.15",
+    "@spinajs/validation": "3.0.15"
   },
   "devDependencies": {
-    "@spinajs/authz-testing": "3.0.14",
-    "@spinajs/fs": "3.0.14",
-    "@spinajs/http-swagger": "3.0.14",
-    "@spinajs/orm": "3.0.14",
-    "@spinajs/orm-sqlite": "3.0.14"
+    "@spinajs/authz-testing": "3.0.15",
+    "@spinajs/fs": "3.0.15",
+    "@spinajs/http-swagger": "3.0.15",
+    "@spinajs/orm": "3.0.15",
+    "@spinajs/orm-sqlite": "3.0.15"
   }
 }
