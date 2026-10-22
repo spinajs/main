@@ -1284,6 +1284,23 @@ describe('DefaultAuthnService', function () {
       assert.strictEqual((await p.sessions.restore(pending.id))?.handle.state, 'pending');
     });
 
+    it('refuses a step longer than 64 or a response longer than 65536 characters as malformed, counting but verifying nothing', async () => {
+      const p = await boot(undefined);
+      const { pending } = await pendingAlice(p);
+      failure(await p.service.completeMfa(pending, 's'.repeat(65), '000000', ctx()), 'invalid_credentials');
+      failure(await p.service.completeMfa(pending, p.step.name, '0'.repeat(65537), ctx()), 'invalid_credentials');
+      assert.strictEqual(p.step.verifyCalls.length, 0);
+      assert.deepStrictEqual(
+        p.events
+          .all()
+          .filter((e) => e.type === 'mfa.verify')
+          .map((e) => `${e.outcome}:${e.reason}`),
+        ['failure:malformed', 'failure:malformed'],
+      );
+      assert.strictEqual(flowCalls(throttle!.attempts, 'mfa').length, 2);
+      assert.strictEqual((await p.sessions.restore(pending.id))?.handle.state, 'pending');
+    });
+
     it('refuses an expired pending session without counting', async () => {
       const clock = new FakeClock();
       clock.install();

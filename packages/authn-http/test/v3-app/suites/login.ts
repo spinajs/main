@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call -- the assertions read untyped JSON answers */
 import { expect } from 'chai';
 import { randomUUID } from 'node:crypto';
 
@@ -142,13 +143,13 @@ export function loginSuite(): void {
         });
       }
 
-      it('over-long values and malformed bodies reach no strategy', async () => {
+      it('over-long values and malformed bodies reach no strategy; the IP gate counts them on the ip key alone (V8)', async () => {
         const u = await seedUser();
         await new Client().post('/auth/login', { login: 'x'.repeat(1025), password: u.password });
         await new Client().post('/auth/login', { login: u.login, password: 'p'.repeat(1025) });
         await new Client().post('/auth/login', { login: 42, password: u.password });
         expect(passwordStrategy.verifyCalls).to.have.length(0);
-        expect(throttle.attempts).to.have.length(0);
+        expect(throttle.attempts.map((x) => x.keys.map((k) => k.kind))).to.deep.eq([['ip'], ['ip'], ['ip']]);
       });
 
       it('a throttled login answers the same body with Retry-After from retryAfterSeconds (A06)', async () => {

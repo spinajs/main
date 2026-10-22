@@ -16,6 +16,7 @@ import { IdentityRegistrarRegistered } from '../../src/policies/v3/groups.js';
 import { AuthnRegistrationController } from '../../src/v3/controllers/AuthnRegistrationController.js';
 import { RegistrationMailHook } from '../../src/v3/registration-mail-hook.js';
 import { fakeContainer, readingFrom } from '../support/config-boot.js';
+import { callRoute } from '../support/route-call.js';
 
 const ROUTE = 'auth/register';
 const IP = '192.0.2.7';
@@ -215,7 +216,7 @@ describe('POST /auth/register (FEAT-4)', () => {
   describe('a new address', () => {
     it('answers 202 { status: accepted } with no-store, and registers the login, email and password as given', async () => {
       const w = await world();
-      const res = answerOf(await w.controller.register(w.request(BODY)));
+      const res = answerOf(await callRoute(w.controller, 'register', w.request(BODY)));
 
       expect(res).to.deep.include(ACCEPTED);
       expect(w.registrar.calls).to.have.length(1);
@@ -225,7 +226,7 @@ describe('POST /auth/register (FEAT-4)', () => {
 
     it('requests one verification mail for the created account and no account-exists mail', async () => {
       const w = await world();
-      await w.controller.register(w.request(BODY));
+      await callRoute(w.controller, 'register', w.request(BODY));
 
       expect(w.passwords.verifications.map((v) => v.id)).to.deep.eq([{ type: 'user', id: 'created-1' }]);
       expect(w.passwords.notified).to.have.length(0);
@@ -233,7 +234,7 @@ describe('POST /auth/register (FEAT-4)', () => {
 
     it('audits identity.register as a success of the new identity', async () => {
       const w = await world();
-      await w.controller.register(w.request(BODY));
+      await callRoute(w.controller, 'register', w.request(BODY));
 
       expect(w.events).to.have.length(1);
       expect(w.events[0]).to.deep.include({ type: 'identity.register', outcome: 'success', identity: { type: 'user', id: 'created-1' }, ip: IP });
@@ -243,7 +244,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     it('still answers 202 when the verification mail cannot be requested', async () => {
       const w = await world();
       w.passwords.failMail = true;
-      expect(answerOf(await w.controller.register(w.request(BODY)))).to.deep.include(ACCEPTED);
+      expect(answerOf(await callRoute(w.controller, 'register', w.request(BODY)))).to.deep.include(ACCEPTED);
     });
   });
 
@@ -252,15 +253,15 @@ describe('POST /auth/register (FEAT-4)', () => {
 
     it('answers exactly what a new address answers', async () => {
       const w = await world();
-      const created = answerOf(await w.controller.register(w.request(BODY)));
-      const exists = answerOf(await w.controller.register(w.request(taken)));
+      const created = answerOf(await callRoute(w.controller, 'register', w.request(BODY)));
+      const exists = answerOf(await callRoute(w.controller, 'register', w.request(taken)));
 
       expect(exists).to.deep.eq(created);
     });
 
     it('requests one account-exists mail for the owner, and no verification mail', async () => {
       const w = await world();
-      await w.controller.register(w.request(taken));
+      await callRoute(w.controller, 'register', w.request(taken));
 
       expect(w.passwords.notified.map((n) => n.id)).to.deep.eq([OWNER]);
       expect(w.passwords.verifications).to.have.length(0);
@@ -268,7 +269,7 @@ describe('POST /auth/register (FEAT-4)', () => {
 
     it('sends no account-exists mail with authn.http.registration.notifyExisting false', async () => {
       const w = await world({ 'authn.http.registration.notifyExisting': false });
-      const res = answerOf(await w.controller.register(w.request(taken)));
+      const res = answerOf(await callRoute(w.controller, 'register', w.request(taken)));
 
       expect(res).to.deep.include(ACCEPTED);
       expect(w.passwords.notified).to.have.length(0);
@@ -277,7 +278,7 @@ describe('POST /auth/register (FEAT-4)', () => {
 
     it('audits identity.register as a failure with the reason exists', async () => {
       const w = await world();
-      await w.controller.register(w.request(taken));
+      await callRoute(w.controller, 'register', w.request(taken));
 
       expect(w.events[0]).to.deep.include({ type: 'identity.register', outcome: 'failure', reason: 'exists', identity: OWNER });
     });
@@ -285,7 +286,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     it('still answers 202 when the mail cannot be requested', async () => {
       const w = await world();
       w.passwords.failMail = true;
-      expect(answerOf(await w.controller.register(w.request(taken)))).to.deep.include(ACCEPTED);
+      expect(answerOf(await callRoute(w.controller, 'register', w.request(taken)))).to.deep.include(ACCEPTED);
     });
   });
 
@@ -306,8 +307,8 @@ describe('POST /auth/register (FEAT-4)', () => {
 
     it('without it the route mails nobody and answers the same 202 for a new and a taken address', async () => {
       const w = await world(undefined, { mail: false });
-      const created = answerOf(await w.controller.register(w.request(BODY)));
-      const exists = answerOf(await w.controller.register(w.request(taken)));
+      const created = answerOf(await callRoute(w.controller, 'register', w.request(BODY)));
+      const exists = answerOf(await callRoute(w.controller, 'register', w.request(taken)));
 
       expect(created).to.deep.include(ACCEPTED);
       expect(exists).to.deep.eq(created);
@@ -327,8 +328,8 @@ describe('POST /auth/register (FEAT-4)', () => {
           return send(outcome as never, ctx);
         },
       });
-      await w.controller.register(w.request(BODY));
-      await w.controller.register(w.request(taken));
+      await callRoute(w.controller, 'register', w.request(BODY));
+      await callRoute(w.controller, 'register', w.request(taken));
 
       expect(sent).to.deep.eq([
         { status: 'created', id: { type: 'user', id: 'created-1' } },
@@ -341,8 +342,8 @@ describe('POST /auth/register (FEAT-4)', () => {
 
     it('passes the request context of the registration to the password service', async () => {
       const w = await world();
-      await w.controller.register(w.request(BODY));
-      await w.controller.register(w.request(taken));
+      await callRoute(w.controller, 'register', w.request(BODY));
+      await callRoute(w.controller, 'register', w.request(taken));
 
       for (const { ctx } of [...w.passwords.verifications, ...w.passwords.notified]) expect(ctx).to.deep.include({ ip: IP, userAgent: 'mocha', purpose: 'request' });
     });
@@ -355,7 +356,7 @@ describe('POST /auth/register (FEAT-4)', () => {
         }
       })();
       const w = await world(undefined, { hooks: [refusing] });
-      const res = answerOf(await w.controller.register(w.request(BODY)));
+      const res = answerOf(await callRoute(w.controller, 'register', w.request(BODY)));
 
       expect(res.status).to.eq(400);
       expect(w.registrar.calls).to.have.length(0);
@@ -368,7 +369,7 @@ describe('POST /auth/register (FEAT-4)', () => {
       w.registrar.refuse = new Error('database down');
       let failure: unknown;
       try {
-        await w.controller.register(w.request(BODY));
+        await callRoute(w.controller, 'register', w.request(BODY));
       } catch (e) {
         failure = e;
       }
@@ -379,8 +380,8 @@ describe('POST /auth/register (FEAT-4)', () => {
     it('logs a mail that cannot be requested by its class only, and the answer does not change', async () => {
       const w = await world();
       w.passwords.failMail = true;
-      const created = answerOf(await w.controller.register(w.request(BODY)));
-      const exists = answerOf(await w.controller.register(w.request(taken)));
+      const created = answerOf(await callRoute(w.controller, 'register', w.request(BODY)));
+      const exists = answerOf(await callRoute(w.controller, 'register', w.request(taken)));
 
       expect(created).to.deep.include(ACCEPTED);
       expect(exists).to.deep.eq(created);
@@ -394,7 +395,7 @@ describe('POST /auth/register (FEAT-4)', () => {
   describe('the password policy', () => {
     it('is checked with the login and the email as context, before the registrar is asked', async () => {
       const w = await world();
-      await w.controller.register(w.request(BODY));
+      await callRoute(w.controller, 'register', w.request(BODY));
 
       expect(w.passwords.checks).to.deep.eq([{ password: BODY.password, context: { login: BODY.login, email: BODY.email } }]);
     });
@@ -402,7 +403,7 @@ describe('POST /auth/register (FEAT-4)', () => {
     it('answers 400 password_rejected with the violations and registers nothing', async () => {
       const w = await world();
       w.passwords.violations = ['too_short', 'similar_to_identifier'];
-      const res = answerOf(await w.controller.register(w.request({ ...BODY, password: 'short' })));
+      const res = answerOf(await callRoute(w.controller, 'register', w.request({ ...BODY, password: 'short' })));
 
       expect(res.status).to.eq(400);
       expect(res.body).to.deep.include({ error: 'password_rejected', violations: ['too_short', 'similar_to_identifier'] });
@@ -413,8 +414,8 @@ describe('POST /auth/register (FEAT-4)', () => {
     it('refuses a password for a taken address the same way, so the refusal tells nothing about the account', async () => {
       const w = await world();
       w.passwords.violations = ['too_short'];
-      const fresh = answerOf(await w.controller.register(w.request({ ...BODY, password: 'short' })));
-      const taken = answerOf(await w.controller.register(w.request({ ...BODY, email: TAKEN, password: 'short' })));
+      const fresh = answerOf(await callRoute(w.controller, 'register', w.request({ ...BODY, password: 'short' })));
+      const taken = answerOf(await callRoute(w.controller, 'register', w.request({ ...BODY, email: TAKEN, password: 'short' })));
 
       expect(taken).to.deep.eq(fresh);
       expect(w.passwords.notified).to.have.length(0);
@@ -422,7 +423,7 @@ describe('POST /auth/register (FEAT-4)', () => {
 
     it('answers 400 password_rejected too_long for a password past the hard cap, without asking the service', async () => {
       const w = await world();
-      const res = answerOf(await w.controller.register(w.request({ ...BODY, password: 'x'.repeat(1025) })));
+      const res = answerOf(await callRoute(w.controller, 'register', w.request({ ...BODY, password: 'x'.repeat(1025) })));
 
       expect(res.status).to.eq(400);
       expect(res.body).to.deep.include({ error: 'password_rejected', violations: ['too_long'] });
@@ -431,7 +432,7 @@ describe('POST /auth/register (FEAT-4)', () => {
 
     it('answers 400 password_mismatch when confirmPassword differs', async () => {
       const w = await world();
-      const res = answerOf(await w.controller.register(w.request({ ...BODY, confirmPassword: 'other' })));
+      const res = answerOf(await callRoute(w.controller, 'register', w.request({ ...BODY, confirmPassword: 'other' })));
       expect(res.status).to.eq(400);
       expect(res.body).to.deep.include({ error: 'password_mismatch' });
     });
@@ -441,8 +442,9 @@ describe('POST /auth/register (FEAT-4)', () => {
     it('answers 400 and asks nobody for a missing, blank, non-string or over-long login or email', async () => {
       const w = await world();
       const bad: unknown[] = [undefined, null, 'x', [], {}, { ...BODY, login: '' }, { ...BODY, login: 7 }, { ...BODY, login: 'x'.repeat(256) }, { ...BODY, email: '' }, { ...BODY, email: ['a@b.c'] }, { ...BODY, email: 'x'.repeat(255) }, { ...BODY, email: 'no-at-sign' }, { login: BODY.login, password: BODY.password }];
-      for (const body of bad) {
-        const res = answerOf(await w.controller.register(w.request(body)));
+      // One ip each: IpThrottle counts every refused body against its client's ip.
+      for (const [i, body] of bad.entries()) {
+        const res = answerOf(await callRoute(w.controller, 'register', w.request(body, `192.0.2.${100 + i}`)));
         expect(res.status, JSON.stringify(body)).to.eq(400);
         expect(res.noStore).to.eq(true);
       }
@@ -450,10 +452,21 @@ describe('POST /auth/register (FEAT-4)', () => {
       expect(w.passwords.checks).to.have.length(0);
     });
 
+    it('answers each field its own code, in the order the route checks them, and an unknown field 400 invalid_field (D5)', async () => {
+      const w = await world();
+      const codeOf = async (body: unknown) => (answerOf(await callRoute(w.controller, 'register', w.request(body))).body as { error?: unknown }).error;
+      expect(await codeOf({ ...BODY, login: 7, email: 'no-at-sign' })).to.eq('invalid_login');
+      expect(await codeOf({ ...BODY, email: 'no-at-sign', password: '' })).to.eq('invalid_email');
+      expect(await codeOf({ ...BODY, password: 42 })).to.eq('invalid_password');
+      expect(await codeOf({ ...BODY, confirmPassword: 42 })).to.eq('password_mismatch');
+      expect(await codeOf({ ...BODY, captcha: 'x' })).to.eq('invalid_field');
+      expect(w.registrar.calls).to.have.length(0);
+    });
+
     it('answers 400 invalid_registration when the registrar refuses the input, naming the field and nothing else', async () => {
       const w = await world();
       w.registrar.refuse = new InvalidArgument('Login __system__ is reserved', 'login');
-      const res = answerOf(await w.controller.register(w.request(BODY)));
+      const res = answerOf(await callRoute(w.controller, 'register', w.request(BODY)));
 
       expect(res.status).to.eq(400);
       expect(res.body).to.deep.eq({ error: 'invalid_registration', message: 'the registration was refused', field: 'login' });
@@ -465,7 +478,7 @@ describe('POST /auth/register (FEAT-4)', () => {
       w.registrar.refuse = new Error('database down');
       let failure: unknown;
       try {
-        await w.controller.register(w.request(BODY));
+        await callRoute(w.controller, 'register', w.request(BODY));
       } catch (e) {
         failure = e;
       }
@@ -474,23 +487,23 @@ describe('POST /auth/register (FEAT-4)', () => {
   });
 
   describe('throttle', () => {
-    it('counts each request in the reset flow, keyed on the client ip and the address', async () => {
+    it('counts each request in the register flow, keyed on the client ip and the address', async () => {
       const w = await world();
-      await w.controller.register(w.request(BODY));
-      await w.controller.register(w.request({ ...BODY, email: 'Other@Example.test' }));
+      await callRoute(w.controller, 'register', w.request(BODY));
+      await callRoute(w.controller, 'register', w.request({ ...BODY, email: 'Other@Example.test' }));
 
       expect(w.throttle.attempts).to.deep.eq([
-        { keys: [{ kind: 'account', value: 'register:newcomer@example.test' }, { kind: 'ip', value: IP }], flow: 'reset' },
-        { keys: [{ kind: 'account', value: 'register:other@example.test' }, { kind: 'ip', value: IP }], flow: 'reset' },
+        { keys: [{ kind: 'account', value: 'register:newcomer@example.test' }, { kind: 'ip', value: IP }], flow: 'register' },
+        { keys: [{ kind: 'account', value: 'register:other@example.test' }, { kind: 'ip', value: IP }], flow: 'register' },
       ]);
     });
 
     it('answers 429 with Retry-After to the 11th request from one ip, registers nothing for it, and still serves another ip', async () => {
       const w = await world();
       for (let i = 0; i < FREE; i++) {
-        expect(answerOf(await w.controller.register(w.request({ ...BODY, email: `n${i}@example.test` }))).status, `request ${i + 1}`).to.eq(202);
+        expect(answerOf(await callRoute(w.controller, 'register', w.request({ ...BODY, email: `n${i}@example.test` }))).status, `request ${i + 1}`).to.eq(202);
       }
-      const refused = answerOf(await w.controller.register(w.request({ ...BODY, email: 'late@example.test' })));
+      const refused = answerOf(await callRoute(w.controller, 'register', w.request({ ...BODY, email: 'late@example.test' })));
 
       expect(refused.status).to.eq(429);
       expect(refused.retryAfter).to.eq(String(RETRY_AFTER));
@@ -498,14 +511,31 @@ describe('POST /auth/register (FEAT-4)', () => {
       expect(refused.body).to.deep.include({ error: 'throttled' });
       expect(w.registrar.calls).to.have.length(FREE);
 
-      expect(answerOf(await w.controller.register(w.request({ ...BODY, email: 'late@example.test' }, '192.0.2.99'))).status).to.eq(202);
+      expect(answerOf(await callRoute(w.controller, 'register', w.request({ ...BODY, email: 'late@example.test' }, '192.0.2.99'))).status).to.eq(202);
+    });
+
+    it('keys an IPv6 client on its /64, so its addresses share one counter', async () => {
+      const w = await world();
+      await callRoute(w.controller, 'register', w.request(BODY, '2001:db8::1'));
+      await callRoute(w.controller, 'register', w.request({ ...BODY, email: 'v6@example.test' }, '2001:db8::ffff'));
+      await callRoute(w.controller, 'register', w.request({ ...BODY, email: 'v6b@example.test' }, '2001:db8:0:1::1'));
+
+      expect(w.throttle.attempts.map((a) => a.keys[1])).to.deep.eq([{ kind: 'ip', value: '2001:db8::/64' }, { kind: 'ip', value: '2001:db8::/64' }, { kind: 'ip', value: '2001:db8:0:1::/64' }]);
+    });
+
+    it('keeps the ip counter apart from the reset flow', async () => {
+      const w = await world();
+      for (let i = 0; i < FREE; i++) await w.throttle.attempt([{ kind: 'ip', value: IP }], 'reset');
+      expect((await w.throttle.attempt([{ kind: 'ip', value: IP }], 'reset')).allowed).to.eq(false);
+
+      expect(answerOf(await callRoute(w.controller, 'register', w.request(BODY))).status).to.eq(202);
     });
 
     it('refuses an address that has used up its budget, from any ip', async () => {
       const w = await world();
-      for (let i = 0; i < FREE; i++) await w.controller.register(w.request({ ...BODY, email: TAKEN }));
+      for (let i = 0; i < FREE; i++) await callRoute(w.controller, 'register', w.request({ ...BODY, email: TAKEN }));
 
-      const refused = answerOf(await w.controller.register(w.request({ ...BODY, email: TAKEN }, '192.0.2.50')));
+      const refused = answerOf(await callRoute(w.controller, 'register', w.request({ ...BODY, email: TAKEN }, '192.0.2.50')));
       expect(refused.status).to.eq(429);
       expect(w.registrar.calls).to.have.length(FREE);
     });

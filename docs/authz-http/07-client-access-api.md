@@ -11,7 +11,8 @@ The package config adds the package's `controllers` folder to `system.dirs.contr
 ### `GET /user/access`
 
 1. `HasPrincipal` lets any principal in, anonymous included; no principal is 401.
-2. Calls `AuthzService.summary(principal)` and answers 200 with the `AccessSummary`:
+2. The route reads the caller with `@CurrentPrincipal()` and the domain with `@AccessDomain()`, not `@Req()`.
+3. Calls `AuthzService.summary(principal)` and answers 200 with the `AccessSummary`:
 
 ```json
 {
@@ -43,13 +44,13 @@ Request and answer:
 ```
 
 1. `HasPrincipal`: any principal, anonymous included; 401 without one.
-2. `checks` must be a list of at most 100 entries (`MAX_ACCESS_CHECKS`); anything else is a 400 for the whole request.
+2. `checks` is validated as a route argument against `ACCESS_CHECKS_SCHEMA` (`authz.http.accessChecks`): a required list of at most 100 entries (`MAX_ACCESS_CHECKS`); anything else is the standard validation 400 for the whole request (`ValidationError`, body `{ message, parameter, details }`, see [Validation errors](../validation/07-validation-errors.md)). The entries are not validated at this point, so a non-object entry is answered `false` like any malformed one. The route reads the caller with `@CurrentPrincipal()` and the domain with `@AccessDomain()`, not `@Req()`.
 3. `readClientCheck()` reads each entry. A malformed entry gets its own `false` and never fails the batch:
-   - `object.type`, `object.id` and `permission` must be non-empty strings;
+   - the entry must match `CLIENT_CHECK_SCHEMA` (`authz.http.clientCheck`): `object.type` (up to 64 characters), `object.id` (up to 160) and `permission` (up to 256) are non-empty strings, `context.field` is up to 128 characters. Unknown keys are ignored;
    - a `permission` with `:` is used as is; otherwise it becomes `<object.type>:<permission>`;
    - `id: '*'` checks the type (`{ type }`, "may I create one"); `type: '$global'` checks `GLOBAL`;
    - `subject`, when present, must be the caller (`{ type, id }` of the principal, no `relation`); the subject checked is always the request's principal;
-   - `context.field` (non-empty) narrows the answer to that field; `context.fieldMode` is `'read'` or `'write'` (default `'write'`). No other `context` key is read.
+   - `context.field` (non-empty) narrows the answer to that field; `context.fieldMode` is `'read'` or `'write'` (default `'write'`), and any other value breaks `CLIENT_CHECK_SCHEMA`, so the entry is answered `false` with `invalid_request`. No other `context` key is read.
 4. `answerClientChecks()` sends the valid entries to `AuthzService.checkAll(principal, ...)` in one call.
 5. Each answer is `true` only for a definite allow: allowed, with a `TRUE` residual, and, with `context.field`, the field in `decision.fields[fieldMode]` minus `neverRead`.
 
@@ -91,6 +92,10 @@ export default {
 | `AccessController` | `BaseController`, discovered from `system.dirs.controllers` | `AccessController` | | Subclass it with your own `@BasePath` to add routes; see [overriding a package controller](../http/02-controllers-and-routing.md). |
 | `AccessEpochMiddleware` | `ServerMiddleware` list, `@Injectable(ServerMiddleware)`, `Order` 11 (`ACCESS_EPOCH_MIDDLEWARE_ORDER`) | `AccessEpochMiddleware` | | `DI.register(Mine).as(AccessEpochMiddleware)` before `HttpServer` resolves. |
 | `answerClientChecks(service, principal, entries, { authz, log })` | exported function | | | Reuse the wire format on another transport. |
+| `readClientCheck(raw, principal)` | exported function | | | One entry as a `ClientCheck`, or the reason it is answered `false`. |
+| `AccessChecks()` | parameter decorator: the body's `checks` validated against `ACCESS_CHECKS_SCHEMA` (required) | | | Reuse it on your own route that takes the same body; the argument type is `AccessChecksBody` (`readonly unknown[]`). |
+| `ACCESS_CHECKS_SCHEMA`, `CLIENT_CHECK_SCHEMA`, `MAX_ACCESS_CHECKS` | exported schemas (`authz.http.accessChecks`, `authz.http.clientCheck`) and the list cap `100` | | | Read-only. |
+| `CLIENT_CHECK_REASONS` | frozen object: `invalid`, `subjectMismatch`, `conditional`, `fieldDenied` mapped to the reason codes above | | | Compare `reasons[i]` against it instead of string literals. |
 
 ## Important behaviour
 

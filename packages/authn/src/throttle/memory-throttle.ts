@@ -104,7 +104,7 @@ export class MemoryAuthnThrottle extends StoreAuthnThrottle {
 
   /**
    * The flow's limiter, a read/patch seam for tests: overriding it to return another limiter does not steer the throttle,
-   * which uses the store's own. The first use of any flow resolves all four from the root container: the throttle is a root singleton.
+   * which uses the store's own. The first use of any flow resolves every flow from the root container: the throttle is a root singleton.
    */
   protected limiter(flow: ThrottleFlow): FlowLimiter {
     return this.tables.limiter(flow) as FlowLimiter;

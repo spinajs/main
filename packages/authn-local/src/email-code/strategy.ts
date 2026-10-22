@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { AuthenticationStrategy, IdentityStore, SecretStore } from '@spinajs/authn/contracts';
+import { isValidField, loginField } from '@spinajs/authn/schemas';
 import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 
 import { EmailCodes } from './codes.js';
@@ -17,7 +18,7 @@ export interface EmailCodeStrategyDeps {
 
 function codeFields(c: Credentials): { login: string; code: string } | null {
   const { login, code } = c as { login?: unknown; code?: unknown };
-  return typeof login === 'string' && typeof code === 'string' ? { login, code } : null;
+  return isValidField(loginField, login) && typeof code === 'string' ? { login, code } : null;
 }
 
 /**

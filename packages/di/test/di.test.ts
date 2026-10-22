@@ -217,16 +217,16 @@ class ChildClass extends BaseClass {}
 
 export function AutoinjectService(service: string) {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
+  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>;
     descriptor.inject.push({
       autoinject: true,
       autoinjectKey: propertyKey,
       inject: type,
       data: service,
-      serviceFunc: (data: string) => {
+      serviceFunc: (data: string | any[]) => {
         return {
-          service: data,
+          service: data as string,
         };
       },
     });
@@ -235,7 +235,7 @@ export function AutoinjectService(service: string) {
 
 export function AutoinjectServiceArray(service: string[], type?: Class<unknown>) {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
+  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol) => {
     const t = type ?? (Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>);
     descriptor.inject.push({
       autoinject: true,
@@ -245,8 +245,8 @@ export function AutoinjectServiceArray(service: string[], type?: Class<unknown>)
       mapFunc: (x: any) => {
         return x.Name || x.constructor.name;
       },
-      serviceFunc: (data: any[]) => {
-        return data.map((x) => {
+      serviceFunc: (data: string | any[]) => {
+        return (data as any[]).map((x) => {
           return {
             service: x as string,
           };

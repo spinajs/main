@@ -97,7 +97,7 @@ DI.register(FastRetryChangeBus).as(ChangeBus);
 - **A subscriber that throws does not stop the others.** Its error is logged.
 - **A node that could not listen drops all its caches** when it finally listens, since it may have missed changes.
 - **Every node must import the package and use the same route** for `AuthzChangeEvent`; a node on another channel never hears the changes.
-- **Changes travel as plain JSON.** A change whose `tags` are not strings, or whose `domain` or `actor` has the wrong shape, is dropped; an unusable `at` becomes the receive time.
+- **Changes travel as plain JSON.** A change with tags that are not strings, more than 1000 tags, a tag longer than 256 characters, or a `domain` or `actor` of the wrong shape is dropped; an unusable `at` becomes the receive time. A node publishes a change past the tag caps as `tags: ['*']`, so the other nodes drop all their caches instead.
 - **The bus also stamps an `Initiator`** on its events, through the [job authorization](01-job-authorization.md) hook, but its handler runs as `UNATTENDED` and checks nothing.
 
 ## Best practices

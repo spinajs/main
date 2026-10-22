@@ -8,6 +8,8 @@ export interface WebAuthnOptions {
   readonly userVerification: 'required' | 'preferred' | 'discouraged';
   readonly challengeTtlSeconds: number;
   readonly recoveryCodes: number;
+  /** Cap on stored anonymous login challenges; absent: none. */
+  readonly challenges?: { readonly maxRows: number };
 }
 
 const inRange = (value: unknown, min: number, max: number): boolean => Number.isInteger(value) && (value as number) >= min && (value as number) <= max;
@@ -23,7 +25,8 @@ export function assertWebAuthnOptions(o: WebAuthnOptions | undefined): WebAuthnO
     o.origins.every(text) &&
     ['required', 'preferred', 'discouraged'].includes(o.userVerification) &&
     inRange(o.challengeTtlSeconds, 1, 3600) &&
-    inRange(o.recoveryCodes, 0, 100);
-  if (!ok) throw new InvalidOption('authn.webauthn: rpId, rpName, origins, userVerification, challengeTtlSeconds or recoveryCodes is missing or out of range');
+    inRange(o.recoveryCodes, 0, 100) &&
+    (o.challenges === undefined || inRange(o.challenges.maxRows, 1, 16_000_000));
+  if (!ok) throw new InvalidOption('authn.webauthn: rpId, rpName, origins, userVerification, challengeTtlSeconds, recoveryCodes or challenges.maxRows is missing or out of range');
   return o;
 }

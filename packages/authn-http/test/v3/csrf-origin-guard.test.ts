@@ -63,7 +63,7 @@ async function restartWith(settings: Record<string, unknown>): Promise<void> {
   await startServer();
 }
 
-const DEFAULTS = { 'authn.http.csrf.enabled': true, 'authn.http.csrf.allowedOrigins': [PARTNER], 'authn.http.trustProxy': null, 'http.trustProxy': null };
+const DEFAULTS = { 'authn.http.csrf.enabled': true, 'authn.http.csrf.allowedOrigins': [PARTNER], 'authn.http.trustProxy': null, 'http.trustProxy': null, 'http.csrf.enabled': true, 'http.csrf.allowedOrigins': [], 'http.csrf.exempt': [] };
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -188,9 +188,34 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
 
     it('A22 safe methods are not checked', async () => expectPass(await send('GET', { Origin: EVIL })));
 
-    it('A22 requests without the session cookie are exempt', async () => {
-      expectPass(await send('POST', { Origin: EVIL }, { cookie: false }));
-      expectPass(await send('POST', { Origin: EVIL }, { cookie: 'unrelated=1' }));
+    // X1 (default-deny) replaced "requests without the session cookie are exempt": only a non-browser client is.
+    it('A22 X1 without the session cookie a browser request is checked, a non-browser client is not', async () => {
+      expectRefused(await send('POST', { Origin: EVIL }, { cookie: false }));
+      expectRefused(await send('POST', { Origin: EVIL }, { cookie: 'unrelated=1' }));
+      expectRefused(await send('POST', { 'Sec-Fetch-Site': 'cross-site' }, { cookie: false }));
+      expectPass(await send('POST', { Origin: PARTNER }, { cookie: false }));
+      expectPass(await send('POST', {}, { cookie: false }));
+      expectPass(await send('POST', {}, { cookie: 'unrelated=1' }));
+    });
+
+    it('X1 a cross-site POST to the anonymous routes the old allowlist missed is refused before the controller', async () => {
+      const routes = ['auth/register', 'auth/verify', 'auth/passkeys/login', 'auth/passkeys/challenge', 'auth/keys/challenge', 'auth/tokens/revoke', 'auth/login', 'brand-new/anonymous-route'];
+      for (const path of routes) {
+        expectRefused(await send('POST', { Origin: EVIL }, { cookie: false, path }));
+        const own = await send('POST', { Origin: appOrigin() }, { cookie: false, path });
+        expect(own.body, path).to.not.deep.eq({ error: { code: 'E_CSRF_ORIGIN', message: 'Cross-origin request refused' } });
+      }
+    });
+
+    it('X1 http.csrf.* configures the guard next to the deprecated authn.http.csrf.*', async () => {
+      const OTHER = 'https://other.example.org';
+      await restartWith({ ...DEFAULTS, 'http.csrf.allowedOrigins': [OTHER] });
+      expectPass(await send('POST', { Origin: OTHER }));
+      expectPass(await send('POST', { Origin: PARTNER }));
+      await restartWith({ ...DEFAULTS, 'http.csrf.allowedOrigins': [], 'http.csrf.enabled': false });
+      expectPass(await send('POST', { Origin: EVIL }));
+      await restartWith({ ...DEFAULTS, 'http.csrf.enabled': true, 'http.csrf.exempt': [`/${AUTHN_PROBE_PATH}`] });
+      expectPass(await send('POST', { Origin: EVIL }));
     });
 
     it('A22 the session cookie is found among other cookies, under either prefix form', async () => {
@@ -315,7 +340,7 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
     it('checks the configured cookie name, bare and with __Host-', () => {
       const sid = unitGuard({ 'authn.session.cookie': { name: 'sid' } });
       for (const cookie of ['sid=x', '__Host-sid=x']) expect(run(sid, 'POST', { origin: EVIL, cookie }).passed, cookie).to.eq(false);
-      expect(run(sid, 'POST', { origin: EVIL, cookie: 'ssid=x; __Host-ssid=x' }).passed).to.eq(true);
+      expect(run(sid, 'POST', { cookie: 'ssid=x; __Host-ssid=x' }).passed).to.eq(true);
 
       const prefixed = unitGuard({ 'authn.session.cookie': { name: '__Host-sid' } });
       for (const cookie of ['__Host-sid=x', '__Host-__Host-sid=x']) expect(run(prefixed, 'POST', { origin: EVIL, cookie }).passed, cookie).to.eq(false);

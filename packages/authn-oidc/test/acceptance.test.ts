@@ -336,6 +336,63 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       expect(done.headers.get('location')).to.eq('/');
     });
 
+    describe('input validation answers as the login failure does', () => {
+      const BROWSER = { accept: 'text/html', 'sec-fetch-mode': 'navigate' };
+      const clearsFlow = (res: Response) => expect(cookiesOf(res)[flowName], 'the flow cookie is cleared').to.eq('');
+
+      it('a provider outside the name pattern: 401 for a client, 303 to the failure page for a browser', async () => {
+        const api = await get('/auth/oidc/co%24rp');
+        expect(api.status).to.eq(401);
+        expect(((await api.json()) as { error?: { code?: string } }).error?.code).to.eq('E_AUTH_FAILED');
+        clearsFlow(api);
+        const browser = await get(`/auth/oidc/${'a'.repeat(65)}`, {}, BROWSER);
+        expect(browser.status).to.eq(303);
+        expect(browser.headers.get('location')).to.eq('/');
+      });
+
+      it('the begin query is closed and capped', async () => {
+        expect((await get('/auth/oidc/corp?utm=1')).status).to.eq(401);
+        expect((await get(`/auth/oidc/corp?returnTo=/${'a'.repeat(1024)}`)).status).to.eq(401);
+        expect((await get('/auth/oidc/corp?returnTo=a&returnTo=b')).status).to.eq(401);
+        expect((await get('/auth/oidc/corp?returnTo=%2Fhome')).status).to.eq(302);
+        expect((await get('/auth/oidc/corp?utm=1', {}, BROWSER)).status).to.eq(303);
+      });
+
+      it('the callback caps its values but tolerates the keys an IdP appends', async () => {
+        const begun = await get('/auth/oidc/corp');
+        const flow = cookiesOf(begun)[flowName];
+        const query = idp.authorize(begun.headers.get('location')!, { claims: { sub: 'kc-alice' } });
+        const long = await get(`/auth/oidc/corp/callback?${new URLSearchParams({ ...query, code: 'c'.repeat(4097) })}`, { [flowName]: flow });
+        expect(long.status).to.eq(401);
+        clearsFlow(long);
+
+        const again = await get('/auth/oidc/corp');
+        const flow2 = cookiesOf(again)[flowName];
+        const query2 = idp.authorize(again.headers.get('location')!, { claims: { sub: 'kc-alice' } });
+        const ok = await get(`/auth/oidc/corp/callback?${new URLSearchParams({ ...query2, session_state: 'abc', scope: 'openid' })}`, { [flowName]: flow2 });
+        expect(ok.status).to.eq(303);
+      });
+
+      it('a repeated callback parameter fails', async () => {
+        const res = await get('/auth/oidc/corp/callback?state=a&state=b', { [flowName]: 'x' });
+        expect(res.status).to.eq(401);
+      });
+
+      it('back-channel logout: an oversized, non-form or unknown-provider request answers 400 invalid_request', async () => {
+        const post = (path: string, body: string, type: string) => fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': type }, body });
+        const FORM = 'application/x-www-form-urlencoded';
+        const big = await post('/auth/oidc/corp/backchannel-logout', new URLSearchParams({ logout_token: 'a'.repeat(16385) }).toString(), FORM);
+        expect(big.status).to.eq(400);
+        expect(await big.json()).to.deep.eq({ error: 'invalid_request' });
+        const json = await post('/auth/oidc/corp/backchannel-logout', JSON.stringify({ logout_token: 'a.b.c' }), 'application/json');
+        expect(json.status).to.eq(400);
+        expect(await json.json()).to.deep.eq({ error: 'invalid_request' });
+        const odd = await post('/auth/oidc/co%24rp/backchannel-logout', 'logout_token=a.b.c', FORM);
+        expect(odd.status).to.eq(400);
+        expect(await odd.json()).to.deep.eq({ error: 'invalid_request' });
+      });
+    });
+
     it('the link routes need the session authn-http restores (N8a): without it they refuse', async () => {
       const res = await fetch(`${base}/auth/oidc/corp/link`, { method: 'POST', redirect: 'manual', headers: { accept: 'application/json' } });
       expect([401, 404]).to.include(res.status);

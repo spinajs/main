@@ -56,11 +56,13 @@ sequenceDiagram
 | --- | --- | --- |
 | `POST …/link` | 302 | The flow started. |
 | `POST …/link` | 404 | Unknown provider, or no `OidcAccountLinks`. |
+| `POST …/link`, `DELETE …/link` | 401, or 303 to `redirects.failure` for a browser | A `:provider` outside `^[A-Za-z0-9_-]{1,64}$`, or a header over its cap. A well-formed but unknown name is the `404` row. |
 | `POST …/link` | 401, or 303 to `redirects.failure` for a browser | No active session, a cross-site `Sec-Fetch-Site`, or the provider is unreachable. |
 | callback | 200 page or 303 | Linked, or the one-time `bounce` page. |
 | callback | 401, or 303 to `redirects.failure` | Any failure, including a session that differs from the one that started the flow. |
 | `DELETE …/link` | 204 | Unlinked. |
 | `DELETE …/link` | 401 | No active session. |
+| `DELETE …/link` | 401, or 303 to `redirects.failure` for a browser | Invalid query: a key other than `subject`, or a `subject` that is empty or over 255 characters. See [Route inputs](09-security.md#route-inputs). |
 | `DELETE …/link` | 404 | Unknown provider, no `OidcAccountLinks` or link store, or no matching link. |
 | `DELETE …/link` | 409 | Several subjects of the provider and no `?subject=`. |
 | `DELETE …/link` | 403 | The core refused, for example the last usable credential. |

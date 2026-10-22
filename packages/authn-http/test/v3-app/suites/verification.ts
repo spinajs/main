@@ -160,5 +160,11 @@ export function verificationRoutesSuite(): void {
       }
       expect(fake.of('redeemVerification')).to.have.length(1);
     });
+
+    it('an unknown field answers 400 invalid_field (D5) and never reaches the service', async () => {
+      const res = await new Client().post('/auth/verify', { secret: 'kit-verify-secret', token: 'x' });
+      expect([res.status, (res.body as { error?: unknown }).error]).to.deep.eq([400, 'invalid_field']);
+      expect(fake.of('redeemVerification')).to.deep.eq([]);
+    });
   });
 }

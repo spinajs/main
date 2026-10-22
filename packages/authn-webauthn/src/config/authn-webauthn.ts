@@ -12,6 +12,7 @@ const authnWebauthn = {
       userVerification: 'preferred',
       challengeTtlSeconds: 300,
       recoveryCodes: 10,
+      challenges: { maxRows: 100000 },
     },
   },
 };

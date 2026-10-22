@@ -44,6 +44,35 @@ onSuccess: { lower: [{ kind: 'ip', by: 'account-ip' }], clear: ['account', 'acco
 
 The `by` rows are consumed (deleted). Each target is lowered by the largest count among its `by` rows, never their sum. `MemoryThrottleStore` subtracts only `by` rows created after the target row, since older ones counted attempts the target never saw.
 
+### IPv6 prefix keys: `throttleIp`
+
+One IPv6 client usually owns a whole /64, so keying on the full address gives it a fresh row per address. `throttleIp(ip, v6Prefix)` turns a client address into its key form:
+
+| Input | Result |
+| --- | --- |
+| IPv6, `2001:db8:abcd:12:1:2:3:4` with prefix `64` | The masked network in RFC 5952 form plus the prefix: `2001:db8:abcd:12::/64` |
+| IPv6 with a zone id (`fe80::1%eth0`) | The zone id is dropped before masking |
+| IPv4-mapped IPv6 (`::ffff:203.0.113.9`) | Unchanged: it is an IPv4 client on a dual-stack socket |
+| IPv4, or a string that is not an address | Unchanged |
+
+`v6Prefix` must be an integer from 16 to 128, otherwise `throttleIp` throws `InvalidArgument`. `DEFAULT_IPV6_PREFIX` is `64`. `Throttle` does not call it; build your `ip` keys with it:
+
+```ts sample
+import { DEFAULT_IPV6_PREFIX, MemoryThrottleStore, Throttle, throttleIp } from '@spinajs/util';
+
+const signup = new Throttle({
+  flows: { signup: { gates: { ip: { free: 3, baseDelayMs: 5_000, maxDelayMs: 600_000 } } } },
+  store: new MemoryThrottleStore({ flows: ['signup'], maxRows: 50_000, resetAfterMs: 3600_000 }),
+});
+
+// Both addresses share the row 2001:db8:abcd:12::/64.
+for (const ip of ['2001:db8:abcd:12::1', '2001:db8:abcd:12::2']) {
+  signup.attempt([{ kind: 'ip', value: throttleIp(ip, DEFAULT_IPV6_PREFIX) }], 'signup', Date.now()).then(console.log, console.error);
+}
+```
+
+`@spinajs/authn` keys every `ip` throttle key this way with `authn.throttle.ipv6Prefix` (see [Throttling](../authn/05-throttling.md#keys-the-service-builds)), and the `@spinajs/http` throttle middleware with `http.throttle.ipv6Prefix` (see [Throttling](../http/18-throttling.md#how-it-works)).
+
 ## Configuration
 
 ### `ThrottleOptions`
@@ -131,6 +160,7 @@ signupThrottle
 - `MemoryThrottleStore` throws `InvalidArgument` for a flow not in its `flows` list. It builds every flow's table on the first call for any flow.
 - `MemoryThrottleStore` methods never await internally, so each call is atomic in one process: a burst of parallel attempts on a fresh key lets exactly `free` through.
 - `MemoryThrottleStore.peek` ignores a full table; only `attempt` refuses for capacity.
+- `throttleIp` only masks; it does not validate that the caller's address is real. Pass the address your proxy setup trusts, not a client-set header.
 
 ## Best practices
 

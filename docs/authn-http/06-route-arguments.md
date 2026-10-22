@@ -1,6 +1,6 @@
 # Route arguments
 
-Four parameter decorators hand a route what [`AuthnMiddleware`](01-request-authentication.md) found: the caller's identity and authentication facts, the session handle, the raw session id, or a value stored in the session. They read `req.storage`, never the cookie.
+Five parameter decorators hand a route what [`AuthnMiddleware`](01-request-authentication.md) found: the caller's identity and authentication facts, the session handle, the raw session id, or a value stored in the session. They read `req.storage`, never the cookie.
 
 ## How it works
 
@@ -16,12 +16,13 @@ Four parameter decorators hand a route what [`AuthnMiddleware`](01-request-authe
 | `@AuthnSession()` | parameter | | The `SessionHandle` of `req.storage.AuthnSession`, pending included, or `null`. Not authentication: check `handle.state`. |
 | `@SessionId()` | parameter | | The raw id of the restored session, pending included, or `null`. An unknown or expired cookie gives `null`. Never log or return it. |
 | `@FromSession(key)` | parameter | `key`: non-empty string, checked when the decorator runs | The value stored under `key` in the session data (`SessionIssuer.set()`), or `undefined` without a session or key. Pending sessions included. |
+| `@ClientContext()` | parameter | | `AuthnClientContext` `{ ip?, userAgent?, session?, principal? }`: `req.storage.ClientIp` (never Express's ip), the `User-Agent` header, `req.storage.AuthnSession` (pending included) and `req.storage.AuthnPrincipal`. What the package's own handlers take instead of `@Req()`. |
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `AuthnIdentityArg`, `AuthnSessionArg`, `AuthnSessionIdArg`, `AuthnSessionDataArg` | registered `.asSelf()` on the root container at package load, looked up by class name | the classes in `src/args/authn.ts` (not exported) | | Not meant to be replaced. Write your own argument as in [Custom route arguments](../http/05-custom-route-arguments.md). |
+| `AuthnIdentityArg`, `AuthnSessionArg`, `AuthnSessionIdArg`, `AuthnSessionDataArg`, `AuthnClientContextArg` | registered `.asSelf()` on the root container at package load, looked up by class name | the classes in `src/args/authn.ts` (not exported) | | Not meant to be replaced. Write your own argument as in [Custom route arguments](../http/05-custom-route-arguments.md). |
 
 ## Important behaviour
 

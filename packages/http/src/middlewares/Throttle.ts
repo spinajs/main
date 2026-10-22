@@ -3,6 +3,7 @@ import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
+import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/util';
 
 import { ServerMiddleware, Request as sRequest, HTTP_STATUS_CODE } from '../interfaces.js';
 
@@ -101,6 +102,7 @@ const underPath = (path: string, prefix: string): boolean => {
  * Config:
  *   http.throttle.enabled   (boolean, default false)
  *   http.throttle.rules     (IThrottleRule[]; first prefix match wins)
+ *   http.throttle.ipv6Prefix (16..128, default 64; an IPv6 client is counted per prefix of this many bits, IPv4 whole)
  *
  * Example - protect the unauthenticated rbac auth surface:
  *   throttle: {
@@ -117,7 +119,7 @@ const underPath = (path: string, prefix: string): boolean => {
 @Injectable(ServerMiddleware)
 export class ThrottleMiddleware extends ServerMiddleware {
   @Config('http.throttle')
-  protected Throttle: { enabled?: boolean; rules?: IThrottleRule[] } | undefined;
+  protected Throttle: { enabled?: boolean; rules?: IThrottleRule[]; ipv6Prefix?: number } | undefined;
 
   @Autoinject(ThrottleStore)
   protected Store!: ThrottleStore;
@@ -145,6 +147,9 @@ export class ThrottleMiddleware extends ServerMiddleware {
       if (!(Number.isFinite(r.windowSeconds) && r.windowSeconds > 0)) throw new InvalidOption(`http.throttle.rules.${i}.windowSeconds must be a finite positive number`);
     });
 
+    const prefix = cfg.ipv6Prefix ?? DEFAULT_IPV6_PREFIX;
+    if (!(Number.isInteger(prefix) && prefix >= 16 && prefix <= 128)) throw new InvalidOption('http.throttle.ipv6Prefix must be an integer from 16 to 128');
+
     if (rules.length === 0) {
       this.Log.warn('http.throttle is enabled but has no rules - throttling is a no-op. Check http.throttle.rules.');
       return null;
@@ -159,7 +164,7 @@ export class ThrottleMiddleware extends ServerMiddleware {
 
       // Never req.ip: under express's own `trust proxy` it would come from a client-set X-Forwarded-For (SR-03).
       const ip = req.storage?.realIp ?? req.socket?.remoteAddress ?? 'unknown';
-      const key = `${ip}:${rule.path}:${rule.methods?.join(',') ?? '*'}`;
+      const key = `${throttleIp(ip, prefix)}:${rule.path}:${rule.methods?.join(',') ?? '*'}`;
 
       Promise.resolve(this.Store.increment(key, rule.windowSeconds))
         .then((hit) => {

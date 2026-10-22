@@ -7,8 +7,9 @@ The `validation` configuration key holds the options of the Ajv instance inside 
 1. `@spinajs/configuration` loads the package defaults from `config/validation.js` of `@spinajs/validation` and merges your config files over them; see [Config files](../configuration/03-config-files.md).
 2. Importing `@spinajs/validation` registers its configuration schema (`$id` `spinajs/validation.configuration.schema.json`, module `validation`) with `registerConfigurationSchemaAtImport()`. A value outside the allowed set throws `InvalidConfiguration` at boot.
 3. `DataValidator.Options` receives the whole `validation` object through `@Config('validation')`.
-4. `DataValidator.resolve()` builds the Ajv options: a `logger` that forwards Ajv messages to the `validation` logger, then every key of `validation`, then `$data: true` and `verbose: true`, which always win.
-5. It registers three Ajv plugins on the instance:
+4. `DataValidator.resolve()` builds the Ajv options: a `logger` that forwards Ajv messages to the `validation` logger, then every key of `validation` except `strict` (see [Strict schema ids](#strict-schema-ids)), then `$data: true` and `verbose: true`, which always win.
+5. It builds two Ajv instances from these options: `Validator`, and `StrictValidator` with `coerceTypes: false`. Every schema is added to both.
+6. It registers three Ajv plugins on each instance:
    - `ajv-merge-patch`: the `$merge` and `$patch` keywords;
    - `ajv-formats`: `email`, `date`, `date-time`, `uri`, `uuid`, `ipv4` and the other standard formats;
    - `ajv-keywords`: `transform`, `instanceof`, `range`, `uniqueItemProperties` and the other extra keywords.
@@ -22,7 +23,10 @@ The `validation` configuration key holds the options of the Ajv instance inside 
 | `validation.useDefaults` | `boolean \| string` | `true` | `true`, `false`, `'empty'` | Write the schema's `default` into missing properties; `'empty'` also replaces `null` and `''`. |
 | `validation.coerceTypes` | `boolean \| string` | `true` | `true`, `false`, `'array'` | Convert values to the schema `type` (`'1'` to `1`); `'array'` also wraps scalars into arrays and back. |
 | `validation.messages` | `boolean` | `false` | `true`, `false` | `false`: Ajv builds no `message`; `ValidationFailed` fills one in; see [Validation errors](07-validation-errors.md#messages). |
-| `validation.<other Ajv option>` | any | not set | any [Ajv option](https://ajv.js.org/options.html) | Passed to the Ajv constructor unchecked: the configuration schema lists only the five keys above and does not forbid others. The tests use `discriminator: true`. |
+| `validation.strict.idPrefixes` | `string[]` | `['authn.', 'authz.']` | | Schemas whose `$id` starts with one of these are validated without type coercion. `[]` turns it off. |
+| `validation.strict.ajvStrict` | `boolean \| 'log'` | not set | `true`, `false`, `'log'` | Ajv's own strict mode, when `validation.strict` is the object above. |
+| `validation.strict` | `boolean \| 'log'` | | `true`, `false`, `'log'` | The older form: Ajv's own strict mode. The id prefixes then keep their default. |
+| `validation.<other Ajv option>` | any | not set | any [Ajv option](https://ajv.js.org/options.html) | Passed to the Ajv constructor unchecked: the configuration schema lists only the keys above and does not forbid others. The tests use `discriminator: true`. |
 | `validation.$data` | — | `true`, forced | — | Always on: rules may read another field with `{ $data: '1/password' }`. |
 | `validation.verbose` | — | `true`, forced | — | Always on: `sanitizeError()` needs `parentSchema` to find `$data` rules. Verbose fields never leave the validator. |
 
@@ -47,6 +51,8 @@ export default {
 | --- | --- | --- | --- | --- |
 | Validation configuration schema | Value `'__configurationSchema__'` in the root container, registered at import | The schema exported as `default` from `schemas/validation.js` | none | Not replaceable from outside; options outside it pass unchecked |
 | Ajv instance | `DataValidator.Validator` (protected), built in `resolve()` | Ajv 8 with the three plugins above | none | Subclass `DataValidator` to add formats, keywords or vocabularies; see [Customizing the validator](08-customizing-the-validator.md) |
+| Strict Ajv instance | `DataValidator.StrictValidator` (protected), built in `resolve()` with `coerceTypes: false` | Ajv 8 with the three plugins above | none | Used for [strict schema ids](#strict-schema-ids); override `createAjv()` so your formats and keywords reach both instances |
+| Default strict prefixes | `DEFAULT_STRICT_ID_PREFIXES`, exported constant | `['authn.', 'authz.']` | | Used when `validation.strict` is not an object with `idPrefixes` |
 
 The package entry also exports the default config object as its `default` export, so bundlers that inline modules still see the defaults.
 
@@ -56,8 +62,31 @@ The package entry also exports the default config object as its `default` export
 - **`removeAdditional: true` strips nothing without `additionalProperties: false`.** Use `'all'` to strip every unlisted property regardless of the schema.
 - **The options are read once.** `DataValidator` is a singleton built at its first resolve. A config change after that has no effect until the process restarts.
 - **`verbose: false` in your config is ignored.** `DataValidator` forces it on; the errors you receive are still reduced, see [`sanitizeError()`](07-validation-errors.md#sanitizeerror).
-- **Ajv runs in strict mode by default.** An unknown keyword (`strict mode: unknown keyword: "sku"`) or format (`unknown format "sku" ignored in schema`) makes compilation throw. Register the keyword or format instead; see [Customizing the validator](08-customizing-the-validator.md). `validation.strict: false` silences both, and an unknown format then accepts every value.
+- **Ajv runs in strict mode by default.** An unknown keyword (`strict mode: unknown keyword: "sku"`) or format (`unknown format "sku" ignored in schema`) makes compilation throw. Register the keyword or format instead; see [Customizing the validator](08-customizing-the-validator.md). `validation.strict: false` (or `validation.strict.ajvStrict: false` next to `idPrefixes`) silences both, and an unknown format then accepts every value.
 - **Configuration has its own Ajv.** `@spinajs/configuration` validates config files with a separate instance; formats or keywords you add to `DataValidator` do not reach it.
+
+### Strict schema ids
+
+`coerceTypes: true` is right for query strings and form fields, where every value arrives as text. For credentials and authorization input it is not: `{ "login": 123 }` would pass as `"123"`. A schema whose `$id` starts with a `validation.strict.idPrefixes` entry is validated on `StrictValidator`, which never coerces; every other option is the same.
+
+```ts
+// config/validation.ts in your app
+export default {
+  validation: {
+    strict: {
+      idPrefixes: ['authn.', 'authz.', 'billing.'],
+      // Ajv's own strict mode moves here when `strict` is an object
+      ajvStrict: true,
+    },
+  },
+};
+```
+
+- The id decides, not the caller: `tryValidate('authn.LoginBody', data)`, `tryValidate({ $id: 'authn.LoginBody', ... }, data)` and an instance of a `@Schema({ $id: 'authn.LoginBody', ... })` class are all strict. A schema without `$id` is never strict.
+- A `$ref` from a strict schema resolves on the strict instance, so the referenced schema is checked without coercion too.
+- Only the `$id` of the schema you validate against counts. A strict-prefixed schema reached by `$ref` from a schema without a strict prefix is validated on the coercing instance, with coercion.
+- `DataValidator.isStrict(schemaOrId)` tells which instance a schema uses.
+- `removeAdditional` and `useDefaults` still apply on the strict instance.
 
 ## Best practices
 

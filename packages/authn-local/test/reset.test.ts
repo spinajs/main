@@ -172,6 +172,15 @@ describe('LocalPasswordService reset and invite', function () {
       expect(await x.service.requestReset('nobody@example.com', ctx({ ip: '203.0.113.10' }))).to.deep.equal({ status: 'throttled', retryAfterSeconds: 60 });
     });
 
+    it('counts the addresses of one IPv6 /64 on one ip key, and another /64 apart', async () => {
+      const x = await setup();
+      for (let i = 0; i < 5; i++) {
+        expect(await x.service.requestReset(`v6-${i}@example.com`, ctx({ ip: `2001:db8::${i + 1}` }))).to.deep.equal({ status: 'accepted' });
+      }
+      expect(await x.service.requestReset('v6-5@example.com', ctx({ ip: '2001:db8::ffff' }))).to.deep.equal({ status: 'throttled', retryAfterSeconds: 10 });
+      expect(await x.service.requestReset('v6-6@example.com', ctx({ ip: '2001:db8:0:1::1' }))).to.deep.equal({ status: 'accepted' });
+    });
+
     it('without ctx.ip counts against the fallback ip key, so ip-less requests are throttled across logins', async () => {
       const x = await setup();
       const keys = recordThrottleKeys(x);

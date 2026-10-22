@@ -73,7 +73,7 @@ describe('behaviour registry', () => {
 
   it('task 3 transcribed the exemplars A02, A05, A06, A07 and A09 in full', () => {
     const counts = Object.fromEntries(['A02', 'A05', 'A06', 'A07', 'A09'].map((id) => [id, AUTHN_RULES.get(id as RuleId)!.cases.length]));
-    assert.deepStrictEqual(counts, { A02: 15, A05: 11, A06: 23, A07: 12, A09: 16 });
+    assert.deepStrictEqual(counts, { A02: 15, A05: 11, A06: 24, A07: 12, A09: 16 });
   });
 
   it('case names are unique and start with the rule id', () => {

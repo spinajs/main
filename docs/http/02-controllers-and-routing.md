@@ -15,7 +15,7 @@ A controller is a class that extends `BaseController`; each decorated method is 
    - throws `RouteRegistrationException` when no HTTP method decorator ran (`InternalType` is `unknown`);
    - computes the path with `buildRoutePath()`;
    - resolves the route's [middlewares](14-route-middlewares.md) and [policies](13-policies.md) from DI and keeps the middlewares whose `isEnabled()` returns `true`;
-   - mounts this handler chain: policy gate → each `onBefore` → the action → each `onAfter` → response handler → error handler.
+   - mounts this handler chain: policy gate → each `onBefore` → the action → each `onAfter` → [route error handlers](11-error-handling.md#route-error-handlers) (`@OnError` and `http.errors.handlers`) → response handler → error handler.
 5. `Controllers.register()` reads the parameter names of each action from the [controller cache](21-controller-cache-and-cli.md) and writes them into the route parameters. It throws `ControllerRegistrationException` when the controller has no router, and `RouteRegistrationException` when a route names a method that does not exist.
 6. It mounts the shared controllers router on the server with `HttpServer.use()`.
 

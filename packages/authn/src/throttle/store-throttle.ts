@@ -57,7 +57,7 @@ export abstract class StoreAuthnThrottle extends AuthnThrottle implements Peekab
 
   /**
    * login, mfa and reauth: account, ip and global gate; account-ip counts, and a success takes its attempts off the ip
-   * row (D8) and clears account and account-ip. reset: the same gates and counts; a success clears nothing (§22.13).
+   * row (D8) and clears account and account-ip. reset and register: the same gates and counts; a success clears nothing (§22.13).
    */
   protected rules(params: ThrottleParams): Record<ThrottleFlow, ThrottleFlowRules> {
     const rules = {} as Record<ThrottleFlow, ThrottleFlowRules>;
@@ -68,7 +68,7 @@ export abstract class StoreAuthnThrottle extends AuthnThrottle implements Peekab
       if (ip) gates.ip = ip;
       if (params.global) gates.global = params.global;
       const onSuccess = { ...(ip ? { lower: [{ kind: 'ip', by: 'account-ip' }] } : {}), clear: ['account', 'account-ip'] };
-      rules[flow] = { gates, ...(ip ? { counted: ['account-ip'] } : {}), ...(flow === 'reset' ? {} : { onSuccess }) };
+      rules[flow] = { gates, ...(ip ? { counted: ['account-ip'] } : {}), ...(flow === 'reset' || flow === 'register' ? {} : { onSuccess }) };
     }
     return rules;
   }

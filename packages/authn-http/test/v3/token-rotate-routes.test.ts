@@ -8,6 +8,7 @@ import { IdentityStore, TokenService } from '@spinajs/authn/contracts';
 import type { IdentityRef, TokenRecord, TokenRotateResult, TokenUpdate, TokenUpdateResult } from '@spinajs/authn/contracts';
 
 import { AuthnTokensController } from '../../src/v3/controllers/AuthnTokensController.js';
+import { callRoute, withParams } from '../support/route-call.js';
 
 const ALICE: IdentityRef = { type: 'user', id: 'alice' };
 const TOKEN_ID = '5b0f35c8-7d0d-4d4e-9d59-8a3f9a7c1e11';
@@ -133,7 +134,7 @@ describe('token rotate and update routes', () => {
   describe('POST /user/tokens/:uuid/rotate', () => {
     it('rotates the caller\'s token and answers the entry and the new plaintext once, with no-store', async () => {
       const w = world();
-      const res = answerOf(await w.controller.rotate(w.request({ graceSeconds: 90 }), TOKEN_ID));
+      const res = answerOf(await callRoute(w.controller, 'rotate', withParams(w.request({ graceSeconds: 90 }), { uuid: TOKEN_ID })));
 
       expect(res.status).to.eq(200);
       expect(res.noStore).to.eq(true);
@@ -152,35 +153,35 @@ describe('token rotate and update routes', () => {
 
     it('passes no options when the body has no graceSeconds, and 0 as given', async () => {
       const w = world();
-      await w.controller.rotate(w.request({}), TOKEN_ID);
-      await w.controller.rotate(w.request(undefined), TOKEN_ID);
-      await w.controller.rotate(w.request({ graceSeconds: 0 }), TOKEN_ID);
+      await callRoute(w.controller, 'rotate', withParams(w.request({}), { uuid: TOKEN_ID }));
+      await callRoute(w.controller, 'rotate', withParams(w.request(undefined), { uuid: TOKEN_ID }));
+      await callRoute(w.controller, 'rotate', withParams(w.request({ graceSeconds: 0 }), { uuid: TOKEN_ID }));
       expect(w.tokens.calls.map((c) => c.args[3])).to.deep.eq([undefined, undefined, { graceSeconds: 0 }]);
     });
 
     it('answers 400 invalid_grace for a grace that is not a whole number from 0 to 604800, and rotates nothing', async () => {
       const w = world();
       for (const graceSeconds of [-1, 1.5, '60', null, true, [], {}, 604_801]) {
-        const res = answerOf(await w.controller.rotate(w.request({ graceSeconds }), TOKEN_ID));
+        const res = answerOf(await callRoute(w.controller, 'rotate', withParams(w.request({ graceSeconds }), { uuid: TOKEN_ID })));
         expect(res.status, JSON.stringify(graceSeconds)).to.eq(400);
         expect(res.body.error).to.eq('invalid_grace');
         expect(res.noStore).to.eq(true);
       }
       expect(w.tokens.calls).to.deep.eq([]);
-      expect(answerOf(await w.controller.rotate(w.request({ graceSeconds: 604_800 }), TOKEN_ID)).status).to.eq(200);
+      expect(answerOf(await callRoute(w.controller, 'rotate', withParams(w.request({ graceSeconds: 604_800 }), { uuid: TOKEN_ID }))).status).to.eq(200);
     });
 
     it('answers one 404 token_not_found for a token the service does not find, an empty and an over-long id', async () => {
       const w = world();
       w.tokens.rotated = { ok: false, reason: 'not_found' };
-      const missing = answerOf(await w.controller.rotate(w.request({}), TOKEN_ID));
+      const missing = answerOf(await callRoute(w.controller, 'rotate', withParams(w.request({}), { uuid: TOKEN_ID })));
       expect(missing.status).to.eq(404);
       expect(missing.body.error).to.eq('token_not_found');
       expect(missing.noStore).to.eq(true);
 
       const calls = w.tokens.calls.length;
       for (const id of ['', 'x'.repeat(65)]) {
-        const res = answerOf(await w.controller.rotate(w.request({}), id));
+        const res = answerOf(await callRoute(w.controller, 'rotate', withParams(w.request({}), { uuid: id })));
         expect(res, JSON.stringify(id)).to.deep.eq(missing);
       }
       expect(w.tokens.calls, 'a malformed id never reaches the service').to.have.length(calls);
@@ -188,7 +189,7 @@ describe('token rotate and update routes', () => {
 
     it('needs fresh auth: a stale session without the password is refused 403 fresh_auth_required', async () => {
       const w = world();
-      const refusal = await rejection(w.controller.rotate(w.request({}, HOUR), TOKEN_ID));
+      const refusal = await rejection(callRoute(w.controller, 'rotate', withParams(w.request({}, HOUR), { uuid: TOKEN_ID })));
       expect(refusal.error).to.eq('fresh_auth_required');
       expect(w.tokens.calls).to.deep.eq([]);
       expect(w.verified).to.deep.eq([]);
@@ -197,7 +198,7 @@ describe('token rotate and update routes', () => {
     it('a stale session rotates with the right reauthPassword, which is taken out of the body first', async () => {
       const w = world();
       const body = { graceSeconds: 5, reauthPassword: 'Correct-Pass-1' };
-      const res = answerOf(await w.controller.rotate(w.request(body, HOUR), TOKEN_ID));
+      const res = answerOf(await callRoute(w.controller, 'rotate', withParams(w.request(body, HOUR), { uuid: TOKEN_ID })));
 
       expect(res.status).to.eq(200);
       expect(w.verified).to.deep.eq(['Correct-Pass-1']);
@@ -207,7 +208,7 @@ describe('token rotate and update routes', () => {
 
     it('a wrong reauthPassword answers the login failure with 401 and rotates nothing', async () => {
       const w = world();
-      const res = answerOf(await w.controller.rotate(w.request({ reauthPassword: 'Wrong-Pass-1' }, HOUR), TOKEN_ID));
+      const res = answerOf(await callRoute(w.controller, 'rotate', withParams(w.request({ reauthPassword: 'Wrong-Pass-1' }, HOUR), { uuid: TOKEN_ID })));
       expect(res.status).to.eq(401);
       expect(w.tokens.calls).to.deep.eq([]);
       expect(JSON.stringify(res.body)).to.not.include('Wrong-Pass-1');
@@ -215,7 +216,7 @@ describe('token rotate and update routes', () => {
 
     it('a fresh session needs no password', async () => {
       const w = world();
-      expect(answerOf(await w.controller.rotate(w.request({}, MINUTE), TOKEN_ID)).status).to.eq(200);
+      expect(answerOf(await callRoute(w.controller, 'rotate', withParams(w.request({}, MINUTE), { uuid: TOKEN_ID }))).status).to.eq(200);
       expect(w.verified).to.deep.eq([]);
     });
   });
@@ -224,7 +225,7 @@ describe('token rotate and update routes', () => {
     it('narrows the caller\'s token and answers the entry with no-store', async () => {
       const w = world();
       const expiresAt = '2026-10-25T10:00:00.000Z';
-      const res = answerOf(await w.controller.update(w.request({ name: 'renamed', roles: ['viewer'], expiresAt }), TOKEN_ID));
+      const res = answerOf(await callRoute(w.controller, 'update', withParams(w.request({ name: 'renamed', roles: ['viewer'], expiresAt }), { uuid: TOKEN_ID })));
 
       expect(res.status).to.eq(200);
       expect(res.noStore).to.eq(true);
@@ -240,14 +241,14 @@ describe('token rotate and update routes', () => {
 
     it('passes only the fields the body has, and an empty body as no change', async () => {
       const w = world();
-      await w.controller.update(w.request({ name: 'only a name' }), TOKEN_ID);
-      await w.controller.update(w.request({}), TOKEN_ID);
+      await callRoute(w.controller, 'update', withParams(w.request({ name: 'only a name' }), { uuid: TOKEN_ID }));
+      await callRoute(w.controller, 'update', withParams(w.request({}), { uuid: TOKEN_ID }));
       expect(w.tokens.calls.map((c) => c.args[2])).to.deep.eq([{ name: 'only a name' }, {}]);
     });
 
     it('needs no fresh auth, because it only narrows', async () => {
       const w = world();
-      const res = answerOf(await w.controller.update(w.request({ name: 'renamed' }, 24 * HOUR), TOKEN_ID));
+      const res = answerOf(await callRoute(w.controller, 'update', withParams(w.request({ name: 'renamed' }, 24 * HOUR), { uuid: TOKEN_ID })));
       expect(res.status).to.eq(200);
       expect(w.verified).to.deep.eq([]);
     });
@@ -270,7 +271,7 @@ describe('token rotate and update routes', () => {
         ['invalid_expiry', { expiresAt: '2026-02-30T00:00:00Z' }],
       ];
       for (const [error, body] of rows) {
-        const res = answerOf(await w.controller.update(w.request(body), TOKEN_ID));
+        const res = answerOf(await callRoute(w.controller, 'update', withParams(w.request(body), { uuid: TOKEN_ID })));
         expect([res.status, res.body.error, res.noStore], JSON.stringify(body)).to.deep.eq([400, error, true]);
       }
       expect(w.tokens.calls).to.deep.eq([]);
@@ -279,7 +280,7 @@ describe('token rotate and update routes', () => {
     it('answers 400 invalid_field for a key that is not name, roles or expiresAt, so a body cannot widen or retarget a token', async () => {
       const w = world();
       for (const body of [{ kind: 'agent' }, { profile: 'admin' }, { scope: { agent: true } }, { Token: 'x' }, { name: 'ok', user_id: 9 }, { reauthPassword: 'x' }]) {
-        const res = answerOf(await w.controller.update(w.request(body), TOKEN_ID));
+        const res = answerOf(await callRoute(w.controller, 'update', withParams(w.request(body), { uuid: TOKEN_ID })));
         expect([res.status, res.body.error], JSON.stringify(body)).to.deep.eq([400, 'invalid_field']);
       }
       expect(w.tokens.calls).to.deep.eq([]);
@@ -288,18 +289,18 @@ describe('token rotate and update routes', () => {
     it('maps invalid_scope and invalid_expiry from the service to 400, and not_found to the one 404', async () => {
       const w = world();
       w.tokens.updated = { ok: false, reason: 'invalid_scope' };
-      const scope = answerOf(await w.controller.update(w.request({ roles: ['admin'] }), TOKEN_ID));
+      const scope = answerOf(await callRoute(w.controller, 'update', withParams(w.request({ roles: ['admin'] }), { uuid: TOKEN_ID })));
       expect([scope.status, scope.body.error, scope.noStore]).to.deep.eq([400, 'invalid_scope', true]);
 
       w.tokens.updated = { ok: false, reason: 'invalid_expiry' };
-      const expiry = answerOf(await w.controller.update(w.request({ expiresAt: '2030-01-01T00:00:00Z' }), TOKEN_ID));
+      const expiry = answerOf(await callRoute(w.controller, 'update', withParams(w.request({ expiresAt: '2030-01-01T00:00:00Z' }), { uuid: TOKEN_ID })));
       expect([expiry.status, expiry.body.error, expiry.noStore]).to.deep.eq([400, 'invalid_expiry', true]);
 
       w.tokens.updated = { ok: false, reason: 'not_found' };
-      const missing = answerOf(await w.controller.update(w.request({ name: 'x' }), TOKEN_ID));
+      const missing = answerOf(await callRoute(w.controller, 'update', withParams(w.request({ name: 'x' }), { uuid: TOKEN_ID })));
       expect([missing.status, missing.body.error, missing.noStore]).to.deep.eq([404, 'token_not_found', true]);
       for (const id of ['', 'x'.repeat(65)]) {
-        expect(answerOf(await w.controller.update(w.request({ name: 'x' }), id)), JSON.stringify(id)).to.deep.eq(missing);
+        expect(answerOf(await callRoute(w.controller, 'update', withParams(w.request({ name: 'x' }), { uuid: id }))), JSON.stringify(id)).to.deep.eq(missing);
       }
       expect(w.tokens.calls, 'a malformed id never reaches the service').to.have.length(3);
     });

@@ -63,7 +63,7 @@ describe('v3 cli: authn:mfa-reset', () => {
     const sessions = new MemorySessionIssuer();
     const throttle = new FakeBackoffThrottle(throttleParams());
     const authn = new FakeAuthnService({ strategies: [], throttle, identities, links: new MemoryLinkStore(), linking: { jit: false, byVerifiedEmail: false }, policy: new EnrolledMfaPolicy([step]), steps: [step], sessions, sinks: [events], principals: new RecordingPrincipalFactory() });
-    service = new TotpService({ step, sessions, authn, throttle, sinks: [events], maxAgeSeconds: 300 });
+    service = new TotpService({ step, sessions, authn, throttle, sinks: [events], maxAgeSeconds: 300, ipv6Prefix: 64 });
   });
 
   afterEach(() => {

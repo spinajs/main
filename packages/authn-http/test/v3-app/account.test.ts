@@ -8,6 +8,7 @@ import { sessionsSuite } from './suites/sessions.js';
 import { activeRoleSuite } from './suites/active-role.js';
 import { impersonationSuite } from './suites/impersonation.js';
 import { routeTableSuite } from './suites/route-table.js';
+import { accountInputSuite } from './suites/input.js';
 
 // One app for every suite, in this order: the groups-off cases need RoleSource and ImpersonationGuard unregistered.
 describe('3.0 account routes (N8a task 6, test wiring of the N8c cutover)', function () {
@@ -27,5 +28,6 @@ describe('3.0 account routes (N8a task 6, test wiring of the N8c cutover)', func
     describe('active role', activeRoleSuite);
     describe('impersonation', impersonationSuite);
     describe('route table', routeTableSuite);
+    describe('input the DTOs refuse (V2)', accountInputSuite);
   });
 });

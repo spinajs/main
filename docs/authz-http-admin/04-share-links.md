@@ -14,13 +14,13 @@ A share link grants a role at a scope to whoever holds its token. These routes c
 Create:
 
 1. `AuthzAdminController.createLink()` sets `Cache-Control: no-store` and `Pragma: no-cache` before anything else, so every answer of the route carries them.
-2. It takes the body object (else `400 invalid_request`), sets `kind: 'link.create'` and decodes `expiresAt`.
+2. It takes the body as an `AuthzLinkCreate` DTO (a body that breaks the schema answers `400 invalid_request`), sets `kind: 'link.create'` and decodes `expiresAt`.
 3. `AuthzAdmin` validates the command, checks `authz:links.manage` at `scope` and runs the guard.
 4. The answer is `{ results: [{ ok: true, kind: 'link.create', id, token, affected: 1 }] }`.
 
 Change:
 
-1. `patchLink()` refuses a key other than `id`, `expiresAt`, `attributes`, `role` and `tags` with `400 invalid_request` naming the key; `scope` and `token` cannot change.
+1. The `AuthzLinkPatch` schema refuses a key other than `id`, `expiresAt`, `attributes`, `role` and `tags` with `400 invalid_request` naming the key; `scope` and `token` cannot change.
 2. An `id` in the body must equal the path id (`400 invalid_request`, `field: 'id'`). A body with none of the four keys answers `400 invalid_request`.
 3. It runs one `link.update`: `role` changes the role the link grants, `tags` replaces the tags of that grant, `expiresAt: null` clears the expiry.
 

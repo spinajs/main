@@ -26,6 +26,7 @@ A `ServerMiddleware` adds Express handlers to the whole server: one that runs be
 | `SlowRequestWarning` | 2 | yes | before | `http.slowRequest.*` | Warns about slow requests. |
 | `PerfRollup` | 2 | yes | before | `http.perf.enabled` | Per-request perf rollup. |
 | `ThrottleMiddleware` | 3 | yes | before | `http.throttle.*` | Rate limits; see [Throttling](18-throttling.md). |
+| `CsrfGuard` | 4 | yes | before | `http.csrf.*` | Refuses cross-origin unsafe browser requests; see [CSRF guard](23-csrf-guard.md). Replaced by a registered subclass such as `CsrfOriginGuard`. |
 | `NotFoundMiddleware` | `Number.MIN_SAFE_INTEGER` | yes | after | | `ResourceNotFound` for unmatched routes. |
 | `ErrorHandlerMiddleware` | `Number.MIN_SAFE_INTEGER - 1` | yes | after | | The final [error handler](11-error-handling.md). |
 

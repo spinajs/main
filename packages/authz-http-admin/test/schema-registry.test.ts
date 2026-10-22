@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { AuthzConfigError } from '@spinajs/authz';
 
-import { AUTHZ_ADMIN_SCHEMAS, AuthzAdminSchemaProvider, AuthzCommandSchemaRegistry, AuthzCommandSchemaSource, COMMAND_KINDS, commandSchemas, describeAuthzAdminDocument } from '../src/schemas/index.js';
+import { AUTHZ_ADMIN_SCHEMAS, AuthzAdminBatch, AuthzAdminSchemaProvider, AuthzCommandSchemaRegistry, AuthzCommandSchemaSource, COMMAND_KINDS, commandSchemas, describeAuthzAdminDocument } from '../src/schemas/index.js';
 
 const fakeSet = {
   type: 'object',
@@ -66,12 +66,12 @@ describe('authz-http-admin command schema registry', () => {
     expect(kindsOf(batch)).to.have.members([...COMMAND_KINDS, 'fake.set']);
     expect((batch as BatchSchema).required).to.deep.equal(['commands']);
     expect(Object.keys((batch as BatchSchema).properties)).to.have.members(['commands', 'reason', 'idempotencyKey', 'dryRun']);
-    expect(batch).to.deep.equal({ ...AUTHZ_ADMIN_SCHEMAS.AuthzAdminBatch, properties: { ...(AUTHZ_ADMIN_SCHEMAS.AuthzAdminBatch as BatchSchema).properties, commands: { type: 'array', items: { oneOf: [...commandSchemas, fakeSet] } } } });
+    expect(batch).to.deep.equal({ ...AuthzAdminBatch, properties: { ...(AuthzAdminBatch as BatchSchema).properties, commands: { type: 'array', items: { oneOf: [...commandSchemas, fakeSet] } } } });
   });
 
   it('leaves the built-in schema set as it was', () => {
     registryWith(FakeCommandSchemas).batch();
-    expect(kindsOf(AUTHZ_ADMIN_SCHEMAS.AuthzAdminBatch)).to.have.members([...COMMAND_KINDS]);
+    expect(kindsOf(AuthzAdminBatch)).to.have.members([...COMMAND_KINDS]);
   });
 
   it('documents the registered commands in the OpenAPI batch body', () => {
@@ -100,7 +100,7 @@ describe('authz-http-admin command schema registry', () => {
     try {
       const provider = await DI.resolve(AuthzAdminSchemaProvider);
       expect(kindsOf(provider.getSchema('AuthzAdminBatch'))).to.include('fake.set');
-      expect(Object.keys(provider.schemas())).to.have.members(Object.keys(AUTHZ_ADMIN_SCHEMAS));
+      expect(Object.keys(provider.schemas())).to.have.members([...Object.keys(AUTHZ_ADMIN_SCHEMAS), 'AuthzAdminBatch']);
       expect(provider.getSchema('AuthzAdminResults')).to.deep.equal(AUTHZ_ADMIN_SCHEMAS.AuthzAdminResults);
       expect(provider.getSchema('NoSuchSchema')).to.equal(undefined);
     } finally {

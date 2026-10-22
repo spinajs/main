@@ -20,7 +20,7 @@ Shipped sources:
 `ServicePrincipalSource.authenticate(req)`, per configured service:
 
 1. Reads the request header the entry names (header names are compared lower-case).
-2. Skips an absent or empty header.
+2. Skips an absent or empty header, and one longer than 1024 characters (`serviceTokenField`).
 3. Compares the whole header value with every token of the entry: SHA-256 digests, compared with `timingSafeEqual`. Every token is compared, matched or not.
 4. A match returns the service principal. A wrong token yields nothing, so the request falls through to the authn principal: the header may be one other credentials share.
 
@@ -107,6 +107,7 @@ Import the module before `HttpServer` resolves; `@Injectable` registers the sour
 
 - **A service header wins over a session.** `ServicePrincipalSource` (40) runs before `AuthnPrincipalSource` (50), so a request with both a valid service token and a session cookie is the service.
 - **The header value is compared whole.** `Authorization: Bearer <token>` matches only a configured token `Bearer <token>`.
+- **A token is at most 1024 characters.** The `authz.http.services` schema refuses a longer one at boot. A link token longer than 512 characters gets the link principal that denies everything, without a lookup.
 - **Rotation is a list.** Add the new token next to the old one, move the callers, then drop the old one.
 - **A missing `authz.http.services`** (a configuration that skipped the schema) authenticates no service and throws nothing.
 - **Sources run on every request**, guarded route or not. Keep `authenticate()` cheap and free of writes.

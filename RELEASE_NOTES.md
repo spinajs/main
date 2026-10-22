@@ -1,3 +1,310 @@
+# Release notes — authn/authz hardening: validated inputs, default-deny CSRF, bot checks, rate limits
+
+> Features HARD-VAL0 to HARD-VAL6, HARD-CSRF, HARD-BOT and HARD-RL. Packages: http, http-bot, validation, authn,
+> authn-http, authn-oidc, authn-local, authn-keys, authn-session, authn-token, authn-totp, authn-webauthn, authn-testing,
+> authz, authz-http, authz-http-admin, authz-rbac, authz-rebac, authz-queue, util, eslint-plugin-authz.
+>
+> Docs: `docs/http/11-error-handling.md`, `docs/http/04-route-arguments.md`, `docs/http/01-http-server.md`,
+> `docs/http/18-throttling.md`, `docs/http/23-bot-check.md`, `docs/http/23-csrf-guard.md`, `docs/http-bot/README.md`,
+> `docs/validation/02-validator-options.md`, `docs/validation/08-customizing-the-validator.md`,
+> `docs/authn/05-throttling.md`, `docs/authn/15-input-field-schemas.md`, `docs/authn-orm/01-throttle.md`,
+> `docs/authn-http/04-csrf-origin-guard.md`, `docs/authn-http/06-route-arguments.md`, `docs/authn-http/07-route-groups.md`,
+> `docs/authn-http/21-verification-routes.md`, `docs/authn-http/22-registration-route.md`, `docs/authn-http/23-bot-checks.md`,
+> `docs/authn-http/24-input-validation.md`, `docs/authn-oidc/04-claims-mapping.md`, `docs/authn-oidc/09-security.md`,
+> `docs/authn-oidc/11-backchannel-logout.md`, `docs/authn-session/07-session-cookie.md`, `docs/authn-webauthn/01-setup.md`,
+> `docs/authn-webauthn/02-passkey-login.md`, `docs/authz/16-input-field-schemas.md`, `docs/authz-http/04-principal-sources.md`,
+> `docs/authz-http/07-client-access-api.md`, `docs/authz-http/09-explain.md`, `docs/authz-http-admin/01-admin-routes.md`,
+> `docs/authz-http-admin/02-command-batches.md`, `docs/authz-http-admin/06-openapi-documentation.md`,
+> `docs/authz-http-admin/07-custom-admin-routes.md`, `docs/authz-queue/04-queue-change-bus.md`,
+> `docs/authz-rbac/04-assigning-roles.md`, `docs/authz-rebac/03-tuple-stores.md`, `docs/eslint-plugin-authz/05-no-raw-request.md`.
+
+## BREAKING CHANGES
+
+### Every `@spinajs/http` app — default-deny CSRF guard
+
+- **Every unsafe request a browser sends is CSRF-checked.** A `POST`, `PUT`, `PATCH` or `DELETE` that carries `Origin`
+  or `Sec-Fetch-Site` must come from the app's own origin or one in `http.csrf.allowedOrigins`, on every route, with or
+  without a session cookie; otherwise 403 `{ error: { code: 'E_CSRF_ORIGIN' } }`. Before, a request without the session
+  cookie was checked only on the listed credential routes. Requests that send neither header nor an ambient cookie
+  (servers, CLIs) still pass.
+  - A browser app on another origin that posts to the API, also with a bearer token, must be listed in
+    `http.csrf.allowedOrigins` (listing it in `http.cors.origins` is not enough).
+  - The guard is registered by `@spinajs/http` itself and is on in apps without `@spinajs/authn-http` too. Turn it off
+    with `http.csrf.enabled: false`.
+- **Boot check for `SameSite=None`.** Outside development and test, the boot fails when `authn.session.cookie.sameSite`
+  resolves to `none` and the guard is off or `http.csrf.allowedOrigins` is empty.
+
+### `@spinajs/validation` — `authn.*` and `authz.*` schemas are validated without type coercion
+
+- A schema whose `$id` starts with `authn.` or `authz.` no longer coerces types: `{ "login": 123 }` fails a string field.
+  Every authn and authz DTO below uses these ids. Set `validation.strict.idPrefixes: []` to keep coercion everywhere.
+- `validation.strict` is now an object (`{ idPrefixes, ajvStrict? }`). A boolean or `'log'` there is still read as Ajv's
+  own strict mode; to set both, move Ajv's value to `validation.strict.ajvStrict`.
+
+### `@spinajs/authn-http` — closed DTOs, body validated before fresh authentication
+
+- Every route takes its body as a closed DTO validated without coercion. A field the route does not take is refused:
+  400 `invalid_field` on most routes, the route's own answer on the credential routes (401 login failure body), the MFA
+  challenge (202) and token revocation (200 `{}`, revoking nothing). A login, code or secret that is a number no longer
+  reaches a strategy as a string. `POST /user/keys` with a `scope` still answers `invalid_scope`.
+- **The body is checked before fresh authentication**, the key, token and passkey state checks and the credential admin
+  guard: a stale session sending a malformed body gets the 400 of that field instead of `fresh_auth_required`, and
+  spends no re-authentication. A `reauthPassword` (or role switch or impersonation `password`) that is no string answers
+  the login failure body instead of counting as none.
+- Stricter fields: the registration `email` uses the `email` format; **`expiresAt` must be an RFC 3339 date-time with
+  seconds**; an impersonation `target.type` is at most 64 characters; a session handle in
+  `DELETE /user/sessions/:handle` at most 128 (longer answers 404); a passkey `response` must carry `id`, `type` and
+  `response`.
+- `AUTHN_HTTP_SCHEMAS` keeps answer and error schemas only; the 3.0.2 request body schemas (`AuthnLoginBody`,
+  `AuthnKeyRegisterBody`, `AuthnReauthBody`, ...) are gone, and the OpenAPI document shows the DTO schemas inline as
+  request bodies. Handlers carry no `@body` tags.
+- Controller action signatures changed (route arguments instead of `@Req()`); subclasses calling the actions directly
+  pass the new arguments. Only `POST /auth/logout` keeps `@Req()`, because `AuthnLogoutExtension` takes the request.
+
+### `@spinajs/authn-oidc` — validated route inputs
+
+- `:provider` must match `^[A-Za-z0-9_-]{1,64}$`; the begin, reauth and unlink queries refuse unknown keys; the callback
+  query caps `code`, `state`, `iss`, `error` and `bounce` at 4096 characters and still allows other keys (IdPs append
+  their own); `returnTo` is capped at 1024, `subject` at 255 and the back-channel `logout_token` at 16384. Invalid input
+  answers as the login failure does (303 to the failure page for a navigation, otherwise 401, flow cookie cleared); the
+  back-channel route answers 400 `invalid_request`.
+- `OidcController` action signatures changed (decorated arguments instead of `@Req()`); subclasses that call the actions
+  directly must pass the new arguments.
+
+### `@spinajs/authz-http` — explain and checks answers
+
+- A `permission` of `GET /authz/explain` that does not match the name pattern now answers the standard validation 400
+  (`{ parameter, details, message }`) instead of an `InvalidArgument` body. The status is unchanged.
+- A `POST /user/access/checks` entry over a cap (`object.type` 64, `object.id` 160, `permission` 256, `context.field`
+  128) is answered `false` with `invalid_request`, as any malformed entry; a list of more than 100 entries is refused.
+- `AccessController.summary` and `events` take `@CurrentPrincipal()` and `@AccessDomain()` instead of `@Req()`;
+  subclasses calling them directly pass the new arguments.
+
+### `@spinajs/authz-http-admin` — malformed input is refused before `AuthzAdmin`
+
+Every admin route takes its inputs through DTOs with closed `authz.*` schemas, validated without type coercion. **The
+answer moves from `{ results }` with `invalid_command` to `{ error: { code, message, field } }`:**
+
+- a query string that breaks its DTO (an unknown key, `limit` over 500, `reason` over 512 characters, `idempotencyKey`
+  over 128): `400 invalid_query`;
+- a body or path parameter that breaks its schema (an unknown key, also `kind`, a string for a boolean, an id over
+  160 characters, a role over 128, **an expiry that is not a date-time with seconds**, an empty role): `400 invalid_request`;
+- a `POST /authz/commands` body: an unknown top-level key (such as `actor`), a command of a kind no
+  `AuthzCommandSchemaSource` describes, or a command that breaks the schema of its kind: `400 invalid_batch` with
+  `field` `commands.<n>.<path>`.
+
+Before, such input reached `AuthzAdmin`, which answered some of it as a `400` with `{ results }` (`invalid_command`)
+and ignored unknown keys. A model with its own command kinds must register an `AuthzCommandSchemaSource` for them, or
+`POST /authz/commands` refuses them. The built-in and the ReBAC command schemas are closed and capped.
+
+Removed and changed exports:
+
+- `AUTHZ_ADMIN_ROUTES` is removed; `describeAuthzAdminDocument` reads the controller's route table.
+- `AUTHZ_ADMIN_SCHEMAS` holds the answer and error schemas only. `AuthzAdminBatch` is exported from the commands
+  module; `AuthzAssignmentGrant`, `AuthzAssignmentPatch`, `AuthzLinkCreate`, `AuthzLinkPatch`, `AuthzRuleBody`,
+  `AuthzPolicyBody`, `AuthzAttributesPatch` and `AuthzAttributesBody` are now DTO classes (their schemas are
+  `ASSIGNMENT_GRANT_SCHEMA`, ..., `ATTRIBUTES_BODY_SCHEMA`).
+- `readAssignmentsQuery`, `readHoldersQuery`, `readPageQuery` and `readWriteOptions` take the validated query DTOs
+  (numbers and booleans, not strings); `QueryInput` is removed.
+- `AuthzAdminController.guarded(fn, domain?)` takes the resolved domain name instead of the request.
+
+### `@spinajs/authz` and `@spinajs/authz-http` — caps
+
+- `authz.http.services[].token` takes at most 1024 characters; a longer configured token fails the configuration check.
+- Permission names longer than 256 characters are no longer permissions (`isPermission` false, `parsePermission` throws).
+
+### `@spinajs/authn` — a fifth throttle flow
+
+- `ThrottleFlow` gains `'register'` and `ThrottleParams` gains `register` (`THROTTLE_FLOWS` has five members). A custom
+  `AuthnThrottle` or `ThrottleParams` literal must handle the fifth flow.
+
+## New behavior
+
+### `@spinajs/http`
+
+- `@OnError(on, handler, { stages? })` on an action or a controller handles errors of the route chain (`policy`,
+  `middleware`, `arguments`, `action`, `after`) by error class and stage. The handler returns a `Response` (answers and
+  swallows the error), an `Error` (replaces it) or nothing (observes it). Route handlers run first, then the
+  controller's, then the app-wide `ErrorHandlerService`s listed in `http.errors.handlers` (default `[]`). Routes without
+  handlers behave as before. New exports: `OnError`, `ErrorStage`, `ErrorContext`, `ErrorClass`, `OnErrorHandler`,
+  `OnErrorOptions`, `OnErrorResult`, `ErrorHandlerService`, `IOnErrorDescriptor`, `markStage`, `stageOf`,
+  `createOnErrorHandler`, `resolveConfigErrorHandlers`.
+- `http.bodyLimits: [{ path, limit }]` (default `[]`) parses bodies under a path prefix with a smaller limit before
+  `http.middlewares`; the first prefix match wins, a body over the limit answers 413 and other paths keep the defaults.
+  New exports: `createBodyLimitMiddleware`, `parseBodyLimit`, `IBodyLimitRule`.
+- `@Body({ sensitive: [...] })` deletes the named fields from `req.body` and drops `req.rawBody` once the argument holds
+  them; the authn-http bodies with an inline password use it.
+- `CsrfGuard` (`ServerMiddleware`, Order 4, built on `SameOriginGuard`) with `http.csrf.enabled`, `allowedOrigins`,
+  `exempt` (route paths after the route prefix, matched as the router matches them) and `ambientCookies`.
+  `@CsrfExempt()` on a route or a controller class takes it out of the check, at the path the controller is actually
+  served at (`@BasePath({ config })` and `Controllers.add()` included). `isCsrfExempt()` and `CSRF_REFUSED_BODY` are
+  exported. A registered subclass of `CsrfGuard` replaces it.
+- `@BotCheck(name)` guards a route or a controller with the check `http.bot.checks.<name>`. It runs as the route
+  middleware `BotCheckMiddleware` after the policies and before the route arguments are extracted. The client sends the
+  provider token in `x-bot-token` (`http.bot.header`); a token over 2048 characters counts as missing.
+  - A check runs only when `http.bot.enabled` and the check's `enabled` are both true. Both are off by default; then no
+    verifier is built and the route behaves as before.
+  - Verifiers are `BotVerifier` services named in `http.bot.verifiers` (`{ service, name, ...options }`, resolved with
+    `@AutoinjectService`). An enabled check whose `verifier` or `fallback` names no entry fails the boot with
+    `InvalidOption`.
+  - Answers (`BotCheckFailed` mapped by `BotCheckFailedResponse`, all `Cache-Control: no-store`): 400
+    `{ error: 'bot_check_failed', reason: 'missing' | 'failed', next? }`, where `next` names the check's `fallback`
+    verifier after a failed token; 503 `{ error: 'bot_check_unavailable' }` with `Retry-After: 30` when the verifier is
+    unavailable and `onUnavailable` is `refuse` (the default). With `onUnavailable: 'allow'` the request goes on and a
+    warning is logged at most once a minute per check. The client may name the fallback verifier in `x-bot-verifier`
+    (`http.bot.verifierHeader`) when it sends the fallback's token.
+- `http.throttle.ipv6Prefix` (default 64, 16 to 128): `ThrottleMiddleware` counts an IPv6 client per prefix. Docs list a
+  recommended rule set for the authn routes and note that rules match the resolved path of a controller moved by
+  `@BasePath({ config })`.
+
+### `@spinajs/http-bot` (new package)
+
+- `RecaptchaV3Verifier` (score, action, hostname and token age) and `RecaptchaV2Verifier` (hostname and token age) over
+  Google's `siteverify`. The call is https only, follows no redirect, has a timeout (`timeoutMs`, default 3000) and
+  reads at most 64 KiB. A wrong or missing secret is `unavailable` and logged at error level; the secret is never logged.
+  No new npm dependency (global `fetch`).
+
+### `@spinajs/validation`
+
+- `DataValidator.isStrict()`, the protected `StrictValidator` and `createAjv()`, and the exported
+  `DEFAULT_STRICT_ID_PREFIXES`.
+
+### `@spinajs/authn` and the authn services
+
+- `@spinajs/authn/schemas` exports shared field schemas: fragments without `$id` (`loginField`, `tokenIdField`,
+  `sessionHandleField`, `mfaStepField`, ...), `bodyOf(required, properties, id)` (closed objects),
+  `fieldSchema(id, field)`, `AUTHN_FIELD_SCHEMAS` (ids prefixed `authn.`) and `isValidField(schema, value)`, a
+  non-coercing check without a container.
+- Security-critical services check their input again, each in its existing failure style:
+  `LocalPasswordService.requestReset` and `requestCode` (login over 1024: `accepted`, no lookup or mail),
+  `redeemVerification` (secret over 1024: `invalid`, audited `malformed`), `LocalPasswordStrategy` and `EmailCodeStrategy`
+  (login over 1024: `invalid_credentials`), `DbTokenService.validate` (over 1024), `revoke` and `revokeById` (id over 64),
+  `DefaultSessionIssuer.revokeHandle` (over 128), `completeMfa` and `stepUp` (step over 64, response over 65536:
+  `invalid_credentials`, audited `mfa.verify` `malformed`).
+- **`register` throttle flow.** Defaults: account 3 free then 60 s up to 1 h; ip 10 free then 30 s up to 1 h; a success
+  clears nothing. `POST /auth/register` uses it, so registration no longer shares its ip counter with password reset,
+  code, verification and token revocation requests. No migration: the flow is part of the key id.
+- **IPv6 prefix keys everywhere.** `ipKey(ctx, v6Prefix): ThrottleKey | null` and `ipv6PrefixOf(value)` are new in
+  `@spinajs/authn/contracts`, and `identityThrottleKeys` takes an optional third `v6Prefix` argument (without it the
+  address is keyed whole, as before). Registration, token revocation, the authn-local reset and code flows, key login
+  challenges and the TOTP and reauth identity keys read `authn.throttle.ipv6Prefix`. `throttleIp` and
+  `DEFAULT_IPV6_PREFIX` now live in `@spinajs/util`; `@spinajs/authn` re-exports them from its internal `support/ip-key`.
+- **Cap on stored passkey challenges.** `authn.webauthn.challenges.maxRows` (default 100000).
+  `WebAuthnChallengeStore.put(c, maxRows?)` throws the new `PasskeyChallengesFull` (`@spinajs/authn/contracts`) at the
+  cap, for the in-memory and the ORM store; only anonymous login challenges are capped.
+- `@spinajs/authn-session`: `sessionCookieSameSite(config)`.
+
+### `@spinajs/authn-http`
+
+- `AuthnIpThrottleMiddleware` (`@IpThrottle(flow, answer, mode)`): on the anonymous routes that read a body (login, code
+  login and request, key login and challenge, passkey login, password reset request and redemption, verification,
+  registration, token revocation) the client ip is gated in the route's throttle flow before `@BotCheck` and before
+  validation; a body the DTO refuses counts against the ip key, so invalid bodies reach the throttled answer after the
+  flow's free limit. Registration uses the `register` flow.
+- `@ClientContext()` and the `AuthnClientContext` type are exported: the caller's ClientIp, user agent, session and
+  principal as one route argument.
+- MFA completion and step-up, and re-authentication, check the session state in the new `PendingSessionOnly` and
+  `ActiveSessionOnly` policies, so those 401/403 answers still come before the body.
+- `POST /auth/tokens/revoke` takes RFC 7009's `token_type_hint` (ignored).
+- New answer schemas for the parity routes: `AuthnPasskeyCeremony`, `AuthnPasskeyEntry`, `AuthnRegistrationAnswer`,
+  `AuthnTokenUpdated`, `AuthnEmpty`.
+- `@BotCheck` on `POST /auth/login` (`login`), `POST /auth/register` (`register`), `POST /auth/password/reset-request`
+  (`password_reset`), `POST /auth/code/request` (`code_request`) and `POST /auth/passkeys/challenge`
+  (`passkey_challenge`). The shipped config lists each check with `enabled: false`, `verifier: 'recaptcha-v3'` and
+  `action` equal to the check name. A refused request makes no throttle attempt and writes no audit event. On login a
+  bot refusal answers the 400 above, not the uniform 401 (A02 is unchanged once the check passes).
+- `CsrfOriginGuard` now extends `CsrfGuard` and replaces it: the session cookie is an ambient cookie, the own origin
+  follows `authn.http.trustProxy`, refusals keep the rate-limited warning. The routes the old allowlist missed
+  (`/auth/register`, `/auth/verify`, `/auth/passkeys/login` and `/challenge`, `/auth/keys/challenge`,
+  `/auth/tokens/revoke`) are now checked. `assertSameSiteNoneProtected()` is exported.
+- `POST /auth/verify` counts the client ip in the `reset` flow before it parses the secret: 429 with `Retry-After`.
+  `AddressVerificationResult` gains `{ status: 'throttled'; retryAfterSeconds }`.
+- `POST /auth/passkeys/challenge` (anonymous) counts the client ip in the `login` flow: 429 with `Retry-After`; at the
+  passkey challenge cap it answers 503 `challenge_store_full` with `Retry-After: 30` and logs one warning. A pending
+  session's MFA challenge is not throttled.
+
+### `@spinajs/authn-oidc`
+
+- `POST /auth/oidc/:provider/backchannel-logout` is `@CsrfExempt()`.
+- A group longer than 255 characters is dropped, and more than 256 groups leave `claims.groups` absent.
+
+### `@spinajs/authn-testing`
+
+- A22 follows default-deny. "requests without the session cookie are exempt" became "X1 without the session cookie a
+  cross-origin request is refused", and the login case with an empty `unauthenticatedRoutes` now expects a refusal.
+- `DEFAULT_THROTTLE` and the A06 flow table include `register`.
+
+### `@spinajs/authz` and the authz services
+
+- `@spinajs/authz` exports shared field schemas (`idField`, `permissionField`, `linkTokenField`, ...), `bodyOf`,
+  `fieldSchema`, `AUTHZ_FIELD_SCHEMAS` (ids prefixed `authz.`), `isValidField` and `PERMISSION_MAX_LENGTH` (256).
+- `AuthzAdmin.execute` refuses a `reason` over 512 and an `idempotencyKey` over 128 characters (`invalid_batch`),
+  `readId` an id over 160 (`invalid_command`); `isPermission` is false past 256 characters.
+- authz-rbac `DbAssignmentStore`: role over 128, scope type or id over 64 (`invalid_command`) and tags over 512
+  characters as stored (`invalid_tags`) are refused before the database.
+- authz-rebac `DbTupleStore.write` refuses a tuple the namespaces of a `RebacModel` over the store cannot hold
+  (`AuthzConfigError`); `RebacModel.init` binds them with the new `DbTupleStore.checkAgainst`.
+- authz-queue: a received change with more than 1000 tags or a tag over 256 characters is dropped; a published one past
+  those caps goes out as `tags: ['*']`.
+
+### `@spinajs/authz-http`
+
+- `POST /user/access/checks` validates the list through a route schema (`ACCESS_CHECKS_SCHEMA`, at most 100 entries)
+  and each entry against `CLIENT_CHECK_SCHEMA`.
+- `GET /authz/explain` caps `principal`, `resource` and `permission` at 256 characters and validates `format`; the
+  schemas appear in the OpenAPI document of both routes.
+- A link token longer than 512 characters gets the link principal that denies everything, without asking the
+  `LinkResolver`; a service header longer than 1024 characters authenticates no service.
+- New exports: `AccessChecks()`, `ACCESS_CHECKS_SCHEMA`, `CLIENT_CHECK_SCHEMA`, `ExplainQueryArg()`,
+  `EXPLAIN_QUERY_PROPERTIES`, `AccessDomain()` and `AccessDomainArg`.
+
+### `@spinajs/authz-http-admin`
+
+- No route reads `@Req()`. New route args and decorators: `@AdminQuery()` (`AuthzAdminQueryArg`), `@AdminBody()`
+  (`AuthzAdminBodyArg`, the whole body), `@AdminBatch()` (`AuthzAdminBatchArg`, validates each command against
+  `AuthzCommandSchemaRegistry` at request time) and `@AdminDomain()` (`AuthzAdminDomainArg`). New exports: the DTO
+  classes and schemas in `dto/`, `ID_PARAM`, `TYPE_PARAM`, `BATCH_ENVELOPE_SCHEMA`, `AuthzAdminCommandBatch`,
+  `adminInputAnswer`, `inputFailure`, `respond`, `refused`, and the `NoStore` route middleware (which now sets
+  `Cache-Control: no-store` on `POST /authz/commands` and `POST /authz/links`).
+- http-swagger documents the single-command bodies from their DTOs (inline schemas instead of `$ref`s to
+  `AuthzAssignmentGrant` and the others); `describeAuthzAdminDocument` adds the batch body, the attribute bodies and the
+  query parameters, with the caps.
+
+### `@spinajs/eslint-plugin-authz`
+
+- New rule `@spinajs/authz/no-raw-request` (not in `configs.recommended`): an http controller may not take `@Req()` or
+  `@Res()` parameters or call `bodyField()`. Options `decorators` and `functions` add names. The root
+  `eslint.config.mjs` turns it on for `packages/{authn,authz}*/src`; `POST /auth/logout` is the one disabled exception.
+
+## Deprecated
+
+- `authn.http.csrf.enabled` and `authn.http.csrf.allowedOrigins` are aliases of `http.csrf.*` until the next major:
+  `false` in either key turns the guard off, and both origin lists count. `authn.http.csrf.unauthenticatedRoutes` is
+  ignored and no longer shipped. A boot warning names a deprecated key in use.
+
+## Unchanged
+
+- The CSRF 403 body `{ error: { code: 'E_CSRF_ORIGIN', message: 'Cross-origin request refused' } }`, Order 4 before
+  `AuthnMiddleware`, and the cookie rule: a request with the session cookie and neither an allowed `Origin` nor
+  `Sec-Fetch-Site: same-origin` is refused. The guard still runs before the IP gate, the bot check and validation.
+- The caps of the global middlewares that stay outside route arguments, now locked by tests: a session id over 128
+  characters never reaches the session store (http and socket), the `Authorization: Bearer` and `x-api-key` values must
+  be RFC 6750 b64tokens, and an HTTP signature `Signature-Input` or `Signature` header over 8192 characters fails
+  before any key lookup.
+- The A02 uniform login failure, the authz client-access conformance and the operationIds.
+
+## Upgrade notes
+
+- Bot checks: nothing changes until you set `http.bot.enabled: true`, configure a verifier and turn a check on. A
+  cross-origin client needs `x-bot-token` (and `x-bot-verifier`) in `http.cors.allowedHeaders`.
+- A cross-origin browser client (SPA) must be listed in `http.csrf.allowedOrigins`, also when it authenticates with a
+  bearer token.
+- Clients of the authz admin API that read `{ results }` with `invalid_command` for malformed input must read
+  `{ error: { code, field } }`, and send expiries with seconds.
+
+## Dependencies
+
+- `@spinajs/authn` depends on `ajv`; `@spinajs/authz-http` and `@spinajs/authn-oidc` on `@spinajs/validation`.
 # Release notes � users: email domain refusal
 
 > Docs: `docs/users/19-email-domains.md`.

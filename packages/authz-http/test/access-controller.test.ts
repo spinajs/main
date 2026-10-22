@@ -189,6 +189,22 @@ describe('AccessController (B25, design §10.2)', function () {
       expect(full.body.results).to.have.length(MAX_ACCESS_CHECKS);
     });
 
+    it('answers false for entries over the field caps and refuses a body over the entry cap', async () => {
+      const res = await post({
+        checks: [
+          { object: { type: 'd'.repeat(65), id: '1' }, permission: 'edit' },
+          { object: { type: 'doc', id: '1'.repeat(161) }, permission: 'edit' },
+          doc('1', 'e'.repeat(257)),
+          doc('1', 'edit', { context: { field: 'f'.repeat(129) } }),
+          doc('1', 'edit'),
+        ],
+      });
+
+      expect(res.status).to.eq(200);
+      expect(res.body.results).to.deep.eq([false, false, false, false, true]);
+      expect(res.body.reasons).to.deep.eq(['invalid_request', 'invalid_request', 'invalid_request', 'invalid_request', null]);
+    });
+
     it('lets an anonymous caller ask, and answers 401 without a principal', async () => {
       const anonymous = await post({ checks: [doc('1', 'edit')] }, null);
       expect(anonymous.status).to.eq(200);

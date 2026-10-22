@@ -3,11 +3,13 @@ import 'mocha';
 import { AUTHZ_CONNECTION, AuthzConfigError } from '@spinajs/authz';
 import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
 
-import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebac_2026_10_21_00_00_00, DbTupleStore } from '../../src/index.js';
+import { fakeModelInitContext } from '@spinajs/authz-testing';
+
+import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebac_2026_10_21_00_00_00, DbTupleStore, RebacModel } from '../../src/index.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 import { tupleStoreContract } from '../support/store-contract.js';
-import { d1, ref, set, tuple, user } from '../support/world.js';
+import { NAMESPACES, PERMISSIONS, PERMISSION_INPUTS, d1, ref, set, tuple, user } from '../support/world.js';
 
 const expect = chai.expect;
 
@@ -86,6 +88,33 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
     }
     expect(error).to.be.instanceOf(AuthzConfigError);
     expect((error as Error).message).to.include('object_id');
+  });
+
+  it('write refuses a tuple the namespaces of the RebacModel over it cannot hold, until the model is disposed', async () => {
+    const store = new DbTupleStore();
+    const model = new RebacModel({ store, namespaces: NAMESPACES, permissions: PERMISSIONS });
+    await model.init(fakeModelInitContext({ permissions: PERMISSION_INPUTS, model: model.name }));
+    const refusal = async (add: ReturnType<typeof tuple>): Promise<unknown> => {
+      try {
+        await store.write([add], [], user('admin'));
+      } catch (e) {
+        return e;
+      }
+      return undefined;
+    };
+
+    for (const bad of [tuple(d1, 'nosuch', user('alice')), tuple(ref('nosuch', 'x'), 'viewer', user('alice')), tuple(d1, 'owner', set('group', 'eng', 'member')), tuple(d1, 'read', user('alice'))]) {
+      const error = await refusal(bad);
+      expect(error, JSON.stringify(bad)).to.be.instanceOf(AuthzConfigError);
+      expect((error as Error).message).to.include('add[0]');
+    }
+    expect(await rawQuery(db.driver, `SELECT tuple_key FROM ${AUTHZ_REBAC_TUPLE_TABLE}`)).to.deep.equal([]);
+
+    await store.write([tuple(d1, 'viewer', user('alice'))], [tuple(d1, 'nosuch', user('alice'))], user('admin'));
+    expect(await store.read(d1, 'viewer')).to.deep.equal([tuple(d1, 'viewer', user('alice'))]);
+
+    await model.dispose();
+    expect(await refusal(tuple(d1, 'nosuch', user('alice')))).to.equal(undefined);
   });
 });
 

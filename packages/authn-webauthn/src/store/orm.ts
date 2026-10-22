@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { PasskeyChallengesFull } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { DbMfaStore, identityKey, parseIdentityKey, readInstant } from '@spinajs/authn-orm';
 import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
@@ -128,9 +129,10 @@ export class DbWebAuthnChallengeStore extends WebAuthnChallengeStore {
 
   private readonly purgeDue = everyNthCall(PURGE_EVERY);
 
-  async put(c: WebAuthnChallenge): Promise<void> {
+  async put(c: WebAuthnChallenge, maxRows?: number): Promise<void> {
     const row = checkedChallenge(c);
     if (this.purgeDue()) await this.purge(new Date());
+    if (maxRows !== undefined && (await AuthnWebauthnChallenge.count()) >= maxRows) throw new PasskeyChallengesFull();
     await AuthnWebauthnChallenge.insert({
       id: row.id,
       challenge: row.challenge,

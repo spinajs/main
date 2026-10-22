@@ -1,29 +1,9 @@
 import { BadRequestResponse, ForbiddenResponse, NotFound } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
-import type { IdentityRef } from '@spinajs/authn/contracts';
 
 import { NO_STORE } from '../v3/responses.js';
-import { bodyField } from '../v3/routes.js';
 
-// The `:uuid` of the credential admin routes and their answers. No answer carries a secret: a reset secret travels in
-// the owner's mail only, and an MFA reset hands out nothing (A25, SR-10).
-
-/**
- * users' identities are lower-case uuids (users.Uuid); anything else names no user. Case-sensitive on purpose: under a
- * `_ci` collation an upper-case id finds and expires the user while the session store, keyed by the exact id, revokes
- * nothing.
- */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-/** The user the route names, or null for a param that cannot be a user id. */
-export const targetOf = (uuid: unknown): IdentityRef | null => (typeof uuid === 'string' && UUID.test(uuid) ? { type: 'user', id: uuid } : null);
-
-/** `sendReset` of the password reset body; true when absent. */
-export function sendResetOf(req: Request): boolean | null {
-  const value = bodyField(req, 'sendReset');
-  if (value === undefined) return true;
-  return typeof value === 'boolean' ? value : null;
-}
+// Answers of the credential admin routes; dto/credential-admin.ts checks the `:uuid` and the bodies. No answer carries a
+// secret: a reset secret travels in the owner's mail only, and an MFA reset hands out nothing (A25, SR-10).
 
 export const invalidSendReset = (): BadRequestResponse => new BadRequestResponse({ error: 'invalid_send_reset', message: 'sendReset must be true or false' }, { Headers: [NO_STORE] });
 

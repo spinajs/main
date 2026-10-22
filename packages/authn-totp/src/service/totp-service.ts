@@ -8,7 +8,7 @@ import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
 import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
-import { AuthnService, AuthnThrottle, MfaEnrolmentService, MfaStep, SessionIssuer, identityThrottleKeys, isFresh } from '@spinajs/authn/contracts';
+import { AuthnService, AuthnThrottle, MfaEnrolmentService, MfaStep, SessionIssuer, identityThrottleKeys, ipv6PrefixOf, isFresh } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, Credentials, IdentityRef, MfaBeginResult, MfaConfirmResult, MfaDisableResult, MfaRegenerateResult, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from '../step/errors.js';
 import { TotpMfaStep } from '../step/totp-step.js';
@@ -31,6 +31,8 @@ export interface TotpServiceDeps {
   readonly sinks?: readonly AuthnEventSink[];
   /** `authn.freshAuth.maxAgeSeconds`. */
   readonly maxAgeSeconds?: number;
+  /** `authn.throttle.ipv6Prefix`. */
+  readonly ipv6Prefix?: number;
   /** Otherwise the registered Hooks; built with `new` and without it, no action hooks run. */
   readonly hooks?: Hooks;
 }
@@ -56,6 +58,9 @@ interface Current {
 export class TotpService extends MfaEnrolmentService {
   @Config('authn.freshAuth.maxAgeSeconds')
   protected MaxAgeSeconds: number;
+
+  @Config('authn.throttle.ipv6Prefix')
+  protected ThrottleIpv6Prefix: unknown;
 
   @Config('authn.mfa.encryptionKey.secret')
   protected EncryptionKey: string | null | undefined;
@@ -162,7 +167,7 @@ export class TotpService extends MfaEnrolmentService {
   }
 
   protected async confirmNow(step: TotpMfaStep, throttle: AuthnThrottle, c: Current, code: string, ctx: AuthnContext): Promise<TotpConfirmResult> {
-    const keys = identityThrottleKeys(c.identity, ctx);
+    const keys = identityThrottleKeys(c.identity, ctx, this.ipv6Prefix());
     const gate = await throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, c, { type: 'throttle.block', outcome: 'failure', reason: 'throttled' });
@@ -214,7 +219,7 @@ export class TotpService extends MfaEnrolmentService {
   }
 
   protected async disableNow(step: TotpMfaStep, throttle: AuthnThrottle, c: Current, code: string, ctx: AuthnContext): Promise<TotpDisableResult> {
-    const keys = identityThrottleKeys(c.identity, ctx);
+    const keys = identityThrottleKeys(c.identity, ctx, this.ipv6Prefix());
     const gate = await throttle.attempt(keys, 'mfa', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, c, { type: 'throttle.block', outcome: 'failure', reason: 'throttled' });
@@ -387,6 +392,10 @@ export class TotpService extends MfaEnrolmentService {
 
   private auditor(): AuthnAuditor {
     return this.sinkAudit ?? this.Audit ?? missing('AuthnAudit');
+  }
+
+  private ipv6Prefix(): number {
+    return this.deps.ipv6Prefix ?? ipv6PrefixOf(this.ThrottleIpv6Prefix);
   }
 
   private maxAgeSeconds(): number {

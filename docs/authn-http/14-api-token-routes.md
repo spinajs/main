@@ -6,7 +6,7 @@
 
 1. `TokenServiceRegistered` (controller gate): 404 `not_found` without a `TokenService`.
 2. Every route has `[Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy]` and needs an active session: a token or key caller gets 403 `session_required` (no credential mints or manages credentials), an impersonator 403 `impersonating`, an anonymous caller or a pending session 401.
-3. `POST /user/tokens` and `POST /user/tokens/:uuid/rotate` take `reauthPassword` out of the body (`takeReauthPassword()`), then runs [`assertFreshAuth()`](05-policies.md#fresh-authentication) in the handler through `freshAuthOrAnswer()`. A stale session without the password: 403 `fresh_auth_required`; a wrong or throttled password: 401 login failure body without `Retry-After`.
+3. `POST /user/tokens` and `POST /user/tokens/:uuid/rotate` validate their body DTO first (see [Input validation](24-input-validation.md)), which takes `reauthPassword` off the request, then run [`assertFreshAuth()`](05-policies.md#fresh-authentication) in the handler through `freshAuthOrAnswer()`. A stale session without the password: 403 `fresh_auth_required`; a wrong or throttled password: 401 login failure body without `Retry-After`.
 4. The body is checked field by field (see the table below); the first bad field answers 400.
 5. `TokenService.create(identity, options, ctx)` checks the expiry against the caps, the roles against the owner's, the profile against the profile policy and the scope against the kind. A refused expiry: 400 `invalid_expiry`; anything else refused: 400 `invalid_scope`.
 6. The answer is `{ Token, Plaintext }`. The plaintext is shown here once and never again.
@@ -41,7 +41,7 @@ sequenceDiagram
 | --- | --- |
 | Request body | `{ "name", "expiresAt", "roles"?, "profile"?, "kind"?, "scope"?, "reauthPassword"? }` |
 | 200 | `{ "Token": <token entry>, "Plaintext": string }` |
-| 400 | `invalid_name`, `invalid_expiry`, `invalid_kind`, `invalid_roles`, `invalid_profile`, `invalid_scope` |
+| 400 | `invalid_name`, `invalid_expiry`, `invalid_kind`, `invalid_roles`, `invalid_profile`, `invalid_scope`, `invalid_field` (any other key) |
 | 401 | login failure body (wrong or throttled `reauthPassword`) |
 | 403 | `fresh_auth_required`, `session_required`, `impersonating` |
 
@@ -62,7 +62,7 @@ Replaces the secret of a live token of the caller and keeps its id, name, roles 
 | --- | --- |
 | Request body | `{ "graceSeconds"?, "reauthPassword"? }` |
 | 200 | `{ "Token": <token entry>, "Plaintext": string }`; the new plaintext is shown here once |
-| 400 | `invalid_grace` |
+| 400 | `invalid_grace`, `invalid_field` (any other key) |
 | 401 | login failure body (wrong or throttled `reauthPassword`) |
 | 403 | `fresh_auth_required`, `session_required`, `impersonating` |
 | 404 | `token_not_found` for any id that is not a live token of the caller |
@@ -98,12 +98,12 @@ Any other key, `kind`, `profile` and `scope` included, answers 400 `invalid_fiel
 
 ### `POST /auth/tokens/revoke`
 
-Self-revocation by plaintext, RFC 7009 style, from `AuthnTokenRevocationController`. It is for the holder of a leaked secret, so it needs **no session and no cookie**: none of the policies above apply, only the `TokenServiceRegistered` gate. The secret in the body is the authorisation, and the route is not in [`authn.http.csrf.unauthenticatedRoutes`](04-csrf-origin-guard.md), so a cookieless request is not origin-checked.
+Self-revocation by plaintext, RFC 7009 style, from `AuthnTokenRevocationController`. It is for the holder of a leaked secret, so it needs **no session and no cookie**: none of the policies above apply, only the `TokenServiceRegistered` gate. The secret in the body is the authorisation. The [CSRF origin guard](04-csrf-origin-guard.md) checks a browser request like any other; a server or CLI sending no `Origin` is not checked.
 
 | | |
 | --- | --- |
-| Body | `{ "token": "<plaintext>" }`, JSON or form |
-| 200 | `{}` whether or not a token was revoked: unknown, malformed, over 1024 characters, already revoked, or a previous secret whose grace has ended all answer alike |
+| Body | `{ "token": "<plaintext>", "token_type_hint"?: string }`, JSON or form. `token_type_hint` (at most 64 characters) is taken and ignored: the route revokes access tokens only |
+| 200 | `{}` whether or not a token was revoked: unknown, malformed, over 1024 characters, a body with any other key, already revoked, or a previous secret whose grace has ended all answer alike |
 | 429 | `{ "error": "throttled", "message" }` with `Retry-After`; nothing is revoked |
 
 Every request counts in the `reset` throttle flow keyed on the client ip, before the body is read. That budget is the one the password reset routes use, and `authn.throttle.reset.ip` sets it (`free: 5` by default; raise it if secret scanners call this route in bursts). A previous secret inside its rotation grace revokes the token like the current one. The call audits `token.revoke` with `reason: 'self'` and evicts the validation cache.

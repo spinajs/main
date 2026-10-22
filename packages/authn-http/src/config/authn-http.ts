@@ -18,9 +18,17 @@ const authnHttp = {
         // authn.request runs on every request: off unless an app needs it.
         request: false,
       },
-      csrf: {
-        // Matched against the request path after http.controllers.route.prefix.
-        unauthenticatedRoutes: ['/auth/login', '/auth/password/reset-request', '/auth/password/reset', '/auth/keys/login', '/auth/mfa/verify', '/auth/mfa/recovery', '/auth/code/request', '/auth/code/login'],
+    },
+  },
+  http: {
+    bot: {
+      // reCAPTCHA v3 actions allow only letters, digits, / and _, hence the underscores.
+      checks: {
+        login: { enabled: false, verifier: 'recaptcha-v3', action: 'login', onUnavailable: 'refuse' },
+        register: { enabled: false, verifier: 'recaptcha-v3', action: 'register', onUnavailable: 'refuse' },
+        password_reset: { enabled: false, verifier: 'recaptcha-v3', action: 'password_reset', onUnavailable: 'refuse' },
+        code_request: { enabled: false, verifier: 'recaptcha-v3', action: 'code_request', onUnavailable: 'refuse' },
+        passkey_challenge: { enabled: false, verifier: 'recaptcha-v3', action: 'passkey_challenge', onUnavailable: 'refuse' },
       },
     },
   },

@@ -15,8 +15,8 @@ The plugin ships as an ESLint flat-config plugin. Spread `configs.recommended` i
 | --- | --- | --- |
 | default export | flat-config plugin | `{ meta, rules, configs }`; put it in `plugins` or spread `configs.recommended` |
 | `configs.recommended` | `FlatConfig.Config` | `name: '@spinajs/authz/recommended'`, the plugin under `@spinajs/authz`, `require-accessible` and `require-access` as `error` |
-| `rules` | object | `{ 'require-accessible': requireAccessible, 'require-access': requireAccess }` |
-| `requireAccessible`, `requireAccess` | rule modules | The rules themselves, for a custom plugin object or `RuleTester` |
+| `rules` | object | `{ 'require-accessible': requireAccessible, 'require-access': requireAccess, 'no-raw-request': noRawRequest }`; `no-raw-request` is not in `configs.recommended` |
+| `requireAccessible`, `requireAccess`, `noRawRequest` | rule modules | The rules themselves, for a custom plugin object or `RuleTester` |
 | `isAccessResourceClass`, `primaryKeyOf` | functions | The type-checker helpers the rule uses to find `@AccessResource` classes and their `@Primary()` property |
 
 ## Configuration
@@ -35,7 +35,7 @@ The plugin ships as an ESLint flat-config plugin. Spread `configs.recommended` i
 - The rule resolves each model through the type checker, so the files that declare your models must belong to the linted TypeScript project.
 - The plugin prefix is `@spinajs/authz`. Use it in rule keys and in `eslint-disable` comments: `// eslint-disable-next-line @spinajs/authz/require-accessible`.
 - Unknown options fail the config: the option schema has `additionalProperties: false` and `uniqueItems: true` on `resources`.
-- SpinaJS lints its own packages with `configs.recommended` in the root `eslint.config.mjs`, with `require-access` switched off there: it would flag the open endpoints of existing controllers and many test fixtures. It does not lint your app: add the rule to your app's lint step and fail the build on errors.
+- SpinaJS lints its own packages with `configs.recommended` in the root `eslint.config.mjs`, with `require-access` switched off there: it would flag the open endpoints of existing controllers and many test fixtures. `no-raw-request` is on there for `packages/{authn,authz}*/src`. It does not lint your app: add the rule to your app's lint step and fail the build on errors.
 
 ## Best practices
 

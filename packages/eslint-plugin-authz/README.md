@@ -76,3 +76,15 @@ existing controllers and many test fixtures.
 - `guardDecorators: string[]`: extra decorator names that guard a route.
 
 A guard on a base class is not seen: repeat it on the subclass or list your wrapper in `guardDecorators`.
+
+## `no-raw-request`
+
+An http controller must not take `@Req()` or `@Res()` parameters or call `bodyField()`: its input goes through route
+arguments (`@Body`, `@Query`, `@Param`, `@Header`, `@Cookie`, typed arg decorators), which validate it. A controller
+is a class that extends a `…Controller` class or has a route method. The rule reads the syntax tree only and is not in
+`configs.recommended`; the root `eslint.config.mjs` turns it on for `packages/{authn,authz}*/src`.
+
+### Options
+
+- `decorators: string[]`: extra parameter decorator names to refuse.
+- `functions: string[]`: extra function names whose calls are refused inside a controller.

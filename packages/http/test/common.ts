@@ -27,6 +27,8 @@ chai.use(chaiSubset);
 chai.use(chaiLike);
 chai.use(chaiThings);
 
+const TEST_COOKIE_SECRET = 'test-cookie-secret';
+
 // http.port is 0, so every start binds a free port and parallel runs never collide; requests read it back from the running server.
 export function appPort(): number {
   const address = DI.get(HttpServer)?.Server?.address() as AddressInfo | null | undefined;
@@ -124,6 +126,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
 
         port: 0,
+        cookie: { secret: TEST_COOKIE_SECRET },
         middlewares: [
           (helmet as any)(),
           express.json({
@@ -145,7 +148,7 @@ export class TestConfiguration extends FrameworkConfiguration {
             type: ['application/xml', 'text/xml', 'application/*+xml'],
             limit: '5mb',
           }),
-          cookieParser(),
+          cookieParser(TEST_COOKIE_SECRET),
           compression(),
         ],
 

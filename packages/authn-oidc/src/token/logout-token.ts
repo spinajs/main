@@ -140,7 +140,7 @@ export interface OidcBackchannelLogoutDeps {
 
 const NO_STORE = Object.freeze({ 'cache-control': 'no-store' });
 const DONE: OidcAnswer = Object.freeze({ status: 200, cookies: [], headers: NO_STORE });
-const INVALID: OidcAnswer = Object.freeze({ status: 400, cookies: [], headers: NO_STORE, body: Object.freeze({ error: 'invalid_request' }) });
+export const OIDC_LOGOUT_INVALID: OidcAnswer = Object.freeze({ status: 400, cookies: [], headers: NO_STORE, body: Object.freeze({ error: 'invalid_request' }) });
 
 /** NonceStore keys are at most 160 chars: the jti goes in hashed, with the issuer that minted it. */
 const jtiKey = (provider: string, iss: string, jti: string): string => `oidc-logout:${createHash('sha256').update(`${provider}\0${iss}\0${jti}`).digest('hex')}`;
@@ -161,24 +161,24 @@ export class OidcBackchannelLogout {
     const strategy = typeof provider === 'string' ? this.d.strategies.get(provider) : undefined;
     const token = isPlainObject(form) ? form.logout_token : undefined;
     const rules = strategy ? this.rulesOf(strategy, now) : null;
-    if (!strategy || rules === null || typeof token !== 'string') return INVALID;
+    if (!strategy || rules === null || typeof token !== 'string') return OIDC_LOGOUT_INVALID;
 
     let claims: LogoutTokenClaims;
     try {
       claims = await validateLogoutToken(token, strategy.provider.jwks!, rules);
     } catch (err) {
       this.warn(provider, 'refused', err);
-      return INVALID;
+      return OIDC_LOGOUT_INVALID;
     }
     try {
       if (!(await this.d.nonces.claim(jtiKey(strategy.name, claims.iss, claims.jti), claims.expiresAt, now))) {
         this.warn(provider, 'refused', new Error('jti replayed'));
-        return INVALID;
+        return OIDC_LOGOUT_INVALID;
       }
       await this.revokeHooked(strategy.name, claims, ctx);
     } catch (err) {
       this.warn(provider, 'failed', err);
-      return INVALID;
+      return OIDC_LOGOUT_INVALID;
     }
     return DONE;
   }

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authz",
-  "version": "3.0.13",
+  "version": "3.0.14",
   "description": "Authorization core for SpinaJS: contracts, engine, conditions",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -57,17 +57,17 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/cli": "3.0.13",
-    "@spinajs/configuration": "3.0.13",
-    "@spinajs/di": "3.0.13",
-    "@spinajs/exceptions": "3.0.13",
-    "@spinajs/hooks": "3.0.13",
-    "@spinajs/log-common": "3.0.13",
-    "@spinajs/principal": "3.0.13",
-    "@spinajs/util": "3.0.13",
+    "@spinajs/cli": "3.0.14",
+    "@spinajs/configuration": "3.0.14",
+    "@spinajs/di": "3.0.14",
+    "@spinajs/exceptions": "3.0.14",
+    "@spinajs/hooks": "3.0.14",
+    "@spinajs/log-common": "3.0.14",
+    "@spinajs/principal": "3.0.14",
+    "@spinajs/util": "3.0.14",
     "ajv": "^8.12.0"
   },
   "devDependencies": {
-    "@spinajs/authz-testing": "3.0.13"
+    "@spinajs/authz-testing": "3.0.14"
   }
 }

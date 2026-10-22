@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-import { AuthnThrottle } from '../../src/contracts/throttle.js';
+import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, THROTTLE_FLOWS } from '../../src/contracts/throttle.js';
 import type { ThrottleFlow, ThrottleKey } from '../../src/contracts/throttle.js';
 import type { AuthnContext } from '../../src/contracts/credentials.js';
 import * as index from '../../src/contracts/index.js';
@@ -108,6 +108,11 @@ describe('throttle contract', () => {
       expect(Object.getPrototypeOf(AuthnThrottle)).to.eq(Function.prototype);
     });
 
+    it('lists five flows, register last, with its own defaults and no success rule', () => {
+      expect(THROTTLE_FLOWS).to.deep.eq(['login', 'mfa', 'reset', 'reauth', 'register']);
+      expect(DEFAULT_THROTTLE_PARAMS.register).to.deep.eq({ account: { free: 3, baseDelayMs: 60000, maxDelayMs: 3600000 }, ip: { free: 10, baseDelayMs: 30000, maxDelayMs: 3600000 } });
+    });
+
     it('a concrete throttle backs off, never locks, and does not count refused attempts', async () => {
       const t = new MemoryThrottle();
       const mallory = keysFor('alice');
@@ -170,8 +175,8 @@ describe('throttle contract', () => {
       same<index.ThrottleKey, ThrottleKey>(true);
     });
 
-    it('ThrottleFlow is exactly the four flows', () => {
-      same<ThrottleFlow, 'login' | 'mfa' | 'reset' | 'reauth'>(true);
+    it('ThrottleFlow is exactly the five flows', () => {
+      same<ThrottleFlow, 'login' | 'mfa' | 'reset' | 'reauth' | 'register'>(true);
       // @ts-expect-error no signup flow
       const f: ThrottleFlow = 'signup';
       void f;

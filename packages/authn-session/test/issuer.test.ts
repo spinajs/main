@@ -350,6 +350,22 @@ describe('DefaultSessionIssuer', () => {
       expect(await issuer.revokeHandle(bob, hi), 'the subject may end an impersonation of itself').to.be.true;
       expect(await issuer.restore(imp.id)).to.be.null;
     });
+
+    it('revokeHandle answers false for a handle longer than 128 characters without reading the store', async () => {
+      const { issuer, store } = await setup();
+      await issuer.issue(alice, facts());
+      let reads = 0;
+      const listBySubject = store.listBySubject.bind(store);
+      store.listBySubject = (...args: Parameters<typeof store.listBySubject>) => {
+        reads++;
+        return listBySubject(...args);
+      };
+
+      expect(await issuer.revokeHandle(alice, 'h'.repeat(129))).to.be.false;
+      expect(reads).to.equal(0);
+      expect(await issuer.revokeHandle(alice, 'h'.repeat(128))).to.be.false;
+      expect(reads).to.equal(1);
+    });
   });
 
   describe('list', () => {

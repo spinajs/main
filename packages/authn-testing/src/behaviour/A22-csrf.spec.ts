@@ -69,7 +69,8 @@ const ROWS: readonly Row[] = [
   { name: 'A22 Origin wins over fetch metadata', method: 'POST', headers: () => ({ origin: ORIGIN_EVIL, 'sec-fetch-site': 'same-origin' }), pass: false },
   ...(['PUT', 'PATCH', 'DELETE'] as const).map((method): Row => ({ name: `A22 every unsafe method is checked: ${method}`, method, headers: () => ({ origin: ORIGIN_EVIL }), pass: false })),
   { name: 'A22 safe methods are not checked', method: 'GET', headers: () => ({ origin: ORIGIN_EVIL }), pass: true },
-  { name: 'A22 requests without the session cookie are exempt', method: 'POST', headers: () => ({ origin: ORIGIN_EVIL }), pass: true, session: false },
+  // X1 default-deny: a browser request is checked without the session cookie too; a non-browser one is not (login rows).
+  { name: 'A22 X1 without the session cookie a cross-origin request is refused', method: 'POST', headers: () => ({ origin: ORIGIN_EVIL }), pass: false, session: false },
   { name: 'A22 the guard is off when disabled', method: 'POST', headers: () => ({ origin: ORIGIN_EVIL }), pass: true, config: CSRF_OFF },
 ];
 
@@ -92,7 +93,7 @@ const LOGIN_ROWS: readonly LoginRow[] = [
   { name: 'A22 login without the session cookie: same-origin fetch metadata without Origin passes', headers: () => ({ 'sec-fetch-site': 'same-origin' }), pass: true },
   { name: 'A22 login without the session cookie: Origin wins over fetch metadata', headers: () => ({ origin: ORIGIN_EVIL, 'sec-fetch-site': 'same-origin' }), pass: false },
   { name: 'A22 login without the session cookie: a non-browser client sending neither header passes', headers: () => ({}), pass: true },
-  { name: 'A22 login without the session cookie: an empty unauthenticatedRoutes list leaves it unchecked', headers: () => ({ origin: ORIGIN_EVIL }), pass: true, config: NO_LISTED_ROUTES },
+  { name: 'A22 X1 login without the session cookie: the deprecated unauthenticatedRoutes no longer narrows the check', headers: () => ({ origin: ORIGIN_EVIL }), pass: false, config: NO_LISTED_ROUTES },
   { name: 'A22 login without the session cookie: the guard off leaves it unchecked', headers: () => ({ origin: ORIGIN_EVIL }), pass: true, config: CSRF_OFF },
 ];
 

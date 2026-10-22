@@ -5,8 +5,8 @@
 ## How it works
 
 1. The gate `IdentityRegistrarRegistered` answers 404 while no `IdentityRegistrar` is registered, or the registered one is switched off.
-2. The body is `{ login, email, password, confirmPassword? }`. A missing or over-long login or email answers `400 invalid_login` or `400 invalid_email`; a missing password or a differing `confirmPassword` answers `400 invalid_password` or `400 password_mismatch`.
-3. The attempt counts in the `reset` throttle flow, keyed on the client ip and on the lower-cased address. A throttled request answers 429 `throttled` with `Retry-After`.
+2. The body is `{ login, email, password, confirmPassword? }`. `login` and `email` are non-empty strings of at most 254 characters, and `email` must be an email address: otherwise `400 invalid_login` or `400 invalid_email`. A missing password answers `400 invalid_password`, one over 1024 characters `400 password_rejected` with `violations: ["too_long"]`, a differing `confirmPassword` `400 password_mismatch`, and any other key `400 invalid_field`.
+3. The attempt counts in the `register` throttle flow, keyed on the client ip (an IPv6 client on its `authn.throttle.ipv6Prefix` prefix) and on the lower-cased address. The flow has its own counters: registrations never use up the `reset` budget of the same address, and the reverse. Defaults: 3 free attempts per address, then 60 s up to 1 h; 10 per IP, then 30 s up to 1 h. A throttled request answers 429 `throttled` with `Retry-After`.
 4. `PasswordService.check(password, { login, email })` applies the password policy, with the login and the email as the context of the similarity rule. A violation answers `400 password_rejected` with the `violations`. The violations depend on the input only, so they tell nothing about the account.
 5. The `authn.registration` [action hooks](23-action-hooks.md) run around the next steps, with `login` and `email` mutable. A refusal answers `400 { "error": "action_refused", "code" }` and audits an `identity.register` failure. A changed `login` or `email` goes through the password policy of step 4 again.
 6. `IdentityRegistrar.register()` creates the account or finds the one that holds the address or the login. A refusal of an action it runs (`users.create`, `authn.password.set`) answers the 202 below, as a taken address does.
@@ -63,7 +63,7 @@ Cache-Control: no-store
 
 - The answer never tells a new address from a taken one: same status, same body, same code path. The `exists` path also spends one password hash, so the two do not differ by that cost. Timing is not constant beyond that: a new account also writes rows.
 - A refused input the registrar judges itself (a reserved login, a login or email longer than users allows) answers `400 invalid_registration` with the `field`. It depends on the input only.
-- The route is not in `authn.http.csrf.unauthenticatedRoutes`. Add `/auth/register` there to require an allowed origin on every browser request that has no session cookie.
+- The [CSRF origin guard](04-csrf-origin-guard.md) refuses a browser request from a foreign origin, with or without a session cookie.
 - `authn.http.registration.notifyExisting: false` sends no mail to the owner of a taken address. `RegistrationMailHook` reads it.
 
 ## Configuration

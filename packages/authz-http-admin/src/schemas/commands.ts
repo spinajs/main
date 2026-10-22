@@ -1,16 +1,16 @@
 import { Injectable } from '@spinajs/di';
 
-import { anyObject, assignmentSubject, command, nullableDateTime, obj, principalRef, resourceRef, roleSet, tags, text } from './primitives.js';
+import { anyObject, assignmentSubject, closed, command, commandBatch, nullableDateTime, principalRef, resourceRef, roleName, roleSet, rowId, tags, text } from './primitives.js';
 import type { JsonSchema } from './primitives.js';
 import { AuthzCommandSchemaSource } from './registry.js';
 
-const idOnly = { id: { ...text, description: 'the id of the row' } };
+const idOnly = { id: { ...rowId, description: 'the id of the row' } };
 
 /** A rule as `rule.put` takes it; the condition language is described by @spinajs/authz. */
-export const ruleBody: JsonSchema = obj(
+export const ruleBody: JsonSchema = closed(
   ['id', 'kind', 'scope'],
   {
-    id: text,
+    id: rowId,
     kind: { type: 'string', enum: ['restrict', 'cap', 'threshold'] },
     scope: resourceRef,
     resourceTypes: { type: 'array', items: text },
@@ -18,8 +18,8 @@ export const ruleBody: JsonSchema = obj(
     when: { ...anyObject, description: 'a Condition' },
     expiresAt: nullableDateTime,
     allow: { type: 'array', items: assignmentSubject },
-    ladder: text,
-    maxRole: { description: 'a role id, { ref } or null (drops the assignment)', nullable: true, oneOf: [text, anyObject] },
+    ladder: roleName,
+    maxRole: { description: 'a role id, { ref } or null (drops the assignment)', oneOf: [text, { ...anyObject, nullable: true }] },
     stripTags: { type: 'boolean' },
     assignments: anyObject,
     permissions: { type: 'array', items: text },
@@ -32,10 +32,10 @@ export const ruleBody: JsonSchema = obj(
 );
 
 /** A policy as `policy.put` takes it. */
-export const policyBody: JsonSchema = obj(
+export const policyBody: JsonSchema = closed(
   ['id', 'effect', 'permissions'],
   {
-    id: text,
+    id: rowId,
     effect: { type: 'string', enum: ['permit', 'deny'] },
     permissions: { type: 'array', items: text, description: 'permission globs' },
     resourceTypes: { type: 'array', items: text },
@@ -55,17 +55,17 @@ export const policyBody: JsonSchema = obj(
 export const COMMAND_KINDS = ['assignment.grant', 'assignment.revoke', 'assignment.revokeWhere', 'assignment.setTags', 'assignment.addTags', 'assignment.removeTags', 'assignment.setExpiry', 'set.addMember', 'set.removeMember', 'link.create', 'link.update', 'link.revoke', 'rule.put', 'rule.delete', 'policy.put', 'policy.delete', 'scope.setAttributes', 'scope.replaceAttributes', 'scope.forget'] as const;
 
 const rbacCommands: readonly JsonSchema[] = [
-  command('assignment.grant', ['subject', 'role', 'scope'], { subject: assignmentSubject, role: text, scope: resourceRef, tags, expiresAt: nullableDateTime, replaceLadder: { type: 'boolean', description: "revoke the subject's other roles of the same ladder at this scope" } }, 'Grants a role to a subject at a scope'),
+  command('assignment.grant', ['subject', 'role', 'scope'], { subject: assignmentSubject, role: roleName, scope: resourceRef, tags, expiresAt: nullableDateTime, replaceLadder: { type: 'boolean', description: "revoke the subject's other roles of the same ladder at this scope" } }, 'Grants a role to a subject at a scope'),
   command('assignment.revoke', ['id'], idOnly, 'Revokes one assignment'),
-  command('assignment.revokeWhere', ['scope'], { scope: resourceRef, subject: assignmentSubject, role: text }, 'Revokes the assignments at a scope, narrowed by subject and role'),
+  command('assignment.revokeWhere', ['scope'], { scope: resourceRef, subject: assignmentSubject, role: roleName }, 'Revokes the assignments at a scope, narrowed by subject and role'),
   command('assignment.setTags', ['id', 'tags'], { ...idOnly, tags }, 'Replaces the tags of an assignment'),
   command('assignment.addTags', ['id', 'tags'], { ...idOnly, tags }, 'Adds tags to an assignment'),
   command('assignment.removeTags', ['id', 'tags'], { ...idOnly, tags }, 'Removes tags from an assignment'),
   command('assignment.setExpiry', ['id', 'expiresAt'], { ...idOnly, expiresAt: nullableDateTime }, 'Sets or clears the expiry of an assignment'),
   command('set.addMember', ['set', 'member'], { set: roleSet, member: principalRef, expiresAt: nullableDateTime }, 'Adds a principal to a subject set (group.member at group:G)'),
   command('set.removeMember', ['set', 'member'], { set: roleSet, member: principalRef }, 'Removes a principal from a subject set'),
-  command('link.create', ['scope', 'role'], { scope: resourceRef, role: text, tags, expiresAt: nullableDateTime, attributes: anyObject }, 'Creates a share link; the answer carries its token, shown once'),
-  command('link.update', ['id'], { ...idOnly, expiresAt: nullableDateTime, attributes: anyObject, role: text, tags }, 'Changes a share link'),
+  command('link.create', ['scope', 'role'], { scope: resourceRef, role: roleName, tags, expiresAt: nullableDateTime, attributes: anyObject }, 'Creates a share link; the answer carries its token, shown once'),
+  command('link.update', ['id'], { ...idOnly, expiresAt: nullableDateTime, attributes: anyObject, role: roleName, tags }, 'Changes a share link'),
   command('link.revoke', ['id'], idOnly, 'Revokes a share link'),
   command('rule.put', ['rule'], { rule: ruleBody }, 'Inserts or replaces a RBAC rule by id'),
   command('rule.delete', ['id'], idOnly, 'Deletes a RBAC rule'),
@@ -86,6 +86,15 @@ const coreCommands: readonly JsonSchema[] = [
 export const commandSchemas: readonly JsonSchema[] = [...rbacCommands, ...abacCommands, ...coreCommands];
 
 const byKind = (schemas: readonly JsonSchema[]): Readonly<Record<string, JsonSchema>> => Object.fromEntries(schemas.map((s) => [(s.properties as { kind: { enum: readonly string[] } }).kind.enum[0], s]));
+
+/** The batch body over the built-in command schemas; AuthzAdminSchemaProvider serves it over every registered source. */
+export const AuthzAdminBatch: JsonSchema = commandBatch(commandSchemas);
+
+/** The properties of a built-in command without `kind`: the body of the route that runs that one command. */
+export function commandFields(kind: (typeof COMMAND_KINDS)[number]): Record<string, JsonSchema> {
+  const { kind: _kind, ...fields } = byKind(commandSchemas)[kind].properties as Record<string, JsonSchema>;
+  return fields;
+}
 
 /** The commands of @spinajs/authz-rbac. */
 @Injectable(AuthzCommandSchemaSource)
