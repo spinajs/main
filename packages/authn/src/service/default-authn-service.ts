@@ -293,6 +293,7 @@ export class DefaultAuthnService extends AuthnService {
       await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return { status: 'failure', reason: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
+    if (await this.malformedMfa(step, response, ctx, about)) return fail('invalid_credentials');
     if (!this.Hooks.has('authn.mfa.verify')) return this.elevatePending(stored, pending.id, step, response, keys, about, ctx);
     try {
       return await this.Hooks.run('authn.mfa.verify', { pending: hookView(pending), step, response, ctx: hookView(ctx) }, () => this.elevatePending(stored, pending.id, step, response, keys, about, ctx), { mutable: [] });
@@ -429,6 +430,7 @@ export class DefaultAuthnService extends AuthnService {
       await this.Auditor.publishIn(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...about });
       return { status: 'failure', reason: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
+    if (await this.malformedMfa(step, response, ctx, about)) return fail('invalid_credentials');
     if (!this.Hooks.has('authn.session.stepUp')) return this.reissueStepped(stored, step, response, keys, about, ctx);
     try {
       return await this.Hooks.run('authn.session.stepUp', { session: hookView(session), step, response, ctx: hookView(ctx) }, () => this.reissueStepped(stored, step, response, keys, about, ctx), { mutable: [] });
@@ -583,6 +585,13 @@ export class DefaultAuthnService extends AuthnService {
     return { status: 'success', identity: id, facts: { ...facts, ...(handle !== undefined ? { sessionHandle: handle } : {}) }, session, ...extra };
   }
 
+  /** Checked past the throttle, so it counts, and before the action hooks, which never see malformed input. */
+  private async malformedMfa(step: string, response: string, ctx: AuthnContext, about: MfaAbout): Promise<boolean> {
+    if (isValidField(mfaStepField, step) && isValidField(mfaResponseField, response)) return false;
+    await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'failure', reason: 'malformed', ...about });
+    return true;
+  }
+
   /** A refused or failed MFA hook answers as a wrong code does; any other error is the caller's. */
   private async hookStopped(err: unknown, action: 'authn.mfa.verify' | 'authn.session.stepUp', ctx: AuthnContext, about: MfaAbout): Promise<Failure> {
     const stopped = hookRefusalOf(err, action);
@@ -598,7 +607,6 @@ export class DefaultAuthnService extends AuthnService {
    * aal1 session needed no step, so the policy may require none for its method.
    */
   private async passMfa(id: IdentityRef, facts: AuthnFacts, step: string, response: string, anyEnrolled = false): Promise<boolean | string> {
-    if (!isValidField(mfaStepField, step) || !isValidField(mfaResponseField, response)) return 'malformed';
     const required = anyEnrolled ? await this.enrolledSteps(id) : await this.Policy.required(id, { method: facts.method, strategy: facts.strategy });
     if (required.length === 0) return 'no_steps';
     const steps = await this.Policy.steps();

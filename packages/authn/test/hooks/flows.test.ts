@@ -116,6 +116,17 @@ describe('action hooks: authn flows', function () {
       assert.strictEqual(recorder.calls[1].output, done);
     });
 
+    it('malformed input is refused before the hook runs: counted, audited malformed', async () => {
+      const recorder = new RecordingActionHook(['authn.mfa.verify']);
+      const p = await boot([recorder]);
+      const { pending } = await pendingAlice(p);
+      assert.deepStrictEqual(await p.service.completeMfa(pending, 's'.repeat(65), '123456', ctx()), INVALID);
+      assert.deepStrictEqual(await p.service.completeMfa(pending, p.step.name, 'x'.repeat(65537), ctx()), INVALID);
+      assert.strictEqual(recorder.calls.length, 0, 'the hook never sees malformed input');
+      assert.strictEqual(throttle!.attempts.filter((x) => x.flow === 'mfa').length, 2);
+      assert.deepStrictEqual(failuresOf(p.events.all(), 'mfa.verify'), ['malformed', 'malformed']);
+    });
+
     it('a changed response does not reach the step', async () => {
       const p = await boot([mutatingHook('authn.mfa.verify', { response: 'wrong-code-123' })]);
       const { a, pending } = await pendingAlice(p);
@@ -158,6 +169,16 @@ describe('action hooks: authn flows', function () {
       assert.strictEqual(p.step.verifyCalls.length, 0, 'the step verifies nothing');
       assert.strictEqual((await p.sessions.restore(session.id))?.facts.assurance, 'aal1', 'the session is unchanged');
       assert.deepStrictEqual(failuresOf(p.events.all(), 'mfa.verify'), ['hook:kit-no-step-up']);
+    });
+
+    it('malformed input is refused before the hook runs', async () => {
+      const recorder = new RecordingActionHook(['authn.session.stepUp']);
+      const p = await boot([recorder]);
+      const { a, session } = await aliceSession(p);
+      p.step.enrol(a);
+      assert.deepStrictEqual(await p.service.stepUp(session, p.step.name, 'x'.repeat(65537), ctx()), INVALID);
+      assert.strictEqual(recorder.calls.length, 0, 'the hook never sees malformed input');
+      assert.deepStrictEqual(failuresOf(p.events.all(), 'mfa.verify'), ['malformed']);
     });
 
     it('runs before and after once around a step-up', async () => {
