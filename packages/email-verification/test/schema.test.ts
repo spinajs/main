@@ -56,6 +56,18 @@ describe('emailVerification schema', () => {
     });
   });
 
+  it('refuses an http provider header value with a control character', async () => {
+    await expect(config({ http: { providers: [{ name: 'p', url: 'https://api.example/{domain}', resultPath: 'x', headers: { 'x-key': 'SECRET\nx' } }] } })).to.be.rejectedWith(
+      /emailVerification\.http\.providers\.0\.headers\.x-key must match pattern/,
+    );
+  });
+
+  it('refuses an http provider header name that is not a token', async () => {
+    await expect(config({ http: { providers: [{ name: 'p', url: 'https://api.example/{domain}', resultPath: 'x', headers: { 'x key': 'v' } }] } })).to.be.rejectedWith(
+      /emailVerification\.http\.providers\.0\.headers\.x key property name is invalid/,
+    );
+  });
+
   it('keeps the type of each refuseWhen value', async () => {
     const cfg = await config({ http: { providers: [{ name: 'p', url: 'https://api.example/{domain}', resultPath: 'x', refuseWhen: ['true', 1, false] }] } });
     expect(cfg.get('emailVerification.http.providers.0.refuseWhen')).to.deep.eq(['true', 1, false]);

@@ -59,6 +59,13 @@ describe('SafeFetch', () => {
     expect(stub.calls).to.have.length(0);
   });
 
+  it('refuses an invalid header value without leaking it', async () => {
+    const err = await rejection(http.get('https://example.invalid/x', { timeoutMs: 1000, maxBytes: 10, headers: { 'x-key': 'SECRET\nx' } }));
+    expect(err).to.be.instanceOf(InvalidArgument);
+    expect(err.message).to.not.contain('SECRET');
+    expect(JSON.stringify(err)).to.not.contain('SECRET');
+  });
+
   it('accepts a body of exactly maxBytes', async () => {
     stub = stubFetch(() => text(200, 'x'.repeat(10)));
     expect((await http.get('https://example.com/x', { timeoutMs: 100, maxBytes: 10 })).body).to.have.length(10);

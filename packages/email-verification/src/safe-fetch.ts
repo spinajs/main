@@ -30,7 +30,14 @@ export class SafeFetch {
     if (protocol !== 'https:') {
       throw new InvalidArgument('only https URLs are fetched');
     }
-    const res = await fetch(url, { method: 'GET', redirect: 'manual', headers: options.headers, signal: AbortSignal.timeout(options.timeoutMs) });
+    let res: Response;
+    try {
+      res = await fetch(url, { method: 'GET', redirect: 'manual', headers: options.headers, signal: AbortSignal.timeout(options.timeoutMs) });
+    } catch (err) {
+      // undici quotes the whole header value in this error, and header values carry API keys.
+      if (err instanceof TypeError && /header/i.test(err.message)) throw new InvalidArgument('invalid request header');
+      throw err;
+    }
     return { status: res.status, headers: res.headers, body: await readCapped(res, options.maxBytes) };
   }
 }

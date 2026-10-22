@@ -8,6 +8,9 @@ const ttlPair = (positive: number, negative: number) => ({
 });
 
 const SOURCE_NAME = '^[a-z0-9][a-z0-9_.-]{0,62}$';
+// fetch rejects a bad header with a TypeError that quotes the value, so the schema refuses it first.
+const HEADER_NAME = "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$";
+const HEADER_VALUE = '^[^\\u0000-\\u001f\\u007f]*$';
 
 export const DEFAULT_LIST_SOURCE = {
   name: 'disposable-email-domains',
@@ -103,7 +106,12 @@ export const EMAIL_VERIFICATION_CONFIGURATION_SCHEMA = {
             properties: {
               name: { type: 'string', pattern: SOURCE_NAME },
               url: { type: 'string', pattern: '^https://\\S*\\{domain\\}' },
-              headers: { type: 'object', default: {}, additionalProperties: { type: 'string' } },
+              headers: {
+                type: 'object',
+                default: {},
+                propertyNames: { pattern: HEADER_NAME },
+                additionalProperties: { type: 'string', pattern: HEADER_VALUE },
+              },
               resultPath: { type: 'string', minLength: 1 },
               refuseWhen: { type: 'array', minItems: 1, default: [true], items: { not: { anyOf: [{ type: 'object' }, { type: 'array' }] } } },
               reason: { type: 'string', pattern: '^[a-z0-9_]{1,64}$', default: 'refused_by_provider' },
