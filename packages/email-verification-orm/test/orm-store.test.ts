@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect } from 'chai';
 import { storeContract } from '@spinajs/email-verification/testing';
-import { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
+import { DeleteQueryBuilder, InsertQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import type { OrmEmailVerificationStore } from '../src/index.js';
 import { ENTRIES_TABLE, SOURCES_TABLE, VERDICTS_TABLE } from '../src/tables.js';
@@ -85,6 +85,17 @@ function failStatement(d: OrmDriver, match: (builder: unknown) => boolean, { run
       if (runFirst) await execute(builder);
       throw new Error(SIMULATED);
     }
+    const result: unknown = await execute(builder);
+    return result;
+  };
+}
+
+/** Every source row read from the `fromNth` one on fails with its own error. */
+function failSourceReads(d: OrmDriver, fromNth: number): void {
+  const execute = d.execute.bind(d);
+  let seen = 0;
+  d.execute = async (builder) => {
+    if (builder instanceof SelectQueryBuilder && builder.Table === SOURCES_TABLE && ++seen >= fromNth) throw new Error('re-read failed');
     const result: unknown = await execute(builder);
     return result;
   };
@@ -312,5 +323,21 @@ describe('OrmEmailVerificationStore write failures', () => {
     expect(await rejection(store.replaceSource('feed', 'block', []))).to.have.property('message', SIMULATED);
     expect(await store.listVersion()).to.eq(version);
     expect(await loadedDomains(store)).to.deep.eq(['old.com']);
+  });
+
+  it('rethrows the pointer delete error when the re-read after it fails too', async () => {
+    const { store } = await storeWith(['old.com']);
+    const d = await driver();
+    failStatement(d, isSourceDelete, { runFirst: false });
+    failSourceReads(d, 2);
+    expect(await rejection(store.replaceSource('feed', 'block', []))).to.have.property('message', SIMULATED);
+  });
+
+  it('rethrows the source insert error when the re-read after it fails too', async () => {
+    const store = await bootStore();
+    const d = await driver();
+    failStatement(d, isSourceInsert, { runFirst: false });
+    failSourceReads(d, 2);
+    expect(await rejection(store.replaceSource('feed', 'block', ['new.com']))).to.have.property('message', SIMULATED);
   });
 });

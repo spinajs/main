@@ -214,7 +214,11 @@ export class OrmEmailVerificationStore extends EmailVerificationStore {
         return rowsAffected(await d.del().from(SOURCES_TABLE).where({ key, gen: oldGen })) === 1;
       } catch (err) {
         // The delete may have landed before the client saw the error.
-        if ((await this.sourceRow(d, key)) === undefined) return true;
+        const gone = await this.sourceRow(d, key).then(
+          (row) => row === undefined,
+          () => false,
+        );
+        if (gone) return true;
         throw err;
       }
     }
@@ -254,7 +258,7 @@ export class OrmEmailVerificationStore extends EmailVerificationStore {
       await d.insert().into(SOURCES_TABLE).values({ key, gen });
       return true;
     } catch (err) {
-      const row = await this.sourceRow(d, key);
+      const row = await this.sourceRow(d, key).catch(() => undefined);
       if (row === undefined) throw err;
       // Our insert may have committed even though the client saw an error.
       return row.gen === gen;
