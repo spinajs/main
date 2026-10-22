@@ -67,6 +67,7 @@ async function lockTask(name: string, opts: TaskOptions, log: Log): Promise<Unlo
               if (!renewed) {
                 log.warn({ taskName: name }, 'Task ${taskName} lost its mutex, another process may run it now');
               }
+              return;
             })
             .catch((err: unknown) => log.error({ error: err, taskName: name }, 'Cannot renew mutex for task ${taskName}'));
         }, Math.max(1, Math.floor(opts.lockTtl / 3)))
@@ -237,7 +238,7 @@ export function Task(taskName: string, description: string, opts?: Partial<TaskO
   const _description: string = _check_arg(_trim(), _non_empty())(description, 'Task description is empty');
   const _opts: TaskOptions = { ...DEFAULT_TASK_OPTIONS, ...opts };
 
-  return function (target: any, propertyKey: string | symbol, descriptor: PropertyDescriptor) {
+  return function (target: object, propertyKey: string | symbol, descriptor: PropertyDescriptor) {
     const isStatic = typeof target === 'function';
     const decl: TaskDeclaration = {
       name: _name,
