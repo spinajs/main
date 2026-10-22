@@ -23,6 +23,8 @@ The order inside `AuthzAdmin.execute` is:
 3. Whatever `command` the hook leaves, changed or not, is copied, frozen and put through the same `validate()`, validators and permission check again. A `Date` edited in place counts as a change.
 4. In phase B (the transaction), `AdminGuard.check()` and `apply()` for the command the hook left.
 
+With a matching `authz.admin.command` hook, each command runs `validate()`, the app validators and the permission check twice: once before the hook and once on the command it leaves. `after` hooks get a copy of that command, so editing it changes nothing.
+
 A hook can only narrow a command, never widen it. A hook that raises the role of a grant gets `forbidden` or `escalation`, because the permission check and the guard decide on the changed command. A command a hook returns is deep-copied and frozen, so a hook must assign a new object (`ctx.input.command = { ...ctx.input.command, expiresAt }`) instead of editing the one it got. A value that is not plain data fails with `invalid_batch`.
 
 ```ts
