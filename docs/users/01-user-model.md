@@ -24,8 +24,8 @@
 | `Login` | `string` | Unique display name. |
 | `CreatedAt` | `DateTime` | `@CreatedAt()`. |
 | `RegisteredAt` | `DateTime` | `@DateTime()`. Set by `create()`. |
-| `PasswordSetAt` | `DateTime` | `@DateTime()`, `@Hidden()`. When the current password was set; written by [`UserAccountSink`](08-authn-event-sinks.md). |
-| `EmailVerifiedAt` | `DateTime` | `@DateTime()`. When the address was verified (a verify link or an invite redeem); written by `UserAddressVerifier` and [`UserAccountSink`](08-authn-event-sinks.md). |
+| `PasswordSetAt` | `DateTime` | `@DateTime()`, `@Hidden()`. When the current password was set; written by [`UserPasswordStateHook`](07-identity-and-password-stores.md#the-password-state). |
+| `EmailVerifiedAt` | `DateTime` | `@DateTime()`. When the address was verified (a verify link or an invite redeem); written by `UserAddressVerifier` and [`UserPasswordStateHook`](07-identity-and-password-stores.md#the-password-state). |
 | `DeletedAt` | `DateTime` | `@SoftDelete()`. Normal reads skip soft-deleted rows; add `.withDeleted()` to see them. |
 | `LastLoginAt` | `DateTime` | `@DateTime()`. No package in this monorepo writes it; see [Authn event sinks](08-authn-event-sinks.md#custom-sink-stamp-the-last-login-time). |
 | `IsActive` | `boolean` | Account passed registration. Independent of a ban. |
@@ -103,7 +103,7 @@ Available on `User.query()`, `User.where(...)`, `User.update(...)` and `User.des
 | `DeletedAt` | `datetime`, nullable | Soft delete time. |
 | `LastLoginAt` | `datetime`, nullable | Last login. |
 | `RegisteredAt` | `datetime`, nullable | Registration time; set by `create()`. |
-| `PasswordSetAt` | `datetime`, nullable | When the current password was set; written by [`UserAccountSink`](08-authn-event-sinks.md). |
+| `PasswordSetAt` | `datetime`, nullable | When the current password was set; written by [`UserPasswordStateHook`](07-identity-and-password-stores.md#the-password-state). |
 | `EmailVerifiedAt` | `datetime`, nullable | When the address was verified; added by migration `UsersAddressVerified_2026_10_21_00_00_00`. |
 
 ### `users_metadata`

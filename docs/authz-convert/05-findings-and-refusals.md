@@ -26,7 +26,7 @@ Each line reads `- [<layer>] \`<2.x path>\`: <message> (<code>)`. The layer is `
 
 The converter left these out (or wrote them as found) because it cannot convert them without guessing. Boot may fail until they are done.
 
-- [common] `rbac.actions.create.afterCreate`: rbac.actions.create.afterCreate[0] is not plain data (a function or a class instance); the converter cannot write it. Move rbac.actions.create.afterCreate by hand. (not-data)
+- [common] `rbac.actions.create.afterCreate`: 3.0 has no create middleware: rewrite as an ActionHook on users.create (an after hook). See the users docs, Action hooks. (create-middleware)
 - [common] `rbac.accountTypes`: rbac.accountTypes is not a SpinaJS 2.x key; 3.0 drops the rbac.* root. Move it to a root of your own. (unknown-key)
 ```
 
@@ -50,6 +50,7 @@ A refusal ends the run with exit code `1` and no file. `ConversionError.problems
 | --- | --- |
 | `unknown-key` | An `rbac.*` key, or a sub-key of a known block, that is not a 2.x key. |
 | `not-data` | A value a file cannot hold (function, class instance, `NaN`). |
+| `create-middleware` | `rbac.actions.create.beforeCreate` or `afterCreate` lists a function: 3.x has no create middleware. Rewrite it as an `ActionHook` on `users.create` ([Action hooks](../users/04-action-hooks.md)). |
 | `custom-service` | A custom auth, password, validation or 2FA provider (left out), or a custom role guard or token role policy (written as found). |
 | `privileged-permission` | `privilegedResource` and `privilegedAction` name no single 3.0 permission. |
 | `token-role-policy` | `rbac.token.rolePolicy` is not `{ service }`. |
@@ -100,6 +101,7 @@ A refusal ends the run with exit code `1` and no file. `ConversionError.problems
 | `extends-outside` | Roles extended but defined in no config file; a 3.0 package fragment must define them. |
 | `relation-self`, `owner-relation`, `scope-relation` | Relations the app must support; `owner-relation` is a note when the model has `@ResourceOwner()`. |
 | `auth-default`, `guest-default` | `rbac.auth` or `rbac.enableGuestAccount` left out; see [Package defaults](#package-defaults). |
+| `create-middleware` | An empty `rbac.actions.create.beforeCreate` or `afterCreate` list, left out. |
 
 ## Package defaults
 

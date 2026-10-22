@@ -29,7 +29,7 @@ All are `@Event()` classes extending `UserEvent` (itself a `QueueEvent`) and car
 | --- | --- | --- | --- |
 | `UserCreated` | `Uuid`, `Email`, `Login`, `Role` (roles granted at GLOBAL), `RegisteredAt`, `IsBanned`, `IsActive`, `Metadata` (always `{}`) | `create()` | none: `queue.default` |
 | `UserChanged` | | `updateUser()`, `activate()`, `deactivate()`, invite redeem | none: `queue.default` |
-| `UserActivated` | | `activate()`, invite redeem (`UserAccountSink`) | `rbac-user-empty-queue` |
+| `UserActivated` | | `activate()`, invite redeem (`UserPasswordStateHook`) | `rbac-user-empty-queue` |
 | `UserDeactivated` | | `deactivate()` | `rbac-user-empty-queue` |
 | `UserBanned` | | `ban()` | `rbac-user-empty-queue` |
 | `UserUnbanned` | | `unban()` | `rbac-user-empty-queue` |

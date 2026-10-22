@@ -19,7 +19,17 @@ The services through which `@spinajs/authn` and its packages see the `users` tab
 
 ### Password age (`UserPasswordAgeSource`)
 
-authn-local's expiration job (`authn.local.expiration.*`) calls `passwordsSetBefore(cutoff)`. It answers the users that are not deleted, hold a password (not `NULL`, not `''`, not starting with `!`) and have `PasswordSetAt` before `cutoff` or `NULL`. [`UserAccountSink`](08-authn-event-sinks.md) keeps `PasswordSetAt` current.
+authn-local's expiration job (`authn.local.expiration.*`) calls `passwordsSetBefore(cutoff)`. It answers the users that are not deleted, hold a password (not `NULL`, not `''`, not starting with `!`) and have `PasswordSetAt` before `cutoff` or `NULL`. [`UserPasswordStateHook`](#the-password-state) keeps `PasswordSetAt` current.
+
+### The password state
+
+`UserPasswordStateHook` is an after [action hook](04-action-hooks.md) on authn-local's password flows ([its actions](../authn-local/16-action-hooks.md)), registered by users. It replaces 3.0's `UserAccountSink`.
+
+1. On `authn.password.change` answered `changed`, `authn.password.set` answered `set` and `authn.password.reset.redeem` answered `reset`, it writes `users.PasswordSetAt = ctx.now` of the action, only forward in time (`PasswordSetAt IS NULL OR PasswordSetAt < at`). An expiry is the `authn.password.expire` action, so its `'!expired'` marker never counts; neither does a login rehash.
+2. On a redeem (`output.id` names the identity), it sets `IsActive = true` in one conditional statement that matches only while `user:invite:pending` is stored as `true`, deletes the marker and emits `UserChanged` and `UserActivated` (no mail: the owner is on the page that did it). This also completes an invite redeemed with a reset link.
+3. On an invite redeem (`purpose: 'invite'`), or a redeem that activated the account, it sets `users.EmailVerifiedAt = ctx.now` unless it is set: the secret was mailed to that address.
+
+Each statement runs as `SYSTEM`, the events go out as the caller. A failing step is logged on the `users` log with the action, the user and the error class, and never thrown: the password is stored already. A deactivation drops the marker before it writes `IsActive`, so a redeem that read the account a moment earlier cannot reactivate it.
 
 ### In service (`UserAccountStatusSource`)
 
@@ -49,6 +59,7 @@ sequenceDiagram
 | Password hashes | `PasswordCredentialStore`, singleton, by type | `UserPasswordStore` | your store; `new UserPasswordStore({ driver })` on another connection | `DI.register(...).as(PasswordCredentialStore)`. Subclass and override the protected `driver()`, `update()` or `write()`. |
 | Password age | `PasswordAgeSource` (`@spinajs/authn-local`), singleton, optional | `UserPasswordAgeSource` | your source; none: the expiration job answers `idle: 'no_source'` | `DI.register(MySource).as(PasswordAgeSource)`, or subclass and filter `passwordsSetBefore()`. |
 | In-service check | `AccountStatusSource` (`@spinajs/authz-rbac`), singleton, resolved in the root container when registered | `UserAccountStatusSource` | your source | `DI.register(MySource).as(AccountStatusSource)`, or subclass and narrow `inService()`. |
+| Password state | `ActionHook` list, `@Injectable(ActionHook)` on import | `UserPasswordStateHook` | | Keep it: `UserPasswordAgeSource` and invite activation depend on it. Subclass and override the protected `recordPasswordSet()` or `activateInvited()`, then `DI.unregister(UserPasswordStateHook)` before boot and register yours. |
 
 Register replacements **after** `@spinajs/users` is imported: its `@Injectable` registrations run at import, and the last registration wins.
 
@@ -182,5 +193,5 @@ const changed = await store.set(ref, newHash, oldHash);
 ## Related
 
 - [`@spinajs/authn`](../authn/README.md): the `IdentityStore` and `PasswordCredentialStore` contracts and the login flow.
-- [Authn event sinks](08-authn-event-sinks.md): writes `PasswordSetAt` and activates invited accounts.
+- [Action hooks](04-action-hooks.md): how `UserPasswordStateHook` runs.
 - [User model and metadata](01-user-model.md): the columns these stores read.
