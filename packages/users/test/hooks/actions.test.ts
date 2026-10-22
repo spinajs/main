@@ -261,6 +261,23 @@ describe('users actions on action hooks (HOOK-4)', function () {
       expect(await globalRolesOf(u.Uuid)).to.deep.eq(['normal']);
     });
 
+    it('a caller who gave no roles gets authz.rbac.defaultRoles', async () => {
+      const hook = new ScriptedActionHook();
+
+      const { User: u } = await withHook(hook, () => create({ Email: 'defaults@spinajs.pl', Login: 'defaults-kept', Password: PASSWORD }));
+
+      expect(await globalRolesOf(u.Uuid)).to.deep.eq(['user']);
+    });
+
+    it('a hook that empties roles creates the user with none, not with the defaults', async () => {
+      const hook = new ScriptedActionHook();
+      hook.mutate('users.create', { roles: [] });
+
+      const { User: u } = await withHook(hook, () => create({ Email: 'bare@spinajs.pl', Login: 'bare-by-hook', Password: PASSWORD }));
+
+      expect(await globalRolesOf(u.Uuid)).to.deep.eq([]);
+    });
+
     it('a write into the frozen actor does not land', async () => {
       const hook = new ScriptedActionHook();
       hook.tamper('users.create', (input) => {

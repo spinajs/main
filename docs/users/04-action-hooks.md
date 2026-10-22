@@ -34,7 +34,7 @@ The input and output types are exported from `@spinajs/users`: `UserView`, `User
 ### `users.create` in detail
 
 - A column a hook sets on `user` is on the inserted row (`IsActive`, `EmailVerifiedAt`, a column of your own). Only columns of the `User` model's descriptor count; any other key is dropped without an error. `Uuid`, `Password` (the password marker), `PasswordSetAt` and `DeletedAt` stay `create()`'s. `Email`, `Login` and `Id` set on `user` go through the same checks as in `data`, and win over the same field in `data`.
-- `roles` are the roles asked for, or `authz.rbac.defaultRoles` when none were. A hook that empties the list gets `authz.rbac.defaultRoles` again: a hook cannot create an account with no role while default roles are configured. Narrow the list instead, or refuse.
+- `roles` are the roles asked for, or `authz.rbac.defaultRoles` when none were. A hook sees the defaults already applied, and the list it leaves is the list granted: a hook that empties it creates the account with no role. The role dry run still applies to what is left.
 - `create()` writes `data.Metadata` itself, without the `users.metadata.set` hooks: the keys were checked with the create input, and a hook must not refuse an account that is already inserted.
 - `Invited` is `true` when no password was given: the account got authn-local's invite instead of the `created` mail.
 - Nothing is written before the `before` hooks ran, so a refused create leaves no row. A duplicate, a protected key or a refused role is refused before any hook runs.
