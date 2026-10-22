@@ -12,6 +12,12 @@ export interface EmailDomainApply {
   emailChange: boolean;
 }
 
+interface EmailInput {
+  email?: unknown;
+  data?: { Email?: unknown };
+  user?: { Email?: unknown };
+}
+
 const DEFAULT_APPLY: EmailDomainApply = { registration: true, usersCreate: true, emailChange: true };
 
 /**
@@ -43,7 +49,7 @@ export class EmailDomainHook extends ActionHook {
   }
 
   private emailOf(ctx: BeforeContext<ActionName>): string | null {
-    const input = ctx.input as unknown as Record<string, any>;
+    const input = ctx.input as unknown as EmailInput;
     const apply = { ...DEFAULT_APPLY, ...this.Apply };
     switch (ctx.action as string) {
       case 'authn.registration':
