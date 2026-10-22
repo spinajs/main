@@ -3,6 +3,7 @@ import { Autoinject, Injectable } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 
+import './register-schema.js';
 import { EmailVerificationStore, LIST_KINDS, type ListKind } from './contracts.js';
 import { normalizeDomain } from './domain.js';
 import type { ListSourceOptions, ListsOptions } from './options.js';

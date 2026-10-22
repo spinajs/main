@@ -2,6 +2,7 @@ import { Autoinject } from '@spinajs/di';
 import { Schedule, ScheduledTask } from '@spinajs/scheduler';
 import type { RunContext } from '@spinajs/scheduler';
 
+import './register-schema.js';
 import { DomainListSync } from './sync.js';
 import type { SyncOutcome } from './sync.js';
 
