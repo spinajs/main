@@ -73,6 +73,7 @@
     "@spinajs/configuration": "3.0.10",
     "@spinajs/di": "3.0.10",
     "@spinajs/email": "3.0.10",
+    "@spinajs/email-verification": "3.0.10",
     "@spinajs/exceptions": "3.0.10",
     "@spinajs/hooks": "3.0.10",
     "@spinajs/log": "3.0.10",
