@@ -13,6 +13,7 @@ import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 import { Schema } from '@spinajs/validation';
 
 import { AccountGuard } from '../../../services/AccountGuard.js';
+import { asActionRefusal } from '../../../services/action-refusal.js';
 import { asHttpRefusal, userActor } from '../../../services/actor.js';
 import { assertCredentialAdmin } from '../../../services/credential-admin.js';
 import { freshAuthRefusal } from '../../../services/fresh-auth.js';
@@ -453,7 +454,7 @@ export class Users extends BaseController {
    * @returns {User} Created user account
    * @response 400 Validation error — missing required fields, invalid format, an empty, unknown or non-assignable role, a reserved login, or a protected metadata key
    * @response 401 Unauthorized — no signed-in principal
-   * @response 403 Forbidden — no `users:create` on every user, the caller is not a signed-in user, or AuthzAdmin refused a requested role (escalation)
+   * @response 403 Forbidden — no `users:create` on every user, the caller is not a signed-in user, or AuthzAdmin refused a requested role (escalation), or a `users.create` hook refused it (`action_refused` with its `code`)
    * @response 409 Login or email already in use, naming the clashing field in `parameter`
    */
   @Post('/')
@@ -464,7 +465,7 @@ export class Users extends BaseController {
     const roles = roleList(data.Role);
 
     try {
-      const { User: created } = await this.asDuplicateResponse(() => asHttpRefusal(() => create({ Email: data.Email, Login: data.Login, Metadata: data.Metadata }, roles, by)));
+      const { User: created } = await this.asDuplicateResponse(() => asHttpRefusal(() => asActionRefusal(['users.create'], () => create({ Email: data.Email, Login: data.Login, Metadata: data.Metadata }, roles, by))));
       return new Ok(created.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
     } catch (err) {
       if (!(err instanceof UserCreatedIncomplete)) {
@@ -588,7 +589,7 @@ export class Users extends BaseController {
    * @param user User UUID path parameter
    * @response 200 User deleted
    * @response 401 Unauthorized — no signed-in principal, or a wrong `reauthPassword`
-   * @response 403 Forbidden — no `users:delete` on this user, the caller is not a signed-in user, no fresh authentication (`fresh_auth_required`, `session_required`, `impersonating`), refused by the credential admin guard (`forbidden`, the caller's own account included, `protected_role`, `escalation`), or by the account guard (last privileged account)
+   * @response 403 Forbidden — no `users:delete` on this user, the caller is not a signed-in user, no fresh authentication (`fresh_auth_required`, `session_required`, `impersonating`), refused by the credential admin guard (`forbidden`, the caller's own account included, `protected_role`, `escalation`), or by the account guard (last privileged account), or a `users.delete` hook refused it (`action_refused` with its `code`)
    * @response 404 User not found
    */
   @Del(':user')
@@ -603,7 +604,7 @@ export class Users extends BaseController {
 
     await assertCredentialAdmin(by, target.Uuid, 'sessions');
     await this.AccountGuard.assertCanDisable(by, target, 'delete');
-    await deleteUser(target);
+    await asActionRefusal(['users.delete'], () => deleteUser(target));
 
     return new Ok();
   }
@@ -617,7 +618,7 @@ export class Users extends BaseController {
    * @response 200 User restored
    * @response 400 User is not deleted
    * @response 401 Unauthorized — no signed-in principal
-   * @response 403 Forbidden — no `users:delete` on every user
+   * @response 403 Forbidden — no `users:delete` on every user, or a `users.update` hook refused it (`action_refused` with its `code`)
    * @response 404 User not found
    */
   @Patch(':uuid/restore')
@@ -630,7 +631,7 @@ export class Users extends BaseController {
       throw new InvalidArgument(`User ${uuid} is not deleted`);
     }
 
-    await updateUser(user, { DeletedAt: null as any });
+    await asActionRefusal(['users.update'], () => updateUser(user, { DeletedAt: null as any }));
 
     return new Ok();
   }

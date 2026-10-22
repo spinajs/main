@@ -298,7 +298,7 @@ describe('LocalPasswordService action hooks', function () {
   });
 
   describe('after hooks', () => {
-    it("see status 'changed', 'set' and 'reset' with its purpose", async () => {
+    it("see status 'changed', 'set' and 'reset' with its purpose and the identity it reset", async () => {
       const x = await setup();
       expect((await x.service.change(x.alice, OLD, NEW, x.session, ctx({ purpose: 'reauth' }))).status).to.equal('changed');
       expect((await x.service.set(x.alice, OLD, ctx(), { actor: ADMIN })).status).to.equal('set');
@@ -307,7 +307,7 @@ describe('LocalPasswordService action hooks', function () {
 
       expect(afterOf(x.hook, 'authn.password.change')).to.deep.equal({ status: 'changed' });
       expect(afterOf(x.hook, 'authn.password.set')).to.deep.equal({ status: 'set' });
-      expect(afterOf(x.hook, 'authn.password.reset.redeem')).to.deep.equal({ status: 'reset', purpose: 'reset' });
+      expect(afterOf(x.hook, 'authn.password.reset.redeem')).to.deep.equal({ status: 'reset', purpose: 'reset', id: x.alice });
       expect(phases(x.hook, 'authn.password.change')).to.deep.equal(['before', 'after']);
     });
 

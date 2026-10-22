@@ -11,6 +11,7 @@ import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Schema } from '@spinajs/validation';
 
 import { AccountGuard } from '../../../services/AccountGuard.js';
+import { asActionRefusal } from '../../../services/action-refusal.js';
 import { userActor } from '../../../services/actor.js';
 import { assertCredentialAdmin } from '../../../services/credential-admin.js';
 import { freshAuthRefusal } from '../../../services/fresh-auth.js';
@@ -110,7 +111,7 @@ export class Security extends BaseController {
    * @param user User UUID path parameter
    * @response 200 Account deactivated successfully
    * @response 401 Unauthorized — no signed-in principal, or a wrong `reauthPassword`
-   * @response 403 Forbidden — no `users:delete` on every user, the caller is not a signed-in user, no fresh authentication (`fresh_auth_required`, `session_required`, `impersonating`), refused by the credential admin guard (`forbidden`, the caller's own account included, `protected_role`, `escalation`), or by the account guard (last privileged account)
+   * @response 403 Forbidden — no `users:delete` on every user, the caller is not a signed-in user, no fresh authentication (`fresh_auth_required`, `session_required`, `impersonating`), refused by the credential admin guard (`forbidden`, the caller's own account included, `protected_role`, `escalation`), or by the account guard (last privileged account), or a `users.deactivate` hook refused it (`action_refused` with its `code`)
    * @response 404 User not found
    */
   @Post('deactivate/:user')
@@ -125,7 +126,7 @@ export class Security extends BaseController {
 
     await assertCredentialAdmin(by, target.Uuid, 'sessions');
     await this.AccountGuard.assertCanDisable(by, target, 'deactivate');
-    await deactivate(target);
+    await asActionRefusal(['users.deactivate'], () => deactivate(target));
 
     return new Ok();
   }
@@ -137,13 +138,14 @@ export class Security extends BaseController {
    * @param user User UUID path parameter
    * @response 200 Account activated successfully
    * @response 401 Unauthorized — no signed-in principal
-   * @response 403 Forbidden — no `users:update` on every user
+   * @response 403 Forbidden — no `users:update` on every user, or a `users.activate` hook refused it (`action_refused` with its `code`)
    * @response 404 User not found
    */
   @Post('activate/:user')
   @Access('users:update')
   public async activateUser(@CurrentPrincipal() caller: Principal, @Param() user: string) {
-    await activate(await lifecycleTarget(caller, 'users:update', user));
+    const target = await lifecycleTarget(caller, 'users:update', user);
+    await asActionRefusal(['users.activate'], () => activate(target));
     return new Ok();
   }
 
@@ -156,7 +158,7 @@ export class Security extends BaseController {
    * @response 200 Account banned
    * @response 400 Account is already banned
    * @response 401 Unauthorized — no signed-in principal, or a wrong `reauthPassword`
-   * @response 403 Forbidden — no `users:delete` on every user, the caller is not a signed-in user, no fresh authentication (`fresh_auth_required`, `session_required`, `impersonating`), refused by the credential admin guard (`forbidden`, the caller's own account included, `protected_role`, `escalation`), or by the account guard (last privileged account)
+   * @response 403 Forbidden — no `users:delete` on every user, the caller is not a signed-in user, no fresh authentication (`fresh_auth_required`, `session_required`, `impersonating`), refused by the credential admin guard (`forbidden`, the caller's own account included, `protected_role`, `escalation`), or by the account guard (last privileged account), or a `users.ban` hook refused it (`action_refused` with its `code`)
    * @response 404 User not found
    */
   @Post('ban/:user')
@@ -171,7 +173,7 @@ export class Security extends BaseController {
 
     await assertCredentialAdmin(by, target.Uuid, 'sessions');
     await this.AccountGuard.assertCanDisable(by, target, 'ban');
-    await ban(target, dto?.reason, dto?.duration);
+    await asActionRefusal(['users.ban'], () => ban(target, dto?.reason, dto?.duration));
 
     return new Ok();
   }
@@ -184,13 +186,14 @@ export class Security extends BaseController {
    * @response 200 Account unbanned
    * @response 400 Account is not banned
    * @response 401 Unauthorized — no signed-in principal
-   * @response 403 Forbidden — no `users:update` on every user
+   * @response 403 Forbidden — no `users:update` on every user, or a `users.unban` hook refused it (`action_refused` with its `code`)
    * @response 404 User not found
    */
   @Post('unban/:user')
   @Access('users:update')
   public async unbanUser(@CurrentPrincipal() caller: Principal, @Param() user: string) {
-    await unban(await lifecycleTarget(caller, 'users:update', user));
+    const target = await lifecycleTarget(caller, 'users:update', user);
+    await asActionRefusal(['users.unban'], () => unban(target));
     return new Ok();
   }
 

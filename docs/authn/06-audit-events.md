@@ -77,7 +77,7 @@ An unknown key under `authn.audit` fails the boot.
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `AuthnEventSink` | `AuthnEventSink`, every registration of the lineage | `LogAuthnAuditSink`, per child container | `DbAuthnAuditSink` ([authn-orm](../authn-orm/README.md)), `QueueAuthnEventSink` and `UserAccountSink` ([users](../users/README.md)), `SseSessionEndSink` (`@spinajs/authz-http`) | Add one with `@Injectable(AuthnEventSink)` |
+| `AuthnEventSink` | `AuthnEventSink`, every registration of the lineage | `LogAuthnAuditSink`, per child container | `DbAuthnAuditSink` ([authn-orm](../authn-orm/README.md)), `QueueAuthnEventSink` ([users](../users/README.md)), `SseSessionEndSink` (`@spinajs/authz-http`) | Add one with `@Injectable(AuthnEventSink)` |
 | `AuthnAudit` | Class token, per child container | `AuthnAudit` | None | Not meant to be replaced |
 
 `LogAuthnAuditSink` writes one line per event on the `authn-audit` log, `info` for a success and `warn` for a failure. It never writes `data` or the user agent. It hashes `identity`, `actor`, `ip` and `session` with `authn.audit.hashKey.secret`. A value holding `@` may be an email: it is hashed even with `hashIdentifiers: false`, and a `type`, `strategy` or `reason` holding `@` is written as `?`.

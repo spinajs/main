@@ -30,7 +30,7 @@ Converted, but 3.0 behaves differently here, or the app must act.
 - [common] `rbac.session.cookie`: The session cookie becomes '__Host-ssid' outside development and test (authn.session.cookie.hostPrefix 'auto'). Every 2.x session is logged out at the upgrade, and clients that send 'ssid' by name must change. (cookie-rename)
 - [common] `rbac.session.cookie.secure`: secure: false alone no longer relaxes the cookie: hostPrefix 'auto' forces Secure outside development and test. For local http set authn.session.cookie.hostPrefix: false in a development config. (cookie-secure)
 
-## Notes (23)
+## Notes (25)
 
 Converted as the migration guide describes.
 
@@ -53,6 +53,8 @@ Converted as the migration guide describes.
 - [common] `rbac.password.generator.characters`: 2.x joined rbac.password.generator.characters with the package value ["abcdefghijklmnopqrstuvwxyz","ABCDEFGHIJKLMNOPQRSTUVWXYZ","0123456789"]; both parts were written. (package-array)
 - [common] `rbac.requireKnownRole`: Removed: 3.0 always refuses unknown roles. (removed)
 - [common] `rbac.systemRole`: Removed: SYSTEM is a principal in 3.0; the role 'system' stays an ordinary role. (removed)
+- [common] `rbac.actions.create.beforeCreate`: Left out: an empty list. 3.0 has no create middleware; rewrite as an ActionHook on users.create if you need one. (create-middleware)
+- [common] `rbac.actions.create.afterCreate`: Left out: an empty list. 3.0 has no create middleware; rewrite as an ActionHook on users.create if you need one. (create-middleware)
 - [common] `rbac.roleColumn`: Removed: 3.0 starts from an empty database and reads no users.Role column; grant roles as assignments. (removed)
 - [common] `rbac.impersonation.protectedRoles`: 2.x joined rbac.impersonation.protectedRoles with the package value ["system"]; both parts were written. (package-array)
 - [common] Roles only used through $extend: 'admin.users', 'admin'. With --db the converter marks those no user or token holds 'assignable: false'; without it every role stays assignable, as in 2.x. (assignable)

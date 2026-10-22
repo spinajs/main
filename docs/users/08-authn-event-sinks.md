@@ -1,16 +1,13 @@
 # Authn event sinks
 
-Two `AuthnEventSink`s that users registers so the `users` row and the user events follow what `@spinajs/authn` decides. `UserAccountSink` writes `PasswordSetAt` and activates invited accounts; `QueueAuthnEventSink` re-emits logins, password changes and impersonations as [user events](06-user-events.md). Add your own sink next to them to react to the same authn events.
+`QueueAuthnEventSink` is the `AuthnEventSink` users registers so the user events follow what `@spinajs/authn` decides: it re-emits logins, password changes and impersonations as [user events](06-user-events.md). Add your own sink next to it to react to the same authn events.
+
+`PasswordSetAt` and the activation of invited accounts no longer come from an event sink: 3.0's `UserAccountSink` is gone, and [`UserPasswordStateHook`](07-identity-and-password-stores.md#the-password-state), an action hook on authn-local's password flows, does that work.
 
 ## How it works
 
 1. authn's audit (`AuthnAudit`) resolves every `AuthnEventSink` with `Array.chainOf(AuthnEventSink)` and hands each one every `AuthnEvent`, concurrently. A sink error is logged by the publisher and never fails the login.
-2. `UserAccountSink.publish(e)` ignores failures and non-user identities. For a successful event it:
-   - writes `users.PasswordSetAt = e.at` for `password.change` (unless `data.expired`), `password.reset` and `invite.redeem`, only forward in time (`PasswordSetAt IS NULL OR PasswordSetAt < at`);
-   - on `invite.redeem`, sets `IsActive = true` in one conditional statement that matches only while `user:invite:pending` is stored as `true`, then deletes the marker and emits `UserChanged` and `UserActivated` (no mail);
-   - on `invite.redeem`, also sets `users.EmailVerifiedAt = e.at` unless it is set: the invite secret was mailed to that address.
-   Each step runs as `SYSTEM`; a failure is logged as a warning naming the event, user and error class, never thrown.
-3. `QueueAuthnEventSink.publish(e)` loads the `User` row (as `SYSTEM`, deleted rows included) and emits:
+2. `QueueAuthnEventSink.publish(e)` loads the `User` row (as `SYSTEM`, deleted rows included) and emits:
 
 | authn event | Outcome | Emitted |
 | --- | --- | --- |
@@ -26,17 +23,19 @@ Two `AuthnEventSink`s that users registers so the `users` row and the user event
 
 ```mermaid
 sequenceDiagram
+  participant L as authn-local redeemReset
+  participant H as UserPasswordStateHook (after)
   participant A as authn (AuthnAudit)
-  participant U as UserAccountSink
   participant Q as QueueAuthnEventSink
   participant DB as users
   participant E as queue
-  A->>U: invite.redeem (success)
-  U->>DB: PasswordSetAt = at
-  U->>DB: IsActive = true WHERE invite pending
-  U->>E: UserChanged, UserActivated
+  L->>A: invite.redeem (success)
   A->>Q: invite.redeem
   Note over Q: no mapping, nothing emitted
+  L->>H: { status: 'reset', purpose: 'invite', id }
+  H->>DB: PasswordSetAt = now
+  H->>DB: IsActive = true WHERE invite pending
+  H->>E: UserChanged, UserActivated
   A->>Q: login (success)
   Q->>E: UserLogged
 ```
@@ -45,7 +44,6 @@ sequenceDiagram
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Account bookkeeping | `AuthnEventSink` list (`Array.chainOf`), singleton, `@Injectable(AuthnEventSink)` on import | `UserAccountSink` | | Keep it: `UserPasswordAgeSource` and invite activation depend on it. Subclass and override the protected `recordPasswordSet()` or `activateInvited()`, then `DI.unregister(UserAccountSink)` and register yours. |
 | User events | `AuthnEventSink` list, singleton | `QueueAuthnEventSink` | none, if no consumer needs the events | `DI.unregister(QueueAuthnEventSink)` to stop the events; subclass `publish()` to emit more. |
 | Your reaction to authn events | `AuthnEventSink` list | | any number of sinks | `@Injectable(AuthnEventSink)` on your class; it runs next to the shipped ones. |
 
@@ -104,10 +102,8 @@ Unregister before the first authn event resolves the sink list.
 
 ## Important behaviour
 
-- `PasswordSetAt` is written from events, not from `PasswordCredentialStore.set()`: the store cannot tell a password change from a login rehash or the `'!expired'` marker.
-- Invite activation is one conditional `UPDATE`. A `deactivate()` that dropped the marker first cannot be undone by a redeem that read the account a moment earlier.
-- `UserAccountSink` never throws; a lost `PasswordSetAt` write shows only as a warning in the `rbac` log, and that password then counts as old.
-- `QueueAuthnEventSink` maps `invite.redeem` to no event; `UserActivated` comes from `UserAccountSink`.
+- `QueueAuthnEventSink` maps `invite.redeem` to no event; `UserActivated` comes from [`UserPasswordStateHook`](07-identity-and-password-stores.md#the-password-state).
+- A sink that subclassed 3.0's `UserAccountSink` must become an `ActionHook` on `authn.password.change`, `.set` and `.reset.redeem`: see [Action hooks](04-action-hooks.md).
 - MFA changes have no user event; they reach sinks as `mfa.enrol` and `mfa.disable`.
 
 ## Best practices
@@ -130,6 +126,6 @@ DI.register(SecurityOnlyQueueSink).as(AuthnEventSink);
 ## Related
 
 - [User events](06-user-events.md): the events `QueueAuthnEventSink` emits.
-- [Identity and password stores](07-identity-and-password-stores.md): `UserPasswordAgeSource` reads `PasswordSetAt`.
+- [Identity and password stores](07-identity-and-password-stores.md): `UserPasswordStateHook` writes `PasswordSetAt`, `UserPasswordAgeSource` reads it.
 - [`@spinajs/authn`](../authn/README.md): `AuthnEvent` types and the audit flow.
 - [Multiple implementations](../di/06-multiple-implementations.md): lists of services and `DI.unregister`.

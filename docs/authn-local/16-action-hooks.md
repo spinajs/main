@@ -9,7 +9,7 @@
 3. A refused flow answers as the table below says and audits the real reason: `hook:<code>` for a refusal, `hook_error` for a hook that threw or timed out.
 4. Otherwise the flow runs, and the `after` hooks see its result, failures included (`status: 'invalid'` is a result, not an error).
 
-No input carries a password, a secret or a code. No output carries a session id: the change output is `{ status: 'changed' }`.
+No input carries a password, a secret or a code. No output carries a session id: the change output is `{ status: 'changed' }`. The redeem output of a password it set names the identity, `{ status: 'reset', purpose, id }` (`PasswordResetOutput`); its input runs before the lookup and names none. users' [`UserPasswordStateHook`](../users/07-identity-and-password-stores.md#the-password-state) reads it.
 
 ## Actions
 

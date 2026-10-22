@@ -22,6 +22,9 @@ import type { AuthnContext, PrincipalRef } from '@spinajs/authn/contracts';
 import type { Principal } from '@spinajs/authz';
 import { SYSTEM, currentPrincipal } from '@spinajs/authz';
 import { USERS_TABLE, usersDriver, usersMatchingLogin } from './identity/sql.js';
+import { hookCopy } from '@spinajs/authn/hooks';
+import { actorView, ownValues, runUserAction, userView } from './hooks.js';
+import type { UserDraft, UsersCreateData } from './hooks.js';
 
 /**
  * ===============================================
@@ -96,7 +99,25 @@ export async function setUserMeta(u: User, meta: string | { key: string; value: 
   const entries = metadataEntries(u, meta, value);
   assertNoProtectedMetadata(Object.fromEntries(entries.map((m) => [m.key, m.value])));
 
-  return writeUserMeta(u, entries);
+  return runUserAction(
+    'users.metadata.set',
+    () => ({ user: userView(u), meta: entries }),
+    async (changed) => {
+      const written = changed.meta ? hookedEntries(changed.meta, entries) : entries;
+      return writeUserMeta(u, written);
+    },
+    { mutable: ['meta'], output: userView },
+  );
+}
+
+/** The entries a `users.metadata.set` hook left, checked again; an entry it did not change is the caller's own. */
+function hookedEntries(changed: unknown, own: { key: string; value: any }[]): { key: string; value: any }[] {
+  if (!Array.isArray(changed) || !changed.every((m) => _.isPlainObject(m) && typeof (m as { key?: unknown }).key === 'string')) {
+    throw new InvalidArgument('Metadata entries must be { key, value } objects', 'meta');
+  }
+  const entries = (changed as { key: string; value: unknown }[]).map((m) => own.find((o) => _.isEqual(m, hookCopy(o))) ?? { key: m.key, value: m.value });
+  assertNoProtectedMetadata(Object.fromEntries(entries.map((m) => [m.key, m.value])));
+  return entries;
 }
 
 function metadataEntries(u: User, meta: string | { key: string; value: any }[], value: any): { key: string; value: any }[] {
@@ -192,6 +213,44 @@ export async function sendUserEmail(u: User, cfgTemplate: 'created' | 'confirm' 
  * @param data - optional partial user fields to merge into the existing record
  */
 export async function updateUser(u: User, data?: Partial<User>): Promise<User> {
+  return runUserAction(
+    'users.update',
+    () => ({ user: userView(u), data: { ...(data ?? {}) } }),
+    async (changed) => saveUser(u, changed.data ? await hookedUpdate(u, changed.data, data) : data),
+    { mutable: ['data'], output: userView },
+  );
+}
+
+/** Columns a `users.update` hook may not set: the row's identity and its password hash. */
+const FIXED_COLUMNS = ['Id', 'Uuid', 'Password'] as const;
+
+/** The patch a `users.update` hook left, checked again: a changed Login or Email must be free, and the fixed columns stay the caller's. */
+async function hookedUpdate(u: User, changed: unknown, own: Partial<User> | undefined): Promise<Partial<User>> {
+  if (!_.isPlainObject(changed)) {
+    throw new InvalidArgument('The update must be an object', 'data');
+  }
+  const patch = new Map(Object.entries(ownValues(changed as Record<string, unknown>, own)));
+  for (const column of FIXED_COLUMNS) {
+    if (own && Object.hasOwn(own, column)) patch.set(column, Reflect.get(own, column));
+    else patch.delete(column);
+  }
+
+  const renamed = (column: 'Login' | 'Email'): string | undefined => {
+    const value: unknown = patch.get(column);
+    if (value === undefined || value === Reflect.get(own ?? {}, column) || value === Reflect.get(u, column)) return undefined;
+    if (typeof value !== 'string') throw new InvalidArgument(`${column} must be a string`, column);
+    return value;
+  };
+  const login = renamed('Login');
+  const email = renamed('Email');
+  if (login !== undefined || email !== undefined) {
+    await assertUserUnique(login, email, u.Id);
+  }
+  return Object.fromEntries(patch);
+}
+
+/** {@link updateUser} without its hooks: the lifecycle actions write their own state through it. */
+async function saveUser(u: User, data?: Partial<User>): Promise<User> {
   await updateModel(u, data);
   await ev(new UserChanged(u));
   return u;
@@ -345,8 +404,9 @@ export function _user_update(data?: Partial<User>) {
 
 /**
  * Activates a user account.
- * Sets `IsActive` to `true`, emits a {@link UserActivated} event, and sends the activation email.
- * On an account that is already active it only drops a pending invite marker: no event, no mail.
+ * Runs the `users.activate` hooks, then sets `IsActive` to `true` and emits a {@link UserActivated} event; the
+ * `UserLifecycleMailHook` sends the activation mail. On an account that is already active it only drops a pending
+ * invite marker: no hooks, no event, no mail.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
@@ -356,24 +416,29 @@ export async function activate(identifier: number | string | User): Promise<User
   // An account activated directly is no longer awaiting its invite - without this
   // the marker survives and the user's next ORDINARY reset takes the invite branch,
   // re-emitting UserActivated for an account that never stopped being active.
-  await u.Metadata.delete(USER_COMMON_METADATA.USER_INVITE_PENDING);
-
+  const dropInvite = () => u.Metadata.delete(USER_COMMON_METADATA.USER_INVITE_PENDING);
   if (u.IsActive) {
+    await dropInvite();
     return u;
   }
 
-  await updateUser(u, { IsActive: true });
-
-  await ev(new UserActivated(u));
-  await sendUserEmail(u, 'activated');
-
-  return u;
+  return runUserAction(
+    'users.activate',
+    () => ({ user: userView(u) }),
+    async () => {
+      await dropInvite();
+      await saveUser(u, { IsActive: true });
+      await ev(new UserActivated(u));
+      return u;
+    },
+    { mutable: [], output: userView },
+  );
 }
 
 /**
  * Deactivates a user account.
- * Sets `IsActive` to `false`, ends its sessions and API and agent tokens, emits a {@link UserDeactivated} event, and
- * sends the deactivation email. When a revocation throws, the deactivation is already stored: the caller finishes with
+ * Runs the `users.deactivate` hooks, then sets `IsActive` to `false`, ends its sessions and API and agent tokens and
+ * emits a {@link UserDeactivated} event; the `UserLifecycleMailHook` sends the deactivation mail. When a revocation throws, the deactivation is already stored: the caller finishes with
  * {@link revokeUserSessions} and {@link revokeUserTokens}.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
@@ -381,6 +446,10 @@ export async function activate(identifier: number | string | User): Promise<User
 export async function deactivate(identifier: number | string | User): Promise<User> {
   const u = await getUser(identifier);
 
+  return runUserAction('users.deactivate', () => ({ user: userView(u) }), () => deactivateNow(u), { mutable: [], output: userView });
+}
+
+async function deactivateNow(u: User): Promise<User> {
   // An account being switched off has no pending invite by definition - otherwise
   // the mailed link still redeems and activates an account an administrator
   // deliberately turned off. Dropped before IsActive is written: the redeem
@@ -399,36 +468,8 @@ export async function deactivate(identifier: number | string | User): Promise<Us
   await revokeUserTokens(u);
 
   await ev(new UserDeactivated(u));
-  await sendUserEmail(u, 'deactivated');
 
   return u;
-}
-
-/**
- * Middleware signature used by the `create` action's `beforeCreate` / `afterCreate` hooks.
- */
-export type CreateMiddleware = (u: User) => Promise<User> | User;
-
-/**
- * Reads a create-middleware list from configuration.
- * An unset or empty `beforeCreate` / `afterCreate` list is a valid
- * "no middleware" result ( `cfg` accepts empty arrays ).
- */
-function middlewareList(path: string): CreateMiddleware[] {
-  const mw = cfg<CreateMiddleware[]>(path, []);
-  return Array.isArray(mw) ? mw : [];
-}
-
-/**
- * Runs the user through each middleware in turn, feeding each one the previous
- * result.
- */
-async function runCreateMiddleware(u: User, path: string): Promise<User> {
-  let current = u;
-  for (const mw of middlewareList(path)) {
-    current = await mw(current);
-  }
-  return current;
 }
 
 /**
@@ -596,20 +637,117 @@ async function passwordService(): Promise<PasswordService> {
   return (await DI.resolve(PasswordService)) as PasswordService;
 }
 
+const checkEmail = (value: unknown): string => _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(value, 'email') as string;
+const checkLogin = (value: unknown): string => _check_arg(_trim(), _non_empty(), _max_length(32))(value, 'login') as string;
+
+/** The roles a create grants: those asked for, or `authz.rbac.defaultRoles` when none are. */
+function rolesToGrant(asked: string[]): string[] {
+  if (asked.length > 0) return asked;
+  // Runtime Configuration.set is not schema-validated: a bare string must not be spread into one-letter roles.
+  const configured = cfg<unknown>(DEFAULT_ROLES_KEY, []);
+  return [...new Set(Array.isArray(configured) ? (configured as string[]) : [])];
+}
+
+/** What {@link create} inserts and grants once its checks passed. */
+interface CreatePlan {
+  readonly id?: number;
+  readonly email: string;
+  readonly login: string;
+  readonly metadata?: { [key: string]: any };
+  readonly roleNames: string[];
+  /** Columns a `users.create` hook set on the unsaved user. */
+  readonly columns: Record<string, unknown>;
+}
+
+/** Columns of the unsaved user that only `create()` sets, that come through `data`, or that are credential state. */
+const DRAFT_OWN_COLUMNS = new Set(['Uuid', 'Password', 'Email', 'Login', 'Id', 'PasswordSetAt', 'DeletedAt']);
+
+/** The unsaved user `create()` inserts; a hook's columns go first, so the account's Uuid and password marker stay `create()`'s. */
+function draftOf(uuid: string, plan: CreatePlan, now: DateTime<true>): User {
+  return new User({
+    ...(plan.id !== undefined ? { Id: plan.id } : {}),
+    RegisteredAt: now,
+    CreatedAt: now,
+    IsActive: false,
+    ...plan.columns,
+    Email: plan.email,
+    Login: plan.login,
+    Password: NO_PASSWORD,
+    Uuid: uuid,
+  });
+}
+
+/**
+ * The plan after the `users.create` hooks, with the checks that guard each changed value run again: the email and login
+ * checks, the password policy and uniqueness for a changed email or login, the protected metadata, the role dry run.
+ * A column a hook set on `user` wins over the same field in `data`.
+ */
+async function hookedCreate(changed: Partial<{ data: UsersCreateData; roles: string[]; user: UserDraft }>, own: CreatePlan, view: UserDraft, uuid: string, actor: Principal, password: string | undefined, passwords: PasswordService): Promise<CreatePlan> {
+  let { id, email, login, metadata, roleNames } = own;
+  let columns: Record<string, unknown> = {};
+
+  if (changed.data !== undefined) {
+    if (!_.isPlainObject(changed.data)) throw new InvalidArgument('The account data must be an object', 'data');
+    ({ Email: email, Login: login, Id: id } = changed.data);
+    const changedMetadata: unknown = changed.data.Metadata;
+    if (changedMetadata !== undefined && !_.isPlainObject(changedMetadata)) throw new InvalidArgument('Metadata must be an object', 'Metadata');
+    metadata = changedMetadata === undefined ? undefined : ownValues(changedMetadata as Record<string, unknown>, own.metadata);
+  }
+
+  if (changed.user !== undefined) {
+    if (!_.isPlainObject(changed.user)) throw new InvalidArgument('The user must be an object', 'user');
+    const user = changed.user;
+    if (user.Email !== view.Email) email = user.Email;
+    if (user.Login !== view.Login) login = user.Login;
+    if (user.Id !== view.Id) id = user.Id;
+    const known = new Set(User.getModelDescriptor().Columns?.map((c) => c.Name) ?? []);
+    columns = Object.fromEntries(
+      Object.entries(user)
+        .filter(([column, value]) => !DRAFT_OWN_COLUMNS.has(column) && known.has(column) && !_.isEqual(value, Reflect.get(view, column)))
+        .map(([column, value]) => [column, value instanceof Date ? DateTime.fromJSDate(value) : value]),
+    );
+  }
+
+  if (changed.data !== undefined || changed.user !== undefined) {
+    email = checkEmail(email);
+    login = checkLogin(login);
+    assertLoginNotReserved(login);
+    if (id !== undefined && id !== null && !(Number.isSafeInteger(id) && id > 0)) throw new InvalidArgument('Id must be a positive integer', 'id');
+
+    if (email !== own.email || login !== own.login) {
+      if (password !== undefined && (await passwords.check(password, { login, email })).length > 0) {
+        throw new InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
+      }
+      await assertUserUnique(login, email);
+    }
+    assertNoProtectedMetadata(metadata);
+  }
+
+  if (changed.roles !== undefined) {
+    if (!Array.isArray(changed.roles)) throw new InvalidArgument('Roles must be a list', 'roles');
+    roleNames = rolesToGrant(roleList(changed.roles));
+    await assignGlobalRoles(uuid, roleNames, { reason: 'users:create', field: 'roles', actor, dryRun: true });
+  }
+
+  return { ...(id !== undefined && id !== null ? { id } : {}), email, login, ...(metadata !== undefined ? { metadata } : {}), roleNames, columns };
+}
+
 /**
  * Creates a user account.
  *
  * `PasswordService` is the last one registered: authn-local's `LocalPasswordService`, which importing users registers,
  * unless the application registers its own after importing users.
  *
- * Refuses, before anything is written: a supplied password that fails its policy (`PasswordService.check`), protected
- * metadata, a taken login or email, and a role `AuthzAdmin` would refuse (a dry run of the grants). Then it inserts the user, sets the password or marks the account
- * `user:invite:pending`, grants the roles at GLOBAL, writes the metadata, runs the `beforeCreate` /
- * `afterCreate` middleware and emits {@link UserCreated}. If the password or the grants fail after the
- * insert, the row is removed again so no half-made account keeps the login.
+ * Refuses, before anything is written and before the `users.create` hooks run: a supplied password that fails its policy
+ * (`PasswordService.check`), protected metadata, a taken login or email, and a role `AuthzAdmin` would refuse (a dry run
+ * of the grants). Then the `users.create` before hooks may change `user`, `data` and `roles`, or refuse (`ActionRefused`);
+ * the checks guarding what they changed run again. Then it inserts the user, sets the password or marks the account
+ * `user:invite:pending`, grants the roles at GLOBAL, writes the metadata and emits {@link UserCreated}. If the password
+ * or the grants fail after the insert, the row is removed again so no half-made account keeps the login. The after hooks
+ * see `output.User`; a failing one is logged.
  *
- * A supplied password gets the plain 'created' mail; without one, `PasswordService.invite` sends the
- * invite (authn-local's mailer), and users sends nothing. users never generates, hashes or returns a password.
+ * A supplied password gets the plain 'created' mail (`UserLifecycleMailHook`); without one, `PasswordService.invite`
+ * sends the invite (authn-local's mailer), and users sends nothing. users never generates, hashes or returns a password.
  *
  * @param data - the account; see {@link ICreateUserData}
  * @param roles - role names granted to `user:<Uuid>` at GLOBAL; omitted or empty: `authz.rbac.defaultRoles`
@@ -617,44 +755,42 @@ async function passwordService(): Promise<PasswordService> {
  *   skip AuthzAdmin's guard (escalation), so a caller acting for someone passes that principal.
  */
 export async function create(data: ICreateUserData, roles?: string[], actor: Principal = SYSTEM): Promise<ICreateUserResult> {
-  const email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(data?.Email, 'email');
-  const login = _check_arg(_trim(), _non_empty(), _max_length(32))(data?.Login, 'login');
+  const email = checkEmail(data?.Email);
+  const login = checkLogin(data?.Login);
   assertLoginNotReserved(login);
 
   const password = typeof data.Password === 'string' && data.Password !== '' ? data.Password : undefined;
   const metadata = data.Metadata;
-
-  const asked = roleList(roles);
-  // Runtime Configuration.set is not schema-validated: a bare string must not be spread into one-letter roles.
-  const configured = cfg<unknown>(DEFAULT_ROLES_KEY, []);
-  const roleNames = asked.length > 0 ? asked : [...new Set(Array.isArray(configured) ? (configured as string[]) : [])];
+  const roleNames = rolesToGrant(roleList(roles));
 
   const passwords = await passwordService();
   if (password !== undefined && (await passwords.check(password, { login, email })).length > 0) {
     throw new InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
   }
 
-  // Ahead of `beforeCreate` in particular: a request that is about to be refused must not first run
-  // middleware that writes to another system ( e.g. a user mirror ).
+  // Ahead of the users.create hooks in particular: a request that is about to be refused must not first run
+  // a hook that writes to another system ( e.g. a user mirror ).
   assertNoProtectedMetadata(metadata);
   await assertUserUnique(login, email);
 
   const uuid = uuidv4();
   await assignGlobalRoles(uuid, roleNames, { reason: 'users:create', field: 'roles', actor, dryRun: true });
 
-  let u = new User({
-    Id: data.Id,
-    Email: email,
-    Login: login,
-    Password: NO_PASSWORD,
-    RegisteredAt: DateTime.now(),
-    CreatedAt: DateTime.now(),
-    IsActive: false,
-    Uuid: uuid,
-  });
+  const now = DateTime.now();
+  const plan: CreatePlan = { ...(data.Id !== undefined ? { id: data.Id } : {}), email, login, ...(metadata !== undefined ? { metadata } : {}), roleNames, columns: {} };
+  const view = () => userView(draftOf(uuid, plan, now)) as UserDraft;
+  const hookData = (): UsersCreateData => ({ Email: email, Login: login, ...(data.Id !== undefined ? { Id: data.Id } : {}), ...(metadata !== undefined ? { Metadata: metadata } : {}) });
 
-  u = await runCreateMiddleware(u, 'users.actions.create.beforeCreate');
+  return runUserAction(
+    'users.create',
+    () => ({ data: hookData(), roles: [...roleNames], user: view(), actor: actorView(actor) }),
+    async (changed) => insertCreated(uuid, Object.keys(changed).length > 0 ? await hookedCreate(changed, plan, view(), uuid, actor, password, passwords) : plan, now, password, passwords, actor),
+    { mutable: ['user', 'data', 'roles'], output: (r) => ({ User: userView(r.User), Invited: password === undefined }) },
+  );
+}
 
+async function insertCreated(uuid: string, plan: CreatePlan, now: DateTime<true>, password: string | undefined, passwords: PasswordService, actor: Principal): Promise<ICreateUserResult> {
+  const u = draftOf(uuid, plan, now);
   await insertModel(u);
 
   const ref = userRef(u.Uuid);
@@ -674,7 +810,7 @@ export async function create(data: ICreateUserData, roles?: string[], actor: Pri
       await u.Metadata.update();
     }
 
-    await assignGlobalRoles(u.Uuid, roleNames, { reason: 'users:create', field: 'roles', actor });
+    await assignGlobalRoles(u.Uuid, plan.roleNames, { reason: 'users:create', field: 'roles', actor });
   } catch (err) {
     await discardInsertedUser(u);
     throw err;
@@ -684,22 +820,19 @@ export async function create(data: ICreateUserData, roles?: string[], actor: Pri
   // learns which account it is and whether to send the invite again.
   let invited = false;
   try {
-    if (metadata !== undefined) {
-      await setUserMeta(
+    // Unhooked: the metadata is create()'s input, checked with it; a users.metadata.set hook must not refuse an account already inserted.
+    if (plan.metadata !== undefined) {
+      await writeUserMeta(
         u,
-        Object.entries(metadata).map(([key, value]) => ({ key, value })),
+        Object.entries(plan.metadata).map(([key, value]) => ({ key, value })),
       );
     }
 
-    u = await runCreateMiddleware(u, 'users.actions.create.afterCreate');
-
-    await ev(new UserCreated(u, roleNames));
+    await ev(new UserCreated(u, plan.roleNames));
 
     if (password === undefined) {
       await passwords.invite(ref, ctx, { actor: by });
       invited = true;
-    } else {
-      await sendUserEmail(u, 'created');
     }
   } catch (err) {
     const error = (err as Error)?.name ?? typeof err;
@@ -713,7 +846,7 @@ export async function create(data: ICreateUserData, roles?: string[], actor: Pri
 
 /**
  * Soft-deletes a user and ends its sessions ({@link revokeUserSessions}) and API and agent tokens.
- * Emits a {@link UserDeleted} event and sends the "deleted" email. When a revocation throws, the row is already
+ * Emits a {@link UserDeleted} event; the `UserLifecycleMailHook` sends the "deleted" mail. When a revocation throws, the row is already
  * deleted: the caller finishes with {@link revokeUserSessions} and {@link revokeUserTokens}, by numeric id.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
@@ -721,20 +854,29 @@ export async function create(data: ICreateUserData, roles?: string[], actor: Pri
 export async function deleteUser(identifier: number | string | User): Promise<void> {
   const u = await getUser(identifier);
 
-  await u.destroy();
+  await runUserAction(
+    'users.delete',
+    () => ({ user: userView(u) }),
+    async () => {
+      await u.destroy();
 
-  // The account may no longer act: end its sessions and tokens now rather
-  // than leave them to expire.
-  await revokeUserSessions(u);
-  await revokeUserTokens(u);
+      // The account may no longer act: end its sessions and tokens now rather
+      // than leave them to expire.
+      await revokeUserSessions(u);
+      await revokeUserTokens(u);
 
-  await ev(new UserDeleted(u));
-  await sendUserEmail(u, 'deleted');
+      await ev(new UserDeleted(u));
+    },
+    { mutable: [], output: () => undefined },
+  );
 }
 
+const checkBanDuration = (value: unknown): number => _check_arg(_default(24 * 60 * 60), _is_number(_gt(0)))(value, 'duration') as number;
+const checkBanReason = (value: unknown): string => _check_arg(_default('NO_REASON'), _is_string(_max_length(255)))(value, 'reason') as string;
+
 /**
- * Bans user for specified time. If duration is not given user is banned for 24h. Ends its sessions and API and agent
- * tokens. When a revocation throws, the ban is already stored (a second ban is refused): the caller finishes with
+ * Bans user for specified time. If duration is not given user is banned for 24h. A `users.ban` hook may change the
+ * reason and the duration, which are checked again. Ends its sessions and API and agent tokens. When a revocation throws, the ban is already stored (a second ban is refused): the caller finishes with
  * {@link revokeUserSessions} and {@link revokeUserTokens}.
  *
  * @param identifier user identifier one of : id, uuid, email, login
@@ -742,8 +884,8 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
  * @param duration duration in seconds
  */
 export async function ban(identifier: number | string | User, reason?: string, duration?: number): Promise<User> {
-  duration = _check_arg(_default(24 * 60 * 60), _is_number(_gt(0)))(duration, 'duration');
-  reason = _check_arg(_default('NO_REASON'), _max_length(255))(reason, 'reason');
+  const seconds = checkBanDuration(duration);
+  const why = checkBanReason(reason);
 
   const u = await getUser(identifier);
 
@@ -753,21 +895,26 @@ export async function ban(identifier: number | string | User, reason?: string, d
     throw new UserIsBanned(`User is already banned`, { user: u.Uuid });
   }
 
-  await writeUserMeta(u, [
-    { key: USER_COMMON_METADATA.USER_BAN_DURATION, value: duration },
-    { key: USER_COMMON_METADATA.USER_BAN_REASON, value: reason },
-    { key: USER_COMMON_METADATA.USER_BAN_IS_BANNED, value: true },
-    { key: USER_COMMON_METADATA.USER_BAN_START_DATE, value: DateTime.now() },
-  ]);
+  return runUserAction(
+    'users.ban',
+    () => ({ user: userView(u), reason: why, duration: seconds }),
+    async (changed) => {
+      await writeUserMeta(u, [
+        { key: USER_COMMON_METADATA.USER_BAN_DURATION, value: 'duration' in changed ? checkBanDuration(changed.duration) : seconds },
+        { key: USER_COMMON_METADATA.USER_BAN_REASON, value: 'reason' in changed ? checkBanReason(changed.reason) : why },
+        { key: USER_COMMON_METADATA.USER_BAN_IS_BANNED, value: true },
+        { key: USER_COMMON_METADATA.USER_BAN_START_DATE, value: DateTime.now() },
+      ]);
 
-  // As for a deletion: end the sessions and tokens now, not at expiry.
-  await revokeUserSessions(u);
-  await revokeUserTokens(u);
+      // As for a deletion: end the sessions and tokens now, not at expiry.
+      await revokeUserSessions(u);
+      await revokeUserTokens(u);
 
-  await ev(new UserBanned(u));
-  await sendUserEmail(u, 'banned');
-
-  return u;
+      await ev(new UserBanned(u));
+      return u;
+    },
+    { mutable: ['reason', 'duration'], output: userView },
+  );
 }
 
 /**
@@ -782,17 +929,22 @@ export async function unban(identifier: number | string | User): Promise<User> {
     throw new UserIsBanned(`User is already unbanned`, { user: u.Uuid });
   }
 
-  // actually remove the ban metadata from the DB. Assigning a regex-like
-  // string key never cleared anything; delete() removes each key from store.
-  await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_IS_BANNED);
-  await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_START_DATE);
-  await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_DURATION);
-  await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_REASON);
+  return runUserAction(
+    'users.unban',
+    () => ({ user: userView(u) }),
+    async () => {
+      // actually remove the ban metadata from the DB. Assigning a regex-like
+      // string key never cleared anything; delete() removes each key from store.
+      await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_IS_BANNED);
+      await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_START_DATE);
+      await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_DURATION);
+      await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_REASON);
 
-  await ev(new UserUnbanned(u));
-  await sendUserEmail(u, 'unbanned');
-
-  return u;
+      await ev(new UserUnbanned(u));
+      return u;
+    },
+    { mutable: [], output: userView },
+  );
 }
 
 /** The context users passes to authn for an action it runs itself (no request, no client ip). */
@@ -801,7 +953,7 @@ const actionContext = (): AuthnContext => ({ now: new Date(), purpose: 'request'
 /**
  * Makes the user's password unusable: `PasswordService.expire(user:<Uuid>, { cause: 'admin', actor })`, which stores
  * authn-local's `'!expired'` marker, ends every authn session and, under `authn.local.reset.revokeTokens`, every API
- * token. users then sends the 'passwordExpired' mail. {@link UserPasswordExpired} comes
+ * token. The `UserLifecycleMailHook` then sends the 'passwordExpired' mail. {@link UserPasswordExpired} comes
  * from authn's event through `QueueAuthnEventSink`.
  *
  * The account stays active: authn lets only an active (or invited) account redeem a reset, and the mail asks the owner
@@ -813,8 +965,14 @@ const actionContext = (): AuthnContext => ({ now: new Date(), purpose: 'request'
 export async function expirePassword(identifier: number | string | User, actor: Principal = SYSTEM): Promise<void> {
   const u = await getUser(identifier);
 
-  await (await passwordService()).expire(userRef(u.Uuid), { cause: 'admin', actor: { type: actor.type, id: actor.id } }, actionContext());
-  await sendUserEmail(u, 'passwordExpired');
+  await runUserAction(
+    'users.password.expire',
+    () => ({ user: userView(u), actor: actorView(actor) }),
+    async () => {
+      await (await passwordService()).expire(userRef(u.Uuid), { cause: 'admin', actor: { type: actor.type, id: actor.id } }, actionContext());
+    },
+    { mutable: [], output: () => undefined },
+  );
 }
 
 /**
