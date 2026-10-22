@@ -102,13 +102,14 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     throttle: {
       type: 'object',
       default: {},
-      propertyNames: { enum: ['service', 'login', 'mfa', 'reset', 'reauth', 'resetAfterSeconds', 'global', 'maxRows', 'memory', 'ipv6Prefix'] },
+      propertyNames: { enum: ['service', 'login', 'mfa', 'reset', 'reauth', 'register', 'resetAfterSeconds', 'global', 'maxRows', 'memory', 'ipv6Prefix'] },
       properties: {
         service: { type: 'string', minLength: 1 },
         login: flow({ free: 5, baseDelayMs: 1000, maxDelayMs: 60000 }, { free: 20, baseDelayMs: 1000, maxDelayMs: 300000 }),
         mfa: flow({ free: 3, baseDelayMs: 1000, maxDelayMs: 300000 }, { free: 20, baseDelayMs: 1000, maxDelayMs: 300000 }),
         reset: flow({ free: 1, baseDelayMs: 60000, maxDelayMs: 3600000 }, { free: 5, baseDelayMs: 10000, maxDelayMs: 900000 }),
         reauth: flow({ free: 3, baseDelayMs: 1000, maxDelayMs: 300000 }),
+        register: flow({ free: 3, baseDelayMs: 60000, maxDelayMs: 3600000 }, { free: 10, baseDelayMs: 30000, maxDelayMs: 3600000 }),
         resetAfterSeconds: { type: 'integer', minimum: 1, default: 86400, description: 'A key with no counted attempt for this long starts from zero.' },
         global: { ...backoff(), type: ['object', 'null'], default: null, description: 'Off (null) by default: one attacker could slow every login. Counted per flow: each flow keeps its own global row.' },
         maxRows: { type: 'integer', minimum: 4, maximum: 16000000, default: 1000000, description: 'Rows a MemoryAuthnThrottle keeps per flow (memory grows with 4 × maxRows).' },

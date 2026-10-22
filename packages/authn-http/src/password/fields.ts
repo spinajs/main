@@ -1,43 +1,33 @@
 import { BadRequestResponse, HTTP_STATUS_CODE, Ok } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
 import type { PasswordViolation } from '@spinajs/authn/contracts';
 
 import { PASSWORD_HARD_CAP } from '../policies/v3/fresh-auth.js';
+import type { InputAnswer } from '../validation/answers.js';
 import { NO_STORE, badRequest } from '../v3/responses.js';
-import { bodyField, boundedString } from '../v3/routes.js';
 
-// Body fields and answers of the 3.0 password routes. Every string is capped at PASSWORD_HARD_CAP before a service sees
-// it; no answer and no error message carries a password, a secret or a login.
+// Answers of the 3.0 password routes. The DTOs cap every string at PASSWORD_HARD_CAP before a service sees it; no
+// answer and no error message carries a password, a secret or a login.
 
 /** The body of a reset request and of a successful reset. */
 export const RESET_ACK: Readonly<{ Ok: true }> = Object.freeze({ Ok: true });
 
 export const resetAck = (): Ok => new Ok({ ...RESET_ACK }, { Headers: [NO_STORE] });
 
-/** The login of a reset request or redemption, or null. */
-export const loginField = (req: Request): string | null => boundedString(bodyField(req, 'login'), PASSWORD_HARD_CAP);
-
-/** The single-use secret of a redemption, or null. */
-export const secretField = (req: Request): string | null => boundedString(bodyField(req, 'secret'), PASSWORD_HARD_CAP);
-
-/** The current password of a change, or null. */
-export const oldPasswordField = (req: Request): string | null => boundedString(bodyField(req, 'oldPassword'), PASSWORD_HARD_CAP);
+/** 400 `invalid_login`: no login, or one longer than any account has. */
+export const invalidLogin = (): BadRequestResponse => badRequest('invalid_login', `login must be a non-empty string of at most ${PASSWORD_HARD_CAP} characters`);
 
 /** 400 with the policy violations; they say nothing about the account. */
 export const passwordRejected = (violations: readonly PasswordViolation[]): BadRequestResponse =>
   new BadRequestResponse({ error: 'password_rejected', message: 'the new password does not meet the password policy', violations: [...violations] }, { Headers: [NO_STORE] });
 
-/**
- * The new `password`, checked against the optional `confirmPassword`, or the 400 answer. Longer than PASSWORD_HARD_CAP is the policy's `too_long`, answered without asking the service.
- */
-export function newPasswordField(req: Request): { password: string } | { answer: BadRequestResponse } {
-  const password = bodyField(req, 'password');
-  if (typeof password !== 'string' || password === '') return { answer: badRequest('invalid_password', 'password must be a non-empty string') };
-  if (password.length > PASSWORD_HARD_CAP) return { answer: passwordRejected(['too_long']) };
-  const confirm = bodyField(req, 'confirmPassword');
-  if (confirm !== undefined && confirm !== password) return { answer: badRequest('password_mismatch', 'the password and its confirmation differ') };
-  return { password };
-}
+export const passwordMismatch = (): BadRequestResponse => badRequest('password_mismatch', 'the password and its confirmation differ');
+
+/** A refused new `password`: one over PASSWORD_HARD_CAP breaks the policy's `too_long`, anything else is no password. */
+export const newPasswordRefused: InputAnswer = (input) => (input.rules.get('password') === 'maxLength' ? passwordRejected(['too_long']) : badRequest('invalid_password', 'password must be a non-empty string'));
+
+/** The answer to a `confirmPassword` that differs from `password`, or null. */
+export const mismatchOf = (body: { readonly password: string; readonly confirmPassword?: string }): BadRequestResponse | null =>
+  body.confirmPassword !== undefined && body.confirmPassword !== body.password ? passwordMismatch() : null;
 
 /** @spinajs/http has no 429 response; like its ForbiddenResponse, a client error over the badRequest template. */
 export class TooManyRequestsResponse<T = unknown> extends BadRequestResponse<T> {

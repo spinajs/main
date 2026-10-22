@@ -9,6 +9,7 @@ import { mfaEnrolmentRefusal } from '@spinajs/authn';
 import { MfaPolicy } from '@spinajs/authn/contracts';
 
 import { refused, unauthenticated } from './errors.js';
+import { clientOf } from '../../v3/client.js';
 import { authenticatedPrincipal } from './principal.js';
 
 /** The policy DefaultAuthnService asks at login: the registration named `name` (authn.mfa.policy.service) nearest to `container`. */
@@ -36,7 +37,7 @@ export class MfaSatisfied extends BasePolicy {
   }
 
   public async execute(req: Request, _action: IRoute, _instance: IController): Promise<void> {
-    const principal = authenticatedPrincipal(req);
+    const principal = authenticatedPrincipal(clientOf(req));
     const authn = principal.authn;
     if (authn?.assurance === 'aal2') return;
     if (!authn) throw refused('mfa_required', 'this route needs a second factor');

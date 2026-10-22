@@ -55,8 +55,11 @@ export type PasswordSetResult = { readonly status: 'set' } | { readonly status: 
 
 export type AddressVerificationRequestResult = { readonly status: 'accepted' } | { readonly status: 'throttled'; readonly retryAfterSeconds: number };
 
-/** 'invalid' is the one answer for a wrong, used, expired or other-purpose secret and for an identity that cannot verify (A02). */
-export type AddressVerificationResult = { readonly status: 'verified' } | { readonly status: 'invalid' };
+/**
+ * 'invalid' is the one answer for a wrong, used, expired or other-purpose secret and for an identity that cannot verify (A02).
+ * 'throttled': the client ip is in backoff in the 'reset' flow; the secret was not looked at.
+ */
+export type AddressVerificationResult = { readonly status: 'verified' } | { readonly status: 'invalid' } | { readonly status: 'throttled'; readonly retryAfterSeconds: number };
 
 export type CodeRequestResult = { readonly status: 'accepted' } | { readonly status: 'throttled'; readonly retryAfterSeconds: number };
 

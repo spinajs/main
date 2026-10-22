@@ -4,11 +4,13 @@ Any exception thrown in a policy, middleware, route argument, action or response
 
 The exception side of this mapping, with the full list of mapped exceptions, is on [HTTP error mapping](../exceptions/03-http-error-mapping.md) in `@spinajs/exceptions`.
 
+A route or controller can handle its own errors first with [`@OnError`](#route-error-handlers): answer them, replace them, or only observe them.
+
 ## How it works
 
 Errors reach the handler from two places:
 
-- **Matched routes.** Every route's handler chain ends with `__handle_error__()`, an Express error handler created when the controller builds its router. Policy rejections, argument errors, action errors and `execute()` errors land here.
+- **Matched routes.** Every route's handler chain ends with the [route error handlers](#route-error-handlers), then `__handle_response__()`, then `__handle_error__()`, an Express error handler created when the controller builds its router. Policy rejections, argument errors, action errors and `execute()` errors land here.
 - **Everything else.** `NotFoundMiddleware.after()` turns an unmatched request into `ResourceNotFound`; `ErrorHandlerMiddleware.after()`, last in the Express stack, runs `__handle_error__()` for it and for errors from server middlewares.
 
 `__handle_error__()` reads, once when it is created: the `'__http_error_map__'` map, `configuration.isProduction`, `http.AcceptHeaders` and `http.FatalTemplate`. Per error:
@@ -39,6 +41,7 @@ sequenceDiagram
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
 | `@HandleException(exception)` | class (a `Response` subclass) | one exception class or an array | For each class: `DI.register(target).asMapValue('__http_error_map__', exception.name)`. |
+| `@OnError(on, handler, options?)` | controller class or action method | `on`: an error class or an array; `handler(err, ctx)`; `{ stages?: ErrorStage[] }` | Adds a route error handler; see [Route error handlers](#route-error-handlers). Stackable. |
 
 ## Configuration
 
@@ -47,6 +50,7 @@ sequenceDiagram
 | `configuration.isProduction` | `boolean` | `false` | | `true` leaves `stack` out of error bodies. |
 | `http.AcceptHeaders` | `HttpAcceptHeaders` | `1 \| 2` | | Formats the error response may use; HTML enables the fatal template. |
 | `http.FatalTemplate` | `string` | built-in page | HTML with `{ticket}` | Last-resort page. |
+| `http.errors.handlers` | `{ service: string }[]` | `[]` | names of registered `ErrorHandlerService` classes | App-wide route error handlers, run after the route and controller `@OnError` handlers, in this order. |
 
 ## Services and extension points
 
@@ -55,6 +59,17 @@ sequenceDiagram
 | Error map | String token `'__http_error_map__'`, a `Map<string, Constructor<Response>>` filled with `asMapValue`, read with `DI.get` | entries from the response classes (see [Responses](10-responses.md#response-classes)) | `OrmNotFound` maps `OrmNotFoundException` (`@spinajs/orm-http`) | `@HandleException` on your response class. Re-registering a name replaces its entry. Register before `Controllers` resolves. |
 | `NotFoundMiddleware` | `ServerMiddleware` list, `Order` `Number.MIN_SAFE_INTEGER` | `NotFoundMiddleware` | | `DI.register(Mine).as(NotFoundMiddleware)` before `HttpServer` resolves; see [Server middlewares](15-server-middlewares.md). |
 | `ErrorHandlerMiddleware` | `ServerMiddleware` list, `Order` `Number.MIN_SAFE_INTEGER - 1` | `ErrorHandlerMiddleware` | | `DI.register(Mine).as(ErrorHandlerMiddleware)`; `after()` must return a 4-argument Express error handler. |
+| `ErrorHandlerService` | Abstract class, resolved by class name from `http.errors.handlers` when each controller builds its router | none | | Extend it, register it as `ErrorHandlerService`, list it in `http.errors.handlers`; see [App-wide handlers](#app-wide-handlers). |
+
+The building blocks of the route error handlers are exported for code that builds its own route chain (a custom controller base, a test):
+
+| Export | What it does |
+| --- | --- |
+| `markStage(res, stage)` | Records the `ErrorStage` the chain is in on `res.locals`; the policy gate, middleware wrappers and action handler call it. A `res` without `locals` is ignored. |
+| `stageOf(res)` | The stage last recorded on `res`; `'action'` when none was. |
+| `createOnErrorHandler(descriptors, route, controller, container, log)` | The Express error handler that runs the descriptors in order, as described in [Order](#order). With no descriptors, or once headers are sent, it passes the error on. |
+| `resolveConfigErrorHandlers(cfg, container)` | Resolves the `http.errors.handlers` entries into descriptors, in config order; `[]` when the list is empty. Throws `InvalidOption` for a name no registered `ErrorHandlerService` has. |
+| `toErrorDescriptor(service)` | Turns an `ErrorHandlerService` into an `IOnErrorDescriptor` (`On`, `Handler`, `Stages`). |
 
 ### Error map: custom implementation
 
@@ -103,6 +118,101 @@ export class InvoiceActionsController extends BaseController {
 ```
 
 The exception's public fields (`renewUrl` above) are copied into the error body, so the client can act on them.
+
+## Route error handlers
+
+`@OnError(on, handler, { stages? })` lets a controller answer, replace or observe an error of its own route chain before the error map sees it. Use it when one route must answer differently from the global mapping, for example a login that answers invalid input with the same 401 as a wrong password.
+
+| Part | Meaning |
+| --- | --- |
+| `on` | One error class or an array of classes. The handler runs only when the error is an `instanceof` one of them. `Error` catches everything. |
+| `handler` | `(err, ctx: ErrorContext) => Error \| Response \| void`, sync or async. |
+| `stages` | Optional `ErrorStage[]`: `'policy'`, `'middleware'` (route middleware `onBefore`), `'arguments'` (input filters, required check, conversion, validation, hydration), `'action'` (the action and `onResponse`), `'after'` (route middleware `onAfter`). Omitted: every stage. |
+
+What the handler returns decides what happens next:
+
+| Return | Effect |
+| --- | --- |
+| an `Error` | It replaces the error. Later handlers match their `on` against the new error; the global handler answers what is left. |
+| a `Response` | The error is swallowed and this response is the answer. `onAfter` and `onResponse` do not run, as for any error answer. |
+| nothing | The handler did something else (log, audit, metrics) and the error continues unchanged. |
+
+`ErrorContext` carries `req`, `res`, `route`, `controller`, `stage` and `container` (the controller's DI container).
+
+### Order
+
+Several `@OnError` may sit on one action and on the controller class. For each error, in this order:
+
+1. the route's handlers, top to bottom as declared;
+2. the controller's handlers, top to bottom;
+3. the app-wide handlers from `http.errors.handlers`, in config order.
+
+Every handler whose `on` and `stages` match runs. The first `Response` stops the chain. A handler that throws is logged at `error` and the **original** error goes to `__handle_error__()`. A route with no handler at any level behaves exactly as before.
+
+`@OnError` sees only errors of the route chain. Errors raised before routing (body parsers and body limits, CORS, throttling, the same-origin guard, authentication middlewares) stay with `ErrorHandlerMiddleware`.
+
+```ts sample
+import { InvalidArgument } from '@spinajs/exceptions';
+import { BaseController, BasePath, Body, OnError, Ok, Post, Unauthorized } from '@spinajs/http';
+import { Schema, ValidationFailed } from '@spinajs/validation';
+
+@Schema({
+  $id: 'app.LoginBody',
+  type: 'object',
+  required: ['login', 'password'],
+  additionalProperties: false,
+  properties: { login: { type: 'string', minLength: 1, maxLength: 254 }, password: { type: 'string', minLength: 1, maxLength: 1024 } },
+})
+export class LoginBody {
+  public login!: string;
+  public password!: string;
+
+  constructor(data: object) {
+    Object.assign(this, data);
+  }
+}
+
+const NO_STORE = { Name: 'Cache-Control', Value: 'no-store' };
+
+@BasePath('session')
+export class SessionController extends BaseController {
+  @Post('login')
+  // Invalid input answers like a wrong password, so the body shape reveals nothing.
+  @OnError([ValidationFailed, InvalidArgument], () => new Unauthorized({ error: 'invalid_credentials' }, { Headers: [NO_STORE] }), { stages: ['arguments'] })
+  // Observe and let the error continue.
+  @OnError(Error, (err, ctx) => {
+    console.warn(`login failed at ${ctx.stage}: ${err.name}`);
+  })
+  public login(@Body() body: LoginBody) {
+    return new Ok({ login: body.login });
+  }
+}
+```
+
+### App-wide handlers
+
+Extend `ErrorHandlerService`, register the class, and list it in `http.errors.handlers`. Each entry is `{ service: '<class name>' }`; the whole entry is passed to the service as its options. The service has the same contract as a decorator handler: `on`, optional `stages` and `handle(err, ctx)`.
+
+```ts sample
+import { Injectable } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { ErrorContext, ErrorHandlerService, ErrorStage } from '@spinajs/http';
+
+@Injectable(ErrorHandlerService)
+export class CountInvalidInput extends ErrorHandlerService {
+  public readonly on = InvalidArgument;
+  public readonly stages: readonly ErrorStage[] = ['arguments'];
+  public count = 0;
+
+  public handle(_err: Error, _ctx: ErrorContext): void {
+    this.count++;
+  }
+}
+
+// config: { http: { errors: { handlers: [{ service: 'CountInvalidInput' }] } } }
+```
+
+A name in `http.errors.handlers` that no registered `ErrorHandlerService` has fails every controller at startup with `InvalidOption`.
 
 ## Important behaviour
 

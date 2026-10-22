@@ -1,12 +1,14 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { AUTHZ_FIELD_SCHEMAS } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import type { Request } from '@spinajs/http';
 
 import { PrincipalSource } from '../api.js';
 import { servicePrincipals } from '../http-config.js';
 import type { ServiceEntry, ServicePrincipalConfig } from '../http-config.js';
+import { isValidInput } from './input.js';
 
 const digest = (s: string) => createHash('sha256').update(s, 'utf8').digest();
 
@@ -34,7 +36,7 @@ export class ServicePrincipalSource extends PrincipalSource {
   public async authenticate(req: Request): Promise<Principal | null> {
     for (const service of servicePrincipals(this.Services ?? [])) {
       const presented = req.headers?.[service.header];
-      if (typeof presented !== 'string' || presented.length === 0) {
+      if (typeof presented !== 'string' || !(await isValidInput(AUTHZ_FIELD_SCHEMAS.serviceToken, presented))) {
         continue;
       }
 

@@ -230,6 +230,7 @@ const PUBLIC_EXPORTS = [
   'sessionCookie',
   'sessionCookieName',
   'sessionCookieOptions',
+  'sessionCookieSameSite',
   'sessionHandleOf',
   'storageKeyOf',
 ];

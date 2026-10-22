@@ -72,6 +72,7 @@
     { "path": "packages/http-socket-example/tsconfig.mjs.json" },
     { "path": "packages/fs-ftp/tsconfig.mjs.json" },
     { "path": "packages/fs-onedrive/tsconfig.mjs.json" },
+    { "path": "packages/http-bot/tsconfig.mjs.json" },
     { "path": "packages/http-lazy-file-uploader/tsconfig.mjs.json" },
     { "path": "packages/log-otlp/tsconfig.mjs.json" },
     { "path": "packages/queue-amqp-transport/tsconfig.mjs.json" },

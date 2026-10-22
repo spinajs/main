@@ -8,7 +8,6 @@ const texts: JsonSchema = { type: 'array', items: text };
 const instant: JsonSchema = { type: 'string', format: 'date-time' };
 const nullableInstant: JsonSchema = { ...instant, nullable: true };
 const ref: JsonSchema = { type: 'object', required: ['type', 'id'], properties: { type: text, id: text } };
-const reauthPassword: JsonSchema = { ...text, description: 'the account password, when the session is not fresh' };
 /** A named-type tag: http-swagger replaces it with a $ref to the component of that name. */
 const named = (name: string): JsonSchema => ({ type: 'object', description: name });
 
@@ -37,40 +36,11 @@ const tokenScope = obj([], {
   agent: { type: 'boolean' },
 });
 
-/** Every request and answer schema of the 3.0 authn routes, by the type name their `@body`, `@returns` and `@response` tags use. */
+/**
+ * The answer and error schemas of the 3.0 authn routes, by the type name their `@returns` and `@response` tags use. The
+ * request bodies are the routes' DTOs (src/dto), which http-swagger documents from their `@Schema`.
+ */
 export const AUTHN_HTTP_SCHEMAS: Readonly<Record<string, JsonSchema>> = {
-  AuthnLoginBody: obj(['login', 'password'], { login: text, password: text }),
-  AuthnMfaVerifyBody: obj(['code'], { code: text, step: { ...text, description: 'one of the pending steps; default the first' } }),
-  AuthnMfaCodeBody: obj(['code'], { code: text }),
-  AuthnActiveRoleBody: obj(['role'], { role: text, password: { ...text, description: 'when the role asks for a fresh password' } }),
-  AuthnImpersonationBody: obj(['target'], { target: { oneOf: [{ ...text, description: 'a user id' }, ref] }, password: text }),
-  AuthnPasswordResetRequestBody: obj(['login'], { login: text }),
-  AuthnPasswordResetBody: obj(['login', 'secret', 'password'], { login: text, secret: text, password: text, confirmPassword: text }),
-  AuthnPasswordChangeBody: obj(['oldPassword', 'password'], { oldPassword: text, password: text, confirmPassword: text }),
-  AuthnReauthBody: obj([], { reauthPassword }),
-  AuthnMfaDisableBody: obj(['code'], { code: { ...text, description: 'a TOTP code or a recovery code' }, reauthPassword }),
-  AuthnTokenCreateBody: obj(['name', 'expiresAt'], {
-    name: text,
-    expiresAt: instant,
-    roles: texts,
-    profile: text,
-    kind: { type: 'string', enum: ['pat', 'service', 'agent'] },
-    scope: tokenScope,
-    reauthPassword,
-  }),
-  AuthnPasswordResetAdminBody: obj([], { sendReset: { type: 'boolean', description: 'also mail the user a reset link' }, reauthPassword }),
-  AuthnKeyChallengeBody: obj(['purpose'], { purpose: { type: 'string', enum: ['login', 'register'] }, kid: { ...text, description: 'the key to log in with (purpose login)' } }),
-  AuthnKeyLoginBody: obj(['keyId', 'challengeId', 'signature'], { keyId: text, challengeId: text, signature: text }),
-  AuthnKeyRegisterBody: obj(['jwk', 'proof'], {
-    jwk: { type: 'object', additionalProperties: true, description: 'an Ed25519 (OKP) or P-256 (EC) public JWK' },
-    proof: obj(['challengeId', 'signature'], { challengeId: text, signature: text }, 'the signature over a register challenge of this user'),
-    kid: text,
-    name: text,
-    expiresAt: instant,
-    scope: { type: 'object', additionalProperties: true },
-    reauthPassword,
-  }),
-
   AuthnPrincipalAnswer: { ...obj(['Identity', 'Authn'], principalProperties, 'The principal summary; AuthnResponseExtensions add fields'), additionalProperties: true },
   AuthnPendingAnswer: obj(['MfaRequired', 'MfaEnrol'], { MfaRequired: texts, MfaEnrol: { ...texts, description: 'the steps of MfaRequired to enrol (POST /user/mfa) before they can be verified' } }, 'A pending (pre-MFA) session'),
   AuthnLoginAnswer: { oneOf: [named('AuthnPrincipalAnswer'), named('AuthnPendingAnswer')] },
@@ -101,6 +71,14 @@ export const AUTHN_HTTP_SCHEMAS: Readonly<Record<string, JsonSchema>> = {
   AuthnMfaProvisioning: obj(['provisioning'], { provisioning: { ...text, description: 'the otpauth:// URI, shown once' } }),
   AuthnRecoveryCodes: obj(['recoveryCodes'], { recoveryCodes: { ...texts, description: 'single use, shown once' } }),
   AuthnOk: obj(['Ok'], { Ok: { type: 'boolean', enum: [true] } }),
+  AuthnEmpty: obj([], {}, 'Always {}: the answer tells nothing'),
+  AuthnRegistrationAnswer: obj(['status'], { status: { type: 'string', enum: ['accepted'] } }, 'The same for a new account and a taken address'),
+  AuthnTokenUpdated: obj(['Token'], { Token: named('AuthnTokenEntry') }),
+  AuthnPasskeyCeremony: obj(['challengeId', 'options'], {
+    challengeId: text,
+    options: { type: 'object', additionalProperties: true, description: 'PublicKeyCredentialRequestOptionsJSON or PublicKeyCredentialCreationOptionsJSON for navigator.credentials' },
+  }),
+  AuthnPasskeyEntry: obj(['id', 'name', 'transports', 'createdAt', 'lastUsedAt'], { id: text, name: { ...text, nullable: true }, transports: texts, createdAt: instant, lastUsedAt: nullableInstant }),
   AuthnPasswordResetAdminAnswer: obj(['expired', 'resetMailRequested'], { expired: { type: 'boolean' }, resetMailRequested: { type: 'boolean' } }),
   AuthnMfaResetAnswer: obj(['reset'], { reset: { type: 'boolean', description: 'an enrolment or a begun one existed' } }),
   AuthnRevokedCount: obj(['revoked'], { revoked: { type: 'integer' } }),
@@ -127,8 +105,8 @@ export const AUTHN_HTTP_SCHEMAS: Readonly<Record<string, JsonSchema>> = {
 };
 
 /**
- * Serves AUTHN_HTTP_SCHEMAS to @spinajs/http-swagger by the type names of the controllers' JSDoc tags. Request
- * validation never asks a SchemaProvider: the routes read their bodies field by field.
+ * Serves AUTHN_HTTP_SCHEMAS to @spinajs/http-swagger by the type names of the controllers' JSDoc tags. Validation never
+ * asks a SchemaProvider: the routes validate their DTOs.
  */
 @Injectable(SchemaProvider)
 export class AuthnHttpSchemaProvider extends SchemaProvider {

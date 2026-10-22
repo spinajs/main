@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { AdminAssignmentStore } from '../admin/ports.js';
 import type { AssignmentQuery, ListResult, Page } from '../admin/ports.js';
 import { rowToAssignment } from './assignment-row.js';
-import { SUBJECT_KEY_MAX_LENGTH, scopeToColumns, subjectKeyOf, subjectToColumns } from './columns.js';
+import { ASSIGNMENT_COLUMN_WIDTHS, SUBJECT_KEY_MAX_LENGTH, scopeToColumns, subjectKeyOf, subjectToColumns } from './columns.js';
 import { requireTransaction } from './context.js';
 import { withDbRbacStore } from './db-store.js';
 import { applyWindow, pageWindow, requireScopeNode, trimWindow, whereLive } from './queries.js';
@@ -94,6 +94,11 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     const subjectKey = subjectKeyOf(a.subject);
     if (subjectKey.length > SUBJECT_KEY_MAX_LENGTH) {
       throw new AuthzAdminFailure('invalid_command', `${where}: the subject key ${JSON.stringify(subjectKey.slice(0, 40))}… is longer than ${SUBJECT_KEY_MAX_LENGTH} characters`, 'subject');
+    }
+    for (const column of ['role', 'scope_type', 'scope_id'] as const) {
+      if (key[column].length > ASSIGNMENT_COLUMN_WIDTHS[column]) {
+        throw new AuthzAdminFailure('invalid_command', `${where}: ${column} is longer than ${ASSIGNMENT_COLUMN_WIDTHS[column]} characters`, column === 'role' ? 'role' : 'scope');
+      }
     }
     const change = { tags: normaliseTags(a.tags), expires_at: toDateTime(a.expiresAt), granted_by: principalKey(actor) };
 

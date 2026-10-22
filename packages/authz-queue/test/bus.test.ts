@@ -104,6 +104,17 @@ describe('QueueChangeBus', () => {
     expect(a.heard).to.have.length(0);
   });
 
+  it('a change with more than 1000 tags, or a tag longer than 256 characters, reaches the other nodes as a change of every tag', async () => {
+    const [a, b] = [await start(), await start()];
+    const many = Array.from({ length: 1001 }, (_, i) => `t${i}`);
+
+    await a.bus.publish(change({ tags: many }));
+    await a.bus.publish(change({ tags: ['x'.repeat(257)] }));
+
+    expect(a.heard.map((c) => c.tags.length)).to.deep.equal([1001, 1], 'the publishing node hears the change as made');
+    expect(b.heard.map((c) => c.tags)).to.deep.equal([['*'], ['*']]);
+  });
+
   it('a publish the queue refuses rejects, after the local subscribers heard it', async () => {
     const [a] = [await start()];
     a.client.emit = async () => {
@@ -196,6 +207,12 @@ describe('reviveChange', () => {
   it('rebuilds a change that went through JSON', () => {
     const wire = JSON.parse(JSON.stringify({ domain: 'fs', tags: ['t'], actor: { type: 'user', id: 'a' }, at: new Date('2030-01-02T03:04:05.000Z') }));
     expect(reviveChange(wire)).to.deep.equal({ domain: 'fs', tags: ['t'], actor: { type: 'user', id: 'a' }, at: new Date('2030-01-02T03:04:05.000Z') });
+  });
+
+  it('refuses more than 1000 tags and a tag longer than 256 characters', () => {
+    expect(reviveChange({ tags: Array.from({ length: 1000 }, () => 't'.repeat(256)) })?.tags).to.have.length(1000);
+    expect(reviveChange({ tags: Array.from({ length: 1001 }, () => 't') })).to.equal(undefined);
+    expect(reviveChange({ tags: ['t'.repeat(257)] })).to.equal(undefined);
   });
 
   it('keeps a change without optional fields minimal and dates it now when `at` is unusable', () => {

@@ -6,7 +6,7 @@ The generic mechanics (`Throttle`, `ThrottleStore`, `KeyedBackoff`) are in [`@sp
 
 ## How it works
 
-1. `DefaultAuthnService` builds the keys of an attempt (below) and picks the flow: `login`, `mfa` or `reauth`. `@spinajs/authn-local` uses `reset` for password resets.
+1. `DefaultAuthnService` builds the keys of an attempt (below) and picks the flow: `login`, `mfa` or `reauth`. `@spinajs/authn-local` uses `reset` for password resets, code requests and address verification, and `@spinajs/authn-http` uses `register` for self-service registration.
 2. `attempt(keys, flow, ctx)` checks every gating key and counts the attempt in one step. It resolves `{ allowed: true }`, or `{ allowed: false, retryAfterSeconds }` with the longest delay among the gating keys. A refused attempt is counted nowhere.
 3. `peek(keys, flow, ctx)` answers the same way and counts nothing. With a throttle that has it, per-request strategies count only their failures: the service peeks before verify and calls `attempt` after a failure. An allowed peek also says `clean`: `{ allowed: true, clean: true }` means no live row holds the keys, so a success has nothing to lower or clear and the service skips `succeed`. A token or key with no failures on record then writes nothing to the throttle.
 4. `succeed(keys, flow)` applies the success rule (below).
@@ -34,7 +34,7 @@ For `login`, from each candidate strategy's `throttleKeys`:
 - An `account` key of an interactive strategy becomes `login:<value>`. A per-request strategy's becomes `request:<value>|<ip>`, so failures sent from another address never delay the credential's owner.
 - For each account key, when `ctx.ip` is set, the service adds `account-ip` = `<account key>|<ip>`. A strategy's own `account-ip` keys are dropped.
 - The shared keys: `ip` (when `ctx.ip` is set) and `global` with value `login` (when `authn.throttle.global` is set).
-- In all three keys that carry the address (`ip`, `account-ip` and a per-request `account`), an IPv6 address is replaced by its network, `<network>/<prefix>`, with the prefix from `authn.throttle.ipv6Prefix`: a client that owns a whole /64 cannot get a fresh row for each address. IPv4 and IPv4-mapped addresses are keyed whole. Audit events and `ClientIp` keep the full address. The `mfa`, `reauth` and reset keys still use the plain address.
+- In all three keys that carry the address (`ip`, `account-ip` and a per-request `account`), an IPv6 address is replaced by its network, `<network>/<prefix>`, with the prefix from `authn.throttle.ipv6Prefix`: a client that owns a whole /64 cannot get a fresh row for each address. IPv4 and IPv4-mapped addresses are keyed whole. Audit events and `ClientIp` keep the full address. The `ip` key of every other call site is built the same way, through `ipKey(ctx, ipv6Prefix)` (null without an address): the `mfa` and `reauth` identity keys (`identityThrottleKeys(id, ctx, ipv6Prefix)`), the `reset` and `register` flows, token revocation, key login challenges, `POST /auth/verify` and `POST /auth/passkeys/challenge`. `ipv6PrefixOf(value)` turns a config read into the prefix, with the default 64.
 - The attempt counts the union of every candidate's keys, once. `succeed` gets only the answering strategy's keys and the shared ones.
 
 For `mfa` and `reauth`: `account` = the identity id, `account-ip` = `<identity id>|<ip>`, and `ip` when `ctx.ip` is set.
@@ -44,7 +44,7 @@ For `mfa` and `reauth`: `account` = the identity id, `account-ip` = `<identity i
 | Flow | On success |
 | --- | --- |
 | `login`, `mfa`, `reauth` | Deletes the `account` and `account-ip` rows. Lowers the `ip` row by the attempts this account spent from this IP, never by more |
-| `reset` | Clears nothing; only time does |
+| `reset`, `register` | Clears nothing; only time does |
 
 A login to your own account cannot clear failures spent on other accounts.
 
@@ -59,11 +59,13 @@ A login to your own account cannot clear failures spent on other accounts.
 | `authn.throttle.mfa.ip` | `BackoffParams` | `{ free: 20, baseDelayMs: 1000, maxDelayMs: 300000 }` | as above | Per IP, second factor |
 | `authn.throttle.reset.account` | `BackoffParams` | `{ free: 1, baseDelayMs: 60000, maxDelayMs: 3600000 }` | as above | Per account, reset requests |
 | `authn.throttle.reset.ip` | `BackoffParams` | `{ free: 5, baseDelayMs: 10000, maxDelayMs: 900000 }` | as above | Per IP, reset requests |
+| `authn.throttle.register.account` | `BackoffParams` | `{ free: 3, baseDelayMs: 60000, maxDelayMs: 3600000 }` | as above | Per registered address (`register:<email>`) |
+| `authn.throttle.register.ip` | `BackoffParams` | `{ free: 10, baseDelayMs: 30000, maxDelayMs: 3600000 }` | as above | Per IP, registrations. Not shared with the `reset` flow |
 | `authn.throttle.reauth.account` | `BackoffParams` | `{ free: 3, baseDelayMs: 1000, maxDelayMs: 300000 }` | as above | Per identity, re-authentication. No `ip` params |
 | `authn.throttle.resetAfterSeconds` | `integer` | `86400` | ≥ 1 | A key with no counted attempt for this long starts from zero |
 | `authn.throttle.global` | `BackoffParams \| null` | `null` | as above | One key for all logins. Off by default: one attacker could slow every login |
 | `authn.throttle.maxRows` | `integer` | `1000000` | 4 to 16000000 | Rows a `MemoryAuthnThrottle` keeps per flow; memory grows with 4 × `maxRows` |
-| `authn.throttle.ipv6Prefix` | `integer` | `64` | 16 to 128 | Prefix length that IPv6 clients are grouped by in the login throttle keys |
+| `authn.throttle.ipv6Prefix` | `integer` | `64` | 16 to 128 | Prefix length that IPv6 clients are grouped by in every throttle `ip` key |
 | `authn.throttle.memory.sweepBatch` | `integer` | `8` | 1 to 1000 | Expired rows `MemoryAuthnThrottle` checks per attempt |
 | `authn.throttle.memory.fullRetrySeconds` | `integer` | `60` | 1 to 3600 | `Retry-After` of a full table with no delay to wait for |
 | `authn.throttle.memory.holdOffMs` | `integer` | `1000` | 0 to 60000 | Pause before the next scan of a nearly full table |

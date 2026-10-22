@@ -9,7 +9,7 @@ Key login (`POST /auth/keys/login`) answers the same way, through the same `comp
 ### Password login
 
 1. `POST /auth/login` reaches `AuthnLoginController.login()`. The route has no policy.
-2. `login` and `password` are read from the JSON body, each a non-empty string of at most `PASSWORD_HARD_CAP` (1024, from `@spinajs/authn/contracts`) characters. The controller hands them, or `null` when either is missing or malformed, to `completeLogin()`, which runs the rest.
+2. The body is the closed DTO `{ login, password }`, each a non-empty string of at most `PASSWORD_HARD_CAP` (1024, from `@spinajs/authn/contracts`) characters. A body the schema refuses (a missing, malformed or over-long field, or any other key) never reaches the action: the route's `@OnError` hands `null` credentials to `completeLogin()`, so it gets the same answer as a wrong password. A valid body goes to `completeLogin()`, which runs the rest.
 3. A session the caller already holds (active or pending) is revoked through `SessionIssuer.revoke()` and audited as `session.revoke`, reason `login`. Without credentials the answer is then 401 with the login failure body.
 4. `AuthnService.authenticate({ kind: 'password', login, password }, ctx)` runs with purpose `'login'` and `ctx.ip` from `ClientIp`.
 5. The result decides the answer:
@@ -22,7 +22,7 @@ Key login (`POST /auth/keys/login`) answers the same way, through the same `comp
 
 1. `POST /auth/mfa/verify` or `POST /auth/mfa/recovery` reaches `AuthnMfaController.complete()` with the pending session cookie.
 2. No session: 401 `unauthenticated`. An active session: 403 `mfa_not_pending`.
-3. `code` is read from the body (at most 1024 characters). Missing: 401 login failure body.
+3. `code` is read from the body (at most 1024 characters). A missing or malformed `code`, or any other key: 401 login failure body.
 4. The step: for `/mfa/recovery`, `recovery`. For `/mfa/verify`, `step` from the body when it is one of the pending steps, else the first pending step. The pending steps are those stored with the session, or, for a session without stored steps, the ones the MFA policy (`authn.mfa.policy.service`) requires. No step: 401 login failure body.
 5. `AuthnService.completeMfa(handle, step, code, ctx)` runs with purpose `'login'`, counted in the `mfa` throttle.
 6. Failure: 401 login failure body, plus `Retry-After` when throttled; the session stays pending. Success: the session is elevated to `aal2` under a **new id**, keeping its data; **200** with the principal summary (extension kind `mfa`) and the new session cookie.

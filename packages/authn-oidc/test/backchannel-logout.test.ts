@@ -8,7 +8,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { AUTHN_CONFIGURATION_SCHEMA, AuthnEventSink, AuthnService, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MemoryNonceStore, MfaStep, NonceStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { IdentityRef, SessionHandle } from '@spinajs/authn';
 import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory } from '@spinajs/authn-testing';
-import type { Request } from '@spinajs/http';
+import { BackchannelForm } from '../src/dto.js';
 
 import { encodeFlow } from '../src/flow/cookie.js';
 import { mapClaims } from '../src/claims.js';
@@ -250,20 +250,19 @@ describe('authn-oidc back-channel logout (FLOW-2)', function () {
   });
 
   describe('POST /auth/oidc/:provider/backchannel-logout', () => {
-    const request = (body: unknown, type: string | false = FORM) =>
-      ({ body, is: (t: string) => (type !== false && t === type ? t : false), get: () => undefined, cookies: {}, query: {}, socket: {} }) as unknown as Request;
     const answerOf = (r: unknown): OidcAnswer => (r as { answer: OidcAnswer }).answer;
+    const IDP_PEER = { encrypted: true, peer: '198.51.100.7', clientIp: '198.51.100.7' };
 
     it('reads logout_token from the form body and revokes the sid', async () => {
       const a1 = await w.login('kc-alice', 'idp-1');
-      const res = await w.controller.backchannelLogout('corp', request({ logout_token: await logoutToken(w.idp, { sid: 'idp-1' }) }));
+      const res = await w.controller.backchannelLogout('corp', IDP_PEER, `${FORM}; charset=UTF-8`, new BackchannelForm({ logout_token: await logoutToken(w.idp, { sid: 'idp-1' }) }));
       expect(answerOf(res).status).to.eq(200);
       expect(await alive(w, a1)).to.eq(false);
     });
 
     it('refuses a body that is not application/x-www-form-urlencoded', async () => {
       const a1 = await w.login('kc-alice', 'idp-1');
-      const res = await w.controller.backchannelLogout('corp', request({ logout_token: await logoutToken(w.idp, { sid: 'idp-1' }) }, 'application/json'));
+      const res = await w.controller.backchannelLogout('corp', IDP_PEER, 'application/json', new BackchannelForm({ logout_token: await logoutToken(w.idp, { sid: 'idp-1' }) }));
       expect(answerOf(res).status).to.eq(400);
       expect(answerOf(res).body).to.deep.eq(INVALID);
       expect(await alive(w, a1)).to.eq(true);

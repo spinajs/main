@@ -21,14 +21,14 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [HTTP server](01-http-server.md) | `HttpServer`: Express app, HTTP or HTTPS listener, start and graceful stop, lifecycle events, static files, the full `http.*` configuration |
 | [Controllers and routing](02-controllers-and-routing.md) | `BaseController`, `@BasePath`, `@Get` and the other route decorators, path rules, the `Controllers` loader, overriding a package controller, startup exceptions |
 | [Controller discovery](03-controller-discovery.md) | `ControllerSource`: filesystem scan, DI registry, your own source; `Controllers.add()` at runtime |
-| [Route arguments](04-route-arguments.md) | `@Query`, `@Param`, `@Body`, `@Header`, `@Cookie`, `@Ip` and the rest; how values are converted, validated and hydrated |
+| [Route arguments](04-route-arguments.md) | `@Query`, `@Param`, `@Body`, `@Header`, `@Cookie`, `@Ip` and the rest; how values are converted, validated and hydrated; per-path body limits (`http.bodyLimits`); `@Body({ sensitive })` |
 | [Custom route arguments](05-custom-route-arguments.md) | Write a `RouteArgs` class and its decorator, or replace a built-in one |
 | [Argument hydrators](06-argument-hydrators.md) | `ArgHydrator`, `@Hydrator`, `DateTimeHydrator`: build a domain object from a raw argument |
 | [Argument input filters](07-argument-input-filters.md) | `ArgInputFilter`: inspect, rewrite or reject every argument before validation |
 | [File uploads](08-file-uploads.md) | `@File`, `@Files`, `@CsvFile`, `@JsonFile`, `@Form`, `@FormField`; the upload flow and its options |
 | [Upload middlewares and uploaders](09-upload-middlewares-and-uploaders.md) | `FileUploadMiddleware` (info, validation, zip, unzip) and `FormFileUploader`: transform, validate and store uploaded files |
 | [Responses](10-responses.md) | `Ok`, `NotFound`, `Json`, `Xml`, `FileResponse`, `TemplateResponse`, `Redirect` and the rest; content negotiation; writing your own response |
-| [Error handling](11-error-handling.md) | How a thrown exception becomes a response; `@HandleException` and the error map; 404 for unmatched routes |
+| [Error handling](11-error-handling.md) | How a thrown exception becomes a response; `@HandleException` and the error map; `@OnError` route error handlers and `http.errors.handlers`; 404 for unmatched routes |
 | [Data transformers](12-data-transformers.md) | `DataTransformer`: reshape a JSON answer on request with `x-data-transform` and `x-error-transform` |
 | [Policies](13-policies.md) | `BasePolicy`, `@Policy`: AND groups, OR alternatives, controller and route scopes, policies named in configuration |
 | [Route middlewares](14-route-middlewares.md) | `RouteMiddleware`, `@Middleware`, `@Accepts`: code around one route or controller |
@@ -39,8 +39,10 @@ The decorators read TypeScript metadata. Set `experimentalDecorators`, `emitDeco
 | [Request storage and tracing](19-request-storage-and-tracing.md) | `req.storage`, `AsyncLocalStorage`, request id and `traceparent`, access log, timing headers, slow-request warnings, perf rollups |
 | [Cookies](20-cookies.md) | Signed cookies, `http.cookie.*`, `@Cookie`, setting cookies on a response |
 | [Controller cache and CLI](21-controller-cache-and-cli.md) | `DefaultControllerCache`, JSDoc tag extractors, `spinajs http:controllers:cache` |
-| [Same-origin guard](22-same-origin-guard.md) | `checkSameOrigin`, `SameOriginGuard`: refuse cross-origin state-changing requests by `Origin` and `Sec-Fetch-Site` |
 | [Header and cookie helpers](22-header-and-cookie-helpers.md) | `parseBearer`, `normalizeHeaders`, `parseCookieHeader`, `basicAuthHeader`, `retryAfterHeader`, `hostPrefixedCookie`, `clearCookie`, `isPublicCookieSecret`, `parseCidr`, `cidrMatcher` |
+| [Same-origin guard](22-same-origin-guard.md) | `checkSameOrigin`, `SameOriginGuard`: refuse cross-origin state-changing requests by `Origin` and `Sec-Fetch-Site` |
+| [CSRF guard](23-csrf-guard.md) | `CsrfGuard`, `@CsrfExempt()`, `http.csrf.*`: default-deny CSRF protection by `Origin` and `Sec-Fetch-Site` |
+| [Bot checks](23-bot-check.md) | `@BotCheck`, `BotVerifier`, `BotCheckService`, `http.bot`: captcha or score checks on chosen routes; adapters in [`@spinajs/http-bot`](../http-bot/README.md) |
 
 ## Quick start
 

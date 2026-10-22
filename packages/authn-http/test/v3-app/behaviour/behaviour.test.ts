@@ -1,6 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
-import { planCases, runAuthnBehaviour } from '@spinajs/authn-testing';
+import { FakeClock, planCases, runAuthnBehaviour } from '@spinajs/authn-testing';
+import type { Harness, HttpResponse } from '@spinajs/authn-testing';
+
+import { LaneClient, expectFailureBody } from '../suites/mfa-enrolment.js';
 
 import { PORTS, ROUTES, bootBehaviourApp, httpHarness, laneHttpHarness, shutdownBehaviourApp, supports } from './harness.js';
 import { webauthnLane } from './webauthn-harness.js';
@@ -58,6 +61,40 @@ describe('N8a behaviour rules over HTTP (test/v3-app)', function () {
   runAuthnBehaviour([...RULES], httpHarness, { title: 'authn-http: plan list (N8a task 8)', claim: [...CLAIM], facets: FACETS });
 
   runAuthnBehaviour(['A33'], laneHttpHarness(webauthnLane), { title: 'authn-http: A33 passkeys', claim: ['A33/http'] });
+
+  describe('passkey routes: input the DTOs refuse (V2)', () => {
+    let h: Harness;
+
+    beforeEach(async () => {
+      h = await laneHttpHarness(webauthnLane)({ rule: 'A33', facet: 'A33/http', caseName: 'input', clock: new FakeClock(), config: {} });
+    });
+
+    afterEach(async () => {
+      await h?.dispose?.();
+    });
+
+    const errorOf = (res: HttpResponse) => [res.status, (res.body as { error?: unknown } | undefined)?.error];
+    const RESPONSE = { id: 'Y3JlZA', type: 'public-key', response: { clientDataJSON: 'e30', authenticatorData: 'AA', signature: 'AA' } };
+
+    it('a passkey login with a body the schema refuses answers the login failure body', async () => {
+      for (const body of [{}, { challengeId: 'c' }, { challengeId: 'c', response: 'r' }, { challengeId: 'c', response: { ...RESPONSE, id: 'not base64url!' } }, { challengeId: 'c', response: RESPONSE, extra: 1 }]) {
+        expectFailureBody(await new LaneClient(h).send({ method: 'POST', path: '/auth/passkeys/login', body }));
+      }
+    });
+
+    it('registration answers invalid_response, invalid_name or invalid_field; options and delete keep their answers', async () => {
+      await h.seed!.user({ login: 'passkey-input@example.test', password: 'Passkey-Input-1' });
+      const c = new LaneClient(h);
+      expect((await c.send(ROUTES.login!('passkey-input@example.test', 'Passkey-Input-1'))).status).to.eq(200);
+      const register = (body: unknown) => c.send({ method: 'POST', path: '/user/passkeys', body });
+      expect(errorOf(await register({ response: RESPONSE }))).to.deep.eq([400, 'invalid_response']);
+      expect(errorOf(await register({ challengeId: 'c', response: [] }))).to.deep.eq([400, 'invalid_response']);
+      expect(errorOf(await register({ challengeId: 'c', response: RESPONSE, name: 'bell' }))).to.deep.eq([400, 'invalid_name']);
+      expect(errorOf(await register({ challengeId: 'c', response: RESPONSE, label: 'x' }))).to.deep.eq([400, 'invalid_field']);
+      expect(errorOf(await c.send({ method: 'POST', path: '/user/passkeys/options', body: { label: 'x' } }))).to.deep.eq([400, 'invalid_field']);
+      expect(errorOf(await c.send({ method: 'DELETE', path: '/user/passkeys/not.an.id' }))).to.deep.eq([404, 'passkey_not_found']);
+    });
+  });
 
   runAuthnBehaviour(['A34'], httpHarness, { title: 'authn-http: A34 step-up', facets: ['A34/http'], claim: ['A34/http'] });
 

@@ -340,6 +340,21 @@ export function mfaEnrolmentRoutesSuite(): void {
     });
   });
 
+  describe('input the DTOs refuse (V2)', () => {
+    beforeEach(() => open());
+
+    it('an unknown field answers 400 invalid_field, a code or reauthPassword that is no string the login failure body, and nothing changes', async () => {
+      const c = await login(await user());
+      for (const res of [await c.begin({ secret: 'x' }), await c.recoveryCodes({ codes: 1 })]) {
+        expect([res.status, body<{ error?: unknown }>(res).error, res.headers['cache-control']]).to.deep.eq([400, 'invalid_field', 'no-store']);
+      }
+      expectFailureBody(await c.begin({ reauthPassword: 42 }));
+      expectFailureBody(await c.confirm(123456));
+      expectFailureBody(await c.disable(['123456']));
+      expect((await c.status()).body).to.deep.eq({ steps: [{ name: 'totp', enrolled: false }] });
+    });
+  });
+
   describe('fresh authentication (A13)', () => {
     beforeEach(() => open());
 

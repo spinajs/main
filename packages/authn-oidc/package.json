@@ -63,6 +63,7 @@
     "@spinajs/http": "3.0.13",
     "@spinajs/log": "3.0.13",
     "@spinajs/util": "3.0.13",
+    "@spinajs/validation": "3.0.13",
     "jose": "^6.1.0"
   },
   "devDependencies": {

@@ -19,9 +19,10 @@ Import the package in the app entry, **before** anything resolves `Controllers` 
 | [Request authentication](01-request-authentication.md) | `ClientIp` and `AuthnMiddleware`: restore the session cookie, extract credentials, resolve `req.storage.AuthnPrincipal`. |
 | [Credential extractors](02-credential-extractors.md) | Turn `Authorization`, `x-api-key` and signature headers into credentials; add your own. |
 | [Principal resolvers](03-principal-resolvers.md) | Turn credentials or a session into a principal, in order; add your own. |
-| [CSRF origin guard](04-csrf-origin-guard.md) | `CsrfOriginGuard`: refuses cross-origin unsafe requests that carry the session cookie, and cross-origin posts to login and the other credential routes. |
+| [CSRF origin guard](04-csrf-origin-guard.md) | `CsrfOriginGuard`: the `@spinajs/http` CSRF guard plus the session cookie: refuses cross-origin unsafe requests from browsers on every route, and boots only with a CSRF defence for a `SameSite=None` session cookie. |
 | [Policies](05-policies.md) | `Authenticated`, `FreshAuth`, `MfaSatisfied`, `NoSession` and the other route guards. |
-| [Route arguments](06-route-arguments.md) | `@Identity()`, `@AuthnSession()`, `@SessionId()` and `@FromSession(key)`. |
+| [Route arguments](06-route-arguments.md) | `@Identity()`, `@AuthnSession()`, `@SessionId()`, `@FromSession(key)` and `@ClientContext()`. |
+| [Input validation](24-input-validation.md) | The DTO of every route, the answer each gives a body its schema refuses, and the IP throttle gate before validation. |
 | [Route groups](07-route-groups.md) | Every route the package mounts, the service that switches each group on, the shared answers, and the OpenAPI schemas (`AUTHN_HTTP_SCHEMAS`). |
 | [Login, logout and MFA routes](08-login-logout-and-mfa-routes.md) | `POST /auth/login`, `POST /auth/logout` (its `Clear-Site-Data` and `AuthnLogoutExtension` redirects), `GET /auth`, `POST /auth/mfa/verify`, `POST /auth/mfa/recovery`, `POST /auth/mfa/step-up`, `POST /auth/mfa/challenge`, `POST /auth/reauth`. |
 | [Session management routes](09-session-management-routes.md) | List and end the caller's own sessions under `/user/sessions`. |
@@ -31,6 +32,7 @@ Import the package in the app entry, **before** anything resolves `Controllers` 
 | [Verification routes](21-verification-routes.md) | Ask for an address verification mail and redeem its link under `/auth/verify`. |
 | [Code routes](22-code-routes.md) | Ask for a login code and log in with it under `/auth/code`. |
 | [Registration route](22-registration-route.md) | Self-service `POST /auth/register`: one answer for a new and for a taken address. |
+| [Bot checks](23-bot-checks.md) | `@BotCheck` on login, registration, reset request, code request and passkey challenge; shipped off. |
 | [MFA enrolment routes](13-mfa-enrolment-routes.md) | Enrol, confirm and disable TOTP, regenerate recovery codes under `/user/mfa`. |
 | [API token routes](14-api-token-routes.md) | List, create, rotate, narrow and revoke the caller's API tokens under `/user/tokens`; revoke a token by its plaintext at `POST /auth/tokens/revoke`. |
 | [JWKS route](20-jwks-route.md) | Publish the public keys of the registered `JwsSigner`. |
@@ -39,6 +41,7 @@ Import the package in the app entry, **before** anything resolves `Controllers` 
 | [Answers and response extensions](17-answers-and-response-extensions.md) | The principal summary, `AuthnResponseExtension`, the shared 401 body and the session cookie helpers. |
 | [Socket sessions](18-socket-sessions.md) | `@spinajs/authn-http/socket`: the session cookie as an `http-socket` principal source. |
 | [`authn:check-config` command](19-check-config-command.md) | Reports what the `authn.*` configuration gets wrong. |
+| [Recommended `http.throttle` rules](../http/18-throttling.md#recommended-rules-for-the-authn-routes) | Request-volume rules for the anonymous authn routes, and why they match the resolved path. |
 | [Webhooks](20-webhooks.md) | `WebhookAuthnEventSink`: signed POSTs of audit events to your endpoints; `WebhookChangeSink` for authz changes. |
 | [Action hooks](23-action-hooks.md) | The route actions (`authn.logout`, `authn.sessions.revoke`, `authn.role.switch`, `authn.admin.credentials`, `authn.registration`, `authn.code.request`, opt-in `authn.request`) and how a refusal of a service answers. |
 

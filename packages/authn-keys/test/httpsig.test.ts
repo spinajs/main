@@ -114,6 +114,35 @@ describe('HttpSignatureStrategy', () => {
     }
   });
 
+  it('V6 verifies a Signature-Input of 8192 characters and refuses one of 8193 before any key lookup', async () => {
+    const w = await world();
+    const { kp, kid } = await w.add();
+    const covering = (length: number): SignedRequest => {
+      const t = w.nowS();
+      const nonce = randomUUID();
+      const input = (pad: number) => `sig1=("@method" "@target-uri" "content-digest" "x-${'p'.repeat(pad)}");created=${t};expires=${t + 300};nonce="${nonce}";keyid="${kid}"`;
+      const pad = length - input(0).length;
+      const header = `x-${'p'.repeat(pad)}`;
+      const base = w.signed(kp, kid);
+      const req = resign({ ...base, headers: { ...base.headers, [header]: 'v' } }, kp, input(pad), ['@method', '@target-uri', 'content-digest', header]);
+      assert.strictEqual(req.headers['signature-input'].length, length);
+      return req;
+    };
+
+    assert.deepStrictEqual(await w.strategy.verify(w.cred(covering(8192)), w.ctx()), { ok: true, identity: SVC, method: 'http-signature' });
+    assert.deepStrictEqual(w.strategy.throttleKeys(w.cred(covering(8192)), w.ctx()).map((k) => k.value)[0], `key:${kid}`);
+
+    const byId = w.p.registry.byId.bind(w.p.registry);
+    let lookups = 0;
+    w.p.registry.byId = async (id: string) => {
+      lookups += 1;
+      return byId(id);
+    };
+    assert.deepStrictEqual(await w.strategy.verify(w.cred(covering(8193)), w.ctx()), { ok: false, reason: 'invalid_credentials' });
+    assert.strictEqual(lookups, 0);
+    assert.deepStrictEqual(w.strategy.throttleKeys(w.cred(covering(8193)), w.ctx()).map((k) => k.value)[0], 'key:?');
+  });
+
   it('checks the time window: created in the future beyond the skew, expires before created', async () => {
     const w = await world();
     const { kp, kid } = await w.add();

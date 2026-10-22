@@ -159,7 +159,8 @@
     "@spinajs/hooks": "3.0.13",
     "@spinajs/log-common": "3.0.13",
     "@spinajs/principal": "3.0.13",
-    "@spinajs/util": "3.0.13"
+    "@spinajs/util": "3.0.13",
+    "ajv": "^8.12.0"
   },
   "devDependencies": {
     "@spinajs/authn-testing": "3.0.13"

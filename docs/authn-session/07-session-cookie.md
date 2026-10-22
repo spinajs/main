@@ -86,6 +86,7 @@ The builders are plain functions; there is nothing to register. Call them from y
 | `clearSessionCookie` | `(config?, env?) => ISessionCookieDescriptor` | The expired cookie that clears it on logout |
 | `sessionCookieName` | `(config?, env?) => string` | The name to read from `req.cookies` |
 | `sessionCookieOptions` | `(config?, maxAge?, env?) => Record<string, unknown>` | The options alone |
+| `sessionCookieSameSite` | `(config?) => 'strict' \| 'lax' \| 'none' \| false` | The `SameSite` the cookie is sent with, lower-cased; `true` is `strict`, `false` sends no attribute. `@spinajs/authn-http` refuses to boot with `none` and no CSRF defence outside development and test |
 | `cookieMaxAge` | `(expiration: DateTime \| undefined) => number \| undefined` | Milliseconds until `expiration`, never negative; `undefined` for none. For a session's own deadline pass `session.Expiration` |
 | `appEnvOf` | `(config: Configuration) => string \| undefined` | The app env as authn reads it; `undefined` means production |
 | `assertSessionCookieSecret` | `(secret, env?) => void` | The boot check above |

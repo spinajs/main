@@ -70,6 +70,9 @@ sequenceDiagram
 | `@Unscoped(reason)` | method | `reason`: non-empty string | Adds `UnscopedMiddleware`: after the policies pass, it sets `req.storage.Unscoped = reason` and records an `unscoped` audit entry. Route registration fails when neither the route nor its class has `@Access`. |
 | `@UnfilteredInput(reason)` | class or method | `reason`: non-empty string | Turns off the body field filter of the route; see [Field filters](06-field-filters.md). |
 | `@CurrentPrincipal()` | parameter | none | The request's principal; see [Principal resolution](03-principal-resolution.md). |
+| `@AccessDomain()` | parameter | none | The domain of the request: `resolveAuthzDomain(req, authz.http.access.domain)`, through the `AccessDomainArg` route argument. A name the `AuthzDomainResolver` returns that no live domain bears throws `UnknownAuthzDomain` (403, reason `unknown_domain`). |
+
+`resolveAuthzDomain(req, fallback)` is the exported function behind `@AccessDomain()` and step 5: it asks the registered `AuthzDomainResolver` once per request and fallback, and refuses an unknown name other than the fallback with `UnknownAuthzDomain`. Call it from your own route arguments or policies so they agree with `@Access`.
 
 `AccessOptions`:
 

@@ -1,5 +1,5 @@
 import { Constructor, DI, getInheritedDescriptor } from '@spinajs/di';
-import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController } from './interfaces.js';
+import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IOnErrorDescriptor, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
 import { Options as CsvParseOptions } from 'csv-parse';
@@ -8,6 +8,7 @@ import { toArray } from '@spinajs/util';
 import { RequestTypeRouteArgs } from './route-args/RequestFields.js';
 import { ExpectedResponseUnacceptable } from '@spinajs/exceptions';
 import * as express from 'express';
+import type { ErrorClass, OnErrorHandler, OnErrorOptions } from './errors/on-error.js';
 
 
 export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
@@ -170,6 +171,27 @@ export function Route(callback: (controller: IControllerDescriptor, route: IRout
     if (callback) {
       callback(metadata, route!, target, propertyKey, indexOrDescriptor);
     }
+  });
+}
+
+/**
+ * Handles errors of the route chain ( policies, route middlewares, argument extraction, the action, onAfter ) by type and stage.
+ *
+ * On a class: every route of the controller. On a method: that route, ahead of the controller's handlers. Stackable;
+ * stacked handlers run in declaration order. The handler returns an Error ( replaces the error ), a Response ( answers
+ * and swallows the error ) or nothing ( the error continues unchanged ).
+ */
+export function OnError<E extends Error>(on: (abstract new (...args: any[]) => E) | readonly ErrorClass[], handler: OnErrorHandler<E>, options: OnErrorOptions = {}) {
+  const descriptor: IOnErrorDescriptor = {
+    On: Array.isArray(on) ? (on as readonly ErrorClass[]) : [on as ErrorClass],
+    Handler: handler as OnErrorHandler,
+    Stages: options.stages,
+  };
+
+  return Route((controller: IControllerDescriptor, route: IRoute | null) => {
+    const target = route ?? controller;
+    // Decorators run bottom-up; prepending keeps the declaration order of stacked @OnError.
+    target.ErrorHandlers = [descriptor, ...(target.ErrorHandlers ?? [])];
   });
 }
 
@@ -383,6 +405,27 @@ export function BasePath(path: string | { readonly config: string; readonly defa
   });
 }
 
+const CSRF_EXEMPT_SYMBOL = Symbol.for('spinajs:http:csrf-exempt');
+
+/**
+ * Takes the route, or on a class every route of the controller, out of the CsrfGuard check. For server-to-server
+ * callbacks (webhooks, OIDC back-channel logout) that never act on the browser's ambient credentials.
+ */
+export function CsrfExempt() {
+  return (target: object, propertyKey?: string | symbol, _descriptor?: PropertyDescriptor) => {
+    if (propertyKey === undefined) {
+      Reflect.defineMetadata(CSRF_EXEMPT_SYMBOL, true, (target as { prototype: object }).prototype);
+    } else {
+      Reflect.defineMetadata(CSRF_EXEMPT_SYMBOL, true, target, propertyKey);
+    }
+  };
+}
+
+/** Whether `@CsrfExempt()` marks the route `member` of `controller`, or the whole controller class (inherited too). */
+export function isCsrfExempt(controller: object, member: string | symbol): boolean {
+  return Reflect.getMetadata(CSRF_EXEMPT_SYMBOL, controller, member) === true || Reflect.getMetadata(CSRF_EXEMPT_SYMBOL, controller) === true;
+}
+
 export function FromDI() {
   return Route(Parameter(ParameterType.FromDi));
 }
@@ -436,9 +479,10 @@ export function Query(schema?: any, options?: { required?: boolean }) {
 /**
  * Route parameter taken from message body (POST)
  *
- * @param schema - parameter json schema for optional validation
+ * @param options - `required`: an absent body fails validation; `sensitive`: body fields (a password) that leave
+ *   `req.body`, with `req.rawBody`, once the argument holds them
  */
-export function Body(options?: { required?: boolean }) {
+export function Body(options?: { required?: boolean; sensitive?: readonly string[] }) {
   return Route(Parameter(ParameterType.FromBody, null, options));
 }
 

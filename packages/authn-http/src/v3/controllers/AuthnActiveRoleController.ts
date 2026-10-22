@@ -1,11 +1,16 @@
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { BadRequestResponse, BaseController, BasePath, Get, Ok, Policy, Post, Req } from '@spinajs/http';
-import type { Request } from '@spinajs/http';
+import { BadRequestResponse, BaseController, BasePath, Body, Get, Ok, Policy, Post } from '@spinajs/http';
 import { PrincipalFactory, RoleSource, SessionIssuer } from '@spinajs/authn/contracts';
 import type { Principal, Session, SessionHandle } from '@spinajs/authn/contracts';
 import { Hooks } from '@spinajs/hooks';
 import { hookRefusalOf, runHookedAction } from '@spinajs/authn/hooks';
+
+import { ClientContext } from '../../args/authn.js';
+import { AuthnActiveRoleBody, ROLE_CAP } from '../../dto/active-role.js';
+import { OnInvalidInput, byField, unknownField } from '../../validation/answers.js';
+import { uniformFailure } from '../../validation/login.js';
+import type { AuthnClientContext } from '../client.js';
 
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, RoleSourceRegistered } from '../index.js';
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
@@ -13,10 +18,10 @@ import { freshAuthOrAnswer } from '../../policies/v3/fresh-auth.js';
 import { activeSessionOf } from '../../policies/v3/principal.js';
 import { ACTIVE_ROLE_KEY } from '../../resolvers/session.js';
 import { NO_STORE, authnSessionCookie, hookRefusedAnswer } from '../responses.js';
-import { answerFor, bodyField, boundedString, contextOf, onLiveSession, publishAuthnEvent } from '../routes.js';
+import { answerFor, contextOf, onLiveSession, publishAuthnEvent } from '../routes.js';
 import '../../hooks.js';
 
-const ROLE_CAP = 256;
+const invalidRole = (): BadRequestResponse => new BadRequestResponse({ error: 'invalid_role', message: `role must be a non-empty string of at most ${ROLE_CAP} characters` });
 
 /**
  * The role switch (A26, D14): a session narrows its principal to one role it holds, as `ceiling.roles`. Off (404)
@@ -52,15 +57,14 @@ export class AuthnActiveRoleController extends BaseController {
    */
   @Get('active-role')
   @Policy([Authenticated, NoTokenAuthPolicy])
-  public async state(@Req() req: Request) {
-    const session = activeSessionOf(req);
+  public async state(@ClientContext() client: AuthnClientContext) {
+    const session = activeSessionOf(client);
     return new Ok({ ActiveRole: session.activeRole ?? null, Roles: await this.held(session) }, { Headers: [NO_STORE] });
   }
 
   /**
    * Switch the active role
-   * Body `{ role, password? }`. 400 for a malformed role, 403 for a role not held, 401 with the login failure body when the password fails (no Retry-After). Not while impersonating.
-   * @body {AuthnActiveRoleBody} The role, and the password when the role asks for a fresh one
+   * Body `{ role, password? }`. 400 for a malformed role (`invalid_field` for an unknown field), 403 for a role not held, 401 with the login failure body when the password fails or is no string (no Retry-After). Not while impersonating.
    * @returns {AuthnRoleSwitchAnswer} The principal summary narrowed to the role
    * @response 400 {AuthnError} invalid_role
    * @response 401 {AuthnUnauthorized} No session, or the inline password or code failed (the login failure body)
@@ -69,15 +73,15 @@ export class AuthnActiveRoleController extends BaseController {
    */
   @Post('active-role')
   @Policy([Authenticated, NoTokenAuthPolicy, NoImpersonationPolicy])
-  public async switch(@Req() req: Request) {
-    const role = boundedString(bodyField(req, 'role'), ROLE_CAP);
-    if (role === null) return new BadRequestResponse({ error: 'invalid_role', message: `role must be a non-empty string of at most ${ROLE_CAP} characters` });
-    const session = activeSessionOf(req);
+  @OnInvalidInput(byField({ role: invalidRole, password: uniformFailure }, unknownField))
+  public async switch(@Body({ required: true, sensitive: ['password'] }) body: AuthnActiveRoleBody, @ClientContext() client: AuthnClientContext) {
+    const { role } = body;
+    const session = activeSessionOf(client);
     const entry = (await this.held(session)).find((r) => r.role === role);
     if (!entry) throw refused('role_not_held', 'the caller does not hold this role');
     // Anything but an explicit false asks for the password.
     if (entry.requirePassword !== false) {
-      const fresh = await freshAuthOrAnswer(this.Container, req, bodyField(req, 'password'));
+      const fresh = await freshAuthOrAnswer(this.Container, client, body.password);
       if ('answer' in fresh) return fresh.answer;
     }
 
@@ -88,7 +92,7 @@ export class AuthnActiveRoleController extends BaseController {
       principal = await runHookedAction(
         this.Hooks,
         'authn.role.switch',
-        { session, role, ctx: contextOf(req, 'request', session.handle) },
+        { session, role, ctx: contextOf(client, 'request', session.handle) },
         async () => {
           const next = await onLiveSession(() => sessions.rotate(session.handle));
           rotated = next;
@@ -103,7 +107,7 @@ export class AuthnActiveRoleController extends BaseController {
       const refusal = hookRefusalOf(err, 'authn.role.switch');
       if (!refusal) throw err;
       const { sessionHandle } = session.facts;
-      await publishAuthnEvent(this.Container, req, { type: 'role.switch', outcome: 'failure', reason: refusal.reason, identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) });
+      await publishAuthnEvent(this.Container, client, { type: 'role.switch', outcome: 'failure', reason: refusal.reason, identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) });
       return hookRefusedAnswer(refusal.code);
     }
     return new Ok(await answerFor(this.Container, 'role-switch', principal, { ActiveRole: role }), { Coockies: [authnSessionCookie(this._cfg, rotated!)], Headers: [NO_STORE] });

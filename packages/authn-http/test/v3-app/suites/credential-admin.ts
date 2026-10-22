@@ -294,6 +294,17 @@ export function credentialAdminRoutesSuite(): void {
       await bob.untouched();
     });
 
+    it('an unknown field answers 400 invalid_field and a malformed uuid wins over a malformed body (V2, D5)', async () => {
+      const bob = await armed();
+      const a = await admin();
+      for (const route of ROUTE_NAMES) expectRefused(await a.c.send(request(route, bob.ref, { reason: 'x' })), 400, 'invalid_field');
+      expectFailureBody(await a.c.send(request('adminPasswordReset', bob.ref, { reauthPassword: 42 })));
+      const both = await a.c.send({ ...ADMIN_ROUTES.adminPasswordReset!({ type: 'user', id: 'not-a-uuid' }), path: pathOf('adminPasswordReset', 'not-a-uuid'), body: { sendReset: 'yes' } });
+      expectRefused(both, 404, 'not_found');
+      expect(laneAdminGuardCalls()).to.deep.eq([]);
+      await bob.untouched();
+    });
+
     it('SR-10 admin MFA reset returns no secret', async () => {
       const bob = await user();
       const own = await login(bob);

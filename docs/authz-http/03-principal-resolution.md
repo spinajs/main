@@ -82,6 +82,7 @@ The package augments http's `IActionLocalStoregeContext` (the type of `req.stora
 | --- | --- | --- | --- | --- |
 | `PrincipalMiddleware` | `ServerMiddleware` list, `@Injectable(ServerMiddleware)`, resolved once by `HttpServer` | `PrincipalMiddleware` | | Add a source instead ([Principal sources](04-principal-sources.md)). To change the flow, subclass and override the protected `authenticate(req)`, `ask(source, req)` or `attach(req)`, then `DI.register(Mine).as(PrincipalMiddleware)` before `HttpServer` resolves. |
 | `CurrentPrincipalArg` | `RouteArgs`, `@Injectable()`, `SupportedType` `'CurrentPrincipalArg'` | `CurrentPrincipalArg` | | Not meant to be replaced; see [Custom route arguments](../http/05-custom-route-arguments.md). |
+| `AccessDomainArg` | `RouteArgs`, `@Injectable()`, `SupportedType` `'AccessDomainArg'` | `AccessDomainArg` | | The argument of `@AccessDomain()`: `resolveAuthzDomain(req, authz.http.access.domain)`. Not meant to be replaced; change the domain with an `AuthzDomainResolver` instead. |
 | `AccessEpochMiddleware` | `ServerMiddleware` list, `Order` 11 | `AccessEpochMiddleware` | | See [Client access API](07-client-access-api.md). |
 
 ## Important behaviour

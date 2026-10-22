@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { DateTime } from 'luxon';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { appEnvOf, assertSessionCookieSecret, clearSessionCookie, ISessionCookieConfig, PUBLIC_DEFAULT_COOKIE_SECRET, cookieMaxAge, sessionCookie, sessionCookieName, sessionCookieOptions, UserSession } from '../src/index.js';
+import { appEnvOf, assertSessionCookieSecret, clearSessionCookie, ISessionCookieConfig, PUBLIC_DEFAULT_COOKIE_SECRET, cookieMaxAge, sessionCookie, sessionCookieName, sessionCookieOptions, sessionCookieSameSite, UserSession } from '../src/index.js';
 import { uncacheOwned, withSessionConfig } from './support.js';
 
 const RAW_ID = 'kQ7c1d0yYcH1m3S2bA9x_w';
@@ -364,5 +364,17 @@ describe('assertSessionCookieSecret', () => {
         expect(() => assertSessionCookieSecret(PUBLIC_DEFAULT_COOKIE_SECRET, env), JSON.stringify(env)).to.throw(/public default/);
       }
     });
+  });
+});
+
+describe('sessionCookieSameSite (X4)', () => {
+  it('answers the SameSite the cookie is sent with: the default, any case, and true as strict', () => {
+    expect(sessionCookieSameSite()).to.eq('strict');
+    expect(sessionCookieSameSite({})).to.eq('strict');
+    // The schema accepts any case; the type names the lower-case values only.
+    expect(sessionCookieSameSite({ sameSite: 'None' } as unknown as ISessionCookieConfig)).to.eq('none');
+    expect(sessionCookieSameSite({ sameSite: 'LAX' } as unknown as ISessionCookieConfig)).to.eq('lax');
+    expect(sessionCookieSameSite({ sameSite: true })).to.eq('strict');
+    expect(sessionCookieSameSite({ sameSite: false }), 'no attribute').to.eq(false);
   });
 });

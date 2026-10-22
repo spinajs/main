@@ -30,6 +30,7 @@ npm install @spinajs/authn
 | [Integration hooks](12-integration-hooks.md) | `AuthnResponseExtension`, `RoleSource`, `CredentialExtractor` |
 | [Configuration and boot checks](13-configuration-and-boot-checks.md) | `AUTHN_CONFIGURATION_SCHEMA`, every `authn.*` key, the secret and env checks, `checkAuthnConfig` |
 | [Action hooks](14-action-hooks.md) | The authn actions of `@spinajs/hooks` (`authn.login`, `authn.login.identified`, MFA, session start, step-up, impersonation, linking, `authn.admin.credentials` with `CredentialAdminRule`): inputs, mutable keys, refused answers, the `authn.login` timing rule, the refused members of the password and key results, and `runHookedAction`, `hookView`, `hookCopy`, `hookRefusalOf` for packages that run their own actions, and the migration off `SessionStartHook` |
+| [Input field schemas](15-input-field-schemas.md) | The shared field schemas, `bodyOf`, `isValidField` and the services that check their input again |
 
 ## Quick start
 

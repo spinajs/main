@@ -1,12 +1,30 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return -- the assertions read untyped JSON answers */
 import 'mocha';
 import { expect } from 'chai';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { SCHEMA_SYMBOL } from '@spinajs/validation';
+
+import { AuthnActiveRoleBody } from '../../src/dto/active-role.js';
+import { AuthnCodeLoginBody, AuthnCodeRequestBody } from '../../src/dto/code-login.js';
+import { AuthnAdminPasswordResetBody } from '../../src/dto/credential-admin.js';
+import { AuthnImpersonationBody } from '../../src/dto/impersonation.js';
+import { AuthnKeyChallengeBody, AuthnKeyLoginBody, AuthnKeyRegisterBody } from '../../src/dto/keys.js';
+import { AuthnLoginBody } from '../../src/dto/login.js';
+import { AuthnMfaChallengeBody, AuthnMfaCodeBody, AuthnMfaStepUpBody, AuthnMfaVerifyBody } from '../../src/dto/mfa.js';
+import { AuthnMfaDisableBody } from '../../src/dto/mfa-enrolment.js';
+import { AuthnPasskeyLoginBody, AuthnPasskeyRegisterBody } from '../../src/dto/passkeys.js';
+import { AuthnPasswordChangeBody, AuthnPasswordResetBody, AuthnPasswordResetRequestBody } from '../../src/dto/password.js';
+import { AuthnReauthBody, AuthnReauthPasswordBody } from '../../src/dto/reauth.js';
+import { AuthnRegistrationBody } from '../../src/dto/registration.js';
+import { AuthnTokenCreateBody, AuthnTokenRevokeBody, AuthnTokenRotateBody, AuthnTokenUpdateBody } from '../../src/dto/tokens.js';
+import { AuthnVerifyBody } from '../../src/dto/verification.js';
 
 const SNAPSHOT = resolve(process.cwd(), 'test', '__snapshots__', 'openapi.json');
 
-/** Every operation of the 3.0 controllers by `<METHOD> <path>`, with the operationId 3.0.1 gave it. */
+/** Every operation of the 3.0 controllers by `<METHOD> <path>`, with the operationId 3.0.1 to 3.0.4 gave it. */
 const OPERATIONS: Record<string, string> = {
   'post /auth/login': 'AuthnLoginController_login',
   'post /auth/logout': 'AuthnLoginController_logout',
@@ -42,31 +60,83 @@ const OPERATIONS: Record<string, string> = {
   'post /authn/admin/users/{uuid}/mfa-reset': 'AuthnCredentialAdminController_mfaReset',
   'delete /authn/admin/users/{uuid}/sessions': 'AuthnCredentialAdminController_sessions',
   'delete /authn/admin/users/{uuid}/tokens': 'AuthnCredentialAdminController_tokens',
+  'post /auth/code/request': 'AuthnCodeLoginController_request',
+  'post /auth/code/login': 'AuthnCodeLoginController_login',
+  'post /auth/reauth': 'AuthnReauthController_reauth',
+  'post /auth/register': 'AuthnRegistrationController_register',
+  'post /auth/verify/request': 'AuthnVerificationController_request',
+  'post /auth/verify': 'AuthnVerificationController_verify',
+  'post /auth/mfa/step-up': 'AuthnMfaController_stepUp',
+  'post /auth/mfa/challenge': 'AuthnMfaController_challenge',
+  'post /user/tokens/{uuid}/rotate': 'AuthnTokensController_rotate',
+  'patch /user/tokens/{uuid}': 'AuthnTokensController_update',
+  'post /auth/tokens/revoke': 'AuthnTokenRevocationController_revoke',
+  'post /auth/passkeys/challenge': 'AuthnPasskeyController_challenge',
+  'post /auth/passkeys/login': 'AuthnPasskeyController_login',
+  'post /user/passkeys/options': 'AuthnPasskeyController_options',
+  'post /user/passkeys': 'AuthnPasskeyController_register',
+  'get /user/passkeys': 'AuthnPasskeyController_list',
+  'delete /user/passkeys/{id}': 'AuthnPasskeyController_remove',
 };
 
-/** The request body schema each route that reads one declares. */
-const BODIES: Record<string, string> = {
-  AuthnLoginController_login: 'AuthnLoginBody',
-  AuthnMfaController_verify: 'AuthnMfaVerifyBody',
-  AuthnMfaController_recovery: 'AuthnMfaCodeBody',
-  AuthnActiveRoleController_switch: 'AuthnActiveRoleBody',
-  AuthnImpersonationController_start: 'AuthnImpersonationBody',
-  AuthnPasswordController_requestReset: 'AuthnPasswordResetRequestBody',
-  AuthnPasswordController_reset: 'AuthnPasswordResetBody',
-  AuthnPasswordController_change: 'AuthnPasswordChangeBody',
-  AuthnMfaEnrolmentController_begin: 'AuthnReauthBody',
-  AuthnMfaEnrolmentController_confirm: 'AuthnMfaCodeBody',
-  AuthnMfaEnrolmentController_disable: 'AuthnMfaDisableBody',
-  AuthnMfaEnrolmentController_recoveryCodes: 'AuthnReauthBody',
-  AuthnTokensController_create: 'AuthnTokenCreateBody',
-  AuthnKeysController_register: 'AuthnKeyRegisterBody',
-  AuthnKeysController_challenge: 'AuthnKeyChallengeBody',
-  AuthnKeysController_login: 'AuthnKeyLoginBody',
-  AuthnCredentialAdminController_passwordReset: 'AuthnPasswordResetAdminBody',
-  AuthnCredentialAdminController_mfaReset: 'AuthnReauthBody',
-  AuthnCredentialAdminController_sessions: 'AuthnReauthBody',
-  AuthnCredentialAdminController_tokens: 'AuthnReauthBody',
+/** The DTO each route that reads a body takes; http-swagger documents its `@Schema` as the request body. */
+const BODIES: Record<string, abstract new (...args: never[]) => object> = {
+  AuthnLoginController_login: AuthnLoginBody,
+  AuthnCodeLoginController_request: AuthnCodeRequestBody,
+  AuthnCodeLoginController_login: AuthnCodeLoginBody,
+  AuthnReauthController_reauth: AuthnReauthBody,
+  AuthnRegistrationController_register: AuthnRegistrationBody,
+  AuthnVerificationController_verify: AuthnVerifyBody,
+  AuthnMfaController_verify: AuthnMfaVerifyBody,
+  AuthnMfaController_recovery: AuthnMfaCodeBody,
+  AuthnMfaController_stepUp: AuthnMfaStepUpBody,
+  AuthnMfaController_challenge: AuthnMfaChallengeBody,
+  AuthnActiveRoleController_switch: AuthnActiveRoleBody,
+  AuthnImpersonationController_start: AuthnImpersonationBody,
+  AuthnPasswordController_requestReset: AuthnPasswordResetRequestBody,
+  AuthnPasswordController_reset: AuthnPasswordResetBody,
+  AuthnPasswordController_change: AuthnPasswordChangeBody,
+  AuthnMfaEnrolmentController_begin: AuthnReauthPasswordBody,
+  AuthnMfaEnrolmentController_confirm: AuthnMfaCodeBody,
+  AuthnMfaEnrolmentController_disable: AuthnMfaDisableBody,
+  AuthnMfaEnrolmentController_recoveryCodes: AuthnReauthPasswordBody,
+  AuthnTokensController_create: AuthnTokenCreateBody,
+  AuthnTokensController_rotate: AuthnTokenRotateBody,
+  AuthnTokensController_update: AuthnTokenUpdateBody,
+  AuthnTokenRevocationController_revoke: AuthnTokenRevokeBody,
+  AuthnKeysController_register: AuthnKeyRegisterBody,
+  AuthnKeysController_challenge: AuthnKeyChallengeBody,
+  AuthnKeysController_login: AuthnKeyLoginBody,
+  AuthnPasskeyController_login: AuthnPasskeyLoginBody,
+  AuthnPasskeyController_options: AuthnReauthPasswordBody,
+  AuthnPasskeyController_register: AuthnPasskeyRegisterBody,
+  AuthnCredentialAdminController_passwordReset: AuthnAdminPasswordResetBody,
+  AuthnCredentialAdminController_mfaReset: AuthnReauthPasswordBody,
+  AuthnCredentialAdminController_sessions: AuthnReauthPasswordBody,
+  AuthnCredentialAdminController_tokens: AuthnReauthPasswordBody,
 };
+
+// The keywords http-swagger carries from a JSON schema into the document (its convertJsonSchema), `const` as a one-value enum.
+const KEPT = ['type', 'format', 'description', 'enum', 'required', 'minimum', 'maximum', 'minLength', 'maxLength', 'pattern', 'nullable'];
+
+/** `schema` as http-swagger documents it. */
+function documented(schema: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const k of KEPT) if (schema[k] !== undefined && schema[k] !== null && schema[k] !== false && schema[k] !== '') out[k] = schema[k];
+  if (schema.items) out.items = documented(schema.items);
+  if (schema.properties) out.properties = Object.fromEntries(Object.entries(schema.properties).map(([k, v]) => [k, documented(v as Record<string, any>)]));
+  if (typeof schema.additionalProperties === 'boolean') out.additionalProperties = schema.additionalProperties;
+  else if (schema.additionalProperties) out.additionalProperties = documented(schema.additionalProperties);
+  for (const k of ['oneOf', 'anyOf', 'allOf']) if (Array.isArray(schema[k])) out[k] = schema[k].map((x: Record<string, any>) => documented(x));
+  if (schema.const !== undefined) {
+    out.enum = [schema.const];
+    out.type ??= typeof schema.const;
+  }
+  if (!out.type && Array.isArray(out.enum) && out.enum.length > 0) out.type = typeof out.enum[0];
+  return out;
+}
+
+const dtoSchemaOf = (dto: abstract new (...args: never[]) => object): Record<string, any> => Reflect.getMetadata(SCHEMA_SYMBOL, dto.prototype) as Record<string, any>;
 
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 
@@ -117,17 +187,26 @@ describe('OpenAPI document of the 3.0 authn routes', function () {
     for (const [key, id] of Object.entries(OPERATIONS)) expect(op(key)?.operationId, key).to.eq(id);
   });
 
-  it('documents the JSON body of every route that reads one', () => {
+  it('documents the body of every route that reads one as its DTO schema, and no body elsewhere', () => {
     for (const [key, id] of Object.entries(OPERATIONS)) {
       const body = op(key).requestBody;
       if (BODIES[id] === undefined) {
         expect(body, id).to.eq(undefined);
         continue;
       }
-      expect(body?.content?.['application/json']?.schema, id).to.deep.eq(ref(BODIES[id]));
-      expect(spec.components.schemas[BODIES[id]], BODIES[id]).to.be.an('object');
+      expect(body?.content?.['application/json']?.schema, id).to.deep.eq(documented(dtoSchemaOf(BODIES[id])));
     }
-    expect(spec.components.schemas.AuthnLoginBody).to.deep.include({ required: ['login', 'password'] });
+    expect(op('post /auth/login').requestBody?.content?.['application/json']?.schema).to.deep.include({ required: ['login', 'password'], additionalProperties: false });
+  });
+
+  it('keeps answer and error schemas only: no request body schema is a component any more', () => {
+    const bodies = Object.keys(spec.components.schemas as object).filter((name) => /^Authn\w*Body$/.test(name));
+    expect(bodies).to.deep.eq([]);
+  });
+
+  it('no handler of authn-http names its body in a @body tag', () => {
+    const dir = resolve(process.cwd(), 'src', 'v3', 'controllers');
+    for (const file of readdirSync(dir)) expect(readFileSync(resolve(dir, file), 'utf8'), file).to.not.match(/@body\b/);
   });
 
   it('types the login answer as the principal summary or the pending answer', () => {

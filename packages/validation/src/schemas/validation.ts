@@ -14,6 +14,21 @@ const CONFIGURATION_SCHEMA = {
     useDefaults: ajvOption('empty'),
     coerceTypes: ajvOption('array'),
     messages: { type: 'boolean' },
+    strict: {
+      anyOf: [
+        {
+          type: 'object',
+          required: ['idPrefixes'],
+          properties: {
+            idPrefixes: { type: 'array', items: { type: 'string', minLength: 1 } },
+            ajvStrict: ajvOption('log'),
+          },
+        },
+        { enum: ['log'] },
+        { type: 'boolean' },
+      ],
+      description: "An object: schemas whose $id starts with one of idPrefixes are validated with coerceTypes off. A boolean or 'log': Ajv's own strict mode.",
+    },
   },
 };
 

@@ -130,4 +130,4 @@ console.log(parseOrigin('https://*.example.com')); // undefined: wildcard host
 
 - [Server middlewares](15-server-middlewares.md): `Order` and replacement.
 - [Client IP and trusted proxies](17-client-ip-and-trust-proxy.md): why `X-Forwarded-*` is never an allowed header.
-- `@spinajs/authn-http`: its CSRF guard compares `Origin` with the app's own origin.
+- [CSRF guard](23-csrf-guard.md): compares `Origin` with the app's own origin; a CORS origin is not allowed there unless it is also in `http.csrf.allowedOrigins`.
