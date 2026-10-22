@@ -81,7 +81,9 @@ function laterMigration(up: (connection: OrmDriver) => Promise<unknown>): Class<
 }
 
 function alterMigration(table: string, alter: (t: AlterTableQueryBuilder) => void): Class<OrmMigration> {
-  return laterMigration(async (connection) => await connection.schema().alterTable(table, alter));
+  return laterMigration(async (connection) => {
+    await connection.schema().alterTable(table, alter);
+  });
 }
 
 describe('sqlite OrmMigrator table info re-read', function () {
@@ -175,7 +177,9 @@ describe('sqlite OrmMigrator table info re-read', function () {
     expect(flag.Converter ?? null).to.equal(null);
   });
   it('marks the column a unique-index-only migration covers Unique', async () => {
-    alter = laterMigration(async (connection) => await connection.index().unique().table('mti_posts').name('mti_posts_title').columns(['Title']));
+    alter = laterMigration(async (connection) => {
+      await connection.index().unique().table('mti_posts').name('mti_posts_title').columns(['Title']);
+    });
 
     await migrateInTwoPasses();
 

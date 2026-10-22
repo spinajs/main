@@ -39,7 +39,7 @@ describe('WhereBuilder.hasCondition()', () => {
   let ForeignWhereQueryStatement: GroupClass;
 
   before(async () => {
-    const copy = await import(new URL('../src/statements.js?second-copy', import.meta.url).href);
+    const copy: { WhereQueryStatement: GroupClass } = await import(new URL('../src/statements.js?second-copy', import.meta.url).href);
     ForeignWhereQueryStatement = copy.WhereQueryStatement;
     expect(ForeignWhereQueryStatement).to.not.equal(WhereQueryStatement);
   });

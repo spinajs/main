@@ -725,26 +725,14 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public clone(options?: { omit?: string[]; relations?: string[] }): this {
     const descriptor = this.ModelDescriptor!;
-    const skip = [...pkColumns(descriptor), ...(options?.omit ?? [])];
     const copy = new (this.constructor as Constructor<this>)();
-
-    for (const column of descriptor.Columns) {
-      // eslint-disable-next-line security/detect-object-injection
-      const value = (this as any)[column.Name];
-      // a relation can be listed among the columns too ( seen with a @Filterable relation )
-      if (skip.includes(column.Name) || value === undefined || descriptor.Relations.has(column.Name)) {
-        continue;
-      }
-
-      // eslint-disable-next-line security/detect-object-injection
-      (copy as any)[column.Name] = value instanceof DateTime ? value : _.cloneDeep(value);
-    }
+    _copyColumns(this, copy, descriptor, options?.omit);
 
     const paths = _.groupBy(options?.relations ?? [], (path) => path.split('.')[0]);
     for (const [name, nested] of Object.entries(paths)) {
       const relation = descriptor.Relations.get(name);
       // eslint-disable-next-line security/detect-object-injection
-      const source = (this as any)[name] as Relation<ModelBase, ModelBase>;
+      const source = (this as this & Record<string, unknown>)[name] as Relation<ModelBase, ModelBase>;
 
       if (!relation || (relation.Type !== RelationType.Many && relation.Type !== RelationType.ManyToMany)) {
         throw new OrmException(`${descriptor.Name} has no hasMany or manyToMany relation ${name} to clone`);
@@ -759,7 +747,7 @@ export class ModelBase<M = unknown> implements IModelBase {
       }
 
       // eslint-disable-next-line security/detect-object-injection
-      const target = (copy as any)[name] as Relation<ModelBase, ModelBase>;
+      const target = (copy as this & Record<string, unknown>)[name] as Relation<ModelBase, ModelBase>;
       for (const member of source) {
         if (relation.Type === RelationType.ManyToMany) {
           target.add(member, source.junction(member)?.clone());
@@ -805,7 +793,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public async archive() {
     if (this.ModelDescriptor!.Archived) {
-      (this as any)[this.ModelDescriptor!.Archived.ArchivedAt] = DateTime.utc();
+      (this as ModelBase & Record<string, unknown>)[this.ModelDescriptor!.Archived.ArchivedAt] = DateTime.utc();
     } else {
       throw new OrmException('archived at column not exists in model');
     }
@@ -858,7 +846,7 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     const updatedAt = this.ModelDescriptor!.Timestamps.UpdatedAt;
     if (updatedAt) {
-      (this as any)[updatedAt] = DateTime.utc();
+      (this as ModelBase & Record<string, unknown>)[updatedAt] = DateTime.utc();
       if (!changed.includes(updatedAt)) {
         changed.push(updatedAt);
       }
@@ -1037,7 +1025,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     generateClientSideKeys(this, this.ModelDescriptor!);
 
     if (this.ModelDescriptor!.Timestamps.CreatedAt) {
-      (this as any)[this.ModelDescriptor!.Timestamps.CreatedAt] = DateTime.utc();
+      (this as ModelBase & Record<string, unknown>)[this.ModelDescriptor!.Timestamps.CreatedAt] = DateTime.utc();
     }
 
     for (const [, rel] of this.ModelDescriptor!.Relations) {
@@ -1152,6 +1140,24 @@ function _upsertTarget(row: any, description: IModelDescriptor): string[] | unde
   }
 
   return unique.length === 1 ? unique : keys;
+}
+
+function _copyColumns(source: ModelBase, copy: ModelBase, descriptor: IModelDescriptor, omit: string[] = []): void {
+  const skip = [...pkColumns(descriptor), ...omit];
+  const values = source as ModelBase & Record<string, unknown>;
+  const target = copy as ModelBase & Record<string, unknown>;
+
+  for (const column of descriptor.Columns) {
+    // eslint-disable-next-line security/detect-object-injection
+    const value = values[column.Name];
+    // a relation can be listed among the columns too ( seen with a @Filterable relation )
+    if (skip.includes(column.Name) || value === undefined || descriptor.Relations.has(column.Name)) {
+      continue;
+    }
+
+    // eslint-disable-next-line security/detect-object-injection
+    target[column.Name] = value instanceof DateTime ? value : _.cloneDeep(value);
+  }
 }
 
 function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuilder<any>, model: ModelBase) {

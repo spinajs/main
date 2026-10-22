@@ -20,6 +20,7 @@ let strictSetting: boolean | undefined;
 
 class StrictCheckDriver extends FakeSqliteDriver {
   public async tableInfo(table: string): Promise<IColumnDescriptor[]> {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- a missing table answers null like a real driver, which the abstract signature does not declare
     return TABLES.has(table) ? [] : (null as any);
   }
 }

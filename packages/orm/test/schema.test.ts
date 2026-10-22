@@ -80,7 +80,7 @@ describe('buildModelJsonSchema', () => {
   });
 
   it('recognises the zone-aware types PostgreSQL and MSSQL report', () => {
-    const schema = build([{ Name: 'a', Type: 'timestamptz' }, { Name: 'b', Type: 'datetimeoffset' }, { Name: 'c', Type: 'datetime2' }]);
+    const schema: { properties: Record<string, unknown> } = build([{ Name: 'a', Type: 'timestamptz' }, { Name: 'b', Type: 'datetimeoffset' }, { Name: 'c', Type: 'datetime2' }]);
     for (const name of ['a', 'b', 'c']) {
       expect(schema.properties[name], name).to.deep.equal({ type: 'string', format: 'date-time' });
     }

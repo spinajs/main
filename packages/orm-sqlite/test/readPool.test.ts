@@ -25,6 +25,17 @@ function removeDbFiles() {
   });
 }
 
+interface ReadPoolInternals {
+  ReadPool: unknown[];
+  Db: unknown;
+  handleFor(context: QueryContext): unknown;
+}
+
+function internals(d: SqliteOrmDriver): ReadPoolInternals {
+  const view: ReadPoolInternals = d as any;
+  return view;
+}
+
 /**
  * Builds the driver directly rather than going through `Orm`.
  *
@@ -60,7 +71,7 @@ describe('Sqlite - read handle pool', function () {
   });
 
   it('opens Pool.Max - 1 read handles alongside the writer', () => {
-    expect((driver as any).ReadPool).to.have.length(2);
+    expect(internals(driver).ReadPool).to.have.length(2);
   });
 
   it('reports the writer plus every read handle in poolMetrics', () => {
@@ -81,10 +92,10 @@ describe('Sqlite - read handle pool', function () {
   });
 
   it('sends everything that is not a plain select to the writer handle', () => {
-    const writer = (driver as any).Db;
+    const writer = internals(driver).Db;
 
     [QueryContext.Insert, QueryContext.Update, QueryContext.Delete, QueryContext.Schema, QueryContext.Transaction, QueryContext.Upsert, QueryContext.InsertReturning].forEach((ctx) => {
-      expect((driver as any).handleFor(ctx)).to.equal(writer);
+      expect(internals(driver).handleFor(ctx)).to.equal(writer);
     });
   });
 
@@ -92,17 +103,17 @@ describe('Sqlite - read handle pool', function () {
     await driver.executeOnDb('CREATE TABLE rp3 (Id INTEGER PRIMARY KEY)', [], QueryContext.Schema);
 
     await driver.transaction(async () => {
-      expect((driver as any).handleFor(QueryContext.Select)).to.equal((driver as any).Db);
+      expect(internals(driver).handleFor(QueryContext.Select)).to.equal(internals(driver).Db);
     });
   });
 
   it('round-robins selects across the read handles and never the writer', () => {
-    const chosen = [1, 2, 3, 4].map(() => (driver as any).handleFor(QueryContext.Select));
+    const chosen = [1, 2, 3, 4].map(() => internals(driver).handleFor(QueryContext.Select));
 
     expect(new Set(chosen).size).to.equal(2);
     expect(chosen[0]).to.equal(chosen[2]);
     expect(chosen[1]).to.equal(chosen[3]);
-    expect(chosen).to.not.include((driver as any).Db);
+    expect(chosen).to.not.include(internals(driver).Db);
   });
 
   it('a read handle sees committed writes made on the writer', async () => {
@@ -117,8 +128,8 @@ describe('Sqlite - read handle pool', function () {
   it('Pool.Max of 1 opens no read handles', async () => {
     const d = await makeDriver({ Filename: DB_FILE, Pool: { Max: 1 } });
 
-    expect((d as any).ReadPool).to.have.length(0);
-    expect((d as any).handleFor(QueryContext.Select)).to.equal((d as any).Db);
+    expect(internals(d).ReadPool).to.have.length(0);
+    expect(internals(d).handleFor(QueryContext.Select)).to.equal(internals(d).Db);
 
     await d.disconnect();
   });
@@ -128,19 +139,19 @@ describe('Sqlite - read handle pool', function () {
     // databases. The driver must refuse to build one.
     const d = await makeDriver({ Filename: ':memory:', Pool: { Max: 4 } });
 
-    expect((d as any).ReadPool).to.have.length(0);
-    expect((d as any).handleFor(QueryContext.Select)).to.equal((d as any).Db);
+    expect(internals(d).ReadPool).to.have.length(0);
+    expect(internals(d).handleFor(QueryContext.Select)).to.equal(internals(d).Db);
 
     await d.disconnect();
   });
 
   it('disconnect closes every read handle', async () => {
     const d = await makeDriver({ Filename: DB_FILE, Pool: { Max: 3 } });
-    expect((d as any).ReadPool).to.have.length(2);
+    expect(internals(d).ReadPool).to.have.length(2);
 
     await d.disconnect();
 
-    expect((d as any).ReadPool).to.have.length(0);
+    expect(internals(d).ReadPool).to.have.length(0);
     expect(d.poolMetrics()).to.deep.equal({ Size: 0, InUse: 0, Waiting: 0 });
   });
 });
@@ -174,7 +185,7 @@ describe('Sqlite - read routing overridden by a subclass', function () {
 
   it('holds an outside select it routes to the writer until the open transaction ends', async () => {
     await driver.executeOnDb('CREATE TABLE rp5 (Id INTEGER PRIMARY KEY, V TEXT)', [], QueryContext.Schema);
-    expect((driver as any).ReadPool).to.have.length(2);
+    expect(internals(driver).ReadPool).to.have.length(2);
 
     let opened!: () => void;
     const isOpen = new Promise<void>((resolve) => (opened = resolve));

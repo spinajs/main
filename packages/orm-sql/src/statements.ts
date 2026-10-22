@@ -568,7 +568,7 @@ export class SqlInStatement extends InStatement {
     if (declared) {
       const columnDescriptor = descriptor!.Columns.find((c) => c.Name === this._column);
       const converter = container.resolve<ValueConverter>(declared.Class);
-      return (value) => converter.toDB(value, null as any, columnDescriptor as any, null);
+      return (value): unknown => converter.toDB(value, null as any, columnDescriptor as any, null);
     }
 
     const converters = container.get<Map<string, any>>('__orm_db_value_converters__');
@@ -577,7 +577,7 @@ export class SqlInStatement extends InStatement {
     }
 
     const byClass = new Map<string, ValueConverter>();
-    return (value) => {
+    return (value): unknown => {
       const type = value !== null && value !== undefined ? value.constructor.name : undefined;
       if (!type || !converters.has(type)) {
         return value;

@@ -129,7 +129,7 @@ describe('sqlite datetimes', function () {
     expect(driver().now().Query).to.eq("strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
 
     await inZone('Asia/Kolkata', async () => {
-      const past = (await DtDoc.where('at', '<=', driver().now())) as DtDoc[];
+      const past = await DtDoc.where('at', '<=', driver().now());
       expect(past.map((d) => d.id)).to.deep.eq([1]);
 
       const before = Date.now();

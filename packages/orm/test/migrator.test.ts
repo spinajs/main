@@ -76,7 +76,7 @@ function column(name: string, type = 'INT', over: Partial<IColumnDescriptor> = {
   };
 }
 
-function columnOf(c: any): IColumnDescriptor {
+function columnOf(c: { Name: string; Type: string; PrimaryKey?: boolean; NotNull?: boolean }): IColumnDescriptor {
   return column(c.Name, String(c.Type).toUpperCase(), { PrimaryKey: !!c.PrimaryKey, Nullable: !c.NotNull });
 }
 
@@ -144,6 +144,7 @@ class MigratorTestDriver extends FakeSqliteDriver {
   /** Leaves `Converter` unset, as a driver may: a converter the Orm assigned on an earlier read must not survive. */
   public async tableInfo(table: string): Promise<IColumnDescriptor[]> {
     const columns = TABLES.get(table);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- a missing table answers null like a real driver, which the abstract signature does not declare
     return columns ? columns.map(({ Converter: _converter, ...c }) => ({ ...c }) as IColumnDescriptor) : (null as any);
   }
 }
@@ -217,7 +218,7 @@ class MigratorTestUserStore extends AsyncService {
 function within<T>(ms: number, p: Promise<T>): Promise<T> {
   return Promise.race([
     p,
-    new Promise<T>((_, reject) => {
+    new Promise<T>((_resolve, reject) => {
       const t = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
       t.unref();
     }),
@@ -589,6 +590,7 @@ describe('OrmMigrator', function () {
       public async down() {}
     }
 
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the test is about a seed rejecting with a non-Error
     const second = sinon.stub(MigratorTestSecondSeed_2026_10_22_00_00_00.prototype, 'data').callsFake(() => Promise.reject('bare string'));
 
     const err = await rejection(Promise.resolve(DI.resolve(OrmMigrator)));
@@ -611,8 +613,8 @@ describe('OrmMigrator', function () {
   it('(g) a model query outside the migrator is refused while its pass runs', async () => {
     let started!: () => void;
     let release!: () => void;
-    const running = new Promise<void>((r) => (started = r));
-    const held = new Promise<void>((r) => (release = r));
+    const running = new Promise<void>((resolve) => (started = resolve));
+    const held = new Promise<void>((resolve) => (release = resolve));
 
     @Migration(CONNECTION)
     class MigratorTestHeld_2026_10_21_00_00_00 extends OrmMigration {

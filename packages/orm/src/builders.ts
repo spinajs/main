@@ -1315,9 +1315,10 @@ class BooleanColumnMiddleware implements IBuilderMiddleware<any> {
 
   public afterQuery(data: any): any {
     if (Array.isArray(data)) {
-      for (const row of data) {
+      for (const row of data as unknown[]) {
         if (row !== null && typeof row === 'object' && this.alias in row) {
-          row[this.alias] = this.converter.fromDB(row[this.alias], row, null);
+          const record = row as Record<string, unknown>;
+          record[this.alias] = this.converter.fromDB(record[this.alias], row, null);
         }
       }
     }
@@ -2252,7 +2253,7 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     const maxBindings = this._driver.MaxBindings;
     const perRow = Math.max(this._columns.length, 1);
     // raw ON CONFLICT / ON DUPLICATE KEY columns bind once per statement, not once per row
-    const reserved = _.flatMap(this.DuplicateQueryBuilder?.getColumnsToUpdate() ?? [], (c: string | RawQuery) => (c instanceof RawQuery ? c.Bindings ?? [] : [])).length;
+    const reserved = _.flatMap(this.DuplicateQueryBuilder?.getColumnsToUpdate() ?? [], (c: string | RawQuery): unknown[] => (c instanceof RawQuery ? c.Bindings ?? [] : [])).length;
     const rowsPerStatement = Math.min(this._driver.MaxInsertRows,Math.floor((maxBindings - reserved) / perRow));
 
     if (this._values.length <= rowsPerStatement) {

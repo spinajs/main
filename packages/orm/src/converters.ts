@@ -53,6 +53,7 @@ export function instantFromDb(value: unknown): DateTime | null {
   } else if (typeof value === 'number') {
     dt = DateTime.fromSeconds(value, { zone: 'utc' });
   } else {
+    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the driver value may be any type; whatever is not text parses as invalid
     const text = String(value);
     dt = DateTime.fromISO(text, { zone: 'utc' });
     if (!dt.isValid) {
@@ -309,6 +310,7 @@ export class Int64ValueConverter extends ValueConverter {
       return value.trim();
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the rejected value is shown whatever its type
     throw new InvalidArgument(`int64 value must be a safe integer, a decimal string or a bigint, got ${String(value)}`);
   }
 

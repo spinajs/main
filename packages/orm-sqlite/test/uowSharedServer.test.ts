@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
@@ -6,7 +5,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import _ from 'lodash';
-import { QueryContext } from '@spinajs/orm';
+import { Builder, OrmDriver, QueryContext } from '@spinajs/orm';
 import { SqliteOrmDriver } from '../src/index.js';
 import { TEST_MIGRATION_TABLE_NAME } from './common.js';
 import { mergeArrays } from './util.js';
@@ -85,7 +84,7 @@ describe('ModelBase.save - connections on one server', function () {
     capture.restore();
 
     expect(capture.statements.filter((s) => s.context === QueryContext.Insert || s.context === QueryContext.InsertReturning)).to.have.length(3);
-    expect((await rows('uow_order_item')).map((r) => [r.Sku, r.order_id])).to.deep.equal([
+    expect((await rows<{ Sku: string; order_id: number }>('uow_order_item')).map((r) => [r.Sku, r.order_id])).to.deep.equal([
       ['A', order.Id],
       ['B', order.Id],
     ]);
@@ -93,15 +92,17 @@ describe('ModelBase.save - connections on one server', function () {
 
   it('rolls the rows of both connections back together', async () => {
     const order = orderWithItems();
-    const driver: any = (UowOrder as any).driver();
+    const model: { driver(): OrmDriver } = UowOrder as any;
+    const driver = model.driver();
     const original = driver.execute.bind(driver);
     let seen = 0;
-    driver.execute = async (builder: any) => {
+    driver.execute = async (builder: Builder<any>) => {
       seen += 1;
       if (seen === 3) {
         throw new Error('boom');
       }
-      return await original(builder);
+      const result: unknown = await original(builder);
+      return result;
     };
 
     try {

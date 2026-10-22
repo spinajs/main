@@ -265,7 +265,7 @@ describe('orm-cli migration commands against sqlite', function () {
   });
 
   it("migrate-up runs the applied migration's data() seed, as the migrator's boot pass does", async () => {
-    const rows = await connection().select().from(MARKER_TABLE).asRaw<any[]>();
+    const rows = await connection().select().from(MARKER_TABLE).asRaw<{ Id: number }[]>();
 
     expect(rows.map((r) => r.Id)).to.eql([SEED_ID]);
   });
@@ -1255,11 +1255,11 @@ describe('migrate-create', () => {
  * registered model still has none, and a narrowed run does not check.
  */
 function countReloads(orm: Orm) {
-  const original = orm.reloadTableInfo;
+  const original = orm.reloadTableInfo.bind(orm);
   let calls = 0;
-  orm.reloadTableInfo = function (this: Orm, ...args: Parameters<Orm['reloadTableInfo']>) {
+  orm.reloadTableInfo = function (...args: Parameters<Orm['reloadTableInfo']>) {
     calls++;
-    return original.apply(this, args);
+    return original(...args);
   };
 
   return {

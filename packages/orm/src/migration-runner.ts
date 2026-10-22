@@ -148,7 +148,7 @@ export class MigrationRunner {
 
         return touched === 'all' || (touched !== undefined && !!descriptor?.TableName && touched.has(descriptor.TableName.toLowerCase()));
       })
-      .map((m) => m.type);
+      .map((m) => m.type as Class<ModelBase>);
   }
 
   /**

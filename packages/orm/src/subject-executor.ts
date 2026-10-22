@@ -5,6 +5,7 @@ import { Class } from '@spinajs/di';
 import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, QueryBuilder, UpdateQueryBuilder } from './builders.js';
 import { extractModelDescriptor } from './descriptor.js';
 import type { OrmDriver } from './driver.js';
+import type { ModelBase } from './model.js';
 import { OrmException } from './exceptions.js';
 import { ISaveOptions, ISaveResult, OrphanPolicy, ServerResponseMapper } from './interfaces.js';
 import { assertAssignedKeys, generateClientSideKeys, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
@@ -306,7 +307,7 @@ export class SubjectExecutor {
 
     // Written, the junction models are rows: a later change of their columns is an UPDATE.
     for (const target of delta.Added) {
-      const junction = delta.Junctions.get(target) as any;
+      const junction = delta.Junctions.get(target) as (ModelBase & Record<string, unknown>) | undefined;
       if (junction) {
         junction[sourceColumn] = ownerKey;
         junction[targetColumn] = target.PrimaryKeyValue;
