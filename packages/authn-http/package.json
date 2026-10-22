@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/authn-http",
-  "version": "3.0.15",
+  "version": "3.0.16",
   "description": "HTTP integration for SpinaJS authentication",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -72,22 +72,22 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authn": "3.0.15",
-    "@spinajs/authn-session": "3.0.15",
-    "@spinajs/cli": "3.0.15",
-    "@spinajs/configuration": "3.0.15",
-    "@spinajs/di": "3.0.15",
-    "@spinajs/exceptions": "3.0.15",
-    "@spinajs/hooks": "3.0.15",
-    "@spinajs/http": "3.0.15",
-    "@spinajs/log": "3.0.15",
-    "@spinajs/util": "3.0.15",
-    "@spinajs/validation": "3.0.15",
+    "@spinajs/authn": "3.0.16",
+    "@spinajs/authn-session": "3.0.16",
+    "@spinajs/cli": "3.0.16",
+    "@spinajs/configuration": "3.0.16",
+    "@spinajs/di": "3.0.16",
+    "@spinajs/exceptions": "3.0.16",
+    "@spinajs/hooks": "3.0.16",
+    "@spinajs/http": "3.0.16",
+    "@spinajs/log": "3.0.16",
+    "@spinajs/util": "3.0.16",
+    "@spinajs/validation": "3.0.16",
     "cookie-signature": "^1.2.2",
     "express": "^5.1.0"
   },
   "peerDependencies": {
-    "@spinajs/http-socket": "3.0.15"
+    "@spinajs/http-socket": "3.0.16"
   },
   "peerDependenciesMeta": {
     "@spinajs/http-socket": {
@@ -95,19 +95,19 @@
     }
   },
   "devDependencies": {
-    "@spinajs/authn-keys": "3.0.15",
-    "@spinajs/authn-local": "3.0.15",
-    "@spinajs/authn-orm": "3.0.15",
-    "@spinajs/authn-testing": "3.0.15",
-    "@spinajs/authn-token": "3.0.15",
-    "@spinajs/authn-totp": "3.0.15",
-    "@spinajs/authn-webauthn": "3.0.15",
-    "@spinajs/fs": "3.0.15",
-    "@spinajs/hooks": "3.0.15",
-    "@spinajs/http-socket": "3.0.15",
-    "@spinajs/http-swagger": "3.0.15",
-    "@spinajs/orm": "3.0.15",
-    "@spinajs/orm-sqlite": "3.0.15",
+    "@spinajs/authn-keys": "3.0.16",
+    "@spinajs/authn-local": "3.0.16",
+    "@spinajs/authn-orm": "3.0.16",
+    "@spinajs/authn-testing": "3.0.16",
+    "@spinajs/authn-token": "3.0.16",
+    "@spinajs/authn-totp": "3.0.16",
+    "@spinajs/authn-webauthn": "3.0.16",
+    "@spinajs/fs": "3.0.16",
+    "@spinajs/hooks": "3.0.16",
+    "@spinajs/http-socket": "3.0.16",
+    "@spinajs/http-swagger": "3.0.16",
+    "@spinajs/orm": "3.0.16",
+    "@spinajs/orm-sqlite": "3.0.16",
     "luxon": "^3.6.1",
     "socket.io-client": "^4.8.1"
   }

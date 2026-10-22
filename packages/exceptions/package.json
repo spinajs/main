@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/exceptions",
-  "version": "3.0.15",
+  "version": "3.0.16",
   "description": "exceptions definitions used all across framework modules",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
